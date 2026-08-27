@@ -38,12 +38,63 @@ function uploadFiles(req, res, next) {
     });
 }
 
-/** Importe SIN IVA del documento. Si no hay base imponible declarada, se suma el desglose. */
-function baseImponible(ocr) {
-    const base = ocr?.totales?.base_imponible;
-    if (Number.isFinite(base) && base > 0) return base;
-    const suma = (ocr?.lineas || []).reduce((acc, l) => acc + (Number(l?.importe_total) || 0), 0);
-    return suma > 0 ? Math.round(suma * 100) / 100 : 0;
+// Tipo que se aplica cuando el documento NO declara ninguno. No es un dato: es una
+// suposición, y por eso todo lo que sale de aquí viaja marcado `iva_estimado` para
+// que la pantalla lo diga y una persona pueda corregirlo.
+const IVA_DEFECTO_PCT = 21;
+
+const pos = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null);
+const r2 = (n) => Math.round(n * 100) / 100;
+
+/**
+ * Los DOS importes del documento, que NO son el mismo dinero:
+ *
+ *   · sinIva — la BASE IMPONIBLE. Es la inversión que declara el Anexo del expediente
+ *              (`documentacion.facturas[].importe_sin_iva`) y no cambia: el CAE se
+ *              justifica sobre la base, no sobre lo que se pagó de impuestos.
+ *   · conIva — el TOTAL A PAGAR. Es lo que se vuelca a la economía de la oportunidad
+ *              (`funnel.presupuesto_eur` → `inputs.presupuesto`), porque el titular
+ *              casi siempre es un PARTICULAR: no se deduce el IVA, así que su
+ *              inversión real —la que compara con el bono y con la deducción de la
+ *              renta— lo incluye. Con la base a secas, la propuesta le prometía un
+ *              coste ~21 % más barato del que iba a pagar.
+ *
+ * Se deriva uno del otro solo cuando el documento no trae los dos escritos, y
+ * SIEMPRE por el camino más fiable disponible: cuota declarada > tipo declarado >
+ * tipo por defecto (y este último, marcado como estimado).
+ *
+ * Exportada para poder probarla sin gastar una llamada al OCR.
+ */
+function importesDocumento(ocr) {
+    const sumaLineas = (ocr?.lineas || []).reduce((acc, l) => acc + (Number(l?.importe_total) || 0), 0);
+    const base = pos(ocr?.totales?.base_imponible) ?? pos(r2(sumaLineas));
+    const total = pos(ocr?.totales?.total);
+    const cuota = pos(ocr?.totales?.iva_importe);
+    const pct = pos(ocr?.totales?.iva_pct);
+
+    const ok = (sinIva, conIva, ivaPct, ivaEstimado) => ({
+        sinIva: r2(sinIva), conIva: r2(conIva), ivaPct: r2(ivaPct), ivaEstimado,
+    });
+
+    if (base) {
+        // El documento declara las dos cifras: no hay nada que calcular.
+        if (total && total > base) return ok(base, total, ((total / base) - 1) * 100, false);
+        if (cuota) return ok(base, base + cuota, (cuota / base) * 100, false);
+        if (pct) return ok(base, base * (1 + pct / 100), pct, false);
+        // Presupuesto que solo suma las partidas y no llega a poner el IVA: es el
+        // caso que motiva todo esto. Se estima al tipo general y se avisa.
+        return ok(base, base * (1 + IVA_DEFECTO_PCT / 100), IVA_DEFECTO_PCT, true);
+    }
+
+    if (total) {
+        // Sin base (al modelo se le prohíbe calcularla él). El total de un documento
+        // español es el importe A PAGAR, así que es el de con IVA.
+        if (cuota && cuota < total) return ok(total - cuota, total, (cuota / (total - cuota)) * 100, false);
+        if (pct) return ok(total / (1 + pct / 100), total, pct, false);
+        return ok(total / (1 + IVA_DEFECTO_PCT / 100), total, IVA_DEFECTO_PCT, true);
+    }
+
+    return ok(0, 0, 0, false);
 }
 
 /**
@@ -83,6 +134,8 @@ router.post('/extract', requireAuth, staffOnly, uploadFiles, async (req, res) =>
             return res.status(e.status === 429 ? 429 : 502).json({ error: 'La lectura falló: ' + e.message });
         }
 
+        const imp = importesDocumento(ocr);
+
         const partidas = [...new Set((ocr.lineas || [])
             .map(l => String(l?.partida || '').trim().toUpperCase())
             .filter(Boolean))];
@@ -107,8 +160,13 @@ router.post('/extract', requireAuth, staffOnly, uploadFiles, async (req, res) =>
                 tipo,
                 numero_factura: ocr.numero_factura || '',
                 fecha_factura: ocr.fecha_factura || null,
-                importe_sin_iva: baseImponible(ocr),
-                importe_total: ocr.totales?.total ?? null,
+                // Las dos cifras viajan siempre: la base es la del Anexo del
+                // expediente; el total con IVA es el que manda en la economía de la
+                // oportunidad (ver importesDocumento).
+                importe_sin_iva: imp.sinIva,
+                importe_total: imp.conIva,
+                iva_pct: imp.ivaPct,
+                iva_estimado: imp.ivaEstimado,
                 emisor_nombre: ocr.emisor?.nombre || null,
                 emisor_nif: ocr.emisor?.nif || null,
                 cliente_nombre: ocr.cliente?.nombre || null,
@@ -129,3 +187,4 @@ router.post('/extract', requireAuth, staffOnly, uploadFiles, async (req, res) =>
 });
 
 module.exports = router;
+module.exports.importesDocumento = importesDocumento;

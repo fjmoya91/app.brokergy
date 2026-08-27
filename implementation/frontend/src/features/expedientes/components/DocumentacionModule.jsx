@@ -14,6 +14,7 @@ import { CertificadoCifoModal } from './CertificadoCifoModal';
 import { CertificadoRes080Modal } from './CertificadoRes080Modal';
 import { AnexoFotograficoModal } from './AnexoFotograficoModal';
 import { EnviarBorradorRiteModal } from './EnviarBorradorRiteModal';
+import { estadoInstalador, memoriaRiteDocxLink } from '../logic/instaladorPendientes';
 import { EnviarAnexosModal } from './EnviarAnexosModal';
 import { CesionManuscritaModal, esFirmaManuscrita } from './CesionManuscritaModal';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
@@ -1232,6 +1233,21 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [local.facturas, local.facturas_combined_link]);
 
+    // Sella la fecha de envío de CADA documento que ha viajado al instalador. El
+    // popup del CIFO puede llevarse también la documentación RITE: sellar solo el
+    // del popup por el que se entró dejaría el otro diciendo "sin enviar" el día
+    // después de mandarlo.
+    const markInstaladorSent = (docsEnviados = ['cifo']) => {
+        setLocal(prev => {
+            const at = new Date().toISOString();
+            const next = { ...prev };
+            if (docsEnviados.includes('cifo')) next.cert_cifo_sent_at = at;
+            if (docsEnviados.includes('rite')) next.borrador_cert_sent_at = at;
+            onSave({ documentacion: next });
+            return next;
+        });
+    };
+
     const handleModalSaveDrive = (field, link) => {
         setLocal(prev => {
             const next = { ...prev, [field]: link };
@@ -1254,22 +1270,9 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         });
     };
 
-    // Mensaje predefinido (editable) para el envío al instalador. Genérico, sin
-    // nombre (va al contacto de notificaciones del partner).
-    const borradorMensajeDefault = (() => {
-        const cliR = expediente?.clientes || {};
-        const clienteNombre = [cliR.nombre_razon_social, cliR.apellidos].filter(Boolean).join(' ').trim();
-        const uploadLink = `${window.location.origin}/subir-rite/${expediente?.id}`;
-        return `¡Hola!\n\n`
-            + `Desde *Brokergy* os lo ponemos fácil 🚀\n\n`
-            + `Para agilizar la legalización térmica del expediente *${expediente?.numero_expediente || ''}*${clienteNombre ? ` (${clienteNombre})` : ''} os adjuntamos, ya preparados con los datos del proyecto:\n\n`
-            + `📄 *Memoria Técnica RITE* (Word) — prácticamente rellena: revisar y firmar.\n`
-            + `📕 *Memoria Técnica RITE* (PDF) — por si no necesitáis hacer cambios.\n`
-            + `📋 *Borrador del Certificado de Instalación Térmica* (PDF) — listo para *copiar y pegar* directamente en la plataforma de tramitación (JE6).\n\n`
-            + `Lo hemos rellenado por vosotros para ahorraros tiempo y evitar errores. Revisad que todo sea correcto antes de presentar.\n\n`
-            + `✅ *Cuando tengáis la Memoria firmada y el Certificado RITE tramitado*, subidlos en 1 clic aquí (arrastrar y soltar):\n${uploadLink}\n\n`
-            + `¿Cualquier duda? El equipo de Brokergy está aquí para ayudaros 💪`;
-    })();
+    // El mensaje al instalador ya NO se redacta aquí: lo compone el propio modal
+    // desde la fuente única (logic/instaladorPendientes.js), porque cambia según
+    // se mande solo el RITE, solo el CIFO o los dos juntos.
 
     // El modal hace todo (descargar / Drive / email / WhatsApp). El botón de la
     // fila solo valida y abre el modal.
@@ -1446,7 +1449,12 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         setLocal(prev => {
             const next = {
                 ...prev,
-                cert_rite_drive_link: data.cert_rite_drive_link || prev.cert_rite_drive_link,
+                // La Memoria (Word) que generamos NOSOTROS va en su propio campo:
+                // `cert_rite_drive_link` es el CERTIFICADO RITE que nos devuelve el
+                // instalador, y guardar ahí la memoria daba el RITE por recibido
+                // (y con él, vía libre para emitir el CIFO). Ver
+                // logic/instaladorPendientes.js.
+                memoria_rite_docx_link: data.memoria_rite_docx_link || prev.memoria_rite_docx_link,
                 memoria_rite_pdf_link: data.memoria_rite_pdf_link || prev.memoria_rite_pdf_link,
                 memoria_rite_guia_link: data.memoria_rite_guia_link || prev.memoria_rite_guia_link,
                 borrador_cert_rite_link: data.borrador_cert_rite_link || prev.borrador_cert_rite_link
@@ -2005,7 +2013,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 attachments={cifoAttachments}
                 onAttachmentsChange={setCifoAttachments}
                 onSaveDrive={(link) => handleModalSaveDrive('cert_cifo_drive_link', link)}
-                onMarkSent={() => handleModalSaveDrive('cert_cifo_sent_at', new Date().toISOString())}
+                onMarkSent={markInstaladorSent}
                 onSaveFichaLink={(type, link, driveId) => {
                     const fields = ftDocFields(type);
                     if (!fields) return;
@@ -2046,7 +2054,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 onAttachmentsChange={setCifoAttachments}
                 onSaveSignedLink={(link) => handleModalSaveDrive('cert_cifo_signed_link', link)}
                 onSaveDrive={(link) => handleModalSaveDrive('cert_cifo_drive_link', link)}
-                onMarkSent={() => handleModalSaveDrive('cert_cifo_sent_at', new Date().toISOString())}
+                onMarkSent={markInstaladorSent}
                 onSaveFichaLink={(type, link, driveId) => {
                     const fields = ftDocFields(type);
                     if (!fields) return;
@@ -2350,9 +2358,15 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 isOpen={showEnviarBorrador}
                 onClose={() => setShowEnviarBorrador(false)}
                 expediente={expediente}
-                defaultMessage={borradorMensajeDefault}
-                onSent={() => setLocal(prev => {
-                    const next = { ...prev, borrador_cert_sent_at: new Date().toISOString() };
+                /* Sella la fecha de envío de CADA documento que ha viajado: si el
+                   RITE salió con el CIFO, `cert_cifo_sent_at` también. Sellar solo
+                   el del popup por el que se entró dejaba el otro diciendo "sin
+                   enviar" el día después de mandarlo. */
+                onSent={(docsEnviados = ['rite']) => setLocal(prev => {
+                    const at = new Date().toISOString();
+                    const next = { ...prev };
+                    if (docsEnviados.includes('rite')) next.borrador_cert_sent_at = at;
+                    if (docsEnviados.includes('cifo')) next.cert_cifo_sent_at = at;
                     onSave({ documentacion: next });
                     return next;
                 })}
@@ -2743,7 +2757,12 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                     </div>
                                 </div>
 
-                                {/* CERTIFICADO RITE */}
+                                {/* CERTIFICADO RITE
+                                    `cert_rite_drive_link` significa "certificado RITE
+                                    APORTADO". La Memoria que generamos nosotros vive en
+                                    `memoria_rite_docx_link`; en expedientes anteriores al
+                                    cambio puede seguir en el mismo campo, y de eso se
+                                    encarga la fuente única (instaladorPendientes). */}
                                 <div className={`flex flex-col gap-4 p-4 max-md:p-3 rounded-2xl border transition-all ${dragRow === 'rite_cert' ? 'ring-2 ring-brand/40 bg-brand/[0.05] border-brand/30' : 'bg-white/[0.02] border-white/[0.04]'}`} {...rowDragProps('rite_cert', f => handleSignedUpload('cert_rite_signed_link', f))}>
                                     <div className="flex items-center justify-between gap-6 max-md:flex-col max-md:items-stretch max-md:gap-3">
                                         <div className="w-[260px] min-w-0 shrink-0 max-md:w-full">
@@ -2763,25 +2782,25 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                                 <button
                                                     onClick={() => setShowRiteLinkInput(v => !v)}
                                                     className={`w-full py-2 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${
-                                                        local.cert_rite_drive_link
+                                                        estadoInstalador(local).rite.certificadoRecibido
                                                         ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-bkg-deep'
                                                         : 'border-white/10 text-white/30 hover:border-white/20 hover:text-white'
                                                     }`}
                                                 >
-                                                    {local.cert_rite_drive_link ? 'Aportado' : 'Enlace'}
+                                                    {estadoInstalador(local).rite.certificadoRecibido ? 'Aportado' : 'Enlace'}
                                                 </button>
                                             </div>
 
                                             {/* 2. ENVIADO */}
                                             <div className="w-11 flex justify-center">
                                                 <button
-                                                    disabled={!local.cert_rite_drive_link}
+                                                    disabled={!estadoInstalador(local).rite.certificadoRecibido}
                                                     onClick={() => handleToggleSent('cert_rite_sent_at')}
                                                     title={local.cert_rite_sent_at ? `Enviado el ${new Date(local.cert_rite_sent_at).toLocaleDateString()}` : 'Marcar como enviado'}
                                                     className={`w-11 h-11 rounded-2xl border flex items-center justify-center transition-all ${
                                                         local.cert_rite_sent_at
                                                         ? 'bg-blue-500/20 border-blue-500/30 text-blue-400 shadow-lg shadow-blue-500/10 hover:bg-blue-500 hover:text-white'
-                                                        : !local.cert_rite_drive_link
+                                                        : !estadoInstalador(local).rite.certificadoRecibido
                                                             ? 'bg-white/5 border-white/5 text-white/5 cursor-not-allowed'
                                                             : 'bg-orange-500/10 border-orange-500/20 text-orange-500 hover:bg-orange-500 hover:text-white'
                                                     }`}
@@ -2793,7 +2812,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                             {/* 3. PDF FIRMADO — fallback al link del cert si aún no hay versión firmada separada */}
                                             <div className="w-11">
                                                 <SignedSlot
-                                                    link={local.cert_rite_signed_link || local.cert_rite_drive_link}
+                                                    link={local.cert_rite_signed_link || (estadoInstalador(local).rite.certificadoRecibido ? local.cert_rite_drive_link : null)}
                                                     field="cert_rite_signed_link"
                                                     label="Certificado RITE"
                                                     dragActive={dragRow === 'rite_cert'}
@@ -2824,9 +2843,9 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                         <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">
                                             Word + PDF + Borrador · para el instalador
                                         </p>
-                                        {user?.rol === 'ADMIN' && (local.cert_rite_drive_link || local.memoria_rite_pdf_link || local.borrador_cert_rite_link || local.memoria_rite_guia_link) && (
+                                        {user?.rol === 'ADMIN' && (memoriaRiteDocxLink(local) || local.memoria_rite_pdf_link || local.borrador_cert_rite_link || local.memoria_rite_guia_link) && (
                                             <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
-                                                {local.cert_rite_drive_link && <a href={local.cert_rite_drive_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-emerald-400/60 hover:text-emerald-400 font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all">Memoria (Word)</a>}
+                                                {memoriaRiteDocxLink(local) && <a href={memoriaRiteDocxLink(local)} target="_blank" rel="noopener noreferrer" className="text-[9px] text-emerald-400/60 hover:text-emerald-400 font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all">Memoria (Word)</a>}
                                                 {local.memoria_rite_pdf_link && <a href={local.memoria_rite_pdf_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-emerald-400/60 hover:text-emerald-400 font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all">Memoria (PDF)</a>}
                                                 {local.borrador_cert_rite_link && <a href={local.borrador_cert_rite_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-emerald-400/60 hover:text-emerald-400 font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all">Borrador</a>}
                                                 {local.memoria_rite_guia_link && <a href={local.memoria_rite_guia_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-brand/60 hover:text-brand font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all">Guía JE6</a>}
@@ -2839,12 +2858,12 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                             <button
                                                 onClick={() => handleGenerateClick('memoria_rite', 'Memoria + Borrador RITE', abrirSexoThenBorrador)}
                                                 className={`w-full py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${
-                                                    (local.cert_rite_drive_link || local.borrador_cert_rite_link)
+                                                    (memoriaRiteDocxLink(local) || local.borrador_cert_rite_link)
                                                         ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-bkg-deep shadow-[0_0_15px_rgba(16,185,129,0.1)]'
                                                         : 'bg-brand/10 border border-brand/20 text-brand hover:bg-brand hover:text-bkg-deep'
                                                 }`}
                                             >
-                                                {(local.cert_rite_drive_link || local.borrador_cert_rite_link) ? 'Generado' : 'Generar'}
+                                                {(memoriaRiteDocxLink(local) || local.borrador_cert_rite_link) ? 'Generado' : 'Generar'}
                                             </button>
                                         </div>
 

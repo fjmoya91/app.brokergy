@@ -21,6 +21,20 @@ const {
 const axios = require('axios');
 const multer = require('multer');
 
+// Qué le falta al INSTALADOR (CIFO por firmar / RITE por registrar). FUENTE
+// ÚNICA con el popup de envío de la app: se importa el módulo ESM del frontend,
+// igual que hace cifoService con cifoDoc.js.
+let _instaladorPendientesPromise = null;
+function loadInstaladorPendientes() {
+    if (!_instaladorPendientesPromise) {
+        const url = require('url').pathToFileURL(
+            require('path').join(__dirname, '../../frontend/src/features/expedientes/logic/instaladorPendientes.js')
+        ).href;
+        _instaladorPendientesPromise = import(url);
+    }
+    return _instaladorPendientesPromise;
+}
+
 // Configuración de multer (memoria para subida directa a Drive)
 const upload = multer({
     storage: multer.memoryStorage(),
@@ -1804,6 +1818,84 @@ router.post('/cifo-upload/:expedienteId', upload.single('cifo'), async (req, res
     }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/public/instalador/:expedienteId
+// ─────────────────────────────────────────────────────────────────────────────
+// Lo que el INSTALADOR tiene pendiente en esta obra: firmar el CIFO y/o
+// devolvernos la legalización RITE. Es lo que alimenta /instalador/:id, el
+// enlace ÚNICO que va en el mensaje cuando se le mandan las dos cosas juntas.
+//
+// El cálculo NO se reimplementa aquí: sale de la misma función que usa el popup
+// de envío de la app (logic/instaladorPendientes.js). Si divergieran, el mensaje
+// prometería un documento que la página no pide — o al revés.
+router.get('/instalador/:expedienteId', async (req, res) => {
+    try {
+        const { expedienteId } = req.params;
+        const { data: exp, error } = await supabase
+            .from('expedientes')
+            .select('id, numero_expediente, instalacion, documentacion, clientes!cliente_id(nombre_razon_social, apellidos, direccion, codigo_postal, municipio, provincia)')
+            .eq('id', expedienteId)
+            .maybeSingle();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        let instaladorNombre = '—';
+        const instaladorId = exp.instalacion?.instalador_id;
+        if (instaladorId) {
+            const { data: pres } = await supabase.from('prescriptores').select('razon_social').eq('id_empresa', instaladorId).maybeSingle();
+            if (pres?.razon_social) instaladorNombre = pres.razon_social;
+        }
+
+        const { estadoInstalador } = await loadInstaladorPendientes();
+        const doc = exp.documentacion || {};
+        const est = estadoInstalador(doc);
+        const rechazo = rechazoBorrador(doc, 'cert_cifo');
+
+        const tareas = [];
+        // El CIFO solo se ofrece si hay un borrador que firmar. Sin él, la página
+        // pediría una firma sobre un documento que todavía no existe.
+        if (est.cifo.borrador || est.cifo.firmado) {
+            tareas.push({
+                key: 'cifo',
+                hecho: est.cifo.recibido,
+                bloqueado: !!rechazo?.obsoleto,
+                rechazo: rechazo ? { label: rechazo.label, motivo: rechazo.motivo, at: rechazo.at } : null,
+                aviso: rechazo?.obsoleto ? 'Lo estamos corrigiendo — te avisaremos' : null,
+            });
+        }
+        // El RITE se le pide siempre: es suyo por definición. La memoria firmada
+        // solo si alguna vez le mandamos una — si no, es un papel que no tiene.
+        tareas.push({
+            key: 'rite',
+            hecho: est.rite.recibido,
+            pide_memoria: est.rite.memoriaGenerada,
+            memoria_subida: est.rite.memoriaRecibida,
+            certificado_subido: est.rite.certificadoRecibido,
+        });
+
+        // Dónde está la obra. Va aquí solo para que el instalador reconozca de qué
+        // expediente le hablamos: la dirección de la INSTALACIÓN no es el domicilio
+        // del cliente, salvo cuando el propio expediente declara `misma_direccion`
+        // (mismo criterio que `buildInstalacionAddress`).
+        const ins = exp.instalacion || {};
+        const c = exp.clientes || {};
+        const usaCliente = !ins.direccion || ins.misma_direccion === true || String(ins.misma_direccion).toUpperCase() === 'SI';
+        const direccion = usaCliente
+            ? [c.direccion, c.codigo_postal, c.municipio, c.provincia && `(${c.provincia})`].filter(Boolean).join(', ')
+            : [ins.direccion, ins.codigo_postal, ins.municipio, ins.provincia && `(${ins.provincia})`].filter(Boolean).join(', ');
+
+        res.json({
+            numero_expediente: exp.numero_expediente,
+            cliente: [exp.clientes?.nombre_razon_social, exp.clientes?.apellidos].filter(Boolean).join(' ') || '—',
+            instalador: instaladorNombre,
+            direccion: direccion || null,
+            tareas,
+        });
+    } catch (e) {
+        console.error('[instalador] Error:', e);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
 // ─── RITE: subida pública por el instalador (memoria firmada + certificado) ───
 // GET  /api/public/rite-upload/:expedienteId  → info del expediente para la página
 // POST /api/public/rite-upload/:expedienteId  → sube memoria firmada y/o certificado RITE
@@ -1823,12 +1915,18 @@ router.get('/rite-upload/:expedienteId', async (req, res) => {
             const { data: pres } = await supabase.from('prescriptores').select('razon_social').eq('id_empresa', instaladorId).maybeSingle();
             if (pres?.razon_social) instaladorNombre = pres.razon_social;
         }
+        // Mismo criterio que /instalador/:id (fuente única): `cert_rite_drive_link`
+        // NO cuenta como certificado aportado cuando lo que guarda es la Memoria
+        // que generamos nosotros. Sin esto, esta página decía "ya subido" de un
+        // certificado que nunca llegó, y la página unificada decía lo contrario.
+        const { estadoInstalador } = await loadInstaladorPendientes();
+        const estRite = estadoInstalador(exp.documentacion || {}).rite;
         res.json({
             numero_expediente: exp.numero_expediente,
             cliente: [exp.clientes?.nombre_razon_social, exp.clientes?.apellidos].filter(Boolean).join(' ') || '—',
             instalador: instaladorNombre,
-            memoria_subida: !!(exp.documentacion?.cert_rite_signed_link),
-            certificado_subido: !!(exp.documentacion?.cert_rite_drive_link),
+            memoria_subida: estRite.memoriaRecibida,
+            certificado_subido: estRite.certificadoRecibido,
         });
     } catch (e) {
         console.error('[RITE upload info] Error:', e);

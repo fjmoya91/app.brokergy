@@ -21,6 +21,10 @@ import {
     excludedPagesFor, prepareAnnexAttachments, buildAnnexPayload, formatPageRanges
 } from '../logic/annexPrefs';
 import AnexoPaginasModal from './AnexoPaginasModal';
+// Qué le falta al INSTALADOR y con qué texto se le pide. FUENTE ÚNICA con el
+// popup de la Memoria RITE, con la ruta de envío y con la página pública.
+import { estadoInstalador, mensajeInstalador, enlaceInstalador } from '../logic/instaladorPendientes';
+import { DocsInstaladorPicker } from './DocsInstaladorPicker';
 
 const APP_BASE_URL = 'https://app.brokergy.es';
 
@@ -61,6 +65,10 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     const [channels, setChannels] = useState({ email: true, whatsapp: true }); // canales elegidos en el popup
     const [sendPhase, setSendPhase] = useState(null);            // null | 'sending' | 'done' → overlay de envío
     const [sendResults, setSendResults] = useState([]);          // [{ channel, status: 'ok'|'fail'|'unavailable', text }]
+    // Qué se manda en este envío: el CIFO y, si también nos falta, la
+    // documentación RITE. `riteBloqueo` explica por qué NO se puede ofrecer.
+    const [sendDocsSel, setSendDocsSel] = useState(['cifo']);
+    const [riteBloqueo, setRiteBloqueo] = useState('Comprobando…');
 
     // El padre ahora pasa siempre los attachments fijos en su state efímero;
     // mantenemos el fallback por si llegan vacíos.
@@ -448,6 +456,8 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     const opInputs = op.datos_calculo || {};
     const inst = expediente.instalacion || {};
     const doc = expediente.documentacion || {};
+    // Qué le falta al instalador además de este CIFO (fuente única).
+    const estadoInst = estadoInstalador(doc);
     const cee = expediente.cee || {};
     const loc = expediente.ubicacion || {};
     const cli = expediente.clientes || expediente.cliente || {}; 
@@ -891,7 +901,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     // `withAnnexPreview`: cuando true, añade páginas-imagen del PDF para que
     // se vean en el preview del modal. Cuando false (default), solo la portada
     // ANEXOS — el backend concatena los PDFs vectoriales con pdf-lib en las
-    // 4 llamadas (/api/pdf/generate, save-to-drive, send-cifo, whatsapp).
+    // llamadas que lo consumen (/api/pdf/generate y save-to-drive).
     // buildHtml delega en la FUENTE ÚNICA (cifoDoc.js). El backend usa el mismo
     // builder → el PDF sale idéntico por app y por generación automática.
     // Los anexos van ya ordenados y con las páginas excluidas fuera del preview,
@@ -905,7 +915,9 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
         });
 
     // Anexos a concatenar al PDF principal: driveId + páginas a omitir, en el
-    // orden final. Lo consumen /api/pdf/generate, save-to-drive y send-cifo.
+    // orden final. Lo consumen /api/pdf/generate y save-to-drive. El ENVÍO ya no
+    // rasteriza otra vez: el adjunto se descarga del propio borrador de Drive, que
+    // es exactamente el PDF que el instalador va a firmar (ver /instalador/enviar).
     const getAnnexPayload = () => buildAnnexPayload(docAttachments, annexPrefs);
 
 
@@ -956,7 +968,10 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     // window.location.origin: en local apunta a localhost (testeable) y en producción
     // a app.brokergy.es (correcto para el instalador real). Antes iba hardcodeado a
     // prod, por lo que al enviar desde local el visor de firma no aparecía.
-    const uploadLink    = `${(typeof window !== 'undefined' ? window.location.origin : APP_BASE_URL)}/subir-cifo/${expediente.id}`;
+    // Enlace ÚNICO del instalador: enseña TODO lo que le queda en esta obra
+    // (firmar el CIFO, devolver el RITE). Con un enlace por tarea, el instalador
+    // abría el primero y de lo otro no se enteraba nadie.
+    const uploadLink    = enlaceInstalador(typeof window !== 'undefined' ? window.location.origin : APP_BASE_URL, expediente.id);
 
     // Contactos disponibles del perfil del instalador (puede haber varios):
     // representante/empresa + persona de contacto de notificaciones.
@@ -984,20 +999,16 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     };
     const selectedContacts = selectedIds.map(resolveContact);
 
-    // Tres plantillas: primera solicitud de firma · reenvío por requerimiento ·
-    // reenvío porque NOSOTROS rechazamos el CIFO firmado (el instalador recibe el
-    // mismo certificado por segunda vez y tiene que saber por qué y cuál vale).
-    const buildCifoMessage = (tplKey, contactName) => {
-        const firstName = (contactName || '').trim().split(/\s+/)[0] || 'instalador';
-        const expteB = `*${numexpte}*`;
-        if (tplKey === 'correccion') {
-            return `Hola ${firstName},\n\nHemos revisado el *Certificado CIFO* del expediente ${expteB} de ${cliNombre}${instAddrText ? ` (instalación en ${instAddrText})` : ''} y hemos detectado un error, así que lo hemos corregido por nuestra parte.\n\n*Motivo de la corrección:* ${rechazo?.motivo || '—'}\n\nTe adjuntamos la versión corregida, que es la que hay que firmar — la anterior queda anulada. Abre este enlace y fírmala *directamente con tu certificado electrónico* (Autofirma), sin descargar ni volver a subir nada:\n\n${uploadLink}\n\nDebe firmarlo el representante legal de la empresa instaladora. Disculpa las molestias y gracias por tu colaboración.\n*BROKERGY · Ingeniería Energética*`;
-        }
-        if (tplKey === 'requerimiento') {
-            return `Hola ${firstName},\n\nHemos recibido un *requerimiento* sobre el expediente ${expteB} de ${cliNombre}${instAddrText ? ` (instalación en ${instAddrText})` : ''} y necesitamos que el *Certificado CIFO* se vuelva a firmar.\n\nAbre este enlace y fírmalo *directamente con tu certificado electrónico* (Autofirma), sin descargar ni volver a subir nada. Nos llegará firmado automáticamente:\n\n${uploadLink}\n\nDebe firmarlo el representante legal de la empresa instaladora. Disculpa las molestias y gracias por tu colaboración.\n*BROKERGY · Ingeniería Energética*`;
-        }
-        return `Hola ${firstName},\n\nTe adjunto el *Certificado CIFO* correspondiente al expediente ${expteB} de ${cliNombre}${instAddrText ? `, de la instalación realizada en ${instAddrText}` : ''}.\n\nAhora puedes *firmarlo directamente* con tu certificado electrónico, sin descargar ni volver a subir nada: abre el enlace y fírmalo con *Autofirma* (representante legal de la empresa instaladora). Nos llegará firmado automáticamente:\n\n${uploadLink}\n\nSi lo prefieres, desde ese mismo enlace también puedes subir el PDF ya firmado.\n\nUn saludo,\n*BROKERGY · Ingeniería Energética*`;
-    };
+    // El TEXTO no se escribe aquí: sale de la fuente única (instaladorPendientes),
+    // la misma que usa el popup del RITE y el email del backend. Tres plantillas:
+    // primera solicitud de firma - reenvío por requerimiento - reenvío porque
+    // NOSOTROS rechazamos el CIFO firmado (el instalador recibe el mismo
+    // certificado por segunda vez y tiene que saber por qué y cuál vale).
+    const buildCifoMessage = (tplKey, contactName, docKeys = sendDocsSel) => mensajeInstalador({
+        docs: docKeys, saludo: contactName || '', numexpte,
+        clienteNombre: cliNombre, direccion: instAddrText, enlace: uploadLink,
+        plantilla: tplKey, motivo: rechazo?.motivo || '',
+    });
 
     const openSendModal = async () => {
         // Por defecto: si la redirección está activa, todos los contactos de
@@ -1018,11 +1029,35 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
         setSendPhase(null);
         setSendResults([]);
         setWaReady(null);
+        setSendDocsSel(['cifo']);
+        setRiteBloqueo('Comprobando…');
         setSendOpen(true);
         try {
             const st = await axios.get('/api/whatsapp/status');
             setWaReady(!!st.data?.ready);
         } catch { setWaReady(false); }
+
+        // Que la Memoria RITE se pueda mandar de paso NO es solo que falte: hay
+        // que poder generarla sin huecos. La validación es la MISMA que la del
+        // popup de generación (GET /memoria-rite/check, fuente única en
+        // utils/riteValidation): si le faltan datos, se dice cuál es el problema
+        // en vez de mandar una memoria a medias que el instalador no puede firmar.
+        if (!estadoInst.pendientes.includes('rite')) { setRiteBloqueo('Ya la tenemos'); return; }
+        try {
+            const { data } = await axios.get(`/api/expedientes/${expediente.id}/memoria-rite/check`);
+            const faltan = (data?.missing?.length ? data.missing.length : 0)
+                + (data?.potencias?.length ? data.potencias.length : 0)
+                + (data?.situadoEn ? 1 : 0) + (data?.fechaPruebas ? 1 : 0);
+            if (faltan) {
+                setRiteBloqueo('Le faltan datos - genérala desde Documentación');
+            } else {
+                setRiteBloqueo(null);
+                setSendDocsSel(['cifo', 'rite']);
+                setSendMessage(buildCifoMessage(defaultTpl, sel[0]?.label || empResponsable, ['cifo', 'rite']));
+            }
+        } catch {
+            setRiteBloqueo('No se ha podido comprobar - mándala desde Documentación');
+        }
     };
 
     // Al marcar/desmarcar un contacto o cambiar de plantilla regeneramos el mensaje
@@ -1039,6 +1074,14 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
         setTemplateKey(key);
         setSendMessage(buildCifoMessage(key, selectedContacts[0]?.label || empResponsable));
     };
+    // Marcar/desmarcar el RITE rehace el cuerpo del mensaje: uno que anuncia dos
+    // documentos y solo lleva uno deja al instalador buscando lo que no llegó.
+    const pickDoc = (k) => setSendDocsSel(prev => {
+        const next = prev.includes(k) ? prev.filter(x => x !== k) : [...prev, k];
+        const ordered = ['cifo', 'rite'].filter(x => next.includes(x));
+        if (ordered.length) setSendMessage(buildCifoMessage(templateKey, selectedContacts[0]?.label || empResponsable, ordered));
+        return ordered;
+    });
 
     const toggleChannel = (ch) => setChannels(prev => ({ ...prev, [ch]: !prev[ch] }));
 
@@ -1051,42 +1094,6 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     const nEmail = selectedContacts.filter(c => c.email).length;
     const nPhone = selectedContacts.filter(c => phoneValid(c.phone)).length;
     const sending = sendingEmail || sendingWhatsapp;
-
-    // Envíos individuales (devuelven { ok, text } y NO tocan el status global).
-    const sendEmailOnce = async (c) => {
-        const subject = templateKey === 'correccion'
-            ? `${numexpte} - Certificado CIFO corregido: firmar de nuevo`
-            : templateKey === 'requerimiento'
-                ? `${numexpte} - Requerimiento: firmar de nuevo Certificado CIFO`
-                : `${numexpte} - Firmar Certificado CIFO de ${cliNombre}`;
-        // Si el buzón principal ha agotado su cuota diaria, postEmail pregunta
-        // si reenviar desde el alternativo (ver utils/emailFallback).
-        const { data } = await postEmail('/api/pdf/send-cifo', {
-            html: buildHtml(),
-            to: c.email,
-            subject,
-            message: sendMessage,
-            instaladorNombre: c.label,
-            numExpediente: numexpte,
-            clienteNombre: cliNombre,
-            direccionInstalacion: instAddrText,
-            uploadLink,
-            annexes: getAnnexPayload(),
-        }, showConfirm);
-        if (data.success) return { ok: true, text: `${c.label} → ${c.email}` };
-        return { ok: false, text: `${c.label}: email no enviado` };
-    };
-
-    // Recibe el PDF ya generado (base64) para reutilizarlo entre varios destinatarios.
-    const sendWhatsappOnce = async (c, pdfBase64) => {
-        await axios.post('/api/whatsapp/send-media', {
-            phone: c.phone,
-            caption: sendMessage,
-            media: { base64: pdfBase64, filename: `${numexpte}_Certificado_CIFO.pdf`, mimetype: 'application/pdf' },
-            asDocument: true,
-        });
-        return { ok: true, text: `${c.label} → ${c.phone}` };
-    };
 
     // Lluvia de "papeles/documentos" al completar el envío: usamos emojis de
     // documento como formas de confeti (shapeFromText). Caída suave tipo papel.
@@ -1124,67 +1131,85 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
         if (onClose) onClose();
     };
 
-    // Orquestador único: envía a TODOS los destinatarios marcados por los canales
-    // seleccionados (email, whatsapp o ambos). El PDF para WhatsApp se genera una vez.
+    // Orquestador único: manda a TODOS los destinatarios marcados, por los canales
+    // elegidos, LO QUE ESTÉ MARCADO (el CIFO y, si también nos falta, la
+    // documentación RITE). El montaje de adjuntos y el envío los hace el backend
+    // en /instalador/enviar, que es la MISMA ruta por la que entra el popup del
+    // RITE: así los dos caminos mandan el mismo paquete y el mismo enlace.
     const doSend = async () => {
         const doEmail = willEmail;
         const doWa = willWhatsapp;
+        const docsEnviar = sendDocsSel.filter(k => k !== 'rite' || !riteBloqueo);
+        if (!docsEnviar.length) { setSendStatus({ ok: false, text: 'Selecciona al menos un documento.' }); return; }
         if (!selectedContacts.length) { setSendStatus({ ok: false, text: 'Selecciona al menos un destinatario.' }); return; }
         if (!doEmail && !doWa) { setSendStatus({ ok: false, text: 'Selecciona al menos un canal disponible.' }); return; }
         setSendStatus(null);
         setSendResults([]);
         setSendPhase('sending');
-        const results = [];
 
         // ANTES de enviar nada: el borrador de Drive tiene que ser ESTA versión.
         // El mensaje lleva el enlace de firma, y esa página sirve el PDF de
-        // `cert_cifo_drive_link` — no el adjunto. Sin este guardado, el instalador
+        // `cert_cifo_drive_link` - no el adjunto. Sin este guardado, el instalador
         // abre el enlace y firma el CIFO anterior (el que había en el slot).
-        // Si falla, NO se envía: mandar el enlace sabiendo que sirve otro documento
-        // es peor que no mandarlo.
-        try {
-            await saveDraftToDrive();
-        } catch (e) {
-            setSendPhase(null);
-            setSendStatus({ ok: false, text: `No se ha enviado: no se pudo guardar esta versión del CIFO en Drive (${e.response?.data?.message || e.message}). El enlace de firma habría servido la versión anterior.` });
-            return;
-        }
-
-        // WhatsApp: comprobar conexión y generar el PDF UNA sola vez (se reutiliza).
-        let pdfBase64 = null, waOk = doWa;
-        if (doWa) {
+        // Si falla, NO se envia: mandar el enlace sabiendo que sirve otro documento
+        // es peor que no mandarlo (regla 24).
+        let cifoDriveLink = null;
+        if (docsEnviar.includes('cifo')) {
             try {
-                const st = await axios.get('/api/whatsapp/status');
-                if (!st.data?.ready) { setWaReady(false); waOk = false; results.push({ channel: 'whatsapp', status: 'fail', text: 'WhatsApp no conectado' }); }
-                else {
-                    const pdfResp = await axios.post('/api/pdf/generate', { html: buildHtml(), annexes: getAnnexPayload() });
-                    pdfBase64 = pdfResp.data?.pdf;
-                }
-            } catch (e) { waOk = false; results.push({ channel: 'whatsapp', status: 'fail', text: 'WhatsApp: ' + (e.response?.data?.message || e.message) }); }
+                cifoDriveLink = await saveDraftToDrive();
+            } catch (e) {
+                setSendPhase(null);
+                setSendStatus({ ok: false, text: `No se ha enviado: no se pudo guardar esta versión del CIFO en Drive (${e.response?.data?.message || e.message}). El enlace de firma habría servido la versión anterior.` });
+                return;
+            }
         }
 
         if (doEmail) setSendingEmail(true);
-        if (waOk) setSendingWhatsapp(true);
+        if (doWa) setSendingWhatsapp(true);
 
-        // Envío secuencial por destinatario (cada uno por los canales con dato).
-        for (const c of selectedContacts) {
-            if (doEmail && c.email) {
-                try { const r = await sendEmailOnce(c); results.push({ channel: 'email', status: r.ok ? 'ok' : 'fail', text: r.text }); }
-                catch (e) { results.push({ channel: 'email', status: 'fail', text: `${c.label}: ` + (e.response?.data?.message || e.message) }); }
-            }
-            if (waOk && pdfBase64 && phoneValid(c.phone)) {
-                try { const r = await sendWhatsappOnce(c, pdfBase64); results.push({ channel: 'whatsapp', status: r.ok ? 'ok' : 'fail', text: r.text }); }
-                catch (e) { results.push({ channel: 'whatsapp', status: 'fail', text: `${c.label}: ` + (e.response?.data?.message || e.message) }); }
-            }
+        const recipients = selectedContacts.map(c => ({
+            nombre: c.label,
+            email: doEmail ? (c.email || '') : '',
+            phone: doWa ? (c.phone || '') : '',
+        }));
+        const chans = [doEmail && 'email', doWa && 'whatsapp'].filter(Boolean);
+
+        let data = null, reqError = null;
+        try {
+            // postEmail: si el buzón principal ha agotado su cuota diaria, ofrece
+            // reenviar desde el alternativo (utils/emailFallback).
+            const resp = await postEmail(`/api/expedientes/${expediente.id}/instalador/enviar`, {
+                docs: docsEnviar, channels: chans, message: sendMessage, recipients,
+                cifoDriveLink, plantilla: templateKey,
+            }, showConfirm);
+            data = resp.data;
+        } catch (err) {
+            reqError = err.response?.data?.error || err.response?.data?.message || err.message;
         }
         setSendingEmail(false);
         setSendingWhatsapp(false);
 
-        // Si el CIFO llegó al instalador por al menos un canal, registramos la
-        // fecha de envío (documentacion.cert_cifo_sent_at). El módulo de lifecycle
-        // cuenta este campo en v_expedientes_pendientes.docs_enviados_total.
+        // Aplanar a filas (destinatario × canal); el backend devuelve `results` en
+        // el mismo orden que `recipients`.
+        const results = [];
+        const byIdx = data?.results || [];
+        selectedContacts.forEach((c, idx) => {
+            const r = byIdx[idx] || {};
+            if (doEmail && c.email) {
+                if (reqError) results.push({ channel: 'email', status: 'fail', text: `${c.label}: ${reqError}` });
+                else results.push({ channel: 'email', status: r.email?.ok ? 'ok' : 'fail', text: r.email?.ok ? `${c.label} → ${r.email.to}` : `${c.label}: ${r.email?.error || 'no enviado'}` });
+            }
+            if (doWa && phoneValid(c.phone)) {
+                if (reqError) results.push({ channel: 'whatsapp', status: 'fail', text: `${c.label}: ${reqError}` });
+                else results.push({ channel: 'whatsapp', status: r.whatsapp?.ok ? 'ok' : 'fail', text: r.whatsapp?.ok ? `${c.label} → ${r.whatsapp.phone}` : `${c.label}: ${r.whatsapp?.error || 'no enviado'}` });
+            }
+        });
+
+        // Si llegó por al menos un canal, se sella la fecha de envío de CADA
+        // documento que ha viajado (cert_cifo_sent_at y/o borrador_cert_sent_at).
+        // El módulo de lifecycle cuenta esos campos en docs_enviados_total.
         const anyOk = results.some(r => r.status === 'ok');
-        if (anyOk && onMarkSent) onMarkSent();
+        if (anyOk && onMarkSent) onMarkSent(docsEnviar);
         setSendResults(results);
         setSendStatus({ ok: anyOk, text: results.map(r => `${r.status === 'ok' ? '✓' : '✕'} ${r.text}`).join('   ') });
         setSendPhase('done');
@@ -1315,8 +1340,10 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                             {/* Header */}
                             <div className="px-6 py-5 border-b border-white/[0.07] bg-brand/5 flex items-center justify-between">
                                 <div>
-                                    <h2 className="text-lg font-black uppercase tracking-tight text-white">Enviar CIFO al instalador</h2>
-                                    <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">Documento a firmar · {numexpte}</p>
+                                    <h2 className="text-lg font-black uppercase tracking-tight text-white">Enviar al instalador</h2>
+                                    <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">
+                                        {sendDocsSel.includes('rite') && !riteBloqueo ? 'CIFO + RITE' : 'Documento a firmar'} · {numexpte}
+                                    </p>
                                 </div>
                                 <button onClick={() => setSendOpen(false)} className="text-white/30 hover:text-white transition-colors">
                                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
@@ -1324,6 +1351,17 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                             </div>
 
                             <div className="px-6 py-5 space-y-5 max-h-[74vh] overflow-y-auto custom-scrollbar">
+                                {/* Qué se manda. Si además nos falta el RITE, se ofrece
+                                    mandarlo aquí mismo: al instalador le llegaban dos
+                                    avisos distintos para dos tareas que hace del tirón. */}
+                                <DocsInstaladorPicker
+                                    origen="cifo"
+                                    docs={sendDocsSel}
+                                    bloqueos={riteBloqueo ? { rite: riteBloqueo } : {}}
+                                    pendientes={estadoInst.pendientes}
+                                    onToggle={pickDoc}
+                                />
+
                                 {/* Destinatario(s) — se puede marcar más de uno */}
                                 <div>
                                     <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Destinatarios <span className="text-white/20 normal-case tracking-normal font-bold">· puedes marcar varios</span></label>

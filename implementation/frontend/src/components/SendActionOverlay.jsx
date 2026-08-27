@@ -52,6 +52,18 @@ const SENDING_ART = {
     ),
 };
 
+// Pie de marca. El logo va en su disco blanco (el original ya lo lleva) para que
+// se lea igual en tema oscuro y en claro, y el rótulo en micro-tipografía: firma,
+// no cabecera — lo que importa del popup es el resultado del envío.
+function BrandFooter() {
+    return (
+        <div className="mt-7 flex items-center justify-center gap-2 opacity-70">
+            <img src="/logo-brokergy-circular-transparent.png" alt="" className="w-4 h-4 object-contain shrink-0" />
+            <span className="text-[8px] font-black uppercase tracking-[0.35em] text-white/35">Brokergy</span>
+        </div>
+    );
+}
+
 export function SendActionOverlay({
     phase,
     ok = false,
@@ -78,6 +90,12 @@ export function SendActionOverlay({
     return (
         <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fade-in">
             <div className="relative w-full max-w-sm bg-[#0F1013] border border-white/10 rounded-3xl shadow-2xl overflow-hidden animate-scale-in">
+                {/* Filete de marca: la firma de BROKERGY en TODO popup de envío. Va
+                    arriba y a todo el ancho porque es lo primero que entra por el ojo
+                    y es lo que hace que el popup se reconozca como de la casa aun sin
+                    leer una palabra. Usa el gradiente de marca (--brand-gradient), no
+                    un ámbar suelto, para que no se desincronice del resto de la app. */}
+                <div className="absolute inset-x-0 top-0 h-[3px] pointer-events-none" style={{ background: 'var(--brand-gradient)' }} />
                 <div className={`absolute -top-20 left-1/2 -translate-x-1/2 w-64 h-64 rounded-full blur-3xl pointer-events-none ${phase === 'done' ? (ok ? 'bg-emerald-500/25' : 'bg-red-500/20') : 'bg-brand/20'}`} />
                 <div className="relative px-8 py-9 flex flex-col items-center text-center">
                     {phase === 'sending' ? (
@@ -92,6 +110,7 @@ export function SendActionOverlay({
                             <h3 className="text-xl font-black uppercase tracking-tight text-white">{sendingTitle}</h3>
                             {subtitle && <p className="text-white/40 text-[10px] font-bold uppercase tracking-[0.2em] mt-1">{subtitle}</p>}
                             <p className="mt-6 text-[10px] text-white/25 uppercase tracking-widest font-bold">No cierres esta ventana</p>
+                            <BrandFooter />
                         </>
                     ) : (
                         <>
@@ -120,6 +139,7 @@ export function SendActionOverlay({
                                     {ok ? 'Cerrar' : 'Volver e intentar de nuevo'}
                                 </button>
                             </div>
+                            <BrandFooter />
                         </>
                     )}
                 </div>

@@ -1,9 +1,65 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const catastroService = require('../services/catastroService');
 const googleService = require('../services/googleService');
 const catastroMonitor = require('../services/catastroMonitor');
 const catastroCache = require('../services/catastroCache');
+const { requireAuth, staffOnly } = require('../middleware/auth');
+
+// POST /ocr-rc — leer la REFERENCIA CATASTRAL de una foto o captura.
+//
+// La referencia llega casi siempre en una imagen (captura del IBI, foto de la
+// escritura, pantallazo de un WhatsApp) y teclear 20 caracteres alfanuméricos a mano
+// es donde se pierde el tiempo y donde se cuela la errata que luego parece que la
+// vivienda no existe en el Catastro.
+//
+// staffOnly: detrás hay una llamada de pago a un LLM, así que este endpoint NO se
+// abre al visitante anónimo de la landing (la misma razón por la que el botón solo
+// se pinta en el flujo interno). No consulta al Catastro: devuelve lo leído y es el
+// buscador de siempre quien busca.
+const uploadImagenes = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 15 * 1024 * 1024, files: 5 },
+});
+
+router.post('/ocr-rc', requireAuth, staffOnly, (req, res, next) => {
+    uploadImagenes.array('files', 5)(req, res, (err) => {
+        if (err) {
+            if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'La imagen supera los 15 MB.' });
+            console.error('[catastro/ocr-rc] multer:', err.message);
+            return res.status(400).json({ error: 'No se pudo procesar la imagen.' });
+        }
+        next();
+    });
+}, async (req, res) => {
+    try {
+        const files = req.files || [];
+        if (!files.length) return res.status(400).json({ error: 'No se recibió ninguna imagen (campo "files").' });
+
+        const catastroOcrService = require('../services/catastroOcrService');
+        let lectura;
+        try {
+            lectura = await catastroOcrService.leerReferencias(files);
+        } catch (e) {
+            console.error('[catastro/ocr-rc] lectura falló:', e.message);
+            // 429 y 504 se distinguen del fallo genérico: al usuario le cambia lo que
+            // puede hacer (esperar y repetir, frente a teclearla a mano).
+            const status = e.status === 429 ? 429 : (e.status === 504 ? 504 : 502);
+            return res.status(status).json({ error: 'No se pudo leer la imagen: ' + e.message });
+        }
+
+        return res.json({
+            ok: true,
+            provider: catastroOcrService.PROVIDER,
+            referencias: lectura.referencias,
+            contexto: lectura.contexto,
+        });
+    } catch (err) {
+        console.error('Error POST /api/catastro/ocr-rc:', err);
+        res.status(500).json({ error: 'Error procesando la imagen', details: err.message });
+    }
+});
 
 // GET /status
 // Endpoint público (sin auth). Devuelve el estado del Catastro para que el

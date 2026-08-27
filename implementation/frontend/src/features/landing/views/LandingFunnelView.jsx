@@ -627,6 +627,10 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                                     onGeolocate={handleGeolocate}
                                     onManualEntry={null}
                                     geolocatePrimary={isReformaVariant}
+                                    // Leer la referencia de una foto: solo en el flujo INTERNO.
+                                    // La ruta es staffOnly (detrás hay una llamada de pago a un
+                                    // LLM) y en la landing pública el botón daría un 403.
+                                    permiteFotoRc={isInternal}
                                 />
                             ) : (
                                 <ConfirmationCard

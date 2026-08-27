@@ -14,6 +14,15 @@ import { StepLayout } from '../components/StepLayout';
  * de los equipos acaban en el CIFO. Recogerlo aquí es tenerlo ya hecho para el
  * expediente en lugar de volver a leer los mismos PDF dentro de tres semanas.
  *
+ * REGLA — el importe que manda AQUÍ es el TOTAL CON IVA, y no es el mismo que el del
+ * expediente. El OCR lee la base imponible (que es la del Anexo, y así se guarda en
+ * `doc.importe_sin_iva`), pero el titular casi siempre es un PARTICULAR: no se deduce
+ * el IVA, así que la inversión que compara con el bono CAE y con la deducción de la
+ * renta es la que va a pagar, impuestos incluidos. Volcando la base a la simulación,
+ * la propuesta le prometía un coste ~21 % más barato del real. Las dos cifras viajan
+ * en el mismo documento (`importe_total` / `importe_sin_iva`) y cada una va a lo suyo.
+ * Si el titular fuese una empresa —el IVA sí se lo deduce— el campo es editable.
+ *
  * Cada documento va a SU slot:
  *   presupuesto → DOC_PRESUPUESTO   ·   factura → DOC_FACTURAS ("5. FACTURAS" en Drive)
  *
@@ -28,6 +37,18 @@ import { StepLayout } from '../components/StepLayout';
 const SLOT_POR_TIPO = { presupuesto: 'DOC_PRESUPUESTO', factura: 'DOC_FACTURAS' };
 
 const eur = (n) => (Number(n) || 0).toLocaleString('es-ES', { maximumFractionDigits: 0 });
+
+const IVA_DEFECTO_PCT = 21;
+
+// Total a pagar del documento. El respaldo sobre la base cubre los documentos leídos
+// antes de que el backend devolviera `importe_total`, y las lecturas fallidas.
+const conIva = (doc) => {
+    const t = Number(doc?.importe_total);
+    if (Number.isFinite(t) && t > 0) return t;
+    const b = Number(doc?.importe_sin_iva) || 0;
+    const pct = Number.isFinite(Number(doc?.iva_pct)) ? Number(doc.iva_pct) : IVA_DEFECTO_PCT;
+    return Math.round(b * (1 + pct / 100) * 100) / 100;
+};
 
 // Zona de subida: clic (abre el selector) y ARRASTRAR Y SOLTAR, que es lo que
 // promete el subtítulo del paso.
@@ -94,12 +115,18 @@ export function StepDocsObra({ docs = [], setDocs, onNext }) {
     // Importe de la obra = suma de las FACTURAS si las hay; si aún no hay facturas,
     // el presupuesto. Nunca los dos a la vez: sumar presupuesto + factura del mismo
     // trabajo duplicaría la inversión (y con ella el tope de sobrefinanciación).
-    const { total, base } = useMemo(() => {
-        const suma = (t) => docs.filter(d => d.tipo === t && d.doc)
-            .reduce((acc, d) => acc + (Number(d.doc.importe_sin_iva) || 0), 0);
-        const facturas = suma('factura');
-        if (facturas > 0) return { total: facturas, base: 'facturas' };
-        return { total: suma('presupuesto'), base: 'presupuesto' };
+    // Se suma el TOTAL CON IVA (`conIva`), que es lo que el particular paga.
+    const { total, base, estimado } = useMemo(() => {
+        const deTipo = (t) => docs.filter(d => d.tipo === t && d.doc);
+        const suma = (lista) => lista.reduce((acc, d) => acc + conIva(d.doc), 0);
+        const facturas = deTipo('factura');
+        const hayFacturas = suma(facturas) > 0;
+        const lista = hayFacturas ? facturas : deTipo('presupuesto');
+        return {
+            total: suma(lista),
+            base: hayFacturas ? 'facturas' : 'presupuesto',
+            estimado: lista.some(d => d.doc?.iva_estimado),
+        };
     }, [docs]);
 
     const equipos = useMemo(() => docs.flatMap(d => d.equipos || []), [docs]);
@@ -133,7 +160,7 @@ export function StepDocsObra({ docs = [], setDocs, onNext }) {
                 id: `${tipo}-${prev.length}-${files[0]?.name || 'doc'}`,
                 tipo,
                 slot: SLOT_POR_TIPO[tipo],
-                doc: { tipo, numero_factura: '', fecha_factura: null, importe_sin_iva: 0, partidas: [], origen: 'manual' },
+                doc: { tipo, numero_factura: '', fecha_factura: null, importe_sin_iva: 0, importe_total: 0, iva_pct: IVA_DEFECTO_PCT, iva_estimado: true, partidas: [], origen: 'manual' },
                 equipos: [],
                 files,
                 error: m,
@@ -145,9 +172,25 @@ export function StepDocsObra({ docs = [], setDocs, onNext }) {
     }, [setDocs]);
 
     const quitar = (id) => setDocs(prev => prev.filter(d => d.id !== id));
-    const editarImporte = (id, valor) => setDocs(prev => prev.map(d => (
-        d.id === id ? { ...d, doc: { ...d.doc, importe_sin_iva: Number(valor) || 0 } } : d
-    )));
+    // Se teclea el TOTAL CON IVA (es el importe que se está mirando en el papel) y la
+    // base se recalcula con el tipo del propio documento: el expediente sigue
+    // necesitando la base imponible, y dejarla desfasada rompería el Anexo.
+    const editarImporte = (id, valor) => setDocs(prev => prev.map(d => {
+        if (d.id !== id) return d;
+        const totalDoc = Number(valor) || 0;
+        const pct = Number.isFinite(Number(d.doc?.iva_pct)) && Number(d.doc.iva_pct) >= 0
+            ? Number(d.doc.iva_pct)
+            : IVA_DEFECTO_PCT;
+        return {
+            ...d,
+            doc: {
+                ...d.doc,
+                importe_total: totalDoc,
+                iva_pct: pct,
+                importe_sin_iva: Math.round((totalDoc / (1 + pct / 100)) * 100) / 100,
+            },
+        };
+    }));
 
     return (
         <StepLayout
@@ -195,17 +238,29 @@ export function StepDocsObra({ docs = [], setDocs, onNext }) {
                                             ))}
                                         </div>
                                     )}
-                                    {d.error && <div className="text-amber-300/80 text-[11px] mt-1.5">Lectura fallida — pon el importe a mano</div>}
+                                    {d.error && <div className="text-amber-300/80 text-[11px] mt-1.5">Lectura fallida — pon el importe (con IVA) a mano</div>}
                                 </div>
-                                <div className="flex items-center gap-2 shrink-0">
-                                    <div className="relative">
-                                        <input
-                                            type="number"
-                                            value={d.doc?.importe_sin_iva ?? 0}
-                                            onChange={(e) => editarImporte(d.id, e.target.value)}
-                                            className="w-28 bg-white/[0.05] border border-white/10 focus:border-amber-400 rounded-lg pl-2 pr-6 py-1.5 text-white text-sm font-bold text-right outline-none"
-                                        />
-                                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 text-xs pointer-events-none">€</span>
+                                <div className="flex items-start gap-2 shrink-0">
+                                    <div>
+                                        <div className="relative">
+                                            <input
+                                                type="number"
+                                                value={conIva(d.doc)}
+                                                onChange={(e) => editarImporte(d.id, e.target.value)}
+                                                className="w-28 bg-white/[0.05] border border-white/10 focus:border-amber-400 rounded-lg pl-2 pr-6 py-1.5 text-white text-sm font-bold text-right outline-none"
+                                            />
+                                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 text-xs pointer-events-none">€</span>
+                                        </div>
+                                        {/* La base imponible se enseña porque es OTRA cifra y va a otro sitio
+                                            (el Anexo del expediente): sin verla, un total con IVA parece un
+                                            dato mal leído. */}
+                                        <div className="text-[10px] mt-1 text-right leading-tight">
+                                            <span className="text-white/30">IVA incl.</span>
+                                            <span className="text-white/25"> · base {eur(d.doc?.importe_sin_iva)} €</span>
+                                            {d.doc?.iva_estimado && (
+                                                <div className="text-amber-300/70">IVA estimado al {d.doc?.iva_pct ?? IVA_DEFECTO_PCT} %</div>
+                                            )}
+                                        </div>
                                     </div>
                                     <button onClick={() => quitar(d.id)} className="text-white/25 hover:text-red-400 p-1" title="Quitar">
                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
@@ -215,7 +270,9 @@ export function StepDocsObra({ docs = [], setDocs, onNext }) {
                         </div>
                     ))}
                     <p className="text-white/30 text-[10px] leading-relaxed px-1">
-                        El importe es la BASE IMPONIBLE (sin IVA): es la inversión que declara el Anexo.
+                        El importe es el TOTAL CON IVA — lo que paga el cliente, y lo que se lleva a la simulación.
+                        La base imponible se guarda aparte: es la inversión que declarará el Anexo del expediente.
+                        {' '}Si el titular es una empresa (se deduce el IVA), corrige el importe a la base.
                     </p>
                 </div>
             )}
@@ -243,7 +300,8 @@ export function StepDocsObra({ docs = [], setDocs, onNext }) {
                     <div>
                         <div className="text-[10px] font-black uppercase tracking-widest text-amber-300/70">Inversión de la obra</div>
                         <div className="text-white/40 text-[11px] mt-0.5">
-                            Según {base === 'facturas' ? 'las facturas aportadas' : 'el presupuesto aportado'}
+                            Según {base === 'facturas' ? 'las facturas aportadas' : 'el presupuesto aportado'} · IVA incluido
+                            {estimado && <span className="text-amber-300/70"> · con IVA estimado</span>}
                         </div>
                     </div>
                     <div className="text-amber-400 text-2xl font-black whitespace-nowrap">{eur(total)} €</div>

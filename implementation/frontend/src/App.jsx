@@ -25,6 +25,7 @@ import { CertAckView } from './features/public/views/CertAckView';
 import { CeeAckView } from './features/public/views/CeeAckView';
 import { SubirCifoView } from './features/public/views/SubirCifoView';
 import { SubirRiteView } from './features/public/views/SubirRiteView';
+import { SubirInstaladorView } from './features/public/views/SubirInstaladorView';
 import { SubirCeeView } from './features/public/views/SubirCeeView';
 import { FirmarAnexosView } from './features/public/views/FirmarAnexosView';
 import { FirmarLoteView } from './features/public/views/FirmarLoteView';
@@ -166,6 +167,16 @@ function App() {
   const [riteUploadId] = useState(() => {
     const path = window.location.pathname;
     if (path.startsWith('/subir-rite/')) return path.split('/subir-rite/')[1] || null;
+    return null;
+  });
+
+  // Enlace ÚNICO del instalador: /instalador/:expedienteId. Enseña TODO lo que
+  // le queda en esa obra (firmar el CIFO, devolver el RITE) en un solo sitio.
+  // /subir-cifo y /subir-rite siguen vivos: sus enlaces ya viajan en mensajes
+  // enviados y en los recordatorios del parte diario.
+  const [instaladorId] = useState(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/instalador/')) return path.split('/instalador/')[1]?.split('/')[0] || null;
     return null;
   });
 
@@ -938,8 +949,8 @@ function App() {
 
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
-  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cifoUploadId || riteUploadId || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmarLoteId || portalRoute);
-  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !riteUploadId && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !reformaDocsData && !landingRoute && !portalRoute;
+  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cifoUploadId || riteUploadId || instaladorId || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmarLoteId || portalRoute);
+  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !riteUploadId && !instaladorId && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !reformaDocsData && !landingRoute && !portalRoute;
   const wrapperPadding = (isLoggedDashboard || isPublicRoute) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
@@ -963,6 +974,8 @@ function App() {
             : <PortalLoginView />
         ) : reformaDocsData ? (
           <SubirDocsReformaView uuid={reformaDocsData.uuid} token={reformaDocsData.token} rol={reformaDocsData.rol} need={reformaDocsData.need} />
+        ) : instaladorId ? (
+          <SubirInstaladorView expedienteId={instaladorId} />
         ) : cifoUploadId ? (
           <SubirCifoView expedienteId={cifoUploadId} />
         ) : riteUploadId ? (
@@ -1150,6 +1163,7 @@ function App() {
                       onAddressSelect={handleAddressSelect}
                       onGeolocate={handleGeolocate}
                       onManualEntry={() => handleOpenCalculator(null)}
+                      permiteFotoRc={isStaffUser}
                     />
                   </div>
                 )}

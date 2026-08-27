@@ -48,6 +48,21 @@ function loadFichasTecnicas() {
     return _fichasTecnicasPromise;
 }
 
+// Qué le falta al INSTALADOR (CIFO por firmar / RITE por registrar) y con qué
+// texto se le pide. FUENTE ÚNICA con los dos popups de la app y con la página
+// pública del instalador: si se duplicara, el mensaje prometería un documento
+// que la página no pide — o al revés.
+let _instaladorPendientesPromise = null;
+function loadInstaladorPendientes() {
+    if (!_instaladorPendientesPromise) {
+        const url = require('url').pathToFileURL(
+            require('path').join(__dirname, '../../frontend/src/features/expedientes/logic/instaladorPendientes.js')
+        ).href;
+        _instaladorPendientesPromise = import(url);
+    }
+    return _instaladorPendientesPromise;
+}
+
 // ─── Guard global del módulo Expedientes (INTERNO de Brokergy) ────────────────
 // Los expedientes son datos internos: VER y gestionar expedientes está reservado a
 // ADMIN y CERTIFICADOR (sus asignados). Los partners (PRESCRIPTOR / INSTALADOR /
@@ -595,7 +610,7 @@ router.get('/:id', enforceAuth, async (req, res) => {
         // Recuperamos los datos relacionados
         const [{ data: cli }, { data: op }] = await Promise.all([
             supabase.from('clientes').select('*').eq('id_cliente', simple.cliente_id).single(),
-            supabase.from('oportunidades').select('id, id_oportunidad, referencia_cliente, ficha, ref_catastral, datos_calculo, prescriptor_id').eq('id', simple.oportunidad_id).single()
+            supabase.from('oportunidades').select('id, id_oportunidad, referencia_cliente, ficha, ref_catastral, datos_calculo, demanda_calefaccion, prescriptor_id').eq('id', simple.oportunidad_id).single()
         ]);
 
         // Recuperamos el instalador asignado (desde Instalacion o el genérico de Oportunidades)
@@ -832,13 +847,20 @@ async function buildChecklistData(exp, cli, op) {
     });
     const nFacturas = factSet.size;
     const cifoOk = present(doc.cert_cifo_signed_link);
-    const riteOk = present(doc.cert_rite_drive_link) || present(doc.cert_rite_signed_link) || (Array.isArray(uploads.DOC_RITE) && uploads.DOC_RITE.length > 0);
+    // El RITE está aportado si nos ha llegado el certificado tramitado o la memoria
+    // firmada. `cert_rite_drive_link` NO cuenta cuando lo que guarda es la Memoria
+    // que generamos nosotros (fuente única: logic/instaladorPendientes.js): con la
+    // regla anterior, generar la memoria daba el RITE por recibido y desbloqueaba
+    // la emisión del CIFO sin tener ni un papel del instalador.
+    const { estadoInstalador } = await loadInstaladorPendientes();
+    const estadoInst = estadoInstalador(doc);
+    const riteOk = estadoInst.rite.recibido || (Array.isArray(uploads.DOC_RITE) && uploads.DOC_RITE.length > 0);
     const facturaOk = nFacturas > 0;
     const cicloCifo = cicloDoc(present(doc.cert_cifo_drive_link), doc.cert_cifo_sent_at, cifoOk);
     const grupoInstalador = [
         mk('cifo', 'Certificado CIFO (firmado)', 'INSTALADOR', cifoOk, ['final'], cicloCifo.detalle, doc.cert_cifo_signed_link, cicloCifo),
         // RITE y factura no viajan para firma: o los tenemos o no. Sin eje temporal.
-        mk('rite', 'Certificado RITE', 'INSTALADOR', riteOk, ['final'], null, doc.cert_rite_drive_link || doc.cert_rite_signed_link, { situacion: riteOk ? 'OK' : 'SIN_EMITIR' }),
+        mk('rite', 'Certificado RITE', 'INSTALADOR', riteOk, ['final'], null, (estadoInst.rite.certificadoRecibido ? doc.cert_rite_drive_link : null) || doc.cert_rite_signed_link, { situacion: riteOk ? 'OK' : 'SIN_EMITIR' }),
         mk('factura', 'Factura de obra', 'INSTALADOR', facturaOk, ['final'], facturaOk ? `${nFacturas} factura(s)` : 'Sin facturas', null, { situacion: facturaOk ? 'OK' : 'SIN_EMITIR' }),
     ];
 
@@ -4081,7 +4103,13 @@ router.post('/:id/memoria-rite/generate', enforceAuth, async (req, res) => {
         if (!memoriaLink) return res.status(500).json({ error: 'No se obtuvo el enlace de la Memoria RITE' });
 
         return res.json({
-            cert_rite_drive_link: memoriaLink,
+            // La Memoria (Word) que generamos NOSOTROS va en su propio campo. Antes
+            // se guardaba en `cert_rite_drive_link`, que es donde la subida pública
+            // deja el CERTIFICADO RITE que nos devuelve el instalador: generar la
+            // memoria dejaba el expediente diciendo que el RITE ya estaba aportado
+            // —y esa es la condición que permite emitir el CIFO—. Ver
+            // logic/instaladorPendientes.js y scripts/separar_memoria_rite_de_certificado.js.
+            memoria_rite_docx_link: memoriaLink,
             memoria_rite_pdf_link: memoriaPdfLink,
             // La guía JE6 ya no se archiva; se devuelve null y el frontend conserva
             // el enlace anterior si el expediente lo tenía de antes.
@@ -4252,6 +4280,223 @@ router.post('/:id/memoria-rite/files', enforceAuth, async (req, res) => {
     } catch (err) {
         console.error('Error POST expedientes/:id/memoria-rite/files:', err);
         res.status(500).json({ error: 'Error al generar los documentos RITE', details: err.message });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/expedientes/:id/instalador/enviar
+// ─────────────────────────────────────────────────────────────────────────────
+// EL paquete del instalador: el CIFO para firmar, la documentación RITE para
+// registrar, o LAS DOS COSAS en un solo mensaje y con un solo enlace.
+//
+// Por qué existe: al instalador se le pedían por separado y con dos enlaces
+// distintos dos tareas que hace del tirón. Ahora el popup comprueba si lo otro
+// también falta (fuente única: logic/instaladorPendientes.js) y ofrece mandarlo
+// junto — el mismo gesto que el Anexo I + Cesión con el cliente.
+//
+// REGLA — el adjunto del CIFO se DESCARGA DE DRIVE, no se vuelve a rasterizar.
+// Lo que el instalador firma es el PDF que le sirve su enlace público desde
+// `cert_cifo_drive_link` (regla 24). Rasterizar el HTML otra vez aquí produciría
+// un adjunto que PUEDE no ser byte a byte el mismo documento que va a firmar —
+// es justo el fallo que ya se pagó cuando el email y el WhatsApp rasterizaban
+// cada uno su propio HTML. Por eso el modal guarda primero (replaceExisting) y
+// nos pasa el enlace resultante en `cifoDriveLink`.
+//
+// REGLA — sin CIFO borrador NO se manda el CIFO. Nunca se genera aquí "por si
+// acaso": un CIFO que nadie ha revisado vuelve firmado y hay que rechazarlo.
+// Igual con el RITE: solo se genera si el expediente pasa su propia validación
+// (GET /memoria-rite/check), que es la que evita memorias con huecos.
+//
+// Body: { docs:['cifo','rite'], channels:['email','whatsapp'], message,
+//         recipients:[{nombre,email,phone}], cifoDriveLink?, plantilla?, from? }
+router.post('/:id/instalador/enviar', enforceAuth, async (req, res) => {
+    const driveService = require('../services/driveService');
+    try {
+        const { docs = [], channels = [], message = '', recipients, cifoDriveLink, plantilla = 'primera', from } = req.body || {};
+        const wants = ['cifo', 'rite'].filter(k => docs.includes(k));
+        const chans = ['email', 'whatsapp'].filter(c => (Array.isArray(channels) ? channels : []).includes(c));
+        if (!wants.length) return res.status(400).json({ error: 'Indica al menos un documento (cifo/rite)' });
+        if (!chans.length) return res.status(400).json({ error: 'Indica al menos un canal (email/whatsapp)' });
+
+        const ctx = await loadRiteContext(req.params.id);
+        if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const { exp, cli, op, normalizedDatos, pres, presReal } = ctx;
+        const numexpte = exp.numero_expediente || req.params.id;
+        const doc = exp.documentacion || {};
+
+        const { estadoInstalador, asuntoInstalador, enlaceInstalador } = await loadInstaladorPendientes();
+        const estado = estadoInstalador(doc);
+        const APP = process.env.VITE_APP_URL || process.env.APP_URL || 'https://app.brokergy.es';
+        const enlace = enlaceInstalador(APP, exp.id);
+
+        // ── Adjuntos ─────────────────────────────────────────────────────────
+        // Se preparan TODOS antes de mandar nada: un mensaje que anuncia dos
+        // documentos y solo lleva uno es peor que no haberlo mandado.
+        const adjuntos = [];   // [{ filename, content: Buffer, mimetype, etiqueta }]
+
+        if (wants.includes('cifo')) {
+            // El enlace que acaba de guardar el modal manda sobre el del expediente:
+            // el PUT que lo persiste puede no haber aterrizado todavía.
+            const link = cifoDriveLink || estado.cifo.borrador;
+            if (!link) {
+                return res.status(422).json({ error: 'No hay un Certificado CIFO generado que enviar. Genéralo primero desde el expediente.' });
+            }
+            const m = String(link).match(/\/file\/d\/([A-Za-z0-9_-]+)/) || String(link).match(/[?&]id=([A-Za-z0-9_-]+)/);
+            if (!m) return res.status(422).json({ error: 'No se pudo resolver el fichero del CIFO en Drive' });
+            let buffer;
+            try { buffer = await driveService.getFileContent(m[1]); }
+            catch (e) { buffer = null; }
+            if (!buffer || !buffer.length) {
+                return res.status(502).json({ error: 'No se pudo descargar el CIFO desde Drive. No se ha enviado nada.' });
+            }
+            adjuntos.push({
+                filename: `${numexpte} - Certificado_CIFO.pdf`,
+                content: Buffer.from(buffer),
+                mimetype: 'application/pdf',
+                etiqueta: 'Certificado CIFO — para firmar',
+            });
+        }
+
+        if (wants.includes('rite')) {
+            const { expPayload, instaladorPayload, fechas } = buildRitePayloads({ exp, cli, op, normalizedDatos, pres });
+            let files;
+            try { files = await generarRiteFiles(expPayload, instaladorPayload, fechas); }
+            catch (svcErr) {
+                // Todo o nada: un mensaje que anuncia dos documentos y solo lleva uno
+                // deja al instalador buscando lo que no llegó. Si el RITE no se puede
+                // preparar, se dice y se ofrece la salida (mandar solo el CIFO).
+                return res.status(502).json({ error: 'El servicio de generación RITE no está disponible, así que no se ha enviado nada. Desmarca la documentación RITE si quieres mandar solo el CIFO.', details: svcErr.response?.data?.detail || svcErr.message });
+            }
+            const U = (f) => (f.name || '').toUpperCase();
+            const memoria = (files || []).find(f => U(f).endsWith('.DOCX'));
+            const memoriaPdf = (files || []).find(f => U(f).includes('MEMORIA_RITE') && U(f).endsWith('.PDF'));
+            const borrador = (files || []).find(f => U(f).includes('BORRADOR_CERTIFICADO'));
+            if (!memoria || !borrador) return res.status(502).json({ error: 'Faltan documentos generados (memoria o borrador). No se ha enviado nada.' });
+            const push = (f, etiqueta) => f && adjuntos.push({
+                filename: f.name, content: Buffer.from(f.base64, 'base64'),
+                mimetype: f.mimetype || 'application/pdf', etiqueta,
+            });
+            push(borrador, 'Borrador del Certificado de Instalación Térmica — para copiar en la plataforma');
+            push(memoria, 'Memoria Técnica RITE (Word) — revisar y firmar');
+            push(memoriaPdf, 'Memoria Técnica RITE (PDF) — si no hace falta editar');
+        }
+
+        // ── Destinatarios ────────────────────────────────────────────────────
+        // El fallback usa el instalador REAL asignado (con el que hablamos), no el
+        // que firma por él ante Industria (ver utils/instaladorFirmante.js).
+        const dest0 = presReal || pres || {};
+        let destinatarios;
+        if (Array.isArray(recipients) && recipients.length) {
+            destinatarios = recipients.map(r => ({
+                nombre: (r?.nombre || '').toString().trim(),
+                email: (r?.email || '').toString().trim(),
+                tlf: (r?.phone || r?.tlf || '').toString().trim(),
+            }));
+        } else {
+            const useContact = dest0.contacto_notificaciones_activas === true || dest0.contacto_notificaciones_activas === 'true';
+            destinatarios = [{
+                nombre: useContact ? (dest0.nombre_contacto || dest0.razon_social || '') : (dest0.nombre_responsable || dest0.razon_social || ''),
+                email: ((useContact ? (dest0.email_contacto || dest0.email) : dest0.email) || '').trim(),
+                tlf: ((useContact ? (dest0.tlf_contacto || dest0.tlf || dest0.telefono) : (dest0.tlf || dest0.telefono)) || '').trim(),
+            }];
+        }
+        if (!destinatarios.length) return res.status(400).json({ error: 'No hay ningún destinatario' });
+
+        const clienteNombre = [cli?.nombre_razon_social, cli?.apellidos].filter(Boolean).join(' ').trim();
+        const subject = asuntoInstalador({ docs: wants, numexpte, clienteNombre, plantilla });
+        const pideFirma = wants.includes('cifo');
+
+        let quotaErr = null;
+        async function sendToOne(dest) {
+            const out = { nombre: dest.nombre || '', email: null, whatsapp: null };
+
+            if (chans.includes('email')) {
+                if (!dest.email) out.email = { ok: false, error: 'Sin email' };
+                else {
+                    try {
+                        await emailService.sendDocumentEmail({
+                            to: dest.email,
+                            from,
+                            subject,
+                            title: pideFirma
+                                ? (wants.includes('rite') ? 'Te faltan dos cosas de esta obra' : 'Firma tu Certificado CIFO')
+                                : 'Documentación RITE de tu expediente',
+                            message: message || '',
+                            primaryLink: enlace,
+                            primaryLabel: pideFirma
+                                ? (wants.includes('rite') ? '🖊️ Firmar y subir aquí' : '🖊️ Firmar CIFO ahora')
+                                : '📎 Subir la documentación RITE',
+                            secondaryNote: 'Desde ese enlace se ve lo que falta de esta obra y se resuelve todo en el mismo sitio.'
+                                + (pideFirma ? ' Para firmar en el navegador necesitas Autofirma; si lo prefieres, puedes subir el PDF ya firmado.' : ''),
+                            pill: pideFirma ? { tone: 'warning', text: 'Pendiente de firma', emoji: '✍️' } : null,
+                            attachments: adjuntos.map(a => ({ filename: a.filename, content: a.content })),
+                        });
+                        out.email = { ok: true, to: dest.email };
+                    } catch (e) {
+                        if (e?.isQuotaError) quotaErr = e;
+                        out.email = { ok: false, error: e.message };
+                    }
+                }
+            }
+
+            if (chans.includes('whatsapp')) {
+                if (!dest.tlf) out.whatsapp = { ok: false, error: 'Sin teléfono' };
+                else {
+                    try {
+                        const st = whatsappService.getStatus();
+                        if (!st || !st.ready) throw new Error('WhatsApp no está conectado');
+                        // El texto va PRIMERO y aparte; cada fichero detrás con una
+                        // etiqueta corta. Un mensaje largo como pie de un adjunto hace
+                        // que mucha gente no llegue a abrir el fichero.
+                        if (message) await whatsappService.sendText(dest.tlf, message);
+                        for (const a of adjuntos) {
+                            await whatsappService.sendMedia(dest.tlf,
+                                { base64: a.content.toString('base64'), filename: a.filename, mimetype: a.mimetype },
+                                { caption: a.etiqueta, asDocument: true });
+                        }
+                        out.whatsapp = { ok: true, phone: dest.tlf };
+                    } catch (e) { out.whatsapp = { ok: false, error: e.message }; }
+                }
+            }
+            return out;
+        }
+
+        // Secuencial: WhatsApp tiene su propio rate-limit y no admite ráfagas.
+        const results = [];
+        for (const dest of destinatarios) results.push(await sendToOne(dest));
+
+        const anyOk = results.some(r => (r.email && r.email.ok) || (r.whatsapp && r.whatsapp.ok));
+
+        // Si NADA salió y el motivo fue la cuota del buzón, se responde con el
+        // formato que entiende `postEmail` para ofrecer el reenvío desde el
+        // alternativo (utils/emailFallback en el frontend).
+        if (!anyOk && quotaErr) return emailService.emailErrorResponse(res, quotaErr, 'No se pudo enviar la documentación al instalador.');
+
+        return res.status(anyOk ? 200 : 502).json({ results, docs: wants, enlace });
+    } catch (err) {
+        console.error('Error POST expedientes/:id/instalador/enviar:', err);
+        res.status(500).json({ error: 'Error al enviar la documentación al instalador', details: err.message });
+    }
+});
+
+// ─── GET /api/expedientes/:id/instalador/estado ───────────────────────────────
+// Qué le falta al instalador de este expediente. Lo consulta el popup de envío
+// (CIFO y RITE) para saber si tiene que ofrecer el envío conjunto, y con qué
+// avisos. Misma función que usa la página pública del instalador.
+router.get('/:id/instalador/estado', enforceAuth, async (req, res) => {
+    try {
+        const { data: exp, error } = await supabase
+            .from('expedientes')
+            .select('id, numero_expediente, documentacion')
+            .eq('id', req.params.id)
+            .maybeSingle();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const { estadoInstalador, enlaceInstalador } = await loadInstaladorPendientes();
+        const APP = process.env.VITE_APP_URL || process.env.APP_URL || 'https://app.brokergy.es';
+        res.json({ ...estadoInstalador(exp.documentacion || {}), enlace: enlaceInstalador(APP, exp.id) });
+    } catch (err) {
+        console.error('Error GET expedientes/:id/instalador/estado:', err);
+        res.status(500).json({ error: 'Error al calcular lo que falta del instalador' });
     }
 });
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 
 // Simple debounce utility
@@ -11,11 +11,102 @@ const useDebounce = (value, delay) => {
     return debouncedValue;
 };
 
-export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry, onGeolocate, geolocatePrimary = false }) {
+/**
+ * Qué se le dice a quien está delante cuando la lectura falla.
+ *
+ * "Request failed with status code 404" es el mensaje que trae axios y no significa
+ * nada para nadie: lo que hace falta saber es qué se puede hacer a continuación
+ * —teclearla a mano, reintentar, o avisar de que el servidor está desfasado—.
+ * El 404/405 es real y pasa: el backend se arranca una vez y se queda corriendo, así
+ * que tras un `git pull` que traiga una ruta nueva sigue sirviendo la versión vieja.
+ */
+function mensajeErrorOcr(e) {
+    const status = e?.response?.status;
+    const delServidor = e?.response?.data?.error;
+    if (status === 401 || status === 403) return 'Tu sesión no permite usar el lector. Escribe la referencia a mano.';
+    if (status === 404 || status === 405) return 'Este servidor todavía no tiene el lector de referencias (backend sin reiniciar). Escribe la referencia a mano.';
+    if (status === 413) return 'La imagen pesa demasiado (máx. 15 MB). Prueba con una captura en vez de la foto original.';
+    if (status === 429) return 'El lector ha alcanzado su cuota. Espera un momento y vuelve a intentarlo, o escríbela a mano.';
+    if (status === 504) return 'La lectura ha tardado demasiado. Vuelve a intentarlo o escribe la referencia a mano.';
+    return delServidor || 'No se pudo leer la imagen. Escribe la referencia a mano.';
+}
+
+export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry, onGeolocate, geolocatePrimary = false, permiteFotoRc = false }) {
     const [searchMode, setSearchMode] = useState('rc'); // 'rc' | 'address'
     const [query, setQuery] = useState('');
     const [isFocused, setIsFocused] = useState(false);
     const [geoLoading, setGeoLoading] = useState(false);
+
+    // ─── Leer la referencia de una FOTO (solo flujo interno, `permiteFotoRc`) ───
+    // La referencia catastral llega casi siempre en una imagen que manda el cliente
+    // por WhatsApp, y copiar 20 caracteres alfanuméricos a mano es donde se cuela la
+    // errata: el Catastro contesta "no encontrado" y parece que la vivienda no está
+    // dada de alta. Leída la referencia, se BUSCA sola — que es el gesto que se iba
+    // a hacer a continuación de todos modos.
+    const [ocrLeyendo, setOcrLeyendo] = useState(false);
+    const [ocrError, setOcrError] = useState(null);
+    const [ocrCandidatas, setOcrCandidatas] = useState([]);
+    const [ocrContexto, setOcrContexto] = useState(null);
+    const [arrastrando, setArrastrando] = useState(false);
+
+    const usarRc = (rc) => {
+        setQuery(rc);
+        setOcrCandidatas([]);
+        setOcrError(null);
+        onSearch(rc);
+    };
+
+    const leerImagenRc = useCallback(async (fileList) => {
+        const files = Array.from(fileList || []).filter(f => (f.type || '').startsWith('image/') || /\.(jpe?g|png|pdf)$/i.test(f.name || ''));
+        if (!files.length) return;
+        setOcrError(null);
+        setOcrCandidatas([]);
+        setOcrContexto(null);
+        setOcrLeyendo(true);
+        try {
+            const form = new FormData();
+            files.forEach(f => form.append('files', f));
+            const { data } = await axios.post('/api/catastro/ocr-rc', form, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
+            const refs = data?.referencias || [];
+            setOcrContexto(data?.contexto || null);
+            if (refs.length === 1) {
+                // Lectura inequívoca: al buscador se entra para buscar, no para
+                // revisar un campo relleno.
+                setQuery(refs[0]);
+                onSearch(refs[0]);
+            } else if (refs.length > 1) {
+                // Una ficha catastral trae a la vez la de la parcela y la del
+                // inmueble. Elegir por el usuario sería adivinar cuál es su vivienda.
+                setQuery(refs[0]);
+                setOcrCandidatas(refs);
+            } else {
+                setOcrError('No se ve ninguna referencia catastral en la imagen. Escríbela a mano o prueba con una foto más nítida.');
+            }
+        } catch (e) {
+            console.error('[CatastroSearchBox] OCR RC:', e?.response?.status, e?.response?.data?.error || e?.message);
+            setOcrError(mensajeErrorOcr(e));
+        } finally {
+            setOcrLeyendo(false);
+        }
+    }, [onSearch]);
+
+    // PEGAR (Ctrl+V) es el gesto natural cuando la captura viene de WhatsApp Web o de
+    // una herramienta de recorte: no hay fichero que arrastrar, está en el portapapeles.
+    // Solo se actúa si lo pegado son IMÁGENES — pegar la referencia como texto en el
+    // input tiene que seguir funcionando igual.
+    useEffect(() => {
+        if (!permiteFotoRc || searchMode !== 'rc') return;
+        const alPegar = (e) => {
+            const files = Array.from(e.clipboardData?.files || []).filter(f => (f.type || '').startsWith('image/'));
+            if (!files.length) return;
+            e.preventDefault();
+            leerImagenRc(files);
+        };
+        document.addEventListener('paste', alPegar);
+        return () => document.removeEventListener('paste', alPegar);
+    }, [permiteFotoRc, searchMode, leerImagenRc]);
 
     // Autocomplete states
     const [suggestions, setSuggestions] = useState([]);
@@ -191,6 +282,94 @@ export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry, on
                     )}
                 </div>
             </form>
+
+            {/* Leer la referencia de una imagen. Solo en modo REFERENCIA: en modo
+                dirección no hay nada que leer, y una zona de suelta ahí solo estorba. */}
+            {permiteFotoRc && searchMode === 'rc' && (
+                <div className="mt-3 max-w-2xl mx-auto">
+                    <label
+                        onDragEnter={(e) => { e.preventDefault(); if (!ocrLeyendo) setArrastrando(true); }}
+                        onDragOver={(e) => { e.preventDefault(); if (!ocrLeyendo) setArrastrando(true); }}
+                        onDragLeave={(e) => { e.preventDefault(); setArrastrando(false); }}
+                        onDrop={(e) => {
+                            e.preventDefault();
+                            setArrastrando(false);
+                            if (!ocrLeyendo) leerImagenRc(e.dataTransfer?.files);
+                        }}
+                        className={`flex items-center justify-center gap-2.5 px-4 py-3 rounded-xl border border-dashed transition-all ${
+                            ocrLeyendo
+                                ? 'opacity-60 cursor-wait border-brand/40 bg-brand/[0.06]'
+                                : arrastrando
+                                    ? 'cursor-copy border-brand bg-brand/10'
+                                    : 'cursor-pointer border-white/12 bg-white/[0.02] hover:border-brand/40 hover:bg-white/[0.04]'
+                        }`}
+                    >
+                        <input
+                            type="file"
+                            accept="image/*,application/pdf,.pdf"
+                            multiple
+                            disabled={ocrLeyendo}
+                            className="hidden"
+                            onChange={(e) => { leerImagenRc(e.target.files); e.target.value = ''; }}
+                        />
+                        <div className="pointer-events-none flex items-center gap-2.5 text-center">
+                            {ocrLeyendo ? (
+                                <svg className="w-4 h-4 animate-spin text-brand flex-shrink-0" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                </svg>
+                            ) : (
+                                <svg className="w-4 h-4 text-brand/70 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 0 1 2-2h1.5l1-2h7l1 2H18a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9Z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                                </svg>
+                            )}
+                            <span className="text-[11px] sm:text-xs font-black uppercase tracking-widest text-white/60">
+                                {ocrLeyendo ? 'Leyendo la referencia…' : 'Leer de una foto'}
+                            </span>
+                            {/* La pista de arrastrar/pegar es de PC: en un móvil no hay
+                                de dónde arrastrar ni Ctrl+V, y mencionarlo confunde. */}
+                            {!ocrLeyendo && (
+                                <span className="hidden sm:inline text-[10px] text-white/25 normal-case tracking-normal font-bold">
+                                    o arrástrala aquí · o pégala con Ctrl+V
+                                </span>
+                            )}
+                        </div>
+                    </label>
+
+                    {ocrError && (
+                        <div className="mt-2 px-4 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-100 text-[11px] leading-relaxed">
+                            {ocrError}
+                        </div>
+                    )}
+
+                    {/* Varias referencias en la misma imagen: la elige una persona. La
+                        primera es la del inmueble (20 caracteres); la corta, la parcela. */}
+                    {ocrCandidatas.length > 1 && (
+                        <div className="mt-2 px-4 py-3 rounded-xl bg-white/[0.03] border border-white/10">
+                            <div className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">
+                                Hay {ocrCandidatas.length} referencias en la imagen — ¿cuál es la vivienda?
+                            </div>
+                            {ocrContexto && <div className="text-white/35 text-[11px] mb-2 truncate">{ocrContexto}</div>}
+                            <div className="flex flex-wrap gap-2">
+                                {ocrCandidatas.map((rc) => (
+                                    <button
+                                        key={rc}
+                                        type="button"
+                                        onClick={() => usarRc(rc)}
+                                        className="px-3 py-2 rounded-lg bg-brand/10 hover:bg-brand/20 border border-brand/30 text-white text-xs font-mono tracking-tight transition-colors"
+                                    >
+                                        {rc}
+                                        <span className="ml-2 text-white/30 font-sans text-[10px] uppercase tracking-widest">
+                                            {rc.length === 20 ? 'inmueble' : 'parcela'}
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
         </>
     );
 

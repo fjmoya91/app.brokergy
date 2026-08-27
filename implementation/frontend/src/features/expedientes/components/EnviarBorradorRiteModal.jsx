@@ -1,14 +1,38 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import confetti from 'canvas-confetti';
+import { postEmail } from '../../../utils/emailFallback';
+import { estadoInstalador, mensajeInstalador, enlaceInstalador } from '../logic/instaladorPendientes';
+import { buildInstalacionAddress } from '../utils/docGenerators';
+import { DocsInstaladorPicker } from './DocsInstaladorPicker';
 
 // Documentación RITE: Memoria (.docx + .pdf) + Borrador del Certificado (.pdf).
 // Acciones: Descargar · Subir a Drive · Enviar al instalador (Email / WhatsApp /
 // ambos) eligiendo el destinatario entre los contactos del instalador.
 // Homogéneo con el popup de envío del Certificado CIFO.
+//
+// Desde 2026-08-27 el popup COMPRUEBA si además nos falta el CIFO firmado y, si
+// es así, ofrece pedir las dos cosas en el MISMO mensaje y con un solo enlace
+// (fuente única: logic/instaladorPendientes.js). Al instalador le llegaban dos
+// avisos distintos para dos tareas que hace del tirón, y de la segunda no se
+// enteraba nadie hasta que alguien la reclamaba por teléfono.
 export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMessage, onSent, onUploaded }) {
     const pres = expediente?.prescriptores || {};
     const numexpte = expediente?.numero_expediente || '';
+    const doc = expediente?.documentacion || {};
+    const cli = expediente?.clientes || {};
+    const clienteNombre = [cli.nombre_razon_social, cli.apellidos].filter(Boolean).join(' ').trim();
+    const instAddrText = buildInstalacionAddress(expediente)?.full || '';
+    const estado = estadoInstalador(doc);
+    const enlace = expediente?.id ? enlaceInstalador(window.location.origin, expediente.id) : '';
+
+    // Por qué NO se puede mandar cada documento. El CIFO no se genera aquí a
+    // espaldas de nadie: un CIFO que nadie ha revisado vuelve firmado y hay que
+    // rechazarlo (regla 24). Si no hay borrador, se dice y se manda a generarlo.
+    const bloqueos = {};
+    if (estado.cifo.recibido) bloqueos.cifo = 'Ya lo tenemos firmado';
+    else if (estado.cifo.bloqueado) bloqueos.cifo = 'Rechazado: hay que corregirlo y reenviarlo desde su propio popup';
+    else if (!estado.cifo.borrador) bloqueos.cifo = 'Aún no está generado — genéralo desde Documentación';
 
     // Lluvia de "papeles/documentos" al completar el envío: usamos emojis de
     // documento como formas de confeti (shapeFromText). Caída suave tipo papel.
@@ -59,6 +83,7 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
     }
     const altIds = instContacts.filter(c => c.id !== 'rep').map(c => c.id);
 
+    const [docs, setDocs] = useState(['rite']);     // qué se manda: rite y/o cifo
     const [message, setMessage] = useState(defaultMessage || '');
     const [waReady, setWaReady] = useState(null);
     const [busy, setBusy] = useState(null);       // 'download' | 'drive' | 'send'
@@ -71,7 +96,6 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
 
     useEffect(() => {
         if (!isOpen) return;
-        setMessage(defaultMessage || '');
         setStatus(null);
         setBusy(null);
         setSendPhase(null);
@@ -80,6 +104,11 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
         // de notificación; si no, el representante (o el primero disponible).
         const defIds = (pres.contacto_notificaciones_activas && altIds.length) ? altIds : (instContacts[0] ? [instContacts[0].id] : []);
         const sel = instContacts.filter(c => defIds.includes(c.id));
+        // El CIFO se premarca solo si de verdad se puede mandar: premarcar algo
+        // bloqueado haría que el mensaje anunciara un documento que no va a salir.
+        const defDocs = ['rite', ...(estado.pendientes.includes('cifo') && !bloqueos.cifo ? ['cifo'] : [])];
+        setDocs(defDocs);
+        setMessage(defaultMessage || buildMensaje(defDocs, sel[0]?.label));
         setSelectedIds(defIds);
         setManualContact({ name: '', phone: '', email: '' });
         setChannels({ email: sel.some(c => c.email), whatsapp: sel.some(c => (c.phone || '').replace(/[^0-9]/g, '').length >= 9) });
@@ -91,12 +120,33 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
     if (!isOpen) return null;
 
     const phoneValid = (ph) => (ph || '').replace(/[^0-9]/g, '').length >= 9;
+
+    // El texto NO se escribe aquí: sale de la fuente única, que es la misma que
+    // usa el popup del CIFO y el email del backend. Si se redactara en cada
+    // popup, el mensaje conjunto acabaría diciendo cosas distintas según por
+    // dónde se entrase.
+    const buildMensaje = (docKeys, contactName) => mensajeInstalador({
+        docs: docKeys, saludo: contactName || '', numexpte,
+        clienteNombre, direccion: instAddrText, enlace,
+    });
     const resolveContact = (id) => {
         if (id === 'otro') return { id: 'otro', label: (manualContact.name || '').trim() || 'Otro contacto', phone: (manualContact.phone || '').trim(), email: (manualContact.email || '').trim() };
         return instContacts.find(c => c.id === id) || { id, label: 'Contacto', phone: '', email: '' };
     };
     const selectedContacts = selectedIds.map(resolveContact);
-    const toggleSelected = (id) => setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    // Al marcar/desmarcar un destinatario se rehace el saludo (usa el nombre del
+    // PRIMER contacto marcado); al cambiar los documentos, el cuerpo entero.
+    const toggleSelected = (id) => setSelectedIds(prev => {
+        const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+        setMessage(buildMensaje(docs, next.length ? resolveContact(next[0]).label : ''));
+        return next;
+    });
+    const toggleDoc = (k) => setDocs(prev => {
+        const next = prev.includes(k) ? prev.filter(x => x !== k) : [...prev, k];
+        const ordered = ['cifo', 'rite'].filter(x => next.includes(x));
+        if (ordered.length) setMessage(buildMensaje(ordered, selectedIds.length ? resolveContact(selectedIds[0]).label : ''));
+        return ordered;
+    });
 
     const canEmail = selectedContacts.some(c => c.email);
     const contactPhoneValid = selectedContacts.some(c => phoneValid(c.phone));
@@ -152,11 +202,15 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
         if (onClose) onClose();
     };
 
-    // Orquestador único: envía por los canales seleccionados (email, whatsapp o ambos)
-    // al contacto elegido. El backend genera los ficheros frescos y los adjunta.
+    // Orquestador único: envía lo MARCADO (RITE, CIFO o los dos) por los canales
+    // seleccionados. El backend prepara TODOS los adjuntos antes de mandar nada:
+    // un mensaje que anuncia dos documentos y solo lleva uno es peor que no
+    // haberlo mandado.
     const handleSend = async () => {
         const doEmail = willEmail;
         const doWa = willWhatsapp;
+        const sendDocs = docs.filter(k => !bloqueos[k]);
+        if (!sendDocs.length) { setStatus({ ok: false, text: 'Selecciona al menos un documento.' }); return; }
         if (!selectedContacts.length) { setStatus({ ok: false, text: 'Selecciona al menos un destinatario.' }); return; }
         if (!doEmail && !doWa) { setStatus({ ok: false, text: 'Selecciona al menos un canal disponible.' }); return; }
         setStatus(null);
@@ -173,8 +227,10 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
 
         let data = null, reqError = null;
         try {
-            const resp = await axios.post(`/api/expedientes/${expediente.id}/memoria-rite/send`, {
-                channels: chans, message, recipients,
+            // postEmail: si el buzón principal ha agotado su cuota diaria, ofrece
+            // reenviar desde el alternativo (utils/emailFallback).
+            const resp = await postEmail(`/api/expedientes/${expediente.id}/instalador/enviar`, {
+                docs: sendDocs, channels: chans, message, recipients,
             });
             data = resp.data;
         } catch (err) {
@@ -199,10 +255,12 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
             }
         });
 
-        // Si la documentación RITE llegó al instalador por al menos un canal,
-        // registramos la fecha de envío (documentacion.borrador_cert_sent_at).
+        // Si llegó por al menos un canal, se sella la fecha de envío de CADA
+        // documento que ha viajado: `borrador_cert_sent_at` (RITE) y/o
+        // `cert_cifo_sent_at`. Sellar solo el del popver por el que se entró
+        // dejaría el otro diciendo "sin enviar" el día después de mandarlo.
         const anyOk = results.some(r => r.status === 'ok');
-        if (anyOk && onSent) onSent();
+        if (anyOk && onSent) onSent(sendDocs);
         setSendResults(results);
         setStatus({ ok: anyOk, text: results.map(r => `${r.status === 'ok' ? '✓' : '✕'} ${r.text}`).join('   ') });
         setSendPhase('done');
@@ -236,8 +294,12 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
             <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
                 <div className="px-6 py-5 border-b border-white/[0.07] bg-brand/5 flex items-center justify-between">
                     <div>
-                        <h2 className="text-lg font-black uppercase tracking-tight text-white">Documentación RITE</h2>
-                        <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">Memoria (Word + PDF) + Borrador certificado</p>
+                        <h2 className="text-lg font-black uppercase tracking-tight text-white">
+                            {docs.includes('cifo') ? 'Enviar al instalador' : 'Documentación RITE'}
+                        </h2>
+                        <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">
+                            {docs.includes('cifo') ? `RITE + CIFO · ${numexpte}` : 'Memoria (Word + PDF) + Borrador certificado'}
+                        </p>
                     </div>
                     <button onClick={onClose} className="text-white/30 hover:text-white transition-colors">
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
@@ -245,6 +307,16 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                 </div>
 
                 <div className="px-6 py-5 space-y-5 max-h-[74vh] overflow-y-auto custom-scrollbar">
+                    {/* Qué se manda (RITE / CIFO). El aviso de "tampoco tenemos lo
+                        otro" va aquí arriba: es lo que cambia la decisión. */}
+                    <DocsInstaladorPicker
+                        origen="rite"
+                        docs={docs}
+                        bloqueos={bloqueos}
+                        pendientes={estado.pendientes}
+                        onToggle={toggleDoc}
+                    />
+
                     {/* Acciones sobre los documentos */}
                     <div>
                         <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Documentos</label>
@@ -350,8 +422,8 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                     <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all">
                         Cerrar
                     </button>
-                    <button onClick={handleSend} disabled={sending || busy === 'download' || busy === 'drive' || (!willEmail && !willWhatsapp)}
-                        title={(!willEmail && !willWhatsapp) ? 'Selecciona al menos un canal disponible' : 'Enviar'}
+                    <button onClick={handleSend} disabled={sending || busy === 'download' || busy === 'drive' || (!willEmail && !willWhatsapp) || !docs.filter(k => !bloqueos[k]).length}
+                        title={!docs.filter(k => !bloqueos[k]).length ? 'Selecciona al menos un documento' : (!willEmail && !willWhatsapp) ? 'Selecciona al menos un canal disponible' : 'Enviar'}
                         className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
                         {sending
                             ? <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
@@ -392,7 +464,7 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                                                     <svg className="w-8 h-8 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} style={{ animation: 'float 1.8s ease-in-out infinite' }}><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
                                                 </div>
                                             </div>
-                                            <h3 className="text-xl font-black uppercase tracking-tight text-white">Enviando Memoria RITE…</h3>
+                                            <h3 className="text-xl font-black uppercase tracking-tight text-white">{docs.includes('cifo') ? 'Enviando al instalador…' : 'Enviando Memoria RITE…'}</h3>
                                             <p className="text-white/40 text-[10px] font-bold uppercase tracking-[0.2em] mt-1">{numexpte}</p>
                                             <div className="mt-6 w-full space-y-2">
                                                 {willEmail && (
@@ -418,7 +490,7 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                                                     <svg className="w-10 h-10 animate-scale-in" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d={anyOk ? 'M5 13l4 4L19 7' : 'M6 18L18 6M6 6l12 12'} /></svg>
                                                 </div>
                                             </div>
-                                            <h3 className="text-xl font-black uppercase tracking-tight text-white">{allGood ? '¡Memoria RITE enviada!' : anyOk ? 'Enviado parcialmente' : 'No se pudo enviar'}</h3>
+                                            <h3 className="text-xl font-black uppercase tracking-tight text-white">{allGood ? (docs.includes('cifo') ? '¡Enviado al instalador!' : '¡Memoria RITE enviada!') : anyOk ? 'Enviado parcialmente' : 'No se pudo enviar'}</h3>
                                             <p className="text-white/40 text-[10px] font-bold uppercase tracking-[0.2em] mt-1">{numexpte}</p>
                                             <div className="mt-6 w-full space-y-2">
                                                 {sendResults.map((r, i) => {

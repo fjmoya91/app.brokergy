@@ -129,6 +129,46 @@ La app usa los **WCF JSON** del Catastro, NO los ASMX legados, porque el WAF del
 - Ping cada 5 min al endpoint `Consulta_RCCOOR` (Puerta del Sol) detecta recuperación → `recordSuccess()` desbloquea.
 - `isRateLimitResponse(err, body)` detecta: status 403, "limite de peticiones", "peticion denegada", "no se puede procesar".
 
+#### La referencia catastral se LEE de una foto (2026-08-27)
+
+La referencia llega casi siempre en una imagen —captura del recibo del IBI, foto de la
+escritura, pantallazo de un WhatsApp— y copiar 20 caracteres alfanuméricos a mano es
+donde se cuela la errata. Y una errata ahí **no da un error legible**: el Catastro
+contesta "no encontrado", que se lee como que la vivienda no está dada de alta.
+
+En el buscador (`CatastroSearchBox`, modo REFERENCIA) hay un lector: se elige la imagen,
+se **arrastra** o se **pega con Ctrl+V** —que es como llega una captura desde WhatsApp
+Web— y la referencia leída **se busca sola**, sin un paso intermedio de confirmar: es el
+gesto que se iba a hacer a continuación de todos modos.
+
+| Qué | Dónde |
+|---|---|
+| Lectura (prompt + esquema + validación) | [catastroOcrService.js](implementation/backend/services/catastroOcrService.js) |
+| Ruta | `POST /api/catastro/ocr-rc` (multipart `files[]`), **staffOnly** |
+| Superficie | `CatastroSearchBox`, prop `permiteFotoRc` |
+
+**REGLA — el modelo solo LEE; qué es una referencia lo decide el código.** `normalizarRC`
+(14 o 20 caracteres alfanuméricos, sin separadores) y `extraerReferencias` son
+deterministas. Al prompt se le prohíbe expresamente completar caracteres que no se lean
+—vale más un array vacío que una referencia adivinada, porque una adivinada busca la
+vivienda de otro— y se le enumeran las cadenas largas con las que NO debe confundirla
+(nº de recibo, NIF, IBAN, finca registral, nº de serie). Medido sobre cuatro capturas
+reales-tipo: las cuatro correctas, ~2 s cada una.
+
+**REGLA — con VARIAS referencias en la imagen se pregunta.** Una ficha catastral trae la
+de la parcela (14) y la del inmueble (20); elegir por el usuario sería adivinar cuál es
+su vivienda. Se enseñan las dos rotuladas y con el contexto leído (dirección o titular)
+para poder comprobarlo. Con una sola, se busca directamente.
+
+**REGLA — el lector es del flujo INTERNO, no de la landing.** Detrás hay una llamada de
+pago a un LLM: la ruta es `staffOnly` y el botón solo se pinta con `permiteFotoRc`
+(`isInternal` en `LandingFunnelView`, `isStaff` en `App.jsx`). Un partner que lo viera
+solo se llevaría un 403.
+
+Es un **gemelo pequeño** de `ceeOcrService`, del que reutiliza `normalizeToPdf` (varias
+fotos se unen en un PDF antes de leer). No se bifurcó aquel: leer 21 campos de un CEE de
+30 páginas y localizar una cadena en una captura no comparten prompt ni esquema.
+
 #### Frontend — Auto-parse de dirección catastral
 
 En `ClienteDetailModal.jsx`, el botón **"Usar Catastro"** junto al input de dirección parsea strings tipo `"CL DON SERGIO 15 13700 TOMELLOSO (CIUDAD REAL)"` y rellena CCAA/Provincia/Municipio/CP automáticamente (matching por sufijo o fallback por dígitos del CP). Función `parseCatastroAddressFull()`.
@@ -951,10 +991,24 @@ lleva importes.
 
 **REGLA — facturas y presupuesto no se suman.** Si hay facturas, la inversión son ellas; el presupuesto
 solo manda mientras no haya factura. Sumar los dos duplica la inversión del Anexo y el tope de
-sobrefinanciación. El importe es siempre la **base imponible**.
+sobrefinanciación.
+
+**REGLA — el documento tiene DOS importes y cada uno va a lo suyo (2026-08-27).** El OCR lee la
+**base imponible**, y ésa sigue siendo la del expediente: `documentacion.facturas[].importe_sin_iva`
+es la inversión que declara el Anexo, porque el CAE se justifica sobre la base y no sobre los
+impuestos. Pero lo que se vuelca a la ECONOMÍA de la oportunidad —`funnel.presupuesto_eur` →
+`inputs.presupuesto`, de donde salen el coste final de la propuesta y la base de la deducción del
+IRPF— es el **total CON IVA**: el titular casi siempre es un PARTICULAR y no se lo deduce nadie, así
+que su inversión real lo incluye. Con la base a secas, la propuesta le prometía un coste ~21 % más
+barato del que iba a pagar. Fuente única de la derivación:
+`importesDocumento()` en [routes/facturaOcr.js](implementation/backend/routes/facturaOcr.js), que
+devuelve las dos cifras y el tipo aplicado, por el camino más fiable que traiga el papel: base+total
+declarados > cuota declarada > tipo declarado > **tipo por defecto (21 %)**. Este último es una
+suposición, no un dato, y por eso viaja marcado `iva_estimado` y la pantalla lo dice: el campo es
+editable, y ahí se corrige también el caso de titular EMPRESA, que sí se deduce el IVA.
 
 `funnel.presupuesto_modo = 'documento'` (nuevo, junto a `'tengo'`) hace que `funnelToInputs` use esa
-cifra: es literalmente la inversión que declarará el Anexo.
+cifra.
 
 ### Aunque sea una oportunidad, se prepara el expediente
 
@@ -1300,8 +1354,32 @@ nueve renglones a 16 px son media pantalla de un texto que casi nunca se edita. 
 teléfono se leen dentro de la píldora del canal** — comprobarlos es lo que se hace justo antes de
 pulsar lo único irreversible. Mismo criterio que la página de acciones del parte diario.
 
+### La demanda simulada, al lado de la certificada (2026-08-27)
+
+La columna "Demanda calefacción" enseña además **la demanda que se simuló en la oportunidad**
+y el desvío en %. Fuente única:
+[demandaPropuesta.js](implementation/frontend/src/features/expedientes/logic/demandaPropuesta.js),
+que usan la rejilla y el aviso de subida del `.xml` de `CeeModule`.
+
+**REGLA — se compara en kWh/AÑO, nunca en kWh/m²·año.** La superficie del CEE y la de la
+simulación no tienen por qué coincidir (medido en 26RES080_72: 95 m² simulados frente a 127 m²
+certificados): comparar los valores por metro cuadrado inventa un déficit que no existe, o esconde
+el que sí está. Por eso el recuadro imprime también el total certificado (`kWh/m²·año × superficie`).
+
+**REGLA — el juicio de déficit solo en las fichas de SUSTITUCIÓN DE CALDERA.** Ahí el bono se
+prometió sobre esa demanda: si el CEE certifica menos, el ahorro real baja. En un **RES080** el
+ahorro sale de emisiones o de energía final, así que la diferencia se enseña pero no se pinta en
+rojo (`compararDemanda(..., { juzgaDeficit:false })`). Holgura del 2 %, la misma que se aplica al
+comparar el CEE inicial con el final.
+
+El valor sale de `datos_calculo.result` (`q_net` por m², `Q_net` total), con respaldo en la raíz
+de `datos_calculo` y en la columna `oportunidades.demanda_calefaccion` para los expedientes
+viejos. Sin oportunidad detrás —un CEE directo— no se pinta nada. Existía ya el aviso al soltar el
+`.xml`, pero **desaparecía al recargar**: el descuadre volvía a verse al generar el CIFO, con el
+cliente ya comprometido.
+
 ### La rejilla de los dos CEE
-Las cinco columnas (250+150+225+320+340 px) se apilan a ancho completo. Las **tres fechas pasan a
+Las cinco columnas (250+168+225+320+340 px) se apilan a ancho completo. Las **tres fechas pasan a
 tres filas** con el rótulo a la izquierda: un `input[type=date]` a 16 px —obligatorio para que iOS
 no amplíe la página— pide ~135 px y en tres columnas el navegador recortaba el formato a `mm/dd/`.
 Los rótulos de 7 px suben a 10 px y todos los controles llegan a los 44 px de objetivo táctil
@@ -1686,6 +1764,44 @@ subidos desde la app se marcan "cualquiera con el enlace" para que la
 previsualización funcione sin estar logueado en la cuenta de Brokergy; ahí no,
 porque un enlace público es un fichero que sale de la app en cuanto alguien copia
 una URL (`ceeDirectoFolders.puedeHacersePublico`).
+
+### Los FICHEROS los coloca el SERVIDOR, no el navegador
+
+**REGLA — ninguna ruta de carpeta llega desde el cliente.** `CeeDocumentsGrid` es
+un componente COMPARTIDO con el CAE y escribía el destino a mano —
+`["1. CEE", "CEE FINAL"]`, que es la estructura del CAE. Aquí la sección cuelga
+DIRECTAMENTE de la raíz (`2. CEE FINAL`), así que `getOrCreateSubfolder` iba
+creando una `1. CEE/CEE FINAL` al vuelo dentro del encargo: el fichero quedaba
+donde `scanSection` no mira y fuera de lo que se comparte con el técnico y con el
+cliente. Medido: **3 encargos y 18 ficheros**, entre ellos el `.cex` de
+2025CEE_43, que en pantalla salía subido y en Drive no estaba donde debía.
+
+`POST /:id/documents/upload` delega ahora en `ceeDirectoUploadService.uploadFile`,
+el MISMO camino que el enlace público del técnico — carpeta de la fase según el
+alcance, renombrado canónico y versionado a OLD. Las dos superficies no pueden
+divergir porque son la misma función.
+
+**La fase y el slot se DEDUCEN si no vienen.** Entre el deploy y el siguiente
+refresco hay navegadores con la versión anterior cargada que siguen mandando la
+ruta del CAE; el nombre canónico que ya aplican (`… – CEE FINAL.cex`) basta para
+saber a qué sección y a qué slot iban (`matchSlot`). Sin esto, el fallo seguiría
+ocurriendo durante horas después de arreglarlo.
+
+**El cajón OTROS conserva su nombre** (`opts.nombreLibre`): admite varios
+ficheros, y el nombre canónico de un slot es fijo — cada subida archivaría la
+anterior en OLD. El prefijo `{nº} – ` lo pone el servicio, nunca quien llama.
+
+Recolocar lo ya mal colocado:
+
+```bash
+node implementation/backend/scripts/recolocar_cee_directos_drive.js --execute
+```
+
+**SALVAGUARDA — un encargo ÚNICO con certificados de las DOS fases no se toca.**
+Allí las dos fases caen en la misma carpeta (`1. CEE`), y aplanarlas mezclaría dos
+certificados: `matchSlot` se quedaría con el primero de cada slot y la app
+enseñaría una mezcla. Eso no es un fichero mal colocado, es un encargo que en
+realidad es DOBLE (visto en 2025CEE_26). Se avisa y se deja.
 
 ### El candado de cobro
 
@@ -2234,6 +2350,88 @@ limpia su almacenamiento; como el estado de React solo se vaciaba con el evento
 estado, y limpia el deep-link de la URL (`?tab=`, `?exp=`, `?cee=`) para que la
 siguiente sesión no aterrice en el expediente del anterior.
 
+## Al instalador se le pide TODO de una vez (2026-08-27)
+
+Al instalador se le piden dos cosas y en momentos distintos: **firmar el CIFO** y
+**registrar el RITE** y devolvernos el certificado. Se pedían por separado, cada una
+desde su popup y **con su propio enlace**. Un enlace por tarea es un enlace que se
+pierde: el instalador abría el primero, resolvía lo que veía, y de lo otro no se
+enteraba nadie hasta que alguien lo reclamaba por teléfono.
+
+Ahora, al enviar cualquiera de los dos, la app **comprueba si el otro también falta**
+y ofrece mandarlo en el MISMO mensaje — el mismo gesto que el Anexo I + Cesión con el
+cliente.
+
+### Fuentes únicas
+
+| Qué | Dónde |
+|---|---|
+| ¿Qué le falta al instalador? + los TEXTOS de los tres mensajes | [logic/instaladorPendientes.js](implementation/frontend/src/features/expedientes/logic/instaladorPendientes.js) |
+| El envío (adjuntos + email + WhatsApp + resultado por canal) | `POST /api/expedientes/:id/instalador/enviar` |
+| Lo que ve el instalador | `/instalador/:id` → `SubirInstaladorView` + `FirmarCifoCard` / `SubirRiteCard` |
+
+El backend importa `instaladorPendientes.js` por `import()` dinámico (igual que
+`cifoService` con `cifoDoc.js`): lo consumen los DOS popups, la ruta de envío, la
+página pública y el barrido de "qué falta". Si esa decisión se duplicara, el mensaje
+prometería un documento que la página no pide — o al revés.
+
+**REGLA — el `cert_rite_drive_link` es el CERTIFICADO RITE, no nuestra Memoria.**
+`/memoria-rite/generate` guardaba ahí la Memoria (Word) que generamos NOSOTROS, que es
+justo el campo donde la subida pública deja el certificado que devuelve el instalador.
+Consecuencia medida sobre producción (**13 expedientes**): generar la memoria dejaba el
+expediente diciendo que el RITE ya estaba aportado — y con él vía libre para emitir el
+CIFO, porque "el CIFO no se emite sin RITE" era en la práctica "sin haber generado la
+memoria". La memoria vive ahora en `memoria_rite_docx_link`. Para los expedientes
+anteriores, `esMemoriaRiteEnDriveLink()` aplica la heurística (hay borrador generado y
+no hay campo nuevo ⇒ ese enlace es la memoria) y **ante la duda asume que NO tenemos el
+RITE**: ofrecer pedirlo de más lo corrige una persona con un clic; darlo por recibido de
+menos deja el expediente parado sin que nadie se entere. Deshacer la ambigüedad de una
+vez, leyendo el NOMBRE del fichero en Drive:
+
+```bash
+node implementation/backend/scripts/separar_memoria_rite_de_certificado.js --execute
+```
+
+**REGLA — nada se genera a espaldas de nadie.** El popup del RITE solo ofrece el CIFO si
+YA existe su borrador (`cert_cifo_drive_link`): un CIFO que nadie ha revisado vuelve
+firmado y hay que rechazarlo (regla 24). El popup del CIFO solo ofrece el RITE si el
+expediente pasa `GET /memoria-rite/check` — la MISMA validación que el popup de
+generación, la que evita memorias con huecos. Lo que no se puede mandar se dice POR QUÉ
+en vez de desaparecer.
+
+**REGLA — el adjunto del CIFO se DESCARGA DE DRIVE, no se vuelve a rasterizar.** Lo que
+el instalador firma es el PDF que le sirve su enlace desde `cert_cifo_drive_link`. El
+modal guarda primero (`replaceExisting`, y si falla NO se envía) y el backend adjunta ese
+mismo fichero. Antes el email y el WhatsApp rasterizaban cada uno su propio HTML: tres
+renders del mismo documento que podían no coincidir.
+
+**REGLA — todo o nada.** Los adjuntos se preparan ANTES de mandar nada: un mensaje que
+anuncia dos documentos y solo lleva uno deja al instalador buscando lo que no llegó. Si
+el microservicio RITE está caído, se dice y se ofrece la salida (desmarcar el RITE).
+
+**REGLA — se sella la fecha de envío de CADA documento que ha viajado**
+(`cert_cifo_sent_at` y/o `borrador_cert_sent_at`). Sellar solo el del popup por el que se
+entró dejaba el otro diciendo "sin enviar" el día después de mandarlo — y el parte diario
+reclamándolo.
+
+### La página del instalador — `/instalador/:id`
+
+Un enlace, todas sus tareas. **Solo se enseña lo que QUEDA**: lo ya recibido baja a una
+línea con su ✓ (es la prueba de que llegó, que es lo primero que se pregunta, pero no
+puede ocupar el sitio de lo que falta). La primera pendiente se abre sola.
+
+**REGLA — la superficie de cada tarea es la MISMA que la de su página suelta.**
+`FirmarCifoCard` y `SubirRiteCard` se comparten con `/subir-cifo` y `/subir-rite`, que
+siguen vivas porque sus enlaces ya viajan en mensajes enviados y en los recordatorios del
+parte diario. Si aquí se firmara distinto que allí, un CIFO rechazado se podría volver a
+firmar por el camino que no lo comprueba.
+
+**La memoria firmada solo se le pide si alguna vez le mandamos una** (`pide_memoria`):
+pedirle "la memoria que os enviamos, firmada" a quien no ha recibido ninguna es pedirle
+un documento que no existe.
+
+---
+
 ## Quién EJECUTA la obra y quién FIRMA ante Industria (2026-08-26)
 
 Un instalador no habilitado en Industria delega la firma en otra empresa
@@ -2287,6 +2485,55 @@ los que responde la empresa habilitada.
 
 ---
 
+## Deducción del IRPF — ¿vale el par de certificados? (2026-08-27)
+
+Recuadro en el módulo CEE, debajo de la rejilla, **solo cuando el expediente tiene
+las DOS fases** (en un CEE directo de alcance ÚNICO no se pinta: sin el CEE de
+después no hay nada que comparar). Sale en los dos negocios: CAE y CEE directos.
+
+Lo que exige la norma (DA 50ª de la Ley del IRPF, RDL 19/2021) para la deducción
+de la vivienda: reducir el **consumo de energía primaria no renovable** al menos un
+**30 %**, **o** llegar a **letra A o B** en la escala de ESE indicador. Basta una.
+Fuente única: [logic/irpfEpnr.js](implementation/frontend/src/features/expedientes/logic/irpfEpnr.js).
+
+**REGLA — la letra que cuenta es la del CONSUMO, no la de EMISIONES.** El
+certificado trae las dos y a menudo no coinciden: medido en `25RES060_71`, el CEE
+final es **B en emisiones y C en consumo**. Mirar la de emisiones daría por bueno
+un expediente que no cumple.
+
+**REGLA — `<EnergiaPrimariaNoRenovable>` aparece DOS veces en el XML.** Dentro de
+`<Consumo>` es el número (kWh/m²·año); dentro de `<Calificacion>`, la letra y su
+`<EscalaGlobal>`. Un `getElementsByTagName` sobre el documento devuelve las dos y
+se cogería la que caiga primero: hay que acotar por el padre. Y la letra es hija
+DIRECTA — con `getElementsByTagName('Global')` se cogería el `<Global>` numérico
+de dentro de `<EscalaGlobal>`.
+
+**REGLA — el `.xml` GUARDADO en BD no lo puede releer `parseCeeXml`.** El
+`normalizeData` del backend deja `cee.xml_inicial`/`xml_final` **enteros en
+MAYÚSCULAS**, y ahí `parseCeeXml` falla por dos motivos: busca los tags con
+mayúsculas exactas (`<Demanda>` ≠ `<DEMANDA>`) y, antes de eso, `DOMParser`
+rechaza el documento COMPLETO porque `<?XML VERSION="1.0"?>` no es un prólogo
+válido. Por eso existe **`parseEpnrFromXml`**, que quita la declaración, busca sin
+distinguir mayúsculas y **nunca lanza**. No se tocó `parseCeeXml` —del que
+dependen la calculadora, el CIFO y el RES080— por un dato nuevo.
+
+Sin ese rescate la comprobación solo valdría para lo que se suba a partir de hoy:
+los certificados ya subidos tienen en `cee_inicial`/`cee_final` un objeto parseado
+**sin** este dato. Con él funciona sobre los **59 pares** que ya hay en producción
+(58 cumplen; `26RES060_134` no, porque tiene el MISMO xml en las dos fases).
+
+**REGLA — esto INFORMA, no decide.** Que el certificado cumpla el requisito
+técnico no es que al cliente le corresponda la deducción: hay plazos de expedición,
+base máxima anual y la situación de cada declaración. El texto habla del
+certificado ("el ahorro certificado es del 41,6 %") y **no viaja en la entrega al
+cliente** — afirmarle por escrito que tiene derecho a un dinero es otra cosa.
+
+Se avisa además si las **superficies de los dos certificados no casan** (>2 %):
+el indicador es por m², así que si una está mal el porcentaje compara dos edificios
+distintos. Medido en `26RES060_153`: 91 m² frente a 123 m².
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -2335,6 +2582,8 @@ los que responde la empresa habilitada.
 25. **La PROPUESTA se versiona al ENVIARLA, nunca al guardarla**: cada envío archiva su PDF en `0. PROPUESTAS` como `Propuesta_{expte}_v{N}.pdf`, imprime la marca DENTRO del documento y sella qué versión aceptó el cliente. Fuente única: [propuestaVersiones.js](implementation/backend/services/propuestaVersiones.js) — no volver a generar el PDF de la propuesta por separado en cada canal (el del email y el de WhatsApp acababan siendo documentos distintos), ni guardar el HTML de una versión en el JSONB (353 KB de media, regla 21). Ver "Versiones de la PROPUESTA".
 
 26.b **El CIFO y el certificado RES080 identifican a las DOS empresas cuando no son la misma**: la que EJECUTA y factura (instalador asignado) y la HABILITADA que firma ante Industria (`instalador_rite_id`). Sin las dos, el NIF del certificado no casa con el de las facturas del expediente. Fuente única de la decisión y del texto: `empresasActuacion` / `notaDelegacionRite` en [docGenerators.js](implementation/frontend/src/features/expedientes/utils/docGenerators.js). Con una sola empresa el documento no cambia. Los dos documentos tienen hojas de alto FIJO: tras tocarlos, pasar `check_cifo_paginas.mjs` **y** `check_res080_paginas.mjs`. Ver "Quién EJECUTA la obra y quién FIRMA ante Industria".
+
+27. **Al instalador se le pide TODO de una vez**: al enviar el CIFO o la documentación RITE, la app comprueba si el otro también falta y ofrece mandarlo en el MISMO mensaje, con UN enlace (`/instalador/:id`). Fuente única de qué falta y de los textos: [logic/instaladorPendientes.js](implementation/frontend/src/features/expedientes/logic/instaladorPendientes.js); del envío, `POST /api/expedientes/:id/instalador/enviar`. `cert_rite_drive_link` significa CERTIFICADO RITE aportado — la Memoria que generamos nosotros vive en `memoria_rite_docx_link`. Ver "Al instalador se le pide TODO de una vez".
 
 26. **El bot de WhatsApp solo habla en los chats ETIQUETADOS, en horario y sin tocar dinero**: contesta por la sesión real del VPS, así que sus frenos (etiqueta + lista blanca, 08:00-20:00 Madrid, ventana de silencio, silencio si escribe un humano, tope diario, apagado por defecto) protegen la cuenta de la que dependen TODOS los envíos automáticos. Los datos salen del dossier (`botContexto`, que reusa `buildChecklistData` y `ensureUploadLink`), nunca del prompt; los importes no viajan al dossier. Fuente única del texto: [botPrompt.js](implementation/backend/services/botPrompt.js). Ver "Bot de WhatsApp".
 

@@ -14,6 +14,7 @@ import { MensajeEditable } from './MensajeEditable';
 import { buildCertApproveMessage, buildCertDefaultMessage } from '../logic/certMessages';
 import { demandaPropuesta } from '../logic/demandaPropuesta';
 import { fireSuccessConfetti } from '../utils/successConfetti';
+import { SendActionOverlay } from '../../../components/SendActionOverlay';
 
 // ─── Componentes de Celda ──────────────────────────────────────────────────
 function TableCell({ value, onChange, readOnly, type = 'number', highlight = false }) {
@@ -260,6 +261,9 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
     // Mensaje de encargo editable (previsualización), homogéneo con el popup de la campana.
     const [certAssignMessage, setCertAssignMessage] = useState('');
     const [certChannels, setCertChannels] = useState(['email']); // 'email' | 'whatsapp'
+    // Si la pulsación fue "Asignar y notificar" o "Solo asignar": el overlay no puede
+    // decir "Enviando encargo…" cuando no se manda nada (comparte carpeta y guarda).
+    const [certNotifyMode, setCertNotifyMode] = useState(true);
     const savedCertId = useRef(expediente?.cee?.certificador_id || null);
 
     // ─── Estado para popup de validación (approve-cee) ─────────────────────
@@ -512,6 +516,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
         // habido un cambio. Medido: reasignar a otro técnico dejaba la fase en
         // "encargo enviado" apuntando a quien no había recibido nada.
         const certAnteriorAlCambio = expediente?.cee?.certificador_id || null;
+        setCertNotifyMode(!!notify);
 
         // Persistir el resto del CEE (XML, fechas, ACS, etc) — el backend del endpoint
         // se encargará de persistir cert_id, dar acceso Drive y enviar el email si aplica.
@@ -577,19 +582,32 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
             });
 
             const driveOk = data?.driveAccessGranted;
+            // El resultado se pinta con el overlay ESTÁNDAR de envío, que enseña UNA
+            // LÍNEA POR HECHO en vez de un párrafo corrido: lo que se comprueba de un
+            // vistazo es «por dónde ha salido, a quién y si ya tiene la carpeta», y
+            // eso en una frase seguida hay que leerlo entero para encontrarlo.
+            const driveItem = driveOk ? 'Acceso de edición a la carpeta CEE' : null;
             if (notify) {
                 const chans = data?.channels || [];
-                const driveMsg = driveOk ? ' Tiene acceso de edición a la carpeta CEE.' : '';
-                const sentText = chans.length > 0
-                    ? `Enviado vía ${chans.join(' + ')}${data?.sentTo ? ' (' + data.sentTo + ')' : ''}.`
-                    : `Notificación enviada.`;
-                setCertNotifResult({ type: 'ok', text: `${sentText}${driveMsg}` });
-                fireSuccessConfetti();
+                const items = chans.map(c => {
+                    const low = String(c).toLowerCase();
+                    if (low.includes('mail')) return `Email · ${data?.sentTo || knownEmail || ''}`.trim();
+                    if (low.includes('whats')) return `WhatsApp · ${knownPhone || ''}`.trim();
+                    return String(c);
+                });
+                if (!items.length) items.push('Notificación enviada');
+                if (driveItem) items.push(driveItem);
+                setCertNotifResult({
+                    type: 'ok',
+                    title: certPriority === 'urgent' ? '¡Encargo urgente enviado!' : '¡Encargo enviado!',
+                    items
+                });
             } else {
-                const driveMsg = driveOk
-                    ? `Certificador asignado. ${localCert?.razon_social || 'El cert'} tiene acceso de edición a la carpeta CEE.`
-                    : 'Certificador asignado correctamente.';
-                setCertNotifResult({ type: 'ok', text: driveMsg });
+                setCertNotifResult({
+                    type: 'ok',
+                    title: 'Certificador asignado',
+                    items: [`${localCert?.razon_social || 'Certificador'} asignado al expediente`, ...(driveItem ? [driveItem] : [])]
+                });
             }
             // Refrescar para que cee_folder_link aparezca en la UI (botón "Carpeta CEE")
             if (onRefresh) onRefresh();
@@ -1448,26 +1466,13 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
 
             {/* ─── Popup de notificación al certificador ─────────────────── */}
             {showCertPopup && (
-                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in p-4 max-md:items-end max-md:p-0" onClick={() => { if (!certNotifLoading) cerrarCertPopup(!!certNotifResult); }}>
+                <>
+                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in p-4 max-md:items-end max-md:p-0" onClick={() => { if (!certNotifLoading && !certNotifResult) cerrarCertPopup(false); }}>
                     {/* En móvil es una hoja inferior: cabecera fija con el técnico al que
                         asignas, UN solo eje de scroll y los dos botones pegados abajo
                         respetando el área segura. Con el popup centrado, el teclado al
                         editar el mensaje dejaba el botón de enviar fuera de la pantalla. */}
                     <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto max-md:mx-0 max-md:p-0 max-md:rounded-b-none max-md:rounded-t-3xl max-md:max-h-[92dvh] max-md:flex max-md:flex-col max-md:overflow-hidden" onClick={e => e.stopPropagation()}>
-                        {certNotifResult ? (
-                            <div className="text-center py-4 max-md:px-5 max-md:py-8">
-                                <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 border ${certNotifResult.type === 'ok' ? 'bg-emerald-500/20 border-emerald-500/30' : 'bg-red-500/20 border-red-500/30'}`}>
-                                    {certNotifResult.type === 'ok' ? (
-                                        <svg className="w-7 h-7 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                                    ) : (
-                                        <svg className="w-7 h-7 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                    )}
-                                </div>
-                                <p className={`text-sm font-bold ${certNotifResult.type === 'ok' ? 'text-emerald-400' : 'text-red-400'}`}>{certNotifResult.text}</p>
-                                <button onClick={() => cerrarCertPopup(true)} className="mt-4 px-6 py-2 bg-white/5 border border-white/10 rounded-xl text-white/60 text-xs font-black uppercase hover:text-white transition-all">Cerrar</button>
-                            </div>
-                        ) : (
-                            <>
                                 <div className="flex items-center gap-3 mb-5 max-md:shrink-0 max-md:mb-0 max-md:px-5 max-md:pt-4 max-md:pb-3 max-md:border-b max-md:border-white/[0.06]">
                                     <div className="w-10 h-10 rounded-full bg-brand/20 flex items-center justify-center shrink-0">
                                         <svg className="w-5 h-5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
@@ -1603,10 +1608,29 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                         ) : (certPriority === 'urgent' ? '🚨 Asignar y avisar URGENTE' : 'Asignar y notificar')}
                                     </button>
                                 </div>
-                            </>
-                        )}
                     </div>
                 </div>
+                {/* Resultado del encargo — overlay ESTÁNDAR de la app (enviando → ✓/✗
+                    con confeti y filete de marca). Es el MISMO que usan «Solicitar lo
+                    que falta» y el reenvío de notificaciones: un envío no puede
+                    contarse de una manera aquí y de otra allí. Va POR ENCIMA del
+                    formulario (z-[600]) para que, al fallar, «Volver e intentar de
+                    nuevo» devuelva lo escrito intacto en vez de cerrarlo todo. */}
+                <SendActionOverlay
+                    phase={certNotifLoading ? 'sending' : (certNotifResult ? 'done' : null)}
+                    ok={certNotifResult?.type === 'ok'}
+                    subtitle={[numExp, selectedCertName].filter(Boolean).join(' · ')}
+                    items={certNotifResult?.items || []}
+                    errorText={certNotifResult?.type === 'error' ? certNotifResult.text : ''}
+                    sendingTitle={certNotifyMode ? 'Enviando encargo…' : 'Asignando certificador…'}
+                    okTitle={certNotifResult?.title || '¡Encargo enviado!'}
+                    errorTitle={certNotifyMode ? 'No se pudo enviar el encargo' : 'No se pudo asignar'}
+                    onClose={() => {
+                        if (certNotifResult?.type === 'ok') cerrarCertPopup(true);
+                        else setCertNotifResult(null);
+                    }}
+                />
+                </>
             )}
             {/* Cabecera. En MÓVIL se apila y el selector de técnico sube a lo primero
                 (`max-md:order-first`): en una sola fila quedaba empujado fuera de la

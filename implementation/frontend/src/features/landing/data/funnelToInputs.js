@@ -190,9 +190,13 @@ function funnelToCalculatorInputs(funnel, catastro, options = {}) {
 
     // 11. Presupuesto
     //   'tengo'     → cifra tecleada por el cliente/partner
-    //   'documento' → base imponible leída del presupuesto o de las facturas aportadas
+    //   'documento' → importe leído del presupuesto o de las facturas aportadas
     //                 (pantalla `docs_obra` del flujo interno). Es el mejor dato posible:
-    //                 es literalmente la inversión que declarará el Anexo.
+    //                 es literalmente el papel que tiene delante el cliente.
+    //                 Va CON IVA a propósito: el titular casi siempre es un particular
+    //                 y no se lo deduce, así que su inversión real lo incluye. La base
+    //                 imponible —la que declarará el Anexo del expediente— se conserva
+    //                 aparte en `docs_ocr.documentos[].importe_sin_iva`.
     const presupuestoAportado = ['tengo', 'documento'].includes(funnel.presupuesto_modo);
     inputs.presupuesto = presupuestoAportado && funnel.presupuesto_eur > 0
         ? Number(funnel.presupuesto_eur)
