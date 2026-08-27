@@ -7,10 +7,12 @@ import CeeUploadModal from '../../cee/CeeUploadModal';
 import { ceeToXmlShape } from '../../cee/ceeExtract';
 import { EfficiencyTable, CATEGORIES_SIMPLIFICADO } from '../../calculator/components/EfficiencyTable';
 import { CeeDocumentsGrid } from './CeeDocumentsGrid';
+import { AvisoIrpfEpnr } from './AvisoIrpfEpnr';
 import { TecnicoPicker } from './TecnicoPicker';
 import { telefonoDe, emailDe } from '../../../utils/contactoPrescriptor';
 import { MensajeEditable } from './MensajeEditable';
 import { buildCertApproveMessage, buildCertDefaultMessage } from '../logic/certMessages';
+import { demandaPropuesta } from '../logic/demandaPropuesta';
 import { fireSuccessConfetti } from '../utils/successConfetti';
 
 // ─── Componentes de Celda ──────────────────────────────────────────────────
@@ -373,7 +375,11 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     const xmlDemandaM2 = parseFloat(parsed.demandaCalefaccion) || 0;
                     const xmlSuperficie = parseFloat(parsed.superficieHabitable) || 0;
                     const xmlDemandaTotal = xmlDemandaM2 * xmlSuperficie;
-                    const proposalQNet = parseFloat(opResult.Q_net) || 0;
+                    // Misma fuente que la referencia que pinta la rejilla: si el aviso
+                    // y lo que se ve en pantalla leyeran sitios distintos, uno de los dos
+                    // mentiría en los expedientes viejos (algunos guardaron el total en la
+                    // raíz de datos_calculo, no dentro de `result`).
+                    const proposalQNet = demandaPropuesta(expediente)?.total || 0;
 
                     if (xmlDemandaTotal > 0 && proposalQNet > 0 && xmlDemandaTotal <= proposalQNet) {
                         setXmlWarning({
@@ -1687,6 +1693,16 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
             </div>
 
             {isReforma ? renderRes080() : renderRes060()}
+
+            {/* ¿Los dos certificados valen para la deducción del IRPF? Solo tiene
+                sentido con las DOS fases: sin el CEE de después no hay nada que
+                comparar. En un CEE directo de alcance ÚNICO `secciones` no trae
+                'final' y el recuadro no se pinta. */}
+            {secciones.includes('inicial') && secciones.includes('final') && (
+                <div className="mt-8">
+                    <AvisoIrpfEpnr cee={local} />
+                </div>
+            )}
 
             {/* Modal de carga de CEE (XML exacto u OCR IA) — compartido entre RES060/RES093 y
                 RES080, disparado por ceeLoadTarget desde cualquiera de los dos render paths. */}

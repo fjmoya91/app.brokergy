@@ -20,7 +20,16 @@
  */
 export function parseCeeXml(xmlString) {
     const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(xmlString, 'text/xml');
+    // El XML que se guarda en `cee.xml_inicial`/`xml_final` pasa por el
+    // `normalizeData` del backend, que pone TODOS los strings en MAYÚSCULAS. Los
+    // tags sobreviven (XML distingue mayúsculas, pero abre y cierra igual: los
+    // helpers de aquí ya buscan sin distinguirlas); lo que NO sobrevive es la
+    // declaración, porque `<?XML VERSION="1.0"?>` no es un prólogo válido y
+    // DOMParser rechaza el documento ENTERO. Se quita: un XML sin prólogo se
+    // interpreta como UTF-8, que es justo lo que es. Sin esto, nada de lo que ya
+    // está guardado se puede volver a leer.
+    const limpio = String(xmlString || '').replace(/^\uFEFF?\s*<\?xml[\s\S]*?\?>/i, '');
+    const xmlDoc = parser.parseFromString(limpio, 'text/xml');
 
     // Comprobar si hay errores de parseo
     const parseError = xmlDoc.querySelector('parsererror');
@@ -87,6 +96,13 @@ export function parseCeeXml(xmlString) {
         // Energía final (kWh/m²·año) por VECTOR energético y por uso, tal cual la declara
         // <EnergiaFinalVectores>. Solo los vectores con consumo (>0). Ver más abajo.
         energiaFinalVectores: null,
+        // ── CONSUMO DE ENERGÍA PRIMARIA NO RENOVABLE ────────────────────────────
+        // El indicador del que dependen las deducciones del IRPF por obras de
+        // eficiencia energética (DA 50ª LIRPF): ahorro ≥30 % en este consumo, o
+        // llegar a letra A/B en SU escala. Ver logic/irpfEpnr.js.
+        epnrConsumo: null,      // kWh/m²·año — <Consumo><EnergiaPrimariaNoRenovable><Global>
+        epnrLetra: null,        // 'A'…'G'    — <Calificacion><EnergiaPrimariaNoRenovable><Global>
+        epnrEscala: null,       // { A: 54.20, B: 87.80, … } — umbrales de ESTE edificio
     };
 
     // Intentar extraer datos de <Demanda><EdificioObjeto>
@@ -160,6 +176,8 @@ export function parseCeeXml(xmlString) {
         }
         if (Object.keys(vectores).length > 0) result.energiaFinalVectores = vectores;
     }
+
+    Object.assign(result, leerEpnr(xmlDoc));
 
     // Intentar extraer demanda diaria de ACS (litros/día)
     const acsDemandaNodes = xmlDoc.getElementsByTagName('DemandaDiariaACS');
@@ -379,3 +397,104 @@ function getValidNumber(parentNode, tagName) {
     if (isNaN(val) || val >= 9999999) return null; // Los 99999999.99 son placeholders
     return val;
 }
+
+// ─── CONSUMO Y CALIFICACIÓN DE ENERGÍA PRIMARIA NO RENOVABLE ─────────────────
+//
+// El indicador del que dependen las deducciones del IRPF por obras de eficiencia
+// energética. Ver features/expedientes/logic/irpfEpnr.js.
+//
+// ⚠️ `<EnergiaPrimariaNoRenovable>` aparece DOS veces en el XML y significa cosas
+// distintas: dentro de `<Consumo>` es el número (kWh/m²·año) y dentro de
+// `<Calificacion>` es la letra más su escala. Un getElementsByTagName sobre el
+// documento entero devuelve las dos y se cogería la que caiga primero, así que
+// hay que acotar por el padre. Medido sobre un CEE real: 367,68 kWh/m²·año con
+// letra E y la escala de ESE edificio (A 54,20 · B 87,80 · … · F 473,20).
+//
+// Todas las búsquedas van SIN distinguir mayúsculas: el XML que se guarda en
+// `cee.xml_inicial`/`xml_final` pasa por el `normalizeData` del backend, que lo
+// deja entero en mayúsculas (`<CONSUMO>`), y ese es justamente el que hay que
+// poder releer en los expedientes antiguos.
+function leerEpnr(xmlDoc) {
+    const out = { epnrConsumo: null, epnrLetra: null, epnrEscala: null };
+    const buscar = (parent, tag) => {
+        if (!parent) return null;
+        const exact = parent.getElementsByTagName(tag);
+        if (exact.length > 0) return exact[0];
+        const all = parent.getElementsByTagName('*');
+        const s = tag.toLowerCase();
+        for (let i = 0; i < all.length; i++) if (all[i].localName.toLowerCase() === s) return all[i];
+        return null;
+    };
+    const epnrDe = (padreTag) => {
+        const padre = buscar(xmlDoc, padreTag);
+        return padre ? buscar(padre, 'EnergiaPrimariaNoRenovable') : null;
+    };
+    const hijosDirectos = (nodo, nombre) => Array.from(nodo?.childNodes || [])
+        .filter(h => h.nodeType === 1 && String(h.localName || '').toLowerCase() === nombre);
+
+    const consumo = epnrDe('Consumo');
+    if (consumo) {
+        // Hijo DIRECTO: dentro de <Consumo> no hay <EscalaGlobal>, pero se usa el
+        // mismo criterio que abajo para no depender de esa suerte.
+        const g = hijosDirectos(consumo, 'global')[0] || buscar(consumo, 'Global');
+        const val = parseFloat((g?.textContent || '').replace(',', '.'));
+        if (!isNaN(val) && val > 0) out.epnrConsumo = val;
+    }
+
+    const calif = epnrDe('Calificacion');
+    if (calif) {
+        // La letra es hija DIRECTA (`<Global>E</Global>`). Con getElementsByTagName
+        // se cogería también el <Global> de dentro de <EscalaGlobal>, que es un
+        // número — de ahí que se recorran solo los hijos directos.
+        for (const h of hijosDirectos(calif, 'global')) {
+            const txt = (h.textContent || '').trim().toUpperCase();
+            if (/^[A-G]$/.test(txt)) { out.epnrLetra = txt; break; }
+        }
+        const escalaNode = buscar(calif, 'EscalaGlobal');
+        if (escalaNode) {
+            const escala = {};
+            for (const h of Array.from(escalaNode.childNodes)) {
+                if (h.nodeType !== 1) continue;
+                const letra = String(h.localName || '').trim().toUpperCase();
+                if (!/^[A-G]$/.test(letra)) continue;
+                const val = parseFloat((h.textContent || '').replace(',', '.'));
+                if (!isNaN(val)) escala[letra] = val;
+            }
+            if (Object.keys(escala).length) out.epnrEscala = escala;
+        }
+    }
+    return out;
+}
+
+/**
+ * Lee SOLO el consumo de energía primaria no renovable de un XML, sin exigir
+ * nada más y sin lanzar nunca.
+ *
+ * Existe aparte de `parseCeeXml` a propósito: aquel exige demanda de calefacción
+ * y lanza si no la encuentra —es su contrato con quien sube un fichero por
+ * error—, y además busca los tags con mayúsculas exactas, así que no puede releer
+ * el XML ya guardado en base de datos. Esta comprobación necesita justo eso: los
+ * certificados que se subieron antes de que existiera tienen el objeto parseado
+ * sin este dato, pero su XML crudo sigue ahí.
+ *
+ * @returns {{epnrConsumo:number|null, epnrLetra:string|null, epnrEscala:object|null, superficieHabitable:number|null}}
+ */
+export function parseEpnrFromXml(xmlString) {
+    const vacio = { epnrConsumo: null, epnrLetra: null, epnrEscala: null, superficieHabitable: null };
+    if (!xmlString || typeof xmlString !== 'string') return vacio;
+    try {
+        const limpio = xmlString.replace(/^\uFEFF?\s*<\?xml[\s\S]*?\?>/i, '');
+        const doc = new DOMParser().parseFromString(limpio, 'text/xml');
+        if (!doc || !doc.documentElement) return vacio;
+        const out = { ...vacio, ...leerEpnr(doc) };
+        const all = doc.getElementsByTagName('*');
+        for (let i = 0; i < all.length; i++) {
+            if (all[i].localName.toLowerCase() !== 'superficiehabitable') continue;
+            const val = parseFloat((all[i].textContent || '').replace(',', '.'));
+            if (!isNaN(val) && val > 0 && val < 99999) out.superficieHabitable = val;
+            break;
+        }
+        return out;
+    } catch { return vacio; }
+}
+
