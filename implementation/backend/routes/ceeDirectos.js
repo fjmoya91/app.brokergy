@@ -282,7 +282,22 @@ router.get('/:id', internalOnly, async (req, res) => {
     try {
         const row = await svc.cargar(req.params.id);
         if (!row) return res.status(404).json({ error: 'Expediente no encontrado' });
-        if (!puedeVer(req, row)) return res.status(403).json({ error: 'Acceso denegado' });
+        if (!puedeVer(req, row)) {
+            // "Acceso denegado" a secas es un callejón sin salida: el técnico lo
+            // lee como que la app está rota y lo reporta como un enlace roto —
+            // pasó el 27/08 con el encargo de 2026CEE_54. Casi siempre es una de
+            // dos cosas normales: el expediente se reasignó a otro (y su enlace
+            // deja de valer, que es lo correcto) o le han reenviado un enlace que
+            // no era suyo. Se dice, y se le dice a quién preguntar.
+            const esCert = req.user?.rol_nombre === 'CERTIFICADOR';
+            return res.status(403).json({
+                error: esCert
+                    ? `Este expediente no está asignado a tu cuenta, así que no puedes abrirlo. `
+                      + `Si te encargamos el certificado y luego lo reasignamos, tu enlace deja de valer. `
+                      + `Escríbenos y te lo volvemos a asignar.`
+                    : 'Acceso denegado'
+            });
+        }
 
         res.json({
             ...row,
@@ -536,6 +551,28 @@ async function enviar({ canales, email, telefono, asunto, cuerpo, html, attachme
     return { enviados, errores };
 }
 
+/**
+ * Qué canales pide una petición del módulo CEE.
+ *
+ * ⚠️ El módulo y la rejilla están COMPARTIDOS con el CAE y hablan SU contrato:
+ * mandan `sendEmail` / `sendWhatsApp`. `channels` es la forma que usan mis
+ * propias llamadas. Leyendo solo `channels` y cayendo en `['email']`, elegir
+ * "solo WhatsApp" mandaba un email y no mandaba el WhatsApp. Se admiten las dos.
+ *
+ * `porDefectoEmail` reproduce el criterio del CAE (`sendEmail !== false`): en las
+ * rutas donde el email es el canal natural, no mandar nada por no venir el flag
+ * sería peor que mandarlo.
+ */
+function canalesDe(req, { porDefectoEmail = true } = {}) {
+    if (Array.isArray(req.body?.channels)) return req.body.channels;
+    const tieneFlags = 'sendEmail' in (req.body || {}) || 'sendWhatsApp' in (req.body || {});
+    if (!tieneFlags) return porDefectoEmail ? ['email'] : [];
+    return [
+        req.body?.sendEmail !== false ? 'email' : null,
+        req.body?.sendWhatsApp === true ? 'whatsapp' : null
+    ].filter(Boolean);
+}
+
 // ─── POST /:id/notify-certificador ── Encargo y recordatorios ───────────────
 router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
     try {
@@ -762,7 +799,7 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
         const { data: cert } = await supabase.from('prescriptores').select('*').eq('id_empresa', certId).maybeSingle();
         if (!cert) return res.status(404).json({ error: 'Certificador no encontrado' });
 
-        const canales = Array.isArray(req.body?.channels) ? req.body.channels : ['email'];
+        const canales = canalesDe(req);
         const faseLabel = estados.nombreFase(row, phase);
 
         // La carpeta se hace pública AQUÍ: es el enlace por el que el técnico se
@@ -806,7 +843,23 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
             usuario: req.user?.email || null
         });
 
-        res.json({ ok: true, enviados, errores, expediente: guardado, carpetaLink, subirLink });
+        // ⚠️ La respuesta habla el contrato del CAE porque quien la lee es el
+        // módulo COMPARTIDO: mira `emailSent` / `whatsAppSent` / `waReason`.
+        // Devolviendo solo `enviados`, un envío correcto se anunciaba en pantalla
+        // como "✉️ Email NO enviado". Medido en 2025CEE_43 el 27/08: el email
+        // salió a Lanuza (consta en el log de producción) y la pantalla dijo que
+        // había fallado. Se mantienen `enviados`/`errores` para mis llamadas.
+        const tel = telefonoDe(cert);
+        res.json({
+            ok: true,
+            emailSent: enviados.includes('email'),
+            whatsAppSent: enviados.includes('whatsapp'),
+            waReason: enviados.includes('whatsapp') ? null
+                : !canales.includes('whatsapp') ? null
+                : !tel ? 'sin_telefono' : 'error',
+            sentTo: enviados.includes('email') ? cert.email : null,
+            enviados, errores, expediente: guardado, carpetaLink, subirLink
+        });
     } catch (err) {
         console.error('[cee-directos approve-cee]', err.message);
         res.status(500).json({ error: err.message });
@@ -1184,7 +1237,7 @@ router.post('/:id/resend-cee-notifications', staffOnly, async (req, res) => {
             });
         }
 
-        const canales = Array.isArray(req.body?.channels) ? req.body.channels : ['email'];
+        const canales = canalesDe(req);
         // Los ficheros del CEE van adjuntos al email. Por WhatsApp va solo el
         // texto: el envío de media es otra ruta y un .cex no se abre en un móvil.
         const attachments = canales.includes('email')
@@ -1205,7 +1258,18 @@ router.post('/:id/resend-cee-notifications', staffOnly, async (req, res) => {
             usuario: req.user?.email || null
         });
 
-        res.json({ ok: true, enviados, errores });
+        // La rejilla enseña el resultado leyendo `channels.email` / `channels.whatsapp`
+        // (nombres de los destinatarios). Sin ese mapa anunciaba "ningún
+        // destinatario tenía datos del canal elegido" después de enviar bien.
+        const aQuien = nombreCliente(row.cliente) || row.cliente?.email || 'Cliente';
+        res.json({
+            ok: true,
+            channels: {
+                email: enviados.includes('email') ? [aQuien] : [],
+                whatsapp: enviados.includes('whatsapp') ? [aQuien] : []
+            },
+            enviados, errores
+        });
     } catch (err) {
         console.error('[cee-directos resend]', err.message);
         res.status(500).json({ error: err.message });
