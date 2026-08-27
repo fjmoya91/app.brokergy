@@ -72,11 +72,18 @@ export function comprobarIrpf(inicial, final) {
 
     if (!ini || !fin) {
         const falta = [];
-        // Se distingue "no está" de "está pero no sirve": son dos tareas
-        // distintas —conseguir el certificado, o conseguir su .xml— y decir
-        // solo "faltan datos" manda a buscar lo que ya se tiene.
-        if (!ini) falta.push(inicial ? 'El CEE inicial no trae el consumo de energía primaria no renovable: hace falta su .xml (un PDF leído por OCR no lo da).' : 'Falta el CEE inicial.');
-        if (!fin) falta.push(final ? 'El CEE final no trae el consumo de energía primaria no renovable: hace falta su .xml (un PDF leído por OCR no lo da).' : 'Falta el CEE final.');
+        // Se distingue "no se ha cargado" de "se cargó pero no sirve": son dos
+        // tareas distintas y decir solo "falta el CEE" manda a buscar un
+        // certificado que casi siempre YA se tiene.
+        //
+        // ⚠️ Que el `.xml` esté en la carpeta de Drive NO basta: el dato sale de
+        // parsearlo, y eso solo ocurre al subirlo por la casilla .XML de la
+        // rejilla. Decir "falta el CEE inicial" delante de una carpeta que lo
+        // tiene es exactamente el mensaje que hace perder el rato.
+        const pedirXml = (fase) => `Falta cargar el .xml del CEE ${fase} en la casilla .XML de la rejilla. Tenerlo en la carpeta de Drive no basta: el consumo sale de leer el fichero.`;
+        const sinDato = (fase) => `El CEE ${fase} se cargó sin .xml (de un PDF por OCR), y el PDF no trae la tabla de consumo de energía primaria no renovable. Hace falta el .xml.`;
+        if (!ini) falta.push(inicial ? sinDato('inicial') : pedirXml('inicial'));
+        if (!fin) falta.push(final ? sinDato('final') : pedirXml('final'));
         return { estado: 'faltan_datos', falta };
     }
 
