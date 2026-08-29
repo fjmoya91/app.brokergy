@@ -67,8 +67,18 @@ const BLOQUES = {
         nota: null,
     },
     SIN_ENCARGAR: {
+        // SIN UMBRAL (0 días), por el mismo motivo que REVISION: aquí no se está
+        // esperando a NADIE. El expediente está aceptado y lo único que falta es que
+        // el encargo salga de aquí, así que no hay nada que "llevar parado" — es tu
+        // cola de trabajo desde el minuto uno. Con 7 días, un expediente aceptado
+        // esta semana no salía en la única pantalla que contesta "¿qué hago ahora?"
+        // (medido el 29/08/2026: 26RES060_177, 26RES060_180, 26RES080_77 y _78
+        // estaban invisibles, cuatro de los diecisiete sin encargar). Y no da la lata
+        // a nadie: la acción es 'ver' —abrir la app—, así que no entra en lo
+        // accionable del parte ni genera un mensaje a terceros. Se puede volver a
+        // poner un umbral con RADAR_SIN_ENCARGAR_DIAS.
         orden: 6, emoji: '⚪', titulo: 'Aceptados y sin encargar el CEE',
-        dias: num(process.env.RADAR_SIN_ENCARGAR_DIAS, 7), reinsistir: null,
+        dias: num(process.env.RADAR_SIN_ENCARGAR_DIAS, 0), reinsistir: null,
         nota: 'Nadie está trabajando en ellos todavía: el encargo no ha salido de aquí.',
     },
     MIGRADO_SIN_REVISAR: {

@@ -795,7 +795,7 @@ umbrales y la reinsistencia viven en el mapa `BLOQUES` (todos con variable de en
 | `OBRA_SIN_CERRAR` | obra ejecutada + `cee_final` sin encargar >5 d | BROKERGY | — |
 | `REGISTRO` | `cee_* = REVISADO` >2 d | CERTIFICADOR | Recordar el registro |
 | `CERT_SIN_ENTREGAR` | `ASIGNADO/EN_TRABAJO/PTE_PRESENTACION` >10 d | CERTIFICADOR | Pedir fecha |
-| `SIN_ENCARGAR` | sin certificador >7 d | BROKERGY | — |
+| `SIN_ENCARGAR` | sin certificador (sin umbral) | BROKERGY | — |
 | `MIGRADO_SIN_REVISAR` | `PENDIENTE REVISAR EXPTE` >15 d | BROKERGY | — |
 | `FIRMA_PENDIENTE` | `_sent_at` sin `_signed_link` >7 d | CLIENTE/INSTALADOR | Recordar la firma |
 | `FIN_OBRA` | CEE ini. registrado, sin señales de obra >30 d | CLIENTE/INSTALADOR | ¿Cómo va la obra? |
@@ -804,6 +804,15 @@ umbrales y la reinsistencia viven en el mapa `BLOQUES` (todos con variable de en
 está HECHA y lo que falta es encargar el CEE final (`OBRA_SIN_CERRAR`, pelota nuestra).
 Preguntarle "¿cómo va la obra?" a quien ya facturó es quedar mal con quien cumplió y
 además esconde el atasco verdadero. Medido: 9 de 25 estaban así.
+
+**REGLA — lo que solo depende de NOSOTROS entra sin umbral.** `REVISION` y
+`SIN_ENCARGAR` van a 0 días. Los demás bloques detectan algo PARADO —hay que esperar
+para saber que lo está—; estos dos no esperan a nadie: el CEE ya está entregado, o el
+expediente ya está aceptado, y lo único que falta es que lo hagas TÚ. Con umbral, lo
+aceptado esta semana no salía en la única pantalla que contesta "¿qué hago ahora?" y la
+lista parecía rota (medido el 29/08/2026: cuatro de los diecisiete sin encargar estaban
+invisibles, 26RES060_177 entre ellos). No hay riesgo de dar la lata: su acción es abrir
+la app, así que no entran en lo accionable del parte ni mandan nada a terceros.
 
 **REGLA — un MIGRADO no necesita encargo de CEE**: el suyo se hizo en el sistema
 antiguo. Lo que le falta es que alguien lo audite (`MIGRADO_SIN_REVISAR`). Sin esta
