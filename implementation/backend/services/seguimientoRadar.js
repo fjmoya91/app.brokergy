@@ -67,8 +67,16 @@ const BLOQUES = {
         nota: null,
     },
     SIN_ENCARGAR: {
+        // SIN UMBRAL (0 días), por el mismo motivo que REVISION: esto no espera a
+        // nadie. Un expediente aceptado sin certificador está parado desde el minuto
+        // uno y el encargo lo tienes que mandar TÚ; esperar una semana para
+        // enseñártelo solo garantiza que arranque una semana tarde. Con 7 días, lo
+        // aceptado hoy no aparecía y la lista daba a entender que estaba todo
+        // encargado. No molesta a nadie: la acción es 'ver' (abrir la app), así que
+        // no sale en la vista de DESPACHAR ni dispara ningún mensaje.
+        // Se puede volver a poner con RADAR_SIN_ENCARGAR_DIAS.
         orden: 6, emoji: '⚪', titulo: 'Aceptados y sin encargar el CEE',
-        dias: num(process.env.RADAR_SIN_ENCARGAR_DIAS, 7), reinsistir: null,
+        dias: num(process.env.RADAR_SIN_ENCARGAR_DIAS, 0), reinsistir: null,
         nota: 'Nadie está trabajando en ellos todavía: el encargo no ha salido de aquí.',
     },
     MIGRADO_SIN_REVISAR: {
