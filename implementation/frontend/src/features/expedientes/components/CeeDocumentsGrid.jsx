@@ -9,6 +9,8 @@ import {
 } from '../logic/certMessages';
 import { esTer100 } from '../logic/ter100';
 import { demandaPropuesta, compararDemanda, fmtKwh, fmtM2 } from '../logic/demandaPropuesta';
+import { autoconsumoMaximo } from '../logic/autoconsumoMaximo';
+import { parseEmisionesTotalesFromXml } from '../../calculator/logic/xmlCeeParser';
 import { buildCe3xFinal, CE3X_FALTA } from '../logic/ce3xFinal';
 import { getUnidades } from '../logic/aerotermiaUnits';
 import { SolicitarFaltantesModal } from './SolicitarFaltantesModal';
@@ -1487,6 +1489,58 @@ export function CeeDocumentsGrid({
                                                 Ver {k === 'xml' ? '.XML' : '.CEX'} ↗
                                             </a>
                                         ))}
+                                    </div>
+                                );
+                            })()}
+
+                            {/* 7. AUTOCONSUMO MÁXIMO declarable en este CEE.
+                                No sale del certificado: se deduce de él. El CEE no
+                                declara kWh de electricidad, declara emisiones, y el
+                                consumo se recupera deshaciendo el factor de paso. Ese
+                                consumo es el techo — no se puede declarar más
+                                autoconsumo que electricidad gasta el edificio.
+                                Es un número que hay que TECLEAR fuera de la app, así
+                                que va con botón de copiar y con la cuenta a la vista:
+                                sin ella habría que fiarse. */}
+                            {(() => {
+                                const key = section === 'final' ? 'cee_final' : 'cee_inicial';
+                                const ceeSec = expediente?.cee?.[key];
+                                // Los CEE cargados antes de que el parser leyera este
+                                // total no lo tienen en el objeto guardado, pero su XML
+                                // crudo sí sigue ahí: se rescata igual que en el aviso
+                                // de IRPF, o esto solo valdría para lo que se suba hoy.
+                                const conTotal = ceeSec?.emisionesTotalElectrico
+                                    ? ceeSec
+                                    : { ...ceeSec, ...parseEmisionesTotalesFromXml(expediente?.cee?.[section === 'final' ? 'xml_final' : 'xml_inicial']) };
+                                const auto = autoconsumoMaximo(conTotal);
+                                if (!auto) return null;
+                                const kwh = auto.kwhAnio.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                return (
+                                    <div className="w-full flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 rounded-xl bg-brand/[0.07] border border-brand/25">
+                                        <span className="text-[9px] font-black uppercase tracking-widest text-brand whitespace-nowrap">
+                                            ⚡ Autoconsumo máximo declarable
+                                        </span>
+                                        <span className="text-sm font-mono font-black text-white whitespace-nowrap">
+                                            {kwh} <span className="text-[10px] font-bold text-white/40">kWh/año</span>
+                                        </span>
+                                        <span className="text-[10px] text-white/40 normal-case leading-snug flex-1 min-w-[200px]">
+                                            {auto.emisiones.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kgCO₂/año
+                                            {' ÷ '}{String(auto.factor).replace('.', ',')} (factor de paso de la electricidad)
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                // Se copia el número a secas y con punto
+                                                // decimal: va a un formulario, no a un texto.
+                                                navigator.clipboard?.writeText(auto.kwhAnio.toFixed(2));
+                                                const b = e.currentTarget;
+                                                b.dataset.ok = '1';
+                                                setTimeout(() => { if (b) delete b.dataset.ok; }, 1800);
+                                            }}
+                                            className="text-[9px] font-black uppercase tracking-widest text-brand hover:text-white whitespace-nowrap px-2 py-1 rounded-lg border border-brand/30 hover:border-brand/60 transition-colors data-[ok]:text-emerald-400 data-[ok]:border-emerald-500/40"
+                                        >
+                                            Copiar
+                                        </button>
                                     </div>
                                 );
                             })()}

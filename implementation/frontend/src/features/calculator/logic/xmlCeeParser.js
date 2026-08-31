@@ -479,13 +479,60 @@ function leerEpnr(xmlDoc) {
  *
  * @returns {{epnrConsumo:number|null, epnrLetra:string|null, epnrEscala:object|null, superficieHabitable:number|null}}
  */
-export function parseEpnrFromXml(xmlString) {
-    const vacio = { epnrConsumo: null, epnrLetra: null, epnrEscala: null, superficieHabitable: null };
-    if (!xmlString || typeof xmlString !== 'string') return vacio;
+/**
+ * Parsea un XML de CEE SIN exigirle nada y sin lanzar.
+ *
+ * Quita la declaración porque el XML guardado en base de datos pasa por el
+ * `normalizeData` del backend y llega como `<?XML VERSION="1.0"?>`, que no es un
+ * prólogo válido y hace que DOMParser rechace el documento entero. Un XML sin
+ * prólogo se interpreta como UTF-8, que es lo que es.
+ *
+ * @returns {Document|null}
+ */
+function parseTolerante(xmlString) {
+    if (!xmlString || typeof xmlString !== 'string') return null;
     try {
         const limpio = xmlString.replace(/^\uFEFF?\s*<\?xml[\s\S]*?\?>/i, '');
         const doc = new DOMParser().parseFromString(limpio, 'text/xml');
-        if (!doc || !doc.documentElement) return vacio;
+        return doc && doc.documentElement ? doc : null;
+    } catch { return null; }
+}
+
+/**
+ * Emisiones TOTALES del edificio por vector, en kgCO2/AÑO (absolutas, no por m²).
+ *
+ * De aquí sale el autoconsumo máximo declarable en el CEE: el consumo eléctrico
+ * real del edificio es `TotalConsumoElectrico / factor de paso`, y no se puede
+ * declarar más autoconsumo que consumo hay. Ver logic/autoconsumoMaximo.js.
+ *
+ * Busca SIN distinguir mayúsculas, por el mismo motivo que el resto de lectores
+ * tolerantes: el XML guardado está entero en mayúsculas.
+ */
+export function parseEmisionesTotalesFromXml(xmlString) {
+    const vacio = { emisionesTotalElectrico: null, emisionesTotalOtros: null };
+    const doc = parseTolerante(xmlString);
+    if (!doc) return vacio;
+    const buscar = (tag) => {
+        const all = doc.getElementsByTagName('*');
+        const t = tag.toLowerCase();
+        for (let i = 0; i < all.length; i++) {
+            if (all[i].localName.toLowerCase() !== t) continue;
+            const v = parseFloat((all[i].textContent || '').replace(',', '.'));
+            return isNaN(v) ? null : v;
+        }
+        return null;
+    };
+    return {
+        emisionesTotalElectrico: buscar('TotalConsumoElectrico'),
+        emisionesTotalOtros: buscar('TotalConsumoOtros')
+    };
+}
+
+export function parseEpnrFromXml(xmlString) {
+    const vacio = { epnrConsumo: null, epnrLetra: null, epnrEscala: null, superficieHabitable: null };
+    try {
+        const doc = parseTolerante(xmlString);
+        if (!doc) return vacio;
         const out = { ...vacio, ...leerEpnr(doc) };
         const all = doc.getElementsByTagName('*');
         for (let i = 0; i < all.length; i++) {
