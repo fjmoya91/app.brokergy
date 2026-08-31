@@ -57,6 +57,10 @@ export function DatosExpediente({ expediente, prescriptores = [], onGuardado, pu
     const [estado, setEstado] = useState('guardado'); // 'guardado' | 'guardando' | 'error'
     const [error, setError] = useState(null);
     const [catastro, setCatastro] = useState({ cargando: false, msg: null, error: null });
+    // Lo que el Catastro acaba de decir de la zona, antes de que el autoguardado
+    // vaya y vuelva. El valor que MANDA es el del expediente (lo deriva el
+    // servidor); esto solo evita el hueco de un par de segundos.
+    const [zonaViva, setZonaViva] = useState(null);
 
     // El contenedor (el modal) pinta el estado en SU cabecera.
     useEffect(() => { avisarEstado.current?.(estado); }, [estado]);
@@ -191,6 +195,10 @@ export function DatosExpediente({ expediente, prescriptores = [], onGuardado, pu
                 municipio: ''
             }));
             setPistaMunicipio(trozos.municipioHint || null);
+            // El Catastro ya trae la zona (la calcula `climateService` con el código
+            // INE del municipio, que es más fiable que casar por nombre).
+            const ci = data?.data?.climateInfo;
+            if (ci?.climateZone) setZonaViva({ zona: ci.climateZone, altitud: ci.altitude ?? null });
             const uso = data?.data?.use ? ` · ${data.data.use}` : '';
             setCatastro({ cargando: false, error: null, msg: `Traída del Catastro${uso}. Compruébala: la vía viene como la tiene registrada y el piso no lo da.` });
         } catch (err) {
@@ -296,9 +304,36 @@ export function DatosExpediente({ expediente, prescriptores = [], onGuardado, pu
                     <div className="text-[9px] font-black uppercase tracking-widest text-white/30 mb-2">Dónde está el inmueble</div>
                     <DireccionEdit
                         values={form}
-                        onChange={(parcial) => setForm(f => ({ ...f, ...parcial }))}
+                        onChange={(parcial) => {
+                            // Cambiar el municipio invalida la zona que trajo el
+                            // Catastro: dejarla puesta enseñaría la de otro pueblo
+                            // hasta que el guardado la corrigiera.
+                            if ('municipio' in parcial || 'provincia' in parcial) setZonaViva(null);
+                            setForm(f => ({ ...f, ...parcial }));
+                        }}
                         autoMunicipioHint={pistaMunicipio}
                     />
+                    {/* La ZONA CLIMÁTICA se DERIVA del municipio en el servidor —
+                        provincia + altitud del INE contra la tabla del Anejo B del
+                        CTE—, así que no es un campo: es el resultado de haber puesto
+                        bien la dirección. Se enseña aquí, debajo, para que se vea al
+                        instante si el municipio elegido es el correcto.
+                        `zonaViva` es lo que acaba de decir el Catastro; mientras el
+                        autoguardado no ha ido y vuelto, el expediente todavía no la
+                        tiene y sin esto parecería que no se ha calculado. */}
+                    {(zonaViva || expediente.zona_climatica) ? (
+                        <div className="mt-3 inline-flex items-center gap-2 rounded-lg border border-brand/25 bg-brand/[0.06] px-3 py-2">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-white/40">Zona climática CTE</span>
+                            <span className="text-sm font-black text-brand">{zonaViva?.zona || expediente.zona_climatica}</span>
+                            {(zonaViva?.altitud ?? expediente.altitud) != null && (
+                                <span className="text-[10px] text-white/35">{zonaViva?.altitud ?? expediente.altitud} m</span>
+                            )}
+                        </div>
+                    ) : form.municipio ? (
+                        <div className="mt-3 text-[11px] text-amber-300/70">
+                            No hemos podido deducir la zona climática de {form.municipio}. Compruébalo: es un dato que el certificado necesita.
+                        </div>
+                    ) : null}
                 </div>
 
                 <div className="md:col-span-2">

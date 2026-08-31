@@ -235,6 +235,66 @@ class ClimateService {
         };
     }
 
+    /**
+     * Zona climática a partir de los NOMBRES de provincia y municipio.
+     *
+     * `getClimateInfo` necesita los códigos INE, que solo llegan cuando la
+     * consulta viene del Catastro. En un CEE directo la dirección se puede haber
+     * escrito a mano o venir de la ficha del cliente, y ahí lo único que hay son
+     * los nombres — que además llegan en MAYÚSCULAS y sin tildes por el
+     * `normalizeData` del backend ("VALENCIA", "COFRENTES").
+     *
+     * El nombre de provincia del CSV es a menudo bilingüe ("València/Valencia",
+     * "Araba/Álava", "A Coruña"): se compara contra las DOS mitades, y también
+     * quitando el artículo inicial, o media España no casaría.
+     *
+     * @returns {{altitude:number, climateZone:string, municipalityName:string, provName:string}|null}
+     */
+    getClimateByNames(provinciaNombre, municipioNombre) {
+        if (!municipioNombre) return null;
+        const norm = (t) => String(t || '')
+            .normalize('NFD').replace(/[̀-ͯ]/g, '')
+            .toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+        // "LA CORUÑA" y "CORUÑA" son el mismo sitio; "EL EJIDO" no pierde el artículo
+        // porque forma parte del nombre, así que solo se prueba SIN él como respaldo.
+        const sinArticulo = (t) => t.replace(/^(EL|LA|LOS|LAS|A|O|AS|OS) /, '');
+
+        const objMuni = norm(municipioNombre);
+        const objProv = norm(provinciaNombre);
+
+        const casaProv = (provCsv) => {
+            if (!objProv) return true;   // sin provincia, vale cualquiera (se desempata después)
+            const partes = String(provCsv || '').split('/').map(norm);
+            return partes.some(p => p === objProv || sinArticulo(p) === sinArticulo(objProv));
+        };
+        const casaMuni = (nombreCsv) => {
+            const n = norm(nombreCsv);
+            if (n === objMuni || sinArticulo(n) === sinArticulo(objMuni)) return true;
+            // El CSV escribe algunos como "Alegría-Dulantzi" o "Cofrentes/Cofrents":
+            // vale con que una de sus formas coincida.
+            return n.split(' ').length > 1 && String(nombreCsv || '').split('/').map(norm).includes(objMuni);
+        };
+
+        const candidatos = [];
+        for (const m of this.municipalityMap.values()) {
+            if (!casaMuni(m.name)) continue;
+            if (!casaProv(m.provName)) continue;
+            candidatos.push(m);
+        }
+        // Con varios (el mismo nombre en dos provincias y sin provincia que
+        // desempate) NO se elige uno: devolver el de otra provincia sería peor que
+        // no devolver nada, porque la zona viajaría al certificador como buena.
+        if (candidatos.length !== 1) return null;
+
+        const m = candidatos[0];
+        return {
+            altitude: m.altitude,
+            climateZone: this.getClimateZone(m.provCode, m.altitude),
+            municipalityName: m.name,
+            provName: m.provName
+        };
+    }
+
     getAllMunicipalities() {
         return Array.from(this.municipalityMap.values()).map(m => ({
             provCode: m.provCode,

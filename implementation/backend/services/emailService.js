@@ -67,6 +67,9 @@ const clienteDataRows = (clienteData, { full = true } = {}) => {
         full && clienteData.email ? ['Email', link(`mailto:${escapeHtml(clienteData.email)}`, clienteData.email, BRAND.greenDark)] : null,
         clienteData.refCatastral ? ['Referencia Catastral', escapeHtml(clienteData.refCatastral)] : null,
         direccionInstalacion ? ['Dirección de la instalación', escapeHtml(direccionInstalacion)] : null,
+        // Solo sale si quien construye la ficha la aporta (hoy, los CEE directos):
+        // en un expediente CAE la zona ya viaja dentro del CIFO y de la ficha.
+        clienteData.zonaClimatica ? ['Zona climática (CTE)', escapeHtml(clienteData.zonaClimatica)] : null,
         clienteData.direccionCliente ? ['Domicilio del cliente', escapeHtml(clienteData.direccionCliente)] : null,
     ];
 };
@@ -82,6 +85,7 @@ const clienteDataText = (clienteData) => {
         clienteData.email ? `Email: ${clienteData.email}` : null,
         clienteData.refCatastral ? `Ref. Catastral: ${clienteData.refCatastral}` : null,
         direccionInstalacion ? `Dirección de la instalación: ${direccionInstalacion}` : null,
+        clienteData.zonaClimatica ? `Zona climática (CTE): ${clienteData.zonaClimatica}` : null,
         clienteData.direccionCliente ? `Domicilio del cliente: ${clienteData.direccionCliente}` : null,
     ].filter(Boolean);
     return rows.length ? rows.join('\n') + '\n\n' : '';

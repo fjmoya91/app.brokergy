@@ -182,6 +182,14 @@ export function ResumenDatos({ expediente, prescriptor, onEditar, onAbrirCliente
                     <Dato etiqueta="Provincia" valor={expediente.provincia} />
                     <Dato etiqueta="C.P." valor={expediente.codigo_postal} />
                     <Dato etiqueta="Catastro" valor={expediente.ref_catastral} />
+                    {/* La zona climática NO se teclea: la deriva el servidor del
+                        municipio. Se enseña con la altitud al lado porque es lo que
+                        la justifica — un "C3" a secas hay que creérselo; con los
+                        388 m se comprueba contra la tabla del CTE. */}
+                    <Dato etiqueta="Zona CTE"
+                        valor={expediente.zona_climatica
+                            ? `${expediente.zona_climatica}${expediente.altitud ? ` · ${expediente.altitud} m` : ''}`
+                            : null} />
                     {puedeEditar && (
                         <button onClick={onEditar}
                             className="mt-3 w-full min-h-[40px] rounded-lg border border-white/10 text-[10px] font-black uppercase tracking-widest text-white/50 hover:text-white hover:border-brand/40 transition-colors">

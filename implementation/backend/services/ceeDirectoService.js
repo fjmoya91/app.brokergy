@@ -11,6 +11,7 @@ const crypto = require('crypto');
 const supabase = require('./supabaseClient');
 const { applyStatus } = require('./seguimientoTracking');
 const estados = require('../utils/ceeDirectoEstados');
+const climateService = require('./climateService');
 const ceeDirectoFolders = require('./ceeDirectoFolders');
 
 const TABLA = 'cee_directos';
@@ -144,10 +145,30 @@ async function guardar(id, patch, { seguimientoPrev = null } = {}) {
     // Se lee si no lo tenemos: es una columna, y un guardado es un gesto del
     // usuario, no un bucle. Pedirle el alcance a cada llamante sería otra cosa
     // más que olvidar, y este fallo nació justo de eso.
+    // La ZONA CLIMÁTICA se DERIVA de la dirección, no se teclea — igual que el
+    // `estado`. Es un dato NECESARIO para emitir el certificado y hasta ahora
+    // había que buscarlo a mano; dejarlo escribir a pelo garantizaría que un día
+    // la zona diga una cosa y el municipio otra, y esa contradicción viaja al
+    // certificador. Se recalcula SIEMPRE que se toca municipio o provincia.
+    const tocaDireccion = 'municipio' in patch || 'provincia' in patch;
+
     let alcance = patch.alcance || actual.alcance;
-    if (!alcance) {
-        alcance = await supabase.from(TABLA).select('alcance').eq('id', id)
-            .maybeSingle().then(r => r.data?.alcance || null);
+    let base = null;
+    if (!alcance || tocaDireccion) {
+        base = await supabase.from(TABLA).select('alcance, provincia, municipio').eq('id', id)
+            .maybeSingle().then(r => r.data || {});
+        alcance = alcance || base.alcance;
+    }
+
+    if (tocaDireccion) {
+        const prov = 'provincia' in patch ? patch.provincia : base.provincia;
+        const muni = 'municipio' in patch ? patch.municipio : base.municipio;
+        const info = muni ? climateService.getClimateByNames(prov, muni) : null;
+        // A null si no se resuelve, NUNCA se conserva la anterior: una zona
+        // heredada de la dirección de otro inmueble es peor que no tener ninguna,
+        // porque nadie la mira dos veces.
+        update.zona_climatica = info?.climateZone ?? null;
+        update.altitud = info?.altitude ?? null;
     }
     const paraDerivar = { alcance, seguimiento: update.seguimiento || actual.seguimiento };
     update.estado = estados.deriveEstado(paraDerivar);

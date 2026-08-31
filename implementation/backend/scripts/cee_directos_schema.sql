@@ -254,3 +254,14 @@ CREATE TRIGGER cee_directos_touch_updated
     FOR EACH ROW EXECUTE FUNCTION public.touch_cee_directo_updated_at();
 
 REVOKE EXECUTE ON FUNCTION public.touch_cee_directo_updated_at() FROM PUBLIC, anon, authenticated;
+
+-- ─── Zona climática del inmueble (2026-08-27) ────────────────────────────────
+-- Dato NECESARIO para emitir el certificado; hasta ahora se buscaba a mano.
+-- Se DERIVA de la dirección (provincia + municipio → altitud del INE → tabla del
+-- CTE, Anejo B) en `ceeDirectoService.guardar`, así que NO está en
+-- CAMPOS_EDITABLES: no se acepta del navegador, igual que el `estado`.
+-- La altitud se guarda porque es lo que EXPLICA la zona: un "C3" a secas hay que
+-- creérselo; con los 388 m al lado se comprueba contra la tabla.
+ALTER TABLE public.cee_directos
+    ADD COLUMN IF NOT EXISTS zona_climatica VARCHAR(4),
+    ADD COLUMN IF NOT EXISTS altitud INTEGER;

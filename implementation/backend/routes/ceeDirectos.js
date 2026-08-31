@@ -21,6 +21,7 @@ const { enforceAuth, adminOnly, staffOnly, internalOnly, isStaff } = require('..
 const { buildCertClienteData } = require('../services/certClienteData');
 const svc = require('../services/ceeDirectoService');
 const folders = require('../services/ceeDirectoFolders');
+const climateService = require('../services/climateService');
 const uploads = require('../services/ceeDirectoUploadService');
 const estados = require('../utils/ceeDirectoEstados');
 const ack = require('../services/ceeDirectoAck');
@@ -69,7 +70,17 @@ function fichaCliente(row) {
             ref_catastral: row.ref_catastral
         }
     };
-    return buildCertClienteData(comoExpediente, { ref_catastral: row.ref_catastral }, row.cliente);
+    const ficha = buildCertClienteData(comoExpediente, { ref_catastral: row.ref_catastral }, row.cliente);
+    // La ZONA CLIMÁTICA viaja con la ficha porque el técnico la necesita para
+    // emitir el certificado, y hasta ahora la buscaba él por su cuenta. Va con la
+    // altitud entre paréntesis: es lo que permite comprobarla contra la tabla del
+    // CTE en vez de tener que creérsela.
+    if (row.zona_climatica) {
+        ficha.data.zonaClimatica = row.altitud
+            ? `${row.zona_climatica} (${row.altitud} m)`
+            : row.zona_climatica;
+    }
+    return ficha;
 }
 
 const nombreCliente = (cli) => cli
@@ -234,6 +245,13 @@ router.post('/', staffOnly, async (req, res) => {
             alcance: alcanceOk,
             cliente_id, prescriptor_id,
             direccion, ref_catastral, ccaa, provincia, municipio, codigo_postal,
+            // La zona climática se deriva ya en el alta: si se da de alta con
+            // dirección, el dato está desde el primer minuto y no hay que
+            // reguardar el formulario para que aparezca.
+            ...(() => {
+                const info = municipio ? climateService.getClimateByNames(provincia, municipio) : null;
+                return { zona_climatica: info?.climateZone ?? null, altitud: info?.altitude ?? null };
+            })(),
             cee: certificador_id ? { certificador_id } : {},
             // Nace pendiente de encargar: es lo que de verdad falta el día 1.
             seguimiento: { cee_inicial: 'PTE_ENVIO_CERT' },
