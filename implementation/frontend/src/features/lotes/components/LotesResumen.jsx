@@ -5,8 +5,8 @@ import { loteEstadoBadge } from '../loteConstants';
 // ─────────────────────────────────────────────────────────────────────────────
 // Cuadro de mando de la vista de Lotes. Está pensado para SENTARSE A REVISAR CON
 // EL SUJETO OBLIGADO: de un vistazo, cuánto ahorro le hemos llevado, cuánto nos
-// paga, cuánto le cuesta la verificación y cuánto se ahorra frente a pagar la
-// equivalencia financiera.
+// paga, cuánto nos queda a nosotros tras pagar los bonos, cuánto le cuesta la
+// verificación y cuánto se ahorra frente a pagar la equivalencia financiera.
 //
 // Los IMPORTES resumen lo que se está viendo (respetan el filtro), porque si no el
 // total de la cabecera no cuadraría con las tarjetas de abajo. Las PÍLDORAS de
@@ -32,8 +32,8 @@ const TONOS = {
 const Tile = ({ label, valor, sub, tono = 'neutral', title }) => (
     <div title={title} className={`rounded-2xl border px-3 py-2.5 min-w-0 ${TONOS[tono]}`}>
         <p className="text-[8px] uppercase tracking-[0.15em] font-black opacity-50 truncate">{label}</p>
-        {/* El tamaño baja en pantallas estrechas para que cinco tarjetas quepan sin
-            partir el número por la mitad. */}
+        {/* El tamaño baja en pantallas estrechas para que las seis tarjetas quepan
+            sin partir el número por la mitad. */}
         <p className="text-lg xl:text-xl font-black leading-tight mt-0.5 truncate">{valor}</p>
         {sub && <p className="text-[9px] opacity-40 mt-0.5 leading-tight truncate">{sub}</p>}
     </div>
@@ -73,12 +73,16 @@ export function LotesResumen({ lotes, todosLotes, canSeeMargin = false, filtroEs
 
             {/* Todas las cifras en UNA fila. En pantallas estrechas se reparten en dos
                 columnas y en tablet en tres, en vez de encogerse hasta no leerse. */}
-            <div className={`grid gap-2 grid-cols-2 ${canSeeMargin ? 'md:grid-cols-3 xl:grid-cols-5' : 'md:grid-cols-3'}`}>
+            <div className={`grid gap-2 grid-cols-2 ${canSeeMargin ? 'md:grid-cols-3 xl:grid-cols-6' : 'md:grid-cols-3'}`}>
                 <Tile label="Ahorro generado" valor={`${num(r.ahorroGwh, 2)} GWh`} sub={`${num(r.ahorroMwh)} MWh`} />
                 {canSeeMargin ? (
                     <>
                         <Tile tono="brand" label="Pago a Brokergy" valor={eur(r.pagoBrokergy)}
                             sub={r.brokergyMwh != null ? `${num(r.brokergyMwh, 2)} €/MWh medio` : null} />
+                        <Tile tono="emerald" label="Beneficio Brokergy" valor={eur(r.beneficio)}
+                            sub={r.margenMwh != null ? `${num(r.margenMwh, 2)} €/MWh margen` : null}
+                            title={`Lo que nos queda: ${eur(r.pagoBrokergy)} que nos paga el S.O. menos ${eur(r.pagoCliente)} de bonos a los clientes.${
+                                r.nSinOferta > 0 ? ` (${r.nSinOferta} lote${r.nSinOferta === 1 ? '' : 's'} sin oferta pactada: ahí cuenta el margen de cada expediente.)` : ''}`} />
                         <Tile tono="amber" label="Pago al verificador" valor={eur(r.pagoVerificador)}
                             sub={r.verificadorMwh != null ? `${num(r.verificadorMwh, 2)} €/MWh medio` : null} />
                         <Tile label="Coste total del S.O." valor={eur(r.costeSo)}

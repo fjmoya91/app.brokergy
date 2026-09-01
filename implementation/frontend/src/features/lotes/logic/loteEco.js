@@ -27,7 +27,7 @@ export const EQUIVALENCIA_FINANCIERA = 198.62;
 export function computeLotesResumen(lotes) {
     const list = Array.isArray(lotes) ? lotes : [];
     const t = {
-        nLotes: list.length, nExpedientes: 0, nEstimados: 0,
+        nLotes: list.length, nExpedientes: 0, nEstimados: 0, nSinOferta: 0,
         ahorroMwh: 0, pagoCliente: 0, pagoBrokergy: 0, pagoVerificador: 0,
         beneficio: 0, docsPendientes: 0, porEstado: {},
     };
@@ -42,7 +42,11 @@ export function computeLotesResumen(lotes) {
         t.pagoCliente += usaVerif ? eco.pagoClienteVerif : eco.pagoCliente;
         t.pagoVerificador += eco.costeVerif;
         // Lo que el S.O. nos paga por ese lote = su ahorro × la oferta pactada.
+        // Sin oferta pactada no hay pago del S.O. que sumar, y el beneficio de ese lote
+        // cae al margen por expediente (`beneficioActual`): se cuenta aparte para poder
+        // decir que el beneficio no es exactamente pago del S.O. − pago a clientes.
         if (eco.ofertaLote != null) t.pagoBrokergy += eco.ofertaLote * mwh;
+        else t.nSinOferta += 1;
         t.beneficio += (usaVerif ? eco.beneficioLoteVerif : eco.beneficioLote) ?? eco.beneficioActual;
 
         t.nExpedientes += l?.num_expedientes ?? (l?.expedientes || []).length;
@@ -66,6 +70,8 @@ export function computeLotesResumen(lotes) {
         ahorroSoPct: ahorroSoMwh != null ? (ahorroSoMwh / EQUIVALENCIA_FINANCIERA) * 100 : null,
         verificadorMwh: t.ahorroMwh > 0 ? t.pagoVerificador / t.ahorroMwh : null,
         brokergyMwh: t.ahorroMwh > 0 ? t.pagoBrokergy / t.ahorroMwh : null,
+        // Margen medio de Brokergy: lo que queda por cada MWh una vez pagado el cliente.
+        margenMwh: t.ahorroMwh > 0 ? t.beneficio / t.ahorroMwh : null,
     };
 }
 
