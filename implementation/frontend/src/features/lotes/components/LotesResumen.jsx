@@ -80,12 +80,26 @@ export function LotesResumen({ lotes, todosLotes, canSeeMargin = false, filtroEs
                     <p className="text-[9px] text-white/25">
                         {r.nLotes} lote{r.nLotes === 1 ? '' : 's'} · {r.nExpedientes} expedientes · {aviso}
                     </p>
+                    {/* La petición al S.O. y, debajo, lo que ya se le pidió. La NOTA
+                        no es adorno: pedirlo no significa que lo haya pagado, así que
+                        el botón sigue estando para insistir y esta línea es la única
+                        señal en pantalla de que el envío anterior llegó a salir. En
+                        reinsistencia el botón se pinta apagado —la acción no urge
+                        igual— pero se pulsa lo mismo. */}
                     {peticion && onPedirAlSo && (
-                        <button type="button" onClick={() => onPedirAlSo(peticion)}
-                            title={`${peticion.titulo} · ${peticion.lotes.length} lote${peticion.lotes.length === 1 ? '' : 's'}`}
-                            className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border border-brand/40 bg-brand/10 text-brand hover:bg-brand/20 transition-all">
-                            ✉ {peticion.etiqueta}
-                        </button>
+                        <div className="flex flex-col items-end gap-0.5">
+                            <button type="button" onClick={() => onPedirAlSo(peticion)}
+                                title={`${peticion.titulo} · ${peticion.lotes.length} lote${peticion.lotes.length === 1 ? '' : 's'}`}
+                                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-all ${
+                                    peticion.reinsistencia
+                                        ? 'border-white/15 bg-white/[0.03] text-white/45 hover:text-white hover:border-white/30'
+                                        : 'border-brand/40 bg-brand/10 text-brand hover:bg-brand/20'}`}>
+                                ✉ {peticion.etiqueta}
+                            </button>
+                            {peticion.nota && (
+                                <p className="text-[9px] text-white/25 normal-case">✓ {peticion.nota}</p>
+                            )}
+                        </div>
                     )}
                 </div>
             </div>

@@ -83,6 +83,17 @@ const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, on
                         {[doc.sent_at ? `Enviado ${fecha}` : (fecha ? `Subido ${fecha}` : null),
                           doc.importe ? eur(doc.importe) : null].filter(Boolean).join(' · ') || '—'}
                     </p>
+                    {/* Lo que se le RECLAMÓ al S.O. sobre este documento. Va aquí y no
+                        solo en el cuadro de mando porque es donde se mira la factura:
+                        sin esta línea, un pago ya pedido no se distinguía de uno que
+                        nunca salió. */}
+                    {doc.pago_solicitado_at && (
+                        <p className="text-[9px] text-amber-400/60">
+                            ✓ Pago pedido {fmtFecha(doc.pago_solicitado_at)}
+                            {doc.pago_solicitado_to ? ` a ${doc.pago_solicitado_to}` : ''}
+                            {Number(doc.pago_solicitado_veces) > 1 ? ` · ${doc.pago_solicitado_veces} veces` : ''}
+                        </p>
+                    )}
                 </div>
                 <EstadoPill doc={doc} />
                 <div className="flex items-center gap-1.5 shrink-0">

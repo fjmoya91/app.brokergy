@@ -1463,17 +1463,32 @@ router.post('/solicitar-pago-verificacion', adminOnly, async (req, res) => {
         }
 
         // ── Sello ─────────────────────────────────────────────────────────────
-        // `pago_solicitado_at` es lo que apaga el botón: sin él, el mismo correo se
-        // le manda al S.O. cada vez que alguien entra en la pantalla.
+        // Queda anotado A QUIÉN se le pidió, CUÁNDO y CUÁNTAS VECES. Con solo la
+        // fecha, el envío no dejaba forma de saber que había salido —el botón
+        // simplemente desaparecía—, y esos tres datos son justo los que se miran
+        // antes de decidir si toca volver a reclamar.
+        //
+        // El sello NO apaga la petición: si no pagan hay que insistir, así que lo
+        // que hace es cambiar el botón a "volver a pedir" y el correo a un
+        // recordatorio. Mismo criterio que la reinsistencia del parte diario.
         const enviado = warnings.length < (Number(!!channels.email) + Number(!!channels.whatsapp));
         if (enviado) {
             for (const l of lotes) {
+                const previas = Number(
+                    (l.documentos_so || []).find(d => d?.key === 'factura_verificador')?.pago_solicitado_veces) || 0;
                 const docs = (l.documentos_so || []).map(d => d?.key === 'factura_verificador'
-                    ? { ...d, pago_solicitado_at: nowIso(), sent_at: d.sent_at || nowIso() } : d);
+                    ? {
+                        ...d,
+                        pago_solicitado_at: nowIso(),
+                        pago_solicitado_to: to || d.pago_solicitado_to || null,
+                        pago_solicitado_veces: previas + 1,
+                        sent_at: d.sent_at || nowIso(),
+                    } : d);
                 const historial = Array.isArray(l.historial) ? [...l.historial] : [];
                 historial.push({
                     id: `${Date.now()}_pago_verif`, tipo: 'sistema',
-                    texto: `Pedido al S.O. el pago de la verificación (${codigos.length} lote${codigos.length === 1 ? '' : 's'}: ${codigos.join(', ')})`
+                    texto: `${previas ? `Recordado al S.O. (${previas + 1}ª vez)` : 'Pedido al S.O.'}`
+                        + ` el pago de la verificación (${codigos.length} lote${codigos.length === 1 ? '' : 's'}: ${codigos.join(', ')})`
                         + `${total ? `, ${total.toLocaleString('es-ES', { minimumFractionDigits: 2 })} € en total` : ''}`
                         + ` por ${[channels.email && 'email', channels.whatsapp && 'WhatsApp'].filter(Boolean).join(' + ')}${to ? ` a ${to}` : ''}.`,
                     fecha: nowIso(), usuario: usuarioDe(req),

@@ -2,6 +2,7 @@ import React, { useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { EnviarLoteDocModal } from './EnviarLoteDocModal';
 import { deriveSoEnvio, CC_BROKERGY } from '../logic/soContactos';
+import { fmtFecha } from '../logic/peticionesSo';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Petición al SUJETO OBLIGADO sobre VARIOS lotes a la vez.
@@ -84,6 +85,7 @@ export function PedirAlSoModal({ peticion, onClose, onSent }) {
             // desplazarse para verlo, y esto es justo lo que hay que saber antes de
             // mandar un correo que anuncia "las facturas de los lotes".
             subtitle={`${codigos.length} lote${codigos.length === 1 ? '' : 's'} · ${codigos.join(' · ')}`
+                + (peticion.ultimaAt ? `   ✓ pedido el ${fmtFecha(peticion.ultimaAt)}` : '')
                 + (peticion.sinFactura?.length
                     ? `   ⚠ fuera: ${peticion.sinFactura.map(l => l.codigo).join(', ')} (sin factura)`
                     : '')}
@@ -99,10 +101,16 @@ export function PedirAlSoModal({ peticion, onClose, onSent }) {
             summaryData={{ id: codigos.join(' · '), docType: peticion.asunto }}
             // Lo que se adjunta, dicho por su nombre: es lo que hay que comprobar
             // antes de mandar un correo que pide dinero.
+            // Cada línea dice además si esa factura YA se reclamó y cuándo: con
+            // varios lotes en el mismo correo, es lo que distingue lo que se pide
+            // por primera vez de lo que se está recordando.
             docs={(peticion.lotes || []).map(x => ({
                 key: x.lote.id,
                 label: `${x.lote.codigo} · ${x.factura?.numero_factura || 'Factura del verificador'}`,
-                detail: x.importe ? eur(x.importe) : null,
+                detail: [
+                    x.importe ? eur(x.importe) : null,
+                    x.pedidoAt ? `pedido el ${fmtFecha(x.pedidoAt)}${x.veces > 1 ? ` · ${x.veces} veces` : ''}` : null,
+                ].filter(Boolean).join(' · ') || null,
             }))}
             onSendOverride={enviar}
             // ── Los lotes que se QUEDAN FUERA ─────────────────────────────────

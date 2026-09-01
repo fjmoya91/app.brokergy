@@ -757,6 +757,55 @@ que todas las plantillas imprimen. Si es de otro, se enseña de quién es y **se
 La búsqueda del emisor se limita a `tipo_empresa = 'CERTIFICADOR'`: el NIF de Brokergy también sale en
 la factura (es quien la recibe) y está en `prescriptores`.
 
+### En la MISMA factura vienen los dos negocios (2026-09-01)
+
+El certificador no separa el CAE de los **CEE directos**: los mete mezclados en el mismo papel
+(medido en la factura AP02082026MOD de agosto — 13 expedientes CAE y `2026CEE_54`) y con la misma
+tarifa, porque a él le cuesta la misma visita y la misma tasa levantar uno que otro. Por eso
+`cargarConceptos` lee las **DOS tablas** (`TABLAS`) y `RE_NUM_EXPEDIENTE` reconoce también el
+formato `{AAAA}CEE_{n}`.
+
+**REGLA — el sello va a la tabla de la que sea la fila.** `sellar` enruta a
+`merge_expediente_doc_json` o a `merge_cee_directo_doc_json` según el `origen`, y `desellar` busca
+en las dos: quien pulsa "quitar el sello" solo ve un número. El campo es el mismo (`fact_cert`);
+lo único que cambia es dónde se guarda.
+
+**REGLA — un CEE directo de alcance ÚNICO devenga UNA sola tasa.** Ahí no hay CEE final que
+registrar, así que el pacto de adelanto no aplica: adelantar su tasa sería premarcar el cobro de un
+registro que nunca va a existir. En el CAE siempre son dos.
+
+**REGLA — el `origen` viaja hasta el enlace.** Un CEE directo se abre con `?cee=` y un expediente
+con `?exp=`; son dos tablas y el mismo UUID no vale en las dos, así que un enlace equivocado no
+lleva a otro expediente: no lleva a ninguno.
+
+**REGLA — "consta REGISTRADO pero sin fecha" no es "no lo tiene".** Son dos avisos distintos porque
+son dos trabajos distintos: en el primero falta el DATO (se pone la fecha del justificante y la
+línea se concilia sola); en el segundo falta REVISAR el CEE. Decirlo con la misma frase convertía
+una tarea de dos segundos en un "revísalo" sin pista.
+
+**REGLA — los avisos se agrupan por texto.** Un expediente aparece DOS veces en la factura (su
+honorario y sus tasas) y su aviso llegaba repetido: cuatro asuntos se leían como ocho y llenaban
+justo la caja que hay que mirar antes de pagar.
+
+⚠️ **La tasa de registro depende de la CCAA, y la tarifa de la app es una sola por certificador.**
+Castilla-La Mancha son 16,39 € y la Comunidad Valenciana 10,19 € (medido: `2026CEE_54`, en
+Cofrentes, factura 20,38 € por sus dos tasas frente a los 32,78 € del resto). La línea sale marcada
+como **desviación de importe**, que es el comportamiento correcto —lo confirma una persona—, pero no
+es un fallo del parser ni de la factura.
+
+**Del PDF se leen también el sufijo del número y la fecha en letra.** `AP02082026MOD` es la factura
+MODIFICADA de `AP02082026`: truncar el sufijo dejaría a las dos con el mismo sello e
+indistinguibles en el histórico de lo pagado. Y la única fecha de la plantilla de Moncayo va al pie
+y con todas las letras ("Bellver de Cerdanya, a 31 de Agosto de 2026"); sin ella no se puede sellar
+y había que teclearla teniéndola delante.
+
+Prueba del ciclo entero (devengo · conciliación · sellado · desellado) con un Supabase simulado,
+sin tocar producción:
+
+```bash
+node implementation/backend/scripts/test_facturacion_certificador.js
+```
+
 ### Aviso de CEE entregados y sin revisar
 `services/revisionPendienteNotifier.js`, arrancado desde `server.js` (`setInterval`, mismo patrón que
 `marketplaceStatsRefresher`). El certificador **factura al entregar, no al revisar**: un CEE que se
@@ -2827,6 +2876,21 @@ no se puede adjuntar, pero callarlo es peor que excluirlo: se manda el correo cr
 que van los cuatro y el S.O. paga tres. El aviso va en el SUBTÍTULO del modal, que está
 siempre a la vista — el del cuerpo (`extraBody`) queda por debajo del mensaje y hay que
 desplazarse hasta él.
+
+**REGLA — pedirlo una vez NO cierra la petición.** Que se lo hayamos pedido no significa
+que lo haya pagado: el sello no apaga el botón, lo convierte en **"Volver a pedir el pago"**
+(apagado, porque ya no urge igual) y el correo, en un **recordatorio** que dice desde cuándo
+está pendiente y qué se frena mientras tanto — mandarle otra vez el mismo "te adjunto las
+facturas" es de plantilla. Se reinsiste solo cuando NINGUNO está por pedir; con mezcla sale
+el correo normal con todos los adjuntos, que es la razón de ser de esta petición.
+
+**REGLA — un envío que ya salió tiene que VERSE.** Antes, al pedirlo, el botón simplemente
+desaparecía: no se podía insistir y tampoco quedaba en pantalla ninguna señal de que el
+correo había llegado a salir. Ahora se sella **a quién, cuándo y cuántas veces**
+(`pago_solicitado_to` / `_at` / `_veces`) y se dice en los tres sitios donde se mira: bajo el
+botón del cuadro de mando ("✓ Pedido hace 3 días a jesus@… · ya recordado"), en el subtítulo
+del popup y en la fila de la factura de la fase 4. El historial del lote lo registra aparte,
+distinguiendo "Pedido" de "Recordado (2ª vez)".
 
 **REGLA — los adjuntos se preparan ANTES de mandar nada**, y si falta la factura de
 alguno de los lotes pedidos NO sale el correo (mismo criterio que el envío conjunto al
