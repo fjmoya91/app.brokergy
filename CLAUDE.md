@@ -2797,6 +2797,53 @@ antes de presentarlo, se puede.
 
 ---
 
+## Pedirle cosas al SUJETO OBLIGADO desde el cuadro de mando (2026-09-01)
+
+Los envíos que ya existían son de UN documento de UN lote (firmar el Anexo I, firmar la
+oferta). Éstos son de otra naturaleza: **un solo correo por varios lotes**, que es como
+se trabaja con él — "te mando las facturas de los lotes 001 a 004, y aun pagándolas os
+ahorráis 19.564 €". Cuatro correos iguales el mismo día son la forma de que no conteste
+a ninguno.
+
+| Qué | Dónde |
+|---|---|
+| Qué se puede pedir, el texto y el asunto | [peticionesSo.js](implementation/frontend/src/features/lotes/logic/peticionesSo.js) |
+| El envío | `POST /api/lotes/solicitar-pago-verificacion` (**adminOnly**, de la COLECCIÓN) |
+| Botón | Cabecera de `LotesResumen` |
+| Popup | `PedirAlSoModal`, que reutiliza `EnviarLoteDocModal` con `onSendOverride` |
+
+**REGLA — el botón va en el CUADRO DE MANDO, no en la cabecera de la vista.** Actúa
+sobre el conjunto que se está viendo (respeta el filtro) y las cifras que manda son
+literalmente las de esas tarjetas. Junto a "+ Nuevo lote" parecería que actúa sobre todos
+los lotes, y ahí vive *crear*, que es otro orden de cosas.
+
+**REGLA — el botón DICE lo que va a pedir y por cuánto** ("Pedir el pago de la
+verificación · 4.883 €"): es lo que decide si se manda hoy o se espera a que entre otro
+lote. **Y si no hay nada que pedir, no hay botón**: uno deshabilitado con un tooltip
+obliga a pulsarlo para descubrir por qué.
+
+**REGLA — un lote sin su factura se queda FUERA, y se DICE.** No se puede reclamar lo que
+no se puede adjuntar, pero callarlo es peor que excluirlo: se manda el correo creyendo
+que van los cuatro y el S.O. paga tres. El aviso va en el SUBTÍTULO del modal, que está
+siempre a la vista — el del cuerpo (`extraBody`) queda por debajo del mensaje y hay que
+desplazarse hasta él.
+
+**REGLA — los adjuntos se preparan ANTES de mandar nada**, y si falta la factura de
+alguno de los lotes pedidos NO sale el correo (mismo criterio que el envío conjunto al
+instalador). `documentos_so[factura_verificador].pago_solicitado_at` sella lo pedido y es
+lo que apaga el botón: sin él, el mismo correo se le manda al S.O. cada vez que alguien
+entra en la pantalla.
+
+El importe de cada factura sale del PDF (`importe`, leído por el OCR) y, si esa factura
+se subió antes de que la app supiera leerlo, de `lotes.coste_verificacion` — es la misma
+cifra tecleada a mano. Sin ese respaldo el botón anunciaba 1.564 € donde había 4.883.
+
+Para añadir otra petición (firmar algo, confirmar una fecha) basta con otra entrada en
+`PETICIONES`: la decisión de si se puede pedir, el texto del correo y el asunto viven
+juntos ahí.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -2853,6 +2900,8 @@ antes de presentarlo, se puede.
 28. **Las cifras del LOTE se leen de sus PDF, y el ahorro verificado manda sobre el pago**: el coste de verificación sale de la BASE IMPONIBLE de la factura del verificador (y va a `lotes.coste_verificacion`, no solo a la entrada del documento); el ahorro verificado de cada expediente sale del informe de verificación y se PROPONE para que lo aplique el ADMIN. **Ningún lote pasa a `PTE. PAGO BROKERGY A CLIENTE` ni a `FINALIZADO` sin el ahorro verificado de todos sus expedientes.** Fuentes únicas: [loteOcrService.js](implementation/backend/services/loteOcrService.js) (leer) y [loteVerificados.js](implementation/backend/services/loteVerificados.js) (casar, contrastar, escribir, `puedePagarseAlCliente`). Los números se piden al modelo como TEXTO y los convierte `numeroEs()`. Ver "Las cifras del lote se LEEN de sus documentos".
 
 29. **El ANEXO del MITECO se RELLENA, no se replica**: es un formulario PDF oficial con 33 campos vivos y el título de la ficha se ELIGE de su desplegable del catálogo. Fuente única: [anexoActuacionService.js](implementation/backend/services/anexoActuacionService.js); se generan los 5 de un lote desde `POST /api/lotes/:id/anexos-actuacion`. El nº de actuación es el que el INFORME de verificación asigna (`verificacion.orden_actuacion`), porque además nombra los adjuntos del ZIP. Un anexo con huecos no se genera. Los campos de tamaño automático los calcula `autoSize` (pdf-lib no lo implementa) y los fijos van en `TAMANO_CAMPO`, nunca leídos del /DA. Ver "El ANEXO del MITECO por actuación".
+
+30. **Al Sujeto Obligado se le pide UNA vez por VARIOS lotes**: el botón vive en el cuadro de mando de Lotes (actúa sobre lo filtrado), dice qué pide y por cuánto, y no existe si no hay nada que pedir. Un lote sin su factura subida se queda fuera y **se dice en el subtítulo del popup**. Fuente única de qué se puede pedir y con qué texto: [peticionesSo.js](implementation/frontend/src/features/lotes/logic/peticionesSo.js); el envío, `POST /api/lotes/solicitar-pago-verificacion`, que prepara TODOS los adjuntos antes de mandar nada y sella `pago_solicitado_at`. Ver "Pedirle cosas al SUJETO OBLIGADO desde el cuadro de mando".
 
 ---
 
