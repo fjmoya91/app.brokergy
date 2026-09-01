@@ -2544,14 +2544,16 @@ en un PDF que ya subimos al lote.
 |---|---|---|
 | Coste de verificación | **Factura del verificador**, su BASE IMPONIBLE | `lotes.coste_verificacion` + `documentos_so[factura_verificador].importe` |
 | Ahorro verificado | **Informe de verificación**, campo "Ahorro anual conseguido (kWh)" de cada bloque "N. ACTUACIÓN A VERIFICAR" | `expedientes.instalacion.verificacion.ahorro_verificado_kwh` |
+| Nº de dictamen, fecha, referencia del informe y ahorro dictaminado | **Dictamen**, apartados 3, 7, 9 y 10 | `documentos_so[dictamen_favorable].dictamen` (se enseña en el Resumen del lote) |
+| **Inversión definitiva** y vida útil | **Dictamen**, tabla del apartado 7 | `expedientes.instalacion.verificacion.inversion_verificada_eur` / `vida_util_anios` |
 
 | Qué | Dónde |
 |---|---|
 | Lectura (prompts + esquemas + parseo) | [loteOcrService.js](implementation/backend/services/loteOcrService.js) |
 | Casación, contraste y escritura | [loteVerificados.js](implementation/backend/services/loteVerificados.js) |
-| Rutas | `POST /:id/documentos/:slot` (lee al subir) · `POST /:id/ahorros-verificados/leer` · `POST /:id/ahorros-verificados` |
+| Rutas | `POST /:id/documentos/:slot` (lee al subir) · `POST /:id/ahorros-verificados/leer` · `POST /:id/ahorros-verificados` · `POST /:id/dictamen/leer` · `POST /:id/dictamen/aplicar` |
 | Revisión | `AhorrosVerificadosModal.jsx`, desde la fase 4 de `LoteProcesoFases` |
-| Prueba sin tocar nada | `node scripts/probar_lote_ocr.js <factura\|informe> <driveFileId> [loteId]` |
+| Prueba sin tocar nada | `node scripts/probar_lote_ocr.js <factura\|informe\|dictamen> <driveFileId> [loteId]` |
 
 **REGLA — el modelo solo LEE; el juicio es del código.** A qué expediente corresponde
 cada actuación, si la factura es de este lote y si las cifras cuadran lo deciden
@@ -2574,6 +2576,37 @@ informe", que lo baja de Drive y lo relee.
 **REGLA — se contrasta la suma con el total que declara el propio informe.** Se avisa,
 no se bloquea: hay informes reales que no cuadran consigo mismos — medido en el
 CAE-1601, sus cinco actuaciones suman 350.399 kWh y su total dice 350.339.
+
+**REGLA — la INVERSIÓN del dictamen es la definitiva.** La declarada al principio
+puede haberse corregido en un requerimiento, y la que vale es la que el organismo da
+por buena. Se guarda en `instalacion.verificacion`, **no pisa `documentacion.facturas[]`**
+—que es el registro de lo que de verdad se facturó— y la pantalla avisa cuando difiere.
+Medido en el CAE-1601: `25RES060_75` tenía 6.930 € y el dictamen fija 6.080 €, que es la
+corrección de su inexactitud nº 10 (un kit solar facturado junto a la bomba de calor,
+ajeno a la ficha RES060).
+
+**REGLA — el dictamen se casa por el AHORRO, nunca por el orden.** Su tabla NO cita el
+número de expediente: solo el código de ficha, que se repite (RES060, RES060, RES060,
+RES080, RES080). Lo único distintivo de cada fila es su ahorro, que se compara contra el
+verificado que dejó el informe. Por eso, **sin ahorros verificados no se propone nada** y
+se dice qué hacer antes: casar por orden sería adivinar, y una inversión en el expediente
+equivocado es la cifra que luego viaja al Anexo y al verificador. Si dos expedientes del
+lote comparten ahorro, tampoco se casa ninguno.
+
+**El dictamen es lo ÚLTIMO que llega**: su nº y su fecha no existen hasta que la
+verificación termina, así que el bloque del Resumen solo aparece cuando ya está subido.
+
+**REGLA — el modal de revisión es UNO con dos modos** (`informe` | `dictamen`). El gesto
+es idéntico —revisar lo leído, casado contra los expedientes, y aplicarlo— y lo único que
+cambia es qué número se escribe. Dos modales gemelos acabarían divergiendo justo en la
+parte delicada, que es la de los avisos.
+
+**REGLA — el nombre del fichero lleva el CÓDIGO DEL LOTE**: `4.2 Informe de Verificación
+LOTE-2025-003.pdf`. Fuera de su carpeta —descargado, adjunto a un correo, encima de un
+escritorio— "4.2 Informe de Verificación.pdf" no dice de qué lote es, y todos los lotes
+generan un fichero con ese mismo nombre. Lo pone `nombreDocLote(slot, { codigo })`; el
+firmado lo hereda del borrador. Para renombrar lo ya subido:
+`node scripts/reorganizar_docs_lote.js --execute` (dry-run sin `--execute`).
 
 **REGLA — la factura del verificador se coteja con SU lote.** Cita su `CAE-####` y su
 nº de pedido (`LOTE-2025-002`), y la emite un NIF que ha de ser el del verificador del
