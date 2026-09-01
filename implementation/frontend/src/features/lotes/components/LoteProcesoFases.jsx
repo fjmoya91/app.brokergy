@@ -4,6 +4,7 @@ import { useModal } from '../../../context/ModalContext';
 import { analizarProceso, SLOTS } from '../logic/loteProceso';
 import { computeLoteEco } from '../logic/loteEco';
 import { EnviarDocLoteModal } from './EnviarDocLoteModal';
+import { AhorrosVerificadosModal } from './AhorrosVerificadosModal';
 import { BotonCarpetaLocal } from './BotonCarpetaLocal';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -165,9 +166,22 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     const [error, setError] = useState('');
     const [docAEnviar, setDocAEnviar] = useState(null);   // documento que se está mandando al S.O.
     const [importeFactura, setImporteFactura] = useState('');
+    // Ahorros verificados leídos del informe, a la espera de que alguien los revise.
+    const [propuestaAhorros, setPropuestaAhorros] = useState(null);
+    const [leyendoInforme, setLeyendoInforme] = useState(false);
+    // Override manual del plegado de cada fase (por número de fase).
+    const [fasesAbiertas, setFasesAbiertas] = useState({});
 
 
     const p = useMemo(() => analizarProceso(lote), [lote]);
+
+    // Cuántos expedientes tienen ya su ahorro VERIFICADO. Es lo que decide si el
+    // lote puede pasar a pagar al cliente, así que se dice en la propia fase en
+    // vez de descubrirse al intentar cambiar el estado y comerse un error.
+    const verif = useMemo(() => {
+        const eco = computeLoteEco(lote);
+        return { n: eco.nVerif || 0, total: eco.nTotal || 0, completo: !!eco.fullyVerif };
+    }, [lote]);
 
     // Lo que la operación le cuesta al SUJETO OBLIGADO en €/MWh: la verificación que
     // paga él (importe de la factura del verificador) MÁS lo que nos paga a nosotros
@@ -201,7 +215,7 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 base64, fileName: file.name, ...extra,
             });
             if (onChanged) onChanged();
-            return data?.documento || null;
+            return data || null;
         } catch (err) {
             setError(err.response?.data?.error || 'No se pudo subir el documento.');
             return null;
@@ -266,8 +280,8 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
 
     // Fase 1 — al subir la solicitud, el paso siguiente es SIEMPRE generar el Anexo I.
     const subirSolicitud = async (file) => {
-        const doc = await subir('solicitud_verificacion', file);
-        if (!doc) return;
+        const r = await subir('solicitud_verificacion', file);
+        if (!r?.documento) return;
         const seguir = await showConfirm(
             'Solicitud de verificación guardada en el lote.\n\n¿Generamos ahora el Anexo I y las fichas RES para mandárselos al Sujeto Obligado? La solicitud irá ya incluida.',
             'Solicitud subida', 'success'
@@ -277,42 +291,119 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
 
     // Fase 3 — al subir la oferta, el paso siguiente es mandarla al S.O. a firmar.
     const subirOferta = async (file) => {
-        const doc = await subir('oferta_verificacion', file);
-        if (!doc) return;
+        const r = await subir('oferta_verificacion', file);
+        if (!r?.documento) return;
         const enviar = await showConfirm(
             'La oferta de verificación ya está guardada en la carpeta del lote.\n\n¿La enviamos ahora al Sujeto Obligado para que la firme?',
             'Oferta subida', 'success'
         );
-        if (enviar) setDocAEnviar(doc);
+        if (enviar) setDocAEnviar(r.documento);
     };
 
-    // Fase 4 — la factura del verificador trae su importe (rellena el coste del lote).
+    // Fase 4 — la factura del verificador trae su importe, y el importe SE LEE.
+    //
+    // Antes había que teclearlo en un campo antes de soltar el PDF, y si se te
+    // olvidaba (que es lo normal: sueltas el fichero y ya está) la factura
+    // quedaba guardada sin importe y el resumen seguía sin saber lo que le cuesta
+    // la verificación al S.O. Ahora el backend lo lee de la propia factura —su
+    // BASE IMPONIBLE— y lo escribe también en el coste de verificación del lote,
+    // que es de donde sale el €/MWh. El campo sigue estando para forzarlo a mano.
     const subirFacturaVerificador = async (file) => {
         const imp = Number(String(importeFactura).replace(',', '.'));
-        const doc = await subir('factura_verificador', file, Number.isFinite(imp) && imp > 0 ? { importe: imp } : {});
-        if (!doc) return;
+        const r = await subir('factura_verificador', file, Number.isFinite(imp) && imp > 0 ? { importe: imp } : {});
+        if (!r?.documento) return;
+        const doc = r.documento;
         setImporteFactura('');
-        if (!(Number.isFinite(imp) && imp > 0)) {
-            await showAlert('Factura guardada, pero sin importe no se puede calcular a cuánto le sale el €/MWh al Sujeto Obligado. Puedes volver a subirla con el importe.', 'Sin importe', 'info');
+        if (!(doc.importe > 0)) {
+            await showAlert(
+                r.ocr?.leido === false
+                    ? `La factura está guardada, pero no se ha podido leer su importe (${r.ocr.error || 'error de lectura'}). Escríbelo en el campo "Importe €" y vuelve a subirla.`
+                    : 'La factura está guardada, pero no se ha podido leer ningún importe en ella. Escríbelo en el campo "Importe €" y vuelve a subirla: sin él no se puede calcular a cuánto le sale el €/MWh al Sujeto Obligado.',
+                'Sin importe', 'info');
+        } else if (r.ocr?.leido) {
+            // Lo leído se enseña con su número de factura para poder cotejarlo de
+            // un vistazo, y con los avisos de que la factura no sea de este lote.
+            await showAlert(
+                `Importe leído de la factura${doc.numero_factura ? ` ${doc.numero_factura}` : ''}: `
+                + `${Number(doc.importe).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })} (base imponible).`
+                + `${r.ocr.total ? ` Total con IVA: ${Number(r.ocr.total).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}.` : ''}`
+                + `\n\nYa consta como coste de verificación del lote. Compruébalo.`
+                + (r.ocr.avisos?.length ? `\n\n⚠ ${r.ocr.avisos.join('\n⚠ ')}` : ''),
+                r.ocr.avisos?.length ? 'Revisa la factura' : 'Importe leído',
+                r.ocr.avisos?.length ? 'warning' : 'success');
         }
         // El verificador se la emite AL S.O., así que se la remitimos nosotros.
         const enviar = await showConfirm(
             'Factura del verificador guardada en el lote.\n\n¿Se la enviamos por email al Sujeto Obligado? Es a él a quien se la emite el verificador.',
             'Factura subida', 'success'
         );
-        if (enviar) setDocAEnviar(doc);
+        if (enviar) setDocAEnviar(r.documento);
+    };
+
+    // ── Fase 4 · el informe de verificación trae el AHORRO VERIFICADO ─────────
+    // Es el número sobre el que se factura al S.O. y sobre el que se le paga al
+    // cliente. Se lee al subirlo y se abre la revisión: nada se escribe solo.
+    const subirInforme = async (file) => {
+        const r = await subir('informe_verificacion', file);
+        if (!r?.documento) return;
+        if (r.ahorros?.leido) setPropuestaAhorros(r.ahorros);
+        else {
+            await showAlert(
+                `El informe está guardado, pero no se han podido leer los ahorros verificados${r.ahorros?.error ? ` (${r.ahorros.error})` : ''}.`
+                + '\n\nPuedes volver a intentarlo con "Leer los ahorros del informe", o escribirlos a mano en cada expediente.',
+                'Informe subido', 'info');
+        }
+    };
+
+    // Releer el informe que YA está subido: los lotes anteriores a esto lo tienen
+    // guardado y nunca se leyó, y siempre se puede querer volver a mirarlo.
+    const releerInforme = async () => {
+        setError('');
+        setLeyendoInforme(true);
+        try {
+            const { data } = await axios.post(`/api/lotes/${lote.id}/ahorros-verificados/leer`);
+            setPropuestaAhorros(data);
+        } catch (err) {
+            setError(err.response?.data?.error || 'No se pudo leer el informe de verificación.');
+        } finally {
+            setLeyendoInforme(false);
+        }
     };
 
     // ── Cabecera de fase ──────────────────────────────────────────────────────
-    const Fase = ({ f, children }) => {
+    // Las fases YA HECHAS van PLEGADAS a una línea. Con las seis abiertas, un lote
+    // en la fase 5 obligaba a bajar por cuatro bloques de papeleo terminado para
+    // llegar a lo único accionable; el trámite tiene ~15 documentos y no cabía en
+    // una pantalla. Plegada, la fase sigue diciendo lo suyo (cuántos documentos
+    // tiene y si alguno está pendiente de revisar) y se abre con un clic.
+    //
+    // El plegado es solo VISUAL y se puede deshacer: los lotes viejos traen
+    // documentos firmados fuera de la app y hay que poder llegar a ellos siempre.
+    const Fase = ({ f, pendiente = false, children }) => {
         const esActual = p.faseActual === f.n;
         const bloqueada = !!f.bloqueo && !f.hecha;
+        const porRevisarN = (f.docs || []).filter(d => d?.signed_link && !d?.validado_at).length;
+        // Por defecto: abierta si es la actual, si aún no está hecha, o si le queda
+        // algo PENDIENTE aunque el papeleo esté completo — que es el caso de la
+        // fase 4, donde el informe y el dictamen ya están pero puede faltar el
+        // ahorro verificado o la factura del verificador. Plegar eso escondería
+        // justo lo único que hay que hacer. El override del usuario manda encima.
+        //
+        // Un firmado "por revisar" NO abre la fase: se anuncia en la línea plegada
+        // y desde ahí se ve que existe. Abrir la fase entera por un visto bueno
+        // devuelve el scroll que este plegado venía a quitar.
+        const abierta = fasesAbiertas[f.n] !== undefined
+            ? fasesAbiertas[f.n]
+            : (esActual || !f.hecha || pendiente);
+        const porRevisar = porRevisarN;
         return (
-            <div className={`rounded-2xl border p-4 transition-colors ${
+            <div className={`rounded-2xl border transition-colors ${abierta ? 'p-4' : 'px-4 py-2.5'} ${
                 f.hecha ? 'border-emerald-500/20 bg-emerald-500/[0.03]'
                     : esActual ? 'border-brand/30 bg-brand/[0.04]'
                         : 'border-white/[0.06] bg-white/[0.01]'}`}>
-                <div className="flex items-center gap-2.5 mb-3">
+                <button type="button"
+                    onClick={() => setFasesAbiertas(prev => ({ ...prev, [f.n]: !abierta }))}
+                    className={`w-full flex items-center gap-2.5 text-left ${abierta ? 'mb-3' : ''}`}>
                     <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 ${
                         f.hecha ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
                             : esActual ? 'bg-brand/15 text-brand border border-brand/40'
@@ -323,13 +414,29 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                         f.hecha ? 'text-emerald-400/80' : esActual ? 'text-white' : 'text-white/35'}`}>
                         {f.titulo}
                     </p>
+                    {/* Plegada, la fase tiene que seguir contando lo suyo: cuántos
+                        papeles guarda y, sobre todo, si hay algo esperando revisión
+                        —que es lo único de una fase terminada que aún pide acción. */}
+                    {!abierta && porRevisar > 0 && (
+                        <span className="text-[9px] font-black uppercase tracking-wider text-cyan-300 shrink-0">
+                            {porRevisar} por revisar
+                        </span>
+                    )}
+                    {!abierta && (f.docs || []).length > 0 && (
+                        <span className="text-[9px] text-white/25 shrink-0">{f.docs.length} doc.</span>
+                    )}
                     {esActual && <span className="text-[9px] font-black uppercase tracking-wider text-brand shrink-0">← ahora</span>}
                     {bloqueada && (
                         <svg className="w-3.5 h-3.5 text-white/20 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                         </svg>
                     )}
-                </div>
+                    <svg className={`w-3.5 h-3.5 text-white/25 shrink-0 transition-transform ${abierta ? 'rotate-180' : ''}`}
+                        fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                </button>
+                {!abierta ? null : (
                 <div className="space-y-2 pl-8">
                     {f.docs.map(d => <Fila key={d.key} doc={d} {...propsFila(d)} />)}
                     {/* El aviso de "aún no toca" NO impide actuar: los lotes que vienen
@@ -338,6 +445,7 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                     {bloqueada && <p className="text-[10px] text-white/25 italic">{f.bloqueo}</p>}
                     {children}
                 </div>
+                )}
             </div>
         );
     };
@@ -412,16 +520,19 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 </div>
             </Fase>
 
-            {/* 4 · Verificación */}
-            <Fase f={f4}>
+            {/* 4 · Verificación. Sigue "pendiente" mientras falte el ahorro
+                verificado de algún expediente o la factura del verificador:
+                el papeleo puede estar completo y quedar lo que de verdad
+                desbloquea el pago. */}
+            <Fase f={f4} pendiente={canSeeMargin && (!verif.completo || !p.facturaVerificador)}>
                 <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2 flex-wrap">
                         <BotonSubir disabled={subiendo === 'informe_inexactitudes'} onFile={(f) => subir('informe_inexactitudes', f)}>
                             {subiendo === 'informe_inexactitudes' ? 'Subiendo…' : `+ Informe de inexactitudes${p.inexactitudes.length ? ` (${p.inexactitudes.length})` : ''}`}
                         </BotonSubir>
                         {!p.informeVerificacion && (
-                            <BotonSubir disabled={subiendo === 'informe_verificacion'} onFile={(f) => subir('informe_verificacion', f)}>
-                                {subiendo === 'informe_verificacion' ? 'Subiendo…' : '↑ Informe de Verificación'}
+                            <BotonSubir disabled={subiendo === 'informe_verificacion'} onFile={subirInforme}>
+                                {subiendo === 'informe_verificacion' ? 'Leyendo el informe…' : '↑ Informe de Verificación'}
                             </BotonSubir>
                         )}
                         {!p.dictamen && (
@@ -430,17 +541,49 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                             </BotonSubir>
                         )}
                     </div>
+                    {/* ── El ahorro VERIFICADO de cada expediente ──────────────
+                        Sale del informe: es la cifra con la que se factura al S.O.
+                        y con la que se le paga al cliente, y sin ella el lote no
+                        puede pasar a pagar. Se dice aquí cuántos lo tienen ya, en
+                        vez de descubrirlo al intentar cambiar el estado. */}
+                    {/* Se enseña TAMBIÉN sin informe subido: que falte el ahorro
+                        verificado es lo que impide pagar al cliente, y enterarse
+                        solo al intentar cambiar el estado es enterarse tarde. */}
+                    {canSeeMargin && (!verif.completo || p.informeVerificacion) && (
+                        <div className={`flex items-center gap-2 flex-wrap rounded-xl border px-3 py-2 ${
+                            verif.completo ? 'border-emerald-500/20 bg-emerald-500/[0.04]' : 'border-amber-500/25 bg-amber-500/[0.04]'}`}>
+                            <span className={`text-[10px] font-black ${verif.completo ? 'text-emerald-400/80' : 'text-amber-300/90'}`}>
+                                {verif.completo
+                                    ? `Ahorro verificado en los ${verif.total} expedientes ✓`
+                                    : `Ahorro verificado en ${verif.n} de ${verif.total} expedientes`}
+                            </span>
+                            {p.informeVerificacion ? (
+                                <BotonAccion onClick={releerInforme} disabled={leyendoInforme}>
+                                    {leyendoInforme ? 'Leyendo el informe…' : (verif.completo ? '↻ Volver a leer el informe' : '⌕ Leer los ahorros del informe')}
+                                </BotonAccion>
+                            ) : (
+                                <span className="text-[9px] text-white/30">Se rellena solo al subir el informe de verificación.</span>
+                            )}
+                            {!verif.completo && p.informeVerificacion && (
+                                <span className="text-[9px] text-white/30">Sin él no se puede pagar al cliente.</span>
+                            )}
+                        </div>
+                    )}
+
                     {/* Factura del verificador: su importe revela lo que le cuesta la
-                        operación al S.O., que es precio de venta → solo ADMIN. */}
+                        operación al S.O., que es precio de venta → solo ADMIN.
+                        El importe SE LEE de la propia factura al subirla; el campo
+                        queda para forzarlo a mano cuando el papel no se deje leer. */}
                     {canSeeMargin && !p.facturaVerificador && (
                         <div className="flex items-center gap-2 flex-wrap">
-                            <input value={importeFactura} onChange={e => setImporteFactura(e.target.value)}
-                                placeholder="Importe €" inputMode="decimal"
-                                className="w-28 bg-bkg-surface border border-white/[0.08] rounded-lg px-2.5 py-1 text-[11px] text-white placeholder-white/20 focus:border-brand/40 focus:outline-none" />
                             <BotonSubir disabled={subiendo === 'factura_verificador'} onFile={subirFacturaVerificador}>
-                                {subiendo === 'factura_verificador' ? 'Subiendo…' : '↑ Factura del verificador al S.O.'}
+                                {subiendo === 'factura_verificador' ? 'Leyendo la factura…' : '↑ Factura del verificador al S.O.'}
                             </BotonSubir>
-                            <span className="text-[9px] text-white/25">La que el VERIFICADOR emite al S.O. (no la nuestra).</span>
+                            <input value={importeFactura} onChange={e => setImporteFactura(e.target.value)}
+                                placeholder="Importe € (opcional)" inputMode="decimal"
+                                title="Solo si quieres forzar el importe. Si lo dejas vacío se lee de la factura."
+                                className="w-36 bg-bkg-surface border border-white/[0.08] rounded-lg px-2.5 py-1 text-[11px] text-white placeholder-white/20 focus:border-brand/40 focus:outline-none" />
+                            <span className="text-[9px] text-white/25">La que el VERIFICADOR emite al S.O. (no la nuestra). Su importe se lee del PDF.</span>
                         </div>
                     )}
 
@@ -496,6 +639,15 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                     doc={docAEnviar}
                     onClose={() => setDocAEnviar(null)}
                     onSent={() => { if (onChanged) onChanged(); }}
+                />
+            )}
+
+            {propuestaAhorros && (
+                <AhorrosVerificadosModal
+                    lote={lote}
+                    propuesta={propuestaAhorros}
+                    onClose={() => setPropuestaAhorros(null)}
+                    onAplicado={() => { if (onChanged) onChanged(); }}
                 />
             )}
         </div>

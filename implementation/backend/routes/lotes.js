@@ -23,6 +23,11 @@ const {
     LOTE_DOC_SLOTS, SLOTS_SUBIBLES, nextDocKey, slotDeKey, sincronizarEstadoLote,
     CARPETA_DOCS, nombreDocLote, guardarDocFirmado,
 } = require('../services/loteDocs');
+const { leerFacturaVerificador, leerInformeVerificacion } = require('../services/loteOcrService');
+const {
+    casarActuaciones, contrastarTotal, verificarFacturaDelLote,
+    aplicarAhorrosVerificados, puedePagarseAlCliente,
+} = require('../services/loteVerificados');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -659,6 +664,64 @@ router.get('/:id/local-path', staffOnly, async (req, res) => {
 // devuelven firmada por email"): no toca el borrador, solo rellena signed_*, igual
 // que si la hubiera firmado él mismo desde /firmar-lote/:id.
 //
+// ─── Ahorros verificados: leer el informe y proponer ──────────────────────────
+// El informe de verificación es el documento que fija, actuación por actuación, el
+// ahorro que el verificador da por bueno. Es el número con el que se factura al
+// Sujeto Obligado y con el que se le paga al cliente, así que aquí solo se PROPONE:
+// se lee, se casa contra los expedientes del lote y se devuelve con sus avisos.
+// Quien aplica es una persona (POST /:id/ahorros-verificados).
+//
+// Nunca lanza: si el lector falla, la subida del documento no se cae con él.
+async function proponerAhorrosVerificados(lote, pdfBuffer) {
+    try {
+        const informe = await leerInformeVerificacion(pdfBuffer);
+
+        // Los expedientes del lote se piden SIN join: `expedientes` tiene más de
+        // una relación con `clientes` y PostgREST rechaza el embed por ambiguo.
+        // Fallaba en silencio (data null → ninguna actuación casaba) y la pantalla
+        // acusaba al informe de citar expedientes que no eran del lote.
+        const { data: exps, error: expErr } = await supabase
+            .from('expedientes')
+            .select('id, numero_expediente, cliente_id, instalacion')
+            .eq('lote_id', lote.id);
+        if (expErr) throw new Error(`No se pudieron leer los expedientes del lote: ${expErr.message}`);
+
+        const cliIds = [...new Set((exps || []).map(e => e.cliente_id).filter(Boolean))];
+        let cliMap = new Map();
+        if (cliIds.length) {
+            const { data: clis } = await supabase.from('clientes')
+                .select('id, nombre_razon_social').in('id', cliIds);
+            cliMap = new Map((clis || []).map(c => [c.id, c.nombre_razon_social]));
+        }
+        const expedientes = (exps || []).map(e => ({
+            id: e.id,
+            numero_expediente: e.numero_expediente,
+            instalacion: e.instalacion,
+            cliente_nombre: cliMap.get(e.cliente_id) || null,
+        }));
+        const { filas, faltan, avisos } = casarActuaciones(informe.actuaciones, expedientes);
+        const total = contrastarTotal(informe, filas);
+        return {
+            leido: true,
+            informe: {
+                expediente_cae: informe.expediente_cae,
+                id_verificacion: informe.id_verificacion,
+                fecha_informe: informe.fecha_informe,
+                dictamen: informe.dictamen,
+                entidad_verificadora: informe.entidad_verificadora,
+                total_kwh: informe.total_kwh,
+            },
+            filas,
+            faltan,
+            avisos: [...avisos, ...(total.aviso ? [total.aviso] : [])],
+            total,
+        };
+    } catch (err) {
+        console.warn('[lotes] OCR informe de verificación:', err.message);
+        return { leido: false, error: err.message, filas: [], faltan: [], avisos: [] };
+    }
+}
+
 // Cada subida puede AVANZAR el estado del lote (sincronizarEstadoLote).
 router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
     try {
@@ -704,7 +767,10 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
             : {
                 key,
                 tipo: slot,
-                label: `${cfg.label}${nDoc}`,
+                // `nDoc` solo existe en los slots MÚLTIPLES (inexactitudes 1, 2…).
+                // Interpolarlo a secas dejaba "Informe de Verificaciónnull" en
+                // pantalla para todos los demás.
+                label: `${cfg.label}${nDoc ? ` ${nDoc}` : ''}`,
                 expediente_id: null,
                 file_name: name,
                 // Documentos redactados por terceros (verificador): no hay plantilla
@@ -736,15 +802,72 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
 
         // `drive_folder_id` ya lo persiste ensureLoteFolder.
         const update = { documentos_so: docs, historial, updated_at: nowIso() };
-        // El importe de la factura del verificador se guarda EN LA ENTRADA del
-        // documento, no en `lotes.coste_verificacion`: la verificación la paga el
-        // SUJETO OBLIGADO, no Brokergy. Sirve para saber a cuánto le sale a él el
-        // €/MWh (verificación + lo que nos paga), no para nuestro margen.
-        const importeNum = Number(importe);
-        if (cfg.importe && Number.isFinite(importeNum) && importeNum > 0) {
-            entrada.importe = importeNum;
-            update.documentos_so = docs;
+
+        // ── El importe de la factura del verificador ──────────────────────────
+        // Se guarda en la ENTRADA del documento (de quién es la factura y por
+        // cuánto) y ADEMÁS en `lotes.coste_verificacion`, que es de donde lo lee
+        // el cálculo del €/MWh que le sale al Sujeto Obligado. Vivían separados y
+        // había que teclear el mismo número dos veces: subías la factura con su
+        // importe y el resumen seguía diciendo que no había coste de verificación.
+        //
+        // La verificación la paga el S.O., no Brokergy: este importe NO entra en
+        // nuestro margen, solo en lo que a él le cuesta la operación.
+        let ocr = null;
+        if (cfg.importe && !esFirmado) {
+            let importeNum = Number(importe);
+            // Si no viene tecleado, se LEE de la propia factura. Un fallo del
+            // lector no puede tumbar la subida: el PDF ya está en Drive y el
+            // importe se puede escribir a mano.
+            if (!(Number.isFinite(importeNum) && importeNum > 0)) {
+                try {
+                    const leida = await leerFacturaVerificador(buffer);
+                    const verificador = lote.verificador_id
+                        ? (await supabase.from('prescriptores')
+                            .select('id_empresa, razon_social, cif').eq('id_empresa', lote.verificador_id).maybeSingle()).data
+                        : null;
+                    const chequeo = verificarFacturaDelLote(leida, lote, verificador
+                        ? { ...verificador, nombre_empresa: verificador.razon_social } : null);
+                    ocr = { ...leida, avisos: chequeo.avisos, leido: true };
+                    // Se usa la BASE IMPONIBLE: es lo que se compara con el resto
+                    // de importes de la app, todos sin IVA. Sin base declarada no
+                    // se cae al total con IVA — inflaría el coste del S.O. un 21 %.
+                    if (leida.base_imponible > 0) importeNum = leida.base_imponible;
+                } catch (err) {
+                    console.warn('[lotes] OCR factura verificador:', err.message);
+                    ocr = { leido: false, error: err.message };
+                }
+            }
+            if (Number.isFinite(importeNum) && importeNum > 0) {
+                entrada.importe = importeNum;
+                if (ocr?.leido) {
+                    entrada.importe_ocr = true;         // "compruébalo" en la UI
+                    entrada.numero_factura = ocr.numero_factura || null;
+                    entrada.fecha_factura = ocr.fecha_factura || null;
+                }
+                update.documentos_so = docs;
+                const antes = Number(lote.coste_verificacion);
+                if (!(antes === importeNum)) {
+                    update.coste_verificacion = importeNum;
+                    historial.push({
+                        id: `${Date.now()}_coste_verif`, tipo: 'sistema',
+                        texto: `Coste de verificación ${Number.isFinite(antes) && antes > 0 ? `${antes} € → ` : ''}${importeNum} €`
+                            + `${ocr?.leido ? ` (leído de la factura${ocr.numero_factura ? ` ${ocr.numero_factura}` : ''})` : ''}.`,
+                        fecha: nowIso(), usuario: usuarioDe(req),
+                    });
+                    update.historial = historial;
+                }
+            }
         }
+
+        // ── El informe de verificación trae el ahorro VERIFICADO de cada uno ───
+        // Se lee y se PROPONE, casado contra los expedientes del lote; escribirlo
+        // lo decide una persona desde `POST /:id/ahorros-verificados`. Sobre este
+        // número se factura al S.O. y se le paga al cliente: no se toca solo.
+        let ahorros = null;
+        if (slot === 'informe_verificacion' && !esFirmado) {
+            ahorros = await proponerAhorrosVerificados(lote, buffer);
+        }
+
         await supabase.from('lotes').update(update).eq('id', lote.id);
 
         // Un informe de inexactitudes REABRE el lote aunque ya estuviera VERIFICADO:
@@ -762,10 +885,84 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
 
         const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
         const [enriched] = await enrichLotes([updated]);
-        res.json({ ok: true, documento: entrada, lote: scrubLoteForUser(enriched, req) });
+        res.json({ ok: true, documento: entrada, ocr, ahorros, lote: scrubLoteForUser(enriched, req) });
     } catch (err) {
         console.error('[POST /lotes/:id/documentos/:slot]', err.message);
         res.status(500).json({ error: err.message || 'Error al subir el documento del lote' });
+    }
+});
+
+// ─── POST /api/lotes/:id/ahorros-verificados/leer ────────────────────────────────
+// Relee el informe de verificación que YA está subido al lote y devuelve la
+// propuesta. Sirve para los lotes cuyo informe se subió antes de que la app
+// supiera leerlo, y para volver a mirarlo sin tener que subirlo otra vez.
+router.post('/:id/ahorros-verificados/leer', adminOnly, async (req, res) => {
+    try {
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        const doc = (lote.documentos_so || []).find(d => d?.key === 'informe_verificacion');
+        const fileId = doc?.draft_file_id;
+        if (!fileId) return res.status(409).json({ error: 'Este lote no tiene subido el informe de verificación.' });
+
+        const buffer = await driveService.getFileContent(fileId);
+        if (!buffer) return res.status(502).json({ error: 'No se pudo descargar el informe desde Drive.' });
+
+        const propuesta = await proponerAhorrosVerificados(lote, buffer);
+        if (!propuesta.leido) return res.status(502).json({ error: propuesta.error || 'No se pudo leer el informe.' });
+        res.json(propuesta);
+    } catch (err) {
+        console.error('[POST /lotes/:id/ahorros-verificados/leer]', err.message);
+        res.status(500).json({ error: err.message || 'Error al leer el informe de verificación' });
+    }
+});
+
+// ─── POST /api/lotes/:id/ahorros-verificados ─────────────────────────────────────
+// Escribe el ahorro verificado en los expedientes. ADMIN: es la cifra sobre la que
+// se factura y se paga, y una vez pagado no se deshace.
+//
+// Recibe las filas YA revisadas por una persona: [{ expediente_id, ahorro_kwh }].
+// No se acepta el informe entero para aplicarlo a ciegas — el paso de revisión es
+// justamente lo que evita pagarle a un cliente el ahorro de otro.
+router.post('/:id/ahorros-verificados', adminOnly, async (req, res) => {
+    try {
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        const filas = Array.isArray(req.body?.filas) ? req.body.filas : [];
+        if (!filas.length) return res.status(400).json({ error: 'No hay nada que aplicar.' });
+
+        // Solo expedientes DE ESTE LOTE: el id llega del navegador y un id de otro
+        // lote escribiría un ahorro verificado donde no toca.
+        const { data: miembros } = await supabase.from('expedientes').select('id').eq('lote_id', lote.id);
+        const permitidos = new Set((miembros || []).map(m => m.id));
+        const ajenos = filas.filter(f => !permitidos.has(f?.expediente_id));
+        if (ajenos.length) return res.status(400).json({ error: 'Alguna fila no pertenece a este lote.' });
+
+        const { aplicados, errores } = await aplicarAhorrosVerificados(filas, {
+            usuario: usuarioDe(req),
+            informe: req.body?.informe_expediente_cae || lote.expediente_verificador || null,
+            fechaInforme: req.body?.informe_fecha || null,
+            origen: req.body?.origen || 'INFORME_VERIFICACION',
+        });
+
+        if (aplicados.length) {
+            const historial = Array.isArray(lote.historial) ? [...lote.historial] : [];
+            historial.push({
+                id: `${Date.now()}_ahorros_verif`, tipo: 'sistema',
+                texto: `Ahorro verificado registrado en ${aplicados.length} expediente${aplicados.length === 1 ? '' : 's'}: `
+                    + aplicados.map(a => `${a.numero_expediente} ${a.ahorro_kwh.toLocaleString('es-ES')} kWh`).join(' · ') + '.',
+                fecha: nowIso(), usuario: usuarioDe(req),
+            });
+            await supabase.from('lotes').update({ historial, updated_at: nowIso() }).eq('id', lote.id);
+        }
+
+        const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
+        const [enriched] = await enrichLotes([updated]);
+        res.json({ ok: true, aplicados, errores, lote: scrubLoteForUser(enriched, req) });
+    } catch (err) {
+        console.error('[POST /lotes/:id/ahorros-verificados]', err.message);
+        res.status(500).json({ error: err.message || 'Error al registrar los ahorros verificados' });
     }
 });
 
@@ -1503,6 +1700,24 @@ router.patch('/:id/estado', staffOnly, async (req, res) => {
             if (!lote.verificador_id) return res.status(409).json({ error: 'Asigna un Verificador antes de enviar el lote' });
             const { data: miembros } = await supabase.from('expedientes').select('id').eq('lote_id', lote.id);
             if (!(miembros || []).length) return res.status(409).json({ error: 'El lote no tiene expedientes' });
+        }
+
+        // ── No se le paga a un cliente sin su ahorro VERIFICADO ────────────────
+        // El bono se calcula sobre el ahorro que el verificador ha dado por bueno.
+        // Con el estimado se paga de más o de menos, y un pago hecho no se
+        // deshace. El verificado se rellena con el informe de verificación final
+        // (se lee solo al subirlo: "Leer el informe" en la pestaña Documentación).
+        if (['PTE. PAGO BROKERGY A CLIENTE', 'FINALIZADO'].includes(nuevo_estado)) {
+            const { data: miembros } = await supabase.from('expedientes')
+                .select('numero_expediente, instalacion').eq('lote_id', lote.id);
+            const { ok, faltan } = puedePagarseAlCliente(miembros);
+            if (!ok) {
+                return res.status(409).json({
+                    error: `No se puede pasar a "${nuevo_estado}" sin el ahorro verificado de ${faltan.length === 1 ? 'un expediente' : `${faltan.length} expedientes`}: ${faltan.join(', ')}. `
+                        + 'El bono al cliente se calcula sobre el ahorro verificado; rellénalo desde el informe de verificación.',
+                    faltan,
+                });
+            }
         }
 
         const historial = Array.isArray(lote.historial) ? lote.historial.slice() : [];
