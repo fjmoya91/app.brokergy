@@ -173,6 +173,7 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     const [modoRevision, setModoRevision] = useState('informe');
     const [leyendoInforme, setLeyendoInforme] = useState(false);
     const [leyendoDictamen, setLeyendoDictamen] = useState(false);
+    const [generandoAnexos, setGenerandoAnexos] = useState(false);
     // Overlay ESTÁNDAR mientras se lee un PDF y para contar cómo ha ido. Leer un
     // informe tarda entre 6 y 14 segundos: sin él, el usuario pulsa y no pasa nada
     // visible, así que vuelve a pulsar. Nunca un showAlert pelado (ver el estándar
@@ -473,6 +474,44 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         }
     };
 
+    // ── Fase 5 · los ANEXOS del MITECO ────────────────────────────────────────
+    // Uno por expediente: es el impreso que va dentro de cada ZIP "ActuacionE{n}"
+    // de la solicitud. Se hacen los cinco de una vez porque es el momento en que se
+    // prepara la subida, y se rellena el formulario OFICIAL, no una copia.
+    const generarAnexos = async () => {
+        setError('');
+        setGenerandoAnexos(true);
+        setLectura({
+            phase: 'sending', sendingTitle: 'Generando los anexos…',
+            subtitle: 'Un impreso del MITECO por cada expediente del lote',
+        });
+        try {
+            const { data } = await axios.post(`/api/lotes/${lote.id}/anexos-actuacion`);
+            const n = data.generados?.length || 0;
+            const mal = data.incompletos || [];
+            setLectura({
+                phase: 'done', ok: n > 0 && !mal.length,
+                okTitle: 'Anexos generados', errorTitle: mal.length ? 'Faltan datos' : 'No se generó ninguno',
+                subtitle: `${lote?.codigo} · carpeta de documentación del lote`,
+                items: data.generados?.map(g => `E${g.n_actuacion} · ${g.numero_expediente} (${g.ficha})`) || [],
+                // Lo que falta se dice por expediente y con nombre: es lo que hay
+                // que ir a rellenar, y un "faltan datos" a secas no lleva a ninguna
+                // parte.
+                errorText: mal.length
+                    ? mal.map(m => `${m.numero_expediente}: falta ${m.faltan.join(', ')}`).join(' · ')
+                    : null,
+            });
+            if (onChanged) onChanged();
+        } catch (err) {
+            setLectura({
+                phase: 'done', ok: false, errorTitle: 'No se pudieron generar',
+                errorText: err.response?.data?.error || 'Error al generar los anexos de actuación.',
+            });
+        } finally {
+            setGenerandoAnexos(false);
+        }
+    };
+
     // ── Cabecera de fase ──────────────────────────────────────────────────────
     // Las fases YA HECHAS van PLEGADAS a una línea. Con las seis abiertas, un lote
     // en la fase 5 obligaba a bajar por cuatro bloques de papeleo terminado para
@@ -716,6 +755,13 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
             {/* 5 · Presentación a MITECO y resolución de la Gestora de Ahorros */}
             <Fase f={f5}>
                 <div className="flex items-center gap-2 flex-wrap">
+                    {/* Lo PRIMERO de esta fase: los anexos que van dentro de los ZIP
+                        de la solicitud. Antes de subir nada a MITECO hay que tenerlos. */}
+                    {canSeeMargin && (
+                        <BotonAccion onClick={generarAnexos} disabled={generandoAnexos}>
+                            {generandoAnexos ? 'Generando…' : '📄 Generar anexos para MITECO'}
+                        </BotonAccion>
+                    )}
                     {!p.justificanteMiteco && (
                         <BotonSubir disabled={subiendo === 'justificante_miteco'} onFile={(f) => subir('justificante_miteco', f)}>
                             {subiendo === 'justificante_miteco' ? 'Subiendo…' : '↑ Justificante de subida a MITECO'}

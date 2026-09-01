@@ -50,6 +50,12 @@ data/bbdd_instaladores.xlsx
 imagenes/
 plantillas/
 
+# …salvo la del backend: el ANEXO del MITECO se rellena en runtime desde este
+# PDF, así que tiene que viajar en la imagen (el Dockerfile copia `backend/`).
+# Está VACIADO — el que nos pasaron traía dentro los datos de un cliente real.
+!implementation/backend/plantillas/
+!implementation/backend/plantillas/**
+
 # Scripts de depuración/prueba sueltos en raíz del backend
 implementation/backend/check_*.js
 implementation/backend/test_*.js

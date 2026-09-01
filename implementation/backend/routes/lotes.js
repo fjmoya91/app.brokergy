@@ -24,6 +24,8 @@ const {
     CARPETA_DOCS, nombreDocLote, guardarDocFirmado,
 } = require('../services/loteDocs');
 const { leerFacturaVerificador, leerInformeVerificacion, leerDictamenVerificacion } = require('../services/loteOcrService');
+const anexoActuacion = require('../services/anexoActuacionService');
+const { detectPrograma } = require('../utils/fichas');
 const {
     casarActuaciones, casarDictamen, contrastarTotal, verificarFacturaDelLote,
     aplicarAhorrosVerificados, aplicarDatosDictamen, puedePagarseAlCliente,
@@ -980,6 +982,77 @@ router.post('/:id/ahorros-verificados/leer', adminOnly, async (req, res) => {
     } catch (err) {
         console.error('[POST /lotes/:id/ahorros-verificados/leer]', err.message);
         res.status(500).json({ error: err.message || 'Error al leer el informe de verificación' });
+    }
+});
+
+// ─── POST /api/lotes/:id/anexos-actuacion ────────────────────────────────────────
+// Genera el ANEXO del MITECO de cada expediente del lote y lo deja en la carpeta de
+// documentación. Es el impreso que va dentro de cada ZIP "ActuacionE{n}" de la
+// solicitud de emisión de CAE, así que se hacen los cinco de una vez: es el momento
+// en que se prepara la subida.
+//
+// Se rellena el formulario OFICIAL (ver anexoActuacionService), no una copia.
+//
+// ADMIN: lleva la inversión, que es precio.
+router.post('/:id/anexos-actuacion', adminOnly, async (req, res) => {
+    try {
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        const { data: exps, error: expErr } = await supabase.from('expedientes')
+            .select('id, numero_expediente, instalacion, documentacion').eq('lote_id', lote.id);
+        if (expErr) throw new Error(`No se pudieron leer los expedientes: ${expErr.message}`);
+        if (!(exps || []).length) return res.status(409).json({ error: 'El lote no tiene expedientes.' });
+
+        // El nº y la fecha del dictamen son del LOTE: uno solo cubre las cinco
+        // actuaciones, y las cinco lo citan.
+        const dictamen = (lote.documentos_so || []).find(d => d?.key === 'dictamen_favorable')?.dictamen || {};
+
+        const carpeta = await ensureLoteDocsFolder(lote);
+        const generados = [];
+        const incompletos = [];
+
+        // En serie: cada anexo carga la plantilla (2 MB) y sube a Drive. Cinco a la
+        // vez no ganan tiempo y sí multiplican la memoria y las llamadas a Google.
+        for (const e of exps) {
+            const ficha = detectPrograma(e);
+            const orden = Number(e.instalacion?.verificacion?.orden_actuacion) || null;
+            const d = anexoActuacion.datosDesdeExpediente(e, { orden, ficha, dictamen });
+            const faltan = anexoActuacion.faltantes(d);
+            if (faltan.length) {
+                // Un anexo con huecos se presenta igual de bien que uno completo, y
+                // el requerimiento llega tres semanas después: no se genera.
+                incompletos.push({ numero_expediente: e.numero_expediente, faltan });
+                continue;
+            }
+            const pdf = await anexoActuacion.generarAnexo(d);
+            const nombre = anexoActuacion.nombreAnexo(d);
+            const saved = await saveOrReplacePdf(carpeta, nombre, pdf);
+            generados.push({
+                numero_expediente: e.numero_expediente, n_actuacion: d.n_actuacion,
+                ficha, fileName: nombre, link: saved?.link || null,
+            });
+        }
+
+        if (generados.length) {
+            const historial = Array.isArray(lote.historial) ? [...lote.historial] : [];
+            historial.push({
+                id: `${Date.now()}_anexos`, tipo: 'sistema',
+                texto: `Generados ${generados.length} anexo${generados.length === 1 ? '' : 's'} de actuación para MITECO: `
+                    + generados.map(g => `E${g.n_actuacion} (${g.numero_expediente})`).join(' · ')
+                    + (incompletos.length ? `. ${incompletos.length} sin generar por datos incompletos.` : '.'),
+                fecha: nowIso(), usuario: usuarioDe(req),
+            });
+            await supabase.from('lotes').update({ historial, updated_at: nowIso() }).eq('id', lote.id);
+        }
+
+        res.json({
+            ok: true, generados, incompletos,
+            carpeta_link: lote.drive_folder_id ? `https://drive.google.com/drive/folders/${carpeta}` : null,
+        });
+    } catch (err) {
+        console.error('[POST /lotes/:id/anexos-actuacion]', err.message);
+        res.status(500).json({ error: err.message || 'Error al generar los anexos de actuación' });
     }
 });
 

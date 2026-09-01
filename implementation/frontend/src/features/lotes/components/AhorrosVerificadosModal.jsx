@@ -93,6 +93,9 @@ export function AhorrosVerificadosModal({ lote, propuesta, modo = 'informe', onC
                     filas: seleccionadas.map(f => ({
                         expediente_id: f.expediente_id, ahorro_kwh: f.ahorro_kwh,
                         inversion_eur: f.inversion_eur ?? null, vida_util: f.vida_util ?? null,
+                        // El orden con que el informe numera la actuación: es el que
+                        // rotula su anexo del MITECO y nombra sus adjuntos.
+                        orden: f.orden ?? null,
                     })),
                     informe_expediente_cae: propuesta?.informe?.expediente_cae || null,
                     informe_fecha: propuesta?.informe?.fecha_informe || null,

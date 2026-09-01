@@ -345,6 +345,13 @@ async function aplicarAhorrosVerificados(filas, meta = {}) {
                     ahorro_verificado_kwh: kwh,
                     ...(Number.isFinite(inv) && inv > 0 ? { inversion_verificada_eur: inv } : {}),
                     ...(f?.vida_util ? { vida_util_anios: Number(f.vida_util) } : {}),
+                    // El ORDEN con que el informe numera esta actuación. Es el de la
+                    // solicitud al MITECO, y con él se rotula su anexo ("Nº E 3") y se
+                    // nombran sus adjuntos en el ZIP (E3-1-, E3-2-…). Deducirlo de
+                    // otra cosa haría que los ficheros dejaran de casar con el
+                    // formulario que los cita.
+                    ...(Number.isFinite(Number(f?.orden)) && Number(f.orden) > 0
+                        ? { orden_actuacion: Number(f.orden) } : {}),
                     fuente: 'MARWEN',
                     fecha: nowIso(),
                     registrado_por: meta.usuario || 'SISTEMA',
