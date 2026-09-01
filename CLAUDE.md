@@ -2543,9 +2543,8 @@ en un PDF que ya subimos al lote.
 | Qué | De dónde sale | Dónde acaba |
 |---|---|---|
 | Coste de verificación | **Factura del verificador**, su BASE IMPONIBLE | `lotes.coste_verificacion` + `documentos_so[factura_verificador].importe` |
-| Ahorro verificado | **Informe de verificación**, campo "Ahorro anual conseguido (kWh)" de cada bloque "N. ACTUACIÓN A VERIFICAR" | `expedientes.instalacion.verificacion.ahorro_verificado_kwh` |
+| Ahorro verificado **e inversión** | **Informe de verificación**: de cada bloque "N. ACTUACIÓN A VERIFICAR", su "Ahorro anual conseguido (kWh)" y su "Inversión de la actuación sin IVA (€)" | `expedientes.instalacion.verificacion.ahorro_verificado_kwh` / `inversion_verificada_eur` |
 | Nº de dictamen, fecha, referencia del informe y ahorro dictaminado | **Dictamen**, apartados 3, 7, 9 y 10 | `documentos_so[dictamen_favorable].dictamen` (se enseña en el Resumen del lote) |
-| **Inversión definitiva** y vida útil | **Dictamen**, tabla del apartado 7 | `expedientes.instalacion.verificacion.inversion_verificada_eur` / `vida_util_anios` |
 
 | Qué | Dónde |
 |---|---|
@@ -2576,6 +2575,22 @@ informe", que lo baja de Drive y lo relee.
 **REGLA — se contrasta la suma con el total que declara el propio informe.** Se avisa,
 no se bloquea: hay informes reales que no cuadran consigo mismos — medido en el
 CAE-1601, sus cinco actuaciones suman 350.399 kWh y su total dice 350.339.
+
+**REGLA — UNA sola revisión escribe las dos cifras.** El informe trae el ahorro Y la
+inversión de cada actuación, y son las mismas que imprime el dictamen (medido en el
+CAE-1601: idénticas en los dos papeles). Eran dos pantallas para dos números que vienen
+juntos. El dictamen queda para lo que aporta en exclusiva —su nº y su fecha— y para
+CONTRASTAR: si sus cifras coinciden con lo registrado, **no abre nada** (`sinCambios`);
+solo pide revisión cuando algo difiere, que es cuando hace falta que alguien mire.
+
+**REGLA — el dictamen NO puede ir solo.** Su tabla no cita el número de expediente, así
+que sin el informe no hay forma de saber de quién es cada fila. El informe sí puede: es
+el único documento que las identifica.
+
+**REGLA — `aplicarAhorrosVerificados` FUNDE `verificacion`, no la reemplaza.** El sello
+del dictamen y el del informe se escriben en momentos distintos y sobre la misma clave;
+un reemplazo hacía que registrar el informe después del dictamen se llevara por delante
+su nº y su fecha.
 
 **REGLA — la INVERSIÓN del dictamen es la definitiva.** La declarada al principio
 puede haberse corregido en un requerimiento, y la que vale es la que el organismo da
