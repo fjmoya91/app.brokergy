@@ -32,7 +32,10 @@ const RE_COLA_SOLA = /^(\d{1,3})\s+([\d.]+,\d{2})\s*€?(?:\s+([\d.]+,\d{2})\s*�
 
 // Cabecera de la tabla: no es descripción, y si se acumulara acabaría pegada al
 // primer concepto.
-const RE_CABECERA_TABLA = /^(Descripci|CONCEPTOS|Unidades|Precio)/i;
+// El título del bloque de trabajos va ANCLADO y solo: la línea de Lanuza
+// empieza con ese mismo texto ("CEE inicial y CEE final registrados. C/ Dalí
+// 4…") pero sigue con la dirección y su cola, y esa SÍ es un concepto.
+const RE_CABECERA_TABLA = /^(Descripci|CONCEPTOS|Unidades|Precio)|^CEE INICIAL Y CEE FINAL\s*$/i;
 
 // Líneas de totales: llevan importe pero no son conceptos.
 const RE_TOTALES = /^\s*[-–*]?\s*(TOTAL|IVA|RETENCI[ÓO]N|IRPF|BASE|IMPORTE TOTAL|Asciende)/i;
@@ -91,6 +94,14 @@ const leerFecha = (txt) => {
     }
     const numerica = t.match(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b/);
     if (numerica) return `${numerica[3]}-${String(Number(numerica[2])).padStart(2, '0')}-${String(Number(numerica[1])).padStart(2, '0')}`;
+    // Con todas las letras, al pie del documento: "Bellver de Cerdanya, a 31 de
+    // Agosto de 2026". Es la ÚNICA fecha de la plantilla de Moncayo, y sin fecha
+    // no se puede sellar: había que teclearla a mano teniéndola delante.
+    const literal = t.match(/\b(\d{1,2})\s+de\s+([A-Za-zÁÉÍÓÚáéíóú]{3,})\s+de\s+(\d{4})\b/i);
+    if (literal) {
+        const mes = MESES[literal[2].slice(0, 3).toLowerCase()];
+        if (mes) return `${literal[3]}-${String(mes).padStart(2, '0')}-${String(Number(literal[1])).padStart(2, '0')}`;
+    }
     return null;
 };
 
@@ -126,9 +137,11 @@ export function parsearFacturaCertificador(entrada) {
     let fecha = null;
     for (const l of lineas) {
         if (!numero) {
-            // Serie + correlativo: "AP232026", "AP03072026". Puede venir pegado a
-            // otra palabra ("AP03072026MOD"), así que no se ancla por la derecha.
-            const m = l.match(/\b([A-Z]{2,3}\d{6,10})/);
+            // Serie + correlativo: "AP232026", "AP03072026". El sufijo forma
+            // PARTE del número y se conserva: "AP02082026MOD" es la factura
+            // MODIFICADA de "AP02082026", y truncarlo dejaría a las dos con el
+            // mismo sello, indistinguibles en el histórico de lo pagado.
+            const m = l.match(/\b([A-Z]{2,3}\d{6,10}[A-Z]*)/);
             if (m) numero = m[1];
         }
         if (!fecha) fecha = leerFecha(l);

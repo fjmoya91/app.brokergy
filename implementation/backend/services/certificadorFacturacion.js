@@ -1,8 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Facturación del CERTIFICADOR — conciliación mensual.
 //
-// El certificador NO factura expedientes, factura HITOS DE REGISTRO. Su factura
-// tiene dos bloques (ver plantilla real, factura AP232026 de julio-26):
+// El certificador NO factura expedientes, factura HITOS DE REGISTRO. Y los
+// factura de los DOS negocios en el MISMO papel: expedientes del CAE y CEE
+// directos, mezclados y con la misma tarifa —a él le cuesta la misma visita
+// levantar uno que otro—, así que la conciliación mira las dos tablas.
+//
+// Su factura tiene dos bloques (ver plantilla real, factura AP232026 de julio-26):
 //
 //   · TRABAJOS  → honorarios, con IVA 21 % y retención de IRPF 15 %.
 //   · SUPLIDOS  → las tasas de registro que él adelanta ante la administración.
@@ -118,19 +122,50 @@ const descripcionHonorario = (tieneIni, tieneFin) => {
     return 'CEE inicial registrado';
 };
 
+// Fases que ya significan "el certificador ha entregado". Si además te lo
+// factura, es que lo ha registrado y la app todavía no se ha enterado.
+const FASES_AVANZADAS = ['PRESENTADO', 'PTE_REVISION', 'REVISADO', 'REGISTRADO'];
+
+// Las DOS tablas que el certificador factura. El hito que cobra es el REGISTRO
+// de un CEE, y a él le cuesta la misma visita y la misma tasa levantar uno del
+// CAE que uno suelto: por eso comparten tarifa y comparten este camino. Lo único
+// que cambia es dónde se sella lo facturado.
+const TABLAS = {
+    CAE: {
+        tabla: 'expedientes',
+        rpc: 'merge_expediente_doc_json',
+        idRpc: 'p_expediente_id',
+        select: 'id, numero_expediente, estado, cliente_id, seguimiento, documentacion, instalacion',
+    },
+    CEE: {
+        tabla: 'cee_directos',
+        rpc: 'merge_cee_directo_doc_json',
+        idRpc: 'p_id',
+        select: 'id, numero_expediente, estado, cliente_id, alcance, direccion, municipio, provincia, seguimiento, documentacion',
+    },
+};
+
 /**
- * Carga los expedientes del certificador y los descompone en conceptos
- * facturables con su mes de devengo y su sello.
+ * Carga lo que el certificador tiene en la app —expedientes CAE y CEE directos—
+ * y lo descompone en conceptos facturables con su mes de devengo y su sello.
  */
 async function cargarConceptos(certificadorId, tarifas) {
-    const { data: exps, error } = await supabase
-        .from('expedientes')
-        .select('id, numero_expediente, estado, cliente_id, seguimiento, documentacion, instalacion')
-        .eq('cee->>certificador_id', certificadorId);
+    const [cae, cee] = await Promise.all([
+        supabase.from(TABLAS.CAE.tabla).select(TABLAS.CAE.select).eq('cee->>certificador_id', certificadorId),
+        supabase.from(TABLAS.CEE.tabla).select(TABLAS.CEE.select).eq('cee->>certificador_id', certificadorId),
+    ]);
 
-    if (error) throw new Error(error.message);
+    if (cae.error) throw new Error(cae.error.message);
+    // Un fallo leyendo los CEE directos no puede tumbar la conciliación del CAE,
+    // que es la que mueve el dinero grande: se avisa y se sigue con lo que hay.
+    if (cee.error) console.error('[facturación certificador] no se pudieron leer los CEE directos:', cee.error.message);
 
-    const cliIds = [...new Set((exps || []).map(e => e.cliente_id).filter(Boolean))];
+    const filas = [
+        ...(cae.data || []).map(e => ({ ...e, origen: 'CAE' })),
+        ...(cee.data || []).map(e => ({ ...e, origen: 'CEE' })),
+    ];
+
+    const cliIds = [...new Set(filas.map(e => e.cliente_id).filter(Boolean))];
     const cliMap = {};
     if (cliIds.length) {
         const { data: clis } = await supabase
@@ -141,14 +176,13 @@ async function cargarConceptos(certificadorId, tarifas) {
     }
 
     const expedientes = [];
-    // Expedientes que el certificador probablemente ya haya registrado (y por
-    // tanto facturado) pero que en la app siguen sin fecha de registro. Son los
+    // Los que el certificador probablemente ya haya registrado (y por tanto
+    // facturado) pero que en la app siguen sin fecha de registro. Son los
     // candidatos a explicar un descuadre "te factura de más": no hay que
     // pagarlos a ciegas, hay que actualizarles el seguimiento.
     const sinRegistro = [];
-    const FASES_AVANZADAS = ['PRESENTADO', 'PTE_REVISION', 'REVISADO', 'REGISTRADO'];
 
-    for (const e of exps || []) {
+    for (const e of filas) {
         const seg = e.seguimiento || {};
         const doc = e.documentacion || {};
         const inst = e.instalacion || {};
@@ -160,9 +194,11 @@ async function cargarConceptos(certificadorId, tarifas) {
         const fIni = diaDe(doc.fecha_registro_cee_inicial || seg.cee_inicial_ts?.REGISTRADO);
         const fFin = diaDe(doc.fecha_registro_cee_final || seg.cee_final_ts?.REGISTRADO);
 
-        const direccionExp = (inst.direccion || c?.direccion || '').trim() || null;
-        const municipioExp = (inst.municipio || c?.municipio || '').trim() || null;
-        const provinciaExp = (inst.provincia || c?.provincia || '').trim() || null;
+        // Un CEE directo lleva su dirección en la propia fila; un expediente CAE,
+        // en `instalacion`, con el domicilio del cliente como respaldo.
+        const direccionExp = (e.direccion || inst.direccion || c?.direccion || '').trim() || null;
+        const municipioExp = (e.municipio || inst.municipio || c?.municipio || '').trim() || null;
+        const provinciaExp = (e.provincia || inst.provincia || c?.provincia || '').trim() || null;
         // Igual que la factura: "C/ Cardenal Segura 23, Pedro Muñoz (Ciudad Real)".
         const ubicacion = [direccionExp, municipioExp && provinciaExp ? `${municipioExp} (${provinciaExp})` : municipioExp]
             .filter(Boolean).join(', ') || null;
@@ -174,12 +210,18 @@ async function cargarConceptos(certificadorId, tarifas) {
             if (FASES_AVANZADAS.includes(seg.cee_inicial) || FASES_AVANZADAS.includes(seg.cee_final)) {
                 sinRegistro.push({
                     expediente_id: e.id,
+                    origen: e.origen,
                     numero_expediente: e.numero_expediente,
                     estado: e.estado,
                     cliente_nombre: c ? `${c.nombre_razon_social || ''} ${c.apellidos || ''}`.trim() : null,
                     ubicacion,
                     fase_cee_inicial: seg.cee_inicial || null,
                     fase_cee_final: seg.cee_final || null,
+                    // La fase dice REGISTRADO pero no hay ninguna fecha que lo
+                    // respalde. No es lo mismo que "va por PTE_REVISION": aquí no
+                    // falta el trabajo, falta el DATO — y en cuanto se ponga, la
+                    // línea se concilia sola.
+                    registrado_sin_fecha: seg.cee_inicial === 'REGISTRADO' || seg.cee_final === 'REGISTRADO',
                 });
             }
             continue;
@@ -202,6 +244,10 @@ async function cargarConceptos(certificadorId, tarifas) {
         // pago aunque el CEE final no esté registrado todavía: el certificador ya
         // ha puesto el dinero. Sin él, cada tasa se devenga contra su registro.
         const adelanta = tarifas.adelanta_tasas !== false;
+        // Un CEE directo de alcance ÚNICO no tiene fase final: no hay una segunda
+        // tasa que adelantar, y darla por devengada premarcaría el cobro de un
+        // registro que nunca va a existir. Todo expediente del CAE lleva las dos.
+        const dosFases = e.origen !== 'CEE' || e.alcance !== 'UNICO';
 
         if (fIni || adelanta) {
             conceptos.push({
@@ -215,7 +261,7 @@ async function cargarConceptos(certificadorId, tarifas) {
                 sello: sellos.tasa_inicial || null,
             });
         }
-        if (fFin || adelanta) {
+        if (dosFases && (fFin || adelanta)) {
             conceptos.push({
                 concepto: 'tasa_final',
                 tipo: 'suplido',
@@ -233,6 +279,7 @@ async function cargarConceptos(certificadorId, tarifas) {
 
         expedientes.push({
             expediente_id: e.id,
+            origen: e.origen,
             numero_expediente: e.numero_expediente,
             estado: e.estado,
             cliente_nombre: c ? `${c.nombre_razon_social || ''} ${c.apellidos || ''}`.trim() : null,
@@ -256,6 +303,7 @@ const aLinea = (exp, conceptos) => {
     const suplidos = conceptos.filter(x => x.tipo === 'suplido');
     return {
         expediente_id: exp.expediente_id,
+        origen: exp.origen,
         numero_expediente: exp.numero_expediente,
         estado: exp.estado,
         cliente_nombre: exp.cliente_nombre,
@@ -354,7 +402,11 @@ const soloDireccion = (d) => String(d || '')
 // Algunos certificadores (Moncayo) encabezan cada línea con el número de
 // expediente: "- (26RES060_160) VIVIENDA UNIFAMILIAR EN QUINTANAR…". Cuando está,
 // no hay nada que adivinar.
-const RE_NUM_EXPEDIENTE = /\b(\d{2}(?:RES|TER)\d{3}_\d+)\b/i;
+// Un CEE directo se numera {AAAA}CEE_{n} (año a cuatro dígitos y correlativo
+// global): otra tabla y otro formato, pero llega en la MISMA factura, mezclado
+// con los del CAE. Sin esta alternativa su línea caía al emparejado por
+// dirección, no casaba con ningún expediente y quedaba muda.
+const RE_NUM_EXPEDIENTE = /\b(\d{2}(?:RES|TER)\d{3}_\d+|\d{4}CEE_\d+)\b/i;
 
 function emparejar(descripcion, candidatos) {
     const dir = soloDireccion(descripcion);
@@ -474,8 +526,13 @@ async function conciliarFactura(certificadorId, { numero, fecha, items, nifs }) 
         if (citadoSinRegistro) {
             const fases = [citadoSinRegistro.fase_cee_inicial, citadoSinRegistro.fase_cee_final]
                 .filter(f => f && f !== 'PTE_ENVIO_CERT');
-            aviso = `${citadoSinRegistro.numero_expediente} es suyo, pero en la app no consta ningún CEE registrado${fases.length ? ` (va por ${fases.join(' / ')})` : ''}. Revísalo antes de pagarlo.`;
-            avisoRef = { expediente_id: citadoSinRegistro.expediente_id, numero_expediente: citadoSinRegistro.numero_expediente };
+            // "Consta REGISTRADO pero sin fecha" no es lo mismo que "va por
+            // PTE_REVISION": ahí no falta el trabajo, falta el DATO, y decirlo
+            // convierte un "revísalo" en una tarea de dos segundos.
+            aviso = citadoSinRegistro.registrado_sin_fecha
+                ? `${citadoSinRegistro.numero_expediente} consta REGISTRADO pero sin fecha de registro, así que no hay nada devengado que sellar. Ponle la fecha del justificante y esta línea se concilia sola.`
+                : `${citadoSinRegistro.numero_expediente} es suyo, pero en la app no consta ningún CEE registrado${fases.length ? ` (va por ${fases.join(' / ')})` : ''}. Revísalo antes de pagarlo.`;
+            avisoRef = { expediente_id: citadoSinRegistro.expediente_id, origen: citadoSinRegistro.origen, numero_expediente: citadoSinRegistro.numero_expediente };
         }
 
         if (match) {
@@ -522,6 +579,7 @@ async function conciliarFactura(certificadorId, { numero, fecha, items, nifs }) 
             score,
             match: match ? {
                 expediente_id: match.expediente_id,
+                origen: match.origen,
                 numero_expediente: match.numero_expediente,
                 ubicacion: match.ubicacion,
                 cliente_nombre: match.cliente_nombre,
@@ -530,7 +588,7 @@ async function conciliarFactura(certificadorId, { numero, fecha, items, nifs }) 
             aviso,
             // Si el aviso nació de una línea emparejada, el expediente es el suyo.
             aviso_ref: avisoRef || (aviso && match
-                ? { expediente_id: match.expediente_id, numero_expediente: match.numero_expediente }
+                ? { expediente_id: match.expediente_id, origen: match.origen, numero_expediente: match.numero_expediente }
                 : null),
         };
     });
@@ -602,8 +660,11 @@ async function sellar(certificadorId, { factura, fecha, conceptos, usuario }) {
     }
 
     for (const [expedienteId, valor] of porExpediente) {
-        const { error } = await supabase.rpc('merge_expediente_doc_json', {
-            p_expediente_id: expedienteId,
+        // Un CEE directo vive en otra tabla y tiene su propia RPC de MERGE. El
+        // sello es el mismo objeto `fact_cert`: lo que cambia es dónde se guarda.
+        const t = TABLAS[porId.get(expedienteId)?.origen] || TABLAS.CAE;
+        const { error } = await supabase.rpc(t.rpc, {
+            [t.idRpc]: expedienteId,
             p_field: 'fact_cert',
             p_value: valor,
         });
@@ -617,12 +678,18 @@ async function sellar(certificadorId, { factura, fecha, conceptos, usuario }) {
 async function desellar(certificadorId, { expediente_id, concepto }) {
     if (!CONCEPTOS.includes(concepto)) throw new Error(`Concepto desconocido: ${concepto}`);
 
-    const { data: exp, error } = await supabase
-        .from('expedientes')
-        .select('id, documentacion, cee')
-        .eq('id', expediente_id)
-        .single();
-    if (error || !exp) throw new Error('Expediente no encontrado.');
+    // El id puede ser de un expediente del CAE o de un CEE directo: se busca en
+    // las dos, porque quien pulsa "quitar el sello" solo ve un número.
+    let exp = null, tabla = null;
+    for (const t of [TABLAS.CAE, TABLAS.CEE]) {
+        const { data } = await supabase
+            .from(t.tabla)
+            .select('id, documentacion, cee')
+            .eq('id', expediente_id)
+            .maybeSingle();
+        if (data) { exp = data; tabla = t; break; }
+    }
+    if (!exp) throw new Error('Expediente no encontrado.');
     if (String(exp.cee?.certificador_id || '') !== String(certificadorId)) {
         throw new Error('El expediente no es de este certificador.');
     }
@@ -633,7 +700,7 @@ async function desellar(certificadorId, { expediente_id, concepto }) {
     // Aquí sí se reemplaza el objeto entero (es un borrado), pero solo la clave
     // `fact_cert`: el resto de `documentacion` no se toca.
     const { error: errUpd } = await supabase
-        .from('expedientes')
+        .from(tabla.tabla)
         .update({ documentacion: { ...(exp.documentacion || {}), fact_cert: fact } })
         .eq('id', expediente_id);
     if (errUpd) throw new Error(errUpd.message);

@@ -53,14 +53,19 @@ const inputCls = 'bg-bkg-surface border border-white/10 rounded-lg px-2 py-1 tex
 
 // El expediente se abre en una pestaña nueva para no perder la conciliación a
 // medias (misma convención que el resto del modal).
-const abrirExpediente = (id) => window.open(`/?tab=expedientes&exp=${id}`, '_blank', 'noopener,noreferrer');
+// Un CEE directo vive en otra tabla y en otra pestaña: el mismo UUID no vale en
+// las dos, así que el deep-link se elige por el origen que manda el backend.
+const abrirExpediente = (id, origen) => window.open(
+    origen === 'CEE' ? `/?tab=cee-directos&cee=${id}` : `/?tab=expedientes&exp=${id}`,
+    '_blank', 'noopener,noreferrer',
+);
 
-const BotonExpediente = ({ id, texto }) => (
+const BotonExpediente = ({ id, origen, texto }) => (
     <button
         type="button"
-        onClick={() => abrirExpediente(id)}
+        onClick={() => abrirExpediente(id, origen)}
         className="font-black underline decoration-dotted underline-offset-2 hover:text-white transition-colors"
-        title="Abrir el expediente en una pestaña nueva"
+        title={origen === 'CEE' ? 'Abrir el CEE directo en una pestaña nueva' : 'Abrir el expediente en una pestaña nueva'}
     >{texto}</button>
 );
 
@@ -121,7 +126,11 @@ function VistaFactura({ datos, factura, setFactura, marcas, setMarcas, onSellar,
             sinRespaldo: Math.round(sinRespaldo * 100) / 100,
             lineasSinRespaldo: nSinRespaldo,
             desviaciones,
-            avisos: lineas.filter(l => l.aviso),
+            // Un mismo expediente sale DOS veces en la factura (su honorario y
+            // sus tasas), así que su aviso llegaba repetido: cuatro asuntos se
+            // leían como ocho y llenaban la caja que hay que mirar antes de
+            // pagar. Se agrupa por el texto, que ya empieza por el número.
+            avisos: [...new Map(lineas.filter(l => l.aviso).map(l => [l.aviso, l])).values()],
         };
     }, [lineas]);
 
@@ -237,7 +246,7 @@ function VistaFactura({ datos, factura, setFactura, marcas, setMarcas, onSellar,
                         ))}
                         {analisis.desviaciones.map(({ l, esperado }, i) => (
                             <li key={`v${i}`} className="text-[10px] text-amber-400 leading-relaxed">
-                                <BotonExpediente id={l.match.expediente_id} texto={l.match.numero_expediente} />
+                                <BotonExpediente id={l.match.expediente_id} origen={l.match.origen} texto={l.match.numero_expediente} />
                                 {' '}— cobra {fmtEur(l.importe)} y esperabas {fmtEur(esperado)}
                                 <span className="text-white/40"> ({l.importe > esperado ? '+' : ''}{fmtEur(l.importe - esperado)})</span>
                             </li>
@@ -248,7 +257,7 @@ function VistaFactura({ datos, factura, setFactura, marcas, setMarcas, onSellar,
                                 {/* Enlace directo: el aviso casi siempre acaba en
                                     "revísalo", y buscarlo a mano era un viaje. */}
                                 {l.aviso_ref && (
-                                    <> <BotonExpediente id={l.aviso_ref.expediente_id} texto="Abrir expediente ↗" /></>
+                                    <> <BotonExpediente id={l.aviso_ref.expediente_id} origen={l.aviso_ref.origen} texto={l.aviso_ref.origen === 'CEE' ? 'Abrir el CEE ↗' : 'Abrir expediente ↗'} /></>
                                 )}
                             </li>
                         ))}
@@ -559,8 +568,8 @@ export default function CertificadorFacturacionPanel({ prescriptorId, certificad
             // Los descuadres los detecta el parser comparando el desglose con los
             // totales que la propia factura declara en su pie.
             setImportada({ ...conciliada, descuadres: parseada.descuadres || [] });
-            // El nº y la fecha quedan editables: no todas las plantillas los traen
-            // (la de Moncayo no lleva fecha) y sin fecha no se puede sellar.
+            // El nº y la fecha quedan editables: hay plantillas que no los traen
+            // donde el parser sabe buscarlos, y sin fecha no se puede sellar.
             setFactura({
                 numero: conciliada.factura.numero || '',
                 fecha: conciliada.factura.fecha || '',
