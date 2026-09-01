@@ -361,19 +361,97 @@ const CAMPOS_EDITABLES = [
     'cliente_id'
 ];
 
-router.put('/:id', staffOnly, async (req, res) => {
+// Lo que un CERTIFICADOR puede escribir: SU trabajo, nada más. El resto de
+// CAMPOS_EDITABLES es del equipo — quién es el cliente, quién nos lo trae, las
+// notas internas (que llevan lo que cobramos) y el nombre, que además renombra la
+// carpeta de Drive.
+const CAMPOS_CERTIFICADOR = ['cee', 'seguimiento', 'documentacion'];
+
+router.put('/:id', internalOnly, async (req, res) => {
     try {
         const row = await svc.cargar(req.params.id, { conRelaciones: false });
         if (!row) return res.status(404).json({ error: 'Expediente no encontrado' });
+        // ⚠️ Esta ruta era `staffOnly`, y ahí estaba el fallo: el técnico SÍ podía
+        // subir ficheros (esa ruta es `internalOnly`) pero el guardado que los
+        // registra en el expediente le respondía 403. Resultado medido en
+        // 2026CEE_54 el 01/09: el .cex, el PDF firmado, la etiqueta y el
+        // justificante de registro estaban en Drive con su nombre canónico, la
+        // fila no se había tocado desde el día anterior, los slots salían vacíos
+        // al recargar —"me aparecen borrados"— la fase seguía en REVISADO y al
+        // equipo no le llegó ningún aviso. En el CAE esta misma ruta es
+        // `enforceAuth` desde siempre, que es justo por lo que allí funciona.
+        if (!puedeVer(req, row)) return res.status(403).json({ error: 'Acceso denegado' });
 
+        const permitidos = isStaff(req) ? CAMPOS_EDITABLES : CAMPOS_CERTIFICADOR;
         const patch = {};
-        for (const k of CAMPOS_EDITABLES) {
+        for (const k of permitidos) {
             if (Object.prototype.hasOwnProperty.call(req.body, k)) patch[k] = req.body[k];
         }
         // El alcance solo se amplía por su ruta, que además reorganiza la carpeta.
         delete patch.alcance;
 
+        if (!isStaff(req)) {
+            // El técnico manda el objeto `cee` ENTERO (es lo que tiene en pantalla)
+            // y `guardar` lo reemplaza, así que sin esto podría retirarse del
+            // expediente o asignárselo a otro sin querer. Quién es el técnico y qué
+            // contestó al encargo lo decide el equipo, no él.
+            if (patch.cee) {
+                patch.cee = { ...patch.cee };
+                for (const k of ['certificador_id', 'ack_token', 'ack_respuesta', 'ack_respuesta_at',
+                                 'ack_aceptado_at', 'ack_aceptado_por', 'ack_enviado_at', 'ack_phase', 'rechazos']) {
+                    if (k in (row.cee || {})) patch.cee[k] = row.cee[k]; else delete patch.cee[k];
+                }
+            }
+            // REGISTRADO es terminal: el certificado ya está inscrito. El módulo
+            // reenvía una copia de `seguimiento` que puede ir un refetch por detrás
+            // y lo degradaría sin que nadie lo pida. Mismo blindaje que en el CAE.
+            if (patch.seguimiento) {
+                for (const clave of ['cee_inicial', 'cee_final']) {
+                    if (row.seguimiento?.[clave] === 'REGISTRADO') patch.seguimiento[clave] = 'REGISTRADO';
+                }
+            }
+        }
+
         const guardado = await svc.guardar(row.id, patch, { seguimientoPrev: row.seguimiento });
+
+        // AVISO AL EQUIPO cuando el que avanza la fase NO es del equipo.
+        //
+        // En la rejilla, los popups que avisan ("entregado", "registrado") son
+        // ADMIN-only, así que cuando el trabajo lo hace el técnico no los dispara
+        // nadie y el avance pasaba en silencio. Va en diferido y no puede tumbar el
+        // guardado: el trabajo es guardar; avisar es la consecuencia.
+        if (!isStaff(req)) {
+            const quien = req.user?.razon_social || req.user?.email || 'El técnico';
+            for (const [k, fase] of [['cee_inicial', 'inicial'], ['cee_final', 'final']]) {
+                const antes = row.seguimiento?.[k];
+                const ahora = guardado.seguimiento?.[k];
+                if (!ahora || ahora === antes) continue;
+                if (!['PRESENTADO', 'PTE_REVISION', 'REGISTRADO'].includes(String(ahora).toUpperCase())) continue;
+                const faseLabel = estados.nombreFase(row, fase);
+                const titular = ahora === 'REGISTRADO'
+                    ? `✅ ${faseLabel} REGISTRADO`
+                    : `📋 ${faseLabel} entregado — pendiente de revisar`;
+                setImmediate(() => {
+                    svc.anotarHistorial(row.id, {
+                        tipo: 'CERTIFICADOR',
+                        texto: `${faseLabel.toUpperCase()} → ${String(ahora).toUpperCase()} POR ${quien.toUpperCase()}`,
+                        usuario: req.user?.email || null
+                    }).catch(() => {});
+                    enviar({
+                        canales: ['email', 'whatsapp'],
+                        email: process.env.ADMIN_EMAIL,
+                        telefono: process.env.WHATSAPP_ADMIN_CHAT,
+                        asunto: `${row.numero_expediente} — ${titular.replace(/^[^ ]+ /, '')}`,
+                        cuerpo: `${titular} — ${row.numero_expediente}`
+                            + `${nombreCliente(row.cliente) ? ` (${nombreCliente(row.cliente)})` : ''}
+`
+                            + `Lo ha hecho ${quien}.
+
+${enlaceApp(row.id)}`
+                    }).catch(e => console.warn('[cee-directos aviso avance]', e.message));
+                });
+            }
+        }
 
         // Disparo de la entrega: una fase acaba de pasar a REGISTRADO. Es una de
         // las dos mitades de la condición; si la otra (cobrado) ya estaba, el
