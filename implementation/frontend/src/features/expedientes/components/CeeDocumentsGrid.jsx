@@ -8,7 +8,8 @@ import {
     resolveCertEspera, suggestCertTono, CERT_ESPERA, ESPERA_LABELS, CERT_TONO_LABELS,
 } from '../logic/certMessages';
 import { esTer100 } from '../logic/ter100';
-import { demandaPropuesta, compararDemanda, fmtKwh, fmtM2 } from '../logic/demandaPropuesta';
+import { demandaPropuesta } from '../logic/demandaPropuesta';
+import { DemandaPropuestaInfo } from './DemandaPropuestaInfo';
 import { autoconsumoMaximo } from '../logic/autoconsumoMaximo';
 import { parseEmisionesTotalesFromXml } from '../../calculator/logic/xmlCeeParser';
 import { buildCe3xFinal, CE3X_FALTA } from '../logic/ce3xFinal';
@@ -1149,9 +1150,6 @@ export function CeeDocumentsGrid({
                     };
 
                     const sectionDemand = demands?.[section] || {};
-                    // Referencia de la propuesta: qué demanda se simuló al vender el bono
-                    // y cómo queda frente a la que certifica esta fase.
-                    const cmpDemanda = compararDemanda(sectionDemand, propDemanda, { juzgaDeficit: !esReforma });
                     const isHab = acsMethod === 'cte';
                     const isDacsManual = acsMethod === 'manual';
                     const acsValue = isHab ? calcAcsHab(numRooms)
@@ -1159,7 +1157,7 @@ export function CeeDocumentsGrid({
                         : (parseFloat(sectionDemand.demandaACS) || 0).toFixed(2);
 
                     return (
-                        // Las cinco columnas miden 250+168+225+320+340 px y el panel recorta:
+                        // Las cinco columnas miden 250+150+225+320+340 px y el panel recorta:
                         // en un teléfono de 390 px eso dejaba las fechas y los slots FUERA de
                         // la pantalla, invisibles y sin forma de llegar a ellos. En `max-md`
                         // cada bloque pasa a ocupar el ancho entero y se apilan; el escritorio
@@ -1322,49 +1320,25 @@ export function CeeDocumentsGrid({
                                 </div>
                             </div>
 
-                            {/* 2. Demanda Calefacción (+ la que se simuló en la oportunidad) */}
-                            <div className="flex flex-col items-center gap-2 w-[168px] border-l border-white/5 shrink-0 max-md:w-full max-md:flex-row max-md:flex-wrap max-md:items-center max-md:justify-between max-md:border-l-0 max-md:border-t max-md:border-white/[0.04] max-md:pt-4 max-md:mb-0">
+                            {/* 2. Demanda Calefacción. La ⓘ de al lado cruza esta cifra y la
+                                superficie con las que se simularon en la oportunidad (sobre las
+                                que se ofreció el bono) y se pone en rojo si el CEE certifica
+                                menos. Va detrás de un botón para no engordar la fila. */}
+                            <div className="flex flex-col items-center gap-2 w-[150px] border-l border-white/5 shrink-0 max-md:w-full max-md:flex-row max-md:flex-wrap max-md:items-center max-md:justify-between max-md:border-l-0 max-md:border-t max-md:border-white/[0.04] max-md:pt-4 max-md:mb-0">
                                 <span className="text-[9px] font-black uppercase text-white/30 tracking-[0.2em] mb-1 whitespace-nowrap max-md:mb-0">Demanda Calefacción</span>
-                                <div className="flex flex-col items-center gap-1 max-md:items-end">
+                                <div className="flex items-center gap-1.5">
                                     <div className="bg-white/[0.03] border border-white/5 px-4 py-2.5 rounded-2xl shadow-inner min-w-[84px] text-center">
                                         <span className="text-sm font-mono font-bold text-white/80">
                                             {sectionDemand.demandaCalefaccion || '—'}
                                         </span>
                                     </div>
-                                    <span className="text-[7px] max-md:text-[10px] max-md:text-white/25 text-white/10 font-bold uppercase tracking-widest">kWh/m²·año</span>
-                                    {cmpDemanda && (
-                                        <span className="text-[9px] font-mono font-bold text-white/45 leading-none" title={`${fmtM2(sectionDemand.demandaCalefaccion)} kWh/m²·año × ${fmtM2(sectionDemand.superficieHabitable)} m² certificados`}>
-                                            = {fmtKwh(cmpDemanda.totalCee)} kWh/año
-                                        </span>
-                                    )}
+                                    <DemandaPropuestaInfo
+                                        sectionDemand={sectionDemand}
+                                        prop={propDemanda}
+                                        section={section}
+                                        esReforma={esReforma}
+                                    />
                                 </div>
-
-                                {/* La demanda que se SIMULÓ en la oportunidad. El bono CAE se
-                                    prometió sobre ella: si el CEE certifica menos, el ahorro real
-                                    baja. Antes solo se avisaba en el instante de soltar el .xml. */}
-                                {propDemanda && (
-                                    <div className={`w-full mt-1 px-2 py-1.5 rounded-lg border text-center ${
-                                        !cmpDemanda ? 'bg-white/[0.02] border-white/5'
-                                        : cmpDemanda.deficit ? 'bg-red-500/10 border-red-500/25'
-                                        : 'bg-emerald-500/[0.07] border-emerald-500/20'
-                                    }`}>
-                                        <span className="block text-[7px] max-md:text-[9px] font-black uppercase tracking-[0.15em] text-white/25 leading-none">
-                                            Simulado en la oportunidad
-                                        </span>
-                                        <span
-                                            className="block text-[10px] max-md:text-[12px] font-mono font-bold text-white/60 leading-tight mt-0.5"
-                                            title={`${fmtM2(propDemanda.qm2)} kWh/m²·año × ${fmtM2(propDemanda.superficie)} m² (${propDemanda.modo === 'manual' ? 'demanda tecleada' : propDemanda.modo === 'real' ? 'demanda del CEE aportado' : 'demanda estimada'})`}
-                                        >
-                                            {fmtKwh(propDemanda.total)} kWh/año
-                                        </span>
-                                        {cmpDemanda && (
-                                            <span className={`block text-[8px] max-md:text-[10px] font-black uppercase tracking-widest leading-none mt-1 ${cmpDemanda.deficit ? 'text-red-400' : 'text-emerald-400'}`}>
-                                                {cmpDemanda.deltaPct >= 0 ? '+' : '−'}{Math.abs(Math.round(cmpDemanda.deltaPct))} %
-                                                {cmpDemanda.deficit ? ' · por debajo' : ''}
-                                            </span>
-                                        )}
-                                    </div>
-                                )}
                             </div>
 
                             {/* 3. Demanda ACS (Con Toggle) */}

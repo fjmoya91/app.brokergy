@@ -12,7 +12,8 @@ import { TecnicoPicker } from './TecnicoPicker';
 import { telefonoDe, emailDe } from '../../../utils/contactoPrescriptor';
 import { MensajeEditable } from './MensajeEditable';
 import { buildCertApproveMessage, buildCertDefaultMessage } from '../logic/certMessages';
-import { demandaPropuesta } from '../logic/demandaPropuesta';
+import { demandaPropuesta, compararDemanda } from '../logic/demandaPropuesta';
+import { DemandaPropuestaPanel } from './DemandaPropuestaInfo';
 import { fireSuccessConfetti } from '../utils/successConfetti';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
 
@@ -374,26 +375,23 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                 const dc = expediente?.oportunidades?.datos_calculo || {};
                 const opResult = dc.result || {};
 
-                if (!isFinal && !isReforma) {
-                    // RES060/RES093: La demanda certificada debe igualar o superar la propuesta
-                    const xmlDemandaM2 = parseFloat(parsed.demandaCalefaccion) || 0;
-                    const xmlSuperficie = parseFloat(parsed.superficieHabitable) || 0;
-                    const xmlDemandaTotal = xmlDemandaM2 * xmlSuperficie;
-                    // Misma fuente que la referencia que pinta la rejilla: si el aviso
-                    // y lo que se ve en pantalla leyeran sitios distintos, uno de los dos
-                    // mentiría en los expedientes viejos (algunos guardaron el total en la
-                    // raíz de datos_calculo, no dentro de `result`).
-                    const proposalQNet = demandaPropuesta(expediente)?.total || 0;
+                // Lo que se simuló al vender el bono. MISMA fuente y MISMO criterio que
+                // el botón ⓘ de la rejilla (demandaPropuesta.js): demanda por m² y
+                // superficie por separado, y los totales como cifra de control. Antes
+                // este popup comparaba solo totales y podía callarse en un certificado
+                // que el botón sí marcaba en rojo — dos veredictos sobre lo mismo.
+                const propDemanda = demandaPropuesta(expediente);
+                const cmpPropuesta = compararDemanda(parsed, propDemanda);
+                const avisoPropuesta = cmpPropuesta?.alerta
+                    ? { type: 'propuesta', cmp: cmpPropuesta, prop: propDemanda, section: isFinal ? 'final' : 'inicial' }
+                    : null;
 
-                    if (xmlDemandaTotal > 0 && proposalQNet > 0 && xmlDemandaTotal <= proposalQNet) {
-                        setXmlWarning({
-                            type: 'demand',
-                            xmlValue: Math.round(xmlDemandaTotal),
-                            proposalValue: Math.round(proposalQNet),
-                        });
-                    } else {
-                        setXmlWarning(null);
-                    }
+                if (!isFinal) {
+                    // El CEE inicial se cruza siempre con la propuesta, sea la ficha que
+                    // sea: en un RES080 el ahorro no sale de la demanda, pero una
+                    // superficie menor sigue delatando que el certificado puede no ser de
+                    // esta vivienda (el propio aviso lo matiza).
+                    setXmlWarning(avisoPropuesta);
                 } else if (isFinal && isReforma && (nextLocal.cee_inicial || local.cee_inicial)) {
                     // RES080: El ahorro certificado debe igualar o superar el simulado
                     try {
@@ -418,10 +416,12 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                 diff: Math.round(proposalAhorro - xmlAhorro),
                             });
                         } else {
-                            setXmlWarning(null);
+                            // Sin déficit de ahorro, aún puede haber descuadre de demanda o
+                            // superficie con la propuesta: se cae al aviso general.
+                            setXmlWarning(avisoPropuesta);
                         }
                     } catch (_) {
-                        setXmlWarning(null);
+                        setXmlWarning(avisoPropuesta);
                     }
                 } else if (isFinal && !isReforma) {
                     // RES060/RES093: comprobar que la demanda del CEE final coincida con la del inicial
@@ -440,13 +440,13 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                             });
                             registrarIncidenciaDemanda(Math.round(iniDemanda), Math.round(finDemanda));
                         } else {
-                            setXmlWarning(null);
+                            setXmlWarning(avisoPropuesta);
                         }
                     } else {
-                        setXmlWarning(null);
+                        setXmlWarning(avisoPropuesta);
                     }
                 } else {
-                    setXmlWarning(null);
+                    setXmlWarning(avisoPropuesta);
                 }
             } catch (err) {
                 isFinal ? setXmlFinalError(err.message) : setXmlError(err.message);
@@ -1745,7 +1745,9 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
             {/* ─── Modal de validación XML ─────────────────────────────────── */}
             {xmlWarning && (
                 <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in" onClick={() => setXmlWarning(null)}>
-                    <div className="bg-[#0d1117] border border-amber-500/20 rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+                    {/* El desglose de 'propuesta' son tres columnas (rótulo · oportunidad ·
+                        certificado): en los 384 px de `max-w-sm` los números se parten. */}
+                    <div className={`bg-[#0d1117] border border-amber-500/20 rounded-2xl p-6 w-full mx-4 shadow-2xl ${xmlWarning.type === 'propuesta' ? 'max-w-md' : 'max-w-sm'}`} onClick={e => e.stopPropagation()}>
                         <div className="flex flex-col items-center gap-3 mb-5">
                             <div className="w-14 h-14 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
                                 <svg className="w-7 h-7 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1754,7 +1756,10 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                             </div>
                             <div className="text-center">
                                 <h4 className="text-sm font-black text-white uppercase tracking-widest">
-                                    {xmlWarning.type === 'demand' ? 'Demanda Inferior a la Propuesta' :
+                                    {xmlWarning.type === 'propuesta'
+                                        ? (xmlWarning.cmp.demanda.baja && xmlWarning.cmp.superficie.baja ? 'Demanda y superficie por debajo'
+                                            : xmlWarning.cmp.demanda.baja ? 'Demanda por debajo de la propuesta'
+                                            : 'Superficie por debajo de la propuesta') :
                                      xmlWarning.type === 'ahorro' ? 'Ahorro Inferior al Simulado' :
                                      'Demanda CEE Inicial ≠ Final'}
                                 </h4>
@@ -1766,6 +1771,23 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                             </div>
                         </div>
 
+                        {/* El desglose del tipo 'propuesta' es EL MISMO componente que
+                            enseña el botón ⓘ de la rejilla: demanda por m², superficie y
+                            los totales. Dos redacciones distintas del mismo descuadre
+                            acabarían diciendo cosas diferentes. */}
+                        {xmlWarning.type === 'propuesta' && (
+                            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 mb-4">
+                                <DemandaPropuestaPanel
+                                    cmp={xmlWarning.cmp}
+                                    prop={xmlWarning.prop}
+                                    section={xmlWarning.section}
+                                    esReforma={isReforma}
+                                    cabecera={false}
+                                />
+                            </div>
+                        )}
+
+                        {xmlWarning.type !== 'propuesta' && (
                         <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden mb-4">
                             {xmlWarning.type === 'demanda_mismatch' ? (
                                 <>
@@ -1816,14 +1838,15 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                 </>
                             )}
                         </div>
+                        )}
 
+                        {xmlWarning.type !== 'propuesta' && (
                         <p className="text-[11px] text-white/45 text-center mb-5 leading-relaxed">
-                            {xmlWarning.type === 'demand'
-                                ? 'La demanda certificada debe igualar o superar la de la propuesta para garantizar el Bono CAE. Confirma los datos con el técnico certificador.'
-                                : xmlWarning.type === 'ahorro'
+                            {xmlWarning.type === 'ahorro'
                                 ? 'El ahorro real certificado debe igualar o superar el simulado en la propuesta. Confirma los datos con el técnico certificador.'
                                 : 'La demanda del CEE final debe coincidir con la del inicial para que el Bono CAE sea correcto. Comprueba con el certificador que no haya habido modificaciones de la envolvente.'}
                         </p>
+                        )}
 
                         <button
                             onClick={() => setXmlWarning(null)}

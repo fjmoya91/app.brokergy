@@ -1403,29 +1403,51 @@ nueve renglones a 16 px son media pantalla de un texto que casi nunca se edita. 
 teléfono se leen dentro de la píldora del canal** — comprobarlos es lo que se hace justo antes de
 pulsar lo único irreversible. Mismo criterio que la página de acciones del parte diario.
 
-### La demanda simulada, al lado de la certificada (2026-08-27)
+### La demanda simulada, detrás de una ⓘ (2026-08-27)
 
-La columna "Demanda calefacción" enseña además **la demanda que se simuló en la oportunidad**
-y el desvío en %. Fuente única:
-[demandaPropuesta.js](implementation/frontend/src/features/expedientes/logic/demandaPropuesta.js),
-que usan la rejilla y el aviso de subida del `.xml` de `CeeModule`.
+Junto al recuadro de "Demanda calefacción" hay un botón de información que cruza la demanda **y la
+superficie** de esta fase con las que se usaron en la **simulación de la oportunidad**. Fuente
+única del cálculo:
+[demandaPropuesta.js](implementation/frontend/src/features/expedientes/logic/demandaPropuesta.js);
+la superficie, [DemandaPropuestaInfo.jsx](implementation/frontend/src/features/expedientes/components/DemandaPropuestaInfo.jsx).
 
-**REGLA — se compara en kWh/AÑO, nunca en kWh/m²·año.** La superficie del CEE y la de la
-simulación no tienen por qué coincidir (medido en 26RES080_72: 95 m² simulados frente a 127 m²
-certificados): comparar los valores por metro cuadrado inventa un déficit que no existe, o esconde
-el que sí está. Por eso el recuadro imprime también el total certificado (`kWh/m²·año × superficie`).
+**REGLA — es un BOTÓN, no una banda.** La fila del CEE ya lleva cinco columnas, tres fechas y seis
+slots: un recuadro permanente con dos cifras más la convierte en un muro y el expediente deja de
+leerse de un vistazo. El dato solo hace falta cuando se compara.
 
-**REGLA — el juicio de déficit solo en las fichas de SUSTITUCIÓN DE CALDERA.** Ahí el bono se
-prometió sobre esa demanda: si el CEE certifica menos, el ahorro real baja. En un **RES080** el
-ahorro sale de emisiones o de energía final, así que la diferencia se enseña pero no se pinta en
-rojo (`compararDemanda(..., { juzgaDeficit:false })`). Holgura del 2 %, la misma que se aplica al
-comparar el CEE inicial con el final.
+**REGLA — la EXCEPCIÓN es el aviso.** Si la demanda **o** la superficie certificadas quedan por
+debajo de las simuladas, el botón se pone **rojo y parpadea** (`animate-pulse`) sin tener que
+pulsar nada: sobre esas cifras se le prometió el bono al cliente. Holgura del 2 %, la misma que se
+aplica al comparar el CEE inicial con el final — por debajo de eso son redondeos del `.cex`.
 
-El valor sale de `datos_calculo.result` (`q_net` por m², `Q_net` total), con respaldo en la raíz
-de `datos_calculo` y en la columna `oportunidades.demanda_calefaccion` para los expedientes
-viejos. Sin oportunidad detrás —un CEE directo— no se pinta nada. Existía ya el aviso al soltar el
-`.xml`, pero **desaparecía al recargar**: el descuadre volvía a verse al generar el CIFO, con el
-cliente ya comprometido.
+**REGLA — la demanda se compara SIN multiplicar por la superficie, y la superficie aparte.** Son
+dos desvíos con causas distintas —uno habla de la envolvente y el otro de qué se midió— y
+multiplicados se tapan el uno al otro: una demanda un 10 % más baja sobre una superficie un 10 %
+mayor da un total idéntico y no delataría nada. El total anual sigue al pie, en gris, como cifra
+de control (es la que acaba viajando al CIFO).
+
+**REGLA — el panel se PORTALEA a `document.body`** y va `fixed`, con la posición calculada desde el
+rect del botón (y volteado hacia arriba si no cabe abajo). La rejilla vive dentro de una tarjeta
+`relative overflow-hidden`, que recortaría un popover absoluto justo en la fila del CEE final, que
+es la última. Mismo motivo que `SendActionOverlay` (regla 29.b). En móvil es **hoja inferior**: 320
+px colgando de un botón de 20 se salen de la pantalla.
+
+**REGLA — el popup del `.xml` y el botón dicen LO MISMO.** Al soltar el certificado salta el aviso
+con el MISMO componente (`DemandaPropuestaPanel`, con `cabecera={false}`) y el mismo criterio.
+Antes ese popup comparaba solo **totales** y podía callarse en un certificado que el botón sí
+marcaba en rojo: dos veredictos sobre el mismo hecho. El aviso se cruza en las DOS fases y en
+todas las fichas; en la final, los avisos propios de la fase (ahorro RES080 por debajo del
+simulado, demanda inicial ≠ final) tienen prioridad y éste se enseña solo si aquéllos no saltan.
+
+El valor sale de `datos_calculo.result` (`q_net` por m², `Q_net` total y la superficie aplicada),
+con respaldo en la raíz de `datos_calculo` y en la columna `oportunidades.demanda_calefaccion` para
+los expedientes viejos. Sin oportunidad detrás —un CEE directo— no se pinta el botón. Existía ya el
+aviso al soltar el `.xml`, pero **desaparecía al recargar**: el descuadre volvía a verse al generar
+el CIFO, con el cliente ya comprometido.
+
+⚠️ Los rótulos de columna van en una **cabecera única** y la plantilla `COLS` la comparten cabecera
+y filas. Repetidos dentro de cada fila, "Oportunidad 200,00 · Certificado 170,00 −15 %" no cabe en
+el popover de 320 px y las dos mitades se tocan.
 
 ### La rejilla de los dos CEE
 Las cinco columnas (250+168+225+320+340 px) se apilan a ancho completo. Las **tres fechas pasan a
