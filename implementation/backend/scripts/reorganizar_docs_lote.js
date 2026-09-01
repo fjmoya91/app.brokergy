@@ -30,12 +30,15 @@ const pdfName = (base) => {
     return clean.toLowerCase().endsWith('.pdf') ? clean : `${clean}.pdf`;
 };
 
-// Nombre canónico que le toca a una entrada de documentos_so.
-function nombreDestino(entry, firmado) {
+// Nombre canónico que le toca a una entrada de documentos_so. Lleva el CÓDIGO DEL
+// LOTE: fuera de su carpeta, "4.2 Informe de Verificación.pdf" no dice de qué lote
+// es, y todos los lotes generan un fichero con ese mismo nombre. Pasar este script
+// sobre los lotes antiguos es lo que los renombra.
+function nombreDestino(entry, firmado, codigo) {
     const slot = slotDeKey(entry.key);
     if (!slot) return null;
     const n = /_\d+$/.test(entry.key) ? entry.key.split('_').pop() : null;
-    const base = nombreDocLote(slot, { n });
+    const base = nombreDocLote(slot, { n, codigo });
     return pdfName(firmado ? `${base}_fdo` : base);
 }
 
@@ -91,7 +94,7 @@ function nombreDestino(entry, firmado) {
         for (const p of piezas) {
             const nombre = p.factura
                 ? pdfName(nombreDocLote('factura_so', { label: `${factura.numero} - ${lote.codigo}` }))
-                : nombreDestino(p.entry, p.firmado);
+                : nombreDestino(p.entry, p.firmado, lote.codigo);
             if (!nombre) { totalOmitidos++; continue; }
             console.log(`  · ${p.entry.label || p.entry.key}${p.firmado ? ' (firmado)' : ''} → ${nombre}`);
             if (!EXECUTE) { totalMovidos++; continue; }

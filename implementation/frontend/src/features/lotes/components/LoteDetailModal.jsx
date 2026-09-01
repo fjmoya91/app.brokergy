@@ -146,6 +146,12 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
     //   beneficioActual = Σ profitBrokergy por expediente (el "antes", sin oferta de lote)
     const eco = useMemo(() => computeLoteEco(lote), [lote?.expedientes, lote?.coste_verificacion, lote?.oferta_lote]);
 
+    // Los datos del dictamen viven en la entrada de su documento: se leen del PDF
+    // al subirlo (ver loteOcrService) y no hay ningún campo que teclear.
+    const dictamen = useMemo(
+        () => (lote?.documentos_so || []).find(d => d?.key === 'dictamen_favorable')?.dictamen || null,
+        [lote?.documentos_so]);
+
     // Documentos que han vuelto firmados y nadie ha revisado: es lo que hay que
     // mirar hoy, así que va de contador en la pestaña de Documentación.
     const docsPendientes = useMemo(
@@ -343,6 +349,40 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                     </p>
                                 </div>
                             </div>
+
+                            {/* ── El DICTAMEN, cuando ya lo hay ────────────────────────
+                                Son los datos DEFINITIVOS de la verificación —su número
+                                y su fecha— y hacen falta para el futuro: es lo que se
+                                cita cuando alguien pregunta por este lote meses después.
+                                Se leen del propio dictamen al subirlo, así que aquí solo
+                                se muestran; no hay nada que teclear. */}
+                            {dictamen && (
+                                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.04] px-4 py-3 flex items-center gap-x-6 gap-y-2 flex-wrap">
+                                    <div>
+                                        <p className="text-[8px] uppercase tracking-[0.15em] font-black text-emerald-400/50">Dictamen nº</p>
+                                        <p className="text-[13px] font-black text-emerald-300 leading-tight">{dictamen.numero_dictamen || '—'}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-[8px] uppercase tracking-[0.15em] font-black text-emerald-400/50">Fecha</p>
+                                        <p className="text-[13px] font-black text-emerald-300 leading-tight">{dictamen.fecha_emision || '—'}</p>
+                                    </div>
+                                    {dictamen.referencia_informe && (
+                                        <div>
+                                            <p className="text-[8px] uppercase tracking-[0.15em] font-black text-emerald-400/50">Informe</p>
+                                            <p className="text-[13px] font-black text-emerald-300 leading-tight">{dictamen.referencia_informe}</p>
+                                        </div>
+                                    )}
+                                    {dictamen.total_kwh != null && (
+                                        <div>
+                                            <p className="text-[8px] uppercase tracking-[0.15em] font-black text-emerald-400/50">Ahorro dictaminado</p>
+                                            <p className="text-[13px] font-black text-emerald-300 leading-tight">{Number(dictamen.total_kwh).toLocaleString('es-ES')} kWh</p>
+                                        </div>
+                                    )}
+                                    {dictamen.decision && (
+                                        <p className="text-[9px] text-emerald-400/60 basis-full leading-tight">{dictamen.decision}</p>
+                                    )}
+                                </div>
+                            )}
 
                             {canSeeMargin && (<>
                             {/* Desglose €/MWh. La VERIFICACIÓN se muestra pero NO resta en

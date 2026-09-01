@@ -23,10 +23,10 @@ const {
     LOTE_DOC_SLOTS, SLOTS_SUBIBLES, nextDocKey, slotDeKey, sincronizarEstadoLote,
     CARPETA_DOCS, nombreDocLote, guardarDocFirmado,
 } = require('../services/loteDocs');
-const { leerFacturaVerificador, leerInformeVerificacion } = require('../services/loteOcrService');
+const { leerFacturaVerificador, leerInformeVerificacion, leerDictamenVerificacion } = require('../services/loteOcrService');
 const {
-    casarActuaciones, contrastarTotal, verificarFacturaDelLote,
-    aplicarAhorrosVerificados, puedePagarseAlCliente,
+    casarActuaciones, casarDictamen, contrastarTotal, verificarFacturaDelLote,
+    aplicarAhorrosVerificados, aplicarDatosDictamen, puedePagarseAlCliente,
 } = require('../services/loteVerificados');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -672,33 +672,48 @@ router.get('/:id/local-path', staffOnly, async (req, res) => {
 // Quien aplica es una persona (POST /:id/ahorros-verificados).
 //
 // Nunca lanza: si el lector falla, la subida del documento no se cae con él.
-async function proponerAhorrosVerificados(lote, pdfBuffer) {
-    try {
-        const informe = await leerInformeVerificacion(pdfBuffer);
+// Los expedientes del lote, con lo que hace falta para casar contra ellos.
+//
+// Se piden SIN join: `expedientes` tiene más de una relación con `clientes` y
+// PostgREST rechaza el embed por ambiguo. Fallaba en silencio (data null → ninguna
+// actuación casaba) y la pantalla acusaba al informe de citar expedientes que no
+// eran del lote — por eso ahora un error de lectura LANZA.
+//
+// De `documentacion` solo se pide `facturas` (regla 22): la columna entera puede
+// llegar a megas y aquí solo se necesita la inversión ya registrada.
+async function expedientesDelLote(loteId) {
+    const { data: exps, error } = await supabase
+        .from('expedientes')
+        .select('id, numero_expediente, cliente_id, instalacion, doc_facturas:documentacion->facturas')
+        .eq('lote_id', loteId);
+    if (error) throw new Error(`No se pudieron leer los expedientes del lote: ${error.message}`);
 
-        // Los expedientes del lote se piden SIN join: `expedientes` tiene más de
-        // una relación con `clientes` y PostgREST rechaza el embed por ambiguo.
-        // Fallaba en silencio (data null → ninguna actuación casaba) y la pantalla
-        // acusaba al informe de citar expedientes que no eran del lote.
-        const { data: exps, error: expErr } = await supabase
-            .from('expedientes')
-            .select('id, numero_expediente, cliente_id, instalacion')
-            .eq('lote_id', lote.id);
-        if (expErr) throw new Error(`No se pudieron leer los expedientes del lote: ${expErr.message}`);
-
-        const cliIds = [...new Set((exps || []).map(e => e.cliente_id).filter(Boolean))];
-        let cliMap = new Map();
-        if (cliIds.length) {
-            const { data: clis } = await supabase.from('clientes')
-                .select('id, nombre_razon_social').in('id', cliIds);
-            cliMap = new Map((clis || []).map(c => [c.id, c.nombre_razon_social]));
-        }
-        const expedientes = (exps || []).map(e => ({
+    const cliIds = [...new Set((exps || []).map(e => e.cliente_id).filter(Boolean))];
+    let cliMap = new Map();
+    if (cliIds.length) {
+        const { data: clis } = await supabase.from('clientes')
+            .select('id, nombre_razon_social').in('id', cliIds);
+        cliMap = new Map((clis || []).map(c => [c.id, c.nombre_razon_social]));
+    }
+    return (exps || []).map(e => {
+        // La inversión que consta hoy: la ya verificada si la hay, y si no la suma
+        // de las facturas registradas, que es la que viaja al Anexo.
+        const facturas = Array.isArray(e.doc_facturas) ? e.doc_facturas : [];
+        const sumaFacturas = facturas.reduce((a, f) => a + (Number(f?.importe_sin_iva) || 0), 0);
+        return {
             id: e.id,
             numero_expediente: e.numero_expediente,
             instalacion: e.instalacion,
             cliente_nombre: cliMap.get(e.cliente_id) || null,
-        }));
+            inversion_actual_eur: Number(e.instalacion?.verificacion?.inversion_verificada_eur) || sumaFacturas || null,
+        };
+    });
+}
+
+async function proponerAhorrosVerificados(lote, pdfBuffer) {
+    try {
+        const informe = await leerInformeVerificacion(pdfBuffer);
+        const expedientes = await expedientesDelLote(lote.id);
         const { filas, faltan, avisos } = casarActuaciones(informe.actuaciones, expedientes);
         const total = contrastarTotal(informe, filas);
         return {
@@ -718,6 +733,43 @@ async function proponerAhorrosVerificados(lote, pdfBuffer) {
         };
     } catch (err) {
         console.warn('[lotes] OCR informe de verificación:', err.message);
+        return { leido: false, error: err.message, filas: [], faltan: [], avisos: [] };
+    }
+}
+
+// ─── El DICTAMEN trae los datos DEFINITIVOS ───────────────────────────────────
+// Cierra la verificación: su nº, su fecha y —fila a fila— la inversión y el ahorro
+// que el organismo da por buenos. Mandan sobre lo declarado al principio, que ha
+// podido corregirse en un requerimiento.
+//
+// Igual que el informe: se lee y se PROPONE. Nunca lanza.
+async function proponerDatosDictamen(lote, pdfBuffer) {
+    try {
+        const dictamen = await leerDictamenVerificacion(pdfBuffer);
+        const expedientes = await expedientesDelLote(lote.id);
+        const { filas, faltan, avisos } = casarDictamen(dictamen.actuaciones, expedientes);
+        const total = contrastarTotal(dictamen, filas);
+        return {
+            leido: true,
+            dictamen: {
+                numero_dictamen: dictamen.numero_dictamen,
+                expediente_cae: dictamen.expediente_cae,
+                referencia_informe: dictamen.referencia_informe,
+                decision: dictamen.decision,
+                fecha_emision: dictamen.fecha_emision,
+                anio_finalizacion: dictamen.anio_finalizacion,
+                ccaa: dictamen.ccaa,
+                organismo: dictamen.organismo,
+                acreditacion_enac: dictamen.acreditacion_enac,
+                total_kwh: dictamen.total_kwh,
+            },
+            filas,
+            faltan,
+            avisos: [...avisos, ...(total.aviso ? [total.aviso] : [])],
+            total,
+        };
+    } catch (err) {
+        console.warn('[lotes] OCR dictamen:', err.message);
         return { leido: false, error: err.message, filas: [], faltan: [], avisos: [] };
     }
 }
@@ -757,7 +809,7 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
         // del fichero que sube el usuario: es lo que ordena la carpeta. El original se
         // guarda en la entrada por trazabilidad (trae la referencia del verificador).
         const nDoc = cfg.multiple ? String(key).split('_').pop() : null;
-        const baseName = nombreDocLote(slot, { n: nDoc });
+        const baseName = nombreDocLote(slot, { n: nDoc, codigo: lote.codigo });
         const name = pdfFileName(esFirmado ? `${baseName}_fdo` : baseName);
         const saved = await saveOrReplacePdf(docsFolder, name, buffer);
         if (!saved) throw new Error(`No se pudo guardar "${cfg.label}" en Drive`);
@@ -868,6 +920,18 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
             ahorros = await proponerAhorrosVerificados(lote, buffer);
         }
 
+        // El DICTAMEN: su cabecera (nº, fecha, decisión) se sella en la entrada del
+        // documento sin preguntar —es identificación del papel, no una cifra que
+        // toque ningún expediente— y sus filas se proponen para revisar.
+        let dictamen = null;
+        if (slot === 'dictamen_favorable' && !esFirmado) {
+            dictamen = await proponerDatosDictamen(lote, buffer);
+            if (dictamen.leido) {
+                entrada.dictamen = dictamen.dictamen;
+                update.documentos_so = docs;
+            }
+        }
+
         await supabase.from('lotes').update(update).eq('id', lote.id);
 
         // Un informe de inexactitudes REABRE el lote aunque ya estuviera VERIFICADO:
@@ -885,7 +949,7 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
 
         const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
         const [enriched] = await enrichLotes([updated]);
-        res.json({ ok: true, documento: entrada, ocr, ahorros, lote: scrubLoteForUser(enriched, req) });
+        res.json({ ok: true, documento: entrada, ocr, ahorros, dictamen, lote: scrubLoteForUser(enriched, req) });
     } catch (err) {
         console.error('[POST /lotes/:id/documentos/:slot]', err.message);
         res.status(500).json({ error: err.message || 'Error al subir el documento del lote' });
@@ -914,6 +978,83 @@ router.post('/:id/ahorros-verificados/leer', adminOnly, async (req, res) => {
     } catch (err) {
         console.error('[POST /lotes/:id/ahorros-verificados/leer]', err.message);
         res.status(500).json({ error: err.message || 'Error al leer el informe de verificación' });
+    }
+});
+
+// ─── POST /api/lotes/:id/dictamen/leer ───────────────────────────────────────────
+// Relee el dictamen que YA está subido y devuelve la propuesta (nº, fecha e
+// inversión definitiva de cada actuación). Sirve para los lotes cuyo dictamen se
+// subió antes de que la app supiera leerlo.
+router.post('/:id/dictamen/leer', adminOnly, async (req, res) => {
+    try {
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        const doc = (lote.documentos_so || []).find(d => d?.key === 'dictamen_favorable');
+        const fileId = doc?.draft_file_id;
+        if (!fileId) return res.status(409).json({ error: 'Este lote no tiene subido el dictamen favorable.' });
+
+        const buffer = await driveService.getFileContent(fileId);
+        if (!buffer) return res.status(502).json({ error: 'No se pudo descargar el dictamen desde Drive.' });
+
+        const propuesta = await proponerDatosDictamen(lote, buffer);
+        if (!propuesta.leido) return res.status(502).json({ error: propuesta.error || 'No se pudo leer el dictamen.' });
+
+        // La cabecera del dictamen se sella al leerlo: identifica al documento y no
+        // toca ninguna cifra de ningún expediente.
+        const docs = (lote.documentos_so || []).map(d =>
+            d?.key === 'dictamen_favorable' ? { ...d, dictamen: propuesta.dictamen } : d);
+        await supabase.from('lotes').update({ documentos_so: docs, updated_at: nowIso() }).eq('id', lote.id);
+
+        res.json(propuesta);
+    } catch (err) {
+        console.error('[POST /lotes/:id/dictamen/leer]', err.message);
+        res.status(500).json({ error: err.message || 'Error al leer el dictamen' });
+    }
+});
+
+// ─── POST /api/lotes/:id/dictamen/aplicar ────────────────────────────────────────
+// Escribe la INVERSIÓN DEFINITIVA (y la vida útil) en los expedientes. ADMIN: es la
+// cifra que el verificador ha dado por buena y la que manda sobre lo declarado.
+router.post('/:id/dictamen/aplicar', adminOnly, async (req, res) => {
+    try {
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        const filas = Array.isArray(req.body?.filas) ? req.body.filas : [];
+        if (!filas.length) return res.status(400).json({ error: 'No hay nada que aplicar.' });
+
+        // Solo expedientes DE ESTE LOTE: el id llega del navegador.
+        const { data: miembros } = await supabase.from('expedientes').select('id').eq('lote_id', lote.id);
+        const permitidos = new Set((miembros || []).map(m => m.id));
+        if (filas.some(f => !permitidos.has(f?.expediente_id))) {
+            return res.status(400).json({ error: 'Alguna fila no pertenece a este lote.' });
+        }
+
+        const { aplicados, errores } = await aplicarDatosDictamen(filas, {
+            usuario: usuarioDe(req),
+            numero: req.body?.numero_dictamen || null,
+            fecha: req.body?.fecha_emision || null,
+        });
+
+        if (aplicados.length) {
+            const historial = Array.isArray(lote.historial) ? [...lote.historial] : [];
+            historial.push({
+                id: `${Date.now()}_dictamen`, tipo: 'sistema',
+                texto: `Inversión definitiva del dictamen${req.body?.numero_dictamen ? ` ${req.body.numero_dictamen}` : ''} registrada en `
+                    + `${aplicados.length} expediente${aplicados.length === 1 ? '' : 's'}: `
+                    + aplicados.map(a => `${a.numero_expediente} ${a.inversion_eur.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €`).join(' · ') + '.',
+                fecha: nowIso(), usuario: usuarioDe(req),
+            });
+            await supabase.from('lotes').update({ historial, updated_at: nowIso() }).eq('id', lote.id);
+        }
+
+        const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
+        const [enriched] = await enrichLotes([updated]);
+        res.json({ ok: true, aplicados, errores, lote: scrubLoteForUser(enriched, req) });
+    } catch (err) {
+        console.error('[POST /lotes/:id/dictamen/aplicar]', err.message);
+        res.status(500).json({ error: err.message || 'Error al registrar los datos del dictamen' });
     }
 });
 
@@ -1253,7 +1394,7 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
             if (expFolder) {
                 draftFolder = await driveService.getOrCreateSubfolder(expFolder, '6. ANEXOS CAE') || docsFolder;
             }
-            const baseFileName = d.expediente_id ? d.fileName : nombreDocLote(key);
+            const baseFileName = d.expediente_id ? d.fileName : nombreDocLote(key, { codigo: lote.codigo });
             const { rev, fileName, saved } = await saveDocRevision({ existing: existingByKey[key], baseFileName, key, expFolder, draftFolder, folderId: docsFolder, pdf });
             attachments.push({ filename: fileName, content: pdf });
             documentosSo.push({
@@ -1289,7 +1430,7 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
         // Solicitud de Verificación (PDF subido en base64).
         if (solicitud && solicitud.base64) {
             const buf = Buffer.from(solicitud.base64, 'base64');
-            const baseName = nombreDocLote('solicitud_verificacion');
+            const baseName = nombreDocLote('solicitud_verificacion', { codigo: lote.codigo });
             const { rev, fileName, saved } = await saveDocRevision({ existing: existingByKey['solicitud_verificacion'], baseFileName: baseName, key: 'solicitud_verificacion', expFolder: null, draftFolder: docsFolder, folderId: docsFolder, pdf: buf });
             attachments.push({ filename: fileName, content: buf });
             documentosSo.push({
@@ -1466,7 +1607,7 @@ router.post('/:id/requerimiento', staffOnly, async (req, res) => {
             // Guardar como nueva revisión: archiva a OLD la versión anterior (borrador +
             // firmado, si existían) y nombra el nuevo con sufijo _rev{N}. Ver saveDocRevision().
             const pdf = d.pdfBase64 ? Buffer.from(d.pdfBase64, 'base64') : await htmlToPdf(d.html);
-            const baseFileName = d.expediente_id ? d.fileName : nombreDocLote(key);
+            const baseFileName = d.expediente_id ? d.fileName : nombreDocLote(key, { codigo: lote.codigo });
             const { rev, fileName, saved } = await saveDocRevision({ existing, baseFileName, key, expFolder, draftFolder, folderId: docsFolder, pdf });
             attachments.push({ filename: fileName, content: pdf });
 

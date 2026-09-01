@@ -303,8 +303,108 @@ async function leerInformeVerificacion(pdfBuffer) {
     };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 3) DICTAMEN DE VERIFICACIÓN — los datos DEFINITIVOS
+//
+// El dictamen es el documento que cierra la verificación, y sus cifras mandan
+// sobre todo lo anterior: la inversión pudo declararse de una manera al inicio y
+// corregirse en un requerimiento, y la que vale es la que aquí figura.
+//
+// Su apartado 7 es una tabla con una fila por actuación —código de ficha,
+// inversión sin IVA, ahorro y vida útil— y su total.
+//
+// ⚠️ La tabla NO cita el número de expediente: solo el código de ficha, repetido
+// (RES060, RES060, RES060, RES080, RES080). Por eso el casado va por el AHORRO,
+// que sí es distintivo, y no por el orden. Ver `casarDictamen`.
+// ─────────────────────────────────────────────────────────────────────────────
+const PROMPT_DICTAMEN = `Eres un lector de documentos. Extrae LITERALMENTE los datos de este DICTAMEN DE VERIFICACIÓN CAE emitido por un organismo de verificación.
+
+Extrae:
+- numero_dictamen: la "Identificación única del dictamen" (por ejemplo "MW-1601/26"). Aparece también en el encabezado como "Declaración Dictamen Nº:".
+- expediente_cae: la actuación referenciada, con formato "CAE-1234".
+- referencia_informe: el valor del apartado "Referencia del informe de verificación" (por ejemplo "26/0035/1/1601").
+- decision: la decisión del organismo, tal cual (por ejemplo "DICTAMEN FAVORABLE CON INEXACTITUDES NO IMPORTANTES").
+- fecha_emision: el valor del apartado "Fecha de emisión".
+- anio_finalizacion: el "Año de finalización de la actuación o actuaciones verificadas".
+- ccaa: la comunidad autónoma.
+- organismo: el nombre del organismo de verificación.
+- acreditacion_enac: la referencia de acreditación ENAC.
+- total_kwh: el ahorro energético total declarado, como TEXTO tal cual ("350.399").
+
+Y del apartado "Ahorro energético declarado por el solicitante", UNA entrada por FILA de la tabla, en el mismo orden:
+- orden: el número de fila (1, 2, 3…), empezando en 1.
+- ficha: el código de ficha de catálogo (por ejemplo "RES060").
+- inversion: la "Inversión realizada (sin IVA) (euros)", como TEXTO tal cual ("5.776,86").
+- ahorro_kwh: el "Ahorro energético declarado (kWh/año)", como TEXTO tal cual ("33.432").
+- vida_util: la "Vida útil estimada de la actuación (años)", como TEXTO tal cual.
+
+Reglas:
+- Transcribe, no interpretes. Si un dato no aparece, null. NUNCA inventes ni completes una cifra.
+- Los importes y los ahorros van como TEXTO, exactamente como están impresos. No los conviertas.
+- Devuelve TODAS las filas de la tabla, aunque el código de ficha se repita: cada fila es una actuación distinta.
+- No confundas las cifras de la tabla con las que aparezcan en el apartado de inexactitudes.`;
+
+const SCHEMA_DICTAMEN = {
+    type: 'OBJECT',
+    properties: {
+        numero_dictamen: { type: 'STRING', nullable: true },
+        expediente_cae: { type: 'STRING', nullable: true },
+        referencia_informe: { type: 'STRING', nullable: true },
+        decision: { type: 'STRING', nullable: true },
+        fecha_emision: { type: 'STRING', nullable: true },
+        anio_finalizacion: { type: 'STRING', nullable: true },
+        ccaa: { type: 'STRING', nullable: true },
+        organismo: { type: 'STRING', nullable: true },
+        acreditacion_enac: { type: 'STRING', nullable: true },
+        total_kwh: { type: 'STRING', nullable: true },
+        actuaciones: {
+            type: 'ARRAY',
+            items: {
+                type: 'OBJECT',
+                properties: {
+                    orden: { type: 'STRING', nullable: true },
+                    ficha: { type: 'STRING', nullable: true },
+                    inversion: { type: 'STRING', nullable: true },
+                    ahorro_kwh: { type: 'STRING', nullable: true },
+                    vida_util: { type: 'STRING', nullable: true },
+                },
+            },
+        },
+    },
+};
+
+/**
+ * Lee el dictamen de verificación.
+ * @returns {Promise<{numero_dictamen, fecha_emision, total_kwh:number|null, actuaciones:Array}>}
+ */
+async function leerDictamenVerificacion(pdfBuffer) {
+    if (!pdfBuffer || !pdfBuffer.length) throw new Error('PDF vacío.');
+    const r = await leerConGemini(pdfBuffer, PROMPT_DICTAMEN, SCHEMA_DICTAMEN, 'dictamen') || {};
+    const actuaciones = (Array.isArray(r.actuaciones) ? r.actuaciones : []).map((a, i) => ({
+        orden: numeroEs(a?.orden) ?? (i + 1),
+        ficha: txt(a?.ficha),
+        inversion_eur: numeroEs(a?.inversion),
+        ahorro_kwh: numeroEs(a?.ahorro_kwh),
+        vida_util: numeroEs(a?.vida_util),
+    }));
+    return {
+        numero_dictamen: txt(r.numero_dictamen),
+        expediente_cae: txt(r.expediente_cae),
+        referencia_informe: txt(r.referencia_informe),
+        decision: txt(r.decision),
+        fecha_emision: txt(r.fecha_emision),
+        anio_finalizacion: txt(r.anio_finalizacion),
+        ccaa: txt(r.ccaa),
+        organismo: txt(r.organismo),
+        acreditacion_enac: txt(r.acreditacion_enac),
+        total_kwh: numeroEs(r.total_kwh),
+        actuaciones,
+    };
+}
+
 module.exports = {
     numeroEs,
     leerFacturaVerificador,
     leerInformeVerificacion,
+    leerDictamenVerificacion,
 };

@@ -117,10 +117,14 @@ const PREFIJO_DOC = {
 
 // Nombre canónico (sin extensión) de un documento de lote. `n` numera los slots
 // múltiples; `label` permite un texto propio (p.ej. el nº de la factura al S.O.).
-function nombreDocLote(slot, { n = null, label = null } = {}) {
+// `codigo` añade el lote al final del nombre ("4.2 Informe de Verificación
+// LOTE-2025-003"). Fuera de su carpeta —descargado, adjunto en un correo, encima
+// de un escritorio— "4.2 Informe de Verificación.pdf" no dice de qué lote es, y
+// todos los lotes generan un fichero con ese mismo nombre.
+function nombreDocLote(slot, { n = null, label = null, codigo = null } = {}) {
     const prefijo = PREFIJO_DOC[slot] || '';
     const base = label || LOTE_DOC_SLOTS[slot]?.label || slot;
-    return `${prefijo} ${base}${n ? ` ${n}` : ''}`.trim();
+    return `${prefijo} ${base}${n ? ` ${n}` : ''}${codigo ? ` ${codigo}` : ''}`.trim();
 }
 
 /**

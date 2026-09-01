@@ -101,6 +101,131 @@ function casarActuaciones(actuaciones, expedientes) {
 }
 
 /**
+ * Casa las filas del DICTAMEN con los expedientes del lote.
+ *
+ * ⚠️ La tabla del dictamen NO cita el número de expediente: solo el código de
+ * ficha, que se repite (RES060, RES060, RES060, RES080, RES080). Lo único
+ * distintivo de cada fila es su AHORRO, así que se casa por ahí, contra el ahorro
+ * verificado que dejó el informe.
+ *
+ * Casar por ORDEN sería adivinar: el orden de la tabla es el del informe, no el
+ * de ninguna lista que tengamos, y una inversión puesta en el expediente
+ * equivocado es la cifra que luego viaja al Anexo y al verificador.
+ *
+ * Por eso, si el lote no tiene todavía los ahorros verificados, no se propone
+ * nada y se dice qué hacer antes (subir el informe y registrar sus ahorros).
+ */
+function casarDictamen(actuaciones, expedientes) {
+    const exps = Array.isArray(expedientes) ? expedientes : [];
+    const avisos = [];
+
+    // Índice por ahorro verificado. Un mismo ahorro en dos expedientes deja de ser
+    // distintivo: se marcan los dos y no se casa ninguno.
+    const porAhorro = new Map();
+    for (const e of exps) {
+        const k = Number(e?.instalacion?.verificacion?.ahorro_verificado_kwh);
+        if (!(k > 0)) continue;
+        if (porAhorro.has(k)) porAhorro.set(k, 'AMBIGUO');
+        else porAhorro.set(k, e);
+    }
+    if (porAhorro.size === 0) {
+        avisos.push('Ningún expediente del lote tiene todavía su ahorro verificado, y el dictamen no cita los números de expediente: sube antes el informe de verificación y registra sus ahorros.');
+    }
+
+    const usados = new Set();
+    const filas = (Array.isArray(actuaciones) ? actuaciones : []).map((a) => {
+        const hit = a.ahorro_kwh != null ? porAhorro.get(a.ahorro_kwh) : undefined;
+        const exp = (hit && hit !== 'AMBIGUO') ? hit : null;
+
+        const fila = {
+            orden: a.orden ?? null,
+            ficha: a.ficha || null,
+            ahorro_kwh: a.ahorro_kwh ?? null,
+            inversion_eur: a.inversion_eur ?? null,
+            vida_util: a.vida_util ?? null,
+            expediente_id: exp?.id || null,
+            numero_expediente: exp?.numero_expediente || null,
+            casado_por: exp ? 'ahorro' : null,
+            inversion_actual_eur: exp ? (Number(exp.inversion_actual_eur) || null) : null,
+            avisos: [],
+        };
+
+        if (hit === 'AMBIGUO') fila.avisos.push('Hay dos expedientes del lote con ese mismo ahorro: no se puede saber a cuál corresponde.');
+        else if (!exp) fila.avisos.push('Ningún expediente del lote tiene registrado ese ahorro verificado.');
+        else if (usados.has(exp.id)) fila.avisos.push('Este expediente ya aparece en otra fila del dictamen.');
+        else usados.add(exp.id);
+
+        // La ficha del dictamen tiene que ser la del expediente: es la comprobación
+        // que delata un casado por ahorro que ha coincidido de casualidad.
+        if (exp && fila.ficha && exp.numero_expediente && !String(exp.numero_expediente).toUpperCase().includes(String(fila.ficha).toUpperCase())) {
+            fila.avisos.push(`El dictamen dice ${fila.ficha} y el expediente es ${exp.numero_expediente}.`);
+        }
+        if (fila.inversion_eur == null) fila.avisos.push('No se ha podido leer la inversión de esta fila.');
+        if (fila.inversion_actual_eur != null && fila.inversion_eur != null
+            && Math.abs(fila.inversion_actual_eur - fila.inversion_eur) >= 0.01) {
+            fila.avisos.push(`La inversión registrada era ${fila.inversion_actual_eur.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €.`);
+        }
+        fila.aplicable = !!(fila.expediente_id && fila.inversion_eur != null);
+        return fila;
+    });
+
+    const mencionados = new Set(filas.map(f => f.expediente_id).filter(Boolean));
+    const faltan = exps.filter(e => !mencionados.has(e.id))
+        .map(e => ({ id: e.id, numero_expediente: e.numero_expediente }));
+    if (faltan.length && porAhorro.size > 0) {
+        avisos.push(`El dictamen no casa con ${faltan.length} expediente${faltan.length === 1 ? '' : 's'} del lote: ${faltan.map(f => f.numero_expediente).join(', ')}.`);
+    }
+    return { filas, faltan, avisos };
+}
+
+/**
+ * Escribe la INVERSIÓN VERIFICADA (y la vida útil) del dictamen.
+ *
+ * REGLA — la inversión del dictamen es la DEFINITIVA. La declarada al principio
+ * puede haberse corregido en un requerimiento, y la que vale es la que el
+ * organismo de verificación da por buena. Se guarda aparte, en
+ * `instalacion.verificacion`, junto al ahorro verificado: no pisa
+ * `documentacion.facturas[]`, que es el registro de lo que de verdad se facturó.
+ */
+async function aplicarDatosDictamen(filas, meta = {}) {
+    const aplicados = [];
+    const errores = [];
+    for (const f of (filas || [])) {
+        const inv = Number(f?.inversion_eur);
+        if (!f?.expediente_id || !Number.isFinite(inv) || inv <= 0) {
+            errores.push({ expediente_id: f?.expediente_id || null, error: 'Sin expediente o sin inversión válida.' });
+            continue;
+        }
+        try {
+            const { data: exp, error: e1 } = await supabase
+                .from('expedientes').select('id, numero_expediente, instalacion')
+                .eq('id', f.expediente_id).maybeSingle();
+            if (e1 || !exp) throw new Error(e1?.message || 'Expediente no encontrado.');
+
+            const instalacion = {
+                ...(exp.instalacion || {}),
+                verificacion: {
+                    ...(exp.instalacion?.verificacion || {}),   // conserva el ahorro verificado
+                    inversion_verificada_eur: inv,
+                    ...(f.vida_util ? { vida_util_anios: f.vida_util } : {}),
+                    dictamen_numero: meta.numero || null,
+                    dictamen_fecha: meta.fecha || null,
+                    dictamen_at: nowIso(),
+                    dictamen_por: meta.usuario || 'SISTEMA',
+                },
+            };
+            const { error: e2 } = await supabase.from('expedientes')
+                .update({ instalacion, updated_at: nowIso() }).eq('id', exp.id);
+            if (e2) throw new Error(e2.message);
+            aplicados.push({ expediente_id: exp.id, numero_expediente: exp.numero_expediente, inversion_eur: inv });
+        } catch (err) {
+            errores.push({ expediente_id: f.expediente_id, error: err.message });
+        }
+    }
+    return { aplicados, errores };
+}
+
+/**
  * Contrasta la suma de las actuaciones con el TOTAL que declara el informe.
  * Si no cuadran, alguna cifra se ha leído mal (o el informe se contradice) y hay
  * que mirarlo antes de tocar ningún expediente. Se avisa; no se bloquea, porque
@@ -222,6 +347,8 @@ function puedePagarseAlCliente(expedientes) {
 
 module.exports = {
     casarActuaciones,
+    casarDictamen,
+    aplicarDatosDictamen,
     contrastarTotal,
     verificarFacturaDelLote,
     aplicarAhorrosVerificados,

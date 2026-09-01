@@ -13,8 +13,8 @@
 require('dotenv').config();
 const driveService = require('../services/driveService');
 const supabase = require('../services/supabaseClient');
-const { leerFacturaVerificador, leerInformeVerificacion } = require('../services/loteOcrService');
-const { casarActuaciones, contrastarTotal, verificarFacturaDelLote } = require('../services/loteVerificados');
+const { leerFacturaVerificador, leerInformeVerificacion, leerDictamenVerificacion } = require('../services/loteOcrService');
+const { casarActuaciones, casarDictamen, contrastarTotal, verificarFacturaDelLote } = require('../services/loteVerificados');
 
 (async () => {
     const [, , modo, fileId, loteId] = process.argv;
@@ -27,7 +27,39 @@ const { casarActuaciones, contrastarTotal, verificarFacturaDelLote } = require('
     if (!buffer) { console.error('No se pudo descargar el fichero de Drive.'); process.exit(1); }
     console.log(`Descargado: ${(buffer.length / 1024).toFixed(0)} KB`);
 
-    if (modo === 'factura') {
+    if (modo === 'dictamen') {
+        const d = await leerDictamenVerificacion(buffer);
+        console.log(`
+${d.numero_dictamen} · ${d.expediente_cae} · ${d.fecha_emision} · informe ${d.referencia_informe}`);
+        console.log(`${d.organismo} (ENAC ${d.acreditacion_enac}) · ${d.ccaa} · año ${d.anio_finalizacion}`);
+        console.log(`${d.decision}`);
+        console.log(`Total declarado: ${d.total_kwh?.toLocaleString('es-ES')} kWh
+`);
+        for (const a of d.actuaciones) {
+            console.log(`  ${a.orden}. ${a.ficha} · inversión ${a.inversion_eur?.toLocaleString('es-ES', { minimumFractionDigits: 2 })} € · ${a.ahorro_kwh?.toLocaleString('es-ES')} kWh · ${a.vida_util} años`);
+        }
+        const suma = d.actuaciones.reduce((s2, a) => s2 + (a.ahorro_kwh || 0), 0);
+        const inv = d.actuaciones.reduce((s2, a) => s2 + (a.inversion_eur || 0), 0);
+        console.log(`
+  suma ahorros = ${suma.toLocaleString('es-ES')} kWh (${suma === d.total_kwh ? 'cuadra' : 'NO cuadra'}) · inversión total = ${inv.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €`);
+        if (loteId) {
+            const { data: exps } = await supabase.from('expedientes')
+                .select('id, numero_expediente, instalacion, doc_facturas:documentacion->facturas').eq('lote_id', loteId);
+            const expedientes = (exps || []).map(e => ({
+                id: e.id, numero_expediente: e.numero_expediente, instalacion: e.instalacion,
+                inversion_actual_eur: Number(e.instalacion?.verificacion?.inversion_verificada_eur)
+                    || (Array.isArray(e.doc_facturas) ? e.doc_facturas : []).reduce((a, f) => a + (Number(f?.importe_sin_iva) || 0), 0) || null,
+            }));
+            const r = casarDictamen(d.actuaciones, expedientes);
+            console.log('\nCasación:');
+            for (const f of r.filas) {
+                console.log(`  ${f.ficha} ${f.ahorro_kwh?.toLocaleString('es-ES')} kWh → ${f.numero_expediente || '—'} (${f.casado_por || 'sin casar'})`
+                    + ` · inversión ${f.inversion_eur?.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €`
+                    + `${f.avisos.length ? ' ⚠ ' + f.avisos.join(' | ') : ''}`);
+            }
+            if (r.avisos.length) console.log('  ' + r.avisos.join('\n  '));
+        }
+    } else if (modo === 'factura') {
         const f = await leerFacturaVerificador(buffer);
         console.log(JSON.stringify(f, null, 2));
         if (loteId) {

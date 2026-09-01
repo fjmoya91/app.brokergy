@@ -166,9 +166,12 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     const [error, setError] = useState('');
     const [docAEnviar, setDocAEnviar] = useState(null);   // documento que se está mandando al S.O.
     const [importeFactura, setImporteFactura] = useState('');
-    // Ahorros verificados leídos del informe, a la espera de que alguien los revise.
+    // Lo leído del informe o del dictamen, a la espera de que alguien lo revise.
+    // `modo` dice cuál de los dos, que es lo único que cambia en el modal.
     const [propuestaAhorros, setPropuestaAhorros] = useState(null);
+    const [modoRevision, setModoRevision] = useState('informe');
     const [leyendoInforme, setLeyendoInforme] = useState(false);
+    const [leyendoDictamen, setLeyendoDictamen] = useState(false);
     // Override manual del plegado de cada fase (por número de fase).
     const [fasesAbiertas, setFasesAbiertas] = useState({});
 
@@ -346,7 +349,7 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     const subirInforme = async (file) => {
         const r = await subir('informe_verificacion', file);
         if (!r?.documento) return;
-        if (r.ahorros?.leido) setPropuestaAhorros(r.ahorros);
+        if (r.ahorros?.leido) { setModoRevision('informe'); setPropuestaAhorros(r.ahorros); }
         else {
             await showAlert(
                 `El informe está guardado, pero no se han podido leer los ahorros verificados${r.ahorros?.error ? ` (${r.ahorros.error})` : ''}.`
@@ -362,11 +365,42 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         setLeyendoInforme(true);
         try {
             const { data } = await axios.post(`/api/lotes/${lote.id}/ahorros-verificados/leer`);
+            setModoRevision('informe');
             setPropuestaAhorros(data);
         } catch (err) {
             setError(err.response?.data?.error || 'No se pudo leer el informe de verificación.');
         } finally {
             setLeyendoInforme(false);
+        }
+    };
+
+    // ── Fase 4 · el DICTAMEN trae los datos DEFINITIVOS ───────────────────────
+    // Su nº y su fecha identifican la verificación de cara al futuro, y su tabla
+    // fija la inversión que manda sobre la declarada al principio: en un
+    // requerimiento puede haberse corregido.
+    const subirDictamen = async (file) => {
+        const r = await subir('dictamen_favorable', file);
+        if (!r?.documento) return;
+        if (r.dictamen?.leido) { setModoRevision('dictamen'); setPropuestaAhorros(r.dictamen); }
+        else {
+            await showAlert(
+                `El dictamen está guardado, pero no se ha podido leer${r.dictamen?.error ? ` (${r.dictamen.error})` : ''}.`
+                + '\n\nPuedes volver a intentarlo con "Leer el dictamen".',
+                'Dictamen subido', 'info');
+        }
+    };
+
+    const releerDictamen = async () => {
+        setError('');
+        setLeyendoDictamen(true);
+        try {
+            const { data } = await axios.post(`/api/lotes/${lote.id}/dictamen/leer`);
+            setModoRevision('dictamen');
+            setPropuestaAhorros(data);
+        } catch (err) {
+            setError(err.response?.data?.error || 'No se pudo leer el dictamen.');
+        } finally {
+            setLeyendoDictamen(false);
         }
     };
 
@@ -536,8 +570,8 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                             </BotonSubir>
                         )}
                         {!p.dictamen && (
-                            <BotonSubir disabled={subiendo === 'dictamen_favorable'} onFile={(f) => subir('dictamen_favorable', f)}>
-                                {subiendo === 'dictamen_favorable' ? 'Subiendo…' : '↑ Dictamen favorable'}
+                            <BotonSubir disabled={subiendo === 'dictamen_favorable'} onFile={subirDictamen}>
+                                {subiendo === 'dictamen_favorable' ? 'Leyendo el dictamen…' : '↑ Dictamen favorable'}
                             </BotonSubir>
                         )}
                     </div>
@@ -567,6 +601,25 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                             {!verif.completo && p.informeVerificacion && (
                                 <span className="text-[9px] text-white/30">Sin él no se puede pagar al cliente.</span>
                             )}
+                        </div>
+                    )}
+
+                    {/* ── El DICTAMEN: nº, fecha e inversión definitiva ────────
+                        Su nº y su fecha identifican la verificación para siempre
+                        (van también en la cabecera del lote), y su tabla fija la
+                        inversión que manda sobre la declarada al principio. */}
+                    {canSeeMargin && p.dictamen && (
+                        <div className="flex items-center gap-2 flex-wrap rounded-xl border border-white/[0.06] bg-white/[0.01] px-3 py-2">
+                            <span className="text-[10px] font-black text-white/60">
+                                {p.dictamen.dictamen?.numero_dictamen
+                                    ? `Dictamen ${p.dictamen.dictamen.numero_dictamen}${p.dictamen.dictamen.fecha_emision ? ` · ${p.dictamen.dictamen.fecha_emision}` : ''}`
+                                    : 'Dictamen sin leer'}
+                            </span>
+                            <BotonAccion onClick={releerDictamen} disabled={leyendoDictamen}>
+                                {leyendoDictamen ? 'Leyendo el dictamen…'
+                                    : (p.dictamen.dictamen?.numero_dictamen ? '↻ Volver a leer el dictamen' : '⌕ Leer el dictamen')}
+                            </BotonAccion>
+                            <span className="text-[9px] text-white/30">Nº, fecha e inversión definitiva de cada expediente.</span>
                         </div>
                     )}
 
@@ -646,6 +699,7 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 <AhorrosVerificadosModal
                     lote={lote}
                     propuesta={propuestaAhorros}
+                    modo={modoRevision}
                     onClose={() => setPropuestaAhorros(null)}
                     onAplicado={() => { if (onChanged) onChanged(); }}
                 />
