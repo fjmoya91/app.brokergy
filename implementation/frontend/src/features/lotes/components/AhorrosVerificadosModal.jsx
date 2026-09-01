@@ -30,16 +30,18 @@ const eur = (n) => `${Number(n || 0).toLocaleString('es-ES', { minimumFractionDi
 const MODOS = {
     informe: {
         titulo: 'Lo que dice el informe de verificación',
-        rotulo: 'Ahorro verificado',
+        rotulo: 'Ahorro e inversión verificados',
         ruta: (id) => `/api/lotes/${id}/ahorros-verificados`,
-        // El ahorro es lo que se aplica; el importe de la fila es informativo.
+        // El informe trae las DOS cifras y las dos se aplican de una vez: eran dos
+        // revisiones para dos números que vienen en el mismo papel.
         valor: (f) => (f.ahorro_kwh != null ? kwh(f.ahorro_kwh) : '—'),
-        sub: (f) => (f.ahorro_kwh != null ? mwh(f.ahorro_kwh) : null),
+        sub: (f) => (f.inversion_eur != null ? `inversión ${eur(f.inversion_eur)}` : (f.ahorro_kwh != null ? mwh(f.ahorro_kwh) : null)),
         antes: (f) => (f.ahorro_actual_kwh != null && f.ahorro_actual_kwh !== f.ahorro_kwh ? `antes ${kwh(f.ahorro_actual_kwh)}` : null),
         pie: (n, filas) => `Se escribirá el ahorro verificado de ${n} expediente${n === 1 ? '' : 's'}`
             + (n ? ` (${kwh(filas.reduce((a, f) => a + (Number(f.ahorro_kwh) || 0), 0))} en total)` : '')
+            + (filas.some(f => f.inversion_eur != null) ? ', y su inversión' : '')
             + '. Es la cifra sobre la que se factura al Sujeto Obligado y sobre la que se le paga el bono al cliente.',
-        boton: (n) => `Registrar ${n || ''} ahorro${n === 1 ? '' : 's'} verificado${n === 1 ? '' : 's'}`,
+        boton: (n) => `Registrar ${n || ''} expediente${n === 1 ? '' : 's'}`,
     },
     dictamen: {
         titulo: 'Lo que dice el dictamen de verificación',
@@ -88,7 +90,10 @@ export function AhorrosVerificadosModal({ lote, propuesta, modo = 'informe', onC
                     fecha_emision: propuesta?.dictamen?.fecha_emision || null,
                 }
                 : {
-                    filas: seleccionadas.map(f => ({ expediente_id: f.expediente_id, ahorro_kwh: f.ahorro_kwh })),
+                    filas: seleccionadas.map(f => ({
+                        expediente_id: f.expediente_id, ahorro_kwh: f.ahorro_kwh,
+                        inversion_eur: f.inversion_eur ?? null, vida_util: f.vida_util ?? null,
+                    })),
                     informe_expediente_cae: propuesta?.informe?.expediente_cae || null,
                     informe_fecha: propuesta?.informe?.fecha_informe || null,
                 };

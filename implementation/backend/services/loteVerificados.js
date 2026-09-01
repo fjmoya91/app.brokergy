@@ -70,10 +70,15 @@ function casarActuaciones(actuaciones, expedientes) {
             titular: a.titular || null,
             ficha: a.ficha || null,
             ahorro_kwh: a.ahorro_kwh ?? null,
+            // El informe trae TAMBIÉN la inversión de cada actuación, y es la misma
+            // que luego imprime el dictamen. Se aplica en la misma pasada: eran dos
+            // revisiones para dos cifras que vienen en el mismo papel.
+            inversion_eur: a.inversion_eur ?? null,
             expediente_id: exp?.id || null,
             numero_expediente: exp?.numero_expediente || null,
             casado_por: casadoPor,
             ahorro_actual_kwh: exp ? (Number(exp?.instalacion?.verificacion?.ahorro_verificado_kwh) || null) : null,
+            inversion_actual_eur: exp ? (Number(exp.inversion_actual_eur) || null) : null,
             avisos: [],
         };
 
@@ -85,6 +90,10 @@ function casarActuaciones(actuaciones, expedientes) {
         if (fila.ahorro_kwh == null) fila.avisos.push('No se ha podido leer el ahorro de esta actuación.');
         if (fila.ahorro_actual_kwh != null && fila.ahorro_kwh != null && fila.ahorro_actual_kwh !== fila.ahorro_kwh) {
             fila.avisos.push(`Ya tenía ${fila.ahorro_actual_kwh.toLocaleString('es-ES')} kWh registrados.`);
+        }
+        if (fila.inversion_actual_eur != null && fila.inversion_eur != null
+            && Math.abs(fila.inversion_actual_eur - fila.inversion_eur) >= 0.01) {
+            fila.avisos.push(`La inversión registrada era ${fila.inversion_actual_eur.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €.`);
         }
         // Solo se puede aplicar lo que tiene destino y cifra.
         fila.aplicable = !!(fila.expediente_id && fila.ahorro_kwh != null);
@@ -175,7 +184,19 @@ function casarDictamen(actuaciones, expedientes) {
     if (faltan.length && porAhorro.size > 0) {
         avisos.push(`El dictamen no casa con ${faltan.length} expediente${faltan.length === 1 ? '' : 's'} del lote: ${faltan.map(f => f.numero_expediente).join(', ')}.`);
     }
-    return { filas, faltan, avisos };
+
+    // ¿Dice el dictamen algo DISTINTO de lo que ya consta?
+    //
+    // Lo normal es que no: sus cifras son las mismas que las del informe, que ya
+    // se registraron al subirlo. Cuando todo coincide no hay nada que revisar y no
+    // se le abre al usuario una pantalla para que confirme lo que ya sabía; basta
+    // con sellar el nº y la fecha del dictamen. La revisión se reserva para lo que
+    // de verdad cambia, que es donde hace falta que alguien mire.
+    const cambian = filas.filter(f => f.aplicable && f.avisos.length > 0);
+    const sinCasar = filas.filter(f => !f.aplicable);
+    const sinCambios = filas.length > 0 && cambian.length === 0 && sinCasar.length === 0 && faltan.length === 0;
+
+    return { filas, faltan, avisos, sinCambios, nCambian: cambian.length };
 }
 
 /**
@@ -280,13 +301,17 @@ function verificarFacturaDelLote(factura, lote, verificador) {
 }
 
 /**
- * Escribe el ahorro verificado en los expedientes indicados.
+ * Escribe en los expedientes lo verificado: el ahorro y —si viene— la inversión.
  *
- * Escribe SOLO la clave `verificacion` de `instalacion` (jsonb_set en la RPC, o
- * merge del objeto aquí): `instalacion` lleva el resto de datos técnicos del
- * expediente y un reemplazo se los llevaría por delante.
+ * Las dos cifras están en el MISMO papel (el informe las trae las dos, y el
+ * dictamen las repite), así que se aplican de una vez: eran dos revisiones para
+ * dos números que llegan juntos.
  *
- * @param {Array<{expediente_id, ahorro_kwh}>} filas
+ * Escribe SOLO la clave `verificacion` de `instalacion`, fundiéndola con lo que
+ * ya hubiera: `instalacion` lleva el resto de datos técnicos del expediente y un
+ * reemplazo se los llevaría por delante.
+ *
+ * @param {Array<{expediente_id, ahorro_kwh, inversion_eur?, vida_util?}>} filas
  * @param {{usuario?:string, informe?:string, fechaInforme?:string, origen?:string}} meta
  * @returns {Promise<{aplicados:Array, errores:Array}>}
  */
@@ -305,10 +330,14 @@ async function aplicarAhorrosVerificados(filas, meta = {}) {
                 .eq('id', f.expediente_id).maybeSingle();
             if (e1 || !exp) throw new Error(e1?.message || 'Expediente no encontrado.');
 
+            const inv = Number(f?.inversion_eur);
             const instalacion = {
                 ...(exp.instalacion || {}),
                 verificacion: {
+                    ...(exp.instalacion?.verificacion || {}),   // no pierde el sello del dictamen
                     ahorro_verificado_kwh: kwh,
+                    ...(Number.isFinite(inv) && inv > 0 ? { inversion_verificada_eur: inv } : {}),
+                    ...(f?.vida_util ? { vida_util_anios: Number(f.vida_util) } : {}),
                     fuente: 'MARWEN',
                     fecha: nowIso(),
                     registrado_por: meta.usuario || 'SISTEMA',
@@ -320,7 +349,10 @@ async function aplicarAhorrosVerificados(filas, meta = {}) {
             const { error: e2 } = await supabase.from('expedientes')
                 .update({ instalacion, updated_at: nowIso() }).eq('id', exp.id);
             if (e2) throw new Error(e2.message);
-            aplicados.push({ expediente_id: exp.id, numero_expediente: exp.numero_expediente, ahorro_kwh: kwh });
+            aplicados.push({
+                expediente_id: exp.id, numero_expediente: exp.numero_expediente,
+                ahorro_kwh: kwh, inversion_eur: (Number.isFinite(inv) && inv > 0) ? inv : null,
+            });
         } catch (err) {
             errores.push({ expediente_id: f.expediente_id, error: err.message });
         }

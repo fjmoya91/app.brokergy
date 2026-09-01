@@ -1,11 +1,15 @@
 /**
- * loteOcrService — Lectura de los DOS documentos del lote que traen cifras que
+ * loteOcrService — Lectura de los TRES documentos del lote que traen cifras que
  * hasta ahora había que teclear a mano:
  *
  *   · FACTURA DEL VERIFICADOR  → su base imponible es `lotes.coste_verificacion`,
  *     de donde sale el €/MWh que le cuesta la operación al Sujeto Obligado.
- *   · INFORME DE VERIFICACIÓN  → el ahorro verificado de CADA actuación, que es
- *     sobre el que se factura al S.O. y sobre el que se paga al cliente.
+ *   · INFORME DE VERIFICACIÓN  → por actuación, el AHORRO verificado y la
+ *     INVERSIÓN. Es el único que dice A QUÉ EXPEDIENTE pertenece cada cifra
+ *     ("Nombre de la actuación"), así que es el que manda para casar.
+ *   · DICTAMEN                 → el nº y la fecha que cierran la verificación, y
+ *     las mismas dos cifras, que son las DEFINITIVAS. Su tabla NO cita el
+ *     expediente, solo el código de ficha: se casa por el ahorro.
  *
  * Es el gemelo de `facturaOcrService` (Gemini 2.5 Flash, `responseSchema`,
  * temperature 0, sin razonamiento, plazo global por debajo del timeout de nginx).
@@ -290,7 +294,10 @@ async function leerInformeVerificacion(pdfBuffer) {
         ahorro_kwh: numeroEs(a?.ahorro_kwh),
         titular: txt(a?.titular),
         ficha: txt(a?.ficha),
-        inversion: numeroEs(a?.inversion),
+        // `inversion_eur`, igual que en el dictamen: los dos documentos alimentan
+        // el mismo casado y un nombre distinto dejaba la inversión del informe sin
+        // llegar (se leía bien y se perdía por el camino).
+        inversion_eur: numeroEs(a?.inversion),
     }));
     return {
         expediente_cae: txt(r.expediente_cae),

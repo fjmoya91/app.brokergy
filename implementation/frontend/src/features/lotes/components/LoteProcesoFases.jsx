@@ -381,7 +381,21 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     const subirDictamen = async (file) => {
         const r = await subir('dictamen_favorable', file);
         if (!r?.documento) return;
-        if (r.dictamen?.leido) { setModoRevision('dictamen'); setPropuestaAhorros(r.dictamen); }
+        if (r.dictamen?.leido) {
+            // Lo normal es que el dictamen repita las cifras del informe, que ya se
+            // registraron al subirlo. Entonces no hay nada que revisar: se sella su
+            // nº y su fecha (lo hace el backend) y se dice que cuadra. Abrir una
+            // pantalla para confirmar lo que ya consta es un paso de más.
+            if (r.dictamen.sinCambios) {
+                await showAlert(
+                    `Dictamen ${r.dictamen.dictamen?.numero_dictamen || ''} de ${r.dictamen.dictamen?.fecha_emision || 'fecha desconocida'} registrado.`
+                    + '\n\nSus cifras coinciden con las que ya constan en los expedientes. No hay nada que revisar.',
+                    'Dictamen registrado', 'success');
+            } else {
+                setModoRevision('dictamen');
+                setPropuestaAhorros(r.dictamen);
+            }
+        }
         else {
             await showAlert(
                 `El dictamen está guardado, pero no se ha podido leer${r.dictamen?.error ? ` (${r.dictamen.error})` : ''}.`
@@ -395,6 +409,7 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         setLeyendoDictamen(true);
         try {
             const { data } = await axios.post(`/api/lotes/${lote.id}/dictamen/leer`);
+            // Al releerlo a mano SÍ se enseña siempre: se ha pedido verlo.
             setModoRevision('dictamen');
             setPropuestaAhorros(data);
         } catch (err) {

@@ -747,7 +747,7 @@ async function proponerDatosDictamen(lote, pdfBuffer) {
     try {
         const dictamen = await leerDictamenVerificacion(pdfBuffer);
         const expedientes = await expedientesDelLote(lote.id);
-        const { filas, faltan, avisos } = casarDictamen(dictamen.actuaciones, expedientes);
+        const { filas, faltan, avisos, sinCambios, nCambian } = casarDictamen(dictamen.actuaciones, expedientes);
         const total = contrastarTotal(dictamen, filas);
         return {
             leido: true,
@@ -767,6 +767,8 @@ async function proponerDatosDictamen(lote, pdfBuffer) {
             faltan,
             avisos: [...avisos, ...(total.aviso ? [total.aviso] : [])],
             total,
+            sinCambios,
+            nCambian,
         };
     } catch (err) {
         console.warn('[lotes] OCR dictamen:', err.message);
@@ -1059,12 +1061,14 @@ router.post('/:id/dictamen/aplicar', adminOnly, async (req, res) => {
 });
 
 // ─── POST /api/lotes/:id/ahorros-verificados ─────────────────────────────────────
-// Escribe el ahorro verificado en los expedientes. ADMIN: es la cifra sobre la que
-// se factura y se paga, y una vez pagado no se deshace.
+// Escribe lo verificado en los expedientes: el ahorro y, en la misma pasada, la
+// inversión (el informe trae las dos cifras). ADMIN: son las que se facturan y se
+// pagan, y una vez pagado no se deshace.
 //
-// Recibe las filas YA revisadas por una persona: [{ expediente_id, ahorro_kwh }].
-// No se acepta el informe entero para aplicarlo a ciegas — el paso de revisión es
-// justamente lo que evita pagarle a un cliente el ahorro de otro.
+// Recibe las filas YA revisadas por una persona:
+// [{ expediente_id, ahorro_kwh, inversion_eur? }]. No se acepta el informe entero
+// para aplicarlo a ciegas — el paso de revisión es justamente lo que evita
+// pagarle a un cliente el ahorro de otro.
 router.post('/:id/ahorros-verificados', adminOnly, async (req, res) => {
     try {
         const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
