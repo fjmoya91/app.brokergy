@@ -18,6 +18,7 @@ const supabase = require('../services/supabaseClient');
 const svc = require('../services/anexoActuacionService');
 const { leerInformeVerificacion, leerDictamenVerificacion } = require('../services/loteOcrService');
 const { casarActuaciones, aplicarOrdenActuacion } = require('../services/loteVerificados');
+const { carpetaDeExpediente } = require('../services/expedienteFolderSync');
 const { detectPrograma } = require('../utils/fichas');
 const { CARPETA_DOCS } = require('../services/loteDocs');
 
@@ -87,8 +88,10 @@ const DRY = process.argv.includes('--dry');
       } catch (e) { console.warn('  ! no se pudo leer el informe:', e.message.slice(0, 90)); }
     }
 
-    // ── 3. Un anexo por expediente ────────────────────────────────────────────
-    const carpeta = await drive.getOrCreateSubfolder(lote.drive_folder_id, CARPETA_DOCS(lote.codigo));
+    // ── 3. Un anexo por expediente, en su carpeta "E{n}" ──────────────────────
+    // La carpeta de documentación del LOTE se usa solo para limpiar los anexos que
+    // se dejaron ahí antes de que cada uno tuviera su sitio.
+    const carpetaLote = await drive.getOrCreateSubfolder(lote.drive_folder_id, CARPETA_DOCS(lote.codigo));
     const ordenados = [...exps].sort((a, b) =>
         (a.instalacion?.verificacion?.orden_actuacion || 99) - (b.instalacion?.verificacion?.orden_actuacion || 99));
 
@@ -103,14 +106,21 @@ const DRY = process.argv.includes('--dry');
             mal++; continue;
         }
         const nombre = svc.nombreAnexo(d);
-        console.log(`  ✓ ${nombre}  ·  ${d.ahorro_kwh} kWh  ·  ${d.inversion}  ·  ${ficha} ${d.vida_util} años`);
+        const expFolder = await carpetaDeExpediente(e);
+        if (!expFolder) { console.log(`  ✗ ${e.numero_expediente}: sin carpeta de Drive`); mal++; continue; }
+        console.log(`  ✓ ${nombre}  ·  ${d.ahorro_kwh} kWh  ·  ${d.inversion}  ·  ${ficha} ${d.vida_util} años  →  E${d.n_actuacion}/`);
         if (!DRY) {
-            const prev = await drive.findFileByName(carpeta, nombre);
+            const carpetaE = await drive.getOrCreateSubfolder(expFolder, `E${d.n_actuacion}`);
+            const prev = await drive.findFileByName(carpetaE, nombre);
             if (prev) await drive.deleteFile(prev);
-            await drive.saveFileToFolder(carpeta, nombre, 'application/pdf', await svc.generarAnexo(d));
+            await drive.saveFileToFolder(carpetaE, nombre, 'application/pdf', await svc.generarAnexo(d));
+            // El que se dejó en la carpeta del lote antes de tener su sitio: dos
+            // copias del mismo anexo en la documentación que se sube no es inocuo.
+            const viejo = await drive.findFileByName(carpetaLote, nombre);
+            if (viejo) { await drive.deleteFile(viejo); console.log(`      (retirado el que estaba en ${CARPETA_DOCS(lote.codigo)})`); }
         }
         ok++;
     }
     console.log(`\n${ok} generado${ok === 1 ? '' : 's'}${mal ? ` · ${mal} incompleto${mal === 1 ? '' : 's'}` : ''}`);
-    if (!DRY && ok) console.log(`https://drive.google.com/drive/folders/${carpeta}`);
+    if (!DRY && ok) console.log(`Cada anexo, en la carpeta E{n} de su expediente.`);
 })().catch(e => { console.error('ERROR:', e.message); process.exit(1); });

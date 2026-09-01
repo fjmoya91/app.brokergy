@@ -10,7 +10,7 @@ const marwenService = require('../services/marwenService');
 const driveService = require('../services/driveService');
 const { carpetaObjetivoLote } = require('../services/driveFolders');
 const {
-    syncLoteFolder, absorberExpedientesEnLote, devolverExpedienteDeLote,
+    syncLoteFolder, absorberExpedientesEnLote, devolverExpedienteDeLote, carpetaDeExpediente,
 } = require('../services/expedienteFolderSync');
 const { htmlToPdf } = require('../services/pdfService');
 
@@ -1065,7 +1065,6 @@ router.post('/:id/anexos-actuacion', adminOnly, async (req, res) => {
             });
         }
 
-        const carpeta = await ensureLoteDocsFolder(lote);
         const generados = [];
         const incompletos = [];
 
@@ -1082,9 +1081,25 @@ router.post('/:id/anexos-actuacion', adminOnly, async (req, res) => {
                 incompletos.push({ numero_expediente: e.numero_expediente, faltan });
                 continue;
             }
+
+            // ── Cada anexo va a la carpeta "E{n}" de SU expediente ─────────────
+            // Es donde se juntan los adjuntos de esa actuación, que es lo que acaba
+            // comprimido como "ActuacionE{n}". Dejarlos todos en la carpeta del
+            // lote obligaría a repartirlos a mano justo antes de subir a MITECO.
+            const expFolder = await carpetaDeExpediente(e);
+            if (!expFolder) {
+                incompletos.push({ numero_expediente: e.numero_expediente, faltan: ['su carpeta de Drive'] });
+                continue;
+            }
+            const carpetaE = await driveService.getOrCreateSubfolder(expFolder, `E${d.n_actuacion}`);
+            if (!carpetaE) {
+                incompletos.push({ numero_expediente: e.numero_expediente, faltan: [`la carpeta E${d.n_actuacion}`] });
+                continue;
+            }
+
             const pdf = await anexoActuacion.generarAnexo(d);
             const nombre = anexoActuacion.nombreAnexo(d);
-            const saved = await saveOrReplacePdf(carpeta, nombre, pdf);
+            const saved = await saveOrReplacePdf(carpetaE, nombre, pdf);
             generados.push({
                 numero_expediente: e.numero_expediente, n_actuacion: d.n_actuacion,
                 ficha, fileName: nombre, link: saved?.link || null,
@@ -1105,7 +1120,8 @@ router.post('/:id/anexos-actuacion', adminOnly, async (req, res) => {
 
         res.json({
             ok: true, generados, incompletos, completado,
-            carpeta_link: lote.drive_folder_id ? `https://drive.google.com/drive/folders/${carpeta}` : null,
+            // Ya no hay una carpeta única: cada anexo vive en la de su expediente.
+            carpeta_link: null,
         });
     } catch (err) {
         console.error('[POST /lotes/:id/anexos-actuacion]', err.message);
