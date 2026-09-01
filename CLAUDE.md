@@ -2686,7 +2686,8 @@ cual; para añadir otra, `getDropdown('Código de ficha').getOptions()` las list
 | Relleno, formato y validación | [anexoActuacionService.js](implementation/backend/services/anexoActuacionService.js) |
 | Ruta (los 5 del lote de una vez) | `POST /api/lotes/:id/anexos-actuacion` (**adminOnly**) |
 | Botón | Fase 5 de `LoteProcesoFases` — "Generar anexos para MITECO" |
-| Destino | La carpeta `{código} - DOC. VERIFICACIÓN` del lote, como `AnexoE{n} - {expediente}.pdf` |
+| Destino | La carpeta **`E{n}` del propio expediente**, como `{expediente} - AnexoE{n}.pdf` |
+| Regenerar en bloque | `node scripts/generar_anexos_lote.js <LOTE> [--dry]` |
 
 **De dónde sale cada dato** — todos de Supabase, y los que faltaban son justo los que se
 incorporaron estos días:
@@ -2701,6 +2702,28 @@ incorporaron estos días:
 | Fechas de ejecución | `documentacion.fecha_inicio_cifo` / `fecha_fin_cifo` (coinciden con las del informe de verificación) |
 | CNAE | `4322` siempre |
 | Ayudas públicas | "NO se ha solicitado", lo mismo que declara el Anexo I que firma el titular |
+
+**REGLA — cada anexo va a la carpeta `E{n}` de SU expediente.** Ahí se juntan los
+adjuntos de esa actuación (`E3-1- Convenio CAE`, `E3-3-1- Ficha RES060`, `E3-3-5-
+Certificado CIFO`…), que es lo que acaba comprimido como `ActuacionE3`. Todos juntos en
+la carpeta del lote habría que repartirlos a mano justo antes de subir a MITECO, que es
+el momento en que un fichero en la carpeta equivocada cuesta un requerimiento. La
+carpeta la resuelve `carpetaDeExpediente` (la misma del sincronizador); un expediente
+sin carpeta se cuenta como incompleto en vez de dejar el anexo en cualquier sitio.
+
+**REGLA — lo que falte se LEE de los documentos ya subidos.** Al generar, si falta el nº
+de actuación se va al informe y si faltan la identificación y la fecha del dictamen se va
+al dictamen: a esas alturas los dos están subidos, y mandar al usuario a pulsar antes dos
+botones para que la app lea unos papeles que ya tiene es hacerle de recadero. Del informe
+se completa **solo el orden** —identificación, no dinero—; los ahorros y las inversiones
+siguen exigiendo revisión. Los dos rescates van en **try/catch**: la cuota del lector se
+agota a las ~20 peticiones seguidas y un lote que ya tiene sus datos debe generar igual.
+
+⚠️ **El dictamen escribe sus datos como viñetas** (`• 28/08/2026.`), así que llegan con
+el punto pegado. `fecha()` BUSCA la fecha dentro del texto en vez de exigir que la cadena
+entera lo sea —si no, el anexo salía sin ella—, y el lector quita el punto final de
+fecha, año, referencia del informe y CCAA; nunca de `organismo` ("Grupo Marwen Calsan
+S.L.") ni de `decision`.
 
 **REGLA — el nº de actuación es el del INFORME.** Rotula el anexo y nombra sus adjuntos
 en el ZIP (`E3-1-`, `E3-2-`…). Deducirlo de otra cosa —del orden alfabético, por
