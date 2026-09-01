@@ -394,14 +394,20 @@ async function leerDictamenVerificacion(pdfBuffer) {
         ahorro_kwh: numeroEs(a?.ahorro_kwh),
         vida_util: numeroEs(a?.vida_util),
     }));
+    // El dictamen escribe estos datos como viñetas ("• 28/08/2026."), así que
+    // llegan con el punto pegado. Se quita SOLO en los campos donde es el final de
+    // la frase: en `organismo` ("Grupo Marwen Calsan S.L.") o en `decision` sería
+    // parte del dato.
+    const sinPunto = (v) => { const t = txt(v); return t ? t.replace(/\.+$/, '') || null : null; };
+
     return {
         numero_dictamen: txt(r.numero_dictamen),
         expediente_cae: txt(r.expediente_cae),
-        referencia_informe: txt(r.referencia_informe),
+        referencia_informe: sinPunto(r.referencia_informe),
         decision: txt(r.decision),
-        fecha_emision: txt(r.fecha_emision),
-        anio_finalizacion: txt(r.anio_finalizacion),
-        ccaa: txt(r.ccaa),
+        fecha_emision: sinPunto(r.fecha_emision),
+        anio_finalizacion: sinPunto(r.anio_finalizacion),
+        ccaa: sinPunto(r.ccaa),
         organismo: txt(r.organismo),
         acreditacion_enac: txt(r.acreditacion_enac),
         total_kwh: numeroEs(r.total_kwh),

@@ -375,6 +375,38 @@ async function aplicarAhorrosVerificados(filas, meta = {}) {
 }
 
 /**
+ * Escribe SOLO el orden de actuación en los expedientes que no lo tengan.
+ *
+ * Se usa al generar los anexos del MITECO: el orden es un dato de identificación
+ * —qué número le toca a esta actuación dentro de la solicitud— y no una cifra de
+ * dinero, así que puede completarse leyendo el informe sin que nadie lo revise.
+ * Los ahorros y las inversiones NO se tocan: ésos ya los aprobó una persona.
+ *
+ * @param {Array<{expediente_id, orden}>} filas
+ */
+async function aplicarOrdenActuacion(filas) {
+    const aplicados = [];
+    for (const f of (filas || [])) {
+        const orden = Number(f?.orden);
+        if (!f?.expediente_id || !Number.isFinite(orden) || orden <= 0) continue;
+        try {
+            const { data: exp } = await supabase.from('expedientes')
+                .select('id, numero_expediente, instalacion').eq('id', f.expediente_id).maybeSingle();
+            if (!exp) continue;
+            if (Number(exp.instalacion?.verificacion?.orden_actuacion) === orden) continue;  // ya estaba
+            const instalacion = {
+                ...(exp.instalacion || {}),
+                verificacion: { ...(exp.instalacion?.verificacion || {}), orden_actuacion: orden },
+            };
+            const { error } = await supabase.from('expedientes')
+                .update({ instalacion, updated_at: nowIso() }).eq('id', exp.id);
+            if (!error) aplicados.push({ numero_expediente: exp.numero_expediente, orden });
+        } catch { /* uno que falle no puede tumbar la generación de los demás */ }
+    }
+    return aplicados;
+}
+
+/**
  * ¿Puede este lote pasar a pagar al cliente?
  *
  * REGLA DE NEGOCIO — no se le paga a un cliente hasta tener SU ahorro verificado.
@@ -393,6 +425,7 @@ function puedePagarseAlCliente(expedientes) {
 
 module.exports = {
     casarActuaciones,
+    aplicarOrdenActuacion,
     casarDictamen,
     aplicarDatosDictamen,
     contrastarTotal,

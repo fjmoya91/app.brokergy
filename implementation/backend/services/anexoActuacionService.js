@@ -118,10 +118,14 @@ const euros = (n) => Number.isFinite(Number(n))
 function fecha(v) {
     if (!v) return '';
     const s = String(v).trim();
-    let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    let m = s.match(/(\d{4})-(\d{2})-(\d{2})/);          // 'YYYY-MM-DD' de la BD
     if (m) return `${m[3]}/${m[2]}/${m[1]}`;
-    m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-    return m ? s : '';
+    // La fecha se BUSCA dentro del texto, no se exige que sea todo. El dictamen la
+    // escribe como viñeta y llega con el punto pegado ("28/08/2026."): exigiendo
+    // que la cadena entera fuera la fecha, se descartaba y el anexo salía sin ella.
+    m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (m) return `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')}/${m[3]}`;
+    return '';
 }
 
 /**

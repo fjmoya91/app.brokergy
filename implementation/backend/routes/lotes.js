@@ -28,7 +28,8 @@ const anexoActuacion = require('../services/anexoActuacionService');
 const { detectPrograma } = require('../utils/fichas');
 const {
     casarActuaciones, casarDictamen, contrastarTotal, verificarFacturaDelLote,
-    aplicarAhorrosVerificados, aplicarDatosDictamen, puedePagarseAlCliente,
+    aplicarAhorrosVerificados, aplicarDatosDictamen, aplicarOrdenActuacion,
+    puedePagarseAlCliente,
 } = require('../services/loteVerificados');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -999,14 +1000,70 @@ router.post('/:id/anexos-actuacion', adminOnly, async (req, res) => {
         const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
         if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
 
-        const { data: exps, error: expErr } = await supabase.from('expedientes')
+        let { data: exps, error: expErr } = await supabase.from('expedientes')
             .select('id, numero_expediente, instalacion, documentacion').eq('lote_id', lote.id);
         if (expErr) throw new Error(`No se pudieron leer los expedientes: ${expErr.message}`);
         if (!(exps || []).length) return res.status(409).json({ error: 'El lote no tiene expedientes.' });
 
-        // El nº y la fecha del dictamen son del LOTE: uno solo cubre las cinco
-        // actuaciones, y las cinco lo citan.
-        const dictamen = (lote.documentos_so || []).find(d => d?.key === 'dictamen_favorable')?.dictamen || {};
+        // ── Lo que falta, se LEE de los documentos que ya están subidos ────────
+        // Los dos datos que no vienen del expediente —el nº de actuación y la
+        // identificación del dictamen— están en el informe y en el dictamen del
+        // lote, que a estas alturas ya se han subido. Pedirle al usuario que pase
+        // antes por dos botones para que la app lea unos papeles que ya tiene sería
+        // hacerle de recadero.
+        const docDictamen = (lote.documentos_so || []).find(d => d?.key === 'dictamen_favorable');
+        let dictamen = docDictamen?.dictamen || {};
+        const completado = [];
+
+        // Los dos rescates van en try/catch: son una comodidad, no el trabajo. Si el
+        // lector no está disponible —la cuota del proveedor se agota a las ~20
+        // peticiones seguidas—, un lote que ya tenga sus datos tiene que poder
+        // generar igual.
+        if (!dictamen.numero_dictamen && docDictamen?.draft_file_id) {
+            try {
+                const buf = await driveService.getFileContent(docDictamen.draft_file_id);
+                const p = buf ? await proponerDatosDictamen(lote, buf) : null;
+                if (p?.leido) {
+                    dictamen = p.dictamen;
+                    const docs = (lote.documentos_so || []).map(d =>
+                        d?.key === 'dictamen_favorable' ? { ...d, dictamen } : d);
+                    await supabase.from('lotes').update({ documentos_so: docs, updated_at: nowIso() }).eq('id', lote.id);
+                    completado.push(`dictamen ${dictamen.numero_dictamen || ''}`.trim());
+                }
+            } catch (e) { console.warn('[anexos] no se pudo leer el dictamen:', e.message); }
+        }
+
+        // El ORDEN de actuación solo lo dice el informe. Se completa el de quien no
+        // lo tenga; los ahorros y las inversiones NO se tocan, que ésos ya los
+        // aprobó una persona.
+        const sinOrden = exps.filter(e => !(Number(e.instalacion?.verificacion?.orden_actuacion) > 0));
+        const docInforme = (lote.documentos_so || []).find(d => d?.key === 'informe_verificacion');
+        if (sinOrden.length && docInforme?.draft_file_id) {
+            try {
+                const buf = await driveService.getFileContent(docInforme.draft_file_id);
+                if (buf) {
+                    const informe = await leerInformeVerificacion(buf);
+                    const { filas } = casarActuaciones(informe.actuaciones, exps);
+                    const puestos = await aplicarOrdenActuacion(
+                        filas.filter(f => f.expediente_id && f.orden).map(f => ({ expediente_id: f.expediente_id, orden: f.orden })));
+                    if (puestos.length) {
+                        completado.push(`orden de actuación de ${puestos.length} expediente${puestos.length === 1 ? '' : 's'}`);
+                        ({ data: exps } = await supabase.from('expedientes')
+                            .select('id, numero_expediente, instalacion, documentacion').eq('lote_id', lote.id));
+                    }
+                }
+            } catch (e) { console.warn('[anexos] no se pudo leer el informe:', e.message); }
+        }
+
+        // El dictamen es del LOTE, no de cada expediente: si falta, faltaría en los
+        // cinco y repetirlo cinco veces esconde lo que de verdad hay que hacer.
+        if (!dictamen.numero_dictamen || !dictamen.fecha_emision) {
+            return res.status(409).json({
+                error: docDictamen
+                    ? 'No se han podido leer el número y la fecha del dictamen. Ábrelo con "Leer el dictamen" en la fase 4 y vuelve a intentarlo.'
+                    : 'Falta el dictamen favorable del lote: el anexo tiene que citar su identificación única y su fecha.',
+            });
+        }
 
         const carpeta = await ensureLoteDocsFolder(lote);
         const generados = [];
@@ -1047,7 +1104,7 @@ router.post('/:id/anexos-actuacion', adminOnly, async (req, res) => {
         }
 
         res.json({
-            ok: true, generados, incompletos,
+            ok: true, generados, incompletos, completado,
             carpeta_link: lote.drive_folder_id ? `https://drive.google.com/drive/folders/${carpeta}` : null,
         });
     } catch (err) {
