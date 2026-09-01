@@ -2600,6 +2600,21 @@ Medido en el CAE-1601: `25RES060_75` tenía 6.930 € y el dictamen fija 6.080 �
 corrección de su inexactitud nº 10 (un kit solar facturado junto a la bomba de calor,
 ajeno a la ficha RES060).
 
+**REGLA — los números de expediente se comparan SIN NINGÚN separador**, solo letras y
+dígitos (`normNum`). El PDF escribe el mismo número de varias formas dentro del MISMO
+documento: medido en el informe del CAE-1490, "25RES060_65" en unas actuaciones y
+"25RES060 70" (con espacio) en otras, según cómo caiga el guion bajo al extraer el texto.
+Conservando el `_`, tres de cinco expedientes salían como "no existe en este lote" — y
+parecía un fallo del OCR, que había leído bien. Sin el separador el número sigue siendo
+único ({AA}{FICHA}_{N}).
+
+**REGLA — leer un PDF SE VE.** Tarda entre 6 y 14 s; sin señal el usuario cree que el
+botón no ha hecho nada y vuelve a pulsar. Las tres lecturas usan el overlay estándar
+(`SendActionOverlay`) con el icono **`read`**: la lupa recorre la hoja. No vale el de
+subida — el fichero ya está ahí, y la nube haría pensar que sigue viajando. Del overlay
+se pasa DIRECTO a la revisión cuando la hay: un "listo" que hay que cerrar para que
+aparezca otra pantalla es un clic de peaje.
+
 **REGLA — el dictamen se casa por el AHORRO, nunca por el orden.** Su tabla NO cita el
 número de expediente: solo el código de ficha, que se repite (RES060, RES060, RES060,
 RES080, RES080). Lo único distintivo de cada fila es su ahorro, que se compara contra el
