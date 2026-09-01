@@ -5,6 +5,7 @@ import { analizarProceso, SLOTS } from '../logic/loteProceso';
 import { computeLoteEco } from '../logic/loteEco';
 import { EnviarDocLoteModal } from './EnviarDocLoteModal';
 import { AhorrosVerificadosModal } from './AhorrosVerificadosModal';
+import SendActionOverlay from '../../../components/SendActionOverlay';
 import { BotonCarpetaLocal } from './BotonCarpetaLocal';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -172,6 +173,11 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     const [modoRevision, setModoRevision] = useState('informe');
     const [leyendoInforme, setLeyendoInforme] = useState(false);
     const [leyendoDictamen, setLeyendoDictamen] = useState(false);
+    // Overlay ESTÁNDAR mientras se lee un PDF y para contar cómo ha ido. Leer un
+    // informe tarda entre 6 y 14 segundos: sin él, el usuario pulsa y no pasa nada
+    // visible, así que vuelve a pulsar. Nunca un showAlert pelado (ver el estándar
+    // en components/SendActionOverlay.jsx).
+    const [lectura, setLectura] = useState(null);
     // Override manual del plegado de cada fase (por número de fase).
     const [fasesAbiertas, setFasesAbiertas] = useState({});
 
@@ -313,28 +319,37 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     // que es de donde sale el €/MWh. El campo sigue estando para forzarlo a mano.
     const subirFacturaVerificador = async (file) => {
         const imp = Number(String(importeFactura).replace(',', '.'));
-        const r = await subir('factura_verificador', file, Number.isFinite(imp) && imp > 0 ? { importe: imp } : {});
-        if (!r?.documento) return;
+        // El overlay se abre ANTES de la petición: la lectura tarda unos segundos y
+        // sin señal el usuario cree que no ha pasado nada y vuelve a soltar el PDF.
+        const leemos = !(Number.isFinite(imp) && imp > 0);
+        if (leemos) setLectura({ phase: 'sending', sendingTitle: 'Leyendo la factura…', subtitle: 'Su importe y a qué lote corresponde' });
+        const r = await subir('factura_verificador', file, leemos ? {} : { importe: imp });
+        if (!r?.documento) { setLectura(null); return; }
         const doc = r.documento;
         setImporteFactura('');
         if (!(doc.importe > 0)) {
-            await showAlert(
-                r.ocr?.leido === false
-                    ? `La factura está guardada, pero no se ha podido leer su importe (${r.ocr.error || 'error de lectura'}). Escríbelo en el campo "Importe €" y vuelve a subirla.`
-                    : 'La factura está guardada, pero no se ha podido leer ningún importe en ella. Escríbelo en el campo "Importe €" y vuelve a subirla: sin él no se puede calcular a cuánto le sale el €/MWh al Sujeto Obligado.',
-                'Sin importe', 'info');
+            setLectura({
+                phase: 'done', ok: false, errorTitle: 'Sin importe',
+                errorText: (r.ocr?.leido === false
+                    ? `La factura está guardada, pero no se ha podido leer su importe (${r.ocr.error || 'error de lectura'}).`
+                    : 'La factura está guardada, pero no se ha podido leer ningún importe en ella.')
+                    + ' Escríbelo en el campo "Importe €" y vuelve a subirla: sin él no se puede calcular a cuánto le sale el €/MWh al Sujeto Obligado.',
+            });
         } else if (r.ocr?.leido) {
-            // Lo leído se enseña con su número de factura para poder cotejarlo de
-            // un vistazo, y con los avisos de que la factura no sea de este lote.
-            await showAlert(
-                `Importe leído de la factura${doc.numero_factura ? ` ${doc.numero_factura}` : ''}: `
-                + `${Number(doc.importe).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })} (base imponible).`
-                + `${r.ocr.total ? ` Total con IVA: ${Number(r.ocr.total).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}.` : ''}`
-                + `\n\nYa consta como coste de verificación del lote. Compruébalo.`
-                + (r.ocr.avisos?.length ? `\n\n⚠ ${r.ocr.avisos.join('\n⚠ ')}` : ''),
-                r.ocr.avisos?.length ? 'Revisa la factura' : 'Importe leído',
-                r.ocr.avisos?.length ? 'warning' : 'success');
-        }
+            // Lo leído se enseña con su número de factura para poder cotejarlo de un
+            // vistazo, y con los avisos de que la factura no sea de este lote.
+            setLectura({
+                phase: 'done', ok: !r.ocr.avisos?.length,
+                okTitle: 'Importe leído', errorTitle: 'Revisa la factura',
+                subtitle: `Factura ${doc.numero_factura || 'del verificador'}${doc.fecha_factura ? ` · ${doc.fecha_factura}` : ''}`,
+                items: [
+                    `Base imponible ${Number(doc.importe).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}`,
+                    ...(r.ocr.total ? [`Total con IVA ${Number(r.ocr.total).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}`] : []),
+                    'Registrado como coste de verificación del lote',
+                ],
+                errorText: r.ocr.avisos?.length ? r.ocr.avisos.join(' · ') : null,
+            });
+        } else setLectura(null);
         // El verificador se la emite AL S.O., así que se la remitimos nosotros.
         const enviar = await showConfirm(
             'Factura del verificador guardada en el lote.\n\n¿Se la enviamos por email al Sujeto Obligado? Es a él a quien se la emite el verificador.',
@@ -347,14 +362,25 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     // Es el número sobre el que se factura al S.O. y sobre el que se le paga al
     // cliente. Se lee al subirlo y se abre la revisión: nada se escribe solo.
     const subirInforme = async (file) => {
+        setLectura({
+            phase: 'sending', sendingTitle: 'Analizando el informe…',
+            subtitle: 'Leyendo el ahorro y la inversión de cada actuación',
+        });
         const r = await subir('informe_verificacion', file);
-        if (!r?.documento) return;
-        if (r.ahorros?.leido) { setModoRevision('informe'); setPropuestaAhorros(r.ahorros); }
-        else {
-            await showAlert(
-                `El informe está guardado, pero no se han podido leer los ahorros verificados${r.ahorros?.error ? ` (${r.ahorros.error})` : ''}.`
-                + '\n\nPuedes volver a intentarlo con "Leer los ahorros del informe", o escribirlos a mano en cada expediente.',
-                'Informe subido', 'info');
+        if (!r?.documento) { setLectura(null); return; }
+        if (r.ahorros?.leido) {
+            // Del overlay se pasa DIRECTO a la revisión: enseñar un "listo" que hay
+            // que cerrar para que aparezca otra pantalla es un clic de peaje.
+            setLectura(null);
+            setModoRevision('informe');
+            setPropuestaAhorros(r.ahorros);
+        } else {
+            setLectura({
+                phase: 'done', ok: false, errorTitle: 'No se ha podido leer',
+                subtitle: 'El informe está guardado en el lote',
+                errorText: `No se han podido leer los ahorros verificados${r.ahorros?.error ? ` (${r.ahorros.error})` : ''}. `
+                    + 'Puedes volver a intentarlo con "Leer los ahorros del informe", o escribirlos a mano en cada expediente.',
+            });
         }
     };
 
@@ -363,12 +389,20 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     const releerInforme = async () => {
         setError('');
         setLeyendoInforme(true);
+        setLectura({
+            phase: 'sending', sendingTitle: 'Analizando el informe…',
+            subtitle: 'Leyendo el ahorro y la inversión de cada actuación',
+        });
         try {
             const { data } = await axios.post(`/api/lotes/${lote.id}/ahorros-verificados/leer`);
+            setLectura(null);
             setModoRevision('informe');
             setPropuestaAhorros(data);
         } catch (err) {
-            setError(err.response?.data?.error || 'No se pudo leer el informe de verificación.');
+            setLectura({
+                phase: 'done', ok: false, errorTitle: 'No se ha podido leer',
+                errorText: err.response?.data?.error || 'No se pudo leer el informe de verificación.',
+            });
         } finally {
             setLeyendoInforme(false);
         }
@@ -379,41 +413,61 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     // fija la inversión que manda sobre la declarada al principio: en un
     // requerimiento puede haberse corregido.
     const subirDictamen = async (file) => {
+        setLectura({
+            phase: 'sending', sendingTitle: 'Analizando el dictamen…',
+            subtitle: 'Leyendo su número, su fecha y las cifras definitivas',
+        });
         const r = await subir('dictamen_favorable', file);
-        if (!r?.documento) return;
+        if (!r?.documento) { setLectura(null); return; }
         if (r.dictamen?.leido) {
+            const d = r.dictamen.dictamen || {};
             // Lo normal es que el dictamen repita las cifras del informe, que ya se
             // registraron al subirlo. Entonces no hay nada que revisar: se sella su
             // nº y su fecha (lo hace el backend) y se dice que cuadra. Abrir una
             // pantalla para confirmar lo que ya consta es un paso de más.
             if (r.dictamen.sinCambios) {
-                await showAlert(
-                    `Dictamen ${r.dictamen.dictamen?.numero_dictamen || ''} de ${r.dictamen.dictamen?.fecha_emision || 'fecha desconocida'} registrado.`
-                    + '\n\nSus cifras coinciden con las que ya constan en los expedientes. No hay nada que revisar.',
-                    'Dictamen registrado', 'success');
+                setLectura({
+                    phase: 'done', ok: true, okTitle: 'Dictamen registrado',
+                    subtitle: [d.numero_dictamen, d.fecha_emision].filter(Boolean).join(' · '),
+                    items: [
+                        ...(d.total_kwh != null ? [`Ahorro dictaminado ${Number(d.total_kwh).toLocaleString('es-ES')} kWh`] : []),
+                        'Sus cifras coinciden con las de los expedientes',
+                        'No hay nada que revisar',
+                    ],
+                });
             } else {
+                setLectura(null);
                 setModoRevision('dictamen');
                 setPropuestaAhorros(r.dictamen);
             }
-        }
-        else {
-            await showAlert(
-                `El dictamen está guardado, pero no se ha podido leer${r.dictamen?.error ? ` (${r.dictamen.error})` : ''}.`
-                + '\n\nPuedes volver a intentarlo con "Leer el dictamen".',
-                'Dictamen subido', 'info');
+        } else {
+            setLectura({
+                phase: 'done', ok: false, errorTitle: 'No se ha podido leer',
+                subtitle: 'El dictamen está guardado en el lote',
+                errorText: `No se ha podido leer${r.dictamen?.error ? ` (${r.dictamen.error})` : ''}. `
+                    + 'Puedes volver a intentarlo con "Leer el dictamen".',
+            });
         }
     };
 
     const releerDictamen = async () => {
         setError('');
         setLeyendoDictamen(true);
+        setLectura({
+            phase: 'sending', sendingTitle: 'Analizando el dictamen…',
+            subtitle: 'Leyendo su número, su fecha y las cifras definitivas',
+        });
         try {
             const { data } = await axios.post(`/api/lotes/${lote.id}/dictamen/leer`);
             // Al releerlo a mano SÍ se enseña siempre: se ha pedido verlo.
+            setLectura(null);
             setModoRevision('dictamen');
             setPropuestaAhorros(data);
         } catch (err) {
-            setError(err.response?.data?.error || 'No se pudo leer el dictamen.');
+            setLectura({
+                phase: 'done', ok: false, errorTitle: 'No se ha podido leer',
+                errorText: err.response?.data?.error || 'No se pudo leer el dictamen.',
+            });
         } finally {
             setLeyendoDictamen(false);
         }
@@ -709,6 +763,22 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                     onSent={() => { if (onChanged) onChanged(); }}
                 />
             )}
+
+            {/* Overlay ESTÁNDAR de la app mientras se lee un PDF: leer un informe
+                tarda entre 6 y 14 s y sin señal el usuario vuelve a pulsar. Se usa
+                el mismo de los envíos (icono 'read': la lupa recorre la hoja). */}
+            <SendActionOverlay
+                icon="read"
+                phase={lectura?.phase || null}
+                ok={!!lectura?.ok}
+                subtitle={lectura?.subtitle}
+                items={lectura?.items || []}
+                errorText={lectura?.errorText}
+                sendingTitle={lectura?.sendingTitle || 'Analizando el documento…'}
+                okTitle={lectura?.okTitle}
+                errorTitle={lectura?.errorTitle}
+                onClose={() => setLectura(null)}
+            />
 
             {propuestaAhorros && (
                 <AhorrosVerificadosModal

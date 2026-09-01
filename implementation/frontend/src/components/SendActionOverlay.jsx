@@ -16,6 +16,7 @@ import confetti from 'canvas-confetti';
 //   onClose: () => void (cierra el overlay; se llama desde el botón final)
 //   sendingTitle / okTitle / errorTitle: textos opcionales
 //   icon: 'send' (avión, por defecto) | 'upload' (nube con el documento subiendo)
+//        | 'read' (lupa recorriendo un documento: se está LEYENDO un PDF)
 
 function fireDocsConfetti() {
     if (typeof window === 'undefined') return;
@@ -37,6 +38,24 @@ const SENDING_ART = {
         <svg className="w-8 h-8 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} style={{ animation: 'float 1.8s ease-in-out infinite' }}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
         </svg>
+    ),
+    // Leer un documento con el OCR: la lupa recorre la hoja de arriba abajo. No es
+    // un envío ni una subida —el fichero ya está—, y confundirlo con la nube haría
+    // pensar que sigue viajando cuando lo que pasa es que se está leyendo.
+    read: (
+        <span className="relative w-9 h-9 block">
+            {/* la hoja, quieta */}
+            <svg className="absolute inset-0 w-9 h-9 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 3h6l4 4v14a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" />
+                <path strokeLinecap="round" strokeLinejoin="round" opacity="0.45" d="M8 10h6M8 13.5h8M8 17h5" />
+            </svg>
+            {/* la lupa que la recorre */}
+            <svg className="absolute inset-0 w-9 h-9 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                style={{ animation: 'recorreDoc 1.9s cubic-bezier(0.45, 0, 0.55, 1) infinite' }}>
+                <circle cx="14.5" cy="9" r="3.2" />
+                <path strokeLinecap="round" d="M16.9 11.4L19.5 14" />
+            </svg>
+        </span>
     ),
     upload: (
         <span className="relative w-9 h-9 block">

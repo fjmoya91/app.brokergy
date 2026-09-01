@@ -24,11 +24,18 @@ const supabase = require('./supabaseClient');
 
 const nowIso = () => new Date().toISOString();
 
-// Los números de expediente se comparan sin adornos: el PDF puede traer espacios
-// finos, guiones largos o el guion bajo escapado según cómo se extraiga el texto.
+// Los números de expediente se comparan sin NINGÚN separador: solo letras y
+// dígitos. El PDF escribe el mismo número de varias formas y hasta dentro del
+// mismo informe — medido en el CAE-1490: "25RES060_65" en unas actuaciones y
+// "25RES060 70" (con espacio) en otras, según cómo caiga el guion bajo al extraer
+// el texto. Conservando el `_` no casaban entre sí, y tres de cinco expedientes
+// salían como "no existe en este lote".
+//
+// Quitarlo no crea ambigüedad: el formato es {AA}{FICHA}_{N} y sin el separador
+// sigue siendo único ("25RES06070" solo puede ser 25RES060_70).
 const normNum = (v) => String(v || '')
     .toUpperCase()
-    .replace(/[^A-Z0-9_]/g, '');
+    .replace(/[^A-Z0-9]/g, '');
 
 // Nombres: sin tildes y sin dobles espacios, igual que el resto de buscadores de
 // la app (ver `norm()` en los listados).

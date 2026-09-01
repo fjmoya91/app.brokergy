@@ -193,6 +193,16 @@ body {
   }
 }
 
+/* Lectura de un documento (SendActionOverlay icon="read"): la lupa recorre la hoja
+   de arriba abajo, como quien la repasa. En bucle mientras el OCR la analiza. */
+@keyframes recorreDoc {
+  0%   { transform: translate(-4px, -5px); opacity: 0.35; }
+  15%  { opacity: 1; }
+  50%  { transform: translate(-1px, 4px); opacity: 1; }
+  85%  { opacity: 1; }
+  100% { transform: translate(-4px, -5px); opacity: 0.35; }
+}
+
 /* Subida a la nube (SendActionOverlay icon="upload"): el documento entra por abajo,
    sube y se desvanece dentro de la nube. En bucle mientras dura la subida. */
 @keyframes subeALaNube {
