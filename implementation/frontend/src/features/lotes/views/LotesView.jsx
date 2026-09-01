@@ -6,6 +6,7 @@ import { getRoleFlags } from '../../../utils/roleFlags';
 import { LoteDetailModal } from '../components/LoteDetailModal';
 import { LogoEmpresa } from '../components/LogoEmpresa';
 import { LotesResumen } from '../components/LotesResumen';
+import { PedirAlSoModal } from '../components/PedirAlSoModal';
 import { BotonCarpetaLocal } from '../components/BotonCarpetaLocal';
 import { loteEstadoBadge } from '../loteConstants';
 import { computeLoteEco } from '../logic/loteEco';
@@ -89,6 +90,9 @@ export function LotesView({ onNavigate }) {
     const [showCrear, setShowCrear] = useState(false);
     const [detailId, setDetailId] = useState(null);
     const [filtroEstado, setFiltroEstado] = useState('TODO');
+    // Petición al S.O. sobre VARIOS lotes (hoy: el pago de la verificación). El
+    // cuadro de mando decide cuál se puede hacer; aquí solo se abre el envío.
+    const [peticionSo, setPeticionSo] = useState(null);
 
     const fetchLotes = useCallback(async () => {
         try {
@@ -149,6 +153,7 @@ export function LotesView({ onNavigate }) {
                     canSeeMargin={canSeeMargin}
                     filtroEstado={filtroEstado}
                     onFiltrar={setFiltroEstado}
+                    onPedirAlSo={setPeticionSo}
                 />
             )}
 
@@ -251,6 +256,14 @@ export function LotesView({ onNavigate }) {
                         </div>
                     ); })}
                 </div>
+            )}
+
+            {peticionSo && (
+                <PedirAlSoModal
+                    peticion={peticionSo}
+                    onClose={() => setPeticionSo(null)}
+                    onSent={() => fetchLotes()}
+                />
             )}
 
             {showCrear && (

@@ -1368,6 +1368,132 @@ router.delete('/:id/documentos/:key', staffOnly, async (req, res) => {
     }
 });
 
+// ─── POST /api/lotes/solicitar-pago-verificacion ────────────────────────────────
+// Le pide al Sujeto Obligado que pague las facturas del verificador, adjuntándolas
+// TODAS en UN SOLO correo.
+//
+// REGLA — un correo, no uno por lote. Así es como se trabaja con él ("te mando las
+// facturas de los lotes 001 a 004"): cuatro correos iguales el mismo día es la
+// forma de que no conteste a ninguno. Por eso la ruta es de la COLECCIÓN y no de
+// un lote, al contrario que el resto de envíos.
+//
+// ADMIN: el correo lleva importes y el ahorro que le generamos al S.O.
+//
+// ⚠️ Es una POST de UN SOLO segmento: mientras no exista un `POST /:id`, Express no
+// la confunde con un id. Si algún día se añade uno, esta ruta tiene que quedar por
+// delante (el mismo gotcha que `/parte/global` y `/fin-obra`).
+router.post('/solicitar-pago-verificacion', adminOnly, async (req, res) => {
+    try {
+        const {
+            lote_ids = [], to, cc, phone, channels = { email: true, whatsapp: false },
+            customMessage, asunto, etiqueta,
+        } = req.body || {};
+
+        if (!Array.isArray(lote_ids) || !lote_ids.length) {
+            return res.status(400).json({ error: 'No se ha indicado ningún lote.' });
+        }
+        if (channels.email && !to) return res.status(400).json({ error: 'Falta el email del destinatario' });
+        if (channels.whatsapp && !phone) return res.status(400).json({ error: 'Falta el teléfono para WhatsApp' });
+
+        const { data: lotes, error } = await supabase.from('lotes')
+            .select('id, codigo, documentos_so, historial').in('id', lote_ids);
+        if (error) throw error;
+        if (!(lotes || []).length) return res.status(404).json({ error: 'No se han encontrado los lotes.' });
+
+        // ── Los adjuntos, ANTES de mandar nada ────────────────────────────────
+        // Un correo que anuncia cuatro facturas y llega con tres deja al S.O.
+        // pagando de menos y a nosotros sin saber cuál faltó. Mismo criterio que
+        // el envío conjunto al instalador: todo o nada.
+        const adjuntos = [];
+        const sinFactura = [];
+        for (const l of lotes) {
+            const f = (l.documentos_so || []).find(d => d?.key === 'factura_verificador');
+            const fileId = f?.draft_file_id;
+            if (!fileId) { sinFactura.push(l.codigo); continue; }
+            const buf = await driveService.getFileContent(fileId);
+            if (!buf) { sinFactura.push(l.codigo); continue; }
+            adjuntos.push({
+                filename: f.file_name || `${l.codigo} - Factura del verificador.pdf`,
+                content: buf,
+                loteId: l.id, codigo: l.codigo, importe: Number(f.importe) || null,
+            });
+        }
+        if (!adjuntos.length) {
+            return res.status(409).json({
+                error: `No hay ninguna factura del verificador que adjuntar${sinFactura.length ? ` (falta en ${sinFactura.join(', ')})` : ''}.`,
+            });
+        }
+        if (sinFactura.length) {
+            return res.status(409).json({
+                error: `Falta la factura del verificador de ${sinFactura.join(', ')}. Súbela o quita ese lote del envío: un correo que anuncia las facturas y no las lleva todas deja el pago incompleto.`,
+            });
+        }
+
+        const codigos = adjuntos.map(a => a.codigo).filter(Boolean);
+        const total = adjuntos.reduce((a, x) => a + (x.importe || 0), 0);
+        const warnings = [];
+
+        if (channels.email && to) {
+            try {
+                const emailService = require('../services/emailService');
+                await emailService.sendAnnexEmail({
+                    to, cc,
+                    userName: codigos.join(' · '),
+                    attachments: adjuntos.map(a => ({ filename: a.filename, content: a.content })),
+                    customMessage: customMessage || '',
+                    summaryData: { id: codigos.join(' · '), docType: asunto || 'Facturas de verificación pendientes de pago' },
+                    from: SO_EMAIL_FROM,
+                    pillLabel: etiqueta || 'Pago de la verificación',
+                    preheader: `${adjuntos.length} factura${adjuntos.length === 1 ? '' : 's'} del verificador`
+                        + `${total ? ` por ${total.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €` : ''} — pendiente${adjuntos.length === 1 ? '' : 's'} de pago.`,
+                });
+            } catch (e) { warnings.push(`Email: ${e.message}`); }
+        }
+        if (channels.whatsapp && phone) {
+            try {
+                const whatsappService = require('../services/whatsappService');
+                await whatsappService.sendText(phone, customMessage || '');
+                for (const a of adjuntos) {
+                    await whatsappService.sendMedia(phone, {
+                        base64: a.content.toString('base64'),
+                        filename: a.filename, mimetype: 'application/pdf',
+                    }, a.codigo);
+                }
+            } catch (e) { warnings.push(`WhatsApp: ${e.message}`); }
+        }
+
+        // ── Sello ─────────────────────────────────────────────────────────────
+        // `pago_solicitado_at` es lo que apaga el botón: sin él, el mismo correo se
+        // le manda al S.O. cada vez que alguien entra en la pantalla.
+        const enviado = warnings.length < (Number(!!channels.email) + Number(!!channels.whatsapp));
+        if (enviado) {
+            for (const l of lotes) {
+                const docs = (l.documentos_so || []).map(d => d?.key === 'factura_verificador'
+                    ? { ...d, pago_solicitado_at: nowIso(), sent_at: d.sent_at || nowIso() } : d);
+                const historial = Array.isArray(l.historial) ? [...l.historial] : [];
+                historial.push({
+                    id: `${Date.now()}_pago_verif`, tipo: 'sistema',
+                    texto: `Pedido al S.O. el pago de la verificación (${codigos.length} lote${codigos.length === 1 ? '' : 's'}: ${codigos.join(', ')})`
+                        + `${total ? `, ${total.toLocaleString('es-ES', { minimumFractionDigits: 2 })} € en total` : ''}`
+                        + ` por ${[channels.email && 'email', channels.whatsapp && 'WhatsApp'].filter(Boolean).join(' + ')}${to ? ` a ${to}` : ''}.`,
+                    fecha: nowIso(), usuario: usuarioDe(req),
+                });
+                await supabase.from('lotes')
+                    .update({ documentos_so: docs, historial, updated_at: nowIso() }).eq('id', l.id);
+            }
+        }
+
+        res.json({
+            ok: warnings.length === 0,
+            enviados: adjuntos.map(a => ({ codigo: a.codigo, filename: a.filename, importe: a.importe })),
+            total, warnings,
+        });
+    } catch (err) {
+        console.error('[POST /lotes/solicitar-pago-verificacion]', err.message);
+        res.status(500).json({ error: err.message || 'Error al pedir el pago de la verificación' });
+    }
+});
+
 // ─── POST /api/lotes/:id/enviar-documento/:key — mandar un documento al S.O. ─────
 // Sirve para CUALQUIER documento del lote que haya que remitir: la oferta de
 // verificación (que además hay que firmar) o la factura del verificador, que le

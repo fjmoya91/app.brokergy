@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { computeLotesResumen } from '../logic/loteEco';
+import { peticionPrincipal } from '../logic/peticionesSo';
 import { loteEstadoBadge } from '../loteConstants';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -48,7 +49,7 @@ const Pildora = ({ activa, onClick, className = '', children, title }) => (
     </button>
 );
 
-export function LotesResumen({ lotes, todosLotes, canSeeMargin = false, filtroEstado = 'TODO', onFiltrar }) {
+export function LotesResumen({ lotes, todosLotes, canSeeMargin = false, filtroEstado = 'TODO', onFiltrar, onPedirAlSo }) {
     const r = useMemo(() => computeLotesResumen(lotes), [lotes]);
     const global = useMemo(() => computeLotesResumen(todosLotes || lotes), [todosLotes, lotes]);
 
@@ -60,15 +61,33 @@ export function LotesResumen({ lotes, todosLotes, canSeeMargin = false, filtroEs
         : 'todo sobre ahorro verificado';
     const filtrar = (val) => onFiltrar && onFiltrar(filtroEstado === val ? 'TODO' : val);
 
+    // Lo que HOY se le puede pedir al Sujeto Obligado sobre los lotes que se están
+    // viendo. El botón vive aquí, y no en la cabecera junto a "Nuevo lote", porque
+    // actúa sobre ESTE conjunto —el que deja el filtro— y porque las cifras que
+    // manda son exactamente las de estas tarjetas. Si no hay nada que pedir, no hay
+    // botón: uno deshabilitado con un tooltip obliga a pulsarlo para saber por qué.
+    const peticion = useMemo(
+        () => (canSeeMargin ? peticionPrincipal(lotes, r) : null),
+        [lotes, r, canSeeMargin]);
+
     return (
         <div className="bg-bkg-surface/40 border border-white/[0.06] rounded-[1.75rem] p-4 sm:p-5 mb-5 space-y-3">
             <div className="flex items-baseline justify-between gap-3 flex-wrap">
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">
                     Resumen{filtroEstado !== 'TODO' ? ` · ${filtroEstado === 'DOC_PENDIENTE' ? 'con documentos por revisar' : filtroEstado}` : ''}
                 </p>
-                <p className="text-[9px] text-white/25">
-                    {r.nLotes} lote{r.nLotes === 1 ? '' : 's'} · {r.nExpedientes} expedientes · {aviso}
-                </p>
+                <div className="flex items-center gap-3 flex-wrap">
+                    <p className="text-[9px] text-white/25">
+                        {r.nLotes} lote{r.nLotes === 1 ? '' : 's'} · {r.nExpedientes} expedientes · {aviso}
+                    </p>
+                    {peticion && onPedirAlSo && (
+                        <button type="button" onClick={() => onPedirAlSo(peticion)}
+                            title={`${peticion.titulo} · ${peticion.lotes.length} lote${peticion.lotes.length === 1 ? '' : 's'}`}
+                            className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border border-brand/40 bg-brand/10 text-brand hover:bg-brand/20 transition-all">
+                            ✉ {peticion.etiqueta}
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Todas las cifras en UNA fila. En pantallas estrechas se reparten en dos
