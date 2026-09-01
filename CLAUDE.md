@@ -2663,6 +2663,75 @@ en la línea plegada, y abrirla entera devolvería el scroll que esto viene a qu
 
 ---
 
+## El ANEXO del MITECO por actuación (2026-09-01)
+
+El impreso que va dentro de cada ZIP `ActuacionE{n}` de la solicitud de emisión de CAE.
+Se hacía a mano: 15 campos por expediente, cinco por lote.
+
+**REGLA — no se REPLICA el impreso: se RELLENA el oficial.**
+`backend/plantillas/AnexoActuacionEstandarizada.pdf` es el formulario del Ministerio con
+sus **33 campos vivos**. Escribir dentro de él es la única forma de que el escudo, la
+**GillSansMT** de la cabecera, la **Calibri** del cuerpo (8/11/14pt — NO es la Arial de
+las fichas RES), los márgenes y las cuatro notas al pie sean exactamente los suyos.
+Rehacerlo en HTML sería imitar un documento que ya tenemos, y quien lo revisa compara
+contra el modelo oficial.
+
+**REGLA — el título de la ficha se ELIGE del catálogo.** "Código de ficha" es un
+desplegable con las 115 fichas oficiales: se selecciona la opción, así que el texto es
+literalmente el del Ministerio. `FICHA_CATALOGO` guarda las cuatro nuestras copiadas tal
+cual; para añadir otra, `getDropdown('Código de ficha').getOptions()` las lista.
+
+| Qué | Dónde |
+|---|---|
+| Relleno, formato y validación | [anexoActuacionService.js](implementation/backend/services/anexoActuacionService.js) |
+| Ruta (los 5 del lote de una vez) | `POST /api/lotes/:id/anexos-actuacion` (**adminOnly**) |
+| Botón | Fase 5 de `LoteProcesoFases` — "Generar anexos para MITECO" |
+| Destino | La carpeta `{código} - DOC. VERIFICACIÓN` del lote, como `AnexoE{n} - {expediente}.pdf` |
+
+**De dónde sale cada dato** — todos de Supabase, y los que faltaban son justo los que se
+incorporaron estos días:
+
+| Campo | Origen |
+|---|---|
+| Nº de actuación (`Nº E 3`) | `instalacion.verificacion.orden_actuacion` — el orden con que el INFORME numera las actuaciones. Se guarda al registrar sus ahorros |
+| Ahorro anual · Inversión | `verificacion.ahorro_verificado_kwh` / `inversion_verificada_eur` — los VERIFICADOS |
+| Vida útil | `verificacion.vida_util_anios`, con respaldo por ficha (15 · RES080 25) |
+| Identificación y fecha del dictamen | `documentos_so[dictamen_favorable].dictamen` del LOTE: uno cubre las cinco actuaciones y las cinco lo citan |
+| UTM, referencia catastral | `instalacion.coord_x/coord_y/ref_catastral` |
+| Fechas de ejecución | `documentacion.fecha_inicio_cifo` / `fecha_fin_cifo` (coinciden con las del informe de verificación) |
+| CNAE | `4322` siempre |
+| Ayudas públicas | "NO se ha solicitado", lo mismo que declara el Anexo I que firma el titular |
+
+**REGLA — el nº de actuación es el del INFORME.** Rotula el anexo y nombra sus adjuntos
+en el ZIP (`E3-1-`, `E3-2-`…). Deducirlo de otra cosa —del orden alfabético, por
+ejemplo— haría que los ficheros dejaran de casar con el formulario que los cita.
+
+**REGLA — un anexo con huecos NO se genera.** Se presenta igual de bien que uno completo
+y el requerimiento llega tres semanas después. `faltantes()` dice qué falta y en qué
+expediente, y ese expediente se salta.
+
+⚠️ **La mitad de los campos declaran tamaño 0, que significa "ajústalo tú"**, y pdf-lib
+no lo implementa: escribe a 12pt y el título de la ficha —95 caracteres en una celda de
+273pt— se sale de la tabla, mientras las coordenadas y la referencia catastral se cortan
+a media cifra. `autoSize` replica lo que hace el lector: tope por la ALTURA de la casilla
+(×0,65 — medido sobre el impreso relleno: 15,7pt → 10,2pt) y reducción si no cabe a lo
+ancho.
+
+⚠️ **Los tamaños FIJOS van en una tabla explícita (`TAMANO_CAMPO`), no se leen del /DA.**
+Cualquier herramienta que reescriba la plantilla puede serializar ese `/DA` de forma que
+pdf-lib deje de encontrar el `Tf` (pypdf escapa la barra en octal, `/Helv`), y
+entonces el CNAE sale a 40pt sin que nadie lo note hasta abrir el PDF.
+
+⚠️ **La plantilla del repo está VACIADA a propósito**: la que se nos pasó traía dentro
+los datos de un expediente real. Vive en `backend/plantillas/` porque la imagen solo
+copia `backend/` (ver [[project_backend_importa_frontend_esm]]), con su excepción en
+`.gitignore` — la regla `plantillas/` la excluía y no habría llegado al VPS.
+
+**No se APLANA**, igual que el modelo del Ministerio: si hay que corregir un dato a mano
+antes de presentarlo, se puede.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -2717,6 +2786,8 @@ en la línea plegada, y abrirla entera devolvería el scroll que esto viene a qu
 26. **El bot de WhatsApp solo habla en los chats ETIQUETADOS, en horario y sin tocar dinero**: contesta por la sesión real del VPS, así que sus frenos (etiqueta + lista blanca, 08:00-20:00 Madrid, ventana de silencio, silencio si escribe un humano, tope diario, apagado por defecto) protegen la cuenta de la que dependen TODOS los envíos automáticos. Los datos salen del dossier (`botContexto`, que reusa `buildChecklistData` y `ensureUploadLink`), nunca del prompt; los importes no viajan al dossier. Fuente única del texto: [botPrompt.js](implementation/backend/services/botPrompt.js). Ver "Bot de WhatsApp".
 
 28. **Las cifras del LOTE se leen de sus PDF, y el ahorro verificado manda sobre el pago**: el coste de verificación sale de la BASE IMPONIBLE de la factura del verificador (y va a `lotes.coste_verificacion`, no solo a la entrada del documento); el ahorro verificado de cada expediente sale del informe de verificación y se PROPONE para que lo aplique el ADMIN. **Ningún lote pasa a `PTE. PAGO BROKERGY A CLIENTE` ni a `FINALIZADO` sin el ahorro verificado de todos sus expedientes.** Fuentes únicas: [loteOcrService.js](implementation/backend/services/loteOcrService.js) (leer) y [loteVerificados.js](implementation/backend/services/loteVerificados.js) (casar, contrastar, escribir, `puedePagarseAlCliente`). Los números se piden al modelo como TEXTO y los convierte `numeroEs()`. Ver "Las cifras del lote se LEEN de sus documentos".
+
+29. **El ANEXO del MITECO se RELLENA, no se replica**: es un formulario PDF oficial con 33 campos vivos y el título de la ficha se ELIGE de su desplegable del catálogo. Fuente única: [anexoActuacionService.js](implementation/backend/services/anexoActuacionService.js); se generan los 5 de un lote desde `POST /api/lotes/:id/anexos-actuacion`. El nº de actuación es el que el INFORME de verificación asigna (`verificacion.orden_actuacion`), porque además nombra los adjuntos del ZIP. Un anexo con huecos no se genera. Los campos de tamaño automático los calcula `autoSize` (pdf-lib no lo implementa) y los fijos van en `TAMANO_CAMPO`, nunca leídos del /DA. Ver "El ANEXO del MITECO por actuación".
 
 ---
 
