@@ -308,9 +308,11 @@ async function generarAnexo(d) {
     return Buffer.from(await pdf.save());
 }
 
-// Nombre del fichero, con el número de actuación por delante: es el que pide el
-// impreso para el ZIP ("AnexoE3") y el que hace que se ordenen solos en la carpeta.
-const nombreAnexo = (d) => `AnexoE${d.n_actuacion} - ${d.numero_expediente}.pdf`;
+// Nombre del fichero: el EXPEDIENTE por delante, como el resto de los documentos
+// del lote. Los anexos acaban en la carpeta de su expediente, junto a los demás
+// papeles de esa actuación, y ahí lo que identifica el fichero es de quién es —el
+// número de actuación solo tiene sentido dentro de la solicitud.
+const nombreAnexo = (d) => `${d.numero_expediente} - AnexoE${d.n_actuacion}.pdf`;
 
 module.exports = {
     FICHA_CATALOGO,
