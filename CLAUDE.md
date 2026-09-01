@@ -2838,6 +2838,20 @@ El importe de cada factura sale del PDF (`importe`, leído por el OCR) y, si esa
 se subió antes de que la app supiera leerlo, de `lotes.coste_verificacion` — es la misma
 cifra tecleada a mano. Sin ese respaldo el botón anunciaba 1.564 € donde había 4.883.
 
+**REGLA — el correo saluda a QUIEN LO RECIBE, no al que firma.** El representante legal
+es quien firma los documentos y casi nunca quien lee el correo del día a día (aquí firma
+Pedro José y el correo lo lee Jesús, el director de operaciones): saludar al firmante
+delata que el texto está hecho con una plantilla. Las personas del S.O. se ofrecen como
+**botones con su cargo** (`toSuggestions`, de `soContactos.destinatarios`) y **al cambiar
+de destinatario el saludo se rehace solo** (`messageFor`) — salvo que el mensaje ya se
+haya editado a mano, que entonces no se toca. El resto de contactos siguen disponibles
+para ponerlos en copia.
+
+⚠️ **El campo de COPIA no puede ir en mayúsculas.** La regla global de `index.css` pone en
+mayúsculas todo `input` que no sea `type="email"`, y el de CC admite varias direcciones
+separadas por comas, así que no puede declararse `email`. Lleva la clase de escape
+`no-uppercase` (que usa `!important`, o la regla global le gana por especificidad).
+
 Para añadir otra petición (firmar algo, confirmar una fecha) basta con otra entrada en
 `PETICIONES`: la decisión de si se puede pedir, el texto del correo y el asunto viven
 juntos ahí.
@@ -2901,6 +2915,7 @@ juntos ahí.
 
 29. **El ANEXO del MITECO se RELLENA, no se replica**: es un formulario PDF oficial con 33 campos vivos y el título de la ficha se ELIGE de su desplegable del catálogo. Fuente única: [anexoActuacionService.js](implementation/backend/services/anexoActuacionService.js); se generan los 5 de un lote desde `POST /api/lotes/:id/anexos-actuacion`. El nº de actuación es el que el INFORME de verificación asigna (`verificacion.orden_actuacion`), porque además nombra los adjuntos del ZIP. Un anexo con huecos no se genera. Los campos de tamaño automático los calcula `autoSize` (pdf-lib no lo implementa) y los fijos van en `TAMANO_CAMPO`, nunca leídos del /DA. Ver "El ANEXO del MITECO por actuación".
 
+29.b **`SendActionOverlay` se PORTALEA a `document.body`**: un `position: fixed` se ancla al ancestro más cercano con `backdrop-filter` (o `transform`) — es lo que hace `LoteDetailModal` —, así que el overlay se recortaba a la caja del modal y la pantalla se veía a parches, una zona negra y otra difuminada. `createPortal` lo saca de ahí. Por el mismo motivo el velo va casi opaco (93 %) y con blur fuerte: abierto sobre otro modal de fondo claro, uno más ligero lo deja traslucir y el fondo vuelve a verse desigual.
 30. **Al Sujeto Obligado se le pide UNA vez por VARIOS lotes**: el botón vive en el cuadro de mando de Lotes (actúa sobre lo filtrado), dice qué pide y por cuánto, y no existe si no hay nada que pedir. Un lote sin su factura subida se queda fuera y **se dice en el subtítulo del popup**. Fuente única de qué se puede pedir y con qué texto: [peticionesSo.js](implementation/frontend/src/features/lotes/logic/peticionesSo.js); el envío, `POST /api/lotes/solicitar-pago-verificacion`, que prepara TODOS los adjuntos antes de mandar nada y sella `pago_solicitado_at`. Ver "Pedirle cosas al SUJETO OBLIGADO desde el cuadro de mando".
 
 ---

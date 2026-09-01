@@ -1,9 +1,15 @@
 import React, { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import confetti from 'canvas-confetti';
 
 // ─── SendActionOverlay ───────────────────────────────────────────────────────
 // Overlay ESTÁNDAR para cualquier acción que tarde y acabe en éxito/error (envío
 // por WhatsApp/email, subida de un documento a Drive):
+//
+// El velo va casi opaco (93 %) y con blur fuerte a propósito: cuando se abre sobre
+// OTRO modal —el del lote, que es grande y de fondo claro— un velo más ligero lo
+// dejaba traslucir y la pantalla se veía a parches, una zona negra y otra
+// difuminada. Con esto el fondo queda parejo se abra donde se abra.
 //   fase 'sending' → animación en curso   ·   fase 'done' → ✓/✗ + confeti de docs.
 // Úsalo en TODAS ellas para que todos los popups sean iguales. NUNCA un alert().
 //
@@ -106,8 +112,15 @@ export function SendActionOverlay({
 
     if (!phase) return null;
 
-    return (
-        <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fade-in">
+    // ── Va SIEMPRE al <body>, no donde se monte ───────────────────────────────
+    // Cualquier ancestro con `backdrop-filter` (o `transform`) deja de ser un mero
+    // contenedor y pasa a ser el marco de referencia de sus descendientes
+    // `position: fixed`. Los modales de la app llevan `backdrop-blur`, así que un
+    // overlay montado dentro de uno se anclaba a ESE modal: cubría su caja y no la
+    // pantalla, y se veía media pantalla negra y media difuminada. Con el portal el
+    // overlay es hijo del <body> y `inset-0` vuelve a ser la ventana.
+    const overlay = (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/[0.93] backdrop-blur-xl p-4 animate-fade-in">
             <div className="relative w-full max-w-sm bg-[#0F1013] border border-white/10 rounded-3xl shadow-2xl overflow-hidden animate-scale-in">
                 {/* Filete de marca: la firma de BROKERGY en TODO popup de envío. Va
                     arriba y a todo el ancho porque es lo primero que entra por el ojo
@@ -165,6 +178,8 @@ export function SendActionOverlay({
             </div>
         </div>
     );
+
+    return typeof document !== 'undefined' ? createPortal(overlay, document.body) : overlay;
 }
 
 export default SendActionOverlay;

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import axios from 'axios';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -113,8 +114,13 @@ export function AhorrosVerificadosModal({ lote, propuesta, modo = 'informe', onC
     // La cabecera identifica el documento del que salen las cifras, sea cual sea.
     const inf = propuesta?.informe || propuesta?.dictamen || {};
 
-    return (
-        <div className="fixed inset-0 z-[80] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-6"
+    // Al <body>: este modal se abre DENTRO del modal del lote, que lleva
+    // `backdrop-blur`, y eso convierte a ese modal en el marco de referencia de sus
+    // descendientes `fixed` — se anclaba a su caja en vez de a la pantalla. Y por lo
+    // mismo su z-index se comparaba con los hermanos de dentro: fuera necesita estar
+    // por encima del modal del lote (z-310).
+    const modal = (
+        <div className="fixed inset-0 z-[400] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-6"
             onClick={(e) => { if (e.target === e.currentTarget && !guardando) onClose(); }}>
             <div className="bg-bkg-base border border-white/[0.08] rounded-t-[1.75rem] sm:rounded-[1.75rem] w-full sm:max-w-2xl max-h-[92vh] flex flex-col">
 
@@ -225,6 +231,8 @@ export function AhorrosVerificadosModal({ lote, propuesta, modo = 'informe', onC
             </div>
         </div>
     );
+
+    return typeof document !== 'undefined' ? createPortal(modal, document.body) : modal;
 }
 
 export default AhorrosVerificadosModal;

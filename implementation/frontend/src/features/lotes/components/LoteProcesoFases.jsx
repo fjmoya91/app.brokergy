@@ -492,7 +492,9 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
             setLectura({
                 phase: 'done', ok: n > 0 && !mal.length,
                 okTitle: 'Anexos generados', errorTitle: mal.length ? 'Faltan datos' : 'No se generó ninguno',
-                subtitle: `${lote?.codigo} · carpeta de documentación del lote`,
+                // Dónde han quedado: cada anexo va a la carpeta "E{n}" de SU
+                // expediente, junto al resto de adjuntos de esa actuación.
+                subtitle: `${lote?.codigo} · en la carpeta E{n} de cada expediente`,
                 items: data.generados?.map(g => `E${g.n_actuacion} · ${g.numero_expediente} (${g.ficha})`) || [],
                 // Lo que falta se dice por expediente y con nombre: es lo que hay
                 // que ir a rellenar, y un "faltan datos" a secas no lleva a ninguna

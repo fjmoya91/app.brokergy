@@ -44,12 +44,33 @@ export function deriveSoEnvio(so) {
             .filter(e => e !== notifyEmail && e !== CC_BROKERGY)
     )];
 
+    // A quién se le puede escribir: los contactos con email, con su nombre. El
+    // correo lo lee una PERSONA, y el saludo tiene que ser el suyo — el
+    // representante legal (`repNombre`) es quien FIRMA, que casi nunca es quien
+    // recibe el correo del día a día.
+    const destinatarios = contactos
+        .filter(c => c.email)
+        .map(c => ({ nombre: (c.nombre || '').trim(), cargo: c.cargo || '', email: lower(c.email) }));
+    // El email de la empresa también vale como destinatario, pero sin nombre.
+    if (email && !destinatarios.some(d => d.email === email)) {
+        destinatarios.push({ nombre: '', cargo: '', email });
+    }
+    const nombreDe = (mail) => destinatarios.find(d => d.email === lower(mail))?.nombre || '';
+
     return {
         contactos,
         contactoPrincipal,
         notifyEmail,
         notifyPhone,
         ccSugerencias,
+        destinatarios,
+        // Nombre de pila del contacto al que se escribe, presentable: en la ficha
+        // los nombres están en MAYÚSCULAS y "Buenos días JESÚS," parece un grito.
+        nombreDe,
+        nombrePilaDe: (mail) => {
+            const n = (nombreDe(mail) || '').trim().split(/\s+/)[0] || '';
+            return n ? n.charAt(0).toUpperCase() + n.slice(1).toLowerCase() : '';
+        },
         repNombre: [p.nombre_responsable, p.apellidos_responsable].filter(Boolean).join(' ') || undefined,
         repNif: p.nif_responsable || undefined,
     };

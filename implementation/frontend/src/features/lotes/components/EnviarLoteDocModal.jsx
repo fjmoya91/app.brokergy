@@ -52,7 +52,7 @@ const parseCcList = (s) => (s || '').split(/[;,\s]+/).map(e => e.trim()).filter(
 //                    por WhatsApp (p.ej. el requerimiento, que solo avisa por WA).
 //   whatsappNote     string → texto que se muestra bajo el textarea SOLO cuando el
 //                    canal WhatsApp está activo (para ver qué se manda por ahí).
-export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = '', defaultPhone = '', defaultMessage = '', defaultCc = '', ccSuggestions = [], summaryData, docs, extraBody = null, onSendOverride = null, onBeforeSend = null, messageLabel = 'Mensaje (email / WhatsApp)', whatsappNote = '' }) {
+export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = '', defaultPhone = '', defaultMessage = '', defaultCc = '', ccSuggestions = [], toSuggestions = [], messageFor = null, summaryData, docs, extraBody = null, onSendOverride = null, onBeforeSend = null, messageLabel = 'Mensaje (email / WhatsApp)', whatsappNote = '' }) {
     const docList = Array.isArray(docs) ? docs : [];
 
     // ── Estado ───────────────────────────────────────────────────────────────
@@ -67,6 +67,17 @@ export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = ''
     const [sendResults, setSendResults] = useState([]);
     const [busy, setBusy]               = useState(false);
     const userEditedRef = useRef(false);
+
+    // El mensaje se REESCRIBE al cambiar de destinatario, salvo que ya se haya
+    // tocado a mano: el saludo lleva el nombre de quien lo va a leer, y elegir a
+    // otra persona y que siga poniendo el nombre del anterior es peor que no
+    // saludar. `messageFor(email)` lo redacta el llamante, que es quien sabe qué
+    // se está pidiendo.
+    useEffect(() => {
+        if (!messageFor || userEditedRef.current) return;
+        const nuevo = messageFor(email);
+        if (typeof nuevo === 'string' && nuevo) setMessage(nuevo);
+    }, [email, messageFor]);
 
     // Estado WhatsApp al abrir
     useEffect(() => {
@@ -201,13 +212,42 @@ export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = ''
                         <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Destinatario (email)</label>
                         <input type="email" value={email} onChange={e => setEmail(e.target.value.toLowerCase())} placeholder="correo@dominio.com"
                             className="w-full lowercase bg-bkg-elevated border border-white/5 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-brand/40 transition-all" />
+                        {/* A quién se le escribe. Un S.O. tiene varias personas —el de
+                            operaciones, el gestor CAE— y quién debe recibir CADA correo
+                            no lo sabe la app: se ofrecen con su nombre y su cargo, y
+                            cambiar de una a otra reescribe el saludo. El que ya está
+                            puesto se marca en vez de desaparecer, para saber a quién se
+                            está escribiendo sin leer el email. */}
+                        {(Array.isArray(toSuggestions) ? toSuggestions : []).length > 1 && (
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                                {toSuggestions.map(d => {
+                                    const activo = String(d.email).toLowerCase() === email;
+                                    return (
+                                        <button key={d.email} type="button"
+                                            onClick={() => setEmail(String(d.email).toLowerCase())}
+                                            title={[d.nombre, d.cargo, d.email].filter(Boolean).join(' · ')}
+                                            className={`text-[10px] px-2 py-1 rounded-lg border transition-all ${
+                                                activo ? 'bg-brand/15 border-brand/40 text-brand'
+                                                    : 'bg-white/[0.04] border-white/10 text-white/60 hover:text-white hover:border-brand/40'}`}>
+                                            {activo ? '✓ ' : ''}{d.nombre || d.email}
+                                            {d.cargo ? <span className="opacity-50"> · {d.cargo}</span> : null}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
 
                     {/* En copia (CC) — editable; ya no se copia a nadie automáticamente */}
                     <div>
                         <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">En copia (CC)</label>
+                        {/* `no-uppercase`: la app pone en MAYÚSCULAS todo input que no sea
+                            type="email" (ver index.css), y el CC admite varios correos
+                            separados por comas, así que es type="text" y le entraba la
+                            regla. Un email se lee en minúscula. La clase `lowercase` de
+                            Tailwind no basta: pierde por especificidad. */}
                         <input type="text" value={cc} onChange={e => setCc(e.target.value.toLowerCase())} placeholder="correo@dominio.com, otro@dominio.com"
-                            className="w-full lowercase bg-bkg-elevated border border-white/5 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-brand/40 transition-all" />
+                            className="w-full lowercase no-uppercase bg-bkg-elevated border border-white/5 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-brand/40 transition-all" />
                         {(() => {
                             const yaEnCc = parseCcList(cc).map(x => x.toLowerCase());
                             // Sugerencias normalizadas a minúscula (un email siempre en minúscula).

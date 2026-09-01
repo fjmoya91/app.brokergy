@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { EnviarLoteDocModal } from './EnviarLoteDocModal';
 import { deriveSoEnvio, CC_BROKERGY } from '../logic/soContactos';
@@ -28,16 +28,17 @@ export function PedirAlSoModal({ peticion, onClose, onSent }) {
         [peticion]);
     const envio = useMemo(() => deriveSoEnvio(so), [so]);
 
-    // El nombre del responsable del S.O. si consta: un correo que pide dinero se
-    // abre antes si empieza por el nombre de quien lo lee. En la ficha del
-    // prescriptor hay nombres en MAYÚSCULAS y "Buenos días PEDRO," parece un grito.
-    const nombrePila = (envio.repNombre || '').trim().split(/\s+/)[0] || '';
-    const saludo = nombrePila
-        ? `Buenos días ${nombrePila.charAt(0).toUpperCase()}${nombrePila.slice(1).toLowerCase()},`
-        : 'Buenos días,';
-    const mensaje = useMemo(
-        () => (typeof peticion?.mensaje === 'function' ? peticion.mensaje({ saludo }) : ''),
-        [peticion, saludo]);
+    // El saludo lleva el nombre de QUIEN RECIBE el correo, no el del representante
+    // legal: éste es quien FIRMA los documentos, y casi nunca quien lee el correo
+    // del día a día (aquí firma Pedro José y el correo lo lee Jesús, el director de
+    // operaciones). Se recalcula si se cambia de destinatario.
+    const mensajeFor = useCallback((email) => {
+        const nombre = envio.nombrePilaDe ? envio.nombrePilaDe(email) : '';
+        const saludo = nombre ? `Buenos días ${nombre},` : 'Buenos días,';
+        return typeof peticion?.mensaje === 'function' ? peticion.mensaje({ saludo }) : '';
+    }, [peticion, envio]);
+
+    const mensaje = useMemo(() => mensajeFor(envio.notifyEmail), [mensajeFor, envio.notifyEmail]);
 
     const codigos = (peticion?.lotes || []).map(x => x.lote?.codigo).filter(Boolean);
 
@@ -90,6 +91,10 @@ export function PedirAlSoModal({ peticion, onClose, onSent }) {
             defaultPhone={envio.notifyPhone}
             defaultCc={CC_BROKERGY}
             ccSuggestions={envio.ccSugerencias}
+            // Las personas del S.O. a las que se puede escribir, con su cargo: se
+            // elige a quién va y el saludo se rehace solo.
+            toSuggestions={envio.destinatarios}
+            messageFor={mensajeFor}
             defaultMessage={mensaje}
             summaryData={{ id: codigos.join(' · '), docType: peticion.asunto }}
             // Lo que se adjunta, dicho por su nombre: es lo que hay que comprobar
