@@ -236,7 +236,7 @@ async function generarSolicitud(d) {
  * —descargado, adjunto a un correo— "Solicitud de emisión de CAE.pdf" no dice de
  * qué lote es, y todos los lotes generan uno con ese mismo nombre.
  */
-const nombreSolicitud = (d) => `Solicitud de emision de CAE ${d.codigo_lote}.pdf`.replace(/\s+/g, ' ');
+const nombreSolicitud = (d) => `Solicitud de emision de CAE - ${d.codigo_lote}.pdf`.replace(/\s+/g, ' ');
 
 module.exports = {
     PLANTILLA,
