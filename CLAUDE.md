@@ -2816,6 +2816,57 @@ incorporaron estos días:
 | CNAE | `4322` siempre |
 | Ayudas públicas | "NO se ha solicitado", lo mismo que declara el Anexo I que firma el titular |
 
+### La SOLICITUD de emisión sale del MISMO botón
+
+La carátula del envío: un impreso por LOTE que declara quién solicita, el ahorro
+total y una fila por actuación con su ficha y su ahorro. Va a la carpeta de
+documentación del lote; los anexos, a la `E{n}` de cada expediente.
+
+| Qué | Dónde |
+|---|---|
+| Relleno y validación | [solicitudCaeService.js](implementation/backend/services/solicitudCaeService.js) |
+| Plantilla | `backend/plantillas/SolicitudEmisionCAE.pdf` (42 campos vivos) |
+| Prueba sin subir nada | `node scripts/probar_solicitud_cae.js LOTE-2025-003` |
+
+**REGLA — la solicitud y los anexos se generan JUNTOS, con un solo gesto.** Salen de
+los mismos datos —nº de actuación, ahorro verificado y dictamen— y tienen que casar
+entre sí: la fila E3 de la solicitud es el expediente cuyo anexo se llama AnexoE3 y
+cuyo ZIP es `ActuacionE3`. Con dos botones se puede generar uno y no el otro, y que
+diverjan sin que nadie se entere hasta el requerimiento.
+
+**REGLA — si algún expediente se queda sin anexo, NO se genera la solicitud.** Declara
+un ahorro total y una fila por actuación: sin uno de los anexos, lo que se subiría es
+una carátula que no corresponde con sus adjuntos. Se dice por qué, y los anexos que sí
+salieron se conservan.
+
+**REGLA — el total es la SUMA de las filas**, calculada al vuelo y no heredada de otro
+sitio: lo primero que comprueba quien la revisa es que cuadren.
+
+⚠️ **El ahorro viaja en CRUDO desde el expediente, nunca el que el anexo ya formateó.**
+Aquél lleva punto de millar ("28.852") y `Number()` lo lee como 28,852 — tres órdenes
+de magnitud menos en la cifra por la que se emiten los CAE. Es el mismo fallo que el
+de los números del OCR, y por eso `entero()` además normaliza el separador español
+antes de sumar.
+
+⚠️ **Las filas E6–E15 no se tocan, y las apariencias se regeneran UNA A UNA.** En este
+impreso la opción "Seleccione código de la ficha" y la primera ficha del catálogo
+(AGR010, pantallas térmicas en invernaderos) **exportan la misma cadena** — es un fallo
+de la plantilla oficial. Un `form.updateFieldAppearances()` global dejaría las diez
+filas vacías diciendo que se solicitan diez actuaciones de invernaderos. Sin tocarlas,
+conservan su apariencia buena; la plantilla no trae `NeedAppearances`, así que el visor
+no las repinta.
+
+⚠️ **La fila 11 se llama `Ell-0`** en la plantilla —ele minúscula, no uno—. Es una errata
+del Ministerio: hay que respetarla o esa fila sale sin ahorro.
+
+**El título de la ficha se ELIGE del desplegable**, con el mismo `FICHA_CATALOGO` que el
+anexo por actuación (los dos impresos usan la lista oficial y tenerla dos veces es
+tenerla mal un día). La comunidad autónoma también se elige, y `opcionCcaa` la resuelve
+aunque en la BD esté en mayúsculas o sin guion: una CCAA que no case dejaría la
+solicitud sin el campo por el que el Gestor Autonómico la reparte.
+
+**No se aplana**, igual que el anexo.
+
 **REGLA — cada anexo va a la carpeta `E{n}` de SU expediente.** Ahí se juntan los
 adjuntos de esa actuación (`E3-1- Convenio CAE`, `E3-3-1- Ficha RES060`, `E3-3-5-
 Certificado CIFO`…), que es lo que acaba comprimido como `ActuacionE3`. Todos juntos en
@@ -2999,6 +3050,7 @@ juntos ahí.
 
 28. **Las cifras del LOTE se leen de sus PDF, y el ahorro verificado manda sobre el pago**: el coste de verificación sale de la BASE IMPONIBLE de la factura del verificador (y va a `lotes.coste_verificacion`, no solo a la entrada del documento); el ahorro verificado de cada expediente sale del informe de verificación y se PROPONE para que lo aplique el ADMIN. **Ningún lote pasa a `PTE. PAGO BROKERGY A CLIENTE` ni a `FINALIZADO` sin el ahorro verificado de todos sus expedientes.** Fuentes únicas: [loteOcrService.js](implementation/backend/services/loteOcrService.js) (leer) y [loteVerificados.js](implementation/backend/services/loteVerificados.js) (casar, contrastar, escribir, `puedePagarseAlCliente`). Los números se piden al modelo como TEXTO y los convierte `numeroEs()`. Ver "Las cifras del lote se LEEN de sus documentos".
 
+29.c **La SOLICITUD de emisión de CAE sale del MISMO botón que los anexos** y va a la carpeta de documentación del lote: los dos salen de los mismos datos y tienen que casar (la fila E3 es el expediente cuyo ZIP es `ActuacionE3`). Si algún expediente se queda sin anexo, la solicitud no se genera. Fuente única: [solicitudCaeService.js](implementation/backend/services/solicitudCaeService.js). El ahorro viaja en CRUDO desde el expediente —el que formatea el anexo lleva punto de millar y `Number()` lo divide por mil— y las filas vacías E6–E15 no se tocan, porque "Seleccione código de la ficha" y AGR010 exportan la misma cadena. Ver "La SOLICITUD de emisión sale del MISMO botón".
 29. **El ANEXO del MITECO se RELLENA, no se replica**: es un formulario PDF oficial con 33 campos vivos y el título de la ficha se ELIGE de su desplegable del catálogo. Fuente única: [anexoActuacionService.js](implementation/backend/services/anexoActuacionService.js); se generan los 5 de un lote desde `POST /api/lotes/:id/anexos-actuacion`. El nº de actuación es el que el INFORME de verificación asigna (`verificacion.orden_actuacion`), porque además nombra los adjuntos del ZIP. Un anexo con huecos no se genera. Los campos de tamaño automático los calcula `autoSize` (pdf-lib no lo implementa) y los fijos van en `TAMANO_CAMPO`, nunca leídos del /DA. Ver "El ANEXO del MITECO por actuación".
 
 29.b **`SendActionOverlay` se PORTALEA a `document.body`**: un `position: fixed` se ancla al ancestro más cercano con `backdrop-filter` (o `transform`) — es lo que hace `LoteDetailModal` —, así que el overlay se recortaba a la caja del modal y la pantalla se veía a parches, una zona negra y otra difuminada. `createPortal` lo saca de ahí. Por el mismo motivo el velo va casi opaco (93 %) y con blur fuerte: abierto sobre otro modal de fondo claro, uno más ligero lo deja traslucir y el fondo vuelve a verse desigual.

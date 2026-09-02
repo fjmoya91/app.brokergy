@@ -485,34 +485,45 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         }
     };
 
-    // ── Fase 5 · los ANEXOS del MITECO ────────────────────────────────────────
-    // Uno por expediente: es el impreso que va dentro de cada ZIP "ActuacionE{n}"
-    // de la solicitud. Se hacen los cinco de una vez porque es el momento en que se
-    // prepara la subida, y se rellena el formulario OFICIAL, no una copia.
+    // ── Fase 5 · el papeleo que se sube al MITECO ─────────────────────────────
+    // Dos cosas de un solo gesto: el ANEXO de cada expediente —el impreso que va
+    // dentro de su ZIP "ActuacionE{n}"— y la SOLICITUD DE EMISIÓN, que es la
+    // carátula del envío y va una por lote. Se generan JUNTOS porque salen de los
+    // mismos datos y tienen que casar entre sí: la fila E3 de la solicitud es el
+    // expediente cuyo anexo se llama AnexoE3. Los dos rellenan el formulario
+    // OFICIAL, no una copia.
     const generarAnexos = async () => {
         setError('');
         setGenerandoAnexos(true);
         setLectura({
-            phase: 'sending', sendingTitle: 'Generando los anexos…',
-            subtitle: 'Un impreso del MITECO por cada expediente del lote',
+            phase: 'sending', sendingTitle: 'Generando el papeleo del MITECO…',
+            subtitle: 'La solicitud de emisión y un anexo por expediente',
         });
         try {
             const { data } = await axios.post(`/api/lotes/${lote.id}/anexos-actuacion`);
             const n = data.generados?.length || 0;
             const mal = data.incompletos || [];
+            const sol = data.solicitud;
             setLectura({
                 phase: 'done', ok: n > 0 && !mal.length,
-                okTitle: 'Anexos generados', errorTitle: mal.length ? 'Faltan datos' : 'No se generó ninguno',
-                // Dónde han quedado: cada anexo va a la carpeta "E{n}" de SU
-                // expediente, junto al resto de adjuntos de esa actuación.
-                subtitle: `${lote?.codigo} · en la carpeta E{n} de cada expediente`,
-                items: data.generados?.map(g => `E${g.n_actuacion} · ${g.numero_expediente} (${g.ficha})`) || [],
+                okTitle: sol ? 'Solicitud y anexos generados' : 'Anexos generados',
+                errorTitle: mal.length ? 'Faltan datos' : 'No se generó ninguno',
+                // Dónde ha quedado cada cosa: la solicitud en la documentación del
+                // lote y cada anexo en la carpeta "E{n}" de SU expediente, junto al
+                // resto de adjuntos de esa actuación.
+                subtitle: `${lote?.codigo} · la solicitud en la documentación del lote, cada anexo en su carpeta E{n}`,
+                items: [
+                    ...(sol ? [`Solicitud de emisión · ${sol.n_actuaciones} actuaciones · ${Number(sol.ahorro_total).toLocaleString('es-ES')} kWh`] : []),
+                    ...(data.generados?.map(g => `E${g.n_actuacion} · ${g.numero_expediente} (${g.ficha})`) || []),
+                ],
                 // Lo que falta se dice por expediente y con nombre: es lo que hay
                 // que ir a rellenar, y un "faltan datos" a secas no lleva a ninguna
-                // parte.
-                errorText: mal.length
-                    ? mal.map(m => `${m.numero_expediente}: falta ${m.faltan.join(', ')}`).join(' · ')
-                    : null,
+                // parte. Si la carátula no ha salido, se dice por qué aunque los
+                // anexos sí estén: sin ella no se puede presentar nada.
+                errorText: [
+                    mal.length ? mal.map(m => `${m.numero_expediente}: falta ${m.faltan.join(', ')}`).join(' · ') : null,
+                    data.solicitud_error ? `Solicitud de emisión: ${data.solicitud_error}` : null,
+                ].filter(Boolean).join('  ·  ') || null,
             });
             if (onChanged) onChanged();
         } catch (err) {
@@ -768,11 +779,13 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
             {/* 5 · Presentación a MITECO y resolución de la Gestora de Ahorros */}
             <Fase f={f5}>
                 <div className="flex items-center gap-2 flex-wrap">
-                    {/* Lo PRIMERO de esta fase: los anexos que van dentro de los ZIP
-                        de la solicitud. Antes de subir nada a MITECO hay que tenerlos. */}
+                    {/* Lo PRIMERO de esta fase: la carátula de la subida y los anexos
+                        que van dentro de sus ZIP. Antes de subir nada a MITECO hay que
+                        tenerlos, y salen los dos del mismo gesto para que no puedan
+                        contradecirse. */}
                     {canSeeMargin && (
                         <BotonAccion onClick={generarAnexos} disabled={generandoAnexos}>
-                            {generandoAnexos ? 'Generando…' : '📄 Generar anexos para MITECO'}
+                            {generandoAnexos ? 'Generando…' : '📄 Generar la solicitud y los anexos'}
                         </BotonAccion>
                     )}
                     {!p.justificanteMiteco && (

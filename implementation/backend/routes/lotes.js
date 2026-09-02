@@ -25,6 +25,7 @@ const {
 } = require('../services/loteDocs');
 const { leerFacturaVerificador, leerInformeVerificacion, leerDictamenVerificacion } = require('../services/loteOcrService');
 const anexoActuacion = require('../services/anexoActuacionService');
+const solicitudCae = require('../services/solicitudCaeService');
 const { detectPrograma } = require('../utils/fichas');
 const {
     casarActuaciones, casarDictamen, contrastarTotal, verificarFacturaDelLote,
@@ -987,12 +988,18 @@ router.post('/:id/ahorros-verificados/leer', adminOnly, async (req, res) => {
 });
 
 // ─── POST /api/lotes/:id/anexos-actuacion ────────────────────────────────────────
-// Genera el ANEXO del MITECO de cada expediente del lote y lo deja en la carpeta de
-// documentación. Es el impreso que va dentro de cada ZIP "ActuacionE{n}" de la
-// solicitud de emisión de CAE, así que se hacen los cinco de una vez: es el momento
-// en que se prepara la subida.
+// Prepara TODO el papeleo que se sube al MITECO: el ANEXO de cada expediente —el
+// impreso que va dentro de su ZIP "ActuacionE{n}"— y la SOLICITUD DE EMISIÓN, que
+// es la carátula del envío y va una por lote.
 //
-// Se rellena el formulario OFICIAL (ver anexoActuacionService), no una copia.
+// REGLA — la solicitud y los anexos se generan JUNTOS. Salen de los mismos datos
+// (el nº de actuación, el ahorro verificado y el dictamen) y tienen que casar entre
+// sí: la fila E3 de la solicitud es el expediente cuyo anexo se llama AnexoE3. Con
+// dos botones se puede generar uno y no el otro, y que diverjan sin que nadie se
+// entere hasta el requerimiento.
+//
+// Los dos rellenan el formulario OFICIAL (anexoActuacionService / solicitudCaeService),
+// no una copia.
 //
 // ADMIN: lleva la inversión, que es precio.
 router.post('/:id/anexos-actuacion', adminOnly, async (req, res) => {
@@ -1103,7 +1110,62 @@ router.post('/:id/anexos-actuacion', adminOnly, async (req, res) => {
             generados.push({
                 numero_expediente: e.numero_expediente, n_actuacion: d.n_actuacion,
                 ficha, fileName: nombre, link: saved?.link || null,
+                // El ahorro VERIFICADO viaja con el anexo para que la solicitud
+                // declare exactamente la misma cifra que el impreso que la
+                // acompaña, sin volver a leerla de otro sitio.
+                //
+                // ⚠️ En CRUDO, no el `d.ahorro_kwh` del anexo: aquél ya viene
+                // formateado con punto de millar ("28.852") y `Number()` lo leería
+                // como 28,852 — tres órdenes de magnitud menos en la cifra por la
+                // que se emiten los CAE. Mismo fallo que el del OCR de los lotes.
+                ahorro_kwh: e.instalacion?.verificacion?.ahorro_verificado_kwh,
             });
+        }
+
+        // ── La SOLICITUD DE EMISIÓN, una por lote ─────────────────────────────
+        // Va a la carpeta de documentación del LOTE y no a la de un expediente:
+        // es la carátula del envío, no un papel de una actuación.
+        //
+        // REGLA — no se genera si algún expediente se ha quedado sin anexo. La
+        // solicitud declara un ahorro total y una fila por actuación; si falta un
+        // anexo, lo que se subiría es una carátula que no corresponde con sus
+        // adjuntos, y eso es peor que no tenerla. Mismo criterio de "todo o nada"
+        // que los envíos con adjuntos.
+        let solicitud = null;
+        let solicitud_error = null;
+        if (generados.length && !incompletos.length) {
+            try {
+                const { data: so } = await supabase.from('prescriptores')
+                    .select('razon_social, cif, codigo_identificacion, nombre_responsable, apellidos_responsable, nif_responsable, municipio')
+                    .eq('id_empresa', lote.sujeto_obligado_id).maybeSingle();
+
+                const d = solicitudCae.datosDesdeLote(lote, generados.map(g => ({
+                    numero_expediente: g.numero_expediente,
+                    ficha: g.ficha,
+                    n_actuacion: g.n_actuacion,
+                    ahorro_kwh: g.ahorro_kwh,
+                })), so);
+                const faltan = solicitudCae.faltantes(d);
+                if (faltan.length) {
+                    solicitud_error = `Falta ${faltan.join(', ')}.`;
+                } else {
+                    const docsFolder = await ensureLoteDocsFolder(lote);
+                    const nombre = solicitudCae.nombreSolicitud(d);
+                    const saved = await saveOrReplacePdf(docsFolder, nombre, await solicitudCae.generarSolicitud(d));
+                    solicitud = {
+                        fileName: nombre, link: saved?.link || null,
+                        ahorro_total: d.ahorro_total, n_actuaciones: d.actuaciones.length,
+                    };
+                }
+            } catch (e) {
+                // Que falle la carátula no puede tirar los anexos que ya están
+                // subidos: se dice y se sigue.
+                console.error('[anexos] no se pudo generar la solicitud:', e.message);
+                solicitud_error = e.message;
+            }
+        } else if (generados.length && incompletos.length) {
+            solicitud_error = `No se genera mientras haya ${incompletos.length} expediente${incompletos.length === 1 ? '' : 's'} sin anexo: `
+                + 'la solicitud declara el ahorro total y una fila por actuación, y tiene que cuadrar con lo que se sube.';
         }
 
         if (generados.length) {
@@ -1112,7 +1174,8 @@ router.post('/:id/anexos-actuacion', adminOnly, async (req, res) => {
                 id: `${Date.now()}_anexos`, tipo: 'sistema',
                 texto: `Generados ${generados.length} anexo${generados.length === 1 ? '' : 's'} de actuación para MITECO: `
                     + generados.map(g => `E${g.n_actuacion} (${g.numero_expediente})`).join(' · ')
-                    + (incompletos.length ? `. ${incompletos.length} sin generar por datos incompletos.` : '.'),
+                    + (solicitud ? `. Solicitud de emisión de CAE por ${solicitud.ahorro_total} kWh.` : '.')
+                    + (incompletos.length ? ` ${incompletos.length} sin generar por datos incompletos.` : ''),
                 fecha: nowIso(), usuario: usuarioDe(req),
             });
             await supabase.from('lotes').update({ historial, updated_at: nowIso() }).eq('id', lote.id);
@@ -1120,6 +1183,7 @@ router.post('/:id/anexos-actuacion', adminOnly, async (req, res) => {
 
         res.json({
             ok: true, generados, incompletos, completado,
+            solicitud, solicitud_error,
             // Ya no hay una carpeta única: cada anexo vive en la de su expediente.
             carpeta_link: null,
         });
