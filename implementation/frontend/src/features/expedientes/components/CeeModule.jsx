@@ -1472,7 +1472,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                         asignas, UN solo eje de scroll y los dos botones pegados abajo
                         respetando el área segura. Con el popup centrado, el teclado al
                         editar el mensaje dejaba el botón de enviar fuera de la pantalla. */}
-                    <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto max-md:mx-0 max-md:p-0 max-md:rounded-b-none max-md:rounded-t-3xl max-md:max-h-[92dvh] max-md:flex max-md:flex-col max-md:overflow-hidden" onClick={e => e.stopPropagation()}>
+                    <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md md:max-w-2xl w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto max-md:mx-0 max-md:p-0 max-md:rounded-b-none max-md:rounded-t-3xl max-md:max-h-[92dvh] max-md:flex max-md:flex-col max-md:overflow-hidden" onClick={e => e.stopPropagation()}>
                                 <div className="flex items-center gap-3 mb-5 max-md:shrink-0 max-md:mb-0 max-md:px-5 max-md:pt-4 max-md:pb-3 max-md:border-b max-md:border-white/[0.06]">
                                     <div className="w-10 h-10 rounded-full bg-brand/20 flex items-center justify-center shrink-0">
                                         <svg className="w-5 h-5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
@@ -1575,7 +1575,10 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                     <p className="text-[9px] text-white/20 shrink-0 ml-3">{certAssignMessage.length}/2000</p>
                                 </div>
 
-                                {/* Notas internas adicionales (se añaden al mensaje y al historial) */}
+                                {/* Notas internas adicionales (se añaden al mensaje y al historial).
+                                    Van con `case-sensitive` (index.css, con !important): la regla
+                                    global pone en MAYÚSCULAS todo `textarea`, y aquí se le escribe
+                                    a una persona, no se rellena un dato de formulario. */}
                                 <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Mensaje adicional (opcional)</p>
                                 <textarea
                                     value={certAdminMessage}
@@ -1583,7 +1586,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                     disabled={certNotifLoading}
                                     placeholder="Indicaciones específicas para el certificador (se incluyen en el email/WhatsApp y se registran en el historial)…"
                                     rows={3}
-                                    className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-brand/40 resize-none mb-5"
+                                    className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-xs text-white case-sensitive placeholder:text-white/20 focus:outline-none focus:border-brand/40 resize-none mb-5"
                                 />
 
                                 </div>
