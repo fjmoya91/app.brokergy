@@ -1167,6 +1167,16 @@ router.get('/:id/local-path', adminOnly, async (req, res) => {
             return res.status(404).json({ error: 'La oportunidad no tiene carpeta de Drive asociada' });
         }
 
+        // `?sub=docs` -> la carpeta de las FOTOS ("12. DOCUMENTOS PARA CEE"), que es
+        // adonde apunta el boton del modal de documentacion. Se resuelve el id REAL de
+        // la subcarpeta (no se concatena su nombre a ciegas): si aun no existe, se dice,
+        // en vez de devolver una ruta que el Explorador no va a encontrar.
+        if (req.query.sub === 'docs') {
+            const sub = await reformaUploadService.docsSubfolder(driveFolderId);
+            if (!sub) return res.status(404).json({ error: 'Aun no existe la carpeta "12. DOCUMENTOS PARA CEE" (no se ha subido nada todavia)' });
+            driveFolderId = sub.id;
+        }
+
         const { getFolderPathSegments, sanitizeWindowsSegment } = require('../services/driveService');
         const rawSegments = await getFolderPathSegments(driveFolderId);
         if (!rawSegments.length) {
@@ -1494,6 +1504,17 @@ router.get('/:id/docs', enforceAuth, async (req, res) => {
             if (p) instaladorInfo = { name: p.razon_social || p.acronimo || 'Instalador', phone: p.tlf || p.tlf_contacto || null };
         }
         view.recipients = { cliente: clienteInfo, instalador: instaladorInfo };
+
+        // Acceso directo a la carpeta donde caen las fotos ("12. DOCUMENTOS PARA CEE"),
+        // no a la raiz de la oportunidad. SOLO staff: un enlace de Drive no se le sirve
+        // a un partner (regla 1), y esta misma vista la consume el canal publico.
+        if (isStaff(req)) {
+            try {
+                const folderId = opp.datos_calculo?.drive_folder_id || opp.datos_calculo?.inputs?.drive_folder_id;
+                const sub = await reformaUploadService.docsSubfolder(folderId);
+                if (sub) { view.docs_folder_id = sub.id; view.docs_folder_link = sub.link; }
+            } catch (e) { console.warn('[Docs] carpeta de fotos:', e.message); }
+        }
 
         return res.json(view);
     } catch (e) {

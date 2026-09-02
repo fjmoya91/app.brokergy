@@ -16,6 +16,12 @@ import { DocsManager } from '../../docs/DocsManager';
 const IconWA = ({ className = 'w-5 h-5' }) => (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.999-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" /></svg>
 );
+const IconDrive = ({ className = 'w-5 h-5' }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor"><path d="M7.71 3.5 1.15 15l3.43 5.5L11.14 9zM9.4 15l-3.28 5.5h13.34L22.85 15zM22.85 13.5 16.29 2H9.43l6.56 11.5z" /></svg>
+);
+const IconFolder = ({ className = 'w-5 h-5' }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
+);
 const IconMail = ({ className = 'w-5 h-5' }) => (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></svg>
 );
@@ -31,6 +37,41 @@ export function DocsAdminModal({ isOpen, onClose, idOportunidad }) {
     const [manual, setManual] = useState('');
     const [message, setMessage] = useState('');
     const [sending, setSending] = useState(false);
+    const [abriendoLocal, setAbriendoLocal] = useState(false);
+
+    // -- Accesos directos a la carpeta de las FOTOS -----------------------------
+    // Las fotos se vuelcan en "12. DOCUMENTOS PARA CEE", no en la raiz del
+    // expediente: los dos botones llevan ahi y no un nivel por encima, que
+    // obligaria a buscarla entre las trece subcarpetas. Solo ADMIN (regla 1: los
+    // enlaces de Drive no se le sirven a un partner).
+    //
+    // La carpeta LOCAL se abre con el protocolo propio `brokergylocal:` (mismo
+    // patron que el boton del expediente y el del lote; requiere registrar una vez
+    // `tools/windows/brokergylocal_setup.reg`). La ruta viaja en base64url
+    // CONSERVANDO el padding `=` y SIN `//` tras el esquema -- con `//` el navegador
+    // pone el "host" en minusculas y rompe el base64. Se copia ademas al
+    // portapapeles: si el PC no tiene el protocolo, al menos se puede pegar.
+    const abrirCarpetaLocal = async () => {
+        if (abriendoLocal) return;
+        setAbriendoLocal(true);
+        try {
+            const { data } = await axios.get(`/api/oportunidades/${idOportunidad}/local-path`, { params: { sub: 'docs' } });
+            const path = data?.path;
+            if (!path) throw new Error('No se pudo obtener la ruta local.');
+            try { await navigator.clipboard.writeText(path); } catch (_) { /* contexto no seguro */ }
+            const b64url = btoa(unescape(encodeURIComponent(path))).replace(/\+/g, '-').replace(/\//g, '_');
+            const a = document.createElement('a');
+            a.href = `brokergylocal:${b64url}`;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        } catch (err) {
+            showAlert(err?.response?.data?.error || err.message || 'No se pudo abrir la carpeta local.', 'Carpeta local', 'error');
+        } finally {
+            setAbriendoLocal(false);
+        }
+    };
 
     useEffect(() => {
         if (!isOpen || !idOportunidad) return;
@@ -137,6 +178,26 @@ ${pendientes.length ? `\nNos falta:\n${pendientes.map(p => `• ${p}`).join('\n'
                         Documentación del expediente
                     </h3>
                     <div className="flex items-center gap-2">
+                        {/* Accesos directos a "12. DOCUMENTOS PARA CEE" (solo ADMIN) */}
+                        {canValidate && (
+                            <>
+                                <a href={info?.docs_folder_link || undefined} target="_blank" rel="noopener noreferrer"
+                                    onClick={e => { if (!info?.docs_folder_link) e.preventDefault(); }}
+                                    title={info?.docs_folder_link ? 'Abrir en Drive la carpeta "12. DOCUMENTOS PARA CEE"' : 'Aun no existe la carpeta de fotos en Drive'}
+                                    className={`p-2 rounded-full transition-all ${info?.docs_folder_link ? 'hover:bg-white/10 text-white/60 hover:text-amber-400' : 'text-white/60 opacity-30 cursor-not-allowed'}`}>
+                                    <IconDrive />
+                                </a>
+                                <button onClick={abrirCarpetaLocal} disabled={abriendoLocal || !idOportunidad}
+                                    title='Abrir la carpeta local "12. DOCUMENTOS PARA CEE" en el Explorador de Windows (se copia tambien la ruta)'
+                                    className="p-2 rounded-full hover:bg-white/10 text-white/60 hover:text-emerald-400 transition-all disabled:opacity-30">
+                                    {abriendoLocal
+                                        ? <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
+                                        : <IconFolder />}
+                                </button>
+                                <span className="w-px h-5 bg-white/10 mx-0.5" />
+                            </>
+                        )}
+
                         {/* Reenviar enlace de subida */}
                         <button onClick={() => openSend('email')} disabled={!info?.upload_link} title="Enviar enlace por email"
                             className="p-2 rounded-full hover:bg-white/10 text-white/60 hover:text-amber-400 transition-all disabled:opacity-30">

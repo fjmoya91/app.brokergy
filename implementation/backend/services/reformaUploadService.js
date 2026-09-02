@@ -1054,6 +1054,21 @@ function olvidarSubfolder(folderId, nombre) {
     subfolderIdCache.delete(`${folderId}::${nombre}`);
 }
 
+// ---------------------------------------------------------------------------
+// La subcarpeta donde de verdad caen las fotos.
+// ---------------------------------------------------------------------------
+// El botón "Drive" del modal de documentación no puede llevar a la carpeta RAÍZ
+// de la oportunidad: las fotos viven en "12. DOCUMENTOS PARA CEE" y aterrizar un
+// nivel por encima obliga a buscarla entre las trece subcarpetas. Se resuelve por
+// el MISMO camino cacheado que usa `buildDocsView`, así que no cuesta una llamada
+// extra a Drive. Devuelve null si aún no existe (carpeta recién creada, sin subidas).
+async function docsSubfolder(folderId) {
+    if (!folderId) return null;
+    const id = await subfolderIdCached(folderId, SUBCARPETA_DOCS, false);
+    if (!id) return null;
+    return { id, link: `https://drive.google.com/drive/folders/${id}` };
+}
+
 async function buildDocsView(opp, opts = {}) {
     // El ALCANCE del expediente manda sobre la simulación: qué ficha es, si se
     // toca el ACS, qué unidad terminal hay, qué envolvente se rehabilita y si el
@@ -1478,6 +1493,7 @@ module.exports = {
     buildDocChecklist,
     checklistForOportunidad,
     buildDocsView,
+    docsSubfolder,
     conceptsFromEnvolvente,
     syncEnvolventeConcepts,
     conceptsFromInstalacion,
