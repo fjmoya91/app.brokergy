@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { ClienteFormModal } from '../components/ClienteFormModal';
 import { ClienteDetailModal } from '../components/ClienteDetailModal';
+import { ExpedienteAccesos } from '../../expedientes/components/ExpedienteAccesos';
 
 function Badge({ children, color = 'default' }) {
     const colors = {
@@ -37,6 +38,8 @@ export function ClientesView({
     const [deleting, setDeleting] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
+    // Fallo al abrir la carpeta (Drive o local) de un expediente desde la fila.
+    const [accesoError, setAccesoError] = useState(null);
     const itemsPerPage = 15;
 
     const fetchClientes = async () => {
@@ -177,6 +180,13 @@ export function ClientesView({
                     </div>
                 )}
 
+                {accesoError && (
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-400 text-xs mb-4 flex items-center justify-between gap-3">
+                        <span>{accesoError}</span>
+                        <button onClick={() => setAccesoError(null)} className="text-amber-400/60 hover:text-amber-300 font-black">✕</button>
+                    </div>
+                )}
+
                 {!loading && filtered.length === 0 && (
                     <div className="flex flex-col items-center justify-center py-20 text-center">
                         <div className="w-16 h-16 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mb-4">
@@ -242,6 +252,20 @@ export function ClientesView({
                                             )}
                                         </div>
                                     </div>
+
+                                    {/* Accesos directos al expediente (app · Drive · carpeta local).
+                                        Solo ADMIN y solo si el cliente tiene expediente: son internos y
+                                        los enlaces de Drive no se le sirven a un partner (regla 1).
+                                        Se apunta al MÁS RECIENTE, que es el que se está trabajando. */}
+                                    {isAdmin && cliente.expedientes?.length > 0 && (
+                                        <ExpedienteAccesos
+                                            expedienteId={cliente.expedientes[0].id}
+                                            numero={cliente.expedientes[0].numero_expediente}
+                                            onAbrirApp={() => onNavigate('expedientes', { expediente_id: cliente.expedientes[0].id })}
+                                            onError={setAccesoError}
+                                            className="flex-shrink-0"
+                                        />
+                                    )}
 
                                     {/* Fecha */}
                                     <div className="text-[10px] text-white/20 font-bold uppercase tracking-widest flex-shrink-0">

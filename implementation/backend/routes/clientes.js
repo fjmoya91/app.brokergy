@@ -51,20 +51,57 @@ router.get('/', enforceAuth, async (req, res) => {
         if (clienteIds.length > 0) {
             const { data: ops, error: opError } = await supabase
                 .from('oportunidades')
-                .select('id_oportunidad, referencia_cliente, cliente_id')
+                .select('id, id_oportunidad, referencia_cliente, cliente_id')
                 .in('cliente_id', clienteIds);
             
             if (!opError && ops) {
+                // Expedientes de cada cliente, para los accesos directos del listado
+                // (abrir el expediente, su carpeta de Drive y la local). Se buscan por
+                // LOS DOS caminos y se fusionan, igual que en la ficha del cliente: por
+                // la oportunidad y por el propio expediente, que no siempre coinciden
+                // (un migrado puede tener ya el cliente real mientras su oportunidad
+                // sigue apuntando al placeholder de la migracion).
+                //
+                // INTERNOS: solo staff. Y SIN columnas JSONB (regla 22) — aqui son
+                // cientos de filas y `datos_calculo` pesa 86 KB de media.
+                const expsPorCliente = new Map(); // id_cliente -> [expediente]
+                if (isStaff(req)) {
+                    const CAMPOS_EXP = 'id, numero_expediente, created_at, cliente_id, oportunidad_id';
+                    const opIds = ops.map(o => o.id).filter(Boolean);
+                    const [porCli, porOp] = await Promise.all([
+                        supabase.from('expedientes').select(CAMPOS_EXP).in('cliente_id', clienteIds),
+                        opIds.length
+                            ? supabase.from('expedientes').select(CAMPOS_EXP).in('oportunidad_id', opIds)
+                            : Promise.resolve({ data: [] }),
+                    ]);
+                    const opACliente = new Map(ops.map(o => [o.id, o.cliente_id]));
+                    const porExpId = new Map();
+                    for (const e of [...(porCli.data || []), ...(porOp.data || [])]) {
+                        if (!e?.id || porExpId.has(e.id)) continue;
+                        const dueno = e.cliente_id || opACliente.get(e.oportunidad_id) || null;
+                        if (!dueno) continue;
+                        porExpId.set(e.id, true);
+                        const lista = expsPorCliente.get(dueno) || [];
+                        lista.push(e);
+                        expsPorCliente.set(dueno, lista);
+                    }
+                    // El mas reciente primero: es al que apuntan los accesos directos.
+                    for (const lista of expsPorCliente.values()) {
+                        lista.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+                    }
+                }
+
                 // Mapear oportunidades a sus respectivos clientes
                 const dataConOps = processedClientes.map(c => ({
                     ...c,
-                    oportunidades: ops.filter(o => o.cliente_id === c.id_cliente)
+                    oportunidades: ops.filter(o => o.cliente_id === c.id_cliente),
+                    expedientes: expsPorCliente.get(c.id_cliente) || []
                 }));
                 return res.json(dataConOps);
             }
         }
  
-        res.json(processedClientes.map(c => ({ ...c, oportunidades: [] })));
+        res.json(processedClientes.map(c => ({ ...c, oportunidades: [], expedientes: [] })));
     } catch (err) {
         console.error('Error GET clientes:', err);
         res.status(500).json({ error: 'Error al recuperar clientes' });
