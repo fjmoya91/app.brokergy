@@ -2556,6 +2556,69 @@ un documento que no existe.
 
 ---
 
+## El Certificado RITE se LEE al subirlo (2026-09-03)
+
+Las fechas de PRUEBAS del Certificado de Instalación Térmica se tecleaban mirando el PDF
+—y cuando no se tecleaban, la app las CONJETURABA desde las facturas: en una reforma la
+primera factura puede ser la de las ventanas, así que el CIFO acababa fechado en una obra
+que no es la instalación térmica—. Ahora se sueltan el certificado y la app lo archiva, lo
+enlaza y lo LEE, igual que una factura de obra.
+
+| Qué | Dónde |
+|---|---|
+| Lectura (prompt + esquema + recorte de páginas) | [riteOcrService.js](implementation/backend/services/riteOcrService.js) |
+| Juicio y escritura (fechas, cruce con el expediente) | [riteCertificado.js](implementation/backend/services/riteCertificado.js) |
+| Ruta del admin | `POST /api/expedientes/:id/rite/ocr` (multipart `files[]`), **staffOnly** |
+| Subida del instalador | `POST /api/public/rite-upload/:id` — lee en `setImmediate`, sin que espere |
+| Superficie | Fila **Certificado RITE** de `DocumentacionModule` (soltar, botón, o "Leer el de Drive") |
+| Prueba sin escribir nada | `node scripts/probar_rite_ocr.js <driveFileId\|ruta.pdf> [nº expte]` |
+
+**REGLA — solo se envían a leer las DOS PRIMERAS PÁGINAS.** A Gemini un PDF le cuesta **258
+tokens por página** y estos certificados llegan con los acuses de recibo electrónicos
+detrás (2,3 MB medidos): son páginas que no dicen nada de lo que se busca y se pagan igual.
+El impreso oficial cabe entero en la primera. Medido sobre tres certificados reales:
+**642 tokens de entrada y ~3 s**, unos **0,0005 €** por lectura. Si el recorte falla (PDF
+cifrado o roto) se manda entero: leer de más cuesta céntimos, no leer no cuesta nada pero
+tampoco sirve.
+
+**REGLA — el modelo solo LEE; el juicio es del código.** Qué fecha se anota, si el
+emplazamiento cuadra y qué se avisa lo decide `riteCertificado.js`, determinista y con las
+dos cifras citadas. Mismo reparto que en las facturas de obra (`facturaIncidencias`).
+
+**REGLA — las fechas se piden como TEXTO `dd/mm/aaaa` y las convierte `aISO()`.** Un `date`
+pedido al modelo llega en el formato que le parezca, y una fecha de pruebas mal leída viaja
+hasta el CIFO. Mismo motivo que los importes del OCR de lotes.
+
+**REGLA — se anota la ÚLTIMA de las fechas de pruebas.** El impreso trae hasta ocho casillas
+y lo normal es que lleven todas la misma; cuando no, la instalación no está probada hasta
+que pasa la última, que es además la que `calcCifo` usa como fecha de fin.
+
+**REGLA — se rellenan HUECOS, nunca se pisa lo escrito.** `resolveFechasRite` dice que lo
+marcado a mano MANDA, y de esa fecha cuelgan las de inicio y fin de actuación del CIFO:
+sustituirla en silencio por lo que lea una máquina es cambiar un documento que puede estar
+ya presentado. Si difiere, se enseñan las dos y hay un botón "Usar la del certificado".
+
+**REGLA — la comprobación del emplazamiento AVISA, no bloquea.** El impreso escribe la vía
+como la tiene registrada Industria ("CALLE GARCÍA MORATO NUM: 30") y el expediente como la
+escribió el Catastro: que no casen letra a letra es lo normal. Se compara por palabras
+distintivas y por el NÚMERO DE PORTAL, que es lo que separa dos viviendas de la misma calle
+—medido en 26RES080_62: el certificado dice el nº 9 y el expediente el 7—, y la referencia
+catastral por sus 14 primeros caracteres. Lo esperado sale de `buildCertClienteData`, que
+ya es la fuente única de la dirección de instalación: no se duplica aquí esa cascada.
+
+**REGLA — lo leído viaja en el aviso al staff y se queda en el expediente.** La subida del
+instalador ya mandaba un WhatsApp + email: ahora ese MISMO mensaje lleva la fecha anotada y
+lo que no cuadra (no un aviso nuevo, ver el parte diario). Y la huella queda en
+`documentacion.rite_ocr` —solo metadatos, regla 21—, porque una comprobación que se ve una
+vez y se pierde al cerrar el popup no sirve de nada.
+
+**Soltar un PDF en esa fila es soltar el CERTIFICADO.** Antes la fila lo recogía como
+`cert_rite_signed_link`, que es la *memoria firmada* —el documento de al lado—. El fichero
+va a `7. LEGALIZACION RITE` con el nombre canónico y al slot `cert_rite_drive_link`, por el
+MISMO camino que la subida del instalador.
+
+---
+
 ## Quién EJECUTA la obra y quién FIRMA ante Industria (2026-08-26)
 
 Un instalador no habilitado en Industria delega la firma en otra empresa
@@ -3054,6 +3117,8 @@ juntos ahí.
 25. **La PROPUESTA se versiona al ENVIARLA, nunca al guardarla**: cada envío archiva su PDF en `0. PROPUESTAS` como `Propuesta_{expte}_v{N}.pdf`, imprime la marca DENTRO del documento y sella qué versión aceptó el cliente. Fuente única: [propuestaVersiones.js](implementation/backend/services/propuestaVersiones.js) — no volver a generar el PDF de la propuesta por separado en cada canal (el del email y el de WhatsApp acababan siendo documentos distintos), ni guardar el HTML de una versión en el JSONB (353 KB de media, regla 21). Ver "Versiones de la PROPUESTA".
 
 26.b **El CIFO y el certificado RES080 identifican a las DOS empresas cuando no son la misma**: la que EJECUTA y factura (instalador asignado) y la HABILITADA que firma ante Industria (`instalador_rite_id`). Sin las dos, el NIF del certificado no casa con el de las facturas del expediente. Fuente única de la decisión y del texto: `empresasActuacion` / `notaDelegacionRite` en [docGenerators.js](implementation/frontend/src/features/expedientes/utils/docGenerators.js). Con una sola empresa el documento no cambia. Los dos documentos tienen hojas de alto FIJO: tras tocarlos, pasar `check_cifo_paginas.mjs` **y** `check_res080_paginas.mjs`. Ver "Quién EJECUTA la obra y quién FIRMA ante Industria".
+
+27.b **El Certificado RITE se LEE al subirlo**: de él salen la fecha de PRUEBAS y la de FIRMA —las que fijan el inicio y el fin de actuación del CIFO— y una comprobación del emplazamiento (dirección + referencia catastral) contra el expediente. Solo se mandan a leer las DOS PRIMERAS PÁGINAS (258 tokens/página, y estos PDF llegan con los acuses detrás): ~0,0005 € por lectura. Se rellenan HUECOS, nunca se pisa una fecha ya escrita, y el emplazamiento AVISA pero no bloquea. Fuentes únicas: [riteOcrService.js](implementation/backend/services/riteOcrService.js) (leer) y [riteCertificado.js](implementation/backend/services/riteCertificado.js) (juzgar y escribir). Ver "El Certificado RITE se LEE al subirlo".
 
 27. **Al instalador se le pide TODO de una vez**: al enviar el CIFO o la documentación RITE, la app comprueba si el otro también falta y ofrece mandarlo en el MISMO mensaje, con UN enlace (`/instalador/:id`). Fuente única de qué falta y de los textos: [logic/instaladorPendientes.js](implementation/frontend/src/features/expedientes/logic/instaladorPendientes.js); del envío, `POST /api/expedientes/:id/instalador/enviar`. `cert_rite_drive_link` significa CERTIFICADO RITE aportado — la Memoria que generamos nosotros vive en `memoria_rite_docx_link`. Ver "Al instalador se le pide TODO de una vez".
 

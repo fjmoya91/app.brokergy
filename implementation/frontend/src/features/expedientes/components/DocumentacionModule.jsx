@@ -935,6 +935,10 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     const [editMode, setEditMode] = useState(false);
     // Revela el campo para pegar el enlace Drive del Certificado RITE (acción puntual).
     const [showRiteLinkInput, setShowRiteLinkInput] = useState(false);
+    const riteFileRef = React.useRef(null);
+    // 'aaaa-mm-dd' → 'dd/mm/aaaa'. Sin `new Date()`: una fecha sin hora se
+    // interpreta en UTC y en España se pinta el día anterior.
+    const fmtES = (iso) => (iso ? String(iso).slice(0, 10).split('-').reverse().join('/') : '—');
 
     // Drag & drop a nivel de FILA: arrastrar un PDF sobre cualquier parte de la fila
     // resalta su slot firmado y, al soltar, lo anexa. dragRow = id de la fila activa.
@@ -984,6 +988,11 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     // Overlay de "subiendo a la nube → subido" de un documento firmado.
     // { phase: 'sending'|'done', ok, label, error }
     const [subidaDoc, setSubidaDoc] = useState(null);
+    // Lectura del CERTIFICADO RITE con OCR. { phase, ok, error } para el overlay y
+    // `riteLectura` para el resumen que queda en pantalla: lo que se ha anotado, lo
+    // que no cuadra con el expediente y las fechas que difieren de las de la app.
+    const [riteOcr, setRiteOcr] = useState(null);
+    const [riteLectura, setRiteLectura] = useState(null);
     const [showEnviarBorrador, setShowEnviarBorrador] = useState(false);
     const [enviarAnexos, setEnviarAnexos] = useState({ open: false, docs: [], overrides: null });
     // Firma con certificado (Autofirma) de un documento YA firmado que está en Drive:
@@ -1766,6 +1775,45 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             setRejectError(e.response?.data?.error || 'No se pudo rechazar el documento.');
         } finally {
             setRejectSending(false);
+        }
+    };
+
+    // ── El CERTIFICADO RITE se LEE al subirlo ────────────────────────────────
+    // Igual que una factura: se suelta el PDF y la app lo archiva en
+    // "7. LEGALIZACION RITE", lo enlaza y LEE sus fechas de pruebas y de firma —las
+    // que hasta ahora se tecleaban mirando el documento y de las que salen el inicio
+    // y el fin de actuación del CIFO—, además de comprobar que el emplazamiento
+    // (dirección + referencia catastral) es el de este expediente.
+    //
+    // El overlay lleva el icono 'read' (la lupa recorriendo la hoja) y NO el de
+    // subida: el fichero ya está, lo que tarda es la lectura. Del overlay se pasa
+    // directo al resumen; un "listo" que hay que cerrar para ver otra pantalla es un
+    // clic de peaje.
+    // Sin `file` se lee el certificado que YA está enlazado en Drive: es el caso de
+    // los que se subieron antes de esto y el de quien sigue pegando el enlace a mano.
+    const leerCertificadoRite = async (file) => {
+        setRiteLectura(null);
+        setRiteOcr({ phase: 'sending', ok: false, error: '' });
+        try {
+            const fd = new FormData();
+            if (file) fd.append('files', file);
+            const { data } = await axios.post(`/api/expedientes/${expediente.id}/rite/ocr`, fd);
+
+            // Lo que el backend ya ha escrito se refleja aquí sin recargar: el enlace
+            // del certificado y las fechas que estaban en blanco.
+            setLocal(prev => {
+                const next = { ...prev, cert_rite_drive_link: data.drive_link || prev.cert_rite_drive_link };
+                if ((data.escrito || []).includes('fecha_pruebas_cert_instalacion')) next.fecha_pruebas_cert_instalacion = data.fechas?.pruebas || null;
+                if ((data.escrito || []).includes('fecha_firma_cert_instalacion')) next.fecha_firma_cert_instalacion = data.fechas?.firma || null;
+                // El backend ya lo ha persistido por RPC (campo a campo); esto solo
+                // mantiene al día la vista del expediente, que va un refetch por detrás.
+                onSave({ documentacion: next });
+                return next;
+            });
+            setRiteLectura(data);
+            setRiteOcr(null);
+        } catch (e) {
+            setRiteOcr({ phase: 'done', ok: false, error: e.response?.data?.error || 'No se pudo leer el certificado.' });
         }
     };
 
@@ -2763,11 +2811,38 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                     `memoria_rite_docx_link`; en expedientes anteriores al
                                     cambio puede seguir en el mismo campo, y de eso se
                                     encarga la fuente única (instaladorPendientes). */}
-                                <div className={`flex flex-col gap-4 p-4 max-md:p-3 rounded-2xl border transition-all ${dragRow === 'rite_cert' ? 'ring-2 ring-brand/40 bg-brand/[0.05] border-brand/30' : 'bg-white/[0.02] border-white/[0.04]'}`} {...rowDragProps('rite_cert', f => handleSignedUpload('cert_rite_signed_link', f))}>
+                                <div className={`flex flex-col gap-4 p-4 max-md:p-3 rounded-2xl border transition-all ${dragRow === 'rite_cert' ? 'ring-2 ring-brand/40 bg-brand/[0.05] border-brand/30' : 'bg-white/[0.02] border-white/[0.04]'}`} {...rowDragProps('rite_cert', f => leerCertificadoRite(f))}>
                                     <div className="flex items-center justify-between gap-6 max-md:flex-col max-md:items-stretch max-md:gap-3">
                                         <div className="w-[260px] min-w-0 shrink-0 max-md:w-full">
                                             <p className="text-sm font-black text-white uppercase tracking-tight mb-1">Certificado RITE</p>
-                                            <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest mb-1">Gestión manual (Drive)</p>
+                                            <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest mb-1">Se lee al subirlo · fechas de pruebas</p>
+                                            {/* Soltar el certificado AQUÍ es soltarlo en su sitio: se archiva en
+                                                "7. LEGALIZACION RITE", se enlaza en el slot y se leen sus fechas.
+                                                Antes esta fila recogía el fichero como "memoria firmada", que es
+                                                el documento de al lado. */}
+                                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                                <button
+                                                    onClick={() => riteFileRef.current?.click()}
+                                                    className="text-[9px] font-black uppercase tracking-[0.15em] text-brand/70 hover:text-brand underline decoration-1 underline-offset-4 transition-all"
+                                                >
+                                                    Subir y leer el certificado
+                                                </button>
+                                                {estadoInstalador(local).rite.certificadoRecibido && (
+                                                    <button
+                                                        onClick={() => leerCertificadoRite(null)}
+                                                        className="text-[9px] font-black uppercase tracking-[0.15em] text-white/30 hover:text-white/70 underline decoration-1 underline-offset-4 transition-all"
+                                                    >
+                                                        Leer el de Drive
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <input
+                                                ref={riteFileRef}
+                                                type="file"
+                                                accept="application/pdf,image/*"
+                                                className="hidden"
+                                                onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) leerCertificadoRite(f); }}
+                                            />
                                         </div>
 
                                         {/* Fechas del Certificado de Instalación Térmica (editables en modo edición) */}
@@ -2832,6 +2907,55 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                                 placeholder="https://drive.google.com/..."
                                                 className="w-full bg-bkg-elevated border border-white/5 rounded-xl px-4 py-2.5 text-white text-[11px] font-bold focus:outline-none focus:border-brand/40 transition-all"
                                             />
+                                        </div>
+                                    )}
+
+                                    {/* Lo que se ha leído del certificado. Se queda en pantalla —no es un
+                                        popup que se cierra— porque lo que hay que mirar es justo lo que NO
+                                        cuadra, y una comprobación que se ve una vez no sirve de nada. */}
+                                    {riteLectura && (
+                                        <div className="animate-slide-up pt-3 border-t border-white/5 space-y-2">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <p className="text-[9px] font-black text-brand/70 uppercase tracking-[0.2em]">Leído del certificado</p>
+                                                <button onClick={() => setRiteLectura(null)} className="text-[9px] font-black text-white/25 hover:text-white/60 uppercase tracking-[0.15em] transition-all">Ocultar</button>
+                                            </div>
+
+                                            {riteLectura.lectura_error && (
+                                                <p className="text-[11px] font-bold text-amber-400/90">El certificado se ha archivado, pero no se ha podido leer: {riteLectura.lectura_error}. Las fechas hay que ponerlas a mano.</p>
+                                            )}
+
+                                            {!!(riteLectura.escrito || []).length && (
+                                                <p className="text-[11px] font-bold text-emerald-400/90">
+                                                    ✓ Anotado: {(riteLectura.escrito || []).map(k => k === 'fecha_pruebas_cert_instalacion' ? `pruebas ${fmtES(riteLectura.fechas?.pruebas)}` : `firma ${fmtES(riteLectura.fechas?.firma)}`).join(' · ')}
+                                                </p>
+                                            )}
+                                            {!(riteLectura.escrito || []).length && !riteLectura.lectura_error && riteLectura.fechas?.pruebas && (
+                                                <p className="text-[11px] font-bold text-white/50">Fecha de pruebas en el certificado: {fmtES(riteLectura.fechas.pruebas)}</p>
+                                            )}
+
+                                            {/* Una fecha ya escrita NO se pisa: de ella cuelgan las del CIFO y
+                                                puede haberla puesto una persona. Se enseñan las dos y se decide. */}
+                                            {(riteLectura.conflictos || []).map(c => (
+                                                <div key={c.campo} className="flex items-center justify-between gap-3 flex-wrap bg-amber-500/[0.07] border border-amber-500/20 rounded-xl px-3 py-2">
+                                                    <p className="text-[11px] font-bold text-amber-300/90">
+                                                        {c.label}: en la app <strong>{fmtES(c.en_app)}</strong> y en el certificado <strong>{fmtES(c.en_certificado)}</strong>.
+                                                    </p>
+                                                    <button
+                                                        onClick={() => { commitField(c.campo, c.en_certificado); setRiteLectura(r => ({ ...r, conflictos: (r.conflictos || []).filter(x => x.campo !== c.campo) })); }}
+                                                        className="text-[9px] font-black uppercase tracking-[0.15em] px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 hover:bg-amber-500 hover:text-bkg-deep transition-all"
+                                                    >
+                                                        Usar la del certificado
+                                                    </button>
+                                                </div>
+                                            ))}
+
+                                            {(riteLectura.comprobaciones || []).map(c => (
+                                                <p key={c.campo} className={`text-[11px] font-bold ${c.estado === 'ok' ? 'text-emerald-400/70' : c.estado === 'revisar' ? 'text-red-400/90' : 'text-white/35'}`}>
+                                                    {c.estado === 'ok' ? '✓' : c.estado === 'revisar' ? '⚠️' : '·'} {c.campo}
+                                                    {c.estado === 'revisar' && <> — certificado: <span className="text-white/70">{c.leido}</span> · expediente: <span className="text-white/70">{c.esperado}</span></>}
+                                                    {c.estado === 'no_consta' && <> — {c.nota}</>}
+                                                </p>
+                                            ))}
                                         </div>
                                     )}
                                 </div>
@@ -3040,6 +3164,21 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 items={subidaDoc?.ok ? [`${subidaDoc.label} · guardado en Drive`] : []}
                 errorText={subidaDoc?.error || ''}
                 onClose={() => setSubidaDoc(null)}
+            />
+
+            {/* Lectura del Certificado RITE: la lupa recorriendo la hoja. Solo se queda
+                en pantalla mientras lee o si falla — al acabar bien, el resumen aparece
+                en la propia fila y un "listo" de por medio sería un clic de peaje. */}
+            <SendActionOverlay
+                phase={riteOcr?.phase || null}
+                ok={!!riteOcr?.ok}
+                icon="read"
+                subtitle={expediente?.numero_expediente || ''}
+                sendingTitle="Leyendo el Certificado RITE…"
+                okTitle="Certificado leído"
+                errorTitle="No se pudo leer"
+                errorText={riteOcr?.error || ''}
+                onClose={() => setRiteOcr(null)}
             />
 
             {/* Montaje del Anexo de Cesión manuscrito (escaneo + DNI cliente + DNI Brokergy) */}

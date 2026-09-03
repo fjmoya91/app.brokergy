@@ -1945,7 +1945,7 @@ router.post('/rite-upload/:expedienteId',
 
             const { data: exp, error } = await supabase
                 .from('expedientes')
-                .select('id, numero_expediente, documentacion, instalacion, clientes!cliente_id(nombre_razon_social, apellidos), oportunidades!oportunidad_id(datos_calculo)')
+                .select('id, oportunidad_id, numero_expediente, documentacion, instalacion, clientes!cliente_id(nombre_razon_social, apellidos), oportunidades!oportunidad_id(datos_calculo)')
                 .eq('id', expedienteId)
                 .maybeSingle();
             if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
@@ -2003,11 +2003,37 @@ router.post('/rite-upload/:expedienteId',
 
             // Notificación al admin (background)
             setImmediate(async () => {
+                // El certificado que acaba de entrar se LEE aquí mismo: de él salen la
+                // fecha de pruebas y la de firma del Certificado de Instalación —las que
+                // fijan el inicio y el fin de actuación del CIFO— y la comprobación de
+                // que el emplazamiento es el de este expediente. El instalador no espera
+                // ni ve nada: la respuesta ya ha salido. Lo leído viaja en el MISMO aviso
+                // al staff, que es donde hace falta: sin eso, la señal de que la
+                // referencia catastral no casaba habría que ir a buscarla.
+                let lecturaRite = null;
+                if (certFile) {
+                    try {
+                        const { procesarCertificadoRite } = require('../services/riteCertificado');
+                        lecturaRite = await procesarCertificadoRite({
+                            exp: { ...exp, documentacion: docUpdate },
+                            pdf: certFile.buffer,
+                            origen: 'instalador',
+                        });
+                    } catch (e) { console.error('[RITE upload] lectura del certificado:', e.message); }
+                }
+                const esES = (f) => (f ? String(f).split('-').reverse().join('/') : null);
+                const lineasLectura = [];
+                if (lecturaRite) {
+                    if (lecturaRite.fechas?.pruebas) lineasLectura.push(`Fecha de pruebas: ${esES(lecturaRite.fechas.pruebas)}${lecturaRite.escrito.includes('fecha_pruebas_cert_instalacion') ? ' (anotada en el expediente)' : ''}`);
+                    for (const c of lecturaRite.conflictos || []) lineasLectura.push(`⚠️ ${c.label}: en la app ${esES(c.en_app)} y en el certificado ${esES(c.en_certificado)}`);
+                    for (const c of (lecturaRite.comprobaciones || []).filter(x => x.estado === 'revisar')) lineasLectura.push(`⚠️ ${c.campo}: "${c.leido}" no cuadra con "${c.esperado}"`);
+                }
+
                 const clienteNombre = [exp.clientes?.nombre_razon_social, exp.clientes?.apellidos].filter(Boolean).join(' ') || '—';
                 const partes = [memFile ? 'Memoria firmada' : null, certFile ? 'Certificado RITE' : null].filter(Boolean).join(' + ');
                 const adminPhone = process.env.WHATSAPP_ADMIN_CHAT;
                 const adminEmail = process.env.ADMIN_EMAIL || 'franciscojavier.moya.s2e2@gmail.com';
-                const msg = `✅ *Documentación RITE recibida*\nExpediente: *${numexpte}*\nInstalador: ${instaladorNombre}\nCliente: ${clienteNombre}\nRecibido: ${partes}`;
+                const msg = `✅ *Documentación RITE recibida*\nExpediente: *${numexpte}*\nInstalador: ${instaladorNombre}\nCliente: ${clienteNombre}\nRecibido: ${partes}` + (lineasLectura.length ? `\n\n${lineasLectura.join('\n')}` : '');
                 try { if (adminPhone) await whatsappService.sendText(adminPhone, msg); } catch (e) { console.error('[RITE upload] WA notify:', e.message); }
                 try {
                     await emailService.sendMail({
@@ -2017,6 +2043,7 @@ router.post('/rite-upload/:expedienteId',
                             <div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:20px 28px;"><h2 style="margin:0;color:#fff;font-size:16px;">BROKERGY · Documentación RITE</h2></div>
                             <div style="padding:24px;background:#fff;">
                               <p>El instalador <strong>${instaladorNombre}</strong> ha subido <strong>${partes}</strong> del expediente <strong>${numexpte}</strong> (${clienteNombre}).</p>
+                              ${lineasLectura.length ? `<ul style="padding-left:18px;color:#374151;font-size:13px;">${lineasLectura.map(l => `<li>${l}</li>`).join('')}</ul>` : ''}
                               ${certLink ? `<p><a href="${certLink}" style="color:#f59e0b;font-weight:bold;">Certificado RITE en Drive</a></p>` : ''}
                               ${memoriaLink ? `<p><a href="${memoriaLink}" style="color:#f59e0b;font-weight:bold;">Memoria firmada en Drive</a></p>` : ''}
                             </div></div>`

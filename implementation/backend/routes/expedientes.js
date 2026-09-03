@@ -3796,6 +3796,123 @@ router.post('/:id/facturas/ocr', adminOnly, (req, res, next) => {
     }
 });
 
+// ─── POST /api/expedientes/:id/rite/ocr ───────────────────────────────────────
+// Sueltas el CERTIFICADO DE INSTALACIÓN TÉRMICA y la app hace el resto: lo archiva
+// en "7. LEGALIZACION RITE", lo enlaza en el slot del certificado y lo LEE — de ahí
+// salen la fecha de PRUEBAS y la de FIRMA, que es lo que se tecleaba mirando el PDF
+// y de lo que cuelgan las fechas de inicio y fin de actuación del CIFO (`calcCifo`).
+//
+// De paso comprueba que el emplazamiento del certificado (dirección + referencia
+// catastral) es el del expediente: el certificado llega por correo entre otros
+// muchos, y uno del expediente de al lado se detecta aquí o no se detecta.
+//
+// staffOnly: no hay importes por medio (misma regla que el resto del RITE), pero el
+// documento es del expediente y la lectura cuesta una llamada de pago a Gemini.
+const riteUpload = require('multer')({
+    storage: require('multer').memoryStorage(),
+    limits: { fileSize: 25 * 1024 * 1024, files: 20 },
+});
+
+router.post('/:id/rite/ocr', staffOnly, (req, res, next) => {
+    riteUpload.array('files', 20)(req, res, (err) => {
+        if (err) {
+            if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'Algún fichero supera los 25 MB.' });
+            console.error('[riteOcr] multer:', err.message);
+            return res.status(400).json({ error: 'No se pudieron procesar los ficheros.' });
+        }
+        next();
+    });
+}, async (req, res) => {
+    try {
+        const files = req.files || [];
+
+        const { data: exp, error: expErr } = await supabase
+            .from('expedientes')
+            .select('id, oportunidad_id, numero_expediente, documentacion, instalacion')
+            .eq('id', req.params.id)
+            .maybeSingle();
+        if (expErr || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const driveService = require('../services/driveService');
+        let pdf, saved = null;
+
+        if (files.length) {
+            // 1) Normalizar a PDF (una foto del certificado, o varias páginas sueltas).
+            const ceeOcrService = require('../services/ceeOcrService');
+            try {
+                ({ pdf } = await ceeOcrService.normalizeToPdf(files));
+            } catch (e) {
+                return res.status(400).json({ error: e.message });
+            }
+
+            // 2) Archivar en Drive con el nombre canónico y enlazarlo en el slot del
+            //    certificado. Es el MISMO nombre y la MISMA carpeta que usa la subida
+            //    del instalador desde su enlace: da igual por dónde entre el documento.
+            const { carpetaDeExpediente } = require('../services/expedienteFolderSync');
+            const folderId = await carpetaDeExpediente(exp);
+            if (!folderId) return res.status(400).json({ error: 'El expediente no tiene carpeta de Drive configurada.' });
+
+            const subfolderId = await driveService.getOrCreateSubfolderNormalized(folderId, '7. LEGALIZACION RITE');
+            const fileName = `${exp.numero_expediente || exp.id} - Certificado RITE.pdf`;
+            try {
+                const previo = await driveService.findFileByName(subfolderId, fileName);
+                if (previo) await driveService.deleteFile(previo);
+            } catch (e) { console.warn('[riteOcr] no se pudo reemplazar el previo:', e.message); }
+            saved = await driveService.saveFileToFolder(subfolderId, fileName, 'application/pdf', pdf);
+            if (!saved?.link) return res.status(500).json({ error: 'El certificado no se pudo guardar en Drive.' });
+            try { if (saved.id) await driveService.setFolderPublic(saved.id, 'reader'); } catch (e) { /* noop */ }
+
+            const { error: linkErr } = await supabase.rpc('set_expediente_doc_field', {
+                p_oportunidad_id: exp.oportunidad_id,
+                p_field: 'cert_rite_drive_link',
+                p_value: saved.link,
+            });
+            if (linkErr) console.warn('[riteOcr] no se pudo enlazar el certificado:', linkErr.message);
+        } else {
+            // SIN fichero: se lee el que YA está enlazado en el expediente. Es el caso
+            // de los que se subieron antes de que la app supiera leerlos y el de quien
+            // sigue pegando el enlace de Drive a mano: obligarles a descargar el PDF
+            // para volver a subirlo sería pasear un fichero que ya tenemos.
+            const link = exp.documentacion?.cert_rite_drive_link;
+            // Mismo extractor que el resto de descargas de Drive (/file/d/… o ?id=…),
+            // más el de Docs: hay certificados enlazados como documento de Google.
+            const m = String(link || '').match(new RegExp('/(?:file|document)/d/([A-Za-z0-9_-]+)'))
+                || String(link || '').match(/[?&]id=([A-Za-z0-9_-]+)/);
+            if (!m) return res.status(400).json({ error: 'No se recibió ningún fichero y el expediente no tiene un Certificado RITE enlazado en Drive.' });
+            try {
+                pdf = await driveService.getFileContent(m[1]);
+            } catch (e) {
+                return res.status(400).json({ error: 'No se pudo descargar de Drive el certificado enlazado: ' + e.message });
+            }
+            if (!pdf) return res.status(400).json({ error: 'No se pudo descargar de Drive el certificado enlazado.' });
+        }
+
+        // 3) Leer, cruzar con el expediente y rellenar las fechas que falten.
+        //    Si la lectura falla, el certificado YA está archivado y enlazado: eso es
+        //    lo importante, y las fechas se pueden teclear. No se devuelve un error
+        //    que haga pensar que no ha subido nada.
+        const { procesarCertificadoRite } = require('../services/riteCertificado');
+        let resultado = null, lecturaError = null;
+        try {
+            resultado = await procesarCertificadoRite({ exp, pdf, origen: 'admin' });
+        } catch (e) {
+            console.error('[riteOcr] lectura fallida:', e.message);
+            lecturaError = e.message;
+        }
+
+        res.json({
+            success: true,
+            drive_link: saved?.link || exp.documentacion?.cert_rite_drive_link || null,
+            drive_id: saved?.id || null,
+            lectura_error: lecturaError,
+            ...(resultado || { lectura: null, fechas: null, escrito: [], conflictos: [], comprobaciones: [] }),
+        });
+    } catch (err) {
+        console.error('Error POST expedientes/:id/rite/ocr:', err);
+        res.status(500).json({ error: 'Error procesando el certificado RITE', details: err.message });
+    }
+});
+
 // ─── POST /api/expedientes/:id/documents/upload ───────────────────────────────
 // Sube un documento genérico a una ruta de subcarpetas en Drive.
 // Body JSON: { base64, fileName, mimeType, subfolders: ["1.CEE", "CEE INICIAL"] }
