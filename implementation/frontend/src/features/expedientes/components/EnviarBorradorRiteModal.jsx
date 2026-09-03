@@ -5,6 +5,8 @@ import { postEmail } from '../../../utils/emailFallback';
 import { estadoInstalador, mensajeInstalador, enlaceInstalador } from '../logic/instaladorPendientes';
 import { buildInstalacionAddress } from '../utils/docGenerators';
 import { DocsInstaladorPicker } from './DocsInstaladorPicker';
+// Canal de envío de la barra inferior — COMPARTIDO con los otros popups de envío.
+import { CanalChip, avisoCanales } from '../../../components/CanalChip';
 
 // Documentación RITE: Memoria (.docx + .pdf) + Borrador del Certificado (.pdf).
 // Acciones: Descargar · Subir a Drive · Enviar al instalador (Email / WhatsApp /
@@ -117,6 +119,20 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen, defaultMessage]);
 
+    // El estado de WhatsApp se consultaba UNA vez, al abrir. La sesión del
+    // servidor se cae y vuelve sola (cada deploy la reinicia y tarda unos
+    // minutos), así que el canal se quedaba muerto hasta cerrar y reabrir el
+    // popup, con WhatsApp ya disponible. Se reintenta SOLO mientras conste caído.
+    useEffect(() => {
+        if (!isOpen || waReady !== false) return;
+        const t = setInterval(() => {
+            axios.get('/api/whatsapp/status')
+                .then(r => { if (r.data?.ready) setWaReady(true); })
+                .catch(() => { });
+        }, 10000);
+        return () => clearInterval(t);
+    }, [isOpen, waReady]);
+
     if (!isOpen) return null;
 
     const phoneValid = (ph) => (ph || '').replace(/[^0-9]/g, '').length >= 9;
@@ -155,6 +171,12 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
     const nEmail = selectedContacts.filter(c => c.email).length;
     const nPhone = selectedContacts.filter(c => phoneValid(c.phone)).length;
     const sending = busy === 'send';
+    // Por qué no se puede enviar (null = se puede). FUENTE ÚNICA con los demás
+    // popups de envío: un botón apagado sin explicación se lee como una avería.
+    const avisoCanal = avisoCanales({
+        nDest: selectedContacts.length, canEmail, hayTelefono: contactPhoneValid,
+        waReady, willEmail, willWhatsapp,
+    });
 
     const toggleChannel = (ch) => setChannels(prev => ({ ...prev, [ch]: !prev[ch] }));
 
@@ -291,7 +313,7 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
 
     return (
         <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-            <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-lg md:max-w-3xl overflow-hidden animate-in fade-in zoom-in duration-200">
                 <div className="px-6 py-5 border-b border-white/[0.07] bg-brand/5 flex items-center justify-between">
                     <div>
                         <h2 className="text-lg font-black uppercase tracking-tight text-white">
@@ -381,35 +403,6 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                         />
                     </div>
 
-                    {/* Canal de envío (email / whatsapp / ambos) */}
-                    <div>
-                        <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Enviar por</label>
-                        <div className="grid grid-cols-2 gap-2">
-                            {/* Email */}
-                            <button type="button" disabled={!canEmail} onClick={() => toggleChannel('email')}
-                                className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all ${!canEmail ? 'opacity-40 cursor-not-allowed border-white/10 bg-white/[0.02]' : (channels.email ? 'border-brand/50 bg-brand/10' : 'border-white/10 bg-white/[0.02] hover:border-white/20')}`}>
-                                <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${willEmail ? 'border-brand bg-brand' : 'border-white/20'}`}>
-                                    {willEmail && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
-                                </span>
-                                <div className="min-w-0">
-                                    <div className="text-[11px] font-black uppercase tracking-wider text-white">Email</div>
-                                    <div className="text-[10px] text-white/40 truncate">{canEmail ? `${nEmail} con email` : 'sin email'}</div>
-                                </div>
-                            </button>
-                            {/* WhatsApp */}
-                            <button type="button" disabled={!contactPhoneValid || waReady === false} onClick={() => toggleChannel('whatsapp')}
-                                className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all ${(!contactPhoneValid || waReady === false) ? 'opacity-40 cursor-not-allowed border-white/10 bg-white/[0.02]' : (channels.whatsapp ? 'border-emerald-400/50 bg-emerald-400/10' : 'border-white/10 bg-white/[0.02] hover:border-white/20')}`}>
-                                <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${willWhatsapp ? 'border-emerald-400 bg-emerald-400' : 'border-white/20'}`}>
-                                    {willWhatsapp && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
-                                </span>
-                                <div className="min-w-0">
-                                    <div className="text-[11px] font-black uppercase tracking-wider text-white">WhatsApp</div>
-                                    <div className="text-[10px] text-white/40 truncate">{!contactPhoneValid ? 'sin teléfono' : (waReady === false ? 'no conectado' : `${nPhone} con teléfono`)}</div>
-                                </div>
-                            </button>
-                        </div>
-                    </div>
-
                     {status && (
                         <p className={`text-[11px] ${status.ok ? 'text-emerald-400' : 'text-red-400'}`}>
                             {status.ok ? '✅' : '❌'} {status.text}
@@ -417,19 +410,42 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                     )}
                 </div>
 
-                {/* Footer */}
-                <div className="px-6 py-4 bg-white/[0.02] border-t border-white/[0.07] flex items-center justify-end gap-3">
-                    <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all">
-                        Cerrar
-                    </button>
-                    <button onClick={handleSend} disabled={sending || busy === 'download' || busy === 'drive' || (!willEmail && !willWhatsapp) || !docs.filter(k => !bloqueos[k]).length}
-                        title={!docs.filter(k => !bloqueos[k]).length ? 'Selecciona al menos un documento' : (!willEmail && !willWhatsapp) ? 'Selecciona al menos un canal disponible' : 'Enviar'}
-                        className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
-                        {sending
-                            ? <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
-                            : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>}
-                        {sending ? 'Enviando…' : 'Enviar'}
-                    </button>
+                {/* Footer — los canales viven AQUÍ, pegados a ENVIAR: es la última
+                    decisión y la única que habilita el botón, y al final de un
+                    cuerpo largo no se veían. */}
+                <div className="px-5 py-3.5 bg-white/[0.02] border-t border-white/[0.07] flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-2">
+                        <CanalChip
+                            canal="email" nombre="Email"
+                            activo={willEmail} disponible={canEmail}
+                            detalle={`${nEmail} con email`} motivo="sin email"
+                            onClick={() => toggleChannel('email')}
+                        />
+                        <CanalChip
+                            canal="whatsapp" nombre="WhatsApp"
+                            activo={willWhatsapp} disponible={contactPhoneValid && waReady !== false}
+                            detalle={`${nPhone} con teléfono`}
+                            motivo={!contactPhoneValid ? 'sin teléfono' : 'no conectado'}
+                            onClick={() => toggleChannel('whatsapp')}
+                        />
+                    </div>
+                    <div className="flex items-center gap-2.5 shrink-0">
+                        {/* Aquí, además del canal, puede faltar el DOCUMENTO. */}
+                        <span className={`text-[9px] font-bold uppercase tracking-widest whitespace-nowrap ${(avisoCanal || !docs.filter(k => !bloqueos[k]).length) ? 'text-amber-400/80' : 'text-white/25'}`}>
+                            {!docs.filter(k => !bloqueos[k]).length ? 'Elige documento' : (avisoCanal || `${selectedContacts.length} dest.`)}
+                        </span>
+                        <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all">
+                            Cerrar
+                        </button>
+                        <button onClick={handleSend} disabled={sending || busy === 'download' || busy === 'drive' || (!willEmail && !willWhatsapp) || !docs.filter(k => !bloqueos[k]).length}
+                            title={!docs.filter(k => !bloqueos[k]).length ? 'Selecciona al menos un documento' : (avisoCanal || 'Enviar')}
+                            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+                            {sending
+                                ? <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
+                                : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>}
+                            {sending ? 'Enviando…' : 'Enviar'}
+                        </button>
+                    </div>
                 </div>
 
                 {/* ── OVERLAY DE ENVÍO (wow): enviando → enviado, estado por canal ── */}

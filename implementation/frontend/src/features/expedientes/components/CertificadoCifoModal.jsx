@@ -11,6 +11,8 @@ import { esTermoElectrico, esAcumuladorAcs } from '../logic/aerotermiaUnits';
 // calor, no una por hueco. FUENTE ÚNICA con las rutas y con cifoService.
 import { resolveFichaSlots, ftAttachmentSlots, ftSlotId, ftTypeFromSlotId } from '../logic/fichasTecnicas';
 import { postEmail } from '../../../utils/emailFallback';
+// Canal de envío de la barra inferior — COMPARTIDO con los otros popups de envío.
+import { CanalChip, avisoCanales } from '../../../components/CanalChip';
 // FUENTE ÚNICA del documento CIFO (derivación + HTML + CSS). El mismo módulo lo
 // consume el backend (cifoService.js) por import() dinámico, así que el PDF sale
 // idéntico por app y por generación automática. NO dupliques la maquetación aquí.
@@ -57,6 +59,19 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     // ── Envío del CIFO al instalador (contacto + plantilla + Email/WhatsApp) ──
     const [sendOpen, setSendOpen] = useState(false);
     const [waReady, setWaReady] = useState(null);                 // null = sin comprobar
+    // El estado de WhatsApp se consultaba UNA vez, al abrir el popup. La sesión
+    // del servidor se cae y vuelve sola (cada deploy la reinicia y tarda unos
+    // minutos), así que el canal se quedaba muerto hasta cerrar y reabrir, con
+    // WhatsApp ya disponible. Se reintenta SOLO mientras conste caído.
+    useEffect(() => {
+        if (!sendOpen || waReady !== false) return;
+        const t = setInterval(() => {
+            axios.get('/api/whatsapp/status')
+                .then(r => { if (r.data?.ready) setWaReady(true); })
+                .catch(() => { });
+        }, 10000);
+        return () => clearInterval(t);
+    }, [sendOpen, waReady]);
     const [selectedIds, setSelectedIds] = useState([]);          // varios destinatarios
     const [manualContact, setManualContact] = useState({ name: '', phone: '', email: '' });
     const [templateKey, setTemplateKey] = useState('primera');   // 'primera' | 'requerimiento' | 'correccion'
@@ -1094,6 +1109,12 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     const nEmail = selectedContacts.filter(c => c.email).length;
     const nPhone = selectedContacts.filter(c => phoneValid(c.phone)).length;
     const sending = sendingEmail || sendingWhatsapp;
+    // Por qué no se puede enviar (null = se puede). FUENTE ÚNICA con los demás
+    // popups de envío: un botón apagado sin explicación se lee como una avería.
+    const avisoCanal = avisoCanales({
+        nDest: selectedContacts.length, canEmail, hayTelefono: contactPhoneValid,
+        waReady, willEmail, willWhatsapp,
+    });
 
     // Lluvia de "papeles/documentos" al completar el envío: usamos emojis de
     // documento como formas de confeti (shapeFromText). Caída suave tipo papel.
@@ -1336,7 +1357,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                 {/* ── MODAL ENVÍO AL INSTALADOR (contacto + plantilla + canal) ── */}
                 {sendOpen && (
                     <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-lg md:max-w-3xl overflow-hidden" onClick={e => e.stopPropagation()}>
                             {/* Header */}
                             <div className="px-6 py-5 border-b border-white/[0.07] bg-brand/5 flex items-center justify-between">
                                 <div>
@@ -1434,35 +1455,6 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                                     <p className="text-[10px] text-white/30 mt-2">🔗 El mensaje incluye el enlace único para subir el CIFO firmado.</p>
                                 </div>
 
-                                {/* Canal de envío (email / whatsapp / ambos) */}
-                                <div>
-                                    <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Enviar por</label>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        {/* Email */}
-                                        <button type="button" disabled={!canEmail} onClick={() => toggleChannel('email')}
-                                            className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all ${!canEmail ? 'opacity-40 cursor-not-allowed border-white/10 bg-white/[0.02]' : (channels.email ? 'border-brand/50 bg-brand/10' : 'border-white/10 bg-white/[0.02] hover:border-white/20')}`}>
-                                            <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${willEmail ? 'border-brand bg-brand' : 'border-white/20'}`}>
-                                                {willEmail && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
-                                            </span>
-                                            <div className="min-w-0">
-                                                <div className="text-[11px] font-black uppercase tracking-wider text-white">Email</div>
-                                                <div className="text-[10px] text-white/40 truncate">{canEmail ? `${nEmail} con email` : 'sin email'}</div>
-                                            </div>
-                                        </button>
-                                        {/* WhatsApp */}
-                                        <button type="button" disabled={!contactPhoneValid || waReady === false} onClick={() => toggleChannel('whatsapp')}
-                                            className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all ${(!contactPhoneValid || waReady === false) ? 'opacity-40 cursor-not-allowed border-white/10 bg-white/[0.02]' : (channels.whatsapp ? 'border-emerald-400/50 bg-emerald-400/10' : 'border-white/10 bg-white/[0.02] hover:border-white/20')}`}>
-                                            <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${willWhatsapp ? 'border-emerald-400 bg-emerald-400' : 'border-white/20'}`}>
-                                                {willWhatsapp && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
-                                            </span>
-                                            <div className="min-w-0">
-                                                <div className="text-[11px] font-black uppercase tracking-wider text-white">WhatsApp</div>
-                                                <div className="text-[10px] text-white/40 truncate">{!contactPhoneValid ? 'sin teléfono' : (waReady === false ? 'no conectado' : `${nPhone} con teléfono`)}</div>
-                                            </div>
-                                        </button>
-                                    </div>
-                                </div>
-
                                 {sendStatus && (
                                     <p className={`text-[11px] ${sendStatus.ok ? 'text-emerald-400' : 'text-red-400'}`}>
                                         {sendStatus.ok ? '✅' : '❌'} {sendStatus.text}
@@ -1470,19 +1462,41 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                                 )}
                             </div>
 
-                            {/* Footer */}
-                            <div className="px-6 py-4 bg-white/[0.02] border-t border-white/[0.07] flex items-center justify-end gap-3">
-                                <button onClick={() => setSendOpen(false)} className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all">
-                                    Cerrar
-                                </button>
-                                <button onClick={doSend} disabled={sending || (!willEmail && !willWhatsapp)}
-                                    title={(!willEmail && !willWhatsapp) ? 'Selecciona al menos un canal disponible' : 'Enviar'}
-                                    className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
-                                    {sending
-                                        ? <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
-                                        : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>}
-                                    {sending ? 'Enviando…' : 'Enviar'}
-                                </button>
+                            {/* Footer — los canales viven AQUÍ, pegados a ENVIAR: es la
+                                última decisión y la única que habilita el botón, y al
+                                final de un cuerpo largo no se veían. */}
+                            <div className="px-5 py-3.5 bg-white/[0.02] border-t border-white/[0.07] flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="flex items-center gap-2">
+                                    <CanalChip
+                                        canal="email" nombre="Email"
+                                        activo={willEmail} disponible={canEmail}
+                                        detalle={`${nEmail} con email`} motivo="sin email"
+                                        onClick={() => toggleChannel('email')}
+                                    />
+                                    <CanalChip
+                                        canal="whatsapp" nombre="WhatsApp"
+                                        activo={willWhatsapp} disponible={contactPhoneValid && waReady !== false}
+                                        detalle={`${nPhone} con teléfono`}
+                                        motivo={!contactPhoneValid ? 'sin teléfono' : 'no conectado'}
+                                        onClick={() => toggleChannel('whatsapp')}
+                                    />
+                                </div>
+                                <div className="flex items-center gap-2.5 shrink-0">
+                                    <span className={`text-[9px] font-bold uppercase tracking-widest whitespace-nowrap ${avisoCanal ? 'text-amber-400/80' : 'text-white/25'}`}>
+                                        {avisoCanal || `${selectedContacts.length} dest.`}
+                                    </span>
+                                    <button onClick={() => setSendOpen(false)} className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all">
+                                        Cerrar
+                                    </button>
+                                    <button onClick={doSend} disabled={sending || (!willEmail && !willWhatsapp)}
+                                        title={avisoCanal || 'Enviar'}
+                                        className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+                                        {sending
+                                            ? <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
+                                            : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>}
+                                        {sending ? 'Enviando…' : 'Enviar'}
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>

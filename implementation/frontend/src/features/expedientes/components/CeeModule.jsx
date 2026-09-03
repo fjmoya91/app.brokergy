@@ -16,6 +16,8 @@ import { demandaPropuesta, compararDemanda, esperaDemandaMenor } from '../logic/
 import { DemandaPropuestaPanel } from './DemandaPropuestaInfo';
 import { fireSuccessConfetti } from '../utils/successConfetti';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
+// Canal de envío de la barra inferior — COMPARTIDO con los popups de envío.
+import { CanalChip } from '../../../components/CanalChip';
 
 // ─── Componentes de Celda ──────────────────────────────────────────────────
 function TableCell({ value, onChange, readOnly, type = 'number', highlight = false }) {
@@ -1262,7 +1264,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
             {/* ─── Popup de validación CEE (approve-cee) ─────────────────── */}
             {showApprovePopup && (
                 <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in max-md:items-end" onClick={() => { if (!approveLoading) setShowApprovePopup(false); }}>
-                    <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md md:max-w-2xl w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar max-md:mx-0 max-md:p-0 max-md:rounded-b-none max-md:rounded-t-3xl max-md:max-h-[92dvh] max-md:flex max-md:flex-col max-md:overflow-hidden" onClick={e => e.stopPropagation()}>
+                    <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md md:max-w-3xl w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar max-md:mx-0 max-md:p-0 max-md:rounded-b-none max-md:rounded-t-3xl max-md:max-h-[92dvh] max-md:flex max-md:flex-col max-md:overflow-hidden" onClick={e => e.stopPropagation()}>
                         {approveResult ? (
                             <div className="text-center py-4 max-md:px-5 max-md:py-8">
                                 <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 border ${approveResult.type === 'ok' ? 'bg-emerald-500/20 border-emerald-500/30' : 'bg-red-500/20 border-red-500/30'}`}>
@@ -1320,38 +1322,10 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                     >🚨 Urgente</button>
                                 </div>
 
-                                {/* Canales */}
-                                <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Canales</p>
-                                <div className="flex gap-2 mb-5">
-                                    {[
-                                        { id: 'email', label: 'Email', icon: '✉️' },
-                                        { id: 'whatsapp', label: 'WhatsApp', icon: '💬' }
-                                    ].map(ch => (
-                                        <button
-                                            key={ch.id}
-                                            type="button"
-                                            onClick={() => setApproveChannels(prev => prev.includes(ch.id) ? prev.filter(c => c !== ch.id) : [...prev, ch.id])}
-                                            disabled={approveLoading}
-                                            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
-                                                approveChannels.includes(ch.id)
-                                                    ? ch.id === 'whatsapp'
-                                                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                                                        : 'bg-brand/10 border-brand/30 text-brand'
-                                                    : 'border-white/5 text-white/20 hover:text-white/40'
-                                            }`}
-                                        >
-                                            {/* En móvil, el número/email al que va el mensaje se lee
-                                                AQUÍ: comprobarlo es justo lo que se hace antes de
-                                                pulsar. En escritorio la píldora no cambia. */}
-                                            <span className="flex flex-col items-center leading-tight">
-                                                <span><span>{ch.icon}</span> {ch.label}</span>
-                                                <span className="hidden max-md:block text-[9px] font-bold normal-case tracking-normal opacity-70 max-w-[130px] truncate">
-                                                    {(ch.id === 'whatsapp' ? selectedCertTel : selectedCertEmail) || 'no consta en su ficha'}
-                                                </span>
-                                            </span>
-                                        </button>
-                                    ))}
-                                </div>
+                                {/* Los CANALES ya no están aquí: viven en la barra inferior,
+                                    pegados al botón de validar. Eran lo primero del cuerpo y
+                                    el botón lo último, así que había que recorrer el popup
+                                    entero —mensaje incluido— para ver con qué se enviaba. */}
 
                                 {/* Adjuntar los archivos del CEE al email (opcional) */}
                                 {approveChannels.includes('email') && (
@@ -1440,16 +1414,46 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
 
                                 </div>
 
-                                <div className="flex gap-3 max-md:shrink-0 max-md:px-5 max-md:pt-3 max-md:border-t max-md:border-white/[0.06] max-md:pb-[calc(1rem+env(safe-area-inset-bottom))]">
+                                {/* Barra inferior: los canales, y pegado a ellos lo único
+                                    irreversible. El email y el teléfono a los que va el
+                                    mensaje se leen DENTRO de la píldora del canal —
+                                    comprobarlos es justo lo que se hace antes de pulsar. */}
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between max-md:shrink-0 max-md:px-5 max-md:pt-3 max-md:border-t max-md:border-white/[0.06] max-md:pb-[calc(1rem+env(safe-area-inset-bottom))]">
+                                    <div className="flex items-center gap-2">
+                                        <CanalChip
+                                            canal="email" nombre="Email"
+                                            activo={approveChannels.includes('email')}
+                                            disponible={!!selectedCertEmail}
+                                            detalle={selectedCertEmail}
+                                            motivo="no consta en su ficha"
+                                            bloqueado={approveLoading}
+                                            onClick={() => setApproveChannels(prev => prev.includes('email') ? prev.filter(c => c !== 'email') : [...prev, 'email'])}
+                                        />
+                                        <CanalChip
+                                            canal="whatsapp" nombre="WhatsApp"
+                                            activo={approveChannels.includes('whatsapp')}
+                                            disponible={!!selectedCertTel}
+                                            detalle={selectedCertTel}
+                                            motivo="no consta en su ficha"
+                                            bloqueado={approveLoading}
+                                            onClick={() => setApproveChannels(prev => prev.includes('whatsapp') ? prev.filter(c => c !== 'whatsapp') : [...prev, 'whatsapp'])}
+                                        />
+                                    </div>
+                                    <div className="flex gap-3 shrink-0">
+                                    {/* Sin email NI teléfono no hay nada que marcar: hay que
+                                        decirlo, porque el botón solo sabe pedir un canal. */}
+                                    {!selectedCertEmail && !selectedCertTel && (
+                                        <span className="self-center text-[9px] font-bold uppercase tracking-widest text-amber-400/80 whitespace-nowrap">Sin email ni teléfono</span>
+                                    )}
                                     <button
                                         onClick={() => setShowApprovePopup(false)}
                                         disabled={approveLoading}
-                                        className="flex-1 py-2.5 max-md:py-3.5 rounded-xl border border-white/10 text-white/50 text-[11px] font-black uppercase tracking-widest hover:text-white hover:border-white/20 transition-all"
+                                        className="flex-1 sm:flex-none px-4 py-2.5 max-md:py-3.5 rounded-xl border border-white/10 text-white/50 text-[11px] font-black uppercase tracking-widest hover:text-white hover:border-white/20 transition-all"
                                     >Cancelar</button>
                                     <button
                                         onClick={handleApproveConfirm}
                                         disabled={approveLoading || approveChannels.length === 0}
-                                        className={`flex-1 py-2.5 text-[11px] font-black uppercase tracking-widest rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 ${
+                                        className={`flex-1 sm:flex-none px-5 py-2.5 text-[11px] font-black uppercase tracking-widest rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 ${
                                             approvePriority === 'urgent'
                                                 ? 'bg-red-500 text-white shadow-red-500/30'
                                                 : 'bg-emerald-500 text-black shadow-emerald-500/20'
@@ -1461,6 +1465,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                             ? 'Selecciona un canal'
                                             : `${approvePriority === 'urgent' ? '🚨 Validar URGENTE y enviar ' : '✅ Validar y enviar '}${approveChannels.map(c => c === 'email' ? 'Email' : 'WhatsApp').join(' + ')}`)}
                                     </button>
+                                    </div>
                                 </div>
                             </>
                         )}
@@ -1476,7 +1481,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                         asignas, UN solo eje de scroll y los dos botones pegados abajo
                         respetando el área segura. Con el popup centrado, el teclado al
                         editar el mensaje dejaba el botón de enviar fuera de la pantalla. */}
-                    <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md md:max-w-2xl w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto max-md:mx-0 max-md:p-0 max-md:rounded-b-none max-md:rounded-t-3xl max-md:max-h-[92dvh] max-md:flex max-md:flex-col max-md:overflow-hidden" onClick={e => e.stopPropagation()}>
+                    <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md md:max-w-3xl w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto max-md:mx-0 max-md:p-0 max-md:rounded-b-none max-md:rounded-t-3xl max-md:max-h-[92dvh] max-md:flex max-md:flex-col max-md:overflow-hidden" onClick={e => e.stopPropagation()}>
                                 <div className="flex items-center gap-3 mb-5 max-md:shrink-0 max-md:mb-0 max-md:px-5 max-md:pt-4 max-md:pb-3 max-md:border-b max-md:border-white/[0.06]">
                                     <div className="w-10 h-10 rounded-full bg-brand/20 flex items-center justify-center shrink-0">
                                         <svg className="w-5 h-5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
@@ -1514,44 +1519,9 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                     >🚨 Urgente</button>
                                 </div>
 
-                                {/* Canales de comunicación */}
-                                <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Canales</p>
-                                <div className="flex gap-2 mb-4">
-                                    <button
-                                        type="button"
-                                        onClick={() => setCertChannels(prev => prev.includes('email') ? prev.filter(c => c !== 'email') : [...prev, 'email'])}
-                                        disabled={certNotifLoading}
-                                        className={`flex-1 flex items-center justify-center gap-2 py-2 max-md:py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
-                                            certChannels.includes('email')
-                                                ? 'bg-brand/10 border-brand/30 text-brand'
-                                                : 'border-white/5 text-white/20 hover:text-white/40'
-                                        }`}
-                                    >
-                                        <span className="flex flex-col items-center leading-tight">
-                                            <span>✉️ Email</span>
-                                            <span className="hidden max-md:block text-[9px] font-bold normal-case tracking-normal opacity-70 max-w-[130px] truncate">
-                                                {selectedCertEmail || 'no consta en su ficha'}
-                                            </span>
-                                        </span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setCertChannels(prev => prev.includes('whatsapp') ? prev.filter(c => c !== 'whatsapp') : [...prev, 'whatsapp'])}
-                                        disabled={certNotifLoading}
-                                        className={`flex-1 flex items-center justify-center gap-2 py-2 max-md:py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
-                                            certChannels.includes('whatsapp')
-                                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                                                : 'border-white/5 text-white/20 hover:text-white/40'
-                                        }`}
-                                    >
-                                        <span className="flex flex-col items-center leading-tight">
-                                            <span>💬 WhatsApp</span>
-                                            <span className="hidden max-md:block text-[9px] font-bold normal-case tracking-normal opacity-70 max-w-[130px] truncate">
-                                                {selectedCertTel || 'no consta en su ficha'}
-                                            </span>
-                                        </span>
-                                    </button>
-                                </div>
+                                {/* Los CANALES viven en la barra inferior, junto al botón:
+                                    mismo criterio que el popup de validar, y son los dos
+                                    popups del mismo interlocutor. */}
 
                                 {/* Mensaje al certificador (previsualización editable, homogéneo con el popup de la campana) */}
                                 <div className="flex items-center justify-between mb-2">
@@ -1595,16 +1565,40 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
 
                                 </div>
 
-                                <div className="flex gap-3 max-md:shrink-0 max-md:px-5 max-md:pt-3 max-md:pb-4 max-md:border-t max-md:border-white/[0.06] max-md:pb-[calc(1rem+env(safe-area-inset-bottom))]">
+                                {/* Barra inferior: los canales y, pegado a ellos, lo único
+                                    irreversible. El email y el teléfono se leen DENTRO de
+                                    la píldora de cada canal. */}
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between max-md:shrink-0 max-md:px-5 max-md:pt-3 max-md:pb-4 max-md:border-t max-md:border-white/[0.06] max-md:pb-[calc(1rem+env(safe-area-inset-bottom))]">
+                                    <div className="flex items-center gap-2">
+                                        <CanalChip
+                                            canal="email" nombre="Email"
+                                            activo={certChannels.includes('email')}
+                                            disponible={!!selectedCertEmail}
+                                            detalle={selectedCertEmail}
+                                            motivo="no consta en su ficha"
+                                            bloqueado={certNotifLoading}
+                                            onClick={() => setCertChannels(prev => prev.includes('email') ? prev.filter(c => c !== 'email') : [...prev, 'email'])}
+                                        />
+                                        <CanalChip
+                                            canal="whatsapp" nombre="WhatsApp"
+                                            activo={certChannels.includes('whatsapp')}
+                                            disponible={!!selectedCertTel}
+                                            detalle={selectedCertTel}
+                                            motivo="no consta en su ficha"
+                                            bloqueado={certNotifLoading}
+                                            onClick={() => setCertChannels(prev => prev.includes('whatsapp') ? prev.filter(c => c !== 'whatsapp') : [...prev, 'whatsapp'])}
+                                        />
+                                    </div>
+                                    <div className="flex gap-3 shrink-0">
                                     <button
                                         onClick={() => handleCertConfirm(false)}
                                         disabled={certNotifLoading}
-                                        className="flex-1 py-2.5 max-md:py-3.5 rounded-xl border border-white/10 text-white/50 text-[11px] font-black uppercase tracking-widest hover:text-white hover:border-white/20 transition-all"
+                                        className="flex-1 sm:flex-none px-4 py-2.5 max-md:py-3.5 rounded-xl border border-white/10 text-white/50 text-[11px] font-black uppercase tracking-widest hover:text-white hover:border-white/20 transition-all"
                                     >Solo asignar</button>
                                     <button
                                         onClick={() => handleCertConfirm(true)}
                                         disabled={certNotifLoading}
-                                        className={`flex-1 py-2.5 max-md:py-3.5 rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 ${
+                                        className={`flex-1 sm:flex-none px-5 py-2.5 max-md:py-3.5 rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 ${
                                             certPriority === 'urgent'
                                                 ? 'bg-red-500 text-white shadow-red-500/30'
                                                 : 'bg-brand text-black'
@@ -1614,6 +1608,7 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                             <><div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin"></div> Enviando...</>
                                         ) : (certPriority === 'urgent' ? '🚨 Asignar y avisar URGENTE' : 'Asignar y notificar')}
                                     </button>
+                                    </div>
                                 </div>
                     </div>
                 </div>
