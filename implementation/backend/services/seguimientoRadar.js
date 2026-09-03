@@ -104,6 +104,8 @@ const FASES = [
     { key: 'cee_final',   scope: 'final',   label: 'CEE final' },
 ];
 
+const ts = (v) => { const t = Date.parse(v || ''); return Number.isNaN(t) ? 0 : t; };
+
 const dias = (iso) => {
     if (!iso) return null;
     const t = Date.parse(iso);
@@ -236,7 +238,12 @@ function detectarFirmaPendiente(e, out) {
     const porFirmante = new Map();     // 'CLIENTE'|'INSTALADOR' → { docs[], desde, d }
 
     for (const [which, spec] of Object.entries(BORRADORES_CLIENTE)) {
-        if (e[`${which}_signed`]) continue;                  // ya volvió firmado
+        // Tener un firmado no cierra la tarea si se la hemos vuelto a pedir: tras un
+        // requerimiento el CIFO se corrige y hay que firmarlo otra vez, y el firmado
+        // que guardamos es de la versión anterior. Sin esto, el reenvío de una
+        // re-firma no lo vigilaba nadie (mismo criterio que `estadoInstalador`).
+        const refirmaCifo = which === 'cert_cifo' && ts(e.cert_cifo_refirma) > ts(e.cert_cifo_signed_ts);
+        if (e[`${which}_signed`] && !refirmaCifo) continue;  // ya volvió firmado
         const enviado = e[`${which}_sent`];
         if (!enviado) continue;                              // nunca se envió
         // Un rechazado sin reenviar sale en su propio bloque (más grave): allí el
@@ -399,6 +406,8 @@ async function escanear(opts = {}) {
             anexo_cesion_at:documentacion->>anexo_cesion_drive_at,
             cert_cifo_sent:documentacion->>cert_cifo_sent_at,
             cert_cifo_signed:documentacion->>cert_cifo_signed_link,
+            cert_cifo_signed_ts:documentacion->>cert_cifo_signed_at,
+            cert_cifo_refirma:documentacion->>cert_cifo_refirma_at,
             cert_cifo_at:documentacion->>cert_cifo_drive_at,
             docs_rechazados:documentacion->docs_rechazados,
             recordatorios:documentacion->recordatorios

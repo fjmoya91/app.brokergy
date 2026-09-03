@@ -166,7 +166,9 @@ export function SubirInstaladorView({ expedienteId }) {
                                             <span className="block text-[9px] font-black uppercase tracking-[0.2em] text-white/25 mb-0.5">
                                                 {pendientes.length > 1 ? `Tarea ${i + 1} de ${pendientes.length}` : 'Pendiente'}
                                             </span>
-                                            <span className="block text-sm font-black text-white leading-tight">{meta.titulo}</span>
+                                            <span className="block text-sm font-black text-white leading-tight">
+                                                {t.refirma ? 'Firmar de nuevo el Certificado CIFO' : meta.titulo}
+                                            </span>
                                             <span className="block text-[11px] text-white/40 mt-0.5">{t.aviso || meta.resumen}</span>
                                         </span>
                                         <svg className={`w-5 h-5 shrink-0 text-white/30 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
@@ -174,7 +176,7 @@ export function SubirInstaladorView({ expedienteId }) {
                                     {open && (
                                         <div className="px-5 pb-5 pt-1 animate-fade-in">
                                             {t.key === 'cifo'
-                                                ? <FirmarCifoCard expedienteId={expedienteId} info={{ ...info, bloqueado: t.bloqueado, rechazo: t.rechazo }} onDone={load} />
+                                                ? <FirmarCifoCard expedienteId={expedienteId} info={{ ...info, bloqueado: t.bloqueado, rechazo: t.rechazo, refirma: t.refirma }} onDone={load} />
                                                 : <SubirRiteCard expedienteId={expedienteId} info={t} onDone={load} pideMemoria={!!t.pide_memoria} />}
                                         </div>
                                     )}

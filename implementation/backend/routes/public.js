@@ -1654,11 +1654,17 @@ router.get('/cifo-upload/:expedienteId', async (req, res) => {
         // CIFO rechazado y todavía sin corregir: la página no ofrece la firma. Si no,
         // el instalador vuelve al enlace del email y firma otra vez el mismo PDF malo.
         const rechazo = rechazoBorrador(exp.documentacion || {}, 'cert_cifo');
+        // El enlace suelto sigue vivo (viaja en mensajes ya enviados), así que tiene
+        // que decir lo MISMO que /instalador/:id: si le hemos vuelto a pedir la
+        // firma, aquí también se avisa de que la versión anterior queda anulada.
+        const { estadoInstalador } = await loadInstaladorPendientes();
+        const estCifo = estadoInstalador(exp.documentacion || {}).cifo;
 
         res.json({
             numero_expediente: exp.numero_expediente,
             cliente: [exp.clientes?.nombre_razon_social, exp.clientes?.apellidos].filter(Boolean).join(' ') || '—',
             instalador: instaladorNombre,
+            refirma: estCifo.refirma,
             bloqueado: !!rechazo?.obsoleto,
             rechazo: rechazo ? { label: rechazo.label, motivo: rechazo.motivo, at: rechazo.at, preparando: rechazo.obsoleto } : null,
         });
@@ -1777,8 +1783,17 @@ router.post('/cifo-upload/:expedienteId', upload.single('cifo'), async (req, res
         // Guardar link + versión (mismo campo cert_cifo_signed_link que usa DocumentacionModule).
         // Si el CIFO anterior ya estaba validado (verde), esta versión nueva lo devuelve
         // a ámbar: hay que revisarla y validarla para que sustituya a la de auditoría.
+        // `cert_cifo_signed_at` sella CUÁNDO nos llegó esta firma y
+        // `cert_cifo_refirma_at: null` cierra la petición de volver a firmar: si se
+        // quedara puesta, la página seguiría pidiendo una firma que ya tenemos.
         const docActualizado = invalidarValidacionDocs(
-            { ...currentDoc, cert_cifo_signed_link: fileLink, cert_cifo_rev: rev },
+            {
+                ...currentDoc,
+                cert_cifo_signed_link: fileLink,
+                cert_cifo_rev: rev,
+                cert_cifo_signed_at: new Date().toISOString(),
+                cert_cifo_refirma_at: null,
+            },
             'cert_cifo_signed_link',
             { usuario: instaladorNombre !== '—' ? instaladorNombre : 'INSTALADOR', origen: 'subida por el instalador' }
         );
@@ -1859,7 +1874,14 @@ router.get('/instalador/:expedienteId', async (req, res) => {
                 hecho: est.cifo.recibido,
                 bloqueado: !!rechazo?.obsoleto,
                 rechazo: rechazo ? { label: rechazo.label, motivo: rechazo.motivo, at: rechazo.at } : null,
-                aviso: rechazo?.obsoleto ? 'Lo estamos corrigiendo — te avisaremos' : null,
+                // Ya nos firmó una versión y le hemos pedido la firma otra vez: se
+                // le dice, o la página parece estar pidiéndole algo que ya hizo.
+                refirma: est.cifo.refirma,
+                aviso: rechazo?.obsoleto
+                    ? 'Lo estamos corrigiendo — te avisaremos'
+                    : est.cifo.refirma
+                        ? 'Ya nos firmaste una versión anterior. Este documento se ha actualizado y hay que firmarlo de nuevo.'
+                        : null,
             });
         }
         // El RITE se le pide siempre: es suyo por definición. La memoria firmada

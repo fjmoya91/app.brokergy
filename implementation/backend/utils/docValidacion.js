@@ -98,15 +98,15 @@ function invalidarValidacionDocs(documentacion, campos, opts = {}) {
 const BORRADORES_CLIENTE = {
     anexo_i: {
         draft: 'anexo_i_drive_link', sent: 'anexo_i_sent_at', at: 'anexo_i_drive_at',
-        signed: 'anexo_i_signed_link', label: 'Anexo I',
+        signed: 'anexo_i_signed_link', signedAt: 'anexo_i_signed_at', label: 'Anexo I',
     },
     anexo_cesion: {
         draft: 'anexo_cesion_drive_link', sent: 'anexo_cesion_sent_at', at: 'anexo_cesion_drive_at',
-        signed: 'anexo_cesion_signed_link', label: 'Anexo de Cesión de Ahorros',
+        signed: 'anexo_cesion_signed_link', signedAt: 'anexo_cesion_signed_at', label: 'Anexo de Cesión de Ahorros',
     },
     cert_cifo: {
         draft: 'cert_cifo_drive_link', sent: 'cert_cifo_sent_at', at: 'cert_cifo_drive_at',
-        signed: 'cert_cifo_signed_link', label: 'Certificado de Instalación (CIFO)',
+        signed: 'cert_cifo_signed_link', signedAt: 'cert_cifo_signed_at', label: 'Certificado de Instalación (CIFO)',
     },
 };
 

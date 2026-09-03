@@ -102,6 +102,22 @@ export function FirmarCifoCard({ expedienteId, info, onDone, compacta = false })
 
     return (
         <div className="space-y-5">
+            {/* Ya nos firmó una versión y hay que firmar otra. Se dice ARRIBA y con
+                el porqué: sin eso, quien ya firmó da por hecho que el enlace se ha
+                quedado colgado y no vuelve a firmar. Y se avisa de que el documento
+                que sale aquí es el bueno — el del correo anterior ya no vale. */}
+            {info?.refirma && (
+                <div className="rounded-2xl border border-amber-500/25 bg-amber-500/[0.07] p-4 flex gap-3">
+                    <svg className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                    <p className="text-[13px] leading-relaxed text-amber-200/90">
+                        <strong className="text-amber-300">Hay que volver a firmarlo.</strong> Ya nos firmaste una
+                        versión anterior de este certificado, pero el documento se ha actualizado.
+                        El que se firma desde aquí es el <strong className="text-white">bueno</strong>: la versión
+                        anterior queda anulada.
+                    </p>
+                </div>
+            )}
+
             {/* OPCIÓN RECOMENDADA: firmar en el navegador con Autofirma */}
             <div className="rounded-2xl border border-brand/20 bg-brand/[0.04] p-5">
                 <h3 className="text-xs font-black text-brand uppercase tracking-widest flex items-center gap-2 mb-2">
