@@ -1463,7 +1463,10 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                                             <><div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin" />Validando...</>
                                         ) : (approveChannels.length === 0
                                             ? 'Selecciona un canal'
-                                            : `${approvePriority === 'urgent' ? '🚨 Validar URGENTE y enviar ' : '✅ Validar y enviar '}${approveChannels.map(c => c === 'email' ? 'Email' : 'WhatsApp').join(' + ')}`)}
+                                            /* Los canales ya se leen en las píldoras de arriba —
+                                               repetirlos aquí ("Email + WhatsApp") es lo que
+                                               desbordaba el botón. */
+                                            : (approvePriority === 'urgent' ? '🚨 Validar URGENTE' : '✅ Validar y enviar'))}
                                     </button>
                                     </div>
                                 </div>
