@@ -21,6 +21,8 @@
 // dinámico, igual que hace cifoService con cifoDoc.js.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { nombrePila } from '../../../utils/nombres.js';
+
 const present = (v) => v != null && String(v).trim() !== '' && !String(v).includes('___');
 const _ts = (v) => { const t = Date.parse(v || ''); return Number.isNaN(t) ? 0 : t; };
 
@@ -245,16 +247,7 @@ export function otroPendiente(documentacion, doc) {
 // "Otro contacto…" es el rótulo del BOTÓN, no el nombre de nadie: si se marca sin
 // escribir un nombre, el saludo salía literalmente "Hola Otro,". Con un nombre que
 // no lo es, se saluda en genérico.
-const NOMBRE_GENERICO = /^(otro|otro contacto|contacto|destinatario)$/i;
-const primerNombre = (s) => {
-    const v = String(s || '').trim();
-    if (!v || NOMBRE_GENERICO.test(v)) return '';
-    // Se capitaliza: en la ficha los nombres se guardan en MAYÚSCULAS porque el
-    // formulario las fuerza, y "Hola JAVIER," se lee como un grito. Misma regla
-    // que `capitalizar`/`nombrePila` en services/recordatorios.js.
-    const w = v.split(/\s+/)[0] || '';
-    return w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : '';
-};
+const primerNombre = nombrePila;
 
 /**
  * @param {object} o

@@ -7,6 +7,9 @@ import { EnviarPropuestaModal } from './EnviarPropuestaModal';
 import { computeCeeComparison } from '../logic/ceeComparison';
 import { esPresupuestoEstimado, avisoPresupuestoEstimado, lineaPresupuestoEstimado } from '../logic/presupuestoEstimado';
 import { postEmail } from '../../../utils/emailFallback';
+// Los nombres se guardan en MAYÚSCULAS (el formulario las fuerza): en el saludo
+// se escriben bien. FUENTE ÚNICA con el resto de mensajes de la app.
+import { nombrePila } from '../../../utils/nombres';
 
 const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
 
@@ -1536,7 +1539,7 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
             const fAero = f.financials || {};
             const fReforma = f.financialsRes080 || {};
             
-            const firstName = (targetName || '').split(/\s+/)[0] || '';
+            const firstName = nombrePila(targetName);
             const saludo = `¡Hola ${firstName || 'cliente'}!`;
             
             // Flags de tipo de propuesta
@@ -1549,7 +1552,7 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
             if (mode === 'PARTNER') {
                 const partnerName = targetNameOverride || 'Partner';
                 const clientNameForPartner = inputs.referenciaCliente || 'cliente';
-                const fName = partnerName.split(/\s+/)[0];
+                const fName = nombrePila(partnerName) || 'compañeros';
 
                 if (isOnlyReforma) {
                     caption = `¡Hola ${fName}!\n\nTe adjunto la propuesta de ayudas diseñada para vuestro cliente ${clientNameForPartner} (Exp. ${displayId}), donde detallamos los ahorros y subvenciones que puede obtener por Reforma Energética:\n\n🔹 *A modo resumen:*\n\n*Bono Energético:* Gracias al ahorro energético que se produciría en la vivienda tras la reforma, el cliente podría obtener una ayuda de *${formatNumber(Math.round(fReforma.caeBonus || 0))} €* gestionada a través de BROKERGY.\n\nAdemás, si el cliente cumple los requisitos para acogerse a las deducciones en el IRPF por rehabilitación, el importe estimado de estas sería de *${formatNumber(Math.round(fReforma.irpfDeduction || 0))} €*. (Nosotros nos encargamos de toda la justificación técnica necesaria para que pueda solicitarlas con seguridad).\n\n💡 *Resumen total de las ayudas:* El cliente podría recuperar hasta *${formatNumber(Math.round(fReforma.totalAyuda || 0))} €* de su inversión en la reforma energética.\n\nPara avanzar con el proceso, los pasos serían:\n\n• Aceptar el presupuesto de instalación.\n• Aceptar la propuesta técnica adjunta en PDF. Es vital emitir y registrar el Certificado Energético Inicial antes de que pague ninguna factura de la obra para no perder el derecho a las deducciones fiscales.\n\nEl cliente puede firmar la aceptación pulsando en el botón *“✍️ FIRMAR Y ACEPTAR PROPUESTA”* del PDF o directamente aquí:\n🔗 ${APP_URL}/firma/${urlId}\n\nQuedo a vuestra disposición para cualquier duda.\n\nUn saludo,\nFran Moya · BROKERGY`;
@@ -1756,17 +1759,17 @@ info@brokergy.es · 623 926 179`;
             const explica = 'El Bono Energético CAE se calcula sobre el ahorro de energía que refleja el Certificado de Eficiencia Energética (CEE) inicial. Con el CEE que ya se tiene se parte de sus valores; si emitimos nosotros un CEE inicial nuevo antes de la obra, reflejamos el estado real de partida de la vivienda, lo que puede aumentar el ahorro certificado y, por tanto, el bono. La deducción del IRPF es la misma en ambos casos.';
             if (mode === 'PARTNER' || mode === 'INSTALADOR') {
                 const clientNameForPartner = inputs?.referenciaCliente || 'cliente';
-                const pName = (targetName || (mode === 'INSTALADOR' ? 'Instalador' : 'Partner')).split(/\s+/)[0];
+                const pName = nombrePila(targetName) || 'compañeros';
                 return `¡Hola ${pName}!\n\nTe adjunto la simulación de las ayudas para ${clientNameForPartner} (Exp. ${displayId}). Como el cliente ya cuenta con un CEE inicial, hay dos opciones y decide él:\n\n🔹 *Opción A — Con el CEE aportado:*\nBono Energético CAE de *${formatNumber(conCee)} €*.\n\n🔹 *Opción B — Emitiendo un CEE inicial nuevo (BROKERGY):*\nBono Energético CAE de *${formatNumber(ceeNuevo)} €*.\n\n_¿Por qué la diferencia?_ ${explica}\n\nAdemás, si el cliente puede acogerse a las deducciones del IRPF (retenciones aplicables y normativa vigente), el importe estimado sería de *${formatNumber(irpf)} €*, igual en ambas opciones. Dejaremos toda la parte técnica preparada.\n\n💡 *Total de ayudas (bono + IRPF):*\n• Con su CEE: *${formatNumber(conCeeTotal)} €*\n• Con un CEE nuevo: *${formatNumber(ceeNuevoTotal)} €*\n\nPara avanzar, los pasos serían:\n\n• Aceptar el presupuesto de instalación.\n• Indicarnos si usamos el CEE existente o hacemos uno nuevo.\n• Aceptar la propuesta adjunta en PDF para presentar cuanto antes el CEE Inicial antes de que se emita ninguna factura, evitando retrasos.\n\nFirma de aceptación con el botón *"✍️ FIRMAR Y ACEPTAR PROPUESTA"* del PDF o aquí:\n🔗 ${APP_URL}/firma/${urlId}\n\nQuedo a vuestra disposición para cualquier duda.\n\nUn saludo,\nFran Moya · BROKERGY`;
             }
-            const firstName = (targetName || '').split(/\s+/)[0] || '';
+            const firstName = nombrePila(targetName);
             const saludo = `¡Hola ${firstName || 'cliente'}!`;
             return `${saludo}\n\nTal y como acordamos, te adjunto la simulación de las ayudas para tu expediente (Nº ${displayId}). Como ya cuentas con un Certificado de Eficiencia Energética (CEE) inicial, te presento *dos opciones* para que elijas la que prefieras:\n\n🔹 *Opción A — Usando el CEE que nos has aportado:*\nEl Bono Energético CAE sería de *${formatNumber(conCee)} €*.\n\n🔹 *Opción B — Emitiendo nosotros un CEE inicial nuevo:*\nEl Bono Energético CAE sería de *${formatNumber(ceeNuevo)} €* gracias al Bono Energético BROKERGY.\n\n_¿Por qué la diferencia?_ ${explica.replace('ya se tiene', 'nos aportas').replace('la vivienda', 'tu vivienda')} *Tú eliges* qué opción usar.\n\nAdemás, si en tu caso puedes acogerte a las deducciones en el IRPF (por contar con retenciones aplicables y siempre que la normativa esté vigente), el importe estimado sería de *${formatNumber(irpf)} €*, *el mismo en ambas opciones*. Dejaremos toda la parte técnica preparada para que las puedas solicitar.\n\n💡 *Resumen total de las ayudas (bono + IRPF):*\n• Con tu CEE: *${formatNumber(conCeeTotal)} €*\n• Con un CEE nuevo: *${formatNumber(ceeNuevoTotal)} €*\n\nEn caso de conformidad, los siguientes pasos serían:\n\n• Aceptar el presupuesto al instalador (si no lo has aceptado ya).\n• Indicarnos si usamos el CEE existente o hacemos uno nuevo.\n• Aceptar la propuesta que te adjuntamos en PDF para que podamos planificar el trabajo y presentar cuanto antes el Certificado de Eficiencia Energética Inicial antes de que os emitan alguna factura, para que el trámite pueda seguir su curso de manera ágil y sin retrasos.\n\nEl presupuesto lo puedes aceptar pulsando sobre el botón del PDF *"✍️ FIRMAR Y ACEPTAR PROPUESTA"* o bien directamente accediendo a ${APP_URL}/firma/${urlId}\n\nQuedo a tu disposición para cualquier duda o aclaración.\n\nUn saludo, Fran Moya\n\nBROKERGY — Especialistas en Eficiencia Energética\n\n\ninfo@brokergy.es · 623 926 179`;
         }
 
         if (mode === 'PARTNER' || mode === 'INSTALADOR') {
             const clientNameForPartner = inputs?.referenciaCliente || 'cliente';
-            const fName = (targetName || (mode === 'INSTALADOR' ? 'Instalador' : 'Partner')).split(/\s+/)[0];
+            const fName = nombrePila(targetName) || 'compañeros';
             if (isOnlyReforma) {
                 return `¡Hola ${fName}!\n\nTe adjunto la propuesta de ayudas diseñada para vuestro cliente ${clientNameForPartner} (Exp. ${displayId}), donde detallamos los ahorros y subvenciones que puede obtener por Reforma Energética:\n\n🔹 *A modo resumen:*\n\n*Bono Energético:* Gracias al ahorro energético que se produciría en la vivienda tras la reforma, el cliente podría obtener una ayuda de *${formatNumber(Math.round(fReforma.caeBonus || 0))} €* gestionada a través de BROKERGY.\n\nAdemás, si el cliente cumple los requisitos para acogerse a las deducciones en el IRPF por rehabilitación, el importe estimado de estas sería de *${formatNumber(Math.round(fReforma.irpfDeduction || 0))} €*. (Nosotros nos encargamos de toda la justificación técnica necesaria para que pueda solicitarlas con seguridad).\n\n💡 *Resumen total de las ayudas:* El cliente podría recuperar hasta *${formatNumber(Math.round(fReforma.totalAyuda || 0))} €* de su inversión en la reforma energética.\n\nPara avanzar con el proceso, los pasos serían:\n\n• Aceptar el presupuesto de instalación.\n• Aceptar la propuesta técnica adjunta en PDF. Es vital emitir y registrar el Certificado Energético Inicial antes de que pague ninguna factura de la obra para no perder el derecho a las deducciones fiscales.\n\nEl cliente puede firmar la aceptación pulsando en el botón *"✍️ FIRMAR Y ACEPTAR PROPUESTA"* del PDF o directamente aquí:\n🔗 ${APP_URL}/firma/${urlId}\n\nQuedo a vuestra disposición para cualquier duda.\n\nUn saludo,\nFran Moya · BROKERGY`;
             } else if (isBoth) {
@@ -1776,7 +1779,7 @@ info@brokergy.es · 623 926 179`;
             }
         } else {
             // CLIENTE
-            const firstName = (targetName || '').split(/\s+/)[0] || '';
+            const firstName = nombrePila(targetName);
             const saludo = `¡Hola ${firstName || 'cliente'}!`;
             if (isOnlyReforma) {
                 return `${saludo}\n\nTal y como acordamos, te adjunto la simulación de las ayudas para tu expediente de Reforma Energética (Nº ${displayId}), donde detallamos los ahorros y subvenciones que puedes obtener:\n\n🔹 *A modo resumen:*\n\n*Bono Energético:* Gracias al ahorro energético que se produciría en tu vivienda tras la reforma, podrías obtener una ayuda de *${formatNumber(Math.round(fReforma.caeBonus || 0))} €* gestionada a través de BROKERGY.\n\nAdemás, si cumples los requisitos para acogerte a las deducciones en el IRPF por rehabilitación, el importe estimado de estas sería de *${formatNumber(Math.round(fReforma.irpfDeduction || 0))} €*. (Nosotros nos encargamos de toda la justificación técnica necesaria para que puedas solicitarlas con seguridad).\n\n💡 *Resumen total de las ayudas:* Podrías recuperar hasta *${formatNumber(Math.round(fReforma.totalAyuda || 0))} €* de tu inversión en la reforma energética.\n\nSiguientes pasos:\n\n• Revisar y aceptar la propuesta técnica adjunta en PDF.\n• Es vital emitir y registrar el Certificado Energético Inicial antes de que pagues ninguna factura de la obra para no perder el derecho a las deducciones fiscales.\n\nPuedes firmar la aceptación pulsando en el botón del PDF *"✍️ FIRMAR Y ACEPTAR PROPUESTA"* o directamente aquí: ${APP_URL}/firma/${urlId}\n\nQuedo a tu disposición para cualquier duda.\n\nUn saludo, Fran Moya\n\nBROKERGY — Ingeniería Energética`;
