@@ -599,6 +599,10 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     const [partnerInfo, setPartnerInfo] = useState(null);
     const [instaladorInfo, setInstaladorInfo] = useState(null);
     const [clienteInfo, setClienteInfo] = useState(null);
+    // Se incrementa al cerrar la ficha de un contacto editada desde el popup de
+    // envío: releer sus datos es lo que hace que el canal (email/WhatsApp) se
+    // encienda solo en cuanto se rellenan, sin cerrar y volver a abrir.
+    const [contactosRefresh, setContactosRefresh] = useState(0);
     const [recipientSelections, setRecipientSelections] = useState(new Set());
     const [emailChoice, setEmailChoice] = useState(false);
     const [enviarOpen, setEnviarOpen] = useState(false); // popup unificado de envío (homogéneo con anexos)
@@ -693,7 +697,7 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                     })
                     .catch(() => setPartnerInfo({ name: 'Partner', phone: null }));
             });
-    }, [isOpen, inputs?.prescriptor_id]);
+    }, [isOpen, inputs?.prescriptor_id, contactosRefresh]);
 
     useEffect(() => {
         if (!isOpen) { setInstaladorInfo(null); return; }
@@ -715,7 +719,7 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                 });
             })
             .catch(() => setInstaladorInfo({ name: 'Instalador', phone: null, email: null }));
-    }, [isOpen, inputs?.instalador_asociado_id]);
+    }, [isOpen, inputs?.instalador_asociado_id, contactosRefresh]);
 
     // Co-branding de la propuesta: manda el instalador (es quien está delante del cliente);
     // si no hay, el prescriptor que originó la oportunidad.
@@ -762,7 +766,7 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
 
             })
             .catch(() => setClienteInfo({ name, phone: inputs?.tlf_contacto || inputs?.tlf || inputs?.telefono || null }));
-    }, [isOpen, inputs?.cliente_id, inputs?.tlf_contacto, inputs?.tlf, inputs?.telefono, inputs?.referenciaCliente]);
+    }, [isOpen, inputs?.cliente_id, inputs?.tlf_contacto, inputs?.tlf, inputs?.telefono, inputs?.referenciaCliente, contactosRefresh]);
 
     // Ajustar la escala de la vista previa para que quepa en el ancho disponible
     useEffect(() => {
@@ -1974,6 +1978,10 @@ info@brokergy.es · 623 926 179`;
     };
 
     // ── Datos para el popup unificado de envío (EnviarPropuestaModal) ──────────
+    // `entidad` es la ficha que hay que abrir para CORREGIR los datos de contacto
+    // sin salir del popup de envío: pasa a menudo que la propuesta está lista y el
+    // cliente no tiene ni email ni teléfono guardados, y hasta ahora había que
+    // cerrar, ir a su ficha, volver y rehacer el mensaje.
     const propCandidates = (() => {
         const list = [{
             mode: 'CLIENTE',
@@ -1981,11 +1989,14 @@ info@brokergy.es · 623 926 179`;
             sublabel: 'Cliente',
             email: clienteInfo?.email || inputs?.email_contacto || inputs?.email || '',
             phone: clienteInfo?.phone || inputs?.tlf_contacto || inputs?.tlf || inputs?.telefono || '',
+            entidad: inputs?.cliente_id ? { tipo: 'cliente', id: inputs.cliente_id } : null,
         }];
         // `label` = la persona a la que se escribe (interlocutor de notificaciones);
         // `org` = la empresa, que se muestra debajo para no perder de vista quién es.
-        if (partnerInfo) list.push({ mode: 'PARTNER', label: partnerInfo.name || 'Distribuidor', sublabel: 'Distribuidor', org: partnerInfo.org || '', email: partnerInfo.email || '', phone: partnerInfo.phone || '' });
-        if (instaladorInfo) list.push({ mode: 'INSTALADOR', label: instaladorInfo.name || 'Instalador', sublabel: 'Instalador', org: instaladorInfo.org || '', email: instaladorInfo.email || '', phone: instaladorInfo.phone || '' });
+        if (partnerInfo) list.push({ mode: 'PARTNER', label: partnerInfo.name || 'Distribuidor', sublabel: 'Distribuidor', org: partnerInfo.org || '', email: partnerInfo.email || '', phone: partnerInfo.phone || '',
+            entidad: inputs?.prescriptor_id ? { tipo: 'prescriptor', id: inputs.prescriptor_id } : null });
+        if (instaladorInfo) list.push({ mode: 'INSTALADOR', label: instaladorInfo.name || 'Instalador', sublabel: 'Instalador', org: instaladorInfo.org || '', email: instaladorInfo.email || '', phone: instaladorInfo.phone || '',
+            entidad: inputs?.instalador_asociado_id ? { tipo: 'prescriptor', id: inputs.instalador_asociado_id } : null });
         return list;
     })();
 
@@ -3567,6 +3578,10 @@ info@brokergy.es · 623 926 179`;
                 onClose={() => setEnviarOpen(false)}
                 numexpte={displayId}
                 candidates={propCandidates}
+                // Tras corregir la ficha de un contacto desde el propio envío, se
+                // releen sus datos: el canal se enciende solo si ya hay email o
+                // teléfono, sin cerrar el popup ni rehacer el mensaje.
+                onContactoActualizado={() => setContactosRefresh(n => n + 1)}
                 buildDefaultMessage={buildCaption}
                 getPdfHtml={getProposalPdfHtml}
                 getEmailHtml={getProposalEmailHtml}

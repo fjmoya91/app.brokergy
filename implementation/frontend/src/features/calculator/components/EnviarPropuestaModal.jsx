@@ -3,6 +3,11 @@ import axios from 'axios';
 import { fireSuccessConfetti } from '../../expedientes/utils/successConfetti';
 import { postEmail } from '../../../utils/emailFallback';
 import { CanalChip, avisoCanales } from '../../../components/CanalChip';
+// Fichas para CORREGIR los datos de contacto sin salir del envío. Son las mismas
+// que se abren desde Clientes / Red de Prescriptores: aquí no hay un formulario
+// paralelo que pueda guardar cosas distintas.
+import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
+import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Envío unificado de la PROPUESTA al cliente — homogéneo con EnviarAnexosModal /
@@ -76,6 +81,7 @@ export function EnviarPropuestaModal({
     ceeComparisonAvailable = false, // el cliente aportó CEE → ofrecer la variante comparativa
     includeCee = false,             // controlado por el padre (ProposalModal): toggle comparativa CEE
     onIncludeCeeChange,             // (bool) => void — sincroniza el toggle con el PDF
+    onContactoActualizado,          // () => void — el padre relee los contactos tras editarlos
 }) {
     const [selectedModes, setSelectedModes] = useState([]);
     const [manualContact, setManualContact] = useState({ name: '', phone: '', email: '' });
@@ -95,6 +101,29 @@ export function EnviarPropuestaModal({
     const [sendPhase, setSendPhase] = useState(null);   // null | 'sending' | 'done'
     const [sendResults, setSendResults] = useState([]);
     const [busy, setBusy] = useState(false);
+    // Ficha abierta encima del envío para corregir un contacto.
+    //   · cliente     → { tipo:'cliente', id }        (ClienteDetailModal carga por id)
+    //   · prescriptor → { tipo:'prescriptor', ficha } (PrescriptorDetailModal NO carga
+    //     por id: hace `setP(prescriptor)` con lo que le pases, así que hay que
+    //     traerle la ficha ENTERA o abriría un formulario vacío y guardaría nulos
+    //     encima de los datos buenos).
+    const [editando, setEditando] = useState(null);
+    const [abriendoFicha, setAbriendoFicha] = useState(null);   // mode en curso
+
+    const abrirFicha = async (cand) => {
+        const ent = cand.entidad;
+        if (!ent || abriendoFicha) return;
+        if (ent.tipo === 'cliente') { setEditando({ tipo: 'cliente', id: ent.id }); return; }
+        setAbriendoFicha(cand.mode);
+        try {
+            const { data } = await axios.get(`/api/prescriptores/${ent.id}`);
+            setEditando({ tipo: 'prescriptor', ficha: data });
+        } catch {
+            setStatus({ ok: false, text: 'No se pudo abrir la ficha del contacto.' });
+        } finally {
+            setAbriendoFicha(null);
+        }
+    };
     const userEditedRef = useRef(false);
 
     const hasOtro = true; // siempre permitimos un contacto manual
@@ -423,23 +452,42 @@ export function EnviarPropuestaModal({
                             {candidates.map(c => {
                                 const on = selectedModes.includes(c.mode);
                                 return (
-                                    <button key={c.mode} type="button" onClick={() => toggleMode(c.mode)}
-                                        className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${on ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
-                                        <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${on ? 'border-brand bg-brand' : 'border-white/20'}`}>
-                                            {on && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
-                                        </span>
-                                        <div className="min-w-0 flex-1">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-sm font-bold text-white truncate">{c.label}</span>
-                                                <span className="text-[9px] uppercase tracking-wider text-white/30 font-bold shrink-0">{c.sublabel}</span>
+                                    // La fila NO puede ser un solo <button>: dentro va otro
+                                    // (editar la ficha) y un botón no puede anidar botones.
+                                    <div key={c.mode}
+                                        className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all ${on ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
+                                        <button type="button" onClick={() => toggleMode(c.mode)}
+                                            className="flex items-center gap-3 min-w-0 flex-1 text-left">
+                                            <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${on ? 'border-brand bg-brand' : 'border-white/20'}`}>
+                                                {on && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                            </span>
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-sm font-bold text-white truncate">{c.label}</span>
+                                                    <span className="text-[9px] uppercase tracking-wider text-white/30 font-bold shrink-0">{c.sublabel}</span>
+                                                </div>
+                                                {/* La empresa, cuando el destinatario es una persona dentro de ella */}
+                                                {c.org && c.org !== c.label && (
+                                                    <div className="text-[11px] text-white/50 truncate">{c.org}</div>
+                                                )}
+                                                <div className={`text-[11px] truncate ${(!c.phone && !c.email) ? 'text-amber-400/80' : 'text-white/40'}`}>
+                                                    {c.phone || 'sin teléfono'}{c.email ? ` · ${c.email}` : (c.phone ? '' : ' · sin email')}
+                                                </div>
                                             </div>
-                                            {/* La empresa, cuando el destinatario es una persona dentro de ella */}
-                                            {c.org && c.org !== c.label && (
-                                                <div className="text-[11px] text-white/50 truncate">{c.org}</div>
-                                            )}
-                                            <div className="text-[11px] text-white/40 truncate">{c.phone || 'sin teléfono'}{c.email ? ` · ${c.email}` : ''}</div>
-                                        </div>
-                                    </button>
+                                        </button>
+                                        {/* Corregir sus datos sin salir del envío. Sin ficha guardada
+                                            (una simulación sin cliente) no hay nada que abrir: para eso
+                                            está "Otro contacto…". */}
+                                        {c.entidad && (
+                                            <button type="button" onClick={() => abrirFicha(c)} disabled={!!abriendoFicha}
+                                                title={`Editar los datos de ${c.label}`}
+                                                className={`shrink-0 px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${(!c.phone && !c.email)
+                                                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20'
+                                                    : 'border-white/10 text-white/40 hover:text-white hover:border-white/30'}`}>
+                                                {abriendoFicha === c.mode ? '…' : ((!c.phone && !c.email) ? 'Añadir datos' : 'Editar')}
+                                            </button>
+                                        )}
+                                    </div>
                                 );
                             })}
                             {hasOtro && (
@@ -652,6 +700,36 @@ export function EnviarPropuestaModal({
                     );
                 })()}
             </div>
+
+            {/* ── FICHA DEL CONTACTO, ENCIMA DEL ENVÍO ──────────────────────────
+                El popup de envío va a z-[9999] y las fichas a z-[300]: sin este
+                envoltorio quedarían DEBAJO y no se verían. Un `relative z-…` crea
+                contexto de apilamiento y sube todo lo que lleva dentro; no lleva
+                transform, así que el `position: fixed` de la ficha se sigue
+                anclando al viewport (el problema de SendActionOverlay).
+
+                El envío NO se cierra: al cerrar la ficha se releen los contactos
+                (`onContactoActualizado`) y el canal se enciende solo si ya hay
+                email o teléfono — sin rehacer el mensaje que estuvieras editando. */}
+            {editando && (
+                <div className="relative z-[10000]">
+                    {editando.tipo === 'cliente' ? (
+                        <ClienteDetailModal
+                            isOpen
+                            clienteId={editando.id}
+                            onClose={() => { setEditando(null); onContactoActualizado?.(); }}
+                            onUpdated={() => onContactoActualizado?.()}
+                        />
+                    ) : (
+                        <PrescriptorDetailModal
+                            isOpen
+                            prescriptor={editando.ficha}
+                            onClose={() => { setEditando(null); onContactoActualizado?.(); }}
+                            onUpdated={() => onContactoActualizado?.()}
+                        />
+                    )}
+                </div>
+            )}
         </div>
     );
 }
