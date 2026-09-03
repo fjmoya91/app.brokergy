@@ -61,7 +61,30 @@ export function demandaPropuesta(expediente) {
     if (!qm2 && total && superficie) qm2 = total / superficie;
     if (!total && !qm2) return null;
 
-    return { qm2, total, superficie, modo: dc.demandMode || 'estimated' };
+    // ¿La simulación PARTIÓ ya de la demanda del CEE posterior a la obra? Con un
+    // CEE final aportado manda su demanda (regla `demandaDeCalculo`), y entonces
+    // lo que se espera del certificado es que COINCIDA, no que baje. No basta con
+    // `result.desdeCeeFinal` —solo se sella en modo 'real'—: medido en
+    // 26RES080_80, el certificado se cargó en modo 'manual' y el campo llega
+    // vacío aunque q_net sea exactamente la demanda del final (94,7). Por eso se
+    // comprueba además que las dos cifras coincidan.
+    const qm2Final = num(dc.xmlDemandDataFinal?.demandaCalefaccion)
+        || num(dc.inputs?.xmlDemandDataFinal?.demandaCalefaccion);
+    const desdeCeeFinal = result.desdeCeeFinal === true
+        || (qm2Final > 0 && qm2 > 0 && Math.abs(qm2 - qm2Final) <= qm2Final * (HOLGURA_PCT / 100));
+
+    return { qm2, total, superficie, desdeCeeFinal, modo: dc.demandMode || 'estimated' };
+}
+
+/**
+ * ¿Se espera que el certificado de esta fase declare MENOS demanda que la
+ * simulación? Solo en el CEE final de un RES080, donde la actuación mejora la
+ * envolvente — y siempre que la simulación no partiera ya de ese mismo CEE.
+ *
+ * Fuente única: la usan el botón ⓘ de la rejilla y el aviso de subida del .xml.
+ */
+export function esperaDemandaMenor(prop, { section, esReforma } = {}) {
+    return !!esReforma && section === 'final' && !!prop && !prop.desdeCeeFinal;
 }
 
 const delta = (cee, prop) => (prop > 0 ? ((cee - prop) / prop) * 100 : null);
@@ -70,11 +93,20 @@ const delta = (cee, prop) => (prop > 0 ? ((cee - prop) / prop) * 100 : null);
  * Cruza el CEE de una fase con la propuesta. Devuelve los dos desvíos por
  * separado; quién pinta decide el color.
  *
+ * REGLA — en el CEE FINAL de un RES080 lo que se espera es JUSTO LO CONTRARIO.
+ * Allí la actuación toca la ENVOLVENTE, así que la demanda tiene que BAJAR: el
+ * ahorro de la ficha es la diferencia entre el antes y el después. Una demanda
+ * que no baja no es "todo en orden", es la señal de que el certificado no
+ * recoge la mejora —o de que es el anterior—, y con ella el RES080 se queda sin
+ * ahorro que justificar. Por eso `esperaMenor` invierte el criterio de la
+ * demanda; el de la superficie no cambia (la obra no encoge la vivienda).
+ *
  * @param ceeFase  objeto parseado del .xml de esa fase (demandaCalefaccion en
  *                 kWh/m²·año + superficieHabitable en m²)
  * @param prop     lo que devuelve demandaPropuesta()
+ * @param esperaMenor  true en el CEE final de un RES080
  */
-export function compararDemanda(ceeFase, prop) {
+export function compararDemanda(ceeFase, prop, { esperaMenor = false } = {}) {
     if (!prop) return null;
     const qm2 = num(ceeFase?.demandaCalefaccion);
     const sup = num(ceeFase?.superficieHabitable);
@@ -83,16 +115,23 @@ export function compararDemanda(ceeFase, prop) {
     const dDemanda = qm2 && prop.qm2 ? delta(qm2, prop.qm2) : null;
     const dSup = sup && prop.superficie ? delta(sup, prop.superficie) : null;
 
+    // `baja` es el HECHO (está por debajo); `alerta`, el JUICIO, que depende de
+    // lo que se espere en esa fase. Se devuelven los dos porque el panel necesita
+    // el hecho para redactar y el juicio para el color.
     const demandaBaja = dDemanda != null && dDemanda < -HOLGURA_PCT;
     const supBaja = dSup != null && dSup < -HOLGURA_PCT;
+    const demandaAlerta = dDemanda == null ? false
+        : esperaMenor ? !demandaBaja   // debía bajar y no ha bajado
+        : demandaBaja;
 
     return {
-        demanda: { prop: prop.qm2, cee: qm2, deltaPct: dDemanda, baja: demandaBaja },
-        superficie: { prop: prop.superficie, cee: sup, deltaPct: dSup, baja: supBaja },
+        esperaMenor,
+        demanda: { prop: prop.qm2, cee: qm2, deltaPct: dDemanda, baja: demandaBaja, alerta: demandaAlerta },
+        superficie: { prop: prop.superficie, cee: sup, deltaPct: dSup, baja: supBaja, alerta: supBaja },
         // El total sigue calculándose porque es lo que acaba viajando al CIFO,
         // pero es un dato secundario: no decide el aviso.
         total: { prop: prop.total, cee: qm2 && sup ? qm2 * sup : 0 },
-        alerta: demandaBaja || supBaja,
+        alerta: demandaAlerta || supBaja,
     };
 }
 

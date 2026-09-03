@@ -1420,6 +1420,17 @@ debajo de las simuladas, el botón se pone **rojo y parpadea** (`animate-pulse`)
 pulsar nada: sobre esas cifras se le prometió el bono al cliente. Holgura del 2 %, la misma que se
 aplica al comparar el CEE inicial con el final — por debajo de eso son redondeos del `.cex`.
 
+**REGLA — en el CEE FINAL de un RES080 el criterio se INVIERTE.** Allí la actuación toca la
+ENVOLVENTE, así que la demanda tiene que BAJAR: el ahorro de la ficha es la diferencia entre el
+antes y el después. Una demanda que no baja no es "todo en orden", es la señal de que el
+certificado no recoge la mejora —o de que es el anterior—, y con ella el RES080 se queda sin ahorro
+que justificar; así que el aviso salta cuando NO baja (`esperaDemandaMenor`). El criterio de la
+superficie no cambia: la obra no encoge la vivienda.
+⚠️ **Salvo que la simulación PARTIERA ya de ese mismo CEE final**, en cuyo caso lo que se espera es
+que coincida. No basta con `result.desdeCeeFinal` —solo se sella en modo 'real'—: medido en
+26RES080_80, el certificado se cargó en modo 'manual' y el campo llega vacío aunque `q_net` sea
+exactamente la demanda del final (94,7). Por eso se comprueba además que las dos cifras coincidan.
+
 **REGLA — la demanda se compara SIN multiplicar por la superficie, y la superficie aparte.** Son
 dos desvíos con causas distintas —uno habla de la envolvente y el otro de qué se midió— y
 multiplicados se tapan el uno al otro: una demanda un 10 % más baja sobre una superficie un 10 %

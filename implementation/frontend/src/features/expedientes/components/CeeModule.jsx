@@ -12,7 +12,7 @@ import { TecnicoPicker } from './TecnicoPicker';
 import { telefonoDe, emailDe } from '../../../utils/contactoPrescriptor';
 import { MensajeEditable } from './MensajeEditable';
 import { buildCertApproveMessage, buildCertDefaultMessage } from '../logic/certMessages';
-import { demandaPropuesta, compararDemanda } from '../logic/demandaPropuesta';
+import { demandaPropuesta, compararDemanda, esperaDemandaMenor } from '../logic/demandaPropuesta';
 import { DemandaPropuestaPanel } from './DemandaPropuestaInfo';
 import { fireSuccessConfetti } from '../utils/successConfetti';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
@@ -381,7 +381,11 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                 // este popup comparaba solo totales y podía callarse en un certificado
                 // que el botón sí marcaba en rojo — dos veredictos sobre lo mismo.
                 const propDemanda = demandaPropuesta(expediente);
-                const cmpPropuesta = compararDemanda(parsed, propDemanda);
+                const cmpPropuesta = compararDemanda(parsed, propDemanda, {
+                    // En el CEE final de un RES080 la demanda DEBE haber bajado: allí
+                    // el aviso salta cuando NO baja (ver esperaDemandaMenor).
+                    esperaMenor: esperaDemandaMenor(propDemanda, { section: isFinal ? 'final' : 'inicial', esReforma: isReforma }),
+                });
                 const avisoPropuesta = cmpPropuesta?.alerta
                     ? { type: 'propuesta', cmp: cmpPropuesta, prop: propDemanda, section: isFinal ? 'final' : 'inicial' }
                     : null;
@@ -1760,8 +1764,9 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                             <div className="text-center">
                                 <h4 className="text-sm font-black text-white uppercase tracking-widest">
                                     {xmlWarning.type === 'propuesta'
-                                        ? (xmlWarning.cmp.demanda.baja && xmlWarning.cmp.superficie.baja ? 'Demanda y superficie por debajo'
-                                            : xmlWarning.cmp.demanda.baja ? 'Demanda por debajo de la propuesta'
+                                        ? (xmlWarning.cmp.esperaMenor && xmlWarning.cmp.demanda.alerta ? 'La demanda no ha bajado'
+                                            : xmlWarning.cmp.demanda.alerta && xmlWarning.cmp.superficie.alerta ? 'Demanda y superficie por debajo'
+                                            : xmlWarning.cmp.demanda.alerta ? 'Demanda por debajo de la propuesta'
                                             : 'Superficie por debajo de la propuesta') :
                                      xmlWarning.type === 'ahorro' ? 'Ahorro Inferior al Simulado' :
                                      'Demanda CEE Inicial ≠ Final'}
