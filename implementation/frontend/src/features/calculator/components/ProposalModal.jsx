@@ -110,6 +110,20 @@ const baseCss = `
         .prop-h1 { margin: 6px 0 0; padding: 0; font-size: 25px; font-weight: 800; color: var(--dark); letter-spacing: -0.7px; line-height: 1.22; }
         .prop-h1 em { font-style: normal; color: var(--orange); }
         .prop-h1sub { color: var(--g500); font-size: 11px; margin-top: var(--e-h1sub); }
+        /* Foto oficial de fachada del Catastro, junto al titular. Es lo primero que
+           el cliente reconoce —su casa— y de paso confirma que la referencia
+           catastral con la que se ha calculado es la suya.
+
+           La caja va ABSOLUTA y anclada arriba/abajo del bloque de texto, no como
+           columna de un flex: así toma exactamente su altura sin poder aumentarla
+           —una foto apaisada estirada a 218px de ancho arrastraría la fila a 218px
+           de alto— y la portada no crece ni un pixel. Se recorta (object-fit: cover)
+           porque el Catastro devuelve fotos de proporcion muy variable y una banda
+           blanca al lado del titular canta mas que un recorte. */
+        .prop-head { position: relative; }
+        .prop-head-txt { padding-right: 238px; }
+        .prop-headshot { position: absolute; top: 0; right: 0; bottom: 0; width: 218px; border-radius: 10px; overflow: hidden; border: 1px solid var(--g200); background: var(--g50); }
+        .prop-headshot img { width: 100%; height: 100%; object-fit: cover; display: block; }
         /* Bloque del desglose económico, separado de la ficha de datos. */
         .prop-sec { margin-top: var(--e-sec); }
 
@@ -353,6 +367,8 @@ const baseCss = `
         }
         .prop-compact .prop-h1 { font-size: 21px; }
         .prop-compact .prop-h1sub { font-size: 10px; }
+        .prop-compact .prop-head-txt { padding-right: 206px; }
+        .prop-compact .prop-headshot { width: 190px; }
         .prop-compact .prop-cobrand { padding: 7px 16px; gap: 16px; }
         .prop-compact .prop-avl { margin-top: 4px; padding-top: 4px; }
         .prop-compact .prop-cobrand-logo { width: 72px; height: 72px; }
@@ -458,6 +474,10 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     const [fit, setFit] = useState({ pass: 0, compact: false, vars: null, reposo: null });
     const [fontsReady, setFontsReady] = useState(false);
     const [brokergyLogo, setBrokergyLogo] = useState(`${APP_URL}${BROKERGY_LOGO_PATH}`);
+    // Foto oficial de FACHADA del Catastro (API RecuperarFotoFachada, vía proxy).
+    // Muchas viviendas no la tienen registrada: el hueco no se reserva, si no llega
+    // la portada queda exactamente como estaba.
+    const [fachadaFoto, setFachadaFoto] = useState(null);
     // Enlace público de subida (/subir-docs/:uuid?token=) — el MISMO que se le
     // manda al cliente por WhatsApp para pedirle las fotos.
     const [uploadLink, setUploadLink] = useState(null);
@@ -781,6 +801,38 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
         return () => { cancelado = true; };
     }, [isOpen]);
 
+    // Foto de fachada del Catastro para la portada. Se descarga por el proxy propio
+    // (/api/catastro/image/:rc) y se incrusta en base64 por el mismo motivo que el
+    // logo: puppeteer monta el PDF sin base URL y una ruta relativa no resolvería.
+    //
+    // Se REESCALA antes de incrustarla (máx 480px de ancho, JPEG 0,72): el original
+    // del Catastro llega a 400 KB y ese HTML se guarda en `html_propuesta`, que ya
+    // pesa 353 KB de media. A 218px de caja no se nota, y lo que se ahorra es peso
+    // en la base de datos y en el adjunto que viaja al cliente.
+    useEffect(() => {
+        const rc = String(inputs?.rc || '').replace(/[^A-Za-z0-9]/g, '');
+        if (!isOpen || rc.length < 14) { setFachadaFoto(null); return; }
+        let cancelado = false;
+        (async () => {
+            try {
+                const resp = await fetch(`/api/catastro/image/${rc}`);
+                if (!resp.ok) return;                       // 404: sin foto registrada
+                const blob = await resp.blob();
+                if (!blob.type.startsWith('image/')) return;
+                const bitmap = await createImageBitmap(blob);
+                const MAX = 480;
+                const escala = Math.min(1, MAX / bitmap.width);
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.round(bitmap.width * escala);
+                canvas.height = Math.round(bitmap.height * escala);
+                canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.72);
+                if (!cancelado && dataUrl.startsWith('data:image')) setFachadaFoto(dataUrl);
+            } catch (_) { /* sin foto: la portada se queda como estaba */ }
+        })();
+        return () => { cancelado = true; };
+    }, [isOpen, inputs?.rc]);
+
     // Enlace de subida para el botón de la página de documentación. Una simulación
     // sin guardar no tiene oportunidad —ni token—, así que el botón no sale.
     useEffect(() => {
@@ -808,9 +860,10 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     // `marcaVersion` entra en las dependencias porque llega por fetch, DESPUÉS
     // de que el ajuste haya convergido: añade una línea a la cabecera y sin
     // rearmar el cálculo la portada se desbordaría por debajo del pie negro.
+    // `fachadaFoto` igual: llega del Catastro y estrecha el titular.
     useLayoutEffect(() => {
         setFit({ pass: 0, compact: false, vars: null, reposo: null });
-    }, [isOpen, includeCeeComp, cobrand, marcaVersion]);
+    }, [isOpen, includeCeeComp, cobrand, marcaVersion, fachadaFoto]);
 
     // Huecos que se estiran o encogen, en orden de aparición. `encoge` es la
     // fracción del valor de reposo que se puede quitar; `estira`, los píxeles
@@ -2610,9 +2663,24 @@ info@brokergy.es · 623 926 179`;
                                 </div>
 
                                 <div className="prop-pb" style={{ paddingTop: 'var(--e-top)' }}>
-                                    <div className="prop-eyebrow">Propuesta de Bono Energético CAE</div>
-                                    <h2 className="prop-h1">Propuesta de <em>Bono Energético CAE</em> y servicios de eficiencia energética</h2>
-                                    <div className="prop-h1sub">Resumen personalizado de ayudas, subvenciones y deducciones fiscales</div>
+                                    {/* Sin foto de fachada el titular va suelto, exactamente como
+                                        siempre: no se envuelve en la fila ni se reserva el hueco. */}
+                                    {fachadaFoto ? (
+                                        <div className="prop-head">
+                                            <div className="prop-head-txt">
+                                                <div className="prop-eyebrow">Propuesta de Bono Energético CAE</div>
+                                                <h2 className="prop-h1">Propuesta de <em>Bono Energético CAE</em> y servicios de eficiencia energética</h2>
+                                                <div className="prop-h1sub">Resumen personalizado de ayudas, subvenciones y deducciones fiscales</div>
+                                            </div>
+                                            <div className="prop-headshot"><img src={fachadaFoto} alt="Fachada del inmueble" /></div>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <div className="prop-eyebrow">Propuesta de Bono Energético CAE</div>
+                                            <h2 className="prop-h1">Propuesta de <em>Bono Energético CAE</em> y servicios de eficiencia energética</h2>
+                                            <div className="prop-h1sub">Resumen personalizado de ayudas, subvenciones y deducciones fiscales</div>
+                                        </>
+                                    )}
 
                                     {/* Con instalador asociado la tarjeta es de co-branding; sin él, el
                                         hueco se usa para captarlo. La obra la ejecuta un instalador sí o
