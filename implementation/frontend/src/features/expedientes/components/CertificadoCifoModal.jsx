@@ -25,7 +25,8 @@ import {
 import AnexoPaginasModal from './AnexoPaginasModal';
 // Qué le falta al INSTALADOR y con qué texto se le pide. FUENTE ÚNICA con el
 // popup de la Memoria RITE, con la ruta de envío y con la página pública.
-import { estadoInstalador, mensajeInstalador, enlaceInstalador } from '../logic/instaladorPendientes';
+import { estadoInstalador, mensajeInstalador, enlaceInstalador,
+    firmanteMemoriaRite, firmanteIncompleto } from '../logic/instaladorPendientes';
 import { DocsInstaladorPicker } from './DocsInstaladorPicker';
 
 const APP_BASE_URL = 'https://app.brokergy.es';
@@ -473,6 +474,11 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     const doc = expediente.documentacion || {};
     // Qué le falta al instalador además de este CIFO (fuente única).
     const estadoInst = estadoInstalador(doc);
+    // Quién firmará la Memoria RITE si se manda de paso (MISMA comprobación que
+    // el popup del RITE: las dos superficies no pueden decir cosas distintas).
+    const presFirmanteRite = expediente?.prescriptores_firmante || pres;
+    const firmanteRite = firmanteMemoriaRite(presFirmanteRite);
+    const firmaRiteSinDatos = firmanteIncompleto(firmanteRite);
     const cee = expediente.cee || {};
     const loc = expediente.ubicacion || {};
     const cli = expediente.clientes || expediente.cliente || {}; 
@@ -1388,6 +1394,34 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                                     onToggle={pickDoc}
                                 />
 
+                                {/* Quién firma la Memoria RITE, si se manda de paso.
+                                    Verificación en el momento de mandarla a firmar. */}
+                                {sendDocsSel.includes('rite') && !riteBloqueo && (
+                                    <div className={`rounded-2xl border px-4 py-3 ${(firmaRiteSinDatos || !firmanteRite.declarado)
+                                        ? 'border-amber-500/30 bg-amber-500/[0.06]'
+                                        : 'border-white/[0.07] bg-white/[0.02]'}`}>
+                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/30 mb-1">Firma la Memoria RITE</p>
+                                        {firmaRiteSinDatos ? (
+                                            <p className="text-[11px] text-amber-300/90 leading-snug">
+                                                <b>No consta quién la firma.</b> Indícalo en la ficha de {presFirmanteRite.razon_social || 'el instalador'} antes de mandársela: saldría sin firmante.
+                                            </p>
+                                        ) : (
+                                            <>
+                                                <p className="text-[12px] font-bold text-white leading-snug">
+                                                    {firmanteRite.nombre}
+                                                    {firmanteRite.dni ? <span className="text-white/40 font-medium"> · {firmanteRite.dni}</span> : null}
+                                                </p>
+                                                <p className="text-[10px] text-white/40 mt-0.5">{firmanteRite.etiqueta}</p>
+                                                {!firmanteRite.declarado && (
+                                                    <p className="text-[10.5px] text-amber-300/90 leading-snug mt-1.5">
+                                                        Nadie ha declarado quién firma: se usa la persona de contacto. Si no es quien firma ante Industria, decláralo en su ficha antes de enviarla.
+                                                    </p>
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+
                                 {/* Destinatario(s) — se puede marcar más de uno */}
                                 <div>
                                     <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Destinatarios <span className="text-white/20 normal-case tracking-normal font-bold">· puedes marcar varios</span></label>
@@ -1458,6 +1492,17 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                                         className="w-full no-uppercase bg-bkg-elevated border border-white/5 rounded-xl px-4 py-3 text-white text-[12px] leading-relaxed focus:outline-none focus:border-brand/40 transition-all resize-y"
                                     />
                                     <p className="text-[10px] text-white/30 mt-2">🔗 El mensaje incluye el enlace único para subir el CIFO firmado.</p>
+                                    {/* Lo que va a pasar además de mandar el mensaje: el firmado que
+                                        guardamos deja de contar. Hay que decirlo — es lo que hace que
+                                        el enlace vuelva a pedir la firma en vez de decirle al
+                                        instalador que no queda nada pendiente. */}
+                                    {sendDocsSel.includes('cifo') && estadoInst.cifo.firmado && (
+                                        <p className="text-[10px] text-amber-400/70 mt-1.5 leading-relaxed">
+                                            ⚠ Ya tenemos un CIFO firmado de este expediente. Al enviar, esa firma queda
+                                            <strong className="text-amber-300"> anulada</strong> y el enlace le volverá a pedir
+                                            la firma del documento actual.
+                                        </p>
+                                    )}
                                 </div>
 
                                 {sendStatus && (

@@ -82,9 +82,9 @@ export function memoriaRiteDocxLink(doc = {}) {
 /**
  * Estado de las dos tareas del instalador a partir de `expedientes.documentacion`.
  *
- * cifo.recibido  → hay CIFO firmado y NO está rechazado a la espera de corrección.
- *                  Un firmado rechazado no cuenta: lo que tenemos no vale y hay
- *                  que volver a pedirlo.
+ * cifo.recibido  → hay CIFO firmado, NO está rechazado a la espera de corrección
+ *                  y NO le hemos vuelto a pedir la firma. Un firmado rechazado no
+ *                  cuenta: lo que tenemos no vale y hay que volver a pedirlo.
  * rite.recibido  → nos ha llegado el certificado tramitado o la memoria firmada
  *                  (mismo criterio que el barrido de "qué falta").
  */
@@ -98,6 +98,29 @@ export function estadoInstalador(documentacion = {}) {
     const cifoBloqueado = !!(rechazoCifo?.at &&
         _ts(rechazoCifo.at) > Math.max(_ts(doc.cert_cifo_sent_at), _ts(doc.cert_cifo_drive_at)));
 
+    // ── VOLVER A PEDIR LA FIRMA (requerimiento / corrección) ──────────────────
+    // Un CIFO firmado NO cierra la tarea para siempre: tras un requerimiento se
+    // corrige el certificado y hay que firmarlo otra vez. Hasta ahora el firmado
+    // que ya teníamos hacía `recibido: true` pasara lo que pasara, así que el
+    // enlace del mensaje —el mismo `/instalador/:id` que va en ese correo— le
+    // decía al instalador "¡todo recibido, no queda nada por tu parte!" y no le
+    // ofrecía firmar nada. Medido en 26RES060_127 el 03/09/2026.
+    //
+    // `cert_cifo_refirma_at` lo sella el envío del CIFO cuando ya había un firmado
+    // (POST /:id/instalador/enviar) y lo limpia la llegada del firmado nuevo. La
+    // comparación con `cert_cifo_signed_at` es el cinturón por si alguna vía
+    // escribe el firmado sin limpiar la marca.
+    const refirmaPendiente = !!(doc.cert_cifo_refirma_at &&
+        _ts(doc.cert_cifo_refirma_at) > _ts(doc.cert_cifo_signed_at));
+
+    // El borrador se ha regenerado DESPUÉS de recibir la firma: lo que tenemos
+    // firmado es una versión anterior del documento. No decide nada (hay motivos
+    // legítimos para regenerar un borrador ya firmado), pero se dice: es lo que
+    // explica un "me lo han firmado con la versión mal". Sin `cert_cifo_signed_at`
+    // —expedientes anteriores a este sello— no se puede comparar y no se afirma.
+    const firmaDesfasada = !!(cifoFirmado && doc.cert_cifo_signed_at &&
+        _ts(doc.cert_cifo_drive_at) > _ts(doc.cert_cifo_signed_at));
+
     const memoriaRecibida = present(doc.cert_rite_signed_link);
     const certificadoRecibido = present(doc.cert_rite_drive_link) && !esMemoriaRiteEnDriveLink(doc);
 
@@ -106,10 +129,15 @@ export function estadoInstalador(documentacion = {}) {
         borrador: present(doc.cert_cifo_drive_link) ? doc.cert_cifo_drive_link : null,
         firmado: cifoFirmado ? doc.cert_cifo_signed_link : null,
         // Un CIFO rechazado sin corregir NO está recibido: hay que rehacerlo y
-        // volver a pedir la firma.
-        recibido: cifoFirmado && !cifoBloqueado,
+        // volver a pedir la firma. Tampoco lo está si se la hemos vuelto a pedir.
+        recibido: cifoFirmado && !cifoBloqueado && !refirmaPendiente,
         bloqueado: cifoBloqueado,
         motivoRechazo: cifoBloqueado ? (rechazoCifo.motivo || '') : null,
+        // Ya nos firmó una versión y le hemos pedido la firma otra vez.
+        refirma: cifoFirmado && !cifoBloqueado && refirmaPendiente,
+        refirmaAt: refirmaPendiente ? doc.cert_cifo_refirma_at : null,
+        firmaDesfasada,
+        signedAt: doc.cert_cifo_signed_at || null,
         sentAt: doc.cert_cifo_sent_at || null,
     };
 
@@ -131,6 +159,75 @@ export function estadoInstalador(documentacion = {}) {
  * Solo si el OTRO documento también está pendiente. Es la comprobación que
  * dispara el aviso "tampoco tenemos lo otro".
  */
+/**
+ * QUIÉN firma la Memoria RITE y el Certificado de Instalación Térmica.
+ *
+ * ESPEJO de la cascada de `rite-generator/lib/supabase_client.py` (y hermana de
+ * la del CIFO en `cifoDoc.js`): si divergieran, el popup diría un nombre y el
+ * documento saldría con otro.
+ *
+ *   1. Técnico firmante de memorias  → firma él, con su DNI y su carné.
+ *   2. Autónomo                      → firma el propio profesional.
+ *   3. Representante legal distinto  → firma el representante legal.
+ *   4. Si no                         → la persona de contacto de la ficha.
+ *
+ * El caso 4 es el único que NO está declarado por nadie: se asume. Por eso
+ * devuelve `declarado: false` — la memoria se manda a firmar a nombre de quien
+ * figure de persona de contacto, que puede no ser quien puede firmarla. Esa es
+ * la comprobación que hay que hacer ANTES de mandársela al instalador.
+ *
+ * Ojo: si el instalador delega en otra empresa habilitada (`instalador_rite_id`),
+ * `pres` ya es la ficha de ESA empresa (lo resuelve instaladorFirmante.js), así
+ * que la cascada se aplica igual sobre quien de verdad firma.
+ */
+export function firmanteMemoriaRite(pres = {}) {
+    const nom = (a, b) => [a, b].filter(Boolean).join(' ').trim();
+
+    if (pres.tecnico_firmante_distinto) {
+        return {
+            origen: 'tecnico',
+            etiqueta: 'Técnico firmante de memorias',
+            nombre: nom(pres.tecnico_firmante_nombre, pres.tecnico_firmante_apellidos),
+            dni: pres.tecnico_firmante_dni || '',
+            carnet: pres.tecnico_firmante_carnet_rite || '',
+            declarado: true,
+        };
+    }
+    if (pres.es_autonomo) {
+        return {
+            origen: 'autonomo',
+            etiqueta: 'Profesional autónomo',
+            nombre: nom(pres.nombre_responsable, pres.apellidos_responsable),
+            dni: pres.nif_responsable || '',
+            carnet: pres.numero_carnet_rite || '',
+            declarado: true,
+        };
+    }
+    if (pres.representante_distinto) {
+        return {
+            origen: 'representante',
+            etiqueta: 'Representante legal',
+            nombre: nom(pres.representante_nombre, pres.representante_apellidos),
+            dni: pres.representante_dni || '',
+            carnet: '',
+            declarado: true,
+        };
+    }
+    return {
+        origen: 'contacto',
+        etiqueta: 'Persona de contacto',
+        nombre: nom(pres.nombre_responsable, pres.apellidos_responsable),
+        dni: pres.nif_responsable || '',
+        carnet: '',
+        declarado: false,
+    };
+}
+
+/** ¿Se puede mandar la memoria a firmar? Falta el nombre o el DNI del firmante. */
+export function firmanteIncompleto(f) {
+    return !present(f?.nombre) || !present(f?.dni);
+}
+
 export function otroPendiente(documentacion, doc) {
     const est = estadoInstalador(documentacion);
     const otro = doc === 'cifo' ? 'rite' : 'cifo';
@@ -145,7 +242,15 @@ export function otroPendiente(documentacion, doc) {
 // dos enlaces distintos para dos tareas de la misma obra, la mitad de los
 // instaladores solo abrían el primero.
 
-const primerNombre = (s) => (String(s || '').trim().split(/\s+/)[0] || '');
+// "Otro contacto…" es el rótulo del BOTÓN, no el nombre de nadie: si se marca sin
+// escribir un nombre, el saludo salía literalmente "Hola Otro,". Con un nombre que
+// no lo es, se saluda en genérico.
+const NOMBRE_GENERICO = /^(otro|otro contacto|contacto|destinatario)$/i;
+const primerNombre = (s) => {
+    const v = String(s || '').trim();
+    if (!v || NOMBRE_GENERICO.test(v)) return '';
+    return v.split(/\s+/)[0] || '';
+};
 
 /**
  * @param {object} o

@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import confetti from 'canvas-confetti';
 import { postEmail } from '../../../utils/emailFallback';
-import { estadoInstalador, mensajeInstalador, enlaceInstalador } from '../logic/instaladorPendientes';
+import { estadoInstalador, mensajeInstalador, enlaceInstalador,
+    firmanteMemoriaRite, firmanteIncompleto } from '../logic/instaladorPendientes';
 import { buildInstalacionAddress } from '../utils/docGenerators';
 import { DocsInstaladorPicker } from './DocsInstaladorPicker';
 // Canal de envío de la barra inferior — COMPARTIDO con los otros popups de envío.
@@ -26,6 +27,13 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
     const clienteNombre = [cli.nombre_razon_social, cli.apellidos].filter(Boolean).join(' ').trim();
     const instAddrText = buildInstalacionAddress(expediente)?.full || '';
     const estado = estadoInstalador(doc);
+    // QUIÉN va a firmar la Memoria RITE. Se comprueba AQUÍ, al mandarla a firmar:
+    // es el último momento en que se puede corregir antes de que el instalador
+    // reciba un documento a nombre de quien no puede firmarlo. La ficha que manda
+    // es la del firmante (si delega en otra empresa habilitada, es la de ESA).
+    const presFirmante = expediente?.prescriptores_firmante || pres;
+    const firmante = firmanteMemoriaRite(presFirmante);
+    const firmaSinDatos = firmanteIncompleto(firmante);
     const enlace = expediente?.id ? enlaceInstalador(window.location.origin, expediente.id) : '';
 
     // Por qué NO se puede mandar cada documento. El CIFO no se genera aquí a
@@ -144,9 +152,13 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
     // usa el popup del CIFO y el email del backend. Si se redactara en cada
     // popup, el mensaje conjunto acabaría diciendo cosas distintas según por
     // dónde se entrase.
+    // Si el CIFO viaja porque le hemos vuelto a pedir la firma, el texto de
+    // "primera firma" mentiría: ya nos firmó una versión. La plantilla la decide
+    // el estado, no el popup por el que se entre.
     const buildMensaje = (docKeys, contactName) => mensajeInstalador({
         docs: docKeys, saludo: contactName || '', numexpte,
         clienteNombre, direccion: instAddrText, enlace,
+        plantilla: (docKeys.includes('cifo') && estado.cifo.refirma) ? 'requerimiento' : 'primera',
     });
     const resolveContact = (id) => {
         if (id === 'otro') return { id: 'otro', label: (manualContact.name || '').trim() || 'Otro contacto', phone: (manualContact.phone || '').trim(), email: (manualContact.email || '').trim() };
@@ -256,6 +268,9 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
             // reenviar desde el alternativo (utils/emailFallback).
             const resp = await postEmail(`/api/expedientes/${expediente.id}/instalador/enviar`, {
                 docs: sendDocs, channels: chans, message, recipients,
+                // Misma plantilla que el cuerpo del mensaje: si no, el asunto del
+                // correo anuncia una primera firma y el texto pide firmar de nuevo.
+                plantilla: (sendDocs.includes('cifo') && estado.cifo.refirma) ? 'requerimiento' : 'primera',
             });
             data = resp.data;
         } catch (err) {
@@ -341,6 +356,52 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                         pendientes={estado.pendientes}
                         onToggle={toggleDoc}
                     />
+
+                    {/* ── QUIÉN FIRMA LA MEMORIA ─────────────────────────────
+                        Verificación en el momento de mandarla a firmar. El
+                        firmante puede ser el representante legal, un técnico con
+                        su carné, o la empresa habilitada en la que se delega —
+                        pero si nadie lo ha declarado, la memoria sale a nombre de
+                        la PERSONA DE CONTACTO, que puede no ser quien puede
+                        firmarla. Solo se enseña si se manda la Memoria RITE. */}
+                    {docs.includes('rite') && (
+                        <div className={`rounded-2xl border px-4 py-3 ${(firmaSinDatos || !firmante.declarado)
+                            ? 'border-amber-500/30 bg-amber-500/[0.06]'
+                            : 'border-white/[0.07] bg-white/[0.02]'}`}>
+                            <div className="flex items-start gap-3">
+                                <svg className={`w-4 h-4 mt-0.5 shrink-0 ${(firmaSinDatos || !firmante.declarado) ? 'text-amber-400' : 'text-emerald-400'}`}
+                                    fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                </svg>
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/30 mb-1">Firma la Memoria RITE</p>
+                                    {firmaSinDatos ? (
+                                        <p className="text-[11px] text-amber-300/90 leading-snug">
+                                            <b>No consta quién la firma.</b> Indícalo en la ficha de {presFirmante.razon_social || 'el instalador'} (Red de Prescriptores) antes de mandársela: saldría sin firmante.
+                                        </p>
+                                    ) : (
+                                        <>
+                                            <p className="text-[12px] font-bold text-white leading-snug">
+                                                {firmante.nombre}
+                                                {firmante.dni ? <span className="text-white/40 font-medium"> · {firmante.dni}</span> : null}
+                                            </p>
+                                            <p className="text-[10px] text-white/40 mt-0.5">
+                                                {firmante.etiqueta}
+                                                {presFirmante !== pres ? ` · ${presFirmante.razon_social || 'empresa habilitada'}` : ''}
+                                                {firmante.carnet ? ` · Carné ${firmante.carnet}` : ''}
+                                            </p>
+                                            {!firmante.declarado && (
+                                                <p className="text-[10.5px] text-amber-300/90 leading-snug mt-1.5">
+                                                    Nadie ha declarado quién firma: se usa la persona de contacto. Si no es quien firma ante Industria, decláralo en su ficha (representante legal o técnico firmante) antes de enviarla.
+                                                </p>
+                                            )}
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Acciones sobre los documentos */}
                     <div>
