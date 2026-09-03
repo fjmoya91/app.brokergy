@@ -1354,7 +1354,11 @@ async function notifyRechazo({ opp, slotLabel, motivo, subidoPor }) {
             const insId = opp.instalador_asociado_id || opp.prescriptor_id;
             if (insId) {
                 const { data: p } = await supabase.from('prescriptores')
-                    .select('razon_social, acronimo, tlf, tlf_contacto, email, email_contacto, nombre_contacto, contacto_notificaciones_activas, contactos_notificacion')
+                    // tlf_responsable/email_responsable son los de la PERSONA DE
+                    // CONTACTO y `partnerNotifyTargets` los prefiere: si no se
+                    // seleccionan, llegan undefined y el aviso se va al buzón
+                    // genérico de la empresa sin que nada lo delate (regla 22).
+                    .select('razon_social, acronimo, tlf, tlf_contacto, tlf_responsable, email, email_contacto, email_responsable, nombre_contacto, contacto_notificaciones_activas, contactos_notificacion')
                     .eq('id_empresa', insId).maybeSingle();
                 if (p) targets = partnerNotifyTargets(p);
             }

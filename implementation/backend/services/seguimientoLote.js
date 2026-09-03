@@ -132,13 +132,15 @@ async function resolverContacto(tipo, id) {
     }
     // CERTIFICADOR / INSTALADOR — ambos viven en `prescriptores`.
     const { data: p } = await supabase.from('prescriptores')
-        .select('razon_social, acronimo, tlf, tlf_contacto, landing_telefono_contacto, email, email_contacto, nombre_contacto, contacto_notificaciones_activas')
+        .select('razon_social, acronimo, tlf, tlf_contacto, tlf_responsable, landing_telefono_contacto, email, email_contacto, email_responsable, nombre_contacto, contacto_notificaciones_activas')
         .eq('id_empresa', id).maybeSingle();
     const useContact = p?.contacto_notificaciones_activas === true || p?.contacto_notificaciones_activas === 'true';
+    // Sin desvío activo manda la PERSONA DE CONTACTO (su propio tlf/email); si no
+    // los tiene, la empresa. Mismo criterio que partnerNotifyTargets.
     return {
         nombre: (useContact ? (p?.nombre_contacto || p?.razon_social) : (p?.razon_social || p?.acronimo)) || null,
-        tlf: (useContact ? (p?.tlf_contacto || p?.tlf) : (p?.tlf || p?.tlf_contacto || p?.landing_telefono_contacto)) || null,
-        email: (useContact ? (p?.email_contacto || p?.email) : (p?.email || p?.email_contacto)) || null,
+        tlf: (useContact ? (p?.tlf_contacto || p?.tlf) : (p?.tlf_responsable || p?.tlf || p?.tlf_contacto || p?.landing_telefono_contacto)) || null,
+        email: (useContact ? (p?.email_contacto || p?.email) : (p?.email_responsable || p?.email || p?.email_contacto)) || null,
     };
 }
 

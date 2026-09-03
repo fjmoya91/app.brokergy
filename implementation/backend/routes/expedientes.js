@@ -298,12 +298,14 @@ async function loadNotificationContext(expediente) {
         // OJO: prescriptores NO tiene columnas `telefono`/`movil` — seleccionarlas hace
         // que supabase-js devuelva error y pData=null (el partner se quedaba sin avisar).
         const { data: pData } = await supabase.from('prescriptores')
-            .select('tlf, tlf_contacto, landing_telefono_contacto, email, email_contacto, nombre_contacto, contacto_notificaciones_activas')
+            .select('tlf, tlf_contacto, tlf_responsable, landing_telefono_contacto, email, email_contacto, email_responsable, nombre_contacto, contacto_notificaciones_activas')
             .eq('id_empresa', partnerId).maybeSingle();
         if (pData) {
             const useContact = pData.contacto_notificaciones_activas === true || pData.contacto_notificaciones_activas === 'true';
-            partnerPhone = (useContact ? (pData.tlf_contacto || pData.tlf) : (pData.tlf || pData.tlf_contacto)) || pData.landing_telefono_contacto || null;
-            partnerEmail = (useContact ? (pData.email_contacto || pData.email) : (pData.email || pData.email_contacto)) || null;
+            // Sin desvío activo manda la PERSONA DE CONTACTO (su propio tlf/email);
+            // si no los tiene, la empresa. Mismo criterio que partnerNotifyTargets.
+            partnerPhone = (useContact ? (pData.tlf_contacto || pData.tlf) : (pData.tlf_responsable || pData.tlf || pData.tlf_contacto)) || pData.landing_telefono_contacto || null;
+            partnerEmail = (useContact ? (pData.email_contacto || pData.email) : (pData.email_responsable || pData.email || pData.email_contacto)) || null;
         }
     }
 
@@ -1377,7 +1379,7 @@ async function resolveSolicitudContacto(exp, target) {
         if (!insId) return { nombre: null, tlf: null, email: null, contactos: [] };
         // OJO: prescriptores NO tiene columnas telefono/movil.
         const { data: p, error: pErr } = await supabase.from('prescriptores')
-            .select('razon_social, acronimo, es_autonomo, nombre_responsable, apellidos_responsable, tlf, tlf_contacto, landing_telefono_contacto, email, email_contacto, nombre_contacto, contacto_notificaciones_activas, contactos_notificacion')
+            .select('razon_social, acronimo, es_autonomo, nombre_responsable, apellidos_responsable, tlf, tlf_contacto, tlf_responsable, landing_telefono_contacto, email, email_contacto, email_responsable, nombre_contacto, contacto_notificaciones_activas, contactos_notificacion')
             .eq('id_empresa', insId).maybeSingle();
         if (pErr) console.warn('[solicitud contacto INSTALADOR]', pErr.message);
         const useContact = p?.contacto_notificaciones_activas === true || p?.contacto_notificaciones_activas === 'true';
@@ -1387,9 +1389,11 @@ async function resolveSolicitudContacto(exp, target) {
         const contactos = [];
         const repNombre = [p?.nombre_responsable, p?.apellidos_responsable].filter(Boolean).join(' ').trim()
             || p?.razon_social || p?.acronimo || 'Instalador';
-        const repTlf = p?.tlf || p?.landing_telefono_contacto || '';
-        if (repTlf || p?.email) {
-            contactos.push({ id: 'rep', nombre: repNombre, tlf: repTlf || '', email: p?.email || '', tipo: p?.es_autonomo ? 'Autónomo' : 'Representante' });
+        // La PERSONA DE CONTACTO tiene su propio tlf/email; si no, los de la empresa.
+        const repTlf = p?.tlf_responsable || p?.tlf || p?.landing_telefono_contacto || '';
+        const repEmail = p?.email_responsable || p?.email || '';
+        if (repTlf || repEmail) {
+            contactos.push({ id: 'rep', nombre: repNombre, tlf: repTlf || '', email: repEmail, tipo: p?.es_autonomo ? 'Autónomo' : 'Persona de contacto' });
         }
         normalizeContactos(p?.contactos_notificacion).forEach((c, i) => {
             if (c.tlf || c.email) contactos.push({ id: `c${i}`, nombre: c.nombre || repNombre, tlf: c.tlf || '', email: c.email || '', tipo: 'Persona de contacto' });
@@ -1397,8 +1401,8 @@ async function resolveSolicitudContacto(exp, target) {
 
         return {
             nombre: (useContact ? (p?.nombre_contacto || p?.razon_social) : (p?.razon_social || p?.acronimo)) || null,
-            tlf: (useContact ? (p?.tlf_contacto || p?.tlf) : (p?.tlf || p?.tlf_contacto || p?.landing_telefono_contacto)) || null,
-            email: (useContact ? (p?.email_contacto || p?.email) : (p?.email || p?.email_contacto)) || null,
+            tlf: (useContact ? (p?.tlf_contacto || p?.tlf) : (p?.tlf_responsable || p?.tlf || p?.tlf_contacto || p?.landing_telefono_contacto)) || null,
+            email: (useContact ? (p?.email_contacto || p?.email) : (p?.email_responsable || p?.email || p?.email_contacto)) || null,
             contactos,
         };
     }
@@ -4603,6 +4607,30 @@ router.post('/:id/instalador/enviar', enforceAuth, async (req, res) => {
         // alternativo (utils/emailFallback en el frontend).
         if (!anyOk && quotaErr) return emailService.emailErrorResponse(res, quotaErr, 'No se pudo enviar la documentación al instalador.');
 
+        // ── VOLVER A PEDIR LA FIRMA ──────────────────────────────────────────
+        // Si le mandamos el CIFO teniendo ya uno firmado (requerimiento, o una
+        // corrección nuestra), el firmado que guardamos DEJA DE VALER: es de la
+        // versión anterior. Sin esta marca, `estadoInstalador` seguía dando la
+        // tarea por hecha y el enlace de ESTE MISMO mensaje le decía al instalador
+        // "no queda nada pendiente por tu parte" (medido en 26RES060_127).
+        // La limpia la llegada del firmado nuevo (POST /api/public/cifo-upload y
+        // utils/mergeDocumentacion).
+        if (anyOk && wants.includes('cifo') && estado.cifo.firmado && exp.oportunidad_id) {
+            try {
+                const { error } = await supabase.rpc('set_expediente_doc_field', {
+                    p_oportunidad_id: exp.oportunidad_id,
+                    p_field: 'cert_cifo_refirma_at',
+                    p_value: new Date().toISOString(),
+                });
+                if (error) throw new Error(error.message);
+            } catch (e) {
+                // El mensaje ya ha salido: no se le devuelve un error al usuario por
+                // esto, pero tiene que constar — la página del instalador seguiría
+                // diciendo que no falta nada.
+                console.error('[instalador/enviar] no se pudo marcar la re-firma del CIFO:', e.message);
+            }
+        }
+
         return res.status(anyOk ? 200 : 502).json({ results, docs: wants, enlace });
     } catch (err) {
         console.error('Error POST expedientes/:id/instalador/enviar:', err);
@@ -4865,12 +4893,21 @@ router.get('/:id/open-local-folder', async (req, res) => {
        <code>${path}</code>
        <button class="btn" onclick="openLocal()">Abrir carpeta local</button>`}
   ${driveLink ? `<p style="margin-top:10px"><a class="ghost" href="${driveLink}" target="_blank" rel="noopener noreferrer">¿No se abre? Abrir en Google Drive →</a></p>` : ''}
+  ${error ? '' : `<p id="closeNote" style="display:none;margin-top:10px">✓ Listo. Ya puedes cerrar esta pestaña.</p>`}
   <div class="brand">BROKERGY · Ingeniería Energética</div>
 </div>
 ${error ? '' : `<script>
   var B64=${JSON.stringify(b64)};
   function openLocal(){ try{ window.location.href='brokergylocal:'+B64; }catch(e){} }
   setTimeout(openLocal, 300);
+  // La pestaña la abrió el correo/WhatsApp, no un window.open() nuestro: el navegador
+  // solo deja cerrarla por script si no tiene más historial de navegación (que es el
+  // caso normal aquí). Lo intentamos; si el navegador lo bloquea, se ve el aviso.
+  setTimeout(function(){
+    var n = document.getElementById('closeNote');
+    if (n) n.style.display = 'block';
+    try { window.close(); } catch(e) {}
+  }, 1800);
 </script>`}
 </body></html>`;
 
@@ -6776,8 +6813,19 @@ router.get('/:id/notify-client', async (req, res) => {
     <div class="icon">${ok ? '📱' : '⚠️'}</div>
     <h2>${ok ? 'Cliente Notificado' : 'Error'}</h2>
     <p>${message}</p>
+    ${ok ? `<p id="closeNote" style="display:none;font-size:12px;color:#64748b">Esta pestaña se cierra sola…</p>` : ''}
     <div class="brand">BROKERGY · Ingeniería Energética</div>
   </div>
+  ${ok ? `<script>
+    // Pestaña abierta desde el email, sin window.opener: el cierre por script solo
+    // lo permite el navegador si no hay más historial de navegación (el caso normal
+    // aquí). Si lo bloquea, se queda a la vista el aviso de que ya se puede cerrar.
+    setTimeout(function(){
+      var n = document.getElementById('closeNote');
+      if (n) n.style.display = 'block';
+      try { window.close(); } catch(e) {}
+    }, 2200);
+  </script>` : ''}
 </body>
 </html>`);
     };
@@ -6870,8 +6918,19 @@ router.get('/:id/approve-cee-from-email', async (req, res) => {
     <div class="icon">${ok ? '✅' : '⚠️'}</div>
     <h2>${title}</h2>
     <p>${message}</p>
+    ${ok ? `<p id="closeNote" style="display:none;font-size:12px;color:#64748b">Esta pestaña se cierra sola…</p>` : ''}
     <div class="brand">BROKERGY · Ingeniería Energética</div>
   </div>
+  ${ok ? `<script>
+    // Pestaña abierta desde el email, sin window.opener: el cierre por script solo
+    // lo permite el navegador si no hay más historial de navegación (el caso normal
+    // aquí). Si lo bloquea, se queda a la vista el aviso de que ya se puede cerrar.
+    setTimeout(function(){
+      var n = document.getElementById('closeNote');
+      if (n) n.style.display = 'block';
+      try { window.close(); } catch(e) {}
+    }, 2200);
+  </script>` : ''}
 </body>
 </html>`);
     };

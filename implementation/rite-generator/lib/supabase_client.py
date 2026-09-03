@@ -53,6 +53,8 @@ WITH asignado AS (
 )
 SELECT f.razon_social, f.cif, f.numero_carnet_rite,
        f.nombre_responsable, f.apellidos_responsable, f.nif_responsable,
+       f.representante_distinto, f.representante_nombre,
+       f.representante_apellidos, f.representante_dni,
        f.es_autonomo, f.tecnico_firmante_distinto,
        f.tecnico_firmante_nombre, f.tecnico_firmante_apellidos,
        f.tecnico_firmante_dni, f.tecnico_firmante_carnet_rite,
@@ -213,8 +215,20 @@ def normalizar(raw: dict, fecha_firma: str = None, fecha_pruebas: str = None) ->
     # `es_autonomo`. El Nº Registro Integrado Industrial de la EMPRESA es siempre
     # `numero_carnet_rite`.
     num_empresa_rite = instalador.get("numero_carnet_rite", "") or ""
-    _rep_nombre = " ".join(filter(None, [instalador.get("nombre_responsable"),
-                                         instalador.get("apellidos_responsable")]))
+    # El representante legal es, por defecto, la PERSONA DE CONTACTO
+    # (nombre_responsable/apellidos_responsable/nif_responsable); solo si la ficha
+    # declara `representante_distinto` es otra persona. MISMA regla que cifoDoc.js:
+    # si divergieran, la Memoria RITE y el CIFO del mismo expediente saldrían a
+    # nombre de dos personas distintas.
+    _rep_distinto = bool(instalador.get("representante_distinto"))
+    if _rep_distinto:
+        _rep_nombre = " ".join(filter(None, [instalador.get("representante_nombre"),
+                                             instalador.get("representante_apellidos")]))
+        _rep_nif = instalador.get("representante_dni", "") or ""
+    else:
+        _rep_nombre = " ".join(filter(None, [instalador.get("nombre_responsable"),
+                                             instalador.get("apellidos_responsable")]))
+        _rep_nif = instalador.get("nif_responsable", "") or ""
     if instalador.get("tecnico_firmante_distinto"):
         # Técnico firmante distinto (empresa o autónomo): firma el TÉCNICO con su carné.
         nombre_firma = " ".join(filter(None, [instalador.get("tecnico_firmante_nombre"),
@@ -223,14 +237,16 @@ def normalizar(raw: dict, fecha_firma: str = None, fecha_pruebas: str = None) ->
         carnet_personal = instalador.get("tecnico_firmante_carnet_rite", "") or ""
     elif instalador.get("es_autonomo"):
         # El autónomo ES el instalador: su numero_carnet_rite es su carné personal.
+        # No tiene representante distinto (la ficha no se lo ofrece), así que
+        # _rep_* es siempre su propia identidad.
         nombre_firma = _rep_nombre
-        nif_firma = instalador.get("nif_responsable") or instalador.get("tecnico_firmante_dni", "") or ""
+        nif_firma = _rep_nif or instalador.get("tecnico_firmante_dni", "") or ""
         carnet_personal = num_empresa_rite
     else:
         # Empresa sin técnico distinto: firma el representante legal; el Nº de Carné
         # personal NO se rellena (el nº de empresa va solo en Nº Reg. Integrado Industrial).
         nombre_firma = _rep_nombre
-        nif_firma = instalador.get("nif_responsable") or instalador.get("tecnico_firmante_dni", "") or ""
+        nif_firma = _rep_nif or instalador.get("tecnico_firmante_dni", "") or ""
         carnet_personal = ""
 
     datos = {

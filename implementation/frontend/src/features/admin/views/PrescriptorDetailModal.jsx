@@ -699,6 +699,15 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 setLoading(false);
                 return;
             }
+            // Con el toggle activo y los campos vacíos, el CIFO se quedaría sin
+            // firmante: no puede caer a la persona de contacto (la ficha acaba de
+            // declarar que NO es ella) y saldría a nombre de la razón social.
+            if (form.representante_distinto
+                && !(form.representante_nombre?.trim() && form.representante_apellidos?.trim() && form.representante_dni?.trim())) {
+                setError('Has marcado que el representante legal es distinto: indica su nombre, apellidos y DNI (firma el CIFO).');
+                setLoading(false);
+                return;
+            }
         }
         setLoading(true);
         try {

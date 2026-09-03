@@ -173,7 +173,7 @@ async function prepararCertificador(expId, tipo, scope) {
     if (!exp.certificador_id) return { error: 'Este expediente no tiene certificador asignado. Asígnalo desde la app.' };
 
     const { data: cert } = await supabase.from('prescriptores')
-        .select('razon_social, acronimo, email, tlf, tlf_contacto, landing_telefono_contacto')
+        .select('razon_social, acronimo, email, email_responsable, tlf, tlf_contacto, tlf_responsable, landing_telefono_contacto')
         .eq('id_empresa', exp.certificador_id).maybeSingle();
     if (!cert) return { error: 'No se encuentra el certificador en la base de datos.' };
 
@@ -203,13 +203,15 @@ async function prepararCertificador(expId, tipo, scope) {
         });
     }
 
-    const tlf = cert.tlf || cert.tlf_contacto || cert.landing_telefono_contacto || null;
+    // La PERSONA DE CONTACTO de la ficha va primero (su propio tlf/email); si no
+    // consta, los de la empresa. Mismo criterio que partnerNotifyTargets.
+    const tlf = cert.tlf_responsable || cert.tlf || cert.tlf_contacto || cert.landing_telefono_contacto || null;
     return {
         numExp: exp.numero_expediente,
         subtitulo: `${phaseLabel}${clienteName ? ` · ${clienteName}` : ''}`,
         destinatarios: [{
             id: 'CERTIFICADOR', rol: 'Certificador', nombre: certName,
-            email: cert.email || null, tlf, mensaje, marcado: true,
+            email: cert.email_responsable || cert.email || null, tlf, mensaje, marcado: true,
         }],
         phase,
     };

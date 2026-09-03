@@ -70,9 +70,12 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
     const instContacts = [];
     {
         const repName = [pres.nombre_responsable, pres.apellidos_responsable].filter(Boolean).join(' ') || pres.razon_social || 'Instalador';
-        const repPhone = pres.tlf || pres.telefono || '';
-        if (repPhone || pres.email) {
-            instContacts.push({ id: 'rep', label: repName, sublabel: pres.es_autonomo ? 'Autónomo' : 'Representante legal', phone: repPhone, email: pres.email || '' });
+        // La PERSONA DE CONTACTO tiene su propio tlf/email; si no los tiene, se cae
+        // a los de la empresa. MISMO criterio que docContacts.instaladorContacts.
+        const repPhone = pres.tlf_responsable || pres.tlf || pres.telefono || '';
+        const repEmail = pres.email_responsable || pres.email || '';
+        if (repPhone || repEmail) {
+            instContacts.push({ id: 'rep', label: repName, sublabel: pres.es_autonomo ? 'Autónomo' : 'Persona de contacto', phone: repPhone, email: repEmail });
         }
         const arr = Array.isArray(pres.contactos_notificacion) ? pres.contactos_notificacion : [];
         if (arr.length) {

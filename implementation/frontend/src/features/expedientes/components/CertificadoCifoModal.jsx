@@ -993,8 +993,13 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     const instContacts = [];
     {
         const repName = (empResponsable && empResponsable !== '—') ? empResponsable : empNombre;
-        if (empTlf || empEmail) {
-            instContacts.push({ id: 'rep', label: repName, sublabel: pres.es_autonomo ? 'Autónomo' : 'Representante legal', phone: empTlf || '', email: empEmail || '' });
+        // La PERSONA DE CONTACTO tiene su propio tlf/email; si no los tiene, se
+        // cae a los de la empresa. MISMO criterio que docContacts.instaladorContacts:
+        // si divergieran, este popup ofrecería un teléfono y el de anexos otro.
+        const repPhone = pres.tlf_responsable || empTlf || '';
+        const repEmail = pres.email_responsable || empEmail || '';
+        if (repPhone || repEmail) {
+            instContacts.push({ id: 'rep', label: repName, sublabel: pres.es_autonomo ? 'Autónomo' : 'Persona de contacto', phone: repPhone, email: repEmail });
         }
         const arr = Array.isArray(pres.contactos_notificacion) ? pres.contactos_notificacion : [];
         if (arr.length) {

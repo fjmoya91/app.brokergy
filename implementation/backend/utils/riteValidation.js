@@ -298,6 +298,13 @@ function validateMemoriaRite({ exp, cli, op, pres, presReal }) {
             if (!P(pres.tecnico_firmante_nombre)) missing.push('Nombre Técnico Firmante (ficha Partner)');
             if (!P(pres.tecnico_firmante_apellidos)) missing.push('Apellidos Técnico Firmante (ficha Partner)');
             if (!P(pres.tecnico_firmante_dni)) missing.push('DNI Técnico Firmante (ficha Partner)');
+        } else if (pres.representante_distinto) {
+            // Firma el REPRESENTANTE LEGAL declarado aparte (mismo criterio que
+            // cifoDoc.js y que el microservicio RITE): la persona de contacto de
+            // la ficha no es quien representa a la empresa ante Industria.
+            if (!P(pres.representante_nombre)) missing.push('Nombre Representante Legal (ficha Partner)');
+            if (!P(pres.representante_apellidos)) missing.push('Apellidos Representante Legal (ficha Partner)');
+            if (!P(pres.representante_dni)) missing.push('DNI Representante Legal (ficha Partner)');
         } else {
             if (!P(pres.nombre_responsable)) missing.push('Nombre Responsable Técnico (ficha Partner)');
             if (!P(pres.apellidos_responsable)) missing.push('Apellidos Responsable Técnico (ficha Partner)');

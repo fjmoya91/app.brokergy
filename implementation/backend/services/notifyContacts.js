@@ -73,15 +73,18 @@ function partnerNotifyTargets(p) {
         }
     }
 
-    // Contacto principal: la PERSONA DE CONTACTO de la ficha (nombre_responsable +
-    // su propio tlf/email) si tiene con qué avisarla; si no, la empresa en general.
-    // "Persona de contacto" es, por defecto, también quien firma los documentos
-    // (ver cifoDoc.js) — avisar a su móvil/email real, no al buzón genérico de la
-    // empresa, es justo lo que pidió unificar.
-    const nombrePrincipal = [p.nombre_responsable, p.apellidos_responsable].filter(Boolean).join(' ')
-        || p.acronimo || p.razon_social || '';
+    // Contacto principal: se avisa al teléfono/email PROPIOS de la persona de
+    // contacto si los tiene (tlf_responsable/email_responsable), y si no, a los
+    // de la empresa. Es lo que significa "la persona de contacto es la misma de
+    // las notificaciones": cambia POR DÓNDE se avisa.
+    //
+    // El NOMBRE con el que se saluda sigue siendo el de la EMPRESA a propósito.
+    // Cambiarlo al de la persona alteraría el tono de todos los avisos
+    // automáticos (medido: 42 de 78 partners pasarían de "Hola AGUAHORRO, SL" a
+    // "Hola JOSÉ ANTONIO BARBA ALFARO", con el nombre completo y en mayúsculas),
+    // y eso es una decisión de redacción aparte, no parte de la unificación.
     return [{
-        nombre: nombrePrincipal,
+        nombre: p.acronimo || p.razon_social || '',
         email:  p.email_responsable || p.email || null,
         tlf:    p.tlf_responsable || p.tlf || null,
     }];
