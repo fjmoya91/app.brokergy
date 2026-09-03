@@ -20,6 +20,7 @@ const supabase = require('./supabaseClient');
 const emailService = require('./emailService');
 const whatsappService = require('./whatsappService');
 const recordatorios = require('./recordatorios');
+const { saludoPartner } = require('./notifyContacts');
 const { markCertContact } = require('./seguimientoTracking');
 
 const FRONTEND = () => process.env.FRONTEND_URL || 'https://app.brokergy.es';
@@ -138,7 +139,8 @@ async function resolverContacto(tipo, id) {
     // Sin desvío activo manda la PERSONA DE CONTACTO (su propio tlf/email); si no
     // los tiene, la empresa. Mismo criterio que partnerNotifyTargets.
     return {
-        nombre: (useContact ? (p?.nombre_contacto || p?.razon_social) : (p?.razon_social || p?.acronimo)) || null,
+        // Por su NOMBRE bien escrito; fuente única: saludoPartner.
+        nombre: (useContact ? (p?.nombre_contacto ? recordatorios.capitalizar(p.nombre_contacto) : saludoPartner(p)) : saludoPartner(p)) || null,
         tlf: (useContact ? (p?.tlf_contacto || p?.tlf) : (p?.tlf_responsable || p?.tlf || p?.tlf_contacto || p?.landing_telefono_contacto)) || null,
         email: (useContact ? (p?.email_contacto || p?.email) : (p?.email_responsable || p?.email || p?.email_contacto)) || null,
     };

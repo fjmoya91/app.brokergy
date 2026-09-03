@@ -26,7 +26,8 @@ const { mergeDocumentacion } = require('../utils/mergeDocumentacion');
 const anexoFotograficoService = require('../services/anexoFotograficoService');
 const cifoService = require('../services/cifoService');
 const { applyStatus, stampSeguimientoTimestamps, markCertContact } = require('../services/seguimientoTracking');
-const { partnerNotifyTargets, normalizeContactos } = require('../services/notifyContacts');
+const { partnerNotifyTargets, normalizeContactos, saludoPartner } = require('../services/notifyContacts');
+const { capitalizar: capitalizarNombre } = require('../services/recordatorios');
 const { buildCertClienteData } = require('../services/certClienteData');
 const { getCertificadorNombre } = require('../services/certificadorLookup');
 const { avanzarEstado } = require('../utils/expedienteEstados');
@@ -1400,7 +1401,10 @@ async function resolveSolicitudContacto(exp, target) {
         });
 
         return {
-            nombre: (useContact ? (p?.nombre_contacto || p?.razon_social) : (p?.razon_social || p?.acronimo)) || null,
+            // Se saluda por su NOMBRE bien escrito ("Hola José Antonio"): en la
+            // ficha van en mayúsculas porque el formulario las fuerza. Fuente
+            // única: saludoPartner (services/notifyContacts).
+            nombre: (useContact ? (p?.nombre_contacto ? capitalizarNombre(p.nombre_contacto) : saludoPartner(p)) : saludoPartner(p)) || null,
             tlf: (useContact ? (p?.tlf_contacto || p?.tlf) : (p?.tlf_responsable || p?.tlf || p?.tlf_contacto || p?.landing_telefono_contacto)) || null,
             email: (useContact ? (p?.email_contacto || p?.email) : (p?.email_responsable || p?.email || p?.email_contacto)) || null,
             contactos,
@@ -5323,7 +5327,9 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
         const { data: clienteData } = buildCertClienteData(exp, op, cli);
         const clienteName = clienteData.nombre;
 
-        const certName = cert.razon_social || cert.acronimo || 'Técnico';
+        // Por su NOMBRE bien escrito si consta la persona de contacto de su ficha
+        // ("Hola José Antonio"); si no, la razón social. Fuente única: saludoPartner.
+        const certName = saludoPartner(cert) || 'Técnico';
         const portalLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${req.params.id}`;
 
         // Tipo de actuación para el asunto del email
@@ -5607,11 +5613,11 @@ router.post('/:id/cert-ack', async (req, res) => {
         // Token válido — marcar como confirmado
         const certId = cee.certificador_id;
         const [{ data: cert }, { data: cli }, { data: op }] = await Promise.all([
-            supabase.from('prescriptores').select('razon_social, acronimo').eq('id_empresa', certId).maybeSingle(),
+            supabase.from('prescriptores').select('razon_social, acronimo, nombre_responsable').eq('id_empresa', certId).maybeSingle(),
             exp.cliente_id ? supabase.from('clientes').select('*').eq('id_cliente', exp.cliente_id).maybeSingle() : Promise.resolve({ data: null }),
             exp.oportunidad_id ? supabase.from('oportunidades').select('*').eq('id', exp.oportunidad_id).maybeSingle() : Promise.resolve({ data: null }),
         ]);
-        const certName = cert?.razon_social || cert?.acronimo || 'Técnico';
+        const certName = saludoPartner(cert) || 'Técnico';
 
         // Ficha del cliente (nombre + dirección de instalación) para dar más contexto en el aviso a BROKERGY
         const { data: clienteData } = buildCertClienteData(exp, op, cli);
@@ -5734,7 +5740,7 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
         const { data: clienteData } = buildCertClienteData(exp, op, cli);
         const clienteName = clienteData.nombre;
 
-        const certName = (cert?.razon_social || cert?.acronimo) || userName || 'Técnico';
+        const certName = saludoPartner(cert) || userName || 'Técnico';
         const certPhone = cert?.telefono || cert?.movil || cert?.tlf || null;
         const certEmail = cert?.email || null;
 

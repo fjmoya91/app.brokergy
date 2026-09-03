@@ -249,7 +249,11 @@ const NOMBRE_GENERICO = /^(otro|otro contacto|contacto|destinatario)$/i;
 const primerNombre = (s) => {
     const v = String(s || '').trim();
     if (!v || NOMBRE_GENERICO.test(v)) return '';
-    return v.split(/\s+/)[0] || '';
+    // Se capitaliza: en la ficha los nombres se guardan en MAYÚSCULAS porque el
+    // formulario las fuerza, y "Hola JAVIER," se lee como un grito. Misma regla
+    // que `capitalizar`/`nombrePila` en services/recordatorios.js.
+    const w = v.split(/\s+/)[0] || '';
+    return w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : '';
 };
 
 /**

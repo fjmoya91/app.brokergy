@@ -10,6 +10,28 @@
 //   alternativos; si no → la persona de contacto de la ficha, o la empresa si esa
 //   persona no tiene tlf/email propios).
 
+// `capitalizar` vive en recordatorios.js (no importa nada, no hay ciclo): es la
+// misma con la que se escriben los nombres de cliente en los mensajes.
+const { capitalizar } = require('./recordatorios');
+
+/**
+ * Nombre con el que SALUDAR a un partner en un mensaje.
+ *
+ * El de la PERSONA DE CONTACTO, bien escrito ("Hola José Antonio"): en la ficha
+ * los nombres se guardan en MAYÚSCULAS porque el formulario las fuerza, y
+ * "¡Hola JOSÉ ANTONIO!" se lee como un grito. Solo el nombre de pila —
+ * `nombre_responsable` ya es solo eso — porque con los apellidos deja de ser un
+ * saludo y parece un encabezado de expediente.
+ *
+ * Si no consta la persona, el de la EMPRESA y TAL CUAL está escrito: una razón
+ * social no se capitaliza ("AGUAHORRO, SL" → "Aguahorro, Sl" sería peor).
+ */
+function saludoPartner(p) {
+    const nombre = (p?.nombre_responsable || '').trim();
+    if (nombre) return capitalizar(nombre);
+    return p?.acronimo || p?.razon_social || '';
+}
+
 /** Parsea el array de contactos venga como array o como string JSON. */
 function parseContactos(value) {
     if (Array.isArray(value)) return value;
@@ -58,7 +80,7 @@ function partnerNotifyTargets(p) {
         const contactos = normalizeContactos(p.contactos_notificacion).filter(hasChannel);
         if (contactos.length) {
             return contactos.map(c => ({
-                nombre: c.nombre || p.acronimo || p.razon_social || '',
+                nombre: c.nombre ? capitalizar(c.nombre) : saludoPartner(p),
                 email:  c.email || null,
                 tlf:    c.tlf || null,
             }));
@@ -66,7 +88,7 @@ function partnerNotifyTargets(p) {
         // Fallback al contacto plano si el array está vacío pero hay columnas planas.
         if (p.nombre_contacto || p.tlf_contacto || p.email_contacto) {
             return [{
-                nombre: p.nombre_contacto || p.acronimo || p.razon_social || '',
+                nombre: p.nombre_contacto ? capitalizar(p.nombre_contacto) : saludoPartner(p),
                 email:  (p.email_contacto || p.email) || null,
                 tlf:    (p.tlf_contacto || p.tlf) || null,
             }];
@@ -77,17 +99,11 @@ function partnerNotifyTargets(p) {
     // contacto si los tiene (tlf_responsable/email_responsable), y si no, a los
     // de la empresa. Es lo que significa "la persona de contacto es la misma de
     // las notificaciones": cambia POR DÓNDE se avisa.
-    //
-    // El NOMBRE con el que se saluda sigue siendo el de la EMPRESA a propósito.
-    // Cambiarlo al de la persona alteraría el tono de todos los avisos
-    // automáticos (medido: 42 de 78 partners pasarían de "Hola AGUAHORRO, SL" a
-    // "Hola JOSÉ ANTONIO BARBA ALFARO", con el nombre completo y en mayúsculas),
-    // y eso es una decisión de redacción aparte, no parte de la unificación.
     return [{
-        nombre: p.acronimo || p.razon_social || '',
+        nombre: saludoPartner(p),
         email:  p.email_responsable || p.email || null,
         tlf:    p.tlf_responsable || p.tlf || null,
     }];
 }
 
-module.exports = { normalizeContactos, partnerNotifyTargets, parseContactos };
+module.exports = { normalizeContactos, partnerNotifyTargets, parseContactos, saludoPartner };

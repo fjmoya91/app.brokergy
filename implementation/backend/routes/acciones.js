@@ -22,6 +22,7 @@ const axios = require('axios');
 const supabase = require('../services/supabaseClient');
 const { verificarAccion, firmarAccion } = require('../utils/accionToken');
 const recordatorios = require('../services/recordatorios');
+const { saludoPartner } = require('../services/notifyContacts');
 const seguimientoDiario = require('../services/seguimientoDiario');
 const { dias: diasDesde } = require('../services/seguimientoRadar');
 
@@ -184,7 +185,9 @@ async function prepararCertificador(expId, tipo, scope) {
         if (cli) clienteName = recordatorios.capitalizar(`${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim());
     }
 
-    const certName = cert.razon_social || cert.acronimo || 'Técnico';
+    // Por su NOMBRE bien escrito si la ficha tiene persona de contacto; si no, la
+    // razón social tal cual. Fuente única: saludoPartner (services/notifyContacts).
+    const certName = saludoPartner(cert) || 'Técnico';
     let mensaje;
     if (tipo === 'cert-registro') {
         // El enlace de subida del CEE registrado es la acción que le pedimos: sin él,

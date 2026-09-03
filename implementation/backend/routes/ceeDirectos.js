@@ -26,6 +26,8 @@ const uploads = require('../services/ceeDirectoUploadService');
 const estados = require('../utils/ceeDirectoEstados');
 const ack = require('../services/ceeDirectoAck');
 const entrega = require('../services/ceeDirectoEntrega');
+// Saludo por el NOMBRE de la persona de contacto, bien escrito.
+const { saludoPartner } = require('../services/notifyContacts');
 
 const APP_BASE = process.env.FRONTEND_URL || 'https://app.brokergy.es';
 
@@ -799,7 +801,7 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
         const bloqueCarpetas = compartidas.map(c => `📁 ${c.nombre}:\n${c.link}`).join('\n\n');
 
         const cuerpo = (req.body?.customMessage || '').trim()
-            || `¡Hola ${cert.razon_social || cert.acronimo || 'técnico'}!\n\n`
+            || `¡Hola ${saludoPartner(cert) || 'técnico'}!\n\n`
              + `Te encargamos el ${faseLabel} del expediente ${row.numero_expediente}.\n\n`
              + `👤 ${ficha.nombre || '(cliente sin nombre)'}${ficha.dni ? ` · ${ficha.dni}` : ''}\n`
              + `${ficha.tlf ? `📞 ${ficha.tlf}\n` : ''}`
@@ -905,7 +907,7 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
         const subirLink = `${APP_BASE}/subir-cee-directo/${row.id}?token=${token}&phase=${phase}`;
 
         const base = (req.body?.customMessage || '').trim()
-            || `¡Hola ${cert.razon_social || cert.acronimo || 'técnico'}!\n\n`
+            || `¡Hola ${saludoPartner(cert) || 'técnico'}!\n\n`
              + `Hemos revisado el ${faseLabel} del expediente ${row.numero_expediente}`
              + `${nombreCliente(row.cliente) ? ` (${nombreCliente(row.cliente)})` : ''} y tiene nuestro visto bueno. `
              + `Ya puedes registrarlo.\n\n¡Gracias!\nBROKERGY · Ingeniería Energética`;
