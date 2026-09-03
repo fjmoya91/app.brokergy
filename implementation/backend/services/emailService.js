@@ -331,6 +331,13 @@ const sendLeadSummaryEmail = async ({
         ? [partner.tel, partner.email || 'info@brokergy.es'].filter(Boolean).join(' · ')
         : null;
 
+    // La nota de presupuesto estimado sale de la MISMA fuente que la propuesta de la
+    // app (leadMessages → frontend/…/presupuestoEstimado.js), así que se resuelve
+    // aquí: se usa dos veces, en el HTML y en el texto plano.
+    const notaPresupuesto = presupuestoEstimado
+        ? await presupuestoNote(partner, { conIrpf: Number(irpf) > 0 })
+        : '';
+
     // Asunto según tipo / co-branding
     const subject = esSuave
         ? `Hemos recibido tu solicitud — ${idOportunidad}`
@@ -365,7 +372,7 @@ const sendLeadSummaryEmail = async ({
              <div style="font-size:10px;color:${BRAND.orangeDark};margin-top:4px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">tras todas las ayudas</div>
            </td>
          </tr></table>` +
-        (presupuestoEstimado ? emailP(`* ${escapeHtml(presupuestoNote(partner))}`, { size: 11, color: BRAND.muted, mb: 18 }) : '') +
+        (presupuestoEstimado ? emailP(`* ${escapeHtml(notaPresupuesto)}`, { size: 11, color: BRAND.muted, mb: 18 }) : '') +
         emailBox(
             emailDataTable([
                 ['Bono Energético CAE', `<span style="color:${BRAND.greenDark};">${fmtEur(cae)}</span>`],
@@ -413,7 +420,7 @@ const sendLeadSummaryEmail = async ({
 
     const text = esSuave
         ? `Hemos recibido tu solicitud para ${prod}.\n\nHola ${primerNombre},\n\nUn técnico revisará tu expediente y te contactará lo antes posible para darte una propuesta de ayudas a tu medida.\n${uploadLink ? `\nPuedes adelantar el proceso subiendo fotos aquí: ${uploadLink}\n` : ''}\nRef: ${idOportunidad}\n\nBrokergy · brokergy.es`
-        : `Tu propuesta de Brokergy${partnerName ? ` (en colaboración con ${partnerName})` : ''}\n\nHola ${primerNombre},\n\nAquí tienes tu estimación de ayudas para ${prod}:\n\nBono CAE: ${fmtEur(cae)}\n${Number(irpf) > 0 ? `Deducción IRPF: ${fmtEur(irpf)}\n` : ''}Ayuda total: ${fmtEur(total)}\nTu inversión neta: ${fmtEur(neta)}\n${showAhorro ? `${ahorroLabel}: ${fmtEur(ahorro)}/año\n` : ''}${presupuestoEstimado ? `\n${presupuestoNote(partner)}\n` : ''}\nRef: ${idOportunidad}\n\nBrokergy · brokergy.es`;
+        : `Tu propuesta de Brokergy${partnerName ? ` (en colaboración con ${partnerName})` : ''}\n\nHola ${primerNombre},\n\nAquí tienes tu estimación de ayudas para ${prod}:\n\nBono CAE: ${fmtEur(cae)}\n${Number(irpf) > 0 ? `Deducción IRPF: ${fmtEur(irpf)}\n` : ''}Ayuda total: ${fmtEur(total)}\nTu inversión neta: ${fmtEur(neta)}\n${showAhorro ? `${ahorroLabel}: ${fmtEur(ahorro)}/año\n` : ''}${presupuestoEstimado ? `\n${notaPresupuesto}\n` : ''}\nRef: ${idOportunidad}\n\nBrokergy · brokergy.es`;
 
     return sendMail({ to, subject, html, text, replyTo: partner && partner.email ? partner.email : undefined });
 };

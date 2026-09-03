@@ -12,6 +12,7 @@ export const LOTE_ESTADOS = [
     'REQUERIMIENTO VERIFICADOR',
     'VERIFICADO',
     'PTE. SUBIDA MITECO',
+    'SUBIDO A MITECO',
     'REQUERIMIENTO G.A.',
     'CAE EMITIDO – PTE PAGO BROKERGY',
     'PTE. PAGO BROKERGY A CLIENTE',
@@ -24,6 +25,10 @@ export function loteEstadoBadge(estado) {
     if (s.includes('REQUERIMIENTO')) return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
     if (s === 'FINALIZADO' || s === 'VERIFICADO') return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
     if (s.includes('CAE EMITIDO') || s.includes('PAGO')) return 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20';
+    // Los dos estados del MITECO no son lo mismo: uno es una tarea PENDIENTE y el
+    // otro un hito ya cumplido (con su justificante de registro), así que no pueden
+    // pintarse igual — "subido" se lee de un vistazo, sin abrir el lote.
+    if (s === 'SUBIDO A MITECO') return 'bg-cyan-500/20 text-cyan-300 border-cyan-400/40';
     if (s.includes('MITECO')) return 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20';
     // Los estados de espera del papeleo (firma del S.O., oferta) van en ámbar suave:
     // el lote está parado esperando a un tercero, no avanzando.

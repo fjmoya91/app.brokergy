@@ -14,6 +14,8 @@
 //                                  cuando vuelve firmada        → ENVIADO A VERIFICADOR
 //   4. Verificación              → informes de inexactitudes    → REQUERIMIENTO VERIFICADOR
 //                                  informe + dictamen favorable → VERIFICADO
+//   5. Presentación a MITECO     → justificante de registro      → SUBIDO A MITECO
+//                                  certificado CAE emitido       → CAE EMITIDO
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Slots de documento. `multiple` = admite varios ficheros (sufijo _1, _2…).
@@ -204,6 +206,7 @@ const LOTE_ESTADOS = [
     'REQUERIMIENTO VERIFICADOR',
     'VERIFICADO',
     'PTE. SUBIDA MITECO',
+    'SUBIDO A MITECO',
     'REQUERIMIENTO G.A.',
     'CAE EMITIDO – PTE PAGO BROKERGY',
     'PTE. PAGO BROKERGY A CLIENTE',
@@ -222,6 +225,9 @@ function estadoSegunDocs(docs) {
     const firmado = (k) => !!byKey(k)?.signed_link;
 
     if (hay('certificado_cae')) return 'CAE EMITIDO – PTE PAGO BROKERGY';
+    // El justificante de registro del MITECO es la PRUEBA de que el lote ya se
+    // presentó: mientras no exista, "subido" es una afirmación de palabra.
+    if (hay('justificante_miteco')) return 'SUBIDO A MITECO';
     if (hay('informe_verificacion') && hay('dictamen_favorable')) return 'VERIFICADO';
     if (firmado('oferta_verificacion')) return 'ENVIADO A VERIFICADOR';
     if (byKey('oferta_verificacion')?.sent_at) return 'PTE. FIRMA OFERTA S.O.';
@@ -256,7 +262,7 @@ function siguienteEstado(estadoActual, destino, { retroceso = false } = {}) {
 // propagan a sus miembros (espejo de la lista de PATCH /lotes/:id/estado).
 const ESTADOS_TAMBIEN_DE_EXPEDIENTE = [
     'ENVIADO A VERIFICADOR', 'REQUERIMIENTO VERIFICADOR', 'PTE. SUBIDA MITECO',
-    'REQUERIMIENTO G.A.', 'CAE EMITIDO – PTE PAGO BROKERGY',
+    'SUBIDO A MITECO', 'REQUERIMIENTO G.A.', 'CAE EMITIDO – PTE PAGO BROKERGY',
     'PTE. PAGO BROKERGY A CLIENTE', 'FINALIZADO',
 ];
 

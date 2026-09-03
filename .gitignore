@@ -66,3 +66,7 @@ implementation/check_*.js
 implementation/check_*.js
 implementation/test_*.js
 tutorial-originales/
+
+# Logos de partners extraídos de la BD para trabajar con ellos (5,9 MB de
+# imágenes de clientes). Se regeneran cuando haga falta; no van al repo.
+logos-partners/

@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { IconCard } from '../components/IconCard';
 import { StepLayout } from '../components/StepLayout';
+import { PRESUPUESTO_ESTIMADO_EUR } from '../../calculator/logic/presupuestoEstimado';
+
+const eur = (n) => (Number(n) || 0).toLocaleString('es-ES', { maximumFractionDigits: 0 });
 
 export function Step8_Presupuesto({ funnel, updateFunnel, onNext, hideInstalador = false, isInternal = false }) {
     const [showInput, setShowInput] = useState(false);
@@ -13,12 +16,12 @@ export function Step8_Presupuesto({ funnel, updateFunnel, onNext, hideInstalador
             return;
         }
         if (modo === 'no_se') {
-            updateFunnel({ presupuesto_modo: 'no_se', presupuesto_eur: 15000 });
+            updateFunnel({ presupuesto_modo: 'no_se', presupuesto_eur: PRESUPUESTO_ESTIMADO_EUR });
             setTimeout(onNext, 250);
             return;
         }
         if (modo === 'pide_instalador') {
-            updateFunnel({ presupuesto_modo: 'pide_instalador', presupuesto_eur: 15000 });
+            updateFunnel({ presupuesto_modo: 'pide_instalador', presupuesto_eur: PRESUPUESTO_ESTIMADO_EUR });
             setTimeout(onNext, 250);
         }
     };
@@ -49,7 +52,7 @@ export function Step8_Presupuesto({ funnel, updateFunnel, onNext, hideInstalador
             <IconCard
                 icon="🤷"
                 title={isInternal ? "No, calcular uno orientativo" : "No, calcúlame uno orientativo"}
-                subtitle="Usamos 15.000 € como media nacional de vivienda unifamiliar"
+                subtitle={`Usamos ${eur(PRESUPUESTO_ESTIMADO_EUR)} € como media nacional de vivienda unifamiliar`}
                 selected={funnel.presupuesto_modo === 'no_se'}
                 onClick={() => selectMode('no_se')}
             />
@@ -63,6 +66,16 @@ export function Step8_Presupuesto({ funnel, updateFunnel, onNext, hideInstalador
                     badge="Personalizado"
                 />
             )}
+
+            {/* Elegir el estimado tiene consecuencias distintas para cada ayuda y
+                conviene saberlas ANTES de elegir: el bono CAE sale del ahorro
+                certificado y no se mueve; la deducción es un % del coste de la obra
+                con IVA, así que sí. Ver `logic/presupuestoEstimado.js`. */}
+            <p className="text-white/35 text-[11px] leading-relaxed text-center pt-2">
+                Con un presupuesto estimado el <strong className="text-white/60">bono CAE no cambia</strong> —se calcula sobre
+                el ahorro de energía certificado—, pero la deducción del IRPF y la inversión neta sí, porque son un porcentaje
+                del coste de la obra con IVA. {isInternal ? 'La propuesta saldrá marcada como provisional.' : 'Te enviaremos la propuesta definitiva en cuanto tengas el presupuesto.'}
+            </p>
 
             {showInput && funnel.presupuesto_modo === 'tengo' && (
                 <div className="mt-6 pt-6 border-t border-white/10 animate-fade-in">

@@ -24,6 +24,7 @@
 import { BOILER_EFFICIENCIES, calculateTer100 } from '../../calculator/logic/calculation.js';
 import { resolveDacs } from './demandaAcs.js';
 import { esTermoElectrico } from './aerotermiaUnits.js';
+import { ceeBaseDocumento } from './ceeFases.js';
 
 /** Vida útil (D_i) de la actuación TER100, en años. Igual que RES060. */
 export const TER100_VIDA_UTIL = 15;
@@ -75,9 +76,8 @@ export function deriveTer100Vars(expediente) {
     const inst = exp.instalacion || {};
 
     // CEE que manda: el final si ya trae demanda válida (es el definitivo y el que
-    // usan los documentos), y si no el inicial. Mismo criterio que RES060.
-    const ceeFinalValido = cee.cee_final && parseFloat(cee.cee_final.demandaCalefaccion) > 0;
-    const ceeBase = ceeFinalValido ? cee.cee_final : (cee.cee_inicial || cee.cee_final || {});
+    // usan los documentos), y si no el inicial. Fuente única en ceeFases.js.
+    const { base: ceeBase } = ceeBaseDocumento(cee);
 
     const sRaw = parseFloat(ceeBase.superficieHabitable) || parseFloat(opDatos.surface) || 0;
     const dcalRaw = parseFloat(ceeBase.demandaCalefaccion) || 0;

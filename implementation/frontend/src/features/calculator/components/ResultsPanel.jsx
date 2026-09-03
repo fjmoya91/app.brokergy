@@ -908,6 +908,18 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                             </button>
 
                             <div className={`${showViability ? 'block' : 'hidden'} md:block`}>
+                            {/* El presupuesto es el de referencia, no uno cotizado. Se avisa AQUÍ
+                                —encima de las tablas de viabilidad— porque de esta cifra salen la
+                                inversión neta y el % cubierto que se van a enviar al cliente. La
+                                propuesta lo repite en su portada, su tabla y su mensaje. */}
+                            {inputs?.presupuestoEstimado && !inputs?.hideBudget && (
+                                <div className="mb-4 rounded-xl border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-[12px] text-orange-100 leading-relaxed">
+                                    <span className="font-black uppercase tracking-wider text-orange-300">⚠ Presupuesto estimado</span>
+                                    {' — '}se ha calculado con {formatNumber(inputs.presupuesto)} € porque aún no hay presupuesto real.
+                                    El <strong>bono CAE no cambiará</strong>{result?.financials?.irpfCap > 0 ? ', pero la deducción del IRPF y la inversión neta sí' : ''}.
+                                    La propuesta saldrá marcada como provisional; en cuanto se teclee un presupuesto, el aviso desaparece.
+                                </div>
+                            )}
                             <div className={`grid grid-cols-1 ${result.financialsRes080 && inputs?.comparativaReforma !== false ? 'xl:grid-cols-2' : ''} gap-4`}>
                                 {(inputs?.reformaType !== 'onlyReforma' && (!inputs?.isReforma || inputs?.comparativaReforma !== false)) && (
                                     <div className="glass-card overflow-hidden border-slate-700/50">

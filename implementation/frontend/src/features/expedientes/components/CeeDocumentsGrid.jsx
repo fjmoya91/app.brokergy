@@ -14,6 +14,7 @@ import { autoconsumoMaximo } from '../logic/autoconsumoMaximo';
 import { parseEmisionesTotalesFromXml } from '../../calculator/logic/xmlCeeParser';
 import { buildCe3xFinal, CE3X_FALTA } from '../logic/ce3xFinal';
 import { getUnidades } from '../logic/aerotermiaUnits';
+import { hayCee, patchVaciarCee, textoVaciarCee } from '../logic/ceeFases';
 import { SolicitarFaltantesModal } from './SolicitarFaltantesModal';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
 import { WhatsappConnectModal } from '../../whatsapp/components/WhatsappConnectModal';
@@ -211,6 +212,15 @@ export function CeeDocumentsGrid({
     // cada fase, así que se resuelve UNA vez para las dos.
     const propDemanda = demandaPropuesta(expediente);
     const esReforma = expediente?.oportunidades?.ficha === 'RES080' || expediente?.cee?.is_reforma;
+    // Retirar los datos de un certificado es tirar la cifra sobre la que se emiten
+    // el CIFO y la ficha: solo el ADMIN. Mismo criterio de rol que el resto del
+    // módulo (el certificador entra aquí y sube su .xml, pero no borra nada).
+    const esAdmin = (user?.rol || '').toUpperCase() === 'ADMIN'
+        || (user?.rol_nombre || '').toUpperCase() === 'ADMIN'
+        || Number(user?.id_rol) === 1;
+    // Lo leído del certificado de cada fase, con la copia VIVA del módulo (`demands`),
+    // no con la del expediente: entre el vaciado y el refetch van un par de segundos.
+    const ceeVivo = { cee_inicial: demands?.inicial || null, cee_final: demands?.final || null };
     const [uploading, setUploading] = useState({}); // path -> bool
     const [managing, setManaging] = useState(null); // { section, slot, link }
     const [isDraggingModal, setIsDraggingModal] = useState(false);
@@ -1027,7 +1037,27 @@ export function CeeDocumentsGrid({
             }
         }
 
-        // 3. Actualizar estado local
+        // 3. ¿Se van también los DATOS que ese certificado sembró?
+        //
+        // El fichero vive en Drive y la demanda en Supabase (`cee.cee_final`), así
+        // que borrar el .xml no tocaba la cifra: el CIFO, la ficha y la economía
+        // seguían saliendo con la demanda de un certificado que ya no existe. No se
+        // borra en silencio —la demanda entra también por "Cargar CEE" (OCR) y a
+        // mano, casos en los que este slot está vacío y el dato es bueno—: se
+        // pregunta, con las cifras a la vista, y solo al ADMIN.
+        let extraPatch = null;
+        if (slot.id === 'xml' && esAdmin && hayCee(ceeVivo, section)) {
+            const ok = await showConfirm(
+                textoVaciarCee(ceeVivo, section),
+                `¿Vaciar también los datos del CEE ${section === 'final' ? 'final' : 'inicial'}?`,
+                'warning'
+            );
+            if (ok) extraPatch = patchVaciarCee(section);
+        }
+
+        // 4. Actualizar estado local. El patch viaja en el MISMO guardado que los
+        //    ficheros: por `onManualUpdate` se perdería (usa el `local` del render,
+        //    que aún no tiene los cee_files nuevos).
         onFilesChange(prev => {
             const next = { ...prev };
             if (!next[section]) next[section] = {};
@@ -1037,7 +1067,28 @@ export function CeeDocumentsGrid({
                 next[section][slot.id] = slot.isMultiple ? [] : null;
             }
             return next;
-        });
+        }, extraPatch);
+    };
+
+    /**
+     * Vaciar los datos leídos de una fase SIN tocar ficheros. Es la salida para lo
+     * ya borrado: quien retiró el .xml antes de que esto existiera tiene la demanda
+     * puesta y ninguna forma de quitarla (el recuadro de la rejilla es de solo
+     * lectura). Solo ADMIN.
+     */
+    const vaciarDatosCee = async (section) => {
+        const ok = await showConfirm(
+            textoVaciarCee(ceeVivo, section),
+            `Vaciar los datos del CEE ${section === 'final' ? 'final' : 'inicial'}`,
+            'warning'
+        );
+        if (!ok) return;
+        onManualUpdate(patchVaciarCee(section));
+        showAlert(
+            `Los datos del CEE ${section === 'final' ? 'final' : 'inicial'} se han retirado del expediente. `
+            + `Los ficheros que hubiera en Drive siguen ahí.`,
+            'Datos retirados', 'success'
+        );
     };
 
     // Cálculo de ACS HAB
@@ -1338,6 +1389,19 @@ export function CeeDocumentsGrid({
                                         section={section}
                                         esReforma={esReforma}
                                     />
+                                    {/* Retirar lo leído de este certificado. Va aquí, junto a la
+                                        cifra: es donde se ve el dato y donde se quiere quitar. */}
+                                    {esAdmin && hayCee(ceeVivo, section) && (
+                                        <button
+                                            onClick={() => vaciarDatosCee(section)}
+                                            title={`Vaciar los datos leídos del CEE ${section === 'final' ? 'final' : 'inicial'} (demanda, superficie y fechas). No borra ficheros de Drive.`}
+                                            className="w-7 h-7 max-md:w-11 max-md:h-11 rounded-lg bg-white/[0.03] border border-white/5 flex items-center justify-center text-white/25 hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/30 transition-all active:scale-95 shrink-0"
+                                        >
+                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                            </svg>
+                                        </button>
+                                    )}
                                 </div>
                             </div>
 

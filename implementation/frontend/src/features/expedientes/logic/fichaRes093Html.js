@@ -11,7 +11,7 @@
 import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs } from '../../calculator/logic/calculation';
 import { computeExpedienteFinancials } from './expedienteFinancials';
 import { calcCifo } from './calcCifo';
-import { esTermoElectrico } from './aerotermiaUnits';
+import { ceeBaseDocumento, acsEnAlcance } from './ceeFases';
 
 const PAGE_PADDING = '93px 95px 19px 113px';
 
@@ -62,7 +62,8 @@ export function buildFichaRes093Html(expediente, opts = {}) {
     const fin = computeExpedienteFinancials(expediente);
     const aeKwh = Math.round(fin.savingsKwh || 0).toLocaleString('es-ES');
 
-    const ceeFinal = cee.cee_final || {};
+    // El CEE que manda: final si está cargado, si no el inicial (ceeFases.js).
+    const { base: ceeFinal } = ceeBaseDocumento(cee);
     const dcalRaw = parseFloat(ceeFinal.demandaCalefaccion) || 0;
     const dcal = dcalRaw.toFixed(2).replace('.', ',');
 
@@ -72,9 +73,7 @@ export function buildFichaRes093Html(expediente, opts = {}) {
     // ACS dentro del alcance — mismo criterio que el CIFO (cifoDoc.js): el toggle
     // `cambio_acs` y, además, que el equipo nuevo sea una bomba de calor. Un termo
     // eléctrico (efecto Joule, rendimiento 1) no computa en el ahorro CAE.
-    const acsAeroFicha = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
-    const tieneAcs = inst.cambio_acs !== false
-        && !esTermoElectrico(acsAeroFicha) && !esTermoElectrico(inst.aerotermia_acs);
+    const tieneAcs = acsEnAlcance(inst);
 
     // Demanda de ACS — DEBE coincidir con la del Certificado CIFO (CertificadoCifoModal.jsx).
     // Misma lógica: por defecto modo 'xml' (demandaACS · superficie); en modo CTE, fórmula por personas.

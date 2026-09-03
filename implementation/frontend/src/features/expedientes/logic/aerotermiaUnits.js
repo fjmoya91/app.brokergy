@@ -271,6 +271,25 @@ export function acsComputaAhorro(inst) {
     return !!inst.aerotermia_acs?.aerotermia_db_id;
 }
 
+/**
+ * ¿Se ACTÚA sobre el ACS? Es el criterio con el que el CIFO, las fichas RES y el
+ * certificado RES080 deciden imprimir la D_ACS y el SCOP_dhw o poner "no aplica":
+ * el toggle `cambio_acs` y que el equipo nuevo no sea un termo eléctrico.
+ *
+ * NO es lo mismo que `acsComputaAhorro`, que además exige que el equipo esté
+ * identificado (modelo del catálogo o acumulador con SCOP): aquél decide si el
+ * ACS SUMA en el ahorro; éste, si el apartado existe en el documento. Estaba
+ * copiado en cinco sitios (cifoDoc, las dos fichas HTML y sus dos modales) y una
+ * copia que se quedara atrás pondría a un documento a declarar un ahorro de ACS
+ * que otro imprime como "no aplica".
+ */
+export function acsEnAlcance(inst) {
+    const i = inst || {};
+    const acsAero = i.misma_aerotermia_acs ? i.aerotermia_cal : i.aerotermia_acs;
+    return i.cambio_acs !== false
+        && !esTermoElectrico(acsAero) && !esTermoElectrico(i.aerotermia_acs);
+}
+
 /** true si el equipo lleva ficha técnica/EPREL que justifique un SCOP. */
 export function justificaScop(aero) {
     return tipoEquipoNuevo(aero) === EQUIPO_NUEVO.BDC;

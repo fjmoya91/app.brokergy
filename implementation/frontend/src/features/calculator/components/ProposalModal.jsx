@@ -5,6 +5,7 @@ import { useAuth } from '../../../context/AuthContext';
 import AppConfirm from '../../../components/AppConfirm';
 import { EnviarPropuestaModal } from './EnviarPropuestaModal';
 import { computeCeeComparison } from '../logic/ceeComparison';
+import { esPresupuestoEstimado, avisoPresupuestoEstimado, lineaPresupuestoEstimado } from '../logic/presupuestoEstimado';
 import { postEmail } from '../../../utils/emailFallback';
 
 const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
@@ -224,6 +225,16 @@ const baseCss = `
         .prop-hip p { margin: 0; padding: 0; font-size: 10px; color: var(--g600); line-height: 1.55; }
         .prop-hip p + p { margin-top: 5px; }
         .prop-hip strong { color: var(--dark); }
+        /* Aviso de presupuesto estimado. Naranja (advertencia) para que no se lea
+           como el recuadro verde de "además, tiene derecho a…": aquí no se está
+           añadiendo una ventaja, se está acotando lo que la propuesta afirma. */
+        .prop-est { margin-top: 10px; border: 1px solid #FFE0B2; border-top: 4px solid var(--orange); border-radius: 10px; padding: 12px 16px; background: var(--orange-light); }
+        .prop-est h4 { margin: 0 0 5px; padding: 0; font-size: 11px; font-weight: 800; color: var(--dark); letter-spacing: -0.1px; }
+        .prop-est p { margin: 0; padding: 0; font-size: 10px; color: var(--g600); line-height: 1.55; }
+        .prop-est p + p { margin-top: 5px; }
+        .prop-est strong { color: var(--dark); }
+        /* Chapa "presupuesto estimado" de la portada, junto a los indicadores. */
+        .prop-estbadge { margin-top: 8px; display: inline-block; padding: 4px 10px; border-radius: 6px; background: var(--orange-light); border: 1px solid #FFE0B2; font-size: 9.5px; font-weight: 800; color: var(--orange-dark); text-transform: uppercase; letter-spacing: 0.6px; }
         .prop-nsm { margin-top: var(--e-nsm); display: flex; flex-direction: column; gap: 2px; }
         .prop-nsm p { font-size: 9.5px; color: var(--g400); line-height: 1.5; margin: 0; }
         .prop-compact .prop-nsm p { font-size: 8.5px; line-height: 1.4; }
@@ -1698,7 +1709,36 @@ info@brokergy.es · 623 926 179`;
         return conCee === nuevo ? null : ceeComparisonRaw;
     }, [ceeComparisonRaw]);
 
-    const buildCaption = useCallback((mode, targetName, opts = {}) => {
+    /**
+     * ¿Esta propuesta se ha calculado con el presupuesto de REFERENCIA (15.000 €)?
+     *
+     * Se resuelve UNA vez y lo consumen las cuatro superficies del documento: la
+     * chapa de la portada, la fila de inversión de la tabla, el recuadro de aviso,
+     * la nota al pie y el mensaje de envío. Con la comprobación repetida en cada
+     * sitio, la propuesta podía salir marcada y el WhatsApp que la acompaña no.
+     *
+     * Con "ocultar coste de obra" NO se avisa: ahí el presupuesto no aparece por
+     * ninguna parte y ya hay una nota que lo explica; dos avisos sobre lo mismo se
+     * contradicen a ojos de quien los lee.
+     *
+     * `conIrpf` decide si se habla o no de la deducción: es lo ÚNICO que el
+     * presupuesto mueve, y sin deducción en juego advertir de su efecto es ruido
+     * sobre la única cifra que sí es firme.
+     */
+    const presInfo = useMemo(() => {
+        if (inputs?.hideBudget || !esPresupuestoEstimado(inputs)) {
+            return { estimado: false, conIrpf: false, importe: 0 };
+        }
+        const soloReforma = !!inputs?.isReforma && inputs?.comparativaReforma === false;
+        const fin = (soloReforma ? result?.financialsRes080 : result?.financials) || result?.financials || {};
+        return {
+            estimado: true,
+            conIrpf: (fin.irpfCap || 0) > 0,
+            importe: fin.presupuesto || 0,
+        };
+    }, [inputs, result]);
+
+    const buildCaptionBase = useCallback((mode, targetName, opts = {}) => {
         const f = result || {};
         const fAero = f.financials || {};
         const fReforma = f.financialsRes080 || {};
@@ -1753,6 +1793,28 @@ info@brokergy.es · 623 926 179`;
             }
         }
     }, [inputs, result, displayId, urlId, ceeComparison]);
+
+    /**
+     * El mensaje de envío, con el aviso de presupuesto estimado PEGADO al final.
+     *
+     * Se añade fuera de las quince ramas de `buildCaptionBase` (cliente/partner/
+     * instalador × aerotermia/reforma/comparativa × con CEE aportado) porque el aviso
+     * es el mismo en todas y repetirlo quince veces es garantizar que un día falte en
+     * una. Va al final y no al principio: primero la propuesta, después su matiz.
+     *
+     * Sigue siendo editable en el popup de envío: `buildCaption` solo compone el
+     * borrador, y el texto que de verdad sale es el que quede en la caja.
+     */
+    const buildCaption = useCallback((mode, targetName, opts = {}) => {
+        const txt = buildCaptionBase(mode, targetName, opts) || '';
+        if (!txt || !presInfo.estimado) return txt;
+        const nota = lineaPresupuestoEstimado({
+            conIrpf: presInfo.conIrpf,
+            tuteo: true,
+            importe: presInfo.importe,
+        });
+        return `${txt}\n\n⚠️ *Importante — el presupuesto de la obra es estimado.* ${nota}`;
+    }, [buildCaptionBase, presInfo]);
 
     const sendToMultiple = useCallback(async (selectedModes, customMessages = {}) => {
         setRecipientChoice(false);
@@ -2087,6 +2149,12 @@ info@brokergy.es · 623 926 179`;
     // depende del presupuesto y se puede dar cerrado; la deducción del IRPF sí
     // depende de él, y por eso pasa de cifra a hipótesis.
     const hideBudget = !!inputs?.hideBudget;
+
+    const presEstimado = presInfo.estimado;
+    const presConIrpf = presInfo.conIrpf;
+    const avisoPres = presEstimado
+        ? avisoPresupuestoEstimado({ conIrpf: presConIrpf, importe: presInfo.importe })
+        : null;
 
     // Trío de indicadores de la portada (ayuda total · % cubierto · inversión neta).
     // Solo se pinta cuando hay UNA opción: en la comparativa a dos columnas esos tres
@@ -2709,6 +2777,15 @@ info@brokergy.es · 623 926 179`;
                                         se quedan en el pie de cada tabla para poder compararlos. */}
                                     {!isBoth && renderKpis(isOnlyReforma ? f80 : f)}
 
+                                    {/* La chapa va JUNTO a los indicadores: la inversión neta y el
+                                        "% cubierto" que hay justo encima salen del presupuesto, y es
+                                        ahí donde se leen como cerrados. */}
+                                    {presEstimado && (
+                                        <div className="prop-estbadge">
+                                            ⚠ Presupuesto estimado — propuesta provisional
+                                        </div>
+                                    )}
+
                                     <div className="prop-meta">
                                         <div><div className="prop-meta-l">Cliente</div><div className="prop-meta-v">{inputs?.referenciaCliente || 'Sin Asignar'}</div></div>
                                         <div><div className="prop-meta-l">Ref. Catastral</div><div className="prop-meta-v">{inputs?.rc || 'MANUAL'}</div></div>
@@ -2736,7 +2813,7 @@ info@brokergy.es · 623 926 179`;
                                                 {isBoth && <div className="prop-ftable-title"><i style={{background:'var(--orange)'}}></i> OPCIÓN 1: AEROTERMIA</div>}
                                                     <div className="prop-ftable">
                                                         <div className="prop-fth"><span>Concepto</span><span>Importe</span></div>
-                                                        {!hideBudget && <div className="prop-ftr"><span className="prop-fl">Inversión sustitución de caldera por aerotermia {ivaSuffix(f)}</span><span className="prop-fv">{formatNumber(f.presupuesto)} €</span></div>}
+                                                        {!hideBudget && <div className="prop-ftr"><span className="prop-fl">Inversión sustitución de caldera por aerotermia {ivaSuffix(f)}{presEstimado && <small style={{ color: 'var(--orange-dark)', fontWeight: 800 }}> (ESTIMADA)</small>}</span><span className="prop-fv">{formatNumber(f.presupuesto)} €</span></div>}
                                                         {!hideBudget && f.presupuestoFotovoltaica > 0 && (
                                                             <div className="prop-ftr"><span className="prop-fl">Instalación fotovoltaica {ivaSuffix(f)}</span><span className="prop-fv">{formatNumber(f.presupuestoFotovoltaica)} €</span></div>
                                                         )}
@@ -2796,7 +2873,7 @@ info@brokergy.es · 623 926 179`;
                                                 {isBoth && <div className="prop-ftable-title"><i style={{background:'var(--green)'}}></i> OPCIÓN 2: AEROTERMIA + REFORMA</div>}
                                                     <div className="prop-ftable">
                                                         <div className="prop-fth"><span>Concepto</span><span>Importe</span></div>
-                                                        {!hideBudget && <div className="prop-ftr"><span className="prop-fl">Inversión Reforma de Vivienda + Aerotermia {ivaSuffix(f80)}</span><span className="prop-fv">{formatNumber(f80.presupuesto)} €</span></div>}
+                                                        {!hideBudget && <div className="prop-ftr"><span className="prop-fl">Inversión Reforma de Vivienda + Aerotermia {ivaSuffix(f80)}{presEstimado && <small style={{ color: 'var(--orange-dark)', fontWeight: 800 }}> (ESTIMADA)</small>}</span><span className="prop-fv">{formatNumber(f80.presupuesto)} €</span></div>}
                                                         {!hideBudget && f80.presupuestoFotovoltaica > 0 && (
                                                             <div className="prop-ftr"><span className="prop-fl">Instalación fotovoltaica {ivaSuffix(f80)}</span><span className="prop-fv">{formatNumber(f80.presupuestoFotovoltaica)} €</span></div>
                                                         )}
@@ -2861,20 +2938,35 @@ info@brokergy.es · 623 926 179`;
                                         </div>
                                     )}
 
+                                    {/* Presupuesto estimado: se explica DEBAJO de la tabla, que es
+                                        donde acaba de leerse la inversión neta. El recuadro dice las
+                                        tres cosas que hacen falta para decidir: con qué se ha
+                                        calculado, qué NO cambia (el bono CAE) y qué sí (la deducción,
+                                        y solo si la hay). */}
+                                    {avisoPres && (
+                                        <div className="prop-est">
+                                            <h4>⚠ {avisoPres.titulo} — propuesta provisional</h4>
+                                            {avisoPres.parrafos.map((p, i) => <p key={i}>{p}</p>)}
+                                        </div>
+                                    )}
+
                                     <div className="prop-nsm">
                                         {ceeComparison && includeCeeComp && (
                                             <p style={{ background: 'rgba(255,157,77,0.10)', borderLeft: '3px solid var(--orange)', padding: '6px 10px', borderRadius: '4px' }}><b>OPCIÓN CEE:</b> Has aportado un CEE inicial. Según cuál usemos, el Bono Energético y la ayuda total serían: <b>con tu CEE</b> {formatNumber(Math.round(ceeComparison.conCee.cae))} € de bono (ayuda total {formatNumber(Math.round(ceeComparison.conCee.total))} €); <b>con un CEE nuevo BROKERGY</b> {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € de bono (ayuda total {formatNumber(Math.round(ceeComparison.ceeNuevo.total))} €). La deducción del IRPF es la misma en ambos casos. Elegirás qué CEE usar al aceptar la propuesta.</p>
                                         )}
-                                        <p><b>NOTA 1:</b> La ayuda Bono Energético CAE está garantizada por Brokergy. El importe es una estimación técnica que se ajustará tras emitir los CEE inicial y final.</p>
-                                        {f.irpfCap > 0 && (
-                                            <p><b>NOTA 2:</b> Las deducciones en el IRPF no suponen un descuento directo, sino un derecho a deducción en la renta. El ahorro dependerá de la situación fiscal del contribuyente.</p>
-                                        )}
-                                        {hideBudget && (
-                                            <p><b>NOTA {f.irpfCap > 0 ? '3' : '2'}:</b> Esta propuesta no recoge el coste de la obra. El importe del Bono Energético CAE no depende de él, así que se mantiene sea cual sea el presupuesto final de la instalación.</p>
-                                        )}
-                                        {showAnnualSavings && (
-                                            <p><b>NOTA 3:</b> El análisis de ahorro anual es un cálculo teórico basado en datos climáticos zonales. Los resultados reales dependerán de los hábitos de uso.</p>
-                                        )}
+                                        {/* Las notas se numeran SOLAS. Escritas a mano, la del coste de
+                                            obra y la del ahorro anual eran las dos "NOTA 3" y podían
+                                            salir juntas: dos notas con el mismo número en un documento
+                                            que revisa un tercero. */}
+                                        {[
+                                            'La ayuda Bono Energético CAE está garantizada por Brokergy. El importe es una estimación técnica que se ajustará tras emitir los CEE inicial y final.',
+                                            f.irpfCap > 0 ? 'Las deducciones en el IRPF no suponen un descuento directo, sino un derecho a deducción en la renta. El ahorro dependerá de la situación fiscal del contribuyente.' : null,
+                                            hideBudget ? 'Esta propuesta no recoge el coste de la obra. El importe del Bono Energético CAE no depende de él, así que se mantiene sea cual sea el presupuesto final de la instalación.' : null,
+                                            presEstimado ? `El importe de la obra que figura en esta propuesta es una ESTIMACIÓN de referencia, no un presupuesto cotizado. El Bono Energético CAE se mantiene${presConIrpf ? '; la deducción en el IRPF y la inversión neta se recalcularán con el presupuesto definitivo' : ''}.` : null,
+                                            showAnnualSavings ? 'El análisis de ahorro anual es un cálculo teórico basado en datos climáticos zonales. Los resultados reales dependerán de los hábitos de uso.' : null,
+                                        ].filter(Boolean).map((txt, i) => (
+                                            <p key={i}><b>NOTA {i + 1}:</b> {txt}</p>
+                                        ))}
                                         <div className="prop-avl">Aviso: Los cálculos son estimaciones teóricas. Los consumos reales pueden variar.</div>
                                     </div>
 

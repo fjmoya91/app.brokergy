@@ -12,6 +12,7 @@ import { FacturaSoModal } from './FacturaSoModal';
 import { LoteProcesoFases } from './LoteProcesoFases';
 import { LogoEmpresa } from './LogoEmpresa';
 import { RequerimientoModal } from './RequerimientoModal';
+import { JustificanteMitecoModal } from './JustificanteMitecoModal';
 
 const presName = (p) => p ? (p.acronimo || p.razon_social || '—') : null;
 const eur = (n) => (Number(n) || 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
@@ -84,6 +85,8 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
     const [showSolicitud, setShowSolicitud] = useState(false);
     const [showFactura, setShowFactura] = useState(false);
     const [showRequerimiento, setShowRequerimiento] = useState(false);
+    // Popup del justificante de registro, al marcar el lote como SUBIDO A MITECO.
+    const [pideJustificante, setPideJustificante] = useState(false);
     const [showExpedientes, setShowExpedientes] = useState(true);
     const [soList, setSoList] = useState(soListProp || []);
     const [verList, setVerList] = useState(verListProp || []);
@@ -209,7 +212,16 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
     const changeEstado = async (nuevo_estado) => {
         if (!nuevo_estado || nuevo_estado === lote.estado) return;
         setBusy(true);
-        try { await axios.patch(`/api/lotes/${loteId}/estado`, { nuevo_estado }); await refresh(); onChanged?.(); }
+        try {
+            await axios.patch(`/api/lotes/${loteId}/estado`, { nuevo_estado });
+            const actualizado = await refresh();
+            onChanged?.();
+            // Al declarar la subida se pide el justificante de registro EN EL ACTO:
+            // acaba de salir del portal del Ministerio y es el único momento en que
+            // está a mano. Se puede aplazar — el estado queda cambiado igual.
+            const yaTiene = (actualizado?.documentos_so || []).some(d => d?.key === 'justificante_miteco');
+            if (nuevo_estado === 'SUBIDO A MITECO' && !yaTiene) setPideJustificante(true);
+        }
         catch (err) { showAlert(err.response?.data?.error || 'No se pudo cambiar el estado', 'Error', 'error'); }
         finally { setBusy(false); }
     };
@@ -622,6 +634,14 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                     lote={lote}
                     onClose={() => setShowRequerimiento(false)}
                     onSent={() => { refresh().catch(() => {}); onChanged?.(); }}
+                />
+            )}
+
+            {pideJustificante && lote && (
+                <JustificanteMitecoModal
+                    lote={lote}
+                    onClose={() => setPideJustificante(false)}
+                    onSubido={() => { refresh().catch(() => {}); onChanged?.(); }}
                 />
             )}
         </div>

@@ -2538,6 +2538,45 @@ el microservicio RITE está caído, se dice y se ofrece la salida (desmarcar el 
 entró dejaba el otro diciendo "sin enviar" el día después de mandarlo — y el parte diario
 reclamándolo.
 
+### Un CIFO firmado NO cierra la tarea para siempre (2026-09-03)
+
+Tras un **requerimiento** se corrige el certificado y hay que firmarlo otra vez. Pero
+`estadoInstalador` daba el CIFO por recibido con solo existir `cert_cifo_signed_link`,
+así que el enlace que iba DENTRO de ese mismo correo —`/instalador/:id`— le decía al
+instalador **"¡Todo recibido! No queda nada pendiente por tu parte"** y no le ofrecía
+firmar nada. Medido en 26RES060_127 el 03/09/2026.
+
+**REGLA — reenviarle el CIFO teniendo ya uno firmado ANULA esa firma.** `POST
+/:id/instalador/enviar` sella `cert_cifo_refirma_at` cuando manda el CIFO y
+`estado.cifo.firmado` ya existe —da igual la plantilla: si se lo vuelves a mandar es
+que el que tienes no vale—, y con esa marca `cifo.recibido` pasa a false. La cierran las
+DOS vías por las que puede llegar el firmado nuevo: la subida pública
+(`POST /api/public/cifo-upload`) y cualquier escritura desde la app
+([mergeDocumentacion](implementation/backend/utils/mergeDocumentacion.js), que además
+sella `cert_cifo_signed_at`). El popup lo dice ANTES de enviar: es una consecuencia
+irreversible del botón, no un efecto secundario.
+
+**REGLA — el `_drive_at` NUNCA retrocede.** La vista del expediente reenvía
+`documentacion` entera desde una copia hidratada al abrirla, así que un guardado
+posterior traía el sello ANTERIOR y lo pisaba: medido en 26RES060_127, el borrador era el
+de las 15:36 y `cert_cifo_drive_at` seguía diciendo 25/08. Con el sello atrasado, un
+rechazo viejo vuelve a bloquear un borrador ya corregido (regla 24). `mergeDocumentacion`
+se queda siempre con el máximo.
+
+**REGLA — "firmado" y "firmado de ESTA versión" no son lo mismo, y se dice.** Con
+`cert_cifo_signed_at` anterior a `cert_cifo_drive_at`, el borrador se regeneró DESPUÉS de
+la firma: lo que guardamos es de una versión anterior (`cifo.firmaDesfasada`). No bloquea
+—hay motivos legítimos para regenerar— pero sale avisado en la fila del CIFO: es lo que
+explica un "me lo han firmado con la versión mal". Sin `cert_cifo_signed_at` (expedientes
+anteriores a este sello) no se puede comparar y **no se afirma nada**.
+
+**REGLA — el radar cuenta la re-firma como firma pendiente.** `detectarFirmaPendiente`
+salía por `if (signed) continue`, así que el reenvío de una re-firma no lo vigilaba nadie
+y podía quedarse meses sin que el parte diario dijera una palabra.
+
+⚠️ El saludo salía **"Hola Otro,"**: `Otro contacto…` es el rótulo del BOTÓN, no el nombre
+de nadie. `primerNombre` descarta los nombres genéricos y saluda en genérico.
+
 ### La página del instalador — `/instalador/:id`
 
 Un enlace, todas sus tareas. **Solo se enseña lo que QUEDA**: lo ya recibido baja a una
@@ -3069,6 +3108,134 @@ juntos ahí.
 
 ---
 
+## Presupuesto ESTIMADO — la propuesta lo dice, y dice a qué afecta (2026-09-03)
+
+El flujo interno preguntaba el dinero DOS veces seguidas: la pantalla de soltar el
+presupuesto/las facturas y, si no se adjuntaba nada, el `Step8` volviendo a preguntar
+"¿hay un presupuesto orientativo?" para acabar estimando 15.000 €. Y de ahí salía una
+propuesta que presentaba esos 15.000 € **como si fueran el presupuesto del cliente**,
+con su inversión neta y su deducción calculadas encima.
+
+### Una sola pregunta, con tres salidas
+
+`StepDocsObra` es ahora el ÚNICO paso económico del flujo interno. Dos tarjetas
+(Presupuesto · Factura) que abren un **popup**, y dentro del popup conviven las dos
+formas de aportarlo: **soltar el documento** (lo lee el OCR) o **teclear el importe**.
+La tercera salida es el botón "No tengo — estimar 15.000 €".
+
+**REGLA — el popup, no dos zonas de suelta abiertas.** Con las dos a la vista hay que
+decidir en cuál se suelta antes de saber qué se va a soltar, y sobre todo faltaba el
+caso más común: tener el importe pero no el PDF a mano.
+
+**REGLA — "no tengo" NO es saltarse el paso: es ELEGIR el estimado.** El botón dice la
+cifra y la pantalla explica qué implica, porque de ahí sale una propuesta que el cliente
+va a leer como firme.
+
+### La marca viaja hasta la propuesta
+
+Fuente única del concepto, de la cifra y del texto:
+[logic/presupuestoEstimado.js](implementation/frontend/src/features/calculator/logic/presupuestoEstimado.js)
+(`PRESUPUESTO_ESTIMADO_EUR`, `esPresupuestoEstimado`, `avisoPresupuestoEstimado`,
+`lineaPresupuestoEstimado`).
+
+`funnelToInputs` sella `inputs.presupuestoEstimado`, y **cualquiera que teclee un
+presupuesto en la calculadora lo levanta** (los tres campos de `CalculatorForm`). Se
+enseña en cinco sitios, todos desde el mismo texto: la chapa de la portada, el
+"(ESTIMADA)" de la fila de inversión, un recuadro naranja bajo la tabla, la nota al pie
+y el **mensaje de envío** (WhatsApp/email), que se pega al final de `buildCaption` en
+vez de repetirse en sus quince ramas.
+
+**REGLA — el bono CAE NO cambia y la deducción SÍ, y hay que decir las dos cosas.** El
+CAE sale del ahorro de energía CERTIFICADO (kWh), así que el importe prometido se
+mantiene; la deducción del IRPF es un porcentaje del coste total de la ejecución **IVA
+incluido**, así que se mueve con el presupuesto, y con ella la inversión neta. Decir
+solo "es estimado" deja al cliente pensando que toda la propuesta puede caerse.
+
+**REGLA — sin deducción, ese párrafo NO se escribe** (`conIrpf`). En un titular empresa
+(`includeIrpf: false`) advertir del efecto sobre algo que no existe es ruido sobre la
+única cifra que sí es firme.
+
+**REGLA — con "ocultar coste de obra" no se avisa.** Ahí el presupuesto no aparece por
+ninguna parte y ya hay una nota que lo explica: dos avisos sobre lo mismo se contradicen.
+
+El backend (`leadMessages.presupuestoNote`, que alimenta el WhatsApp y el email del
+funnel público) carga ESE MISMO módulo por `import()` ESM —igual que `cifoService` con
+`cifoDoc.js`—, así que al cliente que primero recibe el mensaje del funnel y luego la
+propuesta se le explica lo mismo con las mismas palabras. Por eso `buildWhatsAppMessage`
+y `buildProposalPdfHtml` son ahora `async`.
+
+⚠️ De paso, las **notas al pie de la propuesta se numeran solas**: escritas a mano, la
+del coste de obra y la del ahorro anual eran las dos "NOTA 3" y podían salir juntas.
+
+---
+
+## El CEE que MANDA, y qué se avisa antes de generar (2026-09-03)
+
+La demanda de calefacción, la superficie y la demanda de ACS de todo documento del
+expediente salen de UNA regla: **si hay CEE FINAL cargado manda el final; si no, el
+inicial**. Fuente única: [ceeFases.js](implementation/frontend/src/features/expedientes/logic/ceeFases.js)
+(`ceeBaseDocumento`), que consumen el CIFO, las cuatro fichas, el panel económico
+y el detalle del expediente.
+
+**REGLA — la regla estaba escrita cuatro veces, y en otras cuatro NO estaba.** Las
+fichas RES060 y RES093 (y sus dos modales, que duplican el HTML) leían
+`cee.cee_final` a secas: un expediente con la obra sin terminar —el caso normal—
+imprimía **D_CAL = 0,00 y D_ACS = 0,00** mientras el CIFO del MISMO expediente
+salía con los del inicial. Dos documentos del mismo expediente contradiciéndose.
+
+### Retirar un CEE lo retira DE VERDAD
+
+El fichero vive en Drive y la cifra en Supabase (`cee.cee_final`), así que borrar el
+`.xml` del slot **no tocaba la demanda**: medido en 26RES060_177, el certificador
+subió un CEE final, el admin borró el fichero, y el CIFO se seguía calculando con
+aquellos 241,28 kWh/m²·año. Lo mismo la economía del expediente y la ficha.
+
+**REGLA — no se borra en silencio: se PREGUNTA, y solo al ADMIN.** La demanda entra
+también por "Cargar CEE" (PDF/fotos con OCR) y a mano, casos en los que ese slot
+está vacío y el dato es bueno; un borrado automático destruiría lo que nadie subió
+como `.xml`. Al borrar el `.xml` se ofrece vaciar también los datos, con las cifras
+a la vista, y hay un botón suelto junto a la demanda para lo YA borrado — sin él, el
+único camino era el SQL (el recuadro de la rejilla es de solo lectura).
+
+**REGLA — se vacía la fase ENTERA** (`patchVaciarCee`): el objeto parseado, el XML
+crudo y las fechas de visita y firma que el certificado sembró. Todo a `null`, nunca
+con `delete`: el PUT funde `{ ...existing.cee, ...cee }` y una clave ausente conserva
+el valor viejo. **No se toca `emisiones_manual`, `superficie_manual_*` ni
+`dacs_manual`**: eso lo tecleó una persona y no lo puso ningún certificado.
+
+### Antes de generar, la puerta AVISA
+
+`avisosCeeDocumento(expediente)` alimenta el gate previo al CIFO, al certificado
+RES080 y a la ficha oficial (`ValidationModal`, que ahora separa lo que FALTA —rojo—
+de lo que hay que REVISAR —ámbar—):
+
+| Situación | Qué dice |
+|---|---|
+| Sin CEE final | Se genera con el INICIAL, y con qué demanda y superficie |
+| Sin CEE final **y ACS en alcance** | La D_ACS sale también del inicial: **es la cifra que SÍ cambia** entre los dos certificados |
+| Sin CEE final **y RES080** | El ahorro se justifica comparando los dos: el que se imprima no es el definitivo |
+| Los dos, D_ACS distinta | Se usa la del FINAL, que es lo correcto — compruébalo |
+| Los dos, D_CAL distinta (no RES080) | La actuación no toca la envolvente: debería ser la misma |
+| ACS fuera de alcance | Nota informativa: D_ACS y SCOP_dhw salen como "no aplica" (regla 12.b) |
+| ACS en alcance pero **sin equipo identificado** | El documento imprime su D_ACS y su SCOP_dhw, pero el ahorro NO lo cuenta |
+
+**REGLA — un dato que FALTA y un dato que hay que REVISAR no son lo mismo.** La
+validación pedía `cee.cee_final.demandaCalefaccion` y cantaba "Datos faltantes:
+Demanda Calefacción (CEE Final)" en un expediente que sí la tiene y que iba a
+imprimir la del inicial. Un rojo que no significa nada se ignora al tercer día.
+
+**REGLA — los avisos de ACS solo salen si el ACS ENTRA en el documento**: si se actúa
+sobre él (`acsEnAlcance`, ahora fuente única en `aerotermiaUnits.js` — estaba copiada
+en cinco sitios) y si la D_ACS sale del certificado (`acs_method === 'xml'`; en modo
+CTE o manual no depende de qué CEE mande). Fuera de alcance no se avisa de nada: el
+documento ya imprime "no aplica".
+
+**REGLA — un aviso `info` acompaña, pero no interrumpe.** Si lo único que hay que
+decir es que el ACS sale como "no aplica", el documento se genera sin puerta: una
+puerta que se abre siempre deja de leerse.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -3120,7 +3287,7 @@ juntos ahí.
 
 27.b **El Certificado RITE se LEE al subirlo**: de él salen la fecha de PRUEBAS y la de FIRMA —las que fijan el inicio y el fin de actuación del CIFO— y una comprobación del emplazamiento (dirección + referencia catastral) contra el expediente. Solo se mandan a leer las DOS PRIMERAS PÁGINAS (258 tokens/página, y estos PDF llegan con los acuses detrás): ~0,0005 € por lectura. Se rellenan HUECOS, nunca se pisa una fecha ya escrita, y el emplazamiento AVISA pero no bloquea. Fuentes únicas: [riteOcrService.js](implementation/backend/services/riteOcrService.js) (leer) y [riteCertificado.js](implementation/backend/services/riteCertificado.js) (juzgar y escribir). Ver "El Certificado RITE se LEE al subirlo".
 
-27. **Al instalador se le pide TODO de una vez**: al enviar el CIFO o la documentación RITE, la app comprueba si el otro también falta y ofrece mandarlo en el MISMO mensaje, con UN enlace (`/instalador/:id`). Fuente única de qué falta y de los textos: [logic/instaladorPendientes.js](implementation/frontend/src/features/expedientes/logic/instaladorPendientes.js); del envío, `POST /api/expedientes/:id/instalador/enviar`. `cert_rite_drive_link` significa CERTIFICADO RITE aportado — la Memoria que generamos nosotros vive en `memoria_rite_docx_link`. Ver "Al instalador se le pide TODO de una vez".
+27. **Al instalador se le pide TODO de una vez, y un CIFO firmado NO cierra la tarea para siempre**: al enviar el CIFO o la documentación RITE, la app comprueba si el otro también falta y ofrece mandarlo en el MISMO mensaje, con UN enlace (`/instalador/:id`). Reenviarle el CIFO teniendo ya uno firmado (requerimiento) **anula esa firma** (`cert_cifo_refirma_at`), o el enlace de ese mismo correo le dice "todo recibido" y no le deja firmar; la cierran la subida pública y `mergeDocumentacion`, que además sella `cert_cifo_signed_at` y **no deja retroceder `_drive_at`**. Fuente única de qué falta y de los textos: [logic/instaladorPendientes.js](implementation/frontend/src/features/expedientes/logic/instaladorPendientes.js); del envío, `POST /api/expedientes/:id/instalador/enviar`. `cert_rite_drive_link` significa CERTIFICADO RITE aportado — la Memoria que generamos nosotros vive en `memoria_rite_docx_link`. Ver "Al instalador se le pide TODO de una vez".
 
 26. **El bot de WhatsApp solo habla en los chats ETIQUETADOS, en horario y sin tocar dinero**: contesta por la sesión real del VPS, así que sus frenos (etiqueta + lista blanca, 08:00-20:00 Madrid, ventana de silencio, silencio si escribe un humano, tope diario, apagado por defecto) protegen la cuenta de la que dependen TODOS los envíos automáticos. Los datos salen del dossier (`botContexto`, que reusa `buildChecklistData` y `ensureUploadLink`), nunca del prompt; los importes no viajan al dossier. Fuente única del texto: [botPrompt.js](implementation/backend/services/botPrompt.js). Ver "Bot de WhatsApp".
 
@@ -3131,6 +3298,11 @@ juntos ahí.
 
 29.b **`SendActionOverlay` se PORTALEA a `document.body`**: un `position: fixed` se ancla al ancestro más cercano con `backdrop-filter` (o `transform`) — es lo que hace `LoteDetailModal` —, así que el overlay se recortaba a la caja del modal y la pantalla se veía a parches, una zona negra y otra difuminada. `createPortal` lo saca de ahí. Por el mismo motivo el velo va casi opaco (93 %) y con blur fuerte: abierto sobre otro modal de fondo claro, uno más ligero lo deja traslucir y el fondo vuelve a verse desigual.
 30. **Al Sujeto Obligado se le pide UNA vez por VARIOS lotes**: el botón vive en el cuadro de mando de Lotes (actúa sobre lo filtrado), dice qué pide y por cuánto, y no existe si no hay nada que pedir. Un lote sin su factura subida se queda fuera y **se dice en el subtítulo del popup**. Fuente única de qué se puede pedir y con qué texto: [peticionesSo.js](implementation/frontend/src/features/lotes/logic/peticionesSo.js); el envío, `POST /api/lotes/solicitar-pago-verificacion`, que prepara TODOS los adjuntos antes de mandar nada y sella `pago_solicitado_at`. Ver "Pedirle cosas al SUJETO OBLIGADO desde el cuadro de mando".
+
+31. **Una propuesta con presupuesto ESTIMADO lo dice, y dice a qué afecta**: el flujo interno pregunta el dinero UNA vez (`StepDocsObra`: documento · importe a mano · estimar 15.000 €) y la marca viaja en `inputs.presupuestoEstimado` hasta la portada, la tabla, el recuadro, la nota al pie y el mensaje de envío. El **bono CAE no cambia** (sale del ahorro certificado) y **la deducción del IRPF sí** (es un % del coste con IVA); sin deducción en juego, ese párrafo no se escribe. Fuente única del texto y de la cifra: [logic/presupuestoEstimado.js](implementation/frontend/src/features/calculator/logic/presupuestoEstimado.js), que carga también el backend (`leadMessages`) por import() ESM. Cualquier presupuesto tecleado en la calculadora LEVANTA la marca. Ver "Presupuesto ESTIMADO".
+
+32. **El CEE que MANDA es el FINAL si está cargado, y si no el INICIAL — en TODOS los documentos**: fuente única [ceeFases.js](implementation/frontend/src/features/expedientes/logic/ceeFases.js) (`ceeBaseDocumento`), que sustituye a las cuatro copias de la regla y a las cuatro superficies que no la aplicaban (las fichas RES060/RES093 imprimían 0,00 sin CEE final). Retirar un certificado se hace desde la rejilla del CEE, **solo ADMIN y preguntando**: borrar el `.xml` de Drive no borraba la demanda, que seguía mandando en el CIFO y en la economía. Antes de generar el CIFO / la ficha, la puerta AVISA (ámbar, separado de lo que falta) si no hay CEE final —en especial por la **demanda de ACS**, que es la que sí cambia entre los dos certificados— o si las dos demandas no coinciden; con el ACS fuera de alcance no se avisa: ya se imprime "no aplica" (regla 12.b). Ver "El CEE que MANDA, y qué se avisa antes de generar".
+
 
 ---
 

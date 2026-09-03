@@ -80,7 +80,7 @@ export const FASES = [
         desc: 'Enviado a verificador o en trámite MITECO',
         fiabilidad: 'firme',
         color: 'pink',
-        estados: ['ENVIADO A VERIFICADOR', 'REQUERIMIENTO VERIFICADOR', 'PTE. SUBIDA MITECO', 'REQUERIMIENTO G.A.']
+        estados: ['ENVIADO A VERIFICADOR', 'REQUERIMIENTO VERIFICADOR', 'PTE. SUBIDA MITECO', 'SUBIDO A MITECO', 'REQUERIMIENTO G.A.']
     },
     {
         id: 'EMITIDO',

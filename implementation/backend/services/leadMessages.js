@@ -51,13 +51,34 @@ const co2Text = (co2) => {
     return ` (evitas ~${n.toLocaleString('es-ES', { maximumFractionDigits: 1 })} t de CO₂ al año)`;
 };
 
-// Nota cuando la simulación se calculó con el presupuesto por defecto (15.000 €).
-// Invita a pedir un presupuesto real (al instalador en co-branding, a nosotros si no).
-function presupuestoNote(partner) {
-    const quien = (partner && partner.nombre)
-        ? `ponte en contacto con ${partner.nombre} y pídele un presupuesto real de la instalación`
-        : 'ponte en contacto con nosotros para obtener un presupuesto real de la instalación';
-    return `Esta simulación se ha calculado con un presupuesto estimado de 15.000 €. Para obtener una simulación más ajustada, ${quien}.`;
+// Nota cuando la simulación se calculó con el presupuesto de referencia.
+//
+// FUENTE ÚNICA del texto: frontend/src/features/calculator/logic/presupuestoEstimado.js,
+// el mismo que imprime la PROPUESTA de la app (portada, tabla, recuadro y nota al pie).
+// Con dos redacciones, al cliente que primero recibe el mensaje del funnel y luego la
+// propuesta se le explica lo mismo de dos maneras distintas — y la que se retoca es
+// siempre una sola. Se carga por import() ESM, igual que cifoService con cifoDoc.js.
+//
+// `conIrpf` decide si se habla o no de la deducción: es lo ÚNICO que el presupuesto
+// mueve. Sin deducción en juego (titular empresa), advertir de su efecto es ruido.
+let _presEstimadoPromise = null;
+function loadPresupuestoEstimado() {
+    if (!_presEstimadoPromise) {
+        const path = require('path');
+        const { pathToFileURL } = require('url');
+        const url = pathToFileURL(path.join(__dirname, '../../frontend/src/features/calculator/logic/presupuestoEstimado.js')).href;
+        _presEstimadoPromise = import(url);
+    }
+    return _presEstimadoPromise;
+}
+
+async function presupuestoNote(partner, { conIrpf = true } = {}) {
+    const { lineaPresupuestoEstimado } = await loadPresupuestoEstimado();
+    return lineaPresupuestoEstimado({
+        conIrpf,
+        tuteo: true,
+        quien: (partner && partner.nombre) ? partner.nombre : null,
+    });
 }
 
 // Línea de urgencia opcional según caldera antigua / prisa del cliente
@@ -103,7 +124,7 @@ function signatureLines(partner) {
 /**
  * Construye el texto de WhatsApp (sirve también como caption del PDF).
  */
-function buildWhatsAppMessage({
+async function buildWhatsAppMessage({
     type, nombre, idOportunidad, isReforma,
     cae = 0, irpf = 0, neta = 0, ahorro = 0,
     fuelLabel = null, co2 = 0,
@@ -177,7 +198,7 @@ function buildWhatsAppMessage({
 
     if (presupuestoEstimado) {
         lines.push('');
-        lines.push('ℹ️ ' + presupuestoNote(partner));
+        lines.push('ℹ️ ' + await presupuestoNote(partner, { conIrpf: Number(irpf) > 0 }));
     }
 
     return lines.join('\n');
@@ -186,7 +207,7 @@ function buildWhatsAppMessage({
 /**
  * HTML del one-pager A4 (propuesta) que se adjunta en WhatsApp (modo completa).
  */
-function buildProposalPdfHtml({
+async function buildProposalPdfHtml({
     nombre, idOportunidad, isReforma,
     cae = 0, irpf = 0, neta = 0, ahorro = 0,
     fuelLabel = null, co2 = 0,
@@ -218,7 +239,7 @@ function buildProposalPdfHtml({
         : '';
     const notaPresupuesto = presupuestoEstimado
         ? `<p style="margin:8px 0 0;font-size:10px;color:#94a3b8;line-height:1.5;">
-             * ${presupuestoNote(partner)}
+             * ${await presupuestoNote(partner, { conIrpf: Number(irpf) > 0 })}
            </p>`
         : '';
 
@@ -303,7 +324,7 @@ function buildProposalPdfHtml({
  */
 async function generateProposalPdfBase64(args) {
     const { getBrowser } = require('./pdfService');
-    const html = buildProposalPdfHtml(args);
+    const html = await buildProposalPdfHtml(args);
     let browser = null;
     let page = null;
     try {

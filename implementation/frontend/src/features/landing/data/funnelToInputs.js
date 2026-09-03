@@ -10,6 +10,7 @@
 import { mapBoiler, mapAcsType, shouldWarnBiomasa } from './boilerMapping';
 import { mapEmisor } from './emisoresMapping';
 import { getUByYear, getVentanaYACHByYear } from '../../calculator/logic/calculation';
+import { PRESUPUESTO_ESTIMADO_EUR } from '../../calculator/logic/presupuestoEstimado';
 
 /**
  * Inferencia automática del estado de aislamiento por año
@@ -197,10 +198,18 @@ function funnelToCalculatorInputs(funnel, catastro, options = {}) {
     //                 y no se lo deduce, así que su inversión real lo incluye. La base
     //                 imponible —la que declarará el Anexo del expediente— se conserva
     //                 aparte en `docs_ocr.documentos[].importe_sin_iva`.
+    //   'estimado' / 'no_se' / 'pide_instalador' → no hay cifra: media de referencia.
+    //
+    // REGLA — cuando la cifra es la de referencia, el input viaja MARCADO. Sin la
+    // marca, la propuesta presenta 15.000 € como si fuera el presupuesto del cliente
+    // y con él una inversión neta y una deducción que nadie ha cotizado. La marca la
+    // levanta cualquiera que teclee un presupuesto en la calculadora. Ver
+    // `logic/presupuestoEstimado.js`.
     const presupuestoAportado = ['tengo', 'documento'].includes(funnel.presupuesto_modo);
     inputs.presupuesto = presupuestoAportado && funnel.presupuesto_eur > 0
         ? Number(funnel.presupuesto_eur)
-        : 15000;
+        : PRESUPUESTO_ESTIMADO_EUR;
+    inputs.presupuestoEstimado = !(presupuestoAportado && funnel.presupuesto_eur > 0);
 
     // 12. Titular y número de propietarios (afecta cap IRPF)
     inputs.titularType = funnel.titular_type || 'particular';

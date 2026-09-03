@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
 import { calcCifo } from '../logic/calcCifo';
-import { esTermoElectrico } from '../logic/aerotermiaUnits';
+import { ceeBaseDocumento, acsEnAlcance } from '../logic/ceeFases';
 import { postEmail } from '../../../utils/emailFallback';
 
 // ─── Márgenes exactos Word: Sup 2,47cm Inf 0,49cm Izq 3cm Der 2,5cm ──────────
@@ -168,7 +168,8 @@ export function FichaRes060Modal({ isOpen, onClose, expediente, results, onSaveD
     const doc     = expediente.documentacion || {};
     const cee     = expediente.cee           || {};
 
-    const ceeFinal = cee.cee_final || {};
+    // El CEE que manda: final si está cargado, si no el inicial (ceeFases.js).
+    const { base: ceeFinal } = ceeBaseDocumento(cee);
     const dcalRaw = parseFloat(ceeFinal.demandaCalefaccion) || 0;
     const dcal = dcalRaw.toFixed(2).replace('.', ',');
 
@@ -178,9 +179,7 @@ export function FichaRes060Modal({ isOpen, onClose, expediente, results, onSaveD
     // ACS dentro del alcance — mismo criterio que el CIFO (cifoDoc.js): el toggle
     // `cambio_acs` y, además, que el equipo nuevo sea una bomba de calor. Un termo
     // eléctrico (efecto Joule, rendimiento 1) no computa en el ahorro CAE.
-    const acsAeroFicha = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
-    const tieneAcs = inst.cambio_acs !== false
-        && !esTermoElectrico(acsAeroFicha) && !esTermoElectrico(inst.aerotermia_acs);
+    const tieneAcs = acsEnAlcance(inst);
 
     // Demanda de ACS — DEBE coincidir con la del Certificado CIFO (CertificadoCifoModal.jsx).
     // Misma lógica: por defecto modo 'xml' (demandaACS · superficie); en modo CTE, fórmula por personas.

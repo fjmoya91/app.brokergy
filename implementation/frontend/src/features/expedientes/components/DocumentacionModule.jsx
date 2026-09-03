@@ -24,6 +24,7 @@ import { clienteContacts, instaladorContacts, defaultContactId, phoneValid } fro
 import { calcCifo } from '../logic/calcCifo';
 import { readAnnexPrefs, orderAttachments } from '../logic/annexPrefs';
 import { ftAttachmentSlots, ftDocFields } from '../logic/fichasTecnicas';
+import { avisosCeeDocumento, ceeBaseDocumento, hayAvisosBloqueantes } from '../logic/ceeFases';
 
 // Cada documento firmado vive en su subcarpeta de Drive: el RITE en
 // "7. LEGALIZACION RITE", las facturas en "5. FACTURAS" y el resto en "6. ANEXOS CAE".
@@ -111,38 +112,76 @@ function CesionObraGate({ isOpen, sugerencia, onElegir, onCancel }) {
     );
 }
 
-function ValidationModal({ isOpen, onClose, missingFields, onConfirm, docName }) {
+// Puerta previa a generar. Enseña DOS cosas distintas y no las mezcla:
+//   - lo que FALTA: huecos vacíos en el documento (rojo).
+//   - lo que AVISA: el documento sale entero, pero con una cifra que hay que
+//     mirar antes de firmar (el CEE final sin cargar, una demanda de ACS que no
+//     coincide entre los dos certificados...). En ámbar.
+// Cuando solo hay avisos, la cabecera deja de decir "Datos faltantes": nadie
+// corrige lo que no falta, y un rojo que no significa nada se ignora al tercer día.
+function ValidationModal({ isOpen, onClose, missingFields, warnings = [], onConfirm, docName }) {
     if (!isOpen) return null;
+    const hayFaltantes = (missingFields || []).length > 0;
     return (
         <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
             <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
-                <div className="px-6 py-5 border-b border-white/[0.07] bg-red-500/5">
-                    <div className="flex items-center gap-3 text-red-400">
+                <div className={`px-6 py-5 border-b border-white/[0.07] ${hayFaltantes ? 'bg-red-500/5' : 'bg-amber-500/5'}`}>
+                    <div className={`flex items-center gap-3 ${hayFaltantes ? 'text-red-400' : 'text-amber-400'}`}>
                         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                         </svg>
-                        <h2 className="text-lg font-black uppercase tracking-tight">Datos Faltantes</h2>
+                        <h2 className="text-lg font-black uppercase tracking-tight">
+                            {hayFaltantes ? 'Datos Faltantes' : 'Revisa antes de generar'}
+                        </h2>
                     </div>
                 </div>
-                
+
                 <div className="px-6 py-6 space-y-4">
-                    <p className="text-sm text-white/60 leading-relaxed">
-                        Para generar el <span className="text-white font-bold">{docName}</span>, faltan los siguientes campos por completar:
-                    </p>
-                    
-                    <div className="bg-white/[0.03] border border-white/[0.05] rounded-xl p-4 max-h-[300px] overflow-y-auto custom-scrollbar">
-                        <ul className="space-y-2">
-                            {missingFields.map((field, i) => (
-                                <li key={i} className="flex items-center gap-2 text-[10px] text-red-400/80 font-black uppercase tracking-widest">
-                                    <div className="w-1 h-1 rounded-full bg-red-500/50" />
-                                    {field}
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
+                    {hayFaltantes && (
+                        <>
+                            <p className="text-sm text-white/60 leading-relaxed">
+                                Para generar el <span className="text-white font-bold">{docName}</span>, faltan los siguientes campos por completar:
+                            </p>
+
+                            <div className="bg-white/[0.03] border border-white/[0.05] rounded-xl p-4 max-h-[220px] overflow-y-auto custom-scrollbar">
+                                <ul className="space-y-2">
+                                    {missingFields.map((field, i) => (
+                                        <li key={i} className="flex items-center gap-2 text-[10px] text-red-400/80 font-black uppercase tracking-widest">
+                                            <div className="w-1 h-1 rounded-full bg-red-500/50" />
+                                            {field}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </>
+                    )}
+
+                    {warnings.length > 0 && (
+                        <>
+                            <p className="text-sm text-white/60 leading-relaxed">
+                                {hayFaltantes
+                                    ? 'Además, revisa esto antes de generarlo:'
+                                    : <>Antes de generar el <span className="text-white font-bold">{docName}</span>, revisa esto:</>}
+                            </p>
+                            <div className="bg-amber-500/[0.04] border border-amber-500/20 rounded-xl p-4 max-h-[260px] overflow-y-auto custom-scrollbar">
+                                <ul className="space-y-3">
+                                    {warnings.map((w, i) => (
+                                        <li key={w.id || i} className="flex items-start gap-2.5">
+                                            <span className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${w.nivel === 'info' ? 'bg-white/25' : 'bg-amber-400'}`} />
+                                            <span className={`text-[11px] leading-relaxed ${w.nivel === 'info' ? 'text-white/40' : 'text-amber-200/80'}`}>
+                                                {w.texto}
+                                            </span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </>
+                    )}
 
                     <p className="text-[10px] text-white/30 italic">
-                        * Puedes continuar de todos modos, pero el documento tendrá huecos vacíos.
+                        {hayFaltantes
+                            ? '* Puedes continuar de todos modos, pero el documento tendrá huecos vacíos.'
+                            : '* El documento se genera con los datos que hay ahora mismo en el expediente.'}
                     </p>
                 </div>
 
@@ -1002,7 +1041,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     const [signBusy, setSignBusy] = useState(false);
 
     // ── Validación ───────────────────────────────────────────────────────────
-    const [validation, setValidation] = useState({ isOpen: false, fields: [], onConfirm: null, docName: '' });
+    const [validation, setValidation] = useState({ isOpen: false, fields: [], warnings: [], onConfirm: null, docName: '' });
 
     const validateExpediente = (docType, opts = {}) => {
         const missing = [];
@@ -1063,19 +1102,26 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             if (!isPresent(cli.email)) missing.push('Email Cliente');
         }
 
+        // La demanda y la superficie del documento salen del CEE que MANDA: el final
+        // si está cargado, si no el inicial. Pedirlas siempre del final decía "falta
+        // la demanda" en un expediente que sí la tiene y que iba a imprimir la del
+        // inicial. Que se esté usando la del inicial no es un dato que FALTE: es un
+        // dato que hay que REVISAR, y de eso se encarga `avisosCeeDocumento`.
+        const ceeBase = ceeBaseDocumento(cee).base;
+
         if (docType === 'cifo') {
             if (!isPresent(doc.fecha_inicio_cifo)) missing.push('Fecha Inicio CIFO (basada en facturas/certificados)');
             if (!isPresent(doc.fecha_fin_cifo)) missing.push('Fecha Fin CIFO');
             if (!isPresent(doc.fecha_pruebas_cert_instalacion)) missing.push('Fecha Pruebas Cert. Instalación');
             if (!isPresent(doc.fecha_firma_cert_instalacion)) missing.push('Fecha Firma Cert. Instalación');
-            if (!isPresent(cee.cee_final?.demandaCalefaccion)) missing.push('Demanda Calefacción (CEE Final)');
-            if (!isPresent(cee.cee_final?.superficieHabitable)) missing.push('Superficie Habitable (CEE Final)');
+            if (!isPresent(ceeBase.demandaCalefaccion)) missing.push('Demanda Calefacción (no hay ningún CEE cargado)');
+            if (!isPresent(ceeBase.superficieHabitable)) missing.push('Superficie Habitable (no hay ningún CEE cargado)');
             if (!doc.facturas?.length) missing.push('Al menos una factura');
         }
 
         if (docType === 'res060') {
-            if (!isPresent(cee.cee_final?.demandaCalefaccion)) missing.push('Demanda Calefacción (CEE Final)');
-            if (!isPresent(cee.cee_final?.superficieHabitable)) missing.push('Superficie Habitable (CEE Final)');
+            if (!isPresent(ceeBase.demandaCalefaccion)) missing.push('Demanda Calefacción (no hay ningún CEE cargado)');
+            if (!isPresent(ceeBase.superficieHabitable)) missing.push('Superficie Habitable (no hay ningún CEE cargado)');
             if (!isPresent(inst.aerotermia_cal?.modelo || inst.aerotermia_cal?.marca)) missing.push('Modelo Bomba de Calor');
             if (!isPresent(doc.fecha_inicio_cifo)) missing.push('Fecha Inicio Actuación (basada en facturas/certificados)');
             if (!isPresent(doc.fecha_fin_cifo)) missing.push('Fecha Fin Actuación');
@@ -1124,10 +1170,17 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         const missing = docType === 'memoria_rite'
             ? await validateMemoriaRiteRemoto()
             : validateExpediente(docType, opts);
-        if (missing.length > 0) {
+        // Avisos de los DOS certificados, solo en los documentos que imprimen la
+        // demanda (CIFO / certificado RES080 y la ficha oficial): el Anexo I y el
+        // Convenio de Cesión no la llevan, y avisar ahí sería ruido.
+        const avisos = ['cifo', 'res060'].includes(docType) ? avisosCeeDocumento(expediente) : [];
+        // Un 'info' (p. ej. "el ACS sale como no aplica") acompaña, pero no
+        // interrumpe: si no hay nada más que decir, se genera sin puerta.
+        if (missing.length > 0 || hayAvisosBloqueantes(avisos)) {
             setValidation({
                 isOpen: true,
                 fields: missing,
+                warnings: avisos,
                 docName,
                 onConfirm: () => {
                     setValidation(prev => ({ ...prev, isOpen: false }));
@@ -2003,6 +2056,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 isOpen={validation.isOpen}
                 onClose={() => setValidation(prev => ({ ...prev, isOpen: false }))}
                 missingFields={validation.fields}
+                warnings={validation.warnings}
                 docName={validation.docName}
                 onConfirm={validation.onConfirm}
             />
@@ -2695,6 +2749,22 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                         {local.cert_cifo_drive_link && user?.rol === 'ADMIN' && (
                                             <a href={local.cert_cifo_drive_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-emerald-400/60 hover:text-emerald-400 font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all mt-1.5 inline-block">Ver Borrador</a>
                                         )}
+                                        {/* El check verde de "firmado" no basta cuando el firmado ya
+                                            no corresponde al borrador: se dice aquí, junto al
+                                            documento, que la firma que guardamos es de otra versión
+                                            o que se ha vuelto a pedir. Fuente única del criterio:
+                                            logic/instaladorPendientes.js. */}
+                                        {(() => {
+                                            const c = estadoInstalador(local).cifo;
+                                            const txt = c.refirma
+                                                ? `Pendiente de volver a firmar${c.refirmaAt ? ` — pedido el ${new Date(c.refirmaAt).toLocaleDateString('es-ES')}` : ''}`
+                                                : c.firmaDesfasada
+                                                    ? 'El borrador se regeneró después de la firma: lo firmado es una versión anterior'
+                                                    : null;
+                                            return txt ? (
+                                                <p className="text-[9px] text-amber-400/80 font-bold uppercase tracking-wider leading-tight mt-1.5">⚠ {txt}</p>
+                                            ) : null;
+                                        })()}
                                     </div>
 
                                     {/* Fechas del periodo CIFO: se rellenan solas (min/max de

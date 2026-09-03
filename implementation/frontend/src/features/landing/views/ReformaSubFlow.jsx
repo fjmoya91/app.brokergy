@@ -32,6 +32,7 @@ import { StepDocsObra } from '../steps/StepDocsObra';
 import { LandingResultView } from './LandingResultView';
 import { LeadDeliveryView } from './LeadDeliveryView';
 import { funnelToCalculatorInputs } from '../data/funnelToInputs';
+import { PRESUPUESTO_ESTIMADO_EUR } from '../../calculator/logic/presupuestoEstimado';
 import { efficiencyFor, sugerirEdadDesdeRendimiento } from '../data/boilerMapping';
 import { seedInputsFromCees, ceeCombustibleToFunnel } from '../../calculator/logic/ceeSeed';
 import { avisosCee, demandaDeCalculo, demandaCal, esReformaSegunCee, rendimientoCalefaccion } from '../../cee/ceeAvisos';
@@ -901,14 +902,18 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
 
     // ---- INTERNAL: presupuesto / facturas de la obra leídos con OCR ----
     if (screen === 'docs_obra') {
+        // REGLA — el dinero se pregunta UNA vez. Antes, sin documentos, se empujaba al
+        // Step8 a volver a preguntar por el presupuesto para acabar estimando 15.000 €:
+        // dos pantallas seguidas para la misma pregunta, y la segunda sin una tercera
+        // respuesta que ofrecer. Ahora las tres salidas (documento · importe a mano ·
+        // estimado) están en `docs_obra` y de ahí se va siempre a identificación.
         const alTerminar = (total) => {
             if (total > 0) {
                 updateFunnel({ presupuesto_modo: 'documento', presupuesto_eur: Math.round(total) });
-                push('identificacion');
             } else {
-                // Sin documentos: la pregunta de siempre ("¿hay un presupuesto orientativo?").
-                push('presupuesto');
+                updateFunnel({ presupuesto_modo: 'no_se', presupuesto_eur: PRESUPUESTO_ESTIMADO_EUR });
             }
+            push('identificacion');
         };
         return (<><BackBtn /><StepDocsObra docs={docsObra} setDocs={setDocsObra} onNext={alTerminar} /></>);
     }

@@ -2147,8 +2147,11 @@ export function CalculatorForm({
 
                         {!inputs.showEconomicData && (
                             <div className="flex flex-wrap gap-2 animate-fade-in">
-                                <span className="px-2 py-0.5 rounded bg-slate-800 text-[11px] text-slate-300 font-medium">
-                                    Presupuesto: {formatDisplay(inputs.presupuesto)} €
+                                {/* La marca de estimado va en el resumen PLEGADO: es donde se
+                                    mira antes de enviar una propuesta, y desplegado el aviso
+                                    llegaría tarde. Se levanta sola al teclear un presupuesto. */}
+                                <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${inputs.presupuestoEstimado ? 'bg-orange-500/15 text-orange-300' : 'bg-slate-800 text-slate-300'}`}>
+                                    Presupuesto: {formatDisplay(inputs.presupuesto)} €{inputs.presupuestoEstimado ? ' · ESTIMADO' : ''}
                                 </span>
                                 {parseFloat(inputs.presupuestoFotovoltaica) > 0 && (
                                     <span className="px-2 py-0.5 rounded bg-amber-500/15 text-[11px] text-amber-300 font-medium">
@@ -2228,11 +2231,11 @@ export function CalculatorForm({
                                                     const raw = e.target.value;
                                                     setPresupuestoDraft(raw);
                                                     const num = parseAmount(raw);
-                                                    onInputChange(prev => ({ ...prev, presupuesto: num }));
+                                                    onInputChange(prev => ({ ...prev, presupuesto: num, presupuestoEstimado: false }));
                                                 }}
                                                 onBlur={() => {
                                                     const num = parseAmount(presupuestoDraft ?? '');
-                                                    onInputChange(prev => ({ ...prev, presupuesto: num }));
+                                                    onInputChange(prev => ({ ...prev, presupuesto: num, presupuestoEstimado: false }));
                                                     setPresupuestoDraft(null);
                                                 }}
                                                 className="bg-slate-900/60 border-slate-700/50 focus:border-lime-500/50"
@@ -2256,11 +2259,11 @@ export function CalculatorForm({
                                                     const raw = e.target.value;
                                                     setPresupuestoFvDraft(raw);
                                                     const num = parseAmount(raw);
-                                                    onInputChange(prev => ({ ...prev, presupuestoFotovoltaica: num }));
+                                                    onInputChange(prev => ({ ...prev, presupuestoFotovoltaica: num, presupuestoEstimado: false }));
                                                 }}
                                                 onBlur={() => {
                                                     const num = parseAmount(presupuestoFvDraft ?? '');
-                                                    onInputChange(prev => ({ ...prev, presupuestoFotovoltaica: num }));
+                                                    onInputChange(prev => ({ ...prev, presupuestoFotovoltaica: num, presupuestoEstimado: false }));
                                                     setPresupuestoFvDraft(null);
                                                 }}
                                                 placeholder="0"
@@ -2286,11 +2289,11 @@ export function CalculatorForm({
                                                         const raw = e.target.value;
                                                         setPresupuestoEnvDraft(raw);
                                                         const num = parseAmount(raw);
-                                                        onInputChange(prev => ({ ...prev, presupuestoEnvolvente: num }));
+                                                        onInputChange(prev => ({ ...prev, presupuestoEnvolvente: num, presupuestoEstimado: false }));
                                                     }}
                                                     onBlur={() => {
                                                         const num = parseAmount(presupuestoEnvDraft ?? '');
-                                                        onInputChange(prev => ({ ...prev, presupuestoEnvolvente: num }));
+                                                        onInputChange(prev => ({ ...prev, presupuestoEnvolvente: num, presupuestoEstimado: false }));
                                                         setPresupuestoEnvDraft(null);
                                                     }}
                                                     className="bg-slate-900/60 border-slate-700/50 focus:border-cyan-500/50"

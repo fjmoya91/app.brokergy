@@ -802,6 +802,9 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                         </BotonSubir>
                     )}
                 </div>
+                {p.justificanteMiteco && !p.certificadoCae && (
+                    <p className="text-[10px] text-cyan-300/70">Presentado al MITECO · justificante de registro guardado.</p>
+                )}
                 {p.certificadoCae && <p className="text-[10px] text-emerald-400/70">CAE emitido · pendiente del pago del S.O. a Brokergy.</p>}
             </Fase>
 

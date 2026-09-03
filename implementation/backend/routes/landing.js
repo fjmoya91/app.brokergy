@@ -371,7 +371,10 @@ router.post('/lead', requireAuth, geoGate, async (req, res) => {
                 fuelLabel: ds.fuelLabel || null,
                 co2:    ds.co2 || 0,
                 uploadLink,
-                presupuestoEstimado: !(funnel?.presupuesto_modo === 'tengo' && Number(funnel?.presupuesto_eur) > 0),
+                // Mismo criterio que `funnelToInputs`: 'documento' es un presupuesto/factura
+                // REAL leído por OCR, no una estimación. Sin incluirlo, al lead que acaba
+                // de soltar su presupuesto se le decía que su simulación era orientativa.
+                presupuestoEstimado: !(['tengo', 'documento'].includes(funnel?.presupuesto_modo) && Number(funnel?.presupuesto_eur) > 0),
                 partner: partnerInfo,
                 edadCaldera: funnel?.edad_caldera || null,
                 timeline: funnel?.timeline || null,
@@ -381,7 +384,7 @@ router.post('/lead', requireAuth, geoGate, async (req, res) => {
                 try {
                     if (toWA) {
                         const whatsappService = require('../services/whatsappService');
-                        const text = leadMessages.buildWhatsAppMessage(msgArgs);
+                        const text = await leadMessages.buildWhatsAppMessage(msgArgs);
                         // En propuesta completa adjuntamos el PDF one-pager. sendMedia
                         // exige cliente WhatsApp listo y puede fallar (puppeteer / no
                         // ready) → en ese caso caemos a sendText (cola persistente),

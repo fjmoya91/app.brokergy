@@ -19,6 +19,7 @@ import {
     BOILER_EFFICIENCIES,
 } from '../../calculator/logic/calculation';
 import { acsComputaAhorro } from './aerotermiaUnits';
+import { ceeBaseDocumento } from './ceeFases';
 import { resolveDacs } from './demandaAcs';
 import { deriveTer100Vars, TER100_PRECIOS } from './ter100';
 
@@ -45,9 +46,9 @@ export function computeExpedienteFinancials(exp) {
 
     if (ficha === 'RES060' || ficha === 'RES093') {
         // Si el CEE FINAL ya está cargado, su demanda/superficie mandan (definitivas);
-        // mientras no exista, se usa el inicial para el ahorro estimado.
-        const ceeFinalValido = cee.cee_final && parseFloat(cee.cee_final.demandaCalefaccion) > 0;
-        const ceeBase = ceeFinalValido ? cee.cee_final : (cee.cee_inicial || cee.cee_final || {});
+        // mientras no exista, se usa el inicial para el ahorro estimado. Fuente única
+        // de esa regla —la comparten el CIFO, la ficha RES y este panel— en ceeFases.js.
+        const { base: ceeBase } = ceeBaseDocumento(cee);
         // Determinar si tenemos datos REALES del expediente (no solo de la oportunidad)
         const hasExpData = !!ceeBase.superficieHabitable || !!ceeBase.demandaCalefaccion;
 

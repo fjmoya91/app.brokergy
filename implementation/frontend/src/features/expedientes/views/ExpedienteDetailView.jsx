@@ -24,6 +24,7 @@ import {
 } from '../../calculator/logic/calculation';
 import { calculateRes060FC } from '../../calculator/logic/res060fc';
 import { acsComputaAhorro } from '../logic/aerotermiaUnits';
+import { ceeBaseDocumento } from '../logic/ceeFases';
 import { resolveDacs } from '../logic/demandaAcs';
 import { deriveTer100Vars, TER100_PRECIOS } from '../logic/ter100';
 import { SeguimientoModule } from '../components/SeguimientoModule';
@@ -99,6 +100,7 @@ export const EXPEDIENTE_ESTADOS = [
     'ENVIADO A VERIFICADOR',
     'REQUERIMIENTO VERIFICADOR',
     'PTE. SUBIDA MITECO',
+    'SUBIDO A MITECO',
     'REQUERIMIENTO G.A.',
     'CAE EMITIDO – PTE PAGO BROKERGY',
     'PTE. PAGO BROKERGY A CLIENTE',
@@ -664,8 +666,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
             // y superficie son las definitivas y mandan sobre el inicial (los documentos
             // —CIFO, fichas RES— ya usan el final, así que el panel debe reflejar el mismo).
             // Mientras no haya final, el inicial da el ahorro estimado.
-            const ceeFinalValido = cee.cee_final && parseFloat(cee.cee_final.demandaCalefaccion) > 0;
-            const ceeBase = ceeFinalValido ? cee.cee_final : (cee.cee_inicial || cee.cee_final || {});
+            const { base: ceeBase } = ceeBaseDocumento(cee);
             const superficie = parseFloat(ceeBase.superficieHabitable) || parseFloat(op.datos_calculo?.surface) || 0;
             const q_net_heating = (parseFloat(ceeBase.demandaCalefaccion) || 0) * superficie || parseFloat(op.datos_calculo?.Q_net) || 0;
 
