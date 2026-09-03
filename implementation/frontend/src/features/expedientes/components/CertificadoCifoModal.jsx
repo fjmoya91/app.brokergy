@@ -474,17 +474,20 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     const doc = expediente.documentacion || {};
     // Qué le falta al instalador además de este CIFO (fuente única).
     const estadoInst = estadoInstalador(doc);
-    // Quién firmará la Memoria RITE si se manda de paso (MISMA comprobación que
-    // el popup del RITE: las dos superficies no pueden decir cosas distintas).
-    const presFirmanteRite = expediente?.prescriptores_firmante || pres;
-    const firmanteRite = firmanteMemoriaRite(presFirmanteRite);
-    const firmaRiteSinDatos = firmanteIncompleto(firmanteRite);
     const cee = expediente.cee || {};
     const loc = expediente.ubicacion || {};
-    const cli = expediente.clientes || expediente.cliente || {}; 
+    const cli = expediente.clientes || expediente.cliente || {};
     // Empresa instaladora del certificado: el instalador habilitado que firma si
     // el asignado no lo está (ver `empresaInstaladora`).
     const pres = empresaInstaladora(expediente);
+    // Quién firmará la Memoria RITE si se manda de paso (MISMA comprobación que
+    // el popup del RITE: las dos superficies no pueden decir cosas distintas).
+    // ⚠️ VA DESPUÉS de `pres`: leerlo antes es un TDZ que revienta el modal entero
+    // con "Cannot access 'pres' before initialization" — y minificado ni siquiera
+    // dice `pres`. `const` no se iza como `var`.
+    const presFirmanteRite = expediente?.prescriptores_firmante || pres;
+    const firmanteRite = firmanteMemoriaRite(presFirmanteRite);
+    const firmaRiteSinDatos = firmanteIncompleto(firmanteRite);
 
     const zoneStr = (op.datos_calculo?.zona || 'D3').toUpperCase();
     const zoneLabel = [
