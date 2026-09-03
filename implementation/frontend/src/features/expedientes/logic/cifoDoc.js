@@ -25,6 +25,7 @@ import { buildInstalacionAddress, empresaInstaladora, empresasActuacion,
 import { calcCifo } from './calcCifo.js';
 import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevo, tipoEquipoNuevoLabel, esTermoElectrico, datosAcumulador, EQUIPO_NUEVO } from './aerotermiaUnits.js';
 import { resolveDacs, ACS_METHOD } from './demandaAcs.js';
+import { ceeBaseDocumento, acsEnAlcance } from './ceeFases.js';
 import { deriveTer100Vars, esTer100, TER100_NOMBRE_ACTUACION, TER100_FICHA_COMPLETA } from './ter100.js';
 
 // Unidades terminales. Las tres primeras son de AGUA: la temperatura de impulsión
@@ -220,9 +221,9 @@ export function deriveCifoData({ expediente, results }) {
     // sus sumandos aunque el llamante pase un `results` desfasado.
     let savingsKwhDoc = results?.savingsKwh || 0;
 
-    // CEE base: final si es válido; si no, inicial (coherente con calcResults).
-    const ceeFinalValido = cee.cee_final && parseFloat(cee.cee_final.demandaCalefaccion) > 0;
-    const ceeFinal = ceeFinalValido ? cee.cee_final : (cee.cee_inicial || cee.cee_final || {});
+    // CEE base: final si está cargado; si no, inicial. Fuente única en ceeFases.js
+    // (la comparten la ficha RES, el panel económico y el aviso previo a generar).
+    const { base: ceeFinal } = ceeBaseDocumento(cee);
     const dcalRaw = parseFloat(ceeFinal.demandaCalefaccion) || 0;
     const dcal = dcalRaw.toFixed(2).replace('.', ',');
     const sRaw = parseFloat(ceeFinal.superficieHabitable) || 0;
@@ -299,7 +300,7 @@ export function deriveCifoData({ expediente, results }) {
     // información de la instalación. Ver logic/aerotermiaUnits.js.
     const acsAero = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
     const acsTermoDeclarado = esTermoElectrico(acsAero) || esTermoElectrico(inst.aerotermia_acs);
-    const tieneAcs = inst.cambio_acs !== false && !acsTermoDeclarado;
+    const tieneAcs = acsEnAlcance(inst);
     const acsExMarca = inst.caldera_antigua_acs?.marca || calExMarca;
     const acsExMod = inst.caldera_antigua_acs?.modelo || calExMod;
     const acsExSerie = inst.caldera_antigua_acs?.numero_serie || inst.caldera_antigua_acs?.n_serie || '—';
@@ -349,7 +350,17 @@ export function deriveCifoData({ expediente, results }) {
     const empCargo  = pres.es_autonomo ? 'Trabajador autónomo' : 'Representante legal';
     const empEmail  = pres.email || '';
     const empTlf    = pres.tlf || '';
-    const empResponsable = [pres.nombre_responsable, pres.apellidos_responsable].filter(Boolean).join(' ') || empNombre;
+    // Quién firma como representante legal: por DEFECTO es la persona de contacto
+    // (nombre_responsable/apellidos_responsable — ya era esto, sin cambios para
+    // los partners ya rellenados) y SOLO si `representante_distinto` está marcado
+    // se usa el representante legal aparte que declaró la ficha. Ver
+    // "Persona de contacto vs. Representante legal" en PrescriptorDetailModal.jsx.
+    const repDistinto = pres.representante_distinto === true;
+    const empResponsable = (repDistinto
+        ? [pres.representante_nombre, pres.representante_apellidos].filter(Boolean).join(' ')
+        : [pres.nombre_responsable, pres.apellidos_responsable].filter(Boolean).join(' ')
+    ) || empNombre;
+    const empResponsableDni = (repDistinto ? pres.representante_dni : pres.nif_responsable) || '';
     const empRite   = pres.numero_carnet_rite || '—';
     const ejeNombre = empresas.ejecutora.razon_social || empresas.ejecutora.nombre || '—';
     const ejeCif    = empresas.ejecutora.cif || empresas.ejecutora.nif || '—';
@@ -465,7 +476,7 @@ export function deriveCifoData({ expediente, results }) {
         // método SCOP / emisor
         metodoCal, metodoAcs, emiLabel,
         // empresa instaladora
-        empNombre, empCif, empDir, empCp, empMun, empProv, empCargo, empEmail, empTlf, empResponsable,
+        empNombre, empCif, empDir, empCp, empMun, empProv, empCargo, empEmail, empTlf, empResponsable, empResponsableDni,
         empRite, empresas, ejeNombre, ejeCif,
         // hibridación (RES093)
         cbStr, pDesignKwStr, coveragePct, coveragePctStr, thZone, pbdcKw, pbdcKwStr, demandaAnualKwhStr, appliedCovStr,
@@ -499,7 +510,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         acsEsAcumulador, acsEsTermo, acsNuTipo, acsNuMarca, acsNuMod, acsNuSerieEx, acsNuUds,
         acsTermoFuera, acsFueraMarca, acsFueraMod, acsFueraSerie,
         metodoCal, metodoAcs, emiLabel,
-        empNombre, empCif, empDir, empCp, empMun, empProv, empCargo, empEmail, empTlf, empResponsable,
+        empNombre, empCif, empDir, empCp, empMun, empProv, empCargo, empEmail, empTlf, empResponsable, empResponsableDni,
         empRite, empresas, ejeNombre, ejeCif,
         cbStr, pDesignKwStr, coveragePct, coveragePctStr, thZone, pbdcKwStr, demandaAnualKwhStr, appliedCovStr,
         hybridMethod, pCalderaKwStr, refPowerKwStr, pDesignWStr, pEspecificaStr, pEspecificaNum, climateSeason,
@@ -759,7 +770,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             <div class="doc-sign-bottom" style="border:2px solid #1A1A1A;border-radius:16px;padding:12px 18px;min-height:104px;display:flex;flex-direction:column;break-inside:avoid;">
                 <div style="font-weight:800;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#6E6E66;">Espacio reservado para firma electrónica</div>
                 <div style="flex:1;"></div>
-                <div style="border-top:1px solid #ECECE4;padding-top:10px;font-size:12.5px;font-weight:700;color:#1A1A1A;">${empResponsable} <span style="font-weight:600;color:#6E6E66;">· ${empCargo}</span></div>
+                <div style="border-top:1px solid #ECECE4;padding-top:10px;font-size:12.5px;font-weight:700;color:#1A1A1A;">${empResponsable}${empResponsableDni ? ` <span style="font-weight:500;color:#9A9A93;">(DNI ${empResponsableDni})</span>` : ''} <span style="font-weight:600;color:#6E6E66;">· ${empCargo}</span></div>
             </div>
             ${footer}
         </div>

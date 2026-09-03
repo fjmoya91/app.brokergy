@@ -57,6 +57,10 @@ const base = (numero_expediente = '26RES060_146') => ({
         direccion: 'POLÍGONO INDUSTRIAL LA VEGA, PARCELA 27', codigo_postal: '13700',
         municipio: 'Villanueva de los Infantes', provincia: 'Ciudad Real',
         nombre_responsable: 'FRANCISCO JAVIER', apellidos_responsable: 'MOYA LÓPEZ',
+        // El DNI del representante ahora se imprime en el recuadro de firma
+        // (junto al nombre): tiene que estar en el fixture para que este
+        // medidor ejerza de verdad ese añadido, no solo el caso sin DNI.
+        nif_responsable: '12345678X',
     },
     instalacion: {
         coord_x: '512345.67', coord_y: '4321098.76', ref_catastral: '1234567VK1213S0001AB',
@@ -109,6 +113,11 @@ const conDelegacion = (e, { largos = false } = {}) => {
         cif: 'B45998877', numero_carnet_rite: '08-B-D20-46001724',
         direccion: 'CALLE DE LA INDUSTRIA Y EL COMERCIO, 118, POLÍGONO SANTA MARÍA DE BENQUERENCIA',
         codigo_postal: '45007', municipio: 'Toledo', provincia: 'Toledo',
+        // El firmante de la delegada es quien imprime nombre+DNI en la firma
+        // (empresaInstaladora → prescriptores_firmante): sin esto el peor caso
+        // no ejercía de verdad el DNI nuevo.
+        nombre_responsable: 'FRANCISCO JAVIER', apellidos_responsable: 'MOYA LÓPEZ DE LA TORRE',
+        nif_responsable: '12345678X',
     } : {
         id_empresa: 'bbbb-2222', tiene_carnet_rite: true,
         razon_social: 'OSCAR REDONDO MARTIN', cif: '52977772D',
@@ -146,7 +155,8 @@ const casos = [
             razon_social: 'INSTALACIONES Y MANTENIMIENTOS ELECTROMECÁNICOS DEL CAMPO DE CALATRAVA S.L.U.',
             cif: 'B13123123', direccion: 'POLÍGONO INDUSTRIAL LA VEGA, CALLE DE LOS ARTESANOS PARCELA 27, NAVE 4',
             codigo_postal: '13700', municipio: 'Villanueva de los Infantes del Campo', provincia: 'Ciudad Real',
-            nombre_responsable: 'FRANCISCO JAVIER', apellidos_responsable: 'MOYA LÓPEZ DE LA TORRE' };
+            nombre_responsable: 'FRANCISCO JAVIER', apellidos_responsable: 'MOYA LÓPEZ DE LA TORRE',
+            nif_responsable: '12345678X' };
         return e;
     })()],
     // ── Dos empresas: la que ejecuta y factura + la habilitada que firma ──
@@ -162,7 +172,8 @@ const casos = [
             razon_social: 'INSTALACIONES Y MANTENIMIENTOS ELECTROMECÁNICOS DEL CAMPO DE CALATRAVA S.L.U.',
             cif: 'B13123123', direccion: 'POLÍGONO INDUSTRIAL LA VEGA, CALLE DE LOS ARTESANOS PARCELA 27, NAVE 4',
             codigo_postal: '13700', municipio: 'Villanueva de los Infantes del Campo', provincia: 'Ciudad Real',
-            nombre_responsable: 'FRANCISCO JAVIER', apellidos_responsable: 'MOYA LÓPEZ DE LA TORRE' };
+            nombre_responsable: 'FRANCISCO JAVIER', apellidos_responsable: 'MOYA LÓPEZ DE LA TORRE',
+            nif_responsable: '12345678X' };
         return conDelegacion(e, { largos: true });
     })()],
     ['TER100 · 3 en cascada + piscina', (() => {

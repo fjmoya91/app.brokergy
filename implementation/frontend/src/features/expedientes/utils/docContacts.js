@@ -28,15 +28,18 @@ export function clienteContacts(cli = {}) {
     return out;
 }
 
-/** Contactos del instalador: representante legal + personas de contacto. */
+/** Contactos del instalador: persona de contacto (o el autónomo) + notificaciones. */
 export function instaladorContacts(pres = {}) {
     const out = [];
     const repName = [pres.nombre_responsable, pres.apellidos_responsable].filter(Boolean).join(' ') || pres.razon_social || 'Instalador';
-    const repPhone = pres.tlf || pres.telefono || '';
-    if (repPhone || pres.email) {
+    // La persona de contacto tiene su PROPIO tlf/email (tlf_responsable/
+    // email_responsable); si no los tiene, se cae al de la empresa.
+    const repPhone = pres.tlf_responsable || pres.tlf || pres.telefono || '';
+    const repEmail = pres.email_responsable || pres.email || '';
+    if (repPhone || repEmail) {
         out.push({
-            id: 'rep', label: repName, sublabel: pres.es_autonomo ? 'Autónomo' : 'Representante legal',
-            phone: repPhone, email: pres.email || '',
+            id: 'rep', label: repName, sublabel: pres.es_autonomo ? 'Autónomo' : 'Persona de contacto',
+            phone: repPhone, email: repEmail,
         });
     }
     const arr = Array.isArray(pres.contactos_notificacion) ? pres.contactos_notificacion : [];

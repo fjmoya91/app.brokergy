@@ -643,9 +643,21 @@ router.post('/avanzado', enforceAuth, async (req, res) => {
             // Instalador habilitado que firma por él si no está habilitado en Industria.
             instalador_rite_id: payload.instalador_rite_id || null,
             cargo: payload.cargo,
+            // Persona de contacto: nombre_responsable/apellidos_responsable/nif_responsable/
+            // cargo YA eran esto (con etiqueta confusa en pantalla); se le suman su propio
+            // teléfono/email. Es, por defecto, también quien firma el CIFO — ver
+            // representante_distinto más abajo.
             nombre_responsable: payload.nombre_responsable,
             apellidos_responsable: payload.apellidos_responsable,
             nif_responsable: payload.nif_responsable,
+            tlf_responsable: payload.tlf_responsable,
+            email_responsable: payload.email_responsable,
+            // Representante legal, SOLO si es una persona distinta de la de contacto
+            // (si no, el firmante del CIFO es la persona de contacto de arriba).
+            representante_distinto: payload.representante_distinto || false,
+            representante_nombre: payload.representante_nombre,
+            representante_apellidos: payload.representante_apellidos,
+            representante_dni: payload.representante_dni,
             precio_referencia: payload.precio_referencia ?? null,
             codigo_identificacion: payload.codigo_identificacion ?? null,
             logo_empresa: payload.logo_empresa,
@@ -847,9 +859,17 @@ router.patch('/:id', enforceAuth, async (req, res) => {
             // puntero fantasma que reaparezca al desactivar el toggle.
             instalador_rite_id: payload.tiene_carnet_rite ? null : (payload.instalador_rite_id || null),
             cargo: payload.cargo,
+            // Persona de contacto (ver comentario en POST /avanzado) + representante
+            // legal, SOLO si es distinto.
             nombre_responsable: payload.nombre_responsable,
             apellidos_responsable: payload.apellidos_responsable,
             nif_responsable: payload.nif_responsable,
+            tlf_responsable: payload.tlf_responsable,
+            email_responsable: payload.email_responsable,
+            representante_distinto: payload.representante_distinto,
+            representante_nombre: payload.representante_nombre,
+            representante_apellidos: payload.representante_apellidos,
+            representante_dni: payload.representante_dni,
             precio_referencia: payload.precio_referencia,
             codigo_identificacion: payload.codigo_identificacion,
             contacto_alternativo_activo: payload.contacto_alternativo_activo,

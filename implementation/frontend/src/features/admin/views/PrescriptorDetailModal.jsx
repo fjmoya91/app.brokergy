@@ -361,7 +361,14 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
         razon_social: '', acronimo: '', cif: '', email: '', tlf: '', sitio_web: '',
         tipo_empresa: 'DISTRIBUIDOR', marca_referencia: '', marca_secundaria: '',
         tiene_carnet_rite: false, numero_carnet_rite: '', instalador_rite_id: '', cargo: '',
-        nombre_responsable: '', apellidos_responsable: '', nif_responsable: '', precio_referencia: '', codigo_identificacion: '',
+        // Persona de contacto (nombre_responsable/apellidos_responsable/nif_responsable
+        // ya existían; tlf/email son nuevos). Por defecto es también quien firma el
+        // CIFO — ver representante_distinto más abajo.
+        nombre_responsable: '', apellidos_responsable: '', nif_responsable: '', tlf_responsable: '', email_responsable: '',
+        precio_referencia: '', codigo_identificacion: '',
+        // Representante legal, SOLO si es una persona distinta de la de contacto.
+        representante_distinto: false,
+        representante_nombre: '', representante_apellidos: '', representante_dni: '',
         comision_activa: false, comision_tipo: 'eur', comision_valor: '',
         ccaa: '', provincia: '', provincia_cod: '', municipio: '',
         codigo_postal: '', direccion: '', es_autonomo: false, logo_empresa: '',
@@ -550,6 +557,12 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 nombre_responsable:   p.nombre_responsable || p.usuarios?.nombre || '',
                 apellidos_responsable:p.apellidos_responsable || p.usuarios?.apellidos || '',
                 nif_responsable:      p.nif_responsable || '',
+                tlf_responsable:      p.tlf_responsable || '',
+                email_responsable:    p.email_responsable || '',
+                representante_distinto:   p.representante_distinto || false,
+                representante_nombre:     p.representante_nombre || '',
+                representante_apellidos:  p.representante_apellidos || '',
+                representante_dni:        p.representante_dni || '',
                 precio_referencia:    p.precio_referencia ?? '',
                 comision_activa:      !!p.comision_activa,
                 comision_tipo:        p.comision_tipo || 'eur',
@@ -712,6 +725,12 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 nombre_responsable:    form.nombre_responsable.trim() || null,
                 apellidos_responsable: form.apellidos_responsable.trim() || null,
                 nif_responsable:       form.nif_responsable.trim().toUpperCase() || null,
+                tlf_responsable:       form.tlf_responsable.trim() || null,
+                email_responsable:     form.email_responsable.trim().toLowerCase() || null,
+                representante_distinto:   form.es_autonomo ? false : !!form.representante_distinto,
+                representante_nombre:     form.representante_distinto ? (form.representante_nombre.trim() || null) : null,
+                representante_apellidos:  form.representante_distinto ? (form.representante_apellidos.trim() || null) : null,
+                representante_dni:        form.representante_distinto ? (form.representante_dni.trim().toUpperCase() || null) : null,
                 precio_referencia:     (form.precio_referencia === '' || form.precio_referencia == null) ? null : Number(form.precio_referencia),
                 codigo_identificacion: form.codigo_identificacion?.trim() || null,
                 ccaa:                  form.ccaa || null,
@@ -1129,10 +1148,27 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                 <Section title={isEntidadCae ? 'Representante Legal' : 'Persona de Contacto'} iconPath="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z">
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
                                         <FV label="Nombre" value={contactName} />
-                                        {p.tipo_empresa === 'INSTALADOR' && <FV label="NIF / DNI" value={p.nif_responsable} mono />}
+                                        {(p.tipo_empresa === 'INSTALADOR' || (!isEntidadCae && p.nif_responsable)) && <FV label="NIF / DNI" value={p.nif_responsable} mono />}
                                         <FV label="Cargo" value={p.cargo} />
+                                        {/* Su propio teléfono/email — es a quien se avisa por defecto
+                                            (ver "Contacto para Notificaciones" más abajo). */}
+                                        {!isEntidadCae && p.tlf_responsable && <FV label="Teléfono" value={p.tlf_responsable} mono />}
+                                        {!isEntidadCae && p.email_responsable && <FV label="Email" value={p.email_responsable} lower />}
                                         {p.tiene_carnet_rite && <FV label="N.º Empresa RITE" value={p.numero_carnet_rite} mono />}
                                     </div>
+                                </Section>
+                            )}
+
+                            {/* Representante legal (Vista) — SOLO si es una persona distinta
+                                de la de contacto. Es quien firma el CIFO; sin este bloque no
+                                habría forma de ver, desde la ficha, a nombre de quién sale. */}
+                            {!isEntidadCae && p.representante_distinto && (p.representante_nombre || p.representante_apellidos) && (
+                                <Section title="Representante Legal" iconPath="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+                                        <FV label="Nombre" value={[p.representante_nombre, p.representante_apellidos].filter(Boolean).join(' ') || null} />
+                                        <FV label="DNI" value={p.representante_dni} mono />
+                                    </div>
+                                    <p className="text-[10px] text-white/25 mt-2">Es una persona distinta de la de contacto — firma el CIFO en su lugar.</p>
                                 </Section>
                             )}
 
@@ -1643,10 +1679,14 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                 </div>
                             </div>
 
-                            {/* Persona de contacto — solo si es empresa */}
-                            {!form.es_autonomo && (
+                            {/* Persona de contacto — solo si es empresa. Para SUJETO_OBLIGADO/
+                                VERIFICADOR (isEntidadCae) sigue siendo directamente su
+                                Representante Legal, sin este rediseño: son estos mismos campos
+                                los que usa la Solicitud de emisión de CAE, y ahí no hay un
+                                concepto de "persona de contacto" aparte que unificar. */}
+                            {!form.es_autonomo && isEntidadCae && (
                             <div className="space-y-3">
-                                <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">{isEntidadCae ? 'Representante Legal' : 'Persona de Contacto'}</p>
+                                <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Representante Legal</p>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <FI label="Nombre">
                                         <Inp value={form.nombre_responsable} uppercase onChange={e => upd({ nombre_responsable: e.target.value })} />
@@ -1654,19 +1694,74 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                     <FI label="Apellidos">
                                         <Inp value={form.apellidos_responsable} uppercase onChange={e => upd({ apellidos_responsable: e.target.value })} />
                                     </FI>
-                                    {(form.tipo_empresa === 'INSTALADOR' || isEntidadCae) && (
-                                        <FI label={form.tipo_empresa === 'SUJETO_OBLIGADO' ? 'NIF/NIE del Representante (firma RES060)' : 'NIF / DNI del Representante'}>
-                                            <Inp value={form.nif_responsable} uppercase onChange={e => upd({ nif_responsable: e.target.value })} placeholder="00000000X" />
-                                        </FI>
-                                    )}
+                                    <FI label={form.tipo_empresa === 'SUJETO_OBLIGADO' ? 'NIF/NIE del Representante (firma RES060)' : 'NIF / DNI del Representante'}>
+                                        <Inp value={form.nif_responsable} uppercase onChange={e => upd({ nif_responsable: e.target.value })} placeholder="00000000X" />
+                                    </FI>
+                                </div>
+                            </div>
+                            )}
+
+                            {/* Persona de contacto — INSTALADOR/DISTRIBUIDOR/CERTIFICADOR.
+                                Es, por defecto, TAMBIÉN quien firma el CIFO (nombre_responsable/
+                                apellidos_responsable ya eran esto, solo que la etiqueta no lo
+                                decía) y a quien se avisa por WhatsApp/email — unificado con
+                                "Configuración de Notificaciones" de abajo. Si el representante
+                                legal es otra persona, se declara aparte justo debajo. */}
+                            {!form.es_autonomo && !isEntidadCae && (
+                            <div className="space-y-3">
+                                <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Persona de Contacto</p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <FI label="Nombre">
+                                        <Inp value={form.nombre_responsable} uppercase onChange={e => upd({ nombre_responsable: e.target.value })} />
+                                    </FI>
+                                    <FI label="Apellidos">
+                                        <Inp value={form.apellidos_responsable} uppercase onChange={e => upd({ apellidos_responsable: e.target.value })} />
+                                    </FI>
+                                    <FI label="NIF / DNI">
+                                        <Inp value={form.nif_responsable} uppercase onChange={e => upd({ nif_responsable: e.target.value })} placeholder="00000000X" />
+                                    </FI>
                                     {/* El Nº de Empresa RITE y la habilitación viven en su propio
                                         bloque (abajo): el toggle debe ir ANTES de lo que despliega. */}
-                                    {!isEntidadCae && (
-                                        <FI label="Cargo">
-                                            <Inp value={form.cargo} uppercase onChange={e => upd({ cargo: e.target.value })} placeholder="GERENTE / PROPIETARIO" />
-                                        </FI>
-                                    )}
+                                    <FI label="Cargo">
+                                        <Inp value={form.cargo} uppercase onChange={e => upd({ cargo: e.target.value })} placeholder="GERENTE / PROPIETARIO" />
+                                    </FI>
+                                    <FI label="Teléfono">
+                                        <Inp value={form.tlf_responsable} onChange={e => upd({ tlf_responsable: e.target.value })} placeholder="600 000 000" />
+                                    </FI>
+                                    <FI label="Email">
+                                        <Inp type="email" value={form.email_responsable} onChange={e => upd({ email_responsable: e.target.value.toLowerCase() })} placeholder="contacto@empresa.com" />
+                                    </FI>
                                 </div>
+                            </div>
+                            )}
+
+                            {/* Representante legal — SOLO si es una persona distinta de la de
+                                contacto. Por defecto (toggle apagado) el CIFO lo firma la
+                                persona de contacto de arriba: no hace falta rellenar nada más. */}
+                            {!form.es_autonomo && !isEntidadCae && (
+                            <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-4 py-4 space-y-4">
+                                <SwitchRow
+                                    checked={form.representante_distinto}
+                                    onChange={v => upd({ representante_distinto: v })}
+                                    label="Representante legal distinto"
+                                    hint="¿Quien firma ante Industria es una persona distinta de la de contacto?"
+                                />
+                                {form.representante_distinto && (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-white/[0.02] border border-white/[0.05] rounded-2xl animate-fade-in-up">
+                                        <FI label="Nombre" required>
+                                            <Inp value={form.representante_nombre} uppercase placeholder="NOMBRE DEL REPRESENTANTE"
+                                                onChange={e => upd({ representante_nombre: e.target.value })} />
+                                        </FI>
+                                        <FI label="Apellidos" required>
+                                            <Inp value={form.representante_apellidos} uppercase placeholder="APELLIDOS"
+                                                onChange={e => upd({ representante_apellidos: e.target.value })} />
+                                        </FI>
+                                        <FI label="DNI" required>
+                                            <Inp value={form.representante_dni} uppercase placeholder="00000000X"
+                                                onChange={e => upd({ representante_dni: e.target.value })} />
+                                        </FI>
+                                    </div>
+                                )}
                             </div>
                             )}
 
@@ -1761,13 +1856,13 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                 title="Configuración de Notificaciones"
                                 summary={form.contacto_alternativo_activo
                                     ? `${(form.contactos_notificacion || []).filter(c => c.nombre || c.email || c.tlf).length} contacto(s)${form.contacto_notificaciones_activas ? ' · reciben los avisos' : ''}`
-                                    : 'Se avisa al contacto principal'}
+                                    : (form.es_autonomo ? 'Se avisa al profesional' : 'Se avisa a la persona de contacto')}
                             >
                                 <SwitchRow
                                     checked={form.contacto_alternativo_activo}
                                     onChange={v => upd({ contacto_alternativo_activo: v })}
-                                    label="Contacto diferente"
-                                    hint="¿Deseas asignar una persona de contacto distinta?"
+                                    label="Desviar a otros contactos"
+                                    hint="¿Los avisos (WhatsApp/email) deben ir a otra(s) persona(s), en vez de a la de contacto?"
                                 />
 
                                 {form.contacto_alternativo_activo && (

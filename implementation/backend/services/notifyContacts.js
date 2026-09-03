@@ -7,7 +7,8 @@
 // - normalizeContactos(arr): limpia/recorta el array para guardarlo en BD.
 // - partnerNotifyTargets(p): a quién hay que avisar dado un prescriptor, respetando
 //   el toggle `contacto_notificaciones_activas` (si está activo → los contactos
-//   alternativos; si no → el contacto principal de la empresa).
+//   alternativos; si no → la persona de contacto de la ficha, o la empresa si esa
+//   persona no tiene tlf/email propios).
 
 /** Parsea el array de contactos venga como array o como string JSON. */
 function parseContactos(value) {
@@ -72,11 +73,17 @@ function partnerNotifyTargets(p) {
         }
     }
 
-    // Contacto principal de la empresa.
+    // Contacto principal: la PERSONA DE CONTACTO de la ficha (nombre_responsable +
+    // su propio tlf/email) si tiene con qué avisarla; si no, la empresa en general.
+    // "Persona de contacto" es, por defecto, también quien firma los documentos
+    // (ver cifoDoc.js) — avisar a su móvil/email real, no al buzón genérico de la
+    // empresa, es justo lo que pidió unificar.
+    const nombrePrincipal = [p.nombre_responsable, p.apellidos_responsable].filter(Boolean).join(' ')
+        || p.acronimo || p.razon_social || '';
     return [{
-        nombre: p.acronimo || p.razon_social || '',
-        email:  p.email || null,
-        tlf:    p.tlf || null,
+        nombre: nombrePrincipal,
+        email:  p.email_responsable || p.email || null,
+        tlf:    p.tlf_responsable || p.tlf || null,
     }];
 }
 
