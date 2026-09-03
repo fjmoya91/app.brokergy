@@ -58,8 +58,17 @@ export const DOCS_INSTALADOR = {
 // recibido de menos deja el expediente parado sin que nadie se entere.
 // El script `scripts/separar_memoria_rite_de_certificado.js` deshace la ambigüedad
 // mirando el NOMBRE del fichero en Drive.
+//
+// `cert_rite_aportado_at` MATA la heurística, y por eso va primero: lo sella quien
+// archiva el certificado de su puño y letra —la subida del instalador desde su
+// enlace y la del admin en Documentación—, así que ahí no hay nada que adivinar.
+// Sin él, un expediente cuya Memoria se generó ANTES del 27/08/2026 (no tiene
+// `memoria_rite_docx_link`, sí `borrador_cert_rite_link`) se tragaba el certificado
+// recién subido: la fila seguía diciendo "Enlace" y el CIFO, que no se emite sin
+// RITE, seguía bloqueado. Medido en 26RES060_127 el 03/09/2026.
 export function esMemoriaRiteEnDriveLink(doc = {}) {
     if (!present(doc.cert_rite_drive_link)) return false;
+    if (present(doc.cert_rite_aportado_at)) return false;
     if (present(doc.memoria_rite_docx_link)) return doc.cert_rite_drive_link === doc.memoria_rite_docx_link;
     return present(doc.borrador_cert_rite_link);
 }

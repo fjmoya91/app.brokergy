@@ -3862,12 +3862,24 @@ router.post('/:id/rite/ocr', staffOnly, (req, res, next) => {
             if (!saved?.link) return res.status(500).json({ error: 'El certificado no se pudo guardar en Drive.' });
             try { if (saved.id) await driveService.setFolderPublic(saved.id, 'reader'); } catch (e) { /* noop */ }
 
-            const { error: linkErr } = await supabase.rpc('set_expediente_doc_field', {
-                p_oportunidad_id: exp.oportunidad_id,
-                p_field: 'cert_rite_drive_link',
-                p_value: saved.link,
-            });
+            // Se escribe de una vez el enlace, el SELLO de "esto es el certificado" y
+            // la invalidación del slot (una versión nueva vuelve a ámbar aunque
+            // estuviera validada), igual que hace la subida del instalador.
+            //
+            // El sello no es adorno: sin él, en un expediente cuya Memoria se generó
+            // antes del 27/08/2026 la heurística de `esMemoriaRiteEnDriveLink` toma
+            // este enlace por la Memoria y el certificado recién subido no consta
+            // (26RES060_127). Aquí no hay nada que adivinar: lo acabamos de archivar.
+            const aportadoAt = new Date().toISOString();
+            const docUpdate = invalidarValidacionDocs(
+                { ...(exp.documentacion || {}), cert_rite_drive_link: saved.link, cert_rite_aportado_at: aportadoAt },
+                ['cert_rite_drive_link'],
+                { usuario: req.user?.perfilCompleto?.nombre || 'STAFF', origen: 'certificado RITE subido en Documentación' },
+            );
+            const { error: linkErr } = await supabase
+                .from('expedientes').update({ documentacion: docUpdate }).eq('id', exp.id);
             if (linkErr) console.warn('[riteOcr] no se pudo enlazar el certificado:', linkErr.message);
+            else exp.documentacion = docUpdate;   // la lectura decide sobre lo ya escrito
         } else {
             // SIN fichero: se lee el que YA está enlazado en el expediente. Es el caso
             // de los que se subieron antes de que la app supiera leerlos y el de quien
@@ -3904,6 +3916,8 @@ router.post('/:id/rite/ocr', staffOnly, (req, res, next) => {
             success: true,
             drive_link: saved?.link || exp.documentacion?.cert_rite_drive_link || null,
             drive_id: saved?.id || null,
+            // Lo devuelve para que la fila pase a "Aportado" sin esperar al refetch.
+            cert_rite_aportado_at: exp.documentacion?.cert_rite_aportado_at || null,
             lectura_error: lecturaError,
             ...(resultado || { lectura: null, fechas: null, escrito: [], conflictos: [], comprobaciones: [] }),
         });

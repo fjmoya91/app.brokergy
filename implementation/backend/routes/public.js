@@ -1987,6 +1987,12 @@ router.post('/rite-upload/:expedienteId',
                 const r = await saveReplacing(`${numexpte} - Certificado RITE.pdf`, certFile.mimetype, certFile.buffer);
                 certLink = r?.link || null;
                 docUpdate.cert_rite_drive_link = certLink;   // → slot "Certificado RITE" (validación del agente)
+                // Sello de "este enlace ES el certificado, no la Memoria". En los
+                // expedientes anteriores al 27/08/2026 no hay `memoria_rite_docx_link`
+                // y la heurística de `esMemoriaRiteEnDriveLink` tomaba por la Memoria
+                // lo que acababa de subir el instalador: el certificado no constaba y
+                // el CIFO seguía bloqueado. Aquí no hay que adivinar nada.
+                docUpdate.cert_rite_aportado_at = new Date().toISOString();
                 camposSubidos.push('cert_rite_drive_link');
                 if (r?.id) try { await driveService.setFolderPublic(r.id, 'reader'); } catch (e) {}
             }

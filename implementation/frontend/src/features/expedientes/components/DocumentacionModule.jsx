@@ -1803,6 +1803,17 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             // del certificado y las fechas que estaban en blanco.
             setLocal(prev => {
                 const next = { ...prev, cert_rite_drive_link: data.drive_link || prev.cert_rite_drive_link };
+                // El sello es lo que hace que la fila diga "Aportado" y el slot pase a
+                // ámbar: sin él, la heurística de `esMemoriaRiteEnDriveLink` toma este
+                // enlace por la Memoria en los expedientes anteriores al 27/08/2026.
+                if (data.cert_rite_aportado_at) next.cert_rite_aportado_at = data.cert_rite_aportado_at;
+                // Versión nueva del documento ⇒ vuelve a "pendiente de revisar" (el
+                // backend ya lo ha hecho; esto es para no esperar al refetch).
+                if (data.cert_rite_aportado_at) {
+                    const dv = { ...(prev.docs_validados || {}) }; delete dv.cert_rite_signed_link;
+                    const dr = { ...(prev.docs_rechazados || {}) }; delete dr.cert_rite_signed_link;
+                    next.docs_validados = dv; next.docs_rechazados = dr;
+                }
                 if ((data.escrito || []).includes('fecha_pruebas_cert_instalacion')) next.fecha_pruebas_cert_instalacion = data.fechas?.pruebas || null;
                 if ((data.escrito || []).includes('fecha_firma_cert_instalacion')) next.fecha_firma_cert_instalacion = data.fechas?.firma || null;
                 // El backend ya lo ha persistido por RPC (campo a campo); esto solo
