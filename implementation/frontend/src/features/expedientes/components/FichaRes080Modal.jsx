@@ -3,6 +3,9 @@ import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { calcCifo } from '../logic/calcCifo';
 import { postEmail } from '../../../utils/emailFallback';
+// Los nombres van en MAYÚSCULAS en la ficha: en el saludo se escriben bien y
+// sin cortar los compuestos ("MARIA JOSÉ" no es "Maria").
+import { nombreSaludo } from '../../../utils/nombres.js';
 
 // ─── Márgenes exactos Word: Sup 2,47cm Inf 0,49cm Izq 3cm Der 2,5cm ──────────
 const PAGE_PADDING = '93px 95px 19px 113px';
@@ -351,7 +354,7 @@ export function FichaRes080Modal({ isOpen, onClose, expediente, results, onSaveD
             const st = await axios.get('/api/whatsapp/status');
             if (!st.data?.ready) { alert("❌ WhatsApp no está conectado."); return; }
             const pdfResp = await axios.post('/api/pdf/generate', { html: buildStaticHtml() });
-            const firstName = (cli.nombre_razon_social || '').split(/\s+/)[0];
+            const firstName = nombreSaludo(cli.nombre_razon_social);
             await axios.post('/api/whatsapp/send-media', {
                 phone: toPhone,
                 caption: `Hola ${firstName},\n\nTe adjunto la *Ficha RES080* de tu expediente *${numexpte}*.\n\nUn saludo,\n*BROKERGY*`,

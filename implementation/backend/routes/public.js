@@ -12,6 +12,9 @@ const ceeUploadService = require('../services/ceeUploadService');
 const anexoFotograficoService = require('../services/anexoFotograficoService');
 const uploadNotifier = require('../services/uploadNotifier');
 const { buildCertClienteData } = require('../services/certClienteData');
+// El nombre llega del formulario del cliente: puede traer espacios (que rompen
+// la *negrita* de WhatsApp: "*JESÚS *" no se marca) y va en MAYÚSCULAS.
+const { nombreSaludo } = require('../services/recordatorios');
 // Una versión NUEVA de un documento ya validado lo devuelve a "pendiente de revisar".
 const { invalidarValidacionDocs, invalidarValidacionCee, rechazoBorrador } = require('../utils/docValidacion');
 const { requireAuth, isStaff } = require('../middleware/auth');
@@ -442,7 +445,7 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
             try {
                 await emailService.sendAcceptanceNotificationEmail({
                     to: formFields.email,
-                    userName: formFields.nombre_razon_social,
+                    userName: nombreSaludo(formFields.nombre_razon_social),
                     numeroExpediente,
                     uploadLink
                 });
@@ -454,7 +457,7 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
             // 4. WhatsApp cliente
             if (formFields.telefono) {
                 const whatsappMsg =
-`¡Hola *${formFields.nombre_razon_social}*!
+`¡Hola *${nombreSaludo(formFields.nombre_razon_social)}*!
 
 Hemos recibido correctamente la aceptación de tu propuesta. *¡Muchas gracias por confiar en Brokergy!*
 

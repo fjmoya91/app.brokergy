@@ -13,14 +13,40 @@
 
 const FIRMA = '*BROKERGY · Ingeniería Energética*';
 
+// ESPEJO de frontend/src/utils/nombres.js. Está duplicado a propósito: este
+// módulo es CJS y no tiene ninguna dependencia, que es lo que permite cargarlo
+// desde cualquier sitio del backend.
+
+// Partículas en minúscula dentro del nombre ("José de la Torre").
+const PARTICULAS = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'e', 'da', 'do', 'dos', 'van', 'von']);
+// Los apellidos con guion llevan las DOS mayúsculas ("Sánchez-Carrillejo").
+const mayusInicial = (w) => w.split('-')
+    .map(t => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t)).join('-');
+
 /** Nombre propio en bonito: "JOSE ANTONIO PEREZ" → "Jose Antonio Perez". */
 const capitalizar = (s) => (s || '').toLowerCase().split(/\s+/).filter(Boolean)
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    .map((w, i) => (i > 0 && PARTICULAS.has(w)) ? w : mayusInicial(w)).join(' ');
 
-/** Primer nombre para el saludo. Un "¡Hola INSTALACIONES GARCIA SL!" suena a robot. */
+// Formas societarias: si las lleva, es una EMPRESA y basta la primera palabra.
+const SOCIETARIO = /(^|[\s,.])(s\.?\s?l\.?\s?u?|s\.?\s?a\.?\s?u?|s\.?\s?c\.?\s?p?|c\.?\s?b|s\.?\s?coop|slne?|sll)\.?\s*$/i;
+
+/**
+ * Nombre para el saludo. Un "¡Hola INSTALACIONES GARCIA SL!" suena a robot, así
+ * que de una empresa se toma la primera palabra ("Instalaciones"). El nombre de
+ * una PERSONA no se corta: "MARIA JOSÉ" saludada como "Maria" es otra persona, y
+ * los compuestos son mayoría aquí.
+ */
+const nombreSaludo = (s) => {
+    const v = (s || '').trim();
+    if (!v) return '';
+    if (SOCIETARIO.test(v)) return capitalizar(v.split(/\s+/)[0].replace(/,$/, ''));
+    return capitalizar(v);
+};
+
+/** Solo el primer nombre (donde el texto pida tuteo corto). */
 const nombrePila = (s) => {
     const first = (s || '').trim().split(/\s+/)[0] || '';
-    return first ? capitalizar(first) : '';
+    return first ? capitalizar(first.replace(/,$/, '')) : '';
 };
 
 /**
@@ -88,7 +114,7 @@ function bloqueAcciones(acciones, { relay = false } = {}) {
  * instrucciones, y ese segundo mensaje casi nunca se manda.
  */
 function finObraMsg({ destinatario, esInstalador, numExp, obra, dias, acciones, uploadBase }) {
-    const hola = nombrePila(destinatario) ? `¡Hola ${nombrePila(destinatario)}!` : '¡Hola!';
+    const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
     const dir = direccionLimpia(obra?.direccion);
     const laObra = esInstalador && (obra?.cliente || dir)
         ? `la obra de *${capitalizar(obra.cliente) || 'tu cliente'}*${dir ? ` (${dir})` : ''}`
@@ -113,7 +139,7 @@ function finObraMsg({ destinatario, esInstalador, numExp, obra, dias, acciones, 
  * mensaje que se contradecía con el primero.
  */
 function firmaMsg({ destinatario, docs = [], numExp, obra, dias, url, esInstalador }) {
-    const hola = nombrePila(destinatario) ? `¡Hola ${nombrePila(destinatario)}!` : '¡Hola!';
+    const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
     const dir = direccionLimpia(obra?.direccion);
     const laObra = esInstalador && (obra?.cliente || dir)
         ? ` de la obra de *${capitalizar(obra.cliente) || 'tu cliente'}*${dir ? ` (${dir})` : ''}`
@@ -163,14 +189,14 @@ function certEmisionLoteWa({ certName, items }) {
 
 /** Varias obras del mismo instalador sin terminar. */
 function finObraLoteWa({ destinatario, items }) {
-    const hola = nombrePila(destinatario) ? `¡Hola ${nombrePila(destinatario)}!` : '¡Hola!';
+    const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
     const n = items.length;
     return `${hola}\n\nTenemos *${n} ${plural(n, 'obra tuya', 'obras tuyas')}* con el certificado energético inicial registrado desde hace tiempo y sin constancia de que ${plural(n, 'esté terminada', 'estén terminadas')}:\n\n${listaExpedientes(items)}\n\n¿Cómo ${plural(n, 'va', 'van')}? ¿Nos puedes decir fechas aproximadas?\n\n*De cada una necesitamos, para tramitar la ayuda:*\n· Las *fotos de la instalación terminada* (equipo, placa de características y unidad interior).\n· La *factura* de la obra.\n\nEn el enlace de cada obra puedes subirlo todo y avisarnos con el botón *"He terminado la obra"*.\n\n¡Gracias!\n${FIRMA}`;
 }
 
 /** Varios documentos sin firmar, del mismo firmante, en varios expedientes. */
 function firmaLoteWa({ destinatario, items, esInstalador }) {
-    const hola = nombrePila(destinatario) ? `¡Hola ${nombrePila(destinatario)}!` : '¡Hola!';
+    const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
     const n = items.length;
     return `${hola}\n\nTienes documentación *pendiente de firma* en *${n} ${plural(n, 'expediente', 'expedientes')}*${esInstalador ? '' : ''}:\n\n${listaExpedientes(items)}\n\nEs lo que nos falta para poder seguir con la tramitación. Se firma en 2 minutos desde el móvil, en el enlace de cada uno.\n\n¡Gracias!\n${FIRMA}`;
 }
@@ -179,5 +205,5 @@ module.exports = {
     certRegistroWa, certEmisionWa,
     finObraMsg, firmaMsg, bloqueAcciones,
     certRegistroLoteWa, certEmisionLoteWa, finObraLoteWa, firmaLoteWa, listaExpedientes,
-    capitalizar, nombrePila, direccionLimpia, FIRMA,
+    capitalizar, nombrePila, nombreSaludo, direccionLimpia, FIRMA,
 };

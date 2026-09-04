@@ -6,6 +6,9 @@ import AppConfirm from '../../../components/AppConfirm';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
 import { SIGN_BOXES } from '../logic/signBoxes';
 import { postEmail } from '../../../utils/emailFallback';
+// Los nombres van en MAYÚSCULAS en la ficha: en el saludo se escriben bien y
+// sin cortar los compuestos ("MARIA JOSÉ" no es "Maria").
+import { nombreSaludo } from '../../../utils/nombres.js';
 
 const LOGO_URL  = '/logo_brokergy_dark.png';
 
@@ -192,7 +195,7 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
             try {
                 const summaryData = { id: numexpte, docType: sendDual ? 'Anexo de Cesion y Anexo I' : 'Anexo de Cesion', userName: [cliente.nombre_razon_social, cliente.apellidos].filter(Boolean).join(' ') };
                 const htmlCesion = buildAnexoCesionHtml(expediente, results, docOpts);
-                const firstName = (cliente.nombre_razon_social || '').split(/\s+/)[0];
+                const firstName = nombreSaludo(cliente.nombre_razon_social);
                 const docs = [{ html: htmlCesion, fileName: `${numexpte}_Anexo_Cesion.pdf` }];
                 let customMessage = null;
                 if (sendDual) {
@@ -263,7 +266,7 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
                     setConfirmConfig({ title: 'WhatsApp desconectado', message: '❌ WhatsApp no está conectado.', confirmText: 'Entendido', onConfirm: () => setConfirmConfig(null) });
                     return;
                 }
-                const firstName = (cliente.nombre_razon_social || '').split(/\s+/)[0];
+                const firstName = nombreSaludo(cliente.nombre_razon_social);
                 const htmlCesion = buildAnexoCesionHtml(expediente, results, docOpts);
                 if (sendDual) {
                     const htmlAnexoI = buildAnexoIHtml(expediente, results);

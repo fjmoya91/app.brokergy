@@ -3,6 +3,9 @@ import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { postEmail } from '../../../utils/emailFallback';
 import { buildFichaTer100Html, buildFichaTer100Body, fichaTer100Css, deriveFichaTer100 } from '../logic/fichaTer100Html';
+// Los nombres van en MAYÚSCULAS en la ficha: en el saludo se escriben bien y
+// sin cortar los compuestos ("MARIA JOSÉ" no es "Maria").
+import { nombreSaludo } from '../../../utils/nombres.js';
 
 // ─── Modal de la Ficha TER100 (sector terciario) ──────────────────────────────
 // A diferencia de los modales de RES060/RES080/RES093 —que repiten el documento
@@ -119,7 +122,7 @@ export function FichaTer100Modal({ isOpen, onClose, expediente, onSaveDrive }) {
             const st = await axios.get('/api/whatsapp/status');
             if (!st.data?.ready) { alert('❌ WhatsApp no está conectado.'); return; }
             const pdfResp = await axios.post('/api/pdf/generate', { html: staticHtml() });
-            const firstName = (cli.nombre_razon_social || '').split(/\s+/)[0];
+            const firstName = nombreSaludo(cli.nombre_razon_social);
             const caption = `Hola ${firstName},\n\nTe adjunto la *Ficha TER100* de tu expediente *${numexpte}*.\n\nUn saludo,\n*BROKERGY*`;
             await axios.post('/api/whatsapp/send-media', {
                 phone: toPhone,

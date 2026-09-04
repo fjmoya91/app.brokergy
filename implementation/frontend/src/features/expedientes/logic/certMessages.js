@@ -1,3 +1,5 @@
+import { nombreSaludo } from '../../../utils/nombres.js';
+
 // Mensajes al certificador — FUENTE ÚNICA de los textos que salen por email y WhatsApp.
 // La usan los popups del frontend (CeeDocumentsGrid, CeeModule) y el backend a través de
 // utils/frontendLogic.js, para que nadie vuelva a duplicar plantillas.
@@ -24,10 +26,10 @@ export const toTitleCase = (s) => (s || '')
     .join(' ');
 
 // "LUIS ALBERTO LANUZA PELAYO" → "Luis" (solo el nombre de pila, en formato normal)
-export const firstNameProper = (s) => {
-    const t = (s || '').trim().split(/\s+/)[0] || '';
-    return t ? t.charAt(0).toUpperCase() + t.slice(1).toLowerCase() : '';
-};
+// El nombre del técnico, bien escrito y SIN cortar los compuestos ("JOSÉ
+// ANTONIO" no es "José"). Si lo que llega es una razón social, se queda con la
+// primera palabra ("Fessa"). Fuente única: utils/nombres.
+export const firstNameProper = nombreSaludo;
 
 const carpetaLine = (ceeFolderLink) =>
     ceeFolderLink ? `\n\n📁 Carpeta de documentos del expediente:\n${ceeFolderLink}` : '';

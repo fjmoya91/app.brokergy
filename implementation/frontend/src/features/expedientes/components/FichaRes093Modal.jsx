@@ -5,6 +5,9 @@ import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs } from
 import { calcCifo } from '../logic/calcCifo';
 import { ceeBaseDocumento, acsEnAlcance } from '../logic/ceeFases';
 import { postEmail } from '../../../utils/emailFallback';
+// Los nombres van en MAYÚSCULAS en la ficha: en el saludo se escriben bien y
+// sin cortar los compuestos ("MARIA JOSÉ" no es "Maria").
+import { nombreSaludo } from '../../../utils/nombres.js';
 
 // ─── Márgenes exactos Word: Sup 2,47cm Inf 0,49cm Izq 3cm Der 2,5cm ──────────
 // Conversión cm→px (96dpi): 1cm = 37.795px
@@ -449,7 +452,7 @@ export function FichaRes093Modal({ isOpen, onClose, expediente, results, onSaveD
             const pdfResp = await axios.post('/api/pdf/generate', { html: buildStaticHtml() });
             const pdfBase64 = pdfResp.data?.pdf;
 
-            const firstName = (cli.nombre_razon_social || '').split(/\s+/)[0];
+            const firstName = nombreSaludo(cli.nombre_razon_social);
             const caption = `Hola ${firstName},\n\nTe adjunto la *Ficha RES093* de tu expediente *${numexpte}*.\n\nUn saludo,\n*BROKERGY*`;
 
             await axios.post('/api/whatsapp/send-media', {

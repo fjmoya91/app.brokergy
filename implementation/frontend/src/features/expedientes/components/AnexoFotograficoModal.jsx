@@ -10,6 +10,9 @@ import FirmarConCertificadoModal from './FirmarConCertificadoModal';
 import { prepararImagenParaSubir } from '../../../utils/imageResize';
 import { DocsAdminModal } from '../../calculator/components/DocsAdminModal';
 import { postEmail } from '../../../utils/emailFallback';
+// Los nombres van en MAYÚSCULAS en la ficha: en el saludo se escriben bien y
+// sin cortar los compuestos ("MARIA JOSÉ" no es "Maria").
+import { nombreSaludo } from '../../../utils/nombres.js';
 
 const Spinner = () => (
     <svg className="animate-spin h-4 w-4 text-current inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -775,7 +778,7 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
             const pdfBase64 = await blobABase64(blob);
 
             // 3. Construir mensaje
-            const firstName = (cli.nombre_razon_social || '').split(/\s+/)[0];
+            const firstName = nombreSaludo(cli.nombre_razon_social);
             const caption = rechazo
                 ? `${firstName},\n\n${rechazoIntro('whatsapp')}\n\nAtentamente,\n*BROKERGY · Ingeniería Energética*`
                 : `Hola ${firstName},\n\nTe adjunto el *Anexo Fotográfico* de tu expediente *${numexpte}*.\n\nUn saludo,\n*BROKERGY*`;

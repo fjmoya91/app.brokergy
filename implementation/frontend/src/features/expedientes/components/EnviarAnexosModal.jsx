@@ -8,6 +8,9 @@ import { clienteContacts, instaladorContacts, phoneValid } from '../utils/docCon
 import { unidadesSinSerie, countUnidades } from '../logic/aerotermiaUnits';
 // Canal de envío de la barra inferior — COMPARTIDO con los otros popups de envío.
 import { CanalChip, avisoCanales } from '../../../components/CanalChip';
+// Los nombres se guardan en MAYÚSCULAS (los formularios las fuerzan) y los
+// compuestos son mayoría: en el saludo se escriben bien y SIN cortar.
+import { nombreSaludo } from '../../../utils/nombres.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Envío unificado de los anexos del cliente (Anexo I + Anexo de Cesión de Ahorros).
@@ -116,7 +119,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     const beneficioStr = beneficioRaw ? Math.round(beneficioRaw).toLocaleString('es-ES', { useGrouping: true }) : '___________';
 
     const clienteNombre = [cli.nombre_razon_social, cli.apellidos].filter(Boolean).join(' ').trim();
-    const firstName     = (cli.nombre_razon_social || '').split(/\s+/)[0] || '';
+    const firstName     = nombreSaludo(cli.nombre_razon_social);
 
     // Enlace público donde el destinatario sube los anexos FIRMADOS + foto del DNI
     // por ambas caras. Si la Cesión va firmada a mano, el DNI se anexa a la Cesión.
@@ -168,7 +171,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     // a la persona de contacto y el mensaje sigue diciendo "Hola FRANCISCO", quien
     // lo recibe ve que va dirigido a otra persona (y delata la plantilla).
     // Si hay varios marcados, se saludan todos ("Hola NOELIA y FRANCISCO").
-    const firstNameOf = (s) => (String(s || '').trim().split(/\s+/)[0] || '');
+    const firstNameOf = nombreSaludo;
     const greetName = (tgt, ids, manual = manualContact) => {
         const list = tgt === 'cliente' ? cliContacts : instContacts;
         const names = (ids || [])

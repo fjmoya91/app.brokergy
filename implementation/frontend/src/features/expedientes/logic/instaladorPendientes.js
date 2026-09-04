@@ -21,7 +21,7 @@
 // dinámico, igual que hace cifoService con cifoDoc.js.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { nombrePila } from '../../../utils/nombres.js';
+import { nombreSaludo } from '../../../utils/nombres.js';
 
 const present = (v) => v != null && String(v).trim() !== '' && !String(v).includes('___');
 const _ts = (v) => { const t = Date.parse(v || ''); return Number.isNaN(t) ? 0 : t; };
@@ -247,7 +247,7 @@ export function otroPendiente(documentacion, doc) {
 // "Otro contacto…" es el rótulo del BOTÓN, no el nombre de nadie: si se marca sin
 // escribir un nombre, el saludo salía literalmente "Hola Otro,". Con un nombre que
 // no lo es, se saluda en genérico.
-const primerNombre = nombrePila;
+const primerNombre = nombreSaludo;
 
 /**
  * @param {object} o

@@ -4,6 +4,9 @@ import { buildAnexoIHtml, buildAnexoCesionHtml, getDualMessage, getClientCaeRate
 import { useAuth } from '../../../context/AuthContext';
 import AppConfirm from '../../../components/AppConfirm';
 import { postEmail } from '../../../utils/emailFallback';
+// Los nombres van en MAYÚSCULAS en la ficha: en el saludo se escriben bien y
+// sin cortar los compuestos ("MARIA JOSÉ" no es "Maria").
+import { nombreSaludo } from '../../../utils/nombres.js';
 
 /**
  * ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -168,7 +171,7 @@ export function AnexoIModal({ isOpen, onClose, expediente, results, onSaveDrive,
             try {
                 const summaryData = { id: numexpte, docType: sendDual ? 'Anexo I y Anexo de Cesión' : 'Anexo I', userName: [cliente.nombre_razon_social, cliente.apellidos].filter(Boolean).join(' ') };
                 const htmlAnexoI = buildAnexoIHtml(expediente, results, { bonoSocial, noSolicitado, seSolicitado, ayudaOptions, ayudaFields: ayudaRef.current }, true);
-                const firstName = (cliente.nombre_razon_social || '').split(/\s+/)[0];
+                const firstName = nombreSaludo(cliente.nombre_razon_social);
                 const docs = [{ html: htmlAnexoI, fileName: `${numexpte}_Anexo_I.pdf` }];
                 let customMessage = null;
                 if (sendDual) {
@@ -239,7 +242,7 @@ export function AnexoIModal({ isOpen, onClose, expediente, results, onSaveDrive,
                     setConfirmConfig({ title: 'WhatsApp desconectado', message: '❌ WhatsApp no está conectado.', confirmText: 'Entendido', onConfirm: () => setConfirmConfig(null) });
                     return;
                 }
-                const firstName = (cliente.nombre_razon_social || '').split(/\s+/)[0];
+                const firstName = nombreSaludo(cliente.nombre_razon_social);
                 const htmlAnexoI = buildAnexoIHtml(expediente, results, { bonoSocial, noSolicitado, seSolicitado, ayudaOptions, ayudaFields: ayudaRef.current }, true);
                 if (sendDual) {
                     const htmlCesion = buildAnexoCesionHtml(expediente, results);

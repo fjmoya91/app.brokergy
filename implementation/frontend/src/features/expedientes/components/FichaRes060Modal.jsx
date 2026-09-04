@@ -5,6 +5,9 @@ import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
 import { calcCifo } from '../logic/calcCifo';
 import { ceeBaseDocumento, acsEnAlcance } from '../logic/ceeFases';
 import { postEmail } from '../../../utils/emailFallback';
+// Los nombres van en MAYÚSCULAS en la ficha: en el saludo se escriben bien y
+// sin cortar los compuestos ("MARIA JOSÉ" no es "Maria").
+import { nombreSaludo } from '../../../utils/nombres.js';
 
 // ─── Márgenes exactos Word: Sup 2,47cm Inf 0,49cm Izq 3cm Der 2,5cm ──────────
 // Conversión cm→px (96dpi): 1cm = 37.795px
@@ -446,7 +449,7 @@ export function FichaRes060Modal({ isOpen, onClose, expediente, results, onSaveD
             const pdfBase64 = pdfResp.data?.pdf;
 
             // 3. Construir mensaje
-            const firstName = (cli.nombre_razon_social || '').split(/\s+/)[0];
+            const firstName = nombreSaludo(cli.nombre_razon_social);
             const caption = `Hola ${firstName},\n\nTe adjunto la *Ficha RES060* de tu expediente *${numexpte}*.\n\nUn saludo,\n*BROKERGY*`;
 
             // 4. Enviar

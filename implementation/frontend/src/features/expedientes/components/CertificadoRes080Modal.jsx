@@ -21,6 +21,9 @@ import AnexoPaginasModal from './AnexoPaginasModal';
 // lo que usa el backend para generar el mismo certificado server-side.
 import { buildCe3xPages, buildJustificacionAhorroPages, buildEmpresasBox } from '../logic/res080Doc';
 import { postEmail } from '../../../utils/emailFallback';
+// Los nombres van en MAYÚSCULAS en la ficha: en el saludo se escriben bien y
+// sin cortar los compuestos ("MARIA JOSÉ" no es "Maria").
+import { nombreSaludo } from '../../../utils/nombres.js';
 
 // ─── CONSTANTES Y ESTILOS ────────────────────────────────────────────────────
 
@@ -1723,7 +1726,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
     const selectedContact = resolveContact(selectedContactId);
 
     const buildDeliveryMessage = (contactName) => {
-        const firstName = (contactName || '').trim().split(/\s+/)[0] || 'hola';
+        const firstName = nombreSaludo(contactName) || 'hola';
         // Reentrega tras un rechazo: el motivo va delante, y se deja claro que la
         // versión anterior queda anulada (si no, el cliente conserva las dos).
         if (rechazo) {
