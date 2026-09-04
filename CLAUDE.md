@@ -3070,6 +3070,21 @@ está pendiente y qué se frena mientras tanto — mandarle otra vez el mismo "t
 facturas" es de plantilla. Se reinsiste solo cuando NINGUNO está por pedir; con mezcla sale
 el correo normal con todos los adjuntos, que es la razón de ser de esta petición.
 
+**REGLA — lo que cierra la petición es COBRARLO, y eso se marca en la factura.** La vida de
+una factura del lote es *subida → remitida → reclamada → **pagada***, y el último sello
+faltaba: una ya cobrada seguía figurando como pendiente y el botón se la volvía a reclamar al
+S.O., que es la peor forma de reclamar. Se marca desde su fila en la fase 4
+(`POST /api/lotes/:id/documentos/:key/pago`, **adminOnly** — es dinero), con o sin
+justificante; y **subir el justificante la da por pagada**, porque el papel es la prueba
+—mismo criterio que el justificante de registro del MITECO—. El justificante va a la carpeta
+de documentación del lote con nombre canónico (`4.5 Justificante de pago LOTE-2026-004`), no
+se queda en un correo, y al reemplazarlo el anterior se **archiva en OLD**: un documento de
+cobro no se tira. Una factura pagada sale de la reclamación en las dos capas —`peticionesSo`
+la excluye y el importe del botón pasa a ser lo que queda por cobrar, y la ruta de envío
+responde **409** si alguno de los lotes pedidos ya consta pagado, porque entre que la pantalla
+se pinta y se pulsa puede haberlo marcado otra persona—. Solo se puede pagar lo que es una
+FACTURA (`importe` en su slot): un informe o un dictamen no se pagan.
+
 **REGLA — un envío que ya salió tiene que VERSE.** Antes, al pedirlo, el botón simplemente
 desaparecía: no se podía insistir y tampoco quedaba en pantalla ninguna señal de que el
 correo había llegado a salir. Ahora se sella **a quién, cuándo y cuántas veces**

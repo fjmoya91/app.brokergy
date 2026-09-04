@@ -65,7 +65,8 @@ const esFirmable = (doc) => TIPOS_FIRMABLES.includes(doc?.tipo);
 // Fila de un documento. Cuando ha vuelto firmado, el firmado se pinta como una
 // SUBFILA propia en cian/verde: son dos cosas distintas (lo que mandamos y lo que
 // nos devolvieron) y antes se confundían en un solo enlace.
-const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, onValidar = null, ocupado = false }) => {
+const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, onValidar = null,
+    onMarcarPagada = null, onJustificantePago = null, ocupado = false }) => {
     const fecha = fmtFecha(doc.sent_at) || fmtFecha(doc.uploaded_at);
     const estado = estadoDeDoc(doc);
     return (
@@ -86,9 +87,10 @@ const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, on
                     {/* Lo que se le RECLAMÓ al S.O. sobre este documento. Va aquí y no
                         solo en el cuadro de mando porque es donde se mira la factura:
                         sin esta línea, un pago ya pedido no se distinguía de uno que
-                        nunca salió. */}
+                        nunca salió. Una vez COBRADA pierde el ámbar de "pendiente":
+                        pasa a ser el historial de cómo se llegó a cobrar. */}
                     {doc.pago_solicitado_at && (
-                        <p className="text-[9px] text-amber-400/60">
+                        <p className={`text-[9px] ${doc.pagado_at ? 'text-white/25' : 'text-amber-400/60'}`}>
                             ✓ Pago pedido {fmtFecha(doc.pago_solicitado_at)}
                             {doc.pago_solicitado_to ? ` a ${doc.pago_solicitado_to}` : ''}
                             {Number(doc.pago_solicitado_veces) > 1 ? ` · ${doc.pago_solicitado_veces} veces` : ''}
@@ -136,12 +138,59 @@ const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, on
                 </div>
             )}
 
-            {(acciones || onSubirFirmado) && (
+            {/* El COBRO de una factura, en su propia línea. Es el final de su vida
+                —subida → remitida → reclamada → PAGADA— y hasta ahora no se podía
+                anotar: una factura ya cobrada seguía figurando como pendiente y el
+                cuadro de mando se la volvía a reclamar al S.O. El justificante vive
+                con el resto del papeleo del lote, no en un correo. */}
+            {doc.pagado_at && (
+                <div className="mx-3 mb-2.5 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.07] px-2.5 py-2 flex items-center gap-2 flex-wrap">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-emerald-400">€ Pagada</span>
+                    <span className="text-[9px] text-white/30">{fmtFecha(doc.pagado_at)}</span>
+                    {doc.pago_justificante_link ? (
+                        <a href={doc.pago_justificante_link} target="_blank" rel="noopener noreferrer"
+                            className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider text-white/50 hover:text-white hover:bg-white/5 transition-all">
+                            Ver justificante
+                        </a>
+                    ) : onJustificantePago ? (
+                        <BotonSubir disabled={ocupado} onFile={onJustificantePago}>
+                            {ocupado ? 'Subiendo…' : '↑ Justificante de pago'}
+                        </BotonSubir>
+                    ) : null}
+                    <div className="flex-1" />
+                    {doc.pago_justificante_link && onJustificantePago && (
+                        <BotonSubir disabled={ocupado} onFile={onJustificantePago}>
+                            {ocupado ? 'Subiendo…' : '↻ Reemplazar'}
+                        </BotonSubir>
+                    )}
+                    {onMarcarPagada && (
+                        <button type="button" onClick={() => onMarcarPagada(false)} disabled={ocupado}
+                            className="text-[9px] text-white/25 hover:text-amber-400 disabled:opacity-40 transition-colors">quitar</button>
+                    )}
+                </div>
+            )}
+
+            {(acciones || onSubirFirmado || (!doc.pagado_at && (onMarcarPagada || onJustificantePago))) && (
                 <div className="px-3 pb-2.5 flex items-center gap-2 flex-wrap">
                     {onSubirFirmado && (
                         <BotonSubir disabled={ocupado} onFile={onSubirFirmado}>
                             {doc.signed_link ? '↻ Reemplazar firmado' : '↑ Subir firmado'}
                         </BotonSubir>
+                    )}
+                    {/* Dos caminos al mismo sitio: con el justificante delante se
+                        sube (y eso ya la da por pagada — el papel es la prueba), y
+                        sin él se puede marcar igual, que es lo que pasa cuando el
+                        S.O. avisa del pago antes de mandar el resguardo. */}
+                    {!doc.pagado_at && onJustificantePago && (
+                        <BotonSubir disabled={ocupado} onFile={onJustificantePago} destacado>
+                            {ocupado ? 'Subiendo…' : '↑ Justificante de pago'}
+                        </BotonSubir>
+                    )}
+                    {!doc.pagado_at && onMarcarPagada && (
+                        <button type="button" onClick={() => onMarcarPagada(true)} disabled={ocupado}
+                            className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-40 transition-all">
+                            € Marcar pagada
+                        </button>
                     )}
                     {acciones}
                 </div>
@@ -279,13 +328,60 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         }
     };
 
+    // ── El COBRO de una factura del lote ──────────────────────────────────────
+    // "Pagada" es el último sello de la vida de una factura y faltaba: sin él, una
+    // ya cobrada seguía figurando como pendiente y el botón del cuadro de mando se
+    // la volvía a reclamar al S.O. — reclamarle a quien ya pagó.
+    const marcarPagada = async (docKey, ok) => {
+        if (!ok) {
+            const conf = await showConfirm(
+                'Se retirará la marca de PAGADA. Si hay justificante de pago subido, se archivará en la subcarpeta OLD de Drive (no se borra).',
+                'Quitar la marca de pagada', 'warning');
+            if (!conf) return;
+        }
+        setError('');
+        setSubiendo(docKey);
+        try {
+            await axios.post(`/api/lotes/${lote.id}/documentos/${docKey}/pago`, { pagado: ok });
+            if (onChanged) onChanged();
+        } catch (err) {
+            setError(err.response?.data?.error || 'No se pudo registrar el pago.');
+        } finally { setSubiendo(null); }
+    };
+
+    // El justificante ES la prueba del cobro, así que subirlo da la factura por
+    // pagada: pedir además que se pulse la casilla deja el papel dentro y la marca
+    // sin poner. Mismo criterio que el justificante de registro del MITECO.
+    const subirJustificantePago = async (docKey, file) => {
+        if (!file) return;
+        if (file.type !== 'application/pdf') { setError('El justificante de pago debe ser un PDF.'); return; }
+        setError('');
+        setSubiendo(docKey);
+        try {
+            const base64 = await fileToBase64(file);
+            await axios.post(`/api/lotes/${lote.id}/documentos/${docKey}/pago`, {
+                pagado: true, base64, fileName: file.name,
+            });
+            if (onChanged) onChanged();
+        } catch (err) {
+            setError(err.response?.data?.error || 'No se pudo subir el justificante de pago.');
+        } finally { setSubiendo(null); }
+    };
+
     // Props comunes de una fila de documento (firmado + visto bueno cuando aplica).
-    const propsFila = (d) => ({
-        ocupado: subiendo === d.key,
-        onSubirFirmado: esFirmable(d) ? (f) => subirFirmado(d.key, f) : null,
-        onValidar: (canSeeMargin && d.signed_link) ? (ok) => validar(d.key, ok) : null,
-        onBorrar: (SLOTS[d.tipo] && !d.signed_link) ? () => borrar(d) : null,
-    });
+    // El cobro solo se ofrece sobre FACTURAS y solo al ADMIN: es dinero, y el
+    // backend lo repite (la ruta es adminOnly).
+    const propsFila = (d) => {
+        const esFactura = !!SLOTS[d.tipo]?.importe;
+        return {
+            ocupado: subiendo === d.key,
+            onSubirFirmado: esFirmable(d) ? (f) => subirFirmado(d.key, f) : null,
+            onValidar: (canSeeMargin && d.signed_link) ? (ok) => validar(d.key, ok) : null,
+            onBorrar: (SLOTS[d.tipo] && !d.signed_link) ? () => borrar(d) : null,
+            onMarcarPagada: (canSeeMargin && esFactura) ? (ok) => marcarPagada(d.key, ok) : null,
+            onJustificantePago: (canSeeMargin && esFactura) ? (f) => subirJustificantePago(d.key, f) : null,
+        };
+    };
 
     const borrar = async (doc) => {
         const ok = await showConfirm(`¿Quitar "${doc.label || doc.file_name}" del lote?\n\nSe borra también de la carpeta de Drive.`, 'Quitar documento', 'warning');

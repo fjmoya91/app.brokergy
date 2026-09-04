@@ -1392,6 +1392,124 @@ router.post('/:id/documentos/:key/validar', adminOnly, async (req, res) => {
     }
 });
 
+// ─── POST /api/lotes/:id/documentos/:key/pago — factura PAGADA + justificante ────
+//
+// El ciclo de una factura del lote es: se sube → se le remite al S.O. → se le PIDE
+// el pago → la PAGA. Los tres primeros sellos ya vivían en la entrada del documento
+// (`sent_at`, `pago_solicitado_*`); el cuarto faltaba, así que una factura ya
+// cobrada seguía apareciendo como pendiente y el botón del cuadro de mando la volvía
+// a reclamar — se le pide a quien ya pagó, que es la peor forma de reclamar.
+//
+// REGLA — el justificante de pago vive con el resto del papeleo del lote, en su
+// carpeta de documentación y con nombre canónico ("4.5 Justificante de pago
+// LOTE-2026-004"). Es la prueba del cobro y hay que poder enseñarla sin buscarla en
+// un correo.
+//
+// REGLA — subir el justificante MARCA pagada. El justificante es la prueba: exigir
+// además pulsar la casilla deja expedientes con el papel dentro y la marca sin
+// poner, que es justo la contradicción que esto viene a quitar. Mismo criterio que
+// el justificante de registro del MITECO.
+//
+// REGLA — solo se paga lo que es una FACTURA (`importe` en su slot). Un informe o
+// un dictamen no se pagan, y ofrecerlo en su fila sería ruido.
+//
+// ADMIN: aquí hay dinero (regla del proyecto — los importes no los ve el TRABAJADOR).
+router.post('/:id/documentos/:key/pago', adminOnly, async (req, res) => {
+    try {
+        const { pagado, fecha, base64, fileName } = req.body || {};
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        const docs = Array.isArray(lote.documentos_so) ? [...lote.documentos_so] : [];
+        const idx = docs.findIndex(d => d && d.key === req.params.key);
+        if (idx < 0) return res.status(404).json({ error: 'Documento no encontrado en el lote' });
+
+        const slot = slotDeKey(docs[idx].key);
+        if (!LOTE_DOC_SLOTS[slot]?.importe) {
+            return res.status(400).json({ error: `"${docs[idx].label || req.params.key}" no es una factura: no se puede marcar como pagada.` });
+        }
+
+        const marcar = base64 ? true : (pagado !== false);
+        const entrada = { ...docs[idx] };
+        let nombreGuardado = null;
+
+        if (base64) {
+            const buffer = Buffer.from(String(base64).split(',').pop(), 'base64');
+            if (buffer.length < 5 || buffer[0] !== 0x25 || buffer[1] !== 0x50) { // %P
+                return res.status(400).json({ error: 'El justificante debe ser un PDF.' });
+            }
+            const docsFolder = await ensureLoteDocsFolder(lote);
+            nombreGuardado = pdfFileName(nombreDocLote('justificante_pago', {
+                label: 'Justificante de pago', codigo: lote.codigo,
+            }));
+            // Un justificante nuevo sustituye al anterior, pero el viejo NO se borra:
+            // se archiva en OLD. Es un documento de cobro y nunca se tira.
+            if (entrada.pago_justificante_file_id) {
+                await driveService.archiveExistingToOld(
+                    docsFolder, entrada.pago_justificante_file_id,
+                    entrada.pago_justificante_file_name || nombreGuardado,
+                ).catch(() => {});
+            }
+            const saved = await saveOrReplacePdf(docsFolder, nombreGuardado, buffer);
+            if (!saved) throw new Error('No se pudo guardar el justificante de pago en Drive');
+            entrada.pago_justificante_link = saved.link;
+            entrada.pago_justificante_file_id = saved.id;
+            entrada.pago_justificante_file_name = nombreGuardado;
+            entrada.pago_justificante_original = fileName || null;
+            entrada.pago_justificante_at = nowIso();
+        }
+
+        if (marcar) {
+            // La fecha del PAGO puede no ser la de hoy (el justificante lleva la
+            // suya), así que se admite; `pagado_marcado_at` guarda cuándo lo
+            // registramos nosotros, que son dos cosas distintas.
+            const f = String(fecha || '').trim();
+            entrada.pagado_at = /^\d{4}-\d{2}-\d{2}$/.test(f) ? new Date(`${f}T12:00:00Z`).toISOString() : (entrada.pagado_at || nowIso());
+            entrada.pagado_marcado_at = nowIso();
+            entrada.pagado_por = usuarioDe(req);
+        } else {
+            // Deshacer una marca puesta por error. El justificante, si lo hay, se
+            // archiva en OLD — no puede quedar un papel de cobro colgando de una
+            // factura que decimos que no está pagada.
+            if (entrada.pago_justificante_file_id) {
+                const docsFolder = await ensureLoteDocsFolder(lote);
+                await driveService.archiveExistingToOld(
+                    docsFolder, entrada.pago_justificante_file_id,
+                    entrada.pago_justificante_file_name || 'Justificante de pago.pdf',
+                ).catch(() => {});
+            }
+            entrada.pagado_at = null;
+            entrada.pagado_marcado_at = null;
+            entrada.pagado_por = null;
+            entrada.pago_justificante_link = null;
+            entrada.pago_justificante_file_id = null;
+            entrada.pago_justificante_file_name = null;
+            entrada.pago_justificante_original = null;
+            entrada.pago_justificante_at = null;
+        }
+        docs[idx] = entrada;
+
+        const historial = Array.isArray(lote.historial) ? [...lote.historial] : [];
+        historial.push({
+            id: `${Date.now()}_pagada`, tipo: 'sistema',
+            texto: marcar
+                ? `"${entrada.label || req.params.key}" marcada como PAGADA`
+                    + `${entrada.importe ? ` (${Number(entrada.importe).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €)` : ''}`
+                    + `${nombreGuardado ? ` · justificante de pago subido (${nombreGuardado})` : ''}.`
+                : `Retirada la marca de PAGADA de "${entrada.label || req.params.key}".`,
+            fecha: nowIso(), usuario: usuarioDe(req),
+        });
+        await supabase.from('lotes').update({ documentos_so: docs, historial, updated_at: nowIso() }).eq('id', lote.id);
+
+        const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
+        const [enriched] = await enrichLotes([updated]);
+        res.json({ ok: true, documento: entrada, lote: scrubLoteForUser(enriched, req) });
+    } catch (err) {
+        console.error('[POST /lotes/:id/documentos/:key/pago]', err.message);
+        res.status(500).json({ error: err.message || 'Error al registrar el pago de la factura' });
+    }
+});
+
 // ─── DELETE /api/lotes/:id/documentos/:key — quitar un documento subido ─────────
 // Solo para los que se suben a mano (un informe de inexactitudes duplicado, un PDF
 // equivocado). Los generados por la app (Anexo I, fichas) se regeneran, no se borran.
@@ -1463,6 +1581,20 @@ router.post('/solicitar-pago-verificacion', adminOnly, async (req, res) => {
             .select('id, codigo, documentos_so, historial').in('id', lote_ids);
         if (error) throw error;
         if (!(lotes || []).length) return res.status(404).json({ error: 'No se han encontrado los lotes.' });
+
+        // Una factura ya COBRADA no se reclama. La pantalla ya la excluye, pero
+        // entre que se pinta y se pulsa puede haberse marcado el pago (o haberlo
+        // hecho otra persona): reclamarle a quien ya pagó es la peor forma de
+        // reclamar, y aquí no hay vuelta atrás una vez sale el correo.
+        const yaPagadas = lotes
+            .filter(l => (l.documentos_so || []).find(d => d?.key === 'factura_verificador')?.pagado_at)
+            .map(l => l.codigo);
+        if (yaPagadas.length) {
+            return res.status(409).json({
+                error: `La factura del verificador de ${yaPagadas.join(', ')} ya consta PAGADA. Quita ${yaPagadas.length === 1 ? 'ese lote' : 'esos lotes'} del envío.`,
+                yaPagadas,
+            });
+        }
 
         // ── Los adjuntos, ANTES de mandar nada ────────────────────────────────
         // Un correo que anuncia cuatro facturas y llega con tres deja al S.O.

@@ -111,6 +111,9 @@ const PREFIJO_DOC = {
     informe_verificacion:   '4.2',
     dictamen_favorable:     '4.3',
     factura_verificador:    '4.4',
+    // No es un slot de `LOTE_DOC_SLOTS`: es el papel que PRUEBA el cobro de la
+    // factura 4.4 y vive con ella (sus sellos van en la entrada de la factura).
+    justificante_pago:      '4.5',
     justificante_miteco:    '5.1',
     requerimiento_ga:       '5.2',
     certificado_cae:        '5.3',

@@ -53,14 +53,21 @@ const haceTexto = (dias) =>
  *
  * Un lote sin factura no se puede reclamar —no habría nada que adjuntar— y se
  * dice aparte, porque lo que falta ahí es subirla.
+ *
+ * REGLA — una factura ya PAGADA sale de la reclamación. Reclamar a quien ya pagó
+ * es la peor forma de reclamar, y además desvirtúa el importe que anuncia el botón:
+ * lo que se pide es lo que queda por cobrar, no todo lo facturado. El pago se marca
+ * en la fila de la factura (fase 4), con o sin justificante.
  */
 function pagoVerificacion(lotes, resumen) {
     const conFactura = [];
     const sinFactura = [];
+    const pagadas = [];
 
     for (const l of lotes || []) {
         const f = facturaVerificadorDe(l);
         if (!f) { sinFactura.push(l); continue; }
+        if (f.pagado_at) { pagadas.push({ lote: l, factura: f, pagadoAt: f.pagado_at }); continue; }
         conFactura.push({
             lote: l,
             factura: f,
@@ -101,10 +108,15 @@ function pagoVerificacion(lotes, resumen) {
             + (importe > 0 ? ` · ${eur(importe)}` : ''),
         // Lo ya hecho, bajo el botón: sin esta línea, un envío que ya salió no
         // dejaba ninguna señal en la pantalla y no se sabía si había llegado a irse.
-        nota: ultimaAt
-            ? `Pedido ${haceTexto(dias)} (${fmtFecha(ultimaAt)})${destinoPrevio ? ` a ${destinoPrevio}` : ''}`
-                + (yaPedidos.some(x => x.veces > 1) ? ' · ya recordado' : '')
-            : null,
+        nota: [
+            ultimaAt
+                ? `Pedido ${haceTexto(dias)} (${fmtFecha(ultimaAt)})${destinoPrevio ? ` a ${destinoPrevio}` : ''}`
+                    + (yaPedidos.some(x => x.veces > 1) ? ' · ya recordado' : '')
+                : null,
+            // Lo ya cobrado se dice aquí: sin esta línea, un importe más bajo del
+            // esperado parece un fallo del cálculo en vez de la mitad ya pagada.
+            pagadas.length ? `${pagadas.length} ya pagada${pagadas.length === 1 ? '' : 's'}` : null,
+        ].filter(Boolean).join(' · ') || null,
         titulo: reinsistencia
             ? 'Recordar al Sujeto Obligado el pago de la verificación'
             : 'Pedir al Sujeto Obligado el pago de la verificación',
@@ -115,10 +127,13 @@ function pagoVerificacion(lotes, resumen) {
         lotes: conFactura,
         nuevos,
         sinFactura,
+        pagadas,
         yaPedidos,
         importe,
         bloqueo: conFactura.length ? null
-            : 'Ninguno de estos lotes tiene subida la factura del verificador.',
+            : pagadas.length && !sinFactura.length
+                ? 'Las facturas del verificador de estos lotes ya están pagadas.'
+                : 'Ninguno de estos lotes tiene subida la factura del verificador.',
         mensaje: ({ saludo }) => (reinsistencia
             ? mensajeRecordatorio({ saludo, conFactura, importe, ultimaAt })
             : mensajePagoVerificacion({ saludo, conFactura, resumen, importe })),
