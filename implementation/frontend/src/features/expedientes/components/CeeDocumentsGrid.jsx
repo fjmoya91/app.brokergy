@@ -10,7 +10,7 @@ import {
 import { esTer100 } from '../logic/ter100';
 import { demandaPropuesta } from '../logic/demandaPropuesta';
 import { DemandaPropuestaInfo } from './DemandaPropuestaInfo';
-import { autoconsumoMaximo } from '../logic/autoconsumoMaximo';
+import { autoconsumoMaximo, MEDIDA_AUTOCONSUMO } from '../logic/autoconsumoMaximo';
 import { parseEmisionesTotalesFromXml } from '../../calculator/logic/xmlCeeParser';
 import { buildCe3xFinal, CE3X_FALTA } from '../logic/ce3xFinal';
 import { getUnidades } from '../logic/aerotermiaUnits';
@@ -46,6 +46,106 @@ function CeeStatusPill({ expediente, section }) {
                 <span className="text-[8px] font-bold uppercase tracking-widest text-white/25" title={`Último aviso al certificador: ${fmtDate(pt.lastContacto)}`}>
                     · aviso {humanDays(lastDays)}
                 </span>
+            )}
+        </div>
+    );
+}
+
+// ⚡ AUTOCONSUMO MÁXIMO declarable en un CEE, y —en la fase FINAL— el conjunto de
+// medidas de mejora que hay que teclear en CE3X para proponer la fotovoltaica.
+//
+// Las dos cosas se copian, y por eso van juntas: el techo de autoconsumo y el
+// párrafo que lo justifica se meten en la MISMA sesión del CE3X, uno detrás del
+// otro. La medida viene PLEGADA tras un "+": es prosa de tres campos y, abierta
+// siempre, empujaría fuera de la vista la fila del certificado.
+function AutoconsumoDeclarable({ auto, conMedida }) {
+    const [abierta, setAbierta] = useState(false);
+    const [copiado, setCopiado] = useState(null);
+
+    const copiar = async (texto, clave) => {
+        try {
+            await navigator.clipboard.writeText(String(texto));
+            setCopiado(clave);
+            setTimeout(() => setCopiado(c => (c === clave ? null : c)), 1800);
+        } catch { /* contexto no seguro: se selecciona a mano */ }
+    };
+
+    const kwh = auto.kwhAnio.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    return (
+        <div className="w-full rounded-xl bg-brand/[0.07] border border-brand/25">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5">
+                <span className="text-[9px] font-black uppercase tracking-widest text-brand whitespace-nowrap">
+                    ⚡ Autoconsumo máximo declarable
+                </span>
+                <span className="text-sm font-mono font-black text-white whitespace-nowrap">
+                    {kwh} <span className="text-[10px] font-bold text-white/40">kWh/año</span>
+                </span>
+                <span className="text-[10px] text-white/40 normal-case leading-snug flex-1 min-w-[200px]">
+                    {auto.emisiones.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kgCO₂/año
+                    {' ÷ '}{String(auto.factor).replace('.', ',')} (factor de paso de la electricidad)
+                </span>
+                <button
+                    type="button"
+                    // Se copia el número a secas y con punto decimal: va a un
+                    // formulario, no a un texto.
+                    onClick={() => copiar(auto.kwhAnio.toFixed(2), '__kwh__')}
+                    className={`text-[9px] font-black uppercase tracking-widest whitespace-nowrap px-2 py-1 max-md:px-3 max-md:py-2 rounded-lg border transition-colors ${
+                        copiado === '__kwh__'
+                            ? 'text-emerald-400 border-emerald-500/40'
+                            : 'text-brand border-brand/30 hover:text-white hover:border-brand/60'
+                    }`}
+                >
+                    {copiado === '__kwh__' ? '✓ Copiado' : 'Copiar'}
+                </button>
+                {conMedida && (
+                    <button
+                        type="button"
+                        onClick={() => setAbierta(v => !v)}
+                        title="Textos del conjunto de medidas de mejora del CE3X"
+                        className={`text-[9px] font-black uppercase tracking-widest whitespace-nowrap px-2 py-1 max-md:px-3 max-md:py-2 rounded-lg border transition-colors ${
+                            abierta
+                                ? 'text-white border-brand/60 bg-brand/15'
+                                : 'text-brand border-brand/30 hover:text-white hover:border-brand/60'
+                        }`}
+                    >
+                        {abierta ? '− Medida de mejora' : '+ Medida de mejora'}
+                    </button>
+                )}
+            </div>
+
+            {conMedida && abierta && (
+                <div className="px-3 pb-3 border-t border-brand/15 pt-2.5 space-y-1.5">
+                    <p className="text-[10px] text-white/40 normal-case leading-snug">
+                        Pantalla <span className="text-white/60 font-semibold">Conjunto de medidas de mejora</span> del CE3X.
+                        Son tres casillas distintas: se copia cada una por separado.
+                    </p>
+                    {MEDIDA_AUTOCONSUMO.map(c => (
+                        <div key={c.campo}
+                             className="flex items-start gap-2 px-3 py-2 rounded-lg border border-white/[0.08] bg-white/[0.03] hover:border-brand/30 transition-colors">
+                            <div className="min-w-0 flex-1">
+                                <div className="text-[9px] font-bold uppercase tracking-widest text-white/35">{c.campo}</div>
+                                <div className={`text-white mt-0.5 break-words normal-case text-[13px] ${
+                                    c.parrafo ? 'leading-relaxed' : 'font-semibold'
+                                }`}>
+                                    {c.valor}
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => copiar(c.valor, c.campo)}
+                                title="Copiar"
+                                className={`flex-shrink-0 mt-1 px-2 py-1 max-md:px-3 max-md:py-2 rounded-md text-[9px] font-black uppercase tracking-widest transition-colors ${
+                                    copiado === c.campo
+                                        ? 'bg-emerald-500/20 text-emerald-300'
+                                        : 'bg-white/5 text-white/40 hover:bg-brand/20 hover:text-brand'
+                                }`}
+                            >
+                                {copiado === c.campo ? '✓' : 'Copiar'}
+                            </button>
+                        </div>
+                    ))}
+                </div>
             )}
         </div>
     );
@@ -1552,35 +1652,11 @@ export function CeeDocumentsGrid({
                                     : { ...ceeSec, ...parseEmisionesTotalesFromXml(expediente?.cee?.[section === 'final' ? 'xml_final' : 'xml_inicial']) };
                                 const auto = autoconsumoMaximo(conTotal);
                                 if (!auto) return null;
-                                const kwh = auto.kwhAnio.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                                return (
-                                    <div className="w-full flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 rounded-xl bg-brand/[0.07] border border-brand/25">
-                                        <span className="text-[9px] font-black uppercase tracking-widest text-brand whitespace-nowrap">
-                                            ⚡ Autoconsumo máximo declarable
-                                        </span>
-                                        <span className="text-sm font-mono font-black text-white whitespace-nowrap">
-                                            {kwh} <span className="text-[10px] font-bold text-white/40">kWh/año</span>
-                                        </span>
-                                        <span className="text-[10px] text-white/40 normal-case leading-snug flex-1 min-w-[200px]">
-                                            {auto.emisiones.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kgCO₂/año
-                                            {' ÷ '}{String(auto.factor).replace('.', ',')} (factor de paso de la electricidad)
-                                        </span>
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                // Se copia el número a secas y con punto
-                                                // decimal: va a un formulario, no a un texto.
-                                                navigator.clipboard?.writeText(auto.kwhAnio.toFixed(2));
-                                                const b = e.currentTarget;
-                                                b.dataset.ok = '1';
-                                                setTimeout(() => { if (b) delete b.dataset.ok; }, 1800);
-                                            }}
-                                            className="text-[9px] font-black uppercase tracking-widest text-brand hover:text-white whitespace-nowrap px-2 py-1 rounded-lg border border-brand/30 hover:border-brand/60 transition-colors data-[ok]:text-emerald-400 data-[ok]:border-emerald-500/40"
-                                        >
-                                            Copiar
-                                        </button>
-                                    </div>
-                                );
+                                // El conjunto de medidas de mejora solo se ofrece en la
+                                // fase FINAL: su texto habla del consumo "derivado del
+                                // uso de la aerotermia", que en el certificado inicial
+                                // todavía no existe.
+                                return <AutoconsumoDeclarable auto={auto} conMedida={section === 'final'} />;
                             })()}
                         </div>
                     );
