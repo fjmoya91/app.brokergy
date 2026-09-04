@@ -9,6 +9,7 @@ import { EfficiencyTable, CATEGORIES_SIMPLIFICADO } from '../../calculator/compo
 import { CeeDocumentsGrid } from './CeeDocumentsGrid';
 import { AvisoIrpfEpnr } from './AvisoIrpfEpnr';
 import { TecnicoPicker } from './TecnicoPicker';
+import { Ce3xAyudasModal } from './Ce3xAyudasModal';
 import { telefonoDe, emailDe } from '../../../utils/contactoPrescriptor';
 import { MensajeEditable } from './MensajeEditable';
 import { buildCertApproveMessage, buildCertDefaultMessage } from '../logic/certMessages';
@@ -249,6 +250,8 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
     const [xmlFinalError, setXmlFinalError] = useState(null);
     // Carga de CEE por fichero (XML/OCR) para el modo manual: 'inicial' | 'final' | null.
     const [ceeLoadTarget, setCeeLoadTarget] = useState(null);
+    // Caja de herramientas del certificador (textos fijos de CE3X).
+    const [ayudasCe3x, setAyudasCe3x] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
     const [isDraggingFinal, setIsDraggingFinal] = useState(false);
     // Autoguardado: el módulo siempre está editable, sin botón "Editar Módulo".
@@ -1715,6 +1718,20 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                             onChange={handleCertificadorChange}
                         />
                     </div>
+                    {/* Caja de herramientas del certificador: los textos que se
+                        teclean siempre igual en CE3X. Va aquí, junto al técnico,
+                        porque ésta es la barra desde la que se gobierna su
+                        trabajo; en la cabecera del acordeón competiría con el
+                        estado del certificado y las fechas previstas. */}
+                    <button
+                        type="button"
+                        onClick={() => setAyudasCe3x(true)}
+                        title="Textos listos para copiar en CE3X"
+                        className="flex items-center gap-2 px-3 py-2 rounded-xl border border-white/[0.06] bg-white/[0.03] text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-brand hover:border-brand/40 transition-colors max-md:w-full max-md:justify-center max-md:py-3.5 max-md:text-[10px]"
+                    >
+                        <span>🧰</span>
+                        <span>Ayudas CE3X</span>
+                    </button>
                 </div>
                 {saving && (
                     <span className="text-[10px] font-black uppercase tracking-widest text-white/30">Guardando…</span>
@@ -1732,6 +1749,8 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                     <AvisoIrpfEpnr cee={local} />
                 </div>
             )}
+
+            <Ce3xAyudasModal isOpen={ayudasCe3x} onClose={() => setAyudasCe3x(false)} />
 
             {/* Modal de carga de CEE (XML exacto u OCR IA) — compartido entre RES060/RES093 y
                 RES080, disparado por ceeLoadTarget desde cualquiera de los dos render paths. */}

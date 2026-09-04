@@ -35,33 +35,3 @@ export function autoconsumoMaximo(cee) {
     if (!isFinite(factor) || factor <= 0) return null;
     return { kwhAnio: emisiones / factor, emisiones, factor };
 }
-
-// ─── Conjunto de medidas de mejora del CE3X ──────────────────────────────────
-// Los tres campos que hay que teclear en la pantalla "Conjunto de medidas de
-// mejora" del CE3X para proponer el autoconsumo fotovoltaico. Son literales
-// fijos —no dependen del expediente—, pero se escriben A MANO en el programa y
-// ahí es donde se cuela la errata o la frase a medias.
-//
-// REGLA — solo tiene sentido en el CEE FINAL. La característica dice
-// expresamente "derivado del uso de la aerotermia": en el certificado del
-// estado inicial esa aerotermia todavía no existe, así que proponerlo ahí
-// describiría una vivienda que no es la del certificado.
-//
-// REGLA — se copian CAMPO A CAMPO, no todo junto: en CE3X son tres casillas
-// separadas, y un único bloque obligaría a recortarlo a mano tres veces.
-export const MEDIDA_AUTOCONSUMO = [
-    {
-        campo: 'Nombre conjunto medidas mejora',
-        valor: 'AUTOCONSUMO FOTOVOLTAICO',
-    },
-    {
-        campo: 'Características',
-        parrafo: true,
-        valor: 'Se propone como medida de mejora la instalación de autoconsumo fotovoltaico '
-            + 'para reducir el consumo de energía primaria no renovable derivado del uso de la aerotermia',
-    },
-    {
-        campo: 'Otros datos',
-        valor: 'Plazo de amortización estimado de 3 años.',
-    },
-];
