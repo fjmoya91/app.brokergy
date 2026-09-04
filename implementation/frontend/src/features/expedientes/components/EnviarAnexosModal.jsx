@@ -117,6 +117,14 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     const opInputs   = op?.datos_calculo?.inputs || {};
     const { rate: rateMwh, explicit: rateExplicit } = getClientCaeRate(expediente);
 
+    // ── Plantilla del mensaje ────────────────────────────────────────────────
+    // Igual que el popup del instalador: los mismos documentos se mandan por dos
+    // motivos distintos —la primera firma o un requerimiento que cambia el importe— y
+    // lo que hay que contarle al cliente no se parece en nada. La plantilla se elige
+    // aquí, junto al texto, que es donde se ve el efecto.
+    const [plantilla, setPlantilla] = useState('primera');
+    const [plazoDias, setPlazoDias] = useState(PLAZO_REQUERIMIENTO_DIAS);
+
     // ── Requerimiento: los anexos se rehacen con la cifra NUEVA ──────────────
     // Se le vuelve a pedir la firma precisamente porque el importe cambió: mandarle
     // otra vez el convenio con el importe viejo sería pedirle que firme el documento
@@ -124,14 +132,21 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     // VERIFICADO ya registrado en el expediente (results.*Verificado), que es el mismo
     // con el que se le va a pagar — no de un número tecleado en este popup.
     const imp = importesRequerimiento(results, requerimiento || {});
-    const esRequerimiento = !!requerimiento;
+    const esRequerimiento = plantilla === 'requerimiento';
     const resultsDoc = (esRequerimiento && imp.nuevo != null)
         ? { ...results, savingsKwh: imp.ahorroNuevo ?? results?.savingsKwh, caeBonus: imp.nuevo }
         : results;
-    const plazoDias = parseInt(requerimiento?.plazoDias, 10) || PLAZO_REQUERIMIENTO_DIAS;
-    const limiteStr = esRequerimiento
-        ? fechaLarga(requerimiento?.fechaLimite || fechaLimite(plazoDias))
-        : '';
+    const diasReq = parseInt(plazoDias, 10) || PLAZO_REQUERIMIENTO_DIAS;
+    // La fecha límite viene ya fijada cuando el requerimiento se registró desde el
+    // expediente; si se elige la plantilla aquí, se cuenta desde hoy.
+    const limiteReq = requerimiento?.fechaLimite || fechaLimite(diasReq);
+    const limiteStr = fechaLarga(limiteReq);
+    // Anexos de los que YA tenemos firma. Volver a mandárselos la anula: es lo que
+    // hace que su enlace vuelva a pedírsela en vez de decirle que no falta nada.
+    const docFirmado = { anexo1: 'anexo_i_signed_link', cesion: 'anexo_cesion_signed_link' };
+    const yaFirmados = Object.entries(docFirmado)
+        .filter(([, campo]) => !!expediente?.documentacion?.[campo])
+        .map(([k]) => k);
 
     const aeRaw      = resultsDoc?.savingsKwh || 0;
     let beneficioRaw = resultsDoc?.caeBonus;
@@ -211,7 +226,17 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     };
 
     // ── Mensaje por defecto (se adapta a destinatario + documentos) ──────────
-    const buildDefaultMessage = (tgt, docKeys, ids = selectedIds, manual = manualContact) => {
+    // `tpl` explícito para el primer render tras abrir: el estado de la plantilla se
+    // acaba de fijar y todavía no ha llegado a este render.
+    const buildDefaultMessage = (tgt, docKeys, ids = selectedIds, manual = manualContact, tpl = null) => {
+        const pideRefirma = tpl ? tpl === 'requerimiento' : esRequerimiento;
+        // El importe se recalcula AQUÍ y no se toma del render: al cambiar de plantilla
+        // el estado todavía no ha llegado, y el mensaje de "primera firma" salía
+        // anunciando la cifra del requerimiento (o al revés).
+        const benefRaw = pideRefirma && imp.nuevo != null
+            ? imp.nuevo
+            : (results?.caeBonus ?? (results?.savingsKwh && rateMwh ? (results.savingsKwh / 1000) * rateMwh : null));
+        const benefStr = benefRaw ? Math.round(benefRaw).toLocaleString('es-ES', { useGrouping: true }) : '___________';
         // Sin documentos que enviar (p.ej. los dos bloqueados) no hay mensaje que
         // redactar: escribir el de la Cesión "por defecto" sería mentir.
         if (!docKeys || !docKeys.length) return '';
@@ -230,21 +255,21 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
 
         // Un requerimiento no se cuenta con el texto de siempre: lo primero que hay
         // que responderle a quien ya firmó es POR QUÉ se le manda otra vez.
-        if (esRequerimiento) {
+        if (pideRefirma) {
             return mensajeRequerimiento({
                 saludo: saludo || firstName,
                 numexpte, clienteNombre, docs: docKeys,
                 importeAnterior: imp.anterior, importeNuevo: imp.nuevo,
-                plazoDias: requerimiento.plazoDias || PLAZO_REQUERIMIENTO_DIAS,
-                limite: requerimiento.fechaLimite || null,
-                motivo: requerimiento.motivo || '',
+                plazoDias: diasReq,
+                limite: limiteReq,
+                motivo: requerimiento?.motivo || '',
                 target: tgt,
                 footer: tgt === 'cliente' ? footerCliente : footerInstalador,
             });
         }
 
         if (tgt === 'cliente') {
-            if (both) return getDualMessage(saludo, beneficioStr, numexpte) + footerCliente;
+            if (both) return getDualMessage(saludo, benefStr, numexpte) + footerCliente;
             if (docKeys[0] === 'anexo1') {
                 return `Hola ${saludo}:\n\n`
                     + `Te adjunto el *Anexo I (Declaración Responsable)* de tu expediente *${numexpte}*, necesario para tramitar la ayuda.\n\n`
@@ -255,7 +280,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                     + footerCliente;
             }
             return `Hola ${saludo}:\n\n`
-                + `Te adjunto el *Anexo de Cesión de Ahorros* de tu expediente *${numexpte}*, imprescindible para gestionar y tramitar la ayuda${beneficioStr && beneficioStr !== '___________' ? ` (importe estimado *${beneficioStr} €*)` : ''}.\n\n`
+                + `Te adjunto el *Anexo de Cesión de Ahorros* de tu expediente *${numexpte}*, imprescindible para gestionar y tramitar la ayuda${benefStr && benefStr !== '___________' ? ` (importe estimado *${benefStr} €*)` : ''}.\n\n`
                 + `*Firma del documento:*\n`
                 + `1. *Firma electrónica* (recomendado si dispones de certificado digital).\n`
                 + `2. *Firma manuscrita*, acompañada del nombre completo, apellidos y DNI escritos a mano, más fotografías del DNI por ambas caras.\n\n`
@@ -308,6 +333,12 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         const defIds = pickDefaultIds(startTarget);
         const sel = cliContacts.filter(c => defIds.includes(c.id));
         userEditedRef.current = false;
+        // Mismo criterio que el popup del instalador: si ya tenemos alguna firma de
+        // estos anexos, volver a mandarlos casi siempre es un requerimiento — nadie
+        // reenvía por gusto un documento que ya ha vuelto firmado.
+        const firmadosPrev = Object.entries(docFirmado).some(([, campo]) => !!expediente?.documentacion?.[campo]);
+        setPlantilla(requerimiento || firmadosPrev ? 'requerimiento' : 'primera');
+        setPlazoDias(parseInt(requerimiento?.plazoDias, 10) || PLAZO_REQUERIMIENTO_DIAS);
         setDocs(startDocs);
         setTarget(startTarget);
         setSelectedIds(defIds);
@@ -319,7 +350,8 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         setSelectedIncIds([]);
         setExtraNote(nota);
         setNoteInMessage(true);
-        const base = buildDefaultMessage(startTarget, startDocs, defIds, { name: '', phone: '', email: '' });
+        const base = buildDefaultMessage(startTarget, startDocs, defIds, { name: '', phone: '', email: '' },
+            requerimiento || firmadosPrev ? 'requerimiento' : 'primera');
         setMessage(nota ? composeNote(base, nota) : base);
         setStatus(null);
         setSendPhase(null);
@@ -377,6 +409,17 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     // Selección EFECTIVA: lo bloqueado no viaja aunque estuviera marcado de antes.
     const sendDocs = docs.filter(k => !isBlocked(k));
     const blockedSelected = docs.filter(isBlocked);
+
+    // Cambiar de plantilla REHACE el mensaje aunque se hubiera tocado a mano: son dos
+    // textos que no comparten una sola frase, así que conservar el anterior dejaría un
+    // mensaje mezclado. Mismo comportamiento que el popup del instalador.
+    const pickPlantilla = (key) => {
+        setPlantilla(key);
+        userEditedRef.current = false;
+        const base = buildDefaultMessage(target, docs, selectedIds, manualContact, key);
+        const nota = buildObservaciones();
+        setMessage(noteInMessage && nota ? composeNote(base, nota) : base);
+    };
 
     // ── Handlers de selección ────────────────────────────────────────────────
     const applyMessage = (tgt, docKeys, ids = selectedIds, manual = manualContact) => {
@@ -590,7 +633,18 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                 }
             }
         }
-        if (anyOk && onMarkSent) onMarkSent([...docs], driveLinks);
+        // El envío de un requerimiento no termina en el mensaje: la firma que ya
+        // teníamos deja de contar, y eso lo sella quien es dueño del expediente (el
+        // módulo de Documentación), no este popup. Aquí solo se dice QUÉ se ha
+        // enviado y con qué plantilla.
+        if (anyOk && onMarkSent) onMarkSent([...docs], driveLinks, esRequerimiento ? {
+            refirma: true,
+            plazoDias: diasReq,
+            fechaLimite: (limiteReq instanceof Date ? limiteReq : new Date(limiteReq)).toISOString(),
+            motivo: requerimiento?.motivo || '',
+            importeAnterior: imp.anterior,
+            ahorroAnterior: imp.ahorroAnterior,
+        } : null);
         setSendResults(out);
         setStatus({ ok: anyOk, text: out.map(r => `${r.status === 'ok' ? '✓' : '✕'} ${r.text}`).join('   ') });
         setSendPhase('done');
@@ -798,6 +852,28 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                                     className="text-[9px] font-black uppercase tracking-widest text-white/30 hover:text-brand transition-colors">↻ Restablecer</button>
                             )}
                         </div>
+                        {/* Los mismos dos anexos se mandan por dos motivos que no se
+                            parecen en nada: la primera firma o un requerimiento que
+                            cambia el importe. El selector va pegado al texto, que es
+                            donde se ve el efecto de elegir uno u otro. */}
+                        <div className="flex gap-2 mb-3">
+                            <button type="button" onClick={() => pickPlantilla('primera')}
+                                className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-all ${!esRequerimiento ? 'border-brand/50 bg-brand/10 text-brand' : 'border-white/10 text-white/40 hover:text-white'}`}>
+                                Primera firma
+                            </button>
+                            <button type="button" onClick={() => pickPlantilla('requerimiento')}
+                                className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-all ${esRequerimiento ? 'border-amber-400/50 bg-amber-400/10 text-amber-400' : 'border-white/10 text-white/40 hover:text-white'}`}>
+                                Requerimiento
+                            </button>
+                            {esRequerimiento && (
+                                <label className="flex items-center gap-1.5 px-2.5 rounded-lg border border-white/10 shrink-0" title="Días naturales que tenemos para contestar. Sale en el mensaje y en la página de firma del cliente.">
+                                    <input value={plazoDias} onChange={e => { setPlazoDias(e.target.value.replace(/\D/g, '').slice(0, 3)); userEditedRef.current = false; }}
+                                        onBlur={() => pickPlantilla('requerimiento')} inputMode="numeric"
+                                        className="no-uppercase w-8 bg-transparent text-center text-[12px] font-black text-amber-300 focus:outline-none" />
+                                    <span className="text-[9px] font-black uppercase tracking-wider text-white/30">días</span>
+                                </label>
+                            )}
+                        </div>
                         <textarea
                             value={message}
                             onChange={e => { userEditedRef.current = true; setMessage(e.target.value); }}
@@ -807,6 +883,22 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                         <p className="mt-1.5 text-[9px] text-white/25">
                             Dirigido a <span className="text-white/50 font-bold">{target === 'cliente' ? 'el cliente final' : 'el instalador'}</span>. El texto se adapta al destinatario y a los documentos; edítalo libremente.
                         </p>
+                        {/* Lo que va a pasar además de mandar el mensaje: la firma que
+                            guardamos deja de contar. Hay que decirlo antes de pulsar —
+                            es lo que hace que el enlace vuelva a pedírsela en vez de
+                            darle el expediente por cerrado. */}
+                        {esRequerimiento && sendDocs.some(k => yaFirmados.includes(k)) && (
+                            <p className="text-[10px] text-amber-400/70 mt-1.5 leading-relaxed">
+                                ⚠ Ya tenemos firmado{sendDocs.filter(k => yaFirmados.includes(k)).length > 1 ? 's' : ''} {sendDocs.filter(k => yaFirmados.includes(k)).map(k => DOC_DEFS[k].label).join(' y ')} de este expediente. Al enviar, esa firma queda
+                                <strong className="text-amber-300"> anulada</strong> y el enlace le volverá a pedir la del documento actual
+                                {limiteStr ? <>, con plazo hasta el <strong className="text-amber-300">{limiteStr}</strong></> : null}.
+                            </p>
+                        )}
+                        {esRequerimiento && imp.nuevo == null && (
+                            <p className="text-[10px] text-amber-400/70 mt-1.5 leading-relaxed">
+                                ⚠ Este expediente no tiene ahorro verificado registrado, así que el mensaje no citará ningún importe nuevo y los anexos saldrán con el ahorro actual. Regístralo en <strong className="text-amber-300">Instalación → Verificación</strong> si el requerimiento cambia la ayuda.
+                            </p>
+                        )}
                     </div>
 
                     {/* Observaciones + incidencias detectadas */}

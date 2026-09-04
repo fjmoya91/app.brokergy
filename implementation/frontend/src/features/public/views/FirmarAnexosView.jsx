@@ -147,6 +147,15 @@ export function FirmarAnexosView({ expedienteId }) {
     // corregida, así que ese anexo no se ofrece (ni descarga ni firma digital):
     // firmar otra vez el que tenía el error no arregla nada.
     const rechazos = info?.rechazos || [];
+    // Requerimiento en curso: ya nos firmó estos anexos, pero la cifra sobre la que
+    // firmó ha cambiado. Es lo PRIMERO que hay que contarle — si no, abre el enlace,
+    // ve los mismos dos papeles y piensa que nos hemos equivocado de mensaje.
+    const requerimiento = info?.requerimiento || null;
+    const eurCli = (v) => (v == null ? null : `${Math.round(v).toLocaleString('es-ES')} €`);
+    const fechaCli = (v) => {
+        const d = new Date(v || '');
+        return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+    };
 
     const handleGuardarDatos = async () => {
         const errs = [];
@@ -331,6 +340,29 @@ export function FirmarAnexosView({ expedienteId }) {
                         {/* Aviso de anexo rechazado: el documento que firmaste tenía un error.
                             Se muestra en cualquier fase (menos al acabar de subir) porque es lo
                             primero que el cliente tiene que entender al volver al enlace. */}
+                        {!done && requerimiento && (
+                            <div className="rounded-2xl border border-amber-400/30 bg-amber-500/[0.07] p-5 animate-fade-in">
+                                <p className="text-[11px] font-black uppercase tracking-[0.15em] text-amber-300 mb-2">Tu expediente sigue adelante — falta tu firma</p>
+                                {/* Mismo relato que el mensaje que se le envió (fuente del
+                                    tono: logic/requerimientoFirma). Quien entra aquí desde un
+                                    WhatsApp de hace días no tiene el correo delante: si la
+                                    página solo dice que la ayuda ha bajado, entiende que le
+                                    hemos recortado algo, no que se ha evitado perderlo. */}
+                                <p className="text-white/60 text-sm leading-relaxed">
+                                    Tras la revisión del expediente hemos recibido un <strong className="text-white">requerimiento</strong>. Lo hemos revisado punto por punto y hemos defendido tu actuación con toda la documentación del expediente
+                                    {requerimiento.importe_nuevo != null && requerimiento.importe_anterior != null && requerimiento.importe_nuevo < requerimiento.importe_anterior ? (
+                                        <>: en lugar de decaer por completo, <strong className="text-white">hemos conseguido ajustarlo y mantener tu ayuda en {eurCli(requerimiento.importe_nuevo)}</strong> (frente a los {eurCli(requerimiento.importe_anterior)} previstos inicialmente).</>
+                                    ) : requerimiento.importe_nuevo != null ? (
+                                        <>: <strong className="text-white">el expediente sigue adelante</strong>, con la ayuda en {eurCli(requerimiento.importe_nuevo)}.</>
+                                    ) : <>, y <strong className="text-white">el expediente sigue adelante</strong>.</>}
+                                    {' '}Para cerrar la contestación necesitamos que nos <strong className="text-white">vuelvas a firmar</strong> los dos anexos actualizados: los que firmaste antes ya no son válidos.
+                                    {requerimiento.fecha_limite && fechaCli(requerimiento.fecha_limite)
+                                        ? <> Tenemos plazo <strong className="text-white">hasta el {fechaCli(requerimiento.fecha_limite)}</strong>.</>
+                                        : requerimiento.plazo_dias ? <> Tenemos un plazo de <strong className="text-white">{requerimiento.plazo_dias} días</strong>.</> : null}
+                                </p>
+                                <p className="text-white/35 text-[12px] leading-relaxed mt-2">No has hecho nada mal: es un trámite del procedimiento. Con estas dos firmas lo cerramos; del resto nos ocupamos nosotros.</p>
+                            </div>
+                        )}
                         {!done && rechazos.map(r => (
                             <div key={r.doc} className="rounded-2xl border border-red-500/25 bg-red-500/[0.07] p-5 animate-fade-in">
                                 <p className="text-[11px] font-black uppercase tracking-[0.15em] text-red-300 mb-2">

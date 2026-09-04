@@ -1504,17 +1504,34 @@ router.post('/:id/solicitar-faltantes', internalKeyOrAuth, async (req, res) => {
 // limpia su validación previa, registra el rechazo en el historial y —si se elige un
 // destinatario— avisa por WhatsApp/Email para que lo corrijan. TODO en una sola
 // escritura (read-modify-write de documentacion) para no pisar el historial.
-// Body: { field, label?, motivo, target:'CLIENTE'|'INSTALADOR'|'NINGUNO', channels?, mensaje?, tlf?, email?, nombre? }
+//
+// El MISMO gesto sirve para un REQUERIMIENTO del verificador (`tipo:'requerimiento'`),
+// que no es un fallo del firmante sino un cambio sobrevenido -- típicamente el importe
+// de la ayuda -- por el que hay que volver a firmar lo ya firmado. Diferencias:
+//   - afecta a VARIOS documentos a la vez (`fields[]`): el Anexo I y el Convenio de
+//     Cesión se firman juntos y el requerimiento invalida los dos;
+//   - sella `{doc}_refirma_at`, que es lo que hace que un firmado que EXISTE deje de
+//     contar como recibido (fuente única: utils/docValidacion);
+//   - guarda el contexto en `documentacion.requerimiento_firma` (importes, plazo), que
+//     es lo que la página pública del cliente y el mensaje necesitan para explicar
+//     POR QUÉ se le vuelve a pedir una firma que ya dio.
+// Body: { field | fields[], label?, motivo, tipo?, requerimiento?,
+//         target:'CLIENTE'|'INSTALADOR'|'NINGUNO', channels?, mensaje?, tlf?, email?, nombre? }
 router.post('/:id/documentos/rechazar', enforceAuth, async (req, res) => {
     try {
-        const field = String(req.body?.field || '').trim();
+        const fieldsIn = Array.isArray(req.body?.fields) && req.body.fields.length
+            ? [...new Set(req.body.fields.map(f => String(f || '').trim()).filter(Boolean))]
+            : [String(req.body?.field || '').trim()].filter(Boolean);
+        const field = fieldsIn[0] || '';
         const label = String(req.body?.label || '').trim() || field;
         const motivo = String(req.body?.motivo || '').trim();
         const target = String(req.body?.target || 'NINGUNO').toUpperCase();
         const channels = Array.isArray(req.body?.channels) ? req.body.channels : [];
         const mensaje = String(req.body?.mensaje || '').trim();
+        const esRequerimiento = String(req.body?.tipo || '').toLowerCase() === 'requerimiento';
+        const datosReq = req.body?.requerimiento || {};
         if (!field) return res.status(400).json({ error: 'field es obligatorio' });
-        if (!motivo) return res.status(400).json({ error: 'El motivo del rechazo es obligatorio' });
+        if (!motivo) return res.status(400).json({ error: `El motivo del ${esRequerimiento ? 'requerimiento' : 'rechazo'} es obligatorio` });
 
         const { data: exp, error } = await supabase.from('expedientes').select('*').eq('id', req.params.id).single();
         if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
@@ -1540,28 +1557,72 @@ router.post('/:id/documentos/rechazar', enforceAuth, async (req, res) => {
         }
 
         // Persistir estado de rechazo + historial (una sola escritura).
+        const ahoraIso = new Date().toISOString();
         const docObj = exp.documentacion || {};
-        const docsRechazados = { ...(docObj.docs_rechazados || {}), [field]: { motivo, at: new Date().toISOString(), target } };
+        const docsRechazados = { ...(docObj.docs_rechazados || {}) };
         const docsValidados = { ...(docObj.docs_validados || {}) };
-        delete docsValidados[field];
+        for (const f of fieldsIn) {
+            docsRechazados[f] = { motivo, at: ahoraIso, target, ...(esRequerimiento ? { tipo: 'requerimiento' } : {}) };
+            delete docsValidados[f];
+        }
         const historial = Array.isArray(docObj.historial) ? [...docObj.historial] : [];
         const userName = req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
         const avisoTxt = sent.length ? ` · avisado a ${target === 'CLIENTE' ? 'Cliente' : 'Instalador'} vía ${sent.join(' + ')}` : ' · sin aviso';
+        const newDoc = { ...docObj, docs_rechazados: docsRechazados, docs_validados: docsValidados };
+
+        // -- REQUERIMIENTO: volver a pedir la firma de lo que YA está firmado --------
+        // El sello va SOLO en los documentos de los que ya tenemos firma: en uno que
+        // todavía no ha vuelto no hay ninguna firma que anular, y marcarlo dejaría una
+        // re-firma pendiente que el parte diario reclamaría eternamente.
+        const refirmados = [];
+        if (esRequerimiento) {
+            for (const f of fieldsIn) {
+                const which = SLOT_A_BORRADOR[f];
+                const spec = which && BORRADORES_CLIENTE[which];
+                if (!spec || !spec.refirma || !docObj[spec.signed]) continue;
+                newDoc[spec.refirma] = ahoraIso;
+                refirmados.push(which);
+            }
+            newDoc.requerimiento_firma = {
+                at: ahoraIso,
+                motivo,
+                docs: fieldsIn.map(f => SLOT_A_BORRADOR[f]).filter(Boolean),
+                importe_anterior: numOrNull(datosReq.importe_anterior),
+                importe_nuevo: numOrNull(datosReq.importe_nuevo),
+                ahorro_anterior_kwh: numOrNull(datosReq.ahorro_anterior_kwh),
+                ahorro_nuevo_kwh: numOrNull(datosReq.ahorro_nuevo_kwh),
+                plazo_dias: numOrNull(datosReq.plazo_dias),
+                fecha_limite: datosReq.fecha_limite || null,
+                usuario: userName,
+            };
+        }
+
+        const etiquetas = fieldsIn.map(f => DOCUMENTO_VALIDABLE_LABELS[f] || f).join(' + ');
+        const cambioImporte = (esRequerimiento && numOrNull(datosReq.importe_nuevo) != null)
+            ? ` · ayuda ${eur(datosReq.importe_anterior)} -> ${eur(datosReq.importe_nuevo)}`
+            : '';
         historial.push({
-            id: Date.now().toString() + '_rechazo_doc',
-            tipo: 'rechazo_doc',
-            texto: `Documento rechazado: ${label} · Motivo: ${motivo}${avisoTxt}`,
-            campo: field, motivo, target,
-            fecha: new Date().toISOString(),
+            id: Date.now().toString() + (esRequerimiento ? '_requerimiento_doc' : '_rechazo_doc'),
+            tipo: esRequerimiento ? 'requerimiento_doc' : 'rechazo_doc',
+            texto: esRequerimiento
+                ? `Requerimiento: se vuelve a pedir la firma de ${etiquetas}${cambioImporte} · Motivo: ${motivo}${avisoTxt}`
+                : `Documento rechazado: ${label} · Motivo: ${motivo}${avisoTxt}`,
+            campo: field, campos: fieldsIn, motivo, target,
+            fecha: ahoraIso,
             usuario: userName,
         });
-        const newDoc = { ...docObj, docs_rechazados: docsRechazados, docs_validados: docsValidados, historial };
+        newDoc.historial = historial;
+
         const { error: updErr } = await supabase.from('expedientes')
             .update({ documentacion: newDoc, updated_at: new Date().toISOString() })
             .eq('id', req.params.id);
         if (updErr) throw updErr;
 
-        res.json({ ok: true, channels: sent, sentTo, docs_rechazados: docsRechazados, docs_validados: docsValidados, historial });
+        res.json({
+            ok: true, channels: sent, sentTo,
+            docs_rechazados: docsRechazados, docs_validados: docsValidados, historial,
+            refirmados, requerimiento_firma: newDoc.requerimiento_firma || null,
+        });
     } catch (err) {
         console.error('[rechazar-doc]', err.message);
         res.status(500).json({ error: 'Error al rechazar el documento' });
@@ -1577,7 +1638,11 @@ router.post('/:id/documentos/rechazar', enforceAuth, async (req, res) => {
 // Body: { field }
 // Etiquetas (nombre del fichero en "10. EXPEDIENTE CAE") y helpers de invalidación:
 // fuente única en utils/docValidacion.js, compartida con las subidas públicas.
-const { DOCUMENTO_VALIDABLE_LABELS, invalidarValidacionDocs } = require('../utils/docValidacion');
+const { DOCUMENTO_VALIDABLE_LABELS, invalidarValidacionDocs, BORRADORES_CLIENTE, SLOT_A_BORRADOR } = require('../utils/docValidacion');
+
+// Helpers del requerimiento de re-firma: un importe que no llega no es 0.
+const numOrNull = (v) => { const n = parseFloat(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : null; };
+const eur = (v) => { const n = numOrNull(v); return n == null ? 'sin dato' : `${Math.round(n).toLocaleString('es-ES')} EUR`; };
 
 
 // Los dos únicos documentos que firma Brokergy con su certificado. Al firmarlos

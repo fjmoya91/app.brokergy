@@ -239,12 +239,17 @@ function detectarFirmaPendiente(e, out) {
 
     for (const [which, spec] of Object.entries(BORRADORES_CLIENTE)) {
         // Tener un firmado no cierra la tarea si se la hemos vuelto a pedir: tras un
-        // requerimiento el CIFO se corrige y hay que firmarlo otra vez, y el firmado
-        // que guardamos es de la versión anterior. Sin esto, el reenvío de una
+        // requerimiento del verificador que cambia el importe de la ayuda, el Anexo I,
+        // el Convenio de Cesión y el CIFO se rehacen y hay que firmarlos otra vez — el
+        // firmado que guardamos es de la versión anterior. Sin esto, el reenvío de una
         // re-firma no lo vigilaba nadie (mismo criterio que `estadoInstalador`).
-        const refirmaCifo = which === 'cert_cifo' && ts(e.cert_cifo_refirma) > ts(e.cert_cifo_signed_ts);
-        if (e[`${which}_signed`] && !refirmaCifo) continue;  // ya volvió firmado
-        const enviado = e[`${which}_sent`];
+        const refirma = ts(e[`${which}_refirma`]) > ts(e[`${which}_signed_ts`]);
+        if (e[`${which}_signed`] && !refirma) continue;      // ya volvió firmado
+        // La cuenta atrás la marca el ÚLTIMO gesto nuestro: en una re-firma, el envío
+        // original es de hace meses y arrancaría el aviso con un retraso inventado.
+        const enviado = refirma
+            ? (ts(e[`${which}_sent`]) > ts(e[`${which}_refirma`]) ? e[`${which}_sent`] : e[`${which}_refirma`])
+            : e[`${which}_sent`];
         if (!enviado) continue;                              // nunca se envió
         // Un rechazado sin reenviar sale en su propio bloque (más grave): allí el
         // enlace está bloqueado, así que insistirle al firmante no serviría de nada.
@@ -253,8 +258,9 @@ function detectarFirmaPendiente(e, out) {
         if (d === null || d < BLOQUES.FIRMA_PENDIENTE.dias) continue;
 
         const firmante = which === 'cert_cifo' ? 'INSTALADOR' : 'CLIENTE';
-        const g = porFirmante.get(firmante) || { docs: [], desde: enviado, d };
+        const g = porFirmante.get(firmante) || { docs: [], desde: enviado, d, refirma: false };
         g.docs.push(spec.label);
+        if (refirma) g.refirma = true;
         // Manda el que más lleva esperando: es el que marca la gravedad.
         if (d > g.d) { g.d = d; g.desde = enviado; }
         porFirmante.set(firmante, g);
@@ -263,7 +269,7 @@ function detectarFirmaPendiente(e, out) {
     for (const [firmante, g] of porFirmante) {
         out.push(fila(e, 'FIRMA_PENDIENTE', {
             scope: firmante, desde: g.desde, d: g.d,
-            detalle: `${g.docs.join(' + ')} · sin devolver firmado${g.docs.length > 1 ? 's' : ''}`,
+            detalle: `${g.docs.join(' + ')} · ${g.refirma ? 'pendiente de volver a firmar (requerimiento)' : `sin devolver firmado${g.docs.length > 1 ? 's' : ''}`}`,
             responsable: firmante,
             accion: { tipo: 'recordar-firma', scope: firmante, label: `Recordar la firma (${firmante.toLowerCase()})` },
             aviso: ultimoAviso(e.recordatorios, `recordar-firma:${firmante}`),
@@ -400,9 +406,13 @@ async function escanear(opts = {}) {
             rite_link:documentacion->>cert_rite_drive_link,
             anexo_i_sent:documentacion->>anexo_i_sent_at,
             anexo_i_signed:documentacion->>anexo_i_signed_link,
+            anexo_i_signed_ts:documentacion->>anexo_i_signed_at,
+            anexo_i_refirma:documentacion->>anexo_i_refirma_at,
             anexo_i_at:documentacion->>anexo_i_drive_at,
             anexo_cesion_sent:documentacion->>anexo_cesion_sent_at,
             anexo_cesion_signed:documentacion->>anexo_cesion_signed_link,
+            anexo_cesion_signed_ts:documentacion->>anexo_cesion_signed_at,
+            anexo_cesion_refirma:documentacion->>anexo_cesion_refirma_at,
             anexo_cesion_at:documentacion->>anexo_cesion_drive_at,
             cert_cifo_sent:documentacion->>cert_cifo_sent_at,
             cert_cifo_signed:documentacion->>cert_cifo_signed_link,

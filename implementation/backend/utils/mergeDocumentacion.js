@@ -60,7 +60,9 @@ function mergeDocumentacion(existingDoc, payloadDoc) {
         // volver a firmar (ver `estadoInstalador`).
         if (merged[spec.signed] && merged[spec.signed] !== existing[spec.signed]) {
             merged[spec.signedAt] = ahora;
-            if (spec.draft === 'cert_cifo_drive_link') merged.cert_cifo_refirma_at = null;
+            // Ha llegado la firma nueva: se cierra la petición de volver a firmar,
+            // venga de un requerimiento del verificador o de una corrección nuestra.
+            if (spec.refirma) merged[spec.refirma] = null;
         }
     }
 

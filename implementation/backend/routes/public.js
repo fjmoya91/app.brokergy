@@ -16,7 +16,7 @@ const { buildCertClienteData } = require('../services/certClienteData');
 // la *negrita* de WhatsApp: "*JESÚS *" no se marca) y va en MAYÚSCULAS.
 const { nombreSaludo } = require('../services/recordatorios');
 // Una versión NUEVA de un documento ya validado lo devuelve a "pendiente de revisar".
-const { invalidarValidacionDocs, invalidarValidacionCee, rechazoBorrador } = require('../utils/docValidacion');
+const { invalidarValidacionDocs, invalidarValidacionCee, rechazoBorrador, refirmaPendiente, BORRADORES_CLIENTE } = require('../utils/docValidacion');
 const { requireAuth, isStaff } = require('../middleware/auth');
 const {
     imageToPdf, imagesToPdf, dniTwoSidesOnePage, readRepresentanteDni, mergePdfs,
@@ -2141,6 +2141,13 @@ router.get('/anexos-upload/:expedienteId', async (req, res) => {
         const rechazoC = rechazoBorrador(doc, 'anexo_cesion');
         const bloqI = !!rechazoI?.obsoleto;
         const bloqC = !!rechazoC?.obsoleto;
+        // Re-firma pendiente: tenemos su firma, pero es de una versión que ya no vale
+        // (típicamente un requerimiento que cambió el importe de la ayuda). El anexo
+        // NO puede salir como "ya recibido": si lo hiciera, el cliente abriría el
+        // enlace de nuestro propio mensaje y leería que no falta nada por su parte.
+        const refirmaI = refirmaPendiente(doc, 'anexo_i');
+        const refirmaC = refirmaPendiente(doc, 'anexo_cesion');
+        const req0 = doc.requerimiento_firma || null;
         res.json({
             numero_expediente: exp.numero_expediente,
             cliente: [exp.clientes?.nombre_razon_social, exp.clientes?.apellidos].filter(Boolean).join(' ') || '—',
@@ -2157,9 +2164,22 @@ router.get('/anexos-upload/:expedienteId', async (req, res) => {
             rechazos: [rechazoI, rechazoC].filter(Boolean).map(r => ({
                 doc: r.doc, label: r.label, motivo: r.motivo, at: r.at, preparando: r.obsoleto,
             })),
-            // qué ya hemos recibido firmado (un firmado RECHAZADO no cuenta como recibido)
-            anexo_i_firmado: !!doc.anexo_i_signed_link && !rechazoI,
-            anexo_cesion_firmado: !!doc.anexo_cesion_signed_link && !rechazoC,
+            // qué ya hemos recibido firmado (un firmado RECHAZADO, o uno del que hemos
+            // vuelto a pedir la firma, no cuenta como recibido)
+            anexo_i_firmado: !!doc.anexo_i_signed_link && !rechazoI && !refirmaI,
+            anexo_cesion_firmado: !!doc.anexo_cesion_signed_link && !rechazoC && !refirmaC,
+            // Requerimiento en curso: por qué se le vuelve a pedir la firma, con el
+            // cambio de importe y el plazo. Sin esto, el cliente recibe otra vez los
+            // mismos papeles y no entiende que no es un error nuestro.
+            refirma: [refirmaI, refirmaC].filter(Boolean).map(r => ({ doc: r.doc, label: r.label, at: r.at })),
+            requerimiento: (refirmaI || refirmaC) && req0 ? {
+                at: req0.at || null,
+                motivo: req0.motivo || '',
+                importe_anterior: req0.importe_anterior ?? null,
+                importe_nuevo: req0.importe_nuevo ?? null,
+                plazo_dias: req0.plazo_dias ?? null,
+                fecha_limite: req0.fecha_limite || null,
+            } : null,
             dni_subido: !!(doc.dni_frontal_link && doc.dni_trasero_link),
             // datos del cliente + qué falta por completar
             datos_cliente: buildDatosCliente(exp.clientes, doc),
@@ -2420,6 +2440,17 @@ router.post('/anexos-upload/:expedienteId',
                 usuario: 'CLIENTE',
                 origen: 'firmado por el cliente',
             });
+
+            // Ha llegado la firma nueva: se cierra la petición de volver a firmar y se
+            // sella cuándo llegó. Esta ruta NO pasa por mergeDocumentacion (escribe
+            // `documentacion` directamente), así que el cierre hay que hacerlo aquí o
+            // el expediente seguiría reclamando una firma que ya tiene.
+            const ahoraFirma = new Date().toISOString();
+            for (const spec of Object.values(BORRADORES_CLIENTE)) {
+                if (!camposSubidos.includes(spec.signed)) continue;
+                docUpdate[spec.signedAt] = ahoraFirma;
+                if (spec.refirma) docUpdate[spec.refirma] = null;
+            }
 
             await supabase.from('expedientes').update({ documentacion: docUpdate }).eq('id', expedienteId);
 

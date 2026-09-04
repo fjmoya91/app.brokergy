@@ -276,7 +276,10 @@ router.post('/send-proposal', async (req, res) => {
 router.post('/send-annex', async (req, res) => {
     // `from` (opcional): buzón alternativo elegido por el usuario cuando el
     // principal ha agotado su cuota diaria. Ver emailService.getFallbackSender().
-    const { to, userName, customMessage, summaryData, docs, from } = req.body;
+    // `pillLabel`/`buttonLabel`/`preheader`: los pone quien envía cuando el correo no
+    // es el de siempre — un REQUERIMIENTO lleva plazo, y eso tiene que verse en la
+    // píldora y en el botón, no solo en el cuerpo del mensaje.
+    const { to, userName, customMessage, summaryData, docs, from, pillLabel, buttonLabel, preheader } = req.body;
     const emailService = require('../services/emailService');
 
     if (!to || !docs || !Array.isArray(docs)) {
@@ -313,7 +316,10 @@ router.post('/send-annex', async (req, res) => {
             attachments,
             customMessage,
             summaryData,
-            from
+            from,
+            pillLabel,
+            buttonLabel,
+            preheader,
         });
 
         res.json({ success: true });

@@ -16,6 +16,7 @@ import { AnexoFotograficoModal } from './AnexoFotograficoModal';
 import { EnviarBorradorRiteModal } from './EnviarBorradorRiteModal';
 import { estadoInstalador, memoriaRiteDocxLink } from '../logic/instaladorPendientes';
 import { EnviarAnexosModal } from './EnviarAnexosModal';
+import { PLAZO_REQUERIMIENTO_DIAS, fechaLimite, fechaLarga, eur, refirmaPendienteDoc, requerimientoPendiente, resultsParaDocumento, importesRequerimiento, REFIRMA_CAMPOS } from '../logic/requerimientoFirma';
 import { CesionManuscritaModal, esFirmaManuscrita } from './CesionManuscritaModal';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
@@ -1012,6 +1013,15 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     // persona de contacto). Sin esto el aviso iba siempre al contacto que eligiera
     // el backend, y con la mayoría de instaladores se habla con otra persona.
     const [rejectContactId, setRejectContactId] = useState(null);
+    // ── REQUERIMIENTO ────────────────────────────────────────────────────────
+    // El mismo popup sirve para las dos cosas, porque el gesto es el mismo: este
+    // documento firmado ya no vale y hay que volver a pedirlo. Lo que cambia es de
+    // quién es la culpa (de nadie) y que aquí SÍ hay que decirle al cliente qué
+    // importe pasa a tener su ayuda y qué plazo tenemos para contestar.
+    const [rejectTipo, setRejectTipo] = useState('rechazo');   // 'rechazo' | 'requerimiento'
+    const [reqDocs, setReqDocs] = useState([]);                 // slots firmados afectados
+    const [reqAhorro, setReqAhorro] = useState('');             // kWh verificados tras el requerimiento
+    const [reqPlazo, setReqPlazo] = useState(PLAZO_REQUERIMIENTO_DIAS);
     // Rechazo que ha abierto el modal de generación del Anexo Fotográfico / CIFO para
     // regenerarlo y reenviarlo corregido. { motivo, label, nota } — null si se abrió
     // el modal por las buenas. Se limpia al cerrarlo.
@@ -1320,13 +1330,65 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
     // Marca como enviados los anexos que se enviaron correctamente desde el modal
     // unificado (EnviarAnexosModal) → enciende los indicadores "Enviado" de la fila.
-    const markAnexosSent = (keys, driveLinks) => {
+    // `meta.refirma` llega cuando el envío se ha hecho con la plantilla de
+    // REQUERIMIENTO (se elija en el popup de envío o se venga del registro del
+    // requerimiento): las firmas que ya teníamos de esos anexos dejan de contar.
+    const markAnexosSent = (keys, driveLinks, meta = null) => {
         if (!Array.isArray(keys) || !keys.length) return;
         setLocal(prev => {
             const now = new Date().toISOString();
             const next = { ...prev };
             if (keys.includes('anexo1')) { next.anexo_i_sent_at = now; if (driveLinks?.anexo1) next.anexo_i_drive_link = driveLinks.anexo1; }
             if (keys.includes('cesion')) { next.anexo_cesion_sent_at = now; if (driveLinks?.cesion) next.anexo_cesion_drive_link = driveLinks.cesion; }
+            // El importe del requerimiento se sella AL COMUNICARLO, no al registrarlo:
+            // cuando se registra, el ahorro verificado acaba de guardarse y el importe
+            // todavía no está recalculado con las tarifas del expediente. Aquí ya lo
+            // está, y además es el momento en que la cifra pasa a ser un compromiso —
+            // es la que el cliente tiene por escrito y la que imprime el convenio que
+            // acaba de recibir. De aquí la leen la página de firma y la fila.
+            if (meta?.refirma) {
+                const impReq = importesRequerimiento(results, { importeAnterior: meta.importeAnterior, ahorroAnterior: meta.ahorroAnterior });
+                // El sello va SOLO en los anexos de los que ya teníamos firma: en uno
+                // que aún no ha vuelto no hay nada que anular, y marcarlo dejaría una
+                // re-firma pendiente que el parte diario reclamaría para siempre.
+                const CAMPO = { anexo1: 'anexo_i', cesion: 'anexo_cesion' };
+                const anulados = [];
+                for (const k of keys) {
+                    const which = CAMPO[k];
+                    if (!which || !next[`${which}_signed_link`]) continue;
+                    next[`${which}_refirma_at`] = now;
+                    anulados.push(which);
+                }
+                next.requerimiento_firma = {
+                    ...(next.requerimiento_firma || {}),
+                    at: next.requerimiento_firma?.at || now,
+                    motivo: meta.motivo || next.requerimiento_firma?.motivo || '',
+                    docs: anulados.length ? anulados : (next.requerimiento_firma?.docs || []),
+                    plazo_dias: meta.plazoDias ?? next.requerimiento_firma?.plazo_dias ?? null,
+                    fecha_limite: meta.fechaLimite || next.requerimiento_firma?.fecha_limite || null,
+                    // El importe se sella AQUÍ, no al registrar el requerimiento:
+                    // entonces el ahorro verificado acababa de guardarse y el importe
+                    // aún no estaba recalculado. Además es ahora cuando la cifra pasa a
+                    // ser un compromiso — la tiene por escrito y la imprime el convenio
+                    // que acaba de recibir. De aquí la leen la página de firma y la fila.
+                    importe_anterior: impReq.anterior, importe_nuevo: impReq.nuevo,
+                    ahorro_anterior_kwh: impReq.ahorroAnterior, ahorro_nuevo_kwh: impReq.ahorroNuevo,
+                    comunicado_at: now,
+                };
+                if (anulados.length) {
+                    const hist = Array.isArray(next.historial) ? [...next.historial] : [];
+                    hist.push({
+                        id: `${Date.now()}_refirma`,
+                        tipo: 'requerimiento_doc',
+                        texto: `Requerimiento: reenviados para volver a firmar ${anulados.map(w => w === 'anexo_i' ? 'Anexo I' : 'Anexo de Cesión de Ahorros').join(' + ')}`
+                            + `${impReq.nuevo != null ? ` · ayuda ${eur(impReq.anterior) || 'sin dato'} → ${eur(impReq.nuevo)}` : ''}`
+                            + ` · plazo ${meta.plazoDias || '—'} días. La firma anterior queda anulada.`,
+                        fecha: now,
+                        usuario: user?.rol === 'ADMIN' ? 'ADMINISTRADOR' : (user?.acronimo || 'SISTEMA'),
+                    });
+                    next.historial = hist;
+                }
+            }
             onSave({ documentacion: next });
             return next;
         });
@@ -1730,9 +1792,54 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     };
     const rejectRegen = rejectDoc ? DOC_REGENERABLE[rejectDoc.field] : null;
 
+    // ── Documentos que se pueden VOLVER A PEDIR firmados ─────────────────────
+    // Los tres que firma alguien de fuera desde un enlace nuestro. Un requerimiento
+    // solo tiene sentido sobre lo que YA está firmado: si el documento todavía no ha
+    // vuelto, no hay ninguna firma que anular — basta con reenviarlo.
+    const REFIRMABLES = {
+        anexo_i_signed_link:      { key: 'anexo1', label: 'Anexo I', firmante: 'cliente' },
+        anexo_cesion_signed_link: { key: 'cesion', label: 'Anexo de Cesión de Ahorros', firmante: 'cliente' },
+    };
+    const esRefirmable = !!(rejectDoc && REFIRMABLES[rejectDoc.field] && local[rejectDoc.field]);
+    // Requerimiento vivo del expediente (hay firma pendiente por él) y los `results`
+    // con los que hay que generar los anexos del cliente mientras dure.
+    const reqVivo = requerimientoPendiente(local);
+    const resultsDocCliente = resultsParaDocumento(results, local);
+    const esRequerimiento = rejectTipo === 'requerimiento';
+    // El ahorro verificado que consta hoy y el que se teclea ahora. De este número
+    // salen el importe del convenio nuevo y lo que se le acaba pagando al cliente:
+    // se guarda en el expediente, no se queda en el texto de un mensaje.
+    const ahorroVerifActual = expediente?.instalacion?.verificacion?.ahorro_verificado_kwh;
+    const reqAhorroNum = parseFloat(String(reqAhorro).replace(/\./g, '').replace(',', '.'));
+    const reqAhorroValido = Number.isFinite(reqAhorroNum) && reqAhorroNum > 0;
+    const reqAhorroCambia = reqAhorroValido && Math.round(reqAhorroNum) !== Math.round(parseFloat(ahorroVerifActual) || 0);
+    const reqLimite = fechaLimite(reqPlazo);
+    // Importe que se le va a comunicar. Solo se muestra cuando ya está calculado con
+    // las tarifas del expediente (`caeBonusVerificado`); si el ahorro se acaba de
+    // cambiar, se recalcula al guardar y se ve en el popup de envío, antes de mandar.
+    const reqImporteAnterior = results?.caeBonus ?? null;
+    const reqImporteNuevo = reqAhorroCambia ? null : (results?.caeBonusVerificado ?? null);
+
     const buildRejectMessage = (t, field, label, motivo) => {
         const nombre = recipientName(t);
         const numExp = expediente?.numero_expediente || '';
+        // Un requerimiento no es un rechazo y no se le puede contar como tal: nadie ha
+        // hecho nada mal. Este es solo el aviso PREVIO opcional — el mensaje que
+        // acompaña a los documentos nuevos se redacta en el popup de envío.
+        if (rejectTipo === 'requerimiento') {
+            const baja = reqImporteNuevo != null && reqImporteAnterior != null && reqImporteNuevo < reqImporteAnterior;
+            const resultado = baja
+                ? `Lo hemos revisado punto por punto y hemos defendido la actuación con la documentación del expediente: en lugar de decaer por completo, hemos conseguido ajustarlo y mantener la ayuda en ${eur(reqImporteNuevo)} (frente a los ${eur(reqImporteAnterior)} previstos inicialmente).`
+                : reqImporteNuevo != null
+                    ? `El expediente sigue adelante, con el importe de la ayuda en ${eur(reqImporteNuevo)}.`
+                    : `El expediente sigue adelante, con un ajuste en la documentación presentada.`;
+            return `${nombre}:\n\n`
+                + `Le informamos de que, tras la revisión del expediente ${numExp}, hemos recibido un requerimiento. ${resultado}\n\n`
+                + (motivo ? `• ${motivo}\n\n` : '')
+                + `Para poder contestarlo dentro del plazo de ${reqPlazo} días, necesitaremos que nos devuelva firmados de nuevo el Anexo I y el Anexo de Cesión de Ahorros, ya actualizados. `
+                + `Se los remitimos a continuación; la versión anterior queda anulada.\n\n`
+                + `Atentamente,\nBROKERGY — Ingeniería Energética`;
+        }
         // Los documentos que generamos nosotros NO se piden corregidos: los corregimos
         // y los reenviamos. Y su enlace de firma está bloqueado hasta entonces, así que
         // mandar ahí al destinatario sería mandarlo a una puerta cerrada.
@@ -1760,10 +1867,19 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             setRejectMsg(buildRejectMessage(rejectTarget, rejectDoc.field, rejectDoc.label, rejectMotivo));
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [rejectDoc, rejectTarget, rejectContactId, rejectMotivo, rejectMsgEdited]);
+    }, [rejectDoc, rejectTarget, rejectContactId, rejectMotivo, rejectMsgEdited, rejectTipo, reqPlazo, reqImporteNuevo]);
 
     const openRejectDoc = (field, label) => {
         setRejectMotivo(''); setRejectMsg(''); setRejectMsgEdited(false); setRejectError(null);
+        // Se abre siempre como RECHAZO: es lo habitual, y presuponer un requerimiento
+        // haría teclear importes a quien solo quiere devolver un PDF mal firmado.
+        setRejectTipo('rechazo');
+        setReqPlazo(PLAZO_REQUERIMIENTO_DIAS);
+        setReqAhorro(expediente?.instalacion?.verificacion?.ahorro_verificado_kwh ?? '');
+        // Un requerimiento que cambia el importe afecta a los DOS anexos del cliente:
+        // el Anexo I declara la actuación y el Convenio la cifra que se cede. Se
+        // premarcan los que ya estén firmados — los que no, no hay que re-pedirlos.
+        setReqDocs(Object.keys(REFIRMABLES).filter(f => !!local[f]));
         // Defecto razonable: anexos del cliente → cliente; CIFO/RITE/factura →
         // instalador. Salvo en REFORMA, donde ese mismo slot es el Certificado RES080,
         // que firmamos nosotros y se entrega al cliente.
@@ -1789,27 +1905,92 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     // EnviarAnexosModal, el Anexo Fotográfico y el CIFO por su modal de generación.
     const confirmRejectDoc = async (reenviar = false) => {
         if (!rejectMotivo.trim() || !rejectDoc) return;
+        const requerimiento = rejectTipo === 'requerimiento';
+        // Sin documentos marcados no hay nada que volver a pedir.
+        const camposReq = requerimiento ? reqDocs.filter(f => !!local[f]) : [];
+        if (requerimiento && !camposReq.length) {
+            setRejectError('Marca al menos un documento del que volver a pedir la firma.');
+            return;
+        }
         setRejectSending(true); setRejectError(null);
         try {
             const target = rejectTarget === 'cliente' ? 'CLIENTE' : rejectTarget === 'instalador' ? 'INSTALADOR' : 'NINGUNO';
             const motivo = rejectMotivo.trim();
+
+            // ── El ahorro verificado se GUARDA en el expediente ──────────────
+            // De él salen el importe del convenio nuevo, lo que se le comunica al
+            // cliente y lo que se le acaba pagando: tiene que ser el mismo número en
+            // los tres sitios, así que se persiste antes de redactar nada. El refetch
+            // que hace `onSave` deja `results.caeBonusVerificado` ya recalculado con
+            // las tarifas del expediente, que es lo que leerá el popup de envío.
+            const importeAnterior = results?.caeBonusVerificado ?? results?.caeBonus ?? null;
+            const ahorroAnterior = results?.savingsKwhVerificado ?? results?.savingsKwh ?? null;
+            if (requerimiento && reqAhorroCambia) {
+                const inst = expediente?.instalacion || {};
+                await onSave({
+                    instalacion: {
+                        ...inst,
+                        verificacion: {
+                            ...(inst.verificacion || {}),
+                            ahorro_verificado_kwh: reqAhorroNum,
+                            origen: 'REQUERIMIENTO',
+                            actualizado_at: new Date().toISOString(),
+                        },
+                    },
+                }, { silentOk: true });
+            }
+
             const { data } = await axios.post(`/api/expedientes/${expediente.id}/documentos/rechazar`, {
                 field: rejectDoc.field,
+                ...(requerimiento ? { fields: camposReq, tipo: 'requerimiento' } : {}),
                 label: rejectDoc.label,
                 motivo,
                 target,
                 channels: ['whatsapp', 'email'],
                 mensaje: target === 'NINGUNO' ? '' : rejectMsg,
+                ...(requerimiento ? {
+                    requerimiento: {
+                        importe_anterior: importeAnterior,
+                        ahorro_anterior_kwh: ahorroAnterior,
+                        ahorro_nuevo_kwh: reqAhorroValido ? reqAhorroNum : null,
+                        plazo_dias: reqPlazo,
+                        fecha_limite: fechaLimite(reqPlazo).toISOString(),
+                    },
+                } : {}),
                 // Persona marcada: manda sobre el contacto por defecto del backend.
                 ...(target !== 'NINGUNO' && rejectContact
                     ? { nombre: rejectContact.label, tlf: rejectContact.phone || '', email: rejectContact.email || '' }
                     : {}),
             });
             // Fusiona SOLO lo que persistió el backend (no pisa ediciones locales sin guardar).
-            setLocal(prev => ({ ...prev, docs_rechazados: data.docs_rechazados, docs_validados: data.docs_validados, historial: data.historial }));
+            // Los sellos de re-firma entran aquí también: son los que ponen la fila en
+            // ámbar y los que lee el popup de envío, y sin ellos habría que recargar la
+            // pantalla para ver el efecto de lo que se acaba de hacer.
+            setLocal(prev => {
+                const next = { ...prev, docs_rechazados: data.docs_rechazados, docs_validados: data.docs_validados, historial: data.historial };
+                for (const which of (data.refirmados || [])) next[`${which}_refirma_at`] = data.requerimiento_firma?.at || new Date().toISOString();
+                if (data.requerimiento_firma) next.requerimiento_firma = data.requerimiento_firma;
+                return next;
+            });
             const regen = DOC_REGENERABLE[rejectDoc.field];
             const label = rejectDoc.label;
+            const plazoReq = reqPlazo, limiteReq = fechaLimite(reqPlazo).toISOString();
             setRejectDoc(null); setRejectMotivo(''); setRejectMsg('');
+
+            // Requerimiento: se abre el envío de los DOS anexos con el contexto, para
+            // que el mensaje explique el cambio de importe y el plazo, y los PDF salgan
+            // ya con la cifra nueva.
+            if (requerimiento) {
+                if (reenviar) setEnviarAnexos({
+                    open: true,
+                    docs: camposReq.map(f => REFIRMABLES[f]?.key).filter(Boolean),
+                    overrides: null,
+                    nota: '',
+                    requerimiento: { motivo, plazoDias: plazoReq, fechaLimite: limiteReq, importeAnterior, ahorroAnterior },
+                });
+                return;
+            }
+
             if (reenviar && regen) {
                 const nota = `Hemos corregido el ${label} (${motivo}). Firma esta versión nueva: la anterior no es válida.`;
                 if (regen.via === 'anexos') {
@@ -1825,7 +2006,8 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 }
             }
         } catch (e) {
-            setRejectError(e.response?.data?.error || 'No se pudo rechazar el documento.');
+            setRejectError(e.response?.data?.error
+                || (rejectTipo === 'requerimiento' ? 'No se pudo registrar el requerimiento.' : 'No se pudo rechazar el documento.'));
         } finally {
             setRejectSending(false);
         }
@@ -1936,6 +2118,14 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                     const updates = { [field]: data.drive_link };
                     // Cuando el admin sube la Cesión firmada, es la versión final (ambas firmas)
                     if (field === 'anexo_cesion_signed_link') updates.cesion_firmado_brokergy = true;
+                    // Ha llegado la firma que faltaba tras un requerimiento: se cierra la
+                    // petición. `mergeDocumentacion` solo lo hace si el enlace CAMBIA, y
+                    // Drive puede devolver el mismo al reemplazar el fichero — entonces el
+                    // expediente seguiría reclamando una firma que acabamos de recibir.
+                    if (REFIRMA_CAMPOS[field]) {
+                        updates[REFIRMA_CAMPOS[field].refirma] = null;
+                        updates[REFIRMA_CAMPOS[field].signedAt] = new Date().toISOString();
+                    }
                     // Re-subir un firmado lo deja como "subido sin revisar": limpia validación/rechazo previos.
                     const dv = { ...(prev.docs_validados || {}) }; delete dv[field];
                     const dr = { ...(prev.docs_rechazados || {}) }; delete dr[field];
@@ -1968,9 +2158,31 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
     // partial=true → cliente firmó pero Brokergy aún no (Cesión). dragActive lo controla
     // la fila: al arrastrar un PDF sobre cualquier parte de la fila, su slot se resalta.
+    // Por qué este documento vuelve a estar pendiente pese a tener firma. Va en la
+    // fila y no solo en el icono: el dato accionable es el cambio de importe y el
+    // plazo, y eso no cabe en un tooltip que hay que descubrir.
+    const RefirmaAviso = ({ field }) => {
+        const r = refirmaPendienteDoc(local, field);
+        if (!r) return null;
+        const req = r.requerimiento || {};
+        const cambio = req.importe_nuevo != null
+            ? <> · ayuda {req.importe_anterior != null ? <><span className="line-through opacity-60">{eur(req.importe_anterior)}</span> → </> : null}<span className="font-black">{eur(req.importe_nuevo)}</span></>
+            : null;
+        const limite = req.fecha_limite ? fechaLarga(req.fecha_limite) : null;
+        return (
+            <p className="text-[9px] font-bold uppercase tracking-widest leading-tight mt-1.5 text-amber-300/90 normal-case">
+                ⚠️ Requerimiento: pendiente de volver a firmar{cambio}{limite ? <span className="text-white/35"> · plazo hasta el {limite}</span> : null}
+            </p>
+        );
+    };
+
     const SignedSlot = ({ link, onUpload, label, field, partial, dragActive = false }) => {
         const slotInputRef = React.useRef();
-        const validated = isValidated(field); // subido (ámbar) → validado (verde)
+        // Re-firma pendiente: el fichero existe, pero es de la versión que el
+        // requerimiento ha invalidado. En verde diría que este documento está
+        // resuelto, que es justo lo contrario de lo que hay que hacer con él.
+        const refirma = refirmaPendienteDoc(local, field);
+        const validated = isValidated(field) && !refirma; // subido (ámbar) → validado (verde)
         const rejected = isRejected(field);   // rechazado (rojo)
         return (
             <div className="flex flex-col items-center gap-1 group/slot relative">
@@ -1983,7 +2195,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                             slotInputRef.current.click();
                         }
                     }}
-                    title={validated && link ? `${label} — validado (correcto)` : rejected ? `${label} — rechazado: ${local.docs_rechazados?.[field]?.motivo || ''}` : partial ? 'Cliente firmó — subir versión firmada por Brokergy' : (link ? `Gestionar ${label}` : `Arrastra un PDF aquí o pulsa para subir ${label}`)}
+                    title={refirma ? `${label} — pendiente de volver a firmar (requerimiento). La firma que tenemos es de la versión anterior.` : validated && link ? `${label} — validado (correcto)` : rejected ? `${label} — rechazado: ${local.docs_rechazados?.[field]?.motivo || ''}` : partial ? 'Cliente firmó — subir versión firmada por Brokergy' : (link ? `Gestionar ${label}` : `Arrastra un PDF aquí o pulsa para subir ${label}`)}
                     className={`w-11 h-11 rounded-2xl border flex items-center justify-center transition-all relative ${
                         dragActive
                         ? 'ring-2 ring-brand ring-offset-2 ring-offset-[#0b0c11] scale-125 bg-brand/25 border-brand text-brand shadow-2xl shadow-brand/40 z-20'
@@ -1991,6 +2203,8 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                         ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400 shadow-lg shadow-emerald-500/10 hover:bg-emerald-500 hover:text-white'
                         : rejected
                         ? 'bg-red-500/15 border-red-500/40 text-red-400 shadow-lg shadow-red-500/10 hover:bg-red-500 hover:text-white'
+                        : refirma
+                        ? 'bg-amber-500/15 border-amber-400/50 text-amber-300 shadow-lg shadow-amber-500/10 hover:bg-amber-400 hover:text-bkg-deep'
                         : partial
                         ? 'bg-orange-500/10 border-orange-500/30 text-orange-400 shadow-lg shadow-orange-500/10 hover:bg-orange-500 hover:text-white'
                         : link
@@ -2005,6 +2219,10 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                     ) : rejected ? (
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    ) : refirma ? (
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                         </svg>
                     ) : partial ? (
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -2061,22 +2279,26 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 onConfirm={validation.onConfirm}
             />
 
+            {/* Mientras haya un requerimiento sin resolver, los anexos del cliente se
+                generan con el importe NUEVO: es el que se le ha comunicado y el que va
+                a firmar. Regenerarlos con el estimado de siempre machacaría en Drive el
+                documento bueno y su enlace de firma volvería a servir el invalidado. */}
             <AnexoIModal
                 isOpen={showAnexoI}
                 onClose={() => setShowAnexoI(false)}
                 expediente={expediente}
-                results={results}
+                results={resultsDocCliente}
                 onSaveDrive={(link) => handleModalSaveDrive('anexo_i_drive_link', link)}
-                onRequestSend={({ docs, overrides }) => setEnviarAnexos({ open: true, docs, overrides: overrides || null })}
+                onRequestSend={({ docs, overrides }) => setEnviarAnexos({ open: true, docs, overrides: overrides || null, requerimiento: reqVivo })}
             />
             <AnexoCesionModal
                 isOpen={showAnexoCesion}
                 onClose={() => setShowAnexoCesion(false)}
                 expediente={expediente}
-                results={results}
+                results={resultsDocCliente}
                 previo={cesionPrevio ?? undefined}
                 onSaveDrive={(link) => handleModalSaveDrive('anexo_cesion_drive_link', link)}
-                onRequestSend={({ docs, overrides }) => setEnviarAnexos({ open: true, docs, overrides: overrides || null })}
+                onRequestSend={({ docs, overrides }) => setEnviarAnexos({ open: true, docs, overrides: overrides || null, requerimiento: reqVivo })}
             />
             <EnviarAnexosModal
                 isOpen={enviarAnexos.open}
@@ -2087,6 +2309,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 initialDocs={enviarAnexos.docs}
                 overrides={enviarAnexos.overrides}
                 initialNote={enviarAnexos.nota}
+                requerimiento={enviarAnexos.requerimiento}
                 onMarkSent={markAnexosSent}
                 onEditCliente={onEditCliente}
             />
@@ -2570,6 +2793,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">Anexo I</p>
                                         <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">Declaración Responsable Beneficiario</p>
+                                        <RefirmaAviso field="anexo_i_signed_link" />
                                         {local.anexo_i_drive_link && user?.rol === 'ADMIN' && (
                                             <a href={local.anexo_i_drive_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-brand/60 hover:text-brand font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all mt-1.5 inline-block">Ver Borrador</a>
                                         )}
@@ -2627,6 +2851,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">Anexo Cesión de Ahorro</p>
                                         <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">Convenio de Cesión CAE</p>
+                                        <RefirmaAviso field="anexo_cesion_signed_link" />
                                         {local.anexo_cesion_drive_link && user?.rol === 'ADMIN' && (
                                             <a href={local.anexo_cesion_drive_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-brand/60 hover:text-brand font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all mt-1.5 inline-block">Ver Borrador</a>
                                         )}
@@ -3313,13 +3538,13 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 // despistado en el fondo lo tiraba todo. Solo "X" o "Cancelar".
                 <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
                     <div className="bg-[#0F1013] border border-white/10 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-                        <div className="px-6 py-5 border-b border-white/10 bg-red-500/5 flex items-center gap-3 text-red-400">
+                        <div className={`px-6 py-5 border-b border-white/10 flex items-center gap-3 ${esRequerimiento ? 'bg-amber-500/5 text-amber-300' : 'bg-red-500/5 text-red-400'}`}>
                             <svg className="w-6 h-6 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                             </svg>
                             <div className="min-w-0 flex-1">
-                                <h3 className="text-base font-black uppercase tracking-tight">Rechazar documento</h3>
-                                <p className="text-[11px] text-white/40 truncate">{rejectDoc.label}</p>
+                                <h3 className="text-base font-black uppercase tracking-tight">{esRequerimiento ? 'Requerimiento recibido' : 'Rechazar documento'}</h3>
+                                <p className="text-[11px] text-white/40 truncate">{esRequerimiento ? 'Volver a pedir la firma de los anexos' : rejectDoc.label}</p>
                             </div>
                             <button onClick={() => setRejectDoc(null)} disabled={rejectSending} title="Cerrar"
                                 className="w-8 h-8 shrink-0 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-all disabled:opacity-30">
@@ -3328,11 +3553,100 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                         </div>
 
                         <div className="px-6 py-5 space-y-5 overflow-y-auto">
+                            {/* ── Qué ha pasado ────────────────────────────────────
+                                Un documento firmado deja de valer por dos motivos muy
+                                distintos: porque estaba mal (rechazo) o porque ha
+                                cambiado lo que declara (requerimiento). Al firmante se
+                                le cuentan de forma opuesta —"lo hemos corregido" frente
+                                a "no has hecho nada mal, ha cambiado el importe"—, así
+                                que la elección va primero y condiciona todo lo demás.
+                                Solo se ofrece sobre un anexo del cliente YA firmado:
+                                sin firma que anular, un requerimiento es un reenvío. */}
+                            {esRefirmable && (
+                                <div>
+                                    <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">¿Qué ha pasado?</label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {[
+                                            { v: 'rechazo', t: 'Rechazo', d: 'El documento firmado tiene un error' },
+                                            { v: 'requerimiento', t: 'Requerimiento', d: 'Cambia el importe de la ayuda' },
+                                        ].map(o => (
+                                            <button key={o.v} type="button"
+                                                onClick={() => {
+                                                    setRejectTipo(o.v);
+                                                    setRejectMsgEdited(false);
+                                                    // El aviso previo sobra en un requerimiento: los documentos
+                                                    // nuevos salen a continuación con su propio mensaje, y dos
+                                                    // correos seguidos diciendo lo mismo se leen como un lío.
+                                                    if (o.v === 'requerimiento') switchRejectTarget('ninguno');
+                                                }}
+                                                className={`py-2.5 px-3 rounded-xl border text-left transition-all ${rejectTipo === o.v ? (o.v === 'requerimiento' ? 'border-amber-400/70 bg-amber-400/[0.08]' : 'border-red-400/70 bg-red-400/[0.08]') : 'border-white/10 bg-white/[0.03] hover:border-white/20'}`}>
+                                                <span className={`block text-[10px] font-black uppercase tracking-widest ${rejectTipo === o.v ? (o.v === 'requerimiento' ? 'text-amber-300' : 'text-red-300') : 'text-white/60'}`}>{o.t}</span>
+                                                <span className="block text-[9px] font-bold normal-case mt-0.5 text-white/35 leading-snug">{o.d}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {esRequerimiento && (
+                                <div className="rounded-xl border border-amber-400/25 bg-amber-500/[0.05] p-4 space-y-4">
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">Hay que volver a firmar</label>
+                                        <div className="space-y-2">
+                                            {Object.entries(REFIRMABLES).map(([f, def]) => {
+                                                const firmado = !!local[f];
+                                                const on = reqDocs.includes(f);
+                                                return (
+                                                    <button key={f} type="button" disabled={!firmado}
+                                                        onClick={() => setReqDocs(prev => prev.includes(f) ? prev.filter(x => x !== f) : [...prev, f])}
+                                                        className={`w-full flex items-center gap-3 p-2.5 rounded-xl border text-left transition-all ${!firmado ? 'border-white/5 bg-white/[0.01] opacity-40 cursor-not-allowed' : on ? 'border-amber-400/60 bg-amber-400/[0.06]' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
+                                                        <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${on && firmado ? 'border-amber-400 bg-amber-400' : 'border-white/20'}`}>
+                                                            {on && firmado && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                                        </span>
+                                                        <span className="min-w-0 flex-1">
+                                                            <span className="block text-[12px] font-bold text-white truncate normal-case">{def.label}</span>
+                                                            <span className="block text-[10px] text-white/35 normal-case">{firmado ? 'Firmado — su firma quedará anulada' : 'Todavía sin firmar: basta con reenviarlo'}</span>
+                                                        </span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">Ahorro verificado (kWh)</label>
+                                            <input value={reqAhorro} onChange={e => setReqAhorro(e.target.value)} inputMode="decimal" placeholder="Ej: 25.400"
+                                                className="no-uppercase w-full bg-bkg-elevated border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-400/50" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">Plazo (días)</label>
+                                            <input value={reqPlazo} onChange={e => setReqPlazo(e.target.value.replace(/\D/g, '').slice(0, 3))} inputMode="numeric"
+                                                className="no-uppercase w-full bg-bkg-elevated border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-400/50" />
+                                        </div>
+                                    </div>
+
+                                    {/* El importe es el dato que se le comunica al cliente y el que
+                                        imprime el convenio nuevo: sale del ahorro verificado y de las
+                                        tarifas del expediente, nunca de un número escrito a mano. */}
+                                    <p className="text-[11px] text-white/50 leading-snug">
+                                        {reqAhorroCambia
+                                            ? <>Se guardará como ahorro verificado del expediente y el importe de la ayuda se recalculará con sus tarifas. Lo verás antes de enviar nada.</>
+                                            : reqImporteNuevo != null
+                                                ? <>Importe de la ayuda: <span className="text-white/40 line-through">{eur(reqImporteAnterior)}</span> → <span className="font-black text-amber-300">{eur(reqImporteNuevo)}</span>. Es lo que dirá el convenio nuevo.</>
+                                                : <>Sin ahorro verificado registrado. Escríbelo arriba: de él salen el importe del convenio y lo que se le comunica al cliente.</>}
+                                        {' '}Plazo hasta el <span className="text-white/70 font-bold">{fechaLarga(reqLimite)}</span>.
+                                    </p>
+                                </div>
+                            )}
+
                             <div>
-                                <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">¿Por qué se rechaza?</label>
-                                <textarea value={rejectMotivo} onChange={e => setRejectMotivo(e.target.value)} rows={2} placeholder="Ej: el importe no coincide con la base imponible" className="no-uppercase w-full bg-bkg-elevated border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-red-400/50 resize-none" />
+                                <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">{esRequerimiento ? '¿Qué dice el requerimiento?' : '¿Por qué se rechaza?'}</label>
+                                <textarea value={rejectMotivo} onChange={e => setRejectMotivo(e.target.value)} rows={2}
+                                    placeholder={esRequerimiento ? 'Ej: el verificador ajusta el ahorro de la actuación tras revisar el CIFO' : 'Ej: el importe no coincide con la base imponible'}
+                                    className={`no-uppercase w-full bg-bkg-elevated border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none resize-none ${esRequerimiento ? 'focus:border-amber-400/50' : 'focus:border-red-400/50'}`} />
                             </div>
-                            {rejectRegen && (
+                            {rejectRegen && !esRequerimiento && (
                                 <div className="rounded-xl border border-amber-400/25 bg-amber-500/[0.06] p-3.5">
                                     <p className="text-[11px] text-amber-300 font-bold leading-snug flex gap-2">
                                         <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
@@ -3347,7 +3661,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 </div>
                             )}
                             <div>
-                                <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">{rejectRegen ? 'Avisar del rechazo a' : 'Enviar a corregir a'}</label>
+                                <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">{esRequerimiento ? 'Aviso previo (opcional) a' : rejectRegen ? 'Avisar del rechazo a' : 'Enviar a corregir a'}</label>
                                 <div className="grid grid-cols-3 gap-2">
                                     {['cliente', 'instalador', 'ninguno'].map(v => (
                                         <button key={v} onClick={() => switchRejectTarget(v)} title={v === 'ninguno' ? 'Solo rechazar, sin enviar mensaje' : recipientName(v)}
@@ -3398,7 +3712,12 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
                         <div className="px-6 py-4 bg-white/[0.02] border-t border-white/10 flex gap-3">
                             <button onClick={() => setRejectDoc(null)} disabled={rejectSending} className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">Cancelar</button>
-                            {rejectRegen ? (
+                            {esRequerimiento ? (
+                                <>
+                                    <button onClick={() => confirmRejectDoc(false)} disabled={rejectSending || !rejectMotivo.trim()} title="Registrar el requerimiento y anular las firmas afectadas. Los anexos nuevos los envías cuando quieras." className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">Solo registrar</button>
+                                    <button onClick={() => confirmRejectDoc(true)} disabled={rejectSending || !rejectMotivo.trim()} title="Registra el requerimiento, anula las firmas afectadas y abre el envío de los anexos actualizados" className="flex-1 px-4 py-2.5 rounded-xl bg-amber-500/15 border border-amber-400/40 text-amber-300 text-[10px] font-black uppercase tracking-widest hover:bg-amber-400 hover:text-bkg-deep transition-all disabled:opacity-40">{rejectSending ? 'Registrando…' : 'Registrar y volver a pedir la firma'}</button>
+                                </>
+                            ) : rejectRegen ? (
                                 <>
                                     <button onClick={() => confirmRejectDoc(false)} disabled={rejectSending || !rejectMotivo.trim()} title="Marcar el rechazo (y enviar el aviso si has elegido destinatario). El documento corregido lo reenvías más tarde." className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">{rejectTarget === 'ninguno' ? 'Solo rechazar' : 'Rechazar y avisar'}</button>
                                     <button onClick={() => confirmRejectDoc(true)} disabled={rejectSending || !rejectMotivo.trim()} title="Registra el rechazo, envía el aviso si procede y abre la regeneración del documento para reenviarlo corregido" className="flex-1 px-4 py-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-[10px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all disabled:opacity-40">{rejectSending ? 'Rechazando…' : 'Rechazar y reenviar corregido'}</button>

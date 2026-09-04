@@ -95,20 +95,35 @@ function invalidarValidacionDocs(documentacion, campos, opts = {}) {
 // enlace (/subir-cifo) sirve igualmente el borrador de Drive, así que un CIFO
 // rechazado se podía volver a firmar con el mismo error desde el enlace del email.
 // El Anexo Fotográfico NO entra: no lo sirve ninguna página pública.
+//
+// `refirma`: sello de "te lo hemos vuelto a pedir". Un documento FIRMADO deja de
+// contar como recibido cuando la versión que se firmó ya no vale — un requerimiento
+// del verificador que cambia el importe de la ayuda, o una corrección nuestra. Sin
+// él, el expediente da la tarea por hecha, el parte diario no la vigila y la página
+// pública de firma le dice al firmante que no falta nada (medido en el CIFO de
+// 26RES060_127). Lo cierra la llegada del firmado nuevo.
 const BORRADORES_CLIENTE = {
     anexo_i: {
         draft: 'anexo_i_drive_link', sent: 'anexo_i_sent_at', at: 'anexo_i_drive_at',
-        signed: 'anexo_i_signed_link', signedAt: 'anexo_i_signed_at', label: 'Anexo I',
+        signed: 'anexo_i_signed_link', signedAt: 'anexo_i_signed_at',
+        refirma: 'anexo_i_refirma_at', firmante: 'CLIENTE', label: 'Anexo I',
     },
     anexo_cesion: {
         draft: 'anexo_cesion_drive_link', sent: 'anexo_cesion_sent_at', at: 'anexo_cesion_drive_at',
-        signed: 'anexo_cesion_signed_link', signedAt: 'anexo_cesion_signed_at', label: 'Anexo de Cesión de Ahorros',
+        signed: 'anexo_cesion_signed_link', signedAt: 'anexo_cesion_signed_at',
+        refirma: 'anexo_cesion_refirma_at', firmante: 'CLIENTE', label: 'Anexo de Cesión de Ahorros',
     },
     cert_cifo: {
         draft: 'cert_cifo_drive_link', sent: 'cert_cifo_sent_at', at: 'cert_cifo_drive_at',
-        signed: 'cert_cifo_signed_link', signedAt: 'cert_cifo_signed_at', label: 'Certificado de Instalación (CIFO)',
+        signed: 'cert_cifo_signed_link', signedAt: 'cert_cifo_signed_at',
+        refirma: 'cert_cifo_refirma_at', firmante: 'INSTALADOR', label: 'Certificado de Instalación (CIFO)',
     },
 };
+
+// Campo del slot firmado → clave de BORRADORES_CLIENTE.
+const SLOT_A_BORRADOR = Object.fromEntries(
+    Object.entries(BORRADORES_CLIENTE).map(([k, spec]) => [spec.signed, k])
+);
 
 const _ts = (v) => { const t = Date.parse(v || ''); return Number.isNaN(t) ? 0 : t; };
 
@@ -134,6 +149,42 @@ function rechazoBorrador(documentacion, which) {
 }
 
 /**
+ * ¿Se le ha vuelto a pedir la firma de `which` y todavía no ha llegado?
+ * Devuelve null si no hay nada pendiente. `at` es cuándo se le volvió a pedir.
+ *
+ * Un `refirma_at` posterior al último firmado recibido significa que ese firmado es
+ * de una versión anterior: existe el fichero, pero no vale.
+ */
+function refirmaPendiente(documentacion, which) {
+    const spec = BORRADORES_CLIENTE[which];
+    if (!spec || !spec.refirma) return null;
+    const doc = documentacion || {};
+    if (!doc[spec.refirma]) return null;
+    if (_ts(doc[spec.refirma]) <= _ts(doc[spec.signedAt])) return null;
+    return {
+        doc: which,
+        label: spec.label,
+        firmante: spec.firmante,
+        at: doc[spec.refirma],
+        // Contexto del requerimiento que la provocó (importes, plazo), si lo hubo.
+        requerimiento: doc.requerimiento_firma?.docs?.includes(which) ? doc.requerimiento_firma : null,
+    };
+}
+
+/**
+ * ¿Tenemos su firma y sigue valiendo? Un firmado RECHAZADO o al que se le ha pedido
+ * re-firma existe en Drive pero no cuenta como recibido.
+ */
+function firmaVigente(documentacion, which) {
+    const spec = BORRADORES_CLIENTE[which];
+    if (!spec) return false;
+    const doc = documentacion || {};
+    if (!doc[spec.signed]) return false;
+    if (doc.docs_rechazados?.[spec.signed]) return false;
+    return !refirmaPendiente(doc, which);
+}
+
+/**
  * Igual que `invalidarValidacionDocs` pero para los documentos del CEE, cuyo estado
  * vive en la columna `cee` (`cee.docs_validados['{inicial|final}_{slot}']`).
  */
@@ -150,8 +201,11 @@ module.exports = {
     DOCUMENTO_VALIDABLE_LABELS,
     CAMPO_A_SLOT_VALIDABLE,
     BORRADORES_CLIENTE,
+    SLOT_A_BORRADOR,
     slotValidableDe,
     invalidarValidacionDocs,
     invalidarValidacionCee,
     rechazoBorrador,
+    refirmaPendiente,
+    firmaVigente,
 };
