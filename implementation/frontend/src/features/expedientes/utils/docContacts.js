@@ -12,16 +12,21 @@
 export const phoneValid = (ph) => (ph || '').replace(/[^0-9]/g, '').length >= 9;
 
 /** Contactos del cliente final: titular + persona de contacto si la hay. */
+// `label` es cómo se LISTA el contacto (nombre y apellidos, para reconocerlo) y
+// `saludo` cómo se le LLAMA en el mensaje: solo el nombre. "Hola José Antonio
+// Gallego Ortega" es un encabezado de expediente, no un saludo — y el nombre sale
+// de su propio campo, así que no hay que adivinar dónde acaba.
 export function clienteContacts(cli = {}) {
     const out = [];
     const nombre = [cli.nombre_razon_social, cli.apellidos].filter(Boolean).join(' ').trim();
     const tlf = cli.tlf || cli.telefono || '';
     if (tlf || cli.email) {
-        out.push({ id: 'cli', label: nombre || 'Cliente', sublabel: 'Titular', phone: tlf, email: cli.email || '' });
+        out.push({ id: 'cli', label: nombre || 'Cliente', saludo: cli.nombre_razon_social || '', sublabel: 'Titular', phone: tlf, email: cli.email || '' });
     }
     if (cli.persona_contacto_nombre && (cli.persona_contacto_tlf || cli.persona_contacto_email)) {
         out.push({
-            id: 'cli_contacto', label: cli.persona_contacto_nombre, sublabel: 'Persona de contacto',
+            id: 'cli_contacto', label: cli.persona_contacto_nombre, saludo: cli.persona_contacto_nombre,
+            sublabel: 'Persona de contacto',
             phone: cli.persona_contacto_tlf || '', email: cli.persona_contacto_email || '',
         });
     }
@@ -38,7 +43,8 @@ export function instaladorContacts(pres = {}) {
     const repEmail = pres.email_responsable || pres.email || '';
     if (repPhone || repEmail) {
         out.push({
-            id: 'rep', label: repName, sublabel: pres.es_autonomo ? 'Autónomo' : 'Persona de contacto',
+            id: 'rep', label: repName, saludo: pres.nombre_responsable || '',
+            sublabel: pres.es_autonomo ? 'Autónomo' : 'Persona de contacto',
             phone: repPhone, email: repEmail,
         });
     }
@@ -46,11 +52,11 @@ export function instaladorContacts(pres = {}) {
     if (arr.length) {
         arr.forEach((c, i) => {
             if (c && (c.tlf || c.email)) {
-                out.push({ id: `c${i}`, label: c.nombre || 'Contacto', sublabel: 'Persona de contacto', phone: c.tlf || '', email: c.email || '' });
+                out.push({ id: `c${i}`, label: c.nombre || 'Contacto', saludo: c.nombre || '', sublabel: 'Persona de contacto', phone: c.tlf || '', email: c.email || '' });
             }
         });
     } else if (pres.nombre_contacto && (pres.tlf_contacto || pres.email_contacto)) {
-        out.push({ id: 'contacto', label: pres.nombre_contacto, sublabel: 'Persona de contacto', phone: pres.tlf_contacto || '', email: pres.email_contacto || '' });
+        out.push({ id: 'contacto', label: pres.nombre_contacto, saludo: pres.nombre_contacto, sublabel: 'Persona de contacto', phone: pres.tlf_contacto || '', email: pres.email_contacto || '' });
     }
     return out;
 }

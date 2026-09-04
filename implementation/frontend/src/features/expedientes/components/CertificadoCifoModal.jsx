@@ -1008,7 +1008,9 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
         const repPhone = pres.tlf_responsable || empTlf || '';
         const repEmail = pres.email_responsable || empEmail || '';
         if (repPhone || repEmail) {
-            instContacts.push({ id: 'rep', label: repName, sublabel: pres.es_autonomo ? 'Autónomo' : 'Persona de contacto', phone: repPhone, email: repEmail });
+            // `saludo` = solo el NOMBRE; el label lleva los apellidos para
+            // reconocerlo en la lista, pero no se saluda con ellos.
+            instContacts.push({ id: 'rep', label: repName, saludo: pres.nombre_responsable || '', sublabel: pres.es_autonomo ? 'Autónomo' : 'Persona de contacto', phone: repPhone, email: repEmail });
         }
         const arr = Array.isArray(pres.contactos_notificacion) ? pres.contactos_notificacion : [];
         if (arr.length) {
@@ -1049,7 +1051,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
         const defaultTpl = rechazo ? 'correccion' : (doc.cert_cifo_signed_link ? 'requerimiento' : 'primera');
         setSelectedIds(defIds);
         setTemplateKey(defaultTpl);
-        setSendMessage(buildCifoMessage(defaultTpl, sel[0]?.label || empResponsable));
+        setSendMessage(buildCifoMessage(defaultTpl, (sel[0]?.saludo || sel[0]?.label) || empResponsable));
         setChannels({
             email: sel.some(c => c.email),
             whatsapp: sel.some(c => phoneValid(c.phone)),
@@ -1082,7 +1084,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
             } else {
                 setRiteBloqueo(null);
                 setSendDocsSel(['cifo', 'rite']);
-                setSendMessage(buildCifoMessage(defaultTpl, sel[0]?.label || empResponsable, ['cifo', 'rite']));
+                setSendMessage(buildCifoMessage(defaultTpl, (sel[0]?.saludo || sel[0]?.label) || empResponsable, ['cifo', 'rite']));
             }
         } catch {
             setRiteBloqueo('No se ha podido comprobar - mándala desde Documentación');
@@ -1101,14 +1103,14 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     };
     const pickTemplate = (key) => {
         setTemplateKey(key);
-        setSendMessage(buildCifoMessage(key, selectedContacts[0]?.label || empResponsable));
+        setSendMessage(buildCifoMessage(key, (selectedContacts[0]?.saludo || selectedContacts[0]?.label) || empResponsable));
     };
     // Marcar/desmarcar el RITE rehace el cuerpo del mensaje: uno que anuncia dos
     // documentos y solo lleva uno deja al instalador buscando lo que no llegó.
     const pickDoc = (k) => setSendDocsSel(prev => {
         const next = prev.includes(k) ? prev.filter(x => x !== k) : [...prev, k];
         const ordered = ['cifo', 'rite'].filter(x => next.includes(x));
-        if (ordered.length) setSendMessage(buildCifoMessage(templateKey, selectedContacts[0]?.label || empResponsable, ordered));
+        if (ordered.length) setSendMessage(buildCifoMessage(templateKey, (selectedContacts[0]?.saludo || selectedContacts[0]?.label) || empResponsable, ordered));
         return ordered;
     });
 

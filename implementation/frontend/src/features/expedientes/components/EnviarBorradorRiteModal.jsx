@@ -83,7 +83,8 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
         const repPhone = pres.tlf_responsable || pres.tlf || pres.telefono || '';
         const repEmail = pres.email_responsable || pres.email || '';
         if (repPhone || repEmail) {
-            instContacts.push({ id: 'rep', label: repName, sublabel: pres.es_autonomo ? 'Autónomo' : 'Persona de contacto', phone: repPhone, email: repEmail });
+            // `saludo` = solo el NOMBRE (el label lleva los apellidos).
+            instContacts.push({ id: 'rep', label: repName, saludo: pres.nombre_responsable || '', sublabel: pres.es_autonomo ? 'Autónomo' : 'Persona de contacto', phone: repPhone, email: repEmail });
         }
         const arr = Array.isArray(pres.contactos_notificacion) ? pres.contactos_notificacion : [];
         if (arr.length) {
@@ -121,7 +122,7 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
         // bloqueado haría que el mensaje anunciara un documento que no va a salir.
         const defDocs = ['rite', ...(estado.pendientes.includes('cifo') && !bloqueos.cifo ? ['cifo'] : [])];
         setDocs(defDocs);
-        setMessage(defaultMessage || buildMensaje(defDocs, sel[0]?.label));
+        setMessage(defaultMessage || buildMensaje(defDocs, sel[0]?.saludo || sel[0]?.label));
         setSelectedIds(defIds);
         setManualContact({ name: '', phone: '', email: '' });
         setChannels({ email: sel.some(c => c.email), whatsapp: sel.some(c => (c.phone || '').replace(/[^0-9]/g, '').length >= 9) });
@@ -169,13 +170,13 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
     // PRIMER contacto marcado); al cambiar los documentos, el cuerpo entero.
     const toggleSelected = (id) => setSelectedIds(prev => {
         const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
-        setMessage(buildMensaje(docs, next.length ? resolveContact(next[0]).label : ''));
+        setMessage(buildMensaje(docs, next.length ? (resolveContact(next[0]).saludo || resolveContact(next[0]).label) : ''));
         return next;
     });
     const toggleDoc = (k) => setDocs(prev => {
         const next = prev.includes(k) ? prev.filter(x => x !== k) : [...prev, k];
         const ordered = ['cifo', 'rite'].filter(x => next.includes(x));
-        if (ordered.length) setMessage(buildMensaje(ordered, selectedIds.length ? resolveContact(selectedIds[0]).label : ''));
+        if (ordered.length) setMessage(buildMensaje(ordered, selectedIds.length ? (resolveContact(selectedIds[0]).saludo || resolveContact(selectedIds[0]).label) : ''));
         return ordered;
     });
 

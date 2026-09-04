@@ -11,6 +11,9 @@ import { CanalChip, avisoCanales } from '../../../components/CanalChip';
 // Los nombres se guardan en MAYÚSCULAS (los formularios las fuerzan) y los
 // compuestos son mayoría: en el saludo se escriben bien y SIN cortar.
 import { nombreSaludo } from '../../../utils/nombres.js';
+// Requerimiento (volver a pedir la firma porque cambia el importe de la ayuda):
+// los importes, el plazo y el texto son fuente única en logic/requerimientoFirma.
+import { mensajeRequerimiento, importesRequerimiento, tituloRequerimiento, eur, fechaLarga, fechaLimite, PLAZO_REQUERIMIENTO_DIAS } from '../logic/requerimientoFirma';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Envío unificado de los anexos del cliente (Anexo I + Anexo de Cesión de Ahorros).
@@ -103,7 +106,7 @@ function anexoBlockers(expediente) {
     };
 }
 
-export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results, initialDocs, overrides, initialNote, onMarkSent, onEditCliente }) {
+export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results, initialDocs, overrides, initialNote, onMarkSent, onEditCliente, requerimiento }) {
     const { showConfirm } = useModal();
     const op       = expediente?.oportunidades || {};
     const cli      = expediente?.clientes || {};
@@ -113,8 +116,25 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
 
     const opInputs   = op?.datos_calculo?.inputs || {};
     const { rate: rateMwh, explicit: rateExplicit } = getClientCaeRate(expediente);
-    const aeRaw      = results?.savingsKwh || 0;
-    let beneficioRaw = results?.caeBonus;
+
+    // ── Requerimiento: los anexos se rehacen con la cifra NUEVA ──────────────
+    // Se le vuelve a pedir la firma precisamente porque el importe cambió: mandarle
+    // otra vez el convenio con el importe viejo sería pedirle que firme el documento
+    // que el requerimiento ha invalidado. El ahorro y el importe salen del ahorro
+    // VERIFICADO ya registrado en el expediente (results.*Verificado), que es el mismo
+    // con el que se le va a pagar — no de un número tecleado en este popup.
+    const imp = importesRequerimiento(results, requerimiento || {});
+    const esRequerimiento = !!requerimiento;
+    const resultsDoc = (esRequerimiento && imp.nuevo != null)
+        ? { ...results, savingsKwh: imp.ahorroNuevo ?? results?.savingsKwh, caeBonus: imp.nuevo }
+        : results;
+    const plazoDias = parseInt(requerimiento?.plazoDias, 10) || PLAZO_REQUERIMIENTO_DIAS;
+    const limiteStr = esRequerimiento
+        ? fechaLarga(requerimiento?.fechaLimite || fechaLimite(plazoDias))
+        : '';
+
+    const aeRaw      = resultsDoc?.savingsKwh || 0;
+    let beneficioRaw = resultsDoc?.caeBonus;
     if (beneficioRaw == null && aeRaw && rateMwh) beneficioRaw = (aeRaw / 1000) * rateMwh;
     const beneficioStr = beneficioRaw ? Math.round(beneficioRaw).toLocaleString('es-ES', { useGrouping: true }) : '___________';
 
@@ -175,7 +195,13 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     const greetName = (tgt, ids, manual = manualContact) => {
         const list = tgt === 'cliente' ? cliContacts : instContacts;
         const names = (ids || [])
-            .map(id => (id === 'otro' ? (manual?.name || '') : (list.find(c => c.id === id)?.label || '')))
+            // `saludo` = solo el NOMBRE (el `label` lleva los apellidos, que sirven
+            // para reconocer al contacto en la lista pero no para saludarle).
+            .map(id => {
+                if (id === 'otro') return manual?.name || '';
+                const c = list.find(x => x.id === id);
+                return (c?.saludo || c?.label || '');
+            })
             .map(firstNameOf)
             .filter(Boolean);
         const uniq = [...new Set(names)];
@@ -201,6 +227,21 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
             : '';
 
         const saludo = greetName(tgt, ids, manual);
+
+        // Un requerimiento no se cuenta con el texto de siempre: lo primero que hay
+        // que responderle a quien ya firmó es POR QUÉ se le manda otra vez.
+        if (esRequerimiento) {
+            return mensajeRequerimiento({
+                saludo: saludo || firstName,
+                numexpte, clienteNombre, docs: docKeys,
+                importeAnterior: imp.anterior, importeNuevo: imp.nuevo,
+                plazoDias: requerimiento.plazoDias || PLAZO_REQUERIMIENTO_DIAS,
+                limite: requerimiento.fechaLimite || null,
+                motivo: requerimiento.motivo || '',
+                target: tgt,
+                footer: tgt === 'cliente' ? footerCliente : footerInstalador,
+            });
+        }
 
         if (tgt === 'cliente') {
             if (both) return getDualMessage(saludo, beneficioStr, numexpte) + footerCliente;
@@ -260,6 +301,9 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         const bloq = anexoBlockers(expediente);
         const startDocs = ((Array.isArray(initialDocs) && initialDocs.length) ? initialDocs.filter(k => DOC_DEFS[k]) : ['anexo1', 'cesion'])
             .filter(k => !bloq[k]);
+        // En un requerimiento la nota de "corregido" no aplica: el mensaje ya explica
+        // por qué se le vuelve a pedir, y añadirle una observación encima lo enturbia.
+        const notaInicial = requerimiento ? '' : (initialNote || '').trim();
         const startTarget = 'cliente';
         const defIds = pickDefaultIds(startTarget);
         const sel = cliContacts.filter(c => defIds.includes(c.id));
@@ -271,7 +315,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         setChannels({ email: sel.some(c => c.email), whatsapp: sel.some(c => phoneValid(c.phone)) });
         // `initialNote` llega cuando el envío es la CORRECCIÓN de un anexo rechazado:
         // entra como observación para que el mensaje diga por qué se reenvía.
-        const nota = (initialNote || '').trim();
+        const nota = notaInicial;
         setSelectedIncIds([]);
         setExtraNote(nota);
         setNoteInMessage(true);
@@ -426,10 +470,10 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     // ── Construcción de los documentos seleccionados ─────────────────────────
     const buildDocDefs = () => sendDocs.map(k => {
         if (k === 'anexo1') {
-            const html = (overrides && overrides.anexo1) ? overrides.anexo1 : buildAnexoIHtml(expediente, results, {}, true);
+            const html = (overrides && overrides.anexo1) ? overrides.anexo1 : buildAnexoIHtml(expediente, resultsDoc, {}, true);
             return { key: 'anexo1', label: 'Anexo I', fileName: `${numexpte}${DOC_DEFS.anexo1.file}`, html };
         }
-        const html = (overrides && overrides.cesion) ? overrides.cesion : buildAnexoCesionHtml(expediente, results);
+        const html = (overrides && overrides.cesion) ? overrides.cesion : buildAnexoCesionHtml(expediente, resultsDoc);
         return { key: 'cesion', label: 'Anexo de Cesión', fileName: `${numexpte}${DOC_DEFS.cesion.file}`, html };
     });
 
@@ -480,7 +524,21 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                         // El nombre del email es el del CONTACTO al que se escribe, no el del titular.
                         userName: c.label || clienteNombre,
                         customMessage: message,
-                        summaryData: { id: numexpte, docType: docTypeLabel, userName: clienteNombre || c.label },
+                        // El asunto sale del docType: en un requerimiento tiene que
+                        // decirlo, o se lee como el mismo correo de la semana pasada.
+                        summaryData: {
+                            id: numexpte,
+                            docType: esRequerimiento ? `Requerimiento · ${docTypeLabel}` : docTypeLabel,
+                            userName: clienteNombre || c.label,
+                        },
+                        ...(esRequerimiento ? {
+                            pillLabel: `Requerimiento · ${plazoDias} días para contestar`,
+                            buttonLabel: '🖊️ Firmar de nuevo mis anexos',
+                            // La línea de asiento del correo es lo único que se lee en la
+                            // bandeja: tiene que decir lo mismo que el cuerpo, no la mitad
+                            // mala de la noticia.
+                            preheader: tituloRequerimiento({ importeAnterior: imp.anterior, importeNuevo: imp.nuevo }),
+                        } : {}),
                         docs: docDefs.map(d => ({ html: d.html, fileName: d.fileName })),
                     }, showConfirm);
                     out.push({ channel: 'email', status: 'ok', text: `${c.label} → ${c.email}` });
@@ -580,7 +638,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
             <div className="bg-[#0F1013] border border-white/[0.07] rounded-2xl shadow-2xl w-full max-w-lg md:max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
                 <div className="px-6 py-5 border-b border-white/[0.07] bg-brand/5 flex items-center justify-between">
                     <div>
-                        <h2 className="text-lg font-black uppercase tracking-tight text-white">Enviar anexos</h2>
+                        <h2 className="text-lg font-black uppercase tracking-tight text-white">{esRequerimiento ? 'Requerimiento · volver a firmar' : 'Enviar anexos'}</h2>
                         <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-0.5">Anexo I + Cesión de Ahorros · {numexpte}</p>
                     </div>
                     <button onClick={onClose} className="text-white/30 hover:text-white transition-colors">
@@ -589,6 +647,34 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                 </div>
 
                 <div className="px-6 py-5 space-y-5 max-h-[74vh] overflow-y-auto custom-scrollbar">
+                    {/* ── REQUERIMIENTO ────────────────────────────────────────────
+                        Lo que se anuncia aquí es lo que el botón va a provocar y no se
+                        puede deshacer: la firma que ya tenemos deja de contar. Se dice
+                        ANTES de enviar, con las dos cifras y el plazo a la vista, que
+                        es justo lo que hay que comprobar antes de mandarlo. */}
+                    {esRequerimiento && (
+                        <div className="rounded-2xl border border-amber-400/30 bg-amber-500/[0.07] p-4">
+                            <p className="text-[10px] font-black uppercase tracking-[0.15em] text-amber-300 mb-2">Requerimiento — se vuelve a pedir la firma</p>
+                            {imp.nuevo != null ? (
+                                <p className="text-[12px] text-white/70 leading-snug">
+                                    Importe de la ayuda:{' '}
+                                    {imp.anterior != null && (
+                                        <><span className="line-through text-white/35">{eur(imp.anterior)}</span>{' → '}</>
+                                    )}
+                                    <span className={`font-black ${imp.baja ? 'text-amber-300' : 'text-emerald-400'}`}>{eur(imp.nuevo)}</span>
+                                    {imp.ahorroNuevo != null && <span className="text-white/35"> · ahorro verificado {Math.round(imp.ahorroNuevo).toLocaleString('es-ES')} kWh</span>}
+                                </p>
+                            ) : (
+                                <p className="text-[12px] text-amber-200/80 leading-snug">
+                                    Sin ahorro verificado registrado en el expediente: los anexos se regenerarán con el ahorro actual y el mensaje no citará ningún importe nuevo.
+                                </p>
+                            )}
+                            <p className="text-[11px] text-white/45 leading-snug mt-2">
+                                Los anexos se regeneran con esta cifra y salen adjuntos. <span className="text-white/70 font-bold">La firma que ya tenemos deja de contar</span> hasta que llegue la nueva, y el enlace del cliente se lo dirá. Plazo para contestar: <span className="text-white/70 font-bold">{plazoDias} días</span>{limiteStr ? <> (hasta el {limiteStr})</> : null}.
+                            </p>
+                        </div>
+                    )}
+
                     {/* Documentos a enviar */}
                     <div>
                         <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Documentos a enviar</label>
