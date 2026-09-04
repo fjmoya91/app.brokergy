@@ -4873,6 +4873,7 @@ router.get('/:id/drive-link', staffOnly, async (req, res) => {
 // handler no está instalado o falla la resolución.
 router.get('/:id/open-local-folder', async (req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    const appExpLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${req.params.id}`;
     const page = ({ b64 = '', path = '', driveLink = '', error = '' }) => `<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BROKERGY · Carpeta local</title>
@@ -4885,7 +4886,9 @@ router.get('/:id/open-local-folder', async (req, res) => {
   p{color:#94a3b8;line-height:1.5;margin-bottom:14px;font-size:14px}
   code{display:block;background:#0a0e1a;border:1px solid #334155;border-radius:10px;padding:10px 12px;color:#cbd5e1;font-size:12px;word-break:break-all;margin:10px 0 18px}
   a.btn,button.btn{display:inline-block;border:none;cursor:pointer;font-family:inherit;background:#10b981;color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:12px 22px;border-radius:10px;margin:4px}
+  a.btn.outline{background:transparent;border:1px solid #334155;color:#cbd5e1}
   a.ghost{display:inline-block;color:#22d3ee;text-decoration:none;font-size:13px;font-weight:600;margin-top:8px}
+  .done{color:#10b981;font-size:13px;font-weight:600;margin-top:18px;padding-top:14px;border-top:1px solid #1e293b}
   .brand{color:#475569;font-size:11px;margin-top:26px;letter-spacing:.05em}
 </style></head>
 <body><div class="card">
@@ -4897,21 +4900,15 @@ router.get('/:id/open-local-folder', async (req, res) => {
        <code>${path}</code>
        <button class="btn" onclick="openLocal()">Abrir carpeta local</button>`}
   ${driveLink ? `<p style="margin-top:10px"><a class="ghost" href="${driveLink}" target="_blank" rel="noopener noreferrer">¿No se abre? Abrir en Google Drive →</a></p>` : ''}
-  ${error ? '' : `<p id="closeNote" style="display:none;margin-top:10px">✓ Listo. Ya puedes cerrar esta pestaña.</p>`}
+  ${error ? '' : `<p class="done">✓ Listo</p>
+  <a class="btn outline" href="${appExpLink}">📋 Volver al expediente</a>
+  <p style="font-size:12px;color:#475569;margin-top:10px;margin-bottom:0">O simplemente cierra esta pestaña cuando quieras.</p>`}
   <div class="brand">BROKERGY · Ingeniería Energética</div>
 </div>
 ${error ? '' : `<script>
   var B64=${JSON.stringify(b64)};
   function openLocal(){ try{ window.location.href='brokergylocal:'+B64; }catch(e){} }
   setTimeout(openLocal, 300);
-  // La pestaña la abrió el correo/WhatsApp, no un window.open() nuestro: el navegador
-  // solo deja cerrarla por script si no tiene más historial de navegación (que es el
-  // caso normal aquí). Lo intentamos; si el navegador lo bloquea, se ve el aviso.
-  setTimeout(function(){
-    var n = document.getElementById('closeNote');
-    if (n) n.style.display = 'block';
-    try { window.close(); } catch(e) {}
-  }, 1800);
 </script>`}
 </body></html>`;
 
@@ -6794,9 +6791,9 @@ router.post('/drive/make-public', enforceAuth, async (req, res) => {
 router.get('/:id/notify-client', async (req, res) => {
     const { token, phase } = req.query;
 
+    const appExpLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${req.params.id}`;
     const sendHtmlPage = (ok, message) => {
         const color = ok ? '#10b981' : '#ef4444';
-        const icon = ok ? '✅' : '❌';
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.send(`<!DOCTYPE html>
 <html lang="es">
@@ -6811,6 +6808,8 @@ router.get('/:id/notify-client', async (req, res) => {
     .icon { font-size: 48px; margin-bottom: 16px; }
     h2 { color: ${color}; margin-bottom: 12px; font-size: 22px; }
     p { color: #94a3b8; line-height: 1.5; margin-bottom: 8px; }
+    a.btn { display: inline-block; border: 1px solid #334155; color: #cbd5e1; text-decoration: none; font-weight: 700; font-size: 14px; padding: 12px 22px; border-radius: 10px; margin-top: 16px; }
+    .hint { font-size: 12px; color: #475569; margin-top: 10px; }
     .brand { color: #475569; font-size: 11px; margin-top: 30px; letter-spacing: 0.05em; }
   </style>
 </head>
@@ -6819,19 +6818,10 @@ router.get('/:id/notify-client', async (req, res) => {
     <div class="icon">${ok ? '📱' : '⚠️'}</div>
     <h2>${ok ? 'Cliente Notificado' : 'Error'}</h2>
     <p>${message}</p>
-    ${ok ? `<p id="closeNote" style="display:none;font-size:12px;color:#64748b">Esta pestaña se cierra sola…</p>` : ''}
+    ${ok ? `<a class="btn" href="${appExpLink}">📋 Volver al expediente</a>
+    <p class="hint">O simplemente cierra esta pestaña cuando quieras.</p>` : ''}
     <div class="brand">BROKERGY · Ingeniería Energética</div>
   </div>
-  ${ok ? `<script>
-    // Pestaña abierta desde el email, sin window.opener: el cierre por script solo
-    // lo permite el navegador si no hay más historial de navegación (el caso normal
-    // aquí). Si lo bloquea, se queda a la vista el aviso de que ya se puede cerrar.
-    setTimeout(function(){
-      var n = document.getElementById('closeNote');
-      if (n) n.style.display = 'block';
-      try { window.close(); } catch(e) {}
-    }, 2200);
-  </script>` : ''}
 </body>
 </html>`);
     };
@@ -6900,6 +6890,7 @@ router.get('/:id/notify-client', async (req, res) => {
 router.get('/:id/approve-cee-from-email', async (req, res) => {
     const { token, phase } = req.query;
 
+    const appExpLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${req.params.id}`;
     const sendHtmlPage = (ok, title, message) => {
         const color = ok ? '#10b981' : '#ef4444';
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -6916,6 +6907,8 @@ router.get('/:id/approve-cee-from-email', async (req, res) => {
     .icon { font-size: 48px; margin-bottom: 16px; }
     h2 { color: ${color}; margin-bottom: 12px; font-size: 22px; }
     p { color: #94a3b8; line-height: 1.5; margin-bottom: 8px; }
+    a.btn { display: inline-block; border: 1px solid #334155; color: #cbd5e1; text-decoration: none; font-weight: 700; font-size: 14px; padding: 12px 22px; border-radius: 10px; margin-top: 16px; }
+    .hint { font-size: 12px; color: #475569; margin-top: 10px; }
     .brand { color: #475569; font-size: 11px; margin-top: 30px; letter-spacing: 0.05em; }
   </style>
 </head>
@@ -6924,19 +6917,10 @@ router.get('/:id/approve-cee-from-email', async (req, res) => {
     <div class="icon">${ok ? '✅' : '⚠️'}</div>
     <h2>${title}</h2>
     <p>${message}</p>
-    ${ok ? `<p id="closeNote" style="display:none;font-size:12px;color:#64748b">Esta pestaña se cierra sola…</p>` : ''}
+    ${ok ? `<a class="btn" href="${appExpLink}">📋 Volver al expediente</a>
+    <p class="hint">O simplemente cierra esta pestaña cuando quieras.</p>` : ''}
     <div class="brand">BROKERGY · Ingeniería Energética</div>
   </div>
-  ${ok ? `<script>
-    // Pestaña abierta desde el email, sin window.opener: el cierre por script solo
-    // lo permite el navegador si no hay más historial de navegación (el caso normal
-    // aquí). Si lo bloquea, se queda a la vista el aviso de que ya se puede cerrar.
-    setTimeout(function(){
-      var n = document.getElementById('closeNote');
-      if (n) n.style.display = 'block';
-      try { window.close(); } catch(e) {}
-    }, 2200);
-  </script>` : ''}
 </body>
 </html>`);
     };
