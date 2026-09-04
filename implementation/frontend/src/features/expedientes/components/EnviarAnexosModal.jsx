@@ -724,7 +724,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                                 </p>
                             )}
                             <p className="text-[11px] text-white/45 leading-snug mt-2">
-                                Los anexos se regeneran con esta cifra y salen adjuntos. <span className="text-white/70 font-bold">La firma que ya tenemos deja de contar</span> hasta que llegue la nueva, y el enlace del cliente se lo dirá. Plazo para contestar: <span className="text-white/70 font-bold">{plazoDias} días</span>{limiteStr ? <> (hasta el {limiteStr})</> : null}.
+                                {imp.nuevo != null ? 'Los anexos se regeneran con esta cifra y salen adjuntos.' : 'Los anexos salen adjuntos, regenerados con los datos actuales del expediente.'} <span className="text-white/70 font-bold">La firma que ya tenemos deja de contar</span> hasta que llegue la nueva, y el enlace del cliente se lo dirá. Plazo para contestar: <span className="text-white/70 font-bold">{plazoDias} días</span>{limiteStr ? <> (hasta el {limiteStr})</> : null}.
                             </p>
                         </div>
                     )}

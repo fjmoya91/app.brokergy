@@ -146,6 +146,9 @@ export function mensajeRequerimiento({
             ? `El resultado es que *el expediente sigue adelante*, con el importe de la ayuda${anteriorStr ? ` ajustado de *${anteriorStr}* a *${nuevoStr}*` : ` fijado en *${nuevoStr}*`}.`
             : `El resultado es que *el expediente sigue adelante*, con un ajuste en la documentación presentada.`;
 
+    // Sin cifra nueva NO se anuncia "el importe definitivo": el convenio adjunto lleva
+    // el mismo importe de siempre, y prometer un ajuste que el documento no refleja es
+    // lo que hace que el cliente lo lea buscando un número que no ha cambiado.
     const plazoTxt = `Para poder contestar en plazo (tenemos *${dias} días naturales*, hasta el *${fLim}*)`;
 
     if (target === 'instalador') {
@@ -165,7 +168,7 @@ export function mensajeRequerimiento({
         + `Te escribimos en relación con tu expediente *${numexpte}*.\n\n`
         + `Tras la revisión del expediente hemos recibido un *requerimiento*. ${gestion} ${resultado}\n\n`
         + (motivo ? `*Qué se cuestionaba:* ${motivo}\n\n` : '')
-        + `${plazoTxt}, necesitamos que nos devuelvas *firmados de nuevo* estos dos documentos, ya actualizados con el importe definitivo:\n\n`
+        + `${plazoTxt}, necesitamos que nos devuelvas *firmados de nuevo* estos dos documentos${nuevoStr ? ', ya actualizados con el importe definitivo' : ', ya actualizados'}:\n\n`
         + `${listaDocs(docs)}\n\n`
         + `Los tienes adjuntos a este mensaje. *La versión anterior queda anulada*: solo es válida la que te enviamos ahora.\n\n`
         + `Sentimos pedirte otra firma; es lo único que necesitamos de ti para cerrar la contestación dentro del plazo. Del resto nos ocupamos nosotros.\n\n`
