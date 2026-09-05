@@ -225,6 +225,45 @@ export function firmanteMemoriaRite(pres = {}) {
     };
 }
 
+/**
+ * QUIÉN firma el CERTIFICADO CIFO.
+ *
+ * NO es el mismo que la Memoria RITE, y esa es justo la distinción: el CIFO lo
+ * firma quien REPRESENTA a la empresa (o el autónomo), mientras que la memoria
+ * la firma quien está HABILITADO ante Industria, que puede ser un técnico con su
+ * carné. En un autónomo suelen coincidir; en una empresa, casi nunca.
+ *
+ *   1. Representante legal distinto → firma él.
+ *   2. Si no                        → la persona de contacto de la ficha, que es
+ *      quien se asume que representa a la empresa (`declarado: false`).
+ *
+ * FUENTE ÚNICA con el documento: la consume `deriveCifoData` en cifoDoc.js. Si se
+ * duplicara, el popup diría un nombre y el certificado saldría con otro.
+ */
+export function firmanteCifo(pres = {}) {
+    const nom = (a, b) => [a, b].filter(Boolean).join(' ').trim();
+
+    if (pres.representante_distinto) {
+        return {
+            origen: 'representante',
+            etiqueta: 'Representante legal',
+            nombre: nom(pres.representante_nombre, pres.representante_apellidos),
+            dni: pres.representante_dni || '',
+            declarado: true,
+        };
+    }
+    return {
+        origen: pres.es_autonomo ? 'autonomo' : 'contacto',
+        etiqueta: pres.es_autonomo ? 'Profesional autónomo' : 'Persona de contacto',
+        nombre: nom(pres.nombre_responsable, pres.apellidos_responsable),
+        dni: pres.nif_responsable || '',
+        // Un autónomo SE REPRESENTA a sí mismo: ahí no hay nada que declarar. En
+        // una empresa, en cambio, nadie ha dicho que la persona de contacto sea
+        // quien puede firmar por ella.
+        declarado: !!pres.es_autonomo,
+    };
+}
+
 /** ¿Se puede mandar la memoria a firmar? Falta el nombre o el DNI del firmante. */
 export function firmanteIncompleto(f) {
     return !present(f?.nombre) || !present(f?.dni);

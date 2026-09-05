@@ -27,6 +27,9 @@ import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNue
 import { resolveDacs, ACS_METHOD } from './demandaAcs.js';
 import { ceeBaseDocumento, acsEnAlcance } from './ceeFases.js';
 import { deriveTer100Vars, esTer100, TER100_NOMBRE_ACTUACION, TER100_FICHA_COMPLETA } from './ter100.js';
+// Quién firma el CIFO. FUENTE ÚNICA con los popups de envío: si la regla se
+// duplicara, el popup anunciaría un firmante y el documento saldría con otro.
+import { firmanteCifo } from './instaladorPendientes.js';
 
 // Unidades terminales. Las tres primeras son de AGUA: la temperatura de impulsión
 // es la que decide qué SCOP de la ficha se aplica (35/45/55 °C).
@@ -355,12 +358,9 @@ export function deriveCifoData({ expediente, results }) {
     // los partners ya rellenados) y SOLO si `representante_distinto` está marcado
     // se usa el representante legal aparte que declaró la ficha. Ver
     // "Persona de contacto vs. Representante legal" en PrescriptorDetailModal.jsx.
-    const repDistinto = pres.representante_distinto === true;
-    const empResponsable = (repDistinto
-        ? [pres.representante_nombre, pres.representante_apellidos].filter(Boolean).join(' ')
-        : [pres.nombre_responsable, pres.apellidos_responsable].filter(Boolean).join(' ')
-    ) || empNombre;
-    const empResponsableDni = (repDistinto ? pres.representante_dni : pres.nif_responsable) || '';
+    const _firmante = firmanteCifo(pres);
+    const empResponsable = _firmante.nombre || empNombre;
+    const empResponsableDni = _firmante.dni || '';
     const empRite   = pres.numero_carnet_rite || '—';
     const ejeNombre = empresas.ejecutora.razon_social || empresas.ejecutora.nombre || '—';
     const ejeCif    = empresas.ejecutora.cif || empresas.ejecutora.nif || '—';

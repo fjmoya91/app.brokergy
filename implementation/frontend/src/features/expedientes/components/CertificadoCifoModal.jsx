@@ -25,9 +25,10 @@ import {
 import AnexoPaginasModal from './AnexoPaginasModal';
 // Qué le falta al INSTALADOR y con qué texto se le pide. FUENTE ÚNICA con el
 // popup de la Memoria RITE, con la ruta de envío y con la página pública.
-import { estadoInstalador, mensajeInstalador, enlaceInstalador,
-    firmanteMemoriaRite, firmanteIncompleto } from '../logic/instaladorPendientes';
+import { estadoInstalador, mensajeInstalador, enlaceInstalador } from '../logic/instaladorPendientes';
 import { DocsInstaladorPicker } from './DocsInstaladorPicker';
+// Quién firma cada documento, y poder arreglarlo sin salir del envío.
+import { FirmantesEnvio } from './FirmantesEnvio';
 
 const APP_BASE_URL = 'https://app.brokergy.es';
 
@@ -59,6 +60,10 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
 
     // ── Envío del CIFO al instalador (contacto + plantilla + Email/WhatsApp) ──
     const [sendOpen, setSendOpen] = useState(false);
+    // Editar la ficha del instalador desde el envío cambia QUIÉN firma, pero el
+    // documento se genera con el `expediente` que llegó por prop: se corta el
+    // envío hasta reabrirlo, o el PDF saldría con el firmante viejo.
+    const [fichaEditada, setFichaEditada] = useState(false);
     const [waReady, setWaReady] = useState(null);                 // null = sin comprobar
     // El estado de WhatsApp se consultaba UNA vez, al abrir el popup. La sesión
     // del servidor se cae y vuelve sola (cada deploy la reinicia y tarda unos
@@ -486,8 +491,6 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     // con "Cannot access 'pres' before initialization" — y minificado ni siquiera
     // dice `pres`. `const` no se iza como `var`.
     const presFirmanteRite = expediente?.prescriptores_firmante || pres;
-    const firmanteRite = firmanteMemoriaRite(presFirmanteRite);
-    const firmaRiteSinDatos = firmanteIncompleto(firmanteRite);
 
     const zoneStr = (op.datos_calculo?.zona || 'D3').toUpperCase();
     const zoneLabel = [
@@ -1399,33 +1402,15 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                                     onToggle={pickDoc}
                                 />
 
-                                {/* Quién firma la Memoria RITE, si se manda de paso.
-                                    Verificación en el momento de mandarla a firmar. */}
-                                {sendDocsSel.includes('rite') && !riteBloqueo && (
-                                    <div className={`rounded-2xl border px-4 py-3 ${(firmaRiteSinDatos || !firmanteRite.declarado)
-                                        ? 'border-amber-500/30 bg-amber-500/[0.06]'
-                                        : 'border-white/[0.07] bg-white/[0.02]'}`}>
-                                        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/30 mb-1">Firma la Memoria RITE</p>
-                                        {firmaRiteSinDatos ? (
-                                            <p className="text-[11px] text-amber-300/90 leading-snug">
-                                                <b>No consta quién la firma.</b> Indícalo en la ficha de {presFirmanteRite.razon_social || 'el instalador'} antes de mandársela: saldría sin firmante.
-                                            </p>
-                                        ) : (
-                                            <>
-                                                <p className="text-[12px] font-bold text-white leading-snug">
-                                                    {firmanteRite.nombre}
-                                                    {firmanteRite.dni ? <span className="text-white/40 font-medium"> · {firmanteRite.dni}</span> : null}
-                                                </p>
-                                                <p className="text-[10px] text-white/40 mt-0.5">{firmanteRite.etiqueta}</p>
-                                                {!firmanteRite.declarado && (
-                                                    <p className="text-[10.5px] text-amber-300/90 leading-snug mt-1.5">
-                                                        Nadie ha declarado quién firma: se usa la persona de contacto. Si no es quien firma ante Industria, decláralo en su ficha antes de enviarla.
-                                                    </p>
-                                                )}
-                                            </>
-                                        )}
-                                    </div>
-                                )}
+                                {/* Quién firma CADA documento de los que se mandan. No
+                                    es la misma persona: el CIFO lo firma quien representa
+                                    a la empresa y la memoria quien está habilitado ante
+                                    Industria (puede ser un técnico con su carné). */}
+                                <FirmantesEnvio
+                                    docs={sendDocsSel.filter(k => k !== 'rite' || !riteBloqueo)}
+                                    pres={presFirmanteRite}
+                                    onFichaEditada={() => setFichaEditada(true)}
+                                />
 
                                 {/* Destinatario(s) — se puede marcar más de uno */}
                                 <div>
@@ -1537,14 +1522,14 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                                     />
                                 </div>
                                 <div className="flex items-center gap-2.5 shrink-0">
-                                    <span className={`text-[9px] font-bold uppercase tracking-widest whitespace-nowrap ${avisoCanal ? 'text-amber-400/80' : 'text-white/25'}`}>
-                                        {avisoCanal || `${selectedContacts.length} dest.`}
+                                    <span className={`text-[9px] font-bold uppercase tracking-widest whitespace-nowrap ${(fichaEditada || avisoCanal) ? 'text-amber-400/80' : 'text-white/25'}`}>
+                                        {fichaEditada ? 'Reabre el envío' : (avisoCanal || `${selectedContacts.length} dest.`)}
                                     </span>
                                     <button onClick={() => setSendOpen(false)} className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all">
                                         Cerrar
                                     </button>
-                                    <button onClick={doSend} disabled={sending || (!willEmail && !willWhatsapp)}
-                                        title={avisoCanal || 'Enviar'}
+                                    <button onClick={doSend} disabled={fichaEditada || sending || (!willEmail && !willWhatsapp)}
+                                        title={fichaEditada ? 'Cierra y vuelve a abrir para que el documento salga con el firmante nuevo' : (avisoCanal || 'Enviar')}
                                         className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
                                         {sending
                                             ? <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>

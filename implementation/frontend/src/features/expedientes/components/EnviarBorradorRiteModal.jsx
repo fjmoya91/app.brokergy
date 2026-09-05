@@ -2,12 +2,13 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import confetti from 'canvas-confetti';
 import { postEmail } from '../../../utils/emailFallback';
-import { estadoInstalador, mensajeInstalador, enlaceInstalador,
-    firmanteMemoriaRite, firmanteIncompleto } from '../logic/instaladorPendientes';
+import { estadoInstalador, mensajeInstalador, enlaceInstalador } from '../logic/instaladorPendientes';
 import { buildInstalacionAddress } from '../utils/docGenerators';
 import { DocsInstaladorPicker } from './DocsInstaladorPicker';
 // Canal de envío de la barra inferior — COMPARTIDO con los otros popups de envío.
 import { CanalChip, avisoCanales } from '../../../components/CanalChip';
+// Quién firma cada documento, y poder arreglarlo sin salir del envío.
+import { FirmantesEnvio } from './FirmantesEnvio';
 
 // Documentación RITE: Memoria (.docx + .pdf) + Borrador del Certificado (.pdf).
 // Acciones: Descargar · Subir a Drive · Enviar al instalador (Email / WhatsApp /
@@ -32,8 +33,7 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
     // reciba un documento a nombre de quien no puede firmarlo. La ficha que manda
     // es la del firmante (si delega en otra empresa habilitada, es la de ESA).
     const presFirmante = expediente?.prescriptores_firmante || pres;
-    const firmante = firmanteMemoriaRite(presFirmante);
-    const firmaSinDatos = firmanteIncompleto(firmante);
+
     const enlace = expediente?.id ? enlaceInstalador(window.location.origin, expediente.id) : '';
 
     // Por qué NO se puede mandar cada documento. El CIFO no se genera aquí a
@@ -97,6 +97,11 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
     }
     const altIds = instContacts.filter(c => c.id !== 'rep').map(c => c.id);
 
+    // Si se edita la ficha del instalador desde aquí, el documento que se generase
+    // saldría con el firmante VIEJO: el modal recibe el expediente por prop y no
+    // puede recargarlo. Se corta el envío hasta reabrirlo, que es lo único que
+    // garantiza que el PDF lleve a quien de verdad firma.
+    const [fichaEditada, setFichaEditada] = useState(false);
     const [docs, setDocs] = useState(['rite']);     // qué se manda: rite y/o cifo
     const [message, setMessage] = useState(defaultMessage || '');
     const [waReady, setWaReady] = useState(null);
@@ -358,51 +363,15 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                         onToggle={toggleDoc}
                     />
 
-                    {/* ── QUIÉN FIRMA LA MEMORIA ─────────────────────────────
-                        Verificación en el momento de mandarla a firmar. El
-                        firmante puede ser el representante legal, un técnico con
-                        su carné, o la empresa habilitada en la que se delega —
-                        pero si nadie lo ha declarado, la memoria sale a nombre de
-                        la PERSONA DE CONTACTO, que puede no ser quien puede
-                        firmarla. Solo se enseña si se manda la Memoria RITE. */}
-                    {docs.includes('rite') && (
-                        <div className={`rounded-2xl border px-4 py-3 ${(firmaSinDatos || !firmante.declarado)
-                            ? 'border-amber-500/30 bg-amber-500/[0.06]'
-                            : 'border-white/[0.07] bg-white/[0.02]'}`}>
-                            <div className="flex items-start gap-3">
-                                <svg className={`w-4 h-4 mt-0.5 shrink-0 ${(firmaSinDatos || !firmante.declarado) ? 'text-amber-400' : 'text-emerald-400'}`}
-                                    fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                </svg>
-                                <div className="min-w-0 flex-1">
-                                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/30 mb-1">Firma la Memoria RITE</p>
-                                    {firmaSinDatos ? (
-                                        <p className="text-[11px] text-amber-300/90 leading-snug">
-                                            <b>No consta quién la firma.</b> Indícalo en la ficha de {presFirmante.razon_social || 'el instalador'} (Red de Prescriptores) antes de mandársela: saldría sin firmante.
-                                        </p>
-                                    ) : (
-                                        <>
-                                            <p className="text-[12px] font-bold text-white leading-snug">
-                                                {firmante.nombre}
-                                                {firmante.dni ? <span className="text-white/40 font-medium"> · {firmante.dni}</span> : null}
-                                            </p>
-                                            <p className="text-[10px] text-white/40 mt-0.5">
-                                                {firmante.etiqueta}
-                                                {presFirmante !== pres ? ` · ${presFirmante.razon_social || 'empresa habilitada'}` : ''}
-                                                {firmante.carnet ? ` · Carné ${firmante.carnet}` : ''}
-                                            </p>
-                                            {!firmante.declarado && (
-                                                <p className="text-[10.5px] text-amber-300/90 leading-snug mt-1.5">
-                                                    Nadie ha declarado quién firma: se usa la persona de contacto. Si no es quien firma ante Industria, decláralo en su ficha (representante legal o técnico firmante) antes de enviarla.
-                                                </p>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    )}
+                    {/* Quién firma CADA documento de los que se mandan (no es la
+                        misma persona: el CIFO lo firma quien representa a la empresa
+                        y la memoria quien está habilitado ante Industria), con la
+                        ficha a mano para declararlo si no consta. */}
+                    <FirmantesEnvio
+                        docs={docs.filter(k => !bloqueos[k])}
+                        pres={presFirmante}
+                        onFichaEditada={() => setFichaEditada(true)}
+                    />
 
                     {/* Acciones sobre los documentos */}
                     <div>
@@ -496,14 +465,14 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                     </div>
                     <div className="flex items-center gap-2.5 shrink-0">
                         {/* Aquí, además del canal, puede faltar el DOCUMENTO. */}
-                        <span className={`text-[9px] font-bold uppercase tracking-widest whitespace-nowrap ${(avisoCanal || !docs.filter(k => !bloqueos[k]).length) ? 'text-amber-400/80' : 'text-white/25'}`}>
-                            {!docs.filter(k => !bloqueos[k]).length ? 'Elige documento' : (avisoCanal || `${selectedContacts.length} dest.`)}
+                        <span className={`text-[9px] font-bold uppercase tracking-widest whitespace-nowrap ${(fichaEditada || avisoCanal || !docs.filter(k => !bloqueos[k]).length) ? 'text-amber-400/80' : 'text-white/25'}`}>
+                            {fichaEditada ? 'Reabre el envío' : (!docs.filter(k => !bloqueos[k]).length ? 'Elige documento' : (avisoCanal || `${selectedContacts.length} dest.`))}
                         </span>
                         <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all">
                             Cerrar
                         </button>
-                        <button onClick={handleSend} disabled={sending || busy === 'download' || busy === 'drive' || (!willEmail && !willWhatsapp) || !docs.filter(k => !bloqueos[k]).length}
-                            title={!docs.filter(k => !bloqueos[k]).length ? 'Selecciona al menos un documento' : (avisoCanal || 'Enviar')}
+                        <button onClick={handleSend} disabled={fichaEditada || sending || busy === 'download' || busy === 'drive' || (!willEmail && !willWhatsapp) || !docs.filter(k => !bloqueos[k]).length}
+                            title={fichaEditada ? 'Cierra y vuelve a abrir para que el documento salga con el firmante nuevo' : (!docs.filter(k => !bloqueos[k]).length ? 'Selecciona al menos un documento' : (avisoCanal || 'Enviar'))}
                             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
                             {sending
                                 ? <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
