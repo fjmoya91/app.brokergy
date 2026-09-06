@@ -37,6 +37,16 @@ export const SIGN_BOXES = {
     anexo_cesion: { page: 2, llx: 27, lly: 52, urx: 285, ury: 175 },
     anexo_cesion_cesionario: { page: 2, llx: 310, lly: 52, urx: 568, ury: 175 },
 
+    // Anexo Fotográfico — la caja "FIRMA DEL ANEXO FOTOGRÁFICO" de la PORTADA
+    // (anexoFotograficoDoc.js). La portada es siempre la página 1 y `.af-firma`
+    // va anclada al fondo (`margin-top:auto`), así que la caja no se mueve por
+    // muchas actuaciones que liste el índice — medido con Puppeteer (A4, margen
+    // 0, 96 dpi) con 1 y con 8 actuaciones: idéntica en las dos.
+    //   `.af-firma-box` ocupa x[56.68, 538.58] · y[73.60, 186.98] pt; aquí se
+    // recorta a su área interior (padding 6mm/9mm) y a la MITAD DERECHA, que es
+    // la que queda libre: el rótulo "FIRMADO POR" vive arriba a la izquierda.
+    anexo_fotografico: { page: 1, llx: 276, lly: 91, urx: 513, ury: 170 },
+
     // Anexo I · Listado Cesión (LOTE) — página 1, apaisada. DOS firmas:
     //   _proveedor = columna izquierda (EL PROVEEDOR / BROKERGY), la firma Brokergy antes de enviar.
     //   (por defecto)= columna derecha (el S.O.), la firma el Sujeto Obligado.

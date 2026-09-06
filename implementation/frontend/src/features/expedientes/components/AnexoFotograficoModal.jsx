@@ -7,6 +7,7 @@ import { buildAnexoPages, ANEXO_SCREEN_CSS } from './anexoFotograficoDoc';
 import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
+import { SIGN_BOXES } from '../logic/signBoxes';
 import { prepararImagenParaSubir } from '../../../utils/imageResize';
 import { DocsAdminModal } from '../../calculator/components/DocsAdminModal';
 import { postEmail } from '../../../utils/emailFallback';
@@ -913,10 +914,15 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                     </div>
                 )}
 
+                {/* El anexo lo genera esta misma pantalla, así que la caja de firma de
+                    la portada está SIEMPRE en el mismo sitio: se sitúa ya (SIGN_BOXES)
+                    y firmar es un solo clic, sin arrastrar nada. El ancla por texto
+                    queda de respaldo (el modal da prioridad a `fixedBox`). */}
                 {signOpen && signPdfB64 && (
                     <FirmarConCertificadoModal
                         pdfBase64={signPdfB64}
                         title={`Firmar Anexo Fotográfico · ${numexpte}`}
+                        fixedBox={SIGN_BOXES.anexo_fotografico}
                         signatureAnchor={['fdo', 'firma', 'conforme']}
                         onClose={() => { setSignOpen(false); setSignPdfB64(null); }}
                         onSigned={handleSigned}
