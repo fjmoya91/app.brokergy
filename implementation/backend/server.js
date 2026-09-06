@@ -31,10 +31,18 @@ process.on('unhandledRejection', (reason) => {
 const allowedOrigins = (process.env.FRONTEND_URL || 'https://app.brokergy.es')
   .split(',')
   .map(s => s.trim());
+// En DESARROLLO se admite también la IP privada del propio equipo: es como se
+// abre la hoja de firma desde el móvil (`/firma-movil/:token`), que no puede
+// entrar por `localhost` porque ahí localhost es el teléfono. Solo rangos
+// privados (RFC 1918) y solo cuando NO estamos en producción — en el VPS esto
+// no aplica y la lista sigue siendo `FRONTEND_URL`.
+const esLanPrivada = (origin) => process.env.NODE_ENV !== 'production'
+  && /^http:\/\/(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(:\d+)?$/.test(origin);
+
 app.use(cors({
   origin: (origin, cb) => {
     // Allow server-to-server calls (no origin) and localhost in dev
-    if (!origin || allowedOrigins.includes(origin) || /^http:\/\/localhost/.test(origin)) {
+    if (!origin || allowedOrigins.includes(origin) || /^http:\/\/localhost/.test(origin) || esLanPrivada(origin)) {
       return cb(null, true);
     }
     cb(new Error(`CORS: origin ${origin} not allowed`));

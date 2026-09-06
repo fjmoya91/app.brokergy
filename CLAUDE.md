@@ -3354,6 +3354,193 @@ aviso".
 
 ---
 
+## La firma A MANO se hace CON EL MÓVIL (2026-09-06)
+
+"Firma a mano" pedía impresora y escáner para devolver dos folios, y el cliente que no
+tenía las dos cosas se quedaba parado sin decirlo. Ahora, en `/firmar-anexos`, esa opción
+abre un ASISTENTE: lee los anexos, los firma con el dedo y manda la foto del DNI. Sin
+papel. La vía de siempre sigue viva —hay quien ya lo tiene firmado— como tercera opción,
+**"Ya lo tengo firmado en papel"**.
+
+El recorrido es el que se haría con los papeles delante, y en ese orden:
+
+```
+preparar → [leer · firmar · revisar] × documento → DNI delante → DNI detrás → enviar
+   (Convenio de Cesión primero, Anexo I después)
+```
+
+| Qué | Dónde |
+|---|---|
+| El asistente (pasos, visor, DNI, envío) | [AsistenteFirmaManuscrita.jsx](implementation/frontend/src/features/firma/AsistenteFirmaManuscrita.jsx) |
+| La hoja donde se firma | [SignaturePad.jsx](implementation/frontend/src/features/firma/SignaturePad.jsx) |
+| La tinta | [ink.js](implementation/frontend/src/features/firma/ink.js) — **port literal de ScannerApp** |
+| Estampar + "aspecto escaneado" | [escaneado.js](implementation/frontend/src/features/firma/escaneado.js) |
+| Dónde cae la firma | `SIGN_BOXES` — la MISMA fuente que usa Autofirma |
+| Recepción (sin cambios de fondo) | `POST /api/public/anexos-upload/:id`, que ya anexa los dos DNI |
+
+**REGLA — la tinta es un PORT de ScannerApp, no una reinterpretación.** `ink.js` es
+`ScannerApp/src/renderer/lib/ink.ts` traducido a JS y nada más: la física del trazo
+(adelgaza con la velocidad, grano del papel, empastado en las esquinas, plumín plano) está
+depurada allí contra firmas reales. Si se corrige algo, se corrige **en ScannerApp y se
+vuelve a portar**; parchear esta copia por su cuenta hace que la firma de la app y la de
+ScannerApp dejen de parecer la misma mano. Aquí va fija en **PLUMA** y trazo **MEDIO**: al
+cliente no se le pregunta con qué firma —elegir entre tres plumas no le aporta nada y es
+una pantalla más antes de la única que importa.
+
+**REGLA — se LEE antes de firmar, y hay que llegar a la última página.** El convenio dice
+"habiendo leído por sí mismos y hallándose conformes": un botón de firmar activo desde el
+primer instante convierte esa frase en mentira, y es lo único que separa esto de un clic de
+aceptación.
+
+**REGLA — el documento se lee A PANTALLA COMPLETA** ([LectorDocumento.jsx](implementation/frontend/src/features/firma/LectorDocumento.jsx),
+portaleado). Encajado en la tarjeta era un A4 dentro de una caja de 520 px dentro de una
+página con márgenes: en un móvil el cuerpo del texto quedaba a unos 6 px — se veía que había
+un documento, pero no se leía, y leerlo es justo lo que se le está pidiendo. Lleva **zoom**
+(100 / 160 / 220 %, con desplazamiento lateral), porque a ancho completo un A4 entra entero
+en la pantalla pero con la letra ilegible. El lienzo se recorta a 4 MPx: un A4 al 220 % en
+una pantalla densa pide 11 MPx (44 MB) y un móvil modesto cierra la pestaña.
+
+⚠️ **pdf.js puede quedarse colgado SIN dar error, y hay que ponerle plazo.** Crea su worker
+con `type: "module"`; si el navegador no lo arranca pero tampoco lanza un error, la promesa
+no resuelve NUNCA — no hay plazo interno ni fallback. Se ve como una hoja en blanco eterna,
+sin aviso, que es lo que peor se explica por teléfono (medido en un Android real, con el
+mismo enlace funcionando en el ordenador). El lector espera `PLAZO_MS` (15 s) y, si no hay
+documento, enseña la salida: **"Abrir el documento"** con el visor propio del teléfono, y
+solo entonces un "Ya lo he leído" que desbloquea la firma. El motivo técnico se imprime en
+pequeño: sin él, un fallo en el móvil de un cliente no se puede diagnosticar.
+
+**REGLA — el documento sale RASTERIZADO, y eso es lo que se quiere.** Un PDF con texto
+seleccionable y una firma pegada encima no se parece a lo que se venía recibiendo (un
+escaneo) y delata que el papel nunca existió. Rasterizado a 150 DPI / JPEG 0,85 es
+indistinguible de imprimir, firmar y escanear — que es exactamente lo que ha pasado, sin el
+papel. Lo hace el NAVEGADOR (pdf.js, que ya está en el bundle para el visor de Autofirma, +
+jsPDF): no hay Python delante del cliente, y de paso sale gratis lo que en ScannerApp son
+dos operaciones — si la página se convierte en imagen, la firma se pinta sobre el píxel y
+no hay que incrustar nada en el PDF.
+
+**REGLA — el tope que manda es el ALTO, no el ancho.** Una firma de verdad es una rúbrica
+compacta —más cuadrada que apaisada— y los recuadros de firma son apaisados, así que el que
+recorta casi siempre es el alto. Con el alto al 62 % una rúbrica cuadrada salía ocupando un
+cuarto del ancho de su caja y en el Anexo I se veía perdida en el hueco; al **82 %** queda del
+tamaño con el que se firma un papel. Referencia para no pasarse: la firma de Brokergy impresa
+en la columna del Cesionario del Convenio ocupa el 97 % del alto de la suya.
+
+**REGLA — la firma cae donde diga `signBoxes.js`, la misma fuente que Autofirma.** Con una
+copia de las coordenadas aquí, la firma electrónica y la manuscrita acabarían en sitios
+distintos del mismo documento el día que cambie la plantilla. Dentro del recuadro se
+centra, conserva su proporción (nunca se estira: una firma deformada canta a montaje desde
+el otro lado de la mesa) y se apoya sobre la línea. Verificado sobre las dos cajas: la del
+Convenio (258×123 pt) y la del Anexo I (227×75 pt).
+
+⚠️ **`page.render` NECESITA `intent: 'print'` para rasterizar.** Pintando para pantalla,
+pdf.js reparte la página en trozos encadenados con `requestAnimationFrame`, y **rAF no corre
+con la pestaña en segundo plano ni con el móvil bloqueado**: medido, el escaneo se quedaba
+parado PARA SIEMPRE en cuanto la pantalla dejaba de estar a la vista, y que el cliente mire
+un WhatsApp mientras se prepara su documento es el caso normal. Con intención de impresión
+pinta del tirón (y de paso, 179 ms en vez de 1.859).
+
+⚠️ **pdf.js VACÍA el array de bytes que se le pasa** (lo transfiere al worker). Por eso
+`cargarPdf` copia SIEMPRE: sin la copia, el segundo uso del mismo PDF —escanearlo después
+de haberlo leído en el visor, o "volver a firmar"— recibía cero bytes y el proceso se
+colgaba en "preparando tu documento firmado", sin error.
+
+**REGLA — cada documento se cierra ANTES de pasar al siguiente.** Al aceptar la firma se
+estampa y se escanea ahí mismo, y lo que se enseña es el resultado de verdad, no una
+simulación. Dejándolo todo para el final, un fallo al componer aparecería después de que el
+cliente diera por hecho que había terminado.
+
+**REGLA — la foto del DNI se ENCOGE en el navegador, al elegirla.** Un móvil de hoy hace
+fotos de 3-5 MB y las dos caras iban tal cual dentro del Convenio: medido, el anexo firmado
+pesaba **6,7 MB de los que 5,5 eran el DNI**. Eso lo sube el cliente por datos móviles —justo
+donde la conexión falla— y no aporta nada: a 1800 px de lado mayor el documento ocupa unos
+1200 px de ancho, más que un escaneo a 300 ppp, y el número se lee igual (comprobado
+ampliando el recorte: 2,91 MB → 473 KB, el 84 % menos). Se comprime AL ELEGIRLA y no al
+enviar, para que la vista previa sea exactamente lo que va a viajar; y ante cualquier fallo
+se devuelve el original, porque una foto pesada se sube y una foto estropeada hay que
+repetirla — y quien la hace ya ha firmado dos documentos.
+
+⚠️ **Los ANEXOS escaneados no se tocan.** Medido sobre el Anexo I real: de 150 dpi/q0,85
+(701 KB) solo se baja a 429 KB forzando 110 dpi, y ahí ya peligran las notas al pie que lee
+el verificador. La ganancia estaba en el DNI, no en el documento.
+
+**El DNI se pide DESPUÉS de firmar, cara a cara** (`capture="environment"` abre la cámara
+trasera), con la foto a la vista para poder repetirla — y con la salida de **subir un PDF**,
+que es lo que tiene quien ya lo lleva escaneado y suele traer las dos caras. Ese es el único
+cambio de fondo en el backend: `dni_pdf` como ALTERNATIVA a las dos caras (no un añadido),
+más `firma_origen: 'asistente'`, que se sella en `documentacion` y viaja en el aviso al
+staff — que la firma se trazara sobre el borrador que servimos nosotros no se puede
+reconstruir después mirando el PDF.
+
+El montaje final NO cambia: el Convenio se archiva con el DNI del cliente y el del
+representante de Brokergy anexados, por `buildCesionManuscrita` (regla 22.b), igual que un
+escaneo de papel. Y la contrafirma tampoco hace falta: el borrador ya lleva impresa la firma
+de Brokergy en la columna del Cesionario.
+
+### Y si se está en el ORDENADOR, la firma se pasa al MÓVIL con un QR
+
+Una firma hecha con el ratón es una mala imitación de la de uno: el pulso va en la muñeca y
+sale rígida, con el ancho constante de una polilínea. Así que **con un ratón delante no se
+abre la hoja: se ofrece primero el QR** (`FirmarConMovil`), y solo debajo "Firmar aquí con el
+ratón". Con un dedo delante se va derecho a la hoja — un QR en un móvil no tiene sentido.
+Lo decide `matchMedia('(pointer: coarse)')`, el PUNTERO y no el ancho: un portátil táctil de
+15" firma con el dedo perfectamente y un móvil enchufado a un monitor sigue siendo un móvil.
+
+Es un port del planteamiento de `ScannerApp/src/main/signServer.ts` + `PhoneSignModal.tsx`,
+con la diferencia de que aquí SÍ hay servidor: no hace falta levantar uno en el equipo.
+
+| Qué | Dónde |
+|---|---|
+| Las sesiones (token, caducidad, IPs) | [firmaMovil.js](implementation/backend/services/firmaMovil.js) |
+| Rutas | `POST /api/public/firma-movil` · `GET|POST /firma-movil/:token` · `GET /firma-movil/:token/esperar` |
+| El QR en el ordenador | [FirmarConMovil.jsx](implementation/frontend/src/features/firma/FirmarConMovil.jsx) |
+| Lo que ve el teléfono | [FirmaMovilView.jsx](implementation/frontend/src/features/firma/FirmaMovilView.jsx) → `/firma-movil/:token` |
+
+**REGLA — al teléfono NO le viaja el documento; solo vuelve la firma.** Igual que en
+ScannerApp: al móvil se le manda una hoja en blanco y el NOMBRE de lo que se firma, nada
+más. Es lo que hace razonable abrir esto con una cámara — con el token en la mano, lo único
+que se puede hacer es mandar un PNG. Y de paso evita pedirle a nadie que busque el "Fdo."
+dando pellizcos a una pantalla de seis pulgadas: el documento ya se ha leído en el PC.
+
+**REGLA — el token es de UN SOLO USO y dura 10 minutos**, y se marca como usado ANTES de
+guardar la firma: si el móvil reintenta por un timeout de red, no puede colar una segunda
+firma con el mismo enlace. Al recogerla, el PC cierra la sesión. Un segundo documento pide
+un enlace NUEVO.
+
+**REGLA — las sesiones viven en MEMORIA.** Duran minutos y con el usuario delante; una tabla
+obligaría a limpiar filas muertas para siempre a cambio de sobrevivir a un reinicio que, si
+ocurre, se resuelve pidiendo otro enlace. Es lo contrario que el bot de WhatsApp, donde un
+reinicio nocturno sí se comería una pregunta.
+
+**REGLA — el PC PREGUNTA cada 2 s; no hay websocket.** Dura un minuto, y así sobrevive a que
+el ordenador recargue la página.
+
+⚠️ **En LOCAL el enlace se compone con la IP de la RED LOCAL, no con `localhost`**: en el
+teléfono, `localhost` es el propio teléfono. `direccionesLan()` copia los pesos de ScannerApp
+(se penalizan VirtualBox, VMware, Docker, WSL, VPN) y CONSERVA el puerto del origen que pidió
+el enlace, así que sale `http://192.168.1.x:5173/firma-movil/…` y se puede probar con el
+móvil sin desplegar nada. Acertar con la IP siempre es imposible, así que "¿No conecta?"
+ofrece las demás con su propio QR. En producción manda el origen real.
+
+⚠️ **Dos cosas que solo se ven probando DESDE OTRA IP** y que costaron el diagnóstico:
+- `FirmaMovilView` **y `FirmarAnexosView`** piden la API en **relativo** (`/api/public`).
+  Las demás vistas públicas apuntan a `http://localhost:3000` en desarrollo y les vale
+  porque se abren en el mismo ordenador que corre el backend; estas dos las abre el CLIENTE
+  con el móvil, y en relativo se puede recorrer el proceso ENTERO desde el teléfono entrando
+  por `http://<ip-lan>:5173/firmar-anexos/<id>` — que es donde se ve de verdad si los
+  documentos se leen en una pantalla de seis pulgadas.
+- El **CORS** del backend rechazaba el origen de la LAN (`esLanPrivada` en `server.js`). Solo
+  se admite fuera de producción y solo en rangos privados: en el VPS `NODE_ENV=production` y
+  la lista sigue siendo `FRONTEND_URL`.
+
+⚠️ **`SignaturePad` y el aviso de "gira el teléfono" van PORTALEADOS a `document.body`**
+(regla 29.b). La tarjeta de `/firmar-anexos` lleva `backdrop-blur-xl`, y un `position: fixed`
+se ancla al ancestro más cercano con `backdrop-filter`: la "pantalla completa" se recortaba a
+esa tarjeta y la hoja salía en una franja de 200 px con los botones amontonados. El aviso
+necesita además su propio portal — vivía dentro de `#root`, que apila ANTES que el portal de
+la hoja, así que quedaba DEBAJO de ella por mucho z-index que llevara.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -3422,6 +3609,8 @@ aviso".
 32. **El CEE que MANDA es el FINAL si está cargado, y si no el INICIAL — en TODOS los documentos**: fuente única [ceeFases.js](implementation/frontend/src/features/expedientes/logic/ceeFases.js) (`ceeBaseDocumento`), que sustituye a las cuatro copias de la regla y a las cuatro superficies que no la aplicaban (las fichas RES060/RES093 imprimían 0,00 sin CEE final). Retirar un certificado se hace desde la rejilla del CEE, **solo ADMIN y preguntando**: borrar el `.xml` de Drive no borraba la demanda, que seguía mandando en el CIFO y en la economía. Antes de generar el CIFO / la ficha, la puerta AVISA (ámbar, separado de lo que falta) si no hay CEE final —en especial por la **demanda de ACS**, que es la que sí cambia entre los dos certificados— o si las dos demandas no coinciden; con el ACS fuera de alcance no se avisa: ya se imprime "no aplica" (regla 12.b). Ver "El CEE que MANDA, y qué se avisa antes de generar".
 
 33. **Un REQUERIMIENTO vuelve a pedir la firma del Anexo I y del Convenio, y lo dice con el importe nuevo**: mismo mecanismo que la re-firma del CIFO, generalizado en `BORRADORES_CLIENTE.refirma` ([docValidacion.js](implementation/backend/utils/docValidacion.js) — `refirmaPendiente`, `firmaVigente`). Se lanza desde el **popup de envío** (selector *Primera firma · Requerimiento*, como el del instalador; sale marcado solo si ya hay alguna firma) o desde el MISMO popup del rechazo (`tipo:'requerimiento'`), y en los dos casos sella solo los anexos que ya están firmados. El importe nuevo sale del **ahorro verificado** que se guarda en el expediente, nunca de un campo del mensaje, y con él se generan los anexos mientras el requerimiento siga vivo (`resultsParaDocumento`) — también desde el botón "Generar", o el borrador bueno de Drive se machacaría. El firmado anterior deja de contar (slot ámbar, vista pública y parte diario), sin borrarse. **Un importe que baja se cuenta con lo que ha costado sostenerlo** —qué se ha hecho primero, la cifra dentro de "el expediente sigue adelante"—, y las cuatro superficies lo dicen igual. Textos, importes y plazo: fuente única en [logic/requerimientoFirma.js](implementation/frontend/src/features/expedientes/logic/requerimientoFirma.js). Ver "Un REQUERIMIENTO vuelve a pedir la firma del Anexo I y del Convenio".
+
+34. **La firma A MANO se hace con el MÓVIL, y el documento sale rasterizado**: en `/firmar-anexos`, "Firma a mano" abre un asistente (leer → firmar con el dedo → revisar, por cada documento; después el DNI cara a cara) que estampa la firma en la caja de `SIGN_BOXES` —la MISMA fuente que Autofirma— y rasteriza el PDF a 150 DPI, para que sea indistinguible de un escaneo. La vía de siempre queda como "Ya lo tengo firmado en papel". La tinta es un **port literal** de `ScannerApp/src/renderer/lib/ink.ts` ([ink.js](implementation/frontend/src/features/firma/ink.js)), fija en pluma y trazo medio: se corrige allí y se vuelve a portar, nunca se parchea aquí. Dos gotchas de pdf.js que no se pueden deshacer: `page.render` necesita **`intent: 'print'`** (para pantalla usa `requestAnimationFrame`, que NO corre con la pestaña oculta ni el móvil bloqueado → el escaneo se colgaba para siempre) y **vacía el array que recibe**, así que `cargarPdf` copia siempre. Se LEE hasta la última página antes de poder firmar. **Con un ratón delante no se abre la hoja: se ofrece pasar la firma al MÓVIL con un QR** ([firmaMovil.js](implementation/backend/services/firmaMovil.js) + `FirmarConMovil` + `/firma-movil/:token`), port de `signServer.ts` de ScannerApp — token de un solo uso, 10 minutos, sesión en memoria, y al teléfono NO le viaja el documento, solo vuelve el PNG. En local el enlace se compone con la **IP de la LAN** (en el móvil `localhost` es el móvil), lo que además exigió que esa vista pida la API en relativo y que el CORS admita rangos privados fuera de producción. `SignaturePad` y el aviso de girar van **portaleados a `document.body`** o la tarjeta con `backdrop-blur` los recorta (regla 29.b). Único cambio de fondo en el backend: `dni_pdf` como alternativa a las dos caras y `firma_origen`. Ver "La firma A MANO se hace CON EL MÓVIL".
 
 
 ---

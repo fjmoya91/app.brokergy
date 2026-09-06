@@ -2309,28 +2309,99 @@ router.post('/anexos-datos/:expedienteId',
         }
     });
 
+// ─── Firmar desde el MÓVIL lo que se está tramitando en el ORDENADOR ─────────
+//
+// Una firma hecha con el ratón es una mala imitación de la de uno: el pulso va
+// en la muñeca, no en la mano. Quien abre el enlace en el PC pide aquí un enlace
+// corto, lo enseña como QR, firma con el dedo en su teléfono y la firma vuelve.
+// Al móvil NO viaja el documento: solo el nombre de lo que se firma.
+//
+// Las tres rutas son públicas a propósito —quien firma no tiene cuenta— y el
+// token (16 bytes, un solo uso, 10 minutos) es toda la autorización que hay. Por
+// eso no llevan NI un dato del expediente: con el token en la mano, lo único que
+// se puede hacer es mandar un PNG.
+const firmaMovil = require('../services/firmaMovil');
+
+router.post('/firma-movil', async (req, res) => {
+    try {
+        const enlace = firmaMovil.abrir({
+            etiqueta: req.body?.etiqueta,
+            origen: req.get('origin') || req.get('referer'),
+        });
+        // El QR se dibuja AQUÍ y no en el navegador: la alternativa es meter una
+        // librería de QR en un bundle que ya avisa por tamaño, para pintar dos
+        // imágenes que solo ve quien firma desde un ordenador. Van también los de
+        // las direcciones alternativas —son 3 KB cada uno— para que elegir otra
+        // en "¿no conecta?" sea instantáneo y no otra vuelta al servidor.
+        const QRCode = require('qrcode');
+        const pintar = (u) => QRCode.toDataURL(u, { margin: 1, width: 460 });
+        enlace.qr = await pintar(enlace.url);
+        enlace.qrAlternativas = await Promise.all(enlace.alternativas.map(pintar));
+        res.json(enlace);
+    } catch (e) {
+        res.status(503).json({ error: e.message });
+    }
+});
+
+// Lo que ve el TELÉFONO al abrir el enlace. No consume el enlace.
+router.get('/firma-movil/:token', (req, res) => {
+    const datos = firmaMovil.info(req.params.token);
+    if (!datos) return res.status(410).json({ error: 'Este enlace de firma ya no vale. Pide otro desde el ordenador.' });
+    res.json(datos);
+});
+
+// El TELÉFONO manda la firma.
+router.post('/firma-movil/:token', (req, res) => {
+    const r = firmaMovil.recibir(req.params.token, req.body?.dataUrl);
+    if (r.ok) return res.json({ ok: true });
+    const motivos = {
+        caducado: [410, 'Este enlace de firma ya no vale. Pide otro desde el ordenador.'],
+        usado: [409, 'Con este enlace ya se ha firmado. Pide otro desde el ordenador.'],
+        formato: [400, 'La firma no ha llegado bien. Vuelve a intentarlo.'],
+        'tamaño': [413, 'La firma ha llegado demasiado grande.'],
+    };
+    const [codigo, mensaje] = motivos[r.motivo] || [400, 'No se pudo recibir la firma.'];
+    res.status(codigo).json({ error: mensaje });
+});
+
+// El ORDENADOR pregunta si ya ha llegado. Al entregarla, el enlace se cierra.
+router.get('/firma-movil/:token/esperar', (req, res) => {
+    res.json(firmaMovil.recoger(req.params.token));
+});
+
 router.post('/anexos-upload/:expedienteId',
     upload.fields([
         { name: 'anexo_i', maxCount: 1 },
         { name: 'anexo_cesion', maxCount: 1 },
         { name: 'dni_frontal', maxCount: 1 },
         { name: 'dni_trasero', maxCount: 1 },
+        // Un ÚNICO fichero con el documento de identidad entero (lo normal cuando
+        // el cliente ya lo tiene escaneado: un PDF con las dos caras). Es una
+        // alternativa a las dos fotos, no un añadido.
+        { name: 'dni_pdf', maxCount: 1 },
     ]),
     async (req, res) => {
         try {
             const { expedienteId } = req.params;
             const cesionFirma = (req.body?.cesion_firma || '').toLowerCase() === 'electronica' ? 'electronica' : 'manuscrita';
+            // De dónde sale la firma manuscrita: 'asistente' = la trazó el cliente
+            // con el dedo sobre el borrador que le servimos nosotros; sin valor =
+            // el escaneo de un papel, como hasta ahora. No cambia el documento,
+            // pero es lo que después nadie puede reconstruir mirando el PDF.
+            const firmaOrigen = (req.body?.firma_origen || '').toLowerCase() === 'asistente' ? 'asistente' : null;
             const anexoIFile   = req.files?.anexo_i?.[0] || null;
             const cesionFile   = req.files?.anexo_cesion?.[0] || null;
             const dniFrontFile = req.files?.dni_frontal?.[0] || null;
             const dniBackFile  = req.files?.dni_trasero?.[0] || null;
+            const dniPdfFile   = req.files?.dni_pdf?.[0] || null;
 
-            if (!anexoIFile && !cesionFile && !dniFrontFile && !dniBackFile) {
+            if (!anexoIFile && !cesionFile && !dniFrontFile && !dniBackFile && !dniPdfFile) {
                 return res.status(400).json({ error: 'No se ha recibido ningún archivo' });
             }
-            // Si la Cesión es manuscrita, necesitamos el DNI por ambas caras para anexarlo.
-            if (cesionFile && cesionFirma === 'manuscrita' && (!dniFrontFile || !dniBackFile)) {
-                return res.status(400).json({ error: 'Para una firma manuscrita del Anexo de Cesión necesitamos la foto del DNI por la cara delantera y la trasera.' });
+            // Si la Cesión es manuscrita, necesitamos el DNI para anexarlo: las dos
+            // caras, o el documento entero en un solo fichero.
+            if (cesionFile && cesionFirma === 'manuscrita' && !dniPdfFile && (!dniFrontFile || !dniBackFile)) {
+                return res.status(400).json({ error: 'Para una firma manuscrita del Anexo de Cesión necesitamos la foto del DNI por la cara delantera y la trasera (o el PDF con las dos caras).' });
             }
 
             const { data: exp, error } = await supabase
@@ -2378,12 +2449,18 @@ router.post('/anexos-upload/:expedienteId',
             if (anexoIFile) {
                 const buf = await toPdfBuffer(anexoIFile);
                 const r = await saveReplacing(`${numexpte} - Anexo I_fdo.pdf`, buf);
-                if (r?.link) { docUpdate.anexo_i_signed_link = r.link; camposSubidos.push('anexo_i_signed_link'); recibido.push('Anexo I firmado'); }
+                if (r?.link) {
+                    docUpdate.anexo_i_signed_link = r.link; camposSubidos.push('anexo_i_signed_link'); recibido.push('Anexo I firmado');
+                    if (firmaOrigen) docUpdate.anexo_i_firma_origen = firmaOrigen;
+                }
             }
 
             // DNI (delantera + trasera) → UNA sola página (delante arriba, detrás abajo).
             let dniOnePage = null, dniFrontPdf = null, dniBackPdf = null;
-            if (dniFrontFile && dniBackFile) {
+            // Un solo fichero con el documento entero manda sobre las caras: si lo
+            // ha subido es porque es lo que tiene, y ya viene montado.
+            if (dniPdfFile) dniOnePage = await toPdfBuffer(dniPdfFile);
+            else if (dniFrontFile && dniBackFile) {
                 dniOnePage = await dniTwoSidesOnePage(dniFrontFile.buffer, dniBackFile.buffer);
             }
             if (dniOnePage) {
@@ -2408,6 +2485,7 @@ router.post('/anexos-upload/:expedienteId',
             if (cesionFile) {
                 let cesionPdf = await toPdfBuffer(cesionFile);
                 docUpdate.anexo_cesion_firma_tipo = cesionFirma;
+                if (firmaOrigen) docUpdate.anexo_cesion_firma_origen = firmaOrigen;
                 if (cesionFirma === 'manuscrita') {
                     // Anexar: DNI del cliente (1 página) + DNI del representante de Brokergy.
                     const annexes = [];
@@ -2480,6 +2558,7 @@ router.post('/anexos-upload/:expedienteId',
                     clienteData.nombre ? `Cliente: *${clienteData.nombre}*` : null,
                     clienteData.direccionInstalacion ? `Instalación: ${clienteData.direccionInstalacion}` : null,
                     `Recibido: ${partes}`,
+                    firmaOrigen === 'asistente' ? '✍️ Firmado a mano DESDE EL MÓVIL, sobre el borrador que le servimos.' : null,
                     ...(pendienteContrafirma
                         ? ['', `El cliente firmó *electrónicamente*: falta la firma de Brokergy en el Anexo de Cesión.\nAbre este enlace y se lanza directamente la firma con Autofirma:\n${firmaLink}`]
                         : []),

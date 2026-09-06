@@ -2,10 +2,21 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { DynamicNetworkBackground } from '../../../components/DynamicNetworkBackground';
 import FirmarConCertificadoModal from '../../expedientes/components/FirmarConCertificadoModal';
+import AsistenteFirmaManuscrita from '../../firma/AsistenteFirmaManuscrita';
 import { SIGN_BOXES } from '../../expedientes/logic/signBoxes';
 
-const isProd = import.meta.env.PROD;
-const API_URL = isProd ? '/api/public' : 'http://localhost:3000/api/public';
+/**
+ * RELATIVA, también en desarrollo.
+ *
+ * Esta pantalla la abre el CLIENTE, y el cliente entra con el móvil. Apuntando a
+ * `http://localhost:3000` solo funciona abierta en el mismo ordenador que corre
+ * el backend, así que en local no había forma de ver el recorrido tal y como lo
+ * ve él —que es donde se decide si los documentos se leen bien en una pantalla
+ * de seis pulgadas—. En relativo la sirve el mismo origen del que vino la
+ * página: el proxy de Vite en desarrollo, el propio servidor en producción, y
+ * funciona igual entrando por `localhost` que por la IP de la red local.
+ */
+const API_URL = '/api/public';
 
 const PDF_AND_IMG = 'application/pdf,image/*';
 
@@ -98,7 +109,9 @@ export function FirmarAnexosView({ expedienteId }) {
     const [done, setDone] = useState(false);
     const [uploadError, setUploadError] = useState(null);
     // ── Firma DIGITAL (Autofirma) de ambos anexos en secuencia ────────────────
-    const [modo, setModo] = useState(null);            // null | 'digital' | 'manual'
+    // null | 'digital' (Autofirma) | 'manual' (el asistente: se firma con el dedo
+    // aquí mismo) | 'subir' (lo de siempre: descargar, firmar en papel y subirlo).
+    const [modo, setModo] = useState(null);
     const [signQueue, setSignQueue] = useState([]);    // [{which,label,anchor}]
     const [signIndex, setSignIndex] = useState(0);
     const [signPdfB64, setSignPdfB64] = useState(null);
@@ -384,7 +397,7 @@ export function FirmarAnexosView({ expedienteId }) {
                                 </div>
                                 <h2 className="text-xl font-black text-emerald-400 uppercase tracking-widest mb-3">¡Documentación recibida!</h2>
                                 <p className="text-white/50 text-sm leading-relaxed">Gracias. El equipo de Brokergy continuará con la tramitación del expediente <strong className="text-brand">{info.numero_expediente}</strong>.</p>
-                                <button onClick={() => { setDone(false); setAnexoI(null); setCesion(null); setDniFrontal(null); setDniTrasero(null); loadInfo(); }} className="mt-6 text-[11px] text-brand/70 hover:text-brand font-black uppercase tracking-widest underline underline-offset-4">Subir o reemplazar otro documento</button>
+                                <button onClick={() => { setDone(false); setModo(null); setAnexoI(null); setCesion(null); setDniFrontal(null); setDniTrasero(null); loadInfo(); }} className="mt-6 text-[11px] text-brand/70 hover:text-brand font-black uppercase tracking-widest underline underline-offset-4">Subir o reemplazar otro documento</button>
                             </div>
                         ) : faltanDatos ? (
                             /* ── FASE 1: Completa tus datos (los anexos llegan después) ── */
@@ -445,15 +458,31 @@ export function FirmarAnexosView({ expedienteId }) {
                                                 </div>
                                             </div>
                                         </button>
+                                        {/* Firmar con el dedo. Va la SEGUNDA y no la última:
+                                            es la única que no pide ni certificado ni
+                                            impresora, y para la mayoría es la que se acaba
+                                            usando. */}
                                         <button onClick={() => setModo('manual')}
-                                            className="w-full text-left rounded-2xl border border-white/10 bg-white/[0.02] p-5 hover:border-white/20 transition-all">
+                                            className="w-full text-left rounded-2xl border border-white/15 bg-white/[0.03] p-5 hover:border-brand/40 hover:bg-brand/[0.06] transition-all">
                                             <div className="flex items-center gap-3">
                                                 <div className="w-11 h-11 rounded-xl bg-white/5 flex items-center justify-center shrink-0">
-                                                    <svg className="w-6 h-6 text-white/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                                    <svg className="w-6 h-6 text-white/70" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                                                 </div>
                                                 <div className="min-w-0">
-                                                    <p className="text-sm font-black text-white uppercase tracking-wide">Firma a mano</p>
-                                                    <p className="text-white/45 text-[12px] leading-snug mt-0.5">Descarga los anexos, fírmalos a mano y súbelos con la foto de tu DNI por ambas caras.</p>
+                                                    <p className="text-sm font-black text-white uppercase tracking-wide">Firma a mano <span className="text-white/40">· aquí mismo</span></p>
+                                                    <p className="text-white/45 text-[12px] leading-snug mt-0.5">Lee los anexos y fírmalos con el dedo en la pantalla. Sin impresora ni escáner: solo te pediremos la foto de tu DNI.</p>
+                                                </div>
+                                            </div>
+                                        </button>
+                                        <button onClick={() => setModo('subir')}
+                                            className="w-full text-left rounded-2xl border border-white/10 bg-white/[0.02] p-4 hover:border-white/20 transition-all">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-9 h-9 rounded-xl bg-white/5 flex items-center justify-center shrink-0">
+                                                    <svg className="w-5 h-5 text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5-5 5 5M12 5v12" /></svg>
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className="text-[13px] font-black text-white/80 uppercase tracking-wide">Ya lo tengo firmado en papel</p>
+                                                    <p className="text-white/35 text-[12px] leading-snug mt-0.5">Descárgalos o sube el escaneo que ya tienes, con la foto del DNI por ambas caras.</p>
                                                 </div>
                                             </div>
                                         </button>
@@ -477,7 +506,21 @@ export function FirmarAnexosView({ expedienteId }) {
                                     </div>
                                 )}
 
+                                {/* Firma a mano EN PANTALLA: lee, firma con el dedo y
+                                    manda la foto del DNI. El documento sale rasterizado
+                                    (aspecto de escaneo) y el backend le anexa los DNI
+                                    igual que a un escaneo de papel. */}
                                 {modo === 'manual' && (
+                                    <AsistenteFirmaManuscrita
+                                        expedienteId={expedienteId}
+                                        info={info}
+                                        apiUrl={API_URL}
+                                        onHecho={() => setDone(true)}
+                                        onSalir={() => setModo(null)}
+                                    />
+                                )}
+
+                                {modo === 'subir' && (
                                 <>
                                 <button onClick={() => setModo(null)} className="text-[11px] text-white/40 hover:text-white/70 font-black uppercase tracking-widest mb-1">← Otra forma de firmar</button>
                                 {/* Paso 1 · Descargar para firmar */}

@@ -28,6 +28,7 @@ import { SubirRiteView } from './features/public/views/SubirRiteView';
 import { SubirInstaladorView } from './features/public/views/SubirInstaladorView';
 import { SubirCeeView } from './features/public/views/SubirCeeView';
 import { FirmarAnexosView } from './features/public/views/FirmarAnexosView';
+import FirmaMovilView from './features/firma/FirmaMovilView';
 import { FirmarLoteView } from './features/public/views/FirmarLoteView';
 import { SubirDocsReformaView } from './features/public/views/SubirDocsReformaView';
 import { PortalLoginView } from './features/public/views/PortalLoginView';
@@ -227,6 +228,15 @@ function App() {
   const [firmarAnexosId] = useState(() => {
     const path = window.location.pathname;
     if (path.startsWith('/firmar-anexos/')) return path.split('/firmar-anexos/')[1] || null;
+    return null;
+  });
+
+  // Hoja de firma para el TELÉFONO: /firma-movil/:token. La abre quien está
+  // firmando en el ordenador escaneando un QR; aquí no se ve el documento, solo
+  // se firma y la firma vuelve al PC.
+  const [firmaMovilToken] = useState(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/firma-movil/')) return path.split('/firma-movil/')[1]?.split('/')[0] || null;
     return null;
   });
 
@@ -949,8 +959,8 @@ function App() {
 
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
-  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cifoUploadId || riteUploadId || instaladorId || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmarLoteId || portalRoute);
-  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !riteUploadId && !instaladorId && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !reformaDocsData && !landingRoute && !portalRoute;
+  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cifoUploadId || riteUploadId || instaladorId || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || firmarLoteId || portalRoute);
+  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !riteUploadId && !instaladorId && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !reformaDocsData && !landingRoute && !portalRoute;
   const wrapperPadding = (isLoggedDashboard || isPublicRoute) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
@@ -991,6 +1001,8 @@ function App() {
             phase={ceeDirectoUploadData.phase}
             endpoint="cee-directo-upload"
           />
+        ) : firmaMovilToken ? (
+          <FirmaMovilView token={firmaMovilToken} />
         ) : firmarAnexosId ? (
           <FirmarAnexosView expedienteId={firmarAnexosId} />
         ) : firmarLoteId ? (
