@@ -97,11 +97,6 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
     }
     const altIds = instContacts.filter(c => c.id !== 'rep').map(c => c.id);
 
-    // Si se edita la ficha del instalador desde aquí, el documento que se generase
-    // saldría con el firmante VIEJO: el modal recibe el expediente por prop y no
-    // puede recargarlo. Se corta el envío hasta reabrirlo, que es lo único que
-    // garantiza que el PDF lleve a quien de verdad firma.
-    const [fichaEditada, setFichaEditada] = useState(false);
     const [docs, setDocs] = useState(['rite']);     // qué se manda: rite y/o cifo
     const [message, setMessage] = useState(defaultMessage || '');
     const [waReady, setWaReady] = useState(null);
@@ -370,7 +365,10 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                     <FirmantesEnvio
                         docs={docs.filter(k => !bloqueos[k])}
                         pres={presFirmante}
-                        onFichaEditada={() => setFichaEditada(true)}
+                        /* La memoria la genera el BACKEND (/memoria-rite/generate)
+                           leyendo la BD, así que lo que se edite aquí ya viaja en
+                           ella: no hay que cortar el envío ni regenerar nada. */
+                        onFichaActualizada={() => { }}
                     />
 
                     {/* Acciones sobre los documentos */}
@@ -465,14 +463,14 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                     </div>
                     <div className="flex items-center gap-2.5 shrink-0">
                         {/* Aquí, además del canal, puede faltar el DOCUMENTO. */}
-                        <span className={`text-[9px] font-bold uppercase tracking-widest whitespace-nowrap ${(fichaEditada || avisoCanal || !docs.filter(k => !bloqueos[k]).length) ? 'text-amber-400/80' : 'text-white/25'}`}>
-                            {fichaEditada ? 'Reabre el envío' : (!docs.filter(k => !bloqueos[k]).length ? 'Elige documento' : (avisoCanal || `${selectedContacts.length} dest.`))}
+                        <span className={`text-[9px] font-bold uppercase tracking-widest whitespace-nowrap ${(avisoCanal || !docs.filter(k => !bloqueos[k]).length) ? 'text-amber-400/80' : 'text-white/25'}`}>
+                            {!docs.filter(k => !bloqueos[k]).length ? 'Elige documento' : (avisoCanal || `${selectedContacts.length} dest.`)}
                         </span>
                         <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all">
                             Cerrar
                         </button>
-                        <button onClick={handleSend} disabled={fichaEditada || sending || busy === 'download' || busy === 'drive' || (!willEmail && !willWhatsapp) || !docs.filter(k => !bloqueos[k]).length}
-                            title={fichaEditada ? 'Cierra y vuelve a abrir para que el documento salga con el firmante nuevo' : (!docs.filter(k => !bloqueos[k]).length ? 'Selecciona al menos un documento' : (avisoCanal || 'Enviar'))}
+                        <button onClick={handleSend} disabled={sending || busy === 'download' || busy === 'drive' || (!willEmail && !willWhatsapp) || !docs.filter(k => !bloqueos[k]).length}
+                            title={!docs.filter(k => !bloqueos[k]).length ? 'Selecciona al menos un documento' : (avisoCanal || 'Enviar')}
                             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
                             {sending
                                 ? <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>

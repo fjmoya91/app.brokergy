@@ -60,10 +60,10 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
 
     // ── Envío del CIFO al instalador (contacto + plantilla + Email/WhatsApp) ──
     const [sendOpen, setSendOpen] = useState(false);
-    // Editar la ficha del instalador desde el envío cambia QUIÉN firma, pero el
-    // documento se genera con el `expediente` que llegó por prop: se corta el
-    // envío hasta reabrirlo, o el PDF saldría con el firmante viejo.
-    const [fichaEditada, setFichaEditada] = useState(false);
+    // Ficha del instalador reléida tras editarla desde el propio envío. El
+    // documento se genera con el `expediente` que llegó por prop, así que sin
+    // esto el PDF saldría con el firmante VIEJO: se inyecta abajo (expedienteDoc).
+    const [presRefrescada, setPresRefrescada] = useState(null);
     const [waReady, setWaReady] = useState(null);                 // null = sin comprobar
     // El estado de WhatsApp se consultaba UNA vez, al abrir el popup. La sesión
     // del servidor se cae y vuelve sola (cada deploy la reinicia y tarda unos
@@ -484,7 +484,17 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     const cli = expediente.clientes || expediente.cliente || {};
     // Empresa instaladora del certificado: el instalador habilitado que firma si
     // el asignado no lo está (ver `empresaInstaladora`).
-    const pres = empresaInstaladora(expediente);
+    // Expediente con el que se GENERA el documento. Si se acaba de editar la ficha
+    // del instalador, se usa la versión nueva — en el campo que corresponda:
+    // sustituir `prescriptores_firmante` cuando no había delegación haría que
+    // `empresasActuacion` creyera que la hay y el CIFO sacaría el bloque de dos
+    // empresas (regla 26.b).
+    const expedienteDoc = presRefrescada
+        ? (expediente?.prescriptores_firmante
+            ? { ...expediente, prescriptores_firmante: presRefrescada }
+            : { ...expediente, prescriptores: presRefrescada })
+        : expediente;
+    const pres = empresaInstaladora(expedienteDoc);
     // Quién firmará la Memoria RITE si se manda de paso (MISMA comprobación que
     // el popup del RITE: las dos superficies no pueden decir cosas distintas).
     // ⚠️ VA DESPUÉS de `pres`: leerlo antes es un TDZ que revienta el modal entero
@@ -935,7 +945,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     // para que lo que se ve en el modal sea exactamente lo que se descarga.
     const buildHtml = ({ withAnnexPreview = false } = {}) =>
         buildCifoHtml({
-            data: deriveCifoData({ expediente, results }),
+            data: deriveCifoData({ expediente: expedienteDoc, results }),
             appUrl: APP_URL,
             attachments: prepareAnnexAttachments(docAttachments, annexPrefs),
             withAnnexPreview
@@ -1409,7 +1419,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                                 <FirmantesEnvio
                                     docs={sendDocsSel.filter(k => k !== 'rite' || !riteBloqueo)}
                                     pres={presFirmanteRite}
-                                    onFichaEditada={() => setFichaEditada(true)}
+                                    onFichaActualizada={setPresRefrescada}
                                 />
 
                                 {/* Destinatario(s) — se puede marcar más de uno */}
@@ -1522,14 +1532,14 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                                     />
                                 </div>
                                 <div className="flex items-center gap-2.5 shrink-0">
-                                    <span className={`text-[9px] font-bold uppercase tracking-widest whitespace-nowrap ${(fichaEditada || avisoCanal) ? 'text-amber-400/80' : 'text-white/25'}`}>
-                                        {fichaEditada ? 'Reabre el envío' : (avisoCanal || `${selectedContacts.length} dest.`)}
+                                    <span className={`text-[9px] font-bold uppercase tracking-widest whitespace-nowrap ${avisoCanal ? 'text-amber-400/80' : 'text-white/25'}`}>
+                                        {avisoCanal || `${selectedContacts.length} dest.`}
                                     </span>
                                     <button onClick={() => setSendOpen(false)} className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all">
                                         Cerrar
                                     </button>
-                                    <button onClick={doSend} disabled={fichaEditada || sending || (!willEmail && !willWhatsapp)}
-                                        title={fichaEditada ? 'Cierra y vuelve a abrir para que el documento salga con el firmante nuevo' : (avisoCanal || 'Enviar')}
+                                    <button onClick={doSend} disabled={sending || (!willEmail && !willWhatsapp)}
+                                        title={avisoCanal || 'Enviar'}
                                         className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
                                         {sending
                                             ? <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>

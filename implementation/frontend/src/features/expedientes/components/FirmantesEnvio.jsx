@@ -24,7 +24,7 @@ const FIRMANTE_DE = {
     rite: { titulo: 'Firma la Memoria RITE', resolver: firmanteMemoriaRite },
 };
 
-export function FirmantesEnvio({ docs = [], pres = {}, onFichaEditada }) {
+export function FirmantesEnvio({ docs = [], pres = {}, onFichaActualizada }) {
     // Ficha recargada tras editarla: el bloque tiene que decir la verdad en
     // cuanto se guarda, sin esperar a que el padre recargue el expediente.
     const [fichaLocal, setFichaLocal] = useState(null);
@@ -36,11 +36,12 @@ export function FirmantesEnvio({ docs = [], pres = {}, onFichaEditada }) {
     if (!lista.length) return null;
 
     const recargar = async () => {
-        if (!p?.id_empresa) return;
+        if (!p?.id_empresa) return null;
         try {
             const { data } = await axios.get(`/api/prescriptores/${p.id_empresa}`);
             setFichaLocal(data);
-        } catch { /* se queda la ficha anterior */ }
+            return data;
+        } catch { return null; }   // se queda la ficha anterior
     };
 
     // PrescriptorDetailModal NO carga por id: hace `setP(prescriptor)` con lo que
@@ -60,10 +61,12 @@ export function FirmantesEnvio({ docs = [], pres = {}, onFichaEditada }) {
         }
     };
 
-    const cerrarFicha = async (huboCambios) => {
+    // Al cerrar se relee la ficha y se le pasa al popup: con ella genera el
+    // documento con el firmante NUEVO, sin tener que cerrar y reabrir el envío.
+    const cerrarFicha = async () => {
         setFicha(null);
-        await recargar();
-        if (huboCambios) onFichaEditada?.();
+        const fresca = await recargar();
+        if (fresca) onFichaActualizada?.(fresca);
     };
 
     return (
@@ -120,8 +123,8 @@ export function FirmantesEnvio({ docs = [], pres = {}, onFichaEditada }) {
                     <PrescriptorDetailModal
                         isOpen
                         prescriptor={ficha}
-                        onClose={() => cerrarFicha(false)}
-                        onUpdated={() => cerrarFicha(true)}
+                        onClose={cerrarFicha}
+                        onUpdated={recargar}
                     />
                 </div>
             )}
