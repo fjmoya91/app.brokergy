@@ -1549,6 +1549,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
 
                     <CeeModule
                         expediente={expediente}
+                        instalacionViva={liveInst}
                         onSave={handleCeeSave}
                         onLiveUpdate={handleCeeLiveUpdate}
                         onRefresh={() => fetchExpediente(true)}

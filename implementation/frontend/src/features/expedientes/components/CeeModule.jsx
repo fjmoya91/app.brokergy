@@ -196,7 +196,7 @@ function normalizeCombKey(val) {
 // es el comportamiento de siempre. Importa porque `?exp=` y `?cee=` son TABLAS
 // distintas: mandar el enlace equivocado le abre al técnico una pestaña donde su
 // expediente no existe.
-export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving, certificadores = [], onAutoStatus, onEditCliente, apiBase = '/api/expedientes', secciones = ['inicial', 'final'], msgCtx = {} }) {
+export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUpdate, onRefresh, saving, certificadores = [], onAutoStatus, onEditCliente, apiBase = '/api/expedientes', secciones = ['inicial', 'final'], msgCtx = {} }) {
     const isReforma = expediente?.oportunidades?.ficha === 'RES080' || expediente?.cee?.is_reforma;
 
     const [local, setLocal] = useState(() => {
@@ -1750,7 +1750,15 @@ export function CeeModule({ expediente, onSave, onLiveUpdate, onRefresh, saving,
                 </div>
             )}
 
-            <Ce3xAyudasModal isOpen={ayudasCe3x} onClose={() => setAyudasCe3x(false)} />
+            {/* La medida de mejora se REDACTA con los datos del equipo, así que el
+                popup necesita el expediente con su instalación VIVA (`instalacionViva`):
+                el autoguardado del detalle se confirma un render más tarde, y copiar
+                al CE3X un SCOP desfasado es justo lo que esto viene a evitar. */}
+            <Ce3xAyudasModal
+                isOpen={ayudasCe3x}
+                onClose={() => setAyudasCe3x(false)}
+                expediente={instalacionViva ? { ...expediente, instalacion: instalacionViva } : expediente}
+            />
 
             {/* Modal de carga de CEE (XML exacto u OCR IA) — compartido entre RES060/RES093 y
                 RES080, disparado por ceeLoadTarget desde cualquiera de los dos render paths. */}

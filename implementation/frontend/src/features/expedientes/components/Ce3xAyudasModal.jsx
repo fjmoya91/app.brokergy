@@ -1,21 +1,58 @@
-import React, { useState } from 'react';
-import { CE3X_TEXTOS } from '../logic/ce3xTextos';
+import React, { useState, useEffect, useMemo } from 'react';
+import axios from 'axios';
+import { buildCe3xTextos } from '../logic/ce3xTextos';
+import { getUnidades } from '../logic/aerotermiaUnits';
 
 // ─── Ayudas CE3X ─────────────────────────────────────────────────────────────
-// La caja de herramientas del certificador: los textos fijos que hay que teclear
-// en CE3X, listos para copiar. Vive junto al selector de técnico del módulo CEE,
+// La caja de herramientas del certificador: lo que hay que teclear a mano en
+// CE3X, listo para copiar. Vive junto al selector de técnico del módulo CEE,
 // que es la barra desde la que se gobierna su trabajo.
 //
 // REGLA — cada sección viene PLEGADA y se puede copiar SIN abrirla. El texto de
-// las pruebas son veinte renglones: desplegado por defecto tapa la otra
-// herramienta, y obligar a desplegarlo para copiarlo es un clic de peaje sobre
+// las pruebas son veinte renglones: desplegado por defecto tapa las otras
+// herramientas, y obligar a desplegarlo para copiarlo es un clic de peaje sobre
 // algo que casi nunca se lee, porque siempre es el mismo.
 //
 // REGLA — con VARIAS casillas no hay "copiar todo". En CE3X son cuadros
 // distintos y un bloque único habría que recortarlo a mano una vez por casilla.
-export function Ce3xAyudasModal({ isOpen, onClose }) {
+export function Ce3xAyudasModal({ isOpen, onClose, expediente }) {
     const [abierta, setAbierta] = useState(null);
     const [copiado, setCopiado] = useState(null);
+    const [modelos, setModelos] = useState({});
+    const [cargando, setCargando] = useState(false);
+
+    // El SEER y las potencias del equipo están en el CATÁLOGO, no en el
+    // expediente: se traen al abrir (y solo al abrir), igual que en el popup
+    // «Datos del equipo», del que esta medida es exactamente el mismo texto.
+    useEffect(() => {
+        if (!isOpen) return;
+        const inst = expediente?.instalacion || {};
+        const ids = [...new Set(
+            [...getUnidades(inst.aerotermia_cal), ...getUnidades(inst.aerotermia_acs)]
+                .map(u => u?.aerotermia_db_id).filter(Boolean)
+        )];
+        if (!ids.length) return;
+        let cancelado = false;
+        setCargando(true);
+        (async () => {
+            const out = {};
+            await Promise.all(ids.map(async (id) => {
+                try {
+                    const { data } = await axios.get(`/api/aerotermia/${id}`);
+                    if (data) out[id] = data;
+                } catch { /* el modelo puede haberse borrado del catálogo */ }
+            }));
+            if (cancelado) return;
+            setModelos(out);
+            setCargando(false);
+        })();
+        return () => { cancelado = true; };
+    }, [isOpen, expediente?.id]);
+
+    const secciones = useMemo(
+        () => (isOpen ? buildCe3xTextos(expediente, { modelos }) : []),
+        [isOpen, expediente, modelos]
+    );
 
     const copiar = async (texto, clave) => {
         try {
@@ -52,13 +89,23 @@ export function Ce3xAyudasModal({ isOpen, onClose }) {
 
                 {/* Herramientas */}
                 <div className="flex-1 overflow-y-auto p-4 max-md:pb-[max(1rem,env(safe-area-inset-bottom))] space-y-2.5">
-                    {CE3X_TEXTOS.map(sec => {
+                    {cargando && (
+                        <p className="text-[10px] text-white/40 normal-case">Cargando las fichas del catálogo (SCOP, SEER)…</p>
+                    )}
+                    {secciones.map(sec => {
                         const open = abierta === sec.id;
                         // Con una sola casilla, la sección se copia entera desde su
                         // propia cabecera: es el gesto que se venía a hacer.
                         const unico = sec.campos.length === 1 ? sec.campos[0] : null;
+                        // Un párrafo con huecos "___", o al que le falta media
+                        // actuación, no se puede pegar sin mirarlo: se dice en la
+                        // propia línea PLEGADA, porque el botón de copiar está ahí
+                        // mismo. Una nota informativa no pinta de ámbar nada.
+                        const alerta = sec.aviso || (sec.nota?.startsWith('⚠') ? sec.nota : null);
                         return (
-                            <div key={sec.id} className="rounded-xl border border-white/[0.08] bg-white/[0.02] overflow-hidden">
+                            <div key={sec.id} className={`rounded-xl border overflow-hidden ${
+                                alerta ? 'border-amber-500/25 bg-amber-500/[0.04]' : 'border-white/[0.08] bg-white/[0.02]'
+                            }`}>
                                 <div className="flex items-center gap-2 px-4 py-3 max-md:py-3.5">
                                     <button type="button"
                                             onClick={() => setAbierta(a => (a === sec.id ? null : sec.id))}
@@ -70,6 +117,9 @@ export function Ce3xAyudasModal({ isOpen, onClose }) {
                                                 {' · '}{sec.campos.length === 1 ? '1 casilla' : `${sec.campos.length} casillas`}
                                             </span>
                                         </div>
+                                        {alerta && (
+                                            <div className="text-[10px] text-amber-400/90 normal-case leading-snug mt-1">{alerta}</div>
+                                        )}
                                     </button>
                                     {unico && (
                                         <button type="button"
@@ -95,7 +145,7 @@ export function Ce3xAyudasModal({ isOpen, onClose }) {
 
                                 {open && (
                                     <div className="px-4 pb-4 pt-1 border-t border-white/[0.06] space-y-1.5">
-                                        {sec.nota && (
+                                        {sec.nota && sec.nota !== alerta && (
                                             <p className="text-[10px] text-white/35 normal-case leading-snug pt-2">{sec.nota}</p>
                                         )}
                                         {sec.campos.map(c => (
