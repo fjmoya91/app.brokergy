@@ -1,5 +1,7 @@
 import { buildMedidaMejora } from './ce3xFinal.js';
 import { tieneFotovoltaica, potenciaTexto, normalizarFotovoltaica } from './fotovoltaica.js';
+import { autoconsumoMaximo } from './autoconsumoMaximo.js';
+import { parseEmisionesTotalesFromXml } from '../../calculator/logic/xmlCeeParser.js';
 
 // ─── ce3xTextos.js ───────────────────────────────────────────────────────────
 // La CAJA DE HERRAMIENTAS del certificador: lo que hay que teclear a mano en
@@ -80,6 +82,37 @@ const enumerarFaltan = (arr) => (arr.length <= 1
     ? (arr[0] || '')
     : `${arr.slice(0, -1).join(', ')} y ${arr[arr.length - 1]}`);
 
+const num2 = (n) => n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/**
+ * El TECHO de autoconsumo declarable, con la fase de la que sale.
+ *
+ * REGLA — manda el CEE FINAL. Es donde se teclea esta medida (la característica
+ * habla del consumo derivado del uso de la aerotermia) y su consumo eléctrico
+ * es otro: con la bomba de calor puesta, el edificio gasta más electricidad y
+ * el techo sube. Sin certificado final se cae al inicial, pero se DICE de cuál
+ * es — declarar el del inicial creyéndolo del final se queda corto.
+ *
+ * El total eléctrico se rescata del XML crudo igual que en la barra ⚡: los CEE
+ * cargados antes de que el parser leyera ese dato no lo tienen en el objeto
+ * guardado, así que sin el rescate esto solo valdría para lo que se suba hoy.
+ */
+function techoAutoconsumo(expediente) {
+    const cee = expediente?.cee || {};
+    for (const [fase, key, xmlKey] of [
+        ['final', 'cee_final', 'xml_final'],
+        ['inicial', 'cee_inicial', 'xml_inicial'],
+    ]) {
+        const sec = cee[key];
+        const conTotal = sec?.emisionesTotalElectrico
+            ? sec
+            : { ...sec, ...parseEmisionesTotalesFromXml(cee[xmlKey]) };
+        const auto = autoconsumoMaximo(conTotal);
+        if (auto) return { ...auto, fase };
+    }
+    return null;
+}
+
 /**
  * Las chuletas de CE3X de ESTE expediente, en el orden en que se teclean.
  *
@@ -119,6 +152,30 @@ export function buildCe3xTextos(expediente, { modelos = {} } = {}) {
     // es lo contrario: declarar la generación existente en el estado actual. El
     // dato lo contesta el cliente en la captación (`instalacion.fotovoltaica`).
     const fv = normalizarFotovoltaica(expediente?.instalacion?.fotovoltaica);
+
+    // El TECHO de kWh que se puede declarar. Va DENTRO de la chuleta y no solo
+    // en la barra ⚡ de la rejilla: es el último dato que se teclea de esta
+    // medida, y tenerlo que ir a buscar a otra parte de la pantalla —con el
+    // CE3X delante— es donde se acaba escribiendo una cifra de memoria.
+    //
+    // Se copia en CRUDO y con punto decimal (va a un formulario, no a un texto),
+    // pero se ENSEÑA en formato español: la cifra hay que reconocerla de un
+    // vistazo contra la de la barra.
+    const techo = techoAutoconsumo(expediente);
+    const campoTecho = techo && {
+        campo: 'Autoconsumo máximo declarable',
+        valor: `${num2(techo.kwhAnio)} kWh/año`,
+        copia: techo.kwhAnio.toFixed(2),
+        nota: `${num2(techo.emisiones)} kgCO₂/año ÷ ${String(techo.factor).replace('.', ',')}`
+            + ` (factor de paso de la electricidad) · del CEE ${techo.fase}`,
+    };
+    // Sin ese dato no hay barra ⚡ a la que remitir: se dice por qué, en vez de
+    // mandar a buscar un número que no está en ninguna parte.
+    const notaSinTecho = techo
+        ? null
+        : 'No se puede calcular el máximo declarable: el CEE cargado no trae el total de emisiones por '
+            + 'electricidad (pasa con los leídos por OCR de un PDF).';
+
     if (tieneFotovoltaica(fv)) {
         const p = potenciaTexto(fv);
         secciones.push({
@@ -127,21 +184,24 @@ export function buildCe3xTextos(expediente, { modelos = {} } = {}) {
             resumen: 'Va en el estado actual, no como mejora',
             aviso: `La vivienda ya tiene autoconsumo fotovoltaico${p ? ` de ${p}` : ''}: hay que declararlo `
                 + 'como instalación EXISTENTE (contribuciones energéticas), no proponerlo como medida de mejora.',
-            nota: p
-                ? null
-                : 'La potencia no consta en el expediente: hay que pedírsela al cliente (factura de la instalación o boletín eléctrico) antes de declararla.',
-            campos: [],
+            nota: [
+                p ? null : 'La potencia no consta en el expediente: hay que pedírsela al cliente (factura de la instalación o boletín eléctrico) antes de declararla.',
+                notaSinTecho,
+            ].filter(Boolean).join(' · ') || null,
+            // El techo vale igual para la generación EXISTENTE: no se puede
+            // declarar más autoconsumo que electricidad gasta el edificio.
+            campos: campoTecho ? [campoTecho] : [],
         });
     } else {
         secciones.push({
             id: 'medida_autoconsumo',
             titulo: 'Conjunto de medidas de mejora',
             resumen: 'Autoconsumo fotovoltaico',
-            // El techo de kWh que se puede declarar sale del propio certificado y se
-            // enseña —con su cuenta— en la barra de cada fase. Aquí solo va el texto.
-            nota: 'El máximo de autoconsumo declarable en kWh/año sale del propio CEE: está en la barra ⚡ de cada fase.'
-                + (fv.estado ? '' : ' · En el expediente no consta si la vivienda YA tiene placas: si las tiene, esta medida no aplica.'),
-            campos: MEDIDA_AUTOCONSUMO,
+            nota: [
+                notaSinTecho,
+                fv.estado ? null : 'En el expediente no consta si la vivienda YA tiene placas: si las tiene, esta medida no aplica.',
+            ].filter(Boolean).join(' · ') || null,
+            campos: campoTecho ? [...MEDIDA_AUTOCONSUMO, campoTecho] : MEDIDA_AUTOCONSUMO,
         });
     }
 

@@ -94,9 +94,11 @@ export function Ce3xAyudasModal({ isOpen, onClose, expediente }) {
                     )}
                     {secciones.map(sec => {
                         const open = abierta === sec.id;
-                        // Con una sola casilla, la sección se copia entera desde su
-                        // propia cabecera: es el gesto que se venía a hacer.
-                        const unico = sec.campos.length === 1 ? sec.campos[0] : null;
+                        // Con un solo PÁRRAFO, la sección se copia entera desde su
+                        // propia cabecera: es el gesto que se venía a hacer. Un dato
+                        // suelto no: sin su rótulo, un número a secas no dice qué es.
+                        const uno = sec.campos.length === 1 ? sec.campos[0] : null;
+                        const unico = uno?.parrafo ? uno : null;
                         // Un párrafo con huecos "___", o al que le falta media
                         // actuación, no se puede pegar sin mirarlo: se dice en la
                         // propia línea PLEGADA, porque el botón de copiar está ahí
@@ -127,7 +129,7 @@ export function Ce3xAyudasModal({ isOpen, onClose, expediente }) {
                                     </button>
                                     {unico && (
                                         <button type="button"
-                                                onClick={() => copiar(unico.valor, `${sec.id}__unico`)}
+                                                onClick={() => copiar(unico.copia ?? unico.valor, `${sec.id}__unico`)}
                                                 className={`shrink-0 px-2.5 py-1.5 max-md:px-3 max-md:py-2 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-colors ${
                                                     copiado === `${sec.id}__unico`
                                                         ? 'text-emerald-400 border-emerald-500/40'
@@ -166,10 +168,13 @@ export function Ce3xAyudasModal({ isOpen, onClose, expediente }) {
                                                     }`}>
                                                         {c.valor}
                                                     </div>
+                                                    {c.nota && (
+                                                        <div className="text-[10px] text-white/35 normal-case leading-snug mt-0.5">{c.nota}</div>
+                                                    )}
                                                 </div>
                                                 {!unico && (
                                                     <button type="button"
-                                                            onClick={() => copiar(c.valor, `${sec.id}__${c.campo}`)}
+                                                            onClick={() => copiar(c.copia ?? c.valor, `${sec.id}__${c.campo}`)}
                                                             title="Copiar"
                                                             className={`flex-shrink-0 mt-1 px-2 py-1 max-md:px-3 max-md:py-2 rounded-md text-[9px] font-black uppercase tracking-widest transition-colors ${
                                                                 copiado === `${sec.id}__${c.campo}`
