@@ -23,6 +23,9 @@ import FirmarConCertificadoModal from './FirmarConCertificadoModal';
 import { SIGN_BOXES } from '../logic/signBoxes';
 import { clienteContacts, instaladorContacts, defaultContactId, phoneValid } from '../utils/docContacts';
 import { calcCifo } from '../logic/calcCifo';
+import { SLOTS_INCIDENCIA, incidenciasDeSlot, resumenSlot } from '../logic/incidenciaSlots';
+import { incidenciasFechasCifo } from '../logic/cifoFechas';
+import { IncidenciasSlotPanel } from './IncidenciasSlotPanel';
 import { readAnnexPrefs, orderAttachments } from '../logic/annexPrefs';
 import { ftAttachmentSlots, ftDocFields } from '../logic/fichasTecnicas';
 import { avisosCeeDocumento, ceeBaseDocumento, hayAvisosBloqueantes } from '../logic/ceeFases';
@@ -437,6 +440,11 @@ function FacturasSection({ expedienteId, facturas, onChange, onCommit, readOnly,
                     texto,
                     severidad: inc.severidad,
                     procedencia: 'AGENTE_IA',
+                    // De dónde sale y a qué documento se refiere. Sin esto la
+                    // incidencia solo aparecía en el contador de la cabecera y
+                    // había que adivinar cuál de los ocho documentos falla.
+                    tipo: inc.tipo || null,
+                    slot: inc.slot || 'facturas',
                 });
             }
             alert(`${elegidas.length} incidencia(s) registrada(s) en el expediente.`);
@@ -784,8 +792,22 @@ function FacturasSection({ expedienteId, facturas, onChange, onCommit, readOnly,
     );
 }
 
+// Qué CAMPO de `documentacion` pertenece a qué slot de incidencias. Un documento
+// tiene varios campos (borrador, enviado, firmado) y la incidencia es del
+// DOCUMENTO, no de una de sus versiones: da igual por cuál de los tres se entre,
+// se ve la misma. Fuente única de las claves: logic/incidenciaSlots.js.
+const SLOT_DE_CAMPO = {
+    anexo_i_drive_link: 'anexo_i', anexo_i_signed_link: 'anexo_i', anexo_i_sent_at: 'anexo_i',
+    anexo_cesion_drive_link: 'anexo_cesion', anexo_cesion_signed_link: 'anexo_cesion', anexo_cesion_sent_at: 'anexo_cesion',
+    cert_cifo_drive_link: 'cert_cifo', cert_cifo_signed_link: 'cert_cifo', cert_cifo_sent_at: 'cert_cifo',
+    ficha_res060_drive_link: 'ficha_res', ficha_res060_signed_link: 'ficha_res', ficha_res060_sent_at: 'ficha_res',
+    anexo_fotografico_drive_link: 'anexo_fotografico', anexo_fotografico_signed_link: 'anexo_fotografico', anexo_fotografico_sent_at: 'anexo_fotografico',
+    cert_rite_drive_link: 'cert_rite', cert_rite_signed_link: 'cert_rite',
+    facturas_combined_link: 'facturas',
+};
+
 // ─── Componente Principal ─────────────────────────────────────────────────────
-export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, results, onEditCliente, autoFirmarDoc, onAutoFirmarDocDone }) {
+export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, results, onEditCliente, autoFirmarDoc, onAutoFirmarDocDone, onIncidenciasChanged }) {
     const { user } = useAuth();
     const isReforma = expediente?.oportunidades?.ficha === 'RES080' || expediente?.numero_expediente?.includes('RES080');
     const isHybrid  = expediente?.oportunidades?.ficha === 'RES093' || expediente?.numero_expediente?.includes('RES093');
@@ -1001,6 +1023,9 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     const [showAnexoFotografico, setShowAnexoFotografico] = useState(false);
     const [showFacturasModal, setShowFacturasModal] = useState(false);
     const [managingSigned, setManagingSigned] = useState(null); // { field, link, label }
+    // Incidencia abierta en un slot concreto, para verla sin abrir el visor:
+    // { slot, label }. Se usa desde la chapa roja de la fila.
+    const [verIncidenciasSlot, setVerIncidenciasSlot] = useState(null);
     // Rechazo de documento (motivo + destinatario + mensaje editable → aviso WA/email)
     const [rejectDoc, setRejectDoc] = useState(null); // { field, label }
     const [rejectMotivo, setRejectMotivo] = useState('');
@@ -1718,6 +1743,27 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     // cliente/instalador, envía el aviso por WhatsApp/email para que lo corrijan.
     const isRejected = (field) => !!local.docs_rechazados?.[field];
 
+    // ── INCIDENCIAS POR SLOT ─────────────────────────────────────────────────
+    // Dos orígenes que se presentan juntos porque para quien mira son lo mismo:
+    //   · las REGISTRADAS, que viven en `documentacion.incidencias[]`;
+    //   · las DETECTADAS al vuelo en las fechas del CIFO. Éstas no se dan de alta
+    //     solas —la regla de la casa es que una incidencia se PROPONE y la
+    //     confirma una persona— pero sí se pintan: describen un descuadre que
+    //     existe AHORA, y se apagan solas en cuanto se corrige la fecha, sin
+    //     dejar una incidencia muerta que alguien tenga que ir a subsanar.
+    const incidenciasSlot = React.useMemo(() => {
+        const registradas = (expediente?.documentacion?.incidencias || []);
+        const detectadas = incidenciasFechasCifo(expediente).map((d, i) => ({
+            ...d, id: `auto_${d.tipo}_${i}`, estado: 'ABIERTA', detectada: true,
+            texto: `${d.titulo}. ${d.texto}`, procedencia: 'REVISION_INTERNA',
+        }));
+        return [...registradas, ...detectadas];
+    }, [expediente]);
+
+    const incSlot = (slot) => incidenciasDeSlot(incidenciasSlot, slot);
+    /** Resumen de la incidencia de un CAMPO de documentacion (para pintar su slot). */
+    const incDeCampo = (field) => resumenSlot(incidenciasSlot, SLOT_DE_CAMPO[field]);
+
     // Contactos disponibles del grupo elegido (titular / representante / personas de
     // contacto). Misma lista que ofrece el envío de anexos — fuente única en
     // utils/docContacts para que ambos sitios se dirijan a la misma gente.
@@ -2182,23 +2228,31 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         // requerimiento ha invalidado. En verde diría que este documento está
         // resuelto, que es justo lo contrario de lo que hay que hacer con él.
         const refirma = refirmaPendienteDoc(local, field);
-        const validated = isValidated(field) && !refirma; // subido (ámbar) → validado (verde)
+        // Incidencia ABIERTA en este documento. MANDA sobre el verde a propósito:
+        // un documento validado con una incidencia sin subsanar no está bien, y
+        // pintarlo en verde es decir que sí lo está.
+        const inc = incDeCampo(field);
+        const validated = isValidated(field) && !refirma && !inc.hay; // subido (ámbar) → validado (verde)
         const rejected = isRejected(field);   // rechazado (rojo)
         return (
             <div className="flex flex-col items-center gap-1 group/slot relative">
                 <button
                     onClick={(e) => {
                         e.stopPropagation();
-                        if (link) {
-                            setManagingSigned({ field, link, label });
-                        } else {
-                            slotInputRef.current.click();
-                        }
+                        // Con incidencia y sin documento que enseñar, el clic lleva a
+                        // la incidencia: es lo único que hay que hacer con ese slot.
+                        if (link) setManagingSigned({ field, link, label });
+                        else if (inc.hay) setVerIncidenciasSlot({ slot: SLOT_DE_CAMPO[field], label });
+                        else slotInputRef.current.click();
                     }}
-                    title={refirma ? `${label} — pendiente de volver a firmar (requerimiento). La firma que tenemos es de la versión anterior.` : validated && link ? `${label} — validado (correcto)` : rejected ? `${label} — rechazado: ${local.docs_rechazados?.[field]?.motivo || ''}` : partial ? 'Cliente firmó — subir versión firmada por Brokergy' : (link ? `Gestionar ${label}` : `Arrastra un PDF aquí o pulsa para subir ${label}`)}
+                    title={inc.hay ? `${label} — ${inc.total} incidencia${inc.total === 1 ? '' : 's'} sin subsanar${inc.graves ? ` (${inc.graves} GRAVE${inc.graves === 1 ? '' : 'S'})` : ''}` : refirma ? `${label} — pendiente de volver a firmar (requerimiento). La firma que tenemos es de la versión anterior.` : validated && link ? `${label} — validado (correcto)` : rejected ? `${label} — rechazado: ${local.docs_rechazados?.[field]?.motivo || ''}` : partial ? 'Cliente firmó — subir versión firmada por Brokergy' : (link ? `Gestionar ${label}` : `Arrastra un PDF aquí o pulsa para subir ${label}`)}
                     className={`w-11 h-11 rounded-2xl border flex items-center justify-center transition-all relative ${
                         dragActive
                         ? 'ring-2 ring-brand ring-offset-2 ring-offset-[#0b0c11] scale-125 bg-brand/25 border-brand text-brand shadow-2xl shadow-brand/40 z-20'
+                        : inc.grave
+                        ? 'bg-red-500/20 border-red-500 text-red-300 animate-incidencia-neon hover:bg-red-500 hover:text-white'
+                        : inc.hay
+                        ? 'bg-amber-500/20 border-amber-400 text-amber-200 animate-incidencia-leve hover:bg-amber-400 hover:text-bkg-deep'
                         : validated && link
                         ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400 shadow-lg shadow-emerald-500/10 hover:bg-emerald-500 hover:text-white'
                         : rejected
@@ -2215,6 +2269,14 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                     {dragActive ? (
                         <svg className="w-5 h-5 animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16" />
+                        </svg>
+                    ) : inc.hay ? (
+                        // Triángulo de aviso, NO el aspa: el aspa ya significa
+                        // "rechazado" en este mismo control y son dos cosas
+                        // distintas (rechazado lo decidimos nosotros; la
+                        // incidencia es un defecto detectado en el documento).
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 9v3.5m0 3h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
                         </svg>
                     ) : rejected ? (
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -3334,6 +3396,33 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                     </div>
             </div>
             {/* MODAL GESTIÓN FIRMADOS */}
+            {/* Incidencias de un slot SIN documento que enseñar (aún no se ha subido,
+                o la incidencia es sobre lo que falta). El visor no aplica: aquí solo
+                está lo que hay que resolver. */}
+            {verIncidenciasSlot && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-bkg-deep/90 backdrop-blur-xl animate-fade-in" onClick={() => setVerIncidenciasSlot(null)}>
+                    <div className="bg-[#0b0c11] border border-white/10 rounded-2xl sm:rounded-[2rem] w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="p-5 sm:p-6 border-b border-white/5 flex items-center justify-between">
+                            <div>
+                                <h3 className="text-base font-black text-white uppercase tracking-[0.2em]">{verIncidenciasSlot.label}</h3>
+                                <p className="text-[10px] text-red-400 font-black uppercase tracking-[0.3em] mt-1.5 opacity-70">Incidencias del documento</p>
+                            </div>
+                            <button onClick={() => setVerIncidenciasSlot(null)} className="w-10 h-10 flex items-center justify-center hover:bg-white/5 rounded-2xl transition-all">
+                                <svg className="w-6 h-6 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+                        <div className="p-5 sm:p-6 overflow-y-auto">
+                            <IncidenciasSlotPanel
+                                expedienteId={expediente?.id}
+                                slot={verIncidenciasSlot.slot}
+                                incidencias={incSlot(verIncidenciasSlot.slot)}
+                                onCambio={() => onIncidenciasChanged?.()}
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {managingSigned && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-bkg-deep/90 backdrop-blur-xl animate-fade-in">
                     <div className="bg-[#0b0c11] border border-white/10 rounded-2xl sm:rounded-[2.5rem] w-full max-w-5xl h-[90vh] sm:h-[85vh] flex flex-col shadow-2xl overflow-hidden relative">
@@ -3380,6 +3469,16 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
                         {/* Footer — acciones de revisión (moderno, mobile-first) */}
                         <div className="p-4 sm:p-6 border-t border-white/5 bg-white/[0.01] relative z-10 space-y-2.5">
+                            {/* Las incidencias de ESTE documento, justo encima de los botones de
+                                validar y rechazar: es la información que decide cuál de los dos
+                                se pulsa, y tenerla en otra pantalla obligaba a validar de memoria. */}
+                            <IncidenciasSlotPanel
+                                expedienteId={expediente?.id}
+                                slot={SLOT_DE_CAMPO[managingSigned.field]}
+                                incidencias={incSlot(SLOT_DE_CAMPO[managingSigned.field])}
+                                onCambio={() => onIncidenciasChanged?.()}
+                                compacto
+                            />
                             {/* Aviso: Cesión firmada electrónicamente pero solo por el cliente —
                                 falta la contrafirma de Brokergy antes de poder validar. */}
                             {managingSigned.field === 'anexo_cesion_signed_link' && !local.cesion_firmado_brokergy && local.anexo_cesion_firma_tipo === 'electronica' && (
@@ -3418,6 +3517,24 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
                                         Validado
                                     </div>
+                                ) : incDeCampo(managingSigned.field).grave ? (
+                                    // Con una GRAVE abierta no se esconde el botón —hay motivos
+                                    // legítimos para validar igualmente, y bloquearlo dejaría el
+                                    // expediente atascado— pero deja de decir "correcto" y de ir
+                                    // en verde: validar en verde un documento con una incidencia
+                                    // sin subsanar es afirmar justo lo contrario de lo que consta.
+                                    <button
+                                        onClick={() => {
+                                            const n = incDeCampo(managingSigned.field).graves;
+                                            if (window.confirm(`Este documento tiene ${n} incidencia${n === 1 ? '' : 's'} GRAVE${n === 1 ? '' : 'S'} sin subsanar.\n\nValidarlo lo da por bueno sin resolverlas. ¿Seguro?`)) {
+                                                handleValidateSigned(managingSigned.field);
+                                            }
+                                        }}
+                                        className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/40 text-amber-300 text-[11px] font-black uppercase tracking-[0.15em] hover:bg-amber-400 hover:text-bkg-deep transition-all active:scale-[0.98] shadow-lg shadow-amber-500/10"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 9v3.5m0 3h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
+                                        Validar con incidencias abiertas
+                                    </button>
                                 ) : (
                                     <button
                                         onClick={() => handleValidateSigned(managingSigned.field)}

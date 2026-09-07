@@ -239,6 +239,58 @@ body {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+/* Slot con una incidencia GRAVE sin subsanar. Late el RESPLANDOR, no la opacidad:
+   con `animate-pulse` el icono se desvanece a la mitad y en el momento en que
+   está apagado no se lee qué documento es — justo el dato que hace falta. Así el
+   contenido no se mueve y lo único que parpadea es el neón de alrededor. */
+@keyframes incidenciaNeon {
+
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55), 0 0 12px 0 rgba(239, 68, 68, 0.45);
+    border-color: rgba(239, 68, 68, 0.95);
+  }
+
+  50% {
+    box-shadow: 0 0 0 6px rgba(239, 68, 68, 0), 0 0 26px 4px rgba(239, 68, 68, 0.9);
+    border-color: rgba(252, 165, 165, 1);
+  }
+}
+
+.animate-incidencia-neon {
+  animation: incidenciaNeon 1.35s ease-in-out infinite;
+}
+
+/* La leve avisa, pero no compite con la grave: mismo gesto, más lento y en ámbar.
+   Si las dos latieran igual, la pantalla entera pediría atención y ninguna la
+   tendría. */
+@keyframes incidenciaLeve {
+
+  0%,
+  100% {
+    box-shadow: 0 0 10px 0 rgba(245, 158, 11, 0.35);
+  }
+
+  50% {
+    box-shadow: 0 0 20px 3px rgba(245, 158, 11, 0.7);
+  }
+}
+
+.animate-incidencia-leve {
+  animation: incidenciaLeve 2.4s ease-in-out infinite;
+}
+
+/* Quien haya pedido menos movimiento no tiene por qué aguantar un parpadeo
+   permanente: se queda el color fijo, que es lo que de verdad informa. */
+@media (prefers-reduced-motion: reduce) {
+
+  .animate-incidencia-neon,
+  .animate-incidencia-leve {
+    animation: none;
+    box-shadow: 0 0 16px 2px rgba(239, 68, 68, 0.6);
+  }
+}
+
 /* ===================================
    GLASS MORPHISM CARDS
    =================================== */

@@ -1679,6 +1679,10 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                             onEditCliente={() => setShowClienteModal(true)}
                             autoFirmarDoc={autoFirmarDoc}
                             onAutoFirmarDocDone={() => setAutoFirmarDoc(null)}
+                            // Subsanar una incidencia desde su propio slot cambia
+                            // `documentacion.incidencias[]`, así que hay que releer:
+                            // el mismo refresco silencioso que usa IncidenciasModal.
+                            onIncidenciasChanged={() => fetchExpediente(true)}
                         />
                     </ModuleSection>
                 )}

@@ -70,3 +70,9 @@ tutorial-originales/
 # Logos de partners extraídos de la BD para trabajar con ellos (5,9 MB de
 # imágenes de clientes). Se regeneran cuando haga falta; no van al repo.
 logos-partners/
+
+# Salida de los scripts de reconciliación / migración (CSV). Llevan DATOS DE
+# CLIENTES REALES —nombre, dirección, NIF, importes de factura— porque son el
+# volcado de lo que el script ha leído del Drive y de la BD. Son artefactos de
+# una ejecución concreta: se regeneran lanzando el script otra vez.
+implementation/backend/scripts/*.csv

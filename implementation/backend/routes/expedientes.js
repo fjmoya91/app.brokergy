@@ -3191,6 +3191,22 @@ const normProcedencia = (p) => PROCEDENCIAS_VALIDAS.includes(p) ? p : 'REVISION_
 const SEVERIDADES_VALIDAS = ['LEVE', 'GRAVE'];
 const normSeveridad = (s) => SEVERIDADES_VALIDAS.includes(s) ? s : 'GRAVE';
 
+// A qué DOCUMENTO se refiere la incidencia. Sin esto solo se podía enseñar el
+// contador de la cabecera ("3 GRAVES") y había que adivinar cuál de los ocho
+// documentos falla; con ello, cada fila de Documentación pinta la suya y se
+// subsana desde donde está el problema. Fuente única de la lista:
+// frontend/src/features/expedientes/logic/incidenciaSlots.js (SLOTS_INCIDENCIA).
+// Un valor desconocido se guarda como null: una incidencia colgada del documento
+// equivocado manda a corregir donde no toca, y la que sí falla se queda en verde.
+const SLOTS_INCIDENCIA = ['facturas', 'anexo_i', 'anexo_cesion', 'cert_cifo', 'ficha_res', 'anexo_fotografico', 'cert_rite', 'cee'];
+const normSlot = (s) => (SLOTS_INCIDENCIA.includes(s) ? s : null);
+// `tipo` es el código del detector (FECHA, SOBREFINANCIACION, FECHAS_CIFO…). Se
+// guarda tal cual porque de él se deduce el slot de las que no lo traigan.
+const normTipo = (t) => {
+    const v = String(t || '').trim().toUpperCase();
+    return /^[A-Z_]{3,40}$/.test(v) ? v : null;
+};
+
 // Tipos válidos de entrada del hilo. NOTA la escribe una persona; el resto las
 // genera el sistema al subsanar / reabrir / reclasificar.
 const TIPOS_COMENTARIO = ['NOTA', 'RESOLUCION', 'REAPERTURA', 'SEVERIDAD'];
@@ -3289,6 +3305,8 @@ router.post('/:id/incidencias', staffOnly, async (req, res) => {
             texto,
             procedencia: normProcedencia(body.procedencia),
             severidad: normSeveridad(body.severidad),
+            slot: normSlot(body.slot),
+            tipo: normTipo(body.tipo),
             estado: 'ABIERTA',
             fecha: new Date().toISOString(),
             usuario: incidenciaUsuario(req),
@@ -3439,6 +3457,10 @@ router.put('/:id/incidencias/:incId', staffOnly, async (req, res) => {
 
         inc.texto = texto;
         if (body.procedencia !== undefined) inc.procedencia = normProcedencia(body.procedencia);
+        // Recolocar una incidencia en otro documento. Se admite `null` a
+        // propósito: la que no se sepa encajar debe poder volver a la cabecera,
+        // que es donde no estorba, en vez de quedarse en la fila equivocada.
+        if (body.slot !== undefined) inc.slot = normSlot(body.slot);
         if (body.severidad !== undefined) {
             // Mismo criterio que el toggle de la etiqueta: un cambio de severidad deja traza.
             const anterior = normSeveridad(inc.severidad);
