@@ -1302,15 +1302,29 @@ async function buildDocsView(opp, opts = {}) {
  * refleja el enlace en expedientes.documentacion.cert_rite_drive_link — el campo que
  * leen el módulo de Documentación, el CIFO y las vistas del lifecycle (el "agente").
  * Background-safe: no lanza, solo loguea. p_value=null limpia el campo.
+ *
+ * Se sella ADEMÁS `cert_rite_aportado_at`: es el campo que significa "este enlace
+ * es el CERTIFICADO, no la Memoria que generamos nosotros". Sin él, en cuanto el
+ * expediente tenga un borrador de memoria la heurística de
+ * `esMemoriaRiteEnDriveLink` (fuente única en instaladorPendientes.js) toma por la
+ * Memoria el certificado que acaba de subir el instalador: la fila deja de decir
+ * "Aportado" y el CIFO, que no se emite sin RITE, sigue bloqueado. Medido en
+ * 26RES060_131. Aquí no hay nada que adivinar — el slot se llama "Certificado RITE".
  */
 async function syncRiteToExpediente(oportunidadId, link) {
-    try {
+    const set = async (field, value) => {
         const { error } = await supabase.rpc('set_expediente_doc_field', {
             p_oportunidad_id: oportunidadId,
-            p_field: 'cert_rite_drive_link',
-            p_value: link || null
+            p_field: field,
+            p_value: value
         });
-        if (error) console.warn('[RITE] sync a expediente:', error.message);
+        if (error) console.warn(`[RITE] sync a expediente (${field}):`, error.message);
+    };
+    try {
+        await set('cert_rite_drive_link', link || null);
+        // Al borrar el último fichero del slot, el sello se va con él: si no, el
+        // expediente seguiría afirmando que tiene un certificado que ya no está.
+        await set('cert_rite_aportado_at', link ? new Date().toISOString() : null);
     } catch (e) { console.warn('[RITE] sync a expediente:', e.message); }
 }
 

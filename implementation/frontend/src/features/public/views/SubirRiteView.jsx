@@ -59,7 +59,10 @@ export function SubirRiteView({ expedienteId }) {
                         <span className="text-white text-2xl md:text-3xl font-medium tracking-tight">Documentación</span>
                         <span className="text-3xl md:text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-brand via-brand to-brand-700 uppercase">RITE</span>
                     </h1>
-                    <p className="text-white/60 text-sm">Sube la memoria firmada y el certificado RITE tramitado.</p>
+                    {/* El subtítulo dice lo MISMO que las casillas de abajo: sin memoria
+                        generada solo se pide el certificado, y anunciar aquí un documento
+                        que luego no aparece hace buscarlo. */}
+                    <p className="text-white/60 text-sm">{info?.pide_memoria ? 'Sube la memoria firmada y el certificado RITE tramitado.' : 'Sube el certificado RITE tramitado.'}</p>
                 </div>
 
                 <div className="bg-bkg-surface shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/[0.06] rounded-[2rem] overflow-hidden backdrop-blur-xl relative">
@@ -86,7 +89,12 @@ export function SubirRiteView({ expedienteId }) {
                                 <button onClick={() => { setDone(false); loadInfo(); }} className="mt-6 text-[11px] text-brand/70 hover:text-brand font-black uppercase tracking-widest underline underline-offset-4">Subir o reemplazar otro documento</button>
                             </div>
                         ) : (
-                            <SubirRiteCard expedienteId={expedienteId} info={info} onDone={() => { setDone(true); loadInfo(); }} />
+                            /* `pideMemoria` viene del backend (mismo dato que
+                               /instalador/:id): sin él, esta página ofrecía SIEMPRE la
+                               casilla de la memoria firmada aunque nunca hubiéramos
+                               generado ninguna, y el instalador acababa dejando ahí el
+                               certificado — que es el campo de la memoria. */
+                            <SubirRiteCard expedienteId={expedienteId} info={info} pideMemoria={!!info.pide_memoria} onDone={() => { setDone(true); loadInfo(); }} />
                         )}
                     </div>
                 </div>

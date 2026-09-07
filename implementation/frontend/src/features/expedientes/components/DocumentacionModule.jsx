@@ -1811,7 +1811,11 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         const origin = typeof window !== 'undefined' ? window.location.origin : '';
         if (!id) return null;
         if (field === 'cert_cifo_signed_link') return `${origin}/subir-cifo/${id}`;
-        if (field === 'cert_rite_signed_link') return `${origin}/subir-rite/${id}`;
+        // Las DOS caras del RITE se suben por la MISMA página: el certificado
+        // tramitado y la memoria firmada. Si solo se declarara la de la memoria, el
+        // slot del certificado —que es el que de verdad falta— se quedaría sin
+        // enlace que copiarle al instalador.
+        if (field === 'cert_rite_signed_link' || field === 'cert_rite_drive_link') return `${origin}/subir-rite/${id}`;
         if (['anexo_i_signed_link', 'anexo_cesion_signed_link', 'anexo_fotografico_signed_link'].includes(field)) return `${origin}/firmar-anexos/${id}`;
         return null;
     };
@@ -2095,8 +2099,12 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 // Versión nueva del documento ⇒ vuelve a "pendiente de revisar" (el
                 // backend ya lo ha hecho; esto es para no esperar al refetch).
                 if (data.cert_rite_aportado_at) {
-                    const dv = { ...(prev.docs_validados || {}) }; delete dv.cert_rite_signed_link;
-                    const dr = { ...(prev.docs_rechazados || {}) }; delete dr.cert_rite_signed_link;
+                    // La misma clave que invalida el backend (`['cert_rite_drive_link']`
+                    // en POST /:id/rite/ocr). Se borraba la del documento de al lado,
+                    // así que el slot del certificado se quedaba en verde con una
+                    // versión nueva sin revisar.
+                    const dv = { ...(prev.docs_validados || {}) }; delete dv.cert_rite_drive_link;
+                    const dr = { ...(prev.docs_rechazados || {}) }; delete dr.cert_rite_drive_link;
                     next.docs_validados = dv; next.docs_rechazados = dr;
                 }
                 if ((data.escrito || []).includes('fecha_pruebas_cert_instalacion')) next.fecha_pruebas_cert_instalacion = data.fechas?.pruebas || null;
@@ -2141,7 +2149,11 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             cert_cifo_signed_link: isReforma ? 'Certificado Reforma RES080' : 'Certificado CIFO',
             ficha_res060_signed_link: fichaLabel,
             anexo_fotografico_signed_link: 'Anexo Fotográfico',
-            cert_rite_signed_link: 'Certificado RITE',
+            // El fichero se llama MEMORIA, que es lo que este campo guarda. Se
+            // llamaba "Certificado RITE_fdo.pdf" — el mismo nombre que le pone la
+            // subida del instalador al CERTIFICADO—, así que ni por el nombre en
+            // Drive se distinguía uno de otro.
+            cert_rite_signed_link: 'Memoria RITE',
             facturas_combined_link: 'Facturas'
         };
 
@@ -3256,14 +3268,23 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                                 </button>
                                             </div>
 
-                                            {/* 3. PDF FIRMADO — fallback al link del cert si aún no hay versión firmada separada */}
+                                            {/* 3. EL CERTIFICADO — el slot de ESTA fila es el certificado, no la
+                                                memoria firmada. Pulsar aquí hace lo MISMO que arrastrar sobre la
+                                                fila: archiva en "7. LEGALIZACION RITE", enlaza
+                                                `cert_rite_drive_link`, sella `cert_rite_aportado_at` y lo lee.
+                                                Iba a `cert_rite_signed_link` —que desde el 27/08/2026 significa
+                                                "Memoria RITE FIRMADA"—, así que el certificado se guardaba en el
+                                                campo del documento de al lado: la fila seguía diciendo "Enlace",
+                                                la app lo enseñaba como memoria y el CIFO seguía bloqueado.
+                                                Medido en 26RES060_119 ("26RES060_119 - Certificado RITE_fdo.pdf"
+                                                guardado como memoria). Arrastrar ya estaba bien; el clic no. */}
                                             <div className="w-11">
                                                 <SignedSlot
-                                                    link={local.cert_rite_signed_link || (estadoInstalador(local).rite.certificadoRecibido ? local.cert_rite_drive_link : null)}
-                                                    field="cert_rite_signed_link"
+                                                    link={estadoInstalador(local).rite.certificadoRecibido ? local.cert_rite_drive_link : null}
+                                                    field="cert_rite_drive_link"
                                                     label="Certificado RITE"
                                                     dragActive={dragRow === 'rite_cert'}
-                                                    onUpload={(file) => handleSignedUpload('cert_rite_signed_link', file)}
+                                                    onUpload={(file) => leerCertificadoRite(file)}
                                                 />
                                             </div>
                                         </div>
@@ -3383,12 +3404,16 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                             </button>
                                         </div>
 
-                                        {/* 3. PDF FIRMADO (memoria firmada) */}
+                                        {/* 3. PDF FIRMADO (memoria firmada). El rótulo dice MEMORIA: se
+                                            llamaba "Certificado RITE" como el slot de la fila de arriba,
+                                            y dos controles con el mismo nombre para dos documentos
+                                            distintos son la forma más fácil de guardar uno en el sitio
+                                            del otro. */}
                                         <div className="w-11">
                                             <SignedSlot
                                                 link={local.cert_rite_signed_link}
                                                 field="cert_rite_signed_link"
-                                                label="Certificado RITE"
+                                                label="Memoria RITE firmada"
                                                 dragActive={dragRow === 'rite_memoria'}
                                                 onUpload={(file) => handleSignedUpload('cert_rite_signed_link', file)}
                                             />
@@ -3429,7 +3454,13 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
 
             {managingSigned && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-bkg-deep/90 backdrop-blur-xl animate-fade-in">
-                    <div className="bg-[#0b0c11] border border-white/10 rounded-2xl sm:rounded-[2.5rem] w-full max-w-5xl h-[90vh] sm:h-[85vh] flex flex-col shadow-2xl overflow-hidden relative">
+                    {/* Revisar un documento es MIRARLO. El visor ocupa el modal entero y
+                        lo que hay que hacer con él (incidencias, validar, rechazar) vive en
+                        una columna lateral: antes las incidencias y los seis botones se
+                        comían dos tercios del alto y de la factura solo se veía una franja
+                        con el membrete, así que había que abrirla en Drive para revisarla —
+                        y entonces la pantalla de la app ya no servía para nada. */}
+                    <div className="bg-[#0b0c11] border border-white/10 rounded-2xl sm:rounded-[2.5rem] w-full max-w-[1500px] h-[94vh] sm:h-[92vh] flex flex-col shadow-2xl overflow-hidden relative">
                         <div className="absolute top-0 right-0 w-80 h-80 bg-brand/5 blur-[100px] rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />
 
                         {/* Header */}
@@ -3462,27 +3493,42 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                             </div>
                         </div>
                         
+                        {/* Cuerpo: VISOR a todo lo que da + columna de trabajo al lado.
+                            En el móvil no hay dos columnas: el visor arriba con altura fija
+                            y el trabajo debajo. */}
+                        <div className="flex-1 min-h-0 flex max-md:flex-col relative z-10">
+
                         {/* Visor */}
-                        <div className="flex-1 bg-black/40 p-1 relative z-10">
-                            <iframe 
-                                src={managingSigned.link.replace('/view?usp=drivesdk', '/preview')} 
+                        <div className="flex-1 min-h-0 max-md:h-[45vh] max-md:shrink-0 bg-black/40 p-1">
+                            <iframe
+                                src={managingSigned.link.replace('/view?usp=drivesdk', '/preview')}
                                 className="w-full h-full border-0"
                                 title="Visor Documento"
                             />
                         </div>
 
-                        {/* Footer — acciones de revisión (moderno, mobile-first) */}
-                        <div className="p-4 sm:p-6 border-t border-white/5 bg-white/[0.01] relative z-10 space-y-2.5">
-                            {/* Las incidencias de ESTE documento, justo encima de los botones de
-                                validar y rechazar: es la información que decide cuál de los dos
-                                se pulsa, y tenerla en otra pantalla obligaba a validar de memoria. */}
-                            <IncidenciasSlotPanel
-                                expedienteId={expediente?.id}
-                                slot={SLOT_DE_CAMPO[managingSigned.field]}
-                                incidencias={incSlot(SLOT_DE_CAMPO[managingSigned.field])}
-                                onCambio={() => onIncidenciasChanged?.()}
-                                compacto
-                            />
+                        {/* Columna de trabajo — incidencias arriba (con scroll propio) y las
+                            acciones ancladas abajo, siempre a la vista. */}
+                        <aside className="w-[400px] shrink-0 max-md:w-full max-md:flex-1 min-h-0 flex flex-col border-l max-md:border-l-0 max-md:border-t border-white/5 bg-white/[0.01]">
+                          <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 sm:p-5 space-y-3">
+                            {/* Las incidencias de ESTE documento, al lado del documento: es la
+                                información que decide si se valida o se rechaza, y tenerla en
+                                otra pantalla obligaba a validar de memoria. Se reclasifican,
+                                descartan y borran aquí mismo. */}
+                            {incSlot(SLOT_DE_CAMPO[managingSigned.field])?.length ? (
+                                <IncidenciasSlotPanel
+                                    expedienteId={expediente?.id}
+                                    slot={SLOT_DE_CAMPO[managingSigned.field]}
+                                    incidencias={incSlot(SLOT_DE_CAMPO[managingSigned.field])}
+                                    onCambio={() => onIncidenciasChanged?.()}
+                                    variant="aside"
+                                />
+                            ) : (
+                                <p className="text-[10px] font-black uppercase tracking-widest text-white/25 flex items-center gap-2">
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                                    Sin incidencias en este documento
+                                </p>
+                            )}
                             {/* Aviso: Cesión firmada electrónicamente pero solo por el cliente —
                                 falta la contrafirma de Brokergy antes de poder validar. */}
                             {managingSigned.field === 'anexo_cesion_signed_link' && !local.cesion_firmado_brokergy && local.anexo_cesion_firma_tipo === 'electronica' && (
@@ -3491,8 +3537,12 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                     Firma electrónica: el cliente ya firmó, falta la firma de Brokergy para poder validar
                                 </div>
                             )}
+                          </div>
+
+                          {/* Acciones de revisión — ancladas abajo */}
+                          <div className="p-4 sm:p-5 border-t border-white/5 shrink-0 space-y-2.5">
                             {/* Principales: validar / rechazar */}
-                            <div className="flex flex-col sm:flex-row gap-2.5">
+                            <div className="flex flex-col gap-2.5">
                                 {managingSigned.field === 'anexo_cesion_signed_link' && !local.cesion_firmado_brokergy ? (
                                     <>
                                         {/* Contrafirma con certificado: firma, sube y valida en un paso. */}
@@ -3574,6 +3624,8 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                     Eliminar
                                 </button>
                             </div>
+                          </div>
+                        </aside>
                         </div>
                     </div>
                 </div>

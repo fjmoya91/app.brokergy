@@ -1966,6 +1966,13 @@ router.get('/rite-upload/:expedienteId', async (req, res) => {
             instalador: instaladorNombre,
             memoria_subida: estRite.memoriaRecibida,
             certificado_subido: estRite.certificadoRecibido,
+            // La memoria firmada solo se le pide a quien alguna vez recibió una:
+            // pedirle "la memoria que os enviamos, firmada" a quien no ha recibido
+            // ninguna es pedirle un documento que no existe — y, peor, es ofrecerle
+            // una segunda casilla en la que dejar el CERTIFICADO, que es como acaba
+            // el RITE guardado en el campo de la memoria (26RES060_119). Mismo dato
+            // que ya usa /instalador/:id: aquí no puede decidirse distinto.
+            pide_memoria: estRite.memoriaGenerada,
         });
     } catch (e) {
         console.error('[RITE upload info] Error:', e);

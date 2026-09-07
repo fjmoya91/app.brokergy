@@ -40,3 +40,25 @@ FROM (
 WHERE e.oportunidad_id = r.opp_id
   AND r.link IS NOT NULL
   AND (e.documentacion->>'cert_rite_drive_link') IS NULL;
+
+-- BACKFILL 2 (idempotente, 2026-09-07): sellar `cert_rite_aportado_at` en los
+-- expedientes cuyo Certificado RITE entró por el slot DOC_RITE del popup de
+-- documentación. `syncRiteToExpediente` escribía solo el enlace, y sin el sello la
+-- heurística de `esMemoriaRiteEnDriveLink` toma ese certificado por la Memoria en
+-- cuanto el expediente tiene un borrador de memoria generado: la fila deja de decir
+-- "Aportado" y el CIFO sigue bloqueado (medido en 26RES060_131). Aquí no hay nada
+-- que adivinar: el fichero está en el slot que se llama "Certificado RITE".
+UPDATE public.expedientes e
+SET documentacion = jsonb_set(e.documentacion, '{cert_rite_aportado_at}', to_jsonb(r.at), true)
+FROM (
+  SELECT o.id AS opp_id,
+         o.datos_calculo->'reforma_uploads'->'DOC_RITE'->0->>'link' AS link,
+         COALESCE(o.datos_calculo->'reforma_uploads'->'DOC_RITE'->0->>'at', now()::text) AS at
+  FROM public.oportunidades o
+  WHERE jsonb_typeof(o.datos_calculo->'reforma_uploads'->'DOC_RITE') = 'array'
+    AND jsonb_array_length(o.datos_calculo->'reforma_uploads'->'DOC_RITE') > 0
+) r
+WHERE e.oportunidad_id = r.opp_id
+  AND r.link IS NOT NULL
+  AND (e.documentacion->>'cert_rite_drive_link') = r.link
+  AND (e.documentacion->>'cert_rite_aportado_at') IS NULL;
