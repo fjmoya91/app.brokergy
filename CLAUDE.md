@@ -3830,6 +3830,154 @@ constante** — detrás de ese enlace se puede reescribir un IBAN.
 
 ---
 
+### El Anexo Fotográfico de un RES080 ve la ENVOLVENTE (2026-09-07)
+
+`anexoConcepts` pedía el checklist con `buildDocChecklist(datos_calculo)` **a
+pelo**, que cae a los `inputs` y al funnel de la OPORTUNIDAD. Pero en un RES080 lo
+que se rehabilita —ventanas, cubierta, fachada— lo declara el EXPEDIENTE, en
+`documentacion.envolvente`. Consecuencia: **la skill y el MCP veían una lista de
+apartados distinta de la del modal de la app**, que sí resolvía el alcance
+(`public.js` ya llamaba a `docsAlcance.enriquecer`).
+
+Medido en **26RES080_44**, un RES080 cuya actuación principal SON las ventanas: el
+anexo salía con **5 actuaciones y 10 fotos** en vez de 7 y 30 — las 8 fotos de
+`FOTO_VENTANAS_ANTES` y las 12 de `FOTO_VENTANAS_DESPUES` estaban en Drive con su
+nombre canónico y no entraban. En **26RES080_54**, la cubierta y la fachada.
+
+**REGLA — el alcance se resuelve en `syncEnvolventeAndReload`**, que es por donde
+pasan las DOS vías de la skill (generar y consultar estado). Es la regla del
+checklist (§ "el checklist se pide SIEMPRE por `checklistForOportunidad`") llevada
+al Anexo: las superficies que deciden qué documenta un expediente comparten
+alcance, y aquí una decidía por su cuenta.
+
+Vigilado por `node implementation/backend/scripts/test_anexo_alcance_res080.js`,
+que barre TODOS los RES080 con envolvente declarada (27 hoy) y comprueba que cada
+uno pide sus apartados.
+
+⚠️ Esto NO clasifica fotos: si las fotos están sueltas en `2. FOTOS Y VIDEOS/ANTES`
+con su nombre de WhatsApp y no hay ninguna `FOTO_*` en `12. DOCUMENTOS PARA CEE`,
+el anexo sigue sin tener de dónde tirar — ese paso lo hace la skill renombrando al
+slot que corresponde (es el caso de 26RES080_54).
+
+
+## El CATÁLOGO DE VENTANAS — marcos y vidrios (2026-09-07)
+
+El otro equipo que un RES080 tiene que justificar. Gemelo del catálogo de
+`aerotermia`: se elige el modelo y el expediente se rellena solo con **Uf** (marco)
+y **Ug + factor solar + composición** (vidrio), y su **ficha técnica se adjunta al
+certificado RES080** como anexo, sin buscarla a mano.
+
+| Qué | Dónde |
+|---|---|
+| Esquema + siembra | `scripts/ventanas_catalogo.sql` — tablas `ventanas_marcos` y `ventanas_cristales` |
+| Rutas | [routes/ventanas.js](implementation/backend/routes/ventanas.js) — `/api/ventanas/marcos` · `/cristales` |
+| Normalización, etiquetas y volcado al expediente | [logic/ventanasCatalogo.js](implementation/frontend/src/features/expedientes/logic/ventanasCatalogo.js) |
+| Huecos de ficha del RES080 (`marco` · `cristal`) | `resolveEnvolventeFichaSlots` en [logic/fichasTecnicas.js](implementation/frontend/src/features/expedientes/logic/fichasTecnicas.js) |
+| La ficha del expediente VUELVE al catálogo | [services/catalogoFichas.js](implementation/backend/services/catalogoFichas.js) |
+| Pestaña propia (staff) | `features/ventanas/views/VentanasView.jsx` |
+| Pruebas | `node scripts/test_catalogo_ventanas.js` · `node scripts/test_ficha_ventana_drive.js` |
+
+**POR QUÉ EXISTE.** Las listas de marcas y modelos vivían en el `localStorage` del
+navegador —no se compartían entre usuarios ni entre ordenadores— y el Uf, el Ug y
+el factor solar nacían con tres valores fijos: **2,7 · 1,3 · 0,43**. Medido sobre
+los 25 RES080 con la envolvente rellena, esos tres números aparecen tal cual en
+varios expedientes, que es lo que pasa cuando un valor por defecto parece medido y
+no obliga a mirar la ficha. Ahora **nacen vacíos**: se eligen del catálogo o se
+teclean, y un hueco se ve.
+
+**REGLA — la MARCA es el fabricante del SISTEMA; el CARPINTERO va aparte.**
+«Aluminios Manzanares S.L.» no es una marca de perfil: es quien fabrica y monta la
+ventana con perfil de Cortizo o de Kömmerling. En **9 de los 25** RES080 el campo
+`marco_nuevo_marca` llevaba la carpintería, así que el certificado declaraba como
+fabricante del sistema a una carpintería de pueblo y el Uf no se podía contrastar
+con ninguna ficha. El expediente guarda ahora los dos: `marco_nuevo_marca` (del
+catálogo) y **`marco_carpinteria`** (texto libre). El certificado imprime la fila
+"Carpintería que la fabrica y monta" solo cuando difiere de la marca — decirlo dos
+veces sería ruido. Los 9 históricos se separaron con
+`scripts/separar_carpinteria_de_marca_ventana.sql`, dejando la marca VACÍA: de
+esos expedientes no consta qué sistema se instaló, y adivinarlo (PLANIA es de
+STRUGAL, A.61 RPT de SIMER) sería meter en un certificado una marca sin comprobar.
+
+**REGLA — el Uf es de la serie EN SU APERTURA, no de la serie.** Por eso una fila
+por (marca, serie, **apertura**): la STRUGAL PLANIA da 1,30 en doble junta, 1,25 en
+triple y 1,10 con refuerzo con rotura; la Cortizo A70 abisagrada, 1,30, y la C70
+corredera, 1,80. Una fila por serie autorrellenaría el Uf de la tipología
+equivocada, que es justo el error que el catálogo viene a evitar.
+
+**REGLA — el Ug es de la capa MÁS la composición.** Una fila por (fabricante,
+gama, **composición**): el mismo Guardian Sun da Ug 1,3 en 4/16/4 con aire y 1,0
+con argón. Es también como están nombradas las fichas de "02. CRISTALES".
+
+**REGLA — un valor que no está ESCRITO en la ficha no se siembra.** La siembra sale
+de leer las 107 fichas del Drive: `validado` solo va a `true` cuando el Uf o el Ug
+están dentro del documento. En los 8 marcos cuya ficha solo declara el **Uw** (o lo
+lleva únicamente en el nombre del fichero, como "S53RP Y VALOR Uf 1.59"), el campo
+queda a NULL y la nota dice dónde mirar. Un número tomado del nombre de un PDF
+acaba impreso en un certificado sin que nadie lo haya comprobado. Estado actual:
+**22 marcos** (14 con Uf verificado) y **22 vidrios** (todos verificados).
+
+**REGLA — un modelo SIN el dato no PISA lo que ya hubiera escrito.** `aplicarMarco`
+omite `marco_nuevo_transmitancia` cuando el catálogo no tiene Uf, en vez de poner
+un cero. El selector avisa en la propia fila ("Falta el Uf") y ofrece completarlo
+allí mismo: se teclea una vez, con la ficha delante, y queda para todos los
+expedientes que vengan detrás (`PATCH /api/ventanas/:tipo/:id`, que **no** pasa por
+el payload completo del PUT y por eso no borra la ficha ni las notas).
+
+**REGLA — se busca SIN TILDES, y por eso el listado viene entero.** "kommerling"
+tiene que encontrar "KÖMMERLING", y un `ilike` en SQL no lo hace: la ruta devuelve
+las decenas de filas y el filtro vive en el navegador (`norm()` con NFD, como el
+resto de buscadores de la app).
+
+**REGLA — dar de alta y editar es `staffOnly`; BORRAR es `adminOnly`.** Aquí no hay
+ni un euro: son datos técnicos que se teclean con la ficha delante, y quien rellena
+el expediente es a menudo un TRABAJADOR. Si el alta exigiera un ADMIN, el modelo no
+se daría de alta — se escribiría a mano en el expediente y el catálogo seguiría
+vacío. Un borrado sí se lleva por delante la ficha de los expedientes que lo citen.
+
+**REGLA — el alta DESDE UN EXPEDIENTE es idempotente** (`upsertar: true`): el mismo
+modelo se puede estar dando de alta desde dos expedientes a la vez, y chocar con la
+clave única a mitad de rellenar la envolvente es un callejón sin salida. Desde la
+pestaña del catálogo NO se upserta: allí el 409 es un aviso útil, porque quien
+teclea está mirando la lista.
+
+### La ficha que se sube a un expediente VUELVE al catálogo
+
+Vale también para la **aerotermia** (y para su ficha EPREL). La ficha aparece casi
+siempre por ese lado: alguien la busca para UNA obra y la sube ahí; sin el camino
+de vuelta, el hueco del modelo se queda vacío para siempre.
+
+**REGLA — se PROPONE, nunca se escribe en silencio.** Al elegir el fichero salta
+`GuardarEnCatalogoGate`: la casilla nace **marcada** si el modelo no tiene ficha y
+**desmarcada** si ya la tiene, diciendo que la sustituye. Sin modelo del catálogo
+detrás no hay puerta —no hay a quién guardársela— y la subida sigue directa.
+
+**REGLA — el fichero del catálogo NO puede vivir dentro de la carpeta de un
+expediente.** Ahí lo puede mover o borrar cualquiera que ordene ese expediente, y
+la auto-copia dejaría de funcionar para todos los demás sin que nadie se entere. Se
+copia a `06. CALIDAD/01. FICHAS TECNICAS AEROTERMIA`, `…/06. VENTANAS/01. MARCOS` o
+`…/02. CRISTALES` (ids con variable de entorno y valor de respaldo, mismo criterio
+que la carpeta de producción de los CEE directos). La ficha anterior se **archiva
+en OLD**, no se borra: es la prueba de un dato que puede estar ya impreso.
+
+### Los huecos de ficha del RES080
+
+`resolveEnvolventeFichaSlots(expediente)` añade dos huecos —`marco` y `cristal`— a
+los de la bomba de calor, **solo si el expediente declara que sustituye ventanas**.
+En un RES080 de cubierta no hay carpintería que justificar, y un hueco vacío
+permanente en la hoja de anexos se lee como un documento que falta.
+
+⚠️ `ftAttachmentSlots(instalacion, expediente)` recibe el expediente **entero**
+(la envolvente vive en `documentacion`, que `instalacion` no ve). El CIFO lo llama
+SIN ese segundo argumento y por eso no ve los huecos de envolvente, aunque comparta
+el estado de anexos con el RES080 en `DocumentacionModule`.
+
+Nombres canónicos en Drive: `{nº} - FT MARCO VENTANA.pdf` y `{nº} - FT VIDRIO.pdf`
+(sin "AEROTERMIA": se archivan en la misma carpeta y el nombre es lo que las
+distingue). Campos: `documentacion.ft_marco_link` / `ft_cristal_link`.
+
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -3905,6 +4053,8 @@ constante** — detrás de ese enlace se puede reescribir un IBAN.
 
 
 35. **"¿Tienes placas solares?" se pregunta en `/reforma` y llega hasta el CEE**: la respuesta (`si` | `futuro` | `no`) y la potencia viajan `funnel → inputs.fotovoltaica → instalacion.fotovoltaica → encargo al certificador`. Fuente única: [logic/fotovoltaica.js](implementation/frontend/src/features/expedientes/logic/fotovoltaica.js), que el backend carga por import() ESM. **A quien ya tiene placas NO se le propone la medida de mejora de autoconsumo**: se le dice al certificador que las declare como instalación EXISTENTE (`ce3xTextos` · `buildCe3xFinal`). `estado: null` ("sin declarar") no es `'no'`, y la clave va en la BLACKLIST de `normalizeData` porque el enum es en minúscula. No confundir con `reforma_elementos.placas`, que son las placas de ESTA obra. Ver "¿Tienes placas solares?".
+
+37. **El Uf del marco y el Ug del vidrio salen del CATÁLOGO DE VENTANAS, y la MARCA no es el CARPINTERO**: `ventanas_marcos` (una fila por marca+serie+**apertura**: el mismo sistema da otro Uf en corredera) y `ventanas_cristales` (una fila por fabricante+gama+**composición**: el mismo Guardian Sun da Ug 1,3 con aire y 1,0 con argón). Sustituyen a las listas que vivían en el `localStorage` del navegador y a los defaults 2,7 · 1,3 · 0,43, que acabaron impresos tal cual en varios expedientes. La carpintería que fabrica y monta la ventana va en `documentacion.envolvente.marco_carpinteria`, NUNCA en la marca. Un modelo sin el dato **no pisa** lo ya escrito y se avisa en la fila; no se siembra nada que no esté escrito DENTRO de la ficha. El RES080 adjunta la ficha del marco y la del vidrio como anexos (`resolveEnvolventeFichaSlots`), y **la ficha que se sube a un expediente se ofrece para el catálogo** —también en aerotermia—, copiándola SIEMPRE a la carpeta del catálogo y nunca dejándola dentro de un expediente ([catalogoFichas.js](implementation/backend/services/catalogoFichas.js)). Fuentes únicas: [logic/ventanasCatalogo.js](implementation/frontend/src/features/expedientes/logic/ventanasCatalogo.js) y [routes/ventanas.js](implementation/backend/routes/ventanas.js). Ver "El CATÁLOGO DE VENTANAS".
 
 36. **La CONFIRMACIÓN DE COBRO es un formulario de la app, no de Tally**: `/cobro/:id?token=` cualifica al cliente (tarifa · fotovoltaica · IRPF) y confirma sus datos de pago cuando el lote llega a fase de pago. Lo obligatorio va AL FINAL y lo comercial delante, y **nunca retiene el cobro**. La forma de pago solo se pregunta a quien asume el coste (`discountCertificates` la calla, porque su convenio no la menciona), y las dos opciones NO cuestan lo mismo: el descuento va sobre la BASE sin IVA y la factura lo repercute, así que sale marcada `desaconsejada` con lo que cuesta de más y el retraso del cobro. **Cambiar de IBAN exige justificante NUEVO** —el anterior acredita la cuenta vieja— y el cambio va lo primero en el aviso al staff. Los datos van a `clientes` y el justificante a su slot de siempre; en `documentacion.cobro`, solo metadatos con RPC de MERGE. Fuentes únicas: [logic/cobroForm.js](implementation/frontend/src/features/cobro/logic/cobroForm.js) (qué se pregunta) y [cobroService.js](implementation/backend/services/cobroService.js) (a quién y con qué datos). Ver "Confirmación de cobro".
 

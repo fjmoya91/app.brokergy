@@ -9,7 +9,8 @@ import { EMITTER_OPTIONS, emitterScopContext } from '../logic/cifoDoc';
 import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevoLabel, esTermoElectrico } from '../logic/aerotermiaUnits';
 // Qué fichas técnicas lleva ESTE expediente: una por MODELO distinto de bomba de
 // calor, no una por hueco. FUENTE ÚNICA con las rutas y con cifoService.
-import { resolveFichaSlots, ftAttachmentSlots, ftSlotId, ftTypeFromSlotId } from '../logic/fichasTecnicas';
+import { resolveFichaSlots, resolveEnvolventeFichaSlots, resolveAllFichaSlots, ftAttachmentSlots, ftSlotId, ftTypeFromSlotId } from '../logic/fichasTecnicas';
+import { GuardarEnCatalogoGate } from '../../ventanas/components/GuardarEnCatalogoGate';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
 // Orden de los anexos + páginas excluidas de cada uno (documentacion.cifo_annex_prefs).
 import {
@@ -196,6 +197,10 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
     const [sendResults, setSendResults] = useState([]);
     const [loadingFichas, setLoadingFichas] = useState({ cal: false, acs: false });
     const [resyncingType, setResyncingType] = useState(null);
+    // Puerta de "guardar también en el catálogo" antes de subir una ficha a un
+    // hueco fijo. Guarda el fichero elegido hasta que se contesta.
+    const [fichaPendiente, setFichaPendiente] = useState(null);   // { slotId, file }
+
     const [uploadingExtra, setUploadingExtra] = useState(false);
     const [extraProgress, setExtraProgress] = useState({ done: 0, total: 0 });
 
@@ -215,7 +220,10 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
     // Estado efímero de anexos: fichas de aerotermia (auto-copiadas del modelo) +
     // anexos extra (RITE, envolvente, etc.) que viven en Drive. Mismo modelo que el
     // CIFO RES060. El padre persiste los enlaces en documentacion.
-    const attachments = externalAttachments || ftAttachmentSlots(expediente?.instalacion);
+    // Se le pasa el EXPEDIENTE entero (no solo la instalación) para que entren
+    // los dos huecos de la envolvente: la ficha del marco y la del vidrio. El
+    // CIFO comparte este estado pero los filtra, así que no los ve.
+    const attachments = externalAttachments || ftAttachmentSlots(expediente?.instalacion, expediente);
     // IMPORTANTE: pasamos el updater tal cual al setter del padre (que es un
     // useState setter y sabe encadenar). Resolver aquí introduciría stale closures
     // cuando dos cargas async (cal+acs) corren en paralelo.
@@ -238,16 +246,21 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
         empresa_responsable: '',
         ejecutora_nombre: '',
         ejecutora_cif: '',
-        marco_nuevo_material: 'PVC',
-        marco_nuevo_marca: 'CORTIZO',
-        marco_nuevo_modelo: 'A 70',
-        marco_nuevo_uf: '1,3',
-        cristal_nuevo_u: '1.3',
-        cristal_nuevo_marca: 'GUARDIAN',
-        cristal_nuevo_modelo: 'SUN',
-        cristal_nuevo_composicion: '4/16/4 Bajo emisivo',
-        cristal_nuevo_ug: '1,1',
-        cristal_nuevo_g: '0,43',
+        // Los defaults del marco y del vidrio se quedan VACÍOS a propósito. Antes
+        // eran CORTIZO A 70 · Uf 1,3 · Ug 1,1 · g 0,43, y un expediente al que se
+        // le olvidara rellenar la envolvente salía certificando una ventana que
+        // nadie había instalado. Vacío se ve; un valor plausible, no.
+        marco_nuevo_material: '',
+        marco_nuevo_marca: '',
+        marco_nuevo_modelo: '',
+        marco_carpinteria: '',
+        marco_nuevo_uf: '',
+        cristal_nuevo_u: '',
+        cristal_nuevo_marca: '',
+        cristal_nuevo_modelo: '',
+        cristal_nuevo_composicion: '',
+        cristal_nuevo_ug: '',
+        cristal_nuevo_g: '',
         permeabilidad_nueva: '3',
         // Rótulos de las capturas CE3X (espejo de RES080_FIELD_DEFAULTS).
         ce3x_titulo_antes: 'DETALLE HUECOS CE3X ANTES',
@@ -345,6 +358,10 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                 marco_nuevo_material: env.marco_nuevo_material || editableRef.current.marco_nuevo_material,
                 marco_nuevo_marca: env.marco_nuevo_marca || editableRef.current.marco_nuevo_marca,
                 marco_nuevo_modelo: env.marco_nuevo_modelo || editableRef.current.marco_nuevo_modelo,
+                // Quien FABRICA Y MONTA la ventana, cuando no es la propia marca del
+                // sistema. Sin este campo el certificado nombraba a una sola empresa y
+                // el NIF de la factura de las ventanas no casaba con nadie.
+                marco_carpinteria: env.marco_carpinteria || '',
                 marco_nuevo_uf: numStr(env.marco_nuevo_transmitancia) || editableRef.current.marco_nuevo_uf,
                 cristal_nuevo_marca: env.cristal_nuevo_marca || editableRef.current.cristal_nuevo_marca,
                 cristal_nuevo_modelo: env.cristal_nuevo_modelo || editableRef.current.cristal_nuevo_modelo,
@@ -537,7 +554,18 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
         return renderPdfBufferToImages(arrayBuffer);
     };
 
-    const handleManualFixedUpload = async (slotId, file) => {
+    // Elegir el fichero NO lo sube todavía: si el hueco tiene un modelo del
+    // catálogo detrás, primero se pregunta si la ficha se guarda también allí
+    // (ver GuardarEnCatalogoGate). Sin modelo no hay a quién guardársela y se
+    // sube directo: preguntar algo que no se puede contestar es un clic de peaje.
+    const handleManualFixedUpload = (slotId, file) => {
+        if (!file || !expediente?.id) return;
+        const slot = resolveAllFichaSlots(expediente).find(s => s.id === slotId);
+        if (slot?.modelId) { setFichaPendiente({ slotId, file, slot }); return; }
+        return subirFichaFija(slotId, file);
+    };
+
+    const subirFichaFija = async (slotId, file, catalogo = null) => {
         if (!file || !expediente?.id) return;
         const type = ftTypeFromSlotId(slotId);
         if (!type) return;
@@ -546,7 +574,9 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
             const arrayBuffer = await file.arrayBuffer();
             const base64 = arrayBufferToBase64(arrayBuffer);
             const { data } = await axios.post(`/api/expedientes/${expediente.id}/fichas-tecnicas/upload`, {
-                base64, type, numexpte: expediente.numero_expediente
+                base64, type, numexpte: expediente.numero_expediente,
+                guardarEnCatalogo: !!catalogo?.guardarEnCatalogo,
+                sustituirEnCatalogo: !!catalogo?.sustituirEnCatalogo,
             });
             if (onSaveFichaLink) onSaveFichaLink(type, data.link, data.driveId);
             const previewPages = await renderPdfBufferToImages(arrayBuffer);
@@ -671,7 +701,10 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
         // Un hueco por MODELO distinto: la cascada con equipos distintos carga la
         // ficha de cada uno, y el equipo que resuelve calefacción y ACS carga una
         // sola (antes se copiaba la misma dos veces y el PDF la llevaba repetida).
-        resolveFichaSlots(expediente.instalacion).forEach(s => loadFichaSlot(s.type));
+        // Un hueco por MODELO distinto de bomba de calor, MÁS el marco y el vidrio
+        // cuando el expediente sustituye ventanas: el certificado dice literalmente
+        // que las adjunta, y hasta ahora había que buscarlas y subirlas a mano.
+        resolveAllFichaSlots(expediente).forEach(s => loadFichaSlot(s.type));
 
         const extras = (attachments || []).filter(a => a.isExtra && a.file?.driveId && !a.file.previewPages);
         extras.forEach(async (extra) => {
@@ -949,7 +982,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
     // Los anexos que van al documento: los huecos de ficha que ESTE expediente pide
     // (uno por modelo distinto de bomba de calor) más los extras. Lo que no está en
     // la lista no se enseña ni viaja al PDF.
-    const fichaSlotIds = new Set(resolveFichaSlots(inst).map(s => s.id));
+    const fichaSlotIds = new Set(resolveAllFichaSlots(expediente).map(s => s.id));
     const docAttachments = attachments.filter(a => a.isExtra || fichaSlotIds.has(a.id));
 
     // ─── JUSTIFICACIÓN DEL SCOP (igual que RES060) ──────────────────────────
@@ -1416,6 +1449,9 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                             ${cmpRow('Material del marco', env.marco_existente_material || '—', eb('marco_nuevo_material'))}
                             ${cmpRow('Marca del marco', 'Desconocida', eb('marco_nuevo_marca'))}
                             ${cmpRow('Modelo del marco', 'Desconocida', eb('marco_nuevo_modelo'))}
+                            ${ed('marco_carpinteria').trim()
+                                && ed('marco_carpinteria').trim().toUpperCase() !== ed('marco_nuevo_marca').trim().toUpperCase()
+                                ? cmpRow('Carpintería que la fabrica y monta', '—', eb('marco_carpinteria')) : ''}
                             ${cmpRow('Transmitancia del marco U<sub>f</sub> (W/m²K)', '—', eb('marco_nuevo_uf'))}
                             ${cmpGroup('Vidrio')}
                             ${cmpRow('Composición del cristal', env.cristal_existente_composicion || 'Desconocida', eb('cristal_nuevo_composicion'))}
@@ -2562,6 +2598,23 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                 })()}
             </div>
             {isAnexosOpen && <AnexosModal />}
+
+            {/* "Esta ficha, ¿la guardo también en el catálogo?" — se pregunta al
+                elegir el fichero, no después: es la única ocasión en la que quien
+                la acaba de buscar sabe si es la buena. */}
+            {fichaPendiente && (
+                <GuardarEnCatalogoGate
+                    slot={fichaPendiente.slot}
+                    nombreFichero={fichaPendiente.file?.name}
+                    onCancelar={() => setFichaPendiente(null)}
+                    onConfirmar={(opts) => {
+                        const p = fichaPendiente;
+                        setFichaPendiente(null);
+                        subirFichaFija(p.slotId, p.file, opts);
+                    }}
+                />
+            )}
+
 
             {/* Selector de páginas del anexo (recorte guardado en el expediente) */}
             <AnexoPaginasModal

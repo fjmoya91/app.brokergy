@@ -255,6 +255,14 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                               title: 'Abre el catálogo de aerotermia en una pestaña nueva (no pierdes el expediente que estés editando)',
                               d: 'M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2v-4M9 21H5a2 2 0 01-2-2v-4m0 0h18' },
 
+                            // El otro catálogo de equipos de un RES080: el marco y el
+                            // vidrio. Lo ve todo el staff (no lleva importes) y se abre
+                            // fuera por el mismo motivo que el de aerotermia: se consulta
+                            // MIENTRAS se rellena un expediente.
+                            { id: 'ventanas', grupo: 'fichas', label: 'Ventanas', ver: isStaff, nuevaPestana: true,
+                              title: 'Abre el catálogo de marcos y vidrios en una pestaña nueva (no pierdes el expediente que estés editando)',
+                              d: 'M4 4h16v16H4V4zm0 8h16M12 4v16' },
+
                             { id: 'usuarios', grupo: 'ajustes', label: 'Usuarios', ver: isAdmin,
                               d: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z' },
                         ].filter(e => e.ver);

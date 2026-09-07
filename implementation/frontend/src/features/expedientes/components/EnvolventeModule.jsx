@@ -1,4 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { VentanaPicker } from '../../ventanas/components/VentanaPicker';
+import { VentanaModeloModal } from '../../ventanas/components/VentanaModeloModal';
+import {
+    aplicarMarco, aplicarCristal, marcoDelExpediente, cristalDelExpediente,
+} from '../logic/ventanasCatalogo';
 
 // ─── Componentes de UI ────────────────────────────────────────────────────────
 
@@ -199,16 +204,30 @@ export function EnvolventeModule({ expediente, onSave, onLiveUpdate, saving }) {
         marco_existente_material: '',
         permeabilidad_existente: 0,
         cristal_existente_composicion: '',
+        // El marco y el vidrio salen del CATÁLOGO (ventanas_marcos / ventanas_cristales):
+        // `*_catalogo_id` es la fila elegida y los demás campos, lo que ésta volcó.
+        // Se conservan editables: el catálogo dice lo que el modelo PUEDE dar; el
+        // expediente, lo que se instaló.
+        marco_catalogo_id: null,
         marco_nuevo_material: '',
         marco_nuevo_marca: '',
         marco_nuevo_modelo: '',
-        marco_nuevo_transmitancia: 2.7,
+        // La CARPINTERÍA que fabrica y monta la ventana (Aluminios Manzanares…) no
+        // es la marca del sistema (Cortizo). Mezclarlas dejaba el certificado
+        // declarando como fabricante del perfil a una carpintería de pueblo, y
+        // entonces el Uf no se podía comprobar contra ninguna ficha.
+        marco_carpinteria: '',
+        // SIN valor por defecto a propósito. Antes nacían con 2,7 / 1,3 / 0,43 y
+        // esos tres números acabaron impresos tal cual en varios expedientes: un
+        // valor por defecto que parece medido no obliga a nadie a mirar la ficha.
+        marco_nuevo_transmitancia: '',
+        cristal_catalogo_id: null,
         cristal_nuevo_marca: '',
-        cristal_nuevo_modelo: 'Climaguard', // Climaguard / Planitherm
+        cristal_nuevo_modelo: '',
         cristal_nuevo_composicion: '',
-        cristal_nuevo_transmitancia: 1.3,
+        cristal_nuevo_transmitancia: '',
         permeabilidad_nueva: 3,
-        cristal_nuevo_factor_solar: 0.43,
+        cristal_nuevo_factor_solar: '',
         descripcion_ventanas: 'Se sustituyen las ventanas actuales por unas con mejores prestaciones térmicas y hermeticidad.',
 
         // Cerramientos
@@ -230,26 +249,28 @@ export function EnvolventeModule({ expediente, onSave, onLiveUpdate, saving }) {
 
     const [editMode, setEditMode] = useState(false);
 
-    // Listas base + personalizadas de localStorage
+    // El modelo del catálogo que se está dando de alta o corrigiendo, y un token
+    // para que el selector vuelva a leer la lista cuando se guarda.
+    const [modeloModal, setModeloModal] = useState(null);   // { tipo, modelo|null }
+    const [recargar, setRecargar] = useState(0);
+
+    // Listas de texto libre que NO son catálogo: describen lo que HABÍA (el marco
+    // y el vidrio que se retiran), de lo que no hay ficha técnica de nadie. Siguen
+    // en localStorage a propósito: son apuntes, no datos que viajen a un documento.
+    // Lo NUEVO sí sale del catálogo compartido (ventanas_marcos / ventanas_cristales).
     const [lists, setLists] = useState(() => {
         const saved = localStorage.getItem('brokergy_envolvente_lists');
         const defaults = {
             marcos: ['Aluminio', 'Aluminio RPT', 'PVC', 'Madera', 'Mixto'],
-            cristales: ['Guardian', 'Saint-Gobain', 'Climalit'],
             composiciones: ['Vidrio simple', 'Doble vidrio (4/12/4)', 'Doble vidrio (4/16/4)', '4/18/4 BAJO EMISIVO', 'Triple vidrio'],
-            marcas_marco: ['Simer', 'Kömmerling', 'Cortizo', 'Schüco', 'Deceuninck'],
-            modelos_marco: ['A.61 RPT', 'Premium 76', 'Thermo 8.0']
         };
         if (!saved) return defaults;
-        
+
         try {
             const parsed = JSON.parse(saved);
             return {
                 marcos: Array.from(new Set([...defaults.marcos, ...(parsed.marcos || [])])),
-                cristales: Array.from(new Set([...defaults.cristales, ...(parsed.cristales || [])])),
                 composiciones: Array.from(new Set([...defaults.composiciones, ...(parsed.composiciones || [])])),
-                marcas_marco: Array.from(new Set([...defaults.marcas_marco, ...(parsed.marcas_marco || [])])),
-                modelos_marco: Array.from(new Set([...defaults.modelos_marco, ...(parsed.modelos_marco || [])])),
             };
         } catch(e) {
             return defaults;
@@ -358,41 +379,80 @@ export function EnvolventeModule({ expediente, onSave, onLiveUpdate, saving }) {
                                      </h5>
                                 </div>
 
+                                {/* ── MARCO: se elige del catálogo ─────────────────────────
+                                    El selector vuelca marca, modelo, material y Uf de una vez.
+                                    Los campos siguen siendo editables: si en la obra el Uf es
+                                    otro, manda el expediente. */}
+                                <div className="col-span-full">
+                                    <FieldGroup label="Marco nuevo · modelo del catálogo">
+                                        <VentanaPicker
+                                            tipo="marcos"
+                                            valorId={local.marco_catalogo_id}
+                                            resumen={[local.marco_nuevo_marca, local.marco_nuevo_modelo].filter(Boolean).join(' ')}
+                                            readOnly={!editMode}
+                                            recargarToken={recargar}
+                                            onElegir={m => setLocal(p => ({ ...p, ...aplicarMarco(m) }))}
+                                            onCrear={() => setModeloModal({ tipo: 'marcos', modelo: null })}
+                                            onEditar={m => setModeloModal({ tipo: 'marcos', modelo: m })}
+                                        />
+                                    </FieldGroup>
+                                </div>
+
                                 <FieldGroup label="Material marco nuevo">
                                     <SelectField value={local.marco_nuevo_material} onChange={v => setLocal(p => ({ ...p, marco_nuevo_material: v }))} options={lists.marcos} readOnly={!editMode} onAddCustom={v => addCustomOption('marcos', v)} />
-                                </FieldGroup>
-
-                                <FieldGroup label="Marca Marco nuevo">
-                                    <SelectField value={local.marco_nuevo_marca} onChange={v => setLocal(p => ({ ...p, marco_nuevo_marca: v }))} options={lists.marcas_marco} readOnly={!editMode} onAddCustom={v => addCustomOption('marcas_marco', v)} />
-                                </FieldGroup>
-
-                                <FieldGroup label="Modelo Marco nuevo">
-                                    <SelectField value={local.marco_nuevo_modelo} onChange={v => setLocal(p => ({ ...p, marco_nuevo_modelo: v }))} options={lists.modelos_marco} readOnly={!editMode} onAddCustom={v => addCustomOption('modelos_marco', v)} />
                                 </FieldGroup>
 
                                 <FieldGroup label="Transmitancia Marco (Uf)">
                                     <NumberField value={local.marco_nuevo_transmitancia} onChange={v => setLocal(p => ({ ...p, marco_nuevo_transmitancia: v }))} readOnly={!editMode} step={0.1} />
                                 </FieldGroup>
 
-                                <FieldGroup label="Marca Cristal nuevo">
-                                    <SelectField value={local.cristal_nuevo_marca} onChange={v => setLocal(p => ({ ...p, cristal_nuevo_marca: v }))} options={lists.cristales} readOnly={!editMode} onAddCustom={v => addCustomOption('cristales', v)} />
-                                </FieldGroup>
+                                {/* La CARPINTERÍA no es la marca del sistema: es quien fabrica
+                                    y monta la ventana con perfil de Cortizo, Kömmerling… Va en
+                                    su propio campo para que el certificado pueda nombrar a las
+                                    dos sin confundirlas. */}
+                                <div className="col-span-full">
+                                    <FieldGroup label="Carpintería que fabrica y monta la ventana">
+                                        {/* El ejemplo va con "p. ej." y atenuado: un nombre de empresa a secas
+                                            en el hueco se lee como un valor ya escrito, que es justo el
+                                            equívoco que este campo viene a deshacer. */}
+                                        <input
+                                            type="text"
+                                            value={local.marco_carpinteria || ''}
+                                            onChange={e => setLocal(p => ({ ...p, marco_carpinteria: e.target.value }))}
+                                            readOnly={!editMode}
+                                            placeholder="p. ej. Aluminios Manzanares S.L."
+                                            className={`w-full h-11 bg-bkg-elevated border rounded-xl px-4 text-sm font-bold focus:outline-none transition-all placeholder:font-normal placeholder:text-white/20 ${
+                                                editMode ? 'border-white/10 text-white focus:border-brand/40' : 'border-white/5 text-white/20'
+                                            }`}
+                                        />
+                                        {/* La aclaración va DENTRO del grupo: como hermana suelta se salía
+                                            de la fila de la rejilla y pisaba el rótulo del vidrio. */}
+                                        <p className="text-[10px] text-white/25 mt-1.5 ml-1 leading-snug">
+                                            Déjalo vacío si la ventana la fabrica la propia marca. No es lo mismo que la
+                                            marca del perfil: el Uf se comprueba contra la ficha del sistema, no contra
+                                            la carpintería.
+                                        </p>
+                                    </FieldGroup>
+                                </div>
 
-                                <FieldGroup label="Modelo Cristal nuevo">
-                                    <div className="flex bg-bkg-elevated p-1 rounded-xl border border-white/5 h-11">
-                                        {['Climaguard', 'Planitherm'].map(m => (
-                                            <button
-                                                key={m}
-                                                disabled={!editMode}
-                                                onClick={() => setLocal(p => ({ ...p, cristal_nuevo_modelo: m }))}
-                                                className={`flex-1 rounded-lg text-[10px] font-black transition-all ${String(local.cristal_nuevo_modelo || '').toUpperCase() === m.toUpperCase() ? 'bg-brand/20 text-brand' : 'text-white/20'}`}
-                                                type="button"
-                                            >
-                                                {m}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </FieldGroup>
+                                {/* ── VIDRIO: también del catálogo ─────────────────────────
+                                    Lo que fija el Ug y el factor solar es la capa bajo emisiva
+                                    MÁS la composición: el mismo Guardian Sun da 1,3 con aire y
+                                    1,0 con argón. Por eso una entrada = gama + composición. */}
+                                <div className="col-span-full">
+                                    <FieldGroup label="Vidrio nuevo · modelo del catálogo">
+                                        <VentanaPicker
+                                            tipo="cristales"
+                                            valorId={local.cristal_catalogo_id}
+                                            resumen={[local.cristal_nuevo_marca, local.cristal_nuevo_modelo, local.cristal_nuevo_composicion].filter(Boolean).join(' · ')}
+                                            readOnly={!editMode}
+                                            recargarToken={recargar}
+                                            onElegir={c => setLocal(p => ({ ...p, ...aplicarCristal(c) }))}
+                                            onCrear={() => setModeloModal({ tipo: 'cristales', modelo: null })}
+                                            onEditar={c => setModeloModal({ tipo: 'cristales', modelo: c })}
+                                        />
+                                    </FieldGroup>
+                                </div>
 
                                 <FieldGroup label="Composición cristal nuevo">
                                     <SelectField value={local.cristal_nuevo_composicion} onChange={v => setLocal(p => ({ ...p, cristal_nuevo_composicion: v }))} options={lists.composiciones} readOnly={!editMode} onAddCustom={v => addCustomOption('composiciones', v)} />
@@ -402,12 +462,12 @@ export function EnvolventeModule({ expediente, onSave, onLiveUpdate, saving }) {
                                     <NumberField value={local.cristal_nuevo_transmitancia} onChange={v => setLocal(p => ({ ...p, cristal_nuevo_transmitancia: v }))} readOnly={!editMode} step={0.1} />
                                 </FieldGroup>
 
-                                <FieldGroup label="Permeabilidad nueva">
-                                    <NumberField value={local.permeabilidad_nueva} onChange={v => setLocal(p => ({ ...p, permeabilidad_nueva: v }))} readOnly={!editMode} />
-                                </FieldGroup>
-
                                 <FieldGroup label="Factor Solar (g)">
                                     <NumberField value={local.cristal_nuevo_factor_solar} onChange={v => setLocal(p => ({ ...p, cristal_nuevo_factor_solar: v }))} readOnly={!editMode} step={0.01} />
+                                </FieldGroup>
+
+                                <FieldGroup label="Permeabilidad nueva">
+                                    <NumberField value={local.permeabilidad_nueva} onChange={v => setLocal(p => ({ ...p, permeabilidad_nueva: v }))} readOnly={!editMode} />
                                 </FieldGroup>
 
                                 <div className="col-span-full">
@@ -500,7 +560,7 @@ export function EnvolventeModule({ expediente, onSave, onLiveUpdate, saving }) {
                                 </div>
 
                                 <FieldGroup label="Descripción de la actuación">
-                                    <textarea 
+                                    <textarea
                                         value={local.descripcion_cerramientos}
                                         onChange={e => setLocal(p => ({ ...p, descripcion_cerramientos: e.target.value }))}
                                         readOnly={!editMode}
@@ -512,6 +572,28 @@ export function EnvolventeModule({ expediente, onSave, onLiveUpdate, saving }) {
                     </div>
                 </div>
             </div>
+
+            {/* Alta / corrección de un modelo del catálogo SIN salir del expediente.
+                Al guardar se vuelca sobre el expediente si es el que está elegido:
+                quien acaba de teclear el Uf que faltaba espera verlo aquí, no tener
+                que volver a abrir el selector y elegirlo otra vez. */}
+            {modeloModal && (
+                <VentanaModeloModal
+                    tipo={modeloModal.tipo}
+                    modelo={modeloModal.modelo}
+                    desdeExpediente
+                    onClose={() => setModeloModal(null)}
+                    onGuardado={(fila) => {
+                        setRecargar(n => n + 1);
+                        const esMarco = modeloModal.tipo === 'marcos';
+                        const eraElActual = modeloModal.modelo
+                            ? modeloModal.modelo.id === fila.id
+                            : true;   // recién creado: se elige solo
+                        if (!eraElActual) return;
+                        setLocal(p => ({ ...p, ...(esMarco ? aplicarMarco(fila) : aplicarCristal(fila)) }));
+                    }}
+                />
+            )}
         </div>
     );
 }

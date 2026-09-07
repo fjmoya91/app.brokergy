@@ -14,6 +14,7 @@ import { DynamicNetworkBackground } from './components/DynamicNetworkBackground'
 import { DashboardLayout } from './components/layout/DashboardLayout';
 import { ClientesView } from './features/clientes/views/ClientesView';
 import { AerotermiaView } from './features/aerotermia/views/AerotermiaView';
+import { VentanasView } from './features/ventanas/views/VentanasView';
 import { ExpedientesView } from './features/expedientes/views/ExpedientesView';
 import { LotesView } from './features/lotes/views/LotesView';
 import { DashboardView } from './features/dashboard/views/DashboardView';
@@ -291,7 +292,7 @@ function App() {
   //    La pestaña activa vive en la URL (?tab=), igual que el expediente abierto
   //    (?exp=), para que al RECARGAR la página sigamos donde estábamos. Un efecto
   //    más abajo mantiene la URL sincronizada con el estado.
-  const TABS_VALIDAS = ['dashboard', 'seguimiento', 'oportunidades', 'expedientes', 'cee-directos', 'clientes', 'prescriptores', 'lotes', 'aerotermia', 'usuarios', 'whatsapp'];
+  const TABS_VALIDAS = ['dashboard', 'seguimiento', 'oportunidades', 'expedientes', 'cee-directos', 'clientes', 'prescriptores', 'lotes', 'aerotermia', 'ventanas', 'usuarios', 'whatsapp'];
   // Sin ?tab= no sabemos aún el rol (el usuario carga después), así que arrancamos
   // en 'dashboard' y el efecto de abajo redirige a quien no deba verlo. Al revés
   // —arrancar en oportunidades y saltar al panel— provocaría un parpadeo de vista.
@@ -1050,6 +1051,9 @@ function App() {
               // Bloqueos de seguridad por pestaña
               if (tab === 'dashboard' && !isAdmin) return;      // cuadro de mando: SOLO ADMIN
               if (tab === 'aerotermia' && !isAdmin) return;   // ajustes globales: solo ADMIN
+              // El catálogo de ventanas lo trabaja quien rellena el expediente, que
+              // a menudo es un TRABAJADOR: son datos técnicos, no ajustes con dinero.
+              if (tab === 'ventanas' && !isStaff) return;
               if (tab === 'whatsapp' && !isAdmin) return;      // ajustes globales: solo ADMIN
               if (tab === 'usuarios' && !isAdmin) return;      // gestión de usuarios: solo ADMIN
               if (tab === 'lotes' && !isStaff) return;         // operativa interna: ADMIN + TRABAJADOR
@@ -1137,6 +1141,8 @@ function App() {
               <LotesView key={`lotes-${navNonce}`} onNavigate={handleNavigate} />
             ) : step === 'ADMIN' && activeTab === 'aerotermia' && isAdminUser ? (
               <AerotermiaView key={`aero-${navNonce}`} />
+            ) : step === 'ADMIN' && activeTab === 'ventanas' && isStaffUser ? (
+              <VentanasView key={`vent-${navNonce}`} />
             ) : step === 'ADMIN' && activeTab === 'clientes' ? (
               <ClientesView 
                 key={`cli-${navNonce}`}

@@ -32,8 +32,40 @@
 // backend. Una sola decisión para la app, para el asistente y para las rutas.
 // ============================================================================
 import { getUnidades, modeloUnidad, tipoEquipoNuevo, EQUIPO_NUEVO } from './aerotermiaUnits.js';
+import {
+    sustituyeVentanas, marcoDelExpediente, cristalDelExpediente,
+} from './ventanasCatalogo.js';
 
 const norm = (v) => String(v ?? '').trim().toUpperCase();
+
+// ─── Fichas de la ENVOLVENTE (RES080) ───────────────────────────────────────
+// El certificado RES080 dice, literalmente, "Se adjunta ficha técnica completa
+// del marco y del cristal en anexos". Hasta ahora esas dos fichas había que
+// buscarlas a mano y subirlas como anexo suelto en cada expediente; ahora salen
+// del catálogo de ventanas, igual que la de la bomba de calor sale del de
+// aerotermia. Son dos huecos y no una lista variable: por muchas tipologías que
+// lleve la obra, el certificado declara UN marco y UN vidrio.
+const ENVOLVENTE = {
+    marco: {
+        slotId: 'envolvente_marco',
+        label: 'Ficha técnica del marco',
+        archivo: 'FT MARCO VENTANA',
+        campo: 'ft_marco',
+        tabla: 'ventanas_marcos',
+    },
+    cristal: {
+        slotId: 'envolvente_cristal',
+        label: 'Ficha técnica del vidrio',
+        archivo: 'FT VIDRIO',
+        campo: 'ft_cristal',
+        tabla: 'ventanas_cristales',
+    },
+};
+
+/** true si el tipo es un hueco de envolvente ('marco' | 'cristal'). */
+export function esTipoEnvolvente(type) {
+    return Object.prototype.hasOwnProperty.call(ENVOLVENTE, String(type ?? '').trim().toLowerCase());
+}
 
 /**
  * Identidad del MODELO de una unidad: dos unidades con la misma clave comparten
@@ -52,9 +84,16 @@ export function modeloKey(u) {
     return txt ? `txt:${txt}` : null;
 }
 
-/** 'cal' → { bloque:'cal', idx:0 } · 'cal2' → { bloque:'cal', idx:1 }. null si no es válido. */
+/**
+ * 'cal' → { bloque:'cal', idx:0 } · 'cal2' → { bloque:'cal', idx:1 }.
+ * 'marco' / 'cristal' → { bloque:'marco', idx:0 } (la envolvente no se numera:
+ * el certificado declara un marco y un vidrio, por muchas tipologías que haya).
+ * null si no es válido.
+ */
 export function parseFtType(type) {
-    const m = String(type ?? '').trim().toLowerCase().match(/^(cal|acs)(\d*)$/);
+    const t = String(type ?? '').trim().toLowerCase();
+    if (esTipoEnvolvente(t)) return { bloque: t, idx: 0 };
+    const m = t.match(/^(cal|acs)(\d*)$/);
     if (!m) return null;
     const n = m[2] ? parseInt(m[2], 10) : 1;
     if (!Number.isFinite(n) || n < 1) return null;
@@ -70,12 +109,16 @@ export function ftTypeKey(bloque, idx) {
 export function ftSlotId(type) {
     const p = parseFtType(type);
     if (!p) return null;
+    if (ENVOLVENTE[p.bloque]) return ENVOLVENTE[p.bloque].slotId;
     return p.idx === 0 ? `aerotermia_${p.bloque}` : `aerotermia_${p.bloque}_${p.idx + 1}`;
 }
 
 /** Id del slot → clave de tipo. null si el slot no es una ficha técnica (anexo extra). */
 export function ftTypeFromSlotId(slotId) {
-    const m = String(slotId ?? '').match(/^aerotermia_(cal|acs)(?:_(\d+))?$/);
+    const s = String(slotId ?? '');
+    const env = Object.keys(ENVOLVENTE).find(k => ENVOLVENTE[k].slotId === s);
+    if (env) return env;
+    const m = s.match(/^aerotermia_(cal|acs)(?:_(\d+))?$/);
     if (!m) return null;
     const n = m[2] ? parseInt(m[2], 10) : 1;
     if (!Number.isFinite(n) || n < 1) return null;
@@ -86,6 +129,7 @@ export function ftTypeFromSlotId(slotId) {
 export function ftFileSuffix(type) {
     const p = parseFtType(type);
     if (!p) return null;
+    if (ENVOLVENTE[p.bloque]) return ENVOLVENTE[p.bloque].archivo;
     const base = p.bloque === 'acs' ? 'ACS' : 'CALEFACCION';
     return p.idx === 0 ? base : `${base} ${p.idx + 1}`;
 }
@@ -98,6 +142,10 @@ export function ftFileSuffix(type) {
 export function ftFileName(numeroExpediente, type) {
     const suffix = ftFileSuffix(type);
     if (!suffix) return null;
+    const p = parseFtType(type);
+    // La ficha de la envolvente NO lleva "AEROTERMIA" en el nombre: se archiva
+    // en la misma carpeta y el nombre es lo que la distingue de un vistazo.
+    if (ENVOLVENTE[p.bloque]) return `${numeroExpediente} - ${suffix}.pdf`;
     return `${numeroExpediente} - FT AEROTERMIA ${suffix}.pdf`;
 }
 
@@ -105,6 +153,10 @@ export function ftFileName(numeroExpediente, type) {
 export function ftDocFields(type) {
     const p = parseFtType(type);
     if (!p) return null;
+    if (ENVOLVENTE[p.bloque]) {
+        const c = ENVOLVENTE[p.bloque].campo;
+        return { link: `${c}_link`, id: `${c}_id` };
+    }
     const k = ftTypeKey(p.bloque, p.idx);
     return { link: `ft_aerotermia_${k}_link`, id: `ft_aerotermia_${k}_id` };
 }
@@ -229,6 +281,62 @@ export function resolveFichaSlots(instalacion) {
     });
 }
 
+/**
+ * Los huecos de ficha técnica de la ENVOLVENTE: el marco y el vidrio.
+ *
+ * Solo existen si el expediente DECLARA que se sustituyen ventanas. En un RES080
+ * de cubierta o de fachada no hay carpintería que justificar, y un hueco vacío
+ * permanente en la hoja de anexos se lee como un documento que falta.
+ *
+ * `modelId` es la fila del catálogo de la que sale la ficha (`ventanas_marcos` /
+ * `ventanas_cristales`); sin ella el hueco sigue existiendo —se puede subir la
+ * ficha a mano— pero no hay de dónde auto-copiarla.
+ *
+ * @param {object} expediente  la fila entera (necesita `documentacion.envolvente`)
+ */
+export function resolveEnvolventeFichaSlots(expediente) {
+    if (!sustituyeVentanas(expediente)) return [];
+    const marco = marcoDelExpediente(expediente);
+    const cristal = cristalDelExpediente(expediente);
+    return [
+        {
+            id: ENVOLVENTE.marco.slotId,
+            type: 'marco',
+            bloque: 'marco',
+            label: ENVOLVENTE.marco.label,
+            detalle: marco.sistema || null,
+            modelId: marco.catalogoId,
+            modeloLabel: marco.sistema || '',
+            required: true,
+        },
+        {
+            id: ENVOLVENTE.cristal.slotId,
+            type: 'cristal',
+            bloque: 'cristal',
+            label: ENVOLVENTE.cristal.label,
+            detalle: cristal.completo || null,
+            modelId: cristal.catalogoId,
+            modeloLabel: cristal.completo || '',
+            required: true,
+        },
+    ];
+}
+
+/**
+ * TODOS los huecos de ficha de un expediente: los de la bomba de calor (uno por
+ * modelo) y, en un RES080 con sustitución de ventanas, los del marco y el vidrio.
+ *
+ * Fuente única para las cuatro superficies que los usan (el modal del CIFO, el
+ * del RES080, `DocumentacionModule` y las rutas del backend). El CIFO filtra por
+ * `resolveFichaSlots` y por eso no ve los de envolvente aunque compartan estado.
+ */
+export function resolveAllFichaSlots(expediente) {
+    return [
+        ...resolveFichaSlots(expediente?.instalacion),
+        ...resolveEnvolventeFichaSlots(expediente),
+    ];
+}
+
 /** El slot de un tipo concreto ('cal2'), o null si este expediente no lo pide. */
 export function findFichaSlot(instalacion, type) {
     const p = parseFtType(type);
@@ -238,11 +346,32 @@ export function findFichaSlot(instalacion, type) {
 }
 
 /**
+ * El slot de un tipo cualquiera (aerotermia o envolvente) para un expediente
+ * ENTERO. Es lo que usan las rutas: el hueco del marco necesita `documentacion`,
+ * que `findFichaSlot` no ve.
+ */
+export function findSlotForExpediente(expediente, type) {
+    const p = parseFtType(type);
+    if (!p) return null;
+    if (ENVOLVENTE[p.bloque]) {
+        return resolveEnvolventeFichaSlots(expediente).find(s => s.type === p.bloque) || null;
+    }
+    return findFichaSlot(expediente?.instalacion, type);
+}
+
+/**
  * Los mismos slots en la forma que consumen los modales como anexos
  * (`{ id, label, file, required }`), listos para fusionar con los extras.
+ *
+ * `expediente` es opcional: sin él salen solo los de aerotermia, que es lo que
+ * pide el CIFO. El RES080 lo pasa para que entren el marco y el vidrio.
  */
-export function ftAttachmentSlots(instalacion) {
-    return resolveFichaSlots(instalacion).map(s => ({
+export function ftAttachmentSlots(instalacion, expediente = null) {
+    const slots = [
+        ...resolveFichaSlots(instalacion),
+        ...(expediente ? resolveEnvolventeFichaSlots(expediente) : []),
+    ];
+    return slots.map(s => ({
         id: s.id,
         type: s.type,
         label: s.label,

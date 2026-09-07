@@ -883,8 +883,12 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     // Los huecos de ficha técnica NO son dos fijos: son uno por MODELO distinto de
     // bomba de calor (fichasTecnicas.js). Una cascada de equipos distintos pide una
     // ficha por equipo, y el equipo que resuelve calefacción y ACS pide una sola.
+    // Se le pasa el EXPEDIENTE entero, no solo la instalación: en un RES080 con
+    // sustitución de ventanas entran además los dos huecos de la envolvente (la
+    // ficha del marco y la del vidrio). El CIFO comparte este estado pero los
+    // filtra por `resolveFichaSlots`, así que no los ve.
     const [cifoAttachments, setCifoAttachments] = useState(
-        () => ftAttachmentSlots(expediente?.instalacion)
+        () => ftAttachmentSlots(expediente?.instalacion, expediente)
     );
 
     // Cuando cambia el expediente o se rehidrata documentacion, recargamos los
@@ -904,7 +908,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             // añadir uno en cascada cambian), conservando el fichero ya cargado de
             // cada uno por su id — si no, el preview se quedaría en blanco.
             const prevById = new Map(prev.map(a => [a.id, a]));
-            const fixed = ftAttachmentSlots(expediente?.instalacion).map(slot => {
+            const fixed = ftAttachmentSlots(expediente?.instalacion, expediente).map(slot => {
                 const before = prevById.get(slot.id);
                 return before ? { ...before, label: slot.label, detalle: slot.detalle } : slot;
             });
@@ -926,7 +930,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             // extras por antigüedad" y el usuario vería deshacerse su reordenación.
             return orderAttachments([...fixed, ...extraSlots], readAnnexPrefs(expediente?.documentacion));
         });
-    }, [expediente?.id, expediente?.instalacion, expediente?.documentacion?.cifo_extra_annexes, expediente?.documentacion?.cifo_annex_prefs]);
+    }, [expediente?.id, expediente?.instalacion, expediente?.documentacion?.envolvente, expediente?.documentacion?.cifo_extra_annexes, expediente?.documentacion?.cifo_annex_prefs]);
 
     React.useEffect(() => {
         if (expediente?.documentacion) {

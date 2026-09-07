@@ -157,16 +157,22 @@ export const RES080_FIELD_DEFAULTS = {
     empresa_responsable: '',
     ejecutora_nombre: '',
     ejecutora_cif: '',
-    marco_nuevo_material: 'PVC',
-    marco_nuevo_marca: 'CORTIZO',
-    marco_nuevo_modelo: 'A 70',
-    marco_nuevo_uf: '1,3',
-    cristal_nuevo_u: '1.3',
-    cristal_nuevo_marca: 'GUARDIAN',
-    cristal_nuevo_modelo: 'SUN',
-    cristal_nuevo_composicion: '4/16/4 Bajo emisivo',
-    cristal_nuevo_ug: '1,1',
-    cristal_nuevo_g: '0,43',
+    // Marco y vidrio SIN valor por defecto a propósito. Eran CORTIZO A 70 · Uf 1,3
+    // · Ug 1,1 · g 0,43 y un expediente al que se le olvidara rellenar la
+    // envolvente salía certificando una ventana que nadie había instalado. Vacío
+    // se ve; un valor plausible, no. Salen del catálogo (ventanas_marcos /
+    // ventanas_cristales) al elegir el modelo en la pestaña Envolvente.
+    marco_nuevo_material: '',
+    marco_nuevo_marca: '',
+    marco_nuevo_modelo: '',
+    marco_carpinteria: '',
+    marco_nuevo_uf: '',
+    cristal_nuevo_u: '',
+    cristal_nuevo_marca: '',
+    cristal_nuevo_modelo: '',
+    cristal_nuevo_composicion: '',
+    cristal_nuevo_ug: '',
+    cristal_nuevo_g: '',
     permeabilidad_nueva: '3',
     // Rótulos de las capturas CE3X de la actuación de ventanas. Son editables
     // porque el hueco capturado cambia de una obra a otra.
@@ -242,6 +248,10 @@ export function deriveRes080Data({ expediente, results, parseHuecosFromXml }) {
         marco_nuevo_material: env.marco_nuevo_material || D.marco_nuevo_material,
         marco_nuevo_marca: env.marco_nuevo_marca || D.marco_nuevo_marca,
         marco_nuevo_modelo: env.marco_nuevo_modelo || D.marco_nuevo_modelo,
+        // Quien FABRICA Y MONTA la ventana, cuando no es la propia marca del
+        // sistema: sin ella el NIF de la factura de las ventanas no casa con
+        // ninguna de las empresas que el certificado nombra.
+        marco_carpinteria: env.marco_carpinteria || '',
         marco_nuevo_uf: numStr(env.marco_nuevo_transmitancia) || D.marco_nuevo_uf,
         cristal_nuevo_marca: env.cristal_nuevo_marca || D.cristal_nuevo_marca,
         cristal_nuevo_modelo: env.cristal_nuevo_modelo || D.cristal_nuevo_modelo,
@@ -1101,6 +1111,9 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
                         ${cmpRow('Material del marco', env.marco_existente_material || '—', eb('marco_nuevo_material'))}
                         ${cmpRow('Marca del marco', 'Desconocida', eb('marco_nuevo_marca'))}
                         ${cmpRow('Modelo del marco', 'Desconocida', eb('marco_nuevo_modelo'))}
+                        ${ed('marco_carpinteria').trim()
+                            && ed('marco_carpinteria').trim().toUpperCase() !== ed('marco_nuevo_marca').trim().toUpperCase()
+                            ? cmpRow('Carpintería que la fabrica y monta', '—', eb('marco_carpinteria')) : ''}
                         ${cmpRow('Transmitancia del marco U<sub>f</sub> (W/m²K)', '—', eb('marco_nuevo_uf'))}
                         ${cmpGroup('Vidrio')}
                         ${cmpRow('Composición del cristal', env.cristal_existente_composicion || 'Desconocida', eb('cristal_nuevo_composicion'))}

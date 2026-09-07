@@ -6478,9 +6478,9 @@ router.post('/:id/resend-cee-notifications', enforceAuth, async (req, res) => {
 // El `type` es la clave del hueco que resuelve `resolveFichaSlots` (una ficha por
 // modelo distinto de bomba de calor); ver fichasTecnicas.js.
 router.post('/:id/fichas-tecnicas/upload', enforceAuth, async (req, res) => {
-    const { base64, type, numexpte } = req.body;
+    const { base64, type, numexpte, guardarEnCatalogo, sustituirEnCatalogo } = req.body;
     if (!base64 || !type) return res.status(400).json({ error: 'Faltan campos requeridos.' });
-    const { parseFtType, ftFileName, ftDocFields, findFichaSlot } = await loadFichasTecnicas();
+    const { parseFtType, ftFileName, ftDocFields, findSlotForExpediente } = await loadFichasTecnicas();
     if (!parseFtType(type)) return res.status(400).json({ error: 'Tipo de ficha técnica no válido.' });
     console.log(`[FT] Subiendo ficha técnica tipo=${type} para expediente ${req.params.id} (base64 len=${base64.length})`);
 
@@ -6492,9 +6492,11 @@ router.post('/:id/fichas-tecnicas/upload', enforceAuth, async (req, res) => {
             .single();
         if (expErr || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
         // Mismo alcance que la vista: si el expediente no pide ESA ficha (p. ej. el
-        // ACS lo resuelve el mismo equipo que la calefacción), subirla dejaría un
-        // enlace que ningún documento va a usar y que sí confunde al siguiente.
-        if (!findFichaSlot(exp.instalacion, type)) {
+        // ACS lo resuelve el mismo equipo que la calefacción, o el RES080 no toca
+        // las ventanas), subirla dejaría un enlace que ningún documento va a usar y
+        // que sí confunde al siguiente.
+        const slot = findSlotForExpediente(exp, type);
+        if (!slot) {
             return res.status(400).json({ error: 'Este expediente no lleva esa ficha técnica.' });
         }
         console.log(`[FT] Expediente encontrado: ${exp.numero_expediente}, oportunidad_id=${exp.oportunidad_id}`);
@@ -6530,7 +6532,29 @@ router.post('/:id/fichas-tecnicas/upload', enforceAuth, async (req, res) => {
         await supabase.from('expedientes').update({ documentacion: docObj, updated_at: new Date().toISOString() }).eq('id', req.params.id);
         console.log(`[FT] Guardado en Drive: ${fileName} (id=${result.id})`);
 
-        res.json({ link: result.link, driveId: result.id });
+        // ── El camino de VUELTA al catálogo ───────────────────────────────────
+        // La ficha aparece casi siempre así: alguien la busca para UN expediente
+        // y la sube ahí. Sin esto, el hueco del modelo se queda vacío para
+        // siempre y el siguiente expediente con el mismo equipo la vuelve a
+        // buscar. Nunca se escribe en silencio: viene de una casilla marcada por
+        // una persona, y si el modelo ya tiene ficha hace falta además
+        // `sustituirEnCatalogo`. Best-effort: un fallo aquí NO puede tumbar una
+        // subida que ya está hecha y guardada.
+        let catalogo = null;
+        if (guardarEnCatalogo && slot.modelId) {
+            const kind = type === 'marco' ? 'marco' : (type === 'cristal' ? 'cristal' : 'aerotermia');
+            try {
+                catalogo = await require('../services/catalogoFichas')
+                    .guardarFichaEnCatalogo(kind, slot.modelId, {
+                        buffer: fileBuffer, sustituir: !!sustituirEnCatalogo,
+                    });
+            } catch (e) {
+                console.warn(`[FT] guardar en catálogo (${kind}) falló: ${e.message}`);
+                catalogo = { ok: false, motivo: 'error' };
+            }
+        }
+
+        res.json({ link: result.link, driveId: result.id, catalogo });
     } catch (err) {
         console.error('Error POST expedientes/:id/fichas-tecnicas/upload:', err);
         res.status(500).json({ error: 'Error al subir la ficha técnica.', details: err.message });
@@ -6603,9 +6627,9 @@ router.get('/:id/fichas-tecnicas/:type', async (req, res) => {
 // Responde 200 { link, driveId, copied, source } o 400 { error, model? }
 router.post('/:id/fichas-tecnicas/auto-copy', enforceAuth, async (req, res) => {
     const { type, force } = req.body;
-    const { parseFtType, ftFileName, ftDocFields, findFichaSlot } = await loadFichasTecnicas();
+    const { parseFtType, ftFileName, ftDocFields, findSlotForExpediente } = await loadFichasTecnicas();
     if (!parseFtType(type)) {
-        return res.status(400).json({ error: 'bad_type', message: 'type debe ser cal, acs o su variante numerada (cal2, acs2…)' });
+        return res.status(400).json({ error: 'bad_type', message: 'type debe ser cal, acs, su variante numerada (cal2, acs2…), marco o cristal' });
     }
     try {
         const { data: exp } = await supabase
@@ -6624,26 +6648,42 @@ router.post('/:id/fichas-tecnicas/auto-copy', enforceAuth, async (req, res) => {
         const driveFolderId = op?.datos_calculo?.drive_folder_id || op?.datos_calculo?.inputs?.drive_folder_id;
         if (!driveFolderId) return res.status(400).json({ error: 'no_drive_folder' });
 
-        // Resolver el modelo aerotermia que aplica a este hueco. Manda el alcance
-        // documental del expediente: si este hueco no le corresponde (p. ej. el ACS
-        // lo resuelve el MISMO equipo que la calefacción, o es un termo eléctrico),
-        // no hay ficha que copiar — y no se inventa una copia del modelo de al lado.
-        const slot = findFichaSlot(exp.instalacion, type);
+        // Resolver el modelo que aplica a este hueco. Manda el alcance documental
+        // del expediente: si este hueco no le corresponde (p. ej. el ACS lo resuelve
+        // el MISMO equipo que la calefacción, o es un termo eléctrico, o el RES080
+        // no toca las ventanas), no hay ficha que copiar — y no se inventa una copia
+        // del modelo de al lado.
+        const slot = findSlotForExpediente(exp, type);
         if (!slot) {
             return res.status(400).json({ error: 'slot_no_aplica', message: 'Este expediente no lleva esa ficha técnica.' });
         }
-        const aeroDbId = slot.modelId;
-        if (!aeroDbId) {
-            return res.status(400).json({ error: 'no_model', message: 'Selecciona un modelo de aerotermia primero' });
+        const modeloId = slot.modelId;
+        if (!modeloId) {
+            return res.status(400).json({
+                error: 'no_model',
+                message: type === 'marco'
+                    ? 'Elige el marco en el catálogo de ventanas (pestaña Envolvente)'
+                    : (type === 'cristal'
+                        ? 'Elige el vidrio en el catálogo de ventanas (pestaña Envolvente)'
+                        : 'Selecciona un modelo de aerotermia primero'),
+            });
         }
 
+        // De qué catálogo sale la ficha. Los tres se leen igual: una fila con su
+        // `ficha_tecnica` (URL de Drive o del fabricante). Ver services/catalogoFichas.js.
+        const CATALOGO = {
+            marco:   { tabla: 'ventanas_marcos',    sel: 'id, marca, serie, apertura, ficha_tecnica',              etiqueta: (e) => [e.marca, e.serie, e.apertura].filter(Boolean).join(' ') },
+            cristal: { tabla: 'ventanas_cristales', sel: 'id, fabricante, gama, composicion, ficha_tecnica',       etiqueta: (e) => [e.fabricante, e.gama, e.composicion].filter(Boolean).join(' ') },
+            aero:    { tabla: 'aerotermia',         sel: 'id, marca, modelo_comercial, modelo_conjunto, ficha_tecnica', etiqueta: (e) => e.modelo_comercial || e.modelo_conjunto || `id=${e.id}` },
+        }[type === 'marco' ? 'marco' : (type === 'cristal' ? 'cristal' : 'aero')];
+
         const { data: equipo } = await supabase
-            .from('aerotermia')
-            .select('id, marca, modelo_comercial, modelo_conjunto, ficha_tecnica')
-            .eq('id', aeroDbId)
+            .from(CATALOGO.tabla)
+            .select(CATALOGO.sel)
+            .eq('id', modeloId)
             .single();
-        if (!equipo) return res.status(400).json({ error: 'model_not_found', aeroDbId });
-        const modelLabel = equipo.modelo_comercial || equipo.modelo_conjunto || `id=${aeroDbId}`;
+        if (!equipo) return res.status(400).json({ error: 'model_not_found', modeloId });
+        const modelLabel = CATALOGO.etiqueta(equipo);
 
         if (!equipo.ficha_tecnica) {
             return res.status(400).json({ error: 'no_ficha_in_db', model: modelLabel });

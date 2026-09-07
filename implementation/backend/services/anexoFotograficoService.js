@@ -16,6 +16,7 @@ const path = require('path');
 const supabase = require('./supabaseClient');
 const driveService = require('./driveService');
 const reformaUploadService = require('./reformaUploadService');
+const docsAlcance = require('./docsAlcance');
 const { buildAnexoFullHtml, groupRowsIntoActuaciones } = require('./anexoFotograficoDoc');
 const { resolveCcaaInstalacion, COD_A_CCAA } = require('./geoCcaa');
 
@@ -289,18 +290,40 @@ async function reducirFotosParaPdf(browser, rows) {
  * Nunca hace fallar la generación: ante cualquier error sigue con lo que había.
  */
 async function syncEnvolventeAndReload(exp, op) {
-    const dc = op?.datos_calculo || {};
+    let dc = op?.datos_calculo || {};
     const envolvente = exp?.documentacion?.envolvente;
-    if (!op?.id || !envolvente) return dc;
-    try {
-        const nuevos = await reformaUploadService.syncEnvolventeConcepts(op.id, envolvente, dc);
-        if (!nuevos.length) return dc;
-        const { data } = await supabase.from('oportunidades').select('datos_calculo').eq('id', op.id).maybeSingle();
-        return data?.datos_calculo || dc;
-    } catch (e) {
-        console.warn('[Anexo] sync envolvente:', e.message);
-        return dc;
+    if (op?.id && envolvente) {
+        try {
+            const nuevos = await reformaUploadService.syncEnvolventeConcepts(op.id, envolvente, dc);
+            if (nuevos.length) {
+                const { data } = await supabase.from('oportunidades').select('datos_calculo').eq('id', op.id).maybeSingle();
+                dc = data?.datos_calculo || dc;
+            }
+        } catch (e) {
+            console.warn('[Anexo] sync envolvente:', e.message);
+        }
     }
+    // Y el ALCANCE DEL EXPEDIENTE encima, que es lo que decide qué apartados pide
+    // este expediente en concreto.
+    //
+    // Sin esto, la skill y el MCP veían una lista de slots DISTINTA de la que ve
+    // el modal de la app: aquélla salía de `buildDocChecklist(datos_calculo)` a
+    // pelo, que cae a los `inputs` y al funnel de la OPORTUNIDAD, y en un RES080
+    // la envolvente vive en el EXPEDIENTE. Medido en 26RES080_44 (RES080 de
+    // ventanas): el anexo generado por la skill se dejaba fuera
+    // FOTO_VENTANAS_ANTES y FOTO_VENTANAS_DESPUES, o sea las 20 fotos de la
+    // actuación principal, que sí estaban en Drive con su nombre canónico. Y en
+    // 26RES080_54, la cubierta y la fachada.
+    //
+    // Es la regla del checklist llevada hasta aquí: las superficies que deciden
+    // qué documenta un expediente comparten alcance. `public.js` (el modal) ya lo
+    // hacía; estas dos, no.
+    try {
+        if (op?.id) return docsAlcance.conAlcance(dc, await docsAlcance.resolver({ ...op, datos_calculo: dc }));
+    } catch (e) {
+        console.warn('[Anexo] resolver alcance:', e.message);
+    }
+    return dc;
 }
 
 /**

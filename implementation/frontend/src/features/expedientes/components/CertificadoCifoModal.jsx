@@ -10,6 +10,7 @@ import { esTermoElectrico, esAcumuladorAcs } from '../logic/aerotermiaUnits';
 // Qué fichas técnicas lleva ESTE expediente: una por MODELO distinto de bomba de
 // calor, no una por hueco. FUENTE ÚNICA con las rutas y con cifoService.
 import { resolveFichaSlots, ftAttachmentSlots, ftSlotId, ftTypeFromSlotId } from '../logic/fichasTecnicas';
+import { GuardarEnCatalogoGate } from '../../ventanas/components/GuardarEnCatalogoGate';
 import { postEmail } from '../../../utils/emailFallback';
 // Canal de envío de la barra inferior — COMPARTIDO con los otros popups de envío.
 import { CanalChip, avisoCanales } from '../../../components/CanalChip';
@@ -107,6 +108,10 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     const [isAnexosOpen, setIsAnexosOpen] = useState(false);
     const [loadingFichas, setLoadingFichas] = useState({ cal: false, acs: false });
     const [resyncingType, setResyncingType] = useState(null);
+    // Puerta de "guardar también en el catálogo" antes de subir una ficha a un
+    // hueco fijo. Guarda el fichero elegido hasta que se contesta.
+    const [fichaPendiente, setFichaPendiente] = useState(null);   // { slotId, file }
+
     const [uploadingExtra, setUploadingExtra] = useState(false);
     const [extraProgress, setExtraProgress] = useState({ done: 0, total: 0 });
     const [draggedId, setDraggedId] = useState(null);
@@ -277,7 +282,18 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
 
     // Subida manual a un slot fijo (cal/acs): sube a Drive con nombre canónico
     // vía POST /fichas-tecnicas/upload, luego recarga el slot por info=1.
-    const handleManualFixedUpload = async (slotId, file) => {
+    // Elegir el fichero NO lo sube todavía: si el hueco tiene un modelo del
+    // catálogo detrás, primero se pregunta si la ficha se guarda también allí
+    // (ver GuardarEnCatalogoGate). Sin modelo no hay a quién guardársela y se
+    // sube directo: preguntar algo que no se puede contestar es un clic de peaje.
+    const handleManualFixedUpload = (slotId, file) => {
+        if (!file || !expediente?.id) return;
+        const slot = resolveFichaSlots(expediente?.instalacion).find(s => s.id === slotId);
+        if (slot?.modelId) { setFichaPendiente({ slotId, file, slot }); return; }
+        return subirFichaFija(slotId, file);
+    };
+
+    const subirFichaFija = async (slotId, file, catalogo = null) => {
         if (!file || !expediente?.id) return;
         const type = ftTypeFromSlotId(slotId);
         if (!type) return;
@@ -288,9 +304,9 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
             const arrayBuffer = await file.arrayBuffer();
             const base64 = arrayBufferToBase64(arrayBuffer);
             const { data } = await axios.post(`/api/expedientes/${expediente.id}/fichas-tecnicas/upload`, {
-                base64,
-                type,
-                numexpte: expediente.numero_expediente
+                base64, type, numexpte: expediente.numero_expediente,
+                guardarEnCatalogo: !!catalogo?.guardarEnCatalogo,
+                sustituirEnCatalogo: !!catalogo?.sustituirEnCatalogo,
             });
             if (onSaveFichaLink) onSaveFichaLink(type, data.link, data.driveId);
             const previewPages = await renderPdfBufferToImages(arrayBuffer);
@@ -1369,6 +1385,23 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                 </div>
 
                 {isAnexosOpen && <AnexosModal />}
+
+            {/* "Esta ficha, ¿la guardo también en el catálogo?" — se pregunta al
+                elegir el fichero, no después: es la única ocasión en la que quien
+                la acaba de buscar sabe si es la buena. */}
+            {fichaPendiente && (
+                <GuardarEnCatalogoGate
+                    slot={fichaPendiente.slot}
+                    nombreFichero={fichaPendiente.file?.name}
+                    onCancelar={() => setFichaPendiente(null)}
+                    onConfirmar={(opts) => {
+                        const p = fichaPendiente;
+                        setFichaPendiente(null);
+                        subirFichaFija(p.slotId, p.file, opts);
+                    }}
+                />
+            )}
+
 
                 {/* Selector de páginas del anexo (recorte guardado en el expediente) */}
                 <AnexoPaginasModal

@@ -72,6 +72,8 @@ app.use('/api/pdf', pdfRoutes);
 app.use('/api/clientes', clientesRoutes);
 app.use('/api/geo', geoRoutes);
 app.use('/api/aerotermia', aerotermiaRoutes);
+// El otro catálogo de equipos: marcos y vidrios de un RES080 (ver routes/ventanas.js).
+app.use('/api/ventanas', require('./routes/ventanas'));
 app.use('/api/expedientes', expedientesRoutes);
 app.use('/api/lotes', require('./routes/lotes'));
 app.use('/api/auth', authRoutes);
