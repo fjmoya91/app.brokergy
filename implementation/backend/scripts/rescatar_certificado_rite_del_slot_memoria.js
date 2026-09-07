@@ -127,7 +127,27 @@ async function main() {
             catch (err) { meta = null; }
         }
         const clase = fileId && meta ? clasificar(meta.name) : 'error';
-        const caso = clase !== 'certificado' ? null : (doc.cert_rite_drive_link ? 'B' : 'A');
+
+        // ⚠️ Tener `cert_rite_drive_link` NO significa tener el certificado: puede
+        // ser la MEMORIA, que es el fallo espejo (ver
+        // `separar_memoria_rite_de_certificado.js`). Si lo es, esto no es un
+        // duplicado sino un INTERCAMBIO — los dos documentos están cruzados—, y
+        // desenlazar el del campo de la memoria dejaría el certificado sin enlace
+        // en ninguna parte. Medido el 07/09/2026: 7 expedientes se quedaron así al
+        // pasar este script y después el espejo.
+        let claseActual = null;
+        if (clase === 'certificado' && doc.cert_rite_drive_link) {
+            const idActual = fileIdDe(doc.cert_rite_drive_link);
+            if (idActual === fileId) claseActual = 'certificado';       // el mismo fichero
+            else {
+                try { claseActual = clasificar((await driveService.getFileMetadata(idActual, 'id, name'))?.name); }
+                catch (err) { claseActual = 'desconocido'; }
+            }
+        }
+        const caso = clase !== 'certificado' ? null
+            : !doc.cert_rite_drive_link ? 'A'
+            : claseActual === 'memoria' ? 'A'   // están cruzados: se intercambian
+            : 'B';
 
         if (clase !== 'certificado') {
             resumen[clase === 'error' ? 'error' : clase]++;
@@ -140,9 +160,15 @@ async function main() {
         let next;
         if (caso === 'A') {
             resumen.movidos++;
-            console.log(`  ${String(e.numero_expediente).padEnd(18)} A · MOVER      ${meta.name}`);
+            const cruzados = claseActual === 'memoria';
+            console.log(`  ${String(e.numero_expediente).padEnd(18)} A · ${cruzados ? 'INTERCAMBIAR' : 'MOVER      '} ${meta.name}`);
+            if (cruzados) console.log(`  ${''.padEnd(18)}   → lo que había en el campo del certificado era la Memoria: se manda a memoria_rite_docx_link`);
             next = {
                 ...doc,
+                // Cruzados: la Memoria que ocupaba el campo del certificado va a su
+                // sitio, no se tira. Solo si ese campo está libre — nunca se pisa un
+                // enlace que ya haya puesto una persona.
+                ...(cruzados && !doc.memoria_rite_docx_link ? { memoria_rite_docx_link: doc.cert_rite_drive_link } : {}),
                 cert_rite_drive_link: doc.cert_rite_signed_link,
                 cert_rite_aportado_at: meta.createdTime || new Date().toISOString(),
                 cert_rite_signed_link: null,

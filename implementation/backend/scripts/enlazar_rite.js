@@ -59,6 +59,15 @@ const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
 const esES = (f) => (f ? String(f).split('-').reverse().join('/') : '—');
 const esMemoria = (n) => /memoria/i.test(n);
+// El BORRADOR del certificado lo generamos NOSOTROS y es el mismo impreso sin
+// firmar ni registrar: lee igual de bien las fechas de pruebas, así que la prueba
+// del OCR no lo descarta. Y su nombre empieza por "BORRADOR_CERTIFICADO_RITE_",
+// que casaba con el patrón canónico y lo ponía EL PRIMERO de la cola. Medido en
+// dry-run el 07/09/2026: en 26RES060_97 se quedaba con el borrador teniendo al
+// lado el certificado real, y en 26RES060_130 —que solo tiene borrador— habría
+// dado el RITE por aportado sin tenerlo, que es justo lo que este slot no puede
+// afirmar (de él depende poder emitir el CIFO). Se excluye antes de ordenar.
+const esBorrador = (n) => /borrador/i.test(n);
 /** Cuanto más bajo, antes se prueba. El canónico primero; la memoria, la última. */
 const prioridad = (n) => (esMemoria(n) ? 90 : /CERTIFICADO RITE/i.test(n) ? 0 : /certificad|CIT[_\s]/i.test(n) ? 10 : 50);
 
@@ -77,6 +86,7 @@ async function pdfsRite(raizId) {
     // .jpg, fotos sueltas: ni uno ni otro son el impreso.
     return (data.files || [])
         .filter(f => f.mimeType === 'application/pdf')
+        .filter(f => !esBorrador(f.name))
         .sort((a, b) => prioridad(a.name) - prioridad(b.name));
 }
 
@@ -150,6 +160,17 @@ async function pdfsRite(raizId) {
                 p_oportunidad_id: exp.oportunidad_id, p_field: campo, p_value: link,
             });
             if (e) avisos.push(`${campo}: ${e.message}`); else console.log(`      → ${campo}`);
+            // El sello de "este enlace ES el certificado, no la Memoria". Aquí no
+            // hay nada que adivinar —acaba de leerse como el impreso oficial— y sin
+            // él la heurística de `esMemoriaRiteEnDriveLink` puede volver a tomarlo
+            // por la memoria en cuanto el expediente tenga un borrador generado.
+            if (!e && campo === 'cert_rite_drive_link' && !doc.cert_rite_aportado_at) {
+                await supabase.rpc('set_expediente_doc_field', {
+                    p_oportunidad_id: exp.oportunidad_id,
+                    p_field: 'cert_rite_aportado_at',
+                    p_value: new Date().toISOString(),
+                });
+            }
         }
 
         // Y las fechas + el cruce del emplazamiento, por la MISMA función que usa
