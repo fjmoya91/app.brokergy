@@ -25,8 +25,26 @@ const clean = (v) => (v === null || v === undefined ? '' : String(v).trim());
 
 const sinTildes = (s) => clean(s).toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
-/** NIF/CIF comparable: solo alfanuméricos en mayúscula ("B-13.456.789" → "B13456789"). */
-const normNif = (s) => sinTildes(s).replace(/[^A-Z0-9]/g, '');
+/**
+ * NIF/CIF comparable: solo alfanuméricos en mayúscula ("B-13.456.789" → "B13456789")
+ * y, si es un DNI, RELLENO A 8 CIFRAS.
+ *
+ * El DNI español tiene ocho dígitos y letra, pero se imprime a menudo sin el cero de
+ * la izquierda: la factura pone "N.I.F. 6.227.374-D" y la base guarda "06227374D".
+ * Comparando en crudo eran NIF distintos y saltaba un GRAVE contra un instalador que
+ * estaba bien (caso real: ANTONIO VILLA RODRIGO en 26RES080_69). El cero delante no
+ * cambia el documento, así que tampoco puede cambiar la comparación.
+ *
+ * Los CIF (letra delante: B13456789) y los NIE (X/Y/Z) no entran en la regla.
+ */
+const normNif = (s) => {
+    const v = sinTildes(s).replace(/[^A-Z0-9]/g, '');
+    const dni = /^(\d{1,8})([A-Z])$/.exec(v);
+    return dni ? `${dni[1].padStart(8, '0')}${dni[2]}` : v;
+};
+
+/** Nº de factura comparable: solo alfanuméricos ("74 - 26" → "7426"). */
+const normNumFactura = (s) => sinTildes(s).replace(/[^A-Z0-9]/g, '');
 
 /** Nº de serie comparable (los fabricantes intercalan guiones y espacios a capricho). */
 const normSerie = (s) => sinTildes(s).replace(/[^A-Z0-9]/g, '');
@@ -77,6 +95,8 @@ const numOrNull = (v) => {
 
 const fmtEur = (n) => `${(Number(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 
+const fmtM2 = (n) => `${(Number(n) || 0).toLocaleString('es-ES', { maximumFractionDigits: 2 })} m²`;
+
 /** Fecha ISO (YYYY-MM-DD) → Date, o null. Tolera dd/mm/yyyy por si el OCR se despista. */
 function parseFecha(s) {
     const v = clean(s);
@@ -120,22 +140,75 @@ function alcanceEsperado(ficha, exp, op) {
         return set;
     }
 
-    // RES080 (reforma/envolvente): el alcance lo declara la calculadora.
-    const els = inputs.reforma || inputs.reformaElements || {};
-    if (els.ventanas) set.add('VENTANAS');
-    if (els.cubierta) set.add('CUBIERTA');
-    if (els.paredes || els.fachada) set.add('FACHADA');
-    if (els.suelo) set.add('SUELO');
-    if (els.placas) set.add('FOTOVOLTAICA');
+    // RES080 (reforma/envolvente): el alcance lo declaran la pestaña Envolvente del
+    // expediente (lo confirmado) y, si aún está vacía, los inputs de la calculadora.
+    //
+    // ⚠️ Las claves son las que escribe de verdad la calculadora (`reformaVentanas`,
+    // `reformaCubierta`, `reformaParedes`, `reformaSuelo`), no un objeto `reforma`
+    // anidado: buscando ese objeto inexistente el alcance salía siempre vacío y la
+    // regla no llegaba a mirar nada en ningún RES080.
+    const env = exp?.documentacion?.envolvente || {};
+    const landing = inputs.landing_funnel?.reforma_elementos || {};
+    const declara = {
+        VENTANAS: env.sustituye_ventanas === true || inputs.reformaVentanas === true || landing.ventanas === true,
+        CUBIERTA: env.aislamiento_cubierta === true || inputs.reformaCubierta === true || landing.cubierta === true,
+        FACHADA: env.aislamiento_muros === true || inputs.reformaParedes === true || landing.paredes === true,
+        SUELO: env.aislamiento_suelo === true || inputs.reformaSuelo === true || landing.suelo === true,
+        FOTOVOLTAICA: inputs.reformaPlacas === true || landing.placas === true || (numOrNull(inputs.presupuestoFotovoltaica) || 0) > 0,
+    };
+    Object.entries(declara).forEach(([partida, si]) => { if (si) set.add(partida); });
+
     // En una reforma sí puede haber generador y emisores nuevos.
     set.add('AEROTERMIA');
     set.add('ACS');
     set.add('EMISORES');
-    // Si la reforma no declara elementos (datos incompletos), no acusamos de alcance.
-    if (!els || Object.keys(els).length === 0) {
+
+    // Si el expediente no declara NINGÚN elemento de envolvente, los datos están sin
+    // rellenar: no se acusa de alcance a partir de un hueco.
+    if (!Object.values(declara).some(Boolean)) {
         ['VENTANAS', 'CUBIERTA', 'FACHADA', 'SUELO', 'FOTOVOLTAICA'].forEach(p => set.add(p));
     }
     return set;
+}
+
+// ─── Superficies ─────────────────────────────────────────────────────────────
+
+/**
+ * Superficie (m²) que el expediente JUSTIFICA: la que entra en el cálculo del
+ * ahorro y la que va al CIFO. Manda el CEE; los inputs de la calculadora son el
+ * respaldo cuando el CEE aún no trae superficie.
+ */
+function superficieJustificada(exp, op) {
+    const cee = exp?.cee || {};
+    const inputs = op?.datos_calculo?.inputs || {};
+    const candidatos = [
+        cee.cee_inicial?.superficieHabitable,
+        cee.cee_final?.superficieHabitable,
+        cee.superficie_manual_inicial,
+        cee.superficie_manual,
+        op?.datos_calculo?.surface,
+        inputs.superficieCalefactable,
+        inputs.superficie,
+    ];
+    for (const c of candidatos) {
+        const n = numOrNull(c);
+        if (n && n > 0) return n;
+    }
+    return null;
+}
+
+// "para vivienda de 119 m2 para frio y calor" → 119. Respaldo por si el OCR no ha
+// rellenado `superficie_m2` pero la superficie sí está escrita en la descripción.
+const RE_M2 = /(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:m2|m²|metros\s+cuadrados)/i;
+
+/** m² que declara una línea de factura (campo propio o, si no, su descripción). */
+function superficieLinea(l) {
+    const directa = numOrNull(l?.superficie_m2);
+    if (directa && directa > 0) return directa;
+    const m = RE_M2.exec(clean(l?.descripcion));
+    if (!m) return null;
+    const n = numOrNull(m[1].replace(',', '.'));
+    return n && n > 0 ? n : null;
 }
 
 // ─── Reglas ──────────────────────────────────────────────────────────────────
@@ -164,19 +237,59 @@ function detectarIncidenciasFactura({ ocr, exp, op, cliente, instalador, factura
     const lineas = Array.isArray(ocr.lineas) ? ocr.lineas : [];
     const numExp = clean(exp?.numero_expediente) || 'el expediente';
 
-    // ── GRAVE · UNIDADES_TERMINALES ──────────────────────────────────────────
-    // Las fichas de sustitución de caldera (RES060/RES093/TER100) miden el ahorro
-    // sustituyendo el GENERADOR: la unidad terminal existente es un dato de entrada
-    // (fija la temperatura de impulsión y con ella el SCOP). Cambiarla o ampliarla
-    // no está contemplado en la ficha, así que facturarlo descuadra la actuación.
+    // ── UNIDADES TERMINALES ──────────────────────────────────────────────────
+    // Las unidades terminales (radiadores, suelo radiante, fancoils) se tratan de
+    // forma OPUESTA según la ficha, y es de lo que más incidencias trae:
+    //
+    //   · RES060 / RES093 / TER100 — la actuación es sustituir el GENERADOR y nada
+    //     más. La unidad terminal existente es un dato de ENTRADA: fija la
+    //     temperatura de impulsión (35 suelo radiante / 55 radiadores) y con ella el
+    //     SCOP con el que se calcula el ahorro. Tocarla no está contemplado en la
+    //     ficha, así que si aparece facturada la actuación no encaja → GRAVE.
+    //
+    //   · RES080 — es una reforma: la unidad terminal SÍ puede ir en la factura. Lo
+    //     que hay que mirar entonces es otra cosa, la SUPERFICIE (regla siguiente).
     const lineasEmisores = lineas.filter(l => l.partida === 'EMISORES');
     if (esSustitucionCaldera(ficha) && lineasEmisores.length) {
         add(
             'UNIDADES_TERMINALES', 'GRAVE',
-            'Se facturan unidades terminales',
-            `La ficha ${ficha} no admite cambiar ni ampliar las unidades terminales: la actuación es la sustitución del generador, y el emisor existente es el que fija la temperatura de impulsión y el SCOP. La factura incluye ${lineasEmisores.length} línea(s) de emisores (radiadores / suelo radiante / fancoils). Comprueba si la obra ha cambiado el sistema de emisión; si es así, esta actuación no encaja en ${ficha}.`,
+            'Se facturan unidades terminales y la ficha no las admite',
+            `La ficha ${ficha} no admite cambiar ni ampliar las unidades terminales: la actuación es la sustitución del generador (caldera → bomba de calor), y el emisor existente es el que fija la temperatura de impulsión y con ella el SCOP del cálculo. La factura incluye ${lineasEmisores.length} línea(s) de emisores (radiadores / suelo radiante / fancoils). Si la obra ha cambiado el sistema de emisión, esta actuación no encaja en ${ficha} y habría que llevarla a RES080; si es solo conexión o adaptación de los emisores existentes, que la factura lo diga así.`,
             lineasEmisores.map(l => clean(l.descripcion)).filter(Boolean).join(' · ')
         );
+    }
+
+    // ── RES080 · SUPERFICIE_EMISORES ─────────────────────────────────────────
+    // En una reforma la unidad terminal sí se factura, y entonces sus m² tienen que
+    // cubrir la superficie sobre la que se calcula el ahorro. Si el suelo radiante
+    // instalado cubre menos metros de los que el expediente justifica, se está
+    // declarando un ahorro sobre una superficie que no se ha climatizado entera:
+    // es lo primero que cuadra el verificador contra el CEE y el CIFO.
+    // Tolerancia de 1 m² (redondeos de medición). Por debajo del 80% de lo
+    // justificado el desfase deja de ser un redondeo y pasa a GRAVE.
+    if (!esSustitucionCaldera(ficha) && lineasEmisores.length) {
+        const supJustificada = superficieJustificada(exp, op);
+        const conM2 = lineasEmisores
+            .map(l => ({ desc: clean(l.descripcion), m2: superficieLinea(l) }))
+            .filter(l => l.m2);
+        const supFacturada = conM2.reduce((t, l) => t + l.m2, 0);
+
+        if (supJustificada && supFacturada && supFacturada < supJustificada - 1) {
+            const pct = supFacturada / supJustificada;
+            add(
+                'SUPERFICIE_EMISORES', pct < 0.8 ? 'GRAVE' : 'LEVE',
+                'La unidad terminal cubre menos superficie de la que se justifica',
+                `La factura instala ${fmtM2(supFacturada)} de unidad terminal y ${numExp} justifica el ahorro sobre ${fmtM2(supJustificada)} (la superficie del CEE, la que va al CIFO). Faltan ${fmtM2(supJustificada - supFacturada)}: o la obra no climatiza toda la vivienda —y entonces la superficie del cálculo tiene que bajar a la realmente climatizada—, o la factura no recoge todos los metros ejecutados y hay que pedir que los detalle.`,
+                `Factura ${fmtM2(supFacturada)} < expediente ${fmtM2(supJustificada)}${conM2.length ? ' · ' + conM2.map(l => l.desc).join(' · ') : ''}`
+            );
+        } else if (supJustificada && !supFacturada) {
+            add(
+                'SUPERFICIE_EMISORES', 'LEVE',
+                'La factura no dice cuántos m² de unidad terminal se instalan',
+                `${numExp} justifica el ahorro sobre ${fmtM2(supJustificada)} y la factura incluye unidades terminales sin decir la superficie que cubren. Sin ese dato no se puede cuadrar lo instalado con la superficie del CEE: pide que la factura detalle los m².`,
+                lineasEmisores.map(l => clean(l.descripcion)).filter(Boolean).join(' · ')
+            );
+        }
     }
 
     // ── GRAVE · TITULAR ──────────────────────────────────────────────────────
@@ -226,12 +339,12 @@ function detectarIncidenciasFactura({ ocr, exp, op, cliente, instalador, factura
     // ── GRAVE · DUPLICADA ────────────────────────────────────────────────────
     // El caso real que venía duplicando el PDF único: la misma factura subida por
     // el instalador desde el enlace y otra vez por el admin desde el modal.
-    const numFac = normNif(ocr.numero_factura);   // mismo saneado: quita guiones y puntos
+    const numFac = normNumFactura(ocr.numero_factura);
     const baseFac = numOrNull(ocr.totales?.base_imponible);
     const fechaFac = clean(ocr.fecha_factura);
     const dup = (facturasExistentes || []).find((f) => {
         if (!f) return false;
-        const mismoNum = numFac && normNif(f.numero_factura) === numFac;
+        const mismoNum = numFac && normNumFactura(f.numero_factura) === numFac;
         const mismoImporte = baseFac != null && Math.abs((numOrNull(f.importe_sin_iva) ?? -1) - baseFac) < 0.01;
         const mismaFecha = fechaFac && clean(f.fecha_factura).slice(0, 10) === fechaFac.slice(0, 10);
         return mismoNum || (mismoImporte && mismaFecha);
@@ -384,4 +497,6 @@ module.exports = {
     normSerie,
     mismoNombre,
     alcanceEsperado,
+    superficieJustificada,
+    superficieLinea,
 };

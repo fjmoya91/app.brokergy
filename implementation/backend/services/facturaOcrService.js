@@ -97,9 +97,14 @@ const EXTRACTION_PROMPT = `Eres un extractor de datos de FACTURAS de obra españ
 REGLAS CRÍTICAS:
 - Localiza los datos por sus ETIQUETAS y por su posición lógica, NO por número de página.
 - Números como decimales con PUNTO (1234.56). Si la factura usa coma decimal y punto de millar, conviértelo (1.234,56 → 1234.56).
-- Fechas en formato YYYY-MM-DD.
 - Si un dato no aparece, devuelve null. NO INVENTES NADA: es preferible null a un valor deducido.
 - No corrijas ni "mejores" los textos: copia las descripciones tal cual figuran.
+
+FECHAS (se leen mal con mucha facilidad — lee esto entero):
+- Estas facturas son ESPAÑOLAS: se escriben SIEMPRE de día a año, DD-MM-AA o DD/MM/AAAA. El primer grupo NUNCA es el año.
+- Un año de dos cifras es 20AA: "06-09-26" es el 6 de septiembre de 2026 (2026-09-06), NO el 26 de septiembre de 2006.
+- "fecha_factura_texto" = la fecha COPIADA LETRA A LETRA tal como está impresa junto a "Fecha factura" ("06-09-26", "6 de septiembre de 2026"). Sin reordenar ni completar nada.
+- "fecha_factura" = esa misma fecha en YYYY-MM-DD. Igual para "fecha_vencimiento".
 
 QUIÉN ES QUIÉN (no los confundas):
 - "emisor" = QUIEN EMITE la factura, el instalador/proveedor que cobra (suele ir arriba, con su logo, y su NIF junto al nº de factura).
@@ -116,6 +121,7 @@ LÍNEAS (lo más importante):
 - Una entrada por cada CONCEPTO facturado. Copia su "descripcion" literal.
 - "importe_total" es el importe SIN IVA de esa línea.
 - "marca", "modelo" y "numero_serie" SOLO si aparecen escritos en esa línea (o inmediatamente asociados a ella). El número de serie suele venir como "Nº serie", "S/N", "SN:" seguido de un código alfanumérico. Si la línea no los cita, null.
+- "superficie_m2": los METROS CUADRADOS que cite la línea, si los cita ("para vivienda de 119 m2", "suelo radiante 85 m²", "40 m2 de fachada"). Solo el número. Si la línea no da superficie, null. Es el dato con el que se comprueba que lo instalado cubre la superficie que el expediente justifica.
 - "partida": clasifica cada línea en UNA de estas categorías:
   · AEROTERMIA — bomba de calor aire-agua: unidad exterior, unidad interior/hidrokit, monobloc, equipo de aerotermia.
   · ACS — depósito, acumulador, interacumulador, termo eléctrico o equipo dedicado a agua caliente sanitaria.
@@ -146,6 +152,8 @@ const GEMINI_SCHEMA = {
     properties: {
         numero_factura: { type: 'STRING', nullable: true },
         fecha_factura: { type: 'STRING', nullable: true },
+        // La fecha COPIADA tal cual está impresa. Es la que manda: ver normalizaFecha().
+        fecha_factura_texto: { type: 'STRING', nullable: true },
         fecha_vencimiento: { type: 'STRING', nullable: true },
         emisor: _party,
         cliente: _party,
@@ -172,6 +180,7 @@ const GEMINI_SCHEMA = {
                     marca: { type: 'STRING', nullable: true },
                     modelo: { type: 'STRING', nullable: true },
                     numero_serie: { type: 'STRING', nullable: true },
+                    superficie_m2: { type: 'NUMBER', nullable: true },
                 },
             },
         },
@@ -303,13 +312,71 @@ const str = (v) => {
     return s || null;
 };
 
+// Meses escritos con letra (algunas facturas fechan "6 de septiembre de 2026").
+const MESES = {
+    ENE: 1, ENERO: 1, FEB: 2, FEBRERO: 2, MAR: 3, MARZO: 3, ABR: 4, ABRIL: 4,
+    MAY: 5, MAYO: 5, JUN: 6, JUNIO: 6, JUL: 7, JULIO: 7, AGO: 8, AGOSTO: 8,
+    SEP: 9, SEPT: 9, SEPTIEMBRE: 9, SET: 9, SETIEMBRE: 9, OCT: 10, OCTUBRE: 10,
+    NOV: 11, NOVIEMBRE: 11, DIC: 12, DICIEMBRE: 12,
+};
+
+const iso = (y, m, d) => (m >= 1 && m <= 12 && d >= 1 && d <= 31)
+    ? `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+    : null;
+
+/**
+ * Fecha ISO a partir de la fecha IMPRESA en la factura.
+ *
+ * Las facturas españolas se escriben DD-MM-AA / DD-MM-AAAA: el primer grupo es el
+ * DÍA, nunca el año. El modelo, en cambio, ve "06-09-26" y tiende a leerlo como si
+ * empezara por el año → 2006-09-26. Caso real: factura 74-26 de 26RES080_69, del
+ * 06-09-26, que entró como 26/09/2006 y disparó una incidencia GRAVE falsa ("la
+ * factura es anterior al CEE inicial") veinte años atrás.
+ *
+ * Por eso la fecha final NO la decide el modelo: el modelo COPIA lo impreso y esta
+ * función lo interpreta con la regla española, que es determinista y reproducible.
+ * Un año de dos cifras es 20AA (no hay facturas CAE del siglo XX).
+ */
+function fechaDesdeLiteral(literal) {
+    const v = String(literal || '').trim().toUpperCase();
+    if (!v) return null;
+
+    // "6 de septiembre de 2026" / "6 SEP 2026"
+    let m = /^(\d{1,2})\s*(?:DE\s+)?([A-ZÁÉÍÓÚ]{3,10})\.?\s*(?:DE\s+)?(\d{2,4})$/.exec(v);
+    if (m) {
+        const mes = MESES[m[2].normalize('NFD').replace(/[̀-ͯ]/g, '')];
+        if (mes) return iso(+m[3] <= 99 ? 2000 + +m[3] : +m[3], mes, +m[1]);
+        return null;
+    }
+
+    m = /^(\d{1,4})\s*[/\-. ]\s*(\d{1,2})\s*[/\-. ]\s*(\d{2,4})$/.exec(v);
+    if (!m) return null;
+    // Solo si el PRIMER grupo trae cuatro cifras estamos ante un AAAA-MM-DD.
+    if (m[1].length === 4) return iso(+m[1], +m[2], +m[3]);
+    return iso(+m[3] <= 99 ? 2000 + +m[3] : +m[3], +m[2], +m[1]);
+}
+
+/** Fecha definitiva: manda lo impreso; el ISO del modelo solo es el respaldo. */
+function normalizaFecha(isoModelo, literal) {
+    const dLit = fechaDesdeLiteral(literal);
+    const dIso = str(isoModelo);
+    if (dLit) {
+        if (dIso && dIso.slice(0, 10) !== dLit) {
+            console.warn(`[facturaOcr] fecha corregida: el modelo devolvió ${dIso} y lo impreso ("${literal}") es ${dLit}.`);
+        }
+        return dLit;
+    }
+    return dIso;
+}
+
 function sanitize(raw) {
     const r = raw || {};
     const party = (p) => ({ nombre: str(p?.nombre), nif: str(p?.nif), direccion: str(p?.direccion) });
     const lineas = Array.isArray(r.lineas) ? r.lineas : [];
     return {
         numero_factura: str(r.numero_factura),
-        fecha_factura: str(r.fecha_factura),
+        fecha_factura: normalizaFecha(r.fecha_factura, r.fecha_factura_texto),
+        fecha_factura_texto: str(r.fecha_factura_texto),
         fecha_vencimiento: str(r.fecha_vencimiento),
         emisor: party(r.emisor),
         cliente: party(r.cliente),
@@ -329,6 +396,7 @@ function sanitize(raw) {
             marca: str(l?.marca),
             modelo: str(l?.modelo),
             numero_serie: str(l?.numero_serie),
+            superficie_m2: num(l?.superficie_m2),
         })),
         observaciones: str(r.observaciones),
     };
@@ -351,4 +419,7 @@ module.exports = {
     PROVIDER,
     PARTIDAS,
     extractFacturaFromPdf,
+    // exportados para test
+    fechaDesdeLiteral,
+    normalizaFecha,
 };
