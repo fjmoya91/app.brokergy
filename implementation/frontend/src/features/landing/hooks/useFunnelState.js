@@ -32,6 +32,15 @@ const INITIAL_FUNNEL = {
     presupuesto_modo: null,      // 'tengo' | 'no_se' | 'pide_instalador'
     presupuesto_eur: null,
 
+    // Autoconsumo fotovoltaico YA EXISTENTE en la vivienda. No confundir con
+    // `reforma_elementos.placas`, que es "voy a instalar placas en esta obra":
+    // esto describe lo que hay hoy, y de ahí sale tanto el dato que el CEE
+    // tiene que declarar como la cualificación para la venta cruzada.
+    // Valores en `features/expedientes/logic/fotovoltaica.js` (fuente única).
+    placas_estado: null,         // 'si' | 'futuro' | 'no'
+    placas_kwp: null,            // número (kWp) — solo con 'si'; null = no la sabe
+    placas_kwp_nose: false,      // el cliente ha DICHO que no la sabe (≠ no haber contestado)
+
     // ---- Flujo Reforma (/reforma) ----
     obra_estado: null,           // 'no_empezada' | 'a_medias' | 'ejecutada' | 'nueva'
     reforma_sin_caldera: false,  // true si no había caldera de calefacción → boilerHeatingType 'No tiene Calefacción'

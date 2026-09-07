@@ -253,6 +253,46 @@ export function datosAcumulador(aero) {
 }
 
 /**
+ * ¿El nodo de ACS declara un equipo PROPIO, distinto del de calefacción?
+ *
+ * Se compara por MODELO (`aerotermia_db_id`, o marca+modelo cuando el equipo no
+ * está en el catálogo — un termo, un acumulador), NUNCA por número de serie: con
+ * `misma_aerotermia_acs` la app CLONA el nodo de calefacción, y ese clon se queda
+ * atrás en cuanto se teclea la serie de una de las dos máquinas. Medido sobre
+ * producción: 11 expedientes difieren solo en la serie y en ninguno hay un
+ * segundo equipo — tomarla por un equipo distinto los rompería todos.
+ */
+export function acsEquipoPropio(inst) {
+    const acs = getUnidades(inst?.aerotermia_acs)[0];
+    if (!acs) return false;                       // nodo vacío: no declara nada
+    const cal = getUnidades(inst?.aerotermia_cal)[0];
+    if (!cal) return true;
+    const id = (u) => String(u?.aerotermia_db_id ?? '').trim();
+    if (id(acs) && id(cal)) return id(acs) !== id(cal);
+    const firma = (u) => [u?.marca, u?.modelo || u?.modelo_conjunto]
+        .map(v => String(v || '').trim().toUpperCase()).join('|');
+    return firma(acs) !== firma(cal);
+}
+
+/**
+ * ¿El ACS lo produce el MISMO equipo que la calefacción?
+ *
+ * REGLA — el flag no puede esconder un equipo DECLARADO. `misma_aerotermia_acs`
+ * no se toca en ninguna parte de la app: se pone a true al activar "se actúa
+ * sobre el ACS" y solo baja a false al editar la sección de ACS. Cuando el equipo
+ * de ACS se escribe por fuera de esa pantalla —una migración, un script, una
+ * skill de relleno— el flag se queda en true y el equipo real DESAPARECE: el CE3X
+ * declararía el SCOP de la bomba de calefacción como SCOP_dhw de un agua que
+ * calienta otra máquina (medido en 26RES080_54: 6,47 en vez de 3,69).
+ *
+ * Entre un booleano que nadie ha tocado y una máquina con marca, modelo y nº de
+ * serie, manda la máquina.
+ */
+export function acsMismoEquipo(inst) {
+    return !!inst?.misma_aerotermia_acs && !acsEquipoPropio(inst);
+}
+
+/**
  * ¿El ACS computa en la fórmula del ahorro? Sí cuando se actúa sobre él con una
  * bomba de calor (la misma que la de calefacción, una propia del catálogo) o con
  * un ACUMULADOR con SCOP_dhw declarado (lo calienta la BdC, SCOP por Anexo VI:

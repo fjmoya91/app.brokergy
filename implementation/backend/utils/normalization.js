@@ -8,7 +8,10 @@
 // `tipo_equipo_nuevo` va aquí por el mismo motivo que `tipo_emisor` / `metodo_scop`:
 // son ENUMS en minúscula que la app compara con === ('termo_electrico'). Subirlos a
 // MAYÚSCULAS los rompe (los lectores caían al valor por defecto).
-const BLACKLIST = ['id', 'id_oportunidad', 'id_cliente', 'password', 'token', 'reformaType', 'method', 'type', 'icon', 'link', 'url', 'ficha', 'tipo_emisor', 'tipo_equipo_nuevo', 'metodo_scop', 'hibridacion_metodo', 'rendimiento_id', 'comb_', 'datos_calculo'];
+// `fotovoltaica` va aquí por lo mismo: su `estado` es un enum en minúscula
+// ('si' | 'futuro' | 'no') que la app compara con ===. Blacklistear la clave del
+// objeto protege el sub-árbol entero de una vez.
+const BLACKLIST = ['id', 'id_oportunidad', 'id_cliente', 'password', 'token', 'reformaType', 'method', 'type', 'icon', 'link', 'url', 'ficha', 'tipo_emisor', 'tipo_equipo_nuevo', 'metodo_scop', 'hibridacion_metodo', 'rendimiento_id', 'comb_', 'datos_calculo', 'fotovoltaica'];
 
 function normalizeData(obj) {
     if (!obj || typeof obj !== 'object') return obj;

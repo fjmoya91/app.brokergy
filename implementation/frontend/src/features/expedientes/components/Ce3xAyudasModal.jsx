@@ -113,9 +113,13 @@ export function Ce3xAyudasModal({ isOpen, onClose, expediente }) {
                                         <div className="text-[11px] font-black text-white uppercase tracking-widest">{sec.titulo}</div>
                                         <div className="text-[10px] text-white/40 normal-case mt-0.5">
                                             {sec.resumen}
-                                            <span className="text-white/25">
-                                                {' · '}{sec.campos.length === 1 ? '1 casilla' : `${sec.campos.length} casillas`}
-                                            </span>
+                                            {/* Una sección puede ser solo un AVISO (nada que teclear):
+                                                anunciarle "0 casillas" la haría parecer una chuleta rota. */}
+                                            {sec.campos.length > 0 && (
+                                                <span className="text-white/25">
+                                                    {' · '}{sec.campos.length === 1 ? '1 casilla' : `${sec.campos.length} casillas`}
+                                                </span>
+                                            )}
                                         </div>
                                         {alerta && (
                                             <div className="text-[10px] text-amber-400/90 normal-case leading-snug mt-1">{alerta}</div>

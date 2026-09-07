@@ -69,6 +69,25 @@ const direccionLimpia = (dir) => {
 };
 
 // ─── Certificador ─────────────────────────────────────────────────────────────
+//
+// REGLA — al certificador se le escribe COMO A UN COMPAÑERO, no como a un cliente.
+// Es un profesional con el que se habla cada semana, que tiene tu número y sabe
+// perfectamente quién le escribe. De ahí las tres diferencias con el resto de
+// plantillas, y ninguna es cosmética:
+//
+//  · **Se le saluda por su nombre y con coma**: "Hola Luis Alberto," y no
+//    "¡Hola *LUIS ALBERTO LANUZA PELAYO*!". Un saludo en negrita con la razón social
+//    entera es lo primero que delata que el mensaje lo ha escrito una máquina.
+//  · **Se le dice POR QUÉ**, no solo qué. "Hasta que no estén registrados no puedo
+//    avanzar con esos expedientes" es lo que mueve a alguien a sacar un hueco; un
+//    aviso de estado ("sigue pendiente de registrar") no mueve nada.
+//  · **Va en PRIMERA PERSONA**, porque quien pide el favor es una persona concreta.
+//    La FIRMA se mantiene igual que en el resto de mensajes ("¡Gracias!" + membrete):
+//    se probó a quitarla por sonar a notificación del sistema y se descartó — deja
+//    claro de parte de quién va, y es la despedida de siempre en toda la app.
+//
+// Se pide en tono de FAVOR ("cuando tengas un hueco", "¿me registras…?") a propósito:
+// no le estamos reclamando un incumplimiento, le estamos pidiendo que priorice.
 
 /**
  * Recordatorio de REGISTRO: ya tiene nuestro visto bueno y falta que lo presente en
@@ -76,12 +95,15 @@ const direccionLimpia = (dir) => {
  * exactamente la acción que le estamos pidiendo.
  */
 function certRegistroWa({ certName, phaseLabel, expedienteNum, clienteName, adminMsgWa = '', subirWa = '' }) {
-    return `¡Hola *${certName}*!\n\nEl *${phaseLabel}* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''} tiene nuestro visto bueno y sigue *pendiente de registrar* en Industria.\n\nEn cuanto lo presentes, súbenos la etiqueta y el justificante de registro.${adminMsgWa}${subirWa}\n\n¡Gracias!\n${FIRMA}`;
+    return `Hola ${certName},\n\nCuando tengas un hueco, ¿me registras en Industria el *${phaseLabel}* del expediente *${expedienteNum}*${clienteName ? ` (${capitalizar(clienteName)})` : ''}? Ya tiene el visto bueno, y hasta que no esté registrado no puedo avanzar con él.\n\nCuando lo presentes, súbeme la etiqueta y el justificante de registro.${adminMsgWa}${subirWa}\n\n¡Gracias!\n${FIRMA}`;
 }
 
 /** Recordatorio de EMISIÓN: se le encargó el CEE y todavía no lo ha entregado. */
 function certEmisionWa({ certName, phaseLabel, expedienteNum, clienteName, adminMsgWa = '', ceeFolderLink = null, portalLink = null }) {
-    return `¡Hola *${certName}*!\n\nTe recordamos que tienes pendiente el *${phaseLabel}* del expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''}.\n\n¿Podrías darnos una estimación de fecha de entrega?${adminMsgWa}\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\n¡Gracias!\n${FIRMA}`;
+    // Los enlaces son OPCIONALES: sin ellos, concatenar sus saltos de línea dejaba
+    // un hueco en blanco antes del "Gracias" que se ve como un mensaje mal cortado.
+    const enlaces = `${ceeFolderLink ? `\n📁 Carpeta: ${ceeFolderLink}` : ''}${portalLink ? `\n🔗 Portal: ${portalLink}` : ''}`;
+    return `Hola ${certName},\n\n¿Cómo va el *${phaseLabel}* del expediente *${expedienteNum}*${clienteName ? ` (${capitalizar(clienteName)})` : ''}? Lo tienes encargado y aún no me ha llegado.\n\nSi me dices una fecha aproximada, lo cuadro con el cliente.${adminMsgWa}${enlaces ? `\n${enlaces}` : ''}\n\n¡Gracias!\n${FIRMA}`;
 }
 
 // ─── Cliente / instalador ─────────────────────────────────────────────────────
@@ -167,7 +189,11 @@ function firmaMsg({ destinatario, docs = [], numExp, obra, dias, url, esInstalad
 function listaExpedientes(items) {
     return items.map(i => {
         const cab = `• *${i.numExp}*${i.cliente ? ` — ${capitalizar(i.cliente)}` : ''}`;
-        const det = [i.detalle, i.dias != null ? `${i.dias} días` : null].filter(Boolean).join(' · ');
+        // La antigüedad se OMITE cuando es de hoy: "0 días" no dice nada, y decirle a
+        // alguien que le reclamas algo que le pediste esta mañana resta urgencia a
+        // todo lo demás de la lista. Pasa desde que se pueden añadir a mano los que
+        // aún están en plazo.
+        const det = [i.detalle, i.dias ? `${i.dias} ${i.dias === 1 ? 'día' : 'días'}` : null].filter(Boolean).join(' · ');
         const url = i.url ? `\n  ${i.urlLabel ? i.urlLabel + ' ' : ''}${i.url}` : '';
         return `${cab}${det ? `\n  _${det}_` : ''}${url}`;
     }).join('\n\n');
@@ -175,16 +201,20 @@ function listaExpedientes(items) {
 
 const plural = (n, sing, pl) => (n === 1 ? sing : pl);
 
-/** Varios CEE con visto bueno y sin registrar, del mismo certificador. */
+/**
+ * Varios CEE con visto bueno y sin registrar, del mismo certificador.
+ * Mismo tono que `certRegistroWa` (ver la regla del bloque "Certificador"): se pide
+ * el favor, se explica qué bloquea, y la lista va al final con su enlace por línea.
+ */
 function certRegistroLoteWa({ certName, items }) {
     const n = items.length;
-    return `¡Hola *${certName}*!\n\nTienes *${n} ${plural(n, 'certificado', 'certificados')}* con nuestro visto bueno ${plural(n, 'pendiente', 'pendientes')} de registrar en Industria:\n\n${listaExpedientes(items)}\n\nEn cuanto ${plural(n, 'lo presentes', 'los presentes')}, súbenos la etiqueta y el justificante de registro en el enlace de cada uno.\n\n¡Gracias!\n${FIRMA}`;
+    return `Hola ${certName},\n\nCuando tengas un hueco, ¿me registras en Industria ${plural(n, 'este certificado', `estos ${n} certificados`)}? Ya ${plural(n, 'tiene', 'tienen')} el visto bueno, y hasta que no ${plural(n, 'esté registrado', 'estén registrados')} no puedo avanzar con ${plural(n, 'ese expediente', 'esos expedientes')}.\n\n${listaExpedientes(items)}\n\nCuando ${plural(n, 'lo presentes', 'los presentes')}, súbeme la etiqueta y el justificante ${plural(n, 'en ese mismo enlace', 'en el enlace de cada uno')}.\n\n¡Gracias!\n${FIRMA}`;
 }
 
 /** Varios encargos del mismo certificador sin entregar. */
 function certEmisionLoteWa({ certName, items }) {
     const n = items.length;
-    return `¡Hola *${certName}*!\n\nTe recordamos que tienes *${n} ${plural(n, 'certificado pendiente', 'certificados pendientes')}* de entregar:\n\n${listaExpedientes(items)}\n\n¿Nos puedes dar una estimación de fecha para ${plural(n, 'él', 'ellos')}?\n\n¡Gracias!\n${FIRMA}`;
+    return `Hola ${certName},\n\n¿Cómo ${plural(n, 'va este certificado', `van estos ${n} certificados`)}? ${plural(n, 'Lo tienes encargado', 'Los tienes encargados')} y aún no me ${plural(n, 'ha', 'han')} llegado:\n\n${listaExpedientes(items)}\n\nSi me dices una fecha aproximada, lo cuadro con ${plural(n, 'el cliente', 'los clientes')}.\n\n¡Gracias!\n${FIRMA}`;
 }
 
 /** Varias obras del mismo instalador sin terminar. */
@@ -201,9 +231,27 @@ function firmaLoteWa({ destinatario, items, esInstalador }) {
     return `${hola}\n\nTienes documentación *pendiente de firma* en *${n} ${plural(n, 'expediente', 'expedientes')}*${esInstalador ? '' : ''}:\n\n${listaExpedientes(items)}\n\nEs lo que nos falta para poder seguir con la tramitación. Se firma en 2 minutos desde el móvil, en el enlace de cada uno.\n\n¡Gracias!\n${FIRMA}`;
 }
 
+
+/**
+ * Confirmación de datos de cobro. Es el mensaje MÁS agradable que le mandamos a
+ * un cliente en todo el expediente, así que empieza por la noticia y no por lo
+ * que le pedimos: quien lee "tenemos que pedirte una cosa" no llega al final.
+ *
+ * REGLA — no se promete fecha de ingreso. Depende del pago del Sujeto Obligado;
+ * una fecha aquí es una reclamación garantizada dentro de dos semanas.
+ */
+function cobroLoteWa({ destinatario, items }) {
+    const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
+    const n = items.length;
+    const cuerpo = n === 1
+        ? `¡Buenas noticias! Ya tenemos concedida la ayuda de tu instalación y estamos preparando el ingreso.`
+        : `¡Buenas noticias! Ya tenemos concedidas las ayudas de *${n} instalaciones tuyas* y estamos preparando los ingresos.`;
+    return `${hola}\n\n${cuerpo}\n\nAntes de hacer la transferencia necesitamos que *confirmes tus datos de cobro* — sobre todo el número de cuenta, para que el dinero no acabe donde no debe:\n\n${listaExpedientes(items)}\n\nTe llevará menos de un minuto: lo verás casi todo relleno. De paso te hacemos un par de preguntas rápidas por si podemos ahorrarte algo más (la tarifa de la luz suele quedarse desajustada después de poner aerotermia); son opcionales.\n\n¡Gracias!\n${FIRMA}`;
+}
+
 module.exports = {
     certRegistroWa, certEmisionWa,
     finObraMsg, firmaMsg, bloqueAcciones,
-    certRegistroLoteWa, certEmisionLoteWa, finObraLoteWa, firmaLoteWa, listaExpedientes,
+    certRegistroLoteWa, certEmisionLoteWa, finObraLoteWa, firmaLoteWa, cobroLoteWa, listaExpedientes,
     capitalizar, nombrePila, nombreSaludo, direccionLimpia, FIRMA,
 };

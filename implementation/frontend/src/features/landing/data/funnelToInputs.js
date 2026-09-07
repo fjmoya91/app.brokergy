@@ -8,6 +8,7 @@
  */
 
 import { mapBoiler, mapAcsType, shouldWarnBiomasa } from './boilerMapping';
+import { fotovoltaicaDesdeFunnel, FOTOVOLTAICA_VACIA } from '../../expedientes/logic/fotovoltaica';
 import { mapEmisor } from './emisoresMapping';
 import { getUByYear, getVentanaYACHByYear } from '../../calculator/logic/calculation';
 import { PRESUPUESTO_ESTIMADO_EUR } from '../../calculator/logic/presupuestoEstimado';
@@ -84,7 +85,11 @@ const BASE_DEFAULTS = {
     reformaParedes: false,
     insulationState: 'sin_aislamiento',
     boilerHeatingType: 'No tiene Calefacción',
-    boilerAcsType: 'Butano'
+    boilerAcsType: 'Butano',
+    // Autoconsumo fotovoltaico ya existente en la vivienda. No entra en el
+    // cálculo: viaja con la oportunidad para que el expediente nazca sabiéndolo
+    // (el CEE tiene que declararlo) sin volver a preguntárselo al cliente.
+    fotovoltaica: { ...FOTOVOLTAICA_VACIA }
 };
 
 function funnelToCalculatorInputs(funnel, catastro, options = {}) {
@@ -210,6 +215,9 @@ function funnelToCalculatorInputs(funnel, catastro, options = {}) {
         ? Number(funnel.presupuesto_eur)
         : PRESUPUESTO_ESTIMADO_EUR;
     inputs.presupuestoEstimado = !(presupuestoAportado && funnel.presupuesto_eur > 0);
+
+    // 11.b Placas solares ya instaladas (no las de esta obra)
+    inputs.fotovoltaica = fotovoltaicaDesdeFunnel(funnel);
 
     // 12. Titular y número de propietarios (afecta cap IRPF)
     inputs.titularType = funnel.titular_type || 'particular';

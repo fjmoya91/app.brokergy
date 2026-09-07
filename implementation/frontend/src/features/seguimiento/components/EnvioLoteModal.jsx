@@ -36,7 +36,9 @@ export function EnvioLoteModal({ grupo, onCerrar, onHecho }) {
     const [editando, setEditando] = useState(false);
     const [verEntero, setVerEntero] = useState(false);
     const [canales, setCanales] = useState([]);
-    const [excluidos, setExcluidos] = useState(() => new Set());
+    // Los que están EN PLAZO arrancan desmarcados: se ofrecen, no se reclaman solos.
+    const [excluidos, setExcluidos] = useState(
+        () => new Set((grupo.opcionales || []).map(e => e.expediente_id)));
     const [fase, setFase] = useState(null);   // null | 'sending' | 'done'
     const [ok, setOk] = useState(false);
     const [resultado, setResultado] = useState({ items: [], error: '' });
@@ -44,8 +46,13 @@ export function EnvioLoteModal({ grupo, onCerrar, onHecho }) {
     // Si el usuario ha tocado el texto, no se le pisa nunca: su edición manda sobre
     // cualquier regeneración automática.
     const editadoManual = useRef(false);
-    // Todos los expedientes del grupo (los de la respuesta se acotan al pedir).
-    const todos = useMemo(() => grupo.expedientes || [], [grupo]);
+    // Todos los expedientes del grupo (los de la respuesta se acotan al pedir), con los
+    // que aún están EN PLAZO detrás. Van en la misma lista a propósito: así comparten
+    // toda la maquinaria de marcar/desmarcar y de regenerar el mensaje, y lo único que
+    // los separa es que arrancan desmarcados y con su propio rótulo.
+    const todos = useMemo(
+        () => [...(grupo.expedientes || []), ...(grupo.opcionales || [])], [grupo]);
+    const nVencidos = (grupo.expedientes || []).length;
 
     const incluidos = useMemo(
         () => todos.filter(e => !excluidos.has(e.expediente_id)),
@@ -205,21 +212,33 @@ export function EnvioLoteModal({ grupo, onCerrar, onHecho }) {
                                     )}
                                 </div>
                                 <div className="space-y-1.5">
-                                    {todos.map(e => {
+                                    {todos.map((e, i) => {
                                         const dentro = !excluidos.has(e.expediente_id);
                                         return (
-                                            <label key={e.expediente_id}
-                                                className={`flex items-center gap-3 px-3 py-3 rounded-xl border transition-all ${
-                                                    dentro ? 'border-white/10 bg-white/[0.03]' : 'border-transparent bg-transparent opacity-35'}`}>
-                                                {/* 20px: el mínimo que se acierta con el pulgar. */}
-                                                <input type="checkbox" checked={dentro} onChange={() => toggleExp(e.expediente_id)}
-                                                    className="w-5 h-5 accent-brand shrink-0" />
-                                                <span className="flex-1 min-w-0">
-                                                    <span className="block font-black text-brand text-[11px] tabular-nums">{e.numero_expediente}</span>
-                                                    <span className="block text-[11px] text-white/45 truncate">{e.cliente_nombre || e.cliente || e.detalle}</span>
-                                                </span>
-                                                <span className="text-[10px] font-black text-white/30 tabular-nums shrink-0">{e.dias} d</span>
-                                            </label>
+                                            <React.Fragment key={e.expediente_id}>
+                                                {/* El rótulo va justo antes del primero que está en plazo:
+                                                    sin él, un expediente desmarcado se lee como algo que
+                                                    tú has quitado, no como algo que aún no tocaba. */}
+                                                {i === nVencidos && (
+                                                    <p className="pt-3 pb-1 text-[10px] font-black uppercase tracking-widest text-white/25">
+                                                        Aún en plazo · márcalo para incluirlo
+                                                    </p>
+                                                )}
+                                                <label
+                                                    className={`flex items-center gap-3 px-3 py-3 rounded-xl border transition-all ${
+                                                        dentro ? 'border-white/10 bg-white/[0.03]' : 'border-transparent bg-transparent opacity-35'}`}>
+                                                    {/* 20px: el mínimo que se acierta con el pulgar. */}
+                                                    <input type="checkbox" checked={dentro} onChange={() => toggleExp(e.expediente_id)}
+                                                        className="w-5 h-5 accent-brand shrink-0" />
+                                                    <span className="flex-1 min-w-0">
+                                                        <span className="block font-black text-brand text-[11px] tabular-nums">{e.numero_expediente}</span>
+                                                        <span className="block text-[11px] text-white/45 truncate">{e.cliente_nombre || e.cliente || e.detalle}</span>
+                                                    </span>
+                                                    <span className="text-[10px] font-black text-white/30 tabular-nums shrink-0">
+                                                        {e.sin_fecha ? '—' : e.dias === 0 ? 'hoy' : `${e.dias} d`}
+                                                    </span>
+                                                </label>
+                                            </React.Fragment>
                                         );
                                     })}
                                 </div>

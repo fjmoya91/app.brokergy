@@ -832,22 +832,84 @@ lo atascado, y en cada línea el enlace que lo desbloquea. Sustituye al aviso su
 todos. El parte es una lista de trabajo. Si añades un caso nuevo, va como bloque
 del parte — no como un `setInterval` propio.
 
-### Los ocho bloques — [seguimientoRadar.js](implementation/backend/services/seguimientoRadar.js)
+### El PLAZO decide si se RECLAMA, nunca si se VE (2026-09-07)
 
-Cada detector responde a lo mismo: *¿de quién es la pelota y desde cuándo?* Los
-umbrales y la reinsistencia viven en el mapa `BLOQUES` (todos con variable de entorno).
+Eran el mismo número, y por eso no se podía uno fiar de la pestaña: lo movido
+recientemente no existía en ninguna parte. Medido el 07/09/2026 — **5** expedientes con
+el visto bueno dado y sin registrar, y la pantalla enseñaba **2** (se callaba
+26RES060_119, cuyo CEE final se había mandado a registrar el día antes). El plazo de 2
+días era razonable para no darle la lata al certificador; era absurdo para esconderle a
+Brokergy en qué punto está su propia cartera.
+
+`escanear()` emite ahora **todas** las filas y marca cada una `vencida` (plazo cumplido,
+o **sin fecha** — no saber desde cuándo espera algo es peor, no mejor). Quien reclama
+filtra por esa marca y nadie recibe un mensaje antes de tiempo:
+
+| Superficie | Qué lleva |
+|---|---|
+| `agruparPorDestinatario` (DESPACHAR y los envíos en bloque) | solo `vencida` |
+| Parte diario de WhatsApp / email (`seguimientoDiario`) | solo `vencida` |
+| Pestaña **REVISAR** | TODO — lo parado primero, lo que va en plazo detrás y atenuado |
+
+**REGLA — parado y en plazo se cuentan APARTE.** La ruta devuelve `parados` y `en_plazo`
+además de `total`, y cada bloque su `vencidas`. El titular y el badge cuentan lo PARADO,
+que es lo que duele; mezclarlos convertiría la lista de tareas en un inventario.
+
+### Los once bloques — [seguimientoRadar.js](implementation/backend/services/seguimientoRadar.js)
+
+Cada detector responde a lo mismo: *¿de quién es la pelota y desde cuándo?* Los plazos y
+la reinsistencia viven en el mapa `BLOQUES` (todos con variable de entorno).
 
 | Bloque | Criterio | Pelota | Botón |
 |---|---|---|---|
 | `RECHAZO_SIN_REENVIAR` | `rechazoBorrador().obsoleto` >2 d | BROKERGY | — (corregir y regenerar) |
-| `REVISION` | `cee_* ∈ PRESENTADO/PTE_REVISION` >2 d | BROKERGY | — |
+| `REVISION` | `cee_* ∈ PRESENTADO/PTE_REVISION` (plazo 0) | BROKERGY | — |
 | `OBRA_SIN_CERRAR` | obra ejecutada + `cee_final` sin encargar >5 d | BROKERGY | — |
+| `TRAMITACION` | `PTE FIN EXPTE`/`REVISADO Y LISTO (FINAL)` con documentos **sin generar ni enviar** >10 d | BROKERGY | — |
+| `SIN_LOTEAR` | `loteService.ESTADOS_COMPLETO` sin `lote_id` >15 d | BROKERGY | — (meterlo en un lote) |
 | `REGISTRO` | `cee_* = REVISADO` >2 d | CERTIFICADOR | Recordar el registro |
 | `CERT_SIN_ENTREGAR` | `ASIGNADO/EN_TRABAJO/PTE_PRESENTACION` >10 d | CERTIFICADOR | Pedir fecha |
-| `SIN_ENCARGAR` | sin certificador >7 d | BROKERGY | — |
+| `SIN_ENCARGAR` | encargo sin salir, **con técnico o sin él** (plazo 0) | BROKERGY | — |
 | `MIGRADO_SIN_REVISAR` | `PENDIENTE REVISAR EXPTE` >15 d | BROKERGY | — |
 | `FIRMA_PENDIENTE` | `_sent_at` sin `_signed_link` >7 d | CLIENTE/INSTALADOR | Recordar la firma |
 | `FIN_OBRA` | CEE ini. registrado, sin señales de obra >30 d | CLIENTE/INSTALADOR | ¿Cómo va la obra? |
+
+**REGLA — `TRAMITACION` cubre lo que NO SE HA PEDIDO; `FIRMA_PENDIENTE`, lo pedido que no
+vuelve.** El reparto es por `_sent_at`, y no es un matiz: aquél exige que el documento
+haya salido, así que **un CIFO que nunca se generó no lo reclamaba nadie** (11 de 19
+expedientes en `PTE FIN EXPTE` estaban así). Con los dos, ningún documento se cae entre
+las dos sillas y ningún expediente sale por partida doble diciendo lo mismo. El RITE
+entra solo **mientras bloquee** —o sea, mientras el CIFO no esté firmado—: lo aporta el
+instalador y con el CIFO ya firmado no desbloquea nada.
+
+**REGLA — `SIN_LOTEAR` es el único bloque que habla de DINERO, no de un documento.** El
+CAE no se emite ni se cobra hasta que el expediente entra en un lote, y ese tramo estaba
+**entero fuera del parte**: 28 expedientes el 07/09/2026, el más viejo de hacía dos
+meses. Su fecha es el último hito documental (registro del CEE final, o el inicial de
+respaldo), nunca `updated_at`, que se mueve al abrir y guardar la ficha y rejuvenecería
+justo al que más lleva esperando.
+
+**REGLA — quién puede lotearse lo decide `loteService.ESTADOS_COMPLETO`, y se IMPORTA.**
+Solo `DOC. COMPLETA`. La primera versión copió la lista aquí y añadió
+`DOC. COMPLETA APPSHEET`: 24 líneas mandándote a hacer algo que `evaluarElegibilidadBase`
+rechaza con un 400. Un parte que propone acciones imposibles se deja de mirar entero.
+⚠️ Los migrados de AppSheet quedan hoy **sin ningún bloque** —tampoco entran en
+`TRAMITACION`, donde listarles lo que "falta" serían 18 alarmas falsas: su documentación
+vive en el Drive antiguo—. Harán falta uno propio en cuanto se decida qué hay que
+hacerles para llevarlos a `DOC. COMPLETA`.
+
+**El buscador vale para las DOS vistas.** En REVISAR no hay 28 tarjetas sino ~150 filas
+en once bloques plegados, así que sin él responder "¿y el 26RES060_119?" obliga a
+abrirlos todos. Filtra las FILAS (nº de expediente, cliente, municipio, certificador o
+instalador), descarta el bloque que se queda sin ninguna —una cabecera vacía haría creer
+que el expediente está dentro— y **abre los bloques solos** mientras haya filtro.
+
+**REGLA — tener TÉCNICO no es haberle ENCARGADO.** `detectarSinEncargar` salía por
+`if (e.certificador_id) return` dando por hecho que con técnico puesto ya lo cubría otro
+bloque, y no: `CERT_SIN_ENTREGAR` arranca en `ASIGNADO`, o sea cuando el encargo YA
+SALIÓ. Un expediente con técnico elegido y el encargo sin mandar no lo miraba nadie
+(26RES093_1 y 26RES060_128, parados 146 y 131 días). Es el peor sitio donde esconderse,
+porque en la ficha parece que está en marcha.
 
 **REGLA — "sin fin de obra" NO es un solo caso.** Si hay factura, CIFO o RITE, la obra
 está HECHA y lo que falta es encargar el CEE final (`OBRA_SIN_CERRAR`, pelota nuestra).
@@ -929,6 +991,40 @@ Aquí el mensaje sale UNA vez y luego se sella expediente por expediente (histor
 reinsistencia, y el parte lo dice con otras palabras: no es lo mismo haber reclamado
 que haber decidido no reclamar todavía. Sin esta salida, la línea que sabes que no toca
 reclamar vuelve mañana y todos los días, hasta que dejas de mirar el parte entero.
+
+**REGLA — al CERTIFICADOR se le escribe como a un compañero, no como a un cliente.** Es
+un profesional con el que se habla cada semana, que tiene tu número y sabe quién le
+escribe. Sus cuatro plantillas (`certRegistro*` / `certEmision*`) se separan del resto en
+tres cosas, y ninguna es cosmética:
+- **Saludo por su nombre y con coma** — "Hola Luis Alberto," y no
+  "¡Hola *LUIS ALBERTO LANUZA PELAYO*!". ⚠️ El nombre sale de `saludoPartner`, que mira
+  `prescriptores.nombre_responsable`: **el `select` de `resolverContacto` tiene que
+  pedirlo**, o cae al respaldo y saluda con la razón social tal cual está en la BD, en
+  mayúsculas. Y en `prepararLote` manda `contacto.nombre` (la PERSONA), nunca
+  `grupo.destinatario.nombre` (la EMPRESA, que es lo que trae el radar).
+- **Se dice POR QUÉ**, no solo qué: "hasta que no estén registrados no puedo avanzar con
+  esos expedientes". Un aviso de estado ("sigue pendiente de registrar") no mueve a nadie
+  a sacar un hueco; se pide en tono de favor porque no es un incumplimiento.
+- **Primera persona y SIN firma corporativa.** El membrete al pie de un "cuando tengas un
+  hueco" convierte el favor en una notificación del sistema. Los mensajes al CLIENTE sí la
+  llevan: ahí el número puede no estar agendado.
+
+**REGLA — el plazo frena al AUTOMÁTICO, no a ti.** El popup de envío lista además los
+expedientes del MISMO destinatario y la MISMA petición que aún están en plazo
+(`grupo.opcionales`), **desmarcados** y bajo el rótulo "Aún en plazo · márcalo para
+incluirlo". Al certificador al que hoy le reclamas dos registros puede quedarle un
+tercero de ayer, y mandarle los tres juntos es UN mensaje en vez de dos. Nunca crean
+grupo por su cuenta —si no hay nada que reclamarle a alguien, no aparece su tarjeta— y
+por defecto no van, así que el parte diario de WhatsApp no cambia. `prepararLote` y
+`enviarLote` buscan los ids marcados en las DOS listas.
+
+**REGLA — la antigüedad se OMITE cuando es de hoy.** "0 días" no dice nada, y avisar a
+alguien de algo que le pediste esta mañana resta urgencia al resto de la lista.
+
+**REGLA — el `detalle` del radar está escrito para TI, no para quien lo recibe.** En el
+mensaje al certificador se sustituye por la FASE ("CEE final"): "visto bueno dado, falta
+registrar" repite el párrafo de arriba palabra por palabra, y "encargado, sin arrancar"
+es un juicio interno que suena a reproche.
 
 **REGLA — el envío NO se implementa en `acciones.js`**: se delega en `notify-certificador`
 y `solicitar-faltantes` llamándolas con `x-internal-key` (igual que el MCP), para que el
@@ -3541,6 +3637,199 @@ la hoja, así que quedaba DEBAJO de ella por mucho z-index que llevara.
 
 ---
 
+## ¿Tienes placas solares? — se pregunta UNA vez y acompaña al inmueble (2026-09-07)
+
+Pregunta nueva del formulario de captación `/reforma`, al cerrar el bloque de "cómo
+está hoy la vivienda" (caldera → emisores → ACS → **generación propia**) y antes de
+hablar de la obra: es un dato del INMUEBLE, no de la actuación.
+
+```
+funnel (`placas_estado` · `placas_kwp`)
+   → oportunidad (`inputs.fotovoltaica`, visible y editable en la calculadora)
+   → expediente (`instalacion.fotovoltaica`, editable en Instalación)
+   → encargo del CEE al certificador (ce3xFinal · ce3xTextos)
+```
+
+Fuente única de los valores, la normalización y las etiquetas:
+[logic/fotovoltaica.js](implementation/frontend/src/features/expedientes/logic/fotovoltaica.js).
+El backend la carga por `import()` ESM (`expedienteService`), igual que `cifoService`
+con `cifoDoc.js`.
+
+**REGLA — las TRES respuestas valen, y cada una sirve para algo distinto.** *Sí* → hay
+generación en la vivienda y el CEE tiene que declararla; *no, pero me interesa* →
+cualifica al cliente para la venta cruzada del momento en que se le paga el bono (hoy,
+el formulario de Tally de optimización); *no* → es una respuesta, no un hueco.
+
+**REGLA — `estado: null` NO es `'no'`.** Uno es que nadie lo ha preguntado todavía y el
+otro es que el cliente ha dicho que no. Los 240 expedientes anteriores a esto salen
+"Sin declarar" (chapa ámbar en Instalación), que es lo que son: si se leyeran como "no
+tiene placas", el CE3X les propondría poner las que quizá ya tienen.
+
+**REGLA — a quien YA tiene placas no se le propone ponerlas.** `ce3xTextos` ofrecía
+siempre el conjunto de medidas "AUTOCONSUMO FOTOVOLTAICO"; con placas declaradas esa
+medida describe una vivienda que no es la suya, así que se sustituye por el aviso
+contrario — **declararlo como instalación EXISTENTE** (contribuciones energéticas), con
+su potencia. Sin el dato, el texto sigue saliendo y lo dice ("no consta si la vivienda
+ya tiene placas"). El mismo aviso viaja en el encargo al certificador
+(`buildCe3xFinal`), que es donde lee los datos que tiene que teclear.
+
+**REGLA — se dice "FOTOVOLTAICAS" y se explica que son las de la electricidad.** Dos
+pantallas antes, el funnel pregunta por las placas solares **térmicas** (las del agua
+caliente, `boiler_acs_type: 'solar'`). Sin la aclaración, quien tiene las térmicas
+contesta que sí y el certificado declara una generación eléctrica que no existe.
+
+**REGLA — con placas, la potencia se contesta o se dice que no se sabe.** El botón
+"No lo sé ahora mismo" existe para que quien no la sepa no teclee un número cualquiera
+con tal de pasar de pantalla. Sin cifra, `potencia_desconocida: true` viaja hasta el
+expediente y el encargo se lo dice al certificador — que no es lo mismo que no tener
+placas.
+
+**REGLA — el chip de la calculadora sale con el panel PLEGADO.** El bloque editable vive
+dentro de "Datos del edificio", que nace cerrado; si el dato solo estuviera ahí, entre la
+captación y la aceptación no lo vería nadie. Con placas declaradas, la cabecera plegada
+enseña "☀️ FV 3,5 kWp" junto a la superficie y la zona.
+
+⚠️ `fotovoltaica` está en la **BLACKLIST de `normalizeData`**: su `estado` es un enum en
+minúscula ('si' | 'futuro' | 'no') que la app compara con `===`, y el PUT del expediente
+normaliza `instalacion`. Aun así, `normalizarEstado` lee en minúsculas por si algún
+expediente trae 'FUTURO' guardado (mismo gotcha que `cee_source` y `tipo_emisor`).
+
+⚠️ No confundir con `reforma_elementos.placas` (del mismo funnel), que es "voy a instalar
+placas EN ESTA OBRA" — el que solo da IRPF y nunca CAE. Son dos preguntas distintas y un
+cliente puede contestar que sí a las dos.
+
+---
+
+## Confirmación de cobro — el formulario del final (2026-09-07)
+
+Cuando el CAE está concedido y vamos a ingresarle el bono, al cliente le llega UN
+enlace (`/cobro/:expedienteId?token=`) que hace dos trabajos y en este orden:
+**cualificarlo** para la venta cruzada (tarifa de luz · fotovoltaica · deducción del
+IRPF) y **confirmar sus datos de cobro**, que es el trabajo de verdad — el que evita
+la transferencia a una cuenta equivocada.
+
+Sustituye al formulario externo de Tally ("⚡ Confirmación de Datos de Pago y
+Optimización de tu Aerotermia"). Traerlo dentro no es dejar de pagar una
+herramienta: aquí los datos YA están, así que el formulario llega **relleno** y lo
+único que se le pide es confirmar; y la respuesta cae en el expediente en vez de en
+una hoja aparte.
+
+| Qué | Dónde |
+|---|---|
+| QUÉ se pregunta y con qué palabras | [logic/cobroForm.js](implementation/frontend/src/features/cobro/logic/cobroForm.js) |
+| A QUIÉN, con qué datos y los textos del mensaje | [cobroService.js](implementation/backend/services/cobroService.js) |
+| Lo que ve el cliente | [ConfirmarCobroView.jsx](implementation/frontend/src/features/cobro/views/ConfirmarCobroView.jsx) |
+| Rutas públicas | `GET|POST /api/public/cobro/:expedienteId?token=` |
+| Rutas internas (staffOnly) | `GET /:id/cobro` · `POST /:id/cobro/enviar` · `GET /cobro/leads` |
+| Cuándo se propone | bloque **COBRO** de [seguimientoRadar.js](implementation/backend/services/seguimientoRadar.js) |
+| Prueba sin BD y sin enviar nada | `node implementation/backend/scripts/test_cobro_form.js` |
+
+**REGLA — el formulario NUNCA retiene el cobro.** Es una confirmación de datos, no
+un peaje: los tres bloques comerciales son OPCIONALES y llevan su "Prefiero no
+contestar". Lo único obligatorio son los datos de cobro y —cuando aplica— la forma
+de pago.
+
+**REGLA — lo obligatorio va AL FINAL y lo opcional delante.** Al revés, el cliente
+cierra la pestaña en cuanto termina lo suyo y no contesta nada más; así, las tres
+preguntas están en el camino hacia lo que ha venido a hacer. Es el mismo orden del
+formulario de Tally, y no es casualidad.
+
+**REGLA — la forma de pago SOLO se le pregunta a quien asume el coste de gestión.**
+Con `inputs.discountCertificates` activo, Brokergy ya lo absorbió y su Convenio de
+Cesión **no menciona ninguna deducción** (ver la regla del convenio): preguntarle
+cómo prefiere pagarlo le cobraría algo que su contrato no dice. El importe sale de
+`result.caeMaintenanceCost` —lo que de verdad calculó la simulación que aceptó— y
+solo cae a **250 € sin IVA** si el expediente no trae nada; ése es el MISMO valor de
+reserva que `certificatesCost` en `calculation.js`, o el formulario le anunciaría una
+cifra distinta de la que se le descontó.
+
+**REGLA — las dos opciones NO cuestan lo mismo, y se dice ANTES de elegir.** El
+descuento se aplica sobre la **BASE, sin IVA** (250 €); por factura hay que
+repercutirlo (302,50 €) y además el ingreso no sale hasta que esté abonada. Así que
+la factura sale marcada como lo que es: icono apagado, chapa ámbar con lo que cuesta
+de más ("Más lento y 52,50 € más caro") y el motivo —las dos consecuencias, primero
+el retraso y después el dinero— en su propio texto. **No se bloquea**: es una
+elección legítima del cliente, pero dos opciones pintadas igual se leen como
+equivalentes y ésta le cuesta dinero. La marca es `desaconsejada` + `aviso` en la
+opción, y la pinta el componente `Opcion`, nunca cada pantalla por su cuenta.
+
+**REGLA — cambiar de IBAN exige justificante NUEVO.** El que consta va impreso en el
+Convenio de Cesión ya firmado; un justificante anterior acredita **esa** cuenta, que
+es justo la que el cliente está cambiando. Se comprueba en las dos capas (la vista
+lo pide, el POST responde 400 sin él). Si repite el IBAN que ya teníamos no se le
+pide nada: ése se acreditó al aceptar la propuesta. La comparación es **sin espacios
+y en mayúsculas** — el cliente lo escribe como se lo enseña su banco, y un cambio de
+formato no es un cambio de cuenta.
+
+**REGLA — el IBAN nuevo no se pisa en silencio.** El aviso al staff (WhatsApp +
+email) empieza por el cambio, con el anterior a la vista y si trae justificante o no:
+es lo único de ese mensaje que hay que revisar antes de ordenar la transferencia.
+
+**REGLA — no se promete fecha de ingreso.** Ni en el mensaje, ni en la pantalla de
+"gracias". Depende del pago del Sujeto Obligado; una fecha aquí es una reclamación
+garantizada dentro de dos semanas.
+
+**REGLA — el bloque de placas llega PRECONTESTADO** con lo que el cliente dijo en la
+captación (`instalacion.fotovoltaica`), marcado como heredado y anunciado en
+pantalla. Volver a preguntárselo de cero es lo que hace que un formulario parezca
+que no se lee. Y lo que conteste aquí **se vuelca de vuelta** al expediente: es la
+misma pregunta, y de ahí la leen el CEE y el CE3X.
+
+**REGLA — los datos van a `clientes`, no a una tabla de datos bancarios.** Es la
+MISMA tabla y los mismos campos que rellena la firma de la propuesta
+(`numero_cuenta`), y el justificante va al MISMO slot
+(`documentacion.justificante_titularidad_link`), que es donde ya lo busca el barrido
+de "qué falta". En `documentacion.cobro` solo quedan metadatos (regla 21) y se
+escriben SIEMPRE con la RPC de MERGE: el token, el envío, las respuestas y el
+justificante se sellan en momentos distintos.
+
+**El envío es automático PERO con visto bueno.** El detector `COBRO` lo propone
+cuando el LOTE llega a fase de pago (`CAE EMITIDO – PTE PAGO BROKERGY` /
+`PTE. PAGO BROKERGY A CLIENTE`) y el expediente no lo ha confirmado; de ahí sale en
+la pestaña **Seguimiento** y en el parte diario, con su botón. Nunca antes: hasta
+que el lote no está en pago, el importe no es firme (lo puede mover el ahorro
+verificado) y pedirle la cuenta a quien todavía no vas a ingresarle nada es
+prometerle un dinero con fecha. Se envía en bloque como cualquier otro recordatorio
+(`seguimientoLote`), así que un cliente con dos expedientes recibe UN mensaje.
+
+### La bandeja — pestaña **Venta cruzada**
+
+`features/cobro/views/RespuestasCobroView.jsx` sobre `GET /api/expedientes/cobro/respuestas`
+(staffOnly). Es lo que antes se miraba en Tally: quién ha contestado, qué ha dicho
+y a quién hay que llamar.
+
+**REGLA — pestaña PROPIA, no un rincón de otra.** Va en el grupo *Cartera* y la ve
+todo el staff. No en **Seguimiento**, que responde "qué expediente está atascado":
+meter ahí trabajo comercial diluye lo único que hace útil al parte, que todo lo que
+sale es un expediente parado. Y no en el **Cuadro de mando**, que es ADMIN-only por
+los importes — esta lista no lleva un euro y la trabaja quien hace las llamadas.
+
+**REGLA — arranca en los INTERESADOS y el resto se pide.** El conmutador
+*Interesados · Todas* existe porque son dos usos distintos: llamar y analizar.
+Abriéndola entera, una lista de llamadas se convierte en un inventario. "Ya tengo
+quien me lleve la renta" **también se guarda y se enseña** (en gris): saber que no
+hay que llamar ahorra la llamada igual que saber que sí.
+
+**REGLA — el CSV exporta lo que estás VIENDO**, con el filtro y la búsqueda
+aplicados. Un botón que exporta "todo" mientras la pantalla enseña otra cosa es la
+forma más fácil de mandar el fichero equivocado. Separador `;` y BOM: sin ellos,
+Excel en español abre una sola columna y se come los acentos.
+
+**La marca de "contactado" se persiste** (`documentacion.cobro.contactado`, con
+quién y cuándo) — es lo que separa una bandeja de trabajo de una lista que se relee
+entera cada semana. Se puede quitar: la RPC funde, así que desmarcar escribe `null`,
+no borra la clave.
+
+Los rótulos de las columnas salen de `BLOQUES`, la MISMA fuente que las preguntas:
+una cabecera escrita a mano aquí envejece en cuanto cambie un bloque.
+
+⚠️ El token se **persiste** (no es HMAC con caducidad como `accionToken`): entre que
+se le manda y cobra pueden pasar semanas, y caducarlo a los 14 días obligaría a
+reenviarlo justo cuando el cliente por fin lo mira. Se compara en **tiempo
+constante** — detrás de ese enlace se puede reescribir un IBAN.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -3559,6 +3848,8 @@ la hoja, así que quedaba DEBAJO de ella por mucho z-index que llevara.
 11. **XML Upload**: Parseo automático de demandas y también de `fechaFirma` y `fechaVisita`.
 12. **ACS en Anexo I**: Validar `inputs.changeAcs || inputs.incluir_acs`. Si es false, ocultar unidad interior.
 12.b **ACS fuera del alcance → "no aplica", nunca el valor ni 0**: en la tabla del apartado 4 (Ficha RES060/RES093/TER100 y Certificado CIFO), si el ACS no computa, **D<sub>ACS</sub> se imprime "no aplica"** igual que SCOP<sub>dhw</sub>. Dejar la demanda a la vista invita al verificador a multiplicarla y a obtener un AE<sub>ACS</sub> que no forma parte de la actuación; un 0 afirma una demanda nula, que es falso. Mismo criterio que D<sub>CAL</sub>/S cuando la calefacción queda fuera (TER100). El alcance se decide igual que en el CIFO: `cambio_acs !== false` **y** que el equipo nuevo no sea un termo eléctrico (efecto Joule, rendimiento 1). Son CINCO sitios y van a la vez: `logic/cifoDoc.js`, `logic/fichaRes060Html.js`, `logic/fichaRes093Html.js` y los modales `FichaRes060Modal.jsx` / `FichaRes093Modal.jsx` (que duplican el HTML **y** la vista previa React). La ficha TER100 ya lo resuelve en `logic/ter100.js` (`alcance`).
+12.c **`misma_aerotermia_acs` NO puede esconder un equipo de ACS DECLARADO**: ese flag no se edita en ninguna pantalla —se pone a `true` al activar "se actúa sobre el ACS" y solo baja a `false` al tocar el bloque *Aerotermia Nueva — ACS*—, así que cuando el equipo de ACS lo escribe una migración, un script o una skill de relleno, el flag se queda arriba y **la máquina real desaparece de los documentos**: se declara como SCOP<sub>dhw</sub> el de la bomba de CALEFACCIÓN, que no calienta esa agua (medido en 26RES080_54: 6,47 en vez de 3,69, y el equipo de ACS ni salía en el popup «Datos del equipo»). Entre un booleano que nadie ha tocado y una máquina con marca, modelo y nº de serie, **manda la máquina**. Fuente única: `acsEquipoPropio` / `acsMismoEquipo` en [aerotermiaUnits.js](implementation/frontend/src/features/expedientes/logic/aerotermiaUnits.js). ⚠️ La comparación es **por MODELO** (`aerotermia_db_id`, o marca+modelo si no está en catálogo), **nunca por nº de serie**: con el flag activo la app CLONA el nodo de calefacción y ese clon se queda atrás en cuanto se teclea una serie — medido, 11 expedientes difieren solo en la serie sin tener un segundo equipo. Hoy lo aplican las superficies **CE3X** (`resolverCe3x` → popup «Datos del equipo» y encargo al certificador); el CIFO, las fichas y el ahorro siguen leyendo el flag a propósito —cambiarlo movería cifras de expedientes ya emitidos—, así que la contradicción se **AVISA** en el popup y en Instalación, con un botón que corrige el dato y con él todo lo demás.
+
 13. **WhatsApp en Sidebar**: El botón debe estar posicionado en la sección inferior (entre tabs principales y user profile). Polling del estado: **30s** en sidebar, **8s** en WhatsappSettingsView (reducido desde 5s/2.5s el 2026-04-29 para limitar egress de Supabase — cada request pasa por auth middleware y generaba ~720 req/hora). No bloquear app si servicio no está disponible (graceful degradation con 503).
 14. **WhatsApp Session**: `.wwebjs_auth/` y `.wwebjs_cache/` DEBEN estar en `.gitignore`. La sesión es local del servidor.
 15. **Catastro — Cliente HTTP**: NUNCA usar `axios` contra `ovc.catastro.meh.es`. Usar el helper `catastroGet()` en [catastroService.js](implementation/backend/services/catastroService.js) (http.request puro, `family:4`, UA `Mozilla/5.0 (compatible; Brokergy/1.0)`). El WAF rechaza axios + Chrome UA largo desde IPs de datacenter.
@@ -3612,6 +3903,10 @@ la hoja, así que quedaba DEBAJO de ella por mucho z-index que llevara.
 
 34. **La firma A MANO se hace con el MÓVIL, y el documento sale rasterizado**: en `/firmar-anexos`, "Firma a mano" abre un asistente (leer → firmar con el dedo → revisar, por cada documento; después el DNI cara a cara) que estampa la firma en la caja de `SIGN_BOXES` —la MISMA fuente que Autofirma— y rasteriza el PDF a 150 DPI, para que sea indistinguible de un escaneo. La vía de siempre queda como "Ya lo tengo firmado en papel". La tinta es un **port literal** de `ScannerApp/src/renderer/lib/ink.ts` ([ink.js](implementation/frontend/src/features/firma/ink.js)), fija en pluma y trazo medio: se corrige allí y se vuelve a portar, nunca se parchea aquí. Dos gotchas de pdf.js que no se pueden deshacer: `page.render` necesita **`intent: 'print'`** (para pantalla usa `requestAnimationFrame`, que NO corre con la pestaña oculta ni el móvil bloqueado → el escaneo se colgaba para siempre) y **vacía el array que recibe**, así que `cargarPdf` copia siempre. Se LEE hasta la última página antes de poder firmar. **Con un ratón delante no se abre la hoja: se ofrece pasar la firma al MÓVIL con un QR** ([firmaMovil.js](implementation/backend/services/firmaMovil.js) + `FirmarConMovil` + `/firma-movil/:token`), port de `signServer.ts` de ScannerApp — token de un solo uso, 10 minutos, sesión en memoria, y al teléfono NO le viaja el documento, solo vuelve el PNG. En local el enlace se compone con la **IP de la LAN** (en el móvil `localhost` es el móvil), lo que además exigió que esa vista pida la API en relativo y que el CORS admita rangos privados fuera de producción. `SignaturePad` y el aviso de girar van **portaleados a `document.body`** o la tarjeta con `backdrop-blur` los recorta (regla 29.b). Único cambio de fondo en el backend: `dni_pdf` como alternativa a las dos caras y `firma_origen`. Ver "La firma A MANO se hace CON EL MÓVIL".
 
+
+35. **"¿Tienes placas solares?" se pregunta en `/reforma` y llega hasta el CEE**: la respuesta (`si` | `futuro` | `no`) y la potencia viajan `funnel → inputs.fotovoltaica → instalacion.fotovoltaica → encargo al certificador`. Fuente única: [logic/fotovoltaica.js](implementation/frontend/src/features/expedientes/logic/fotovoltaica.js), que el backend carga por import() ESM. **A quien ya tiene placas NO se le propone la medida de mejora de autoconsumo**: se le dice al certificador que las declare como instalación EXISTENTE (`ce3xTextos` · `buildCe3xFinal`). `estado: null` ("sin declarar") no es `'no'`, y la clave va en la BLACKLIST de `normalizeData` porque el enum es en minúscula. No confundir con `reforma_elementos.placas`, que son las placas de ESTA obra. Ver "¿Tienes placas solares?".
+
+36. **La CONFIRMACIÓN DE COBRO es un formulario de la app, no de Tally**: `/cobro/:id?token=` cualifica al cliente (tarifa · fotovoltaica · IRPF) y confirma sus datos de pago cuando el lote llega a fase de pago. Lo obligatorio va AL FINAL y lo comercial delante, y **nunca retiene el cobro**. La forma de pago solo se pregunta a quien asume el coste (`discountCertificates` la calla, porque su convenio no la menciona), y las dos opciones NO cuestan lo mismo: el descuento va sobre la BASE sin IVA y la factura lo repercute, así que sale marcada `desaconsejada` con lo que cuesta de más y el retraso del cobro. **Cambiar de IBAN exige justificante NUEVO** —el anterior acredita la cuenta vieja— y el cambio va lo primero en el aviso al staff. Los datos van a `clientes` y el justificante a su slot de siempre; en `documentacion.cobro`, solo metadatos con RPC de MERGE. Fuentes únicas: [logic/cobroForm.js](implementation/frontend/src/features/cobro/logic/cobroForm.js) (qué se pregunta) y [cobroService.js](implementation/backend/services/cobroService.js) (a quién y con qué datos). Ver "Confirmación de cobro".
 
 ---
 

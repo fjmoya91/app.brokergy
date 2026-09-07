@@ -1,9 +1,24 @@
+const path = require('path');
+const { pathToFileURL } = require('url');
 const supabase = require('./supabaseClient');
 const { getCoordinatesByRC } = require('./catastroService');
 const driveService = require('./driveService');
 const { syncExpedienteFolder } = require('./expedienteFolderSync');
 const { ALLOWED_PROVINCES } = require('../data/allowedProvinces');
 const { FICHAS, correlativoInicial, detectPrograma } = require('../utils/fichas');
+
+// ─── Import ESM diferido del módulo puro del frontend ────────────────────────
+// La forma canónica del autoconsumo fotovoltaico (y su normalización) es fuente
+// única del frontend: aquí solo se vuelca lo que ya contestó el cliente en la
+// captación. Mismo patrón que cifoService con cifoDoc.js.
+let _fvPromise = null;
+function loadFotovoltaica() {
+    if (!_fvPromise) {
+        const url = pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/fotovoltaica.js')).href;
+        _fvPromise = import(url);
+    }
+    return _fvPromise;
+}
 
 // Mapa inverso "nombre de provincia normalizado" -> código (para migración desde XML).
 // El CEE trae la provincia como texto ("CIUDAD REAL"); la app espera el CÓDIGO de
@@ -151,6 +166,24 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             )
             : { ...aerotermiaCal };
 
+        // ── Autoconsumo fotovoltaico ya existente ────────────────────────────
+        // Lo contestó el cliente en la captación y desde aquí acompaña al
+        // expediente: el CEE tiene que declarar la generación que hay en la
+        // vivienda, y quien dijo "todavía no, pero me interesa" es el candidato
+        // de la venta cruzada del momento del pago. Manda `inputs.fotovoltaica`
+        // (que es donde puede haberlo corregido el técnico en la calculadora) y
+        // se cae al funnel en bruto para las oportunidades anteriores a él.
+        let fotovoltaica;
+        try {
+            const { normalizarFotovoltaica, fotovoltaicaDesdeFunnel } = await loadFotovoltaica();
+            fotovoltaica = opInputs.fotovoltaica
+                ? normalizarFotovoltaica(opInputs.fotovoltaica)
+                : fotovoltaicaDesdeFunnel(op.datos_calculo?.landing_funnel);
+        } catch (e) {
+            console.warn('[ExpedienteService] fotovoltaica:', e.message);
+            fotovoltaica = { estado: null, potencia_kwp: null, potencia_desconocida: false };
+        }
+
         const instalacion = {
             misma_direccion: true,
             ref_catastral: op.ref_catastral || '',
@@ -177,6 +210,9 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
                 scop: null,
                 equipo: { marca: '', modelo: '', numero_serie: '' }
             },
+            // Placas solares YA instaladas en la vivienda (no las de esta obra).
+            // `estado: null` = todavía no se ha preguntado; NO es lo mismo que 'no'.
+            fotovoltaica,
             hibridacion: opInputs.hibridacion === true,
             potencia_bomba: opInputs.potenciaBomba != null && opInputs.potenciaBomba !== '' ? Number(opInputs.potenciaBomba) : 0,
             // Base del % de cobertura del Cb ('demanda' | 'caldera') y, si es por

@@ -51,6 +51,10 @@ const TIPOS = {
         via: 'solicitud', titulo: 'Recordar una firma pendiente',
         entradilla: 'El documento salió a firma y no ha vuelto. El mensaje lo recuerda con el enlace directo de firma.',
     },
+    'pedir-cobro': {
+        via: 'solicitud', titulo: 'Pedir los datos de cobro',
+        entradilla: 'El CAE ya está concedido y vamos a ingresarle el bono. El mensaje le pide que confirme su número de cuenta —es donde se cuelan los errores de transferencia— y le hace tres preguntas rápidas de venta cruzada.',
+    },
 };
 
 // Documentos que pueden estar pendientes de firma, y quién los firma.
@@ -258,6 +262,27 @@ async function prepararSolicitud(expId, tipo, scope) {
                     obra: info.obra, dias: d, acciones: esIns ? info.instalador?.acciones : info.cliente?.acciones,
                     uploadBase: info.uploadBase,
                 }),
+            });
+        }
+    } else if (tipo === 'pedir-cobro') {
+        // Solo el CLIENTE: el que cobra es él y la cuenta es suya. Al instalador no
+        // se le enseña ni se le pregunta por el nº de cuenta de su cliente.
+        const cobroService = require('../services/cobroService');
+        const c = info.cliente || {};
+        let mensaje = '';
+        try {
+            const exp = await cobroService.cargarExpediente(expId);
+            const link = cobroService.enlaceCobro(expId, await cobroService.ensureToken(exp));
+            mensaje = cobroService.mensajeCobro(exp, link);
+        } catch (err) {
+            console.warn('[acciones] enlace de cobro:', err.message);
+        }
+        if ((c.tlf || c.email) && mensaje) {
+            destinatarios.push({
+                id: 'CLIENTE', rol: 'Cliente', nombre: c.nombre || 'Cliente',
+                email: c.email || null, tlf: c.tlf || null,
+                marcado: true,
+                mensaje,
             });
         }
     } else {
@@ -533,7 +558,9 @@ router.post('/:tipo/:expId', express.json(), comprobarFirma, async (req, res) =>
                     target, channels: canales, mensaje,
                     asunto: tipo === 'fin-obra'
                         ? `¿Cómo va la obra? — expediente ${numExp}`
-                        : `Documentación pendiente de firma — expediente ${numExp}`,
+                        : tipo === 'pedir-cobro'
+                            ? `Confirma tus datos para el ingreso de tu ayuda — expediente ${numExp}`
+                            : `Documentación pendiente de firma — expediente ${numExp}`,
                     solicitado: [def.titulo],
                     // Claves del BARRIDO, para que el checklist del expediente sepa que
                     // esto ya se pidió y cuándo. Son las suyas, no el nombre del
@@ -547,6 +574,22 @@ router.post('/:tipo/:expId', express.json(), comprobarFirma, async (req, res) =>
         if (!hechos.length) return res.status(400).json({ error: 'No se ha enviado nada: falta el mensaje o el canal.' });
 
         await sellarRecordatorio(expId, tipo, req.scope, envios);
+        // El cobro lleva además su propio sello: es lo que miran la ficha del
+        // expediente y el detector del parte para saber si ya se le pidió, sin tener
+        // que interpretar el mapa de recordatorios.
+        if (tipo === 'pedir-cobro') {
+            try {
+                const cobroService = require('../services/cobroService');
+                const { data: exp } = await supabase.from('expedientes')
+                    .select('documentacion->cobro').eq('id', expId).maybeSingle();
+                await cobroService.sellar(expId, {
+                    enviado_at: new Date().toISOString(),
+                    enviado_por: 'PARTE',
+                    canales: [...new Set(envios.flatMap(e => e.canales || []))],
+                    veces: Number(exp?.cobro?.veces || 0) + 1,
+                });
+            } catch (err) { console.warn('[acciones] sello de cobro:', err.message); }
+        }
         res.json({ ok: true, resumen: `Enviado a ${hechos.join(' y ')}.` });
     } catch (err) {
         const detalle = err.response?.data?.error || err.message;

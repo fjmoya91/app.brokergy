@@ -20,6 +20,7 @@ import { resolverCe3x, buildMedidaMejora } from './ce3xFinal.js';
 import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation.js';
 import {
     getUnidades, modeloUnidad, tipoEquipoNuevo, datosAcumulador, EQUIPO_NUEVO,
+    acsMismoEquipo,
 } from './aerotermiaUnits.js';
 
 const num2 = (v) => (Number(v) || 0).toFixed(2).replace('.', ',');
@@ -131,7 +132,17 @@ export function buildEquipoFicha(exp, { modelos = {} } = {}) {
     secciones.push({
         id: 'ce3x',
         titulo: 'Casillas de CE3X',
-        subtitulo: 'Lo que hay que escribir en el programa, tal cual.',
+        // El expediente se contradice: dice que el ACS lo hace la misma bomba de
+        // calor y a la vez declara otro equipo. Aquí manda el equipo declarado
+        // (abajo, "Equipo de ACS"), pero hay que decirlo — el CIFO, las fichas y
+        // el ahorro siguen leyendo el flag y saldrían con el SCOP_dhw de la de
+        // calefacción, que es agua que esa máquina no calienta.
+        subtitulo: d.acsFlagContradice
+            ? 'El expediente marca "misma aerotermia para el ACS" pero declara un equipo de ACS propio. '
+              + 'Aquí manda el equipo declarado. Corrígelo en Instalación (edita el bloque "Aerotermia Nueva — ACS") '
+              + 'antes de generar el CIFO o la ficha.'
+            : 'Lo que hay que escribir en el programa, tal cual.',
+        avisa: !!d.acsFlagContradice,
         campos: ce3xCampos,
     });
 
@@ -177,7 +188,7 @@ export function buildEquipoFicha(exp, { modelos = {} } = {}) {
     });
 
     // ── 3. ACS, cuando lo resuelve otro equipo ───────────────────────────────
-    if (d.acsAparte || (d.hayAcs && inst.aerotermia_acs && !inst.misma_aerotermia_acs)) {
+    if (d.acsAparte || (d.hayAcs && inst.aerotermia_acs && !acsMismoEquipo(inst))) {
         const acs = inst.aerotermia_acs;
         const tipo = tipoEquipoNuevo(acs);
         let campos;

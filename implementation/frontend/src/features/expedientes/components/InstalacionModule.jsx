@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { BOILER_EFFICIENCIES, getScopFromModel, getScopSeason, getScopAcsFromModel, calculateHybridization, resolveHybridInputs, HYBRID_METHODS } from '../../calculator/logic/calculation';
 import { PROVINCE_CODE_TO_CCAA, PROVINCE_CODE_TO_NAME } from '../utils/docGenerators';
-import { withScopAplicado, cloneAero, potenciaTotal, countUnidades, scopPropioUnidad1, scopAplicado, tipoEquipoNuevo, datosAcumulador, EQUIPO_NUEVO, RENDIMIENTO_JOULE } from '../logic/aerotermiaUnits';
+import { withScopAplicado, cloneAero, potenciaTotal, countUnidades, scopPropioUnidad1, scopAplicado, tipoEquipoNuevo, datosAcumulador, EQUIPO_NUEVO, RENDIMIENTO_JOULE, acsEquipoPropio } from '../logic/aerotermiaUnits';
 import { EMITTER_OPTIONS, getEmitterTemp } from '../logic/cifoDoc';
 import { esTer100 } from '../logic/ter100';
+import { FV, FV_OPCIONES, normalizarFotovoltaica, potenciaTexto } from '../logic/fotovoltaica';
 import { useAuth } from '../../../context/AuthContext';
 import { getRoleFlags } from '../../../utils/roleFlags';
 import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal';
@@ -1374,6 +1375,9 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
         tipo_emisor: ((expediente?.instalacion?.tipo_emisor) || 'suelo_radiante').toLowerCase(),
         // Normalizar CCAA guardada en mayúsculas por normalizeData al casing del <select>
         ccaa: matchCcaaCase(expediente?.instalacion?.ccaa),
+        // Placas ya instaladas. Se normaliza igual que tipo_emisor: un expediente
+        // guardado antes de blacklistear la clave puede traer 'FUTURO'.
+        fotovoltaica: normalizarFotovoltaica(expediente?.instalacion?.fotovoltaica),
         // Si el número de expediente es RES093, forzamos hibridación a true si no viene ya definida
         hibridacion: (expediente?.numero_expediente?.includes('RES093') ? true : (expediente?.instalacion?.hibridacion ?? false))
     }));
@@ -1403,6 +1407,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                 tipo_emisor: (inst.tipo_emisor || 'suelo_radiante').toLowerCase(),
                 // Normalizar CCAA guardada en mayúsculas por normalizeData al casing del <select>
                 ccaa: matchCcaaCase(inst.ccaa),
+                fotovoltaica: normalizarFotovoltaica(inst.fotovoltaica),
             });
         }
     }, [expediente?.id]);
@@ -1756,6 +1761,84 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                     </div>
                 </div>
 
+                {/* ── AUTOCONSUMO FOTOVOLTAICO ──
+                    Placas YA instaladas en la vivienda, no las de esta obra. Va junto a
+                    la dirección porque describe el INMUEBLE, no la actuación. Lo contesta
+                    el cliente en la captación y llega heredado; aquí se corrige o se
+                    rellena cuando la oportunidad no venía del funnel.
+                    Sirve a dos cosas: el CEE tiene que declarar esa generación, y quien
+                    dijo "todavía no, pero me interesa" es candidato a la venta cruzada. */}
+                {(() => {
+                    const fv = normalizarFotovoltaica(local.fotovoltaica);
+                    const setFv = (patch) => setLocal(p => ({
+                        ...p,
+                        fotovoltaica: normalizarFotovoltaica({ ...normalizarFotovoltaica(p.fotovoltaica), ...patch }),
+                    }));
+                    return (
+                        <div className={`bg-bkg-surface/60 rounded-xl p-4 border space-y-3 ${
+                            fv.estado ? 'border-white/[0.06]' : 'border-amber-500/20'
+                        }`}>
+                            <div className="flex items-center justify-between gap-3 flex-wrap">
+                                <div>
+                                    <h4 className="text-xs font-black text-white uppercase tracking-widest">☀️ Placas solares en la vivienda</h4>
+                                    <p className="text-[10px] text-white/35 mt-0.5">
+                                        Las que YA hay instaladas (no las de esta obra). El CEE tiene que declararlas.
+                                    </p>
+                                </div>
+                                {!fv.estado && (
+                                    <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                                        Sin declarar
+                                    </span>
+                                )}
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                {FV_OPCIONES.map(o => (
+                                    <button
+                                        key={o.value}
+                                        type="button"
+                                        onClick={() => !readOnly && setFv({ estado: fv.estado === o.value ? null : o.value })}
+                                        disabled={readOnly}
+                                        className={`px-3 py-2 rounded-lg border text-[11px] font-bold text-left transition-all disabled:cursor-not-allowed ${
+                                            fv.estado === o.value
+                                                ? 'bg-brand/15 text-brand border-brand/50'
+                                                : 'bg-white/[0.03] text-white/40 border-white/10 hover:text-white hover:border-white/25 disabled:hover:text-white/40 disabled:hover:border-white/10'
+                                        }`}
+                                    >
+                                        <span className="mr-1">{o.icon}</span>{o.corto}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {fv.estado === FV.SI && (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-white/5 animate-fade-in">
+                                    <Field
+                                        label="Potencia instalada (kWp)"
+                                        type="number"
+                                        value={fv.potencia_kwp ?? ''}
+                                        onChange={v => setFv({ potencia_kwp: v === '' ? null : Number(String(v).replace(',', '.')) })}
+                                        placeholder="Ej: 3.5"
+                                        readOnly={readOnly}
+                                    />
+                                    <div className="flex items-end">
+                                        <p className={`text-[10px] leading-snug ${fv.potencia_desconocida ? 'text-amber-400/70' : 'text-white/30'}`}>
+                                            {fv.potencia_desconocida
+                                                ? 'El cliente no sabía la potencia. Viene en la factura de la instalación o en el boletín eléctrico — hace falta para el CEE.'
+                                                : `Se declarará ${potenciaTexto(fv)} de generación fotovoltaica en el certificado.`}
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {fv.estado === FV.FUTURO && (
+                                <p className="text-[10px] text-cyan-400/70 leading-snug pt-1">
+                                    Interesado en instalarlas más adelante — candidato para la propuesta de fotovoltaica al pagarle el bono.
+                                </p>
+                            )}
+                        </div>
+                    );
+                })()}
+
                 {/* ── PREGUNTA CALEFACCIÓN (solo TER100) ──
                     En el terciario la sustitución puede alcanzar solo el ACS o solo la
                     piscina, así que el alcance sobre calefacción es una pregunta real. */}
@@ -1883,6 +1966,34 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         readOnly={readOnly}
                     />
                 </div>
+
+                {/* ── El expediente se contradice sobre quién calienta el ACS ──
+                    `misma_aerotermia_acs` no se edita en ninguna pantalla: se pone a
+                    true al activar el ACS y solo baja a false al tocar el bloque de
+                    la derecha. Cuando el equipo de ACS lo escribe una migración o un
+                    script, el flag se queda arriba y el equipo real DESAPARECE de los
+                    documentos: el CIFO y el CE3X declaran como SCOP_dhw el de la
+                    bomba de calefacción, que no calienta esa agua. Se arregla con un
+                    clic aquí, que es donde se está mirando el equipo. */}
+                {local.cambio_acs && local.misma_aerotermia_acs && acsEquipoPropio(local) && (
+                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-3 flex items-start gap-3 flex-wrap">
+                        <div className="min-w-0 flex-1">
+                            <div className="text-[11px] font-black text-amber-400 uppercase tracking-widest">¿Quién calienta el ACS?</div>
+                            <p className="text-[11px] text-white/60 normal-case leading-snug mt-1">
+                                El expediente dice que el ACS lo hace la misma aerotermia que la calefacción, pero declara
+                                un equipo de ACS propio (<span className="text-white/80 font-semibold">{[local.aerotermia_acs?.marca, local.aerotermia_acs?.modelo].filter(Boolean).join(' ') || 'sin identificar'}</span>).
+                                Mientras no se corrija, el CIFO y la ficha declaran como SCOP<sub>dhw</sub> el de la bomba de calefacción.
+                            </p>
+                        </div>
+                        {!readOnly && (
+                            <button type="button"
+                                    onClick={() => setLocal(p => ({ ...p, misma_aerotermia_acs: false }))}
+                                    className="shrink-0 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest border border-amber-500/40 text-amber-300 hover:bg-amber-500/15 transition-colors">
+                                El ACS lo hace este equipo
+                            </button>
+                        )}
+                    </div>
+                )}
 
                 {/* ── AEROTERMIAS (2 cols si ACS activo) ── */}
                 <div className={`grid gap-4 ${local.cambio_acs ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>

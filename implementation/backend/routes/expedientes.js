@@ -29,6 +29,7 @@ const { applyStatus, stampSeguimientoTimestamps, markCertContact } = require('..
 const { partnerNotifyTargets, normalizeContactos, saludoPartner } = require('../services/notifyContacts');
 const { capitalizar: capitalizarNombre } = require('../services/recordatorios');
 const { buildCertClienteData } = require('../services/certClienteData');
+const cobroService = require('../services/cobroService');
 const { getCertificadorNombre } = require('../services/certificadorLookup');
 const { avanzarEstado } = require('../utils/expedienteEstados');
 const { FICHAS } = require('../utils/fichas');
@@ -1424,6 +1425,196 @@ async function resolveSolicitudContacto(exp, target) {
         email: (notif ? (cli?.persona_contacto_email || cli?.email) : (cli?.email || cli?.persona_contacto_email)) || null,
     };
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CONFIRMACIÓN DE COBRO — el enlace que se le manda al cliente para confirmar
+// sus datos de pago (y de paso cualificarlo para la venta cruzada).
+// ─────────────────────────────────────────────────────────────────────────────
+// El envío NO es automático del todo: el lote lo propone (bloque `COBRO` del
+// parte diario) y una persona da el visto bueno. Es dinero y es el último
+// mensaje que el cliente recibe de nosotros antes de cobrar: no puede salir sin
+// que nadie lo mire.
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ─── La BANDEJA de respuestas del formulario de cobro ────────────────────────
+// Sin esto, las respuestas se quedan enterradas en un JSONB que nadie abre —que
+// es exactamente lo que pasaba teniéndolas en una herramienta externa—. Devuelve
+// TODAS las contestadas; quién es un lead lo marca `leadsDe` y lo filtra la
+// pantalla, no la consulta: "ya tengo quien me lleve la renta" no es una llamada
+// que hacer, pero sí un dato que ahorra hacerla.
+router.get('/cobro/respuestas', staffOnly, async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('expedientes')
+            // Campos CONCRETOS del JSONB (regla 22): `documentacion` entera puede
+            // llegar a 2 MB y aquí se leen TODOS los expedientes contestados.
+            .select('id, numero_expediente, documentacion->cobro, clientes!cliente_id(nombre_razon_social, apellidos, tlf, email)')
+            .not('documentacion->cobro->completado_at', 'is', null)
+            .limit(1000);
+        if (error) throw new Error(error.message);
+
+        const { leadsDe, etiquetaRespuesta, BLOQUES } = await cobroService.loadCobroForm();
+        const filas = (data || [])
+            .map(e => {
+                const c = e.cobro || {};
+                const r = c.respuestas || {};
+                return {
+                    id: e.id,
+                    numero_expediente: e.numero_expediente,
+                    cliente: `${e.clientes?.nombre_razon_social || ''} ${e.clientes?.apellidos || ''}`.trim(),
+                    tlf: e.clientes?.tlf || null,
+                    email: e.clientes?.email || null,
+                    fecha: c.completado_at,
+                    respuestas: r,
+                    // Cada respuesta ya redactada: la pantalla y el CSV la enseñan
+                    // tal cual, sin volver a traducir códigos en dos sitios.
+                    etiquetas: Object.fromEntries(
+                        Object.keys(r).map(k => [k, etiquetaRespuesta(k, r[k])]).filter(([, v]) => v)
+                    ),
+                    leads: leadsDe(r),
+                    // El cambio de cuenta viaja aquí porque es lo que hay que mirar
+                    // antes de pagarle, y quien abre esta lista está mirando pagos.
+                    iban_cambiado: !!c.iban_cambiado,
+                    contactado: c.contactado || null,
+                };
+            })
+            .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+
+        res.json({
+            total: filas.length,
+            interesados: filas.filter(f => f.leads.length).length,
+            // Los rótulos de las columnas salen de la MISMA fuente que las preguntas:
+            // una cabecera escrita a mano aquí envejece en cuanto cambie un bloque.
+            bloques: BLOQUES.map(b => ({ id: b.id, titulo: b.titulo, icono: b.icono })),
+            filas,
+        });
+    } catch (e) {
+        console.error('[cobro respuestas]', e.message);
+        res.status(500).json({ error: 'Error leyendo las respuestas' });
+    }
+});
+
+// Marca (o desmarca) que ya se ha llamado a este cliente. Es lo que separa una
+// bandeja de trabajo de una lista que se relee entera cada semana.
+router.post('/:id/cobro/contactado', staffOnly, async (req, res) => {
+    try {
+        const quitar = req.body?.quitar === true;
+        const usuario = req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR'
+            : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
+        await cobroService.sellar(req.params.id, {
+            // `null` desmarca: la RPC funde, así que borrar la clave no basta.
+            contactado: quitar ? null : { at: new Date().toISOString(), por: usuario },
+        });
+        res.json({ ok: true });
+    } catch (e) {
+        console.error('[cobro contactado]', e.message);
+        res.status(500).json({ error: 'No se pudo marcar' });
+    }
+});
+
+// Estado para la ficha del expediente: si se ha mandado, si ha contestado y qué.
+router.get('/:id/cobro', staffOnly, async (req, res) => {
+    try {
+        const exp = await cobroService.cargarExpediente(req.params.id);
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const cobro = exp.documentacion?.cobro || {};
+        const { lineas, leads } = await cobroService.resumenRespuestas(exp);
+        const contacto = cobroService.contactoCliente(exp);
+        res.json({
+            enviado_at: cobro.enviado_at || null,
+            enviado_por: cobro.enviado_por || null,
+            canales: cobro.canales || [],
+            completado_at: cobro.completado_at || null,
+            respuestas: cobro.respuestas || {},
+            resumen: lineas,
+            leads,
+            iban_cambiado: !!cobro.iban_cambiado,
+            iban_anterior: cobro.iban_anterior || null,
+            iban_actual: exp.clientes?.numero_cuenta || null,
+            justificante_link: cobro.justificante_link || exp.documentacion?.justificante_titularidad_link || null,
+            contacto,
+            // El enlace se enseña para poder pasárselo a mano por donde sea (mismo
+            // criterio que el de aceptación de la propuesta): staffOnly, nunca público.
+            link: cobroService.enlaceCobro(exp.id, await cobroService.ensureToken(exp)),
+        });
+    } catch (e) {
+        console.error('[cobro estado]', e.message);
+        res.status(500).json({ error: 'Error del servidor' });
+    }
+});
+
+// Envía la solicitud. Body: { channels: ['whatsapp','email'], mensaje?, tlf?, email? }
+router.post('/:id/cobro/enviar', staffOnly, async (req, res) => {
+    try {
+        const channels = Array.isArray(req.body?.channels) ? req.body.channels : [];
+        if (!channels.length) return res.status(400).json({ error: 'Selecciona al menos un canal' });
+
+        const exp = await cobroService.cargarExpediente(req.params.id);
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const token = await cobroService.ensureToken(exp);
+        const link = cobroService.enlaceCobro(exp.id, token);
+        const contacto = cobroService.contactoCliente(exp);
+        const tlf = String(req.body?.tlf || '').trim() || contacto.tlf;
+        const email = String(req.body?.email || '').trim() || contacto.email;
+        // El mensaje se puede editar en el popup; si no viene, el de fuente única.
+        const mensaje = String(req.body?.mensaje || '').trim() || cobroService.mensajeCobro(exp, link);
+
+        const sent = [];
+        if (channels.includes('whatsapp')) {
+            if (!tlf) return res.status(400).json({ error: 'No hay teléfono del cliente. Indica uno.' });
+            botVinculos.sembrarEnDiferido(tlf, exp.oportunidad_id);
+            try { await whatsappService.sendText(tlf, mensaje); sent.push('WhatsApp'); }
+            catch (e) { console.warn('[cobro enviar] WA:', e.message); sent.push('WhatsApp (encolado)'); }
+        }
+        if (channels.includes('email')) {
+            if (!email) return res.status(400).json({ error: 'No hay email del cliente. Indica uno.' });
+            const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#222;font-size:15px;line-height:24px">${
+                mensaje.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r\n|\r|\n/g, '<br>')
+            }</div>`;
+            await emailService.sendMail({
+                to: email,
+                subject: `Confirma tus datos para el ingreso de tu ayuda${exp.numero_expediente ? ` — ${exp.numero_expediente}` : ''}`,
+                text: mensaje,
+                html,
+            });
+            sent.push('Email');
+        }
+        if (!sent.length) return res.status(400).json({ error: 'No se pudo enviar por los canales elegidos' });
+
+        const usuario = req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR'
+            : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
+        // Se sella con MERGE: el envío y la respuesta del cliente caen en momentos
+        // distintos sobre la misma clave, y un reemplazo borraría el token.
+        await cobroService.sellar(exp.id, {
+            enviado_at: new Date().toISOString(),
+            enviado_por: usuario,
+            canales: sent,
+            // Cuántas veces se le ha pedido: lo mira el parte diario para no
+            // repetir el mismo mensaje cada mañana.
+            veces: Number(exp.documentacion?.cobro?.veces || 0) + 1,
+        });
+
+        // Historial del expediente — la misma trazabilidad que el resto de envíos.
+        const docObj = exp.documentacion || {};
+        const historial = docObj.historial || [];
+        historial.push({
+            id: Date.now().toString() + '_cobro',
+            tipo: 'solicitud_cobro',
+            texto: `Solicitud de confirmación de datos de cobro enviada al Cliente${contacto.nombre ? ` (${contacto.nombre})` : ''} vía ${sent.join(' + ')}`,
+            fecha: new Date().toISOString(),
+            usuario,
+        });
+        await supabase.from('expedientes')
+            .update({ documentacion: { ...docObj, historial }, updated_at: new Date().toISOString() })
+            .eq('id', exp.id);
+
+        res.json({ ok: true, channels: sent, link, sentTo: email || tlf || null });
+    } catch (e) {
+        console.error('[cobro enviar]', e.message);
+        res.status(500).json({ error: 'Error enviando la solicitud de cobro' });
+    }
+});
 
 // ─── POST /api/expedientes/:id/solicitar-faltantes ────────────────────────────
 // Envía (WhatsApp / Email) la solicitud de documentación al cliente o instalador

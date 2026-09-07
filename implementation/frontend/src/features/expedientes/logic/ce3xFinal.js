@@ -25,7 +25,9 @@ import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs } from
 import {
     getUnidades, countUnidades, modeloUnidad, formatSeries,
     tipoEquipoNuevo, esTermoElectrico, datosAcumulador, EQUIPO_NUEVO,
+    acsMismoEquipo, acsEquipoPropio,
 } from './aerotermiaUnits.js';
+import { normalizarFotovoltaica, tieneFotovoltaica, potenciaTexto } from './fotovoltaica.js';
 
 // Emisores que dan FRÍO: con ellos el equipo se declara en CE3X con
 // refrigeración y hace falta el SEER. Con radiadores no hay modo frío en la
@@ -130,7 +132,7 @@ function unidadesSinSeer(aero, modelos) {
  */
 function litrosAcs(inst) {
     return parseFloat(inst?.aerotermia_acs?.litros)
-        || (inst?.misma_aerotermia_acs ? parseFloat(inst?.aerotermia_cal?.litros) : 0)
+        || (acsMismoEquipo(inst) ? parseFloat(inst?.aerotermia_cal?.litros) : 0)
         || 0;
 }
 
@@ -198,14 +200,23 @@ export function resolverCe3x(exp, { modelos = {} } = {}) {
     const aireAire = esAireAire(inst.tipo_emisor);
     const generadorBdc = aireAire ? 'Bomba de Calor' : 'Bomba de Calor - Caudal Ref. Variable';
     const prefijoNombre = aireAire ? 'BOMBA DE CALOR ' : 'AEROTERMIA ';
-    const acsNode = inst.misma_aerotermia_acs ? cal : inst.aerotermia_acs;
+    // El ACS lo hace el mismo equipo solo si el nodo de ACS no declara OTRO
+    // (`acsMismoEquipo`): un flag que la app no deja editar no puede esconder una
+    // máquina con marca, modelo y nº de serie propios — y era justo lo que pasaba
+    // con los expedientes rellenados desde fuera de la pantalla de Instalación.
+    const mismoEquipoAcs = acsMismoEquipo(inst);
+    const acsNode = mismoEquipoAcs ? cal : inst.aerotermia_acs;
     const acsTipo = inst.aerotermia_acs ? tipoEquipoNuevo(inst.aerotermia_acs) : null;
     // Con "misma aerotermia para ACS" puede no haber nodo propio de ACS: el equipo
     // de calefacción lo produce todo. Mismo criterio que `tieneAcs` en cifoDoc.js.
-    const hayAcs = inst.cambio_acs !== false && (!!inst.misma_aerotermia_acs || !!inst.aerotermia_acs);
+    const hayAcs = inst.cambio_acs !== false && (mismoEquipoAcs || !!inst.aerotermia_acs);
     // El ACS va en el MISMO equipo cuando lo produce la BdC de calefacción:
     // o es literalmente el mismo equipo, o es un depósito que ella calienta.
-    const acsEnMismoEquipo = hayAcs && (!!inst.misma_aerotermia_acs || acsTipo === EQUIPO_NUEVO.ACUMULADOR);
+    const acsEnMismoEquipo = hayAcs && (mismoEquipoAcs || acsTipo === EQUIPO_NUEVO.ACUMULADOR);
+    // El expediente dice una cosa y declara otra: se resuelve por el equipo, pero
+    // se DICE, porque el resto de documentos (CIFO, fichas, ahorro) siguen leyendo
+    // el flag y saldrían con el SCOP_dhw de la bomba de calefacción.
+    const acsFlagContradice = !!inst.misma_aerotermia_acs && acsEquipoPropio(inst);
     // ACS resuelto con un equipo distinto: otra BdC o un termo eléctrico.
     const acsAparte = hayAcs && !acsEnMismoEquipo;
 
@@ -249,7 +260,7 @@ export function resolverCe3x(exp, { modelos = {} } = {}) {
     return {
         faltantes, hibridacion: hib,
         conFrio, aireAire, generadorBdc, prefijoNombre,
-        hayAcs, acsEnMismoEquipo, acsAparte, acsTipo, acsNode,
+        hayAcs, acsEnMismoEquipo, acsAparte, acsTipo, acsNode, acsFlagContradice,
         scopCal, scopAcs, seer, litros,
         superficie, demandaCal,
         coberturaBdc, repartoValido, pctCal,
@@ -368,6 +379,20 @@ export function buildCe3xFinal(exp, { modelos = {} } = {}) {
         } else {
             L.push('⚠️ El reparto de demanda entre los dos generadores NO se ha podido calcular en la app: mantén el mismo que llevaba el CEE inicial y avísanos si no cuadra.');
         }
+    }
+
+    // ── Autoconsumo fotovoltaico YA existente ────────────────────────────────
+    // La vivienda genera electricidad y el certificado tiene que decirlo. El
+    // certificador no lo ve en el .xml del inicial si tampoco constaba allí, así
+    // que viaja en el encargo: lo contestó el cliente en la captación.
+    const fv = normalizarFotovoltaica(inst.fotovoltaica);
+    if (tieneFotovoltaica(fv)) {
+        const p = potenciaTexto(fv);
+        L.push('');
+        L.push('☀️ *LA VIVIENDA TIENE PLACAS SOLARES*');
+        L.push(p
+            ? `Autoconsumo fotovoltaico ya instalado: *${p}*. Hay que declararlo como instalación EXISTENTE (contribuciones energéticas), no como medida de mejora.`
+            : 'Autoconsumo fotovoltaico ya instalado (el cliente no sabía la potencia — te la pedimos). Hay que declararlo como instalación EXISTENTE (contribuciones energéticas), no como medida de mejora.');
     }
 
     // ── Recordatorio de la demanda: es el fallo que más nos ha costado ───────

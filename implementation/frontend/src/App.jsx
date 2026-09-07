@@ -31,6 +31,8 @@ import { FirmarAnexosView } from './features/public/views/FirmarAnexosView';
 import FirmaMovilView from './features/firma/FirmaMovilView';
 import { FirmarLoteView } from './features/public/views/FirmarLoteView';
 import { SubirDocsReformaView } from './features/public/views/SubirDocsReformaView';
+import { ConfirmarCobroView } from './features/cobro/views/ConfirmarCobroView';
+import { RespuestasCobroView } from './features/cobro/views/RespuestasCobroView';
 import { PortalLoginView } from './features/public/views/PortalLoginView';
 import { MiExpedienteView } from './features/public/views/MiExpedienteView';
 import { WhatsappSettingsView } from './features/whatsapp/views/WhatsappSettingsView';
@@ -163,6 +165,17 @@ function App() {
     const path = window.location.pathname;
     if (path.startsWith('/subir-cifo/')) return path.split('/subir-cifo/')[1] || null;
     return null;
+  });
+
+  // Confirmación de datos de cobro: /cobro/:expedienteId?token=...
+  // Lleva token porque detrás se puede REESCRIBIR el IBAN del cliente — no basta
+  // con conocer el id del expediente, como en /subir-cifo.
+  const [cobroData] = useState(() => {
+    const path = window.location.pathname;
+    if (!path.startsWith('/cobro/')) return null;
+    const id = path.split('/cobro/')[1]?.split('/')[0] || null;
+    if (!id) return null;
+    return { id, token: new URLSearchParams(window.location.search).get('token') || '' };
   });
 
   const [riteUploadId] = useState(() => {
@@ -959,8 +972,8 @@ function App() {
 
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
-  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cifoUploadId || riteUploadId || instaladorId || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || firmarLoteId || portalRoute);
-  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cifoUploadId && !riteUploadId && !instaladorId && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !reformaDocsData && !landingRoute && !portalRoute;
+  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cobroData || cifoUploadId || riteUploadId || instaladorId || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || firmarLoteId || portalRoute);
+  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cobroData && !cifoUploadId && !riteUploadId && !instaladorId && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !reformaDocsData && !landingRoute && !portalRoute;
   const wrapperPadding = (isLoggedDashboard || isPublicRoute) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
@@ -986,6 +999,8 @@ function App() {
           <SubirDocsReformaView uuid={reformaDocsData.uuid} token={reformaDocsData.token} rol={reformaDocsData.rol} need={reformaDocsData.need} />
         ) : instaladorId ? (
           <SubirInstaladorView expedienteId={instaladorId} />
+        ) : cobroData ? (
+          <ConfirmarCobroView expedienteId={cobroData.id} token={cobroData.token} />
         ) : cifoUploadId ? (
           <SubirCifoView expedienteId={cifoUploadId} />
         ) : riteUploadId ? (
@@ -1116,6 +1131,8 @@ function App() {
                 onClearInitialSelection={() => setPendingCeeDirecto(null)}
                 onOpenChange={setOpenCeeDirecto}
               />
+            ) : step === 'ADMIN' && activeTab === 'venta-cruzada' && isStaffUser ? (
+              <RespuestasCobroView key={`vc-${navNonce}`} onNavigate={handleNavigate} />
             ) : step === 'ADMIN' && activeTab === 'lotes' && isStaffUser ? (
               <LotesView key={`lotes-${navNonce}`} onNavigate={handleNavigate} />
             ) : step === 'ADMIN' && activeTab === 'aerotermia' && isAdminUser ? (

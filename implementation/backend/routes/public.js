@@ -12,6 +12,7 @@ const ceeUploadService = require('../services/ceeUploadService');
 const anexoFotograficoService = require('../services/anexoFotograficoService');
 const uploadNotifier = require('../services/uploadNotifier');
 const { buildCertClienteData } = require('../services/certClienteData');
+const cobroService = require('../services/cobroService');
 // El nombre llega del formulario del cliente: puede traer espacios (que rompen
 // la *negrita* de WhatsApp: "*JESÚS *" no se marca) y va en MAYÚSCULAS.
 const { nombreSaludo } = require('../services/recordatorios');
@@ -36,6 +37,19 @@ function loadInstaladorPendientes() {
         _instaladorPendientesPromise = import(url);
     }
     return _instaladorPendientesPromise;
+}
+
+// La forma canónica del autoconsumo fotovoltaico. La respuesta del formulario de
+// cobro es la MISMA pregunta de la captación, así que se normaliza igual.
+let _fotovoltaicaPromise = null;
+function loadFotovoltaica() {
+    if (!_fotovoltaicaPromise) {
+        const url = require('url').pathToFileURL(
+            require('path').join(__dirname, '../../frontend/src/features/expedientes/logic/fotovoltaica.js')
+        ).href;
+        _fotovoltaicaPromise = import(url);
+    }
+    return _fotovoltaicaPromise;
 }
 
 // Configuración de multer (memoria para subida directa a Drive)
@@ -2123,6 +2137,189 @@ function buildDatosCliente(cli, doc) {
         falta_justificante: !justificante,
     };
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CONFIRMACIÓN DE COBRO — /cobro/:expedienteId?token=
+// ─────────────────────────────────────────────────────────────────────────────
+// El enlace que se le manda al cliente cuando su CAE está concedido y vamos a
+// ingresarle el bono. Confirma sus datos de cobro (el IBAN, sobre todo) y de paso
+// contesta tres preguntas de venta cruzada. Fuente única de QUÉ se pregunta:
+// frontend/features/cobro/logic/cobroForm.js; de a quién y con qué datos:
+// services/cobroService.js.
+//
+// REGLA — el token se comprueba en las DOS rutas y en tiempo constante. Detrás de
+// este enlace hay un IBAN que se puede reescribir: es la superficie pública más
+// sensible de la app después de la firma de los anexos.
+// ═════════════════════════════════════════════════════════════════════════════
+
+router.get('/cobro/:expedienteId', async (req, res) => {
+    try {
+        const exp = await cobroService.cargarExpediente(req.params.expedienteId);
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const guardado = exp.documentacion?.cobro?.token;
+        if (!guardado || !cobroService.tokenValido(guardado, req.query.token)) {
+            return res.status(403).json({ error: 'Enlace no válido o caducado' });
+        }
+        res.json(await cobroService.buildVista(exp));
+    } catch (e) {
+        console.error('[cobro GET]', e.message);
+        res.status(500).json({ error: 'Error del servidor' });
+    }
+});
+
+router.post('/cobro/:expedienteId', upload.single('justificante'), async (req, res) => {
+    try {
+        const exp = await cobroService.cargarExpediente(req.params.expedienteId);
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const guardado = exp.documentacion?.cobro?.token;
+        if (!guardado || !cobroService.tokenValido(guardado, req.query.token || req.body?.token)) {
+            return res.status(403).json({ error: 'Enlace no válido o caducado' });
+        }
+
+        const f = req.body || {};
+        const limpio = (v) => String(v ?? '').trim();
+        // El IBAN se compara SIN espacios y en mayúsculas: el cliente lo escribe
+        // como se lo enseña su banco ("ES91 2100 …") y el que consta viene de otro
+        // formulario. Un cambio de formato no es un cambio de cuenta.
+        const normIban = (v) => limpio(v).replace(/\s+/g, '').toUpperCase();
+
+        const ibanNuevo = normIban(f.iban);
+        if (ibanNuevo.length < 20) return res.status(400).json({ error: 'El número de cuenta no parece completo.' });
+        const anterior = normIban(exp.clientes?.numero_cuenta);
+        const ibanCambiado = !!anterior && anterior !== ibanNuevo;
+
+        // REGLA — si el IBAN CAMBIA hace falta justificante de titularidad. El que
+        // consta va impreso en el Convenio de Cesión que el cliente ya firmó, así
+        // que cambiarlo sin acreditar de quién es la cuenta nueva es exactamente el
+        // error de ingreso que este formulario viene a evitar. Si repite el que ya
+        // teníamos no se le pide nada: ese ya se acreditó al aceptar la propuesta.
+        if (ibanCambiado && !req.file) {
+            return res.status(400).json({
+                error: 'Has cambiado el número de cuenta: necesitamos un justificante de titularidad (un recibo o una captura del banco donde se vea tu nombre junto al IBAN).',
+                requiere_justificante: true,
+            });
+        }
+
+        // 1. Datos del cliente — la MISMA tabla que rellena la firma de la propuesta.
+        if (exp.cliente_id) {
+            const notif = exp.clientes?.notificaciones_contacto_activas === true;
+            const datos = {
+                nombre_razon_social: limpio(f.nombre_razon_social) || exp.clientes?.nombre_razon_social,
+                apellidos: limpio(f.apellidos) || exp.clientes?.apellidos,
+                dni: limpio(f.dni) || exp.clientes?.dni,
+                numero_cuenta: ibanNuevo,
+            };
+            // Con el modo "persona de contacto" activo, el email y el teléfono que
+            // escribe quien abre el enlace son los de ESA persona, no los del titular.
+            if (notif) {
+                datos.persona_contacto_email = limpio(f.email) || exp.clientes?.persona_contacto_email;
+                datos.persona_contacto_tlf = limpio(f.telefono) || exp.clientes?.persona_contacto_tlf;
+            } else {
+                datos.email = limpio(f.email) || exp.clientes?.email;
+                datos.tlf = limpio(f.telefono) || exp.clientes?.tlf;
+            }
+            const { error: cErr } = await supabase.from('clientes').update(datos).eq('id_cliente', exp.cliente_id);
+            if (cErr) console.warn('[cobro POST] cliente:', cErr.message);
+        }
+
+        // 2. Respuestas + sello. Solo metadatos en el JSONB (regla 21).
+        let respuestas = {};
+        try { respuestas = typeof f.respuestas === 'string' ? JSON.parse(f.respuestas) : (f.respuestas || {}); }
+        catch (e) { respuestas = {}; }
+
+        await cobroService.sellar(exp.id, {
+            completado_at: new Date().toISOString(),
+            respuestas,
+            iban_anterior: anterior || null,
+            iban_cambiado: ibanCambiado,
+        });
+
+        // La respuesta sobre placas es la MISMA pregunta de la captación: se vuelca
+        // a `instalacion.fotovoltaica`, que es de donde la leen el CEE y el CE3X. Sin
+        // esto, el expediente seguiría diciendo lo que el cliente dijo hace meses.
+        if (respuestas.solar) {
+            try {
+                const { normalizarFotovoltaica } = await loadFotovoltaica();
+                const fv = normalizarFotovoltaica({
+                    estado: respuestas.solar,
+                    // La potencia no se le vuelve a preguntar aquí: se conserva la que
+                    // ya constaba si sigue diciendo que tiene placas.
+                    potencia_kwp: exp.instalacion?.fotovoltaica?.potencia_kwp,
+                });
+                await supabase.from('expedientes')
+                    .update({ instalacion: { ...(exp.instalacion || {}), fotovoltaica: fv } })
+                    .eq('id', exp.id);
+            } catch (e) { console.warn('[cobro POST] fotovoltaica:', e.message); }
+        }
+
+        res.json({ ok: true, iban_cambiado: ibanCambiado });
+
+        // 3. Fondo: justificante a Drive + aviso al staff. No bloquea al cliente.
+        setImmediate(async () => {
+            if (req.file) {
+                try {
+                    const folderId = exp.oportunidades?.datos_calculo?.drive_folder_id
+                        || exp.oportunidades?.datos_calculo?.inputs?.drive_folder_id;
+                    if (folderId) {
+                        let buf = req.file.buffer;
+                        if (req.file.mimetype !== 'application/pdf') buf = await imageToPdf(buf, req.file.mimetype);
+                        const r = await driveService.saveFileToFolder(
+                            folderId, 'justificante de titularidad bancaria.pdf', 'application/pdf', buf);
+                        if (r?.id) {
+                            try { await driveService.setFolderPublic(r.id, 'reader'); } catch (e) {}
+                            // El slot es el MISMO que usa la aceptación de la propuesta:
+                            // el barrido de "qué falta" ya lo mira ahí y no hay que
+                            // enseñarle un sitio nuevo.
+                            await supabase.rpc('set_expediente_doc_field', {
+                                p_oportunidad_id: exp.oportunidad_id,
+                                p_field: 'justificante_titularidad_link',
+                                p_value: r.webViewLink || r.id,
+                            });
+                            await cobroService.sellar(exp.id, { justificante_link: r.webViewLink || r.id });
+                        }
+                    }
+                } catch (e) { console.error('[cobro POST] justificante:', e.message); }
+            }
+
+            try {
+                const fresco = await cobroService.cargarExpediente(exp.id);
+                const { lineas, leads } = await cobroService.resumenRespuestas(fresco);
+                const c = cobroService.contactoCliente(fresco);
+                const nombre = `${fresco.clientes?.nombre_razon_social || ''} ${fresco.clientes?.apellidos || ''}`.trim();
+                const aviso = [
+                    '🏦 *DATOS DE COBRO CONFIRMADOS*',
+                    `Expediente *${fresco.numero_expediente || exp.id}* · ${nombre || 'Cliente'}`,
+                    '',
+                    // El cambio de cuenta va PRIMERO y marcado: es lo único de este
+                    // aviso que hay que revisar antes de ordenar la transferencia.
+                    ibanCambiado
+                        ? `⚠️ *HA CAMBIADO EL Nº DE CUENTA* (antes ${anterior})\nNuevo: ${ibanNuevo}\n${req.file ? '✅ Con justificante de titularidad' : '⚠️ SIN justificante'}`
+                        : `✅ Confirma el mismo nº de cuenta que ya teníamos (${ibanNuevo})`,
+                    '',
+                    lineas.length ? `Respuestas: ${lineas.join(' · ')}` : 'Sin respuestas de venta cruzada.',
+                    leads.length ? `\n🎯 *Interesado en:* ${leads.map(l => l.texto).join(' · ')}` : '',
+                    c.tlf ? `\n📞 ${c.tlf}` : '',
+                ].filter(Boolean).join('\n');
+
+                const chat = process.env.WHATSAPP_ADMIN_CHAT;
+                if (chat) { try { await whatsappService.sendText(chat, aviso); } catch (e) {} }
+                if (process.env.ADMIN_EMAIL) {
+                    try {
+                        await emailService.sendMail({
+                            to: process.env.ADMIN_EMAIL,
+                            subject: `🏦 Datos de cobro confirmados — ${fresco.numero_expediente || ''}${ibanCambiado ? ' (Nº DE CUENTA CAMBIADO)' : ''}`,
+                            text: aviso,
+                            html: `<pre style="font-family:Arial,sans-serif;font-size:14px">${aviso.replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch]))}</pre>`,
+                        });
+                    } catch (e) {}
+                }
+            } catch (e) { console.error('[cobro POST] aviso:', e.message); }
+        });
+    } catch (e) {
+        console.error('[cobro POST]', e.message);
+        if (!res.headersSent) res.status(500).json({ error: 'Error del servidor' });
+    }
+});
 
 router.get('/anexos-upload/:expedienteId', async (req, res) => {
     try {

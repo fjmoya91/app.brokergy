@@ -21,6 +21,19 @@ const lote = require('../services/seguimientoLote');
 const seguimientoDiario = require('../services/seguimientoDiario');
 const supabase = require('../services/supabaseClient');
 
+/** Lo que la vista necesita de cada fila para pintarla y marcarla. */
+const expedienteDeFila = (f) => ({
+    expediente_id: f.expediente_id,
+    numero_expediente: f.numero_expediente,
+    cliente_nombre: f.cliente_nombre,
+    detalle: f.detalle,
+    dias: f.dias,
+    sin_fecha: f.sin_fecha,
+    vencida: f.vencida,
+    municipio: f.municipio,
+    scope: f.scope,
+});
+
 const usuarioDe = (req) => (req.user?.rol_nombre === 'ADMIN'
     ? 'ADMINISTRADOR'
     : (req.user?.acronimo || req.user?.razon_social || req.user?.rol_nombre || 'SISTEMA'));
@@ -43,6 +56,9 @@ router.get('/parte', staffOnly, async (req, res) => {
             nota: g.def.nota,
             umbral_dias: g.def.dias,
             total: g.filas.length,
+            // Lo vencido y lo que va en plazo se cuentan aparte: son dos lecturas
+            // distintas del mismo bloque y la pantalla las separa (lo parado primero).
+            vencidas: g.filas.filter(f => f.vencida).length,
             filas: g.filas,
         }));
 
@@ -57,21 +73,21 @@ router.get('/parte', staffOnly, async (req, res) => {
             destinatario: g.destinatario,
             dias: g.dias,
             total: g.filas.length,
-            expedientes: g.filas.map(f => ({
-                expediente_id: f.expediente_id,
-                numero_expediente: f.numero_expediente,
-                cliente_nombre: f.cliente_nombre,
-                detalle: f.detalle,
-                dias: f.dias,
-                sin_fecha: f.sin_fecha,
-                municipio: f.municipio,
-                scope: f.scope,
-            })),
+            expedientes: g.filas.map(expedienteDeFila),
+            // Del mismo destinatario y la misma petición, pero aún EN PLAZO. El popup
+            // los ofrece DESMARCADOS: el automático no reclama antes de tiempo, pero
+            // estando delante puedes mandárselo todo junto y ahorrarle un mensaje.
+            opcionales: g.opcionales.map(expedienteDeFila),
         }));
 
         res.json({
             generado: new Date().toISOString(),
             total: filas.length,
+            // `parados` es lo que ha pasado de plazo — el número que antes era `total`,
+            // porque el escaneo filtraba. Se manda aparte para que el titular no cambie
+            // de significado: lo que duele son los parados, no la cartera entera.
+            parados: conEstado.filter(f => f.vencida).length,
+            en_plazo: conEstado.filter(f => !f.vencida).length,
             accionables: porDestinatario.reduce((a, g) => a + g.total, 0),
             grupos_envio: porDestinatario.length,
             por_bloque: porBloque,
@@ -100,8 +116,11 @@ router.get('/lote/:clave', staffOnly, async (req, res) => {
         // al desmarcar uno el mensaje seguía nombrándolo y anunciando "7 certificados"
         // cuando iban 6: el destinatario recibiría una lista que no cuadra con nada.
         const soloIds = String(req.query.ids || '').split(',').map(s => s.trim()).filter(Boolean);
+        // Se busca en las DOS listas: el popup puede haber marcado un expediente que
+        // aún está en plazo (`opcionales`), y entonces entra en el mensaje como uno más.
+        const candidatas = [...grupo.filas, ...(grupo.opcionales || [])];
         const acotado = soloIds.length
-            ? { ...grupo, filas: grupo.filas.filter(f => soloIds.includes(f.expediente_id)) }
+            ? { ...grupo, filas: candidatas.filter(f => soloIds.includes(f.expediente_id)) }
             : grupo;
         if (!acotado.filas.length) return res.status(400).json({ error: 'No has dejado ningún expediente seleccionado.' });
 

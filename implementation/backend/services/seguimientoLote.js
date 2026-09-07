@@ -43,6 +43,13 @@ const TIPOS_LOTE = {
         destinatario: 'AMBOS', asunto: (n) => `Documentación pendiente de firma en ${n} expedientes`,
         plantilla: recordatorios.firmaLoteWa,
     },
+    'pedir-cobro': {
+        destinatario: 'CLIENTE',
+        asunto: (n) => (n === 1
+            ? 'Confirma tus datos para el ingreso de tu ayuda'
+            : `Confirma tus datos para el ingreso de tus ${n} ayudas`),
+        plantilla: recordatorios.cobroLoteWa,
+    },
 };
 
 /** El enlace que hay que darle a esta persona para ESTE expediente. */
@@ -86,15 +93,37 @@ async function prepararLote(grupo) {
         }
     }
 
+    // El enlace del formulario de cobro lleva su propio token, que hay que crear (o
+    // recuperar) por expediente: no se puede componer en `urlDe`, que es síncrona.
+    const enlacesCobro = new Map();
+    if (grupo.tipo === 'pedir-cobro') {
+        const cobroService = require('./cobroService');
+        for (const f of grupo.filas) {
+            try {
+                const exp = await cobroService.cargarExpediente(f.expediente_id);
+                if (!exp) continue;
+                enlacesCobro.set(f.expediente_id, cobroService.enlaceCobro(exp.id, await cobroService.ensureToken(exp)));
+            } catch (err) { console.warn('[Lote] enlace de cobro:', err.message); }
+        }
+    }
+
     const items = grupo.filas.map(f => {
-        const link = grupo.tipo === 'fin-obra'
+        const link = grupo.tipo === 'pedir-cobro'
+            ? (enlacesCobro.has(f.expediente_id) ? { url: enlacesCobro.get(f.expediente_id), urlLabel: '🏦' } : {})
+            : grupo.tipo === 'fin-obra'
             ? (enlacesSubida.has(f.expediente_id) ? { url: enlacesSubida.get(f.expediente_id), urlLabel: '📸' } : {})
             : urlDe(grupo.tipo, f);
+        // El `detalle` del radar está escrito para TI, no para quien lo recibe: "visto
+        // bueno dado, falta registrar" repite palabra por palabra lo que el párrafo de
+        // arriba acaba de decir, y "encargado, sin arrancar" es un juicio interno que
+        // en un mensaje suena a reproche. Al certificador le basta saber DE QUÉ FASE
+        // es cada línea; los días van aparte.
+        const esCert = grupo.destinatario.tipo === 'CERTIFICADOR';
         return {
             expediente_id: f.expediente_id,
             numExp: f.numero_expediente,
             cliente: f.cliente_nombre,
-            detalle: f.detalle,
+            detalle: esCert ? `CEE ${f.scope === 'final' ? 'final' : 'inicial'}` : f.detalle,
             dias: f.dias,
             scope: f.scope,
             ...link,
@@ -108,7 +137,15 @@ async function prepararLote(grupo) {
     }
 
     const mensaje = def.plantilla({
-        certName: grupo.destinatario.nombre || contacto.nombre || 'Técnico',
+        // MANDA `contacto.nombre`, que es la PERSONA (`saludoPartner`: su
+        // `nombre_responsable`, o el contacto de notificaciones). Estaba al revés y por
+        // eso el saludo salía con la razón social entera — "Hola Luis Alberto Lanuza
+        // Pelayo" en vez de "Hola Luis Alberto" —, que es lo primero que delata que el
+        // mensaje lo ha escrito una máquina. El envío desde el expediente ya lo hacía
+        // bien (`saludoPartner(cert)` en `notify-certificador`): era esta ruta la que
+        // se salía de la norma. La razón social queda de respaldo para el partner que
+        // no tenga persona en su ficha.
+        certName: contacto.nombre || grupo.destinatario.nombre || 'Técnico',
         destinatario: contacto.nombre || grupo.destinatario.nombre,
         esInstalador: grupo.destinatario.tipo === 'INSTALADOR',
         items,
@@ -133,7 +170,11 @@ async function resolverContacto(tipo, id) {
     }
     // CERTIFICADOR / INSTALADOR — ambos viven en `prescriptores`.
     const { data: p } = await supabase.from('prescriptores')
-        .select('razon_social, acronimo, tlf, tlf_contacto, tlf_responsable, landing_telefono_contacto, email, email_contacto, email_responsable, nombre_contacto, contacto_notificaciones_activas')
+        // `nombre_responsable` es lo PRIMERO que mira `saludoPartner`, y sin pedirlo
+        // aquí el saludo caía siempre al respaldo: "Hola LUIS ALBERTO LANUZA PELAYO"
+        // —la razón social, tal cual está en la BD, en mayúsculas— en vez de
+        // "Hola Luis Alberto". El campo estaba relleno en 5 de los 7 certificadores.
+        .select('razon_social, acronimo, nombre_responsable, tlf, tlf_contacto, tlf_responsable, landing_telefono_contacto, email, email_contacto, email_responsable, nombre_contacto, contacto_notificaciones_activas')
         .eq('id_empresa', id).maybeSingle();
     const useContact = p?.contacto_notificaciones_activas === true || p?.contacto_notificaciones_activas === 'true';
     // Sin desvío activo manda la PERSONA DE CONTACTO (su propio tlf/email); si no
@@ -165,8 +206,11 @@ async function enviarLote(grupo, { canales = [], mensaje, asunto, usuario = 'PAR
 
     // Se puede enviar a un subconjunto: en la app se pueden desmarcar expedientes
     // concretos del grupo.
+    // Se busca en las DOS listas: el popup puede haber marcado uno que aún está en
+    // plazo (`opcionales`). Sin selección explícita van SOLO las vencidas, que es lo
+    // que el parte reclama por su cuenta.
     const filas = expedientes?.length
-        ? grupo.filas.filter(f => expedientes.includes(f.expediente_id))
+        ? [...grupo.filas, ...(grupo.opcionales || [])].filter(f => expedientes.includes(f.expediente_id))
         : grupo.filas;
     if (!filas.length) throw new Error('No has seleccionado ningún expediente.');
 
@@ -237,6 +281,22 @@ async function enviarLote(grupo, { canales = [], mensaje, asunto, usuario = 'PAR
                 p_field: 'recordatorios',
                 p_value: { [claveDe(f)]: { at, target: grupo.destinatario.tipo, canales, origen: 'parte-lote' } },
             });
+
+            // El cobro tiene además su propio sello: es lo que la ficha del
+            // expediente y el detector miran para saber si ya se le pidió (y cuántas
+            // veces), sin tener que interpretar el mapa de recordatorios.
+            if (grupo.tipo === 'pedir-cobro') {
+                await supabase.rpc('merge_expediente_doc_json', {
+                    p_expediente_id: f.expediente_id,
+                    p_field: 'cobro',
+                    p_value: {
+                        enviado_at: at,
+                        enviado_por: usuario,
+                        canales: enviados,
+                        veces: Number(doc.cobro?.veces || 0) + 1,
+                    },
+                });
+            }
         } catch (e) {
             console.warn(`[Lote] sellar ${f.numero_expediente}:`, e.message);
         }

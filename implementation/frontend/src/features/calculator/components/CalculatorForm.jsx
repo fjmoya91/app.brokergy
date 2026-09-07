@@ -18,6 +18,7 @@ import {
     calculateRes080FromEmissions
 } from '../logic/calculation';
 import { PROVINCE_CLIMATE_MAP } from '../data/provinceMapping';
+import { FV, FV_OPCIONES, normalizarFotovoltaica, potenciaTexto, etiquetaFotovoltaica } from '../../expedientes/logic/fotovoltaica';
 import { useAuth } from '../../../context/AuthContext';
 import { parseCeeXml } from '../logic/xmlCeeParser';
 import CeeUploadModal from '../../cee/CeeUploadModal';
@@ -1047,6 +1048,14 @@ export function CalculatorForm({
                                 <span className="px-2 py-0.5 rounded bg-slate-800 text-[11px] text-slate-300 font-medium uppercase">
                                     Zona {inputs.zona}
                                 </span>
+                                {/* Con el panel plegado, el chip es lo único que dice que la
+                                    vivienda YA genera: es dato del CEE y no puede vivir solo
+                                    dentro de un desplegable cerrado. */}
+                                {normalizarFotovoltaica(inputs.fotovoltaica).estado === FV.SI && (
+                                    <span className="px-2 py-0.5 rounded bg-amber-500/15 text-[11px] text-amber-300 font-medium border border-amber-500/30">
+                                        ☀️ FV {potenciaTexto(inputs.fotovoltaica) || 'sin potencia'}
+                                    </span>
+                                )}
                             </div>
                         )}
                     </button>
@@ -1104,6 +1113,60 @@ export function CalculatorForm({
                                         </Select>
                                     </div>
                                 </div>
+
+                                {/* Placas solares YA instaladas (no las de esta obra).
+                                    Es un dato del edificio: viene contestado desde la
+                                    captación y viaja al expediente, donde el CEE lo
+                                    necesita. No entra en el cálculo. */}
+                                {(() => {
+                                    const fv = normalizarFotovoltaica(inputs.fotovoltaica);
+                                    const setFv = (patch) => handleChange(
+                                        'fotovoltaica',
+                                        normalizarFotovoltaica({ ...fv, ...patch })
+                                    );
+                                    return (
+                                        <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-3 space-y-2">
+                                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                                                <Label>☀️ Placas solares ya instaladas</Label>
+                                                <span className="text-[10px] text-slate-500">{etiquetaFotovoltaica(fv)}</span>
+                                            </div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                                {FV_OPCIONES.map(o => (
+                                                    <button
+                                                        key={o.value}
+                                                        type="button"
+                                                        onClick={() => setFv({ estado: fv.estado === o.value ? null : o.value })}
+                                                        className={`px-2 py-1.5 rounded-lg border text-[11px] font-bold text-left transition-all ${
+                                                            fv.estado === o.value
+                                                                ? 'bg-amber-500/15 text-amber-300 border-amber-500/50'
+                                                                : 'bg-slate-800/50 text-slate-400 border-slate-700 hover:text-white hover:border-slate-500'
+                                                        }`}
+                                                    >
+                                                        <span className="mr-1">{o.icon}</span>{o.corto}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            {fv.estado === FV.SI && (
+                                                <div className="flex items-center gap-2">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.1"
+                                                        placeholder="Potencia instalada"
+                                                        value={fv.potencia_kwp ?? ''}
+                                                        onChange={e => setFv({
+                                                            potencia_kwp: e.target.value === ''
+                                                                ? null
+                                                                : Number(String(e.target.value).replace(',', '.')),
+                                                        })}
+                                                        className="flex-1 min-w-0 bg-slate-800 border border-slate-700 focus:border-amber-500/60 rounded-lg px-3 py-2 text-white text-sm outline-none"
+                                                    />
+                                                    <span className="text-slate-400 text-xs font-bold shrink-0">kWp</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
 
                                 {/* Métricas - REJILLA 4 COLUMNAS */}
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

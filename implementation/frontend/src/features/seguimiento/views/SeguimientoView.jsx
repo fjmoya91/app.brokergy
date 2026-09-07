@@ -27,6 +27,13 @@
 //     escribir: un certificador con 7 expedientes es UNA tarjeta y UN mensaje.
 //   · REVISAR (por bloque) — el diagnóstico: qué tipo de atasco hay y cuánto.
 // Se entra a trabajar, no a mirar; por eso manda la primera.
+//
+// PARADO vs EN PLAZO. El radar emite ahora la cartera entera y marca cada línea con
+// su plazo cumplido o no. La pantalla NO puede tratarlas igual: lo parado es la lista
+// de tareas y lo que va en plazo es el contexto que permite fiarse de ella. Se cuentan
+// aparte, se pintan aparte y lo atenuado va detrás. Antes solo llegaba lo vencido, y
+// un expediente movido ayer no aparecía en ningún sitio: la pantalla no se podía usar
+// para responder "¿cómo vamos?", solo "¿qué está ardiendo?".
 // ============================================================================
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
@@ -38,6 +45,9 @@ const TONO = {
     RECHAZO_SIN_REENVIAR: { txt: 'text-rose-400', bg: 'bg-rose-500/10', bd: 'border-rose-500/25', barra: 'bg-rose-500' },
     REVISION:             { txt: 'text-red-400', bg: 'bg-red-500/10', bd: 'border-red-500/25', barra: 'bg-red-500' },
     OBRA_SIN_CERRAR:      { txt: 'text-amber-500', bg: 'bg-amber-600/10', bd: 'border-amber-600/25', barra: 'bg-amber-600' },
+    TRAMITACION:          { txt: 'text-orange-300', bg: 'bg-orange-400/10', bd: 'border-orange-400/25', barra: 'bg-orange-400' },
+    // Verde: es el único bloque que no habla de un documento sino de DINERO parado.
+    SIN_LOTEAR:           { txt: 'text-emerald-400', bg: 'bg-emerald-500/10', bd: 'border-emerald-500/25', barra: 'bg-emerald-500' },
     REGISTRO:             { txt: 'text-orange-400', bg: 'bg-orange-500/10', bd: 'border-orange-500/25', barra: 'bg-orange-500' },
     CERT_SIN_ENTREGAR:    { txt: 'text-fuchsia-400', bg: 'bg-fuchsia-500/10', bd: 'border-fuchsia-500/25', barra: 'bg-fuchsia-500' },
     SIN_ENCARGAR:         { txt: 'text-slate-300', bg: 'bg-slate-500/10', bd: 'border-slate-500/25', barra: 'bg-slate-400' },
@@ -116,6 +126,23 @@ export function SeguimientoView() {
             || x.expedientes.some(e => norm(e.numero_expediente).includes(q) || norm(e.cliente_nombre).includes(q)));
     }, [datos, filtro]);
 
+    // El MISMO buscador en REVISAR, que es donde de verdad hace falta: aquí no hay 28
+    // tarjetas sino 178 filas repartidas en once bloques plegados, así que sin él la
+    // única forma de responder "¿y el 26RES060_119?" es abrirlos todos y mirar. Filtra
+    // las FILAS —no los bloques— y descarta el bloque que se queda sin ninguna: una
+    // cabecera vacía haría creer que el expediente está ahí dentro.
+    const bloques = useMemo(() => {
+        const b = datos?.por_bloque || [];
+        if (!filtro.trim()) return b;
+        const q = norm(filtro);
+        return b
+            .map(x => ({ ...x, filas: x.filas.filter(f =>
+                norm(f.numero_expediente).includes(q) || norm(f.cliente_nombre).includes(q)
+                || norm(f.municipio).includes(q) || norm(f.certificador_nombre).includes(q)
+                || norm(f.instalador_nombre).includes(q)) }))
+            .filter(x => x.filas.length);
+    }, [datos, filtro]);
+
     const toggleBloque = (b) => setBloquesAbiertos(prev => {
         const s = new Set(prev);
         if (s.has(b)) s.delete(b); else s.add(b);
@@ -149,7 +176,13 @@ export function SeguimientoView() {
 
     const totalAcc = datos?.accionables || 0;
     const nGrupos = datos?.grupos_envio || 0;
-    const mios = (datos?.total || 0) - totalAcc;
+    // PARADOS son los que han pasado de plazo; EN PLAZO, los que están en marcha y
+    // todavía no toca reclamar. Antes no existía la distinción porque el escaneo
+    // filtraba: lo reciente no aparecía en ningún sitio y la pantalla no se podía
+    // usar para saber cómo vamos, solo para apagar fuegos.
+    const parados = datos?.parados ?? datos?.total ?? 0;
+    const enPlazo = datos?.en_plazo || 0;
+    const mios = parados - totalAcc;
 
     return (
         <div className="px-3 sm:px-6 pt-3 pb-24 md:pb-8 max-w-3xl xl:max-w-5xl mx-auto">
@@ -178,13 +211,14 @@ export function SeguimientoView() {
                 <Pastilla n={nGrupos} txt="mensajes" tono="text-emerald-400"
                     pie={totalAcc > nGrupos ? `−${totalAcc - nGrupos}` : null} />
                 <Pastilla n={mios} txt="en tu tejado" tono="text-amber-400" />
-                <Pastilla n={datos?.total || 0} txt="parados" tono="text-white/70" />
+                <Pastilla n={parados} txt="parados" tono="text-white/70" />
+                <Pastilla n={enPlazo} txt="en plazo" tono="text-white/40" />
             </div>
 
             {/* ── Modo + búsqueda ─────────────────────────────────────────────── */}
             <div className="flex items-center gap-2 mb-3">
                 <div className="flex-1 inline-flex rounded-xl border border-white/10 p-1 bg-bkg-surface/40">
-                    {[['despachar', 'Despachar', nGrupos], ['revisar', 'Revisar', datos?.total || 0]].map(([id, txt, n]) => (
+                    {[['despachar', 'Despachar', nGrupos], ['revisar', 'Revisar', parados]].map(([id, txt, n]) => (
                         <button key={id} onClick={() => setModo(id)}
                             className={`flex-1 px-2 py-2.5 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all ${
                                 modo === id ? 'bg-brand text-bkg-deep shadow-lg shadow-brand/20' : 'text-white/40'}`}>
@@ -192,18 +226,16 @@ export function SeguimientoView() {
                         </button>
                     ))}
                 </div>
-                {modo === 'despachar' && (
-                    <BotonIcono onClick={() => { setBuscando(v => !v); if (buscando) setFiltro(''); }} titulo="Buscar" activo={buscando || !!filtro}>
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                    </BotonIcono>
-                )}
+                <BotonIcono onClick={() => { setBuscando(v => !v); if (buscando) setFiltro(''); }} titulo="Buscar" activo={buscando || !!filtro}>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </BotonIcono>
             </div>
 
-            {(buscando || filtro) && modo === 'despachar' && (
+            {(buscando || filtro) && (
                 // 16px de fuente: por debajo de eso, iOS hace zoom al enfocar el campo
                 // y deja la pantalla descuadrada.
                 <input autoFocus value={filtro} onChange={e => setFiltro(e.target.value)}
-                    placeholder="Destinatario, cliente o nº de expediente…"
+                    placeholder={modo === 'despachar' ? 'Destinatario, cliente o nº de expediente…' : 'Nº de expediente, cliente, municipio o técnico…'}
                     className="w-full mb-3 px-4 py-3 rounded-xl bg-bkg-surface/60 border border-white/10 text-base text-white placeholder:text-white/25 focus:border-brand/50 focus:outline-none" />
             )}
 
@@ -218,12 +250,23 @@ export function SeguimientoView() {
                     </div>
                 )
             ) : (
-                <div className="space-y-2.5">
-                    {(datos?.por_bloque || []).map(b => (
-                        <BloqueDiagnostico key={b.bloque} b={b}
-                            abierto={bloquesAbiertos.has(b.bloque)} onToggle={() => toggleBloque(b.bloque)} />
-                    ))}
-                </div>
+                bloques.length === 0 ? (
+                    <Vacio titulo={filtro ? 'Nada con ese filtro' : 'Nada pendiente'}
+                        texto={filtro ? 'Prueba con otro nombre, municipio o número.' : 'No hay expedientes atascados.'} />
+                ) : (
+                    <div className="space-y-2.5">
+                        {bloques.map(b => (
+                            // Buscando, los bloques se abren SOLOS: con ellos plegados, el
+                            // resultado sería una cabecera que hay que pulsar para ver si
+                            // dentro está lo que buscas — el mismo trabajo que quita el
+                            // buscador. Al vaciar el filtro vuelve a mandar lo que hubieras
+                            // desplegado a mano.
+                            <BloqueDiagnostico key={b.bloque} b={b} filtrando={!!filtro.trim()}
+                                abierto={bloquesAbiertos.has(b.bloque) || !!filtro.trim()}
+                                onToggle={() => toggleBloque(b.bloque)} />
+                        ))}
+                    </div>
+                )
             )}
 
             {grupoAbierto && (
@@ -347,41 +390,76 @@ function TarjetaGrupo({ g, onAbrir }) {
     );
 }
 
-/** Un tipo de atasco, con todas sus filas. Vista de diagnóstico. */
-function BloqueDiagnostico({ b, abierto, onToggle }) {
+/** Una fila del diagnóstico. `enPlazo` la atenúa: está en marcha, no es una tarea. */
+function FilaExpediente({ f, enPlazo }) {
+    return (
+        <a href={`/?exp=${encodeURIComponent(f.numero_expediente)}`}
+            className={`flex items-center gap-2.5 px-2.5 py-2.5 rounded-xl active:bg-bkg-hover/50 transition-colors ${enPlazo ? 'opacity-60' : ''}`}>
+            <span className="flex-1 min-w-0">
+                <span className="flex items-center gap-2 flex-wrap">
+                    <span className="font-black text-brand text-[11px] tabular-nums">{f.numero_expediente}</span>
+                    {f.silenciada && (
+                        <span className="px-1.5 py-0.5 rounded bg-white/[0.04] text-[9px] font-bold text-white/35 whitespace-nowrap">{f.silenciada}</span>
+                    )}
+                </span>
+                <span className="block text-[11px] text-white/60 leading-snug mt-0.5">{f.detalle}</span>
+                <span className="block text-[10px] text-white/25 truncate">{f.cliente_nombre || f.municipio || '—'}</span>
+            </span>
+            <span className={`text-[11px] font-black tabular-nums shrink-0 ${enPlazo ? 'text-white/30' : colorDias(f.dias, f.sin_fecha)}`}>
+                {textoDias(f.dias, f.sin_fecha)}
+            </span>
+        </a>
+    );
+}
+
+/**
+ * Un tipo de atasco, con todas sus filas. Vista de diagnóstico.
+ *
+ * REGLA — lo PARADO primero y lo que va EN PLAZO detrás, nunca mezclado y nunca
+ * escondido. Antes solo llegaba lo parado, así que un CEE que le pediste ayer al
+ * certificador no estaba en ninguna parte y la pantalla no servía para saber cómo
+ * vamos. Mezclarlos sería el error contrario: la lista deja de decir qué hacer hoy.
+ * Por eso el contador de la cabecera cuenta lo PARADO —que es lo que duele— y lo que
+ * va en plazo se anuncia aparte, atenuado y bajo su propio rótulo.
+ */
+function BloqueDiagnostico({ b, abierto, onToggle, filtrando }) {
     const t = tono(b.bloque);
+    const vencidas = b.filas.filter(f => f.vencida);
+    const enPlazo = b.filas.filter(f => !f.vencida);
     return (
         <div className="rounded-2xl border border-white/[0.06] bg-bkg-surface/60 overflow-hidden">
-            <button onClick={onToggle} className="w-full flex items-center gap-3 p-3.5 active:bg-bkg-hover/40 transition-colors text-left">
-                <span className={`w-1.5 h-8 rounded-full ${t.barra} shrink-0`} />
+            <button onClick={onToggle} disabled={filtrando}
+                className="w-full flex items-center gap-3 p-3.5 active:bg-bkg-hover/40 transition-colors text-left">
+                <span className={`w-1.5 h-8 rounded-full ${t.barra} shrink-0 ${vencidas.length ? '' : 'opacity-30'}`} />
                 <span className="font-black text-white text-[13px] flex-1 leading-tight">{b.titulo}</span>
-                <span className={`px-2.5 py-1 rounded-lg text-[11px] font-black ${t.bg} ${t.txt} tabular-nums shrink-0`}>{b.total}</span>
-                <svg className={`w-4 h-4 text-white/30 transition-transform shrink-0 ${abierto ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
-                </svg>
+                <span className={`px-2.5 py-1 rounded-lg text-[11px] font-black tabular-nums shrink-0 ${
+                    vencidas.length ? `${t.bg} ${t.txt}` : 'bg-white/[0.04] text-white/30'}`}>{vencidas.length}</span>
+                {enPlazo.length > 0 && (
+                    <span className="text-[10px] font-bold text-white/25 tabular-nums shrink-0" title="En plazo: aún no toca reclamar">
+                        +{enPlazo.length}
+                    </span>
+                )}
+                {/* Filtrando no hay nada que plegar: una flecha que no responde se lee
+                    como que la pantalla se ha quedado colgada. */}
+                {!filtrando && (
+                    <svg className={`w-4 h-4 text-white/30 transition-transform shrink-0 ${abierto ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
+                    </svg>
+                )}
             </button>
             {abierto && (
                 <div className="border-t border-white/[0.06]">
                     {b.nota && <p className="px-4 pt-3 text-[11px] text-white/35 leading-relaxed">{b.nota}</p>}
                     <div className="p-2 space-y-0.5">
-                        {b.filas.map((f, i) => (
-                            <a key={`${f.expediente_id}-${i}`} href={`/?exp=${encodeURIComponent(f.numero_expediente)}`}
-                                className="flex items-center gap-2.5 px-2.5 py-2.5 rounded-xl active:bg-bkg-hover/50 transition-colors">
-                                <span className="flex-1 min-w-0">
-                                    <span className="flex items-center gap-2 flex-wrap">
-                                        <span className="font-black text-brand text-[11px] tabular-nums">{f.numero_expediente}</span>
-                                        {f.silenciada && (
-                                            <span className="px-1.5 py-0.5 rounded bg-white/[0.04] text-[9px] font-bold text-white/35 whitespace-nowrap">{f.silenciada}</span>
-                                        )}
-                                    </span>
-                                    <span className="block text-[11px] text-white/60 leading-snug mt-0.5">{f.detalle}</span>
-                                    <span className="block text-[10px] text-white/25 truncate">{f.cliente_nombre || f.municipio || '—'}</span>
-                                </span>
-                                <span className={`text-[11px] font-black tabular-nums shrink-0 ${colorDias(f.dias, f.sin_fecha)}`}>
-                                    {textoDias(f.dias, f.sin_fecha)}
-                                </span>
-                            </a>
-                        ))}
+                        {vencidas.map((f, i) => <FilaExpediente key={`v-${f.expediente_id}-${i}`} f={f} />)}
+                        {enPlazo.length > 0 && (
+                            <>
+                                <p className="px-2.5 pt-3 pb-1 text-[10px] font-black uppercase tracking-widest text-white/25">
+                                    En plazo · {b.umbral_dias > 0 ? `menos de ${b.umbral_dias} días` : 'en marcha'}
+                                </p>
+                                {enPlazo.map((f, i) => <FilaExpediente key={`p-${f.expediente_id}-${i}`} f={f} enPlazo />)}
+                            </>
+                        )}
                     </div>
                 </div>
             )}

@@ -37,6 +37,7 @@ import { efficiencyFor, sugerirEdadDesdeRendimiento } from '../data/boilerMappin
 import { seedInputsFromCees, ceeCombustibleToFunnel } from '../../calculator/logic/ceeSeed';
 import { avisosCee, demandaDeCalculo, demandaCal, esReformaSegunCee, rendimientoCalefaccion } from '../../cee/ceeAvisos';
 import { computeFullCalculatorResult, computeLandingResult } from '../data/landingCalculation';
+import { FV, FV_OPCIONES } from '../../expedientes/logic/fotovoltaica';
 
 const BOILER_COMBUSTIBLE = ['gas', 'gasoleo', 'carbon', 'biomasa'];
 
@@ -45,6 +46,7 @@ const SCREEN_PROGRESS = {
     estado: 0.07, tipo: 0.15,
     ejec_fecha: 0.22, ejec_terminada: 0.3,
     combustible: 0.3, edad: 0.4, emisores: 0.5, acs: 0.6,
+    placas: 0.64,
     elementos: 0.68, aviso_no_cae: 0.68,
     facturas: 0.68, factura_fecha: 0.73, cee_previo: 0.76,
     fotos: 0.8, cee_ambos: 0.83,
@@ -108,6 +110,11 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     // Drive en cuanto existe la oportunidad (subirDocsPendientes).
     const [docsObra, setDocsObra] = useState([]);
     const [noTieneState, setNoTieneState] = useState(null); // null | 'warning' | 'dead_end'
+    // A dónde se sale de la pantalla de placas. Se pregunta desde DOS sitios
+    // (el recorrido largo tras el ACS, y el atajo del resumen de certificados) y
+    // cada uno continúa por donde le toca; con la pregunta en medio, el destino
+    // deja de poder deducirse del propio funnel.
+    const [trasPlacas, setTrasPlacas] = useState(null);
     const [contacto, setContacto] = useState({
         nombre: '', email: '', tlf: '',
         titular_type: null, num_propietarios: null,
@@ -135,6 +142,12 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     const back = useCallback(() => { setStack(prev => prev.length > 1 ? prev.slice(0, -1) : prev); window.scrollTo({ top: 0, behavior: 'smooth' }); }, []);
 
     const ej = funnel.obra_estado === 'ejecutada';
+
+    // La pregunta de placas se intercala SIEMPRE en el mismo sitio del recorrido
+    // (cerrando el bloque de "cómo está hoy la vivienda") y devuelve el flujo a
+    // donde iba. Así los dos caminos —el largo y el atajo de los certificados—
+    // pasan por ella, y ninguna oportunidad nace sin el dato.
+    const irAPlacas = useCallback((destino) => { setTrasPlacas(destino); push('placas'); }, [push]);
 
     // En modo internal saltamos la pregunta de gasto anual (el partner la afina
     // luego en la calculadora, igual que el funnel interno clásico) y en vez de
@@ -726,7 +739,9 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
             // preguntarla. Con él: si tocó la envolvente hace falta saber QUÉ elementos
             // (de ahí salen los apartados de foto del expediente); si no, al dinero.
             if (!atajoCompleto) { push('estado'); return; }
-            push(esReforma ? 'elementos' : 'docs_obra');
+            // El certificado no dice si hay placas, así que el atajo también pasa
+            // por esa pregunta antes de seguir.
+            irAPlacas(esReforma ? 'elementos' : 'docs_obra');
         };
 
         const Dato = ({ k, v, resaltado }) => (
@@ -1097,14 +1112,106 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     // ---- TÉRMICO: ACS (Step5 reutilizado) ----
     if (screen === 'acs') {
         const nextAfterAcs = () => {
-            if (funnel.isReforma) { push('elementos'); return; }
+            if (funnel.isReforma) { irAPlacas('elementos'); return; }
             // Obra ejecutada (terminada): SIEMPRE exigimos fotos del ANTES, incluso
             // para solo cambio de caldera. Sin fotos del estado anterior no hay ayuda
             // posible — el gasto (gasto_anual_eur) se fija a 0 más adelante en cee_ambos.
-            if (ej) { push('fotos'); return; }
-            push(gastoStep());
+            if (ej) { irAPlacas('fotos'); return; }
+            irAPlacas(gastoStep());
         };
         return (<><BackBtn /><Step5_ACS funnel={funnel} updateFunnel={updateFunnel} onNext={nextAfterAcs} isInternal={isInternal} /></>);
+    }
+
+    // ---- Placas solares YA INSTALADAS (no las de esta obra) ----
+    // Va aquí, cerrando el bloque de "cómo está hoy la vivienda" (caldera →
+    // emisores → ACS → generación propia) y antes de hablar de la obra: es un
+    // dato del inmueble, no de la actuación.
+    if (screen === 'placas') {
+        const estado = funnel.placas_estado;
+        const kwp = funnel.placas_kwp;
+        const nose = !!funnel.placas_kwp_nose;
+        // Con placas puestas hace falta una respuesta a la potencia: la cifra o un
+        // "no la sé" dicho a propósito. Sin esa segunda salida, quien no la sepa
+        // teclea cualquier número con tal de pasar de pantalla.
+        const potenciaOk = estado !== FV.SI || nose || Number(kwp) > 0;
+
+        const elegir = (v) => updateFunnel(
+            v === FV.SI
+                ? { placas_estado: v }
+                : { placas_estado: v, placas_kwp: null, placas_kwp_nose: false }
+        );
+
+        return (<><BackBtn />
+            <StepLayout
+                question={t('¿Tienes placas solares fotovoltaicas?', '¿La vivienda tiene placas fotovoltaicas?')}
+                // Dos pantallas antes se ha preguntado por las placas solares TÉRMICAS
+                // (las del agua caliente). Sin decir cuáles son éstas, quien tenga las
+                // otras contesta que sí y el certificado declara una generación
+                // eléctrica que no existe.
+                subtitle={t(
+                    'Las que producen ELECTRICIDAD, no las del agua caliente. Nos referimos a las que ya están puestas en la vivienda, no a las de esta obra: hacen falta para el certificado de eficiencia energética.',
+                    'Autoconsumo eléctrico YA instalado (no las térmicas de ACS ni las de esta actuación). Se declara en el certificado de eficiencia energética.'
+                )}
+                onContinue={() => push(trasPlacas || gastoStep())}
+                canContinue={!!estado && potenciaOk}
+            >
+                {FV_OPCIONES.map(o => (
+                    <React.Fragment key={o.value}>
+                        <IconCard
+                            icon={o.icon}
+                            title={t(o.label, o.corto)}
+                            subtitle={o.sub}
+                            selected={estado === o.value}
+                            onClick={() => elegir(o.value)}
+                        />
+                        {/* Sub-pregunta inline, mismo patrón que el contador de aires:
+                            la potencia solo se pide debajo de la opción que la pide. */}
+                        {o.value === FV.SI && estado === FV.SI && (
+                            <div className="ml-2 -mt-1 mb-1 p-4 rounded-2xl border-2 border-amber-400/30 bg-amber-400/[0.05] animate-fade-in">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-amber-300/80 mb-3">
+                                    {t('¿Qué potencia tienes instalada?', 'Potencia instalada')}
+                                </p>
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="number"
+                                        inputMode="decimal"
+                                        min="0"
+                                        step="0.1"
+                                        placeholder="Ej. 3,5"
+                                        value={kwp ?? ''}
+                                        onChange={e => {
+                                            const v = e.target.value;
+                                            updateFunnel({
+                                                placas_kwp: v === '' ? null : Number(String(v).replace(',', '.')),
+                                                placas_kwp_nose: false,
+                                            });
+                                        }}
+                                        className="flex-1 min-w-0 bg-white/[0.06] border-2 border-white/10 focus:border-amber-400 rounded-xl px-4 py-3 text-white text-lg font-bold transition-all outline-none"
+                                    />
+                                    <span className="text-white/50 text-sm font-black shrink-0">kWp</span>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => updateFunnel({ placas_kwp: null, placas_kwp_nose: !nose })}
+                                    className={`mt-3 w-full py-2.5 rounded-xl border-2 text-xs font-black uppercase tracking-widest transition-all ${
+                                        nose
+                                            ? 'border-amber-400 bg-amber-400/15 text-amber-200'
+                                            : 'border-white/10 bg-white/[0.03] text-white/50 hover:border-amber-400/40'
+                                    }`}
+                                >
+                                    {t('No lo sé ahora mismo', 'No consta la potencia')}
+                                </button>
+                                <p className="mt-3 text-[11px] text-white/40 leading-snug">
+                                    {t(
+                                        'Suele venir en la factura de la instalación o en el boletín eléctrico. Si no la encuentras, no pasa nada: la comprobamos nosotros.',
+                                        'Viene en la factura de la instalación o en el boletín. Se puede completar luego en el expediente.'
+                                    )}
+                                </p>
+                            </div>
+                        )}
+                    </React.Fragment>
+                ))}
+            </StepLayout></>);
     }
 
     // ---- Elementos a incluir (multi) ----

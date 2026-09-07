@@ -166,7 +166,10 @@ function construirHtml(grupos, total, urlParte) {
  * página web del parte).
  */
 async function generarParte() {
-    const filas = await radar.escanear();
+    // SOLO LO VENCIDO. El escaneo emite ahora también lo que va en plazo, para que la
+    // pestaña pueda enseñar la cartera entera; un aviso diario que incluyera eso te
+    // mandaría cada mañana un WhatsApp con lo que pediste ayer, y se dejaría de leer.
+    const filas = (await radar.escanear()).filter(f => f.vencida);
     const grupos = radar.agruparPorBloque(filas);
     // El parte en web se firma para el día en curso: es un enlace de lectura, no de
     // acción, pero tampoco tiene que quedar accesible eternamente.

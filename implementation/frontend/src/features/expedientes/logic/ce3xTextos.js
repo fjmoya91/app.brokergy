@@ -1,4 +1,5 @@
 import { buildMedidaMejora } from './ce3xFinal.js';
+import { tieneFotovoltaica, potenciaTexto, normalizarFotovoltaica } from './fotovoltaica.js';
 
 // ─── ce3xTextos.js ───────────────────────────────────────────────────────────
 // La CAJA DE HERRAMIENTAS del certificador: lo que hay que teclear a mano en
@@ -112,15 +113,37 @@ export function buildCe3xTextos(expediente, { modelos = {} } = {}) {
         });
     }
 
-    secciones.push({
-        id: 'medida_autoconsumo',
-        titulo: 'Conjunto de medidas de mejora',
-        resumen: 'Autoconsumo fotovoltaico',
-        // El techo de kWh que se puede declarar sale del propio certificado y se
-        // enseña —con su cuenta— en la barra de cada fase. Aquí solo va el texto.
-        nota: 'El máximo de autoconsumo declarable en kWh/año sale del propio CEE: está en la barra ⚡ de cada fase.',
-        campos: MEDIDA_AUTOCONSUMO,
-    });
+    // ── Autoconsumo: MEJORA que proponer, o instalación que YA EXISTE ────────
+    // REGLA — a quien ya tiene placas no se le propone ponerlas. Esa medida
+    // describe una vivienda que no es la suya, y lo que el certificado necesita
+    // es lo contrario: declarar la generación existente en el estado actual. El
+    // dato lo contesta el cliente en la captación (`instalacion.fotovoltaica`).
+    const fv = normalizarFotovoltaica(expediente?.instalacion?.fotovoltaica);
+    if (tieneFotovoltaica(fv)) {
+        const p = potenciaTexto(fv);
+        secciones.push({
+            id: 'fv_existente',
+            titulo: 'Autoconsumo fotovoltaico YA INSTALADO',
+            resumen: 'Va en el estado actual, no como mejora',
+            aviso: `La vivienda ya tiene autoconsumo fotovoltaico${p ? ` de ${p}` : ''}: hay que declararlo `
+                + 'como instalación EXISTENTE (contribuciones energéticas), no proponerlo como medida de mejora.',
+            nota: p
+                ? null
+                : 'La potencia no consta en el expediente: hay que pedírsela al cliente (factura de la instalación o boletín eléctrico) antes de declararla.',
+            campos: [],
+        });
+    } else {
+        secciones.push({
+            id: 'medida_autoconsumo',
+            titulo: 'Conjunto de medidas de mejora',
+            resumen: 'Autoconsumo fotovoltaico',
+            // El techo de kWh que se puede declarar sale del propio certificado y se
+            // enseña —con su cuenta— en la barra de cada fase. Aquí solo va el texto.
+            nota: 'El máximo de autoconsumo declarable en kWh/año sale del propio CEE: está en la barra ⚡ de cada fase.'
+                + (fv.estado ? '' : ' · En el expediente no consta si la vivienda YA tiene placas: si las tiene, esta medida no aplica.'),
+            campos: MEDIDA_AUTOCONSUMO,
+        });
+    }
 
     secciones.push({
         id: 'pruebas_certificador',
