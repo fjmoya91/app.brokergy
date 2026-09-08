@@ -39,7 +39,7 @@ const fecha = (v) => {
     catch { return null; }
 };
 
-export function IncidenciasSlotPanel({ expedienteId, slot, incidencias, onCambio, compacto = false, variant = 'card' }) {
+export function IncidenciasSlotPanel({ expedienteId, slot, incidencias, onCambio, compacto = false, variant = 'card', onJuzgarAviso = null }) {
     const { user } = useAuth();
     const [busyId, setBusyId] = useState(null);
     const [resolviendo, setResolviendo] = useState(null); // id de la que se está subsanando
@@ -166,17 +166,50 @@ export function IncidenciasSlotPanel({ expedienteId, slot, incidencias, onCambio
                         <p className="text-[12px] text-white/75 leading-relaxed whitespace-pre-line">{inc.texto}</p>
 
                         {inc.detectada ? (
-                            <div className="mt-2.5 flex items-center gap-2 flex-wrap">
-                                <p className="text-[10px] text-sky-300/70 flex-1 min-w-[180px]">
+                            <div className="mt-2.5 space-y-2">
+                                <p className="text-[10px] text-sky-300/70">
                                     Se apaga sola en cuanto se corrija el dato. No hay nada que subsanar aquí.
+                                    {inc.reclasificado && ' · Reclasificada a mano; vuelve a su severidad si cambia el dato.'}
                                 </p>
-                                <button
-                                    onClick={() => registrar(inc)}
-                                    disabled={busy}
-                                    className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/15 text-white/60 text-[9px] font-black uppercase tracking-widest hover:bg-white/10 hover:text-white transition-all disabled:opacity-40"
-                                >
-                                    {busy ? 'Registrando…' : 'Dejar constancia'}
-                                </button>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    <button
+                                        onClick={() => registrar(inc)}
+                                        disabled={busy}
+                                        title="Darla de alta como incidencia, para que quede en el expediente"
+                                        className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/15 text-white/60 text-[9px] font-black uppercase tracking-widest hover:bg-white/10 hover:text-white transition-all disabled:opacity-40"
+                                    >
+                                        {busy ? 'Registrando…' : 'Dejar constancia'}
+                                    </button>
+                                    {/* Un aviso calculado también se JUZGA. No está en la BD, así
+                                        que no se puede subsanar ni borrar — pero sí decir "ya lo
+                                        he mirado": se descarta (deja de salir) o se reclasifica.
+                                        El juicio se guarda con la EVIDENCIA como huella, así que
+                                        si las fechas cambian el aviso vuelve solo: descartar
+                                        "para siempre" un aviso calculado escondería el descuadre
+                                        siguiente, que ya sería otro. */}
+                                    {onJuzgarAviso && (
+                                        <>
+                                            <button
+                                                onClick={() => onJuzgarAviso(inc, 'DESCARTADO')}
+                                                title="Ya lo he mirado y no procede — deja de salir mientras el dato no cambie"
+                                                className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/12 text-white/50 text-[9px] font-black uppercase tracking-widest hover:bg-white/10 hover:text-white/85 transition-all"
+                                            >
+                                                Descartar
+                                            </button>
+                                            <button
+                                                onClick={() => onJuzgarAviso(inc, grave ? 'LEVE' : 'GRAVE')}
+                                                title={`Reclasificar como ${grave ? 'LEVE' : 'GRAVE'}`}
+                                                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${
+                                                    grave
+                                                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-400 hover:text-bkg-deep'
+                                                        : 'bg-red-500/10 border-red-500/30 text-red-300 hover:bg-red-500 hover:text-white'
+                                                }`}
+                                            >
+                                                {grave ? 'Pasar a leve' : 'Pasar a grave'}
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
                             </div>
                         ) : resolviendo === inc.id ? (
                             <div className="mt-2.5 space-y-2">

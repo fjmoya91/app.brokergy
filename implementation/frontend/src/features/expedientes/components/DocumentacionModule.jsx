@@ -1755,14 +1755,56 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     //     confirma una persona— pero sí se pintan: describen un descuadre que
     //     existe AHORA, y se apagan solas en cuanto se corrige la fecha, sin
     //     dejar una incidencia muerta que alguien tenga que ir a subsanar.
-    const incidenciasSlot = React.useMemo(() => {
+    //     Un aviso calculado también se JUZGA (`documentacion.avisos_calculados`):
+    //     se descarta —deja de salir— o se reclasifica. La clave es `tipo:slot` y
+    //     la HUELLA es su evidencia: si cambian las fechas, el juicio caduca y el
+    //     aviso vuelve. Descartar un aviso calculado "para siempre" escondería el
+    //     descuadre siguiente, que ya sería otro descuadre.
+    const juicioAvisos = local.avisos_calculados || null;
+    const { incidenciasSlot, avisosDescartados } = React.useMemo(() => {
         const registradas = (expediente?.documentacion?.incidencias || []);
-        const detectadas = incidenciasFechasCifo(expediente).map((d, i) => ({
-            ...d, id: `auto_${d.tipo}_${i}`, estado: 'ABIERTA', detectada: true,
-            texto: `${d.titulo}. ${d.texto}`, procedencia: 'REVISION_INTERNA',
-        }));
-        return [...registradas, ...detectadas];
-    }, [expediente]);
+        const juicios = juicioAvisos || {};
+        const detectadas = [];
+        const descartados = [];
+        incidenciasFechasCifo(expediente).forEach((d, i) => {
+            const base = {
+                ...d, id: `auto_${d.tipo}_${i}`, estado: 'ABIERTA', detectada: true,
+                texto: `${d.titulo}. ${d.texto}`, procedencia: 'REVISION_INTERNA',
+            };
+            const j = juicios[`${d.tipo}:${d.slot || ''}`];
+            // ⚠️ La huella se compara en MAYÚSCULAS: `normalizeData` del PUT deja los
+            // strings de `documentacion` en mayúsculas, así que la guardada nunca
+            // casaría carácter a carácter con la evidencia recién calculada — y el
+            // juicio no valdría nunca (mismo gotcha que `cee_source`).
+            const vigente = j && String(j.huella || '').toUpperCase() === String(d.evidencia || '').toUpperCase();
+            if (vigente && j.estado === 'DESCARTADO') { descartados.push({ ...base, juicio: j }); return; }
+            detectadas.push(vigente && (j.estado === 'GRAVE' || j.estado === 'LEVE')
+                ? { ...base, severidad: j.estado, reclasificado: true }
+                : base);
+        });
+        return { incidenciasSlot: [...registradas, ...detectadas], avisosDescartados: descartados };
+    }, [expediente, juicioAvisos]);
+
+    /** Guarda (o retira, con `estado` a null) el juicio sobre un aviso calculado. */
+    const juzgarAviso = (inc, estado) => {
+        const clave = `${inc.tipo}:${inc.slot || ''}`;
+        setLocal(prev => {
+            const avisos = { ...(prev.avisos_calculados || {}) };
+            if (estado) {
+                avisos[clave] = {
+                    estado,
+                    huella: inc.evidencia || '',
+                    por: user?.nombre || user?.email || 'STAFF',
+                    at: new Date().toISOString(),
+                };
+            } else {
+                delete avisos[clave];
+            }
+            const next = { ...prev, avisos_calculados: avisos };
+            onSave({ documentacion: next });
+            return next;
+        });
+    };
 
     const incSlot = (slot) => incidenciasDeSlot(incidenciasSlot, slot);
     /** Resumen de la incidencia de un CAMPO de documentacion (para pintar su slot). */
@@ -3446,6 +3488,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 slot={verIncidenciasSlot.slot}
                                 incidencias={incSlot(verIncidenciasSlot.slot)}
                                 onCambio={() => onIncidenciasChanged?.()}
+                                onJuzgarAviso={juzgarAviso}
                             />
                         </div>
                     </div>
@@ -3522,6 +3565,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                     incidencias={incSlot(SLOT_DE_CAMPO[managingSigned.field])}
                                     onCambio={() => onIncidenciasChanged?.()}
                                     variant="aside"
+                                    onJuzgarAviso={juzgarAviso}
                                 />
                             ) : (
                                 <p className="text-[10px] font-black uppercase tracking-widest text-white/25 flex items-center gap-2">
@@ -3529,6 +3573,20 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                     Sin incidencias en este documento
                                 </p>
                             )}
+                            {/* Lo descartado no desaparece del todo: se puede volver a
+                                mostrar. Un aviso que se apaga sin dejar rastro es un aviso
+                                que nadie puede revisar cuando cambie de opinión. */}
+                            {avisosDescartados.filter(a => a.slot === SLOT_DE_CAMPO[managingSigned.field]).map(a => (
+                                <div key={a.id} className="flex items-center gap-2 text-[10px] text-white/30">
+                                    <span className="flex-1 truncate" title={a.titulo}>Descartado: {a.titulo}</span>
+                                    <button
+                                        onClick={() => juzgarAviso(a, null)}
+                                        className="shrink-0 px-2 py-1 rounded-lg border border-white/10 text-white/40 text-[9px] font-black uppercase tracking-widest hover:text-white/80 hover:border-white/25 transition-all"
+                                    >
+                                        Volver a mostrar
+                                    </button>
+                                </div>
+                            ))}
                             {/* Aviso: Cesión firmada electrónicamente pero solo por el cliente —
                                 falta la contrafirma de Brokergy antes de poder validar. */}
                             {managingSigned.field === 'anexo_cesion_signed_link' && !local.cesion_firmado_brokergy && local.anexo_cesion_firma_tipo === 'electronica' && (
