@@ -177,23 +177,41 @@ async function uploadCeeFile(driveFolderId, phase, numExp, slotId, buffer, mimeT
 // Sella el seguimiento, la fecha de registro, avanza el estado global y dispara la
 // MISMA notificación al admin (email con enlace one-tap "Notificar al Cliente").
 // Idempotente: si ya estaba REGISTRADO no repite.
-async function markCeeRegistradoFromUpload(exp, phase) {
+//
+// `opts.fechaRegistro` es la fecha REAL que se ha leído del justificante
+// (`registroCeeOcrService`). Sin ella se cae al día de la subida, que es lo que se
+// hacía siempre y solo es cierto cuando el técnico sube el justificante el mismo
+// día: un registro viejo quedaba fechado hoy y con él el plazo de la obra, el
+// devengo del certificador y el cruce con las facturas.
+async function markCeeRegistradoFromUpload(exp, phase, opts = {}) {
     const ph = normalizePhase(phase);
     const segKey = ph === 'final' ? 'cee_final' : 'cee_inicial';
     const phaseLabelUpper = ph === 'final' ? 'CEE FINAL' : 'CEE INICIAL';
+    const fechaKey = ph === 'final' ? 'fecha_registro_cee_final' : 'fecha_registro_cee_inicial';
 
     // Re-fetch fresco para no pisar con copia obsoleta.
     const { data: fresh } = await supabase.from('expedientes').select('*').eq('id', exp.id).single();
     if (!fresh) return { ok: false };
     const seguimiento = fresh.seguimiento || {};
-    if (seguimiento[segKey] === 'REGISTRADO') return { ok: true, already: true };
+    const today = new Date().toISOString().split('T')[0];
+    const fechaReal = opts.fechaRegistro || today;
+
+    if (seguimiento[segKey] === 'REGISTRADO') {
+        // Ya estaba registrado: no se repite la transición ni el email. Pero si la
+        // fecha está en blanco (migrados, sellados a mano) y ahora sí la tenemos
+        // leída del justificante, se rellena — es un hueco, no una corrección.
+        if (opts.fechaRegistro && !fresh.documentacion?.[fechaKey]) {
+            const doc = { ...(fresh.documentacion || {}), [fechaKey]: opts.fechaRegistro };
+            await supabase.from('expedientes').update({ documentacion: doc, updated_at: new Date().toISOString() }).eq('id', exp.id);
+            return { ok: true, already: true, fechaRegistro: opts.fechaRegistro };
+        }
+        return { ok: true, already: true, fechaRegistro: fresh.documentacion?.[fechaKey] || null };
+    }
 
     applyStatus(seguimiento, segKey, 'REGISTRADO');
 
     const docObj = fresh.documentacion || {};
-    const today = new Date().toISOString().split('T')[0];
-    if (ph === 'final') docObj.fecha_registro_cee_final = today;
-    else docObj.fecha_registro_cee_inicial = today;
+    docObj[fechaKey] = fechaReal;
 
     // Registrado el CEE inicial, la pelota pasa al instalador: PTE. FIN OBRA.
     // Antes esto solo ocurría si el estado era EXACTAMENTE 'PTE. CEE INICIAL',
@@ -217,10 +235,14 @@ async function markCeeRegistradoFromUpload(exp, phase) {
     if (newEstado !== fresh.estado) {
         historial.push({ id: Date.now().toString() + '_status', estado: newEstado, fecha: new Date().toISOString(), usuario: 'CERTIFICADOR' });
     }
+    // La fecha va EN el historial: es lo que permite reconstruir, meses después, si
+    // el registro se selló con lo que decía el papel o con el día en que se subió.
+    const comoISO = (f) => { const [a, m, d] = String(f).split('-'); return d ? `${d}/${m}/${a}` : f; };
     historial.push({
         id: Date.now().toString() + '_reg_upl',
         tipo: 'informativo',
-        texto: `El certificador ha subido el justificante de registro del ${phaseLabelUpper} desde el enlace público. ${phaseLabelUpper} REGISTRADO.`,
+        texto: `El certificador ha subido el justificante de registro del ${phaseLabelUpper} desde el enlace público. ${phaseLabelUpper} REGISTRADO el ${comoISO(fechaReal)}`
+            + (opts.fechaRegistro ? ' (leída del justificante).' : ' (fecha de la subida: el justificante no se pudo leer).'),
         fecha: new Date().toISOString(),
         usuario: 'CERTIFICADOR'
     });
@@ -259,7 +281,7 @@ async function markCeeRegistradoFromUpload(exp, phase) {
         } catch (e) { console.error('[cee markRegistrado admin email]', e.message); }
     });
 
-    return { ok: true, newEstado };
+    return { ok: true, newEstado, fechaRegistro: fechaReal };
 }
 
 module.exports = {

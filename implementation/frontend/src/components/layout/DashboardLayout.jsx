@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../context/AuthContext';
 import { buildAccentVars } from '../../utils/partnerTheme';
@@ -61,10 +61,34 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
     // botones/acentos del portal con su color (mismo mecanismo que la landing).
     const accentVars = isPartner ? buildAccentVars(miPrescriptor?.landing_color_primary) : null;
 
+    // EL QUE SCROLLEA ES <main>, no la ventana: la barra lateral es fija y el
+    // contenido se desplaza dentro de ese contenedor. Como <main> es el MISMO
+    // elemento en todas las pestañas, su `scrollTop` SOBREVIVE al cambio de
+    // vista: se entraba en Expedientes con la pantalla ya bajada y el buscador
+    // (y el resumen) quedaban fuera de la vista, obligando a subir a mano.
+    // Un `window.scrollTo` no arregla esto — la ventana nunca se movió.
+    const mainRef = useRef(null);
+    const scrollMainTop = () => {
+        // 'auto': al cambiar de pantalla no se anima nada; un desplazamiento
+        // suave aquí se ve como que la vista "se cae" al entrar.
+        mainRef.current?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    };
+
+    // Cambio de pestaña (también el programático: los deep-links del cuadro de
+    // mando y del parte diario) → arriba del todo. useLayoutEffect y no
+    // useEffect: se aplica antes de pintar, así no hay parpadeo del contenido
+    // nuevo asomando por la mitad.
+    useLayoutEffect(() => { scrollMainTop(); }, [activeTab]);
+
     // Navegación en móvil: cambia de pestaña y cierra el drawer.
     // En desktop el drawer no existe, así que setMobileMenuOpen(false) es inocuo.
     const go = (tab) => {
         onTabChange(tab);
+        // También aquí, y no solo en el efecto: pulsar la pestaña en la que YA
+        // estás remonta la vista (navNonce en App.jsx) pero no cambia
+        // `activeTab`, así que el efecto no dispararía y es justo el gesto con
+        // el que se vuelve al principio de una lista larga.
+        scrollMainTop();
         setMobileMenuOpen(false);
     };
 
@@ -451,7 +475,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
             {/* max-md:overflow-x-hidden — en móvil ningún contenido provoca scroll horizontal
                 de página (evita que aparezca la barra y "descoloque" al hacer scroll vertical).
                 Las tablas que necesitan scroll-x tienen su propio contenedor overflow-x-auto. */}
-            <main className="flex-1 overflow-y-auto max-md:overflow-x-hidden h-full relative">
+            <main ref={mainRef} className="flex-1 overflow-y-auto max-md:overflow-x-hidden h-full relative">
                 {/* ====== TOP BAR MÓVIL (hamburguesa + logo) — solo en móvil ====== */}
                 <div className="md:hidden sticky top-0 z-30 flex items-center gap-3 h-14 px-3 bg-bkg-deep/95 backdrop-blur-md border-b border-white/[0.06]">
                     <button

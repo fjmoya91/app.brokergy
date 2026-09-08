@@ -4213,12 +4213,104 @@ router.post('/:id/rite/ocr', staffOnly, (req, res, next) => {
     }
 });
 
+// ─── POST /api/expedientes/:id/cee/fecha-registro/leer ────────────────────────
+// Relee el JUSTIFICANTE DE REGISTRO que ya está en Drive y dice qué fecha pone.
+//
+// Existe por los expedientes que se sellaron ANTES de que la app supiera leerlo: su
+// `fecha_registro_cee_*` es el día en que alguien subió el papel, no el día en que
+// se registró el certificado. Obligar a descargar el PDF y volverlo a subir sería
+// pasear un fichero que ya tenemos.
+//
+// Por defecto solo PROPONE (`aplicar: false`): la fecha que hay puesta puede
+// haberla corregido una persona a mano y de ella cuelgan el plazo de la obra y la
+// facturación del certificador — misma regla que el OCR del RITE (se rellenan
+// huecos, no se pisa lo escrito). Con `aplicar: true` la escribe, que es lo que
+// hace el botón cuando el usuario ve las dos fechas delante.
+//
+// staffOnly: no hay importes, pero es documentación del expediente y cada lectura
+// cuesta una llamada de pago.
+router.post('/:id/cee/fecha-registro/leer', staffOnly, async (req, res) => {
+    try {
+        const phase = req.body?.phase === 'final' ? 'final' : 'inicial';
+        const aplicar = req.body?.aplicar === true;
+        const fechaKey = phase === 'final' ? 'fecha_registro_cee_final' : 'fecha_registro_cee_inicial';
+
+        const { data: exp } = await supabase
+            .from('expedientes')
+            .select('id, oportunidad_id, numero_expediente, documentacion, cee')
+            .eq('id', req.params.id)
+            .maybeSingle();
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const ceeUploadService = require('../services/ceeUploadService');
+        const driveService = require('../services/driveService');
+
+        // El enlace del slot es lo primero; si no está (migrados, subidas a mano),
+        // se barre la carpeta de la fase, que es la fuente de verdad (regla 20).
+        let link = exp.cee?.cee_files?.[phase]?.registro || null;
+        if (!link) {
+            const folderId = await ceeUploadService.resolveDriveFolderId(exp);
+            const enCarpeta = folderId ? await ceeUploadService.scanCeeSection(folderId, phase) : {};
+            link = enCarpeta?.registro?.link || null;
+        }
+        const fileId = driveIdFromLink(link);
+        if (!fileId) {
+            return res.status(400).json({ error: `No hay justificante de registro del CEE ${phase === 'final' ? 'final' : 'inicial'} en Drive.` });
+        }
+
+        let pdf;
+        try { pdf = await driveService.getFileContent(fileId); }
+        catch (e) { return res.status(400).json({ error: 'No se pudo descargar el justificante de Drive: ' + e.message }); }
+        if (!pdf?.length) return res.status(400).json({ error: 'No se pudo descargar el justificante de Drive.' });
+
+        const { resolverFechaRegistro } = require('../services/registroCeeOcrService');
+        const lectura = await resolverFechaRegistro(pdf);
+        const actual = exp.documentacion?.[fechaKey] || null;
+
+        // Sin fecha legible no hay nada que proponer: la que hay se queda como está.
+        if (lectura.origen !== 'justificante') {
+            return res.json({ ok: false, phase, actual, leida: null, aviso: lectura.aviso, frase: lectura.frase, aplicada: false });
+        }
+
+        let aplicada = false;
+        if (aplicar && lectura.fecha !== actual) {
+            const doc = { ...(exp.documentacion || {}), [fechaKey]: lectura.fecha };
+            const historial = Array.isArray(doc.historial) ? [...doc.historial] : [];
+            historial.push({
+                id: Date.now().toString() + '_reg_fecha',
+                tipo: 'informativo',
+                texto: `Fecha de registro del CEE ${phase === 'final' ? 'FINAL' : 'INICIAL'} corregida a ${lectura.fecha}`
+                    + `${actual ? ` (antes ${actual})` : ''} leyéndola del justificante`
+                    + `${lectura.frase ? `: «${lectura.frase}»` : '.'}`,
+                fecha: new Date().toISOString(),
+                usuario: req.user?.perfilCompleto?.nombre || 'STAFF',
+            });
+            doc.historial = historial;
+            const { error } = await supabase.from('expedientes').update({ documentacion: doc, updated_at: new Date().toISOString() }).eq('id', exp.id);
+            if (error) return res.status(500).json({ error: 'No se pudo guardar la fecha: ' + error.message });
+            aplicada = true;
+        }
+
+        res.json({
+            ok: true, phase, actual,
+            leida: lectura.fecha,
+            coincide: actual === lectura.fecha,
+            numero_registro: lectura.numero_registro,
+            frase: lectura.frase,
+            aplicada,
+        });
+    } catch (err) {
+        console.error('Error POST expedientes/:id/cee/fecha-registro/leer:', err);
+        res.status(500).json({ error: 'Error leyendo el justificante de registro', details: err.message });
+    }
+});
+
 // ─── POST /api/expedientes/:id/documents/upload ───────────────────────────────
 // Sube un documento genérico a una ruta de subcarpetas en Drive.
 // Body JSON: { base64, fileName, mimeType, subfolders: ["1.CEE", "CEE INICIAL"] }
 router.post('/:id/documents/upload', enforceAuth, async (req, res) => {
     try {
-        const { base64, fileName, mimeType, subfolders = [] } = req.body;
+        const { base64, fileName, mimeType, subfolders = [], slotId } = req.body;
         if (!base64 || base64.trim() === '' || !fileName) {
             return res.status(400).json({ error: 'base64 y fileName son obligatorios y no pueden estar vacíos' });
         }
@@ -4300,7 +4392,25 @@ router.post('/:id/documents/upload', enforceAuth, async (req, res) => {
             console.warn(`[POST /documents/upload] No se pudo hacer público el archivo ${result.id}: ${permErr.message}`);
         }
 
-        res.json({ drive_link: result.link, drive_id: result.id });
+        // El JUSTIFICANTE DE REGISTRO del CEE trae impresa su fecha, y es la que hay
+        // que sellar: hasta ahora se sellaba el día de la subida, y un registro de
+        // hace semanas —lo normal cuando alguien pone un expediente al día— quedaba
+        // fechado hoy. Se devuelve leída para que la rejilla la use en lugar de
+        // `today`; si no se puede leer, `fecha_registro` viene a null y la rejilla
+        // sigue haciendo lo de siempre.
+        const { fechaRegistroDeSubida } = require('../services/registroCeeOcrService');
+        const lectura = await fechaRegistroDeSubida({ slotId, fileName, buffer: fileBuffer });
+
+        res.json({
+            drive_link: result.link,
+            drive_id: result.id,
+            ...(lectura ? {
+                fecha_registro: lectura.fecha,
+                fecha_registro_origen: lectura.origen,
+                fecha_registro_aviso: lectura.aviso,
+                fecha_registro_frase: lectura.frase,
+            } : {}),
+        });
     } catch (err) {
         console.error('Error POST expedientes/:id/documents/upload:', err);
         res.status(500).json({ error: 'Error al subir el documento', details: err.message });

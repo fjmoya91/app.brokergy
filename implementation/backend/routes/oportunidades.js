@@ -421,11 +421,25 @@ router.get('/', requireAuth, async (req, res) => {
                     }
                 }
                 const { data: retryData, error: retryError } = await retryQuery;
-                if (retryError) return res.status(500).json({ error: retryError.message });
+                if (retryError) return res.status(503).json({
+                    error: 'No hemos podido cargar las oportunidades. Vuelve a intentarlo en unos segundos.',
+                    code: 'OPORTUNIDADES_UNAVAILABLE',
+                    details: retryError.message
+                });
                 const retryVisible = (retryData || []).filter(o => o?.datos_calculo?.origen !== 'migracion_xml');
                 return res.status(200).json(isNonAdmin(req) ? retryVisible.map(stripPartnerMargin) : retryVisible);
             }
-            return res.status(200).json([]); // Devolvemos array vacío para evitar crashes en el front
+            // Un error de la BD NO puede presentarse como "no tienes ninguna oportunidad".
+            // Antes esto devolvía `200 []` para "evitar crashes en el front", y el precio
+            // era peor que un crash: al partner se le pintaba su cartera a CERO —lista
+            // vacía, 0,00 € de bono, 0,00 € de presupuesto— con aspecto de dato bueno, y
+            // eso se lee como que le hemos borrado el trabajo. Un 503 lo dice como lo que
+            // es, deja la lista anterior en pantalla y se puede reintentar.
+            return res.status(503).json({
+                error: 'No hemos podido cargar las oportunidades. Vuelve a intentarlo en unos segundos.',
+                code: 'OPORTUNIDADES_UNAVAILABLE',
+                details: error.message
+            });
         }
         // Ocultar oportunidades "fantasma" creadas por la migración de expedientes desde XML.
         // A los no-ADMIN les quitamos el margen del payload (precio S.O., comisión, beneficio).

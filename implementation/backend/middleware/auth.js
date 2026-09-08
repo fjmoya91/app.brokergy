@@ -61,8 +61,27 @@ const requireAuth = async (req, res, next) => {
             .eq('auth_user_id', user.id)
             .maybeSingle();
 
+        // ─── Un fallo al LEER el perfil NO puede volverse un usuario en blanco ───
+        // Antes esto solo se registraba y se seguía adelante: el usuario salía con
+        // `rol_nombre`, `id_usuario` y `prescriptor_id` a null, y la app le servía —con
+        // un HTTP 200— un menú recortado, "USUARIO" en vez de su acrónimo y una cartera
+        // VACÍA (GET /oportunidades acaba filtrando por `creador_id = null`). Un partner
+        // con 19 oportunidades veía "0 oportunidades · 0,00 €" con toda la apariencia de
+        // normalidad, que se lee como que le hemos borrado el trabajo.
+        //
+        // Y como esa identidad se cacheaba 5 minutos (`setCache` más abajo), el susto
+        // SOBREVIVÍA a la recuperación de la base de datos: recargar no lo arreglaba.
+        //
+        // Medido el 08/09/2026: Postgres se cayó y arrancó en recuperación, Cloudflare
+        // sirvió "521 Web server is down" delante de Supabase durante ~1 min, y de ahí
+        // salió justo esa pantalla. Ante un error de LECTURA se corta con 503 —"no lo
+        // sé ahora mismo"—, no se cachea nada y el frontend puede reintentar.
         if (profileError) {
             console.error('[Auth Middleware] Error al buscar perfil:', profileError.message);
+            return res.status(503).json({
+                error: 'No hemos podido cargar tu perfil. Vuelve a intentarlo en unos segundos.',
+                code: 'PROFILE_UNAVAILABLE'
+            });
         }
 
         if (userProfile && userProfile.activo === false) {
@@ -91,7 +110,17 @@ const requireAuth = async (req, res, next) => {
                 .eq('representante_legal_id', userProfile.id_usuario)
                 .maybeSingle();
 
-            if (presErr) console.error('[Auth] Error buscando partner:', presErr.message);
+            // Mismo criterio que arriba: sin `prescriptor_id` el partner deja de ver
+            // las oportunidades de SU empresa (el filtro de GET /oportunidades cae a
+            // `creador_id`), así que un fallo de lectura aquí tampoco puede pasar por
+            // "este usuario no tiene empresa".
+            if (presErr) {
+                console.error('[Auth] Error buscando partner:', presErr.message);
+                return res.status(503).json({
+                    error: 'No hemos podido cargar los datos de tu empresa. Vuelve a intentarlo en unos segundos.',
+                    code: 'PROFILE_UNAVAILABLE'
+                });
+            }
 
             userData.prescriptor_id = isPrescriptor?.id_empresa || null;
             userData.razon_social = isPrescriptor?.razon_social || null;

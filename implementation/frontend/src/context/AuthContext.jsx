@@ -18,6 +18,11 @@ const getCachedProfile = () => {
 
 const setCachedProfile = (profile) => {
   try {
+    // Sin rol no es un perfil: es lo que quedaba cuando la lectura fallaba y se
+    // servía un usuario en blanco con 200. Guardarlo dejaba el fantasma en el
+    // navegador, sobreviviendo al reinicio de la pestaña. El backend ya no puede
+    // producirlo, pero la caché no tiene por qué fiarse de eso.
+    if (profile && !(profile.rol || '').toUpperCase()) return;
     if (profile) {
       const normalizedRol = (profile.rol || '').toUpperCase();
       const toCache = {
@@ -48,6 +53,12 @@ export const AuthProvider = ({ children }) => {
   // Dashboard antes de saber si el token es válido, generando 401 cuando la
   // sesión está caducada (caso típico: link "Aceptar Encargo" desde email).
   const [loading, setLoading] = useState(true);
+  // El perfil de negocio (rol, empresa, logo) no se ha podido leer. Es distinto de
+  // "no hay sesión": la sesión es válida, lo que falta es saber QUIÉN eres. Sin
+  // esta señal la app pintaba el dashboard con el usuario pelado de Supabase —sin
+  // rol, sin acrónimo, sin logo— y eso se ve como "USUARIO / LOGO PARTNER" y una
+  // cartera vacía: la app afirmando una identidad que no tiene.
+  const [profileError, setProfileError] = useState(null);
   
   // Refs para controlar el flujo sin depender de closures obsoletas
   const hasRichProfile = useRef(!!cachedProfile?.rol);
@@ -175,9 +186,18 @@ export const AuthProvider = ({ children }) => {
             hasRichProfile.current = true;
             setCachedProfile(enrichedUser);
             setUser(enrichedUser);
+            setProfileError(null);
         }
     } catch (e) {
         console.error("Error cargando perfil:", e.response?.data || e.message);
+        // Con un perfil rico ya en mano (caché de localStorage o carga anterior) un
+        // fallo pasajero no debe echar al usuario de lo que está haciendo: se sigue
+        // con lo que hay. Sin él no se puede seguir: `user` sería el usuario crudo de
+        // Supabase, sin rol, y la app le serviría un menú recortado y datos a cero
+        // como si fueran ciertos. Ahí se para y se ofrece reintentar.
+        if (!hasRichProfile.current) {
+            setProfileError(e.response?.data?.error || 'No hemos podido cargar tu perfil.');
+        }
     } finally {
         setLoading(false);
         profileFetchInProgress.current = false;
@@ -234,8 +254,21 @@ export const AuthProvider = ({ children }) => {
       return supabase.auth.resetPasswordForEmail(email);
   };
 
+  // Reintento del perfil desde la pantalla de "no hemos podido cargar tu perfil".
+  // NO toca `loading`: el provider monta a los hijos con `{!loading && children}`,
+  // así que ponerlo a true desmontaría la propia pantalla desde la que se pulsa y
+  // dejaría el navegador en blanco mientras dura el reintento.
+  const retryProfile = async () => {
+      setProfileError(null);
+      const { data: { session: fresh } } = await supabase.auth.getSession();
+      setSession(fresh);
+      setAxiosAuth(fresh?.access_token);
+      if (fresh?.user) return fetchBusinessProfile(fresh);
+      setUser(null);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, session, loading, signIn, signOut, resetPassword, refreshProfile: fetchBusinessProfile }}>
+    <AuthContext.Provider value={{ user, session, loading, profileError, retryProfile, signIn, signOut, resetPassword, refreshProfile: fetchBusinessProfile }}>
       {!loading && children}
     </AuthContext.Provider>
   );

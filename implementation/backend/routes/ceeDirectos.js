@@ -1036,6 +1036,7 @@ router.post('/:id/notify-registration', internalOnly, async (req, res) => {
         // Solo se comprueba al ENTRAR en REGISTRADO: los ya sellados —los 17
         // importados del histórico, cuyo justificante está en la carpeta pero con
         // los nombres de la época manual— no se tocan ni se vuelven a validar.
+        let justificanteId = null;
         if (row.seguimiento?.[key] !== 'REGISTRADO') {
             const enCarpeta = await uploads.scanSection(row, phase);
             if (!enCarpeta.registro) {
@@ -1044,13 +1045,27 @@ router.post('/:id/notify-registration', internalOnly, async (req, res) => {
                         + 'es lo que marca la fase como registrada, y sin él el expediente se daría por terminado sin la prueba.'
                 });
             }
+            justificanteId = enCarpeta.registro.id || null;
         }
 
         const seguimiento = { ...(row.seguimiento || {}), [key]: 'REGISTRADO' };
         const patch = { seguimiento };
-        if (req.body?.fecha_registro) {
+        let fechaRegistro = req.body?.fecha_registro || null;
+        // Aquí se AFIRMA que la fase está registrada sin subir nada: el justificante
+        // ya estaba en la carpeta y su fecha no la ha leído nadie. Se lee ahora, o la
+        // fase quedaría REGISTRADA sin fecha — que es justo el hueco que deja sin
+        // devengo la facturación del certificador. Best-effort: si no se puede leer,
+        // se marca igual (el papel existe, que es lo que exige la comprobación).
+        if (!fechaRegistro && justificanteId && !row.documentacion?.[`fecha_registro_${key}`]) {
+            try {
+                const pdf = await require('../services/driveService').getFileContent(justificanteId);
+                const lectura = await require('../services/registroCeeOcrService').resolverFechaRegistro(pdf);
+                if (lectura.origen === 'justificante') fechaRegistro = lectura.fecha;
+            } catch (e) { console.warn('[cee-directos notify-registration] fecha:', e.message); }
+        }
+        if (fechaRegistro) {
             const doc = { ...(row.documentacion || {}) };
-            doc[`fecha_registro_${key}`] = req.body.fecha_registro;
+            doc[`fecha_registro_${key}`] = fechaRegistro;
             patch.documentacion = doc;
         }
         const guardado = await svc.guardar(row.id, patch, { seguimientoPrev: row.seguimiento });
@@ -1082,6 +1097,78 @@ router.post('/:id/notify-registration', internalOnly, async (req, res) => {
 // ════════════════════════════════════════════════════════════════════════════
 // DOCUMENTOS
 // ════════════════════════════════════════════════════════════════════════════
+
+// ─── POST /:id/cee/fecha-registro/leer ──────────────────────────────────────
+// Gemela de la del CAE: el módulo CEE es el MISMO componente y llama a
+// `${apiBase}/${id}/cee/fecha-registro/leer` sin saber en qué negocio está. Un
+// endpoint declarado solo en una de las dos rutas deja el botón muerto en la otra.
+//
+// Relee el justificante que ya está en Drive y dice qué fecha pone. Por defecto
+// solo PROPONE; con `aplicar: true` la escribe.
+router.post('/:id/cee/fecha-registro/leer', staffOnly, async (req, res) => {
+    try {
+        const phase = req.body?.phase === 'final' ? 'final' : 'inicial';
+        const aplicar = req.body?.aplicar === true;
+        const fechaKey = phase === 'final' ? 'fecha_registro_cee_final' : 'fecha_registro_cee_inicial';
+
+        const row = await svc.cargar(req.params.id, { conRelaciones: false });
+        if (!row) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        let link = row.cee?.cee_files?.[phase]?.registro || null;
+        let fileId = null;
+        if (!link) {
+            const enCarpeta = await uploads.scanSection(row, phase);
+            fileId = enCarpeta?.registro?.id || null;
+            link = enCarpeta?.registro?.link || null;
+        }
+        if (!fileId) {
+            const m = /\/file\/d\/([A-Za-z0-9_-]{10,})/.exec(String(link || ''))
+                || /[?&]id=([A-Za-z0-9_-]{10,})/.exec(String(link || ''));
+            fileId = m ? m[1] : null;
+        }
+        if (!fileId) return res.status(400).json({ error: 'No hay justificante de registro en Drive para esa fase.' });
+
+        const driveService = require('../services/driveService');
+        let pdf;
+        try { pdf = await driveService.getFileContent(fileId); }
+        catch (e) { return res.status(400).json({ error: 'No se pudo descargar el justificante de Drive: ' + e.message }); }
+        if (!pdf?.length) return res.status(400).json({ error: 'No se pudo descargar el justificante de Drive.' });
+
+        const { resolverFechaRegistro } = require('../services/registroCeeOcrService');
+        const lectura = await resolverFechaRegistro(pdf);
+        const actual = row.documentacion?.[fechaKey] || null;
+
+        if (lectura.origen !== 'justificante') {
+            return res.json({ ok: false, phase, actual, leida: null, aviso: lectura.aviso, frase: lectura.frase, aplicada: false });
+        }
+
+        let aplicada = false;
+        if (aplicar && lectura.fecha !== actual) {
+            await svc.guardar(row.id, {
+                documentacion: { ...(row.documentacion || {}), [fechaKey]: lectura.fecha }
+            }, { seguimientoPrev: row.seguimiento });
+            await svc.anotarHistorial(row.id, {
+                tipo: 'CEE',
+                texto: `FECHA DE REGISTRO DEL ${phase === 'final' ? 'CEE FINAL' : 'CEE'} CORREGIDA A ${lectura.fecha}`
+                    + `${actual ? ` (ANTES ${actual})` : ''} LEYÉNDOLA DEL JUSTIFICANTE`,
+                usuario: req.user?.email || null
+            });
+            aplicada = true;
+        }
+
+        res.json({
+            ok: true, phase, actual,
+            leida: lectura.fecha,
+            coincide: actual === lectura.fecha,
+            numero_registro: lectura.numero_registro,
+            frase: lectura.frase,
+            aplicada,
+        });
+    } catch (err) {
+        console.error('[cee-directos fecha-registro/leer]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // ─── POST /:id/documents/upload ─────────────────────────────────────────────
 //
@@ -1121,15 +1208,28 @@ router.post('/:id/documents/upload', internalOnly, async (req, res) => {
 
         if (fase) {
             const slot = uploads.CEE_SLOTS.find(s => s.id === slotId)?.id || uploads.matchSlot(fileName);
+            const buffer = Buffer.from(base64, 'base64');
             try {
                 const subido = await uploads.uploadFile(
-                    row, fase, slot, Buffer.from(base64, 'base64'), mimeType,
+                    row, fase, slot, buffer, mimeType,
                     // Sin slot reconocible es el cajón "OTROS": conserva su nombre.
                     // El original si el navegador lo manda; si no, se le quita al
                     // renombrado el prefijo del expediente para no doblarlo.
                     slot ? {} : { nombreLibre: originalName || fileName.replace(/^\S+\s+–\s+/, '') }
                 );
-                return res.json({ drive_link: subido.link, drive_id: subido.id, fileName: subido.fileName });
+                // El justificante de registro trae impresa su fecha: se lee y se
+                // devuelve para que la rejilla selle ÉSA y no el día de la subida.
+                const { fechaRegistroDeSubida } = require('../services/registroCeeOcrService');
+                const lectura = await fechaRegistroDeSubida({ slotId: slot, fileName, buffer });
+                return res.json({
+                    drive_link: subido.link, drive_id: subido.id, fileName: subido.fileName,
+                    ...(lectura ? {
+                        fecha_registro: lectura.fecha,
+                        fecha_registro_origen: lectura.origen,
+                        fecha_registro_aviso: lectura.aviso,
+                        fecha_registro_frase: lectura.frase,
+                    } : {}),
+                });
             } catch (e) {
                 return res.status(502).json({ error: `Error al subir el archivo a Drive: ${e.message}` });
             }

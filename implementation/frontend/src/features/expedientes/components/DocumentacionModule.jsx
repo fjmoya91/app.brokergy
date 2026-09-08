@@ -3539,6 +3539,42 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                             )}
                           </div>
 
+                          {/* LA CIFRA QUE SE ESTÁ COMPROBANDO. Revisar el PDF de facturas es
+                              cuadrar lo que dice el papel con lo que consta registrado —
+                              `Σ facturas[].importe_sin_iva` ES la inversión que declara el
+                              Anexo I y la que viaja al verificador. Tenerla en otra pestaña
+                              obligaba a memorizar un importe mientras se pasan cinco páginas.
+                              Solo ADMIN: aquí hay dinero. */}
+                          {SLOT_DE_CAMPO[managingSigned.field] === 'facturas' && user?.rol === 'ADMIN' && (local.facturas || []).length > 0 && (
+                              <div className="px-4 sm:px-5 py-3 border-t border-white/5 shrink-0 bg-brand/[0.03]">
+                                  <div className="flex items-baseline justify-between gap-3">
+                                      <p className="text-[9px] font-black uppercase tracking-widest text-white/40">
+                                          Inversión declarada · sin IVA
+                                      </p>
+                                      <p className="text-base font-black text-white tabular-nums">
+                                          {(local.facturas || []).reduce((s, f) => s + (Number(f?.importe_sin_iva) || 0), 0)
+                                              .toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                                      </p>
+                                  </div>
+                                  {/* El desglose, porque lo que se coteja contra el PDF es
+                                      factura a factura: un total cuadrado por casualidad
+                                      (una de más y otra de menos) no se detecta con la suma. */}
+                                  <ul className="mt-1.5 max-h-24 overflow-y-auto custom-scrollbar space-y-0.5">
+                                      {(local.facturas || []).map((f, i) => (
+                                          <li key={i} className="flex items-baseline justify-between gap-2 text-[10px] text-white/45">
+                                              <span className="truncate">
+                                                  {f?.numero_factura || `Factura ${i + 1}`}
+                                                  {f?.fecha_factura && <span className="text-white/25"> · {String(f.fecha_factura).slice(0, 10).split('-').reverse().join('/')}</span>}
+                                              </span>
+                                              <span className="tabular-nums shrink-0 text-white/70">
+                                                  {(Number(f?.importe_sin_iva) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                                              </span>
+                                          </li>
+                                      ))}
+                                  </ul>
+                              </div>
+                          )}
+
                           {/* Acciones de revisión — ancladas abajo */}
                           <div className="p-4 sm:p-5 border-t border-white/5 shrink-0 space-y-2.5">
                             {/* Principales: validar / rechazar */}

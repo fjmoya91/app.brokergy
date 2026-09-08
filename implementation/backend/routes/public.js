@@ -1138,13 +1138,25 @@ router.post('/cee-upload/:expedienteId/:slot', uploadDocsSingle, async (req, res
         await supabase.from('expedientes').update({ cee: ceeActualizado, updated_at: new Date().toISOString() }).eq('id', expedienteId);
 
         // Al subir el REGISTRO → misma notificación/transición que la app.
-        let registrado = false;
+        //
+        // La fecha de registro se LEE del propio justificante (la trae impresa en su
+        // primera página) en vez de sellar el día de la subida: el técnico sube a
+        // menudo registros de semanas atrás, y esa fecha mueve el plazo de la obra,
+        // el devengo de su facturación y el cruce con las facturas de la obra.
+        // Si no se puede leer, se cae a hoy y se dice — nunca se descarta la subida.
+        let registrado = false, fechaRegistro = null, avisoFecha = null;
         if (slot === 'registro') {
-            const r = await ceeUploadService.markCeeRegistradoFromUpload(exp, ph);
+            const { resolverFechaRegistro } = require('../services/registroCeeOcrService');
+            const lectura = await resolverFechaRegistro(req.file.buffer);
+            avisoFecha = lectura.aviso;
+            const r = await ceeUploadService.markCeeRegistradoFromUpload(exp, ph, {
+                fechaRegistro: lectura.origen === 'justificante' ? lectura.fecha : null,
+            });
             registrado = !!r.ok;
+            fechaRegistro = r.fechaRegistro || lectura.fecha;
         }
 
-        res.json({ success: true, slot, link: uploaded.link, name: uploaded.fileName, registrado });
+        res.json({ success: true, slot, link: uploaded.link, name: uploaded.fileName, registrado, fecha_registro: fechaRegistro, aviso_fecha: avisoFecha });
     } catch (e) {
         console.error('[cee-upload POST]', e.message);
         res.status(500).json({ error: e.message || 'Error interno al subir el archivo' });
@@ -1329,13 +1341,19 @@ router.post('/cee-directo-upload/:id/:slot', uploadDocsSingle, async (req, res) 
 
         // El justificante de REGISTRO es el hito: cierra la fase. Se sella aquí y
         // no en un segundo paso porque el técnico no vuelve a entrar.
-        let registrado = false;
+        let registrado = false, fechaRegistro = null, avisoFecha = null;
         const key = ph === 'final' ? 'cee_final' : 'cee_inicial';
         if (slot === 'registro' && row.seguimiento?.[key] !== 'REGISTRADO') {
+            // La fecha sale del justificante, no del día de la subida: un registro
+            // de hace semanas quedaba fechado hoy. Misma lectura que en el CAE.
+            const { resolverFechaRegistro } = require('../services/registroCeeOcrService');
+            const lectura = await resolverFechaRegistro(req.file.buffer);
+            fechaRegistro = lectura.fecha;
+            avisoFecha = lectura.aviso;
             patch.seguimiento = { ...(row.seguimiento || {}), [key]: 'REGISTRADO' };
             patch.documentacion = {
                 ...(row.documentacion || {}),
-                [`fecha_registro_${key}`]: new Date().toISOString().slice(0, 10)
+                [`fecha_registro_${key}`]: lectura.fecha
             };
             registrado = true;
         }
@@ -1349,9 +1367,11 @@ router.post('/cee-directo-upload/:id/:slot', uploadDocsSingle, async (req, res) 
             require('../services/ceeDirectoEntrega')
                 .intentarEntregaAsync(row.id, ph, 'registro subido por el certificador');
 
+            const [aa, mm, dd] = String(fechaRegistro).split('-');
             await svcCeeDirecto.anotarHistorial(row.id, {
                 tipo: 'CEE',
-                texto: `${(ph === 'final' ? 'CEE FINAL' : 'CEE INICIAL')} REGISTRADO — JUSTIFICANTE SUBIDO POR EL CERTIFICADOR`,
+                texto: `${(ph === 'final' ? 'CEE FINAL' : 'CEE INICIAL')} REGISTRADO EL ${dd}/${mm}/${aa}`
+                    + ` — JUSTIFICANTE SUBIDO POR EL CERTIFICADOR${avisoFecha ? ' (FECHA DE LA SUBIDA: EL JUSTIFICANTE NO SE PUDO LEER)' : ''}`,
                 usuario: null
             });
             // Aviso al equipo: registrado el certificado, lo siguiente es cobrarlo
@@ -1373,7 +1393,7 @@ router.post('/cee-directo-upload/:id/:slot', uploadDocsSingle, async (req, res) 
             });
         }
 
-        res.json({ success: true, slot, link: subido.link, name: subido.fileName, registrado });
+        res.json({ success: true, slot, link: subido.link, name: subido.fileName, registrado, fecha_registro: fechaRegistro, aviso_fecha: avisoFecha });
     } catch (e) {
         console.error('[cee-directo-upload POST]', e.message);
         res.status(500).json({ error: e.message || 'Error interno al subir el archivo' });

@@ -24,10 +24,33 @@ function round0(n) {
 // ---------------------------------------------------------------------------
 const { computeExpedienteFinancialsNode } = require('./expedienteFinancialsNode');
 const { rankEstado } = require('../utils/expedienteEstados');
+const { detectPrograma } = require('../utils/fichas');
+const path = require('path');
+const { pathToFileURL } = require('url');
+
+// En un RES080 la oportunidad guarda DOS economías y la aceptada es la de la
+// reforma: la elige propuestaGuardada.js, el MISMO módulo que el panel del
+// expediente y el listado (import ESM en runtime, como cifoService con cifoDoc).
+// Si el portal leyera la otra rama le anunciaría al cliente un bono muy inferior
+// al de la propuesta que firmó (26RES080_73: 2.662 € frente a 3.894 €).
+let _propuestaPromise = null;
+function loadPropuesta() {
+    if (!_propuestaPromise) {
+        const url = pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/propuestaGuardada.js')).href;
+        _propuestaPromise = import(url);
+    }
+    return _propuestaPromise;
+}
 
 async function buildClientMoney(op, exp) {
-    const r = op?.datos_calculo?.result || {};
-    const fin = r.financials || r.financialsRes080 || {};
+    let fin = {};
+    try {
+        const { propuestaGuardada } = await loadPropuesta();
+        fin = propuestaGuardada(op, detectPrograma(exp || {}, op || {}) === 'RES080').financials || {};
+    } catch (e) {
+        console.warn('[portal] propuestaGuardada:', e.message);
+        fin = op?.datos_calculo?.result?.financials || {};
+    }
     if (fin.caeBonus != null) {
         return { bonoCae: round0(fin.caeBonus), deduccionIrpf: round0(fin.irpfDeduction), estado: 'estimado' };
     }

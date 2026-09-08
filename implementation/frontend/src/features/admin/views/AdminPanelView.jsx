@@ -85,6 +85,12 @@ export function AdminPanelView({
     const [prescriptores, setPrescriptores] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    // Fallo al CARGAR la lista. Va aparte de `error` (que es para acciones y se
+    // borra solo a los 5 s) porque este no puede desaparecer: al irse el aviso,
+    // lo que queda en pantalla es "No se encontraron oportunidades" y 0,00 €, o
+    // sea la app afirmando que no tienes nada cuando lo que pasa es que no lo
+    // sabe. Mientras esté puesto, la lista dice que falló y ofrece reintentar.
+    const [loadError, setLoadError] = useState(null);
     const [oportunidadToDelete, setOportunidadToDelete] = useState(null);
     const [deleting, setDeleting] = useState(false);
     const [localPathLoadingId, setLocalPathLoadingId] = useState(null); // id_oportunidad cuyo botón "carpeta local" está cargando
@@ -382,9 +388,13 @@ export function AdminPanelView({
             const res = await axios.get('/api/oportunidades');
             setOportunidades(res.data);
             setError(null);
+            setLoadError(null);
         } catch (err) {
             console.error('Error fetching oportunidades:', err);
-            setError('Error al cargar las oportunidades desde Supabase.');
+            // No se toca `oportunidades`: si ya había una lista cargada, se queda en
+            // pantalla. Vaciarla por un fallo de red sería enseñar una cartera a cero
+            // que el partner lee como trabajo perdido.
+            setLoadError(err.response?.data?.error || 'No hemos podido cargar tus oportunidades. Es un problema temporal: no se ha perdido nada.');
         } finally {
             setLoading(false);
         }
@@ -904,17 +914,26 @@ export function AdminPanelView({
                 </div>
             </header>
 
-            {error && (
+            {(error || loadError) && (
                 <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 font-medium text-sm flex items-center gap-3">
                     <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    {error}
+                    <span className="flex-1">{error || loadError}</span>
+                    {loadError && !error && (
+                        <button onClick={fetchOportunidades} disabled={loading}
+                            className="shrink-0 px-3 py-1.5 rounded-lg border border-red-500/30 text-[10px] font-black uppercase tracking-widest hover:bg-red-500/10 transition-colors disabled:opacity-40">
+                            {loading ? 'Reintentando…' : 'Reintentar'}
+                        </button>
+                    )}
                 </div>
             )}
 
             {/* ─── Panel de Resumen Financiero y Estados ─── */}
-            {showStats && (
+            {/* Con la carga fallida y nada en mano, este panel diría "0,00 € de bono,
+                0,00 € de presupuesto, 0 GWh": tres cifras redondas y falsas que es
+                justo lo que asusta. Si no hay datos, no se afirma nada. */}
+            {showStats && !(loadError && oportunidades.length === 0) && (
                 <div className="animate-in fade-in slide-in-from-top-4 duration-500">
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 mb-3 md:mb-4">
                         {/* Bono CAE Card */}
@@ -1273,7 +1292,9 @@ export function AdminPanelView({
                                             <svg className="w-8 h-8 text-white/10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                                             </svg>
-                                            <span className="text-white/20 text-sm">No se encontraron oportunidades</span>
+                                            <span className="text-white/20 text-sm">
+                                                {loadError ? 'No se ha podido cargar la lista' : 'No se encontraron oportunidades'}
+                                            </span>
                                         </div>
                                     </td>
                                 </tr>
@@ -1568,7 +1589,9 @@ export function AdminPanelView({
                     </div>
                 ) : paginatedOportunidades.length === 0 ? (
                     <div className="rounded-2xl border border-white/[0.06] bg-bkg-surface/40 p-10 text-center">
-                        <span className="text-white/25 text-sm">No se encontraron oportunidades</span>
+                        <span className="text-white/25 text-sm">
+                            {loadError ? 'No se ha podido cargar la lista' : 'No se encontraron oportunidades'}
+                        </span>
                     </div>
                 ) : (
                     paginatedOportunidades.map((op) => {

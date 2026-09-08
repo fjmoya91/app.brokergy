@@ -8,6 +8,7 @@ import { MapPickerModal } from './components/MapPickerModal';
 import { CalculatorView } from './features/calculator/views/CalculatorView';
 import { AdminPanelView } from './features/admin/views/AdminPanelView';
 import { useAuth } from './context/AuthContext';
+import ProfileUnavailable from './components/ProfileUnavailable';
 import { LoginView } from './features/auth/views/LoginView';
 
 import { DynamicNetworkBackground } from './components/DynamicNetworkBackground';
@@ -68,7 +69,7 @@ const CeePrevioGate = lazyWithReload(() => import('./features/cee/CeePrevioGate'
 const API_URL = '/api/catastro'; // Vercel force redeploy v3
 
 function App() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, profileError } = useAuth();
   const { isAdmin: isAdminUser, isStaff: isStaffUser, isCertificador: isCertificadorUser } = getRoleFlags(user);
   const [step, setStep] = useState('ADMIN');
 
@@ -1041,6 +1042,11 @@ function App() {
           <div className="flex items-center justify-center min-h-[70vh]">
             <LoginView onSuccess={() => setStep('ADMIN')} />
           </div>
+        ) : (profileError && !user?.rol) ? (
+          // Sesión válida pero sin saber quién eres. No se monta el dashboard: sin
+          // rol, el menú se recorta y las listas salen vacías, y eso se lee como
+          // datos perdidos en vez de como una incidencia pasajera.
+          <ProfileUnavailable mensaje={profileError} />
         ) : (
           <DashboardLayout 
             activeTab={activeTab} 

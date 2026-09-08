@@ -61,12 +61,40 @@ export function incidenciasFechasCifo(expediente) {
     }
 
     // ── La actuación es POSTERIOR al CEE de partida ─────────────────────────
-    const ceeIni = iso(doc.fecha_registro_cee_inicial);
-    if (ceeIni && inicio && inicio < ceeIni) {
+    // REGLA — lo que decide es la FIRMA del CEE inicial, no su REGISTRO. El
+    // certificado de partida existe desde que el técnico lo firma; registrarlo es
+    // un trámite posterior que depende del certificador y de la administración, y
+    // se toma sus semanas. Una obra que arranca entre una fecha y la otra NO se
+    // hizo sin situación de referencia: se hizo con el certificado ya emitido.
+    //   · inicio < FIRMA → GRAVE en cualquier ficha: ahí no había certificado.
+    //   · FIRMA ≤ inicio < REGISTRO → LEVE en RES080, donde el ahorro se justifica
+    //     comparando el CEE inicial con el final y lo que importa es que el inicial
+    //     describa la vivienda antes de tocarla. En RES060/RES093/TER100 la ficha
+    //     exige expresamente el CEE registrado antes de la actuación, así que allí
+    //     sigue siendo GRAVE — es un requisito de la ficha, no un juicio nuestro.
+    const ceeIniReg = iso(doc.fecha_registro_cee_inicial);
+    const ceeIniFirma = iso(doc.fecha_firma_cee_inicial) || iso(expediente?.cee?.cee_inicial?.fechaFirma);
+    const esRes080 = String(expediente?.numero_expediente || '').includes('RES080');
+    if (inicio && ceeIniFirma && inicio < ceeIniFirma) {
         add('FECHA_ANTERIOR_CEE', 'GRAVE',
             'La actuación empieza antes del CEE inicial',
-            `El CIFO arranca el ${esES(inicio)} y el CEE inicial se registró el ${esES(ceeIni)}. La actuación tiene que ser posterior al certificado de partida: si empieza antes, la obra se hizo sin existir la situación de referencia sobre la que se calcula el ahorro.`,
-            `Inicio ${esES(inicio)} < CEE inicial ${esES(ceeIni)}`);
+            `El CIFO arranca el ${esES(inicio)} y el CEE inicial está firmado el ${esES(ceeIniFirma)}. La actuación tiene que ser posterior al certificado de partida: si empieza antes, la obra se hizo sin existir la situación de referencia sobre la que se calcula el ahorro.`,
+            `Inicio ${esES(inicio)} < firma CEE inicial ${esES(ceeIniFirma)}`);
+    } else if (ceeIniReg && inicio && inicio < ceeIniReg) {
+        const soloRegistro = ceeIniFirma && inicio >= ceeIniFirma;
+        if (soloRegistro && esRes080) {
+            add('FECHA_ANTERIOR_CEE', 'LEVE',
+                'La actuación empieza antes de REGISTRARSE el CEE inicial',
+                `El CIFO arranca el ${esES(inicio)}, el CEE inicial está firmado el ${esES(ceeIniFirma)} y se registró el ${esES(ceeIniReg)}. El certificado de partida ya existía cuando empezó la obra; lo que llegó después es su registro, que es un trámite del certificador. En un RES080 el ahorro se justifica comparando el CEE inicial con el final, así que basta con que el inicial describa la vivienda antes de tocarla.`,
+                `Firma ${esES(ceeIniFirma)} ≤ inicio ${esES(inicio)} < registro ${esES(ceeIniReg)}`);
+        } else {
+            add('FECHA_ANTERIOR_CEE', 'GRAVE',
+                'La actuación empieza antes del CEE inicial',
+                soloRegistro
+                    ? `El CIFO arranca el ${esES(inicio)} y el CEE inicial no se registró hasta el ${esES(ceeIniReg)} (firmado el ${esES(ceeIniFirma)}). Esta ficha exige el CEE de partida REGISTRADO antes de la actuación.`
+                    : `El CIFO arranca el ${esES(inicio)} y el CEE inicial se registró el ${esES(ceeIniReg)}. La actuación tiene que ser posterior al certificado de partida: si empieza antes, la obra se hizo sin existir la situación de referencia sobre la que se calcula el ahorro.`,
+                `Inicio ${esES(inicio)} < CEE inicial ${esES(ceeIniReg)}`);
+        }
     }
 
     // ── Coherencia interna ──────────────────────────────────────────────────

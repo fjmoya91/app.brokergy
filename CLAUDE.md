@@ -2754,6 +2754,72 @@ MISMO camino que la subida del instalador.
 
 ---
 
+## La FECHA DE REGISTRO del CEE se LEE del justificante (2026-09-07)
+
+Al subir el justificante de registro, la app sellaba
+`documentacion.fecha_registro_cee_{fase}` con el **día de la subida**. Eso solo es
+verdad cuando el técnico lo sube el mismo día: en cuanto se sube un registro viejo
+—un expediente que se pone al día, un migrado, un certificado que llevaba semanas en
+el correo— el expediente afirma que se registró hoy.
+
+No es un dato decorativo. De la fecha de registro del CEE inicial cuelgan el plazo de
+la obra, el **devengo de la facturación del certificador** (que factura por hito de
+registro, no por expediente) y la comprobación de que **las facturas no son anteriores
+al registro** (`facturaIncidencias`). Una fecha inventada marca errores que no lo son
+y esconde los que sí.
+
+La fecha está IMPRESA en la primera página del justificante:
+
+> «Este es el número de registro 3014080/2025 solicitado el 19/07/2025 a las 09:35:54»
+
+| Qué | Dónde |
+|---|---|
+| Lectura (prompt + esquema + recorte a la 1ª página) | [registroCeeOcrService.js](implementation/backend/services/registroCeeOcrService.js) |
+| Superficies que la sellan | rejilla del CEE (`/documents/upload`, CAE y directos) · enlace público del certificador (`/cee-upload`, `/cee-directo-upload`) |
+| Releer un justificante YA subido | `POST /:id/cee/fecha-registro/leer` (**staffOnly**) — declarada en las DOS rutas del módulo CEE |
+| Botón | ⟳ junto al campo **Registro** de la rejilla, solo si hay justificante |
+| Corregir lo ya sellado | `node scripts/releer_fechas_registro_cee.js [--execute] [--expte=…]` |
+| Probar sin escribir nada | `node scripts/probar_registro_cee_ocr.js <driveFileId\|ruta.pdf> [nº expte]` |
+
+**REGLA — el modelo solo LEE; la fecha la decide el código.** `resolverFechaRegistro`
+es determinista: pide al modelo la **frase literal** de donde sale la fecha y
+**reextrae la fecha DE ESA FRASE** (`fechaDesdeFrase`), que manda sobre el campo que
+el modelo haya aislado. Un justificante trae varias fechas —emisión, firma, validez,
+descarga— y aislar la buena es justo donde un modelo se equivoca; copiar la frase
+entera, no. Además esa frase es la EVIDENCIA: es lo que se le enseña al usuario para
+que la contraste sin abrir el PDF.
+
+**REGLA — una lectura que falla NUNCA tira la subida.** Si el justificante no se
+puede leer, o la fecha es futura, o es anterior a 2007 (el CEE nace con el RD
+47/2007, así que eso no es una fecha de registro sino una lectura mal hecha), se cae
+a la fecha de subida —el comportamiento de siempre— **y se dice**. El fichero ya está
+archivado y la fase tiene que quedar registrada: dejarla sin sellar por no poder leer
+un PDF sería cambiar un dato dudoso por un expediente parado.
+
+**REGLA — solo se envía la PRIMERA PÁGINA.** A Gemini un PDF le cuesta 258 tokens por
+página y detrás del justificante vienen los acuses de firma electrónica, que no dicen
+nada de lo que se busca y se pagan igual. Medido sobre justificantes reales: **664
+tokens de entrada y ~2,6 s**, unos **0,0003 €** por lectura.
+
+**REGLA — al releer un justificante ya subido solo se PROPONE.** La fecha que consta
+puede haberla corregido una persona a mano, así que el botón enseña las dos fechas y
+la frase citada y decide el usuario; entonces la escribe `setCeeDate`, **el mismo
+camino que teclearla**, para que no haya dos formas de guardar la misma fecha (la
+ruta sabe escribir con `aplicar: true`, y de eso tira el barrido). Mismo criterio que
+el OCR del RITE: se rellenan huecos, no se pisa lo escrito.
+
+**REGLA — con la fase ya REGISTRADA solo se rellena el HUECO.** `markCeeRegistradoFromUpload`
+no repite la transición ni el email, pero si la fecha está en blanco (migrados,
+sellados a mano) y ahora sí la tenemos leída, la escribe: eso es un hueco, no una
+corrección.
+
+Es un **gemelo pequeño** de [riteOcrService.js](implementation/backend/services/riteOcrService.js),
+del que reutiliza `primerasPaginas` y `aISO` — es la misma conversión de fecha y la
+misma razón para recortar, y tenerla dos veces es tenerla mal el día que se corrija
+una sola.
+
+---
+
 ## Quién EJECUTA la obra y quién FIRMA ante Industria (2026-08-26)
 
 Un instalador no habilitado en Industria delega la firma en otra empresa
@@ -4031,6 +4097,8 @@ distingue). Campos: `documentacion.ft_marco_link` / `ft_cristal_link`.
 
 27.b **El Certificado RITE se LEE al subirlo**: de él salen la fecha de PRUEBAS y la de FIRMA —las que fijan el inicio y el fin de actuación del CIFO— y una comprobación del emplazamiento (dirección + referencia catastral) contra el expediente. Solo se mandan a leer las DOS PRIMERAS PÁGINAS (258 tokens/página, y estos PDF llegan con los acuses detrás): ~0,0005 € por lectura. Se rellenan HUECOS, nunca se pisa una fecha ya escrita, y el emplazamiento AVISA pero no bloquea. Fuentes únicas: [riteOcrService.js](implementation/backend/services/riteOcrService.js) (leer) y [riteCertificado.js](implementation/backend/services/riteCertificado.js) (juzgar y escribir). Ver "El Certificado RITE se LEE al subirlo".
 
+27.c **La FECHA DE REGISTRO del CEE se LEE del justificante, no es el día de la subida**: la trae impresa en su primera página («…número de registro 3014080/2025 solicitado el 19/07/2025…») y de ella cuelgan el plazo de la obra, el devengo del certificador y el cruce con las facturas. La leen las CUATRO superficies que la sellan (rejilla y enlace público, en CAE y en CEE directos) y se puede releer la de un justificante ya subido con el botón ⟳ (`POST /:id/cee/fecha-registro/leer`, declarada en las dos rutas del módulo CEE). El modelo solo LEE: se le pide la FRASE literal y el código reextrae de ella la fecha (`fechaDesdeFrase`), que es además la evidencia que se le enseña al usuario. Una lectura fallida no tira la subida: se cae a la fecha de hoy **y se dice**. Fuente única: [registroCeeOcrService.js](implementation/backend/services/registroCeeOcrService.js). Lo ya sellado mal se corrige con `scripts/releer_fechas_registro_cee.js`. Ver "La FECHA DE REGISTRO del CEE se LEE del justificante".
+
 27. **Al instalador se le pide TODO de una vez, y un CIFO firmado NO cierra la tarea para siempre**: al enviar el CIFO o la documentación RITE, la app comprueba si el otro también falta y ofrece mandarlo en el MISMO mensaje, con UN enlace (`/instalador/:id`). Reenviarle el CIFO teniendo ya uno firmado (requerimiento) **anula esa firma** (`cert_cifo_refirma_at`), o el enlace de ese mismo correo le dice "todo recibido" y no le deja firmar; la cierran la subida pública y `mergeDocumentacion`, que además sella `cert_cifo_signed_at` y **no deja retroceder `_drive_at`**. Fuente única de qué falta y de los textos: [logic/instaladorPendientes.js](implementation/frontend/src/features/expedientes/logic/instaladorPendientes.js); del envío, `POST /api/expedientes/:id/instalador/enviar`. `cert_rite_drive_link` significa CERTIFICADO RITE aportado — la Memoria que generamos nosotros vive en `memoria_rite_docx_link`. Ver "Al instalador se le pide TODO de una vez".
 
 26. **El bot de WhatsApp solo habla en los chats ETIQUETADOS, en horario y sin tocar dinero**: contesta por la sesión real del VPS, así que sus frenos (etiqueta + lista blanca, 08:00-20:00 Madrid, ventana de silencio, silencio si escribe un humano, tope diario, apagado por defecto) protegen la cuenta de la que dependen TODOS los envíos automáticos. Los datos salen del dossier (`botContexto`, que reusa `buildChecklistData` y `ensureUploadLink`), nunca del prompt; los importes no viajan al dossier. Fuente única del texto: [botPrompt.js](implementation/backend/services/botPrompt.js). Ver "Bot de WhatsApp".
@@ -4057,6 +4125,8 @@ distingue). Campos: `documentacion.ft_marco_link` / `ft_cristal_link`.
 37. **El Uf del marco y el Ug del vidrio salen del CATÁLOGO DE VENTANAS, y la MARCA no es el CARPINTERO**: `ventanas_marcos` (una fila por marca+serie+**apertura**: el mismo sistema da otro Uf en corredera) y `ventanas_cristales` (una fila por fabricante+gama+**composición**: el mismo Guardian Sun da Ug 1,3 con aire y 1,0 con argón). Sustituyen a las listas que vivían en el `localStorage` del navegador y a los defaults 2,7 · 1,3 · 0,43, que acabaron impresos tal cual en varios expedientes. La carpintería que fabrica y monta la ventana va en `documentacion.envolvente.marco_carpinteria`, NUNCA en la marca. Un modelo sin el dato **no pisa** lo ya escrito y se avisa en la fila; no se siembra nada que no esté escrito DENTRO de la ficha. El RES080 adjunta la ficha del marco y la del vidrio como anexos (`resolveEnvolventeFichaSlots`), y **la ficha que se sube a un expediente se ofrece para el catálogo** —también en aerotermia—, copiándola SIEMPRE a la carpeta del catálogo y nunca dejándola dentro de un expediente ([catalogoFichas.js](implementation/backend/services/catalogoFichas.js)). Fuentes únicas: [logic/ventanasCatalogo.js](implementation/frontend/src/features/expedientes/logic/ventanasCatalogo.js) y [routes/ventanas.js](implementation/backend/routes/ventanas.js). Ver "El CATÁLOGO DE VENTANAS".
 
 36. **La CONFIRMACIÓN DE COBRO es un formulario de la app, no de Tally**: `/cobro/:id?token=` cualifica al cliente (tarifa · fotovoltaica · IRPF) y confirma sus datos de pago cuando el lote llega a fase de pago. Lo obligatorio va AL FINAL y lo comercial delante, y **nunca retiene el cobro**. La forma de pago solo se pregunta a quien asume el coste (`discountCertificates` la calla, porque su convenio no la menciona), y las dos opciones NO cuestan lo mismo: el descuento va sobre la BASE sin IVA y la factura lo repercute, así que sale marcada `desaconsejada` con lo que cuesta de más y el retraso del cobro. **Cambiar de IBAN exige justificante NUEVO** —el anterior acredita la cuenta vieja— y el cambio va lo primero en el aviso al staff. Los datos van a `clientes` y el justificante a su slot de siempre; en `documentacion.cobro`, solo metadatos con RPC de MERGE. Fuentes únicas: [logic/cobroForm.js](implementation/frontend/src/features/cobro/logic/cobroForm.js) (qué se pregunta) y [cobroService.js](implementation/backend/services/cobroService.js) (a quién y con qué datos). Ver "Confirmación de cobro".
+
+38. **Con la BD caída, la app CALLA; nunca contesta una cifra tranquila**: un error de lectura no puede salir por 200. [middleware/auth.js](implementation/backend/middleware/auth.js) seguía adelante con el perfil a null —sin rol, sin empresa— y lo **cacheaba 5 minutos**, así que el partner salía como "USUARIO / LOGO PARTNER", con el menú recortado y, como `GET /oportunidades` acaba filtrando por `creador_id = null`, la cartera a CERO; y esa misma ruta convertía además cualquier fallo de Supabase en `200 []`. Un distribuidor con 19 oportunidades vio "0 oportunidades · 0,00 €" con toda la apariencia de dato bueno —que se lee como trabajo borrado— y recargar no lo arreglaba, porque el fantasma vivía en la caché. Medido el 08/09/2026: Postgres se cayó y arrancó en recuperación (`database system was not properly shut down`) y Cloudflare sirvió **521 Web server is down** delante de Supabase durante ~1 min. Ahora las dos rutas responden **503** (`PROFILE_UNAVAILABLE` / `OPORTUNIDADES_UNAVAILABLE`) y no se cachea nada; el frontend enseña `ProfileUnavailable` (reintentar, y "tus datos siguen ahí") en vez de un dashboard con identidad falsa, la lista conserva lo que ya tuviera, y **el resumen financiero no se pinta si no hay datos** — 0,00 € es justo la cifra que asusta. A quien YA tiene perfil bueno en caché no se le echa por un parpadeo. Vigilado por `node implementation/backend/scripts/test_caida_bd_no_miente.js`.
 
 ---
 

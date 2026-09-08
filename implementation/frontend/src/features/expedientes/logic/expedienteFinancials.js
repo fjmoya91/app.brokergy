@@ -22,6 +22,7 @@ import { acsComputaAhorro } from './aerotermiaUnits';
 import { ceeBaseDocumento } from './ceeFases';
 import { resolveDacs } from './demandaAcs';
 import { deriveTer100Vars, TER100_PRECIOS } from './ter100';
+import { propuestaGuardada } from './propuestaGuardada';
 
 export function computeExpedienteFinancials(exp) {
     const op = exp.oportunidades;
@@ -207,15 +208,14 @@ export function computeExpedienteFinancials(exp) {
     // que llegue el CEE. Se marca con `estimadoGuardado`. En cuanto hay CEE inicial o
     // final real, el cálculo de arriba manda y este bloque no se ejecuta.
     //
-    // OJO con dónde vive cada dato: el ahorro puede estar en `result.savings.savingsKwh`
-    // (oportunidades de la app) o en `result.financials.ahorroKwh` (migradas), y una
-    // oportunidad puede traer uno y no el otro — por eso se miran las tres rutas.
+    // OJO con dónde vive cada dato: en un RES080 la oportunidad guarda DOS economías
+    // (solo aerotermia y aerotermia+envolvente) y la aceptada es la de la reforma; y
+    // el ahorro puede estar en `result.savings.savingsKwh` (oportunidades de la app) o
+    // en `result.financials.ahorroKwh` (migradas). Las dos reglas viven en
+    // propuestaGuardada.js, que comparten este listado y el panel del expediente.
     let estimadoGuardado = false;
     if (savingsKwh === null && cae === null && profit === null) {
-        const storedRes = op.datos_calculo?.result || {};
-        const storedFin = storedRes.financials || {};
-        const storedSav = storedRes.savings || {};
-        const heredadoKwh = storedFin.ahorroKwh ?? storedSav.savingsKwh ?? storedRes.savingsKwh ?? null;
+        const { financials: storedFin, savingsKwh: heredadoKwh } = propuestaGuardada(op, ficha === 'RES080');
 
         if (heredadoKwh != null || storedFin.caeBonus != null) {
             savingsKwh = heredadoKwh;

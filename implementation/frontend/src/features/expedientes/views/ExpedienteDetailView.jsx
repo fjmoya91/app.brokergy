@@ -27,6 +27,7 @@ import { acsComputaAhorro } from '../logic/aerotermiaUnits';
 import { ceeBaseDocumento } from '../logic/ceeFases';
 import { resolveDacs } from '../logic/demandaAcs';
 import { deriveTer100Vars, TER100_PRECIOS } from '../logic/ter100';
+import { propuestaGuardada } from '../logic/propuestaGuardada';
 import { SeguimientoModule } from '../components/SeguimientoModule';
 import { ComunicacionesCertificador } from '../components/ComunicacionesCertificador';
 import { HistorialModal } from '../../../components/HistorialModal';
@@ -900,17 +901,19 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
     // con un ahorro supuesto en lugar del real del CEE.
     const resumenResults = useMemo(() => {
         if (calcResults) return calcResults;
-        const opResult = expediente?.oportunidades?.datos_calculo?.result || {};
-        const opFin = opResult.financials || {};
-        const heredadoKwh = parseFloat(
-            opResult.savings?.savingsKwh ?? opFin.ahorroKwh ?? opResult.savingsKwh
+        // En un RES080 la rama que se aceptó es la de la reforma, no la de solo
+        // aerotermia: la elige propuestaGuardada.js (fuente única con el listado).
+        const { financials: opFin, savings: opSav, savingsKwh: heredadoRaw } = propuestaGuardada(
+            expediente?.oportunidades,
+            (expediente?.numero_expediente || '').includes('RES080')
         );
+        const heredadoKwh = parseFloat(heredadoRaw);
         if (!(heredadoKwh > 0)) return null;
         // Los financials antiguos no guardaban `finalPriceClient`; se deriva del
         // CAE pagado y el ahorro para no pintar un precio de 0 €/MWh.
         const precioImplicito = opFin.caeBonus > 0 ? opFin.caeBonus / (heredadoKwh / 1000) : 0;
         return {
-            ...opResult.savings,
+            ...opSav,
             ...opFin,
             savingsKwh: heredadoKwh,
             finalPriceClient: opFin.finalPriceClient ?? precioImplicito,
@@ -972,14 +975,14 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
     const driveLink = op.datos_calculo?.drive_folder_link;
 
     // Propuesta económica original que se presentó al cliente en la oportunidad.
-    // Estructura canónica: result.savings.* + result.financials.* (con fallback a campos planos).
+    // Estructura canónica: result.savings.* + result.financials.* (con fallback a campos planos),
+    // salvo en un RES080, donde la rama aceptada es la de la reforma (propuestaGuardada.js).
     // Se pasa al resumen económico para compararla de un vistazo con los datos vivos del expediente.
     const proposalResults = (() => {
-        const fin = opCalcResult.financials || {};
-        const sav = opCalcResult.savings || {};
-        if (!opCalcResult.financials && !opCalcResult.savings && opCalcResult.caeBonus === undefined) return null;
+        const { financials: fin, savingsKwh: savKwh } = propuestaGuardada(op, isReforma);
+        if (!opCalcResult.financials && !opCalcResult.financialsRes080 && !opCalcResult.savings && opCalcResult.caeBonus === undefined) return null;
         return {
-            savingsKwh: sav.savingsKwh ?? opCalcResult.savingsKwh ?? 0,
+            savingsKwh: savKwh ?? opCalcResult.savingsKwh ?? 0,
             caeBonus: fin.caeBonus ?? opCalcResult.caeBonus ?? 0,
             finalPriceClient: fin.finalPriceClient ?? opCalcResult.finalPriceClient ?? 0,
             profitBrokergy: fin.profitBrokergy ?? opCalcResult.profitBrokergy ?? 0,

@@ -102,6 +102,13 @@ function AutoconsumoDeclarable({ auto }) {
     );
 }
 
+/** 'aaaa-mm-dd' → 'dd/mm/aaaa'. Sin `new Date`, que en una fecha sin hora aplica
+ *  el huso y puede devolver el día anterior. */
+const fmtFechaEs = (iso) => {
+    const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : (iso || '—');
+};
+
 const DOCUMENT_SLOTS = [
     { id: 'xml', label: '.XML', suffix: '.xml', accept: '.xml' },
     { id: 'pdf', label: 'PDF FIRMADO', suffix: '_fdo.pdf', accept: '.pdf' },
@@ -278,6 +285,10 @@ export function CeeDocumentsGrid({
     const [pendingFiles, setPendingFiles] = useState([]);
     const [isSubstituting, setIsSubstituting] = useState(false);
     const [notifyModal, setNotifyModal] = useState(null); // { section, type }
+    // Qué fecha de registro se acaba de sellar y de dónde sale. Se enseña bajo la
+    // fila de la fase: es el único momento en que quien lo sube puede contrastarla
+    // con el papel que tiene delante. { section, fecha, leida, frase, aviso }
+    const [avisoFechaRegistro, setAvisoFechaRegistro] = useState(null);
     const [sendingNotify, setSendingNotify] = useState(false);
     const [selectedChannels, setSelectedChannels] = useState(['email', 'whatsapp']);
     const [selectedTargets, setSelectedTargets] = useState(['CLIENTE']);
@@ -352,14 +363,58 @@ export function CeeDocumentsGrid({
         }
     };
 
-    // ── Fechas del CEE (Visita/Firma desde el XML; Registro = día de subida al slot
-    // REGISTRO). Viven en documentacion; se editan vía onAutoStatus, que ya enruta las
-    // claves fecha_* a documentacion. dateEdits da feedback inmediato antes del refetch.
+    // ── Fechas del CEE (Visita/Firma desde el XML; Registro, leída del justificante
+    // al subirlo al slot REGISTRO). Viven en documentacion; se editan vía onAutoStatus,
+    // que ya enruta las claves fecha_* a documentacion. dateEdits da feedback inmediato
+    // antes del refetch.
     const [dateEdits, setDateEdits] = useState({});
     const ceeDate = (field) => (field in dateEdits ? dateEdits[field] : (expediente?.documentacion?.[field] ?? '')) || '';
     const setCeeDate = (field, v) => {
         setDateEdits(prev => ({ ...prev, [field]: v || null }));
         if (onAutoStatus) onAutoStatus(field, v || null);
+    };
+
+    // ── Releer la fecha del justificante que YA está en Drive ────────────────────
+    // Para los expedientes sellados antes de que la app supiera leerlo: su fecha de
+    // registro es el día en que alguien subió el papel. Se PROPONE (`aplicar:false`)
+    // y la escribe `setCeeDate`, el mismo camino que teclearla a mano: así no hay dos
+    // formas de guardar la misma fecha. La fecha que consta puede haberla corregido
+    // una persona, y de ella cuelgan el plazo de la obra y la facturación del
+    // certificador: no se pisa sin que alguien vea las dos fechas.
+    const [releyendoFecha, setReleyendoFecha] = useState(null); // 'inicial' | 'final' | null
+    const releerFechaRegistro = async (section) => {
+        setReleyendoFecha(section);
+        try {
+            const { data } = await axios.post(
+                `${apiBase}/${expediente.id}/cee/fecha-registro/leer`, { phase: section }
+            );
+            if (!data.ok || !data.leida) {
+                showAlert(data.aviso || 'El justificante no dice con claridad su fecha de registro.', 'No se pudo leer la fecha', 'warning');
+                return;
+            }
+            const cita = data.frase ? `
+
+Según el documento:
+«${data.frase}»` : '';
+            if (data.coincide) {
+                showAlert(`El justificante está registrado el ${fmtFechaEs(data.leida)}, que es la fecha que ya consta.${cita}`, 'La fecha es correcta', 'success');
+                return;
+            }
+            const ok = await showConfirm(
+                `El justificante está registrado el ${fmtFechaEs(data.leida)}.
+`
+                + `En el expediente consta ${data.actual ? fmtFechaEs(data.actual) : 'sin fecha'}.${cita}
+
+`
+                + '¿Guardo la del justificante?',
+                'Fecha de registro distinta'
+            );
+            if (ok) setCeeDate(`fecha_registro_cee_${section}`, data.leida);
+        } catch (err) {
+            showAlert(err.response?.data?.error || 'No se pudo leer el justificante.', 'Error', 'error');
+        } finally {
+            setReleyendoFecha(null);
+        }
     };
 
     // Nombre del cliente para prerellenar el mensaje al certificador (mismo fallback que el backend).
@@ -930,6 +985,10 @@ export function CeeDocumentsGrid({
             }
             const uploadId = `${section}-${slot.id}-${file.name}`;
             setUploading(prev => ({ ...prev, [uploadId]: true }));
+            // El acuse de la fecha de registro es de LA subida que acaba de pasar:
+            // dejarlo puesto mientras se sube otra cosa lo convierte en un cartel que
+            // ya no describe nada.
+            setAvisoFechaRegistro(null);
 
             try {
                 if (slot.id === 'xml' && onXmlUploaded) {
@@ -1003,7 +1062,16 @@ export function CeeDocumentsGrid({
                         // seguidas y cada una construía su PUT desde la misma copia del
                         // expediente: se pisaban entre sí y el subestado REGISTRADO podía
                         // perderse aunque la fecha sí quedara guardada.
+                        // La fecha de registro la LEE el backend del propio
+                        // justificante (la trae impresa en su primera página). El día
+                        // de la subida solo es la fecha real cuando se sube el mismo
+                        // día: un registro de hace semanas —lo normal al poner un
+                        // expediente al día— quedaba fechado hoy, y de esa fecha
+                        // cuelgan el plazo de la obra, el devengo del certificador y
+                        // el cruce con las facturas. Si no se pudo leer, el backend no
+                        // manda fecha y se sigue sellando hoy, avisando.
                         const today = new Date().toISOString().split('T')[0];
+                        const fechaRegistro = data?.fecha_registro || today;
                         // Si a continuación sale el popup de notificación, el aviso al
                         // staff lo decide ESE popup (`notify_staff: false`): el admin ya
                         // sabe que acaba de subir el registro, y recibir el email aunque
@@ -1011,18 +1079,29 @@ export function CeeDocumentsGrid({
                         const notifyStaffEnPut = !(user?.rol === 'ADMIN');
                         if (section === 'inicial') {
                             onAutoStatus({
-                                fecha_registro_cee_inicial: today,
+                                fecha_registro_cee_inicial: fechaRegistro,
                                 cee_inicial: 'REGISTRADO',
                                 estado: 'PTE. FIN OBRA',
                                 notify_staff: notifyStaffEnPut,
                             });
                         } else if (section === 'final') {
                             onAutoStatus({
-                                fecha_registro_cee_final: today,
+                                fecha_registro_cee_final: fechaRegistro,
                                 cee_final: 'REGISTRADO',
                                 notify_staff: notifyStaffEnPut,
                             });
                         }
+                        // Lo leído se DICE: quien acaba de subir el justificante es
+                        // quien puede comprobar de un vistazo si la fecha es la suya, y
+                        // la frase citada es la evidencia que hay que poder contrastar.
+                        // Un aviso sin decir qué se ha guardado obliga a abrir el PDF.
+                        setAvisoFechaRegistro({
+                            section,
+                            fecha: fechaRegistro,
+                            leida: data?.fecha_registro_origen === 'justificante',
+                            frase: data?.fecha_registro_frase || null,
+                            aviso: data?.fecha_registro_aviso || null,
+                        });
                     }
                     // Popup de notificación manual (Cliente/Partner) solo para ADMIN
                     if (user?.rol === 'ADMIN') {
@@ -1533,13 +1612,28 @@ export function CeeDocumentsGrid({
                                     ].map(({ label, field }) => (
                                         <div key={field} className="flex flex-col items-center gap-1 max-md:flex-row max-md:items-center max-md:justify-between max-md:gap-3">
                                             <span className="text-[7px] max-md:text-[10px] font-black uppercase text-white/25 tracking-[0.12em] whitespace-nowrap">{label}</span>
-                                            <input
-                                                type="date"
-                                                value={ceeDate(field)}
-                                                onChange={e => setCeeDate(field, e.target.value)}
-                                                disabled={!editMode}
-                                                className={`no-uppercase bg-white/[0.03] border rounded-lg px-1.5 py-2 text-[10px] text-center font-mono w-[94px] focus:outline-none transition-colors max-md:w-3/5 max-md:min-w-0 max-md:py-2.5 max-md:text-left ${editMode ? 'border-white/10 text-white/80 focus:border-brand/50 cursor-pointer hover:border-white/20' : 'border-white/5 text-white/45 cursor-not-allowed'}`}
-                                            />
+                                            <div className="flex items-center gap-1 max-md:w-3/5">
+                                                <input
+                                                    type="date"
+                                                    value={ceeDate(field)}
+                                                    onChange={e => setCeeDate(field, e.target.value)}
+                                                    disabled={!editMode}
+                                                    className={`no-uppercase bg-white/[0.03] border rounded-lg px-1.5 py-2 text-[10px] text-center font-mono w-[94px] focus:outline-none transition-colors max-md:w-full max-md:min-w-0 max-md:py-2.5 max-md:text-left ${editMode ? 'border-white/10 text-white/80 focus:border-brand/50 cursor-pointer hover:border-white/20' : 'border-white/5 text-white/45 cursor-not-allowed'}`}
+                                                />
+                                                {/* La fecha de registro está IMPRESA en el justificante: si el que
+                                                    consta es el día en que se subió el papel (todo lo anterior a
+                                                    esta lectura), esto la corrige sin salir de aquí. Solo cuando
+                                                    hay justificante: sin papel no hay nada que leer. */}
+                                                {field.startsWith('fecha_registro_') && ceeFiles?.[section]?.registro && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => releerFechaRegistro(section)}
+                                                        disabled={releyendoFecha === section}
+                                                        title="Leer la fecha del justificante de registro"
+                                                        className="shrink-0 w-7 h-7 max-md:w-9 max-md:h-9 rounded-lg border border-white/10 text-white/40 hover:text-brand hover:border-brand/40 transition-colors text-[11px] disabled:opacity-40 disabled:cursor-wait"
+                                                    >{releyendoFecha === section ? '…' : '⟳'}</button>
+                                                )}
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
@@ -1550,6 +1644,30 @@ export function CeeDocumentsGrid({
                                 <div className="md:hidden">{showSlot('xml')}</div>
                                 {['pdf', 'cex', 'registro', 'etiqueta', 'otros'].map(sId => showSlot(sId))}
                             </div>
+
+                            {/* 5.b Qué fecha de registro se ha sellado y de dónde sale.
+                                El justificante trae la suya impresa y casi nunca es la
+                                de hoy: se dice la que se ha guardado y se cita la frase
+                                del documento, que es lo que permite contrastarla sin
+                                abrir el PDF. Si no se pudo leer, se avisa en ámbar de
+                                que lo guardado es la fecha de hoy. */}
+                            {avisoFechaRegistro?.section === section && (
+                                <div className={`w-full flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 rounded-xl border ${avisoFechaRegistro.leida ? 'bg-emerald-500/[0.06] border-emerald-500/25' : 'bg-amber-500/[0.06] border-amber-500/25'}`}>
+                                    <span className={`text-[9px] font-black uppercase tracking-widest whitespace-nowrap ${avisoFechaRegistro.leida ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                        {avisoFechaRegistro.leida ? '✓ Fecha de registro leída del justificante' : '⚠ Fecha de registro sin leer'}
+                                    </span>
+                                    <span className="text-[10px] text-white/50 normal-case leading-snug flex-1 min-w-[240px]">
+                                        {avisoFechaRegistro.leida
+                                            ? <>Se ha guardado <b className="text-white/80">{fmtFechaEs(avisoFechaRegistro.fecha)}</b>, no la de hoy.{avisoFechaRegistro.frase ? <> Según el documento: «{avisoFechaRegistro.frase}».</> : null} Si no es la suya, corrígela en «Registro».</>
+                                            : <>{avisoFechaRegistro.aviso || 'No se pudo leer el justificante.'} Se ha guardado <b className="text-white/80">{fmtFechaEs(avisoFechaRegistro.fecha)}</b>.</>}
+                                    </span>
+                                    <button
+                                        onClick={() => setAvisoFechaRegistro(null)}
+                                        className="text-[10px] text-white/30 hover:text-white/70 px-2 py-1"
+                                        title="Ocultar"
+                                    >✕</button>
+                                </div>
+                            )}
 
                             {/* 6. Aviso: hay .xml/.cex en la carpeta de Drive que no han
                                 pasado por el slot. No encendemos el slot con ellos —eso
