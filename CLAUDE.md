@@ -4044,6 +4044,87 @@ distingue). Campos: `documentacion.ft_marco_link` / `ft_cristal_link`.
 
 ---
 
+## Un mensaje con el RELOJ no está enviado (2026-09-08)
+
+Pasó esto: se mandó la propuesta 26RES060_OP118 al cliente y al instalador, la app
+dijo **"✓ enviado"** por los dos WhatsApp, y los dos PDF llevaban **dos horas** en el
+chat con el reloj. Nadie se enteró. En la misma franja se perdieron además un aviso
+al grupo de expedientes (que la cola marcó `SENT`) y dos avisos más.
+
+### Por qué la app decía que sí
+
+`client.sendMessage()` devuelve el mensaje en cuanto se **INSERTA** en el chat, no
+cuando se entrega. En `whatsapp-web.js/src/util/Injected/Utils.js`:
+
+```js
+const [msgPromise, sendMsgResultPromise] = ...addAndSendMsgToChat(chat, message);
+await msgPromise;                                    // ← solo la inserción local
+if (options.waitUntilMsgSent) await sendMsgResultPromise;   // ← por defecto, false
+```
+
+Ese id de vuelta era lo que se tomaba por entregado, y con él se sellaba
+`propuesta_versiones` (`"status":"ok"`), el historial y `whatsapp_queue`.
+
+**REGLA — lo único que dice que un mensaje ha salido es el ACK** (`-1` error · `0`
+pendiente · `1` servidor · `2` entregado · `3` leído). `confirmarEntrega()` en
+[whatsappService.js](implementation/backend/services/whatsappService.js) lo espera
+(`WWA_ACK_ESPERA_MS`, 25 s) después de `waitUntilMsgSent: true`. Si sigue en 0:
+error de verdad → el modal lo dice, la cola lo marca **FAILED sin reintentos** —el
+mensaje YA existe en el chat, y reenviarlo se lo manda dos veces al cliente— y sale
+un email al admin. Si el ack **no se puede leer** no se afirma nada: un falso
+negativo duplica mensajes, que es peor que un log.
+
+**REGLA — el fallo del texto previo en `sendMedia` NO se traga cuando es de
+entrega.** Con caption largo el mensaje va aparte y el PDF después; ese `catch` con
+`console.warn` dejó en los dos chats el PDF a pelo, sin una línea que lo explicara.
+
+### La causa: el "escribiendo…" rompe la sesión
+
+**REGLA — no se llama a `getChatById` / `getChats` / `msg.getChat` / `sendSeen` en el
+camino de envío.** Para pintar el indicador de "escribiendo" hay que pedir el chat, y
+en la rama **2.3000.x** de WhatsApp Web eso deja la sesión tocada: a partir de ahí
+todo sale con id y sin ACK, y acaba desconectándose sola. Es el cuadro de
+[wwebjs#201849](https://github.com/wwebjs/whatsapp-web.js/issues/201849) —mismas
+versiones que aquí, 1.34.7 + 2.3000.x, con *"Failed to find row in chat table"*— y no
+tiene arreglo publicado: 1.34.7 es la última en npm y el repo no toca el envío desde
+julio. Re-vincular **alivia solo un rato** (al que lo reportó, ~17 min).
+
+`WWA_TYPING` y `WWA_SEND_SEEN` nacen a `false`. Era cosmética anti-bot y costaba que
+no llegara NADA. **La pausa humana entre mensajes se conserva** (`WWA_TYPING_MS` +
+`randomDelay`): es lo que de verdad espacia los envíos; lo que se quita es el globito.
+
+### Lo que NO era, para no repetir el camino
+
+| Se probó | Resultado |
+|---|---|
+| Fijar una versión anterior de WhatsApp Web (`WWA_WEB_VERSION`) | **No sirve**: la web se auto-actualiza igual. Se dejó la palanca, apagada. Quedó funcionando con la 2.3000.1046973889, más nueva que la que "rompía" |
+| Borrar el service worker y la caché de Chrome del perfil | No cambia nada por sí solo |
+| Cuenta capada / el agente de IA de WhatsApp | **No**: la recepción iba bien y lo enviado desde el móvil salía con ack 2. Solo fallaba lo que mandaba el dispositivo vinculado |
+
+**Lo que lo arregló**: quitar `getChatById`/`sendSeen`, **reiniciar el VPS** (llevaba
+112 días) y **re-vincular** el dispositivo desde el móvil (Ajustes → Dispositivos
+vinculados → quitar el viejo, que salía con *"Historial de chat: En pausa"*, y
+escanear el QR). Medido tras el arreglo: texto y documento a las 13:58 con **ack 2**.
+
+### Cómo se diagnostica (sin enviar nada)
+
+El ACK real solo se ve por dentro. Conectando por CDP al Chrome que ya corre
+—`/app/.wwebjs_auth/session-brokergy-main/DevToolsActivePort` da el puerto— se leen
+los mensajes y su ack con `window.require('WAWebCollections')`, y una captura de la
+página enseña si WhatsApp ha dejado un modal delante (la primera vez había uno de
+"Novedades en WhatsApp Web" tras actualizarse). Es **lectura**: no manda nada y no
+gasta un mensaje a un cliente real.
+
+⚠️ NO navegar (`page.goto` / `location.href`) sobre esa página: deja el Chrome
+atascado y hay que reiniciar el contenedor para recuperar la sesión.
+
+**Si vuelve a pasar** — plan B del mismo hilo, ya en orden de coste: arrancar Chrome
+en modo *headful* con Xvfb y subir Puppeteer/Chrome (toca el Dockerfile); y la
+solución de fondo, salir de whatsapp-web.js (Baileys / wppconnect), que es un
+proyecto aparte.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -4125,6 +4206,8 @@ distingue). Campos: `documentacion.ft_marco_link` / `ft_cristal_link`.
 37. **El Uf del marco y el Ug del vidrio salen del CATÁLOGO DE VENTANAS, y la MARCA no es el CARPINTERO**: `ventanas_marcos` (una fila por marca+serie+**apertura**: el mismo sistema da otro Uf en corredera) y `ventanas_cristales` (una fila por fabricante+gama+**composición**: el mismo Guardian Sun da Ug 1,3 con aire y 1,0 con argón). Sustituyen a las listas que vivían en el `localStorage` del navegador y a los defaults 2,7 · 1,3 · 0,43, que acabaron impresos tal cual en varios expedientes. La carpintería que fabrica y monta la ventana va en `documentacion.envolvente.marco_carpinteria`, NUNCA en la marca. Un modelo sin el dato **no pisa** lo ya escrito y se avisa en la fila; no se siembra nada que no esté escrito DENTRO de la ficha. El RES080 adjunta la ficha del marco y la del vidrio como anexos (`resolveEnvolventeFichaSlots`), y **la ficha que se sube a un expediente se ofrece para el catálogo** —también en aerotermia—, copiándola SIEMPRE a la carpeta del catálogo y nunca dejándola dentro de un expediente ([catalogoFichas.js](implementation/backend/services/catalogoFichas.js)). Fuentes únicas: [logic/ventanasCatalogo.js](implementation/frontend/src/features/expedientes/logic/ventanasCatalogo.js) y [routes/ventanas.js](implementation/backend/routes/ventanas.js). Ver "El CATÁLOGO DE VENTANAS".
 
 36. **La CONFIRMACIÓN DE COBRO es un formulario de la app, no de Tally**: `/cobro/:id?token=` cualifica al cliente (tarifa · fotovoltaica · IRPF) y confirma sus datos de pago cuando el lote llega a fase de pago. Lo obligatorio va AL FINAL y lo comercial delante, y **nunca retiene el cobro**. La forma de pago solo se pregunta a quien asume el coste (`discountCertificates` la calla, porque su convenio no la menciona), y las dos opciones NO cuestan lo mismo: el descuento va sobre la BASE sin IVA y la factura lo repercute, así que sale marcada `desaconsejada` con lo que cuesta de más y el retraso del cobro. **Cambiar de IBAN exige justificante NUEVO** —el anterior acredita la cuenta vieja— y el cambio va lo primero en el aviso al staff. Los datos van a `clientes` y el justificante a su slot de siempre; en `documentacion.cobro`, solo metadatos con RPC de MERGE. Fuentes únicas: [logic/cobroForm.js](implementation/frontend/src/features/cobro/logic/cobroForm.js) (qué se pregunta) y [cobroService.js](implementation/backend/services/cobroService.js) (a quién y con qué datos). Ver "Confirmación de cobro".
+
+39. **Un mensaje de WhatsApp con el RELOJ no está enviado, y el "escribiendo…" es lo que rompe la sesión**: `sendMessage()` devuelve el id en cuanto el mensaje se INSERTA en el chat, así que ese `{ok:true}` no significa entregado — el 08/09/2026 una propuesta quedó sellada con "✓ whatsapp ok" para el cliente y el instalador con los dos PDF dos horas en el reloj. Lo único que lo dice es el **ACK**: `confirmarEntrega()` lo espera tras `waitUntilMsgSent: true` y, si sigue en 0, es error de verdad → FAILED **sin reintentos** (el mensaje ya existe en el chat: reenviarlo lo duplica) + email al admin; si el ack no se puede leer, no se afirma nada. **NUNCA `getChatById`/`getChats`/`msg.getChat`/`sendSeen` en el camino de envío**: en WhatsApp Web 2.3000.x dejan la sesión enviando sin ACK hasta que se desconecta sola ([wwebjs#201849](https://github.com/wwebjs/whatsapp-web.js/issues/201849), sin arreglo publicado). `WWA_TYPING` y `WWA_SEND_SEEN` a `false`; la pausa humana entre mensajes se queda. Fijar la versión de la web (`WWA_WEB_VERSION`) NO sirve: se auto-actualiza igual. Ver "Un mensaje con el RELOJ no está enviado".
 
 38. **Con la BD caída, la app CALLA; nunca contesta una cifra tranquila**: un error de lectura no puede salir por 200. [middleware/auth.js](implementation/backend/middleware/auth.js) seguía adelante con el perfil a null —sin rol, sin empresa— y lo **cacheaba 5 minutos**, así que el partner salía como "USUARIO / LOGO PARTNER", con el menú recortado y, como `GET /oportunidades` acaba filtrando por `creador_id = null`, la cartera a CERO; y esa misma ruta convertía además cualquier fallo de Supabase en `200 []`. Un distribuidor con 19 oportunidades vio "0 oportunidades · 0,00 €" con toda la apariencia de dato bueno —que se lee como trabajo borrado— y recargar no lo arreglaba, porque el fantasma vivía en la caché. Medido el 08/09/2026: Postgres se cayó y arrancó en recuperación (`database system was not properly shut down`) y Cloudflare sirvió **521 Web server is down** delante de Supabase durante ~1 min. Ahora las dos rutas responden **503** (`PROFILE_UNAVAILABLE` / `OPORTUNIDADES_UNAVAILABLE`) y no se cachea nada; el frontend enseña `ProfileUnavailable` (reintentar, y "tus datos siguen ahí") en vez de un dashboard con identidad falsa, la lista conserva lo que ya tuviera, y **el resumen financiero no se pinta si no hay datos** — 0,00 € es justo la cifra que asusta. A quien YA tiene perfil bueno en caché no se le echa por un parpadeo. Vigilado por `node implementation/backend/scripts/test_caida_bd_no_miente.js`.
 
@@ -4247,6 +4330,13 @@ WHATSAPP_ENABLED=true              ← Habilitar/deshabilitar servicio (default:
 WWA_MIN_DELAY_MS=2500              ← Delay mínimo entre mensajes (ms)
 WWA_MAX_DELAY_MS=6000              ← Delay máximo entre mensajes (ms)
 WWA_RATE_PER_MIN=10                ← Mensajes/minuto en cola
+
+# Entrega de WhatsApp (ver "Un mensaje con el RELOJ no está enviado")
+WWA_TYPING=false                   ← "escribiendo…": ROMPE la entrega en 2.3000.x. No encender
+WWA_SEND_SEEN=false                ← marcar leído antes de enviar: misma tabla de chats, mismo efecto
+WWA_VERIFICAR_ACK=true             ← no dar por enviado lo que no tiene ACK
+WWA_ACK_ESPERA_MS=25000            ← cuánto se espera al ACK antes de darlo por fallido
+WWA_WEB_VERSION=                   ← vacío = la última que sirva Meta. Fijarla NO arregla nada (se auto-actualiza)
 ```
 
 ---
