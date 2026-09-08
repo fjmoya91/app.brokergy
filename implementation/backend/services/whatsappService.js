@@ -81,6 +81,19 @@ const WEB_VERSION = (process.env.WWA_WEB_VERSION || '').trim() || null;
 const WEB_VERSION_PATH = process.env.WWA_WEB_REMOTE_PATH
     || 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/{version}.html';
 
+// ─── El indicador de "escribiendo…" ROMPE la sesión ──────────────────────────
+// Para ponerlo hay que pedir el chat (`getChatById`), y en la rama 2.3000.x de
+// WhatsApp Web eso deja la sesión tocada: a partir de ahí los mensajes salen
+// con id pero sin ACK —se quedan con el reloj— y acaba desconectándose sola
+// (wwebjs#201849, mismo cuadro que el 08/09/2026 aquí: 1.34.7 + 2.3000.1046969912).
+// Quien lo estabilizó >12 h lo hizo apagando `getChats`/`getChatById` y `sendSeen`.
+//
+// Era cosmética anti-bot y cuesta la entrega de TODO lo que manda la app, así
+// que nace apagado. `WWA_TYPING=true` lo devuelve si algún día se arregla.
+const TYPING_ENABLED = String(process.env.WWA_TYPING ?? 'false').toLowerCase() === 'true';
+// Marcar el chat como leído antes de enviar pasa por la misma tabla de chats.
+const SEND_SEEN = String(process.env.WWA_SEND_SEEN ?? 'false').toLowerCase() === 'true';
+
 // Timestamp del arranque del módulo: sirve para detectar fácilmente si el
 // backend está ejecutando código stale (no reiniciado tras un edit).
 const SERVICE_START_TIME = new Date().toISOString();
@@ -296,21 +309,23 @@ async function processQueue() {
                     }
                 }
 
-                // Typing indicator (patrón humano, omitir para grupos)
-                if (!isGroup) {
+                // Typing indicator (patrón humano, omitir para grupos). Apagado
+                // por defecto: `getChatById` rompe la entrega — ver TYPING_ENABLED.
+                // La pausa humana se conserva, que es lo que espacia los envíos.
+                if (TYPING_ENABLED && !isGroup) {
                     try {
                         const chat = await client.getChatById(chatId);
                         await chat.sendStateTyping();
-                        await sleep(CONFIG.typingMs);
                     } catch (_) { /* no bloqueante */ }
                 }
+                if (!isGroup) await sleep(CONFIG.typingMs);
 
                 // `waitUntilMsgSent` con tope: sin él la promesa del envío se
                 // descarta y la cola da por bueno lo que solo está pintado en
                 // el chat; con él, pero sin tope, un envío que no resuelve deja
                 // `processing` en true y para la cola entera.
                 const enviado = await withTimeout(
-                    client.sendMessage(chatId, job.message, { waitUntilMsgSent: true }),
+                    client.sendMessage(chatId, job.message, { waitUntilMsgSent: true, sendSeen: SEND_SEEN }),
                     60_000, 'sendMessage(cola)',
                 );
                 await confirmarEntrega(enviado, `cola #${job.id} → ${job.phone}`);
@@ -931,13 +946,15 @@ async function sendMedia(phone, media, { caption, asDocument = true, splitCaptio
 
     const sendTypingThenWait = async () => {
         if (isGroup) return;
-        try {
-            const chat = await withTimeout(client.getChatById(chatId), 10_000, 'getChatById');
-            await chat.sendStateTyping();
-            await sleep(CONFIG.typingMs);
-        } catch (e) {
-            console.warn('[wwa] typing indicator fallido (no bloqueante):', e.message);
+        if (TYPING_ENABLED) {
+            try {
+                const chat = await withTimeout(client.getChatById(chatId), 10_000, 'getChatById');
+                await chat.sendStateTyping();
+            } catch (e) {
+                console.warn('[wwa] typing indicator fallido (no bloqueante):', e.message);
+            }
         }
+        await sleep(CONFIG.typingMs);
     };
 
     await waitForRateSlot();
@@ -954,7 +971,7 @@ async function sendMedia(phone, media, { caption, asDocument = true, splitCaptio
         await sendTypingThenWait();
         try {
             const previo = await withTimeout(
-                client.sendMessage(chatId, cap, { waitUntilMsgSent: true }),
+                client.sendMessage(chatId, cap, { waitUntilMsgSent: true, sendSeen: SEND_SEEN }),
                 60_000, 'sendMessage(text-previo)',
             );
             await confirmarEntrega(previo, `texto de la propuesta → ${chatId}`);
@@ -999,6 +1016,7 @@ async function sendMedia(phone, media, { caption, asDocument = true, splitCaptio
                 caption: mediaCaption || undefined,
                 sendMediaAsDocument: asDocument !== false,
                 waitUntilMsgSent: true,
+                sendSeen: SEND_SEEN,
             }),
             60_000,
             'sendMessage'
