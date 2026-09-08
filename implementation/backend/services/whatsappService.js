@@ -66,6 +66,21 @@ let qrAlertAt = 0;         // cuándo salió el último aviso (tope duro entre a
 const QR_ALERT_COOLDOWN_MS = parseInt(process.env.WWA_ALERT_COOLDOWN_MS || String(6 * 60 * 60 * 1000), 10);
 const QR_ALERT_ENABLED = String(process.env.WWA_ALERT_EMAIL ?? 'true').toLowerCase() !== 'false';
 
+// ─── Qué versión de WhatsApp Web se carga ────────────────────────────────────
+// La sirve Meta y cambia varias veces al día. whatsapp-web.js habla con la API
+// INTERNA de esa web, así que una actualización suya puede romper el envío sin
+// que nada avise: el cliente sigue en READY, el mensaje se pinta en el chat y
+// se queda con el reloj para siempre (medido el 08/09/2026 — la web pasó a
+// 2.3000.1046969912 y su cola de salida reventaba con "t.catch is not a
+// function"; recepción y envíos desde el móvil seguían funcionando).
+//
+// Con `WWA_WEB_VERSION` puesta se sirve ESA versión desde el archivo de
+// wa-version en vez de la última. Vacío = comportamiento de siempre (la última
+// que dé Meta), para no atarse a una versión vieja sin necesidad.
+const WEB_VERSION = (process.env.WWA_WEB_VERSION || '').trim() || null;
+const WEB_VERSION_PATH = process.env.WWA_WEB_REMOTE_PATH
+    || 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/{version}.html';
+
 // Timestamp del arranque del módulo: sirve para detectar fácilmente si el
 // backend está ejecutando código stale (no reiniciado tras un edit).
 const SERVICE_START_TIME = new Date().toISOString();
@@ -290,7 +305,15 @@ async function processQueue() {
                     } catch (_) { /* no bloqueante */ }
                 }
 
-                await client.sendMessage(chatId, job.message);
+                // `waitUntilMsgSent` con tope: sin él la promesa del envío se
+                // descarta y la cola da por bueno lo que solo está pintado en
+                // el chat; con él, pero sin tope, un envío que no resuelve deja
+                // `processing` en true y para la cola entera.
+                const enviado = await withTimeout(
+                    client.sendMessage(chatId, job.message, { waitUntilMsgSent: true }),
+                    60_000, 'sendMessage(cola)',
+                );
+                await confirmarEntrega(enviado, `cola #${job.id} → ${job.phone}`);
 
                 sentTimestamps.push(Date.now());
                 await dbMarkSent(job.id);
@@ -301,7 +324,11 @@ async function processQueue() {
 
             } catch (err) {
                 console.error(`[wwa-queue] ❌ Error enviando ID ${job.id}:`, err.message);
-                await dbMarkFailed(job.id, err.message, job.retries);
+                // Un mensaje que se quedó con el reloj YA existe en el chat: si
+                // WhatsApp lo suelta más tarde, reintentarlo se lo manda dos
+                // veces al cliente. Se marca fallido de una (sin reintentos) y
+                // que lo mire una persona.
+                await dbMarkFailed(job.id, err.message, err.noReintentar ? CONFIG.maxRetries : job.retries);
             }
         }
     } catch (err) {
@@ -551,11 +578,20 @@ async function init() {
     }
     console.log('[wwa] Lanzando Chrome desde:', executablePath);
 
+    if (WEB_VERSION) console.log(`[wwa] WhatsApp Web fijado a ${WEB_VERSION}`);
+
     client = new Client({
         authStrategy: new LocalAuth({
             clientId: CONFIG.clientId,
             dataPath: SESSION_ROOT,
         }),
+        // Solo se fija si hay versión pedida: `remote` con una versión que no
+        // esté en el archivo cae a la última (strict:false), que es justo el
+        // comportamiento por defecto.
+        ...(WEB_VERSION ? {
+            webVersion: WEB_VERSION,
+            webVersionCache: { type: 'remote', remotePath: WEB_VERSION_PATH },
+        } : {}),
         puppeteer: {
             headless: true,
             executablePath,
@@ -816,6 +852,70 @@ function withTimeout(promise, ms, label) {
     ]).finally(() => clearTimeout(timer));
 }
 
+// ─── Confirmar que el mensaje SALE de verdad ─────────────────────────────────
+// `client.sendMessage()` devuelve el mensaje en cuanto se INSERTA en el chat,
+// no cuando se entrega: la librería solo espera el resultado real del envío si
+// se le pasa `waitUntilMsgSent` (Injected/Utils.js — `addAndSendMsgToChat`
+// devuelve [msgPromise, sendMsgResultPromise] y la segunda se descarta).
+// Ese id de vuelta es el que la app tomaba por "enviado": el 08/09/2026 la
+// propuesta 26RES060_OP118 quedó sellada con "✓ whatsapp ok" para dos números
+// y los dos PDF llevaban dos horas en el chat con el reloj.
+//
+// Así que además de esperar el resultado se comprueba el ACK, que es el único
+// dato que dice que WhatsApp lo ha recibido:
+//   -1 error · 0 pendiente (reloj) · 1 servidor · 2 entregado · 3 leído
+const ACK_ENABLED = String(process.env.WWA_VERIFICAR_ACK ?? 'true').toLowerCase() !== 'false';
+const ACK_WAIT_MS = parseInt(process.env.WWA_ACK_ESPERA_MS || '25000', 10);
+
+/**
+ * Espera a que el mensaje llegue al menos al servidor (ack >= 1).
+ *
+ * Si el ack no se puede leer NO se da por fallido: un falso negativo haría
+ * reenviar algo que sí salió, y un mensaje duplicado a un cliente es peor que
+ * un log. Solo se falla cuando WhatsApp dice que sigue pendiente.
+ */
+async function confirmarEntrega(sent, etiqueta) {
+    const msgId = sent && sent.id && sent.id._serialized;
+    if (!ACK_ENABLED || !msgId || !client || !client.pupPage) return null;
+
+    const hasta = Date.now() + ACK_WAIT_MS;
+    let ultimo = null;
+    while (Date.now() < hasta) {
+        // eslint-disable-next-line no-await-in-loop
+        const ack = await client.pupPage
+            .evaluate((id) => {
+                const m = window.require('WAWebCollections').Msg.get(id);
+                return m ? m.ack : null;
+            }, msgId)
+            .catch(() => undefined);          // undefined = no se pudo leer
+
+        if (ack === undefined) return null;   // sin lectura fiable: no afirmamos nada
+        if (typeof ack === 'number') {
+            ultimo = ack;
+            if (ack >= 1) return ack;
+            if (ack === -1) {
+                const err = new Error(`WhatsApp rechazó el mensaje (${etiqueta})`);
+                err.noReintentar = true;      // reenviarlo daría otro rechazo
+                throw err;
+            }
+        }
+        // eslint-disable-next-line no-await-in-loop
+        await sleep(1000);
+    }
+
+    const err = new Error(
+        `El mensaje se ha quedado pendiente de enviar (reloj, ack=${ultimo}) tras ${ACK_WAIT_MS / 1000}s — ${etiqueta}. `
+        + 'La sesión de WhatsApp acepta el mensaje pero no lo entrega: suele ser una actualización de WhatsApp Web '
+        + 'incompatible con la librería (fija una versión anterior con WWA_WEB_VERSION).'
+    );
+    // El mensaje YA está creado en el chat: si algún día sale, reenviarlo sería
+    // mandarlo dos veces. Se marca fallido de una y se avisa a una persona.
+    err.noReintentar = true;
+    err.sinAck = true;
+    alertEnvioRoto(etiqueta).catch(() => { });
+    throw err;
+}
+
 /**
  * Envío de media (PDF, imagen...). Solo funciona con cliente activo.
  * Si no está listo, lanza error (media no se puede persistir fácilmente en BD).
@@ -853,14 +953,24 @@ async function sendMedia(phone, media, { caption, asDocument = true, splitCaptio
     if (shouldSplit) {
         await sendTypingThenWait();
         try {
-            await withTimeout(client.sendMessage(chatId, cap), 60_000, 'sendMessage(text-previo)');
+            const previo = await withTimeout(
+                client.sendMessage(chatId, cap, { waitUntilMsgSent: true }),
+                60_000, 'sendMessage(text-previo)',
+            );
+            await confirmarEntrega(previo, `texto de la propuesta → ${chatId}`);
             sentTimestamps.push(Date.now());
             mediaCaption = undefined;              // el adjunto ya no lleva el mensaje
             await sleep(randomDelay());            // pausa humana entre el texto y el PDF
             await waitForRateSlot();               // slot para el adjunto
             console.log(`[wwa] Texto previo enviado a ${chatId}; el adjunto irá sin caption.`);
         } catch (err) {
-            // Si falla el texto previo, seguimos e intentamos el media con el caption original.
+            // Si lo que falla es la ENTREGA, el adjunto va a caer en el mismo
+            // agujero: se corta aquí en vez de dejar un PDF a pelo colgado en el
+            // chat (el 08/09/2026 en los dos chats quedó el PDF sin una línea de
+            // texto, porque este catch se lo tragaba con un warn).
+            if (err.sinAck || err.noReintentar) throw err;
+            // Cualquier otro fallo (typing, timeout suelto): seguimos e
+            // intentamos el media con el caption original.
             console.warn('[wwa] No se pudo enviar el texto previo al media:', err.message);
             mediaCaption = caption;
         }
@@ -888,10 +998,12 @@ async function sendMedia(phone, media, { caption, asDocument = true, splitCaptio
             client.sendMessage(chatId, mediaObj, {
                 caption: mediaCaption || undefined,
                 sendMediaAsDocument: asDocument !== false,
+                waitUntilMsgSent: true,
             }),
             60_000,
             'sendMessage'
         );
+        await confirmarEntrega(result, `${media.filename || 'adjunto'} → ${chatId}`);
     } catch (err) {
         // Chrome crash: resetear cliente para que el estado sea correcto en el frontend
         if (/detached Frame|Session closed|Target closed|Protocol error/i.test(err.message)) {
@@ -1080,6 +1192,55 @@ async function alertQrNeeded(motivo) {
         }
     } catch (e) {
         console.warn('[wwa-watchdog] No se pudo avisar por email:', e.message);
+    }
+}
+
+// Aviso de "WhatsApp acepta pero no entrega". Va por EMAIL por lo mismo que el
+// del QR: el canal roto es WhatsApp. Con su propio cooldown — este fallo se da
+// en ráfaga (cada mensaje del día falla igual) y no puede vaciar la cuota del
+// buzón.
+let envioAlertAt = 0;
+
+async function alertEnvioRoto(detalle) {
+    if (!QR_ALERT_ENABLED) return;
+    if (Date.now() - envioAlertAt < QR_ALERT_COOLDOWN_MS) return;
+    envioAlertAt = Date.now();
+
+    const body = [
+        'WhatsApp acepta los mensajes pero NO los está entregando.',
+        '',
+        `Hora: ${new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}`,
+        `Último caso: ${detalle}`,
+        `Versión de WhatsApp Web fijada: ${WEB_VERSION || '(la última que sirva Meta)'}`,
+        '',
+        'Los mensajes se quedan en el chat con el reloj. La sesión sigue activa',
+        '(se reciben mensajes y desde el móvil se envían bien): lo habitual es que',
+        'WhatsApp Web se haya actualizado a una versión que la librería no soporta.',
+        '',
+        'Qué hacer: fijar en el .env del VPS una versión anterior',
+        '(WWA_WEB_VERSION=2.3000.10XXXXXXXX-alpha, del archivo wa-version) y',
+        'reiniciar el backend.',
+        '',
+        'NADA de lo que se ha dado por fallido se reenvía solo: revisa qué hay que',
+        'volver a mandar cuando se arregle.',
+        '',
+        '— BROKERGY Monitor',
+    ].join('\n');
+
+    try {
+        const emailService = require('./emailService');
+        if (emailService.sendMail) {
+            await emailService.sendMail({
+                to: process.env.ADMIN_EMAIL || 'info@brokergy.es',
+                from: process.env.ALERT_EMAIL_FROM || emailService.getFallbackSender() || undefined,
+                subject: '⚠️ WhatsApp acepta los mensajes pero no los entrega',
+                text: body,
+                html: `<pre style="font-family: monospace; white-space: pre-wrap;">${body}</pre>`,
+            });
+            console.log('[wwa] Email de aviso "no entrega" enviado.');
+        }
+    } catch (e) {
+        console.warn('[wwa] No se pudo avisar por email del fallo de entrega:', e.message);
     }
 }
 
