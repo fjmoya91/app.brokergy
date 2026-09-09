@@ -3726,6 +3726,19 @@ lo que dura su actuación, el overlay dice por dónde va ("Renombrando y comprim
 de 5 · E3 · 26RES080_56") y si una se cae las demás quedan generadas y se dice cuál
 falló. La comprobación en seco no baja ficheros y sigue yendo entera.
 
+**REGLA — se puede PARAR, y volver a generar PREGUNTA.** Dos cosas que faltaban y
+que solo se ven usándolo: (1) una tanda de cinco minutos sin botón de cancelar deja
+como única salida refrescar la página —que es peor: corta sin decir por dónde iba—;
+(2) al acabar, el botón seguía diciendo "Generar 5 ZIP" igual que antes, así que
+pulsarlo rehacía 120 MB **en silencio**. Ahora el overlay lleva `cancelar` en la fase
+de envío ("Parar aquí" + "se para al terminar esta actuación": lo ya pedido al
+servidor no se puede deshacer sin dejar una carpeta a medio copiar), el resultado dice
+**qué quedó sin generar** (`Sin generar: E3, E4, E5`) y el botón pasa a
+**"↻ Volver a generar"** con `showConfirm`. La bandera de cancelación va por **`useRef`**:
+el bucle corre fuera del render y con `useState` leería el valor del render en que
+arrancó. Y solo se marca como generado si la tanda salió ENTERA — tras un parón, el
+botón tiene que seguir invitando a terminar el trabajo sin preguntar nada.
+
 ⚠️ Como red de seguridad, esas dos rutas tienen su propia `location` en nginx con
 **900 s** (`~ ^/api/lotes/[^/]+/(paquete-actuaciones|anexos-actuacion)$`; la de regex
 gana a la de prefijo `/api/`, que se queda en 120 s — un plazo generoso para TODA la

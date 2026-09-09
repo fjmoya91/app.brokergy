@@ -23,6 +23,12 @@ import confetti from 'canvas-confetti';
 //        'info' (gris, algo que NO PROCEDE y solo se cuenta para que no parezca un
 //        olvido). Sin esto los tres salían con la misma palomita verde, y un aviso
 //        se leía como una cosa más que ha ido bien.
+//   cancelar: { etiqueta, onClick, aviso } — botón para PARAR mientras corre. Solo
+//        tiene sentido en una acción por PASOS (un envío suelto no se puede partir):
+//        si algo tarda minutos y no se puede parar, la única salida es refrescar la
+//        página, que es peor porque deja el trabajo a medias sin decir por dónde iba.
+//        `aviso` explica hasta dónde llega la cancelación (p.ej. "se para al terminar
+//        la actuación en curso": lo que ya está pedido al servidor no se puede deshacer).
 //   accion: { etiqueta, onClick } — botón PRINCIPAL opcional para lo que se va a
 //        hacer a continuación (p.ej. "Generar los 5 ZIP" tras comprobarlos). Con
 //        él, Cerrar pasa a ser el botón secundario: si el siguiente paso obvio
@@ -112,6 +118,7 @@ export function SendActionOverlay({
     subtitle = '',
     items = [],
     accion = null,
+    cancelar = null,
     errorText = '',
     onClose,
     sendingTitle = 'Enviando mensaje…',
@@ -160,6 +167,17 @@ export function SendActionOverlay({
                             <h3 className="text-xl font-black uppercase tracking-tight text-white">{sendingTitle}</h3>
                             {subtitle && <p className="text-white/40 text-[10px] font-bold uppercase tracking-[0.2em] mt-1">{subtitle}</p>}
                             <p className="mt-6 text-[10px] text-white/25 uppercase tracking-widest font-bold">No cierres esta ventana</p>
+                            {cancelar && (
+                                <div className="mt-5 w-full">
+                                    <button onClick={cancelar.onClick} disabled={cancelar.pedida}
+                                        className="w-full py-2.5 rounded-xl bg-white/[0.06] border border-white/15 text-white/60 text-[11px] font-black uppercase tracking-widest hover:bg-white/10 disabled:opacity-40 disabled:cursor-default transition-all">
+                                        {cancelar.pedida ? 'Cancelando…' : (cancelar.etiqueta || 'Cancelar')}
+                                    </button>
+                                    {cancelar.aviso && (
+                                        <p className="mt-2 text-[10px] text-white/30 no-uppercase leading-snug">{cancelar.aviso}</p>
+                                    )}
+                                </div>
+                            )}
                             <BrandFooter />
                         </>
                     ) : (

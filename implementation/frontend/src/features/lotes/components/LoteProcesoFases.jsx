@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useModal } from '../../../context/ModalContext';
 import { analizarProceso, SLOTS } from '../logic/loteProceso';
@@ -693,6 +693,15 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     // expediente, y solo entonces se ofrece generar.
     const [paquete, setPaquete] = useState(null);   // informe del último dryRun
     const [modoPaquete, setModoPaquete] = useState('expediente');
+    // Qué modos se han GENERADO ya en esta sesión: `{ expediente: 3, gestor: 0 }`.
+    // Con esto el botón deja de invitar a generar lo que acaba de generarse y pasa a
+    // decir "volver a generar" —preguntando—, en vez de rehacer 120 MB en silencio
+    // porque el botón siguiera ahí igual que antes.
+    const [generado, setGenerado] = useState({});
+    // La cancelación va por REF, no por estado: el bucle es una función que corre
+    // fuera del render y leería el valor del render en que arrancó.
+    const cancelarRef = useRef(false);
+    const [cancelPedida, setCancelPedida] = useState(false);
 
     const pedirPaquete = async (modo, dryRun = true) => {
         setError('');
@@ -706,6 +715,9 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         try {
             const { data } = await axios.post(`/api/lotes/${lote.id}/paquete-actuaciones`, { modo, dryRun });
             setPaquete(data);
+            // Comprobar de nuevo es volver a mirar cómo está el expediente, así que a
+            // partir de aquí generar ya no es "otra vez": es generar lo comprobado.
+            setGenerado(g => ({ ...g, [modo]: 0 }));
             const completas = data.actuaciones.filter(a => a.ok);
             const listas = completas.length;
             setLectura({
@@ -738,6 +750,8 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 // a buscar el botón en la pantalla de detrás.
                 accion: listas > 0 ? {
                     etiqueta: `📦 Generar ${listas} ZIP${modo === 'gestor' ? ' para el gestor' : ' en los expedientes'}`,
+                    // Tras generar, el popup se sustituye por el del resultado, así que
+                    // aquí no hace falta la variante de "volver a generar".
                     // La lista de actuaciones viaja EN el closure, no se lee del
                     // estado: `setPaquete` acaba de llamarse y el `paquete` de este
                     // render sigue siendo el anterior.
@@ -764,18 +778,45 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     const generarPaquete = async (modo, actuaciones) => {
         const cola = (actuaciones || []).filter(a => a && a.ok);
         if (!cola.length) return;
+
+        // Volver a generar NO se hace en silencio: son ~120 MB que se rehacen y unos
+        // minutos de espera, y el botón se queda igual que antes de haber generado.
+        // Si ya se generó en esta sesión, se pregunta.
+        if (generado[modo]) {
+            const otraVez = await showConfirm(
+                `Este paquete ya se generó hace un momento (${generado[modo]} actuaciones).`
+                + `${NL}${NL}Volver a generarlo rehace las carpetas E{n} y sus ZIP con lo que haya AHORA en el expediente.`
+                + ` Tarda unos minutos y no aporta nada si no has cambiado ningún documento desde entonces.`,
+                'Volver a generar el paquete', 'warning');
+            if (!otraVez) return;
+        }
+
         setError('');
         setModoPaquete(modo);
+        cancelarRef.current = false;
+        setCancelPedida(false);
         const hechas = [];
         const fallidas = [];
         let destino = '';
+        let cancelado = false;
+        const pedirCancelar = () => { cancelarRef.current = true; setCancelPedida(true); };
         for (let i = 0; i < cola.length; i++) {
+            // Se comprueba ENTRE actuaciones: lo que ya está pedido al servidor sigue
+            // su curso —cortarlo dejaría una carpeta a medio copiar—, así que la
+            // cancelación surte efecto al acabar la que esté en marcha. El botón lo
+            // dice para no prometer un corte inmediato que no existe.
+            if (cancelarRef.current) { cancelado = true; break; }
             const a = cola[i];
             setLectura({
                 phase: 'sending',
                 sendingTitle: `Renombrando y comprimiendo… ${i + 1} de ${cola.length}`,
                 subtitle: `E${a.n} · ${a.numero_expediente}`,
                 icon: 'upload',
+                cancelar: {
+                    etiqueta: 'Parar aquí',
+                    aviso: 'Se para al terminar esta actuación. Las ya generadas se quedan.',
+                    onClick: pedirCancelar,
+                },
             });
             try {
                 const { data } = await axios.post(`/api/lotes/${lote.id}/paquete-actuaciones`,
@@ -789,13 +830,25 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                     || 'la petición no llegó a terminar — mira su carpeta en Drive antes de repetirla'}`);
             }
         }
+        const quedan = cola.slice(hechas.length + fallidas.length);
+        // El botón solo pasa a "volver a generar" si la tanda salió ENTERA. Tras un
+        // parón o un fallo, lo que hay que hacer es terminar el trabajo, y ahí el
+        // botón tiene que seguir invitando a generar sin preguntar nada — rehacer una
+        // actuación que ya está es idempotente y cuesta un minuto; quedarse a medias
+        // porque el botón pide confirmación es peor.
+        if (!cancelado && !fallidas.length && hechas.length) {
+            setGenerado(g => ({ ...g, [modo]: hechas.length }));
+        }
+        setCancelPedida(false);
         setLectura({
             phase: 'done',
             ok: hechas.length > 0,
-            okTitle: fallidas.length
-                ? `${hechas.length} de ${cola.length} paquetes generados`
-                : `${hechas.length} paquetes generados`,
-            errorTitle: 'No se pudo generar ningún paquete',
+            okTitle: cancelado
+                ? `Parado · ${hechas.length} de ${cola.length} generados`
+                : (fallidas.length
+                    ? `${hechas.length} de ${cola.length} paquetes generados`
+                    : `${hechas.length} paquetes generados`),
+            errorTitle: cancelado ? 'Parado antes de generar nada' : 'No se pudo generar ningún paquete',
             subtitle: `${lote?.codigo} · ${destino}`,
             items: [
                 ...hechas.map(r => ({
@@ -805,6 +858,12 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 // Lo que ha fallado va EN la lista y en ámbar, no escondido en el
                 // texto de error: aquí lo demás SÍ se ha generado.
                 ...fallidas.map(t => ({ texto: t, tono: 'aviso' })),
+                // Y lo que se quedó sin hacer al parar, en gris: sin esto, "parado" no
+                // dice QUÉ falta y hay que ir a Drive a contarlo.
+                ...(quedan.length ? [{
+                    texto: `Sin generar: ${quedan.map(a => `E${a.n}`).join(', ')} — vuelve a darle para hacerlas`,
+                    tono: 'info',
+                }] : []),
             ],
             errorText: hechas.length ? null : fallidas.join('\n'),
         });
@@ -1057,9 +1116,11 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                         </BotonAccion>
                         {paquete && paquete.dryRun && paquete.modo === 'expediente'
                             && paquete.actuaciones.some(a => a.ok) && (
-                            <BotonAccion tono="amber"
+                            <BotonAccion tono={generado.expediente ? 'brand' : 'amber'}
                                 onClick={() => generarPaquete('expediente', paquete.actuaciones.filter(a => a.ok))}>
-                                📦 Generar {paquete.actuaciones.filter(a => a.ok).length} ZIP en los expedientes
+                                {generado.expediente
+                                    ? `↻ Volver a generar los ${generado.expediente} ZIP`
+                                    : `📦 Generar ${paquete.actuaciones.filter(a => a.ok).length} ZIP en los expedientes`}
                             </BotonAccion>
                         )}
                     </div>
@@ -1197,10 +1258,11 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                                 ⌕ Comprobar el paquete E1-E5
                             </BotonAccion>
                             {paquete && paquete.dryRun && paquete.actuaciones.some(a => a.ok) && (
-                                <BotonAccion tono="amber"
+                                <BotonAccion tono={generado[modoPaquete] ? 'brand' : 'amber'}
                                     onClick={() => generarPaquete(modoPaquete, paquete.actuaciones.filter(a => a.ok))}>
-                                    📦 Generar {paquete.actuaciones.filter(a => a.ok).length} ZIP
-                                    {modoPaquete === 'gestor' ? ' para el gestor' : ' en los expedientes'}
+                                    {generado[modoPaquete]
+                                        ? `↻ Volver a generar los ${generado[modoPaquete]} ZIP`
+                                        : `📦 Generar ${paquete.actuaciones.filter(a => a.ok).length} ZIP${modoPaquete === 'gestor' ? ' para el gestor' : ' en los expedientes'}`}
                                 </BotonAccion>
                             )}
                             {p.dictamen && (
@@ -1278,6 +1340,7 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 okTitle={lectura?.okTitle}
                 errorTitle={lectura?.errorTitle}
                 accion={lectura?.accion || null}
+                cancelar={lectura?.cancelar ? { ...lectura.cancelar, pedida: cancelPedida } : null}
                 onClose={() => setLectura(null)}
             />
 
