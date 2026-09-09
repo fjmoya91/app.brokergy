@@ -21,13 +21,14 @@
 // asteriscos en el email — es el mismo compromiso que ya asumen el resto de
 // plantillas de certMessages.js.
 // ============================================================================
-import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs } from '../../calculator/logic/calculation.js';
+import { BOILER_EFFICIENCIES, esSinCalefaccion, calculateHybridization, resolveHybridInputs } from '../../calculator/logic/calculation.js';
 import {
     getUnidades, countUnidades, modeloUnidad, formatSeries,
     tipoEquipoNuevo, esTermoElectrico, datosAcumulador, EQUIPO_NUEVO,
     acsMismoEquipo, acsEquipoPropio,
 } from './aerotermiaUnits.js';
 import { normalizarFotovoltaica, tieneFotovoltaica, potenciaTexto } from './fotovoltaica.js';
+import { emisoresFinales, emisoresFinalesMixtos, generadorCe3x, emisorCorto } from './emisores.js';
 
 // Emisores que dan FRÍO: con ellos el equipo se declara en CE3X con
 // refrigeración y hace falta el SEER. Con radiadores no hay modo frío en la
@@ -198,7 +199,7 @@ export function resolverCe3x(exp, { modelos = {} } = {}) {
     // matiz de "Caudal Ref. Variable" (eso es del aire-agua) ni se nombra
     // "AEROTERMIA".
     const aireAire = esAireAire(inst.tipo_emisor);
-    const generadorBdc = aireAire ? 'Bomba de Calor' : 'Bomba de Calor - Caudal Ref. Variable';
+    const generadorBdc = generadorCe3x(inst.tipo_emisor);
     const prefijoNombre = aireAire ? 'BOMBA DE CALOR ' : 'AEROTERMIA ';
     // El ACS lo hace el mismo equipo solo si el nodo de ACS no declara OTRO
     // (`acsMismoEquipo`): un flag que la app no deja editar no puede esconder una
@@ -300,48 +301,87 @@ export function buildCe3xFinal(exp, { modelos = {} } = {}) {
     L.push('Están sacados del expediente y de las fichas técnicas: se pueden copiar tal cual.');
     L.push('');
 
-    // ── Equipo 1: la bomba de calor de calefacción ───────────────────────────
-    L.push(`*1) ${tipoEquipoCe3x({ conAcs: acsEnMismoEquipo, conFrio })}*`);
+    // ── La calefacción: UN bloque, o uno POR EQUIPO si no son del mismo tipo ──
+    // En un RES080 pueden convivir un conductos y un split: en CE3X son DOS
+    // generadores distintos y hay que teclearlos por separado, así que agruparlos
+    // como hace la cascada normal daría un certificado que no se puede rellenar.
+    // Ver logic/emisores.js.
     const sufijoAcs = acsEnMismoEquipo
         ? (acsTipo === EQUIPO_NUEVO.ACUMULADOR ? ' + ACUMULACIÓN DE ACS' : ' + ACS')
         : '';
-    L.push(`• Nombre: ${nombreEquipo(cal, prefijoNombre)}${sufijoAcs}`);
-    L.push(`• Tipo de generador: ${generadorBdc}`);
-    L.push('• Tipo de combustible: Electricidad');
-    L.push('• Rendimiento estacional: Conocido (Ensayado/justificado)');
-    L.push(scopCal > 0
-        ? `• Rendimiento CALEFACCIÓN: *${aPorcentaje(scopCal)} %*  (SCOP ${num2(scopCal)})`
-        : '• Rendimiento CALEFACCIÓN: ⚠️ pendiente de confirmar');
-    if (conFrio) {
-        L.push(seer > 0
-            ? `• Rendimiento REFRIGERACIÓN: *${aPorcentaje(seer)} %*  (SEER ${num2(seer)})`
-            : '• Rendimiento REFRIGERACIÓN: ⚠️ pendiente (SEER de la ficha técnica)');
-    }
-    if (acsEnMismoEquipo) {
-        L.push(scopAcs > 0
-            ? `• Rendimiento ACS: *${aPorcentaje(scopAcs)} %*  (SCOP dhw ${num2(scopAcs)})`
-            : '• Rendimiento ACS: ⚠️ pendiente de confirmar');
-        if (litros > 0) L.push(`• Con acumulación: SÍ · ${litros} litros`);
-    }
-    if (superficie > 0) {
-        L.push(`• Demanda cubierta → Superficie: ${num2(superficie)} m²  ·  Calefacción: ${pctCal} %${acsEnMismoEquipo ? '  ·  ACS: 100 %' : ''}`);
-    }
-    const series = formatSeries(cal, { dash: '', sep: ' / ' });
-    if (series) L.push(`• Nº de serie: ${series}`);
+    const mixtos = emisoresFinalesMixtos(exp);
+    const finales = emisoresFinales(exp);
+    let nBloque = 0;
 
-    // ── Equipo 2: el ACS cuando lo resuelve otro equipo ──────────────────────
+    if (mixtos) {
+        L.push(`⚠️ *SON ${finales.length} GENERADORES DISTINTOS, NO UNA CASCADA DEL MISMO EQUIPO*`);
+        L.push('Cada uno se declara por separado en CE3X, con su unidad terminal.');
+        L.push('');
+    }
+
+    // Cada entrada del recorrido es un bloque de CE3X. Sin emisores mixtos, el
+    // recorrido tiene UNA entrada con el conjunto agrupado: byte a byte el
+    // comportamiento de siempre.
+    const bloquesCal = mixtos
+        ? finales.map(f => ({
+            aero: { ...f.unidad, equipos_extra: [] },
+            generador: generadorCe3x(f.tipo_emisor),
+            emisor: f.label,
+            scop: parseFloat(f.unidad?.scop) || 0,
+            // El SEER es del MODELO, no del expediente: con equipos distintos, el
+            // menor del conjunto describiría a uno de los dos y no al otro.
+            seer: parseFloat(f.unidad?.seer ?? modelos?.[f.unidad?.aerotermia_db_id]?.seer) || 0,
+            // El ACS y el reparto de demanda cuelgan del equipo 1: son del
+            // conjunto, no de cada máquina.
+            conAcs: f.n === 1 && acsEnMismoEquipo,
+            conDemanda: f.n === 1,
+        }))
+        : [{ aero: cal, generador: generadorBdc, emisor: null, scop: scopCal, seer: seer || 0, conAcs: acsEnMismoEquipo, conDemanda: true }];
+
+    for (const b of bloquesCal) {
+        if (nBloque) L.push('');
+        nBloque++;
+        L.push(`*${nBloque}) ${tipoEquipoCe3x({ conAcs: b.conAcs, conFrio })}*`);
+        L.push(`• Nombre: ${nombreEquipo(b.aero, prefijoNombre)}${b.conAcs ? sufijoAcs : ''}`);
+        L.push(`• Tipo de generador: ${b.generador}`);
+        if (b.emisor) L.push(`• Unidad terminal: ${b.emisor}`);
+        L.push('• Tipo de combustible: Electricidad');
+        L.push('• Rendimiento estacional: Conocido (Ensayado/justificado)');
+        L.push(b.scop > 0
+            ? `• Rendimiento CALEFACCIÓN: *${aPorcentaje(b.scop)} %*  (SCOP ${num2(b.scop)})`
+            : '• Rendimiento CALEFACCIÓN: ⚠️ pendiente de confirmar');
+        if (conFrio) {
+            L.push(b.seer > 0
+                ? `• Rendimiento REFRIGERACIÓN: *${aPorcentaje(b.seer)} %*  (SEER ${num2(b.seer)})`
+                : '• Rendimiento REFRIGERACIÓN: ⚠️ pendiente (SEER de la ficha técnica)');
+        }
+        if (b.conAcs) {
+            L.push(scopAcs > 0
+                ? `• Rendimiento ACS: *${aPorcentaje(scopAcs)} %*  (SCOP dhw ${num2(scopAcs)})`
+                : '• Rendimiento ACS: ⚠️ pendiente de confirmar');
+            if (litros > 0) L.push(`• Con acumulación: SÍ · ${litros} litros`);
+        }
+        if (b.conDemanda && superficie > 0) {
+            L.push(`• Demanda cubierta → Superficie: ${num2(superficie)} m²  ·  Calefacción: ${pctCal} %${b.conAcs ? '  ·  ACS: 100 %' : ''}`);
+        }
+        const series = formatSeries(b.aero, { dash: '', sep: ' / ' });
+        if (series) L.push(`• Nº de serie: ${series}`);
+    }
+
+    // ── El ACS cuando lo resuelve otro equipo ────────────────────────────────
     if (acsAparte) {
+        const nAcs = nBloque + 1;
         L.push('');
         if (acsTipo === EQUIPO_NUEVO.TERMO) {
             const termo = inst.aerotermia_acs;
-            L.push('*2) EQUIPO DE SOLO ACS*');
+            L.push(`*${nAcs}) EQUIPO DE SOLO ACS*`);
             L.push(`• Nombre: TERMO ELÉCTRICO ${[termo?.marca, termo?.modelo].filter(Boolean).join(' ')}`.trim());
             L.push('• Tipo de generador: Efecto Joule');
             L.push('• Tipo de combustible: Electricidad');
             L.push('• Rendimiento ACS: *100 %*  (resistencia eléctrica — rendimiento 1 por definición)');
         } else {
             const acum = acsTipo === EQUIPO_NUEVO.ACUMULADOR ? datosAcumulador(inst.aerotermia_acs) : null;
-            L.push('*2) EQUIPO DE SOLO ACS*');
+            L.push(`*${nAcs}) EQUIPO DE SOLO ACS*`);
             L.push(`• Nombre: ${acum ? [acum.marca, acum.modelo].filter(Boolean).join(' ') : nombreEquipo(inst.aerotermia_acs)}`);
             L.push('• Tipo de generador: Bomba de Calor - Caudal Ref. Variable');
             L.push('• Tipo de combustible: Electricidad');
@@ -393,6 +433,21 @@ export function buildCe3xFinal(exp, { modelos = {} } = {}) {
         L.push(p
             ? `Autoconsumo fotovoltaico ya instalado: *${p}*. Hay que declararlo como instalación EXISTENTE (contribuciones energéticas), no como medida de mejora.`
             : 'Autoconsumo fotovoltaico ya instalado (el cliente no sabía la potencia — te la pedimos). Hay que declararlo como instalación EXISTENTE (contribuciones energéticas), no como medida de mejora.');
+    }
+
+    // ── La vivienda NO tenía calefacción ─────────────────────────────────────
+    // CE3X no admite dejar el edificio sin sistema de calefacción, así que hay
+    // que declarar uno de referencia y el criterio es SIEMPRE el mismo: Gas
+    // Natural en "otros combustibles", con el η 0,92 que ya usó la simulación.
+    // Si cada certificador elige el suyo, el CEE inicial deja de reproducir el
+    // ahorro que el expediente CAE tiene firmado.
+    if (esSinCalefaccion(inst.caldera_antigua_cal?.rendimiento_id)) {
+        L.push('');
+        L.push('🚫 *LA VIVIENDA NO TENÍA CALEFACCIÓN*');
+        L.push('No hay generador que retirar: no declares ninguna caldera existente.');
+        L.push('• Como sistema de referencia, marca *Gas Natural* en «otros combustibles».');
+        L.push('• Rendimiento de referencia: *92 %* (η 0,92).');
+        L.push('_Es el mismo criterio con el que se calculó el ahorro del expediente CAE: cambiarlo aquí lo descuadra._');
     }
 
     // ── Recordatorio de la demanda: es el fallo que más nos ha costado ───────
@@ -458,6 +513,12 @@ function combustibleAntiguo(inst, exp) {
 function generadorAntiguo(inst, exp) {
     const c = inst?.caldera_antigua_cal || {};
     const tipo = String(c.tipo_equipo || 'Caldera');
+
+    // Sin generador previo no hay nada que sustituir: devolver aquí una caldera
+    // haría que el párrafo dijese "Sustitución de la caldera existente" de una
+    // caldera que no existe — y eso lo lee el verificador.
+    if (esSinCalefaccion(c.rendimiento_id) || /no tiene calefacc/i.test(tipo)) return null;
+
     const hayAlgo = !!(c.marca || c.modelo || (c.rendimiento_id && c.rendimiento_id !== 'default')
         || exp?.cee?.cee_inicial?.combustibleCalefaccion);
     if (!hayAlgo) return null;
@@ -487,9 +548,21 @@ export function buildMedidaMejora(exp, { modelos = {} } = {}) {
     const equipo = d.nombreCorto || hueco('la marca y el modelo del equipo');
     // Con dos unidades, "una AEROTERMIA X (×2)" es una contradicción gramatical y
     // además esconde lo que más mira el verificador: que son varias en cascada.
-    const entra = d.nUnidades > 1
-        ? `${d.nUnidades} equipos en cascada de ${equipo}`
-        : `una ${equipo}`;
+    //
+    // Pero si los equipos llevan unidades terminales DISTINTAS no son una cascada
+    // del mismo equipo: son generadores distintos, y así es como se declaran en
+    // CE3X. Llamarlo "cascada" contradiría al propio certificado.
+    let entra;
+    if (emisoresFinalesMixtos(exp)) {
+        entra = enumerar(emisoresFinales(exp).map(f => {
+            const n = [f.unidad?.marca, f.unidad?.modelo].filter(Boolean).join(' ') || f.modelo;
+            return `una ${n || hueco(`la marca y el modelo del equipo ${f.n}`)} de ${emisorCorto(f.tipo_emisor)}`;
+        }));
+    } else if (d.nUnidades > 1) {
+        entra = `${d.nUnidades} equipos en cascada de ${equipo}`;
+    } else {
+        entra = `una ${equipo}`;
+    }
 
     // ── Qué pasa con lo que había ────────────────────────────────────────────
     const viejo = generadorAntiguo(inst, exp);

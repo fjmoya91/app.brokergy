@@ -6,6 +6,7 @@ import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
 import { buildInstalacionAddress, empresaInstaladora, empresasActuacion } from '../utils/docGenerators';
 import { calcCifo } from '../logic/calcCifo';
 import { EMITTER_OPTIONS, emitterScopContext } from '../logic/cifoDoc';
+import { emisorLabelDocumento } from '../logic/emisores';
 import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevoLabel, esTermoElectrico } from '../logic/aerotermiaUnits';
 // Qué fichas técnicas lleva ESTE expediente: una por MODELO distinto de bomba de
 // calor, no una por hueco. FUENTE ÚNICA con las rutas y con cifoService.
@@ -993,7 +994,8 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
     const scopCalStr = scopCalRaw ? scopCalRaw.toFixed(2).replace('.', ',') : '—';
     const scopAcsRaw = tieneAcs ? parseFloat(sameAero ? inst.aerotermia_cal?.scop : inst.aerotermia_acs?.scop || 0) : 0;
     const scopAcsStr = tieneAcs ? (scopAcsRaw ? scopAcsRaw.toFixed(2).replace('.', ',') : '—') : 'no aplica';
-    const emiLabel   = EMITTER_OPTIONS.find(o => o.value === inst.tipo_emisor)?.label || '—';
+    // Ver logic/emisores.js: con emisores mixtos se enumeran (gemelo de res080Doc).
+    const emiLabel   = emisorLabelDocumento(expediente);
     const metodoCal  = inst.aerotermia_cal?.metodo_scop || 'ficha';
     const metodoAcs  = inst.aerotermia_acs?.metodo_scop || 'ficha';
 

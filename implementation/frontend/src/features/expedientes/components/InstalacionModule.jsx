@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { BOILER_EFFICIENCIES, getScopFromModel, getScopSeason, getScopAcsFromModel, calculateHybridization, resolveHybridInputs, HYBRID_METHODS } from '../../calculator/logic/calculation';
+import { BOILER_EFFICIENCIES, SIN_CALEFACCION_ID, esSinCalefaccion, getScopFromModel, getScopSeason, getScopAcsFromModel, calculateHybridization, resolveHybridInputs, HYBRID_METHODS } from '../../calculator/logic/calculation';
 import { PROVINCE_CODE_TO_CCAA, PROVINCE_CODE_TO_NAME } from '../utils/docGenerators';
 import { withScopAplicado, cloneAero, potenciaTotal, countUnidades, scopPropioUnidad1, scopAplicado, tipoEquipoNuevo, datosAcumulador, EQUIPO_NUEVO, RENDIMIENTO_JOULE, acsEquipoPropio } from '../logic/aerotermiaUnits';
 import { EMITTER_OPTIONS, getEmitterTemp } from '../logic/cifoDoc';
+import { emisorFinalOptions, emisorInicialOptions, esRes080, EMISOR_NINGUNO } from '../logic/emisores';
 import { esTer173, esTerciario } from '../logic/terciario';
 import { FV, FV_OPCIONES, normalizarFotovoltaica, potenciaTexto } from '../logic/fotovoltaica';
 import { useAuth } from '../../../context/AuthContext';
@@ -11,12 +12,9 @@ import { getRoleFlags } from '../../../utils/roleFlags';
 import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal';
 
 // Lista de emisores: fuente única en logic/cifoDoc.js (la misma que imprimen el
-// CIFO y el RES080). Las unidades AIRE-AIRE (splits / conductos) solo se ofrecen
-// en expedientes RES080 — ver `emitterOptionsFor`.
-function emitterOptionsFor(numeroExpediente) {
-    const esRes080 = String(numeroExpediente || '').includes('RES080');
-    return EMITTER_OPTIONS.filter(o => !o.aire || esRes080);
-}
+// CIFO y el RES080), y la capa de "inicial vs finales" en logic/emisores.js. Las
+// unidades AIRE-AIRE (splits / conductos) solo se ofrecen en expedientes RES080.
+const emitterOptionsFor = emisorFinalOptions;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function Field({ label, value, onChange, type = 'text', readOnly = false, placeholder = '' }) {
@@ -109,18 +107,60 @@ function Toggle({ label, value, onChange, readOnly = false }) {
 }
 
 // ─── Sección Caldera Antigua ──────────────────────────────────────────────────
+// `TIPO_EQUIPO_SIN` es lo que el funnel y la calculadora llaman "No tiene
+// Calefacción": una vivienda que NO tenía generador. Hasta ahora en el
+// expediente había que declararla como "Otro" + "Caldera eléctrica (η=1)", que
+// afirma un equipo que no existe y con el rendimiento equivocado.
+// Solo se ofrece en la columna de CALEFACCIÓN (`permiteSinEquipo`): el bloque de
+// ACS describe con qué se calienta hoy el agua, que es otra pregunta.
+const TIPO_EQUIPO_SIN = 'No tiene calefacción';
 const TIPO_EQUIPO_OPTIONS = [
     { value: 'Caldera', label: 'Caldera' },
     { value: 'Termo eléctrico', label: 'Termo eléctrico' },
     { value: 'Bomba de calor', label: 'Bomba de calor' },
     { value: 'Otro', label: 'Otro' },
+    { value: TIPO_EQUIPO_SIN, label: 'No tiene calefacción', soloCalefaccion: true },
 ];
 
-function CalderaSection({ title, data, onChange, readOnly }) {
-    const rendimientoOptions = BOILER_EFFICIENCIES.map(b => ({
-        value: b.id,
-        label: `${b.label} (η=${b.value})`
-    }));
+function CalderaSection({ title, data, onChange, readOnly, permiteSinEquipo = false }) {
+    // `tipo_equipo` NO está en la blacklist de `normalizeData`, así que vuelve de
+    // la BD en MAYÚSCULAS ("TERMO ELÉCTRICO") y no casa con el value de su opción:
+    // el <select> se quedaba en blanco y al guardar cambiaba el tipo sin querer.
+    // Se casa contra el catálogo sin distinguir mayúsculas, igual que se hace con
+    // `ccaa` y `tipo_emisor` al leerlos.
+    const tipoEquipo = TIPO_EQUIPO_OPTIONS
+        .find(o => o.value.toLowerCase() === String(data?.tipo_equipo ?? 'Caldera').trim().toLowerCase())?.value
+        ?? 'Caldera';
+
+    // Sin generador no hay marca, modelo ni nº de serie que pedir, y el
+    // rendimiento lo fija la propia declaración: los campos se apagan en vez de
+    // quedarse ahí invitando a rellenar el equipo que no existe.
+    const sinEquipo = esSinCalefaccion(data?.rendimiento_id) || tipoEquipo === TIPO_EQUIPO_SIN;
+
+    const rendimientoOptions = BOILER_EFFICIENCIES
+        .filter(b => permiteSinEquipo || b.id !== SIN_CALEFACCION_ID)
+        .map(b => ({ value: b.id, label: `${b.label} (η=${b.value})` }));
+
+    // Las dos casillas declaran lo mismo, así que se mueven juntas: elegir "No
+    // tiene calefacción" en cualquiera de ellas deja la otra en su sitio. Si no,
+    // el expediente puede decir a la vez que no hay equipo y que su rendimiento
+    // es el de una caldera de gasóleo.
+    const cambiarTipo = (tipo) => {
+        if (tipo === TIPO_EQUIPO_SIN) {
+            onChange({ ...data, tipo_equipo: tipo, rendimiento_id: SIN_CALEFACCION_ID, marca: '', modelo: '', numero_serie: '' });
+            return;
+        }
+        const rend = esSinCalefaccion(data?.rendimiento_id) ? 'default' : data?.rendimiento_id;
+        onChange({ ...data, tipo_equipo: tipo, rendimiento_id: rend });
+    };
+    const cambiarRendimiento = (id) => {
+        if (id === SIN_CALEFACCION_ID) {
+            onChange({ ...data, rendimiento_id: id, tipo_equipo: TIPO_EQUIPO_SIN, marca: '', modelo: '', numero_serie: '' });
+            return;
+        }
+        const tipo = tipoEquipo === TIPO_EQUIPO_SIN ? 'Caldera' : tipoEquipo;
+        onChange({ ...data, rendimiento_id: id, tipo_equipo: tipo });
+    };
 
     return (
         <div className="bg-bkg-surface/60 rounded-xl p-4 border border-white/[0.06] space-y-3">
@@ -134,15 +174,23 @@ function CalderaSection({ title, data, onChange, readOnly }) {
                         Tipo de equipo existente
                     </label>
                     <select
-                        value={data?.tipo_equipo ?? 'Caldera'}
-                        onChange={v => onChange({ ...data, tipo_equipo: v.target.value })}
+                        value={tipoEquipo}
+                        onChange={v => cambiarTipo(v.target.value)}
                         disabled={readOnly}
                         className="w-full bg-bkg-elevated border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-brand/50 appearance-none"
                     >
-                        {TIPO_EQUIPO_OPTIONS.map(o => (
+                        {TIPO_EQUIPO_OPTIONS.filter(o => permiteSinEquipo || !o.soloCalefaccion).map(o => (
                             <option key={o.value} value={o.value}>{o.label}</option>
                         ))}
                     </select>
+                    {sinEquipo && (
+                        <p className="text-[10px] text-amber-300/70 leading-snug">
+                            La vivienda no tenía generador de calefacción. Se declara con el η de
+                            referencia <strong>0,92</strong> y <strong>Gas Natural</strong> como combustible de
+                            referencia — el mismo criterio que la simulación de la oportunidad. En el CE3X,
+                            marca Gas Natural en «otros combustibles».
+                        </p>
+                    )}
                 </div>
                 <div className="space-y-1">
                     <label className="flex items-center gap-1.5 text-xs text-white/40 uppercase tracking-wider font-bold">
@@ -155,7 +203,8 @@ function CalderaSection({ title, data, onChange, readOnly }) {
                         type="text"
                         value={data?.marca ?? ''}
                         onChange={v => onChange({ ...data, marca: v.target.value })}
-                        disabled={readOnly}
+                        disabled={readOnly || sinEquipo}
+                        placeholder={sinEquipo ? 'No procede — sin generador' : ''}
                         className="w-full bg-bkg-elevated border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-brand/50"
                     />
                 </div>
@@ -170,7 +219,8 @@ function CalderaSection({ title, data, onChange, readOnly }) {
                         type="text"
                         value={data?.modelo ?? ''}
                         onChange={v => onChange({ ...data, modelo: v.target.value })}
-                        disabled={readOnly}
+                        disabled={readOnly || sinEquipo}
+                        placeholder={sinEquipo ? 'No procede — sin generador' : ''}
                         className="w-full bg-bkg-elevated border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-brand/50"
                     />
                 </div>
@@ -185,7 +235,8 @@ function CalderaSection({ title, data, onChange, readOnly }) {
                         type="text"
                         value={data?.numero_serie ?? ''}
                         onChange={v => onChange({ ...data, numero_serie: v.target.value })}
-                        disabled={readOnly}
+                        disabled={readOnly || sinEquipo}
+                        placeholder={sinEquipo ? 'No procede — sin generador' : ''}
                         className="w-full bg-bkg-elevated border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-brand/50"
                     />
                 </div>
@@ -198,7 +249,7 @@ function CalderaSection({ title, data, onChange, readOnly }) {
                     </label>
                     <select
                         value={data?.rendimiento_id ?? ''}
-                        onChange={v => onChange({ ...data, rendimiento_id: v.target.value })}
+                        onChange={v => cambiarRendimiento(v.target.value)}
                         disabled={readOnly}
                         className="w-full bg-bkg-elevated border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-brand/50 appearance-none"
                     >
@@ -452,7 +503,7 @@ function EquipoRefLinks({ model, data, metodoScop = null }) {
 }
 
 // ─── Sección Aerotermia Nueva ─────────────────────────────────────────────────
-function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tipoEmisor, zona = 'D3', isAcs = false, readOnly = false, calData = null }) {
+function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tipoEmisor, zona = 'D3', isAcs = false, readOnly = false, calData = null, emisorPorUnidad = false, numeroExpediente = '' }) {
     // Zona climática REAL de la instalación (la de la oportunidad). El Anexo III de
     // la ficha RES060 la equipara a la temporada europea del Rgto. 813/2013: A3-D3
     // → cálidas, E1 → medias. De ahí sale qué columna del catálogo se aplica, así
@@ -1118,19 +1169,39 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                         </div>
                     </div>
 
-                    <div>
-                        <label className="block text-[10px] text-white/40 uppercase tracking-wider mb-1 font-bold">SCOP de este equipo</label>
-                        <input
-                            type="number"
-                            step="0.01"
-                            value={u?.scop ?? ''}
-                            onChange={e => handleExtraChange(idx, { scop: e.target.value })}
-                            readOnly={readOnly}
-                            placeholder="Se obtiene del modelo"
-                            className={`w-full bg-bkg-elevated border rounded-lg px-3 py-2 text-white text-sm focus:outline-none ${
-                                readOnly ? 'border-white/5 text-white/60 cursor-not-allowed' : 'border-white/10 focus:border-brand/50'
-                            }`}
-                        />
+                    <div className={emisorPorUnidad && !isAcs ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : ''}>
+                        <div>
+                            <label className="block text-[10px] text-white/40 uppercase tracking-wider mb-1 font-bold">SCOP de este equipo</label>
+                            <input
+                                type="number"
+                                step="0.01"
+                                value={u?.scop ?? ''}
+                                onChange={e => handleExtraChange(idx, { scop: e.target.value })}
+                                readOnly={readOnly}
+                                placeholder="Se obtiene del modelo"
+                                className={`w-full bg-bkg-elevated border rounded-lg px-3 py-2 text-white text-sm focus:outline-none ${
+                                    readOnly ? 'border-white/5 text-white/60 cursor-not-allowed' : 'border-white/10 focus:border-brand/50'
+                                }`}
+                            />
+                        </div>
+                        {/* En RES080 cada equipo lleva su unidad terminal: un conductos y
+                            un split son DOS generadores distintos en CE3X y no se pueden
+                            agrupar. Sin declarar, hereda el del equipo 1. */}
+                        {emisorPorUnidad && !isAcs && (
+                            <div>
+                                <label className="block text-[10px] text-white/40 uppercase tracking-wider mb-1 font-bold">Emisor de este equipo</label>
+                                <select
+                                    value={u?.tipo_emisor ?? tipoEmisor ?? ''}
+                                    onChange={e => handleExtraChange(idx, { tipo_emisor: e.target.value })}
+                                    disabled={readOnly}
+                                    className="w-full bg-bkg-elevated border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-brand/50 appearance-none"
+                                >
+                                    {emisorFinalOptions(numeroExpediente).map(o => (
+                                        <option key={o.value} value={o.value}>{o.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
                     </div>
 
                     {/* Misma documentación para las unidades en cascada: sin badge de
@@ -1423,6 +1494,12 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
     // un expediente en E1 acababa con el SCOP de clima cálido.
     const zonaInstalacion = (opDatos.zona || opDatos.inputs?.zona || 'D3').toUpperCase();
     const opRC = expediente?.oportunidades?.ref_catastral || '';
+
+    // Solo en RES080 el emisor deja de ser uno por expediente: se declara el que
+    // había ANTES (que puede ser ninguno) y el de CADA equipo instalado. En las
+    // fichas de sustitución, inicial y final son el mismo y no se pregunta dos
+    // veces. Fuente única de la regla: logic/emisores.js.
+    const emisorPorUnidad = esRes080(expediente?.numero_expediente);
 
     // Cargar marcas, modelos y todos los prescriptores
     useEffect(() => {
@@ -1919,6 +1996,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         title="Caldera Antigua — Calefacción"
                         data={local.caldera_antigua_cal}
                         readOnly={readOnly}
+                        permiteSinEquipo
                         onChange={v => {
                             setLocal(p => {
                                 const next = { ...p, caldera_antigua_cal: v };
@@ -1962,15 +2040,57 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                     </div>
                 )}
 
-                {/* ── TIPO EMISOR ── */}
-                <div className="bg-bkg-surface/60 rounded-xl p-4 border border-white/[0.06]">
-                    <SelectField
-                        label="Tipo de emisor (calefacción)"
-                        value={local.tipo_emisor}
-                        onChange={handleTipoEmisorChange}
-                        options={emitterOptionsFor(expediente?.numero_expediente)}
-                        readOnly={readOnly}
-                    />
+                {/* ── TIPO EMISOR ──────────────────────────────────────────
+                    En una ficha de SUSTITUCIÓN de generador (RES060/093/TER) el
+                    emisor inicial y el final son el mismo por definición: la obra
+                    cambia la máquina, no la distribución — y es la distribución la
+                    que fija la temperatura de impulsión y con ella el SCOP. Ahí no
+                    se pregunta dos veces.
+                    En RES080 sí son cosas distintas: la actuación toca la
+                    envolvente, el estado inicial puede ser incluso "no tenía
+                    calefacción", y en el final hay tantos emisores como equipos
+                    (un conductos y un split conviviendo es el caso normal). Ver
+                    logic/emisores.js. */}
+                <div className="bg-bkg-surface/60 rounded-xl p-4 border border-white/[0.06] space-y-3">
+                    {emisorPorUnidad ? (
+                        <>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <SelectField
+                                    label="Emisor ANTES de la obra"
+                                    value={local.tipo_emisor_inicial ?? local.tipo_emisor}
+                                    onChange={v => setLocal(p => ({ ...p, tipo_emisor_inicial: v }))}
+                                    options={emisorInicialOptions(expediente?.numero_expediente)}
+                                    readOnly={readOnly}
+                                />
+                                <SelectField
+                                    label="Emisor del equipo 1 (después)"
+                                    value={local.tipo_emisor}
+                                    onChange={handleTipoEmisorChange}
+                                    options={emitterOptionsFor(expediente?.numero_expediente)}
+                                    readOnly={readOnly}
+                                />
+                            </div>
+                            <p className="text-[10px] text-white/30 leading-snug">
+                                {(local.tipo_emisor_inicial ?? local.tipo_emisor) === EMISOR_NINGUNO
+                                    ? 'La vivienda no tenía emisores de calefacción. El estado final lo declara cada equipo instalado.'
+                                    : 'En un RES080 el emisor puede cambiar con la obra. Cada equipo de la cascada declara el suyo abajo.'}
+                            </p>
+                        </>
+                    ) : (
+                        <>
+                            <SelectField
+                                label="Tipo de emisor (calefacción)"
+                                value={local.tipo_emisor}
+                                onChange={handleTipoEmisorChange}
+                                options={emitterOptionsFor(expediente?.numero_expediente)}
+                                readOnly={readOnly}
+                            />
+                            <p className="text-[10px] text-white/30 leading-snug">
+                                La actuación sustituye el generador: el emisor es el MISMO antes y después,
+                                y es el que justifica la temperatura de impulsión del SCOP declarado.
+                            </p>
+                        </>
+                    )}
                 </div>
 
                 {/* ── El expediente se contradice sobre quién calienta el ACS ──
@@ -2043,6 +2163,8 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         modelosPorMarca={modelosPorMarca}
                         tipoEmisor={local.tipo_emisor}
                         zona={zonaInstalacion}
+                        emisorPorUnidad={emisorPorUnidad}
+                        numeroExpediente={expediente?.numero_expediente}
                     />
                     {local.cambio_acs && (
                         <AerotermiaSection

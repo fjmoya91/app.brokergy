@@ -22,6 +22,7 @@ import { buildInstalacionAddress, empresaInstaladora, empresasActuacion,
     EMPRESAS_COL_EJECUTA, EMPRESAS_COL_HABILITADA, notaDelegacionRite } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
 import { EMITTER_OPTIONS, emitterScopContext } from './cifoDoc.js';
+import { emisorLabelDocumento } from './emisores.js';
 import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevoLabel, esTermoElectrico, esAcumuladorAcs, datosAcumulador } from './aerotermiaUnits.js';
 
 const DOC_WIDTH = '794px';
@@ -340,7 +341,9 @@ export function deriveRes080Data({ expediente, results, parseHuecosFromXml }) {
     const scopCalStr = scopCalRaw ? scopCalRaw.toFixed(2).replace('.', ',') : '—';
     const scopAcsRaw = tieneAcs ? parseFloat(sameAero ? inst.aerotermia_cal?.scop : inst.aerotermia_acs?.scop || 0) : 0;
     const scopAcsStr = tieneAcs ? (scopAcsRaw ? scopAcsRaw.toFixed(2).replace('.', ',') : '—') : 'no aplica';
-    const emiLabel = EMITTER_OPTIONS.find(o => o.value === inst.tipo_emisor)?.label || '—';
+    // Con equipos de tipos distintos (un conductos y un split) se enumeran: el
+    // certificado no puede decir uno solo mientras el CE3X declara dos generadores.
+    const emiLabel = emisorLabelDocumento(exp);
     const metodoCal = inst.aerotermia_cal?.metodo_scop || 'ficha';
     const metodoAcs = inst.aerotermia_acs?.metodo_scop || 'ficha';
 

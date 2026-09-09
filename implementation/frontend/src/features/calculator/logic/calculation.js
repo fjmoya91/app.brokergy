@@ -323,8 +323,34 @@ export const BOILER_EFFICIENCIES = [
     { id: 'solid_man_cal', label: "Combustible sólido, manual, espacio calefactado", value: 0.60 },
     { id: 'solid_auto', label: "Combustible sólido, auto", value: 0.60 },
     { id: 'solid_auto_cal', label: "Combustible sólido, auto, espacio calefactado", value: 0.65 },
-    { id: 'electric', label: "Caldera eléctrica", value: 1.00 }
+    { id: 'electric', label: "Caldera eléctrica", value: 1.00 },
+    // ── NO HAY generador de calefacción ──────────────────────────────────────
+    // No es una fila del Anexo VIII: es la situación que el funnel y la
+    // calculadora ya saben declarar ('No tiene Calefacción') traída al
+    // EXPEDIENTE, para que se pueda decir en vez de disfrazarla de "Otro" con
+    // el rendimiento de una caldera eléctrica (η=1) — que es lo que había que
+    // hacer hasta ahora y afirma un equipo que no existe.
+    //
+    // El η de referencia es el MISMO 0,92 que aplica `getEff()` en la
+    // calculadora, y el combustible de referencia el MISMO Gas Natural de
+    // `BOILER_TYPE_TO_FUEL`: declarar lo mismo por dos caminos no puede dar dos
+    // ahorros distintos. El label se parte por la coma en el CIFO y en el
+    // certificado RES080 (`label.split(',')[0]`), así que la celda de
+    // combustible dice "No tiene calefacción", que es la verdad.
+    { id: 'sin_calefaccion', label: "No tiene calefacción, Gas Natural de referencia", value: 0.92, sinCalefaccion: true }
 ];
+
+/** Id de la entrada de BOILER_EFFICIENCIES que declara que NO hay calefacción. */
+export const SIN_CALEFACCION_ID = 'sin_calefaccion';
+
+/**
+ * ¿El expediente declara que la vivienda NO tenía calefacción?
+ * Fuente única: quien lo necesite pregunta aquí en vez de comparar el id a mano
+ * (el CIFO, el RES080, el CE3X y el módulo de Instalación lo miran todos).
+ */
+export function esSinCalefaccion(rendimientoId) {
+    return String(rendimientoId || '') === SIN_CALEFACCION_ID;
+}
 
 const REFORMA_EFFICIENCIES = {
     'sin_aislamiento': 0.549,
