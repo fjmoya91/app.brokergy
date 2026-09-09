@@ -19,7 +19,15 @@ name: Catastro geometry — traer datos reales
 # El runner sale por IPs de Azure, no por la del VPS: si el WAF se molesta,
 # produccion no se entera.
 
+# Se dispara de DOS formas, y las dos son a mano:
+#   1. workflow_dispatch, cuando este fichero llegue a la rama por defecto
+#      (GitHub solo registra ese disparador desde main);
+#   2. mientras tanto, escribiendo catastro-geometry/.disparar/parametros.json
+#      en esta rama. Los parametros se leen de ese fichero.
 on:
+  push:
+    paths:
+      - "catastro-geometry/.disparar/**"
   workflow_dispatch:
     inputs:
       fase:
@@ -62,19 +70,42 @@ jobs:
       - name: Dependencias
         run: pip install --quiet shapely pyproj lxml numpy folium matplotlib
 
+      - name: Resolver parametros
+        id: par
+        run: |
+          F=.disparar/parametros.json
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "fase=${{ inputs.fase }}"               >> $GITHUB_OUTPUT
+            echo "refcat=${{ inputs.refcat }}"           >> $GITHUB_OUTPUT
+            echo "max_vecinos=${{ inputs.max_vecinos }}" >> $GITHUB_OUTPUT
+            echo "pausa=${{ inputs.pausa }}"             >> $GITHUB_OUTPUT
+          elif [ -f "$F" ]; then
+            python - "$F" >> $GITHUB_OUTPUT <<'PY'
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          print("fase=" + str(d.get("fase", "reconocimiento")))
+          print("refcat=" + str(d.get("refcat", "")))
+          print("max_vecinos=" + str(d.get("max_vecinos", 4)))
+          print("pausa=" + str(d.get("pausa", 1.5)))
+          PY
+          else
+            echo "No hay parametros que aplicar." && exit 1
+          fi
+          cat $GITHUB_OUTPUT
+
       - name: Reconocimiento (6 peticiones)
-        if: ${{ inputs.fase == 'reconocimiento' }}
-        run: python tools/reconocer.py data/reconocimiento "${{ inputs.pausa }}"
+        if: ${{ steps.par.outputs.fase == 'reconocimiento' }}
+        run: python tools/reconocer.py data/reconocimiento "${{ steps.par.outputs.pausa }}"
 
       - name: Traer los datos de la parcela
-        if: ${{ inputs.fase == 'datos' }}
+        if: ${{ steps.par.outputs.fase == 'datos' }}
         run: |
-          python -m src.main "${{ inputs.refcat }}" \
+          python -m src.main "${{ steps.par.outputs.refcat }}" \
             --only-fetch \
-            --pausa "${{ inputs.pausa }}" \
+            --pausa "${{ steps.par.outputs.pausa }}" \
             --retries 1 \
             --timeout 25 \
-            --max-vecinos "${{ inputs.max_vecinos }}" \
+            --max-vecinos "${{ steps.par.outputs.max_vecinos }}" \
             --data "data/real" \
             --cache "cache"
 
@@ -94,7 +125,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "nada que commitear"
           else
-            git commit -m "Catastro: respuestas crudas (${{ inputs.fase }}, ${{ inputs.refcat }})
+            git commit -m "Catastro: respuestas crudas (${{ steps.par.outputs.fase }}, ${{ steps.par.outputs.refcat }})
 
           Traidas por el workflow manual desde un runner de GitHub, porque el
           entorno de desarrollo no tiene salida a ovc.catastro.meh.es.
