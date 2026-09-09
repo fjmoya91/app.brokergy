@@ -37,9 +37,31 @@ const supabase = require('./supabaseClient');
 const driveService = require('./driveService');
 const { scanCeeSection } = require('./ceeUploadService');
 const { carpetaDeExpediente } = require('./expedienteFolderSync');
-const { mergePdfs } = require('../utils/dniAnexo');
 const { crearZip } = require('../utils/zipStore');
 const { fichaFromNumero } = require('../utils/fichas');
+const { unirAnexos, fetchAnnexBuffers } = require('./pdfService');
+const path = require('path');
+const { pathToFileURL } = require('url');
+
+// Los dos módulos ESM del frontend que deciden QUÉ fichas técnicas lleva el
+// expediente y en qué orden y con qué recorte de páginas. Se cargan por import()
+// dinámico, igual que hace `cifoService` (ver [[project_backend_importa_frontend_esm]]):
+// son la MISMA fuente que el modal del CIFO, y con una copia aquí el fichero
+// suelto y el bloque de anexos del certificado divergirían.
+let _ftPromise = null;
+function loadFichasTecnicas() {
+    if (!_ftPromise) {
+        _ftPromise = import(pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/fichasTecnicas.js')).href);
+    }
+    return _ftPromise;
+}
+let _annexPromise = null;
+function loadAnnexPrefs() {
+    if (!_annexPromise) {
+        _annexPromise = import(pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/annexPrefs.js')).href);
+    }
+    return _annexPromise;
+}
 
 // Código del CERTIFICADO RITE dentro del grupo 3.
 //
@@ -85,7 +107,11 @@ function fichaDe(numero) {
 const INDICE = [
     // El anexo del MITECO conserva SU nombre (lo genera /anexos-actuacion y así se
     // llama en los lotes ya presentados): no lleva el prefijo del índice.
-    { cod: null, etiqueta: 'Anexo de la actuación (MITECO)', obligatorio: true, de: 'anexo_miteco', sinPrefijo: true },
+    // Obligatorio SOLO en el paquete del gestor: para rellenarlo hacen falta el nº
+    // de dictamen y su fecha, así que a la hora de subir a beCAE todavía no existe
+    // y exigirlo bloquearía el paquete entero por un papel que no puede estar.
+    { cod: null, etiqueta: 'Anexo de la actuación (MITECO)', obligatorioEn: ['gestor'], de: 'anexo_miteco', sinPrefijo: true,
+      motivoExenta: 'todavía no existe: se rellena con el nº y la fecha del dictamen' },
 
     { cod: '1',   etiqueta: 'Convenio CAE con el Sujeto Obligado', obligatorio: true,  de: 'convenio_so',
       nombreDe: (ctx) => `CONVENIO CAE BROKERGY-${marcaSo(ctx.so)}` },
@@ -113,7 +139,16 @@ const INDICE = [
 
     { cod: '4-1', etiqueta: 'Fichas técnicas de los equipos',     obligatorio: true,  de: 'fichas_tecnicas', nombre: 'FICHAS TECNICAS' },
     { cod: '4-2', etiqueta: 'CEE inicial · PDF firmado',          obligatorio: true,  de: 'cee', fase: 'inicial', slot: 'pdf',      nombre: 'CEE INICIAL_fdo' },
-    { cod: '4-3', etiqueta: 'CEE inicial · justificante de registro', obligatorio: true, de: 'cee', fase: 'inicial', slot: 'registro', nombre: 'CEE INICIAL_REG' },
+    // Solo BLOQUEA si consta que el CEE inicial se REGISTRÓ. Hay actuaciones cuyo
+    // CEE inicial es una SIMULACIÓN —no se registra, así que no hay justificante que
+    // pedir—: 5 de las 20 de los lotes con dictamen favorable van sin este fichero,
+    // y las cinco obtuvieron dictamen favorable. La señal es la fecha de registro
+    // del expediente, que es lo que se sella al subir el justificante (regla 27.c):
+    // las dos cosas se mueven juntas, así que exigir el papel sin tener la fecha es
+    // bloquear sobre una suposición. Sin ella se AVISA, que es lo que corresponde.
+    { cod: '4-3', etiqueta: 'CEE inicial · justificante de registro', obligatorio: true, de: 'cee', fase: 'inicial', slot: 'registro', nombre: 'CEE INICIAL_REG',
+      exenta: (ctx) => !ctx.doc?.fecha_registro_cee_inicial,
+      motivoExenta: 'no consta fecha de registro del CEE inicial (¿es una simulación?)' },
     { cod: '4-4', etiqueta: 'CEE inicial · etiqueta energética',   obligatorio: false, de: 'cee', fase: 'inicial', slot: 'etiqueta', nombre: 'CEE INICIAL_ETQ' },
     { cod: '4-5', etiqueta: 'Anexo I firmado por el titular',     obligatorio: true,  de: 'doc_exp',  campo: 'anexo_i_signed_link', nombre: 'ANEXO I_fdo' },
     { cod: '4-6', etiqueta: 'CEE inicial · XML',                  obligatorio: true,  de: 'cee', fase: 'inicial', slot: 'xml',      nombre: 'CEE INICIAL_XML', ext: '.xml' },
@@ -125,6 +160,51 @@ const INDICE = [
     { cod: '5-1', etiqueta: 'Escrito de respuesta al requerimiento', obligatorio: false, de: 'suelto_lote', patron: 'escrito de respuesta|informe respuesta|informe_subsanacion', nombre: 'ESCRITO DE RESPUESTA', ambito: 'lote', soloGestor: true },
     { cod: '5-2', etiqueta: 'Declaración responsable del huso',      obligatorio: false, de: 'suelto_lote', patron: 'declaracion_responsable_huso', nombre: 'DECLARACION RESPONSABLE HUSO_fdo', ambito: 'lote', soloGestor: true },
 ];
+
+// ─── Las fichas técnicas del expediente, como las lleva el CIFO ──────────────
+// Devuelve [{ driveId, excludedPages? }] en el orden final. Respaldo: si los
+// módulos del frontend no se pueden cargar o el expediente no declara equipos, se
+// barren los `ft_*_link` de `documentacion` — es lo que se hacía antes, y perder
+// las fichas técnicas por no poder leer una preferencia sería peor que ignorarla.
+async function anexosFichaTecnica(ctx) {
+    const doc = ctx.doc || {};
+    try {
+        const { resolveAllFichaSlots, ftDocFields } = await loadFichasTecnicas();
+        const { readAnnexPrefs, buildAnnexPayload } = await loadAnnexPrefs();
+        // `resolveAllFichaSlots` = los huecos de la bomba de calor (uno por MODELO)
+        // MÁS los del marco y el vidrio, que en un RES080 con sustitución de ventanas
+        // también van dentro del certificado. Medido sobre el fichero presentado de
+        // 26RES080_53: sus 55 páginas son las dos aerotermias, la memoria de
+        // transmitancias, el marco, el vidrio y la lana mineral. Con solo la
+        // aerotermia el documento suelto se quedaba en 6.
+        const slots = resolveAllFichaSlots(ctx.exp);
+        const tieneAcs = slots.some(sl => sl.cubreAcs);
+        const attachments = [];
+        for (const sl of slots) {
+            const campos = ftDocFields(sl.type);
+            const id = doc[campos.id] || driveIdDe(doc[campos.link]);
+            if (id) attachments.push({ id: sl.id, label: sl.label, file: { driveId: id } });
+        }
+        // Y los anexos SUELTOS que se le añadieron al certificado a mano: en el
+        // fichero presentado son fichas de materiales, así que forman parte de lo
+        // que hay que entregar aparte.
+        for (const ex of (Array.isArray(doc.cifo_extra_annexes) ? doc.cifo_extra_annexes : [])) {
+            const id = ex.driveId || driveIdDe(ex.link);
+            if (id) attachments.push({ id: `extra_${id}`, label: ex.label || 'Documento anexo', file: { driveId: id } });
+        }
+        const payload = buildAnnexPayload(attachments, readAnnexPrefs(doc), { tieneAcs });
+        if (payload.length) return payload;
+    } catch (e) {
+        console.warn('[envioGestor] fichas técnicas por anexos del CIFO:', e.message);
+    }
+    const ids = [];
+    for (const k of Object.keys(doc).sort()) {
+        if (!/^ft_.*_link$/.test(k)) continue;
+        const id = driveIdDe(doc[k]);
+        if (id && !ids.includes(id)) ids.push(id);
+    }
+    return ids.map(driveId => ({ driveId }));
+}
 
 // ─── Resolución de cada pieza ────────────────────────────────────────────────
 // Devuelve { fileId } | { buffer, mime } | null. NUNCA lanza por una pieza que no
@@ -181,30 +261,31 @@ async function resolverPieza(pieza, ctx) {
                 return id ? { fileId: id } : null;
             }
             case 'fichas_tecnicas': {
-                // Una sola ficha técnica se copia tal cual; varias se UNEN en un PDF,
-                // que es como viajan en los lotes ya presentados ("FICHAS TECNICAS").
-                // Se deduplica por fichero: un equipo que cubre calefacción y ACS
-                // apunta dos veces al mismo PDF y se anexaría dos veces.
-                const ids = [];
-                for (const k of Object.keys(doc).sort()) {
-                    if (!/^ft_.*_link$/.test(k)) continue;
-                    const id = driveIdDe(doc[k]);
-                    if (id && !ids.includes(id)) ids.push(id);
+                // La ficha técnica va DOS veces al verificador: dentro del CIFO —como
+                // anexo— y SUELTA, porque nos la piden además como documento externo.
+                // Las dos tienen que ser LA MISMA: si el fichero suelto llevara otra
+                // ficha, u otras páginas, la contradicción está en el mismo paquete.
+                //
+                // Así que se arma con la misma decisión que el bloque de anexos del
+                // certificado: `resolveFichaSlots` dice QUÉ fichas lleva el expediente
+                // (una por MODELO distinto, no una por hueco — regla 8.b) y
+                // `buildAnnexPayload` las ORDENA, deduplica por fichero y aplica el
+                // recorte de páginas que se dejó guardado en el gestor de anexos.
+                const anexos = await anexosFichaTecnica(ctx);
+                if (!anexos.length) return null;
+
+                // Una sola, sin recorte, se copia tal cual: no hay nada que unir y
+                // así el paquete conserva el fichero original de Drive.
+                if (anexos.length === 1 && !(anexos[0].excludedPages || []).length) {
+                    return { fileId: anexos[0].driveId, nombre: 'FICHAS TECNICAS' };
                 }
-                if (!ids.length) return null;
-                if (ids.length === 1) return { fileId: ids[0], nombre: 'FICHAS TECNICAS' };
-                // En seco no se unen: bajar y fusionar varios PDF cuesta segundos y
-                // la comprobación solo necesita saber que las fichas ESTÁN. Pero si se
-                // está armando el ZIP de verdad hay que unirlas: con el atajo puesto,
-                // el paquete salía SIN las fichas técnicas y sin decirlo.
-                if (ctx.dryRun && !ctx.zipEnMemoria) return { fusion: ids.length, nombre: 'FICHAS TECNICAS' };
-                const bufs = [];
-                for (const id of ids) {
-                    const b = await driveService.getFileContent(id);
-                    if (b && b.length) bufs.push(b);
-                }
-                if (!bufs.length) return null;
-                const unido = await mergePdfs(bufs[0], bufs.slice(1));
+                // En seco no se baja nada: la comprobación solo necesita saber que las
+                // fichas ESTÁN. Pero armando el ZIP de verdad hay que unirlas — con el
+                // atajo puesto, el paquete salía SIN las fichas técnicas y sin decirlo.
+                if (ctx.dryRun && !ctx.zipEnMemoria) return { fusion: anexos.length, nombre: 'FICHAS TECNICAS' };
+                const bufs = await fetchAnnexBuffers(anexos);
+                const unido = await unirAnexos(bufs);
+                if (!unido) return null;
                 return { buffer: unido, mime: 'application/pdf', nombre: 'FICHAS TECNICAS' };
             }
             case 'suelto_lote': {
@@ -294,6 +375,29 @@ function nombreFinal(pieza, resuelto, ctx) {
     return limpio(partes.join(' - ')) + ext;
 }
 
+// ─── ¿Esta pieza BLOQUEA? ────────────────────────────────────────────────────
+// Tres respuestas, no dos, y la tercera es la que evita los falsos bloqueos:
+//   · obligatoria → sin ella no se arma el paquete;
+//   · leve        → avisa y se arma igual;
+//   · NO PROCEDE  → este expediente no tiene por qué tenerla (`exenta`), así que no
+//     cuenta como falta ni siquiera leve. Se DICE, con el motivo: un documento que
+//     desaparece de la lista sin explicación se lee como un olvido.
+//
+// `obligatorioEn` acota la obligatoriedad a unos modos: el anexo del MITECO solo
+// puede exigirse en el paquete del gestor.
+function exigencia(pieza, modo, ctx) {
+    if (typeof pieza.exenta === 'function') {
+        try { if (pieza.exenta(ctx)) return 'no_procede'; } catch (_) { /* ante la duda, se exige */ }
+    }
+    // Una pieza que solo se exige en ciertos modos NO SE ESPERA en los demás: si
+    // faltara, avisar de ella sería ruido en el único sitio donde hay que mirar.
+    // El anexo del MITECO en el paquete de beCAE es exactamente ese caso.
+    if (pieza.obligatorioEn) {
+        return pieza.obligatorioEn.includes(modo) ? 'obligatoria' : 'no_procede';
+    }
+    return pieza.obligatorio ? 'obligatoria' : 'leve';
+}
+
 // ─── El paquete de UNA actuación ─────────────────────────────────────────────
 async function paqueteDeActuacion(ctx, { modo, dryRun, zipEnMemoria = false }) {
     const { exp, n } = ctx;
@@ -318,8 +422,11 @@ async function paqueteDeActuacion(ctx, { modo, dryRun, zipEnMemoria = false }) {
         resueltas.push({ pieza, r, nombre: r ? nombreFinal(pieza, r, ctx) : null });
     }
 
-    const faltanObligatorias = resueltas.filter(x => !x.r && x.pieza.obligatorio).map(x => x.pieza.etiqueta);
-    const faltanLeves = resueltas.filter(x => !x.r && !x.pieza.obligatorio).map(x => x.pieza.etiqueta);
+    for (const x of resueltas) x.exigencia = exigencia(x.pieza, modo, ctx);
+    const faltanObligatorias = resueltas.filter(x => !x.r && x.exigencia === 'obligatoria').map(x => x.pieza.etiqueta);
+    const faltanLeves = resueltas.filter(x => !x.r && x.exigencia === 'leve').map(x => x.pieza.etiqueta);
+    const noProceden = resueltas.filter(x => !x.r && x.exigencia === 'no_procede')
+        .map(x => `${x.pieza.etiqueta} — ${x.pieza.motivoExenta || 'no procede en este expediente'}`);
 
     const salida = {
         n,
@@ -327,15 +434,17 @@ async function paqueteDeActuacion(ctx, { modo, dryRun, zipEnMemoria = false }) {
         numero_expediente: exp.numero_expediente,
         ficha: fichaDe(exp.numero_expediente),
         piezas: resueltas.map(x => ({
-            cod: x.pieza.cod, etiqueta: x.pieza.etiqueta, obligatorio: !!x.pieza.obligatorio,
+            cod: x.pieza.cod, etiqueta: x.pieza.etiqueta, obligatorio: x.exigencia === 'obligatoria',
             // `manual` = estaba en la carpeta del paquete pero la app no lo tiene
             // apuntado. Cuenta como presente y se DICE: es lo que hay que registrar
             // en el expediente para que el siguiente lote no dependa de una copia.
-            estado: !x.r ? 'falta' : (x.r.yaColocada ? 'manual' : (x.r.respaldo ? 'drive' : 'ok')),
+            estado: !x.r ? (x.exigencia === 'no_procede' ? 'no_procede' : 'falta')
+                : (x.r.yaColocada ? 'manual' : (x.r.respaldo ? 'drive' : 'ok')),
             nombre: x.nombre,
         })),
         faltan_obligatorias: faltanObligatorias,
         faltan_leves: faltanLeves,
+        no_proceden: noProceden,
         n_ficheros: resueltas.filter(x => x.r).length,
         ok: faltanObligatorias.length === 0,
         carpeta_link: null,
@@ -346,8 +455,11 @@ async function paqueteDeActuacion(ctx, { modo, dryRun, zipEnMemoria = false }) {
     // Carpeta destino. En modo `expediente` es la propia "E{n}" del expediente (la
     // que ya usa el anexo del MITECO); en modo `gestor`, una copia completa dentro
     // de "{LOTE} - ENVIO GESTOR".
+    // Armando el ZIP EN MEMORIA no hay destino: no se escribe en Drive, así que la
+    // carpeta "E{n}" puede no existir todavía —y no existe en un lote que aún no ha
+    // llegado a presentarse, que es justo el que se quiere comprobar.
     const destino = ctx.destino;
-    if (!destino) throw new Error(`No se pudo preparar la carpeta E${n}`);
+    if (!destino && !zipEnMemoria) throw new Error(`No se pudo preparar la carpeta E${n}`);
 
     const entradasZip = [];
     for (const x of resueltas) {

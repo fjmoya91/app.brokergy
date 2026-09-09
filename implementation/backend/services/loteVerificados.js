@@ -382,10 +382,19 @@ async function aplicarAhorrosVerificados(filas, meta = {}) {
  * dinero, así que puede completarse leyendo el informe sin que nadie lo revise.
  * Los ahorros y las inversiones NO se tocan: ésos ya los aprobó una persona.
  *
+ * Con `soloSiFalta` NO pisa un orden ya escrito: es el modo con el que se SELLA al
+ * enviar la solicitud por API, donde el número sale del orden en que se declaran
+ * las actuaciones al verificador. Si más tarde el informe numera de otra forma, esa
+ * discrepancia se ve —los dos quedan anotados con su origen— en vez de sustituirse
+ * en silencio: el ZIP que ya se subió a beCAE lleva el número sellado.
+ *
  * @param {Array<{expediente_id, orden}>} filas
+ * @param {{ soloSiFalta?: boolean, origen?: string }} opts
  */
-async function aplicarOrdenActuacion(filas) {
+async function aplicarOrdenActuacion(filas, opts = {}) {
+    const { soloSiFalta = false, origen = null } = opts;
     const aplicados = [];
+    const discrepancias = [];
     for (const f of (filas || [])) {
         const orden = Number(f?.orden);
         if (!f?.expediente_id || !Number.isFinite(orden) || orden <= 0) continue;
@@ -393,16 +402,26 @@ async function aplicarOrdenActuacion(filas) {
             const { data: exp } = await supabase.from('expedientes')
                 .select('id, numero_expediente, instalacion').eq('id', f.expediente_id).maybeSingle();
             if (!exp) continue;
-            if (Number(exp.instalacion?.verificacion?.orden_actuacion) === orden) continue;  // ya estaba
+            const previo = Number(exp.instalacion?.verificacion?.orden_actuacion);
+            if (previo === orden) continue;                                     // ya estaba
+            if (soloSiFalta && Number.isFinite(previo) && previo > 0) {
+                discrepancias.push({ numero_expediente: exp.numero_expediente, previo, orden });
+                continue;
+            }
             const instalacion = {
                 ...(exp.instalacion || {}),
-                verificacion: { ...(exp.instalacion?.verificacion || {}), orden_actuacion: orden },
+                verificacion: {
+                    ...(exp.instalacion?.verificacion || {}),
+                    orden_actuacion: orden,
+                    ...(origen ? { orden_origen: origen, orden_at: nowIso() } : {}),
+                },
             };
             const { error } = await supabase.from('expedientes')
                 .update({ instalacion, updated_at: nowIso() }).eq('id', exp.id);
             if (!error) aplicados.push({ numero_expediente: exp.numero_expediente, orden });
         } catch { /* uno que falle no puede tumbar la generación de los demás */ }
     }
+    aplicados.discrepancias = discrepancias;
     return aplicados;
 }
 

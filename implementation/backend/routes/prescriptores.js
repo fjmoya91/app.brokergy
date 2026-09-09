@@ -275,82 +275,25 @@ router.get('/:id/expedientes-certificador', enforceAuth, async (req, res) => {
 // ─── El CONVENIO CAE con el Sujeto Obligado ─────────────────────────────────────
 // Es la pieza "E{n}-1" del paquete de cada actuación: el MISMO documento en las
 // cinco actuaciones de un lote y en todos los lotes de ese S.O. Vive en su ficha
-// porque se firma una vez y se cita siempre; adjuntarlo en cada lote sería
-// adjuntarlo cinco veces al mes sin garantía de que fuera el mismo papel.
+// porque se firma una vez y se cita siempre. Dónde se guarda el fichero y cómo se
+// sella lo decide `services/convenioCae.js` — de ahí tira también el script que
+// registra los convenios que ya existían dentro de las carpetas E{n}.
 //
-// Se guarda solo el ENLACE (regla 21): el PDF va a Drive, a una carpeta propia
-// FUERA de cualquier lote o expediente — dentro de uno, quien ordene esa carpeta
-// se lleva por delante el convenio de todos los demás paquetes.
-async function carpetaConvenios() {
-    const driveService = require('../services/driveService');
-    if (process.env.DRIVE_CONVENIOS_CAE_ID) return process.env.DRIVE_CONVENIOS_CAE_ID;
-    // Sin variable de entorno: al lado de las carpetas de estado (hermana de
-    // "01. OPORTUNIDADES"), que es donde se busca a mano.
-    const { FOLDERS } = require('../services/driveFolders');
-    const meta = await driveService.getFileMetadata(FOLDERS.OPORTUNIDADES, 'id, parents');
-    const padre = meta?.parents?.[0];
-    if (!padre) throw new Error('No se pudo resolver la carpeta raíz de Drive para guardar el convenio');
-    const id = await driveService.getOrCreateSubfolder(padre, '00. CONVENIOS CAE');
-    if (!id) throw new Error('No se pudo crear la carpeta "00. CONVENIOS CAE"');
-    return id;
-}
-
 // PUT /api/prescriptores/:id/convenio-cae — { base64, fileName } | { link }
 router.put('/:id/convenio-cae', adminOnly, async (req, res) => {
     try {
-        const driveService = require('../services/driveService');
         const { base64, fileName, link } = req.body || {};
-
-        let convenio_cae_link = null;
-        let convenio_cae_nombre = null;
-
-        if (base64) {
-            const { data: so } = await supabase.from('prescriptores')
-                .select('razon_social, acronimo').eq('id_empresa', req.params.id).maybeSingle();
-            const marca = String(so?.acronimo || so?.razon_social || 'SO')
-                .replace(/[\\\/<>:"|?*]/g, '_').trim().toUpperCase();
-            const nombre = `CONVENIO CAE BROKERGY-${marca}.pdf`;
-            const buffer = Buffer.from(String(base64).split(',').pop(), 'base64');
-            if (buffer.length < 5 || buffer[0] !== 0x25 || buffer[1] !== 0x50) {
-                return res.status(400).json({ error: 'El convenio debe ser un PDF' });
-            }
-            const carpeta = await carpetaConvenios();
-            // El convenio nuevo REEMPLAZA al anterior con ese nombre: el vigente es
-            // uno solo, y dos ficheros iguales en Drive no dicen cuál se está citando.
-            try {
-                const previos = await driveService.findFilesByName(carpeta, nombre);
-                for (const p of (previos || [])) await driveService.archiveExistingToOld(carpeta, p, nombre);
-            } catch (_) { /* no bloqueante */ }
-            const saved = await driveService.saveFileToFolder(carpeta, nombre, 'application/pdf', buffer);
-            if (!saved) throw new Error('No se pudo guardar el convenio en Drive');
-            convenio_cae_link = saved.link;
-            convenio_cae_nombre = fileName || nombre;
-        } else if (typeof link === 'string') {
-            // Registrar por enlace: el convenio ya está en Drive y no hay que
-            // duplicarlo. Cadena vacía = quitarlo.
-            const l = link.trim();
-            if (l && !/drive\.google\.com|docs\.google\.com/.test(l)) {
-                return res.status(400).json({ error: 'El enlace debe ser de Google Drive' });
-            }
-            convenio_cae_link = l || null;
-            convenio_cae_nombre = l ? (fileName || 'Convenio CAE') : null;
-        } else {
-            return res.status(400).json({ error: 'Falta el PDF del convenio o su enlace de Drive' });
-        }
-
-        const { data, error } = await supabase.from('prescriptores')
-            .update({
-                convenio_cae_link, convenio_cae_nombre,
-                convenio_cae_at: convenio_cae_link ? new Date().toISOString() : null,
-            })
-            .eq('id_empresa', req.params.id)
-            .select('id_empresa, convenio_cae_link, convenio_cae_nombre, convenio_cae_at')
-            .single();
-        if (error) throw error;
+        const { registrarConvenio } = require('../services/convenioCae');
+        const data = await registrarConvenio(req.params.id, {
+            buffer: base64 ? Buffer.from(String(base64).split(',').pop(), 'base64') : null,
+            link,
+            fileName,
+        });
         res.json({ ok: true, ...data });
     } catch (err) {
-        console.error('Error PUT convenio CAE:', err);
-        res.status(500).json({ error: err.message || 'No se pudo guardar el convenio CAE' });
+        console.error('Error PUT convenio CAE:', err.message);
+        const code = /debe ser|Falta|enlace/.test(err.message) ? 400 : 500;
+        res.status(code).json({ error: err.message || 'No se pudo guardar el convenio CAE' });
     }
 });
 

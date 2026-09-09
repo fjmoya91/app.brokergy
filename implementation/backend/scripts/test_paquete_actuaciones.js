@@ -58,6 +58,7 @@ const { construirPaquete } = require('../services/envioGestorService');
         // paquete depende de una copia que alguien colocó a mano.
         const MARCA = {
             falta:  (ob) => ob ? '✗ FALTA   ' : '· leve    ',
+            no_procede: () => '– no proc.',
             manual: () => '⚠ a mano  ',
             drive:  () => '⚠ de Drive',
         };

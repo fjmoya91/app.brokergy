@@ -2779,6 +2779,16 @@ router.post('/:id/enviar-verificador-api', staffOnly, async (req, res) => {
             texto: `Enviado al verificador por API (Marwen) · solicitud ${result.num_solicitud || '—'} · ${step2.length} actuaciones`,
             fecha: nowIso(), usuario: usuarioDe(req),
         });
+        // El Nº DE ACTUACIÓN se SELLA aquí. Es el orden en que las actuaciones se
+        // acaban de declarar al verificador, y es el que rotula los ficheros del ZIP
+        // que se sube a beCAE ("E3-3-1 - …") y, después, el anexo del MITECO que los
+        // cita. Deducirlo más tarde de otra cosa —del informe, del orden alfabético—
+        // sería confiar en que coincida con lo declarado; aquí no hay que confiar:
+        // es literalmente lo que se ha enviado, expediente por expediente.
+        verificacionApi.orden_actuaciones = step2norm.map((a, i) => ({
+            n: i + 1, numero_expediente: String(a.SE_nombre_actuacion || '').trim() || null,
+        }));
+
         const update = { verificacion_api: verificacionApi, historial, updated_at: nowIso() };
         // Al enviar la solicitud por API el lote pasa a "solicitado presupuesto al verificador".
         if (lote.estado === 'BORRADOR') {
@@ -2786,6 +2796,26 @@ router.post('/:id/enviar-verificador-api', staffOnly, async (req, res) => {
         }
         const { data: updated, error: upErr } = await supabase.from('lotes').update(update).eq('id', lote.id).select().single();
         if (upErr) throw upErr;
+
+        // 7.b Sellar el nº de actuación en cada expediente. Best-effort y `soloSiFalta`:
+        //     la solicitud YA está enviada, así que un fallo de escritura no puede
+        //     presentarse como un fallo de envío, y un orden ya escrito (el del
+        //     informe de un lote que se reenvía) no se pisa.
+        let orden_sellado = [];
+        try {
+            const norm = (x) => String(x || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+            const { data: expsLote } = await supabase.from('expedientes')
+                .select('id, numero_expediente').eq('lote_id', lote.id);
+            const filas = [];
+            for (const o of verificacionApi.orden_actuaciones) {
+                const exp = (expsLote || []).find(e => norm(e.numero_expediente) === norm(o.numero_expediente));
+                if (exp) filas.push({ expediente_id: exp.id, orden: o.n });
+            }
+            orden_sellado = await aplicarOrdenActuacion(filas,
+                { soloSiFalta: true, origen: 'SOLICITUD_API' });
+        } catch (e) {
+            console.warn('[enviar-verificador-api] sellar nº de actuación:', e.message);
+        }
 
         // 8. El PDF de la solicitud que se acaba de crear en el verificador queda
         //    archivado en el lote. Best-effort: la solicitud YA está enviada y un
@@ -2810,6 +2840,7 @@ router.post('/:id/enviar-verificador-api', staffOnly, async (req, res) => {
             tipo_solicitud: result.tipo_solicitud,
             message: result.message,
             solicitud_archivada,
+            orden_sellado,
             lote: scrubLoteForUser(enriched, req),
         });
     } catch (err) {

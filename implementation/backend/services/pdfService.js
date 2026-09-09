@@ -195,6 +195,33 @@ async function mergePdfs(mainBuffer, annexBuffers) {
     return Buffer.from(await merged.save());
 }
 
+/**
+ * Une varios anexos en UN PDF, sin documento principal delante.
+ *
+ * `mergePdfs` siempre concatena DETRÁS de algo; aquí no hay nada delante —es el
+ * caso de la ficha técnica que se entrega SUELTA, además de ir dentro del CIFO—,
+ * así que se parte de un documento vacío. No vale usar el primer anexo como base:
+ * entonces su propio recorte de páginas no se aplicaría, y el fichero suelto
+ * dejaría de coincidir con lo que lleva dentro el certificado.
+ *
+ * @param {Array<Buffer|{buffer:Buffer, excludedPages?:number[]}>} items
+ * @returns {Promise<Buffer|null>} null si no queda ni una página
+ */
+async function unirAnexos(items) {
+    const lista = (items || []).filter(Boolean);
+    if (!lista.length) return null;
+    // ⚠️ Un documento de CERO páginas guardado con pdf-lib vuelve a cargarse con
+    // UNA, en blanco (comprobado: 583 bytes → getPageCount() === 1). Así que la
+    // hoja de arranque existe y hay que QUITARLA después de concatenar; si no, el
+    // fichero suelto empieza con una página vacía que no está en el certificado.
+    const arranque = Buffer.from(await (await PDFDocument.create()).save());
+    const unido = await mergePdfs(arranque, lista);
+    const doc = await PDFDocument.load(unido, { ignoreEncryption: true });
+    if (doc.getPageCount() <= 1) return null;        // ni un anexo legible
+    doc.removePage(0);
+    return Buffer.from(await doc.save());
+}
+
 // Acepta ['driveId', …] (formato antiguo) o [{ driveId, excludedPages }, …].
 // Devuelve [{ buffer, excludedPages }] en el MISMO orden recibido, que es el
 // orden en el que se concatenan al PDF principal.
@@ -223,5 +250,6 @@ module.exports = {
     documentoAPdf,
     detectBufferType,
     mergePdfs,
+    unirAnexos,
     fetchAnnexBuffers,
 };

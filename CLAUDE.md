@@ -3633,6 +3633,77 @@ entra— fuera de la pantalla y obliga a recorrer el documento entero para llega
 botón. Lo que se revisa ahí arriba son los CAMPOS; el documento se mira cuando se
 quiere comprobar cómo ha quedado.
 
+## El ZIP que se sube a beCAE es el MISMO paquete del MITECO (2026-09-09)
+
+Antes de que el verificador emita su oferta hay que subirle a **beCAE** la
+documentación de cada actuación: un ZIP por actuación con los ficheros renombrados
+a `E{n}-…`, y la solicitud aparte. Es el paquete que ya existía (regla 40, modo
+`expediente`), no otro: el del MITECO es ESE MÁS el anexo de la actuación, el
+dictamen y los escritos del lote. Por eso el botón está en la **fase 3** del proceso
+del lote, que es cuando se sube, y el de la fase 5 sigue donde estaba.
+
+**REGLA — el contenido NO depende de la ficha.** Comparadas las 20 actuaciones de los
+cuatro lotes con dictamen favorable (10 RES060, 4 RES080… y las de 2026-004: RES060,
+3 RES080 y 1 RES093), las 20 llevan exactamente los mismos documentos. Lo único que
+cambia con la ficha es cómo se llama el `3-5`: en RES060/RES093/TER es el
+**Certificado CIFO** y en RES080 el **Certificado de Reforma**, que ya lo resuelve
+`nombreDe`. No hay ninguna pieza exclusiva de una ficha, así que no hay un índice por
+tipología que mantener.
+
+**REGLA — la FICHA TÉCNICA va dos veces, y tienen que ser LA MISMA.** Dentro del
+certificado —como anexo— y **suelta**, porque nos la piden además como documento
+externo. Así que el `4-1` se arma con la misma decisión que el bloque de anexos del
+certificado: `resolveAllFichaSlots` (una por MODELO de bomba de calor, más el marco y
+el vidrio en un RES080 con ventanas) + los anexos sueltos que se le añadieron a mano,
+y `buildAnnexPayload` los ordena, deduplica por fichero y aplica el recorte de
+páginas guardado en el gestor de anexos. Verificado sobre LOTE-2026-008: el `4-1`
+suelto es página a página el final del `3-5`. Con solo los `ft_*_link` en crudo —lo
+que se hacía antes— el fichero de 26RES080_53 se quedaba en 6 páginas frente a las
+**55** que se presentaron: faltaban la memoria de transmitancias, el marco, el vidrio
+y la lana mineral. La unión la hace `pdfService.unirAnexos`, que parte de un
+documento VACÍO: usando el primer anexo como base, su propio recorte de páginas no se
+aplicaría y el fichero suelto dejaría de coincidir con el certificado.
+
+**REGLA — el Nº DE ACTUACIÓN se SELLA al enviar la solicitud por API.** Es el orden en
+que las actuaciones se acaban de declarar al verificador, y es el que rotula cada
+fichero del ZIP (`E3-3-1 - …`) y, meses después, el anexo del MITECO que los cita
+(regla 29). Antes solo existía al registrar los ahorros del informe —semanas
+después—, así que no se podía armar nada a tiempo. Se guarda en
+`instalacion.verificacion.orden_actuacion` con `orden_origen: 'SOLICITUD_API'` y
+**`soloSiFalta`**: un orden ya escrito no se pisa, y la discrepancia se ve en vez de
+sustituirse en silencio —el ZIP que ya se subió lleva el número sellado—.
+
+Para los lotes cuya solicitud salió antes de esto:
+
+```bash
+node implementation/backend/scripts/sellar_orden_actuacion.js LOTE-2026-008 --execute
+```
+
+Deduce el orden de la secuencia de FICHAS que se mandó a firmar al S.O., que es la
+misma lista con la que se construyó la solicitud. Comprobado contra los cuatro PDF de
+solicitud reales (0035-S07 a S10) leyendo sus bloques "Actuación N": coincide
+actuación por actuación; y en los cuatro lotes con dictamen favorable coincide además
+con el que el informe acabó asignando. Aun así lo ENSEÑA antes de escribir, porque el
+número que manda es el que se ve en beCAE (`--orden=exp1,exp2,…` para forzarlo).
+
+**REGLA — una pieza puede NO PROCEDER, y eso no es que falte.** `exigencia()` da tres
+respuestas y la tercera es la que evita los falsos bloqueos. El caso medido: el
+**justificante de registro del CEE inicial** no existe cuando el CEE inicial es una
+SIMULACIÓN, y 5 de las 20 actuaciones con dictamen favorable se presentaron sin él. La
+señal es la fecha de registro del expediente —lo que se sella al subir el justificante
+(regla 27.c), así que las dos cosas se mueven juntas—: sin ella se avisa, no se
+bloquea. Y **se dice con el motivo**: una pieza del índice que desaparece de la lista
+sin explicación se lee como un olvido.
+
+⚠️ El **anexo de la actuación** solo es obligatorio en el modo `gestor`
+(`obligatorioEn`). Para rellenarlo hacen falta el nº de dictamen y su fecha, así que a
+la hora de subir a beCAE todavía no existe y exigirlo bloqueaba el paquete entero por
+un papel que no puede estar.
+
+⚠️ Armando el ZIP **en memoria** no hay carpeta destino: `E{n}` puede no existir
+todavía —y no existe en un lote que aún no se ha presentado, que es justo el que se
+quiere comprobar—. Antes eso moría con "No se pudo preparar la carpeta E1".
+
 ## Pedirle cosas al SUJETO OBLIGADO desde el cuadro de mando (2026-09-01)
 
 Los envíos que ya existían son de UN documento de UN lote (firmar el Anexo I, firmar la
@@ -4814,7 +4885,7 @@ allí no hay obra ni trámite de ayuda, y ese texto hablaría de algo que no exi
 
 39. **Un mensaje de WhatsApp con el RELOJ no está enviado, y el "escribiendo…" es lo que rompe la sesión**: `sendMessage()` devuelve el id en cuanto el mensaje se INSERTA en el chat, así que ese `{ok:true}` no significa entregado — el 08/09/2026 una propuesta quedó sellada con "✓ whatsapp ok" para el cliente y el instalador con los dos PDF dos horas en el reloj. Lo único que lo dice es el **ACK**: `confirmarEntrega()` lo espera tras `waitUntilMsgSent: true` y, si sigue en 0, es error de verdad → FAILED **sin reintentos** (el mensaje ya existe en el chat: reenviarlo lo duplica) + email al admin; si el ack no se puede leer, no se afirma nada. **NUNCA `getChatById`/`getChats`/`msg.getChat`/`sendSeen` en el camino de envío**: en WhatsApp Web 2.3000.x dejan la sesión enviando sin ACK hasta que se desconecta sola ([wwebjs#201849](https://github.com/wwebjs/whatsapp-web.js/issues/201849), sin arreglo publicado). `WWA_TYPING` y `WWA_SEND_SEEN` a `false`; la pausa humana entre mensajes se queda. Fijar la versión de la web (`WWA_WEB_VERSION`) NO sirve: se auto-actualiza igual. Ver "Un mensaje con el RELOJ no está enviado".
 
-40. **El PAQUETE de cada actuación se genera, no se renombra a mano**: los ~20 documentos del expediente copiados como `E{n}-{código}` y comprimidos, en dos modos —`expediente` (la carpeta `E{n}` + `E{n}.zip`) y `gestor` (`{LOTE} - ENVIO GESTOR` + `ActuacionE{n}.zip`, que añade el dictamen y los escritos)—. La nomenclatura se REPRODUCE de los lotes ya presentados, no se inventa; el nº de actuación es el del informe de verificación (regla 29); lo imprescindible BLOQUEA y lo leve solo avisa; los ficheros se COPIAN y **lo que ya está colocado con su código no se renombra ni se sustituye** (y si una pieza sale de un fichero suelto de Drive, se dice). Fuente única del índice: [envioGestorService.js](implementation/backend/services/envioGestorService.js) (`INDICE`, `COD_RITE`). El convenio CAE vive en la ficha del S.O. (`prescriptores.convenio_cae_link`), fuera de cualquier lote.
+40. **El PAQUETE de cada actuación se genera, no se renombra a mano**: los ~20 documentos del expediente copiados como `E{n}-{código}` y comprimidos, en dos modos —`expediente` (la carpeta `E{n}` + `E{n}.zip`) y `gestor` (`{LOTE} - ENVIO GESTOR` + `ActuacionE{n}.zip`, que añade el dictamen y los escritos)—. La nomenclatura se REPRODUCE de los lotes ya presentados, no se inventa; el nº de actuación se SELLA al enviar la solicitud por API (`orden_origen: 'SOLICITUD_API'`, `soloSiFalta`) y es el mismo que rotula el anexo del MITECO (regla 29); lo imprescindible BLOQUEA, lo leve avisa y lo que **NO PROCEDE** (`exigencia()`) se dice con su motivo sin contar como falta; los ficheros se COPIAN y **lo que ya está colocado con su código no se renombra ni se sustituye** (y si una pieza sale de un fichero suelto de Drive, se dice). Fuente única del índice: [envioGestorService.js](implementation/backend/services/envioGestorService.js) (`INDICE`, `COD_RITE`). El convenio CAE vive en la ficha del S.O. (`prescriptores.convenio_cae_link`), fuera de cualquier lote. **El modo `expediente` es TAMBIÉN el ZIP que se sube a beCAE** antes de la oferta (botón en la fase 3): el contenido NO depende de la ficha —comparadas las 20 actuaciones con dictamen favorable, solo cambia el nombre del `3-5`— y la ficha técnica suelta es el MISMO bloque de anexos del certificado, recortes incluidos. Ver "El ZIP que se sube a beCAE".
     **Y los FIRMADOS que devuelve el S.O. se sueltan todos de golpe en la fase 2**: la app lee las firmas del propio PDF ([utils/firmasPdf.js](implementation/backend/utils/firmasPdf.js) — DER puro, sin dependencias y **sin gasto de tokens**; esto NO valida la firma, solo dice qué certificados la declaran), identifica el documento por el nº de expediente —vigilando que `26RES060_10` no se cuele en `26RES060_105`— y lo registra por `guardarDocFirmado`, que ya le pone el `_fdo`. Sin firma electrónica NO se registra; una firma de otra persona solo AVISA; lo que no se sabe de quién es se PREGUNTA. Fuente única del proceso: [services/firmadosSo.js](implementation/backend/services/firmadosSo.js). Ver "El PAQUETE de cada actuación" y "Los FIRMADOS del S.O.".
 
 41. **Las FICHAS y el ANEXO I se RELLENAN sobre el impreso OFICIAL, ya no se redibujan**: las cinco plantillas son PDF de formulario del Ministerio y se escriben sus casillas ([formularioOficialService.js](implementation/backend/services/formularioOficialService.js)); qué dato ocupa cada una vive en [logic/fichasFormulario.js](implementation/frontend/src/features/expedientes/logic/fichasFormulario.js) y [logic/anexoIFormulario.js](implementation/frontend/src/features/expedientes/logic/anexoIFormulario.js). **El impreso no calcula nada**: los valores salen de los `derive*` de las maquetas, que son los mismos del CIFO. Los nombres de campo son los de la plantilla, ERRATAS INCLUIDAS (`ri i`, `E F`, `Representante delsolicitante`), y un campo que no existe se AVISA. Un documento viaja como `{ html }` o `{ formulario }` y las CUATRO salidas usan la misma (`documentoAPdf`), o el enlace de firma serviría otro documento. El tamaño de letra se fija en la CASILLA, no en el campo (pdf-lib pinta con el de la casilla); la CCAA se ELIGE del desplegable; el EURO no está en Latin-1 (`WINANSI_EXTRA`); y el sello "SIGN" de la plantilla se retira. **Los dos formatos conviven en Drive**, así que `fixedBox` admite una función `({numPaginas, oficial}) => caja` — el Anexo I se distingue por páginas (4 vs 3) y las fichas por el productor del PDF (pdf-lib vs Skia). La maqueta HTML se conserva tras el conmutador **Oficial · Clásico** de los cinco modales. Tras tocarlo: `node implementation/backend/scripts/test_impresos_oficiales.mjs` y `comparar_impresos_oficiales.mjs`. Ver "Las FICHAS y el ANEXO I se RELLENAN".

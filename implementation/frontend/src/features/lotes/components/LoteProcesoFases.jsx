@@ -705,6 +705,9 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                         .filter(x => x.estado === 'manual' || x.estado === 'drive')
                         .map(x => `⚠ E${a.n} · ${x.etiqueta}: sale de un fichero suelto en Drive, no consta en el expediente`)),
                     ...completas.flatMap(a => a.faltan_leves.map(f => `· E${a.n} · sin ${f} (no bloquea)`)),
+                    // Lo que no procede se DICE con el motivo. Un documento del índice
+                    // que simplemente desaparece de la lista se lee como un olvido.
+                    ...completas.flatMap(a => (a.no_proceden || []).map(f => `– E${a.n} · ${f}`)),
                 ],
                 errorText: data.bloqueados.length ? data.bloqueados.join('\n') : null,
             });
@@ -947,6 +950,27 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
 
             {/* 3 · Oferta de verificación */}
             <Fase f={f3}>
+                {/* El ZIP para beCAE se arma AQUÍ, y esto es lo primero de la fase.
+                    Con el Anexo I y las fichas ya firmados, lo siguiente es subir al
+                    verificador la documentación de cada actuación (un ZIP por
+                    actuación, con los ficheros renombrados a "E{n}-…") y la solicitud
+                    por separado — y de eso sale la oferta que se recibe después.
+                    Es el MISMO paquete que luego va al MITECO: el de allí solo añade
+                    el anexo de la actuación, el dictamen y los escritos del lote, así
+                    que no hay dos paquetes que puedan contradecirse. */}
+                {canSeeMargin && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <BotonAccion onClick={() => pedirPaquete('expediente', true)}>
+                            ⌕ Comprobar el paquete E1-E5 para beCAE
+                        </BotonAccion>
+                        {paquete && paquete.dryRun && paquete.modo === 'expediente'
+                            && paquete.actuaciones.some(a => a.ok) && (
+                            <BotonAccion onClick={() => pedirPaquete('expediente', false)} tono="amber">
+                                📦 Generar {paquete.actuaciones.filter(a => a.ok).length} ZIP en los expedientes
+                            </BotonAccion>
+                        )}
+                    </div>
+                )}
                 {/* Subir el firmado y darle el OK van en la propia fila del documento;
                     aquí solo lo que es de la fase: traer la oferta y mandarla a firmar. */}
                 <div className="flex items-center gap-2 flex-wrap">
