@@ -50,17 +50,40 @@ const idArg = (args.find(a => a.startsWith('--id=')) || '').split('=')[1] || nul
         ? '⚡ EJECUTANDO de verdad (etiqueta + agenda del teléfono)\n'
         : '🔍 SIMULACIÓN — no se escribe nada. Añade --execute para hacerlo de verdad.\n');
 
-    const r = await fetch(`${BASE}/api/whatsapp/etiquetas/sincronizar-instaladores`, {
-        method: 'POST',
-        headers: { 'x-internal-key': KEY, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dryRun: !execute, ids: idArg ? [idArg] : null }),
-    });
+    // La ruta va a TROZOS (nginx corta a los 60 s), así que aquí se encadenan
+    // las pasadas hasta que no queden instaladores por mirar.
+    const j = {
+        etiquetados: 0, yaEtiquetados: 0, contactosGuardados: 0, telefonos: 0, instaladores: 0,
+        sinTelefono: [], sinWhatsapp: [], errores: [], detalle: [],
+    };
+    let pendientes = idArg ? [idArg] : null;
+    let vuelta = 0;
 
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) {
-        console.error(`❌ ${r.status}: ${j.error || 'error desconocido'}`);
-        process.exit(1);
-    }
+    do {
+        const r = await fetch(`${BASE}/api/whatsapp/etiquetas/sincronizar-instaladores`, {
+            method: 'POST',
+            headers: { 'x-internal-key': KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dryRun: !execute, ids: pendientes }),
+        });
+        const parte = await r.json().catch(() => ({}));
+        if (!r.ok) {
+            console.error(`❌ ${r.status}: ${parte.error || 'error desconocido'}`);
+            process.exit(1);
+        }
+
+        j.etiqueta = parte.etiqueta; j.labelId = parte.labelId;
+        // `instaladores` es el total de la primera vuelta: después ya solo vienen
+        // los que faltaban, y sumarlos contaría dos veces a los mismos.
+        if (vuelta === 0) j.instaladores = parte.instaladores;
+        for (const k of ['etiquetados', 'yaEtiquetados', 'contactosGuardados', 'telefonos']) j[k] += parte[k];
+        for (const k of ['sinTelefono', 'sinWhatsapp', 'errores', 'detalle']) j[k].push(...(parte[k] || []));
+        if (parte.abortado) { j.abortado = parte.abortado; break; }
+
+        pendientes = parte.restantes && parte.restantes.length ? parte.restantes : null;
+        vuelta++;
+        if (pendientes) process.stdout.write(`   …${j.telefonos} teléfonos, quedan ${pendientes.length} instaladores\r`);
+    } while (pendientes);
+    if (vuelta > 1) console.log('');
 
     console.log(`Etiqueta: ${j.etiqueta} (id ${j.labelId})`);
     console.log(`Instaladores: ${j.instaladores} · teléfonos mirados: ${j.telefonos}`);

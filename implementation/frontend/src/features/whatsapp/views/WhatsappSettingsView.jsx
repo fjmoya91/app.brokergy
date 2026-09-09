@@ -72,9 +72,31 @@ export function WhatsappSettingsView() {
             if (!confirmado) return;
         }
         setSyncing(true);
+        // La ruta trabaja a TROZOS: son ~90 teléfonos a segundo y medio y el proxy
+        // corta la petición al minuto. Se encadenan las pasadas y se va enseñando
+        // el avance, que además es la señal de que no se ha colgado.
+        const total = {
+            etiquetados: 0, yaEtiquetados: 0, contactosGuardados: 0, telefonos: 0, instaladores: 0,
+            sinTelefono: [], sinWhatsapp: [], errores: [], dryRun,
+        };
         try {
-            const res = await axios.post('/api/whatsapp/etiquetas/sincronizar-instaladores', { dryRun });
-            setSync({ ...res.data, dryRun });
+            let pendientes = null;
+            let vuelta = 0;
+            do {
+                const { data } = await axios.post('/api/whatsapp/etiquetas/sincronizar-instaladores',
+                    { dryRun, ids: pendientes });
+                if (vuelta === 0) total.instaladores = data.instaladores;
+                ['etiquetados', 'yaEtiquetados', 'contactosGuardados', 'telefonos']
+                    .forEach(k => { total[k] += data[k]; });
+                ['sinTelefono', 'sinWhatsapp', 'errores']
+                    .forEach(k => total[k].push(...(data[k] || [])));
+                if (data.abortado) { total.abortado = data.abortado; break; }
+                pendientes = data.restantes?.length ? data.restantes : null;
+                total.pendientes = pendientes ? pendientes.length : 0;
+                setSync({ ...total, enCurso: !!pendientes });
+                vuelta++;
+            } while (pendientes);
+            setSync({ ...total, enCurso: false });
         } catch (err) {
             showAlert(err.response?.data?.error || err.message, 'No se ha podido sincronizar', 'error');
         } finally {
@@ -326,7 +348,9 @@ export function WhatsappSettingsView() {
                     {sync && (
                         <div className="mt-4 text-sm text-white/70 space-y-1">
                             <p>
-                                <span className="text-white/40">{sync.dryRun ? 'Se harían: ' : 'Hecho: '}</span>
+                                <span className="text-white/40">
+                                    {sync.enCurso ? `En marcha (quedan ${sync.pendientes}): ` : (sync.dryRun ? 'Se harían: ' : 'Hecho: ')}
+                                </span>
                                 <span className="text-white font-semibold">{sync.etiquetados}</span> chats etiquetados
                                 {' · '}
                                 <span className="text-white font-semibold">{sync.contactosGuardados}</span> contactos guardados

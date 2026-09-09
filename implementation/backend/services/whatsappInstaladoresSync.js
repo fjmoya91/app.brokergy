@@ -45,6 +45,9 @@ const PAUSA_MS = Number(process.env.WA_SYNC_PAUSA_MS || 1500);
 const AUTO = process.env.WA_SYNC_INSTALADORES === 'true';
 // Si la sesión se cae a mitad, no tiene sentido seguir llamando: se corta.
 const FALLOS_SEGUIDOS_MAX = Number(process.env.WA_SYNC_FALLOS_MAX || 3);
+// Teléfonos por petición. Por encima de esto, nginx corta a los 60 s: más vale
+// devolver medio informe y que el que llama vuelva, que un 504 sin nada.
+const LIMITE = Number(process.env.WA_SYNC_LIMITE || 12);
 
 const COLUMNAS = 'id_empresa, razon_social, es_autonomo, tipo_empresa, tlf, tlf_responsable, '
     + 'nombre_responsable, apellidos_responsable, contactos_notificacion';
@@ -163,8 +166,15 @@ async function sincronizarTelefono(tel, labelId, { dryRun = false } = {}) {
  *
  * `dryRun` recorre y consulta pero no escribe nada: es como se comprueba antes
  * de tocar la agenda de un teléfono de verdad.
+ *
+ * ⚠️ VA A TROZOS, y no es un capricho: son ~90 teléfonos a segundo y medio cada
+ * uno, y nginx corta la petición a los 60 s — medido el 09/09/2026, el repaso
+ * completo devolvía un 504 con medio trabajo hecho y sin informe. Se procesan
+ * como mucho `limite` teléfonos y se devuelven en `restantes` los instaladores
+ * que faltan, para que quien llama vuelva a pedir. Mismo patrón que el paquete
+ * de actuaciones de un lote.
  */
-async function sincronizar({ dryRun = true, ids = null, pausaMs = PAUSA_MS } = {}) {
+async function sincronizar({ dryRun = true, ids = null, pausaMs = PAUSA_MS, limite = LIMITE } = {}) {
     const labelId = await idEtiqueta();
 
     let q = supabase.from('prescriptores').select(COLUMNAS).eq('tipo_empresa', 'INSTALADOR');
@@ -177,10 +187,12 @@ async function sincronizar({ dryRun = true, ids = null, pausaMs = PAUSA_MS } = {
         instaladores: data.length,
         telefonos: 0, etiquetados: 0, yaEtiquetados: 0,
         contactosGuardados: 0, sinTelefono: [], sinWhatsapp: [], errores: [], detalle: [],
+        restantes: [],   // instaladores que no ha dado tiempo a mirar en esta pasada
     };
 
     let fallosSeguidos = 0;
     for (const p of data) {
+        if (informe.telefonos >= limite) { informe.restantes.push(p.id_empresa); continue; }
         const telefonos = telefonosDeInstalador(p);
         if (!telefonos.length) {
             informe.sinTelefono.push(p.razon_social);
