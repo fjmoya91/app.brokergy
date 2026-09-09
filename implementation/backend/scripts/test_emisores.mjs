@@ -130,5 +130,16 @@ console.log('\n7. "No tiene calefacción" se declara con el η y el combustible 
         'el aire-agua conserva su tipo de generador de siempre', generadorCe3x('suelo_radiante'));
 }
 
+console.log('\n8. El SCOP que se declara sigue siendo el MENOR de los equipos');
+{
+    // Dos generadores independientes no cambian el criterio conservador de la
+    // cascada: el certificado declara UN SCOP y no puede ser el mejor de los dos.
+    const { withScopAplicado, scopAplicado } = await import(`${F}/logic/aerotermiaUnits.js`);
+    const aero = withScopAplicado(res080.instalacion.aerotermia_cal);
+    check(aero.scop === 4.0, 'el aplicado es el del PULAR (4,00), no el del U-MATCH', aero.scop);
+    check(aero.scop_propio === 4.1, 'y el propio del equipo 1 se conserva', aero.scop_propio);
+    check(scopAplicado(aero) === 4.0, 'scopAplicado coincide', scopAplicado(aero));
+}
+
 console.log(`\n═══ ${ok} correctas · ${ko} fallos ═══`);
 process.exit(ko ? 1 : 0);

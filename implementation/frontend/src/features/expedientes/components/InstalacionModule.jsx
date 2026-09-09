@@ -511,6 +511,8 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
     const zonaCE = zona || 'D3';
     const brandOptions = marcas.map(m => ({ value: m.nombre, label: m.nombre, logo: m.logo, acronimo: m.nombre }));
     const availableModels = data?.marca ? (modelosPorMarca[data.marca.toUpperCase()] || []) : [];
+    // Una unidad de la cascada puede ser de OTRA marca que la unidad 1.
+    const availableModelsFor = (marca) => (marca ? (modelosPorMarca[String(marca).toUpperCase()] || []) : []);
     // La etiqueta principal es el nombre comercial + potencia, pero muchos modelos
     // comparten nombre y potencia (p. ej. dos "All in One 16 kW" con unidad exterior
     // distinta: WH-UD16HE5 vs WH-UD16HE8). Se muestra la referencia de la ud. exterior
@@ -603,8 +605,31 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
         emit({ ...data, equipos_extra: extras.filter((_, i) => i !== idx) });
     };
 
+    // Temperatura de impulsión de UNA unidad: la de su propio emisor cuando lo
+    // declara (RES080), y si no la del expediente. De ella sale la columna del
+    // catálogo de la que se lee el SCOP.
+    const tempUnidad = (u) => getEmitterTemp((emisorPorUnidad && u?.tipo_emisor) || tipoEmisor);
+
     const handleExtraChange = (idx, patch) => {
-        emit({ ...data, equipos_extra: extras.map((u, i) => (i === idx ? { ...u, ...patch } : u)) });
+        let siguiente = extras.map((u, i) => (i === idx ? { ...u, ...patch } : u));
+        // Cambiar el emisor de la unidad cambia su temperatura de impulsión y con
+        // ella la columna del catálogo: hay que releer SU SCOP, o el certificado
+        // declararía el de la temperatura anterior. En aire-aire no hay impulsión
+        // (el catálogo trae el mismo valor en 35 y 55) y el número no se mueve.
+        if (patch.tipo_emisor !== undefined && !isAcs) {
+            const u = siguiente[idx];
+            const found = availableModelsFor(u?.marca).find(m => String(m.id) === String(u?.aerotermia_db_id));
+            if (found) {
+                const method = u?.metodo_scop || data?.metodo_scop || 'ficha';
+                const temp = tempUnidad(u);
+                siguiente = siguiente.map((x, i) => (i === idx
+                    ? { ...x, scop: getScopFromModel(found, zonaCE, temp, method), scop_temporada: getScopSeason(found, zonaCE, temp, method) }
+                    : x));
+            }
+        }
+        // El SCOP que se APLICA es el menor de todas las unidades: si cambia el de
+        // una, hay que volver a derivarlo (ver logic/aerotermiaUnits.js).
+        emit(withScopAplicado({ ...data, equipos_extra: siguiente }));
     };
 
     // Cambio de modelo en una unidad extra: mismo lookup en el catálogo que la
@@ -616,12 +641,15 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
             return;
         }
         const method = extras[idx]?.metodo_scop || data?.metodo_scop || 'ficha';
+        // Con emisores por unidad (RES080) manda el de ESTA unidad, no el del
+        // expediente: son equipos independientes y cada uno tiene su impulsión.
+        const temp = tempUnidad(extras[idx]);
         const scop = isAcs
             ? getScopAcsFromModel(found, zonaCE, method)
-            : getScopFromModel(found, zonaCE, getEmitterTemp(tipoEmisor), method);
+            : getScopFromModel(found, zonaCE, temp, method);
         handleExtraChange(idx, {
             // Temporada de la que sale ese SCOP: viaja con el número (ver abajo).
-            scop_temporada: isAcs ? null : getScopSeason(found, zonaCE, getEmitterTemp(tipoEmisor), method),
+            scop_temporada: isAcs ? null : getScopSeason(found, zonaCE, temp, method),
             aerotermia_db_id: found.id,
             modelo: found.modelo_comercial || found.modelo_conjunto || found.modelo_exterior || '',
             modelo_ud_exterior: found.modelo_ud_exterior || '',
