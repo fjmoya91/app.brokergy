@@ -6,7 +6,8 @@ import { estadoInstalador, mensajeInstalador, enlaceInstalador } from '../logic/
 import { buildInstalacionAddress } from '../utils/docGenerators';
 import { DocsInstaladorPicker } from './DocsInstaladorPicker';
 // A quién se le manda esto — fuente única con el backend (services/notifyContacts).
-import { instaladorContacts, defaultContactIds, avisoReparto, ROL_LABEL } from '../utils/docContacts';
+import { instaladorContacts, defaultContactIds, avisoReparto } from '../utils/docContacts';
+import { ContactoPickRow, NotaVariosDestinatarios } from './ContactoPickRow';
 // Canal de envío de la barra inferior — COMPARTIDO con los otros popups de envío.
 import { CanalChip, avisoCanales } from '../../../components/CanalChip';
 // Quién firma cada documento, y poder arreglarlo sin salir del envío.
@@ -372,31 +373,11 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                     <div>
                         <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Destinatarios <span className="text-white/20 normal-case tracking-normal font-bold">· puedes marcar varios</span></label>
                         <div className="space-y-2">
-                            {instContacts.map(c => {
-                                const on = selectedIds.includes(c.id);
-                                return (
-                                    <button key={c.id} type="button" onClick={() => toggleSelected(c.id)}
-                                        className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${on ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
-                                        <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${on ? 'border-brand bg-brand' : 'border-white/20'}`}>
-                                            {on && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
-                                        </span>
-                                        <div className="min-w-0 flex-1">
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                                <span className="text-sm font-bold text-white truncate">{c.label}</span>
-                                                {/* La chapa del ROL es lo que distingue a quién le toca esto.
-                                                    Sin ella, dos nombres en una lista son dos nombres. */}
-                                                {c.roles.map(r => (
-                                                    <span key={r} className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border shrink-0 ${r === ROL ? 'bg-brand/15 text-brand border-brand/30' : 'bg-white/5 text-white/40 border-white/10'}`}>{ROL_LABEL[r]}</span>
-                                                ))}
-                                                <span className="text-[9px] uppercase tracking-wider text-white/30 font-bold shrink-0">{c.sublabel}</span>
-                                            </div>
-                                            <div className="text-[11px] text-white/40 truncate">
-                                                {c.phone || 'sin teléfono'}{c.email ? ` · ${c.email}` : ''}
-                                            </div>
-                                        </div>
-                                    </button>
-                                );
-                            })}
+                            {instContacts.map(c => (
+                                <ContactoPickRow key={c.id} contacto={c} rol={ROL}
+                                    on={selectedIds.includes(c.id)} onClick={() => toggleSelected(c.id)} />
+                            ))}
+                            <NotaVariosDestinatarios n={selectedIds.length} />
                             {/* Nadie marcado como técnico en su ficha: se envía igual —
                                 50 de 70 instaladores no tienen contactos— pero se DICE.
                                 Un desvío silencioso al teléfono de la empresa es justo

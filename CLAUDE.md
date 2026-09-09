@@ -4863,6 +4863,27 @@ razón social, CIF, domicilio y nº RITE, y a la persona por el **nombre de quie
 La portada imprimía `Tel {pres.tlf}`, que es el mismo número de una persona concreta: el
 móvil del comercial salía impreso en la carátula de todos los CIFO.
 
+### En el popup se puede cambiar y poner a otro en copia
+
+Por defecto viene marcado el del rol, pero **la lista enseña a TODOS los contactos de
+la empresa** (más el canal general y "otro contacto…"), cada uno con su chapa de rol, y
+se pueden marcar varios: para poner al comercial en copia de una firma, o para cambiar
+un envío puntual. Fila compartida por los cuatro popups:
+[ContactoPickRow.jsx](implementation/frontend/src/features/expedientes/components/ContactoPickRow.jsx)
+— estaba copiada en los cuatro con diferencias de forma, y es la fila donde se comete el
+error, porque es lo último que se mira antes de pulsar.
+
+- El del asunto va resaltado y rotulado **"· le toca"**; los demás en gris.
+- El canal general se rotula **"Empresa · teléfono y email generales"**, nunca con el
+  nombre de una persona.
+- El **cargo se calla cuando repite la chapa** ("CARLOS · Comercial · COMERCIAL"): solo
+  aparece si añade algo ("JEFE DE OBRA").
+- Con dos o más marcados se dice que **se envía un mensaje a cada uno por separado**, no
+  en copia entre ellos: cada uno recibe su propio correo con sus adjuntos.
+- En `SolicitarFaltantesModal` la preselección pasó a ser **por rol**: buscaba el contacto
+  cuyo teléfono coincidiera con el del destinatario por defecto, y el del contacto y el de
+  la empresa son el MISMO en la mayoría de fichas.
+
 ### El formulario: una sola pregunta y CERO interruptores
 
 Eran dos toggles anidados ("desviar a otros contactos" + "enviar notificaciones a estos

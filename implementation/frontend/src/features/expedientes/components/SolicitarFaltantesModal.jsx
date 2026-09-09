@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
 import { WhatsappConnectModal } from '../../whatsapp/components/WhatsappConnectModal';
+import { ContactoPickRow, NotaVariosDestinatarios } from './ContactoPickRow';
 
 // ─── SolicitarFaltantesModal ─────────────────────────────────────────────────
 // Checklist INTERACTIVO de todo lo pendiente del expediente (obligatorio incluido
@@ -199,9 +200,16 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                 // Preseleccionar el contacto del instalador que coincide con el
                 // destinatario por defecto (respeta el toggle de notificaciones); el
                 // admin puede marcar más contactos manualmente.
+                // Lo que se le pide aquí es documentación de la obra: viene marcado
+                // su COMERCIAL. Se busca por ROL y no por coincidencia de teléfono
+                // —que es lo que había—, porque el teléfono del contacto y el de la
+                // empresa son el MISMO en la mayoría de fichas y esa coincidencia
+                // marcaba a cualquiera de los dos. Los demás siguen a un clic.
                 const insContacts = data.instalador?.contactos || [];
-                const def = insContacts.find(c => (c.tlf && c.tlf === data.instalador?.tlf) || (c.email && c.email === data.instalador?.email)) || insContacts[0];
-                setSelectedInstIds(def ? [def.id] : []);
+                const conRol = insContacts.filter(c => (c.roles || []).includes('comercial'));
+                const def = conRol.length ? conRol
+                    : (insContacts.find(c => (c.tlf && c.tlf === data.instalador?.tlf) || (c.email && c.email === data.instalador?.email)) || insContacts[0] || null);
+                setSelectedInstIds(Array.isArray(def) ? def.map(c => c.id) : (def ? [def.id] : []));
                 // Empezar en el destinatario que tenga pendientes.
                 setActive(accFor('CLIENTE').length > 0 ? 'CLIENTE' : (accFor('INSTALADOR').length > 0 ? 'INSTALADOR' : 'CLIENTE'));
             })
@@ -421,25 +429,12 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                             </div>
                             {useInstChecklist ? (
                                 <div className="space-y-2 mb-4">
-                                    {insContacts.map(c => {
-                                        const on = selectedInstIds.includes(c.id);
-                                        return (
-                                            <button key={c.id} type="button" onClick={() => toggleInstContact(c.id)}
-                                                className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${on ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
-                                                <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${on ? 'border-brand bg-brand' : 'border-white/20'}`}>
-                                                    {on && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
-                                                </span>
-                                                <div className="min-w-0 flex-1">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="text-sm font-bold text-white truncate">{c.nombre || 'Contacto'}</span>
-                                                        {c.tipo && <span className="text-[9px] uppercase tracking-wider text-white/30 font-bold shrink-0">{c.tipo}</span>}
-                                                    </div>
-                                                    <div className="text-[11px] text-white/40 truncate">{c.tlf || 'sin teléfono'}{c.email ? ` · ${c.email}` : ''}</div>
-                                                </div>
-                                            </button>
-                                        );
-                                    })}
+                                    {insContacts.map(c => (
+                                        <ContactoPickRow key={c.id} contacto={c} rol="comercial"
+                                            on={selectedInstIds.includes(c.id)} onClick={() => toggleInstContact(c.id)} />
+                                    ))}
                                     <p className="text-[9px] text-white/25">Puedes marcar varios contactos del instalador.</p>
+                                    <NotaVariosDestinatarios n={selectedInstIds.length} />
                                 </div>
                             ) : (
                                 <div className="space-y-2 mb-4">

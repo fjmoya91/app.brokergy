@@ -3968,11 +3968,18 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                                         {on && <span className="w-2 h-2 rounded-full bg-red-400" />}
                                                     </span>
                                                     <div className="min-w-0 flex-1">
-                                                        <div className="flex items-center gap-2">
+                                                        <div className="flex items-center gap-1.5 flex-wrap">
                                                             <span className="text-[12px] font-bold text-white truncate normal-case">{c.label}</span>
-                                                            <span className="text-[9px] uppercase tracking-wider text-white/30 font-bold shrink-0">{c.sublabel}</span>
+                                                            {/* El ROL: un CIFO corregido lo tiene que rehacer el técnico,
+                                                                y una foto la repite quien está en la obra. Viene marcado
+                                                                el que toca, pero se puede cambiar aquí mismo. */}
+                                                            {(c.roles || []).map(r => (
+                                                                <span key={r} className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border shrink-0 ${r === rolDeDoc(rejectDoc?.field) ? 'bg-red-400/15 text-red-300 border-red-400/30' : 'bg-white/5 text-white/35 border-white/10'}`}>{r === 'tecnico' ? 'Técnico' : 'Comercial'}</span>
+                                                            ))}
+                                                            {c.general && <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border bg-white/5 text-white/35 border-white/10 shrink-0">Empresa</span>}
+                                                            {!c.general && <span className="text-[9px] uppercase tracking-wider text-white/30 font-bold shrink-0">{c.sublabel}</span>}
                                                         </div>
-                                                        <div className="text-[10px] text-white/35 truncate normal-case">{c.phone || 'sin teléfono'}{c.email ? ` · ${c.email}` : ''}</div>
+                                                        <div className="text-[10px] text-white/35 truncate normal-case">{c.phone || 'sin teléfono'}{c.email ? ` · ${c.email}` : ''}{c.general && <span className="text-white/25"> · generales de la empresa</span>}</div>
                                                     </div>
                                                 </button>
                                             );

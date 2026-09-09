@@ -8,6 +8,7 @@ import { postEmail } from '../../../utils/emailFallback';
 import { anexoIFormulario } from '../logic/anexoIFormulario';
 import { buildAnexoCesionHtml, getDualMessage, getClientCaeRate, buildInstalacionAddress, esCesionPrevia, tieneCuentaBancaria } from '../utils/docGenerators';
 import { clienteContacts, instaladorContacts, defaultContactIds, phoneValid } from '../utils/docContacts';
+import { ContactoPickRow, NotaVariosDestinatarios } from './ContactoPickRow';
 import { unidadesSinSerie, countUnidades } from '../logic/aerotermiaUnits';
 // Canal de envío de la barra inferior — COMPARTIDO con los otros popups de envío.
 import { CanalChip, avisoCanales } from '../../../components/CanalChip';
@@ -783,23 +784,14 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                             {groupContacts.length === 0 && (
                                 <p className="text-[10px] text-white/30 italic px-1">Sin contactos guardados para {target === 'cliente' ? 'el cliente' : 'el instalador'}. Usa "Otro contacto…".</p>
                             )}
-                            {groupContacts.map(c => {
-                                const on = selectedIds.includes(c.id);
-                                return (
+                            {groupContacts.map(c => (
                                 <div key={c.id} className="flex items-center gap-2">
-                                    <button type="button" onClick={() => toggleContact(c.id)}
-                                        className={`flex-1 min-w-0 flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${on ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
-                                        <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${on ? 'border-brand bg-brand' : 'border-white/20'}`}>
-                                            {on && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
-                                        </span>
-                                        <div className="min-w-0 flex-1">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-sm font-bold text-white truncate">{c.label}</span>
-                                                <span className="text-[9px] uppercase tracking-wider text-white/30 font-bold shrink-0">{c.sublabel}</span>
-                                            </div>
-                                            <div className="text-[11px] text-white/40 truncate">{c.phone || 'sin teléfono'}{c.email ? ` · ${c.email}` : ''}</div>
-                                        </div>
-                                    </button>
+                                    {/* Los anexos del cliente, cuando van al instalador, son
+                                        para quien lleva la obra: viene marcado su COMERCIAL y
+                                        el resto queda a un clic (fuente única: docContacts). */}
+                                    <ContactoPickRow contacto={c} rol={target === 'instalador' ? 'comercial' : null}
+                                        className="flex-1 min-w-0"
+                                        on={selectedIds.includes(c.id)} onClick={() => toggleContact(c.id)} />
                                     {target === 'cliente' && onEditCliente && (
                                         <button type="button" onClick={() => onEditCliente()} title="Editar datos del cliente"
                                             className="shrink-0 w-10 h-10 flex items-center justify-center rounded-xl border border-white/10 text-white/40 hover:text-brand hover:border-brand/40 hover:bg-brand/5 transition-all active:scale-95">
@@ -807,8 +799,8 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                                         </button>
                                     )}
                                 </div>
-                                );
-                            })}
+                            ))}
+                            <NotaVariosDestinatarios n={selectedIds.length} />
                             <button type="button" onClick={() => toggleContact('otro')}
                                 className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${selectedIds.includes('otro') ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
                                 <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${selectedIds.includes('otro') ? 'border-brand bg-brand' : 'border-white/20'}`}>
