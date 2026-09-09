@@ -289,6 +289,31 @@ const BotonAccion = ({ children, onClick, disabled, title, tono = 'brand' }) => 
     </button>
 );
 
+// ─── Un aviso NO se repite por actuación ─────────────────────────────────────
+// El informe del paquete son cinco actuaciones con los MISMOS avisos, así que
+// listándolos uno por uno salían quince líneas de las que trece decían lo mismo
+// —y enterraban las cinco que se ha venido a leer, con el botón de cerrar al
+// final de todo—. Se agrupa por el TEXTO del aviso y se dice DÓNDE pasa.
+//
+// `mensajesDe(a)` devuelve los mensajes de una actuación; `total` es cuántas se
+// han armado, para poder decir "en las 5" en vez de enumerarlas todas — que es
+// el caso normal y el que más ruido hacía.
+function agruparPorMensaje(actuaciones, mensajesDe, total) {
+    const porTexto = new Map();
+    for (const a of (actuaciones || [])) {
+        for (const m of (mensajesDe(a) || [])) {
+            if (!porTexto.has(m)) porTexto.set(m, []);
+            porTexto.get(m).push(a.n);
+        }
+    }
+    return [...porTexto.entries()].map(([mensaje, enes]) => {
+        const donde = (total > 1 && enes.length >= total)
+            ? `en las ${total} actuaciones`
+            : `en ${enes.sort((x, y) => x - y).map(n => `E${n}`).join(', ')}`;
+        return { texto: `${mensaje} · ${donde}` };
+    });
+}
+
 export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, acciones = {} }) {
     const { showConfirm, showAlert } = useModal();
     const [subiendo, setSubiendo] = useState(null);   // slot en curso
@@ -683,8 +708,7 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
             const { data } = await axios.post(`/api/lotes/${lote.id}/paquete-actuaciones`, { modo, dryRun });
             setPaquete(data);
             const completas = data.actuaciones.filter(a => a.ok);
-            const conAviso = data.actuaciones.filter(a => a.ok && (a.faltan_leves.length
-                || a.piezas.some(x => x.estado === 'manual' || x.estado === 'drive')));
+            const listas = completas.length;
             setLectura({
                 phase: 'done',
                 ok: completas.length > 0 && !data.bloqueados.length,
@@ -696,19 +720,32 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                     ? 'Nada se ha escrito todavía en Drive'
                     : `${lote?.codigo} · ${data.destino?.nombre || ''}`,
                 items: [
-                    ...completas.map(a => `E${a.n} · ${a.numero_expediente} — ${a.n_ficheros} documentos`
-                        + (dryRun ? '' : (a.zip ? ` → ${a.zip.nombre}` : ''))),
+                    ...completas.map(a => ({
+                        texto: `E${a.n} · ${a.numero_expediente} — ${a.n_ficheros} documentos`
+                            + (dryRun ? '' : (a.zip ? ` → ${a.zip.nombre}` : '')),
+                    })),
                     // Lo que la app no tiene APUNTADO se dice aunque el paquete salga:
                     // hoy funciona porque alguien dejó una copia en la carpeta, y el
                     // lote que viene detrás no la va a tener.
-                    ...conAviso.flatMap(a => a.piezas
+                    ...agruparPorMensaje(completas, a => a.piezas
                         .filter(x => x.estado === 'manual' || x.estado === 'drive')
-                        .map(x => `⚠ E${a.n} · ${x.etiqueta}: sale de un fichero suelto en Drive, no consta en el expediente`)),
-                    ...completas.flatMap(a => a.faltan_leves.map(f => `· E${a.n} · sin ${f} (no bloquea)`)),
-                    // Lo que no procede se DICE con el motivo. Un documento del índice
-                    // que simplemente desaparece de la lista se lee como un olvido.
-                    ...completas.flatMap(a => (a.no_proceden || []).map(f => `– E${a.n} · ${f}`)),
+                        .map(x => `${x.etiqueta}: sale de un fichero suelto en Drive, no consta en el expediente`), listas)
+                        .map(g => ({ texto: g.texto, tono: 'aviso' })),
+                    ...agruparPorMensaje(completas, a => a.faltan_leves.map(f => `Sin ${f} — no bloquea`), listas)
+                        .map(g => ({ texto: g.texto, tono: 'aviso' })),
+                    // Lo que no procede se DICE con el motivo —un documento del índice
+                    // que desaparece sin explicación se lee como un olvido— pero en
+                    // GRIS y en una sola línea: no es un hallazgo, es lo esperado.
+                    ...agruparPorMensaje(completas, a => a.no_proceden || [], listas)
+                        .map(g => ({ texto: g.texto, tono: 'info' })),
                 ],
+                // El paso siguiente obvio va EN el popup. Comprobar y generar son dos
+                // gestos a propósito (regla 40), pero eso no obliga a cerrar y volver
+                // a buscar el botón en la pantalla de detrás.
+                accion: (dryRun && listas > 0) ? {
+                    etiqueta: `📦 Generar ${listas} ZIP${modo === 'gestor' ? ' para el gestor' : ' en los expedientes'}`,
+                    onClick: () => pedirPaquete(modo, false),
+                } : null,
                 errorText: data.bloqueados.length ? data.bloqueados.join('\n') : null,
             });
         } catch (err) {
@@ -1183,6 +1220,7 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 sendingTitle={lectura?.sendingTitle || 'Analizando el documento…'}
                 okTitle={lectura?.okTitle}
                 errorTitle={lectura?.errorTitle}
+                accion={lectura?.accion || null}
                 onClose={() => setLectura(null)}
             />
 

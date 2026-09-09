@@ -17,7 +17,16 @@ import confetti from 'canvas-confetti';
 //   phase: null | 'sending' | 'done'
 //   ok: boolean (solo aplica en 'done')
 //   subtitle: string (p.ej. "26RES080_41 · Cliente")
-//   items: string[] (líneas de éxito, p.ej. destinatarios o canales)
+//   items: (string | { texto, tono })[] — líneas del resultado. Una cadena es un
+//        ✓ verde (destinatarios, canales…); con `tono` se distingue lo que NO es
+//        un éxito: 'aviso' (ámbar, algo que hay que mirar aunque no bloquee) e
+//        'info' (gris, algo que NO PROCEDE y solo se cuenta para que no parezca un
+//        olvido). Sin esto los tres salían con la misma palomita verde, y un aviso
+//        se leía como una cosa más que ha ido bien.
+//   accion: { etiqueta, onClick } — botón PRINCIPAL opcional para lo que se va a
+//        hacer a continuación (p.ej. "Generar los 5 ZIP" tras comprobarlos). Con
+//        él, Cerrar pasa a ser el botón secundario: si el siguiente paso obvio
+//        obliga a cerrar y buscar otro botón en la pantalla de detrás, se pierde.
 //   errorText: string (mensaje de error en 'done' + !ok)
 //   onClose: () => void (cierra el overlay; se llama desde el botón final)
 //   sendingTitle / okTitle / errorTitle: textos opcionales
@@ -89,11 +98,20 @@ function BrandFooter() {
     );
 }
 
+// Cada tono tiene su caja y su icono. El icono es lo que se lee primero, así que
+// no puede ser el mismo para "hecho", "míralo" y "no procede".
+const TONO_LINEA = {
+    ok:    { caja: 'bg-emerald-500/[0.06] border-emerald-400/25', texto: 'text-white',      icono: 'text-emerald-400', path: 'M5 13l4 4L19 7' },
+    aviso: { caja: 'bg-amber-500/[0.07] border-amber-400/30',     texto: 'text-amber-100',  icono: 'text-amber-400',   path: 'M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z' },
+    info:  { caja: 'bg-white/[0.03] border-white/10',             texto: 'text-white/55',   icono: 'text-white/35',    path: 'M5 12h14' },
+};
+
 export function SendActionOverlay({
     phase,
     ok = false,
     subtitle = '',
     items = [],
+    accion = null,
     errorText = '',
     onClose,
     sendingTitle = 'Enviando mensaje…',
@@ -155,21 +173,33 @@ export function SendActionOverlay({
                             <h3 className="text-xl font-black uppercase tracking-tight text-white">{ok ? okTitle : errorTitle}</h3>
                             {subtitle && <p className="text-white/40 text-[10px] font-bold uppercase tracking-[0.2em] mt-1">{subtitle}</p>}
                             {ok && items.length > 0 && (
-                                <div className="mt-5 w-full space-y-1.5">
-                                    {items.map((name, i) => (
-                                        <div key={i} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/[0.06] border border-emerald-400/25">
-                                            <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                                            <span className="text-[11px] text-white font-bold no-uppercase">{name}</span>
-                                        </div>
-                                    ))}
+                                <div className="mt-5 w-full space-y-1.5 text-left">
+                                    {items.map((it, i) => {
+                                        const { texto, tono } = typeof it === 'string' ? { texto: it, tono: 'ok' } : (it || {});
+                                        const t = TONO_LINEA[tono] || TONO_LINEA.ok;
+                                        return (
+                                            <div key={i} className={`flex items-start gap-2 px-4 py-2.5 rounded-xl border ${t.caja}`}>
+                                                <svg className={`w-4 h-4 shrink-0 mt-px ${t.icono}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d={t.path} /></svg>
+                                                <span className={`text-[11px] font-bold no-uppercase ${t.texto}`}>{texto}</span>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             )}
                             {/* `whitespace-pre-line`: un error que viene de una API ajena puede traer
                                 VARIOS motivos (uno por línea). En un solo párrafo se leían pegados. */}
                             {!ok && errorText && <p className="mt-4 text-[11px] text-red-400/80 whitespace-pre-line">{errorText}</p>}
-                            <div className="mt-7 w-full">
+                            <div className="mt-7 w-full space-y-2">
+                                {ok && accion && (
+                                    <button onClick={accion.onClick}
+                                        className="w-full py-3 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all">
+                                        {accion.etiqueta}
+                                    </button>
+                                )}
                                 <button onClick={onClose}
-                                    className="w-full py-3 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all">
+                                    className={`w-full py-3 rounded-xl text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all ${ok && accion
+                                        ? 'bg-white/[0.06] border border-white/15 text-white/60 hover:bg-white/10'
+                                        : 'bg-brand text-black hover:brightness-110'}`}>
                                     {ok ? 'Cerrar' : 'Volver e intentar de nuevo'}
                                 </button>
                             </div>
