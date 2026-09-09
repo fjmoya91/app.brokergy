@@ -109,6 +109,17 @@ jobs:
             --data "data/real" \
             --cache "cache"
 
+      - name: Guardar tambien como artefacto (por si el commit falla)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: catastro-crudo
+          path: |
+            catastro-geometry/data
+            catastro-geometry/cache
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Cuantas peticiones se han gastado
         if: always()
         run: |
@@ -120,8 +131,11 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # la cache y data/raw estan en .gitignore por defecto: aqui SI se quieren
-          git add -f data/reconocimiento data/real cache 2>/dev/null || true
+          # OJO: `git add a b c` aborta ENTERO si una de las rutas no existe, y
+          # con el `|| true` no se commitea nada y el job sale en verde. Una a una.
+          for d in data/reconocimiento data/real data/raw cache; do
+            [ -d "$d" ] && git add -f "$d" || true
+          done
           if git diff --cached --quiet; then
             echo "nada que commitear"
           else
