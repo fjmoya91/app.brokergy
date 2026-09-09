@@ -7,19 +7,34 @@
  *   node scripts/sincronizar_etiquetas_instaladores.js --execute  → de verdad
  *   node scripts/sincronizar_etiquetas_instaladores.js --id=<uuid>
  *
- * ⚠️ Se ejecuta DENTRO del contenedor del backend, y llama a su propia API por
- * localhost con la clave interna. No puede importar el servicio y ya está: la
- * sesión de WhatsApp es un singleton que vive en el proceso del servidor, y un
- * `node scripts/…` arranca un proceso nuevo que no la ve (medido: devuelve
- * DISCONNECTED aunque la sesión esté perfectamente conectada).
+ * ⚠️ NO importa el servicio: la sesión de WhatsApp es un singleton que vive en
+ * el proceso del servidor, y un `node scripts/…` arranca un proceso nuevo que no
+ * la ve (medido: devuelve DISCONNECTED aunque esté perfectamente conectada). Por
+ * eso llama a la API con la clave interna.
  *
- *   ssh root@<VPS> 'docker exec brokergy-backend node scripts/sincronizar_etiquetas_instaladores.js'
+ * ⚠️ Y se ejecuta en el HOST del VPS, no dentro del contenedor: `.dockerignore`
+ * excluye `scripts/` a propósito, así que en la imagen no está. Ahí tampoco hay
+ * `node_modules` —las dependencias viven dentro de la imagen—, de modo que este
+ * script no puede requerir NADA: lee el `.env` a mano y usa el `fetch` de Node.
+ *
+ *   ssh root@<VPS> 'cd /opt/brokergy/implementation/backend && node scripts/sincronizar_etiquetas_instaladores.js'
  */
 
-require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
+const fs = require('fs');
+const path = require('path');
 
-const BASE = process.env.INTERNAL_API_BASE || 'http://localhost:3000';
-const KEY = process.env.INTERNAL_API_KEY;
+// .env a mano (sin dotenv: en el host no hay node_modules).
+const envPath = path.join(__dirname, '../.env');
+const env = {};
+try {
+    for (const linea of fs.readFileSync(envPath, 'utf8').split('\n')) {
+        const m = linea.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/i);
+        if (m) env[m[1]] = m[2].trim().replace(/^["']|["']$/g, '');
+    }
+} catch (_) { /* si no hay .env, quedan las variables del entorno */ }
+
+const BASE = process.env.INTERNAL_API_BASE || env.APP_URL || 'https://app.brokergy.es';
+const KEY = process.env.INTERNAL_API_KEY || env.INTERNAL_API_KEY;
 
 const args = process.argv.slice(2);
 const execute = args.includes('--execute');
