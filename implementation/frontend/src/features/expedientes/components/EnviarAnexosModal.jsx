@@ -7,7 +7,7 @@ import { postEmail } from '../../../utils/emailFallback';
 // Convenio de Cesión sigue siendo maqueta propia: no hay impreso oficial de él.
 import { anexoIFormulario } from '../logic/anexoIFormulario';
 import { buildAnexoCesionHtml, getDualMessage, getClientCaeRate, buildInstalacionAddress, esCesionPrevia, tieneCuentaBancaria } from '../utils/docGenerators';
-import { clienteContacts, instaladorContacts, defaultContactIds, phoneValid } from '../utils/docContacts';
+import { clienteContacts, instaladorContacts, defaultContactIds, priorizarPorRol, phoneValid } from '../utils/docContacts';
 import { ContactoPickRow, NotaVariosDestinatarios } from './ContactoPickRow';
 import { unidadesSinSerie, countUnidades } from '../logic/aerotermiaUnits';
 // Canal de envío de la barra inferior — COMPARTIDO con los otros popups de envío.
@@ -372,7 +372,10 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         if (id === 'otro') return { id: 'otro', label: (manualContact.name || '').trim() || 'Otro contacto', phone: (manualContact.phone || '').trim(), email: (manualContact.email || '').trim() };
         return groupContacts.find(c => c.id === id) || { id, label: 'Contacto', phone: '', email: '' };
     };
-    const selectedContacts = selectedIds.map(resolveContact);
+    // Con el instalador, el COMERCIAL va primero: es el `to` del correo (los demás,
+    // en copia) y es a quien le corresponde este envío. El orden de marcado no
+    // puede decidir quién es el destinatario principal.
+    const selectedContacts = priorizarPorRol(selectedIds.map(resolveContact), target === 'instalador' ? 'comercial' : null);
     const contactPhoneValid = selectedContacts.some(c => phoneValid(c.phone));
     const canEmail = selectedContacts.some(c => c.email);
     const willEmail = channels.email && canEmail;
@@ -569,7 +572,14 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         }
 
         const out = [];
-        for (const c of selectedContacts) {
+        // ── EMAIL: UNA vez, con copia REAL ───────────────────────────────────
+        // El primero (el que toca por rol) en `to` y el resto en `cc`. Mandar dos
+        // correos idénticos por separado no es poner a alguien en copia: quien
+        // firma no ve que su comercial lo tiene, y contesta por duplicado.
+        const emailDests = doEmail ? selectedContacts.filter(c => c.email) : [];
+        const emailPrincipal = emailDests[0] || null;
+        const emailCopia = emailDests.slice(1);
+        for (const c of (emailPrincipal ? [emailPrincipal] : [])) {
             // EMAIL — una llamada con todos los adjuntos
             if (doEmail && c.email) {
                 try {
@@ -577,6 +587,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                     // pregunta si reenviar desde el alternativo (ver utils/emailFallback).
                     await postEmail('/api/pdf/send-annex', {
                         to: c.email,
+                        cc: emailCopia.map(x => x.email),
                         // El nombre del email es el del CONTACTO al que se escribe, no el del titular.
                         userName: c.label || clienteNombre,
                         customMessage: message,
@@ -598,6 +609,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                         docs: docDefs.map(d => ({ ...fuenteDoc(d), fileName: d.fileName })),
                     }, showConfirm);
                     out.push({ channel: 'email', status: 'ok', text: `${c.label} → ${c.email}` });
+                    emailCopia.forEach(x => out.push({ channel: 'email', status: 'ok', text: `${x.label} → ${x.email} (en copia)` }));
                 } catch (err) {
                     out.push({ channel: 'email', status: 'fail', text: `${c.label}: ${err.response?.data?.message || err.response?.data?.error || err.message}` });
                 }
@@ -800,7 +812,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                                     )}
                                 </div>
                             ))}
-                            <NotaVariosDestinatarios n={selectedIds.length} />
+                            <NotaVariosDestinatarios seleccionados={selectedContacts} email={willEmail} whatsapp={willWhatsapp} rol={target === 'instalador' ? 'comercial' : null} />
                             <button type="button" onClick={() => toggleContact('otro')}
                                 className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${selectedIds.includes('otro') ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
                                 <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${selectedIds.includes('otro') ? 'border-brand bg-brand' : 'border-white/20'}`}>

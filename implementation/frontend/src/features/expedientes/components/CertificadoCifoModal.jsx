@@ -9,7 +9,7 @@ import { calcCifo } from '../logic/calcCifo';
 import { esTermoElectrico, esAcumuladorAcs } from '../logic/aerotermiaUnits';
 // Qué fichas técnicas lleva ESTE expediente: una por MODELO distinto de bomba de
 // calor, no una por hueco. FUENTE ÚNICA con las rutas y con cifoService.
-import { instaladorContacts, defaultContactIds, avisoReparto } from '../utils/docContacts';
+import { instaladorContacts, defaultContactIds, avisoReparto, priorizarPorRol } from '../utils/docContacts';
 import { ContactoPickRow, NotaVariosDestinatarios } from './ContactoPickRow';
 import { resolveFichaSlots, ftAttachmentSlots, ftSlotId, ftTypeFromSlotId } from '../logic/fichasTecnicas';
 import { GuardarEnCatalogoGate } from '../../ventanas/components/GuardarEnCatalogoGate';
@@ -1038,7 +1038,8 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
         if (id === 'otro') return { id: 'otro', label: (manualContact.name || '').trim() || 'Otro contacto', phone: (manualContact.phone || '').trim(), email: (manualContact.email || '').trim() };
         return instContacts.find(c => c.id === id) || { id, label: 'Contacto', phone: '', email: '' };
     };
-    const selectedContacts = selectedIds.map(resolveContact);
+    // El del ROL primero: es el `to` del correo y quien tiene que firmar.
+    const selectedContacts = priorizarPorRol(selectedIds.map(resolveContact), ROL);
 
     // El TEXTO no se escribe aquí: sale de la fuente única (instaladorPendientes),
     // la misma que usa el popup del RITE y el email del backend. Tres plantillas:
@@ -1444,7 +1445,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                                             <ContactoPickRow key={c.id} contacto={c} rol={ROL}
                                                 on={selectedIds.includes(c.id)} onClick={() => pickContact(c.id)} />
                                         ))}
-                                        <NotaVariosDestinatarios n={selectedIds.length} />
+                                        <NotaVariosDestinatarios seleccionados={selectedContacts} email={channels.email} whatsapp={channels.whatsapp} rol={ROL} />
                                         {/* Sin técnico marcado en su ficha se envía igual, pero se DICE. */}
                                         {selectedContacts.some(c => c.general) && avisoReparto(pres, ROL, { general: true }) && (
                                             <p className="text-[11px] text-amber-300/80 bg-amber-500/5 border border-amber-500/20 rounded-xl p-2.5 leading-relaxed">

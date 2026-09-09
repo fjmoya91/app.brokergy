@@ -1,5 +1,5 @@
 import React from 'react';
-import { ROL_LABEL } from '../utils/docContacts';
+import { ROL_LABEL, priorizarPorRol } from '../utils/docContacts';
 
 // ─── Una fila de "¿a quién se lo mando?" ──────────────────────────────────────
 //
@@ -72,15 +72,34 @@ export function ContactoPickRow({ contacto: c, on, rol = null, onClick, classNam
 }
 
 /**
- * La coletilla de la lista. Marcar a dos personas NO es un CC: a cada una se le
- * manda su propio mensaje con sus adjuntos, así que no se ven entre ellas. Decirlo
- * evita la sorpresa de "creía que se enteraban los dos del mismo hilo".
+ * La coletilla de la lista cuando hay varios marcados.
+ *
+ * REGLA — se dice QUIÉN va en el "Para" y quién en copia. El correo sale UNA vez
+ * con copia real (el primero en `to`, el resto en `cc`), así que quien tiene que
+ * actuar ve que su compañero está en el mismo hilo y no contesta por duplicado.
+ * WhatsApp no tiene copia: ahí recibe cada uno su propio mensaje, y eso también
+ * hay que decirlo o se supone que se enteran los dos de lo mismo.
  */
-export function NotaVariosDestinatarios({ n = 0 }) {
-    if (n < 2) return null;
+export function NotaVariosDestinatarios({ seleccionados = [], email = true, whatsapp = false, rol = null }) {
+    // Mismo orden que el envío: el del rol va en el `to`.
+    const lista = priorizarPorRol((seleccionados || []).filter(Boolean), rol);
+    if (lista.length < 2) return null;
+    const nombre = (c) => c.label || c.nombre || 'Contacto';
+    const destEmail = email ? lista.filter(c => c.email) : [];
+
     return (
-        <p className="text-[10px] text-white/25 leading-relaxed">
-            Se enviará un mensaje a cada uno por separado (no van en copia entre ellos).
-        </p>
+        <div className="text-[10px] text-white/30 leading-relaxed space-y-0.5">
+            {email && destEmail.length > 1 && (
+                <p>
+                    <span className="text-white/45 font-bold">Email:</span> a {nombre(destEmail[0])}
+                    {', con '}{destEmail.slice(1).map(nombre).join(' y ')} en copia (un solo correo).
+                </p>
+            )}
+            {whatsapp && (
+                <p>
+                    <span className="text-white/45 font-bold">WhatsApp:</span> no tiene copia — recibirá un mensaje cada uno.
+                </p>
+            )}
+        </div>
     );
 }

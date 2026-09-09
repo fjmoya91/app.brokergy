@@ -1748,8 +1748,12 @@ router.post('/:id/solicitar-faltantes', internalKeyOrAuth, async (req, res) => {
             // Los saltos van en <br>: Outlook (motor de Word) ignora `white-space:pre-wrap`
             // y el mensaje llegaba de una pieza, como un párrafo corrido.
             const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#222;font-size:15px;line-height:24px">${mensaje.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r\n|\r|\n/g, '<br>')}</div>`;
-            await emailService.sendMail({ to: email, subject: asunto, text: mensaje, html });
-            sent.push('Email');
+            // Copia REAL: quien lo recibe ve quién más está en el hilo. `sendMail`
+            // descarta los vacíos y los que ya van en `to`.
+            const cc = (Array.isArray(req.body?.cc) ? req.body.cc : [])
+                .map(e => String(e || '').trim()).filter(Boolean);
+            await emailService.sendMail({ to: email, cc, subject: asunto, text: mensaje, html });
+            sent.push(cc.length ? `Email (+${cc.length} en copia)` : 'Email');
         }
         if (!sent.length) return res.status(400).json({ error: 'No se pudo enviar por los canales elegidos' });
 
@@ -1758,7 +1762,9 @@ router.post('/:id/solicitar-faltantes', internalKeyOrAuth, async (req, res) => {
         const historial = docObj.historial || [];
         const userName = req.internalCall ? 'AGENTE IA'
             : (req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA'));
-        const destLabel = nombreDest ? ` (${nombreDest}${tlf ? ` · ${tlf}` : ''})` : (tlf ? ` (${tlf})` : '');
+        const ccHist = (Array.isArray(req.body?.cc) ? req.body.cc : []).map(e => String(e || '').trim()).filter(Boolean);
+        const destLabel = (nombreDest ? ` (${nombreDest}${tlf ? ` · ${tlf}` : ''})` : (tlf ? ` (${tlf})` : ''))
+            + (ccHist.length ? ` · en copia: ${ccHist.join(', ')}` : '');
         // Lista concreta de lo solicitado (para que el agente sepa QUÉ se pidió, no solo a quién).
         const solicitado = Array.isArray(req.body?.solicitado) ? req.body.solicitado.filter(Boolean).map(String) : [];
         // Y las CLAVES del barrido de esos mismos ítems: es lo que permite al barrido
@@ -5034,37 +5040,45 @@ router.post('/:id/instalador/enviar', enforceAuth, async (req, res) => {
         const pideFirma = wants.includes('cifo');
 
         let quotaErr = null;
+
+        // ── EMAIL: UN correo con copia REAL ──────────────────────────────────
+        // Marcar a dos personas no puede ser mandarles dos correos idénticos por
+        // separado: quien firma tiene que ver que su comercial está en copia del
+        // MISMO hilo, y responder una vez. El primero (el del rol que toca) va en
+        // `to` y el resto en `cc`. WhatsApp no tiene copia, así que ahí sí va un
+        // mensaje a cada uno.
+        async function sendEmailConCopia() {
+            const conEmail = destinatarios.filter(d => d.email);
+            if (!conEmail.length) return { ok: false, error: 'Sin email' };
+            const [principal, ...enCopia] = conEmail;
+            try {
+                await emailService.sendDocumentEmail({
+                    to: principal.email,
+                    cc: enCopia.map(d => d.email),
+                    from,
+                    subject,
+                    title: pideFirma
+                        ? (wants.includes('rite') ? 'Te faltan dos cosas de esta obra' : 'Firma tu Certificado CIFO')
+                        : 'Documentación RITE de tu expediente',
+                    message: message || '',
+                    primaryLink: enlace,
+                    primaryLabel: pideFirma
+                        ? (wants.includes('rite') ? '🖊️ Firmar y subir aquí' : '🖊️ Firmar CIFO ahora')
+                        : '📎 Subir la documentación RITE',
+                    secondaryNote: 'Desde ese enlace se ve lo que falta de esta obra y se resuelve todo en el mismo sitio.'
+                        + (pideFirma ? ' Para firmar en el navegador necesitas Autofirma; si lo prefieres, puedes subir el PDF ya firmado.' : ''),
+                    pill: pideFirma ? { tone: 'warning', text: 'Pendiente de firma', emoji: '✍️' } : null,
+                    attachments: adjuntos.map(a => ({ filename: a.filename, content: a.content })),
+                });
+                return { ok: true, to: principal.email, cc: enCopia.map(d => d.email) };
+            } catch (e) {
+                if (e?.isQuotaError) quotaErr = e;
+                return { ok: false, error: e.message };
+            }
+        }
+
         async function sendToOne(dest) {
             const out = { nombre: dest.nombre || '', email: null, whatsapp: null };
-
-            if (chans.includes('email')) {
-                if (!dest.email) out.email = { ok: false, error: 'Sin email' };
-                else {
-                    try {
-                        await emailService.sendDocumentEmail({
-                            to: dest.email,
-                            from,
-                            subject,
-                            title: pideFirma
-                                ? (wants.includes('rite') ? 'Te faltan dos cosas de esta obra' : 'Firma tu Certificado CIFO')
-                                : 'Documentación RITE de tu expediente',
-                            message: message || '',
-                            primaryLink: enlace,
-                            primaryLabel: pideFirma
-                                ? (wants.includes('rite') ? '🖊️ Firmar y subir aquí' : '🖊️ Firmar CIFO ahora')
-                                : '📎 Subir la documentación RITE',
-                            secondaryNote: 'Desde ese enlace se ve lo que falta de esta obra y se resuelve todo en el mismo sitio.'
-                                + (pideFirma ? ' Para firmar en el navegador necesitas Autofirma; si lo prefieres, puedes subir el PDF ya firmado.' : ''),
-                            pill: pideFirma ? { tone: 'warning', text: 'Pendiente de firma', emoji: '✍️' } : null,
-                            attachments: adjuntos.map(a => ({ filename: a.filename, content: a.content })),
-                        });
-                        out.email = { ok: true, to: dest.email };
-                    } catch (e) {
-                        if (e?.isQuotaError) quotaErr = e;
-                        out.email = { ok: false, error: e.message };
-                    }
-                }
-            }
 
             if (chans.includes('whatsapp')) {
                 if (!dest.tlf) out.whatsapp = { ok: false, error: 'Sin teléfono' };
@@ -5088,9 +5102,22 @@ router.post('/:id/instalador/enviar', enforceAuth, async (req, res) => {
             return out;
         }
 
-        // Secuencial: WhatsApp tiene su propio rate-limit y no admite ráfagas.
+        // El correo sale UNA vez (con copia); los WhatsApp, uno por destinatario y
+        // secuenciales: WhatsApp tiene su propio rate-limit y no admite ráfagas.
+        const emailRes = chans.includes('email') ? await sendEmailConCopia() : null;
         const results = [];
         for (const dest of destinatarios) results.push(await sendToOne(dest));
+        // El resultado del correo se cuelga del destinatario que fue en `to`, para
+        // que el popup lo pinte donde ya lo pintaba; los de la copia lo dicen.
+        if (emailRes) {
+            const idx = destinatarios.findIndex(d => d.email && d.email === emailRes.to);
+            if (idx >= 0) results[idx].email = emailRes;
+            else if (results[0]) results[0].email = emailRes;
+            for (const cc of (emailRes.cc || [])) {
+                const i = destinatarios.findIndex(d => d.email === cc);
+                if (i >= 0) results[i].email = { ok: emailRes.ok, to: cc, copia: true, error: emailRes.error };
+            }
+        }
 
         const anyOk = results.some(r => (r.email && r.email.ok) || (r.whatsapp && r.whatsapp.ok));
 

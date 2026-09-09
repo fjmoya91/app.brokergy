@@ -164,3 +164,17 @@ export function avisoReparto(pres = {}, rol = null, contacto = null) {
     const quien = pres.acronimo || pres.razon_social || 'este instalador';
     return `En ${quien} no consta un contacto marcado como ${ROL_LABEL[rol].toUpperCase()}: esto va al teléfono y email generales de la empresa. Puedes cambiarlo aquí, o repartirlo en su ficha para las próximas veces.`;
 }
+
+/**
+ * Ordena los marcados para que el "Para" del correo sea el del ROL.
+ *
+ * REGLA — quien tiene que ACTUAR va en el `to`; los demás, en copia. El orden de
+ * marcado no vale: la lista se recorre de arriba abajo, así que marcar al
+ * comercial "para que se entere" lo dejaba a él como destinatario principal y al
+ * técnico —que es quien tiene que firmar— en copia de su propia tarea.
+ */
+export function priorizarPorRol(contactos = [], rol = null) {
+    if (!rol) return [...contactos];
+    const suyos = contactos.filter(c => (c.roles || []).includes(rol));
+    return [...suyos, ...contactos.filter(c => !suyos.includes(c))];
+}

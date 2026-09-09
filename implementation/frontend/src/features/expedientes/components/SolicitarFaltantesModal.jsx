@@ -3,6 +3,7 @@ import axios from 'axios';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
 import { WhatsappConnectModal } from '../../whatsapp/components/WhatsappConnectModal';
 import { ContactoPickRow, NotaVariosDestinatarios } from './ContactoPickRow';
+import { priorizarPorRol } from '../utils/docContacts';
 
 // ─── SolicitarFaltantesModal ─────────────────────────────────────────────────
 // Checklist INTERACTIVO de todo lo pendiente del expediente (obligatorio incluido
@@ -273,8 +274,10 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
     // configurados, se usan los marcados (varios); para el CLIENTE, el contacto único editable.
     const insContacts = info?.instalador?.contactos || [];
     const useInstChecklist = active === 'INSTALADOR' && insContacts.length > 0;
+    // Con el instalador, el COMERCIAL va primero: es el `to` del correo y quien
+    // tiene que reunir la documentación de la obra.
     const recipientsActive = useInstChecklist
-        ? insContacts.filter(c => selectedInstIds.includes(c.id))
+        ? priorizarPorRol(insContacts.filter(c => selectedInstIds.includes(c.id)), 'comercial')
         : [{ nombre: dst.nombre, tlf: dst.tlf, email: dst.email }];
     const anyTlf = recipientsActive.some(r => r.tlf);
     const anyEmail = recipientsActive.some(r => r.email);
@@ -343,22 +346,39 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
             const solicitado_keys = items
                 .filter(it => it.incluido && !it.waived && owners.includes(it.owner))
                 .map(it => it.key);
+            // El EMAIL sale UNA vez con copia real (el primero en `to`, el resto en
+            // `cc`): dos correos idénticos por separado no son una copia — quien
+            // tiene que actuar no ve que su compañero también lo ha recibido. El
+            // WhatsApp no tiene copia, así que ahí sí va uno a cada uno.
             const sentTo = [];
-            for (const r of recipientsActive) {
-                const chans = eff.filter(ch => ch === 'whatsapp' ? !!r.tlf : !!r.email);
-                if (!chans.length) continue;
-                await axios.post(`/api/expedientes/${expedienteId}/solicitar-faltantes`, {
-                    target: active,
-                    channels: chans,
-                    mensaje: messages[active],
-                    tlf: r.tlf || null,
-                    email: r.email || null,
-                    nombre: r.nombre || null,
-                    solicitado,
-                    solicitado_keys,
-                    asunto,
-                });
-                sentTo.push(r.nombre || r.tlf || r.email);
+            const base = { target: active, mensaje: messages[active], solicitado, solicitado_keys, asunto };
+            if (eff.includes('email')) {
+                const conEmail = recipientsActive.filter(r => r.email);
+                if (conEmail.length) {
+                    const [principal, ...enCopia] = conEmail;
+                    await axios.post(`/api/expedientes/${expedienteId}/solicitar-faltantes`, {
+                        ...base,
+                        channels: ['email'],
+                        email: principal.email,
+                        cc: enCopia.map(r => r.email),
+                        tlf: null,
+                        nombre: principal.nombre || null,
+                    });
+                    conEmail.forEach(r => sentTo.push(r.nombre || r.email));
+                }
+            }
+            if (eff.includes('whatsapp')) {
+                for (const r of recipientsActive.filter(x => x.tlf)) {
+                    await axios.post(`/api/expedientes/${expedienteId}/solicitar-faltantes`, {
+                        ...base,
+                        channels: ['whatsapp'],
+                        tlf: r.tlf,
+                        email: null,
+                        nombre: r.nombre || null,
+                    });
+                    const et = r.nombre || r.tlf;
+                    if (!sentTo.includes(et)) sentTo.push(et);
+                }
             }
             if (!sentTo.length) {
                 setSendOutcome({ ok: false, text: 'Ningún destinatario tiene el dato del canal elegido.', sentTo: [] });
@@ -434,7 +454,7 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                                             on={selectedInstIds.includes(c.id)} onClick={() => toggleInstContact(c.id)} />
                                     ))}
                                     <p className="text-[9px] text-white/25">Puedes marcar varios contactos del instalador.</p>
-                                    <NotaVariosDestinatarios n={selectedInstIds.length} />
+                                    <NotaVariosDestinatarios seleccionados={recipientsActive} email={actChannels.includes('email')} whatsapp={actChannels.includes('whatsapp')} rol="comercial" />
                                 </div>
                             ) : (
                                 <div className="space-y-2 mb-4">

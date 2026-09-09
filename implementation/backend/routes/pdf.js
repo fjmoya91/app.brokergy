@@ -305,7 +305,9 @@ router.post('/send-annex', async (req, res) => {
     // `pillLabel`/`buttonLabel`/`preheader`: los pone quien envía cuando el correo no
     // es el de siempre — un REQUERIMIENTO lleva plazo, y eso tiene que verse en la
     // píldora y en el botón, no solo en el cuerpo del mensaje.
-    const { to, userName, customMessage, summaryData, docs, from, pillLabel, buttonLabel, preheader } = req.body;
+    // `cc`: copia REAL del mismo correo (no un segundo envío) — al firmante le
+    // tiene que constar quién más lo ha recibido. `sendMail` limpia vacíos y repetidos.
+    const { to, cc, userName, customMessage, summaryData, docs, from, pillLabel, buttonLabel, preheader } = req.body;
     const emailService = require('../services/emailService');
 
     if (!to || !docs || !Array.isArray(docs)) {
@@ -344,6 +346,7 @@ router.post('/send-annex', async (req, res) => {
 
         await emailService.sendAnnexEmail({
             to,
+            cc,
             userName,
             attachments,
             customMessage,

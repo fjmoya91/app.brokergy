@@ -6,7 +6,7 @@ import { estadoInstalador, mensajeInstalador, enlaceInstalador } from '../logic/
 import { buildInstalacionAddress } from '../utils/docGenerators';
 import { DocsInstaladorPicker } from './DocsInstaladorPicker';
 // A quién se le manda esto — fuente única con el backend (services/notifyContacts).
-import { instaladorContacts, defaultContactIds, avisoReparto } from '../utils/docContacts';
+import { instaladorContacts, defaultContactIds, avisoReparto, priorizarPorRol } from '../utils/docContacts';
 import { ContactoPickRow, NotaVariosDestinatarios } from './ContactoPickRow';
 // Canal de envío de la barra inferior — COMPARTIDO con los otros popups de envío.
 import { CanalChip, avisoCanales } from '../../../components/CanalChip';
@@ -152,7 +152,11 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
         if (id === 'otro') return { id: 'otro', label: (manualContact.name || '').trim() || 'Otro contacto', phone: (manualContact.phone || '').trim(), email: (manualContact.email || '').trim() };
         return instContacts.find(c => c.id === id) || { id, label: 'Contacto', phone: '', email: '' };
     };
-    const selectedContacts = selectedIds.map(resolveContact);
+    // El del ROL va PRIMERO: es quien acaba en el `to` del correo (los demás, en
+    // copia) y quien tiene que actuar. El orden de marcado no puede decidirlo —
+    // marcar al comercial "para que se entere" dejaba al técnico en copia de su
+    // propia tarea.
+    const selectedContacts = priorizarPorRol(selectedIds.map(resolveContact), ROL);
     // Al marcar/desmarcar un destinatario se rehace el saludo (usa el nombre del
     // PRIMER contacto marcado); al cambiar los documentos, el cuerpo entero.
     const toggleSelected = (id) => setSelectedIds(prev => {
@@ -377,7 +381,7 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                                 <ContactoPickRow key={c.id} contacto={c} rol={ROL}
                                     on={selectedIds.includes(c.id)} onClick={() => toggleSelected(c.id)} />
                             ))}
-                            <NotaVariosDestinatarios n={selectedIds.length} />
+                            <NotaVariosDestinatarios seleccionados={selectedContacts} email={channels.email} whatsapp={channels.whatsapp} rol={ROL} />
                             {/* Nadie marcado como técnico en su ficha: se envía igual —
                                 50 de 70 instaladores no tienen contactos— pero se DICE.
                                 Un desvío silencioso al teléfono de la empresa es justo

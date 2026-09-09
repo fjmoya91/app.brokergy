@@ -1758,9 +1758,13 @@ function buildDocumentEmailHtml({ subject, title, message, primaryLink, primaryL
     return { html, text: cleaned };
 }
 
-const sendDocumentEmail = async ({ to, subject, title, message, primaryLink, primaryLabel, secondaryNote, attachments, pill, from }) => {
+// `cc` va hasta `sendMail`, que ya sabe descartar los vacíos y los repetidos del
+// `to`. Es una copia DE VERDAD (el destinatario ve quién más lo ha recibido), no
+// N correos sueltos: al instalador se le manda a firmar y su comercial tiene que
+// ver el mismo hilo, no otro correo idéntico del que nadie sabe que existe.
+const sendDocumentEmail = async ({ to, cc, subject, title, message, primaryLink, primaryLabel, secondaryNote, attachments, pill, from }) => {
     const { html, text } = buildDocumentEmailHtml({ subject, title, message, primaryLink, primaryLabel, secondaryNote, pill });
-    return sendMail({ to, subject, html, text, attachments, from });
+    return sendMail({ to, cc, subject, html, text, attachments, from });
 };
 
 module.exports = {

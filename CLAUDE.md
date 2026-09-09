@@ -4575,6 +4575,73 @@ distingue). Campos: `documentacion.ft_marco_link` / `ft_cristal_link`.
 
 ---
 
+## La cartera de instaladores, etiquetada sola en WhatsApp (2026-09-09)
+
+Un instalador vivía en dos sitios sin nada que los uniera: su ficha en
+`prescriptores` y su chat en el móvil, un número suelto entre clientes. La
+etiqueta `INSTALADORES` la ponía alguien a mano cuando se acordaba — medido el
+09/09/2026: **26 chats etiquetados para 71 fichas**.
+
+| Qué | Dónde |
+|---|---|
+| Qué teléfonos tiene un instalador y con qué nombre se guardarían | [whatsappInstaladoresSync.js](implementation/backend/services/whatsappInstaladoresSync.js) — `telefonosDeInstalador` |
+| La agenda (leer contacto · guardar sin pisar) | [whatsappContactos.js](implementation/backend/services/whatsappContactos.js) |
+| Ruta | `POST /api/whatsapp/etiquetas/sincronizar-instaladores` — **adminOnly o `x-internal-key`** |
+| Superficie | Panel de WhatsApp: "Ver qué haría" → "Sincronizar ahora" |
+| Repaso completo desde el VPS | `docker exec brokergy-backend node scripts/sincronizar_etiquetas_instaladores.js [--execute]` |
+| Prueba de lo puro, en local | `node implementation/backend/scripts/test_sync_etiquetas_instaladores.js` |
+
+**REGLA — un nombre que YA está en la agenda no se toca jamás.** Lo puso una
+persona, muchas veces con el apodo por el que de verdad conoce a ese instalador
+("Paco el de las calderas"), y machacarlo con la razón social de la BBDD es
+hacerle perder la referencia en su propio teléfono. Solo se rellena el hueco de
+quien entra como número suelto (`guardarSiFalta`, que mira `isAddressBookContact`
+y `isMyContact` — WhatsApp ha ido cambiando cuál de las dos usa).
+
+**REGLA — la etiqueta se AÑADE; la lista se manda COMPLETA.** `poner()` deja el
+chat con exactamente lo que se le pasa, así que siempre va lo que ya tenía MÁS la
+nuestra. Un instalador está además en "EN CURSO" o en "Pagado", que es trabajo de
+otra persona.
+
+**REGLA — se etiquetan TODOS los teléfonos que constan**, no solo el principal:
+en 20 de las 71 fichas el número por el que se habla con la obra es el del jefe
+de obra o el de administración. Se deduplica por los 9 dígitos finales y manda el
+PRIMERO (el de la empresa), porque el mismo número repetido en tres campos es un
+solo chat y no puede guardarse tres veces con tres nombres.
+
+**REGLA — esto NUNCA tumba lo que lo llamó.** El enganche del alta/edición va en
+`setImmediate` y se traga sus errores: que WhatsApp esté desconectado no puede
+hacer fallar el guardado de una ficha. Y solo se dispara si el guardado ha TOCADO
+un teléfono (`tocaTelefonos`) — reetiquetar en cada guardado sería una llamada a
+Puppeteer por cada cambio de comisión o de nota, contra la sesión de la que
+depende todo lo demás.
+
+⚠️ **`poner()` fallaba justo con el caso normal**: un chat al que nunca has
+escrito NO entra en `C.Chat` con su `@c.us` —`findOrCreateLatestChat` devuelve
+`{chat, created}` y `C.Chat.get(id)` sigue dando `undefined`, porque vive bajo su
+`@lid`—, así que el `C.Chat.get` posterior lanzaba "Ese chat ya no existe en
+WhatsApp". O sea: etiquetar a alguien recién dado de alta, que es para lo que
+existe esto, era lo único que no funcionaba. Ahora se crea y se etiqueta en la
+MISMA `evaluate`, conservando el modelo devuelto.
+
+⚠️ **Un script suelto NO ve la sesión de WhatsApp**: es un singleton del proceso
+del servidor, así que `node scripts/…` arranca otro proceso y `getStatus()`
+devuelve DISCONNECTED aunque esté conectada. Por eso el repaso entra por la ruta
+con `x-internal-key` (mismo patrón que el CIFO) en vez de importar el servicio.
+
+**El automático nace APAGADO** (`WA_SYNC_INSTALADORES`), como `CEE_ENTREGA_AUTO` y
+`BOT_WHATSAPP_ENABLED`: encendido en LOCAL escribiría en la agenda del teléfono de
+verdad. Y `dryRun` es el valor por DEFECTO de la ruta — la llamada que se hace sin
+pensar es la que no toca nada. Pausa de `WA_SYNC_PAUSA_MS` (1,5 s) entre chats, y
+corte tras 3 tiempos de espera seguidos: 90 operaciones en ráfaga contra ese
+Chrome es justo lo que no conviene hacerle.
+
+**Etiqueta que no existe = se dice cómo crearla.** No se puede crear desde la app
+(WhatsApp no lo expone y la librería tiene rota toda esa familia — ver "Lo que
+WhatsApp rompió"), así que `idEtiqueta()` falla con la lista de las que sí hay.
+
+---
+
 ## Un mensaje con el RELOJ no está enviado (2026-09-08)
 
 Pasó esto: se mandó la propuesta 26RES060_OP118 al cliente y al instalador, la app
@@ -4899,8 +4966,18 @@ error, porque es lo último que se mira antes de pulsar.
   nombre de una persona.
 - El **cargo se calla cuando repite la chapa** ("CARLOS · Comercial · COMERCIAL"): solo
   aparece si añade algo ("JEFE DE OBRA").
-- Con dos o más marcados se dice que **se envía un mensaje a cada uno por separado**, no
-  en copia entre ellos: cada uno recibe su propio correo con sus adjuntos.
+- **El email va con COPIA REAL**: sale UNA vez, con el del rol en el `to` y los demás en
+  `cc` (`sendMail` ya limpiaba vacíos y repetidos; `sendDocumentEmail`, `sendAnnexEmail`
+  y `solicitar-faltantes` lo pasan). Dos correos idénticos por separado no son una copia:
+  quien tiene que firmar no ve que su comercial lo tiene y se contesta por duplicado.
+  **WhatsApp no tiene copia**, así que ahí sí va un mensaje a cada uno — y la nota del
+  popup lo dice canal por canal ("Email: a JESÚS, con CARLOS en copia · WhatsApp:
+  recibirá un mensaje cada uno").
+- **REGLA — el `to` es el del ROL, no el primero que se marcó** (`priorizarPorRol`). La
+  lista se recorre de arriba abajo, así que marcar al comercial "para que se entere"
+  dejaba al técnico en copia de su propia tarea. Se aplica en los cuatro popups **y** en
+  el historial, que anota quién iba en copia — si no, dentro de tres meses nadie sabe que
+  el comercial también lo recibió.
 - En `SolicitarFaltantesModal` la preselección pasó a ser **por rol**: buscaba el contacto
   cuyo teléfono coincidiera con el del destinatario por defecto, y el del contacto y el de
   la empresa son el MISMO en la mayoría de fichas.
@@ -5034,6 +5111,8 @@ compatibilidad) y lo único que se contesta es qué recibe cada persona.
 
 44. **Cada aviso va al COMERCIAL o al TÉCNICO del partner, no "al instalador"**: cada persona de `contactos_notificacion` lleva `roles: ['comercial'|'tecnico']` y quien envía pide el suyo — fuente única [notifyContacts.js](implementation/backend/services/notifyContacts.js) (`partnerNotifyTarget(p, rol)`, `rolDeDocumento`) y su espejo [docContacts.js](implementation/frontend/src/features/expedientes/utils/docContacts.js). El RITE, el CIFO y sus rechazos son del TÉCNICO; propuestas, fotos y seguimiento, del COMERCIAL. **El representante legal NO es un buzón**: su nombre es el que firma el CIFO, y ofrecerlo como destinatario era el fallo — 67 de 70 fichas no tienen `tlf_responsable`, así que su nombre salía pegado al teléfono de la EMPRESA ("Jesús · 654547040", el número de Carlos). Sin nadie marcado se envía al canal GENERAL, rotulado como tal y avisado en ámbar; a una empresa se le saluda en genérico y a un autónomo por su nombre; al CERTIFICADOR no se le aplica el reparto (sus plantillas no admiten nombre vacío). Un contacto sin roles se comporta como hasta ahora y **no se le adivina** el suyo. En el CIFO no va ningún teléfono. Tras tocarlo: `node implementation/backend/scripts/test_reparto_contactos.js`. Ver "El aviso lo recibe el COMERCIAL o el TÉCNICO".
 
+43. **La cartera de INSTALADORES se etiqueta sola en WhatsApp**: al dar de alta o editar un instalador (y en el repaso completo desde el panel de WhatsApp) su chat queda con la etiqueta `INSTALADORES` y, si el número no lo tenías guardado, con su nombre de la BBDD en la agenda. **Un nombre ya guardado NO se toca nunca** —lo puso una persona, a veces con el apodo por el que conoce al instalador— y la lista de etiquetas se manda COMPLETA (`poner()` sustituye, así que va lo que ya tenía MÁS la nuestra). Se etiquetan TODOS los teléfonos que constan (empresa, responsable y contactos de notificación: en 20 de 71 fichas el chat que se usa es el del jefe de obra), deduplicados por los 9 dígitos finales. Fuente única: [whatsappInstaladoresSync.js](implementation/backend/services/whatsappInstaladoresSync.js) + [whatsappContactos.js](implementation/backend/services/whatsappContactos.js). ⚠️ `poner()` fallaba con un chat nunca escrito (`findOrCreateLatestChat` lo devuelve pero `C.Chat.get(@c.us)` sigue vacío porque vive bajo su `@lid`): ahora se crea y se etiqueta en la misma `evaluate`. ⚠️ Un `node scripts/…` NO ve la sesión de WhatsApp (singleton del proceso del servidor), por eso el repaso entra por la ruta con `x-internal-key`. Apagado por defecto (`WA_SYNC_INSTALADORES`) y `dryRun` por defecto en la ruta. Ver "La cartera de instaladores, etiquetada sola en WhatsApp".
+
 38. **Con la BD caída, la app CALLA; nunca contesta una cifra tranquila**: un error de lectura no puede salir por 200. [middleware/auth.js](implementation/backend/middleware/auth.js) seguía adelante con el perfil a null —sin rol, sin empresa— y lo **cacheaba 5 minutos**, así que el partner salía como "USUARIO / LOGO PARTNER", con el menú recortado y, como `GET /oportunidades` acaba filtrando por `creador_id = null`, la cartera a CERO; y esa misma ruta convertía además cualquier fallo de Supabase en `200 []`. Un distribuidor con 19 oportunidades vio "0 oportunidades · 0,00 €" con toda la apariencia de dato bueno —que se lee como trabajo borrado— y recargar no lo arreglaba, porque el fantasma vivía en la caché. Medido el 08/09/2026: Postgres se cayó y arrancó en recuperación (`database system was not properly shut down`) y Cloudflare sirvió **521 Web server is down** delante de Supabase durante ~1 min. Ahora las dos rutas responden **503** (`PROFILE_UNAVAILABLE` / `OPORTUNIDADES_UNAVAILABLE`) y no se cachea nada; el frontend enseña `ProfileUnavailable` (reintentar, y "tus datos siguen ahí") en vez de un dashboard con identidad falsa, la lista conserva lo que ya tuviera, y **el resumen financiero no se pinta si no hay datos** — 0,00 € es justo la cifra que asusta. A quien YA tiene perfil bueno en caché no se le echa por un parpadeo. Vigilado por `node implementation/backend/scripts/test_caida_bd_no_miente.js`.
 
 ---
@@ -5162,6 +5241,12 @@ WWA_SEND_SEEN=false                ← marcar leído antes de enviar: misma tabl
 WWA_VERIFICAR_ACK=true             ← no dar por enviado lo que no tiene ACK
 WWA_ACK_ESPERA_MS=25000            ← cuánto se espera al ACK antes de darlo por fallido
 WWA_WEB_VERSION=                   ← vacío = la última que sirva Meta. Fijarla NO arregla nada (se auto-actualiza)
+
+# Instaladores ⇄ etiqueta de WhatsApp (ver "La cartera de instaladores, etiquetada sola")
+WA_SYNC_INSTALADORES=false         ← enganche automático al alta/edición. En LOCAL, APAGADO: escribe en la agenda real
+WA_SYNC_ETIQUETA_INSTALADORES=INSTALADORES
+WA_SYNC_PAUSA_MS=1500              ← pausa entre chats (no hacerle ráfagas a ese Chrome)
+WA_SYNC_FALLOS_MAX=3               ← tiempos de espera seguidos tras los que se corta el repaso
 ```
 
 ---
