@@ -26,6 +26,13 @@ name: Catastro geometry — traer datos reales
 #      en esta rama. Los parametros se leen de ese fichero.
 on:
   push:
+    # NUNCA en main: al mergear la rama, el push arrastraria estos ficheros y
+    # dispararia una descarga real contra Catastro que ademas intentaria
+    # commitear a main. En la rama por defecto se usa workflow_dispatch, que es
+    # justo donde GitHub si lo registra.
+    branches-ignore:
+      - main
+      - master
     paths:
       - "catastro-geometry/.disparar/**"
   workflow_dispatch:
