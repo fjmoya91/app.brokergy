@@ -152,12 +152,25 @@ const INDICE = [
     { cod: '4-4', etiqueta: 'CEE inicial · etiqueta energética',   obligatorio: false, de: 'cee', fase: 'inicial', slot: 'etiqueta', nombre: 'CEE INICIAL_ETQ' },
     { cod: '4-5', etiqueta: 'Anexo I firmado por el titular',     obligatorio: true,  de: 'doc_exp',  campo: 'anexo_i_signed_link', nombre: 'ANEXO I_fdo' },
     { cod: '4-6', etiqueta: 'CEE inicial · XML',                  obligatorio: true,  de: 'cee', fase: 'inicial', slot: 'xml',      nombre: 'CEE INICIAL_XML', ext: '.xml' },
-    { cod: '4-7', etiqueta: 'Declaración responsable del instalador', obligatorio: false, de: 'suelto_lote', patron: 'declaracion_responsable_instalador', porExpediente: true, nombre: 'DECLARACION RESPONSABLE INSTALADOR' },
+    // Este papel NO es del proceso: se escribe para contestar a una inexactitud
+    // concreta. Apareció UNA vez en las 20 actuaciones ya presentadas —LOTE-2025-003,
+    // actuación 3, cuando el verificador objetó que el emisor de la factura no era
+    // quien firmaba el certificado del instalador (el caso de la firma delegada ante
+    // Industria, regla 26.b)—. Por eso va `soloSiExiste`: si está, entra en el
+    // paquete; si no está, no se dice nada. Echarlo de menos en cada lote es mandar
+    // a buscar un documento que no debería existir.
+    // ⚠️ En LOTE-2026-004 el código 4-7 lo ocupa otro documento distinto
+    // ("DECLARACION RESPONSABLE INVERSION"): el índice del gestor reutiliza ese hueco
+    // para lo que haga falta responder.
+    { cod: '4-7', etiqueta: 'Declaración responsable del instalador', obligatorio: false, soloSiExiste: true, de: 'suelto_lote', patron: 'declaracion_responsable_instalador', porExpediente: true, nombre: 'DECLARACION RESPONSABLE INSTALADOR' },
 
     // Los escritos del lote solo existen si hubo requerimiento. Van marcados como
     // NO obligatorios a propósito: se localizan por el nombre del fichero en la
     // carpeta del lote, y un fallo de esa búsqueda no puede parar el paquete.
-    { cod: '5-1', etiqueta: 'Escrito de respuesta al requerimiento', obligatorio: false, de: 'suelto_lote', patron: 'escrito de respuesta|informe respuesta|informe_subsanacion', nombre: 'ESCRITO DE RESPUESTA', ambito: 'lote', soloGestor: true },
+    // Solo existe si hubo requerimiento (2 de los 4 lotes presentados), así que su
+    // ausencia es lo normal y no se anuncia. La del HUSO sí: está en los tres últimos
+    // lotes, o sea que ya es parte del envío, y que falte merece el aviso.
+    { cod: '5-1', etiqueta: 'Escrito de respuesta al requerimiento', obligatorio: false, soloSiExiste: true, de: 'suelto_lote', patron: 'escrito de respuesta|informe respuesta|informe_subsanacion', nombre: 'ESCRITO DE RESPUESTA', ambito: 'lote', soloGestor: true },
     { cod: '5-2', etiqueta: 'Declaración responsable del huso',      obligatorio: false, de: 'suelto_lote', patron: 'declaracion_responsable_huso', nombre: 'DECLARACION RESPONSABLE HUSO_fdo', ambito: 'lote', soloGestor: true },
 ];
 
@@ -386,6 +399,11 @@ function nombreFinal(pieza, resuelto, ctx) {
 // `obligatorioEn` acota la obligatoriedad a unos modos: el anexo del MITECO solo
 // puede exigirse en el paquete del gestor.
 function exigencia(pieza, modo, ctx) {
+    // `soloSiExiste`: la pieza entra en el paquete si está, y si no está NO SE DICE.
+    // Es para los papeles que solo nacen de un requerimiento: echarlos de menos en
+    // todos los lotes es mandar a buscar algo que no debería existir, y un aviso que
+    // sale siempre y nunca hay que atender es el que enseña a ignorar la lista.
+    if (pieza.soloSiExiste) return 'silenciosa';
     if (typeof pieza.exenta === 'function') {
         try { if (pieza.exenta(ctx)) return 'no_procede'; } catch (_) { /* ante la duda, se exige */ }
     }
@@ -425,6 +443,7 @@ async function paqueteDeActuacion(ctx, { modo, dryRun, zipEnMemoria = false }) {
     for (const x of resueltas) x.exigencia = exigencia(x.pieza, modo, ctx);
     const faltanObligatorias = resueltas.filter(x => !x.r && x.exigencia === 'obligatoria').map(x => x.pieza.etiqueta);
     const faltanLeves = resueltas.filter(x => !x.r && x.exigencia === 'leve').map(x => x.pieza.etiqueta);
+    // 'silenciosa' no aparece en ninguna lista: ni falta, ni leve, ni "no procede".
     const noProceden = resueltas.filter(x => !x.r && x.exigencia === 'no_procede')
         .map(x => `${x.pieza.etiqueta} — ${x.pieza.motivoExenta || 'no procede en este expediente'}`);
 
@@ -433,7 +452,10 @@ async function paqueteDeActuacion(ctx, { modo, dryRun, zipEnMemoria = false }) {
         expediente_id: exp.id,
         numero_expediente: exp.numero_expediente,
         ficha: fichaDe(exp.numero_expediente),
-        piezas: resueltas.map(x => ({
+        // La pieza `silenciosa` que NO está no sale ni en el listado: si apareciera
+        // como una fila más —aunque fuese en gris— seguiría siendo una línea que hay
+        // que leer y descartar en cada lote. Encontrada sí sale, como cualquier otra.
+        piezas: resueltas.filter(x => x.r || x.exigencia !== 'silenciosa').map(x => ({
             cod: x.pieza.cod, etiqueta: x.pieza.etiqueta, obligatorio: x.exigencia === 'obligatoria',
             // `manual` = estaba en la carpeta del paquete pero la app no lo tiene
             // apuntado. Cuenta como presente y se DICE: es lo que hay que registrar

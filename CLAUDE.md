@@ -3686,6 +3686,20 @@ actuación por actuación; y en los cuatro lotes con dictamen favorable coincide
 con el que el informe acabó asignando. Aun así lo ENSEÑA antes de escribir, porque el
 número que manda es el que se ve en beCAE (`--orden=exp1,exp2,…` para forzarlo).
 
+**REGLA — un papel de REQUERIMIENTO no se echa de menos** (`soloSiExiste`). La
+*Declaración responsable del instalador* (`4-7`) no es del proceso: se escribió una
+vez, para contestar a la inexactitud nº 4 de LOTE-2025-003 —el verificador objetó que
+el emisor de la factura no era quien firmaba el certificado del instalador, o sea el
+caso de la firma delegada ante Industria (regla 26.b)—. Una en veinte actuaciones. El
+*Escrito de respuesta* (`5-1`) igual: solo existe si hubo requerimiento (2 de 4 lotes).
+Si están, entran en el paquete; si no están, **no se dice nada** y no salen ni en el
+listado: un aviso que aparece en todos los lotes y nunca hay que atender es el que
+enseña a ignorar la lista entera. La del HUSO (`5-2`) SÍ avisa —está en los tres
+últimos lotes, ya es parte del envío—.
+⚠️ En LOTE-2026-004 el código `4-7` lo ocupa otro documento distinto ("DECLARACION
+RESPONSABLE INVERSION"): el índice del gestor reutiliza ese hueco para lo que haya que
+responder, así que no es "el" 4-7 de nada.
+
 **REGLA — una pieza puede NO PROCEDER, y eso no es que falte.** `exigencia()` da tres
 respuestas y la tercera es la que evita los falsos bloqueos. El caso medido: el
 **justificante de registro del CEE inicial** no existe cuando el CEE inicial es una
