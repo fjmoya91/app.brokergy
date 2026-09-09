@@ -48,6 +48,33 @@ python -m src.main 4410205WJ0641S0001JH --only-fetch
 python -m src.main 4410205WJ0641S0001JH --offline --skip-lidar
 ```
 
+### Cómo se traen los datos reales sin salida a Internet
+
+El repo trae un workflow manual, `.github/workflows/catastro-geometry-fetch.yml`,
+que hace la descarga desde un runner de GitHub y **commitea las respuestas
+crudas** a la rama. El análisis se hace después con `--offline`, sin volverle a
+pedir nada a Catastro.
+
+```jsonc
+// catastro-geometry/.disparar/parametros.json  — escribirlo y hacer push dispara el workflow
+{ "fase": "reconocimiento", "pausa": 1.5 }
+{ "fase": "datos", "refcat": "4410205WJ0641S0001JH", "max_vecinos": 4, "pausa": 1.5 }
+```
+
+Al otro lado está **el mismo WAF del que depende el buscador de la app en
+producción**, así que el gasto de peticiones está acotado de verdad:
+
+| Freno | Qué hace |
+|---|---|
+| Fase de **reconocimiento**, 6 peticiones exactas | pregunta al servicio cómo se llaman sus stored queries **antes** de pedir ningún dato. Sale más barato que adivinar |
+| Presupuesto de intentos fallidos | el peor caso pasó de **24 peticiones a 8**: con el descubrimiento hecho, cada consulta es UNA petición |
+| `--pausa` (1,5 s) y `concurrency` | nada de ráfagas, y nunca dos ejecuciones a la vez |
+| Parada al primer 403 | al WAF no se le insiste jamás, igual que hace `catastroMonitor` en producción |
+| `max_vecinos` | acota los colindantes (2 peticiones por vecino) |
+
+El runner sale por IPs de Azure, **no por la del VPS**: si el WAF se molestara,
+producción no se entera.
+
 Mientras tanto, lo que **sí** está verificado en esta entrega:
 
 | | |
@@ -111,6 +138,19 @@ src/
 ├── pipeline.py         el recorrido completo
 └── main.py             CLI
 ```
+
+### Qué se ha reutilizado de la app (y qué no había)
+
+Revisado `implementation/backend/services/catastroService.js`: la app usa **solo
+los WCF JSON alfanuméricos** (`Consulta_DNPRC`, `Consulta_CPMRC`,
+`Consulta_RCCOOR`). **No toca el INSPIRE WFS**, así que no había código de
+geometría que reutilizar — los polígonos son terreno nuevo.
+
+Lo que sí se ha portado, que es el conocimiento caro, es su `catastroGet`:
+mismo User-Agent, mismo orden de cabeceras, `family: 4`, la misma detección de
+rate-limit (`isRateLimitResponse`) y el mismo criterio de parar al primer 403
+que aplica `catastroMonitor`. Y el `Accept` va por tipo de servicio:
+`application/json` a los WCF, como manda producción, y XML a los WFS.
 
 ### El cliente HTTP no usa `requests`, y es a propósito
 
