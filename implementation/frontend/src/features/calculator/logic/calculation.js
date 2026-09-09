@@ -1134,12 +1134,14 @@ export function calculateRes080Simplificado({
             otros: {
                 fuelIni: combOtrosIni || '—',
                 fuelFin: combOtrosFinReal || '—',
-                // Sin emisiones de otros combustibles en el FINAL, el edificio ya no quema
-                // nada. El CERTIFICADO lo imprime como "No aplica" en vez de arrastrar el
-                // combustible inicial: con el nombre a la vista, el verificador podría
-                // multiplicar por su factor un consumo que ya no existe (mismo criterio que
-                // la ficha TER100). En la tabla editable sí se deja el combustible real,
-                // porque ahí es el valor de un <select> que el usuario puede cambiar.
+                // Sin emisiones de otros combustibles en esa fase, el edificio no quema
+                // nada: el combustible se imprime como "No aplica" en vez de arrastrar el
+                // de la otra columna. Con un nombre a la vista se puede multiplicar por su
+                // factor un consumo que ya no existe (mismo criterio que la ficha TER100),
+                // y en la tabla de pantalla es peor todavía: el <select> no tiene opción
+                // vacía, así que un combustible en blanco se pintaba como "Gasoleo
+                // Calefacción" — la primera de la lista — como si el CEE lo declarase.
+                fuelIniAplica: emiOtrosIniN > 0,
                 fuelFinAplica: emiOtrosFinN > 0,
                 factorIni: fOtrosIni,
                 factorFin: fOtrosFin,
@@ -1243,6 +1245,7 @@ function res080DesdeEnergiaFinal({ vecIni, vecFin, supIni, supFin, emiDeclaradas
             otros: {
                 fuelIni: nombreDe(gIni.otros),
                 fuelFin: nombreDe(gFin.otros),
+                fuelIniAplica: gIni.otros.energia > 0,
                 fuelFinAplica: gFin.otros.energia > 0,
                 factorIni: gIni.otros.factor,
                 factorFin: gFin.otros.factor,

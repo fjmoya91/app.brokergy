@@ -594,10 +594,16 @@ export function buildJustificacionAhorroPages({ results, pageHeader, sectionTitl
     // no se le puede decir al verificador que un número está medido si está derivado.
     const declarada = results.fuenteDatos === 'energia_final_declarada';
     const combOtros = d.otros?.fuelIni && d.otros.fuelIni !== '—' ? d.otros.fuelIni : 'el combustible declarado';
-    // Si tras la obra ya no se quema nada, la columna FINAL dice "No aplica" en vez de
-    // arrastrar el combustible inicial (ver fuelFinAplica en calculation.js).
-    const otrosDoc = d.otros && d.otros.fuelFinAplica === false
-        ? { ...d.otros, fuelFin: 'No aplica' }
+    // La fase que no consume nada de ese vector dice "No aplica" en vez de arrastrar el
+    // combustible de la otra columna (ver fuelIniAplica/fuelFinAplica en calculation.js).
+    // Lo normal es que sea la FINAL —tras la obra ya no se quema nada—, pero se aplica a
+    // las dos para no afirmar un combustible que ese certificado no declara.
+    const otrosDoc = d.otros
+        ? {
+            ...d.otros,
+            ...(d.otros.fuelIniAplica === false ? { fuelIni: 'No aplica' } : {}),
+            ...(d.otros.fuelFinAplica === false ? { fuelFin: 'No aplica' } : {}),
+        }
         : d.otros;
 
     const notaDeclarada = `
