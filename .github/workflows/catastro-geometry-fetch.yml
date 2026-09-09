@@ -1,0 +1,104 @@
+name: Catastro geometry — traer datos reales
+
+# SOLO a mano. Nunca en push: cada ejecucion pega al Catastro de verdad.
+#
+# Existe porque el entorno donde se desarrolla el MVP no tiene salida a
+# ovc.catastro.meh.es. Esto lo ejecuta desde un runner de GitHub, guarda las
+# respuestas CRUDAS en el repo y asi el analisis se hace despues sin red
+# (--offline), sin volver a pedirle nada a Catastro.
+#
+# FRENOS, porque al otro lado hay un WAF del que depende el buscador de la app
+# en produccion:
+#   * concurrency: nunca dos ejecuciones a la vez;
+#   * la fase 'reconocimiento' son SEIS peticiones exactas y se hace ANTES de
+#     pedir ningun dato, para no adivinar parametros a base de intentos;
+#   * pausa configurable entre peticiones (1,5 s por defecto);
+#   * al primer 403 o "no se puede procesar" se PARA, no se reintenta;
+#   * max_vecinos limita el numero de colindantes que se consultan.
+#
+# El runner sale por IPs de Azure, no por la del VPS: si el WAF se molesta,
+# produccion no se entera.
+
+on:
+  workflow_dispatch:
+    inputs:
+      fase:
+        description: "reconocimiento (6 peticiones) o datos (la parcela entera)"
+        type: choice
+        options: [reconocimiento, datos]
+        default: reconocimiento
+      refcat:
+        description: "Referencia catastral (14 o 20)"
+        default: "4410205WJ0641S0001JH"
+      max_vecinos:
+        description: "Parcelas colindantes a consultar (2 peticiones por vecino)"
+        default: "4"
+      pausa:
+        description: "Segundos entre peticiones"
+        default: "1.5"
+
+concurrency:
+  group: catastro-fetch
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  traer:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: catastro-geometry
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Dependencias
+        run: pip install --quiet shapely pyproj lxml numpy folium matplotlib
+
+      - name: Reconocimiento (6 peticiones)
+        if: ${{ inputs.fase == 'reconocimiento' }}
+        run: python tools/reconocer.py data/reconocimiento "${{ inputs.pausa }}"
+
+      - name: Traer los datos de la parcela
+        if: ${{ inputs.fase == 'datos' }}
+        run: |
+          python -m src.main "${{ inputs.refcat }}" \
+            --only-fetch \
+            --pausa "${{ inputs.pausa }}" \
+            --retries 1 \
+            --timeout 25 \
+            --max-vecinos "${{ inputs.max_vecinos }}" \
+            --data "data/real" \
+            --cache "cache"
+
+      - name: Cuantas peticiones se han gastado
+        if: always()
+        run: |
+          echo "### Ficheros traidos" >> $GITHUB_STEP_SUMMARY
+          find data cache -type f 2>/dev/null | head -40 >> $GITHUB_STEP_SUMMARY || true
+
+      - name: Commit de las respuestas crudas
+        if: always()
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # la cache y data/raw estan en .gitignore por defecto: aqui SI se quieren
+          git add -f data/reconocimiento data/real cache 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "nada que commitear"
+          else
+            git commit -m "Catastro: respuestas crudas (${{ inputs.fase }}, ${{ inputs.refcat }})
+
+          Traidas por el workflow manual desde un runner de GitHub, porque el
+          entorno de desarrollo no tiene salida a ovc.catastro.meh.es.
+
+          Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+            git push
+          fi

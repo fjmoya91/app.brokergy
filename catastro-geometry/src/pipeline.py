@@ -51,6 +51,7 @@ class Opciones:
     fixture_dir: Path | None = None
     retries: int = 4
     timeout: float = 30.0
+    pausa: float = 0.8
 
 
 @dataclass
@@ -78,7 +79,7 @@ def descargar(o: Opciones, rc: refcat_mod.ReferenciaCatastral,
     client = CatastroClient(cache_dir=o.cache / rc.parcela,
                             offline=o.offline, refresh=o.refresh,
                             fixture_dir=o.fixture_dir, retries=o.retries,
-                            timeout=o.timeout)
+                            timeout=o.timeout, pause_between_calls=o.pausa)
     modelo.catastro["cliente"] = "WCF JSON + INSPIRE WFS"
     cp, bu = inspire.servicios(client)
     raw = o.data / "raw"

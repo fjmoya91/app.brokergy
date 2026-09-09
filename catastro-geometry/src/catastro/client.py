@@ -98,7 +98,7 @@ class CatastroClient:
         return p.with_suffix(".meta.json")
 
     # ------------------------------------------------------------------- http
-    def _raw_get(self, url: str) -> tuple[int, bytes, dict]:
+    def _raw_get(self, url: str, accept: str) -> tuple[int, bytes, dict]:
         parts = urlsplit(url)
         host = parts.hostname
         port = parts.port or (443 if parts.scheme == "https" else 80)
@@ -129,7 +129,7 @@ class CatastroClient:
             # El ORDEN importa (ver cabecera del modulo).
             conn.putheader("Host", host)
             conn.putheader("User-Agent", USER_AGENT)
-            conn.putheader("Accept", "application/xml, text/xml, application/json;q=0.9, */*;q=0.8")
+            conn.putheader("Accept", accept)
             conn.putheader("Accept-Encoding", "identity")
             conn.putheader("Connection", "close")
             conn.endheaders()
@@ -155,7 +155,11 @@ class CatastroClient:
             time.sleep(self.pause_between_calls - delta)
 
     # ------------------------------------------------------------------- api
-    def get(self, url: str, params: dict | None = None, *, name: str) -> bytes:
+    #: mismo valor que manda produccion a los WCF JSON.
+    ACCEPT_JSON = "application/json"
+
+    def get(self, url: str, params: dict | None = None, *, name: str,
+            accept: str | None = None) -> bytes:
         """Descarga (o lee de cache) una respuesta y la deja cruda en disco.
 
         `name` es el nombre con el que se guarda en cache/raw, para poder
@@ -193,7 +197,7 @@ class CatastroClient:
             t0 = time.monotonic()
             try:
                 self._throttle()
-                status, body, _ = self._raw_get(url)
+                status, body, _ = self._raw_get(url, accept or self.ACCEPT_JSON)
                 self._last_call_at = time.monotonic()
                 dt = time.monotonic() - t0
 

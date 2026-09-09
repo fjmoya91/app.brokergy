@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 
 from lxml import etree
 
-from .client import CatastroClient, CatastroError
+from .client import CatastroBlocked, CatastroClient, CatastroError
 from ..gis.geometry import local
 
 log = logging.getLogger(__name__)
@@ -51,6 +51,10 @@ _PISTAS = {
 
 SRS_VARIANTES = ["EPSG::25830", "urn:ogc:def:crs:EPSG::25830", "EPSG:25830"]
 
+#: los WFS devuelven XML; los WCF JSON, JSON. Produccion manda
+#: Accept: application/json a los WCF, y se respeta.
+ACCEPT_XML = "application/xml, text/xml;q=0.9, */*;q=0.8"
+
 
 @dataclass
 class StoredQuery:
@@ -71,6 +75,9 @@ class WfsService:
     nombre: str                     # 'CP' | 'BU'
     client: CatastroClient
     version: str = "2.0.0"
+    #: intentos FALLIDOS que se permite gastar este servicio en total. Es el
+    #: freno para no castigar a Catastro cuando algo no encaja.
+    presupuesto: int = 4
     _queries: dict[str, StoredQuery] | None = None
     descubrimiento: str = "sin intentar"
 
@@ -78,7 +85,7 @@ class WfsService:
     def capabilities(self) -> bytes:
         return self.client.get(self.url,
                                {"service": "WFS", "request": "GetCapabilities"},
-                               name=f"capabilities_{self.nombre}")
+                               name=f"capabilities_{self.nombre}", accept=ACCEPT_XML)
 
     def stored_queries(self) -> dict[str, StoredQuery]:
         """Lee del servicio los ids y parametros REALES de las stored queries."""
@@ -89,7 +96,7 @@ class WfsService:
             data = self.client.get(
                 self.url,
                 {"service": "WFS", "version": self.version, "request": "DescribeStoredQueries"},
-                name=f"describestoredqueries_{self.nombre}")
+                name=f"describestoredqueries_{self.nombre}", accept=ACCEPT_XML)
             out = self._parse_describe(data)
             self.descubrimiento = "DescribeStoredQueries"
         except (CatastroError, ValueError, etree.XMLSyntaxError) as exc:
@@ -100,7 +107,7 @@ class WfsService:
                 data = self.client.get(
                     self.url,
                     {"service": "WFS", "version": self.version, "request": "ListStoredQueries"},
-                    name=f"liststoredqueries_{self.nombre}")
+                    name=f"liststoredqueries_{self.nombre}", accept=ACCEPT_XML)
                 out = self._parse_list(data)
                 self.descubrimiento = "ListStoredQueries"
             except (CatastroError, ValueError, etree.XMLSyntaxError) as exc:
@@ -160,32 +167,71 @@ class WfsService:
                            "(no verificado contra el servicio)", [])
 
     # -------------------------------------------------------------- consulta
+    def _combinaciones(self, sq: StoredQuery) -> list[tuple[str, str, str]]:
+        """(clave_id, id, srs) a probar, de mas a menos probable.
+
+        REGLA — no se prueban las 6 combinaciones a lo bruto. Si el servicio nos
+        ha DICHO como se llama su stored query, se usa esa y punto: una peticion.
+        Probar 6 variantes por consulta son 24 peticiones inutiles contra un WAF
+        que corta al primer exceso, y con el que ademas trabaja produccion.
+        """
+        descubierto = self.descubrimiento in ("DescribeStoredQueries", "ListStoredQueries")
+        if descubierto:
+            # el id es el bueno; lo unico dudoso es la forma de escribir el SRS
+            return [("STOREDQUERY_ID", sq.id, SRS_VARIANTES[0]),
+                    ("STOREDQUERY_ID", sq.id, SRS_VARIANTES[1])]
+        # sin descubrimiento: se prueban los ids documentados, UNA forma de SRS,
+        # y la clave con la errata que aparece en la documentacion del Catastro
+        combos = [("STOREDQUERY_ID", sq.id, SRS_VARIANTES[0]),
+                  ("STOREDQUERIE_ID", sq.id, SRS_VARIANTES[0])]
+        return combos
+
     def get_feature(self, proposito: str, refcat: str, *, name: str) -> bytes:
-        """Lanza la stored query probando las variantes conocidas del servicio."""
+        """Lanza la stored query gastando el minimo de peticiones posible."""
         sq = self.elegir(proposito)
         pref = sq.param_refcat()
         errores: list[str] = []
-        for clave_id in ("STOREDQUERY_ID", "STOREDQUERIE_ID"):
-            for srs in SRS_VARIANTES:
-                params = {"service": "WFS", "version": self.version,
-                          "request": "GetFeature", clave_id: sq.id,
-                          pref: refcat, "srsname": srs}
-                try:
-                    data = self.client.get(self.url, params, name=name)
-                    if self._es_excepcion(data):
-                        errores.append(f"{clave_id}/{srs}: excepcion WFS")
-                        continue
+        for clave_id, qid, srs in self._combinaciones(sq):
+            if self.presupuesto <= 0:
+                errores.append("agotado el presupuesto de intentos fallidos "
+                               "(se para para no castigar al servicio)")
+                break
+            params = {"service": "WFS", "version": self.version,
+                      "request": "GetFeature", clave_id: qid,
+                      pref: refcat, "srsname": srs}
+            try:
+                data = self.client.get(self.url, params, name=name, accept=ACCEPT_XML)
+                motivo = self._excepcion(data)
+                if motivo is None:
                     return data
-                except CatastroError as exc:
-                    errores.append(f"{clave_id}/{srs}: {exc}")
+                self.presupuesto -= 1
+                errores.append(f"{clave_id}/{srs}: {motivo}")
+            except CatastroBlocked:
+                raise                       # al WAF no se le insiste jamas
+            except CatastroError as exc:
+                self.presupuesto -= 1
+                errores.append(f"{clave_id}/{srs}: {exc}")
         raise CatastroError(
-            f"ninguna variante de la stored query '{sq.id}' ({proposito}) funciono en "
-            f"{self.nombre}. Intentos: " + " || ".join(errores[:6]))
+            f"la stored query '{sq.id}' ({proposito}) no funciono en {self.nombre} "
+            f"[descubrimiento: {self.descubrimiento}]. Intentos: "
+            + " || ".join(errores[:4]))
 
     @staticmethod
-    def _es_excepcion(data: bytes) -> bool:
-        cabeza = data[:2000].decode("utf-8", "ignore")
-        return "ExceptionReport" in cabeza or "ServiceException" in cabeza
+    def _excepcion(data: bytes) -> str | None:
+        """Devuelve el texto de la excepcion WFS, o None si la respuesta es buena."""
+        cabeza = data[:4000].decode("utf-8", "ignore")
+        if "ExceptionReport" not in cabeza and "ServiceException" not in cabeza:
+            return None
+        try:
+            root = etree.fromstring(data, etree.XMLParser(recover=True))
+            textos = [(e.text or "").strip() for e in root.iter()
+                      if local(e.tag) in ("ExceptionText", "ServiceException")
+                      and (e.text or "").strip()]
+            if textos:
+                return " | ".join(textos)[:200]
+        except Exception:                                   # pragma: no cover
+            pass
+        return "excepcion WFS sin texto"
 
 
 def servicios(client: CatastroClient) -> tuple[WfsService, WfsService]:

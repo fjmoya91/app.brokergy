@@ -45,6 +45,9 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--retries", type=int, default=4,
                    help="reintentos por peticion, con backoff exponencial")
     p.add_argument("--timeout", type=float, default=30.0)
+    p.add_argument("--pausa", type=float, default=0.8, metavar="S",
+                   help="segundos entre peticiones. El WAF del Catastro "
+                        "rechaza rafagas desde IPs de datacenter.")
     p.add_argument("--fixture", type=Path,
                    help="PRUEBAS: sirve las respuestas desde ficheros de este "
                         "directorio en vez de la red")
@@ -117,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
                  min_contacto=args.min_contact, max_vecinos=args.max_vecinos,
                  dxf=args.dxf, fxcc=args.fxcc, solo_descargar=args.only_fetch,
                  fixture_dir=args.fixture, retries=args.retries,
-                 timeout=args.timeout)
+                 timeout=args.timeout, pausa=args.pausa)
 
     modelo = Modelo(refcat_parcela=rc.parcela, refcat_inmueble=rc.inmueble,
                     crs=o.crs_metrico)
