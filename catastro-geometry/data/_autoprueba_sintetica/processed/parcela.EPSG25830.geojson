@@ -1,0 +1,52 @@
+{
+ "type": "FeatureCollection",
+ "crs": {
+  "type": "name",
+  "properties": {
+   "name": "EPSG:25830"
+  }
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "id": "ES.SDGC.CP.9999999XX9999X",
+   "properties": {
+    "source": "modelo",
+    "tipo": "parcela",
+    "original_id": "ES.SDGC.CP.9999999XX9999X",
+    "CadastralParcel@id": "ES.SDGC.CP.9999999XX9999X",
+    "areaValue": "120",
+    "nationalCadastralReference": "9999999XX9999X",
+    "area": 120.0,
+    "use": null
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       470000.0,
+       4340000.0
+      ],
+      [
+       470012.0,
+       4340000.0
+      ],
+      [
+       470012.0,
+       4340010.0
+      ],
+      [
+       470000.0,
+       4340010.0
+      ],
+      [
+       470000.0,
+       4340000.0
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}

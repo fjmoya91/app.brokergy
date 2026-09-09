@@ -1,0 +1,1474 @@
+<!DOCTYPE html>
+<html>
+<head>
+    
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap-glyphicons.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.2.0/css/all.min.css"/>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/python-visualization/folium/folium/templates/leaflet.awesome.rotate.min.css"/>
+    
+            <meta name="viewport" content="width=device-width,
+                initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+            <style>
+                #map_021aebf62c510a6bf89d2133200174ad {
+                    position: relative;
+                    width: 100.0%;
+                    height: 100.0%;
+                    left: 0.0%;
+                    top: 0.0%;
+                }
+                .leaflet-container { font-size: 1rem; }
+            </style>
+
+            <style>html, body {
+                width: 100%;
+                height: 100%;
+                margin: 0;
+                padding: 0;
+            }
+            </style>
+
+            <style>#map {
+                position:absolute;
+                top:0;
+                bottom:0;
+                right:0;
+                left:0;
+                }
+            </style>
+
+            <script>
+                L_NO_TOUCH = false;
+                L_DISABLE_3D = false;
+            </script>
+
+        
+</head>
+<body>
+    
+    <div style="position:fixed;bottom:22px;left:12px;z-index:9999;background:#fff;padding:10px 12px;border:1px solid #999;border-radius:6px;font:12px/1.5 system-ui;max-width:320px"><b>9999999XX9999X - CL PRUEBA 1, PRUEBA, CIUDAD REAL (SINTETICO)</b><div style="margin-top:6px"><div><span style="display:inline-block;width:14px;height:4px;background:#c0392b;margin-right:6px;vertical-align:middle"></span>Medianera (edificio colindante)</div><div><span style="display:inline-block;width:14px;height:4px;background:#2980b9;margin-right:6px;vertical-align:middle"></span>Fachada a patio (hueco de la huella)</div><div><span style="display:inline-block;width:14px;height:4px;background:#5dade2;margin-right:6px;vertical-align:middle"></span>Fachada a patio de parcela</div><div><span style="display:inline-block;width:14px;height:4px;background:#27ae60;margin-right:6px;vertical-align:middle"></span>Fachada exterior / calle</div><div><span style="display:inline-block;width:14px;height:4px;background:#16a085;margin-right:6px;vertical-align:middle"></span>Fachada a espacio libre de parcela</div><div><span style="display:inline-block;width:14px;height:4px;background:#1abc9c;margin-right:6px;vertical-align:middle"></span>Fachada sobre cubierta inferior</div><div><span style="display:inline-block;width:14px;height:4px;background:#8e44ad;margin-right:6px;vertical-align:middle"></span>Particion con espacio no habitable</div><div><span style="display:inline-block;width:14px;height:4px;background:#f39c12;margin-right:6px;vertical-align:middle"></span>PENDIENTE DE REVISION</div></div></div>
+    
+            <div class="folium-map" id="map_021aebf62c510a6bf89d2133200174ad" ></div>
+        
+</body>
+<script>
+    
+    
+            var map_021aebf62c510a6bf89d2133200174ad = L.map(
+                "map_021aebf62c510a6bf89d2133200174ad",
+                {
+                    center: [39.20879781197306, -3.347406651548232],
+                    crs: L.CRS.EPSG3857,
+                    ...{
+  "zoom": 19,
+  "zoomControl": true,
+  "preferCanvas": false,
+}
+
+                }
+            );
+            L.control.scale().addTo(map_021aebf62c510a6bf89d2133200174ad);
+
+            
+
+        
+    
+            var tile_layer_45645fac09bf5e4c675ff540fc9070b0 = L.tileLayer(
+                "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                {
+  "minZoom": 0,
+  "maxZoom": 22,
+  "maxNativeZoom": 22,
+  "noWrap": false,
+  "attribution": "\u0026copy; \u003ca href=\"https://www.openstreetmap.org/copyright\"\u003eOpenStreetMap\u003c/a\u003e contributors",
+  "subdomains": "abc",
+  "detectRetina": false,
+  "tms": false,
+  "opacity": 1,
+}
+
+            );
+        
+    
+            tile_layer_45645fac09bf5e4c675ff540fc9070b0.addTo(map_021aebf62c510a6bf89d2133200174ad);
+        
+    
+            var macro_element_07debad5e79cdf9b86cd58021be510ba = L.tileLayer.wms(
+                "https://www.ign.es/wms-inspire/pnoa-ma",
+                {"attribution": "PNOA cedido por (c) Instituto Geografico Nacional de Espana", "format": "image/png", "layers": "OI.OrthoimageCoverage", "styles": "", "transparent": false, "version": "1.3.0"}
+            );
+        
+    
+            macro_element_07debad5e79cdf9b86cd58021be510ba.addTo(map_021aebf62c510a6bf89d2133200174ad);
+        
+    
+            var macro_element_d831fe86ad36d9098fbb1fe3905959e2 = L.tileLayer.wms(
+                "https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx",
+                {"attribution": "Direccion General del Catastro", "format": "image/png", "layers": "Catastro", "styles": "", "transparent": true, "version": "1.1.1"}
+            );
+        
+    
+            macro_element_d831fe86ad36d9098fbb1fe3905959e2.addTo(map_021aebf62c510a6bf89d2133200174ad);
+        
+    
+        function geo_json_3558cacd5903c4d84d8df7e36642d85b_styler(feature) {
+            switch(feature.id) {
+                default:
+                    return {"color": "#b8860b", "fillOpacity": 0.05, "weight": 2};
+            }
+        }
+
+        function geo_json_3558cacd5903c4d84d8df7e36642d85b_onEachFeature(feature, layer) {
+
+            layer.on({
+            });
+        };
+        var geo_json_3558cacd5903c4d84d8df7e36642d85b = L.geoJson(null, {
+                onEachFeature: geo_json_3558cacd5903c4d84d8df7e36642d85b_onEachFeature,
+            
+                style: geo_json_3558cacd5903c4d84d8df7e36642d85b_styler,
+            ...{
+}
+        });
+
+        function geo_json_3558cacd5903c4d84d8df7e36642d85b_add (data) {
+            geo_json_3558cacd5903c4d84d8df7e36642d85b
+                .addData(data);
+        }
+            geo_json_3558cacd5903c4d84d8df7e36642d85b_add({"features": [{"geometry": {"coordinates": [[[-3.347476228422393, 39.208752549485084], [-3.347337240318662, 39.20875296394961], [-3.347337684182728, 39.208843072625726], [-3.3474766724640643, 39.208842658159874], [-3.347476228422393, 39.208752549485084]]], "type": "Polygon"}, "id": "0", "type": "Feature"}], "type": "FeatureCollection"});
+
+        
+    
+            geo_json_3558cacd5903c4d84d8df7e36642d85b.addTo(map_021aebf62c510a6bf89d2133200174ad);
+        
+    
+        function geo_json_fdc2d1dc4596b6c863be0814ba2c9eaf_styler(feature) {
+            switch(feature.id) {
+                default:
+                    return {"color": "#909090", "fillColor": "#bbbbbb", "fillOpacity": 0.45, "weight": 1};
+            }
+        }
+
+        function geo_json_fdc2d1dc4596b6c863be0814ba2c9eaf_onEachFeature(feature, layer) {
+
+            layer.on({
+            });
+        };
+        var geo_json_fdc2d1dc4596b6c863be0814ba2c9eaf = L.geoJson(null, {
+                onEachFeature: geo_json_fdc2d1dc4596b6c863be0814ba2c9eaf_onEachFeature,
+            
+                style: geo_json_fdc2d1dc4596b6c863be0814ba2c9eaf_styler,
+            ...{
+}
+        });
+
+        function geo_json_fdc2d1dc4596b6c863be0814ba2c9eaf_add (data) {
+            geo_json_fdc2d1dc4596b6c863be0814ba2c9eaf
+                .addData(data);
+        }
+            geo_json_fdc2d1dc4596b6c863be0814ba2c9eaf_add({"features": [{"geometry": {"coordinates": [[[[-3.3473375066368622, 39.208807029155444], [-3.3472680125306407, 39.208807236325924], [-3.347267746265721, 39.20875317111969], [-3.347337240318662, 39.20875296394961], [-3.3473375066368622, 39.208807029155444]]], [[[-3.347557748960187, 39.208842416311555], [-3.3474766724640643, 39.208842658159874], [-3.347476228422393, 39.208752549485084], [-3.3475573048149125, 39.20875230763754], [-3.347557748960187, 39.208842416311555]]]], "type": "MultiPolygon"}, "id": "0", "type": "Feature"}], "type": "FeatureCollection"});
+
+        
+    
+            geo_json_fdc2d1dc4596b6c863be0814ba2c9eaf.addTo(map_021aebf62c510a6bf89d2133200174ad);
+        
+    
+        function geo_json_0432ba2551bf2ed0c8fb539984c51a11_styler(feature) {
+            switch(feature.id) {
+                default:
+                    return {"color": "#333333", "fillColor": "#ffffff", "fillOpacity": 0.25, "weight": 2};
+            }
+        }
+
+        function geo_json_0432ba2551bf2ed0c8fb539984c51a11_onEachFeature(feature, layer) {
+
+            layer.on({
+            });
+        };
+        var geo_json_0432ba2551bf2ed0c8fb539984c51a11 = L.geoJson(null, {
+                onEachFeature: geo_json_0432ba2551bf2ed0c8fb539984c51a11_onEachFeature,
+            
+                style: geo_json_0432ba2551bf2ed0c8fb539984c51a11_styler,
+            ...{
+}
+        });
+
+        function geo_json_0432ba2551bf2ed0c8fb539984c51a11_add (data) {
+            geo_json_0432ba2551bf2ed0c8fb539984c51a11
+                .addData(data);
+        }
+            geo_json_0432ba2551bf2ed0c8fb539984c51a11_add({"features": [{"geometry": {"coordinates": [[[-3.347476228422393, 39.208752549485084], [-3.347337240318662, 39.20875296394961], [-3.347337684182728, 39.208843072625726], [-3.3474766724640643, 39.208842658159874], [-3.347476228422393, 39.208752549485084]], [[-3.34743007664755, 39.20878873112861], [-3.3473953296038865, 39.2087888347466], [-3.3473954183915, 39.208806856481715], [-3.3474301654440435, 39.20880675286366], [-3.34743007664755, 39.20878873112861]]], "type": "Polygon"}, "id": "0", "type": "Feature"}], "type": "FeatureCollection"});
+
+        
+    
+            geo_json_0432ba2551bf2ed0c8fb539984c51a11.addTo(map_021aebf62c510a6bf89d2133200174ad);
+        
+    
+            var feature_group_140bb0d60750684166971114d911db2b = L.featureGroup(
+                {
+}
+            );
+        
+    
+        function geo_json_2f8f28c3d2c2bdbbae6ecc8b0a3a6877_styler(feature) {
+            switch(feature.id) {
+                default:
+                    return {"color": "#e67e22", "fillOpacity": 0.1, "weight": 1};
+            }
+        }
+
+        function geo_json_2f8f28c3d2c2bdbbae6ecc8b0a3a6877_onEachFeature(feature, layer) {
+
+            layer.on({
+            });
+        };
+        var geo_json_2f8f28c3d2c2bdbbae6ecc8b0a3a6877 = L.geoJson(null, {
+                onEachFeature: geo_json_2f8f28c3d2c2bdbbae6ecc8b0a3a6877_onEachFeature,
+            
+                style: geo_json_2f8f28c3d2c2bdbbae6ecc8b0a3a6877_styler,
+            ...{
+}
+        });
+
+        function geo_json_2f8f28c3d2c2bdbbae6ecc8b0a3a6877_add (data) {
+            geo_json_2f8f28c3d2c2bdbbae6ecc8b0a3a6877
+                .addData(data);
+        }
+            geo_json_2f8f28c3d2c2bdbbae6ecc8b0a3a6877_add({"features": [{"geometry": {"coordinates": [[[-3.347476228422393, 39.208752549485084], [-3.3473835696868903, 39.20875282581319], [-3.3473840136101582, 39.208842934488864], [-3.3474766724640643, 39.208842658159874], [-3.347476228422393, 39.208752549485084]], [[-3.34743007664755, 39.20878873112861], [-3.3473953296038865, 39.2087888347466], [-3.3473954183915, 39.208806856481715], [-3.3474301654440435, 39.20880675286366], [-3.34743007664755, 39.20878873112861]]], "type": "Polygon"}, "id": "0", "type": "Feature"}], "type": "FeatureCollection"});
+
+        
+    
+            geo_json_2f8f28c3d2c2bdbbae6ecc8b0a3a6877.bindTooltip(
+                `<div>
+                     BuildingPart ES.SDGC.BU.A - 2 plantas sobre rasante
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            geo_json_2f8f28c3d2c2bdbbae6ecc8b0a3a6877.addTo(feature_group_140bb0d60750684166971114d911db2b);
+        
+    
+        function geo_json_27f76b91091c30bc7fc7b695363777a1_styler(feature) {
+            switch(feature.id) {
+                default:
+                    return {"color": "#e67e22", "fillOpacity": 0.1, "weight": 1};
+            }
+        }
+
+        function geo_json_27f76b91091c30bc7fc7b695363777a1_onEachFeature(feature, layer) {
+
+            layer.on({
+            });
+        };
+        var geo_json_27f76b91091c30bc7fc7b695363777a1 = L.geoJson(null, {
+                onEachFeature: geo_json_27f76b91091c30bc7fc7b695363777a1_onEachFeature,
+            
+                style: geo_json_27f76b91091c30bc7fc7b695363777a1_styler,
+            ...{
+}
+        });
+
+        function geo_json_27f76b91091c30bc7fc7b695363777a1_add (data) {
+            geo_json_27f76b91091c30bc7fc7b695363777a1
+                .addData(data);
+        }
+            geo_json_27f76b91091c30bc7fc7b695363777a1_add({"features": [{"geometry": {"coordinates": [[[-3.3473835696868903, 39.20875282581319], [-3.347337240318662, 39.20875296394961], [-3.347337684182728, 39.208843072625726], [-3.3473840136101582, 39.208842934488864], [-3.3473835696868903, 39.20875282581319]]], "type": "Polygon"}, "id": "0", "type": "Feature"}], "type": "FeatureCollection"});
+
+        
+    
+            geo_json_27f76b91091c30bc7fc7b695363777a1.bindTooltip(
+                `<div>
+                     BuildingPart ES.SDGC.BU.B - 1 plantas sobre rasante
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            geo_json_27f76b91091c30bc7fc7b695363777a1.addTo(feature_group_140bb0d60750684166971114d911db2b);
+        
+    
+            var feature_group_9b3c44c0e0834d256d43894101357e0e = L.featureGroup(
+                {
+}
+            );
+        
+    
+        function geo_json_f123b5e88ef1faa3b964f6057ba66faf_styler(feature) {
+            switch(feature.id) {
+                default:
+                    return {"color": "#6c5ce7", "fillOpacity": 0.25, "weight": 1};
+            }
+        }
+
+        function geo_json_f123b5e88ef1faa3b964f6057ba66faf_onEachFeature(feature, layer) {
+
+            layer.on({
+            });
+        };
+        var geo_json_f123b5e88ef1faa3b964f6057ba66faf = L.geoJson(null, {
+                onEachFeature: geo_json_f123b5e88ef1faa3b964f6057ba66faf_onEachFeature,
+            
+                style: geo_json_f123b5e88ef1faa3b964f6057ba66faf_styler,
+            ...{
+}
+        });
+
+        function geo_json_f123b5e88ef1faa3b964f6057ba66faf_add (data) {
+            geo_json_f123b5e88ef1faa3b964f6057ba66faf
+                .addData(data);
+        }
+            geo_json_f123b5e88ef1faa3b964f6057ba66faf_add({"features": [{"geometry": {"coordinates": [[[-3.347476228422393, 39.208752549485084], [-3.3474766724640643, 39.208842658159874], [-3.3473840136101582, 39.208842934488864], [-3.347337684182728, 39.208843072625726], [-3.347337240318662, 39.20875296394961], [-3.3473835696868903, 39.20875282581319], [-3.347476228422393, 39.208752549485084]], [[-3.3473953296038865, 39.2087888347466], [-3.3473954183915, 39.208806856481715], [-3.3474301654440435, 39.20880675286366], [-3.34743007664755, 39.20878873112861], [-3.3473953296038865, 39.2087888347466]]], "type": "Polygon"}, "id": "0", "type": "Feature"}], "type": "FeatureCollection"});
+
+        
+    
+            geo_json_f123b5e88ef1faa3b964f6057ba66faf.bindTooltip(
+                `<div>
+                     SU001 - SUELO TERRENO - 114.00 m2
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+        var popup_a704e662741480aa8521e6289e2b6e7a = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_b308f0bd613b35361f7b777661bc7d29 = $(`<div id="html_b308f0bd613b35361f7b777661bc7d29" style="width: 100.0%; height: 100.0%;"><b>SU001</b><br>SUELO / TERRENO<br>Planta PB<br>ALMACEN &rarr; TERRENO<br>114.00 m2<br><i>no hay planta construida debajo</i></div>`)[0];
+                popup_a704e662741480aa8521e6289e2b6e7a.setContent(html_b308f0bd613b35361f7b777661bc7d29);
+            
+        
+
+        geo_json_f123b5e88ef1faa3b964f6057ba66faf.bindPopup(popup_a704e662741480aa8521e6289e2b6e7a)
+        ;
+
+        
+    
+    
+            geo_json_f123b5e88ef1faa3b964f6057ba66faf.addTo(feature_group_9b3c44c0e0834d256d43894101357e0e);
+        
+    
+        function geo_json_309403fe3e0d8950d8ef10800fd277b7_styler(feature) {
+            switch(feature.id) {
+                default:
+                    return {"color": "#6c5ce7", "fillOpacity": 0.25, "weight": 1};
+            }
+        }
+
+        function geo_json_309403fe3e0d8950d8ef10800fd277b7_onEachFeature(feature, layer) {
+
+            layer.on({
+            });
+        };
+        var geo_json_309403fe3e0d8950d8ef10800fd277b7 = L.geoJson(null, {
+                onEachFeature: geo_json_309403fe3e0d8950d8ef10800fd277b7_onEachFeature,
+            
+                style: geo_json_309403fe3e0d8950d8ef10800fd277b7_styler,
+            ...{
+}
+        });
+
+        function geo_json_309403fe3e0d8950d8ef10800fd277b7_add (data) {
+            geo_json_309403fe3e0d8950d8ef10800fd277b7
+                .addData(data);
+        }
+            geo_json_309403fe3e0d8950d8ef10800fd277b7_add({"features": [{"geometry": {"coordinates": [[[-3.347337684182728, 39.208843072625726], [-3.347337240318662, 39.20875296394961], [-3.3473835696868903, 39.20875282581319], [-3.3473840136101582, 39.208842934488864], [-3.347337684182728, 39.208843072625726]]], "type": "Polygon"}, "id": "0", "type": "Feature"}], "type": "FeatureCollection"});
+
+        
+    
+            geo_json_309403fe3e0d8950d8ef10800fd277b7.bindTooltip(
+                `<div>
+                     CU002 - CUBIERTA AIRE_EXTERIOR - 40.00 m2
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+        var popup_ed033eaadab5e6da8a8b4584415edb05 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_b764a7c9473cc41a3ae5d5cd3c2f6647 = $(`<div id="html_b764a7c9473cc41a3ae5d5cd3c2f6647" style="width: 100.0%; height: 100.0%;"><b>CU002</b><br>CUBIERTA / AIRE_EXTERIOR<br>Planta PB<br>ALMACEN &rarr; EXTERIOR<br>40.00 m2<br><i>la planta P1 no cubre esta parte</i></div>`)[0];
+                popup_ed033eaadab5e6da8a8b4584415edb05.setContent(html_b764a7c9473cc41a3ae5d5cd3c2f6647);
+            
+        
+
+        geo_json_309403fe3e0d8950d8ef10800fd277b7.bindPopup(popup_ed033eaadab5e6da8a8b4584415edb05)
+        ;
+
+        
+    
+    
+            geo_json_309403fe3e0d8950d8ef10800fd277b7.addTo(feature_group_9b3c44c0e0834d256d43894101357e0e);
+        
+    
+        function geo_json_31ad679bfd076fca45d877034fc37654_styler(feature) {
+            switch(feature.id) {
+                default:
+                    return {"color": "#6c5ce7", "fillOpacity": 0.25, "weight": 1};
+            }
+        }
+
+        function geo_json_31ad679bfd076fca45d877034fc37654_onEachFeature(feature, layer) {
+
+            layer.on({
+            });
+        };
+        var geo_json_31ad679bfd076fca45d877034fc37654 = L.geoJson(null, {
+                onEachFeature: geo_json_31ad679bfd076fca45d877034fc37654_onEachFeature,
+            
+                style: geo_json_31ad679bfd076fca45d877034fc37654_styler,
+            ...{
+}
+        });
+
+        function geo_json_31ad679bfd076fca45d877034fc37654_add (data) {
+            geo_json_31ad679bfd076fca45d877034fc37654
+                .addData(data);
+        }
+            geo_json_31ad679bfd076fca45d877034fc37654_add({"features": [{"geometry": {"coordinates": [[[-3.3474766724640643, 39.208842658159874], [-3.3473840136101582, 39.208842934488864], [-3.3473835696868903, 39.20875282581319], [-3.347476228422393, 39.208752549485084], [-3.3474766724640643, 39.208842658159874]], [[-3.3473954183915, 39.208806856481715], [-3.3474301654440435, 39.20880675286366], [-3.34743007664755, 39.20878873112861], [-3.3473953296038865, 39.2087888347466], [-3.3473954183915, 39.208806856481715]]], "type": "Polygon"}, "id": "0", "type": "Feature"}], "type": "FeatureCollection"});
+
+        
+    
+            geo_json_31ad679bfd076fca45d877034fc37654.bindTooltip(
+                `<div>
+                     PH003 - PARTICION_HORIZONTAL ENTRE_PLANTAS - 74.00 m2
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+        var popup_b6f6e215820bb4a939402ad1ecf29e21 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_a93d6c6ea3ba7111f295d0762431ec7f = $(`<div id="html_a93d6c6ea3ba7111f295d0762431ec7f" style="width: 100.0%; height: 100.0%;"><b>PH003</b><br>PARTICION_HORIZONTAL / ENTRE_PLANTAS<br>Planta PB<br>ALMACEN &rarr; VIVIENDA<br>74.00 m2<br><i>techo de PB bajo P1</i></div>`)[0];
+                popup_b6f6e215820bb4a939402ad1ecf29e21.setContent(html_a93d6c6ea3ba7111f295d0762431ec7f);
+            
+        
+
+        geo_json_31ad679bfd076fca45d877034fc37654.bindPopup(popup_b6f6e215820bb4a939402ad1ecf29e21)
+        ;
+
+        
+    
+    
+            geo_json_31ad679bfd076fca45d877034fc37654.addTo(feature_group_9b3c44c0e0834d256d43894101357e0e);
+        
+    
+        function geo_json_de8e8a29bf7d41edd73f89ac13b4980e_styler(feature) {
+            switch(feature.id) {
+                default:
+                    return {"color": "#6c5ce7", "fillOpacity": 0.25, "weight": 1};
+            }
+        }
+
+        function geo_json_de8e8a29bf7d41edd73f89ac13b4980e_onEachFeature(feature, layer) {
+
+            layer.on({
+            });
+        };
+        var geo_json_de8e8a29bf7d41edd73f89ac13b4980e = L.geoJson(null, {
+                onEachFeature: geo_json_de8e8a29bf7d41edd73f89ac13b4980e_onEachFeature,
+            
+                style: geo_json_de8e8a29bf7d41edd73f89ac13b4980e_styler,
+            ...{
+}
+        });
+
+        function geo_json_de8e8a29bf7d41edd73f89ac13b4980e_add (data) {
+            geo_json_de8e8a29bf7d41edd73f89ac13b4980e
+                .addData(data);
+        }
+            geo_json_de8e8a29bf7d41edd73f89ac13b4980e_add({"features": [{"geometry": {"coordinates": [[[-3.347476228422393, 39.208752549485084], [-3.3474766724640643, 39.208842658159874], [-3.3473840136101582, 39.208842934488864], [-3.3473835696868903, 39.20875282581319], [-3.347476228422393, 39.208752549485084]], [[-3.3473953296038865, 39.2087888347466], [-3.3473954183915, 39.208806856481715], [-3.3474301654440435, 39.20880675286366], [-3.34743007664755, 39.20878873112861], [-3.3473953296038865, 39.2087888347466]]], "type": "Polygon"}, "id": "0", "type": "Feature"}], "type": "FeatureCollection"});
+
+        
+    
+            geo_json_de8e8a29bf7d41edd73f89ac13b4980e.bindTooltip(
+                `<div>
+                     PH004 - PARTICION_HORIZONTAL ESPACIO_NO_HABITABLE_INFERIOR - 74.00 m2
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+        var popup_ab7372ef57072d9e3f2a613dc59dc8e4 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_6d7ece341e85d87ecceebb51be0d4dd1 = $(`<div id="html_6d7ece341e85d87ecceebb51be0d4dd1" style="width: 100.0%; height: 100.0%;"><b>PH004</b><br>PARTICION_HORIZONTAL / ESPACIO_NO_HABITABLE_INFERIOR<br>Planta P1<br>VIVIENDA &rarr; ALMACEN<br>74.00 m2<br><i>suelo de P1 sobre PB</i></div>`)[0];
+                popup_ab7372ef57072d9e3f2a613dc59dc8e4.setContent(html_6d7ece341e85d87ecceebb51be0d4dd1);
+            
+        
+
+        geo_json_de8e8a29bf7d41edd73f89ac13b4980e.bindPopup(popup_ab7372ef57072d9e3f2a613dc59dc8e4)
+        ;
+
+        
+    
+    
+            geo_json_de8e8a29bf7d41edd73f89ac13b4980e.addTo(feature_group_9b3c44c0e0834d256d43894101357e0e);
+        
+    
+        function geo_json_376144f5665e7f1a2ee62b99f01967ce_styler(feature) {
+            switch(feature.id) {
+                default:
+                    return {"color": "#6c5ce7", "fillOpacity": 0.25, "weight": 1};
+            }
+        }
+
+        function geo_json_376144f5665e7f1a2ee62b99f01967ce_onEachFeature(feature, layer) {
+
+            layer.on({
+            });
+        };
+        var geo_json_376144f5665e7f1a2ee62b99f01967ce = L.geoJson(null, {
+                onEachFeature: geo_json_376144f5665e7f1a2ee62b99f01967ce_onEachFeature,
+            
+                style: geo_json_376144f5665e7f1a2ee62b99f01967ce_styler,
+            ...{
+}
+        });
+
+        function geo_json_376144f5665e7f1a2ee62b99f01967ce_add (data) {
+            geo_json_376144f5665e7f1a2ee62b99f01967ce
+                .addData(data);
+        }
+            geo_json_376144f5665e7f1a2ee62b99f01967ce_add({"features": [{"geometry": {"coordinates": [[[-3.347476228422393, 39.208752549485084], [-3.3473835696868903, 39.20875282581319], [-3.3473840136101582, 39.208842934488864], [-3.3474766724640643, 39.208842658159874], [-3.347476228422393, 39.208752549485084]], [[-3.34743007664755, 39.20878873112861], [-3.3473953296038865, 39.2087888347466], [-3.3473954183915, 39.208806856481715], [-3.3474301654440435, 39.20880675286366], [-3.34743007664755, 39.20878873112861]]], "type": "Polygon"}, "id": "0", "type": "Feature"}], "type": "FeatureCollection"});
+
+        
+    
+            geo_json_376144f5665e7f1a2ee62b99f01967ce.bindTooltip(
+                `<div>
+                     CU005 - CUBIERTA AIRE_EXTERIOR - 74.00 m2
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+        var popup_00793d3ea60466ec7fa98eb2c40f9862 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_6cb6f31facfc92baec4857d140735fe6 = $(`<div id="html_6cb6f31facfc92baec4857d140735fe6" style="width: 100.0%; height: 100.0%;"><b>CU005</b><br>CUBIERTA / AIRE_EXTERIOR<br>Planta P1<br>VIVIENDA &rarr; EXTERIOR<br>74.00 m2<br><i>no hay planta construida encima</i></div>`)[0];
+                popup_00793d3ea60466ec7fa98eb2c40f9862.setContent(html_6cb6f31facfc92baec4857d140735fe6);
+            
+        
+
+        geo_json_376144f5665e7f1a2ee62b99f01967ce.bindPopup(popup_00793d3ea60466ec7fa98eb2c40f9862)
+        ;
+
+        
+    
+    
+            geo_json_376144f5665e7f1a2ee62b99f01967ce.addTo(feature_group_9b3c44c0e0834d256d43894101357e0e);
+        
+    
+            var feature_group_860edd7c34572f6ab093cd69c886b12a = L.featureGroup(
+                {
+}
+            );
+        
+    
+            var poly_line_7dbb2eb00010baf6ce078a9c457fdd35 = L.polyline(
+                [[39.208752549485084, -3.347476228422393], [39.20875296394961, -3.347337240318662]],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#27ae60", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.9, "smoothFactor": 1.0, "stroke": true, "weight": 7}
+            ).addTo(feature_group_860edd7c34572f6ab093cd69c886b12a);
+        
+    
+        var popup_8c61f71e913a657bf6bc52d900e5bc64 = L.popup({
+  "maxWidth": 340,
+});
+
+        
+            
+                var html_acb575df993f5027a4ab43c91f1ec77b = $(`<div id="html_acb575df993f5027a4ab43c91f1ec77b" style="width: 100.0%; height: 100.0%;"><b>F01</b> <span style='color:#777'>(PB-S001)</span><br>planta: PB<br>longitud: 12.00 m<br>orientacion: S (180.0 grados)<br>contacto: Fachada exterior / calle<br>confianza: 0.95<br><i>fuera de la parcela</i></div>`)[0];
+                popup_8c61f71e913a657bf6bc52d900e5bc64.setContent(html_acb575df993f5027a4ab43c91f1ec77b);
+            
+        
+
+        poly_line_7dbb2eb00010baf6ce078a9c457fdd35.bindPopup(popup_8c61f71e913a657bf6bc52d900e5bc64)
+        ;
+
+        
+    
+    
+            poly_line_7dbb2eb00010baf6ce078a9c457fdd35.bindTooltip(
+                `<div>
+                     F01 - 12.00 m - S
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var marker_375ef77e666180972e4a9a9b4fa601f5 = L.marker(
+                [39.208752756717345, -3.3474067343705274],
+                {
+}
+            ).addTo(feature_group_860edd7c34572f6ab093cd69c886b12a);
+        
+    
+            var div_icon_c869d51da0f185fc38b681b04712733a = L.divIcon({
+  "html": "\u003cdiv style=\"font:600 10px/1.1 system-ui;color:#111;background:#fff;border:1px solid #27ae60;border-radius:4px;padding:1px 3px;white-space:nowrap\"\u003eF01\u003cbr\u003e12.00 m\u003c/div\u003e",
+  "className": "empty",
+});
+        
+    
+                marker_375ef77e666180972e4a9a9b4fa601f5.setIcon(div_icon_c869d51da0f185fc38b681b04712733a);
+            
+    
+            var poly_line_9848874aaa9442f2c6afef2cda849fbe = L.polyline(
+                [[39.20875296394961, -3.347337240318662], [39.208807029155444, -3.3473375066368622]],
+                {"bubblingMouseEvents": true, "color": "#c0392b", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#c0392b", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.9, "smoothFactor": 1.0, "stroke": true, "weight": 7}
+            ).addTo(feature_group_860edd7c34572f6ab093cd69c886b12a);
+        
+    
+        var popup_017792a38f69df0c230dbb567b263807 = L.popup({
+  "maxWidth": 340,
+});
+
+        
+            
+                var html_cee23c89d6c02839c0bca2ef94aa2fa5 = $(`<div id="html_cee23c89d6c02839c0bca2ef94aa2fa5" style="width: 100.0%; height: 100.0%;"><b>M01</b> <span style='color:#777'>(PB-S003_1)</span><br>planta: PB<br>longitud: 6.00 m<br>orientacion: E (90.0 grados)<br>contacto: Medianera (edificio colindante)<br>confianza: 1.00<br><i>coincide con la huella de un edificio colindante</i></div>`)[0];
+                popup_017792a38f69df0c230dbb567b263807.setContent(html_cee23c89d6c02839c0bca2ef94aa2fa5);
+            
+        
+
+        poly_line_9848874aaa9442f2c6afef2cda849fbe.bindPopup(popup_017792a38f69df0c230dbb567b263807)
+        ;
+
+        
+    
+    
+            poly_line_9848874aaa9442f2c6afef2cda849fbe.bindTooltip(
+                `<div>
+                     M01 - 6.00 m - E
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var marker_7980348d3f23b0d73df3620666c910c7 = L.marker(
+                [39.20877999655252, -3.347337373477762],
+                {
+}
+            ).addTo(feature_group_860edd7c34572f6ab093cd69c886b12a);
+        
+    
+            var div_icon_a452b1e155ef8a14eae05f32483bc1b6 = L.divIcon({
+  "html": "\u003cdiv style=\"font:600 10px/1.1 system-ui;color:#111;background:#fff;border:1px solid #c0392b;border-radius:4px;padding:1px 3px;white-space:nowrap\"\u003eM01\u003cbr\u003e6.00 m\u003c/div\u003e",
+  "className": "empty",
+});
+        
+    
+                marker_7980348d3f23b0d73df3620666c910c7.setIcon(div_icon_a452b1e155ef8a14eae05f32483bc1b6);
+            
+    
+            var poly_line_14d053aada1097e43635a3ce3cd19958 = L.polyline(
+                [[39.208807029155444, -3.3473375066368622], [39.208843072625726, -3.347337684182728]],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#27ae60", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.9, "smoothFactor": 1.0, "stroke": true, "weight": 7}
+            ).addTo(feature_group_860edd7c34572f6ab093cd69c886b12a);
+        
+    
+        var popup_18f95d4582ef62ae99107e1f44ce7bb3 = L.popup({
+  "maxWidth": 340,
+});
+
+        
+            
+                var html_0400942963dd9b21812d705b3e68d368 = $(`<div id="html_0400942963dd9b21812d705b3e68d368" style="width: 100.0%; height: 100.0%;"><b>F02</b> <span style='color:#777'>(PB-S003_2)</span><br>planta: PB<br>longitud: 4.00 m<br>orientacion: E (90.0 grados)<br>contacto: Fachada exterior / calle<br>confianza: 0.95<br><i>fuera de la parcela</i></div>`)[0];
+                popup_18f95d4582ef62ae99107e1f44ce7bb3.setContent(html_0400942963dd9b21812d705b3e68d368);
+            
+        
+
+        poly_line_14d053aada1097e43635a3ce3cd19958.bindPopup(popup_18f95d4582ef62ae99107e1f44ce7bb3)
+        ;
+
+        
+    
+    
+            poly_line_14d053aada1097e43635a3ce3cd19958.bindTooltip(
+                `<div>
+                     F02 - 4.00 m - E
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var marker_a880c193db29cc15ddb23e0a85605b85 = L.marker(
+                [39.20882505089058, -3.347337595409795],
+                {
+}
+            ).addTo(feature_group_860edd7c34572f6ab093cd69c886b12a);
+        
+    
+            var div_icon_d82b39af6248e4240285f063bfff4bd7 = L.divIcon({
+  "html": "\u003cdiv style=\"font:600 10px/1.1 system-ui;color:#111;background:#fff;border:1px solid #27ae60;border-radius:4px;padding:1px 3px;white-space:nowrap\"\u003eF02\u003cbr\u003e4.00 m\u003c/div\u003e",
+  "className": "empty",
+});
+        
+    
+                marker_a880c193db29cc15ddb23e0a85605b85.setIcon(div_icon_d82b39af6248e4240285f063bfff4bd7);
+            
+    
+            var poly_line_ac6d5ee9fbb25d9548b7f3f00225270f = L.polyline(
+                [[39.208843072625726, -3.347337684182728], [39.208842658159874, -3.3474766724640643]],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#27ae60", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.9, "smoothFactor": 1.0, "stroke": true, "weight": 7}
+            ).addTo(feature_group_860edd7c34572f6ab093cd69c886b12a);
+        
+    
+        var popup_38f3922e713f890ef65d2f619c08ba5c = L.popup({
+  "maxWidth": 340,
+});
+
+        
+            
+                var html_543977b277bade78dbb23684d11d702d = $(`<div id="html_543977b277bade78dbb23684d11d702d" style="width: 100.0%; height: 100.0%;"><b>F03</b> <span style='color:#777'>(PB-S004)</span><br>planta: PB<br>longitud: 12.00 m<br>orientacion: N (0.0 grados)<br>contacto: Fachada exterior / calle<br>confianza: 0.95<br><i>fuera de la parcela</i></div>`)[0];
+                popup_38f3922e713f890ef65d2f619c08ba5c.setContent(html_543977b277bade78dbb23684d11d702d);
+            
+        
+
+        poly_line_ac6d5ee9fbb25d9548b7f3f00225270f.bindPopup(popup_38f3922e713f890ef65d2f619c08ba5c)
+        ;
+
+        
+    
+    
+            poly_line_ac6d5ee9fbb25d9548b7f3f00225270f.bindTooltip(
+                `<div>
+                     F03 - 12.00 m - N
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var marker_7ecfb4ef688e890a5459e2065388f52c = L.marker(
+                [39.208842865392796, -3.347407178323396],
+                {
+}
+            ).addTo(feature_group_860edd7c34572f6ab093cd69c886b12a);
+        
+    
+            var div_icon_aff2b4043b340e801fcce7a146d9dcd2 = L.divIcon({
+  "html": "\u003cdiv style=\"font:600 10px/1.1 system-ui;color:#111;background:#fff;border:1px solid #27ae60;border-radius:4px;padding:1px 3px;white-space:nowrap\"\u003eF03\u003cbr\u003e12.00 m\u003c/div\u003e",
+  "className": "empty",
+});
+        
+    
+                marker_7ecfb4ef688e890a5459e2065388f52c.setIcon(div_icon_aff2b4043b340e801fcce7a146d9dcd2);
+            
+    
+            var poly_line_c18c09b203be8d4546188cbb47c45503 = L.polyline(
+                [[39.208842658159874, -3.3474766724640643], [39.208752549485084, -3.347476228422393]],
+                {"bubblingMouseEvents": true, "color": "#c0392b", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#c0392b", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.9, "smoothFactor": 1.0, "stroke": true, "weight": 7}
+            ).addTo(feature_group_860edd7c34572f6ab093cd69c886b12a);
+        
+    
+        var popup_c90a34738723f7e0006ec37ae1a1d5ea = L.popup({
+  "maxWidth": 340,
+});
+
+        
+            
+                var html_affbc995585131ae8bca66e54bb97012 = $(`<div id="html_affbc995585131ae8bca66e54bb97012" style="width: 100.0%; height: 100.0%;"><b>M02</b> <span style='color:#777'>(PB-S006)</span><br>planta: PB<br>longitud: 10.00 m<br>orientacion: O (270.0 grados)<br>contacto: Medianera (edificio colindante)<br>confianza: 1.00<br><i>coincide con la huella de un edificio colindante</i></div>`)[0];
+                popup_c90a34738723f7e0006ec37ae1a1d5ea.setContent(html_affbc995585131ae8bca66e54bb97012);
+            
+        
+
+        poly_line_c18c09b203be8d4546188cbb47c45503.bindPopup(popup_c90a34738723f7e0006ec37ae1a1d5ea)
+        ;
+
+        
+    
+    
+            poly_line_c18c09b203be8d4546188cbb47c45503.bindTooltip(
+                `<div>
+                     M02 - 10.00 m - O
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var marker_0bb7981c3e41df574ac984fd9346f91f = L.marker(
+                [39.208797603822475, -3.347476450443229],
+                {
+}
+            ).addTo(feature_group_860edd7c34572f6ab093cd69c886b12a);
+        
+    
+            var div_icon_4c447c1bed5e034fef54f89c62576627 = L.divIcon({
+  "html": "\u003cdiv style=\"font:600 10px/1.1 system-ui;color:#111;background:#fff;border:1px solid #c0392b;border-radius:4px;padding:1px 3px;white-space:nowrap\"\u003eM02\u003cbr\u003e10.00 m\u003c/div\u003e",
+  "className": "empty",
+});
+        
+    
+                marker_0bb7981c3e41df574ac984fd9346f91f.setIcon(div_icon_4c447c1bed5e034fef54f89c62576627);
+            
+    
+            var poly_line_2d48cbdc26c795b6954258359e99303b = L.polyline(
+                [[39.2087888347466, -3.3473953296038865], [39.20878873112861, -3.34743007664755]],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#2980b9", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.9, "smoothFactor": 1.0, "stroke": true, "weight": 7}
+            ).addTo(feature_group_860edd7c34572f6ab093cd69c886b12a);
+        
+    
+        var popup_f85d9e7e5c27edcd02fbd6f38f75e0cb = L.popup({
+  "maxWidth": 340,
+});
+
+        
+            
+                var html_f3d9aa105632821f81955da1cc29b4e2 = $(`<div id="html_f3d9aa105632821f81955da1cc29b4e2" style="width: 100.0%; height: 100.0%;"><b>F04</b> <span style='color:#777'>(PB-S007)</span><br>planta: PB<br>longitud: 3.00 m<br>orientacion: N (0.0 grados)<br>contacto: Fachada a patio (hueco de la huella)<br>confianza: 0.95<br><i>borde de un hueco interior de la huella</i></div>`)[0];
+                popup_f85d9e7e5c27edcd02fbd6f38f75e0cb.setContent(html_f3d9aa105632821f81955da1cc29b4e2);
+            
+        
+
+        poly_line_2d48cbdc26c795b6954258359e99303b.bindPopup(popup_f85d9e7e5c27edcd02fbd6f38f75e0cb)
+        ;
+
+        
+    
+    
+            poly_line_2d48cbdc26c795b6954258359e99303b.bindTooltip(
+                `<div>
+                     F04 - 3.00 m - N
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var marker_c05e4f81df704b545fc725fe194ada67 = L.marker(
+                [39.2087887829376, -3.3474127031257184],
+                {
+}
+            ).addTo(feature_group_860edd7c34572f6ab093cd69c886b12a);
+        
+    
+            var div_icon_c3b303dbb8b0ec0555a35a65c1d15695 = L.divIcon({
+  "html": "\u003cdiv style=\"font:600 10px/1.1 system-ui;color:#111;background:#fff;border:1px solid #2980b9;border-radius:4px;padding:1px 3px;white-space:nowrap\"\u003eF04\u003cbr\u003e3.00 m\u003c/div\u003e",
+  "className": "empty",
+});
+        
+    
+                marker_c05e4f81df704b545fc725fe194ada67.setIcon(div_icon_c3b303dbb8b0ec0555a35a65c1d15695);
+            
+    
+            var poly_line_bffb26a044d72f096a523b47b8aab516 = L.polyline(
+                [[39.20878873112861, -3.34743007664755], [39.20880675286366, -3.3474301654440435]],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#2980b9", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.9, "smoothFactor": 1.0, "stroke": true, "weight": 7}
+            ).addTo(feature_group_860edd7c34572f6ab093cd69c886b12a);
+        
+    
+        var popup_3cea7af78760dd4102bb39b5653ef569 = L.popup({
+  "maxWidth": 340,
+});
+
+        
+            
+                var html_495fc3c48af92df02b03ed4011de4118 = $(`<div id="html_495fc3c48af92df02b03ed4011de4118" style="width: 100.0%; height: 100.0%;"><b>F05</b> <span style='color:#777'>(PB-S008)</span><br>planta: PB<br>longitud: 2.00 m<br>orientacion: E (90.0 grados)<br>contacto: Fachada a patio (hueco de la huella)<br>confianza: 0.95<br><i>borde de un hueco interior de la huella</i></div>`)[0];
+                popup_3cea7af78760dd4102bb39b5653ef569.setContent(html_495fc3c48af92df02b03ed4011de4118);
+            
+        
+
+        poly_line_bffb26a044d72f096a523b47b8aab516.bindPopup(popup_3cea7af78760dd4102bb39b5653ef569)
+        ;
+
+        
+    
+    
+            poly_line_bffb26a044d72f096a523b47b8aab516.bindTooltip(
+                `<div>
+                     F05 - 2.00 m - E
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var marker_0239c4e3a74c44a7e5452c31cb3dbf7c = L.marker(
+                [39.208797741996136, -3.3474301210457966],
+                {
+}
+            ).addTo(feature_group_860edd7c34572f6ab093cd69c886b12a);
+        
+    
+            var div_icon_59332bd30afd093ff3c642bf6fdcd712 = L.divIcon({
+  "html": "\u003cdiv style=\"font:600 10px/1.1 system-ui;color:#111;background:#fff;border:1px solid #2980b9;border-radius:4px;padding:1px 3px;white-space:nowrap\"\u003eF05\u003cbr\u003e2.00 m\u003c/div\u003e",
+  "className": "empty",
+});
+        
+    
+                marker_0239c4e3a74c44a7e5452c31cb3dbf7c.setIcon(div_icon_59332bd30afd093ff3c642bf6fdcd712);
+            
+    
+            var poly_line_44673636afbafce95d9911a82a86d2ee = L.polyline(
+                [[39.20880675286366, -3.3474301654440435], [39.208806856481715, -3.3473954183915]],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#2980b9", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.9, "smoothFactor": 1.0, "stroke": true, "weight": 7}
+            ).addTo(feature_group_860edd7c34572f6ab093cd69c886b12a);
+        
+    
+        var popup_b388343c0c3581e412b46b65efebfffa = L.popup({
+  "maxWidth": 340,
+});
+
+        
+            
+                var html_c3bec930f7d8bd1ac0bc9faf9f076109 = $(`<div id="html_c3bec930f7d8bd1ac0bc9faf9f076109" style="width: 100.0%; height: 100.0%;"><b>F06</b> <span style='color:#777'>(PB-S009)</span><br>planta: PB<br>longitud: 3.00 m<br>orientacion: S (180.0 grados)<br>contacto: Fachada a patio (hueco de la huella)<br>confianza: 0.95<br><i>borde de un hueco interior de la huella</i></div>`)[0];
+                popup_b388343c0c3581e412b46b65efebfffa.setContent(html_c3bec930f7d8bd1ac0bc9faf9f076109);
+            
+        
+
+        poly_line_44673636afbafce95d9911a82a86d2ee.bindPopup(popup_b388343c0c3581e412b46b65efebfffa)
+        ;
+
+        
+    
+    
+            poly_line_44673636afbafce95d9911a82a86d2ee.bindTooltip(
+                `<div>
+                     F06 - 3.00 m - S
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var marker_6aeec9d6ff2742c6085e9c805ee89d39 = L.marker(
+                [39.20880680467269, -3.3474127919177716],
+                {
+}
+            ).addTo(feature_group_860edd7c34572f6ab093cd69c886b12a);
+        
+    
+            var div_icon_0b28abd8f39699b3c628eab37fc04676 = L.divIcon({
+  "html": "\u003cdiv style=\"font:600 10px/1.1 system-ui;color:#111;background:#fff;border:1px solid #2980b9;border-radius:4px;padding:1px 3px;white-space:nowrap\"\u003eF06\u003cbr\u003e3.00 m\u003c/div\u003e",
+  "className": "empty",
+});
+        
+    
+                marker_6aeec9d6ff2742c6085e9c805ee89d39.setIcon(div_icon_0b28abd8f39699b3c628eab37fc04676);
+            
+    
+            var poly_line_91540606016ddf9e85044492feb4549c = L.polyline(
+                [[39.208806856481715, -3.3473954183915], [39.2087888347466, -3.3473953296038865]],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#2980b9", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.9, "smoothFactor": 1.0, "stroke": true, "weight": 7}
+            ).addTo(feature_group_860edd7c34572f6ab093cd69c886b12a);
+        
+    
+        var popup_9b92c68af44612339ef954918483c566 = L.popup({
+  "maxWidth": 340,
+});
+
+        
+            
+                var html_de0ed07a1ac928a0e8941016d5601ba5 = $(`<div id="html_de0ed07a1ac928a0e8941016d5601ba5" style="width: 100.0%; height: 100.0%;"><b>F07</b> <span style='color:#777'>(PB-S010)</span><br>planta: PB<br>longitud: 2.00 m<br>orientacion: O (270.0 grados)<br>contacto: Fachada a patio (hueco de la huella)<br>confianza: 0.95<br><i>borde de un hueco interior de la huella</i></div>`)[0];
+                popup_9b92c68af44612339ef954918483c566.setContent(html_de0ed07a1ac928a0e8941016d5601ba5);
+            
+        
+
+        poly_line_91540606016ddf9e85044492feb4549c.bindPopup(popup_9b92c68af44612339ef954918483c566)
+        ;
+
+        
+    
+    
+            poly_line_91540606016ddf9e85044492feb4549c.bindTooltip(
+                `<div>
+                     F07 - 2.00 m - O
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var marker_b7cdefac56300d07bf2c8e3b36878d3a = L.marker(
+                [39.20879784561416, -3.347395373997693],
+                {
+}
+            ).addTo(feature_group_860edd7c34572f6ab093cd69c886b12a);
+        
+    
+            var div_icon_80e9dd00c7c8ae4c56f73a8afc93fe4d = L.divIcon({
+  "html": "\u003cdiv style=\"font:600 10px/1.1 system-ui;color:#111;background:#fff;border:1px solid #2980b9;border-radius:4px;padding:1px 3px;white-space:nowrap\"\u003eF07\u003cbr\u003e2.00 m\u003c/div\u003e",
+  "className": "empty",
+});
+        
+    
+                marker_b7cdefac56300d07bf2c8e3b36878d3a.setIcon(div_icon_80e9dd00c7c8ae4c56f73a8afc93fe4d);
+            
+    
+            feature_group_860edd7c34572f6ab093cd69c886b12a.addTo(map_021aebf62c510a6bf89d2133200174ad);
+        
+    
+            var feature_group_eb5e782eff8ecd63ff0d91bed2cd6462 = L.featureGroup(
+                {
+}
+            );
+        
+    
+            var poly_line_84fa74d67cc112c4088dab6d08ef89ac = L.polyline(
+                [[39.208752549485084, -3.347476228422393], [39.20875282581319, -3.3473835696868903]],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#27ae60", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.9, "smoothFactor": 1.0, "stroke": true, "weight": 7}
+            ).addTo(feature_group_eb5e782eff8ecd63ff0d91bed2cd6462);
+        
+    
+        var popup_d104dfe88c841b237a0dd96c0889d727 = L.popup({
+  "maxWidth": 340,
+});
+
+        
+            
+                var html_723c08ca2e57800322ea9dbf03cfe6bb = $(`<div id="html_723c08ca2e57800322ea9dbf03cfe6bb" style="width: 100.0%; height: 100.0%;"><b>F08</b> <span style='color:#777'>(P1-S001)</span><br>planta: P1<br>longitud: 8.00 m<br>orientacion: S (180.0 grados)<br>contacto: Fachada exterior / calle<br>confianza: 0.95<br><i>fuera de la parcela</i></div>`)[0];
+                popup_d104dfe88c841b237a0dd96c0889d727.setContent(html_723c08ca2e57800322ea9dbf03cfe6bb);
+            
+        
+
+        poly_line_84fa74d67cc112c4088dab6d08ef89ac.bindPopup(popup_d104dfe88c841b237a0dd96c0889d727)
+        ;
+
+        
+    
+    
+            poly_line_84fa74d67cc112c4088dab6d08ef89ac.bindTooltip(
+                `<div>
+                     F08 - 8.00 m - S
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var marker_393533044e8a728763ec2e235cae57ba = L.marker(
+                [39.20875268764914, -3.3474298990546414],
+                {
+}
+            ).addTo(feature_group_eb5e782eff8ecd63ff0d91bed2cd6462);
+        
+    
+            var div_icon_1e7a10aaa87ac433d56dc75d1678c81c = L.divIcon({
+  "html": "\u003cdiv style=\"font:600 10px/1.1 system-ui;color:#111;background:#fff;border:1px solid #27ae60;border-radius:4px;padding:1px 3px;white-space:nowrap\"\u003eF08\u003cbr\u003e8.00 m\u003c/div\u003e",
+  "className": "empty",
+});
+        
+    
+                marker_393533044e8a728763ec2e235cae57ba.setIcon(div_icon_1e7a10aaa87ac433d56dc75d1678c81c);
+            
+    
+            var poly_line_af020b0709c232da3e2d1398f5bf505d = L.polyline(
+                [[39.20875282581319, -3.3473835696868903], [39.208842934488864, -3.3473840136101582]],
+                {"bubblingMouseEvents": true, "color": "#1abc9c", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#1abc9c", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.9, "smoothFactor": 1.0, "stroke": true, "weight": 7}
+            ).addTo(feature_group_eb5e782eff8ecd63ff0d91bed2cd6462);
+        
+    
+        var popup_f4f53ca92aee6c4a560b5e46a4983998 = L.popup({
+  "maxWidth": 340,
+});
+
+        
+            
+                var html_7d59561cedffaee71695e67527819311 = $(`<div id="html_7d59561cedffaee71695e67527819311" style="width: 100.0%; height: 100.0%;"><b>F09</b> <span style='color:#777'>(P1-S002)</span><br>planta: P1<br>longitud: 10.00 m<br>orientacion: E (90.0 grados)<br>contacto: Fachada sobre cubierta inferior<br>confianza: 0.90<br><i>da al aire exterior, levantado sobre la cubierta de la planta inferior</i></div>`)[0];
+                popup_f4f53ca92aee6c4a560b5e46a4983998.setContent(html_7d59561cedffaee71695e67527819311);
+            
+        
+
+        poly_line_af020b0709c232da3e2d1398f5bf505d.bindPopup(popup_f4f53ca92aee6c4a560b5e46a4983998)
+        ;
+
+        
+    
+    
+            poly_line_af020b0709c232da3e2d1398f5bf505d.bindTooltip(
+                `<div>
+                     F09 - 10.00 m - E
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var marker_a137a9123efec8d5c9ae260a4e15b285 = L.marker(
+                [39.208797880151025, -3.3473837916485243],
+                {
+}
+            ).addTo(feature_group_eb5e782eff8ecd63ff0d91bed2cd6462);
+        
+    
+            var div_icon_88d20b7f0a4fb1e72ff39b81118394e4 = L.divIcon({
+  "html": "\u003cdiv style=\"font:600 10px/1.1 system-ui;color:#111;background:#fff;border:1px solid #1abc9c;border-radius:4px;padding:1px 3px;white-space:nowrap\"\u003eF09\u003cbr\u003e10.00 m\u003c/div\u003e",
+  "className": "empty",
+});
+        
+    
+                marker_a137a9123efec8d5c9ae260a4e15b285.setIcon(div_icon_88d20b7f0a4fb1e72ff39b81118394e4);
+            
+    
+            var poly_line_f3cdf62fe73ef17d078839b0d53f34f4 = L.polyline(
+                [[39.208842934488864, -3.3473840136101582], [39.208842658159874, -3.3474766724640643]],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#27ae60", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.9, "smoothFactor": 1.0, "stroke": true, "weight": 7}
+            ).addTo(feature_group_eb5e782eff8ecd63ff0d91bed2cd6462);
+        
+    
+        var popup_c4e77837cb97814ec2e8982c2a0a7447 = L.popup({
+  "maxWidth": 340,
+});
+
+        
+            
+                var html_2d35734ac1caa2a1224b7d0613b4a8ce = $(`<div id="html_2d35734ac1caa2a1224b7d0613b4a8ce" style="width: 100.0%; height: 100.0%;"><b>F10</b> <span style='color:#777'>(P1-S003)</span><br>planta: P1<br>longitud: 8.00 m<br>orientacion: N (0.0 grados)<br>contacto: Fachada exterior / calle<br>confianza: 0.95<br><i>fuera de la parcela</i></div>`)[0];
+                popup_c4e77837cb97814ec2e8982c2a0a7447.setContent(html_2d35734ac1caa2a1224b7d0613b4a8ce);
+            
+        
+
+        poly_line_f3cdf62fe73ef17d078839b0d53f34f4.bindPopup(popup_c4e77837cb97814ec2e8982c2a0a7447)
+        ;
+
+        
+    
+    
+            poly_line_f3cdf62fe73ef17d078839b0d53f34f4.bindTooltip(
+                `<div>
+                     F10 - 8.00 m - N
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var marker_b5f1459ed904eb0c58803582426d987b = L.marker(
+                [39.20884279632437, -3.3474303430371113],
+                {
+}
+            ).addTo(feature_group_eb5e782eff8ecd63ff0d91bed2cd6462);
+        
+    
+            var div_icon_906fd3294a38c3bef84340c2c74cef26 = L.divIcon({
+  "html": "\u003cdiv style=\"font:600 10px/1.1 system-ui;color:#111;background:#fff;border:1px solid #27ae60;border-radius:4px;padding:1px 3px;white-space:nowrap\"\u003eF10\u003cbr\u003e8.00 m\u003c/div\u003e",
+  "className": "empty",
+});
+        
+    
+                marker_b5f1459ed904eb0c58803582426d987b.setIcon(div_icon_906fd3294a38c3bef84340c2c74cef26);
+            
+    
+            var poly_line_12034e8d74904b23780031ebff2f5e6b = L.polyline(
+                [[39.208842658159874, -3.3474766724640643], [39.208752549485084, -3.347476228422393]],
+                {"bubblingMouseEvents": true, "color": "#c0392b", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#c0392b", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.9, "smoothFactor": 1.0, "stroke": true, "weight": 7}
+            ).addTo(feature_group_eb5e782eff8ecd63ff0d91bed2cd6462);
+        
+    
+        var popup_d6ff454add7df33c85e566baeb5fd2bc = L.popup({
+  "maxWidth": 340,
+});
+
+        
+            
+                var html_7bde01f28fae13c3f30b3b2c562873d2 = $(`<div id="html_7bde01f28fae13c3f30b3b2c562873d2" style="width: 100.0%; height: 100.0%;"><b>M03</b> <span style='color:#777'>(P1-S004)</span><br>planta: P1<br>longitud: 10.00 m<br>orientacion: O (270.0 grados)<br>contacto: Medianera (edificio colindante)<br>confianza: 1.00<br><i>coincide con la huella de un edificio colindante</i></div>`)[0];
+                popup_d6ff454add7df33c85e566baeb5fd2bc.setContent(html_7bde01f28fae13c3f30b3b2c562873d2);
+            
+        
+
+        poly_line_12034e8d74904b23780031ebff2f5e6b.bindPopup(popup_d6ff454add7df33c85e566baeb5fd2bc)
+        ;
+
+        
+    
+    
+            poly_line_12034e8d74904b23780031ebff2f5e6b.bindTooltip(
+                `<div>
+                     M03 - 10.00 m - O
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var marker_f066dfd742016ab30bcf14bb2b669a67 = L.marker(
+                [39.208797603822475, -3.347476450443229],
+                {
+}
+            ).addTo(feature_group_eb5e782eff8ecd63ff0d91bed2cd6462);
+        
+    
+            var div_icon_576c6262a5499ed0e87edf6d988b7b74 = L.divIcon({
+  "html": "\u003cdiv style=\"font:600 10px/1.1 system-ui;color:#111;background:#fff;border:1px solid #c0392b;border-radius:4px;padding:1px 3px;white-space:nowrap\"\u003eM03\u003cbr\u003e10.00 m\u003c/div\u003e",
+  "className": "empty",
+});
+        
+    
+                marker_f066dfd742016ab30bcf14bb2b669a67.setIcon(div_icon_576c6262a5499ed0e87edf6d988b7b74);
+            
+    
+            var poly_line_db53c27b58581845fcac95401902fe3c = L.polyline(
+                [[39.20878873112861, -3.34743007664755], [39.20880675286366, -3.3474301654440435]],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#2980b9", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.9, "smoothFactor": 1.0, "stroke": true, "weight": 7}
+            ).addTo(feature_group_eb5e782eff8ecd63ff0d91bed2cd6462);
+        
+    
+        var popup_d24f1db697fcd1d6f6ff80be34ee3c84 = L.popup({
+  "maxWidth": 340,
+});
+
+        
+            
+                var html_ce2918da86258f17f5551aee0ac05d00 = $(`<div id="html_ce2918da86258f17f5551aee0ac05d00" style="width: 100.0%; height: 100.0%;"><b>F11</b> <span style='color:#777'>(P1-S005)</span><br>planta: P1<br>longitud: 2.00 m<br>orientacion: E (90.0 grados)<br>contacto: Fachada a patio (hueco de la huella)<br>confianza: 0.95<br><i>borde de un hueco interior de la huella</i></div>`)[0];
+                popup_d24f1db697fcd1d6f6ff80be34ee3c84.setContent(html_ce2918da86258f17f5551aee0ac05d00);
+            
+        
+
+        poly_line_db53c27b58581845fcac95401902fe3c.bindPopup(popup_d24f1db697fcd1d6f6ff80be34ee3c84)
+        ;
+
+        
+    
+    
+            poly_line_db53c27b58581845fcac95401902fe3c.bindTooltip(
+                `<div>
+                     F11 - 2.00 m - E
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var marker_be905751210dd5199f42e4509c3a7de1 = L.marker(
+                [39.208797741996136, -3.3474301210457966],
+                {
+}
+            ).addTo(feature_group_eb5e782eff8ecd63ff0d91bed2cd6462);
+        
+    
+            var div_icon_699651717567b8f3d90c13cfd0fc4135 = L.divIcon({
+  "html": "\u003cdiv style=\"font:600 10px/1.1 system-ui;color:#111;background:#fff;border:1px solid #2980b9;border-radius:4px;padding:1px 3px;white-space:nowrap\"\u003eF11\u003cbr\u003e2.00 m\u003c/div\u003e",
+  "className": "empty",
+});
+        
+    
+                marker_be905751210dd5199f42e4509c3a7de1.setIcon(div_icon_699651717567b8f3d90c13cfd0fc4135);
+            
+    
+            var poly_line_23ad52ea7457f2f402d6356f11a67b80 = L.polyline(
+                [[39.20880675286366, -3.3474301654440435], [39.208806856481715, -3.3473954183915]],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#2980b9", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.9, "smoothFactor": 1.0, "stroke": true, "weight": 7}
+            ).addTo(feature_group_eb5e782eff8ecd63ff0d91bed2cd6462);
+        
+    
+        var popup_3d9a3e6e7897f877e8573b8ce1ebff50 = L.popup({
+  "maxWidth": 340,
+});
+
+        
+            
+                var html_bbe4e9df4388b215bb6a514d5d932b03 = $(`<div id="html_bbe4e9df4388b215bb6a514d5d932b03" style="width: 100.0%; height: 100.0%;"><b>F12</b> <span style='color:#777'>(P1-S006)</span><br>planta: P1<br>longitud: 3.00 m<br>orientacion: S (180.0 grados)<br>contacto: Fachada a patio (hueco de la huella)<br>confianza: 0.95<br><i>borde de un hueco interior de la huella</i></div>`)[0];
+                popup_3d9a3e6e7897f877e8573b8ce1ebff50.setContent(html_bbe4e9df4388b215bb6a514d5d932b03);
+            
+        
+
+        poly_line_23ad52ea7457f2f402d6356f11a67b80.bindPopup(popup_3d9a3e6e7897f877e8573b8ce1ebff50)
+        ;
+
+        
+    
+    
+            poly_line_23ad52ea7457f2f402d6356f11a67b80.bindTooltip(
+                `<div>
+                     F12 - 3.00 m - S
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var marker_9e85f98d6ea1231ced5603650147c2db = L.marker(
+                [39.20880680467269, -3.3474127919177716],
+                {
+}
+            ).addTo(feature_group_eb5e782eff8ecd63ff0d91bed2cd6462);
+        
+    
+            var div_icon_e1252937f54a9eade922943aa337cd57 = L.divIcon({
+  "html": "\u003cdiv style=\"font:600 10px/1.1 system-ui;color:#111;background:#fff;border:1px solid #2980b9;border-radius:4px;padding:1px 3px;white-space:nowrap\"\u003eF12\u003cbr\u003e3.00 m\u003c/div\u003e",
+  "className": "empty",
+});
+        
+    
+                marker_9e85f98d6ea1231ced5603650147c2db.setIcon(div_icon_e1252937f54a9eade922943aa337cd57);
+            
+    
+            var poly_line_3627ac2059ed618c49f9a4c610dc3639 = L.polyline(
+                [[39.208806856481715, -3.3473954183915], [39.2087888347466, -3.3473953296038865]],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#2980b9", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.9, "smoothFactor": 1.0, "stroke": true, "weight": 7}
+            ).addTo(feature_group_eb5e782eff8ecd63ff0d91bed2cd6462);
+        
+    
+        var popup_1f5fbd90feb9d6f287f50db0e3405757 = L.popup({
+  "maxWidth": 340,
+});
+
+        
+            
+                var html_260a2da809104fbc22a84c11f04fc820 = $(`<div id="html_260a2da809104fbc22a84c11f04fc820" style="width: 100.0%; height: 100.0%;"><b>F13</b> <span style='color:#777'>(P1-S007)</span><br>planta: P1<br>longitud: 2.00 m<br>orientacion: O (270.0 grados)<br>contacto: Fachada a patio (hueco de la huella)<br>confianza: 0.95<br><i>borde de un hueco interior de la huella</i></div>`)[0];
+                popup_1f5fbd90feb9d6f287f50db0e3405757.setContent(html_260a2da809104fbc22a84c11f04fc820);
+            
+        
+
+        poly_line_3627ac2059ed618c49f9a4c610dc3639.bindPopup(popup_1f5fbd90feb9d6f287f50db0e3405757)
+        ;
+
+        
+    
+    
+            poly_line_3627ac2059ed618c49f9a4c610dc3639.bindTooltip(
+                `<div>
+                     F13 - 2.00 m - O
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var marker_bc33caa459cc2b82e40784e7b79f84a1 = L.marker(
+                [39.20879784561416, -3.347395373997693],
+                {
+}
+            ).addTo(feature_group_eb5e782eff8ecd63ff0d91bed2cd6462);
+        
+    
+            var div_icon_65841ea32b6c5029b6de16b100bd3555 = L.divIcon({
+  "html": "\u003cdiv style=\"font:600 10px/1.1 system-ui;color:#111;background:#fff;border:1px solid #2980b9;border-radius:4px;padding:1px 3px;white-space:nowrap\"\u003eF13\u003cbr\u003e2.00 m\u003c/div\u003e",
+  "className": "empty",
+});
+        
+    
+                marker_bc33caa459cc2b82e40784e7b79f84a1.setIcon(div_icon_65841ea32b6c5029b6de16b100bd3555);
+            
+    
+            var poly_line_a2c3928e2dfbdcc74be05b0201a00332 = L.polyline(
+                [[39.2087888347466, -3.3473953296038865], [39.20878873112861, -3.34743007664755]],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": false, "fillColor": "#2980b9", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 0.9, "smoothFactor": 1.0, "stroke": true, "weight": 7}
+            ).addTo(feature_group_eb5e782eff8ecd63ff0d91bed2cd6462);
+        
+    
+        var popup_10c621efebc7538cf40b5d0f7f615dc8 = L.popup({
+  "maxWidth": 340,
+});
+
+        
+            
+                var html_4ef741416c7abfcd9d134c416fb5fd07 = $(`<div id="html_4ef741416c7abfcd9d134c416fb5fd07" style="width: 100.0%; height: 100.0%;"><b>F14</b> <span style='color:#777'>(P1-S008)</span><br>planta: P1<br>longitud: 3.00 m<br>orientacion: N (0.0 grados)<br>contacto: Fachada a patio (hueco de la huella)<br>confianza: 0.95<br><i>borde de un hueco interior de la huella</i></div>`)[0];
+                popup_10c621efebc7538cf40b5d0f7f615dc8.setContent(html_4ef741416c7abfcd9d134c416fb5fd07);
+            
+        
+
+        poly_line_a2c3928e2dfbdcc74be05b0201a00332.bindPopup(popup_10c621efebc7538cf40b5d0f7f615dc8)
+        ;
+
+        
+    
+    
+            poly_line_a2c3928e2dfbdcc74be05b0201a00332.bindTooltip(
+                `<div>
+                     F14 - 3.00 m - N
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var marker_6689a4a2d6ba143f5282a6e9728f7499 = L.marker(
+                [39.2087887829376, -3.3474127031257184],
+                {
+}
+            ).addTo(feature_group_eb5e782eff8ecd63ff0d91bed2cd6462);
+        
+    
+            var div_icon_30b966e015ca85bcea79a316b1ad9a44 = L.divIcon({
+  "html": "\u003cdiv style=\"font:600 10px/1.1 system-ui;color:#111;background:#fff;border:1px solid #2980b9;border-radius:4px;padding:1px 3px;white-space:nowrap\"\u003eF14\u003cbr\u003e3.00 m\u003c/div\u003e",
+  "className": "empty",
+});
+        
+    
+                marker_6689a4a2d6ba143f5282a6e9728f7499.setIcon(div_icon_30b966e015ca85bcea79a316b1ad9a44);
+            
+    
+            var layer_control_f3f3c6037ff1b46c3eaf6312d0569a7f_layers = {
+                base_layers : {
+                    "openstreetmap" : tile_layer_45645fac09bf5e4c675ff540fc9070b0,
+                    "Ortofoto PNOA (IGN)" : macro_element_07debad5e79cdf9b86cd58021be510ba,
+                },
+                overlays :  {
+                    "Cartografia catastral (WMS)" : macro_element_d831fe86ad36d9098fbb1fe3905959e2,
+                    "Parcela catastral" : geo_json_3558cacd5903c4d84d8df7e36642d85b,
+                    "Edificios colindantes" : geo_json_fdc2d1dc4596b6c863be0814ba2c9eaf,
+                    "Huella del edificio" : geo_json_0432ba2551bf2ed0c8fb539984c51a11,
+                    "BuildingParts" : feature_group_140bb0d60750684166971114d911db2b,
+                    "Suelos / cubiertas / particiones" : feature_group_9b3c44c0e0834d256d43894101357e0e,
+                    "Cerramientos - Planta PB - ALMACEN - 114 m2" : feature_group_860edd7c34572f6ab093cd69c886b12a,
+                    "Cerramientos - Planta P1 - VIVIENDA - 74 m2" : feature_group_eb5e782eff8ecd63ff0d91bed2cd6462,
+                },
+            };
+            let layer_control_f3f3c6037ff1b46c3eaf6312d0569a7f = L.control.layers(
+                layer_control_f3f3c6037ff1b46c3eaf6312d0569a7f_layers.base_layers,
+                layer_control_f3f3c6037ff1b46c3eaf6312d0569a7f_layers.overlays,
+                {
+  "position": "topright",
+  "collapsed": false,
+  "autoZIndex": true,
+}
+            ).addTo(map_021aebf62c510a6bf89d2133200174ad);
+
+        
+</script>
+</html>

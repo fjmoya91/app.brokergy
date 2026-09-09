@@ -1,0 +1,115 @@
+{
+ "type": "FeatureCollection",
+ "crs": {
+  "type": "name",
+  "properties": {
+   "name": "EPSG:4326"
+  }
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "id": "ES.SDGC.BU.A",
+   "properties": {
+    "source": "modelo",
+    "tipo": "building_parts",
+    "original_id": "ES.SDGC.BU.A",
+    "BuildingPart@id": "ES.SDGC.BU.A",
+    "numberOfFloorsAboveGround": "2",
+    "numberOfFloorsBelowGround": "0",
+    "area": 74.0,
+    "use": null
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -3.347476228422393,
+       39.208752549485084
+      ],
+      [
+       -3.3473835696868903,
+       39.20875282581319
+      ],
+      [
+       -3.3473840136101582,
+       39.208842934488864
+      ],
+      [
+       -3.3474766724640643,
+       39.208842658159874
+      ],
+      [
+       -3.347476228422393,
+       39.208752549485084
+      ]
+     ],
+     [
+      [
+       -3.34743007664755,
+       39.20878873112861
+      ],
+      [
+       -3.3473953296038865,
+       39.2087888347466
+      ],
+      [
+       -3.3473954183915,
+       39.208806856481715
+      ],
+      [
+       -3.3474301654440435,
+       39.20880675286366
+      ],
+      [
+       -3.34743007664755,
+       39.20878873112861
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "ES.SDGC.BU.B",
+   "properties": {
+    "source": "modelo",
+    "tipo": "building_parts",
+    "original_id": "ES.SDGC.BU.B",
+    "BuildingPart@id": "ES.SDGC.BU.B",
+    "numberOfFloorsAboveGround": "1",
+    "numberOfFloorsBelowGround": "0",
+    "area": 40.0,
+    "use": null
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -3.3473835696868903,
+       39.20875282581319
+      ],
+      [
+       -3.347337240318662,
+       39.20875296394961
+      ],
+      [
+       -3.347337684182728,
+       39.208843072625726
+      ],
+      [
+       -3.3473840136101582,
+       39.208842934488864
+      ],
+      [
+       -3.3473835696868903,
+       39.20875282581319
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}

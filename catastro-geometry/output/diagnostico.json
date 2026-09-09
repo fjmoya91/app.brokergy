@@ -1,0 +1,284 @@
+{
+  "referencia_catastral": {
+    "entrada": "4410205WJ0641S0001JH",
+    "refcat_parcela": "4410205WJ0641S",
+    "refcat_inmueble": "4410205WJ0641S0001JH",
+    "cargo": "0001",
+    "digitos_control_ok": true
+  },
+  "estado": "INCOMPLETO",
+  "error": "BUILDING_GEOMETRY_UNAVAILABLE: sin huella de edificio no hay geometria que clasificar",
+  "causa_raiz": "CATASTRO_UNREACHABLE_FROM_THIS_HOST: ninguna peticion llego a salir de esta maquina (proxy, cortafuegos o DNS). No es que Catastro no tenga el dato: es que no se ha podido preguntar. Ejecuta `brokergy-geometry <RC> --only-fetch` desde una maquina con salida a ovc.catastro.meh.es y copia la carpeta cache/ aqui.",
+  "diagnostics": {
+    "codes": [
+      "CAPABILITIES_CP_UNAVAILABLE",
+      "CAPABILITIES_BU_UNAVAILABLE",
+      "PARCEL_GEOMETRY_UNAVAILABLE",
+      "BUILDING_GEOMETRY_UNAVAILABLE",
+      "BUILDING_PARTS_UNAVAILABLE",
+      "NEIGHBOUR_PARCELS_UNAVAILABLE",
+      "CADASTRAL_ATTRIBUTES_UNAVAILABLE",
+      "BUILDING_GEOMETRY_UNAVAILABLE"
+    ],
+    "messages": [
+      "CAPABILITIES_CP_UNAVAILABLE: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&request=GetCapabilities",
+      "CAPABILITIES_BU_UNAVAILABLE: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&request=GetCapabilities",
+      "PARCEL_GEOMETRY_UNAVAILABLE: ninguna variante de la stored query 'GetParcel' (parcela) funciono en CP. Intentos: STOREDQUERY_ID/EPSG::25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetParcel&refcat=4410205WJ0641S&srsname=EPSG%3A%3A25830 || STOREDQUERY_ID/urn:ogc:def:crs:EPSG::25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetParcel&refcat=4410205WJ0641S&srsname=urn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A25830 || STOREDQUERY_ID/EPSG:25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetParcel&refcat=4410205WJ0641S&srsname=EPSG%3A25830 || STOREDQUERIE_ID/EPSG::25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetParcel&refcat=4410205WJ0641S&srsname=EPSG%3A%3A25830 || STOREDQUERIE_ID/urn:ogc:def:crs:EPSG::25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetParcel&refcat=4410205WJ0641S&srsname=urn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A25830 || STOREDQUERIE_ID/EPSG:25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetParcel&refcat=4410205WJ0641S&srsname=EPSG%3A25830",
+      "BUILDING_GEOMETRY_UNAVAILABLE: ninguna variante de la stored query 'GetBuildingByParcel' (edificio) funciono en BU. Intentos: STOREDQUERY_ID/EPSG::25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingByParcel&refcat=4410205WJ0641S&srsname=EPSG%3A%3A25830 || STOREDQUERY_ID/urn:ogc:def:crs:EPSG::25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingByParcel&refcat=4410205WJ0641S&srsname=urn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A25830 || STOREDQUERY_ID/EPSG:25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingByParcel&refcat=4410205WJ0641S&srsname=EPSG%3A25830 || STOREDQUERIE_ID/EPSG::25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetBuildingByParcel&refcat=4410205WJ0641S&srsname=EPSG%3A%3A25830 || STOREDQUERIE_ID/urn:ogc:def:crs:EPSG::25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetBuildingByParcel&refcat=4410205WJ0641S&srsname=urn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A25830 || STOREDQUERIE_ID/EPSG:25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetBuildingByParcel&refcat=4410205WJ0641S&srsname=EPSG%3A25830",
+      "BUILDING_PARTS_UNAVAILABLE: ninguna variante de la stored query 'GetBuildingPartByParcel' (partes) funciono en BU. Intentos: STOREDQUERY_ID/EPSG::25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingPartByParcel&refcat=4410205WJ0641S&srsname=EPSG%3A%3A25830 || STOREDQUERY_ID/urn:ogc:def:crs:EPSG::25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingPartByParcel&refcat=4410205WJ0641S&srsname=urn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A25830 || STOREDQUERY_ID/EPSG:25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingPartByParcel&refcat=4410205WJ0641S&srsname=EPSG%3A25830 || STOREDQUERIE_ID/EPSG::25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetBuildingPartByParcel&refcat=4410205WJ0641S&srsname=EPSG%3A%3A25830 || STOREDQUERIE_ID/urn:ogc:def:crs:EPSG::25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetBuildingPartByParcel&refcat=4410205WJ0641S&srsname=urn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A25830 || STOREDQUERIE_ID/EPSG:25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetBuildingPartByParcel&refcat=4410205WJ0641S&srsname=EPSG%3A25830",
+      "NEIGHBOUR_PARCELS_UNAVAILABLE: ninguna variante de la stored query 'GetNeighbourParcel' (vecinos) funciono en CP. Intentos: STOREDQUERY_ID/EPSG::25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetNeighbourParcel&refcat=4410205WJ0641S&srsname=EPSG%3A%3A25830 || STOREDQUERY_ID/urn:ogc:def:crs:EPSG::25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetNeighbourParcel&refcat=4410205WJ0641S&srsname=urn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A25830 || STOREDQUERY_ID/EPSG:25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetNeighbourParcel&refcat=4410205WJ0641S&srsname=EPSG%3A25830 || STOREDQUERIE_ID/EPSG::25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetNeighbourParcel&refcat=4410205WJ0641S&srsname=EPSG%3A%3A25830 || STOREDQUERIE_ID/urn:ogc:def:crs:EPSG::25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetNeighbourParcel&refcat=4410205WJ0641S&srsname=urn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A25830 || STOREDQUERIE_ID/EPSG:25830: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetNeighbourParcel&refcat=4410205WJ0641S&srsname=EPSG%3A25830",
+      "CADASTRAL_ATTRIBUTES_UNAVAILABLE: no se pudo contactar con Catastro tras 1 intentos: Tunnel connection failed: 403 Forbidden. URL: https://ovc.catastro.meh.es/OVCServWeb/OVCWcfCallejero/COVCCallejero.svc/json/Consulta_DNPRC?Provincia=&Municipio=&RefCat=4410205WJ0641S0001JH",
+      "BUILDING_GEOMETRY_UNAVAILABLE: Catastro no ha devuelto ninguna huella de edificio para esta parcela"
+    ]
+  },
+  "traza_http": [
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&request=GetCapabilities",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=DescribeStoredQueries",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=ListStoredQueries",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&request=GetCapabilities",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=DescribeStoredQueries",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=ListStoredQueries",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetParcel&refcat=4410205WJ0641S&srsname=EPSG%3A%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetParcel&refcat=4410205WJ0641S&srsname=urn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetParcel&refcat=4410205WJ0641S&srsname=EPSG%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetParcel&refcat=4410205WJ0641S&srsname=EPSG%3A%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetParcel&refcat=4410205WJ0641S&srsname=urn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetParcel&refcat=4410205WJ0641S&srsname=EPSG%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingByParcel&refcat=4410205WJ0641S&srsname=EPSG%3A%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingByParcel&refcat=4410205WJ0641S&srsname=urn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingByParcel&refcat=4410205WJ0641S&srsname=EPSG%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetBuildingByParcel&refcat=4410205WJ0641S&srsname=EPSG%3A%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetBuildingByParcel&refcat=4410205WJ0641S&srsname=urn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetBuildingByParcel&refcat=4410205WJ0641S&srsname=EPSG%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingPartByParcel&refcat=4410205WJ0641S&srsname=EPSG%3A%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingPartByParcel&refcat=4410205WJ0641S&srsname=urn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingPartByParcel&refcat=4410205WJ0641S&srsname=EPSG%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetBuildingPartByParcel&refcat=4410205WJ0641S&srsname=EPSG%3A%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetBuildingPartByParcel&refcat=4410205WJ0641S&srsname=urn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetBuildingPartByParcel&refcat=4410205WJ0641S&srsname=EPSG%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetNeighbourParcel&refcat=4410205WJ0641S&srsname=EPSG%3A%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetNeighbourParcel&refcat=4410205WJ0641S&srsname=urn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetNeighbourParcel&refcat=4410205WJ0641S&srsname=EPSG%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetNeighbourParcel&refcat=4410205WJ0641S&srsname=EPSG%3A%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetNeighbourParcel&refcat=4410205WJ0641S&srsname=urn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERIE_ID=GetNeighbourParcel&refcat=4410205WJ0641S&srsname=EPSG%3A25830",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    },
+    {
+      "url": "https://ovc.catastro.meh.es/OVCServWeb/OVCWcfCallejero/COVCCallejero.svc/json/Consulta_DNPRC?Provincia=&Municipio=&RefCat=4410205WJ0641S0001JH",
+      "status": null,
+      "bytes": 0,
+      "from_cache": false,
+      "seconds": 0.0,
+      "error": "Tunnel connection failed: 403 Forbidden"
+    }
+  ]
+}

@@ -1,0 +1,115 @@
+{
+ "type": "FeatureCollection",
+ "crs": {
+  "type": "name",
+  "properties": {
+   "name": "EPSG:25830"
+  }
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "id": "ES.SDGC.BU.A",
+   "properties": {
+    "source": "modelo",
+    "tipo": "building_parts",
+    "original_id": "ES.SDGC.BU.A",
+    "BuildingPart@id": "ES.SDGC.BU.A",
+    "numberOfFloorsAboveGround": "2",
+    "numberOfFloorsBelowGround": "0",
+    "area": 74.0,
+    "use": null
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       470000.0,
+       4340000.0
+      ],
+      [
+       470008.0,
+       4340000.0
+      ],
+      [
+       470008.0,
+       4340010.0
+      ],
+      [
+       470000.0,
+       4340010.0
+      ],
+      [
+       470000.0,
+       4340000.0
+      ]
+     ],
+     [
+      [
+       470004.0,
+       4340004.0
+      ],
+      [
+       470007.0,
+       4340004.0
+      ],
+      [
+       470007.0,
+       4340006.0
+      ],
+      [
+       470004.0,
+       4340006.0
+      ],
+      [
+       470004.0,
+       4340004.0
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "ES.SDGC.BU.B",
+   "properties": {
+    "source": "modelo",
+    "tipo": "building_parts",
+    "original_id": "ES.SDGC.BU.B",
+    "BuildingPart@id": "ES.SDGC.BU.B",
+    "numberOfFloorsAboveGround": "1",
+    "numberOfFloorsBelowGround": "0",
+    "area": 40.0,
+    "use": null
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       470008.0,
+       4340000.0
+      ],
+      [
+       470012.0,
+       4340000.0
+      ],
+      [
+       470012.0,
+       4340010.0
+      ],
+      [
+       470008.0,
+       4340010.0
+      ],
+      [
+       470008.0,
+       4340000.0
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}
