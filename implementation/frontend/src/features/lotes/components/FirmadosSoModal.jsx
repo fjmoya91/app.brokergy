@@ -61,11 +61,14 @@ const TONO = {
     duplicado: 'border-white/10 bg-white/[0.02]',
 };
 
-export function FirmadosSoModal({ lote, ficheros, onClose, onChanged }) {
+export function FirmadosSoModal({ lote, ficheros, asignacionInicial = null, onClose, onChanged }) {
     const [fase, setFase] = useState('analizando');   // analizando | revision | aplicando | hecho
     const [informe, setInforme] = useState(null);
     const [error, setError] = useState('');
-    const [asignar, setAsignar] = useState({});       // fichero → docKey (lo decide una persona)
+    // fichero → docKey, cuando lo decide una PERSONA. Viene puesto si se ha
+    // entrado por el botón "Subir firmado" de una fila: ahí el documento ya se
+    // sabe, y solo queda comprobar la firma antes de registrarlo.
+    const [asignar, setAsignar] = useState(() => asignacionInicial || {});
     const [forzar, setForzar] = useState({});         // fichero → bool
     // Los ficheros son ESTADO y no solo la prop: si falta la firma de Brokergy se
     // firma aquí mismo y el PDF firmado SUSTITUYE al que se soltó. Lo que se

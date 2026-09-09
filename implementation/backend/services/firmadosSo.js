@@ -154,11 +154,18 @@ async function procesarFirmados(loteId, ficheros, opts = {}) {
     if (error) throw error;
     if (!lote) throw new Error('Lote no encontrado');
 
-    // Solo lo que el S.O. tiene que firmar y ya le hemos mandado: un documento que
-    // no ha salido no puede volver firmado, y ofrecerlo como destino invitaría a
-    // colocar ahí un fichero que es de otra cosa.
-    const candidatos = (Array.isArray(lote.documentos_so) ? lote.documentos_so : [])
-        .filter(d => esFirmablePorSo(d) && (d.sent_at || d.signed_link));
+    // Dos listas, y la diferencia importa:
+    //   · `candidatos`     — todo lo firmable del lote. Es donde se busca cuando el
+    //     destino lo dice una PERSONA (el botón "Subir firmado" de una fila, o el
+    //     desplegable): ahí no hay nada que adivinar.
+    //   · `identificables` — solo lo que ya se le mandó. Es contra lo que se
+    //     empareja por el nombre del fichero: un documento que no ha salido no
+    //     puede volver firmado, y ofrecerlo como destino automático invitaría a
+    //     colocar ahí un fichero que es de otra cosa.
+    const firmables = (Array.isArray(lote.documentos_so) ? lote.documentos_so : [])
+        .filter(esFirmablePorSo);
+    const candidatos = firmables;
+    const identificables = firmables.filter(d => d.sent_at || d.signed_link);
 
     const { data: exps } = await supabase.from('expedientes')
         .select('id, numero_expediente').eq('lote_id', lote.id);
@@ -206,7 +213,7 @@ async function procesarFirmados(loteId, ficheros, opts = {}) {
         // 2) ¿De qué documento es?
         const elegido = asignar[f.nombre]
             ? { key: asignar[f.nombre] }
-            : identificar(f.nombre, candidatos, expNumPorId, lote.codigo);
+            : identificar(f.nombre, identificables, expNumPorId, lote.codigo);
         const doc = elegido.key ? candidatos.find(d => d.key === elegido.key) : null;
         if (!doc) {
             res.estado = 'sin_identificar';
@@ -216,6 +223,10 @@ async function procesarFirmados(loteId, ficheros, opts = {}) {
         }
         res.doc = doc.key;
         res.etiqueta = doc.label || doc.file_name;
+        // Con qué nombre va a quedar guardado, ANTES de registrarlo: es la mitad
+        // de lo que se revisa en esa pantalla ("¿le va a poner el _fdo y va a la
+        // carpeta que toca?"). Lo pone `guardarDocFirmado`; aquí solo se anticipa.
+        res.nombre_guardado = `${String(doc.file_name || doc.label || doc.key).replace(/\.pdf$/i, '')}_fdo.pdf`;
         res.expediente = doc.expediente_id ? expNumPorId[doc.expediente_id] || null : null;
 
         if (usados.has(doc.key)) {
@@ -261,7 +272,6 @@ async function procesarFirmados(loteId, ficheros, opts = {}) {
                 docsActuales = r.docsSo;
                 res.registrado = true;
                 res.enlace = r.entry?.signed_link || null;
-                res.nombre_guardado = `${String(doc.file_name || doc.label).replace(/\.pdf$/i, '')}_fdo.pdf`;
                 historial.push({
                     id: `${Date.now()}_fdo_${doc.key}`, tipo: 'sistema',
                     texto: `Registrado firmado de "${res.etiqueta}" desde "${f.nombre}"`
@@ -286,7 +296,7 @@ async function procesarFirmados(loteId, ficheros, opts = {}) {
 
     // Lo que sigue faltando, para poder decirlo en la misma pantalla en vez de
     // obligar a cerrar y contar las filas a mano.
-    const pendientes = candidatos
+    const pendientes = identificables
         .map(d => docsActuales.find(x => x.key === d.key) || d)
         .filter(d => !d.signed_link)
         .map(d => ({
@@ -303,7 +313,7 @@ async function procesarFirmados(loteId, ficheros, opts = {}) {
         resultados,
         registrados: registrados.length,
         pendientes,
-        destinos: candidatos.map(d => ({
+        destinos: identificables.map(d => ({
             key: d.key,
             etiqueta: d.label || d.file_name,
             expediente: d.expediente_id ? expNumPorId[d.expediente_id] || null : null,

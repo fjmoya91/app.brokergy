@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useModal } from '../../../context/ModalContext';
 import { analizarProceso, SLOTS } from '../logic/loteProceso';
@@ -212,31 +212,72 @@ const BotonSubir = ({ children, disabled, onFile, destacado = false }) => (
     </label>
 );
 
-// Zona de SUELTA para los firmados que devuelve el S.O. Admite varios ficheros
-// —vuelven los seis de una vez, adjuntos al mismo correo— y la tarjeta entera es
-// zona de suelta: con un cuadro pequeño hay que apuntar, y lo que se arrastra
-// aquí viene de una descarga de seis PDF.
-const ZonaFirmados = ({ onFiles, children }) => {
-    const [drag, setDrag] = useState(false);
-    const soltar = (e) => {
-        e.preventDefault();
-        setDrag(false);
-        const fs = Array.from(e.dataTransfer.files || []).filter(f => /\.pdf$/i.test(f.name));
-        if (fs.length) onFiles(fs);
-    };
-    return (
-        <label
-            onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
-            onDragLeave={() => setDrag(false)}
-            onDrop={soltar}
-            className={`block rounded-xl border border-dashed px-3.5 py-3 cursor-pointer transition-all ${
-                drag ? 'border-brand bg-brand/[0.07]' : 'border-white/15 hover:border-brand/40 hover:bg-white/[0.02]'}`}>
-            {children}
-            <input type="file" accept="application/pdf" multiple className="hidden"
-                onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ''; if (fs.length) onFiles(fs); }} />
-        </label>
-    );
-};
+// ─── Arrastrar los firmados: TODO el bloque de la fase es zona de suelta ─────
+//
+// Con una cajita punteada hay que apuntar, y lo que se arrastra aquí viene de
+// una descarga de seis PDF: se suelta en el sitio donde se está mirando, que es
+// la fase entera. Y se avisa ANTES de llegar — en cuanto el ratón entra en la
+// ventana con ficheros, las fases que aceptan suelta se marcan; sin eso hay que
+// adivinar dónde vale soltar y el intento acaba en el escritorio.
+//
+// `arrastrando` cambia DOS veces por arrastre (al empezar y al acabar); el
+// resaltado de la fase concreta se hace tocando las clases del propio nodo, sin
+// estado de React: `Fase` se recrea en cada render del padre, así que un
+// `useState` dentro la remontaría a mitad de arrastre y el navegador cancelaría
+// el hover.
+function useArrastreDeFicheros() {
+    const [arrastrando, setArrastrando] = useState(false);
+    useEffect(() => {
+        let t = null;
+        const conFicheros = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+        const mover = (e) => {
+            // Sin `preventDefault` el navegador NO deja soltar; y si se suelta
+            // fuera de una zona, ABRE el PDF y se pierde lo que hubiera en
+            // pantalla. Va a nivel de ventana y solo mientras este panel está
+            // montado: las demás zonas de la app siguen recibiendo su evento —
+            // esto corre después, en burbuja, y solo evita la navegación.
+            e.preventDefault();
+            if (!conFicheros(e)) return;
+            setArrastrando(true);
+            clearTimeout(t);
+            // `dragover` se repite mientras se arrastra. Si deja de llegar, el
+            // arrastre salió de la ventana: no hay un evento fiable para eso.
+            t = setTimeout(() => setArrastrando(false), 220);
+        };
+        const fin = (e) => { if (e.type === 'drop') e.preventDefault(); clearTimeout(t); setArrastrando(false); };
+        window.addEventListener('dragover', mover);
+        window.addEventListener('drop', fin);
+        window.addEventListener('dragend', fin);
+        return () => {
+            clearTimeout(t);
+            window.removeEventListener('dragover', mover);
+            window.removeEventListener('drop', fin);
+            window.removeEventListener('dragend', fin);
+        };
+    }, []);
+    return arrastrando;
+}
+
+// Clases del resaltado de la fase que tiene el puntero encima.
+const RESALTE = ['border-brand', 'bg-brand/[0.10]', 'ring-2', 'ring-brand/40'];
+
+const pdfsDe = (lista) => Array.from(lista || []).filter(f => /\.pdf$/i.test(f.name));
+
+// La pista dentro de la fase: dice que se puede arrastrar y, pulsándola, abre el
+// selector — arrastrar no siempre es posible (un adjunto que solo se puede
+// descargar, un portátil con panel táctil).
+const PistaSuelta = ({ arrastrando, texto, onFiles }) => (
+    <label className={`flex items-center gap-2 rounded-xl border border-dashed px-3 py-2 cursor-pointer transition-all ${
+        arrastrando ? 'border-brand/60 bg-brand/[0.06] text-brand' : 'border-white/12 text-white/40 hover:border-brand/40 hover:text-white/70'}`}>
+        <span className="text-[11px] shrink-0">{arrastrando ? '⬇' : '↓'}</span>
+        <span className="text-[10px] font-bold flex-1 min-w-0">
+            {arrastrando ? 'Suéltalos en cualquier parte de este bloque' : texto}
+        </span>
+        <span className="text-[9px] font-black uppercase tracking-wider text-white/30 shrink-0">o elígelos</span>
+        <input type="file" accept="application/pdf" multiple className="hidden"
+            onChange={(e) => { const fs = pdfsDe(e.target.files); e.target.value = ''; if (fs.length) onFiles(fs); }} />
+    </label>
+);
 
 // Botón de acción de una fase (abre un modal del lote).
 const BotonAccion = ({ children, onClick, disabled, title, tono = 'brand' }) => (
@@ -265,6 +306,11 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     // analice. Se guardan los File tal cual: el modal los sube dos veces (analizar
     // y aplicar) y así no hay que volver a pedirlos.
     const [firmadosSueltos, setFirmadosSueltos] = useState(null);
+    // ¿Se está arrastrando algo sobre la ventana? Para marcar las fases que
+    // aceptan suelta antes de que el puntero llegue a ellas.
+    const arrastrando = useArrastreDeFicheros();
+    // Destino ya decidido (se entra por el botón de una fila, no arrastrando).
+    const [asignacionInicial, setAsignacionInicial] = useState(null);
     // Overlay ESTÁNDAR mientras se lee un PDF y para contar cómo ha ido. Leer un
     // informe tarda entre 6 y 14 segundos: sin él, el usuario pulsa y no pasa nada
     // visible, así que vuelve a pulsar. Nunca un showAlert pelado (ver el estándar
@@ -329,20 +375,16 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     // Vale para el Anexo I, las fichas, la solicitud o la oferta: da igual que el
     // S.O. haya firmado por el enlace o nos lo mande por email, acaba en el mismo
     // sitio (mismo endpoint que la firma pública).
-    const subirFirmado = async (docKey, file) => {
+    // Subir el firmado de UNA fila entra por el MISMO sitio que soltarlos todos:
+    // así la comprobación de la firma y el `_fdo` no dependen de por dónde hayas
+    // entrado. La diferencia es que aquí el documento ya se sabe —lo dice la
+    // fila—, así que va asignado de partida y no hay nada que emparejar.
+    const subirFirmado = (docKey, file) => {
         if (!file) return;
         if (file.type !== 'application/pdf') { setError('El fichero firmado debe ser un PDF.'); return; }
         setError('');
-        setSubiendo(docKey);
-        try {
-            const base64 = await fileToBase64(file);
-            await axios.post(`/api/lotes/${lote.id}/documentos/${docKey}/firmado`, { base64 });
-            if (onChanged) onChanged();
-        } catch (err) {
-            setError(err.response?.data?.error || 'No se pudo registrar el firmado.');
-        } finally {
-            setSubiendo(null);
-        }
+        setAsignacionInicial({ [file.name]: docKey });
+        setFirmadosSueltos([file]);
     };
 
     // Visto bueno del ADMIN: que vuelva firmado no quiere decir que esté bien.
@@ -727,7 +769,7 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     //
     // El plegado es solo VISUAL y se puede deshacer: los lotes viejos traen
     // documentos firmados fuera de la app y hay que poder llegar a ellos siempre.
-    const Fase = ({ f, pendiente = false, children }) => {
+    const Fase = ({ f, pendiente = false, soltar = null, pista = null, children }) => {
         const esActual = p.faseActual === f.n;
         const bloqueada = !!f.bloqueo && !f.hecha;
         const porRevisarN = (f.docs || []).filter(d => d?.signed_link && !d?.validado_at).length;
@@ -744,11 +786,28 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
             ? fasesAbiertas[f.n]
             : (esActual || !f.hecha || pendiente);
         const porRevisar = porRevisarN;
+        // La fase ENTERA recibe la suelta (también plegada: no hay que abrirla
+        // para soltar). El resaltado se toca en el nodo, no por estado.
+        const dnd = soltar ? {
+            onDragOver: (e) => { e.preventDefault(); e.currentTarget.classList.add(...RESALTE); },
+            onDragLeave: (e) => {
+                // `dragleave` salta también al pasar por encima de un hijo: solo
+                // cuenta si el puntero ha salido del bloque de verdad.
+                if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove(...RESALTE);
+            },
+            onDrop: (e) => {
+                e.preventDefault();
+                e.currentTarget.classList.remove(...RESALTE);
+                const fs = pdfsDe(e.dataTransfer?.files);
+                if (fs.length) soltar(fs);
+            },
+        } : {};
         return (
-            <div className={`rounded-2xl border transition-colors ${abierta ? 'p-4' : 'px-4 py-2.5'} ${
-                f.hecha ? 'border-emerald-500/20 bg-emerald-500/[0.03]'
-                    : esActual ? 'border-brand/30 bg-brand/[0.04]'
-                        : 'border-white/[0.06] bg-white/[0.01]'}`}>
+            <div {...dnd} className={`rounded-2xl border transition-all ${abierta ? 'p-4' : 'px-4 py-2.5'} ${
+                soltar && arrastrando ? 'border-dashed border-brand/45 bg-brand/[0.05]'
+                    : f.hecha ? 'border-emerald-500/20 bg-emerald-500/[0.03]'
+                        : esActual ? 'border-brand/30 bg-brand/[0.04]'
+                            : 'border-white/[0.06] bg-white/[0.01]'}`}>
                 <button type="button"
                     onClick={() => setFasesAbiertas(prev => ({ ...prev, [f.n]: !abierta }))}
                     className={`w-full flex items-center gap-2.5 text-left ${abierta ? 'mb-3' : ''}`}>
@@ -773,7 +832,10 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                     {!abierta && (f.docs || []).length > 0 && (
                         <span className="text-[9px] text-white/25 shrink-0">{f.docs.length} doc.</span>
                     )}
-                    {esActual && <span className="text-[9px] font-black uppercase tracking-wider text-brand shrink-0">← ahora</span>}
+                    {soltar && arrastrando && (
+                        <span className="text-[9px] font-black uppercase tracking-wider text-brand shrink-0">suelta aquí</span>
+                    )}
+                    {esActual && !(soltar && arrastrando) && <span className="text-[9px] font-black uppercase tracking-wider text-brand shrink-0">← ahora</span>}
                     {bloqueada && (
                         <svg className="w-3.5 h-3.5 text-white/20 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
@@ -792,6 +854,9 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                         poder registrarlos igual. Se avisa, no se bloquea. */}
                     {bloqueada && <p className="text-[10px] text-white/25 italic">{f.bloqueo}</p>}
                     {children}
+                    {soltar && pista && (
+                        <PistaSuelta arrastrando={arrastrando} texto={pista} onFiles={soltar} />
+                    )}
                 </div>
                 )}
             </div>
@@ -820,8 +885,15 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
             {/* 1 · Solicitud al verificador.
                 La solicitud que se archiva aquí es el BORRADOR: la firma el S.O. en
                 el paso 2, junto al Anexo I. Decía "subir solicitud firmada" y hacía
-                buscar una firma que en este momento no existe todavía. */}
-            <Fase f={f1}>
+                buscar una firma que en este momento no existe todavía.
+
+                Y la solicitud FIRMADA vuelve con las demás, así que se suelta igual
+                que ellas: misma comprobación de firma y mismo `_fdo`. No importa en
+                qué fase se suelte cada PDF — el destino lo decide su nombre, no el
+                sitio donde se soltó. */}
+            <Fase f={f1}
+                soltar={p.solicitud && !p.solicitud.signed_link ? setFirmadosSueltos : null}
+                pista="Arrastra aquí la solicitud que devuelva firmada el S.O.">
                 {/* Lo enviado por API deja de ser invisible. El nº de solicitud que
                     devuelve Marwen es la referencia con la que se le habla del lote
                     (y con la que vuelve firmada: "Solicitud-0035-S06_fdo.pdf"); se
@@ -856,7 +928,9 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
             </Fase>
 
             {/* 2 · Firma del Sujeto Obligado */}
-            <Fase f={f2}>
+            <Fase f={f2}
+                soltar={p.soEnviado && !p.soFirmado ? setFirmadosSueltos : null}
+                pista="Arrastra aquí los PDF firmados que devuelva el S.O., todos a la vez">
                 <div className="flex items-center gap-2 flex-wrap">
                     <BotonAccion onClick={acciones.abrirAnexo} disabled={!nExps}>
                         {p.soEnviado ? 'Reenviar Anexo I · Cesión S.O.' : 'Anexo I · Cesión S.O.'}
@@ -866,21 +940,6 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                         Requerimiento · reenviar para firma
                     </BotonAccion>
                 </div>
-                {/* Los firmados vuelven por email, con el MISMO nombre y sin
-                    clasificar. Se sueltan aquí todos juntos: la app lee la firma de
-                    cada PDF, ve de qué documento es y lo registra con su `_fdo`.
-                    Solo tiene sentido cuando ya se le ha pedido la firma. */}
-                {p.soEnviado && !p.soFirmado && (
-                    <ZonaFirmados onFiles={setFirmadosSueltos}>
-                        <p className="text-[11px] font-bold text-white/70">
-                            ↓ Arrastra aquí los PDF firmados que devuelva el S.O.
-                        </p>
-                        <p className="text-[10px] text-white/35 mt-0.5">
-                            Todos a la vez y sin renombrar nada: se comprueba la firma de cada uno,
-                            se identifica su documento y se guarda como <span className="text-white/55">…_fdo</span>.
-                        </p>
-                    </ZonaFirmados>
-                )}
                 {p.soEnviado && !p.soFirmado && (
                     <p className="text-[10px] text-white/30">Enviado. Esperando la firma del Sujeto Obligado.</p>
                 )}
@@ -1107,8 +1166,9 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 <FirmadosSoModal
                     lote={lote}
                     ficheros={firmadosSueltos}
+                    asignacionInicial={asignacionInicial}
                     onChanged={() => { if (onChanged) onChanged(); }}
-                    onClose={() => setFirmadosSueltos(null)}
+                    onClose={() => { setFirmadosSueltos(null); setAsignacionInicial(null); }}
                 />
             )}
 

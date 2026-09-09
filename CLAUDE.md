@@ -3544,6 +3544,43 @@ primero que quede libre" es colocar la ficha de otro. Al asignarlo a mano se
 **vuelve a analizar**: las firmas que se esperan dependen del destino (el Anexo I
 pide dos y una ficha, una).
 
+**REGLA — la zona de suelta es TODO el bloque de la fase, y se avisa ANTES de
+llegar.** Con una cajita punteada hay que apuntar, y lo que se arrastra viene de
+una descarga de seis PDF: se suelta donde se está mirando. En cuanto el puntero
+entra en la ventana con ficheros, las fases que aceptan suelta se marcan (borde
+discontinuo + "suelta aquí" en su cabecera) y la que tiene el puntero encima se
+resalta; sin ese aviso hay que adivinar dónde vale soltar y el intento acaba en el
+escritorio. **También plegada**: no hay que abrir la fase para soltar.
+
+⚠️ El resaltado de la fase concreta se hace tocando las CLASES DEL NODO, no con
+estado de React: `Fase` se recrea en cada render de `LoteProcesoFases`, así que un
+`useState` dentro la remontaría a mitad de arrastre y el navegador cancelaría el
+hover. Lo único que sí es estado es `arrastrando`, que cambia dos veces por
+arrastre. Y el `dragover` de ventana hace `preventDefault`: sin él el navegador no
+deja soltar y, al fallar la puntería, **abre el PDF** y se pierde la pantalla.
+
+**REGLA — da igual en qué fase se suelte cada PDF.** El destino lo decide el
+NOMBRE del fichero, no el sitio donde se soltó: la solicitud se puede soltar en la
+fase 2 y una ficha en la fase 1. Las dos zonas existen porque son los dos sitios
+donde uno mira, no porque filtren nada.
+
+**La SOLICITUD DE VERIFICACIÓN firmada va por el mismo camino.** La firma el S.O.
+(es el solicitante) y vuelve con las demás, así que se comprueba igual y
+`guardarDocFirmado` la deja en `{lote} - DOC. VERIFICACIÓN` como
+`1. Solicitud de Verificación {LOTE}_fdo.pdf`.
+
+**REGLA — "Subir firmado" de una fila entra por el MISMO sitio.** Antes ese botón
+posteaba directo a `/documentos/:key/firmado` **sin mirar la firma**: quedaba una
+vía por la que un PDF sin firmar entraba como firmado. Ahora abre el mismo popup
+con el documento YA ASIGNADO (`asignacionInicial`), así que la comprobación y el
+`_fdo` no dependen de por dónde hayas entrado.
+
+Eso obliga a distinguir DOS listas en `procesarFirmados`, y la diferencia importa:
+`candidatos` es todo lo firmable del lote —donde se busca cuando el destino lo dice
+una PERSONA— e `identificables` solo lo que ya se le mandó, que es contra lo que se
+empareja por el nombre. Un documento que no ha salido no puede volver firmado, y
+ofrecerlo como destino automático invitaría a colocar ahí un fichero de otra cosa.
+
 **REGLA — si la firma que falta es la NUESTRA, se firma desde la propia fila.** El
 S.O. puede devolver el Anexo I con su firma y sin la de Brokergy (o firmarlo antes
 de que nosotros lo hayamos hecho). La fila ofrece **"🖊️ Firmarlo yo ahora con
@@ -3575,8 +3612,15 @@ Ficha RES060_fdo`) NO se pone aquí: lo pone `envioGestorService` al armar el ZI
 y lo único que necesita es que la entrada tenga su `signed_link`.
 
 **Dos tiempos, y el primero no escribe** (`dryRun`): se sueltan, se ve qué ha
-entendido la app de cada fichero y solo entonces se aplica. De esto depende qué PDF
-acaba dentro del ZIP que se presenta.
+entendido la app de cada fichero —incluido **con qué nombre va a quedar guardado**,
+que es la mitad de lo que se revisa ahí— y solo entonces se aplica. De esto depende
+qué PDF acaba dentro del ZIP que se presenta.
+
+**Probado en producción el 2026-09-09**: el Anexo I y las **cinco** fichas de
+LOTE-2026-008, soltados de golpe y registrados en 11 segundos, cada uno
+identificado por su nombre y con sus firmas leídas del certificado (el Anexo I con
+las dos: Francisco Javier Moya López + Pedro José López Montero; las fichas con la
+del S.O.).
 
 ⚠️ El nombre del fichero llega de un formulario: en Windows puede traer la ruta
 entera y algunos navegadores lo codifican en latin1. Se limpia en la ruta
