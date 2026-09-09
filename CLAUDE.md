@@ -4801,6 +4801,96 @@ allí no hay obra ni trámite de ayuda, y ese texto hablaría de algo que no exi
 
 ---
 
+## El aviso lo recibe el COMERCIAL o el TÉCNICO (2026-09-09)
+
+Un instalador no tiene UN interlocutor: tiene el **comercial**, con el que se habla de
+la obra, y el **técnico**, que firma. La app no lo distinguía —había un solo interruptor,
+`contacto_notificaciones_activas`, que decía "manda a los contactos alternativos o al
+representante" sin saber DE QUÉ se estaba escribiendo—, así que la Memoria RITE y "¿cómo
+va la obra?" salían por el mismo sitio a la fuerza.
+
+Medido en INSTOTERMA SL: la documentación RITE, que firma Jesús (654547042), salía al
+**654547040 — el móvil de Carlos, el comercial**.
+
+| Qué | Dónde |
+|---|---|
+| El reparto (roles, respaldo, saludo) | [notifyContacts.js](implementation/backend/services/notifyContacts.js) — `partnerNotifyTarget(p, rol)`, `contactosDePartner`, `rolDeDocumento` |
+| Su espejo en el navegador | [docContacts.js](implementation/frontend/src/features/expedientes/utils/docContacts.js) — `contactosPara`, `defaultContactIds`, `avisoReparto` |
+| El formulario | `PrescriptorDetailModal.jsx` — bloque **"Avisos y contactos"** |
+| Prueba sin BD y sin enviar nada | `node implementation/backend/scripts/test_reparto_contactos.js` |
+
+**REGLA — el ROL del contacto decide, y el ASUNTO pide un rol.** Cada persona de
+`contactos_notificacion` lleva `roles: ['comercial'|'tecnico']` y quien envía pide
+`partnerNotifyTargets(p, 'tecnico')`. Si lo decidiera cada pantalla, el parte diario y el
+popup mandarían la misma cosa a personas distintas — el mismo motivo por el que los
+textos son fuente única en `recordatorios.js`.
+
+| Asunto | Rol | Dónde |
+|---|---|---|
+| Memoria RITE · borrador del certificado · CIFO para firmar | `tecnico` | `/instalador/enviar`, `CertificadoCifoModal`, `EnviarBorradorRiteModal`, `recordar-firma` del parte |
+| Propuestas · fotos y documentación · "¿cómo va la obra?" · rechazo de una foto | `comercial` | `solicitar-faltantes`, `EnviarAnexosModal`, `reformaUploadService`, `fin-obra` del parte |
+
+**REGLA — el REPRESENTANTE LEGAL no es un buzón.** `nombre_responsable` es quien FIRMA:
+va impreso en el CIFO y en su recuadro de firma (`firmanteCifo`), es una identidad
+documental. Usarlo además como destinatario por defecto es lo que producía el fallo,
+porque **67 de los 70 instaladores no tienen `tlf_responsable`** y su nombre acababa
+pegado al teléfono de la empresa: la lista del popup decía *"Jesús · 654547040"* y ese
+número era de Carlos. Ya no se ofrece como contacto.
+
+**REGLA — sin nadie marcado se envía igual, pero SE DICE.** 51 instaladores no tienen un
+técnico marcado, así que no puede bloquear nada: se cae al canal **general** de la
+empresa, rotulado *"Teléfono y email generales de la empresa"*, y el popup lo avisa en
+ámbar con el nombre del partner delante (`avisoReparto`). Un desvío silencioso es
+exactamente el fallo que esto arregla.
+
+**REGLA — al canal general de una EMPRESA se saluda en genérico.** Las plantillas ya
+hacen `nombreSaludo(destinatario) ? '¡Hola X!' : '¡Hola!'` (y `mensajeInstalador` cae en
+"Hola compañeros"), así que basta con NO inventar un nombre: "¡Hola Jesús!" en un número
+que coge otra persona es peor que no saludar. En un **autónomo** sí se saluda por su
+nombre — ahí la persona SÍ es la empresa. Al **CERTIFICADOR** no se le aplica el reparto:
+sus plantillas escriben `Hola ${certName},` y no admiten un nombre vacío.
+
+**REGLA — un contacto SIN roles se comporta como hasta ahora, y no se le adivina.** Los
+~20 partners que ya tenían contactos son anteriores al reparto: marcarles un rol a ojo
+cambiaría a quién le escribimos sin que nadie lo revise. Valen para todo, pero **solo si
+su ficha tenía el desvío activo** — hay 3 con un contacto dado de alta y el interruptor
+apagado a propósito (Esther, David, Pedro), y encenderlos de rebote sería empezar a
+escribir a tres personas que hoy no reciben nada. Marcar un rol sí manda siempre: marcarlo
+ES la decisión.
+
+**REGLA — en el CIFO no va ningún teléfono.** El documento identifica a la empresa por su
+razón social, CIF, domicilio y nº RITE, y a la persona por el **nombre de quien firma**.
+La portada imprimía `Tel {pres.tlf}`, que es el mismo número de una persona concreta: el
+móvil del comercial salía impreso en la carátula de todos los CIFO.
+
+### El formulario: una sola pregunta y CERO interruptores
+
+Eran dos toggles anidados ("desviar a otros contactos" + "enviar notificaciones a estos
+contactos") y una lista: había que abrir los dos para descubrir a quién le llegaba nada.
+Ahora los dos se **derivan** de si hay personas dadas de alta (las columnas siguen ahí por
+compatibilidad) y lo único que se contesta es qué recibe cada persona.
+
+- **El resumen va ARRIBA y también en el `summary` plegado**: "Comercial: CARLOS ·
+  Técnico: JESÚS", o en ámbar "Nadie marcado · irá al teléfono general (654547040)". Es la
+  única pregunta que contesta el bloque y se responde sin desplegarlo. Es **derivado** de
+  los roles: dos sitios donde declarar lo mismo acaban diciendo cosas distintas.
+- **El resumen se calcula con lo que se VA A GUARDAR**, no con lo que hay en la BD — si no,
+  en esas 3 fichas la pantalla diría "nadie marcado" y el guardado haría lo contrario.
+- **Chips de rol** con lo que recibe cada uno en el `title`, y un "recibe todo" para el
+  caso de una sola persona (25 de 70 son autónomos).
+- **Atajo "Usar a Jesús"**: copia al representante legal como contacto con su teléfono
+  PROPIO (nunca el de la empresa, que es la confusión que causó todo). En 51 fichas no hay
+  ni un contacto, y teclear otra vez lo que está tres campos más arriba es la razón.
+- **Sugerencia por el cargo**: si ya pone "COMERCIAL" o "TÉCNICO", se ofrece marcarlo de un
+  clic. Lo marca una PERSONA — deducirlo cambiaría destinatarios sin que nadie lo revise.
+- **Se avisa si una persona con rol no tiene teléfono**: solo le llegará el email, y casi
+  todos los avisos salen por WhatsApp.
+- El aviso de "sin repartir" solo aparece con **dos o más** personas: con una, o recibe
+  ella o recibe la empresa, y pedir una decisión que no cambia nada es lo que hace que se
+  ignoren los avisos que sí importan.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -4897,6 +4987,8 @@ allí no hay obra ni trámite de ayuda, y ese texto hablaría de algo que no exi
 42. **TER173 es la TER100 ponderada por el C_b de la RES093, y su impreso no tiene casilla para el C_b**: `AE_TOTAL = (AE_C + AE_ACS + AE_CAP) · C_b` (apartado 4), así que el total que imprime la ficha oficial NO cuadra con la suma de sus tres sumandos impresos — lo explica el CIFO (desglose con Σ AE y C_b + apartado 8). El C_b pondera el TOTAL, no solo la calefacción, **y por el mismo motivo se corrigió la RES093**, cuya ficha lo pone igual. La tabla del Anexo IV coincide valor a valor con la del Anexo III de la RES093: una sola `BIVALENCE_TABLE` (la columna de geotermia del Anexo IV no se implementa). Un TER173 **sin datos de hibridación no genera CIFO**: con C_b = 1 el ahorro sale más alto que el real y va firmado. Fuentes únicas: [logic/terciario.js](implementation/frontend/src/features/expedientes/logic/terciario.js) (que sustituye a `ter100.js`, renombrado porque resuelve las DOS fichas del terciario) y `calculateTerciario()` en `calculation.js`. Tras tocarlo: `test_ter173.mjs`, `test_impresos_oficiales.mjs` y `check_cifo_paginas.mjs`. Ver "Ficha TER173".
 
 43. **El precio CAE al cliente es 100 €/MWh en las propuestas NUEVAS, y lo ya guardado no se mueve**: `CAE_PRECIO_CLIENTE_NUEVAS` (100) va donde se COMPONEN inputs nuevos (calculadora · funnel) y `CAE_PRECIO_CLIENTE_ANTERIOR` (95 · 60 en RES080) es el respaldo de LECTURA de lo ya guardado sin precio propio — subirlo cambiaría el bono de expedientes ya firmados. Y el precio **se SELLA** en la oportunidad ([precioCae.js](implementation/backend/utils/precioCae.js)) copiando `caePriceClient` a `cae_client_rate`, que es la clave que el expediente lee y que hacía que el precio tecleado no le llegara (66 expedientes medidos, de 88 a 150 €/MWh). El sello se escribe **solo en las nuevas** —la presencia de la clave ES la marca, sin fechas de corte— y se mantiene al día. Ver "Precio CAE al cliente".
+
+44. **Cada aviso va al COMERCIAL o al TÉCNICO del partner, no "al instalador"**: cada persona de `contactos_notificacion` lleva `roles: ['comercial'|'tecnico']` y quien envía pide el suyo — fuente única [notifyContacts.js](implementation/backend/services/notifyContacts.js) (`partnerNotifyTarget(p, rol)`, `rolDeDocumento`) y su espejo [docContacts.js](implementation/frontend/src/features/expedientes/utils/docContacts.js). El RITE, el CIFO y sus rechazos son del TÉCNICO; propuestas, fotos y seguimiento, del COMERCIAL. **El representante legal NO es un buzón**: su nombre es el que firma el CIFO, y ofrecerlo como destinatario era el fallo — 67 de 70 fichas no tienen `tlf_responsable`, así que su nombre salía pegado al teléfono de la EMPRESA ("Jesús · 654547040", el número de Carlos). Sin nadie marcado se envía al canal GENERAL, rotulado como tal y avisado en ámbar; a una empresa se le saluda en genérico y a un autónomo por su nombre; al CERTIFICADOR no se le aplica el reparto (sus plantillas no admiten nombre vacío). Un contacto sin roles se comporta como hasta ahora y **no se le adivina** el suyo. En el CIFO no va ningún teléfono. Tras tocarlo: `node implementation/backend/scripts/test_reparto_contactos.js`. Ver "El aviso lo recibe el COMERCIAL o el TÉCNICO".
 
 38. **Con la BD caída, la app CALLA; nunca contesta una cifra tranquila**: un error de lectura no puede salir por 200. [middleware/auth.js](implementation/backend/middleware/auth.js) seguía adelante con el perfil a null —sin rol, sin empresa— y lo **cacheaba 5 minutos**, así que el partner salía como "USUARIO / LOGO PARTNER", con el menú recortado y, como `GET /oportunidades` acaba filtrando por `creador_id = null`, la cartera a CERO; y esa misma ruta convertía además cualquier fallo de Supabase en `200 []`. Un distribuidor con 19 oportunidades vio "0 oportunidades · 0,00 €" con toda la apariencia de dato bueno —que se lee como trabajo borrado— y recargar no lo arreglaba, porque el fantasma vivía en la caché. Medido el 08/09/2026: Postgres se cayó y arrancó en recuperación (`database system was not properly shut down`) y Cloudflare sirvió **521 Web server is down** delante de Supabase durante ~1 min. Ahora las dos rutas responden **503** (`PROFILE_UNAVAILABLE` / `OPORTUNIDADES_UNAVAILABLE`) y no se cachea nada; el frontend enseña `ProfileUnavailable` (reintentar, y "tus datos siguen ahí") en vez de un dashboard con identidad falsa, la lista conserva lo que ya tuviera, y **el resumen financiero no se pinta si no hay datos** — 0,00 € es justo la cifra que asusta. A quien YA tiene perfil bueno en caché no se le echa por un parpadeo. Vigilado por `node implementation/backend/scripts/test_caida_bd_no_miente.js`.
 

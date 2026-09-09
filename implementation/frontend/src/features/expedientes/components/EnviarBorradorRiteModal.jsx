@@ -5,6 +5,8 @@ import { postEmail } from '../../../utils/emailFallback';
 import { estadoInstalador, mensajeInstalador, enlaceInstalador } from '../logic/instaladorPendientes';
 import { buildInstalacionAddress } from '../utils/docGenerators';
 import { DocsInstaladorPicker } from './DocsInstaladorPicker';
+// A quién se le manda esto — fuente única con el backend (services/notifyContacts).
+import { instaladorContacts, defaultContactIds, avisoReparto, ROL_LABEL } from '../utils/docContacts';
 // Canal de envío de la barra inferior — COMPARTIDO con los otros popups de envío.
 import { CanalChip, avisoCanales } from '../../../components/CanalChip';
 // Quién firma cada documento, y poder arreglarlo sin salir del envío.
@@ -73,29 +75,13 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
         burst(0.2, 0); burst(0.8, 140); burst(0.5, 300);
     };
 
-    // Contactos disponibles del perfil del instalador (puede haber varios):
-    // representante/empresa + cada persona de contacto de notificaciones.
-    const instContacts = [];
-    {
-        const repName = [pres.nombre_responsable, pres.apellidos_responsable].filter(Boolean).join(' ') || pres.razon_social || 'Instalador';
-        // La PERSONA DE CONTACTO tiene su propio tlf/email; si no los tiene, se cae
-        // a los de la empresa. MISMO criterio que docContacts.instaladorContacts.
-        const repPhone = pres.tlf_responsable || pres.tlf || pres.telefono || '';
-        const repEmail = pres.email_responsable || pres.email || '';
-        if (repPhone || repEmail) {
-            // `saludo` = solo el NOMBRE (el label lleva los apellidos).
-            instContacts.push({ id: 'rep', label: repName, saludo: pres.nombre_responsable || '', sublabel: pres.es_autonomo ? 'Autónomo' : 'Persona de contacto', phone: repPhone, email: repEmail });
-        }
-        const arr = Array.isArray(pres.contactos_notificacion) ? pres.contactos_notificacion : [];
-        if (arr.length) {
-            arr.forEach((c, i) => {
-                if (c && (c.tlf || c.email)) instContacts.push({ id: `c${i}`, label: c.nombre || 'Contacto', sublabel: 'Persona de contacto', phone: c.tlf || '', email: c.email || '' });
-            });
-        } else if (pres.nombre_contacto && (pres.tlf_contacto || pres.email_contacto)) {
-            instContacts.push({ id: 'contacto', label: pres.nombre_contacto, sublabel: 'Persona de contacto', phone: pres.tlf_contacto || '', email: pres.email_contacto || '' });
-        }
-    }
-    const altIds = instContacts.filter(c => c.id !== 'rep').map(c => c.id);
+    // A quién se le puede mandar esto. Fuente única con el backend
+    // (services/notifyContacts): el popup no puede ofrecer un destinatario y el
+    // envío automático elegir otro. Esto es documentación que FIRMA el técnico,
+    // así que el rol del asunto es 'tecnico' — antes venía marcado el
+    // representante legal, cuyo nombre salía pegado al teléfono de la EMPRESA.
+    const ROL = 'tecnico';
+    const instContacts = instaladorContacts(pres);
 
     const [docs, setDocs] = useState(['rite']);     // qué se manda: rite y/o cifo
     const [message, setMessage] = useState(defaultMessage || '');
@@ -116,7 +102,7 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
         setSendResults([]);
         // Por defecto: si la redirección está activa, preseleccionar TODOS los contactos
         // de notificación; si no, el representante (o el primero disponible).
-        const defIds = (pres.contacto_notificaciones_activas && altIds.length) ? altIds : (instContacts[0] ? [instContacts[0].id] : []);
+        const defIds = defaultContactIds('instalador', null, pres, ROL);
         const sel = instContacts.filter(c => defIds.includes(c.id));
         // El CIFO se premarca solo si de verdad se puede mandar: premarcar algo
         // bloqueado haría que el mensaje anunciara un documento que no va a salir.
@@ -395,8 +381,13 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                                             {on && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
                                         </span>
                                         <div className="min-w-0 flex-1">
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex items-center gap-2 flex-wrap">
                                                 <span className="text-sm font-bold text-white truncate">{c.label}</span>
+                                                {/* La chapa del ROL es lo que distingue a quién le toca esto.
+                                                    Sin ella, dos nombres en una lista son dos nombres. */}
+                                                {c.roles.map(r => (
+                                                    <span key={r} className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border shrink-0 ${r === ROL ? 'bg-brand/15 text-brand border-brand/30' : 'bg-white/5 text-white/40 border-white/10'}`}>{ROL_LABEL[r]}</span>
+                                                ))}
                                                 <span className="text-[9px] uppercase tracking-wider text-white/30 font-bold shrink-0">{c.sublabel}</span>
                                             </div>
                                             <div className="text-[11px] text-white/40 truncate">
@@ -406,6 +397,15 @@ export function EnviarBorradorRiteModal({ isOpen, onClose, expediente, defaultMe
                                     </button>
                                 );
                             })}
+                            {/* Nadie marcado como técnico en su ficha: se envía igual —
+                                50 de 70 instaladores no tienen contactos— pero se DICE.
+                                Un desvío silencioso al teléfono de la empresa es justo
+                                el fallo que esto viene a arreglar. */}
+                            {selectedContacts.some(c => c.general) && avisoReparto(pres, ROL, { general: true }) && (
+                                <p className="text-[11px] text-amber-300/80 bg-amber-500/5 border border-amber-500/20 rounded-xl p-2.5 leading-relaxed">
+                                    ⚠️ {avisoReparto(pres, ROL, { general: true })}
+                                </p>
+                            )}
                             {/* Otro contacto manual */}
                             <button type="button" onClick={() => toggleSelected('otro')}
                                 className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${selectedIds.includes('otro') ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>

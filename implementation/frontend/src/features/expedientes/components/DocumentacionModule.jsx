@@ -21,7 +21,7 @@ import { CesionManuscritaModal, esFirmaManuscrita } from './CesionManuscritaModa
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
 import { SIGN_BOXES } from '../logic/signBoxes';
-import { clienteContacts, instaladorContacts, defaultContactId, phoneValid } from '../utils/docContacts';
+import { clienteContacts, instaladorContacts, contactosPara, defaultContactId, phoneValid } from '../utils/docContacts';
 import { calcCifo } from '../logic/calcCifo';
 import { SLOTS_INCIDENCIA, incidenciasDeSlot, resumenSlot } from '../logic/incidenciaSlots';
 import { incidenciasFechasCifo } from '../logic/cifoFechas';
@@ -1814,6 +1814,12 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     /** Resumen de la incidencia de un CAMPO de documentacion (para pintar su slot). */
     const incDeCampo = (field) => resumenSlot(incidenciasSlot, SLOT_DE_CAMPO[field]);
 
+    // Qué rol pide el documento que se está rechazando: un CIFO o un RITE los
+    // rehace el TÉCNICO; las fotos y los anexos del cliente, el comercial. Espejo
+    // de `rolDeDocumento` en services/notifyContacts (la ruta lo repite en el
+    // servidor, así que el aviso y el envío no pueden discrepar).
+    const rolDeDoc = (f) => (/cifo|rite/i.test(f || '') ? 'tecnico' : 'comercial');
+
     // Contactos disponibles del grupo elegido (titular / representante / personas de
     // contacto). Misma lista que ofrece el envío de anexos — fuente única en
     // utils/docContacts para que ambos sitios se dirijan a la misma gente.
@@ -1840,12 +1846,17 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 email: c.email || null,
             };
         }
+        // Sin contacto marcado se cae al MISMO criterio que el backend: el
+        // contacto del rol que pide este documento, y si no hay ninguno, el canal
+        // general de la empresa (fuente única en utils/docContacts).
         const p = expediente?.prescriptores || {};
-        const useContact = p.contacto_notificaciones_activas === true || p.contacto_notificaciones_activas === 'true';
+        const auto = contactosPara(p, rolDeDoc(rejectDoc?.field))[0]
+            || instaladorContacts(p).find(c => c.general)
+            || null;
         return {
-            nombre: (useContact ? (p.nombre_contacto || p.razon_social) : (p.razon_social || p.acronimo)) || 'Instalador',
-            tlf: (useContact ? (p.tlf_contacto || p.tlf) : (p.tlf || p.tlf_contacto || p.landing_telefono_contacto)) || null,
-            email: (useContact ? (p.email_contacto || p.email) : (p.email || p.email_contacto)) || null,
+            nombre: auto?.label || p.razon_social || p.acronimo || 'Instalador',
+            tlf: auto?.phone || null,
+            email: auto?.email || null,
         };
     };
     const recipientName = (t) => toTitleCase(notifyTarget(t).nombre);
@@ -1987,7 +1998,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         if (isReforma) clienteFields.push('cert_cifo_signed_link');
         const t = clienteFields.includes(field) ? 'cliente' : 'instalador';
         setRejectTarget(t);
-        setRejectContactId(defaultContactId(t, expediente?.clientes || {}, expediente?.prescriptores || {}));
+        setRejectContactId(defaultContactId(t, expediente?.clientes || {}, expediente?.prescriptores || {}, rolDeDoc(field)));
         setRejectDoc({ field, label });
         setManagingSigned(null);
     };
@@ -1995,7 +2006,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     // Cambiar de destinatario recoloca el contacto marcado en el que toca por defecto.
     const switchRejectTarget = (t) => {
         setRejectTarget(t);
-        setRejectContactId(t === 'ninguno' ? null : defaultContactId(t, expediente?.clientes || {}, expediente?.prescriptores || {}));
+        setRejectContactId(t === 'ninguno' ? null : defaultContactId(t, expediente?.clientes || {}, expediente?.prescriptores || {}, rolDeDoc(rejectDoc?.field)));
     };
 
     // `reenviar` → tras registrar el rechazo abre el envío del documento con él ya

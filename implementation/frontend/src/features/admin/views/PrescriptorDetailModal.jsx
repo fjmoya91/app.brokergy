@@ -285,6 +285,98 @@ function SwitchRow({ checked, onChange, label, hint, tone = 'orange' }) {
     );
 }
 
+
+// ─── QUIÉN RECIBE QUÉ ─────────────────────────────────────────────────────────
+// Un instalador tiene dos interlocutores y no reciben lo mismo: el COMERCIAL
+// lleva la obra (propuestas, fotos, seguimiento) y el TÉCNICO firma (Memoria
+// RITE, certificado de instalación, CIFO). Hasta 2026-09-09 la ficha solo tenía
+// una lista plana con dos interruptores, así que no había forma de repartirlo: la
+// Memoria RITE de INSTOTERMA salía al móvil del comercial.
+//
+// El dato vive en UN sitio —el rol marcado en cada persona— y el resumen de
+// arriba es derivado. Dos sitios donde declarar lo mismo es la forma segura de
+// que acaben diciendo cosas distintas.
+const ROLES_UI = [
+    { id: 'comercial', label: 'Comercial', emoji: '💬', recibe: 'Propuestas, documentación de la obra y seguimiento' },
+    { id: 'tecnico',   label: 'Técnico',   emoji: '🔧', recibe: 'Memoria RITE, certificado de instalación y CIFO para firmar' },
+];
+
+const rolesDeContacto = (c) => (Array.isArray(c?.roles) ? c.roles : []).filter(r => ROLES_UI.some(x => x.id === r));
+const contactoUtil = (c) => !!((c?.tlf || '').trim() || (c?.email || '').trim());
+
+/** Quién cubre cada rol, con las mismas reglas que el backend (notifyContacts). */
+function calcularReparto(contactos, form) {
+    const utiles = (contactos || []).filter(contactoUtil);
+    const desvio = !!form?.contacto_notificaciones_activas;
+    return ROLES_UI.map(rol => {
+        const conRol = utiles.filter(c => rolesDeContacto(c).includes(rol.id));
+        if (conRol.length) return { rol, personas: conRol, general: false };
+        // Sin nadie marcado: los contactos sin repartir solo mandan si la ficha
+        // tenía activado el desvío de siempre (no se enciende a nadie de rebote).
+        const sinRol = desvio ? utiles.filter(c => !rolesDeContacto(c).length) : [];
+        if (sinRol.length) return { rol, personas: sinRol, general: false, sinRepartir: true };
+        return { rol, personas: [], general: true };
+    });
+}
+
+/**
+ * El resumen. Va ARRIBA y siempre visible porque es la única pregunta que
+ * contesta este bloque: "si mando la Memoria RITE, ¿a quién le llega?". Antes
+ * había que deducirlo de dos interruptores y una lista.
+ */
+function RepartoResumen({ contactos, form }) {
+    const reparto = calcularReparto(contactos, form);
+    const tlfGeneral = (form?.tlf || '').trim();
+    const autonomo = !!form?.es_autonomo;
+    return (
+        <div className="rounded-2xl border border-white/[0.07] bg-black/20 divide-y divide-white/[0.05] overflow-hidden">
+            {reparto.map(({ rol, personas, general, sinRepartir }) => (
+                <div key={rol.id} className="flex items-start gap-3 p-3">
+                    <span className="text-base leading-none mt-0.5 shrink-0">{rol.emoji}</span>
+                    <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/45">{rol.label}</p>
+                        <p className="text-[11px] text-white/25 leading-snug">{rol.recibe}</p>
+                    </div>
+                    <div className="text-right shrink-0 max-w-[45%]">
+                        {personas.length ? (
+                            <>
+                                <p className="text-sm font-bold text-white truncate">
+                                    {personas.map(c => (c.nombre || '').trim() || 'Sin nombre').join(' · ')}
+                                </p>
+                                <p className="text-[11px] text-white/35 truncate">
+                                    {personas.map(c => c.tlf || c.email).filter(Boolean).join(' · ') || 'sin teléfono'}
+                                    {sinRepartir && <span className="text-white/20"> · sin repartir</span>}
+                                </p>
+                            </>
+                        ) : autonomo ? (
+                            <p className="text-[11px] text-white/35 leading-snug">Tú mismo{tlfGeneral ? ` · ${tlfGeneral}` : ''}</p>
+                        ) : (
+                            <p className="text-[11px] text-amber-300/80 leading-snug">
+                                Nadie marcado<br />
+                                <span className="text-amber-300/50">irá al teléfono general{tlfGeneral ? ` (${tlfGeneral})` : ''}</span>
+                            </p>
+                        )}
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+}
+
+/** Chip de rol: pulsarlo ES la decisión de a quién se le manda cada cosa. */
+function ChipRol({ rol, on, onClick }) {
+    return (
+        <button type="button" onClick={onClick} title={rol.recibe}
+            className={`flex items-center gap-1.5 pl-2 pr-2.5 py-1.5 rounded-lg border text-[11px] font-black uppercase tracking-wider transition-all ${
+                on ? 'bg-brand/15 border-brand/40 text-brand' : 'bg-white/[0.02] border-white/10 text-white/35 hover:border-white/25 hover:text-white/60'}`}>
+            <span className={`w-3.5 h-3.5 rounded flex items-center justify-center border ${on ? 'bg-brand border-brand' : 'border-white/25'}`}>
+                {on && <svg className="w-2.5 h-2.5 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={4}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+            </span>
+            {rol.emoji} {rol.label}
+        </button>
+    );
+}
+
 /**
  * Sección PLEGABLE del formulario de edición. Mantiene el formulario corto: a la
  * vista solo lo que casi siempre se toca (identidad, habilitación RITE) y el
@@ -462,7 +554,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
         instaladores_asociados: [],
         usuario_password: '', usuario_confirm_password: '',
         contacto_alternativo_activo: false,
-        contactos_notificacion: [{ nombre: '', tlf: '', email: '', cargo: '' }],
+        contactos_notificacion: [{ nombre: '', tlf: '', email: '', cargo: '', roles: [] }],
         contacto_notificaciones_activas: false,
         // Técnico habilitado que firma las memorias (si es distinto del representante legal)
         tecnico_firmante_distinto: false,
@@ -669,12 +761,12 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 contacto_alternativo_activo: p.contacto_alternativo_activo || false,
                 contactos_notificacion: (() => {
                     const arr = Array.isArray(p.contactos_notificacion) ? p.contactos_notificacion : [];
-                    if (arr.length) return arr.map(c => ({ nombre: c.nombre || '', tlf: c.tlf || '', email: c.email || '', cargo: c.cargo || '' }));
+                    if (arr.length) return arr.map(c => ({ nombre: c.nombre || '', tlf: c.tlf || '', email: c.email || '', cargo: c.cargo || '', roles: Array.isArray(c.roles) ? c.roles : [] }));
                     // Migración: si solo hay el contacto plano antiguo, sembrar el array con él.
                     if (p.nombre_contacto || p.tlf_contacto || p.email_contacto) {
-                        return [{ nombre: p.nombre_contacto || '', tlf: p.tlf_contacto || '', email: p.email_contacto || '', cargo: '' }];
+                        return [{ nombre: p.nombre_contacto || '', tlf: p.tlf_contacto || '', email: p.email_contacto || '', cargo: '', roles: [] }];
                     }
-                    return [{ nombre: '', tlf: '', email: '', cargo: '' }];
+                    return [{ nombre: '', tlf: '', email: '', cargo: '', roles: [] }];
                 })(),
                 contacto_notificaciones_activas: p.contacto_notificaciones_activas || false,
                 tecnico_firmante_distinto:    p.tecnico_firmante_distinto || false,
@@ -709,11 +801,56 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
     }));
     const addContacto = () => setForm(f => ({
         ...f,
-        contactos_notificacion: [...(f.contactos_notificacion || []), { nombre: '', tlf: '', email: '', cargo: '' }],
+        contactos_notificacion: [...(f.contactos_notificacion || []), { nombre: '', tlf: '', email: '', cargo: '', roles: [] }],
     }));
     const removeContacto = (i) => setForm(f => {
         const next = (f.contactos_notificacion || []).filter((_, idx) => idx !== i);
-        return { ...f, contactos_notificacion: next.length ? next : [{ nombre: '', tlf: '', email: '', cargo: '' }] };
+        return { ...f, contactos_notificacion: next.length ? next : [{ nombre: '', tlf: '', email: '', cargo: '', roles: [] }] };
+    });
+
+    // ─── Reparto de avisos (comercial / técnico) ──────────────────────────────
+    // El resumen es DERIVADO de los roles marcados en cada persona: es la única
+    // pregunta que contesta el bloque ("¿a quién le llega la Memoria RITE?") y
+    // por eso se ve también con la sección plegada.
+    const contactosUtiles = (form.contactos_notificacion || []).filter(c => (c.tlf || '').trim() || (c.email || '').trim());
+    // El resumen se calcula con lo que se VA A GUARDAR, no con lo que hay en la
+    // BD: al guardar, el interruptor de siempre se deriva de que haya personas
+    // dadas de alta (ver el payload). Si el resumen usara el valor antiguo, en las
+    // 3 fichas que tienen un contacto con el desvío apagado la pantalla diría
+    // "nadie marcado" y el guardado haría justo lo contrario.
+    const formParaReparto = { ...form, contacto_notificaciones_activas: contactosUtiles.length > 0 };
+    const resumenAvisos = (() => {
+        if (!contactosUtiles.length) {
+            return form.es_autonomo ? 'Todo al profesional' : 'Todo al teléfono general de la empresa';
+        }
+        return calcularReparto(form.contactos_notificacion, formParaReparto)
+            .map(({ rol, personas, general }) => `${rol.label}: ${general ? '⚠️ nadie' : personas.map(c => (c.nombre || '').trim() || 'sin nombre').join(', ')}`)
+            .join(' · ');
+    })();
+    // Solo hay algo que repartir cuando hay DOS o más personas: con una sola, o
+    // recibe ella todo o recibe la empresa, y en ninguno de los dos casos se
+    // pierde nada. Pedir una decisión que no cambia nada es lo que hace que se
+    // ignoren los avisos que sí importan.
+    const avisosSinRepartir = contactosUtiles.length > 1
+        && !contactosUtiles.some(c => (Array.isArray(c.roles) ? c.roles.length : 0));
+
+    // El representante legal casi siempre es también el técnico que firma, y en 50
+    // de las 70 fichas no hay ni un contacto: teclear otra vez lo que está tres
+    // campos más arriba es justo la razón de que nadie rellene esto.
+    const puedeCopiarResponsable = !!(form.nombre_responsable || '').trim()
+        && !(form.contactos_notificacion || []).some(c => (c.nombre || '').trim().toUpperCase() === (form.nombre_responsable || '').trim().toUpperCase());
+    const copiarResponsableAContacto = () => setForm(f => {
+        const nuevo = {
+            nombre: [f.nombre_responsable, f.apellidos_responsable].filter(Boolean).join(' ').trim(),
+            // Su teléfono PROPIO si lo tiene. Nunca el de la empresa: es justo la
+            // confusión que produjo el fallo (el nombre de uno sobre el número de otro).
+            tlf: (f.tlf_responsable || '').trim(),
+            email: (f.email_responsable || '').trim(),
+            cargo: (f.cargo || '').trim(),
+            roles: [],
+        };
+        const lista = (f.contactos_notificacion || []).filter(c => c.nombre || c.tlf || c.email);
+        return { ...f, contactos_notificacion: [...lista, nuevo] };
     });
 
     // ─── Logo upload ─────────────────────────────────────────────────────────
@@ -836,11 +973,20 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 es_autonomo:           form.es_autonomo,
                 logo_empresa:          form.logo_empresa || null,
                 instaladores_asociados: form.tipo_empresa === 'DISTRIBUIDOR' ? form.instaladores_asociados : [],
-                contacto_alternativo_activo: form.contacto_alternativo_activo,
+                // Los dos interruptores de antes (`contacto_alternativo_activo` y
+                // `contacto_notificaciones_activas`) ya no se preguntan: se DERIVAN
+                // de si hay personas dadas de alta. Eran la pregunta que había que
+                // contestar dos veces para que un aviso llegara a alguien, y quien
+                // decide ahora es el ROL marcado en cada persona.
+                contacto_alternativo_activo: contactosUtiles.length > 0,
                 contactos_notificacion: (form.contactos_notificacion || [])
-                    .map(c => ({ nombre: (c.nombre || '').trim(), tlf: (c.tlf || '').trim(), email: (c.email || '').trim().toLowerCase(), cargo: (c.cargo || '').trim() }))
+                    .map(c => ({
+                        nombre: (c.nombre || '').trim(), tlf: (c.tlf || '').trim(),
+                        email: (c.email || '').trim().toLowerCase(), cargo: (c.cargo || '').trim(),
+                        roles: (Array.isArray(c.roles) ? c.roles : []).filter(r => ROLES_UI.some(x => x.id === r)),
+                    }))
                     .filter(c => c.nombre || c.tlf || c.email),
-                contacto_notificaciones_activas: form.contacto_notificaciones_activas,
+                contacto_notificaciones_activas: contactosUtiles.length > 0,
                 tecnico_firmante_distinto:    form.tecnico_firmante_distinto,
                 tecnico_firmante_nombre:      form.tecnico_firmante_nombre.trim() || null,
                 tecnico_firmante_apellidos:   form.tecnico_firmante_apellidos.trim() || null,
@@ -1303,28 +1449,52 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                 </Section>
                             )}
 
-                            {/* Contactos para Notificaciones (Vista) */}
-                            {p.contacto_alternativo_activo && (() => {
+                            {/* Avisos y contactos (Vista) */}
+                            {/* Se enseña SIEMPRE, también sin contactos: "a quién le
+                                llega la Memoria RITE" es una pregunta que hay que
+                                poder contestar de un vistazo, y la respuesta "al
+                                teléfono general de la empresa" es la que más veces
+                                conviene ver — es la que hay que arreglar. */}
+                            {(() => {
                                 const lista = (Array.isArray(p.contactos_notificacion) && p.contactos_notificacion.length)
                                     ? p.contactos_notificacion
                                     : ((p.nombre_contacto || p.tlf_contacto || p.email_contacto)
                                         ? [{ nombre: p.nombre_contacto, tlf: p.tlf_contacto, email: p.email_contacto }]
                                         : []);
-                                if (!lista.length) return null;
+                                const reparto = calcularReparto(lista, p);
+                                const faltaAlguno = !p.es_autonomo && reparto.some(r => r.general);
                                 return (
                                     <Section
-                                        title={lista.length > 1 ? 'Contactos para Notificaciones' : 'Contacto para Notificaciones'}
+                                        title="Avisos y contactos"
                                         iconPath="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-                                        badge={p.contacto_notificaciones_activas && (
-                                            <span className="text-[9px] font-black bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded uppercase tracking-wider">Activo</span>
+                                        badge={faltaAlguno && (
+                                            <span className="text-[9px] font-black bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded uppercase tracking-wider">Sin repartir</span>
                                         )}
                                     >
                                         <div className="space-y-2.5">
-                                            {lista.map((c, i) => (
-                                                <div key={i} className="p-3 bg-black/20 rounded-xl border border-white/[0.06] grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-3">
-                                                    <FV label="Nombre" value={c.nombre} />
-                                                    <FV label="Teléfono" value={c.tlf} mono />
-                                                    <div className="sm:col-span-2"><FV label="Email" value={c.email} lower /></div>
+                                            {reparto.map(({ rol, personas, general, sinRepartir }) => (
+                                                <div key={rol.id} className="flex items-start gap-3 p-3 bg-black/20 rounded-xl border border-white/[0.06]">
+                                                    <span className="text-base leading-none mt-0.5 shrink-0">{rol.emoji}</span>
+                                                    <div className="min-w-0 flex-1">
+                                                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/40">{rol.label}</p>
+                                                        <p className="text-[11px] text-white/25 leading-snug">{rol.recibe}</p>
+                                                    </div>
+                                                    <div className="text-right shrink-0 max-w-[45%]">
+                                                        {personas.length ? (
+                                                            <>
+                                                                <p className="text-sm font-bold text-white truncate">{personas.map(c => (c.nombre || '').trim() || 'Sin nombre').join(' · ')}</p>
+                                                                <p className="text-[11px] text-white/35 truncate font-mono">{personas.map(c => c.tlf || c.email).filter(Boolean).join(' · ') || '—'}</p>
+                                                                {sinRepartir && <p className="text-[10px] text-white/20 uppercase tracking-wider">sin repartir</p>}
+                                                            </>
+                                                        ) : p.es_autonomo ? (
+                                                            <p className="text-[11px] text-white/35">{p.tlf || '—'}</p>
+                                                        ) : (
+                                                            <p className="text-[11px] text-amber-300/75 leading-snug">
+                                                                Teléfono general<br />
+                                                                <span className="font-mono text-amber-300/50">{p.tlf || 'sin teléfono'}</span>
+                                                            </p>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             ))}
                                         </div>
@@ -1952,24 +2122,43 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                             </div>
                             )}
 
-                            {/* --- SECCIÓN CONTACTO ALTERNATIVO (EDICIÓN) --- */}
+                            {/* --- QUIÉN RECIBE QUÉ (EDICIÓN) --- */}
+                            {/* Un solo bloque y CERO interruptores. Antes eran dos
+                                toggles anidados ("desviar a otros contactos" +
+                                "enviar notificaciones a estos contactos") y una
+                                lista: había que abrir los dos para descubrir a
+                                quién le llegaba nada. Ahora la pregunta se
+                                contesta sola — quien tiene el rol, lo recibe. */}
                             <Collapse
-                                title="Configuración de Notificaciones"
-                                summary={form.contacto_alternativo_activo
-                                    ? `${(form.contactos_notificacion || []).filter(c => c.nombre || c.email || c.tlf).length} contacto(s)${form.contacto_notificaciones_activas ? ' · reciben los avisos' : ''}`
-                                    : (form.es_autonomo ? 'Se avisa al profesional' : 'Se avisa a la persona de contacto')}
+                                title="Avisos y contactos"
+                                subtitle="A quién le llega cada cosa de este partner"
+                                summary={resumenAvisos}
+                                defaultOpen={avisosSinRepartir}
                             >
-                                <SwitchRow
-                                    checked={form.contacto_alternativo_activo}
-                                    onChange={v => upd({ contacto_alternativo_activo: v })}
-                                    label="Desviar a otros contactos"
-                                    hint="¿Los avisos (WhatsApp/email) deben ir a otra(s) persona(s), en vez de a la de contacto?"
-                                />
+                                <div className="space-y-4">
+                                    <RepartoResumen contactos={form.contactos_notificacion} form={formParaReparto} />
 
-                                {form.contacto_alternativo_activo && (
-                                    <div className="space-y-3 animate-fade-in-up">
-                                        {(form.contactos_notificacion || []).map((c, i) => (
-                                            <div key={i} className="relative p-4 bg-white/[0.02] border border-white/[0.05] rounded-2xl">
+                                    {/* El aviso solo aparece cuando hay algo que decidir: con dos
+                                        o más personas y ninguna repartida, los avisos van todos
+                                        al mismo sitio y una de las dos no se entera de lo suyo. */}
+                                    {avisosSinRepartir && (
+                                        <p className="text-[11px] text-amber-300/80 bg-amber-500/5 border border-amber-500/20 rounded-xl p-2.5 leading-relaxed">
+                                            ⚠️ Marca qué recibe cada persona. Mientras no lo hagas, todo
+                                            se sigue enviando como hasta ahora.
+                                        </p>
+                                    )}
+
+                                    {(form.contactos_notificacion || []).map((c, i) => {
+                                        const roles = rolesDeContacto(c);
+                                        const cargo = (c.cargo || '').toUpperCase();
+                                        // Si el CARGO ya lo dice, se ofrece marcarlo de un clic en vez
+                                        // de hacerlo teclear otra vez. Lo marca una PERSONA: deducirlo
+                                        // solo cambiaría a quién le escribimos sin que nadie lo revise.
+                                        const sugerido = !roles.length && (
+                                            /COMERCIAL|VENTAS|GESTOR/.test(cargo) ? 'comercial'
+                                            : /TECNIC|TÉCNIC|INGENIER/.test(cargo) ? 'tecnico' : null);
+                                        return (
+                                            <div key={i} className="relative p-4 bg-white/[0.02] border border-white/[0.05] rounded-2xl space-y-3">
                                                 {(form.contactos_notificacion.length > 1) && (
                                                     <button type="button" onClick={() => removeContacto(i)} title="Eliminar contacto"
                                                         className="absolute top-2.5 right-2.5 p-1.5 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-all">
@@ -1977,50 +2166,85 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                                     </button>
                                                 )}
                                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                    <FI label="Nombre de Contacto" required={i === 0}>
-                                                        <Inp value={c.nombre} uppercase placeholder="Ej: VICTORIA"
+                                                    <FI label="Nombre">
+                                                        <Inp value={c.nombre} uppercase placeholder="Ej: CARLOS"
                                                             onChange={e => updContacto(i, { nombre: e.target.value })} />
                                                     </FI>
                                                     <FI label="Cargo">
-                                                        <Inp value={c.cargo} uppercase placeholder="Ej: GESTOR CAE"
+                                                        <Inp value={c.cargo} uppercase placeholder="Ej: COMERCIAL"
                                                             onChange={e => updContacto(i, { cargo: e.target.value })} />
                                                     </FI>
-                                                    <FI label="Teléfono de Contacto">
+                                                    <FI label="Teléfono">
                                                         <Inp value={c.tlf} placeholder="600 000 000"
                                                             onChange={e => updContacto(i, { tlf: e.target.value })} />
                                                     </FI>
-                                                    <FI label="Email de Contacto">
+                                                    <FI label="Email">
                                                         <Inp type="email" value={c.email} placeholder="contacto@ejemplo.com"
                                                             onChange={e => updContacto(i, { email: e.target.value.toLowerCase() })} />
                                                     </FI>
                                                 </div>
+
+                                                <div className="pt-1 border-t border-white/[0.05]">
+                                                    <p className="text-[10px] uppercase tracking-widest font-black text-white/40 mb-2">¿Qué recibe?</p>
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        {ROLES_UI.map(rol => (
+                                                            <ChipRol key={rol.id} rol={rol} on={roles.includes(rol.id)}
+                                                                onClick={() => updContacto(i, {
+                                                                    roles: roles.includes(rol.id)
+                                                                        ? roles.filter(r => r !== rol.id)
+                                                                        : [...roles, rol.id],
+                                                                })} />
+                                                        ))}
+                                                        {roles.length !== ROLES_UI.length && (
+                                                            <button type="button"
+                                                                onClick={() => updContacto(i, { roles: ROLES_UI.map(r => r.id) })}
+                                                                className="text-[11px] font-bold text-white/30 hover:text-brand underline underline-offset-2 transition-colors">
+                                                                recibe todo
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                    {/* Una persona marcada SIN teléfono no recibe el WhatsApp,
+                                                        que es por donde salen casi todos los avisos. */}
+                                                    {!!roles.length && !(c.tlf || '').trim() && (
+                                                        <p className="text-[11px] text-amber-300/70 mt-2">
+                                                            Sin teléfono solo le llegará el email.
+                                                        </p>
+                                                    )}
+                                                    {sugerido && (
+                                                        <button type="button" onClick={() => updContacto(i, { roles: [sugerido] })}
+                                                            className="text-[11px] text-white/35 hover:text-brand mt-2 transition-colors">
+                                                            Su cargo dice «{cargo}» · marcar como {ROLES_UI.find(r => r.id === sugerido).label} →
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </div>
-                                        ))}
+                                        );
+                                    })}
 
-                                        {/* Añadir otro contacto */}
+                                    <div className="flex flex-wrap gap-2">
                                         <button type="button" onClick={addContacto}
-                                            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-white/15 text-white/40 hover:text-brand hover:border-brand/40 hover:bg-brand/5 transition-all text-[11px] font-black uppercase tracking-widest">
+                                            className="flex-1 min-w-[180px] flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-white/15 text-white/40 hover:text-brand hover:border-brand/40 hover:bg-brand/5 transition-all text-[11px] font-black uppercase tracking-widest">
                                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
-                                            Añadir otro contacto
+                                            Añadir persona
                                         </button>
-
-                                        {/* Toggle global: dirigir las notificaciones a estos contactos */}
-                                        <div className="pt-1">
-                                            <label className="flex items-center gap-3 cursor-pointer group">
-                                                <div className="relative h-5 w-9 shrink-0">
-                                                    <input type="checkbox" checked={form.contacto_notificaciones_activas}
-                                                        onChange={e => upd({ contacto_notificaciones_activas: e.target.checked })}
-                                                        className="sr-only peer" />
-                                                    <div className="w-full h-full bg-transparent border border-orange-500 rounded-full peer peer-checked:bg-orange-500 peer-checked:after:translate-x-[16px] peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
-                                                </div>
-                                                <div>
-                                                    <span className="text-[10px] font-black uppercase tracking-widest text-white/40 group-hover:text-white/60 transition-colors">Enviar notificaciones a estos contactos</span>
-                                                    <p className="text-[9px] text-white/20 -mt-0.5">Si se activa, las notificaciones (WhatsApp/Email) se dirigirán a estos contactos en lugar de a los principales. Al enviar podrás elegir a cuáles.</p>
-                                                </div>
-                                            </label>
-                                        </div>
+                                        {/* Atajo para las fichas vacías (50 de 70 instaladores): el
+                                            representante suele ser también el técnico, y teclear
+                                            otra vez lo que está tres campos más arriba es la razón
+                                            de que nadie rellene esto. */}
+                                        {puedeCopiarResponsable && (
+                                            <button type="button" onClick={copiarResponsableAContacto}
+                                                className="flex-1 min-w-[180px] flex items-center justify-center gap-2 py-2.5 rounded-xl border border-white/10 bg-white/[0.02] text-white/45 hover:text-brand hover:border-brand/40 transition-all text-[11px] font-black uppercase tracking-widest">
+                                                Usar a {(form.nombre_responsable || '').split(' ')[0] || 'la persona de contacto'}
+                                            </button>
+                                        )}
                                     </div>
-                                )}
+
+                                    <p className="text-[11px] text-white/20 leading-relaxed">
+                                        Si nadie está marcado para un aviso, se envía al teléfono y al email
+                                        generales de la empresa. El <b className="text-white/35">representante legal</b> no
+                                        recibe nada por serlo: su nombre es el que se imprime y firma en el CIFO.
+                                    </p>
+                                </div>
                             </Collapse>
 
                             {/* ── 2. DIRECCIÓN → plegable */}

@@ -7,7 +7,7 @@ import { postEmail } from '../../../utils/emailFallback';
 // Convenio de Cesión sigue siendo maqueta propia: no hay impreso oficial de él.
 import { anexoIFormulario } from '../logic/anexoIFormulario';
 import { buildAnexoCesionHtml, getDualMessage, getClientCaeRate, buildInstalacionAddress, esCesionPrevia, tieneCuentaBancaria } from '../utils/docGenerators';
-import { clienteContacts, instaladorContacts, phoneValid } from '../utils/docContacts';
+import { clienteContacts, instaladorContacts, defaultContactIds, phoneValid } from '../utils/docContacts';
 import { unidadesSinSerie, countUnidades } from '../logic/aerotermiaUnits';
 // Canal de envío de la barra inferior — COMPARTIDO con los otros popups de envío.
 import { CanalChip, avisoCanales } from '../../../components/CanalChip';
@@ -312,14 +312,10 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
         return [...incTexts, ...noteLines].join('\n');
     };
 
-    const pickDefaultIds = (tgt) => {
-        if (tgt === 'instalador') {
-            const alt = instContacts.filter(c => c.id !== 'rep').map(c => c.id);
-            if (pres.contacto_notificaciones_activas && alt.length) return alt;   // todos los contactos de notificación
-            return instContacts[0] ? [instContacts[0].id] : [];
-        }
-        return cliContacts[0] ? [cliContacts[0].id] : [];
-    };
+    // Lo que se manda aquí son los anexos del CLIENTE (Anexo I, Convenio de
+    // Cesión): cuando van al instalador, es como copia a quien lleva la obra —
+    // asunto COMERCIAL, no del técnico que firma el CIFO.
+    const pickDefaultIds = (tgt) => defaultContactIds(tgt, cli, pres, 'comercial');
 
     // Inicialización al abrir
     useEffect(() => {

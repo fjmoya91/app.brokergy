@@ -26,7 +26,9 @@ const { mergeDocumentacion } = require('../utils/mergeDocumentacion');
 const anexoFotograficoService = require('../services/anexoFotograficoService');
 const cifoService = require('../services/cifoService');
 const { applyStatus, stampSeguimientoTimestamps, markCertContact } = require('../services/seguimientoTracking');
-const { partnerNotifyTargets, normalizeContactos, saludoPartner } = require('../services/notifyContacts');
+const { partnerNotifyTargets, partnerNotifyTarget, contactosDePartner, repartoPartner,
+        normalizeContactos, saludoPartner, rolDeDocumento,
+        PARTNER_CONTACT_FIELDS } = require('../services/notifyContacts');
 const { capitalizar: capitalizarNombre } = require('../services/recordatorios');
 const { buildCertClienteData } = require('../services/certClienteData');
 const cobroService = require('../services/cobroService');
@@ -1313,7 +1315,8 @@ router.get('/:id/solicitud-info', internalKeyOrAuth, async (req, res) => {
             exp.cliente_id ? supabase.from('clientes').select('*').eq('id_cliente', exp.cliente_id).maybeSingle() : Promise.resolve({ data: null }),
             exp.oportunidad_id ? supabase.from('oportunidades').select('id, ficha, datos_calculo').eq('id', exp.oportunidad_id).maybeSingle() : Promise.resolve({ data: null }),
             resolveSolicitudContacto(exp, 'CLIENTE'),
-            resolveSolicitudContacto(exp, 'INSTALADOR'),
+            // Lo que se le pide aquí es documentación de la obra: asunto COMERCIAL.
+            resolveSolicitudContacto(exp, 'INSTALADOR', 'comercial'),
         ]);
 
         let uploadBase = null;
@@ -1371,7 +1374,7 @@ router.get('/:id/solicitud-info', internalKeyOrAuth, async (req, res) => {
 // notificaciones (mismo criterio que el resto de avisos del sistema):
 //   · Cliente: si notificaciones_contacto_activas → persona_contacto_* (nombre/tlf/email)
 //   · Instalador: si contacto_notificaciones_activas → nombre_contacto / tlf_contacto / email_contacto
-async function resolveSolicitudContacto(exp, target) {
+async function resolveSolicitudContacto(exp, target, rol = null) {
     if (target === 'INSTALADOR') {
         const { data: op } = await supabase
             .from('oportunidades')
@@ -1381,34 +1384,27 @@ async function resolveSolicitudContacto(exp, target) {
         if (!insId) return { nombre: null, tlf: null, email: null, contactos: [] };
         // OJO: prescriptores NO tiene columnas telefono/movil.
         const { data: p, error: pErr } = await supabase.from('prescriptores')
-            .select('razon_social, acronimo, es_autonomo, nombre_responsable, apellidos_responsable, tlf, tlf_contacto, tlf_responsable, landing_telefono_contacto, email, email_contacto, email_responsable, nombre_contacto, contacto_notificaciones_activas, contactos_notificacion')
+            .select(PARTNER_CONTACT_FIELDS)
             .eq('id_empresa', insId).maybeSingle();
         if (pErr) console.warn('[solicitud contacto INSTALADOR]', pErr.message);
-        const useContact = p?.contacto_notificaciones_activas === true || p?.contacto_notificaciones_activas === 'true';
 
-        // Lista de TODOS los contactos disponibles del instalador para el selector:
-        // representante/empresa + cada persona de contacto de notificaciones.
-        const contactos = [];
-        const repNombre = [p?.nombre_responsable, p?.apellidos_responsable].filter(Boolean).join(' ').trim()
-            || p?.razon_social || p?.acronimo || 'Instalador';
-        // La PERSONA DE CONTACTO tiene su propio tlf/email; si no, los de la empresa.
-        const repTlf = p?.tlf_responsable || p?.tlf || p?.landing_telefono_contacto || '';
-        const repEmail = p?.email_responsable || p?.email || '';
-        if (repTlf || repEmail) {
-            contactos.push({ id: 'rep', nombre: repNombre, tlf: repTlf || '', email: repEmail, tipo: p?.es_autonomo ? 'Autónomo' : 'Persona de contacto' });
-        }
-        normalizeContactos(p?.contactos_notificacion).forEach((c, i) => {
-            if (c.tlf || c.email) contactos.push({ id: `c${i}`, nombre: c.nombre || repNombre, tlf: c.tlf || '', email: c.email || '', tipo: 'Persona de contacto' });
-        });
+        // Quién recibe ESTE asunto. `rol` ('comercial'|'tecnico') es lo que evita
+        // que la Memoria RITE acabe en el móvil del comercial: fuente única en
+        // services/notifyContacts. `sinRol`/`general` viajan para que el popup
+        // pueda DECIR que no hay nadie marcado, en vez de desviar en silencio.
+        const elegido = partnerNotifyTarget(p, rol);
 
         return {
-            // Se saluda por su NOMBRE bien escrito ("Hola José Antonio"): en la
-            // ficha van en mayúsculas porque el formulario las fuerza. Fuente
-            // única: saludoPartner (services/notifyContacts).
-            nombre: (useContact ? (p?.nombre_contacto ? capitalizarNombre(p.nombre_contacto) : saludoPartner(p)) : saludoPartner(p)) || null,
-            tlf: (useContact ? (p?.tlf_contacto || p?.tlf) : (p?.tlf_responsable || p?.tlf || p?.tlf_contacto || p?.landing_telefono_contacto)) || null,
-            email: (useContact ? (p?.email_contacto || p?.email) : (p?.email_responsable || p?.email || p?.email_contacto)) || null,
-            contactos,
+            ...elegido,
+            // La lista completa para el selector del popup, con los roles de cada
+            // uno: es lo que permite enseñar "Jesús · Técnico" y, en el canal
+            // general, decir que es de la empresa y no de una persona.
+            contactos: contactosDePartner(p).map(c => ({
+                id: c.id, nombre: c.etiqueta, tlf: c.tlf, email: c.email,
+                roles: c.roles, general: c.general,
+                tipo: c.general ? c.cargo : (c.cargo || 'Persona de contacto'),
+            })),
+            reparto: repartoPartner(p),
         };
     }
     // CLIENTE — la tabla clientes NO tiene columna `telefono`, solo `tlf`.
@@ -1733,7 +1729,8 @@ router.post('/:id/solicitar-faltantes', internalKeyOrAuth, async (req, res) => {
         const { data: exp, error } = await supabase.from('expedientes').select('*').eq('id', req.params.id).single();
         if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
 
-        const contacto = await resolveSolicitudContacto(exp, target);
+        // Se reclama documentación de la obra: al COMERCIAL del instalador.
+        const contacto = await resolveSolicitudContacto(exp, target, 'comercial');
         // Overrides del admin: puede dirigir el mensaje a otro teléfono/email/persona.
         const tlf = (String(req.body?.tlf || '').trim()) || contacto.tlf;
         const email = (String(req.body?.email || '').trim()) || contacto.email;
@@ -1832,7 +1829,9 @@ router.post('/:id/documentos/rechazar', enforceAuth, async (req, res) => {
         const sent = [];
         let sentTo = null;
         if ((target === 'CLIENTE' || target === 'INSTALADOR') && mensaje) {
-            const contacto = await resolveSolicitudContacto(exp, target);
+            // El rol lo pide el DOCUMENTO: un CIFO o un RITE rechazados los tiene
+            // que rehacer el TÉCNICO, no quien lleva la obra.
+            const contacto = await resolveSolicitudContacto(exp, target, rolDeDocumento(field));
             const tlf = (String(req.body?.tlf || '').trim()) || contacto.tlf;
             const email = (String(req.body?.email || '').trim()) || contacto.email;
             if (channels.includes('whatsapp') && tlf) {
@@ -5020,12 +5019,13 @@ router.post('/:id/instalador/enviar', enforceAuth, async (req, res) => {
                 tlf: (r?.phone || r?.tlf || '').toString().trim(),
             }));
         } else {
-            const useContact = dest0.contacto_notificaciones_activas === true || dest0.contacto_notificaciones_activas === 'true';
-            destinatarios = [{
-                nombre: useContact ? (dest0.nombre_contacto || dest0.razon_social || '') : (dest0.nombre_responsable || dest0.razon_social || ''),
-                email: ((useContact ? (dest0.email_contacto || dest0.email) : dest0.email) || '').trim(),
-                tlf: ((useContact ? (dest0.tlf_contacto || dest0.tlf || dest0.telefono) : (dest0.tlf || dest0.telefono)) || '').trim(),
-            }];
+            // Sin destinatarios explícitos manda el TÉCNICO del instalador: esto es
+            // el CIFO y la documentación RITE, o sea lo que él firma. Antes caía en
+            // `nombre_responsable` + el teléfono de la EMPRESA, que en 67 de las 70
+            // fichas es el móvil de otra persona (ver services/notifyContacts).
+            destinatarios = partnerNotifyTargets(dest0, 'tecnico').map(t => ({
+                nombre: t.nombre || '', email: (t.email || '').trim(), tlf: (t.tlf || '').trim(),
+            }));
         }
         if (!destinatarios.length) return res.status(400).json({ error: 'No hay ningún destinatario' });
 

@@ -9,6 +9,7 @@ import { calcCifo } from '../logic/calcCifo';
 import { esTermoElectrico, esAcumuladorAcs } from '../logic/aerotermiaUnits';
 // Qué fichas técnicas lleva ESTE expediente: una por MODELO distinto de bomba de
 // calor, no una por hueco. FUENTE ÚNICA con las rutas y con cifoService.
+import { instaladorContacts, defaultContactIds, avisoReparto, ROL_LABEL } from '../utils/docContacts';
 import { resolveFichaSlots, ftAttachmentSlots, ftSlotId, ftTypeFromSlotId } from '../logic/fichasTecnicas';
 import { GuardarEnCatalogoGate } from '../../ventanas/components/GuardarEnCatalogoGate';
 import { postEmail } from '../../../utils/emailFallback';
@@ -665,7 +666,6 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     const empProv   = pres.provincia || '—';
     const empCargo  = pres.es_autonomo ? 'Trabajador autónomo' : 'Representante legal';
     const empEmail  = pres.email || '';
-    const empTlf    = pres.tlf || '';
     const empResponsable = [pres.nombre_responsable, pres.apellidos_responsable].filter(Boolean).join(' ') || empNombre;
     const emiLabel  = EMITTER_OPTIONS.find(o => o.value === inst.tipo_emisor)?.label || '—';
     const metodoCal = inst.aerotermia_cal?.metodo_scop || 'ficha';
@@ -1026,31 +1026,11 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     // abría el primero y de lo otro no se enteraba nadie.
     const uploadLink    = enlaceInstalador(typeof window !== 'undefined' ? window.location.origin : APP_BASE_URL, expediente.id);
 
-    // Contactos disponibles del perfil del instalador (puede haber varios):
-    // representante/empresa + persona de contacto de notificaciones.
-    const instContacts = [];
-    {
-        const repName = (empResponsable && empResponsable !== '—') ? empResponsable : empNombre;
-        // La PERSONA DE CONTACTO tiene su propio tlf/email; si no los tiene, se
-        // cae a los de la empresa. MISMO criterio que docContacts.instaladorContacts:
-        // si divergieran, este popup ofrecería un teléfono y el de anexos otro.
-        const repPhone = pres.tlf_responsable || empTlf || '';
-        const repEmail = pres.email_responsable || empEmail || '';
-        if (repPhone || repEmail) {
-            // `saludo` = solo el NOMBRE; el label lleva los apellidos para
-            // reconocerlo en la lista, pero no se saluda con ellos.
-            instContacts.push({ id: 'rep', label: repName, saludo: pres.nombre_responsable || '', sublabel: pres.es_autonomo ? 'Autónomo' : 'Persona de contacto', phone: repPhone, email: repEmail });
-        }
-        const arr = Array.isArray(pres.contactos_notificacion) ? pres.contactos_notificacion : [];
-        if (arr.length) {
-            arr.forEach((c, i) => {
-                if (c && (c.tlf || c.email)) instContacts.push({ id: `c${i}`, label: c.nombre || 'Contacto', sublabel: 'Persona de contacto', phone: c.tlf || '', email: c.email || '' });
-            });
-        } else if (pres.nombre_contacto && (pres.tlf_contacto || pres.email_contacto)) {
-            instContacts.push({ id: 'contacto', label: pres.nombre_contacto, sublabel: 'Persona de contacto', phone: pres.tlf_contacto || '', email: pres.email_contacto || '' });
-        }
-    }
-    const altIds = instContacts.filter(c => c.id !== 'rep').map(c => c.id);
+    // A quién se le puede mandar esto. Fuente única con el backend
+    // (services/notifyContacts) y con el popup del RITE: si divergieran, un popup
+    // ofrecería un teléfono y el otro otro. El CIFO lo FIRMA el técnico.
+    const ROL = 'tecnico';
+    const instContacts = instaladorContacts(pres);
     const phoneValid = (ph) => (ph || '').replace(/[^0-9]/g, '').length >= 9;
 
     const resolveContact = (id) => {
@@ -1073,7 +1053,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     const openSendModal = async () => {
         // Por defecto: si la redirección está activa, todos los contactos de
         // notificación; si no, el representante (o el primero disponible).
-        const defIds = (pres.contacto_notificaciones_activas && altIds.length) ? altIds : (instContacts[0] ? [instContacts[0].id] : []);
+        const defIds = defaultContactIds('instalador', null, pres, ROL);
         const sel = instContacts.filter(c => defIds.includes(c.id));
         // Si venimos de rechazar el CIFO firmado, la plantilla es la de corrección.
         // Si no, y ya hubo un firmado previo, lo más probable es un requerimiento.
@@ -1468,8 +1448,11 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                                                     {on && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
                                                 </span>
                                                 <div className="min-w-0 flex-1">
-                                                    <div className="flex items-center gap-2">
+                                                    <div className="flex items-center gap-2 flex-wrap">
                                                         <span className="text-sm font-bold text-white truncate">{c.label}</span>
+                                                        {c.roles.map(r => (
+                                                            <span key={r} className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border shrink-0 ${r === ROL ? 'bg-brand/15 text-brand border-brand/30' : 'bg-white/5 text-white/40 border-white/10'}`}>{ROL_LABEL[r]}</span>
+                                                        ))}
                                                         <span className="text-[9px] uppercase tracking-wider text-white/30 font-bold shrink-0">{c.sublabel}</span>
                                                     </div>
                                                     <div className="text-[11px] text-white/40 truncate">
@@ -1479,6 +1462,12 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                                             </button>
                                             );
                                         })}
+                                        {/* Sin técnico marcado en su ficha se envía igual, pero se DICE. */}
+                                        {selectedContacts.some(c => c.general) && avisoReparto(pres, ROL, { general: true }) && (
+                                            <p className="text-[11px] text-amber-300/80 bg-amber-500/5 border border-amber-500/20 rounded-xl p-2.5 leading-relaxed">
+                                                ⚠️ {avisoReparto(pres, ROL, { general: true })}
+                                            </p>
+                                        )}
                                         {/* Otro contacto manual */}
                                         <button type="button" onClick={() => pickContact('otro')}
                                             className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${selectedIds.includes('otro') ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>

@@ -20,7 +20,7 @@ const supabase = require('./supabaseClient');
 const emailService = require('./emailService');
 const whatsappService = require('./whatsappService');
 const recordatorios = require('./recordatorios');
-const { saludoPartner } = require('./notifyContacts');
+const { saludoPartner, partnerNotifyTarget, PARTNER_CONTACT_FIELDS } = require('./notifyContacts');
 const { markCertContact } = require('./seguimientoTracking');
 
 const FRONTEND = () => process.env.FRONTEND_URL || 'https://app.brokergy.es';
@@ -38,10 +38,14 @@ const TIPOS_LOTE = {
     'fin-obra': {
         destinatario: 'INSTALADOR', asunto: (n) => `¿Cómo van tus ${n} obras pendientes?`,
         plantilla: recordatorios.finObraLoteWa,
+        // Preguntar cómo va la obra es asunto del COMERCIAL, no de quien firma.
+        rolPartner: 'comercial',
     },
     'recordar-firma': {
         destinatario: 'AMBOS', asunto: (n) => `Documentación pendiente de firma en ${n} expedientes`,
         plantilla: recordatorios.firmaLoteWa,
+        // Al instalador lo que se le reclama aquí es el CIFO firmado: es del TÉCNICO.
+        rolPartner: 'tecnico',
     },
     'pedir-cobro': {
         destinatario: 'CLIENTE',
@@ -131,7 +135,7 @@ async function prepararLote(grupo) {
     });
 
     const contacto = await resolverContacto(def.destinatario === 'AMBOS'
-        ? grupo.destinatario.tipo : def.destinatario, grupo.destinatario.id);
+        ? grupo.destinatario.tipo : def.destinatario, grupo.destinatario.id, def.rolPartner);
     if (!contacto.tlf && !contacto.email) {
         return { error: `No hay teléfono ni email de ${grupo.destinatario.nombre || 'este destinatario'}. Complétalo en su ficha.` };
     }
@@ -154,8 +158,15 @@ async function prepararLote(grupo) {
     return { mensaje, asunto: def.asunto(items.length), destinatario: contacto, items };
 }
 
-/** Teléfono y email del destinatario, respetando la persona de notificaciones. */
-async function resolverContacto(tipo, id) {
+/**
+ * Teléfono y email del destinatario, respetando el reparto de la ficha.
+ *
+ * `rol` ('comercial'|'tecnico') solo aplica al INSTALADOR: es lo que evita
+ * reclamarle el CIFO firmado al comercial. Al CERTIFICADOR se le sigue
+ * escribiendo por `saludoPartner` — sus plantillas ("Hola {certName},") no
+ * admiten un nombre vacío, y ninguno de los 7 tiene contactos repartidos.
+ */
+async function resolverContacto(tipo, id, rol = null) {
     if (tipo === 'CLIENTE') {
         const { data: c } = await supabase.from('clientes')
             .select('nombre_razon_social, apellidos, tlf, email, persona_contacto_nombre, persona_contacto_tlf, persona_contacto_email, notificaciones_contacto_activas')
@@ -169,6 +180,12 @@ async function resolverContacto(tipo, id) {
         };
     }
     // CERTIFICADOR / INSTALADOR — ambos viven en `prescriptores`.
+    if (tipo === 'INSTALADOR') {
+        const { data: pi } = await supabase.from('prescriptores')
+            .select(PARTNER_CONTACT_FIELDS).eq('id_empresa', id).maybeSingle();
+        const t = partnerNotifyTarget(pi, rol);
+        return { nombre: t.nombre, tlf: t.tlf, email: t.email, general: t.general, sinRol: t.sinRol };
+    }
     const { data: p } = await supabase.from('prescriptores')
         // `nombre_responsable` es lo PRIMERO que mira `saludoPartner`, y sin pedirlo
         // aquí el saludo caía siempre al respaldo: "Hola LUIS ALBERTO LANUZA PELAYO"
@@ -215,7 +232,8 @@ async function enviarLote(grupo, { canales = [], mensaje, asunto, usuario = 'PAR
     if (!filas.length) throw new Error('No has seleccionado ningún expediente.');
 
     const contacto = await resolverContacto(
-        def.destinatario === 'AMBOS' ? grupo.destinatario.tipo : def.destinatario, grupo.destinatario.id);
+        def.destinatario === 'AMBOS' ? grupo.destinatario.tipo : def.destinatario,
+        grupo.destinatario.id, def.rolPartner);
 
     const enviados = [];
     if (canales.includes('whatsapp')) {

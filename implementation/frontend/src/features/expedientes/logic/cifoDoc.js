@@ -356,7 +356,12 @@ export function deriveCifoData({ expediente, results }) {
     const empProv   = pres.provincia || '—';
     const empCargo  = pres.es_autonomo ? 'Trabajador autónomo' : 'Representante legal';
     const empEmail  = pres.email || '';
-    const empTlf    = pres.tlf || '';
+    // El TELÉFONO no se imprime en el CIFO (decisión 2026-09-09): el documento
+    // identifica a la empresa por su razón social, CIF, domicilio y nº RITE, y a
+    // la persona por el nombre de quien firma. Además, `pres.tlf` es en la
+    // práctica el móvil de una persona concreta —en 67 de las 70 fichas es el
+    // único teléfono que hay—, así que salía impreso en la carátula de todos los
+    // CIFO el número del comercial de turno.
     // Quién firma como representante legal: por DEFECTO es la persona de contacto
     // (nombre_responsable/apellidos_responsable — ya era esto, sin cambios para
     // los partners ya rellenados) y SOLO si `representante_distinto` está marcado
@@ -496,7 +501,7 @@ export function deriveCifoData({ expediente, results }) {
         // método SCOP / emisor
         metodoCal, metodoAcs, emiLabel,
         // empresa instaladora
-        empNombre, empCif, empDir, empCp, empMun, empProv, empCargo, empEmail, empTlf, empResponsable, empResponsableDni,
+        empNombre, empCif, empDir, empCp, empMun, empProv, empCargo, empEmail, empResponsable, empResponsableDni,
         empRite, empresas, ejeNombre, ejeCif,
         // hibridación (RES093)
         cbStr, pDesignKwStr, coveragePct, coveragePctStr, thZone, pbdcKw, pbdcKwStr, demandaAnualKwhStr, appliedCovStr,
@@ -530,7 +535,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         acsEsAcumulador, acsEsTermo, acsNuTipo, acsNuMarca, acsNuMod, acsNuSerieEx, acsNuUds,
         acsTermoFuera, acsFueraMarca, acsFueraMod, acsFueraSerie,
         metodoCal, metodoAcs, emiLabel,
-        empNombre, empCif, empDir, empCp, empMun, empProv, empCargo, empEmail, empTlf, empResponsable, empResponsableDni,
+        empNombre, empCif, empDir, empCp, empMun, empProv, empCargo, empEmail, empResponsable, empResponsableDni,
         empRite, empresas, ejeNombre, ejeCif,
         cbStr, pDesignKwStr, coveragePct, coveragePctStr, thZone, pbdcKwStr, demandaAnualKwhStr, appliedCovStr,
         hybridMethod, pCalderaKwStr, refPowerKwStr, pDesignWStr, pEspecificaStr, pEspecificaNum, climateSeason,
@@ -750,7 +755,6 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                     <div style="font-weight:800;font-size:16px;color:#fff;">${empNombre} <span style="color:#93C01F;font-weight:600;font-size:13px;">· Empresa instaladora</span></div>
                     <div style="display:flex;gap:22px;font-size:12.5px;color:#EDEDE8;font-weight:500;flex-wrap:wrap;">
                         ${empCif && empCif !== '—' ? `<span><b style="color:#F18A00;">CIF</b>&nbsp; ${empCif}</span>` : ''}
-                        ${empTlf ? `<span><b style="color:#F18A00;">Tel</b>&nbsp; ${empTlf}</span>` : ''}
                         ${empEmail ? `<span><b style="color:#F18A00;">Email</b>&nbsp; ${empEmail}</span>` : ''}
                     </div>
                 </div>

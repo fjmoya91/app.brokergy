@@ -18,7 +18,7 @@ const docsAlcance = require('./docsAlcance');
 const driveService = require('./driveService');
 const emailService = require('./emailService');
 const whatsappService = require('./whatsappService');
-const { partnerNotifyTargets } = require('./notifyContacts');
+const { partnerNotifyTargets, PARTNER_CONTACT_FIELDS } = require('./notifyContacts');
 
 const SUBCARPETA_DOCS = '12. DOCUMENTOS PARA CEE'; // misma que usa /firma y scan-photos
 // Nombre CANÓNICO tal cual viene en la plantilla de Drive (con espacio tras el punto).
@@ -1368,13 +1368,14 @@ async function notifyRechazo({ opp, slotLabel, motivo, subidoPor }) {
             const insId = opp.instalador_asociado_id || opp.prescriptor_id;
             if (insId) {
                 const { data: p } = await supabase.from('prescriptores')
-                    // tlf_responsable/email_responsable son los de la PERSONA DE
-                    // CONTACTO y `partnerNotifyTargets` los prefiere: si no se
-                    // seleccionan, llegan undefined y el aviso se va al buzón
-                    // genérico de la empresa sin que nada lo delate (regla 22).
-                    .select('razon_social, acronimo, tlf, tlf_contacto, tlf_responsable, email, email_contacto, email_responsable, nombre_contacto, contacto_notificaciones_activas, contactos_notificacion')
+                    // Los campos que necesita el reparto van en una constante: si
+                    // falta uno, el aviso se va al buzón genérico de la empresa sin
+                    // que nada lo delate (regla 22).
+                    .select(PARTNER_CONTACT_FIELDS)
                     .eq('id_empresa', insId).maybeSingle();
-                if (p) targets = partnerNotifyTargets(p);
+                // Una foto de obra rechazada la vuelve a hacer quien está en la
+                // obra: asunto COMERCIAL, no del técnico que firma.
+                if (p) targets = partnerNotifyTargets(p, 'comercial');
             }
         } else {
             // cliente (también para 'admin'/desconocido: avisamos al cliente por defecto)
