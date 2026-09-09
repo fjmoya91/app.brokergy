@@ -132,3 +132,42 @@ def test_se_fusionan_colineales_del_mismo_tipo_pero_no_de_distinto():
     fus2 = fusionar_colineales(clasificar(segmentar(u), v2))
     este = [t for t in fus2 if t.segment.orientation == "E"]
     assert sorted(round(t.segment.length_m, 2) for t in este) == [4.0, 6.0]
+
+
+def test_un_muro_sobre_la_cubierta_del_vecino_no_es_fachada_a_la_calle():
+    """Medido en 4410205WJ0641S: los dos colindantes que nos tocan tienen UNA
+    planta y la casa tiene dos, asi que el mismo muro es medianera en la baja y
+    da al aire en la primera. Llamarlo 'calle' esconde que hay un edificio
+    debajo, e invita a 'corregirlo' de vuelta a medianera."""
+    casa = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    vecino = Polygon([(10, 0), (16, 0), (16, 10), (10, 10)])
+    # planta baja: el vecino llega -> medianera
+    v_pb = Vecindad(parcela=casa, edificio_propio=casa, edificios_vecinos=vecino,
+                    vecinos_globales=vecino)
+    este_pb = [t for t in clasificar(segmentar(casa), v_pb)
+               if t.segment.orientation == "E"]
+    assert [t.contacto for t in este_pb] == [Contacto.OTHER_BUILDING]
+
+    # primera planta: el vecino NO llega -> fachada sobre su cubierta
+    v_p1 = Vecindad(parcela=casa, edificio_propio=casa, edificios_vecinos=None,
+                    vecinos_globales=vecino)
+    este_p1 = [t for t in clasificar(segmentar(casa), v_p1)
+               if t.segment.orientation == "E"]
+    assert [t.contacto for t in este_p1] == [Contacto.EXTERIOR_SOBRE_VECINO]
+
+
+def test_un_patio_lo_es_del_EDIFICIO_no_de_la_planta():
+    """El mismo patio salia PATIO desde la baja y RETRANQUEO desde la primera:
+    al encoger la planta, el hueco se hace mayor y su borde deja de estar
+    rodeado de edificacion. El cerramiento se mide sobre la huella global."""
+    parcela = Polygon([(0, 0), (12, 0), (12, 12), (0, 12)])
+    pb = Polygon([(0, 0), (12, 0), (12, 12), (0, 12), (0, 9), (9, 9), (9, 3), (0, 3)])
+    p1 = Polygon([(9, 0), (12, 0), (12, 12), (9, 12)])       # solo la franja derecha
+
+    def contactos(planta):
+        v = Vecindad(parcela=parcela, edificio_propio=planta, edificios_vecinos=None,
+                     huella_global=pb)
+        return {t.contacto for t in clasificar(segmentar(planta), v)}
+
+    assert Contacto.PATIO_PARCELA in contactos(pb)
+    assert Contacto.PATIO_PARCELA in contactos(p1)

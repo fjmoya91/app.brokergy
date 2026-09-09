@@ -15,38 +15,17 @@ brokergy-geometry 4410205WJ0641S0001JH --output ./output --floor-height 2.70
 
 ---
 
-## ⚠️ Estado de esta entrega — LÉELO PRIMERO
+## Estado: FUNCIONANDO CON DATOS REALES DE CATASTRO
 
-El MVP está escrito, probado y **es ejecutable de punta a punta**, pero
-**no se ha podido ejecutar contra el Catastro real** desde el entorno en el que
-se desarrolló: su política de salida a Internet bloquea, en el propio proxy,
-**todos** los hosts que hacen falta.
+`output/real/` tiene el resultado de **4410205WJ0641S0001JH** (Calle Méjico 4,
+Pedro Muñoz), sacado de las respuestas reales de Catastro que están en
+`data/real/raw/`. Ver "RESULTADO DE LA PRUEBA" al final.
 
-```
-ovc.catastro.meh.es       -> CONNECT 403 (denegado por politica de egreso)
-www1.sedecatastro.gob.es  -> CONNECT 403
-www.ign.es                -> CONNECT 403
-centrodedescargas.cnig.es -> CONNECT 403
-servicios.idee.es         -> CONNECT 403
-app.brokergy.es           -> CONNECT 403
-```
-
-Ninguna petición llegó a salir de la máquina. Eso **no** significa que Catastro
-no tenga el dato: significa que no se le ha podido preguntar. Y aquí no se
-inventa nada, así que `output/` **no contiene la geometría real de tu vivienda**:
-contiene `diagnostico.json`, con las URL exactas que se intentaron.
-
-**Para obtener el resultado real, desde tu portátil o desde el VPS, no hay que
-tocar ni una línea de código.** Las respuestas se cachean por referencia:
-
-```bash
-# 1) donde haya salida a ovc.catastro.meh.es (tu maquina o el VPS)
-python -m src.main 4410205WJ0641S0001JH --only-fetch
-#    -> deja las respuestas crudas en data/raw/ y cache/4410205WJ0641S/
-
-# 2) el analisis, ya sin red
-python -m src.main 4410205WJ0641S0001JH --offline --skip-lidar
-```
+El entorno donde se desarrolla el MVP no tiene salida a `ovc.catastro.meh.es`
+(la política de egreso lo bloquea en el proxy, junto con `ign.es`, `cnig.es` e
+`idee.es`), así que la descarga se hace por un workflow manual desde un runner
+de GitHub, que commitea las respuestas crudas al repo. El análisis se hace
+después con `--offline`, sin volverle a pedir nada a Catastro.
 
 ### Cómo se traen los datos reales sin salida a Internet
 
@@ -75,14 +54,14 @@ producción**, así que el gasto de peticiones está acotado de verdad:
 El runner sale por IPs de Azure, **no por la del VPS**: si el WAF se molestara,
 producción no se entera.
 
-Mientras tanto, lo que **sí** está verificado en esta entrega:
+Además:
 
 | | |
 |---|---|
-| **89 tests** en verde (`python -m pytest`) | geometría, medianeras parciales, patios, plantas, GML, DXF y el recorrido completo |
-| **Autoprueba end-to-end** con salida real | `output/_autoprueba_sintetica/` — los cuatro entregables sobre una casa **inventada** (nunca confundible con un expediente) |
-| **Algoritmo de dígitos de control** | verificado contra tu RC real: `4410205WJ0641S0001JH` valida, y una errata en el último carácter se detecta |
-| **El camino de fallo** | probado contra el Catastro real: falla limpio, con traza y causa raíz |
+| **92 tests** en verde (`python -m pytest`) | geometría, medianeras parciales, patios, plantas, GML, DXF y el recorrido completo |
+| `output/_autoprueba_sintetica/` | la misma cadena sobre una casa **inventada**, con el resultado conocido de antemano. Sirve para los tests; nunca se confunde con un expediente |
+| **Dígitos de control** | verificados contra la RC real: `4410205WJ0641S0001JH` valida y una errata en el último carácter se detecta |
+| **El camino de fallo** | probado: sin salida a Catastro falla limpio, con traza y causa raíz, y no inventa geometría |
 
 ---
 
@@ -353,99 +332,122 @@ de Catastro no la disparan nunca.
 
 ## RESULTADO DE LA PRUEBA 4410205WJ0641S0001JH
 
-Calle Méjico 4, 13620 Pedro Muñoz (Ciudad Real). Ejecutado el 2026-09-09.
-
-```bash
-python -m src.main 4410205WJ0641S0001JH --retries 0 --timeout 12
-```
+Calle Méjico 4, 13620 Pedro Muñoz (Ciudad Real). Datos traídos de Catastro el
+2026-09-09; analizados con `--offline --skip-lidar --floor-height 2.70`.
 
 ### 1. Qué se consiguió automáticamente
 
-* **Normalización y validación de la referencia**, sin red:
-  `refcat_parcela = 4410205WJ0641S`, `refcat_inmueble = 4410205WJ0641S0001JH`,
-  `cargo = 0001`, **dígitos de control OK**. El algoritmo se implementó y se
-  verificó contra esta RC (la Ñ va intercalada en el alfabeto: A=1…N=14, Ñ=15,
-  O=16…Z=27); una errata en el último carácter se detecta.
-* **El programa recorrió las 7 consultas previstas**, en el orden correcto, con
-  las 6 variantes de parámetros por consulta, y dejó cada intento trazado.
-* **Falló limpio**: `output/diagnostico.json` con los códigos, los mensajes y
-  **las URL exactas** de cada intento, más la causa raíz.
+**La geometría real, entera.** Catastro devolvió las 7 consultas y de ahí sale
+un modelo de 29 cerramientos que se cierra contra los datos alfanuméricos:
 
-### 2. Qué NO se consiguió, y por qué
+| | Nuestra geometría | Lo que declara Catastro | Desvío |
+|---|---|---|---|
+| Parcela | 218,72 m² | 219 m² | 0,1 % |
+| Huella planta baja | 191,50 m² | 165 (vivienda) + 27 (almacén) = 192 m² | **0,3 %** |
+| Huella planta primera | 74,18 m² | 74 m² (almacén) | **0,2 %** |
 
-**Nada de la geometría real.** Causa raíz, tal como la escribe el programa:
+Ese cuadre es la prueba de que se ha modelado el edificio correcto, y lo hace
+el propio programa (`FLOOR_AREA_MISMATCH` salta por encima del 15 %).
+
+El inmueble es **vivienda unifamiliar de 1994, 266 m² construidos**, en
+*parcela construida sin división horizontal* — o sea, el edificio ES la
+vivienda, que es el caso en el que el WFS basta.
 
 ```
-CATASTRO_UNREACHABLE_FROM_THIS_HOST: ninguna peticion llego a salir de esta
-maquina (proxy, cortafuegos o DNS). No es que Catastro no tenga el dato: es que
-no se ha podido preguntar.
+ID    Planta Tipo         Contacto                       Largo x alto   Superficie  Orient.
+F11   PB     FACHADA      EXTERIOR_CALLE                 14.13 x 2.70    38.14 m2   S
+F10   PB     FACHADA      EXTERIOR_CALLE                  8.34 x 2.70    22.52 m2   O
+M01   PB     MEDIANERA    OTHER_BUILDING                  9.05 x 2.70    24.44 m2   N
+M03   PB     MEDIANERA    OTHER_BUILDING                  7.68 x 2.70    20.74 m2   N
+F02   PB     FACHADA      PATIO_PARCELA                   4.36 x 2.70    11.77 m2   N
+F18   P1     FACHADA      SOBRE_CUBIERTA_COLINDANTE       9.05 x 2.70    24.44 m2   N
+SU01  PB     SUELO        TERRENO                                 -     191.50 m2   -
+CU01  PB     CUBIERTA     AIRE_EXTERIOR                           -     117.32 m2   -
+PH01  PB     PARTICION    ESPACIO_NO_HABITABLE_SUPERIOR           -      74.18 m2   -
+CU02  P1     CUBIERTA     AIRE_EXTERIOR                           -      74.18 m2   -
 ```
 
-Todas las peticiones murieron en `CONNECT ... 403 Forbidden` del proxy de salida
-del entorno de desarrollo, antes de tocar la red. Diagnósticos levantados:
-`CAPABILITIES_CP_UNAVAILABLE`, `CAPABILITIES_BU_UNAVAILABLE`,
-`PARCEL_GEOMETRY_UNAVAILABLE`, `BUILDING_GEOMETRY_UNAVAILABLE`,
-`BUILDING_PARTS_UNAVAILABLE`, `NEIGHBOUR_PARCELS_UNAVAILABLE`,
-`CADASTRAL_ATTRIBUTES_UNAVAILABLE`.
+Totales: **21 fachadas (284,17 m²)**, 3 medianeras (47,44 m²), 1 suelo en
+terreno (191,50 m²), 2 cubiertas (191,50 m²) y 2 particiones horizontales.
 
-**No hay `parcela.gml`, ni `edificios.gml`, ni `building_parts.gml`, ni
-`vecinos.gml`, ni `datos_catastrales.json` de esta vivienda.** No se han
-fabricado sustitutos. Los únicos ficheros GML del repositorio están en
-`tests/fixtures/sintetico/` y llevan dentro el aviso de que son inventados.
+Tres cosas que salieron bien y que no son evidentes:
 
-### 3. Qué fuentes se usaron (y se usarán al ejecutarlo con salida)
+* **Las medianeras están solo en la planta baja.** Los dos colindantes que nos
+  tocan (`4410202WJ0641S` y `4410213WJ0641S`) tienen **una sola planta** y la
+  casa tiene dos, así que los mismos muros —M01, M02, M03— pasan en la primera
+  a ser fachada **sobre la cubierta del colindante**. Meter ahí una medianera
+  sería declarar un muro adiabático donde hay un muro al exterior.
+* **Los dos patios se detectan y se distinguen de un retranqueo**: 18,29 m²
+  (79 % de su borde son edificios) y 8,94 m² (95 %). Suman los 27,23 m² de
+  parcela sin edificar.
+* **El almacén de la planta primera se apoya sobre la vivienda**, así que 74,18
+  de los 191,50 m² de techo de la vivienda son *partición con espacio no
+  habitable superior* y los otros 117,32 m² son cubierta al aire. Es justo la
+  distinción que CE3X necesita y la que se pierde al medir a ojo.
 
-| Fuente | Para qué | Verificada aquí |
+### 2. Qué NO se consiguió
+
+* **Qué polígono es la vivienda y cuál el almacén en la planta baja.** Catastro
+  declara VIVIENDA 165 m² y ALMACÉN 27 m² en la misma planta, y **no dice qué
+  polígono es cada uno**. El programa lo marca: uso dominante VIVIENDA con
+  **confianza 0,43** y la nota *"Catastro no dice qué polígono es cada uno"*,
+  más el diagnóstico `SPACE_GEOMETRY_UNAVAILABLE`. Se resuelve con `--dxf`.
+* **La altura.** No la publica Catastro y el LiDAR sigue sin cerrarse, así que
+  los 2,70 m son `--floor-height` (evidencia `MANUAL`) y **26 de las 29 filas
+  salen con `requiere_revision = true`**, cada una con el motivo escrito. El
+  largo es `MEASURED`; lo provisional es el producto.
+
+### 3. Qué fuentes se usaron
+
+| Fuente | Para qué | Resultado |
 |---|---|---|
-| INSPIRE WFS CP `wfsCP.aspx` | parcela y parcelas colindantes | ❌ bloqueada |
-| INSPIRE WFS BU `wfsBU.aspx` | huella, `BuildingPart`, nº de plantas | ❌ bloqueada |
-| WCF JSON `Consulta_DNPRC` | uso, planta, superficie, antigüedad, dirección | ❌ bloqueada |
-| WCF JSON `Consulta_CPMRC` | coordenadas del inmueble | ❌ bloqueada |
-| WCS MDT del IGN | cota de terreno / superficie | ❌ bloqueada |
-| DXF de la parcela (aportado) | uso ↔ polígono | ✅ lector probado con DXF sintético |
+| INSPIRE WFS CP `GetParcel` | parcela | ✅ 218,72 m² |
+| INSPIRE WFS CP `GetNeighbourParcel` | 6 parcelas colindantes | ✅ |
+| INSPIRE WFS BU `GetBuildingByParcel` | huella (`gml:Surface`, 19 vértices) | ✅ 191,50 m² |
+| INSPIRE WFS BU `GetBuildingPartByParcel` | 3 partes con su nº de plantas | ✅ 90,80 + 74,18 + 26,52 |
+| Lo mismo para 5 colindantes | saber hasta qué altura llega cada vecino | ✅ |
+| WCF JSON `Consulta_DNPRC` | uso, planta, superficie, antigüedad, dirección | ✅ |
+| WCS MDT del IGN | altura | ⛔ omitido (`--skip-lidar`) |
 
-Los WCF JSON se eligen sobre los ASMX a conciencia: el WAF filtra la familia
-ASMX desde IPs de datacenter y devuelve un 400 con HTML. Es conocimiento ya
-pagado en producción por el backend de Brokergy.
+**Dos cosas aprendidas del GML real**, las dos ahora con test:
 
-### 4. Qué precisión tendrá
+1. **`bu-ext2d:Building` pone el `gml:boundedBy` ANTES de su geometría.**
+   Cogiendo "el primer tag geométrico que aparezca" el edificio se quedaba sin
+   huella y el modelo caía al respaldo de BuildingParts sin que nadie se
+   enterara. Peor habría sido aceptar el `Envelope`: un rectángulo de 254 m²
+   con toda la pinta de una huella buena.
+2. **El propio Catastro escribe `STOREDQUERIE_ID`** (con la errata) en los
+   `xlink:href` que devuelve dentro del GML. Mantener esa variante no era
+   paranoia.
 
-* **Largos (X-Y): exactos**, los del GML de Catastro, en EPSG:25830. Es la
-  precisión de la cartografía catastral urbana (del orden de ±0,1–0,3 m frente a
-  una medición en obra). `MEASURED`, confianza 1,0.
-* **Clasificación fachada / medianera / patio / partición: determinista**, sin
-  IA ni heurísticas visuales; el único parámetro discutible es
-  `boundary_tolerance_m` (0,15 m por defecto), y está aislado y documentado.
-* **Alturas: NO MEDIDAS.** Con `--floor-height` son `MANUAL`; sin él, `DEFAULT`
-  con confianza 0,3. **Todas las superficies de muro salen provisionales.**
-* **Uso por polígono: no disponible sin DXF** (ver §6). Con una sola unidad por
-  planta la asignación es fiable (0,85); con varias, se marca y no se reparte.
+### 4. Qué precisión tiene
 
-### 5. Qué necesitará intervención humana
+* **Largos: exactos**, los del GML, en EPSG:25830 — la precisión de la
+  cartografía catastral urbana (±0,1–0,3 m frente a medir en obra).
+  `MEASURED`, confianza 1,0.
+* **Clasificación: determinista** y validada contra los datos alfanuméricos por
+  tres vías independientes (parcela, planta baja y planta primera cuadran).
+* **Alturas: no medidas.** Todas las superficies de muro son provisionales.
+* **Uso por polígono en la planta baja: no resuelto** (mixta vivienda+almacén).
 
-1. **Ejecutarlo desde una máquina con salida a `ovc.catastro.meh.es`** — es lo
-   único que separa esta entrega del resultado real. Un comando.
-2. **La altura de planta**, hasta que se cierre el LiDAR: `--floor-height 2.70`
-   sacado del CEE, del proyecto o de una medición. Es el dato que hace que 17 de
-   22 filas de la autoprueba estén marcadas para revisión.
-3. **El DXF de la parcela**, si esta vivienda tiene garaje o almacén y hace falta
-   saber **qué polígono** es cada uno para las particiones interiores.
-4. **Confirmar visualmente el `debug_map.html`** contra la cartografía catastral:
-   lleva la ortofoto del PNOA y el WMS del Catastro debajo, y cada segmento es
-   pulsable con su ID, su longitud, su orientación y contra qué da. Es la
-   comprobación de que se ha modelado el edificio correcto — la que ninguna
-   máquina puede firmar por ti.
-5. **Si la vivienda es un piso de un bloque**, el WFS de Catastro da la huella
-   del EDIFICIO ENTERO, no la del inmueble. `FLOOR_AREA_MISMATCH` lo avisa
-   comparando huella contra superficie catastral, pero el reparto lo decide una
-   persona (o el DXF).
+### 5. Qué necesita intervención humana
 
----
+1. **La altura de planta**, del CEE o de una medición. Es lo que quita las 26
+   marcas de revisión.
+2. **El DXF de la parcela**, para separar los 165 m² de vivienda de los 27 m² de
+   almacén en la planta baja. Sin él, la partición vertical vivienda↔almacén no
+   se puede situar.
+3. **Confirmar el `debug_map.html`** contra la cartografía catastral: lleva la
+   ortofoto del PNOA y el WMS del Catastro debajo, y cada segmento es pulsable.
+   Es la comprobación de que es este edificio y no el de al lado.
+4. **Decidir qué se hace con el almacén de la planta primera**: a efectos de
+   CE3X es un espacio no habitable sobre la vivienda, y eso cambia el
+   tratamiento de 74 de los 191 m² de techo.
 
 ## Tests
 
 ```bash
-python -m pytest -q          # 89 tests
+python -m pytest -q          # 92 tests
 ```
 
 Cubren, con geometrías sintéticas de resultado conocido: sectores de
@@ -460,10 +462,13 @@ mismo ID.
 
 ## Lo que falta para cerrar el círculo
 
-1. Ejecutarlo con salida a Catastro y revisar el mapa contra la cartografía.
-2. Cerrar el LiDAR: `rasterio` + muestreo del `GetCoverage` del IGN, o descarga
-   del MDS del CNIG.
-3. Conseguir un FXCC real y cerrar su parser (el DXF ya está).
-4. Repetirlo sobre varias tipologías (entre medianeras, exenta, piso en bloque).
+1. **Alturas**: cerrar el LiDAR (`rasterio` + muestreo del `GetCoverage` del
+   IGN, o el MDS del CNIG). Es lo que quita las marcas de revisión.
+2. **El DXF de la parcela**, para separar vivienda de almacén cuando comparten
+   planta. El lector ya está hecho y probado; falta la vía de descarga.
+3. **Repetirlo sobre otras tipologías**: exenta, entre medianeras con más
+   plantas, y sobre todo **un piso en bloque**, donde el WFS da el edificio
+   entero y no el inmueble (`FLOOR_AREA_MISMATCH` lo avisará).
+4. **FXCC**: conseguir un fichero real y cerrar su parser.
 5. Solo entonces, el volcado a CE3X por Computer Use: la tabla de salida ya
    tiene la forma que pide el formulario.

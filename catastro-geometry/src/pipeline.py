@@ -385,6 +385,8 @@ def analizar(o: Opciones, modelo: Modelo) -> Resultado:
         vp = Vecindad(parcela=parcela, edificio_propio=planta.huella,
                       edificios_vecinos=vecinos_nivel, no_habitables=no_hab,
                       huella_inferior=abajo.huella if abajo else None,
+                      huella_global=huella,
+                      vecinos_globales=vecinos,
                       boundary_tolerance_m=o.tolerancia, min_contact_m=o.min_contacto)
         segs = segmentar(planta.huella, owner_id=planta.etiqueta, floor=planta.nivel,
                          prefijo=f"{planta.etiqueta}-S")

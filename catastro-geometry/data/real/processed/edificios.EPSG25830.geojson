@@ -1,0 +1,129 @@
+{
+ "type": "FeatureCollection",
+ "crs": {
+  "type": "name",
+  "properties": {
+   "name": "EPSG:25830"
+  }
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "id": "ES.SDGC.BU.4410205WJ0641S",
+   "properties": {
+    "source": "modelo",
+    "tipo": "edificios",
+    "original_id": "ES.SDGC.BU.4410205WJ0641S",
+    "Building@id": "ES.SDGC.BU.4410205WJ0641S",
+    "beginLifespanVersion": "2017-06-12T00:00:00",
+    "conditionOfConstruction": "functional",
+    "beginning": "1994-01-01T00:00:00",
+    "end": "1994-01-01T00:00:00",
+    "endLifespanVersion@nilReason": "other:unpopulated",
+    "informationSystem": "https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?rc1=4410205&rc2=WJ0641S",
+    "reference": "4410205WJ0641S",
+    "localId": "4410205WJ0641S",
+    "namespace": "ES.SDGC.BU",
+    "addresses@href": "http://ovc.catastro.meh.es/INSPIRE/wfsAD.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetadByRefcat&refcat=4410205WJ0641S&srsname=EPSG::25830",
+    "cadastralParcels@href": "http://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetParcel&refcat=4410205WJ0641S&srsname=EPSG::25830",
+    "horizontalGeometryEstimatedAccuracy": "0.1",
+    "horizontalGeometryReference": "footPrint",
+    "referenceGeometry": "true",
+    "currentUse": "1_residential",
+    "numberOfBuildingUnits": "1",
+    "numberOfDwellings": "1",
+    "numberOfFloorsAboveGround@nilReason": "other:unpopulated",
+    "documentLink": "http://ovc.catastro.meh.es/OVCServWeb/OVCWcfLibres/OVCFotoFachada.svc/RecuperarFotoFachadaGet?ReferenciaCatastral=4410205WJ0641S",
+    "format": "jpeg",
+    "sourceStatus": "NotOfficial",
+    "officialAreaReference": "grossFloorArea",
+    "value": "266",
+    "area": 191.5,
+    "use": "1_residential"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       504341.83,
+       4360849.28
+      ],
+      [
+       504341.83,
+       4360851.34
+      ],
+      [
+       504337.53,
+       4360851.34
+      ],
+      [
+       504337.6,
+       4360854.54
+      ],
+      [
+       504341.87,
+       4360854.46
+      ],
+      [
+       504345.28,
+       4360854.4
+      ],
+      [
+       504345.44,
+       4360855.22
+      ],
+      [
+       504347.85,
+       4360855.16
+      ],
+      [
+       504354.49,
+       4360854.99
+      ],
+      [
+       504353.59,
+       4360850.74
+      ],
+      [
+       504348.42,
+       4360850.7
+      ],
+      [
+       504348.42,
+       4360849.28
+      ],
+      [
+       504348.42,
+       4360846.88
+      ],
+      [
+       504352.78,
+       4360846.88
+      ],
+      [
+       504351.44,
+       4360840.49
+      ],
+      [
+       504347.93,
+       4360840.6
+      ],
+      [
+       504337.32,
+       4360840.94
+      ],
+      [
+       504337.48,
+       4360849.28
+      ],
+      [
+       504341.83,
+       4360849.28
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}

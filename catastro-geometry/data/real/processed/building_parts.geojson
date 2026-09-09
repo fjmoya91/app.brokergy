@@ -1,0 +1,212 @@
+{
+ "type": "FeatureCollection",
+ "crs": {
+  "type": "name",
+  "properties": {
+   "name": "EPSG:4326"
+  }
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "id": "ES.SDGC.BU.4410205WJ0641S_part1",
+   "properties": {
+    "source": "modelo",
+    "tipo": "building_parts",
+    "original_id": "ES.SDGC.BU.4410205WJ0641S_part1",
+    "BuildingPart@id": "ES.SDGC.BU.4410205WJ0641S_part1",
+    "beginLifespanVersion": "2017-06-12T00:00:00",
+    "conditionOfConstruction@nilReason": "other:unpopulated",
+    "localId": "4410205WJ0641S_part1",
+    "namespace": "ES.SDGC.BU",
+    "addresses@href": "http://ovc.catastro.meh.es/INSPIRE/wfsAD.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetadByRefcat&refcat=4410205WJ0641S&srsname=EPSG::25830",
+    "cadastralParcels@href": "http://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetParcel&refcat=4410205WJ0641S&srsname=EPSG::25830",
+    "horizontalGeometryEstimatedAccuracy": "0.1",
+    "horizontalGeometryReference": "footPrint",
+    "referenceGeometry": "true",
+    "numberOfFloorsAboveGround": "1",
+    "heightBelowGround": "0",
+    "numberOfFloorsBelowGround": "0",
+    "area": 90.8,
+    "use": null
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -2.949504745656115,
+       39.397052077590864
+      ],
+      [
+       -2.9496279640323397,
+       39.39705519465337
+      ],
+      [
+       -2.94962605180394,
+       39.39713034340226
+      ],
+      [
+       -2.949575532471241,
+       39.39713032151892
+      ],
+      [
+       -2.949498998585718,
+       39.39713028832512
+      ],
+      [
+       -2.9494990141783606,
+       39.39710866255451
+      ],
+      [
+       -2.9495047048600447,
+       39.39710866502437
+      ],
+      [
+       -2.949504745656115,
+       39.397052077590864
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "ES.SDGC.BU.4410205WJ0641S_part2",
+   "properties": {
+    "source": "modelo",
+    "tipo": "building_parts",
+    "original_id": "ES.SDGC.BU.4410205WJ0641S_part2",
+    "BuildingPart@id": "ES.SDGC.BU.4410205WJ0641S_part2",
+    "beginLifespanVersion": "2017-06-12T00:00:00",
+    "conditionOfConstruction@nilReason": "other:unpopulated",
+    "localId": "4410205WJ0641S_part2",
+    "namespace": "ES.SDGC.BU",
+    "addresses@href": "http://ovc.catastro.meh.es/INSPIRE/wfsAD.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetadByRefcat&refcat=4410205WJ0641S&srsname=EPSG::25830",
+    "cadastralParcels@href": "http://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetParcel&refcat=4410205WJ0641S&srsname=EPSG::25830",
+    "horizontalGeometryEstimatedAccuracy": "0.1",
+    "horizontalGeometryReference": "footPrint",
+    "referenceGeometry": "true",
+    "numberOfFloorsAboveGround": "2",
+    "heightBelowGround": "0",
+    "numberOfFloorsBelowGround": "0",
+    "area": 74.18,
+    "use": null
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -2.9496254577717735,
+       39.397148905270605
+      ],
+      [
+       -2.9496246240782753,
+       39.397177739279286
+      ],
+      [
+       -2.9495750343221694,
+       39.39717699693895
+      ],
+      [
+       -2.9495354321739726,
+       39.39717643912464
+      ],
+      [
+       -2.949533568666548,
+       39.397183827123555
+      ],
+      [
+       -2.949505580163296,
+       39.39718327433587
+      ],
+      [
+       -2.949428466643595,
+       39.39718170901824
+      ],
+      [
+       -2.949438946571825,
+       39.39714341792568
+      ],
+      [
+       -2.9494989893600634,
+       39.39714308357269
+      ],
+      [
+       -2.949498998585718,
+       39.39713028832512
+      ],
+      [
+       -2.949575532471241,
+       39.39713032151892
+      ],
+      [
+       -2.949575519107826,
+       39.39714888363866
+      ],
+      [
+       -2.9496254577717735,
+       39.397148905270605
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "ES.SDGC.BU.4410205WJ0641S_part3",
+   "properties": {
+    "source": "modelo",
+    "tipo": "building_parts",
+    "original_id": "ES.SDGC.BU.4410205WJ0641S_part3",
+    "BuildingPart@id": "ES.SDGC.BU.4410205WJ0641S_part3",
+    "beginLifespanVersion": "2017-06-12T00:00:00",
+    "conditionOfConstruction@nilReason": "other:unpopulated",
+    "localId": "4410205WJ0641S_part3",
+    "namespace": "ES.SDGC.BU",
+    "addresses@href": "http://ovc.catastro.meh.es/INSPIRE/wfsAD.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetadByRefcat&refcat=4410205WJ0641S&srsname=EPSG::25830",
+    "cadastralParcels@href": "http://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetParcel&refcat=4410205WJ0641S&srsname=EPSG::25830",
+    "horizontalGeometryEstimatedAccuracy": "0.1",
+    "horizontalGeometryReference": "footPrint",
+    "referenceGeometry": "true",
+    "numberOfFloorsAboveGround": "1",
+    "heightBelowGround": "0",
+    "numberOfFloorsBelowGround": "0",
+    "area": 26.52,
+    "use": null
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -2.9494483787250374,
+       39.39710864056555
+      ],
+      [
+       -2.9494639825415443,
+       39.397051068711356
+      ],
+      [
+       -2.949504745656115,
+       39.397052077590864
+      ],
+      [
+       -2.9495047048600447,
+       39.39710866502437
+      ],
+      [
+       -2.9494990141783606,
+       39.39710866255451
+      ],
+      [
+       -2.9494483787250374,
+       39.39710864056555
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}

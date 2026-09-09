@@ -30,6 +30,7 @@ COLORES = {
     Contacto.EXTERIOR_CALLE: "#27ae60",
     Contacto.EXTERIOR_RETRANQUEO: "#16a085",
     Contacto.EXTERIOR_SOBRE_CUBIERTA: "#1abc9c",
+    Contacto.EXTERIOR_SOBRE_VECINO: "#e67e22",
     Contacto.NO_HABITABLE: "#8e44ad",
     Contacto.DESCONOCIDO: "#f39c12",
 }
@@ -40,6 +41,7 @@ ETIQUETA = {
     Contacto.EXTERIOR_CALLE: "Fachada exterior / calle",
     Contacto.EXTERIOR_RETRANQUEO: "Fachada a espacio libre de parcela",
     Contacto.EXTERIOR_SOBRE_CUBIERTA: "Fachada sobre cubierta inferior",
+    Contacto.EXTERIOR_SOBRE_VECINO: "Fachada sobre cubierta del colindante",
     Contacto.NO_HABITABLE: "Particion con espacio no habitable",
     Contacto.DESCONOCIDO: "PENDIENTE DE REVISION",
 }

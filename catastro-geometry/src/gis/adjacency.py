@@ -29,6 +29,7 @@ class Contacto(str, Enum):
     EXTERIOR_CALLE = "EXTERIOR_CALLE"      # da fuera de la parcela
     EXTERIOR_RETRANQUEO = "EXTERIOR_RETRANQUEO"   # espacio libre ABIERTO de la parcela
     EXTERIOR_SOBRE_CUBIERTA = "EXTERIOR_SOBRE_CUBIERTA"  # da al aire, sobre la cubierta de abajo
+    EXTERIOR_SOBRE_VECINO = "EXTERIOR_SOBRE_VECINO"      # da al aire, sobre la cubierta del colindante
     NO_HABITABLE = "NO_HABITABLE"          # particion con garaje/almacen de la parcela
     DESCONOCIDO = "DESCONOCIDO"
 
@@ -51,6 +52,19 @@ class Vecindad:
     #: huella de la planta INFERIOR: lo que queda fuera de esta planta y
     #: dentro de aquella es la cubierta sobre la que se levanta el muro.
     huella_inferior: BaseGeometry | None = None
+    #: huella del edificio ENTERO. Es la que decide si un espacio libre de la
+    #: parcela es un patio: un patio lo es del edificio, no de una planta. Con
+    #: la huella de la planta, el mismo patio salia PATIO desde la baja y
+    #: RETRANQUEO desde la primera (medido en 4410205WJ0641S), porque al
+    #: encoger la planta el hueco se hace mas grande y su borde deja de estar
+    #: rodeado de edificacion.
+    huella_global: BaseGeometry | None = None
+    #: huella de TODOS los colindantes, sin filtrar por altura. Un muro que da
+    #: sobre la cubierta del vecino no es fachada a la calle, y decirlo asi
+    #: explica por que ahi NO hay medianera aunque el plano catastral lo
+    #: parezca (medido en 4410205WJ0641S: los dos colindantes que nos tocan
+    #: tienen UNA planta y nosotros dos).
+    vecinos_globales: BaseGeometry | None = None
     boundary_tolerance_m: float = 0.15
     min_contact_m: float = 0.30
     probe_m: float = 0.35
@@ -64,12 +78,13 @@ class Vecindad:
             self.espacios_libres = self._calcular_espacios_libres()
 
     def _todos_edificios(self) -> BaseGeometry | None:
-        return unir([self.edificio_propio, self.edificios_vecinos])
+        return unir([self.huella_global or self.edificio_propio, self.edificios_vecinos])
 
     def _calcular_espacios_libres(self) -> list[EspacioLibre]:
-        if self.parcela is None or self.edificio_propio is None:
+        base = self.huella_global if self.huella_global is not None else self.edificio_propio
+        if self.parcela is None or base is None:
             return []
-        resto = self.parcela.difference(self.edificio_propio)
+        resto = self.parcela.difference(base)
         if resto.is_empty:
             return []
         edif = self._todos_edificios()
@@ -202,6 +217,12 @@ def clasificar_libre(seg: Segment, v: Vecindad) -> tuple[Contacto, float, str]:
             and not (v.edificio_propio is not None and v.edificio_propio.covers(p))):
         return (Contacto.EXTERIOR_SOBRE_CUBIERTA, 0.9,
                 "da al aire exterior, levantado sobre la cubierta de la planta inferior")
+
+    if (v.vecinos_globales is not None and v.vecinos_globales.covers(p)
+            and not (v.edificios_vecinos is not None and v.edificios_vecinos.covers(p))):
+        return (Contacto.EXTERIOR_SOBRE_VECINO, 0.85,
+                "da al aire exterior, sobre la cubierta del edificio colindante "
+                "(no llega a esta planta)")
 
     if v.parcela is not None and v.parcela.covers(p):
         e = v.espacio_de(p)

@@ -11,8 +11,8 @@
    "type": "Feature",
    "id": "ES.SDGC.BU.4410203WJ0641S",
    "properties": {
-    "source": "BU:4410203WJ0641S",
-    "tipo": "Building",
+    "source": "modelo",
+    "tipo": "vecinos",
     "original_id": "ES.SDGC.BU.4410203WJ0641S",
     "Building@id": "ES.SDGC.BU.4410203WJ0641S",
     "beginLifespanVersion": "2004-06-09T00:00:00",
@@ -37,7 +37,9 @@
     "format": "jpeg",
     "sourceStatus": "NotOfficial",
     "officialAreaReference": "grossFloorArea",
-    "value": "219"
+    "value": "219",
+    "area": 136.24,
+    "use": null
    },
    "geometry": {
     "type": "Polygon",
@@ -95,8 +97,8 @@
    "type": "Feature",
    "id": "ES.SDGC.BU.4410202WJ0641S",
    "properties": {
-    "source": "BU:4410202WJ0641S",
-    "tipo": "Building",
+    "source": "modelo",
+    "tipo": "vecinos",
     "original_id": "ES.SDGC.BU.4410202WJ0641S",
     "Building@id": "ES.SDGC.BU.4410202WJ0641S",
     "beginLifespanVersion": "2001-10-09T00:00:00",
@@ -121,7 +123,9 @@
     "format": "jpeg",
     "sourceStatus": "NotOfficial",
     "officialAreaReference": "grossFloorArea",
-    "value": "106"
+    "value": "106",
+    "area": 106.09,
+    "use": null
    },
    "geometry": {
     "type": "Polygon",
@@ -163,8 +167,8 @@
    "type": "Feature",
    "id": "ES.SDGC.BU.4410213WJ0641S",
    "properties": {
-    "source": "BU:4410213WJ0641S",
-    "tipo": "Building",
+    "source": "modelo",
+    "tipo": "vecinos",
     "original_id": "ES.SDGC.BU.4410213WJ0641S",
     "Building@id": "ES.SDGC.BU.4410213WJ0641S",
     "beginLifespanVersion": "2001-10-09T00:00:00",
@@ -189,7 +193,9 @@
     "format": "jpeg",
     "sourceStatus": "NotOfficial",
     "officialAreaReference": "grossFloorArea",
-    "value": "188"
+    "value": "188",
+    "area": 190.08,
+    "use": null
    },
    "geometry": {
     "type": "Polygon",

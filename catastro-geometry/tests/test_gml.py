@@ -65,3 +65,31 @@ def test_una_excepcion_wfs_no_se_traga_en_silencio():
 
 def test_un_gml_vacio_devuelve_lista_vacia_sin_reventar():
     assert parse_gml(CABECERA.encode() + b"</wfs:FeatureCollection>", "T") == []
+
+
+def test_el_boundedby_no_puede_tapar_la_geometria_de_verdad():
+    """Catastro pone el bounding box ANTES de la geometria en bu-ext2d:Building.
+
+    Cogiendo "el primer tag geometrico que aparezca" el edificio se quedaba sin
+    huella (medido en 4410205WJ0641S) y el modelo caia al respaldo de
+    BuildingParts sin que nadie se enterase. Y si el Envelope llegara a
+    aceptarse como geometria seria peor: un rectangulo inventado con toda la
+    pinta de una huella buena.
+    """
+    xml = ('<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs/2.0" '
+           'xmlns:gml="http://www.opengis.net/gml/3.2" '
+           'xmlns:bu="http://inspire.ec.europa.eu/schemas/bu-ext2d/2.0">'
+           '<gml:featureMember><bu:Building gml:id="ES.SDGC.BU.X">'
+           '<gml:boundedBy><gml:Envelope srsName="urn:ogc:def:crs:EPSG::25830">'
+           '<gml:lowerCorner>0 0</gml:lowerCorner>'
+           '<gml:upperCorner>100 100</gml:upperCorner></gml:Envelope></gml:boundedBy>'
+           '<bu:geometry><gml:Surface srsName="urn:ogc:def:crs:EPSG::25830">'
+           '<gml:patches><gml:PolygonPatch><gml:exterior><gml:LinearRing>'
+           '<gml:posList srsDimension="2">0 0 10 0 10 5 0 5 0 0</gml:posList>'
+           '</gml:LinearRing></gml:exterior></gml:PolygonPatch></gml:patches>'
+           '</gml:Surface></bu:geometry>'
+           '</bu:Building></gml:featureMember></wfs:FeatureCollection>').encode()
+    f = parse_gml(xml, "BU")[0]
+    assert f.geometry is not None
+    assert f.geometry.area == pytest.approx(50.0)     # la de verdad, no el bbox de 10.000
+    assert f.srs == "EPSG:25830"

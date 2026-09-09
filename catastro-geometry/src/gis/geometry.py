@@ -29,6 +29,14 @@ CRS_GEOGRAFICO = "EPSG:4326"
 _GEOM_TAGS = {"Polygon", "MultiSurface", "Surface", "MultiPolygon", "Point",
               "MultiPoint", "LineString", "Curve", "MultiCurve", "Envelope"}
 
+#: Prioridad al buscar LA geometria de un feature. `Envelope` NO esta: es el
+#: bounding box de gml:boundedBy, y presentarlo como huella del edificio seria
+#: un rectangulo inventado con toda la apariencia de un dato bueno. Catastro
+#: pone el boundedBy ANTES de la geometria de verdad (medido en el Building de
+#: 4410205WJ0641S), asi que "el primer tag geometrico que aparezca" no vale.
+_PRIORIDAD_GEOM = ("MultiSurface", "Surface", "MultiPolygon", "Polygon",
+                   "MultiCurve", "Curve", "LineString", "MultiPoint", "Point")
+
 
 def local(tag) -> str:
     if not isinstance(tag, str):
@@ -219,6 +227,31 @@ def _atributos(el) -> dict:
     return out
 
 
+def _dentro_de_boundedby(el, tope) -> bool:
+    padre = el.getparent()
+    while padre is not None and padre is not tope:
+        if local(padre.tag) == "boundedBy":
+            return True
+        padre = padre.getparent()
+    return False
+
+
+def _elegir_geometria(el):
+    """La geometria de verdad del feature, ignorando el bounding box."""
+    candidatos: dict[str, list] = {}
+    for hijo in el.iter():
+        ln = local(hijo.tag)
+        if ln not in _GEOM_TAGS or ln == "Envelope":
+            continue
+        if _dentro_de_boundedby(hijo, el):
+            continue
+        candidatos.setdefault(ln, []).append(hijo)
+    for ln in _PRIORIDAD_GEOM:
+        if candidatos.get(ln):
+            return candidatos[ln][0]
+    return None
+
+
 def parse_gml(data: bytes, source: str,
               tipos: Iterable[str] | None = None) -> list[Feature]:
     """Extrae los features de una respuesta GML de Catastro.
@@ -250,13 +283,13 @@ def parse_gml(data: bytes, source: str,
         ln = local(el.tag)
         if tipos and ln not in set(tipos):
             continue
-        srs_el = None
-        geom_el = None
-        for hijo in el.iter():
-            if local(hijo.tag) in _GEOM_TAGS:
-                geom_el = hijo
-                srs_el = hijo.get("srsName") or srs_el
-                break
+        geom_el = _elegir_geometria(el)
+        srs_el = geom_el.get("srsName") if geom_el is not None else None
+        if srs_el is None and geom_el is not None:
+            padre = geom_el.getparent()
+            while padre is not None and srs_el is None and padre is not el:
+                srs_el = padre.get("srsName")
+                padre = padre.getparent()
         srs_raw = srs_el or srs_global
         code, invertir = parse_srs_name(srs_raw)
         geom = geom_from_element(geom_el, invertir) if geom_el is not None else None
