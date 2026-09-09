@@ -12,6 +12,11 @@ const expedienteService = require('../services/expedienteService');
 const whatsappService = require('../services/whatsappService');
 const emailService = require('../services/emailService');
 const { createLead } = require('../services/leadService');
+// Fichas del sector TERCIARIO: no se deducen de los inputs de la calculadora
+// (residencial), las declara una persona. Fuente única en utils/fichas.js.
+const { FICHAS, detectPrograma } = require('../utils/fichas');
+const { sellarPrecioCae } = require('../utils/precioCae');
+const TERCIARIAS = FICHAS.filter(f => f.startsWith('TER'));
 const { getProvinceInfo, normalizeProvinceCode } = require('../data/allowedProvinces');
 
 // ─── Ocultar el MARGEN a los partners ─────────────────────────────────────────
@@ -152,19 +157,30 @@ router.post('/', requireAuth, async (req, res) => {
         const isReforma = (inputs.isReforma === true) || (inputs.reformaType && inputs.reformaType !== 'none') || (datos_calculo?.isReforma === true);
         const isHybrid = (inputs.hibridacion === true) || (datos_calculo?.hibridacion === true);
         
-        let fichaType = 'RES060';
-        if (isReforma) {
-            fichaType = 'RES080';
-        } else if (isHybrid) {
-            fichaType = 'RES093';
-        } else if (existingData?.ficha === 'TER100' || existingData?.id_oportunidad?.includes('TER100')) {
-            // TER100 (terciario) NO se deduce de los inputs: la calculadora es
-            // residencial y nunca la produce. Si la oportunidad ya está marcada como
-            // terciaria (se cambió el tipo de actuación del expediente), un reguardado
-            // desde la calculadora no debe devolverla a RES060 y desincronizar el
-            // expediente, que sí lleva TER100 en su número.
-            fichaType = 'TER100';
-        }
+        // Ficha de la oportunidad. La decide `detectPrograma` (utils/fichas.js), la
+        // MISMA función que usa el expediente al nacer: si aquí se dedujera con una
+        // cadena propia, una oportunidad y su expediente podrían discrepar de ficha.
+        //
+        // REGLA — el SECTOR no se deduce, se DECLARA. La calculadora es residencial
+        // por defecto y nunca produce un terciario sola: `inputs.sector` lo marca una
+        // persona. Cuando llega, manda — es lo que se acaba de elegir en pantalla.
+        //
+        // REGLA — sin `sector` en el payload manda lo ya declarado. Un navegador con
+        // la versión anterior cargada, o el funnel público, no lo mandan; y como un
+        // TER173 es una hibridación (sus inputs llevan `hibridacion: true`), sin esta
+        // salvaguarda la rama de RES093 se lo llevaría en el primer reguardado,
+        // dejando la oportunidad diciendo "residencial" y el expediente con TER173 en
+        // su número.
+        const fichaTerciariaPrevia = TERCIARIAS.find(f => existingData?.ficha === f)
+            || TERCIARIAS.find(f => existingData?.id_oportunidad?.includes(f));
+
+        // `isReforma`/`isHybrid` se calculan aquí porque esta ruta mira además el
+        // NIVEL SUPERIOR de `datos_calculo` (el funnel público no siempre replica
+        // esas dos claves dentro de `inputs`), y se le pasan ya resueltas.
+        const fichaType = detectPrograma({}, {
+            ficha: inputs.sector ? null : fichaTerciariaPrevia,
+            datos_calculo: { inputs: { ...inputs, isReforma, hibridacion: isHybrid } },
+        });
 
         // LÓGICA DE ID: Prioridad absoluta al ID que ya tenemos en DB o el que viene de la sesión previa
         // Si el registro ya existe (por ID o por RC), heredamos su ID real de la base de datos
@@ -270,6 +286,11 @@ router.post('/', requireAuth, async (req, res) => {
                 }
             }
         }
+
+        // El PRECIO CAE del cliente queda sellado en la oportunidad para que llegue
+        // al expediente. La regla —y por qué solo se marcan las NUEVAS— vive en
+        // utils/precioCae.js.
+        sellarPrecioCae(datosCalculoFinal.inputs, existingData);
 
         let payloadPrescriptorStr = prescriptor || 'BROKERGY';
         if (!prescriptor && req.user && req.user.perfilCompleto) {
@@ -981,6 +1002,67 @@ router.patch('/:id/cod-cliente', requireAuth, async (req, res) => {
 
         res.json({ success: true });
     } catch (err) {
+        res.status(500).json({ error: 'Error del servidor.' });
+    }
+});
+
+// ─── Cambiar la FICHA de una oportunidad (PATCH /api/oportunidades/:id/ficha) ──
+//
+// Reclasificar una oportunidad que YA está guardada, sin volver a calcularla ni
+// esperar a que el cliente la acepte. Hasta ahora la ficha del terciario solo se
+// podía declarar desde "cambiar tipo de actuación" DENTRO del expediente, que no
+// existe hasta que se acepta la propuesta.
+//
+// REGLA — se toca `ficha` y los INPUTS que la sostienen, no solo la etiqueta. La
+// ficha se DEDUCE de `sector` + `hibridacion` + `isReforma` (detectPrograma): si
+// solo se escribiera la columna, el primer reguardado desde la calculadora la
+// devolvería a lo que dijeran los inputs. Se dejan coherentes las dos cosas.
+//
+// REGLA — el ID de la oportunidad NO se renombra. `{YY}{FICHA}_OP{N}` es su
+// identidad y hay documentos, carpetas de Drive y mensajes enviados que la citan;
+// el número del EXPEDIENTE, que es el que viaja al verificador, sí se genera con
+// la ficha correcta cuando se acepte. Es el mismo criterio que ya aplica el
+// guardado ("PRESERVANDO ID").
+//
+// Solo ADMIN: cambiar la ficha cambia el ahorro, y con él el bono del cliente.
+router.patch('/:id/ficha', requireAuth, adminOnly, async (req, res) => {
+    const { id } = req.params;
+    const ficha = String(req.body?.ficha || '').toUpperCase();
+    if (!FICHAS.includes(ficha)) {
+        return res.status(400).json({ error: `Ficha inválida (debe ser una de: ${FICHAS.join(', ')}).` });
+    }
+    try {
+        const { data: op, error: getErr } = await supabase
+            .from('oportunidades')
+            .select('id, id_oportunidad, ficha, datos_calculo')
+            .eq('id_oportunidad', id)
+            .single();
+        if (getErr || !op) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
+
+        const dc = { ...(op.datos_calculo || {}) };
+        const inputs = { ...(dc.inputs || {}) };
+
+        // Los inputs que sostienen la ficha, dejados coherentes con ella.
+        inputs.sector = ficha.startsWith('TER') ? 'terciario' : 'residencial';
+        inputs.hibridacion = ficha === 'RES093' || ficha === 'TER173';
+        inputs.isReforma = ficha === 'RES080';
+        if (ficha === 'RES080') {
+            if (!inputs.reformaType || inputs.reformaType === 'none') inputs.reformaType = 'onlyReforma';
+        } else {
+            inputs.reformaType = 'none';
+        }
+        dc.inputs = inputs;
+
+        const { error: updErr } = await supabase
+            .from('oportunidades')
+            .update({ ficha, datos_calculo: dc })
+            .eq('id_oportunidad', id);
+        if (updErr) return res.status(500).json({ error: updErr.message });
+
+        console.log(`[Oportunidades] Ficha de ${id}: ${op.ficha || '—'} → ${ficha}`);
+        res.json({ success: true, ficha, anterior: op.ficha || null });
+    } catch (err) {
+        console.error('[Oportunidades] Error al cambiar la ficha:', err);
         res.status(500).json({ error: 'Error del servidor.' });
     }
 });

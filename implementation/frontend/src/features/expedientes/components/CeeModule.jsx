@@ -270,6 +270,17 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
     // Si la pulsación fue "Asignar y notificar" o "Solo asignar": el overlay no puede
     // decir "Enviando encargo…" cuando no se manda nada (comparte carpeta y guarda).
     const [certNotifyMode, setCertNotifyMode] = useState(true);
+    // ─── Aviso al CLIENTE, que sale por el MISMO botón ─────────────────────
+    // Encargar el CEE es el primer movimiento del expediente y hasta ahora el
+    // cliente no se enteraba: firmaba la propuesta y la siguiente noticia era la
+    // llamada de un técnico al que nadie le había anunciado. El texto lo redacta
+    // el BACKEND (fuente única en recordatorios.js) y aquí solo se enseña y se
+    // puede retocar antes de mandarlo.
+    const [avisoCliente, setAvisoCliente] = useState(null);
+    const [avisarCliente, setAvisarCliente] = useState(false);
+    const [clienteMessage, setClienteMessage] = useState('');
+    const [clienteChannels, setClienteChannels] = useState(['whatsapp']);
+    const [verMsgCliente, setVerMsgCliente] = useState(false);
     const savedCertId = useRef(expediente?.cee?.certificador_id || null);
 
     // ─── Estado para popup de validación (approve-cee) ─────────────────────
@@ -490,6 +501,32 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
             setCertChannels(['email']);
             // Previsualización editable del mensaje de encargo (igual que el popup de la campana).
             setCertAssignMessage(buildCertDefaultMessage('standard', 'inicial', certName, clienteNombre, numExp, ceeFolderLink, expedienteId, { ctx: msgCtx }));
+            // Borrador del aviso al cliente: destinatario, canales y texto. Se pide
+            // al backend (mismo patrón que `approve-cee-links`) para que lo que se
+            // revisa en pantalla sea EXACTAMENTE lo que se va a enviar.
+            setAvisoCliente(null);
+            setClienteMessage('');
+            setVerMsgCliente(false);
+            setAvisarCliente(false);
+            setClienteChannels(['whatsapp']);
+            // Solo en el CAE: un CEE contratado suelto no tiene obra ni trámite de
+            // ayuda, y ese texto le hablaría al cliente de algo que no existe.
+            if (expediente?.id && msgCtx.cae !== false) {
+                axios.get(`${apiBase}/${expediente.id}/aviso-cliente-cee?phase=initial`)
+                    .then(r => {
+                        const d = r.data || {};
+                        setAvisoCliente(d);
+                        setClienteMessage(d.mensaje || '');
+                        // Por WhatsApp, que es donde el cliente lee; si no consta
+                        // teléfono, por email.
+                        setClienteChannels(d.tlf ? ['whatsapp'] : (d.email ? ['email'] : []));
+                        // Viene marcado salvo que no haya por dónde escribirle o que ya
+                        // se le avisara: reasignar técnico es el caso normal y el cliente
+                        // no puede enterarse dos veces de que su trámite acaba de empezar.
+                        setAvisarCliente(!!(d.tlf || d.email) && !d.avisadoEn);
+                    })
+                    .catch(() => setAvisoCliente(null));
+            }
         } else {
             onSave({ cee: nextLocal });
         }
@@ -587,7 +624,13 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 priority: certPriority,
                 adminMessage: certAdminMessage.trim() || null,
                 // Cuerpo editable del encargo (previsualización). Solo aplica si se notifica.
-                customMessage: notify ? (certAssignMessage.trim() || null) : null
+                customMessage: notify ? (certAssignMessage.trim() || null) : null,
+                // El aviso al cliente solo sale si de verdad sale el encargo: el texto
+                // le dice que ya le hemos mandado las instrucciones al técnico.
+                avisarCliente: !!notify && avisarCliente && clienteChannels.length > 0,
+                clienteChannels,
+                clienteMessage: clienteMessage.trim() || null,
+                clienteAsunto: avisoCliente?.asunto || null
             });
 
             const driveOk = data?.driveAccessGranted;
@@ -605,6 +648,9 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                     return String(c);
                 });
                 if (!items.length) items.push('Notificación enviada');
+                if (data?.avisoCliente?.canales?.length) {
+                    items.push(`Aviso al cliente${data.avisoCliente.nombre ? ` · ${data.avisoCliente.nombre}` : ''} · ${data.avisoCliente.canales.join(' + ')}`);
+                }
                 if (driveItem) items.push(driveItem);
                 setCertNotifResult({
                     type: 'ok',
@@ -1568,6 +1614,98 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                                     rows={3}
                                     className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-xs text-white case-sensitive placeholder:text-white/20 focus:outline-none focus:border-brand/40 resize-none mb-5"
                                 />
+
+                                {/* ── Aviso al CLIENTE, por el MISMO botón ──────────────────
+                                    Encargar el CEE es el primer movimiento del expediente y el
+                                    cliente no se enteraba: la primera noticia que tenía era la
+                                    llamada de un técnico que nadie le había anunciado.
+                                    El mensaje viene PLEGADO — casi nunca se edita, y enseñarlo
+                                    entero solo aleja el botón de enviar. */}
+                                {avisoCliente && (
+                                    <div className={`rounded-xl border p-3 mb-5 transition-colors ${avisarCliente ? 'border-emerald-500/30 bg-emerald-500/[0.04]' : 'border-white/[0.07] bg-black/20'}`}>
+                                        <label className="flex items-start gap-3 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={avisarCliente}
+                                                disabled={certNotifLoading || (!avisoCliente.tlf && !avisoCliente.email)}
+                                                onChange={e => setAvisarCliente(e.target.checked)}
+                                                className="mt-0.5 w-4 h-4 shrink-0 accent-emerald-500 disabled:opacity-40"
+                                            />
+                                            <span className="min-w-0">
+                                                <span className="block text-[11px] font-black text-white uppercase tracking-widest">Avisar también al cliente</span>
+                                                <span className="block text-[10px] text-white/40 leading-snug mt-0.5">
+                                                    {(!avisoCliente.tlf && !avisoCliente.email)
+                                                        ? 'El cliente no tiene teléfono ni email en su ficha.'
+                                                        : `Le decimos que el trámite ha arrancado y que le avisaremos cuando el CEE esté registrado${avisoCliente.nombre ? ` · ${avisoCliente.nombre}` : ''}`}
+                                                </span>
+                                            </span>
+                                        </label>
+
+                                        {/* Ya avisado: no se bloquea (puede hacer falta reenviarlo),
+                                            pero se dice — y por eso no viene marcado. */}
+                                        {avisoCliente.avisadoEn && (
+                                            <p className="text-[10px] text-amber-400/80 mt-2 ml-7 leading-snug">
+                                                ⚠️ Ya se le avisó el {new Date(avisoCliente.avisadoEn).toLocaleDateString('es-ES')}
+                                                {avisoCliente.avisadoA ? ` a ${avisoCliente.avisadoA}` : ''}. Márcalo solo si quieres repetirlo.
+                                            </p>
+                                        )}
+
+                                        {avisarCliente && (
+                                            <div className="mt-3 ml-7">
+                                                <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                                    <CanalChip
+                                                        canal="whatsapp" nombre="WhatsApp"
+                                                        activo={clienteChannels.includes('whatsapp')}
+                                                        disponible={!!avisoCliente.tlf}
+                                                        detalle={avisoCliente.tlf}
+                                                        motivo="no consta en su ficha"
+                                                        bloqueado={certNotifLoading}
+                                                        onClick={() => setClienteChannels(prev => prev.includes('whatsapp') ? prev.filter(c => c !== 'whatsapp') : [...prev, 'whatsapp'])}
+                                                    />
+                                                    <CanalChip
+                                                        canal="email" nombre="Email"
+                                                        activo={clienteChannels.includes('email')}
+                                                        disponible={!!avisoCliente.email}
+                                                        detalle={avisoCliente.email}
+                                                        motivo="no consta en su ficha"
+                                                        bloqueado={certNotifLoading}
+                                                        onClick={() => setClienteChannels(prev => prev.includes('email') ? prev.filter(c => c !== 'email') : [...prev, 'email'])}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setVerMsgCliente(v => !v)}
+                                                        className="ml-auto text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-brand transition-colors"
+                                                    >{verMsgCliente ? 'Ocultar mensaje' : '👁 Ver el mensaje'}</button>
+                                                </div>
+                                                {clienteChannels.length === 0 && (
+                                                    <p className="text-[10px] text-amber-400/80 mb-2">Elige un canal o desmarca el aviso.</p>
+                                                )}
+                                                {verMsgCliente && (
+                                                    <>
+                                                        <MensajeEditable
+                                                            value={clienteMessage}
+                                                            onChange={setClienteMessage}
+                                                            disabled={certNotifLoading}
+                                                            placeholder="Mensaje que recibirá el cliente…"
+                                                            rows={10}
+                                                            maxLength={2000}
+                                                            focusClass="focus:border-emerald-500/40"
+                                                        />
+                                                        <div className="flex items-center justify-between mt-1">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setClienteMessage(avisoCliente.mensaje || '')}
+                                                                disabled={certNotifLoading}
+                                                                className="text-[9px] font-black uppercase tracking-widest text-white/30 hover:text-brand transition-colors disabled:opacity-40"
+                                                            >↺ Restaurar plantilla</button>
+                                                            <p className="text-[9px] text-white/20 shrink-0 ml-3">{clienteMessage.length}/2000</p>
+                                                        </div>
+                                                    </>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
 
                                 </div>
 

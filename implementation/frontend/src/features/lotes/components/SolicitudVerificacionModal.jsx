@@ -12,6 +12,8 @@ export function SolicitudVerificacionModal({ lote, onClose, onSent }) {
     const { showAlert } = useModal();
     const exps = lote.expedientes || [];
     const [archivando, setArchivando] = useState(false);
+    // El documento arranca PLEGADO: ver el borrador es la excepción, no el paso.
+    const [verDoc, setVerDoc] = useState(false);
 
     const [contacto, setContacto] = useState({ ...SOLICITUD_DEFAULTS.contacto });
     const [intermediaria, setIntermediaria] = useState(SOLICITUD_DEFAULTS.intermediaria);
@@ -132,9 +134,28 @@ export function SolicitudVerificacionModal({ lote, onClose, onSent }) {
                         </div>
                     </div>
 
-                    {/* Previsualización */}
-                    <div className="border border-white/[0.08] rounded-xl overflow-auto max-h-[50vh] bg-white">
-                        <div dangerouslySetInnerHTML={{ __html: html }} />
+                    {/* ── El documento, PLEGADO ────────────────────────────────
+                        Son cinco páginas de formulario dentro de un popup: abierto
+                        empuja los botones fuera de la pantalla y hay que hacer
+                        scroll por el documento entero para llegar a "Enviar por
+                        API", que es a lo que se entra. Lo que se revisa aquí son
+                        los CAMPOS de arriba; el documento se mira cuando se quiere
+                        comprobar cómo ha quedado. */}
+                    <div>
+                        <button type="button" onClick={() => setVerDoc(v => !v)}
+                            className="w-full flex items-center justify-between gap-2 px-4 py-2.5 rounded-xl border border-white/[0.08] bg-white/[0.02] hover:border-brand/30 hover:bg-white/[0.04] transition-all">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-white/50">
+                                {verDoc ? 'Ocultar el documento' : 'Ver el documento'}
+                            </span>
+                            <span className="text-[9px] text-white/30">
+                                {exps.length} actuaciones · {totalMwh.toLocaleString('es-ES', { maximumFractionDigits: 1 })} MWh
+                            </span>
+                        </button>
+                        {verDoc && (
+                            <div className="mt-2 border border-white/[0.08] rounded-xl overflow-auto max-h-[50vh] bg-white">
+                                <div dangerouslySetInnerHTML={{ __html: html }} />
+                            </div>
+                        )}
                     </div>
 
                 </div>

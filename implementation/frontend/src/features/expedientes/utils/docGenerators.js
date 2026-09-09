@@ -14,6 +14,19 @@ const APP_URL = (typeof import.meta !== 'undefined' && import.meta.env && import
 
 // Mapa código de provincia (2 díg.) → nombre. Permite mostrar la provincia
 // cuando solo tenemos el código (p.ej. oportunidades migradas) o el CP.
+// ─── Quién firma por BROKERGY ────────────────────────────────────────────────
+// El representante legal del Cesionario. Vive aquí porque es lo que IMPRIME el
+// Convenio de Cesión, y de aquí lo lee también la comprobación de firmas de los
+// documentos que devuelve el Sujeto Obligado (backend/services/firmadosSo.js):
+// con dos copias, el día que cambie el representante el convenio diría una cosa
+// y la comprobación esperaría a otra persona.
+export const FIRMANTE_CESIONARIO = {
+    nombre: 'FRANCISCO JAVIER MOYA LÓPEZ',
+    nif: '06282551D',
+    empresa: 'SOLUCIONES SOSTENIBLES PARA EFICIENCIA ENERGÉTICA, SL',
+    cif: 'B19350222',
+};
+
 export const PROVINCE_CODE_TO_NAME = {
     '01': 'Álava', '02': 'Albacete', '03': 'Alicante', '04': 'Almería',
     '05': 'Ávila', '06': 'Badajoz', '07': 'Baleares', '08': 'Barcelona',
@@ -382,10 +395,10 @@ export const ANEXO_CESION_CSS = `
     letter-spacing: 2.5px; text-transform: uppercase;
 }
 .conv-subtitle::before, .conv-subtitle::after { content: ''; flex: 1; height: 1px; background: #E5E5E5; }
-.conv-p { font-size: 11px; line-height: 1.5; color: #404040; margin-bottom: 7px; text-align: justify; }
+.conv-p { font-size: 11px; line-height: 1.5; color: #404040; margin-bottom: 6px; text-align: justify; }
 .conv-p strong, .conv-p b { color: #171717; font-weight: 700; }
-.conv-cl { margin-bottom: 7px; }
-.conv-cl p { font-size: 11px; line-height: 1.5; color: #404040; text-align: justify; margin-bottom: 4px; }
+.conv-cl { margin-bottom: 5px; }
+.conv-cl p { font-size: 11px; line-height: 1.5; color: #404040; text-align: justify; margin-bottom: 3px; }
 .conv-cl p strong, .conv-cl p b { color: #171717; font-weight: 700; }
 .conv-cl li { font-size: 11px; line-height: 1.5; color: #404040; margin-left: 20px; margin-bottom: 2px; }
 .conv-cuenta {
@@ -451,6 +464,7 @@ export const deriveAnexoI = (expediente, results, states = {}, opts = {}) => {
 
     const fichaType = numexpte.includes('RES080') ? 'RES080'
                     : numexpte.includes('RES093') ? 'RES093'
+                    : numexpte.includes('TER173') ? 'TER173'
                     : numexpte.includes('TER100') ? 'TER100'
                     : (op.ficha || 'RES060');
 
@@ -458,17 +472,21 @@ export const deriveAnexoI = (expediente, results, states = {}, opts = {}) => {
         ? 'Rehabilitación profunda de edificios de viviendas'
         : fichaType === 'RES093'
             ? 'Hibridación de combustión con bomba de calor de accionamiento eléctrico'
-            : fichaType === 'TER100'
-                ? 'Sustitución de caldera de combustión por bomba de calor de accionamiento eléctrico (sector terciario)'
-                : ANEXO_I_TEXTS.NOMBRE_ACTUACION_FIXED;
+            : fichaType === 'TER173'
+                ? 'Hibridación en modo paralelo de caldera de combustión con bomba de calor de accionamiento eléctrico (sector terciario)'
+                : fichaType === 'TER100'
+                    ? 'Sustitución de caldera de combustión por bomba de calor de accionamiento eléctrico (sector terciario)'
+                    : ANEXO_I_TEXTS.NOMBRE_ACTUACION_FIXED;
 
     const codigoFicha = fichaType === 'RES080'
         ? 'RES080: Mejora de la eficiencia energética de instalaciones térmicas'
         : fichaType === 'RES093'
             ? 'RES093: Hibridación en modo paralelo de caldera/s de combustión con bomba de calor de accionamiento eléctrico en edificios residenciales ubicados en la zona climática D1, D2 o D3'
-            : fichaType === 'TER100'
-                ? 'TER100: Sustitución de caldera de combustión existente por bomba de calor de accionamiento eléctrico'
-                : 'RES060: Sustitución de caldera de combustión por una bomba de calor tipo aire-aire, aire-agua, agua-agua o combinadas';
+            : fichaType === 'TER173'
+                ? 'TER173: Hibridación en modo paralelo de caldera/s de combustión con bomba de calor de accionamiento eléctrico en edificios no residenciales ubicados en la zona climática D1, D2 o D3'
+                : fichaType === 'TER100'
+                    ? 'TER100: Sustitución de caldera de combustión existente por bomba de calor de accionamiento eléctrico'
+                    : 'RES060: Sustitución de caldera de combustión por una bomba de calor tipo aire-aire, aire-agua, agua-agua o combinadas';
     // Dirección de la INSTALACIÓN (vivienda del Catastro), NUNCA la del cliente.
     const instAddr = buildInstalacionAddress(expediente);
     const ccaa = (instAddr.ccaa || 'CASTILLA-LA MANCHA').toUpperCase();
@@ -704,13 +722,21 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
     const numCuenta = cliente.numero_cuenta || '___________________________';
     const hayCuenta = tieneCuentaBancaria(cliente);
     const aeRaw = results?.savingsKwh || 0;
-    const aeKwh = Math.round(aeRaw).toLocaleString('es-ES', { useGrouping: true });
-    const caeVolStr = (aeRaw / 1000).toLocaleString('es-ES', { minimumFractionDigits: 3, maximumFractionDigits: 3 }).replace(',', '.');
+    // V5 — el ahorro es SIEMPRE estimado y el importe SIEMPRE orientativo: los
+    // nombres lo dicen, para que nadie los imprima como cifras cerradas.
+    const ahorroEstimadoKwh = Math.round(aeRaw).toLocaleString('es-ES', { useGrouping: true });
     const opInputs = op?.datos_calculo?.inputs || {};
     const { rate: rateMwh } = getClientCaeRate(expediente);
-    const rateMWhStr = Math.round(rateMwh).toString();
+    // La cláusula cuarta declara el precio unitario en €/kWh, que es la unidad en
+    // la que la propia cláusula tercera mide el ahorro. La app lo guarda en €/MWh
+    // (95 €/MWh), así que se convierte: imprimir "95 €/kWh" junto a un importe
+    // calculado a 0,095 €/kWh sería un contrato que se contradice a sí mismo por
+    // un factor de mil, y es lo primero que multiplica quien lo revisa.
+    const precioCaeEurKwh = rateMwh
+        ? (rateMwh / 1000).toLocaleString('es-ES', { minimumFractionDigits: 3, maximumFractionDigits: 5 })
+        : '___________';
     const beneficioRaw = results?.caeBonus ?? (aeRaw && rateMwh ? aeRaw / 1000 * rateMwh : null);
-    const beneficioStr = beneficioRaw ? Math.round(beneficioRaw).toLocaleString('es-ES', { useGrouping: true }) : '___________';
+    const importeOrientativo = beneficioRaw ? Math.round(beneficioRaw).toLocaleString('es-ES', { useGrouping: true }) : '___________';
     // Coste de gestión del expediente CAE que asume el Cedente. Si es 0 (toggle
     // "Descuento Certificados" activo), BROKERGY lo asume íntegramente.
     //
@@ -743,6 +769,7 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
     const numexp = expediente.numero_expediente || '';
     const fichaType = numexp.includes('RES080') ? 'RES080'
                     : numexp.includes('RES093') ? 'RES093'
+                    : numexp.includes('TER173') ? 'TER173'
                     : numexp.includes('TER100') ? 'TER100'
                     : (op.ficha || 'RES060');
 
@@ -750,9 +777,11 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
         ? 'Rehabilitación profunda de edificios de viviendas'
         : fichaType === 'RES093'
             ? 'Hibridación de combustión con bomba de calor de accionamiento eléctrico'
-            : fichaType === 'TER100'
-                ? 'Sustitución de caldera de combustión por bomba de calor de accionamiento eléctrico (sector terciario)'
-                : 'Sustitución de caldera de combustión por una bomba de calor aire-agua (aerotermia)';
+            : fichaType === 'TER173'
+                ? 'Hibridación en modo paralelo de caldera de combustión con bomba de calor de accionamiento eléctrico (sector terciario)'
+                : fichaType === 'TER100'
+                    ? 'Sustitución de caldera de combustión por bomba de calor de accionamiento eléctrico (sector terciario)'
+                    : 'Sustitución de caldera de combustión por una bomba de calor aire-agua (aerotermia)';
 
     const vidaUtilTexto = fichaType === 'RES080'
         ? 'La vida útil de la actuación de eficiencia energética recogida en la cláusula 1 de este convenio es de 15 años para bombas de calor aire-agua y de 25 años para la sustitución de ventanas e instalación de aislamiento térmico.'
@@ -764,8 +793,8 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
     // contador—; el previo añade además la salvedad de que la cesión se mantiene
     // íntegra si el verificado sale distinto, porque ahí no hay ni obra hecha.
     const expPrimero = previo
-        ? `<strong>Primero.</strong> Que el Cedente tiene previsto llevar a cabo la actuación de eficiencia energética estandarizada consistente en la <em>"${descripcionActuacion}"</em>, y como resultado de la misma espera obtener unos ahorros de energía estimados en <strong>${aeKwh} kWh/año</strong>, conforme al Real Decreto 36/2023, de 24 de enero, por el que se establece un sistema de Certificados de Ahorro Energético (CAE).`
-        : `<strong>Primero.</strong> Que como resultado de la actuación de eficiencia energética estandarizada llevada a cabo por el Cedente, consistente en la <em>"${descripcionActuacion}"</em>, se ha estimado un ahorro de <strong>${aeKwh} kWh/año</strong>, conforme al Real Decreto 36/2023, de 24 de enero, por el que se establece un sistema de Certificados de Ahorro Energético (CAE).`;
+        ? `<strong>Primero.</strong> Que el Cedente tiene previsto llevar a cabo la actuación de eficiencia energética estandarizada consistente en la <em>"${descripcionActuacion}"</em>, y como resultado de la misma espera obtener unos ahorros de energía estimados en <strong>${ahorroEstimadoKwh} kWh/año</strong>, conforme al Real Decreto 36/2023, de 24 de enero, por el que se establece un sistema de Certificados de Ahorro Energético (CAE).`
+        : `<strong>Primero.</strong> Que como resultado de la actuación de eficiencia energética estandarizada llevada a cabo por el Cedente, consistente en la <em>"${descripcionActuacion}"</em>, se ha estimado un ahorro de <strong>${ahorroEstimadoKwh} kWh/año</strong>, conforme al Real Decreto 36/2023, de 24 de enero, por el que se establece un sistema de Certificados de Ahorro Energético (CAE).`;
 
     const clPrimera = previo
         ? `El Cedente autoriza al Cesionario, en exclusiva, a gestionar en su nombre los ahorros energéticos que se generarán al llevar a cabo la actuación de eficiencia energética descrita como <em>"${descripcionActuacion}"</em>.`
@@ -774,13 +803,13 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
     const clSegundaValidez = previo ? 'donde se ejecute' : 'donde se ha ejecutado';
     const clSegundaLugar   = previo ? 'La actuación va a llevarse a cabo' : 'La actuación se ha llevado a cabo';
 
-    const clTercera = previo
-        ? `El ahorro anual de energía previsto será de <strong>${aeKwh} kWh/año</strong>, siendo el mismo estimado, y permitirá obtener teóricamente <strong>${caeVolStr} CAEs</strong> en el sistema de Certificados de Ahorro Energético. Si el ahorro finalmente verificado resultase distinto del previsto, se mantiene íntegra la cesión del mismo al Cesionario.`
-        : `El ahorro anual de energía estimado será de <strong>${aeKwh} kWh/año</strong>, permitiendo obtener teóricamente <strong>${caeVolStr} CAEs</strong> en el sistema de Certificados de Ahorro Energético.`;
+    // V5 — tercera y cuarta ya NO se bifurcan por el estado de la obra: la
+    // redacción nueva sirve para los dos casos (el ahorro es estimado se haya
+    // ejecutado la obra o no, y el ajuste automático al verificado cubre la
+    // salvaguarda que antes solo llevaba el convenio previo).
+    const clTercera = `El ahorro anual de energía estimado para la actuación es de <strong>${ahorroEstimadoKwh} kWh/año</strong>. Ambas partes reconocen que se trata de una estimación: el ahorro que finalmente genere Certificados de Ahorro Energético será el que resulte del proceso de verificación y del dictamen final del Ministerio para la Transición Ecológica y el Reto Demográfico, pudiendo ser superior o inferior al estimado. La contraprestación prevista en la cláusula cuarta se ajustará automáticamente al ahorro finalmente certificado, sin necesidad de novar este convenio, sin que la diferencia constituya incumplimiento ni dé derecho a indemnización a ninguna de las partes.`;
 
-    const clCuarta = previo
-        ? `Las partes acuerdan fijar el valor del incentivo económico por participación en un importe de <strong>${rateMWhStr} €/MWh</strong>, correspondiente a los ahorros estimados del primer año generados por la actuación, lo que supone, en conjunto, un importe estimado de <strong>${beneficioStr} €</strong>, que se ajustará al ahorro finalmente verificado sin variar el precio unitario acordado.`
-        : `Las partes acuerdan fijar el valor del incentivo económico por participación en un importe de <strong>${rateMWhStr} €/MWh</strong>, correspondiente a los ahorros estimados del primer año generados por la actuación, lo que supone, en conjunto, la suma de <strong>${beneficioStr} €</strong>.`;
+    const clCuarta = `Las partes acuerdan fijar el valor del incentivo económico por participación en <strong>${precioCaeEurKwh} €/kWh</strong> de ahorro certificado. Aplicado al ahorro estimado en la cláusula tercera, la contraprestación ascendería, a título orientativo, a <strong>${importeOrientativo} €</strong>, importe que se ajustará al alza o a la baja conforme a dicha cláusula.`;
 
     const bloqueCoste = certCost > 0
         ? `<p class="conv-p">El Cedente recibirá el importe final tras deducir del monto establecido en la cláusula cuarta la cantidad de <strong>${certCostStr} €</strong>, en concepto de los costes de gestión técnica y administrativa necesarios para la tramitación del expediente CAE.</p>`
@@ -811,7 +840,7 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
         </div>`;
     const footer = (pg) => `
         <div class="conv-footer">
-          <span class="conv-footer-v">V4 – 12/08/2026 · ${previo ? 'Actuación prevista' : 'Actuación ejecutada'}</span>
+          <span class="conv-footer-v">V5 – 09/09/2026 · ${previo ? 'Actuación prevista' : 'Actuación ejecutada'}</span>
           <span class="conv-footer-b">BROKERGY</span>
           <span class="conv-footer-pg">${pg}</span>
         </div>`;
@@ -827,7 +856,7 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
                 ? `De una parte, Dª/D. <strong>${nombreRepresentante}</strong>, mayor de edad, con documento de identificación <strong>${dniRepresentante}</strong>, actuando en nombre y representación de la entidad <strong>${nombreCedente}</strong>, con código de identificación NIF <strong>${dniCedente}</strong> y domicilio a efectos de notificaciones en <strong>${dirCedente}</strong>, teléfono de contacto <strong>${telCedente}</strong> y correo electrónico <strong>${emailCedente}</strong>, en adelante el <strong>Cedente</strong>.`
                 : `De una parte, Dª/D. <strong>${nombreCedente}</strong>, mayor de edad, con documento de identificación <strong>${dniCedente}</strong> y domicilio a efectos de notificaciones en <strong>${dirCedente}</strong>, teléfono de contacto <strong>${telCedente}</strong> y correo electrónico <strong>${emailCedente}</strong>, en adelante el <strong>Cedente</strong>.`
             }</p>
-            <p class="conv-p">De otra parte, Dª/D. FRANCISCO JAVIER MOYA LÓPEZ mayor de edad, con documento de identificación 06282551D, actuando en nombre y representación de la entidad SOLUCIONES SOSTENIBLES PARA EFICIENCIA ENERGÉTICA, SL (<strong>BROKERGY</strong>), con código de identificación NIF B19350222 y domicilio a efectos de notificaciones en C/ Don Sergio, 12 – 1ºL de 13700 Tomelloso (Ciudad Real), en adelante el <strong>Cesionario</strong>.</p>
+            <p class="conv-p">De otra parte, Dª/D. ${FIRMANTE_CESIONARIO.nombre} mayor de edad, con documento de identificación ${FIRMANTE_CESIONARIO.nif}, actuando en nombre y representación de la entidad ${FIRMANTE_CESIONARIO.empresa} (<strong>BROKERGY</strong>), con código de identificación NIF ${FIRMANTE_CESIONARIO.cif} y domicilio a efectos de notificaciones en C/ Don Sergio, 12 – 1ºL de 13700 Tomelloso (Ciudad Real), en adelante el <strong>Cesionario</strong>.</p>
             <p class="conv-p"><strong>Las partes se reconocen mutua y recíprocamente la capacidad legal necesaria para otorgar este convenio y, a sus efectos, exponen lo siguiente:</strong></p>
             <div class="conv-subtitle">EXPONEN</div>
             <p class="conv-p">${expPrimero}</p>
@@ -895,7 +924,7 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
                   <div class="conv-sign-box">
                     <img src="${APP_URL}/firma_brokergy.png" class="conv-sign-img" alt="Firma">
                   </div>
-                  <div class="conv-sign-name">Dª/D. FRANCISCO JAVIER MOYA LÓPEZ</div>
+                  <div class="conv-sign-name">Dª/D. ${FIRMANTE_CESIONARIO.nombre}</div>
                 </div>
               </div>
             </div>

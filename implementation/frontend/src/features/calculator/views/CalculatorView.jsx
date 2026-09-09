@@ -20,8 +20,17 @@ import {
     FUEL_PRICES,
     getUByYear,
     getVentanaYACHByYear,
-    AEROTHERMIA_MODELS
+    AEROTHERMIA_MODELS,
+    CAE_PRECIO_CLIENTE_NUEVAS,
+    calculateTerciario,
 } from '../logic/calculation';
+// El SECTOR (residencial / terciario) decide la ficha y, con ella, cómo se
+// reparte el ahorro. Fuente única con el backend y con el resto de pantallas.
+import { esSectorTerciario, SECTORES } from '../../expedientes/logic/expedienteTaxonomia';
+// La demanda de ACS se resuelve EXACTAMENTE igual que en el expediente: xml, CTE
+// o a mano. Es el mismo módulo, no una copia — si divergieran, la propuesta y el
+// expediente del mismo cliente darían ahorros distintos.
+import { resolveDacs, ACS_METHOD } from '../../expedientes/logic/demandaAcs';
 import { ceeToEmisionesInputs, ceeFinalToEmisionesInputs } from '../logic/ceeSeed';
 import { demandaDeCalculo } from '../../cee/ceeAvisos';
 import { calculateRes060FC } from '../logic/res060fc';
@@ -55,7 +64,23 @@ const INITIAL_INPUTS = {
     changeAcs: false,
     scopAcs: 3.0,
     dacs: 2731.4,
-    caePriceClient: 95,
+    caePriceClient: CAE_PRECIO_CLIENTE_NUEVAS,
+    // ── Sector y alcance ──────────────────────────────────────────────────
+    // El residencial es el caso por defecto: la calculadora nació para él.
+    sector: SECTORES.RESIDENCIAL,
+    // Alcance de la actuación sobre la CALEFACCIÓN. Solo es una pregunta en el
+    // terciario; en el residencial la actuación ES el cambio de la caldera.
+    changeHeating: true,
+    // Demanda de ACS: en el residencial se estima por el CTE (4 habitaciones);
+    // en el terciario va por plaza/servicio o la da el proyecto, así que se
+    // teclea. Con un CEE cargado, el modo 'xml' la toma del certificado.
+    acsMethod: ACS_METHOD.CTE,
+    numRooms: 4,
+    dacsManual: 0,
+    // Calentamiento de agua de piscina (AE_CAP). Nace desactivado: casi nunca aplica.
+    piscinaActiva: false,
+    dcap: 0,
+    scopPool: 0,
     caePriceSO: 160,
     presupuesto: 12000,
     presupuestoFotovoltaica: 0,
@@ -437,6 +462,27 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
     const handleCalculate = () => {
         // Se eliminó la alerta bloqueante para permitir actualización fluida de cálculos en tiempo real
 
+        // ── D_ACS ────────────────────────────────────────────────────────────
+        // En el TERCIARIO se resuelve como en el expediente (xml · CTE · manual);
+        // en el residencial se conserva la estimación de siempre.
+        const esTerciarioCalc = esSectorTerciario(inputs);
+        // El CEE que MANDA: el final si está cargado, si no el inicial. Es la misma
+        // regla que aplica el expediente (ceeFases.ceeBaseDocumento) y la que ya usa
+        // unas líneas más abajo la demanda de calefacción.
+        const ceeBaseCalc = inputs.xmlDemandDataFinal?.demandaCalefaccion
+            ? inputs.xmlDemandDataFinal
+            : (inputs.xmlDemandData || null);
+        const superficieCee = parseFloat(ceeBaseCalc?.superficieHabitable)
+            || parseFloat(inputs.manualSuperficie)
+            || parseFloat(inputs.superficieCalefactable)
+            || parseFloat(inputs.superficie) || 0;
+        const dacsCalculada = esTerciarioCalc
+            ? resolveDacs(
+                { acs_method: inputs.acsMethod, num_rooms: inputs.numRooms, dacs_manual: inputs.dacsManual },
+                { demandaACS: ceeBaseCalc?.demandaACS, superficieHabitable: superficieCee },
+            ).value
+            : 2731.4;
+
         // Sanitización local de inputs numéricos para evitar que los strings con "." o "," rompan el motor de cálculo
         const sanitizedInputs = {
             ...inputs,
@@ -446,7 +492,17 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             altura: parseFloat(inputs.altura) || 2.7,
             presupuesto: parseFloat(inputs.presupuesto) || 0,
             presupuestoFotovoltaica: parseFloat(inputs.presupuestoFotovoltaica) || 0,
-            dacs: 2731.4, // Valor fijo solicitado por el usuario
+            // D_ACS — se resuelve con el MISMO módulo que el expediente
+            // (demandaAcs.js): 'xml' la toma del certificado (kWh/m²·año × m²),
+            // 'cte' aplica el Anejo F por habitaciones y 'manual' es la cifra
+            // tecleada. Hasta 2026-09-09 aquí había un 2.731,4 CABLEADO —la
+            // fórmula del CTE para 4 habitaciones— que ignoraba el CEE cargado:
+            // en un hotel de 1.000 m² con 20 kWh/m²·año son 20.000 kWh/año reales
+            // frente a esos 2.731,4.
+            //
+            // El residencial CONSERVA el valor de siempre: cambiarlo movería el
+            // ahorro de toda propuesta nueva, y eso no se ha pedido.
+            dacs: dacsCalculada,
             boilerEff: parseFloat(inputs.boilerEff) || 0.92,
             scopHeating: parseFloat(inputs.scopHeating) || 3.2,
             scopAcs: parseFloat(inputs.scopAcs) || 3.0,
@@ -457,7 +513,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             gla: parseFloat(inputs.gla) || 15,
             gastoAnualReal: parseFloat(inputs.gastoAnualReal) || 0,
             participation: parseFloat(inputs.participation) || 100,
-            caePriceClient: parseFloat(inputs.caePriceClient) || 95,
+            caePriceClient: parseFloat(inputs.caePriceClient) || CAE_PRECIO_CLIENTE_NUEVAS,
             caePriceSO: parseFloat(inputs.caePriceSO) || 160,
             caePricePrescriptor: parseFloat(inputs.caePricePrescriptor) || 0,
             numOwners: parseInt(inputs.numOwners) || 1,
@@ -562,15 +618,36 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         const cb = hybridizationRes?.cb ?? 1.0;
 
         // 2. Calcular Ahorro
-        const savingsRes = calculateSavings({
-            q_net_heating: demandRes.Q_net,
-            dacs: sanitizedInputs.dacs,
-            boilerEff: sanitizedInputs.boilerEff,
-            scopHeating: sanitizedInputs.scopHeating,
-            scopAcs: sanitizedInputs.scopAcs,
-            changeAcs: sanitizedInputs.changeAcs,
-            cb: cb
-        });
+        //
+        // En el TERCIARIO el ahorro se desglosa en TRES sumandos con su propio
+        // SCOP (calefacción · ACS · calentamiento de piscina) y el C_b pondera el
+        // TOTAL — es la fórmula de las fichas TER100/TER173. Sin piscina y con la
+        // calefacción dentro del alcance las dos vías dan EXACTAMENTE lo mismo
+        // (comprobado en test_ter173.mjs); lo que añade `calculateTerciario` es
+        // poder dejar un servicio fuera y poder sumar la piscina.
+        const savingsRes = esTerciarioCalc
+            ? calculateTerciario({
+                q_net_heating: demandRes.Q_net,
+                dacs: sanitizedInputs.dacs,
+                dcap: parseFloat(inputs.dcap) || 0,
+                boilerEff: sanitizedInputs.boilerEff,
+                scopHeating: sanitizedInputs.scopHeating,
+                scopAcs: sanitizedInputs.scopAcs,
+                scopPool: parseFloat(inputs.scopPool) || 0,
+                changeHeating: inputs.changeHeating !== false,
+                changeAcs: sanitizedInputs.changeAcs,
+                changePool: inputs.piscinaActiva === true,
+                cb: cb,
+            })
+            : calculateSavings({
+                q_net_heating: demandRes.Q_net,
+                dacs: sanitizedInputs.dacs,
+                boilerEff: sanitizedInputs.boilerEff,
+                scopHeating: sanitizedInputs.scopHeating,
+                scopAcs: sanitizedInputs.scopAcs,
+                changeAcs: sanitizedInputs.changeAcs,
+                cb: cb
+            });
 
         // 3. Cálculos Financieros (IRPF + CAE)
         const financialRes = calculateFinancials({
@@ -589,9 +666,14 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             installerNoCard: sanitizedInputs.installerNoCard,
             legalizationPrice: sanitizedInputs.legalizationPrice,
             itpPercent: sanitizedInputs.itpPercent,
-            includeIrpf: inputs.includeIrpf,
-            titularType: inputs.titularType || 'particular',
-            aplicarIrpfCae: inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true',
+            // En el TERCIARIO el titular es una empresa o un autónomo: no aplican
+            // ni la deducción de IRPF por obras en vivienda ni la tributación del
+            // bono CAE como ganancia patrimonial (las dos son de personas físicas).
+            // Se fuerza aquí y no se deja al usuario: es una consecuencia del
+            // sector, no una opción comercial.
+            includeIrpf: esTerciarioCalc ? false : inputs.includeIrpf,
+            titularType: esTerciarioCalc ? 'empresa' : (inputs.titularType || 'particular'),
+            aplicarIrpfCae: esTerciarioCalc ? false : (inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true'),
             includeIVA: inputs.includeIVA === true || inputs.includeIVA === 'true'
         });
 

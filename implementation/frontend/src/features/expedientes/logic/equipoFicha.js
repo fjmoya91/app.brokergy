@@ -253,7 +253,7 @@ export function buildEquipoFicha(exp, { modelos = {} } = {}) {
         titulo: 'Del CEE inicial',
         // Es el aviso que más nos ha costado: en una sustitución de generador la
         // envolvente no se toca, así que la demanda de calefacción no puede moverse.
-        subtitulo: /RES060|RES093|TER100/i.test(String(exp?.numero_expediente || ''))
+        subtitulo: /RES060|RES093|TER100|TER173/i.test(String(exp?.numero_expediente || ''))
             ? 'La demanda de calefacción del CEE final tiene que salir IGUAL: la actuación no toca la envolvente.'
             : null,
         campos: refCampos,

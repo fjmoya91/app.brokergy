@@ -6,6 +6,10 @@ import { PrescriptoresList } from './PrescriptoresList';
 import { ClienteFormModal } from '../../clientes/components/ClienteFormModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
 import { VincularClienteModal } from '../../clientes/components/VincularClienteModal';
+// Lista de fichas y su color: fuente única con el listado de expedientes y el
+// cuadro de mando, para que las tres pantallas no puedan pintar la misma ficha
+// de dos colores ni quedarse una sin la nueva.
+import { FICHAS, fichaColor } from '../../expedientes/logic/expedienteTaxonomia';
 
 const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
@@ -21,6 +25,7 @@ export function AdminPanelView({
 }) {
     const { user } = useAuth();
     const { canDelete } = getRoleFlags(user);
+    const isAdmin = user?.rol?.toUpperCase() === 'ADMIN';
 
     // ─── Columnas redimensionables (Excel-style) ──────────────────────────────
     const COL_DEFAULTS = {
@@ -197,10 +202,12 @@ export function AdminPanelView({
                          : (calcInputs.hibridacion === true || op.datos_calculo?.hibridacion === true ||
                             (op.referencia_cliente?.toUpperCase().includes('RES093')) ||
                             (op.id_oportunidad?.toUpperCase().includes('RES093')));
-        // TER100 (terciario) solo llega DECLARADA en `op.ficha`: la calculadora es
-        // residencial y nunca la deduce de los inputs ni de la referencia.
-        const currentFicha = fichaExplicita === 'TER100' ? 'TER100'
-            : isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060');
+        // Las fichas del TERCIARIO solo llegan DECLARADAS en `op.ficha`: la
+        // calculadora es residencial y nunca las deduce de los inputs ni de la
+        // referencia. Se miran ANTES que la hibridación: la TER173 es una
+        // hibridación y si no se la llevaría RES093.
+        const currentFicha = FICHAS.find(f => f.startsWith('TER') && fichaExplicita === f)
+            || (isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060'));
         const financials = (isReforma && op.datos_calculo?.result?.financialsRes080)
             ? op.datos_calculo.result.financialsRes080
             : op.datos_calculo?.result?.financials;
@@ -379,6 +386,36 @@ export function AdminPanelView({
             setPrescriptores(res.data);
         } catch (err) {
             console.error('Error fetching prescriptores', err);
+        }
+    };
+
+    // ── Reclasificar una oportunidad (cambiar su ficha) ──────────────────────
+    // Hasta ahora la ficha del TERCIARIO solo se declaraba desde "cambiar tipo de
+    // actuación" DENTRO del expediente, que no existe hasta que el cliente acepta.
+    // El backend deja coherentes los inputs que la sostienen (sector, hibridación,
+    // reforma), no solo la etiqueta: si solo cambiara la columna, el primer
+    // reguardado desde la calculadora la devolvería a lo que dijeran los inputs.
+    const [cambiandoFicha, setCambiandoFicha] = useState(null);
+    const cambiarFicha = async (op, ficha) => {
+        if (!ficha || ficha === op.ficha) return;
+        // Cambiar la ficha cambia la fórmula del ahorro y con ella el bono del
+        // cliente, así que se confirma: no es un filtro, es un dato del expediente.
+        const ok = window.confirm(
+            `¿Cambiar ${op.id_oportunidad} a ${ficha}?
+
+` +
+            `Cambia la fórmula del ahorro y, con ella, el bono CAE que se le ofrece al cliente. ` +
+            `El identificador de la oportunidad NO se renombra; el número del expediente se generará con la ficha nueva al aceptarla.`
+        );
+        if (!ok) return;
+        setCambiandoFicha(op.id_oportunidad);
+        try {
+            await axios.patch(`/api/oportunidades/${op.id_oportunidad}/ficha`, { ficha });
+            await fetchOportunidades();
+        } catch (err) {
+            alert('No se pudo cambiar la ficha: ' + (err.response?.data?.error || err.message));
+        } finally {
+            setCambiandoFicha(null);
         }
     };
 
@@ -692,8 +729,8 @@ export function AdminPanelView({
                                     (op.referencia_cliente?.includes('RES080')) ||
                                     (op.id_oportunidad?.includes('RES080')));
                 const isHybrid = !isReforma && (_fe === 'RES093' || (op.datos_calculo?.hibridacion === true));
-                const fichaValue = _fe === 'TER100' ? 'TER100'
-                    : isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060');
+                const fichaValue = FICHAS.find(f => f.startsWith('TER') && _fe === f)
+                    || (isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060'));
                 return fichaValue === filters.ficha;
             })()) &&
             (filters.ccaa === '' || getCCAA(op) === filters.ccaa) &&
@@ -1105,10 +1142,7 @@ export function AdminPanelView({
                                 className="w-full bg-bkg-deep border border-white/[0.08] rounded-lg px-3 py-2.5 text-xs text-white focus:outline-none focus:border-brand/40 transition-all uppercase"
                             >
                                 <option value="" className="bg-slate-800">Todas</option>
-                                <option value="RES060" className="bg-slate-800">RES060</option>
-                                <option value="RES080" className="bg-slate-800">RES080</option>
-                                <option value="RES093" className="bg-slate-800">RES093</option>
-                                <option value="TER100" className="bg-slate-800">TER100</option>
+                                {FICHAS.map(f => <option key={f} value={f} className="bg-slate-800">{f}</option>)}
                             </select>
                         </div>
                         {/* CCAA */}
@@ -1253,10 +1287,7 @@ export function AdminPanelView({
                                         onChange={e => setFilters(prev => ({ ...prev, ficha: e.target.value }))}
                                     >
                                         <option value="" className="bg-slate-800 text-white/50">TODAS</option>
-                                        <option value="RES060" className="bg-slate-800 text-brand">RES060</option>
-                                        <option value="RES080" className="bg-slate-800 text-emerald-400">RES080</option>
-                                        <option value="RES093" className="bg-slate-800 text-indigo-400">RES093</option>
-                                        <option value="TER100" className="bg-slate-800 text-cyan-400">TER100</option>
+                                        {FICHAS.map(f => <option key={f} value={f} className={`bg-slate-800 ${fichaColor(f).texto}`}>{f}</option>)}
                                     </select>
                                 </td>
                                 <td className="p-2.5 border-b border-white/[0.06]"></td>
@@ -1316,8 +1347,8 @@ export function AdminPanelView({
                                                         (op.referencia_cliente?.toUpperCase().includes('RES093')) ||
                                                         (op.id_oportunidad?.toUpperCase().includes('RES093')));
                                     
-                                    const currentFicha = fichaExplicita === 'TER100' ? 'TER100'
-                                        : isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060');
+                                    const currentFicha = FICHAS.find(f => f.startsWith('TER') && fichaExplicita === f)
+                                        || (isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060'));
                                     
                                     // Seleccionar financieros correctos según ficha
                                     // Solo RES080 (Reforma) usa financialsRes080 si existe. RES093 y RES060 usan financials estándar.
@@ -1397,17 +1428,26 @@ export function AdminPanelView({
                                                 <span title={getCCAA(op)}>{getCCAASigla(op)}</span>
                                             </td>
                                             <td className="p-3.5 whitespace-nowrap align-top">
-                                                <span className={`px-2 py-0.5 rounded text-[9px] font-black tracking-wider border ${
-                                                    currentFicha === 'RES080'
-                                                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                                                        : currentFicha === 'RES093'
-                                                            ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
-                                                            : currentFicha === 'TER100'
-                                                                ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
-                                                                : 'bg-brand/10 text-brand border-brand/20'
-                                                }`}>
-                                                    {currentFicha}
-                                                </span>
+                                                {/* Reclasificar SIN esperar a que se acepte. Hasta ahora la
+                                                    ficha del terciario solo se podía declarar dentro del
+                                                    expediente, que no existe hasta entonces. Solo ADMIN:
+                                                    cambiar la ficha cambia el ahorro y con él el bono. */}
+                                                {isAdmin ? (
+                                                    <select
+                                                        value={currentFicha}
+                                                        disabled={cambiandoFicha === op.id_oportunidad}
+                                                        onClick={e => e.stopPropagation()}
+                                                        onChange={e => { e.stopPropagation(); cambiarFicha(op, e.target.value); }}
+                                                        title="Cambiar el tipo de actuación de esta oportunidad"
+                                                        className={`px-2 py-0.5 rounded text-[9px] font-black tracking-wider border cursor-pointer appearance-none bg-transparent disabled:opacity-40 ${fichaColor(currentFicha).badge}`}
+                                                    >
+                                                        {FICHAS.map(f => <option key={f} value={f} className="bg-slate-800 text-white">{f}</option>)}
+                                                    </select>
+                                                ) : (
+                                                    <span className={`px-2 py-0.5 rounded text-[9px] font-black tracking-wider border ${fichaColor(currentFicha).badge}`}>
+                                                        {currentFicha}
+                                                    </span>
+                                                )}
                                             </td>
                                             {/* Columna financiera combinada (⚡ ahorro / € bono CAE / ▲ beneficio o presupuesto) */}
                                             <td className="p-3.5 align-top whitespace-nowrap">
@@ -1617,12 +1657,7 @@ export function AdminPanelView({
                                             <div className="text-white/35 text-[11px] mt-0.5 uppercase tracking-wide line-clamp-2">{dirText}</div>
                                         )}
                                     </div>
-                                    <span className={`shrink-0 px-2 py-0.5 rounded text-[9px] font-black tracking-wider border ${
-                                        meta.currentFicha === 'RES080' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                                            : meta.currentFicha === 'RES093' ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
-                                                : meta.currentFicha === 'TER100' ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
-                                                    : 'bg-brand/10 text-brand border-brand/20'
-                                    }`}>{meta.currentFicha}</span>
+                                    <span className={`shrink-0 px-2 py-0.5 rounded text-[9px] font-black tracking-wider border ${fichaColor(meta.currentFicha).badge}`}>{meta.currentFicha}</span>
                                 </div>
 
                                 {/* Código interno (DISTRIBUIDOR) */}

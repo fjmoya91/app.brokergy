@@ -7,7 +7,7 @@ import {
     buildCertMessage, buildCertEncargoMessage, buildCertApproveMessage,
     resolveCertEspera, suggestCertTono, CERT_ESPERA, ESPERA_LABELS, CERT_TONO_LABELS,
 } from '../logic/certMessages';
-import { esTer100 } from '../logic/ter100';
+import { esTerciario } from '../logic/terciario';
 import { demandaPropuesta } from '../logic/demandaPropuesta';
 import { DemandaPropuestaInfo } from './DemandaPropuestaInfo';
 import { autoconsumoMaximo } from '../logic/autoconsumoMaximo';
@@ -1227,10 +1227,11 @@ Según el documento:
         return (28 * numPeople * 0.001162 * 365 * 46).toFixed(2);
     };
 
-    // El modo MANUAL de D_ACS solo se ofrece en TER100 (terciario): en un hotel, una
-    // residencia o un gimnasio la demanda de ACS va por plaza/servicio (Anexo V de la
-    // ficha) o la da el proyecto, no la fórmula del CTE por dormitorios de vivienda.
-    const permiteDacsManual = esTer100(expediente);
+    // El modo MANUAL de D_ACS solo se ofrece en el TERCIARIO (TER100 · TER173): en un
+    // hotel, una residencia o un gimnasio la demanda de ACS va por plaza/servicio
+    // (anexo de la ficha) o la da el proyecto, no la fórmula del CTE por dormitorios
+    // de vivienda.
+    const permiteDacsManual = esTerciario(expediente);
 
     const handleNotifyAction = async () => {
         if (!notifyModal) return;
@@ -1557,7 +1558,7 @@ Según el documento:
                                             {permiteDacsManual && (
                                                 <button
                                                     onClick={() => onManualUpdate({ acs_method: 'manual' })}
-                                                    title="Demanda anual de ACS en kWh/año, según proyecto o el Anexo V de la ficha TER100"
+                                                    title="Demanda anual de ACS en kWh/año, según el proyecto o el anexo de la ficha. En el terciario la demanda va por plaza o servicio, no por dormitorios."
                                                     className={`px-3 py-1 max-md:flex-1 max-md:flex max-md:items-center max-md:justify-center max-md:min-h-[44px] max-md:text-[10px] rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${isDacsManual ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
                                                 >
                                                     MAN

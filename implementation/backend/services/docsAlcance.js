@@ -4,7 +4,7 @@
 // El checklist documental (`reformaUploadService.buildDocChecklist`) se computa
 // sobre `oportunidades.datos_calculo`, que es lo que se sabía el día de la
 // SIMULACIÓN. Pero el alcance real de la actuación lo declara el EXPEDIENTE:
-// la ficha (RES060/080/093/TER100), si se toca el ACS, qué unidad terminal hay,
+// la ficha (RES060/080/093/TER100/TER173), si se toca el ACS, qué unidad terminal hay,
 // qué elementos de envolvente se rehabilitan y si el CEE inicial ya está
 // registrado. Nada de eso llegaba a la vista del cliente: por eso el enlace
 // seguía pidiendo presupuesto, CEE anterior, vídeo y fachada a alguien cuyo CEE
@@ -23,7 +23,7 @@
 // ============================================================================
 
 const supabase = require('./supabaseClient');
-const { detectPrograma, esSustitucionCaldera } = require('../utils/fichas');
+const { detectPrograma, esSustitucionCaldera, esHibridacion } = require('../utils/fichas');
 const { esTermoElectrico } = require('../utils/aerotermiaUnits');
 
 /** ¿Hay valor de verdad (no null/vacío/placeholder de los migrados)? */
@@ -110,7 +110,7 @@ function alcanceFromExpediente(exp, opp) {
 
     return {
         ficha,
-        // La ficha de sustitución de caldera (RES060/093/TER100) NO contempla obra
+        // Las fichas de generador (RES060/093/TER100/TER173) NO contemplan obra
         // de envolvente: pedir fotos de ventanas o cubierta ahí es pedir material
         // que no va a ningún documento.
         esSustitucionCaldera: esSustitucionCaldera(ficha),
@@ -126,7 +126,10 @@ function alcanceFromExpediente(exp, opp) {
         emisor: familiaEmisor(inst.tipo_emisor),
         piscina: inst.piscina?.activa === true ? true : (exp ? false : null),
         envolvente: envolventeDeclarada(doc.envolvente || e.envolvente),
-        hibridacion: ficha === 'RES093' ? true : null,
+        // Hibridación en paralelo: RES093 (residencial) y TER173 (terciario). La
+        // lista sale de utils/fichas.js, o la siguiente ficha híbrida se quedaría
+        // fuera sin que nada fallara.
+        hibridacion: esHibridacion(ficha) ? true : null,
         // Solo informativo (cabecera y avisos); no poda ningún slot.
         numero_expediente: e.numero_expediente || null,
         fin_obra: e.fin_obra || doc.fecha_fin_obra_comunicada || null,

@@ -207,6 +207,37 @@ const casos = [
         e.cee.acs_method = 'manual'; e.cee.dacs_manual = 48000;
         return e;
     })()],
+
+    // ── TER173 · hibridación en el TERCIARIO ─────────────────────────────────
+    // Es la hoja más cargada de todo el documento: lleva el desglose de los tres
+    // servicios de la TER100 y, ADEMÁS, dos columnas más en esa tabla (Σ AE y
+    // C_b), el párrafo que explica por qué el total no es la suma, la fila del
+    // C_b en la tabla de variables y las DOS hojas del apartado 8 (que solo
+    // tenía la RES093). Se mide con el peor caso de cada método de cobertura.
+    ['TER173 · 3 en cascada + piscina (cobertura por demanda)', (() => {
+        const e = base('26TER173_1');
+        e.instalacion.aerotermia_cal = aero(3);
+        e.instalacion.hibridacion = true;
+        e.instalacion.hibridacion_metodo = 'demanda';
+        e.instalacion.potencia_bomba = 36;
+        e.instalacion.piscina = { activa: true, demanda_kwh: 18000, scop: 4.2,
+            equipo: { marca: 'SIME', modelo: 'POOL HP 90', numero_serie: 'PL0099213' } };
+        e.cee.acs_method = 'manual'; e.cee.dacs_manual = 48000;
+        return e;
+    })()],
+    ['TER173 · 5 en cascada · ACS mismo eq. · piscina · 2 empresas (peor caso)', (() => {
+        const e = base('26TER173_1');
+        e.instalacion.aerotermia_cal = aero(5);
+        e.instalacion.misma_aerotermia_acs = true;
+        e.instalacion.hibridacion = true;
+        e.instalacion.hibridacion_metodo = 'caldera';
+        e.instalacion.potencia_bomba = 60;
+        e.instalacion.potencia_caldera = 120;
+        e.instalacion.piscina = { activa: true, demanda_kwh: 18000, scop: 4.2,
+            equipo: { marca: 'SIME', modelo: 'POOL HP 90', numero_serie: 'PL0099213' } };
+        e.cee.acs_method = 'manual'; e.cee.dacs_manual = 48000;
+        return conDelegacion(e, { largos: true });
+    })()],
 ];
 
 const results = { savingsKwh: 216754, caeBonus: 20591, caeMaintenanceCost: 0 };

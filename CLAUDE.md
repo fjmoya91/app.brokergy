@@ -640,6 +640,225 @@ página a página con el PDF generado.
 
 ---
 
+## Ficha TER173 — HIBRIDACIÓN en el terciario (2026-09-09)
+
+Quinta tipología, y la única que es dos cosas a la vez: **los tres servicios de la
+TER100 ponderados por el C_b de la RES093**. Hibridación en modo paralelo de
+caldera/s de combustión con bomba de calor en edificios NO residenciales de zona
+climática **D1, D2 o D3**. Nomenclatura `{YY}TER173_{N}`, correlativo desde **1**.
+
+```
+AE_C   = (1/η_i − 1/SCOP)     · D_C · S · F_P     calefacción
+AE_ACS = (1/η_i − 1/SCOP_dhw) · D_ACS    · F_P    agua caliente sanitaria
+AE_CAP = (1/η_i − 1/SCOP_pwh) · D_CAP    · F_P    calentamiento de piscina
+AE_TOTAL = (AE_C + AE_ACS + AE_CAP) · C_b         ← apartado 4 de la ficha
+```
+
+**REGLA — el C_b pondera el TOTAL, no solo la calefacción.** Lo dice la fórmula del
+apartado 4, fuera del corchete. Medido sobre un caso con los tres servicios: si solo
+ponderara AE_C el total saldría un **7,8 % más alto**, y ese exceso es ahorro que
+sigue aportando la caldera. De paso se corrigió la RES093, cuya ficha lo pone igual
+—sobre calefacción **y** ACS— y en la app solo multiplicaba la calefacción; medido
+sobre los 7 RES093 de producción, cambian 4 (entre −0,1 % y −2,1 %) y el único ya
+subido a MITECO no se mueve, porque su ACS está fuera de alcance.
+
+**REGLA — la tabla del C_b es UNA sola.** El Anexo IV de la TER173 (columna
+AEROTERMIA) coincide **valor a valor** con el Anexo III de la RES093, comparados los
+16 escalones. Por eso comparten `BIVALENCE_TABLE` y el apartado 8 del CIFO: dos
+copias divergirían el día que el Ministerio corrija una. El Anexo IV trae además una
+columna para bombas **geotérmicas e hidrotérmicas** (al 50 %: 86,38 % frente a
+80,45 %) que **no se implementa**: la app solo trabaja con aerotermia y un selector
+que nadie usa envejece sin que nadie lo compruebe.
+
+**REGLA — el impreso oficial NO tiene casilla para el C_b.** Su tabla de resultado es
+AE_C · AE_ACS · AE_CAP · AE_TOTAL · D_i, así que **el total impreso no cuadra con la
+suma de los tres sumandos impresos** — y eso es lo primero que cruza un verificador.
+El CIFO es el único sitio donde se explica: su desglose lleva dos columnas más
+(Σ AE y C_b) y su apartado 8 cierra con la nota que lo dice con las dos cifras
+delante. No es un fallo del relleno: es cómo publica la ficha el Ministerio.
+
+**REGLA — un TER173 sin datos de hibridación NO se genera.** Sin potencia de bomba
+(o sin la de caldera, en el método por caldera) el C_b se queda en 1 y el ahorro sale
+como si la caldera se hubiera retirado: más alto que el real, y firmado. Se marca
+`cbIncompleto` en `deriveTerciarioVars` y es **bloqueante** en la validación del CIFO
+(`cifoService.buildValidation`), no un aviso. La instalación lo siembra activado —en
+las fichas de hibridación la hibridación ES la actuación, no una opción.
+
+**REGLA — el SECTOR se declara, no se deduce, y se mira PRIMERO.** La calculadora es
+residencial y nunca produce un terciario: las fichas TER las marca una persona desde
+"cambiar tipo de actuación". En TER173 mirarlo después de `isHybrid` no es solo
+inútil, es dañino: sus inputs llevan `hibridacion: true` y la rama de RES093 se la
+llevaría en el primer reguardado desde la calculadora
+(`routes/oportunidades.js`, `AdminPanelView`, `ExpedientesView`).
+
+### Fuentes únicas
+
+| Qué | Dónde |
+|---|---|
+| Lista de fichas, correlativo, detección, `esHibridacion`/`esTerciario` | [utils/fichas.js](implementation/backend/utils/fichas.js) |
+| Variables del TERCIARIO (las DOS fichas) | [logic/terciario.js](implementation/frontend/src/features/expedientes/logic/terciario.js) — `deriveTerciarioVars`, `esTer173`, `fichaTerciaria` |
+| Fórmula de los tres AE + el C_b como parámetro | `calculateTerciario()` en [calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js) |
+| Tabla del C_b (Anexo IV TER173 = Anexo III RES093) | `BIVALENCE_TABLE` / `getCb` en `calculation.js` |
+| Valores de la ficha (formateados) | [logic/fichaTer173.js](implementation/frontend/src/features/expedientes/logic/fichaTer173.js) |
+| Casillas del impreso oficial | [logic/fichasFormulario.js](implementation/frontend/src/features/expedientes/logic/fichasFormulario.js) — `camposTer173` |
+| Plantilla | `backend/plantillas/FichaTER173.pdf` (5 páginas · 22 campos) |
+| Recuadro de firma | `signBoxes.js` → `ficha_ter173_oficial` (**página 5**, no la 4 como TER100) |
+| Modal (compartido con TER100) | `FichaTerciarioModal.jsx`, prop `ficha` |
+| CIFO | `cifoDoc.js` — `isTerciario` + `isTer173` + `cbAnexo` |
+| Colores de ficha (fuente única de las 4 pantallas) | `expedienteTaxonomia.js` — `fichaColor` |
+
+**Nota de nomenclatura**: `logic/ter100.js` pasó a llamarse **`logic/terciario.js`** al
+entrar la TER173. Un fichero que resuelve dos fichas no puede llamarse como una de
+ellas, o la siguiente acaba escribiéndose fuera con su propia copia de la derivación.
+`deriveTer100Vars` → `deriveTerciarioVars`, `TER100_PRECIOS` → `TERCIARIO_PRECIOS`.
+
+**La TER173 NO tiene maqueta HTML.** Nació después de que el Ministerio publicara los
+impresos como PDF de formulario (regla 41), así que no hay borradores del formato
+anterior en Drive y no hay nada que conservar: su modal no lleva conmutador
+Oficial · Clásico.
+
+### Sus anexos, y qué confirma cada uno
+
+| Anexo | Qué es | Qué confirma |
+|---|---|---|
+| **II** | SCOP en calefacción (`CC·(η_s,h+F1+F2)`) y en ACS, con el caso de depósito NO suministrado como conjunto | La tabla de F_c —**D1 1,093 · D2 1,103 · D3 1,113** a 55 °C— es la que ya usaba la app (`FC_TABLE` del CIFO) |
+| **III** | SCOP_pwh de piscina (`COP · FC`) | El SCOP de piscina se teclea a mano desde la ficha técnica, como en TER100 |
+| **IV** | Tabla del C_b | Coincide valor a valor con el Anexo III de la RES093 |
+| **VIII** | η_i de la caldera sustituida (tabla B.3 por combustible, antigüedad y tipo) | Coincide **fila a fila (18) con `BOILER_EFFICIENCIES`** — vigilado por `test_ter173.mjs` |
+
+⚠️ **La nota al pie 2 del Anexo III remite al "Anexo VIII" para la temperatura
+exterior de las bombas aerotérmicas, y el Anexo VIII NO es eso**: es la tabla de
+rendimientos de caldera. Es una referencia cruzada equivocada de la ficha — no
+pierdas el tiempo buscando una tabla de temperaturas que no existe ahí.
+
+En TER173 el párrafo de la temporada de referencia **no invoca el Anexo III de la
+RES060** —es una ficha residencial—: dice que la temporada es aquella en la que se
+declara el SCOP adoptado, y ahí se queda. El η_i sí cita el **Anexo VIII de la propia
+ficha**, que es más fuerte que la referencia genérica a los criterios de verificación.
+
+### Se crea DESDE LA OPORTUNIDAD, no solo desde el expediente
+
+Hasta 2026-09-09 la ficha del terciario solo se declaraba con "cambiar tipo de
+actuación" **dentro del expediente**, que no existe hasta que el cliente acepta. Para
+simular un TER173 y presentárselo había que crearlo como residencial y reclasificarlo
+después. Ahora:
+
+- **Selector de SECTOR en la calculadora** (Residencial · Terciario), junto a "Modo
+  Reforma", con la ficha resultante a la vista. Solo lo ve el STAFF (`showBrokergy`).
+- **Reclasificar una oportunidad ya guardada**: la chapa de la ficha en el panel de
+  admin es un desplegable (`PATCH /api/oportunidades/:id/ficha`, **adminOnly**).
+
+**REGLA — el SECTOR se declara; la FICHA se deduce.** No hay un desplegable de cinco
+fichas: hay un sector, y la ficha sale de sector + hibridación + reforma, con la MISMA
+función en los dos lados (`detectPrograma` en el backend, `fichaDesdeInputs` en el
+frontend). Un desplegable libre dejaría elegir combinaciones que no existen —un TER173
+sin hibridar— y el backend las resolvería por su cuenta a espaldas de quien las marcó.
+
+|             | sin hibridar | hibridado |
+|---|---|---|
+| **residencial** | RES060 | RES093 | (+ RES080 si es reforma) |
+| **terciario**   | TER100 | TER173 |
+
+**REGLA — el sector se mira ANTES que la reforma.** La RES080 es "rehabilitación
+profunda de edificios de VIVIENDAS": no existe en el terciario. Al marcar Terciario, el
+botón de reforma se apaga y se deshabilita, en vez de dejar elegir algo imposible.
+
+**REGLA — sin `sector` en el payload manda lo ya declarado.** Un navegador con la
+versión anterior cargada, o el funnel público, no lo mandan; y como un TER173 es una
+hibridación (sus inputs llevan `hibridacion: true`), sin esa salvaguarda la rama de
+RES093 se lo llevaría en el primer reguardado, dejando la oportunidad diciendo
+"residencial" y el expediente con TER173 en su número.
+
+**REGLA — cambiar la ficha toca los INPUTS, no solo la etiqueta.** `PATCH /:id/ficha`
+deja coherentes `sector`, `hibridacion` e `isReforma`: si solo escribiera la columna, el
+primer reguardado desde la calculadora la devolvería a lo que dijeran los inputs. El
+**ID de la oportunidad NO se renombra** (hay documentos y carpetas que lo citan); el
+número del EXPEDIENTE ya nace con la ficha correcta.
+
+**REGLA — el expediente HEREDA lo que se simuló.** `expedienteService` copia el alcance
+de calefacción, la piscina (con su D_CAP y su SCOP_pwh) y el modo de D_ACS. Sin eso, el
+expediente recalcularía un ahorro distinto del que se le presupuestó al cliente — está
+vigilado de punta a punta en `test_ter173.mjs` (apartado 10).
+
+⚠️ **La D_ACS de la calculadora era un 2.731,4 CABLEADO** —la fórmula del CTE para 4
+habitaciones— que ignoraba el CEE cargado. En el TERCIARIO se resuelve ahora con el
+MISMO módulo que el expediente ([demandaAcs.js](implementation/frontend/src/features/expedientes/logic/demandaAcs.js)):
+`xml` (del certificado), `cte` o `manual`. En un hotel de 1.000 m² con 20 kWh/m²·año son
+**20.000 kWh/año** frente a esos 2.731,4. **El residencial conserva el valor de siempre**:
+cambiarlo movería el ahorro de toda propuesta nueva y no se ha pedido — pero es la misma
+inconsistencia y algún día habrá que mirarla.
+
+### Pruebas
+
+```bash
+node implementation/backend/scripts/test_ter173.mjs             # fórmula · C_b · alcance · impreso · propuesta→expediente
+node implementation/backend/scripts/test_impresos_oficiales.mjs # las 5 fichas + Anexo I
+node implementation/backend/scripts/check_cifo_paginas.mjs      # las hojas del CIFO no desbordan
+```
+
+⚠️ La hoja del CÁLCULO del CIFO es la más cargada del documento en TER173 (tabla de
+piscina + variables con su fila de C_b + leyenda entera + el desglose de seis
+columnas). El párrafo que explicaba el C_b ahí la desbordaba **23 px**; por eso vive
+en el apartado 8. Holgura actual: **+46 px** en el peor caso medido.
+
+---
+
+## Precio CAE al cliente — 100 €/MWh, y solo hacia adelante (2026-09-09)
+
+Hay **DOS cifras y no son lo mismo**; confundirlas cambia el bono de expedientes ya
+firmados. Las dos viven en
+[calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js):
+
+- **`CAE_PRECIO_CLIENTE_NUEVAS` = 100 €/MWh** — lo que se estampa en una propuesta que
+  se hace HOY. Va solo donde se COMPONEN inputs nuevos: la calculadora, el funnel y la
+  comparativa de CEE.
+- **`CAE_PRECIO_CLIENTE_ANTERIOR` = { estandar: 95, res080: 60 }** — el respaldo de
+  LECTURA de lo ya guardado sin precio propio. Es el valor con el que se calcularon en
+  su día, y por eso **no puede subir a 100**: un expediente antiguo no cambia de bono
+  porque hoy cambie la tarifa. Va donde se LEE un expediente (panel económico, su
+  gemelo de Node, el editor de Economía).
+
+El precio al SUJETO OBLIGADO sigue siendo propio de cada ficha (160 €/MWh en las de
+sustitución/hibridación, 140 en RES080): ahí no hay política única. El **TERCIARIO**
+arranca ya en el precio nuevo: TER100 y TER173 no tienen ni un expediente anterior
+cuya economía haya que preservar.
+
+### El precio se SELLA en la oportunidad — [precioCae.js](implementation/backend/utils/precioCae.js)
+
+La calculadora guarda el precio en `inputs.caePriceClient`, pero la economía del
+EXPEDIENTE lee `inputs.cae_client_rate`: dos nombres para el mismo dato, y por eso el
+precio tecleado **nunca llegaba al expediente**. Medido el 09/09/2026: **66
+expedientes** tienen un precio tecleado (de 88 a 150 €/MWh) que su panel ignora, y en
+48 de ellos eso hace que el panel diga que le debemos al cliente **menos** de lo que
+su propuesta firmada le prometía. Sin arreglarlo, un expediente nuevo a 100 €/MWh
+también saldría calculado a 95.
+
+**REGLA — el sello se escribe en las oportunidades NUEVAS y, una vez escrito, se
+mantiene al día. Las ANTERIORES no se marcan nunca.** Su economía se calculó con el
+respaldo, hay obra en marcha sobre esas cifras y no pueden moverse. Por eso la
+condición es *"no existía"* o *"ya lo trae"*, jamás *"existe"* — y un reguardado de una
+oportunidad anterior **retira** el sello aunque el navegador lo mande.
+
+**REGLA — no hace falta ninguna marca de fecha.** La PRESENCIA de la clave ES la marca,
+y además es la que el expediente ya leía. Una fecha de corte habría que explicarla cada
+vez que alguien lea el código, y se rompe al migrar datos.
+
+**REGLA — se mantiene al día, no solo al crear.** Sellar únicamente en el alta dejaría
+el sello viejo al cambiar el precio, y el expediente calcularía con una tarifa que ya
+nadie ve en la calculadora: peor que el fallo que arregla.
+
+⚠️ Los 66 expedientes anteriores **siguen calculando con el respaldo**, no con su
+precio tecleado. Es una decisión tomada (2026-09-09), no un descuido: corregirlos
+movería el bono de 66 expedientes en marcha, 27 de ellos RES080 que pasarían de 60 a
+95-150 €/MWh (con el S.O. en 140, alguno daría margen negativo). Si algún día se
+quiere, es sembrarles el sello con su `caePriceClient`.
+
+```bash
+node implementation/backend/scripts/test_precio_cae_sello.mjs
+```
+
+---
+
 ## Carpetas de Drive por estado (2026-07-24)
 
 La carpeta de Drive de cada expediente **refleja su estado**. La decisión está centralizada en
@@ -3271,6 +3490,105 @@ con `zipfile` de Python sobre los cuatro ZIP de LOTE-2026-004 (12-29 MB cada uno
 uno) **no puede aplicarse cuando se arma el ZIP de verdad**: con él puesto, el paquete
 salía sin las fichas técnicas y sin decirlo.
 
+### Los FIRMADOS del S.O. se sueltan todos y la app los coloca (2026-09-09)
+
+El S.O. firma el Anexo I y las cinco fichas con su certificado y los devuelve por
+email **con el mismo nombre con el que se los mandamos**. Había que abrir cada PDF
+para ver de qué expediente era, comprobar a ojo que llevaba firma, renombrarlo y
+subirlo a su slot: seis veces por lote. Ahora se sueltan los seis en la fase 2 y
+la app los identifica, comprueba las firmas y los registra.
+
+| Qué | Dónde |
+|---|---|
+| QUIÉN firma un PDF (leído del propio fichero) | [utils/firmasPdf.js](implementation/backend/utils/firmasPdf.js) — `leerFirmasPdf`, `firmanteCoincide` |
+| Identificar, comprobar y registrar | [services/firmadosSo.js](implementation/backend/services/firmadosSo.js) — `procesarFirmados` |
+| Ruta | `POST /api/lotes/:id/firmados` (multipart `files`, `dryRun`, `asignar`, `forzar`), **staffOnly** |
+| Superficie | Zona de suelta en la fase 2 + `FirmadosSoModal` |
+| Quién firma por Brokergy | `FIRMANTE_CESIONARIO` en [docGenerators.js](implementation/frontend/src/features/expedientes/utils/docGenerators.js) |
+| Pruebas | `node scripts/test_firmados_so.js` · `node scripts/probar_firmas_pdf.js --lote LOTE-2026-004` |
+
+**REGLA — las firmas se leen del PDF, NO con un modelo de IA.** Están escritas
+dentro: el diccionario `/Type /Sig` trae `/SubFilter` y `/M`, y su `/Contents` es
+un PKCS#7 cuyos certificados llevan el nombre y el NIF del firmante. `firmasPdf.js`
+es un recorrido TLV de DER (~200 líneas, sin dependencias nuevas): milisegundos y
+**coste cero**. Pagar una llamada a un LLM para leer un nombre que el fichero ya
+dice sería además menos fiable — no hay garantía de que lo lea igual dos veces.
+Medido sobre los firmados reales de LOTE-2026-004: el Anexo I devuelve sus dos
+firmas (PEDRO JOSE LOPEZ MONTERO · 06239730Z y FRANCISCO JAVIER MOYA LOPEZ ·
+06282551D, con su organización y su fecha) y la ficha, una.
+
+**REGLA — esto NO valida la firma.** No se comprueba el hash del documento, ni la
+cadena de confianza, ni la revocación: eso es de Autofirma y del validador del
+Ministerio. Lo que se afirma es *"el PDF declara N firmas y éstos son los nombres
+de sus certificados"*, que es justo lo que hace falta para clasificar un fichero y
+ponerle nombre. Decirlo de otra manera en la pantalla sería prometer una validez
+que nadie ha comprobado.
+
+**REGLA — la firma COMPRUEBA, la identidad AVISA.** Un PDF sin firma electrónica
+no es un firmado y no se registra: es el único caso que bloquea solo (probado con
+el borrador sin firmar de una ficha real). Que el certificado no sea del
+representante que consta en la ficha del S.O. **no** bloquea —puede haber cambiado
+de apoderado, o firmar un administrador solidario— pero se dice quién firma de
+verdad y hay que marcar "registrarlo igualmente". Nunca se traga en silencio.
+
+**REGLA — el nº de expediente se compara vigilando el PREFIJO.** `26RES060_10` está
+dentro de `26RES060_105`: un emparejamiento por "contiene" registraría la ficha
+firmada en el expediente del vecino, y de ahí viaja al ZIP y al verificador sin que
+nadie lo note. `contieneNumero` exige que lo que sigue al número no sea un dígito
+(mismo cuidado que `normNum` al leer los informes de verificación).
+
+**REGLA — lo que no se sabe de quién es, se PREGUNTA.** Si el nombre no lleva el nº
+de expediente ni identifica al Anexo I, el fichero vuelve sin asignar y el modal
+ofrece el desplegable de los documentos que están esperando firma. Elegir "el
+primero que quede libre" es colocar la ficha de otro. Al asignarlo a mano se
+**vuelve a analizar**: las firmas que se esperan dependen del destino (el Anexo I
+pide dos y una ficha, una).
+
+**REGLA — si la firma que falta es la NUESTRA, se firma desde la propia fila.** El
+S.O. puede devolver el Anexo I con su firma y sin la de Brokergy (o firmarlo antes
+de que nosotros lo hayamos hecho). La fila ofrece **"🖊️ Firmarlo yo ahora con
+Autofirma"**, que abre el MISMO `FirmarConCertificadoModal` del popup del Anexo I
+con la caja del Proveedor (`SIGN_BOXES.anexo_i_listado_proveedor`, fuente única con
+Autofirma) y el PDF firmado **sustituye** al que se soltó: lo que se registra
+después es el firmado, no el que llegó por email. Al volver de Autofirma se
+RE-ANALIZA, así que el aviso desaparece solo y la fila pasa a verde.
+
+El botón va **antes** del "registrarlo igualmente": firmarlo ARREGLA el aviso;
+forzarlo solo lo acepta como está. Y qué caja le toca a cada documento vive en un
+mapa explícito (`CAJA_BROKERGY`) porque hoy solo el Anexo I lleva firma nuestra —
+las fichas las firma el S.O. y nadie más.
+
+⚠️ Qué firma falta viaja en ESTRUCTURA (`res.faltan[].rol`), no dentro de la frase
+del aviso: leer eso de un texto en castellano se rompe la primera vez que alguien
+mejore la redacción.
+
+⚠️ `FirmarConCertificadoModal` **no se portalea solo**, así que se monta como
+HERMANO del velo de este modal y no dentro (regla 29.b): metido dentro, su
+`position: fixed` se ancla al ancestro con `backdrop-filter` y además scrollearía
+con el listado de ficheros.
+
+**REGLA — se registra por `guardarDocFirmado`, no por un camino nuevo.** Es la misma
+función que usan la firma en cadena del enlace público y la subida a mano: ya
+renombra con `_fdo`, deja la ficha en "10. EXPEDIENTE CAE" de su expediente y
+retira el visto bueno anterior. El nombre del paquete (`E3-3-1 - 25RES060_90 -
+Ficha RES060_fdo`) NO se pone aquí: lo pone `envioGestorService` al armar el ZIP,
+y lo único que necesita es que la entrada tenga su `signed_link`.
+
+**Dos tiempos, y el primero no escribe** (`dryRun`): se sueltan, se ve qué ha
+entendido la app de cada fichero y solo entonces se aplica. De esto depende qué PDF
+acaba dentro del ZIP que se presenta.
+
+⚠️ El nombre del fichero llega de un formulario: en Windows puede traer la ruta
+entera y algunos navegadores lo codifican en latin1. Se limpia en la ruta
+(`Buffer.from(originalname,'latin1').toString('utf8')` + quitar la ruta) o el
+emparejamiento falla por un nombre que en pantalla se ve bien.
+
+**El resumen del popup de la solicitud va PLEGADO.** Son cinco páginas de
+formulario dentro de un popup: abierto empuja "Enviar por API" —que es a lo que se
+entra— fuera de la pantalla y obliga a recorrer el documento entero para llegar al
+botón. Lo que se revisa ahí arriba son los CAMPOS; el documento se mira cuando se
+quiere comprobar cómo ha quedado.
+
 ## Pedirle cosas al SUJETO OBLIGADO desde el cuadro de mando (2026-09-01)
 
 Los envíos que ya existían son de UN documento de UN lote (firmar el Anexo I, firmar la
@@ -4316,12 +4634,64 @@ lo dice.
 
 ---
 
+## Al encargar el CEE, el CLIENTE también se entera (2026-09-09)
+
+Encargar el certificado es el primer movimiento del expediente y era **invisible
+para el cliente**: firmaba la propuesta y la siguiente noticia que tenía era la
+llamada de un técnico que nadie le había anunciado. Ahora el MISMO botón
+—«Asignar y notificar» del popup de Notificar Certificador— manda también el aviso
+al cliente.
+
+| Qué | Dónde |
+|---|---|
+| El TEXTO | `encargoCeeClienteMsg` en [recordatorios.js](implementation/backend/services/recordatorios.js) |
+| Borrador + destinatario (para el popup) | `GET /api/expedientes/:id/aviso-cliente-cee?phase=` (**staffOnly**) |
+| Envío + sello + historial | `POST /:id/notify-certificador`, campos `avisarCliente` · `clienteChannels` · `clienteMessage` |
+| Superficie | Bloque «Avisar también al cliente» del popup de `CeeModule` |
+
+**REGLA — el texto lo redacta el BACKEND y el popup solo lo enseña.** Es la misma
+regla que el resto de recordatorios (fuente única en `recordatorios.js`): si lo
+compusiera el navegador, un envío desde otra superficie diría otra cosa. El popup
+lo pide al abrirse (mismo patrón que `approve-cee-links`), lo trae **plegado**
+—casi nunca se edita y enseñarlo entero solo aleja el botón— y se despliega con
+«Ver el mensaje».
+
+**REGLA — no sale con «Solo asignar».** El texto le dice al cliente que ya le hemos
+mandado las instrucciones al técnico; sin encargo enviado eso es falso. Se
+comprueba en las dos capas: el frontend solo lo marca al notificar y la ruta exige
+que algún canal del certificador haya salido (`channels.length > 0`).
+
+**REGLA — se avisa UNA vez por fase.** Reasignar técnico es el caso normal (el
+primero no puede, se pasa a otro) y el cliente no puede enterarse dos veces de que
+su trámite acaba de empezar. El sello vive en
+`documentacion.aviso_cliente_cee[fase]` y el popup lo dice con la fecha: **no lo
+bloquea** —puede hacer falta reenviarlo— pero deja de venir marcado.
+
+**REGLA — «no empieces la obra todavía» solo si la obra NO está hecha.** Las
+facturas anteriores al registro del CEE inicial son una incidencia
+(`facturaIncidencias` · `FECHA`), así que decírselo AHORA le ahorra el problema;
+decírselo a quien ya terminó es echarle en cara algo que no puede deshacer. El
+criterio de obra hecha es el mismo del radar (factura, CIFO, RITE o fin de obra
+comunicado).
+
+**REGLA — no se promete fecha, se promete el AVISO.** Depende de la agenda del
+técnico y de Industria. Lo que sí se cumple es «en cuanto quede registrado te
+avisamos».
+
+Va al contacto de notificaciones del cliente (`resolveSolicitudContacto`, la misma
+cascada que «solicitar lo que falta»), por **WhatsApp** por defecto —que es donde
+lee— y con el email a un clic. Un fallo del aviso **nunca tumba el encargo**: el
+certificador ya lo tiene. Y **no se ofrece en CEE directos** (`msgCtx.cae === false`):
+allí no hay obra ni trámite de ayuda, y ese texto hablaría de algo que no existe.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
 2. **Estados de oportunidad**: Los estados válidos son `PTE ENVIAR`, `EN CURSO`, `ENVIADA`, `ACEPTADA`. Cada cambio de estado mueve la carpeta de Drive automáticamente (mapa en `services/driveFolders.js`, ver "Carpetas de Drive por estado").
 3. **IDs de oportunidad**: Formato `{YY}RES_OP{N}`. No renombrar IDs antiguos para mantener trazabilidad.
-3.b **Fichas**: hay CUATRO tipologías — `RES060`, `RES080`, `RES093` y `TER100`. La lista NO se escribe a mano en cada sitio: backend en [utils/fichas.js](implementation/backend/utils/fichas.js) (`FICHAS`, `correlativoInicial`, `detectPrograma`), frontend en `expedienteTaxonomia.js` (`FICHAS`, `getFicha`). El correlativo inicial NO es 1 en todas (RES080 → 36, TER100 → 3). Ver "Ficha TER100".
+3.b **Fichas**: hay CINCO tipologías — `RES060`, `RES080`, `RES093`, `TER100` y `TER173`. La lista NO se escribe a mano en cada sitio: backend en [utils/fichas.js](implementation/backend/utils/fichas.js) (`FICHAS`, `correlativoInicial`, `detectPrograma`, `esTerciario`, `esHibridacion`), frontend en `expedienteTaxonomia.js` (`FICHAS`, `getFicha`, `fichaColor`). El correlativo inicial NO es 1 en todas (RES080 → 36, TER100 → 3). El SECTOR no se deduce de los inputs: las fichas TER las declara una persona, y se comprueban ANTES que `isHybrid` (TER173 es una hibridación y si no se la llevaría RES093). Ver "Ficha TER100" y "Ficha TER173".
 4. **Validación de Documentos**: Usar siempre el helper `isPresent(val)` en `validateExpediente` para comprobar que los datos no son nulos, vacíos ni placeholders (`_______`).
 5. **PDF Propuestas**: El encabezado usa **CSS Grid**. No cambiar a Flexbox para evitar desbordamientos.
 6. **Seguridad de rutas**: Todas las rutas del backend usan `requireAuth` o `enforceAuth`.
@@ -4400,9 +4770,18 @@ lo dice.
 
 39. **Un mensaje de WhatsApp con el RELOJ no está enviado, y el "escribiendo…" es lo que rompe la sesión**: `sendMessage()` devuelve el id en cuanto el mensaje se INSERTA en el chat, así que ese `{ok:true}` no significa entregado — el 08/09/2026 una propuesta quedó sellada con "✓ whatsapp ok" para el cliente y el instalador con los dos PDF dos horas en el reloj. Lo único que lo dice es el **ACK**: `confirmarEntrega()` lo espera tras `waitUntilMsgSent: true` y, si sigue en 0, es error de verdad → FAILED **sin reintentos** (el mensaje ya existe en el chat: reenviarlo lo duplica) + email al admin; si el ack no se puede leer, no se afirma nada. **NUNCA `getChatById`/`getChats`/`msg.getChat`/`sendSeen` en el camino de envío**: en WhatsApp Web 2.3000.x dejan la sesión enviando sin ACK hasta que se desconecta sola ([wwebjs#201849](https://github.com/wwebjs/whatsapp-web.js/issues/201849), sin arreglo publicado). `WWA_TYPING` y `WWA_SEND_SEEN` a `false`; la pausa humana entre mensajes se queda. Fijar la versión de la web (`WWA_WEB_VERSION`) NO sirve: se auto-actualiza igual. Ver "Un mensaje con el RELOJ no está enviado".
 
-40. **El PAQUETE de cada actuación se genera, no se renombra a mano**: los ~20 documentos del expediente copiados como `E{n}-{código}` y comprimidos, en dos modos —`expediente` (la carpeta `E{n}` + `E{n}.zip`) y `gestor` (`{LOTE} - ENVIO GESTOR` + `ActuacionE{n}.zip`, que añade el dictamen y los escritos)—. La nomenclatura se REPRODUCE de los lotes ya presentados, no se inventa; el nº de actuación es el del informe de verificación (regla 29); lo imprescindible BLOQUEA y lo leve solo avisa; los ficheros se COPIAN y **lo que ya está colocado con su código no se renombra ni se sustituye** (y si una pieza sale de un fichero suelto de Drive, se dice). Fuente única del índice: [envioGestorService.js](implementation/backend/services/envioGestorService.js) (`INDICE`, `COD_RITE`). El convenio CAE vive en la ficha del S.O. (`prescriptores.convenio_cae_link`), fuera de cualquier lote. Ver "El PAQUETE de cada actuación".
+40. **El PAQUETE de cada actuación se genera, no se renombra a mano**: los ~20 documentos del expediente copiados como `E{n}-{código}` y comprimidos, en dos modos —`expediente` (la carpeta `E{n}` + `E{n}.zip`) y `gestor` (`{LOTE} - ENVIO GESTOR` + `ActuacionE{n}.zip`, que añade el dictamen y los escritos)—. La nomenclatura se REPRODUCE de los lotes ya presentados, no se inventa; el nº de actuación es el del informe de verificación (regla 29); lo imprescindible BLOQUEA y lo leve solo avisa; los ficheros se COPIAN y **lo que ya está colocado con su código no se renombra ni se sustituye** (y si una pieza sale de un fichero suelto de Drive, se dice). Fuente única del índice: [envioGestorService.js](implementation/backend/services/envioGestorService.js) (`INDICE`, `COD_RITE`). El convenio CAE vive en la ficha del S.O. (`prescriptores.convenio_cae_link`), fuera de cualquier lote.
+    **Y los FIRMADOS que devuelve el S.O. se sueltan todos de golpe en la fase 2**: la app lee las firmas del propio PDF ([utils/firmasPdf.js](implementation/backend/utils/firmasPdf.js) — DER puro, sin dependencias y **sin gasto de tokens**; esto NO valida la firma, solo dice qué certificados la declaran), identifica el documento por el nº de expediente —vigilando que `26RES060_10` no se cuele en `26RES060_105`— y lo registra por `guardarDocFirmado`, que ya le pone el `_fdo`. Sin firma electrónica NO se registra; una firma de otra persona solo AVISA; lo que no se sabe de quién es se PREGUNTA. Fuente única del proceso: [services/firmadosSo.js](implementation/backend/services/firmadosSo.js). Ver "El PAQUETE de cada actuación" y "Los FIRMADOS del S.O.".
 
 41. **Las FICHAS y el ANEXO I se RELLENAN sobre el impreso OFICIAL, ya no se redibujan**: las cinco plantillas son PDF de formulario del Ministerio y se escriben sus casillas ([formularioOficialService.js](implementation/backend/services/formularioOficialService.js)); qué dato ocupa cada una vive en [logic/fichasFormulario.js](implementation/frontend/src/features/expedientes/logic/fichasFormulario.js) y [logic/anexoIFormulario.js](implementation/frontend/src/features/expedientes/logic/anexoIFormulario.js). **El impreso no calcula nada**: los valores salen de los `derive*` de las maquetas, que son los mismos del CIFO. Los nombres de campo son los de la plantilla, ERRATAS INCLUIDAS (`ri i`, `E F`, `Representante delsolicitante`), y un campo que no existe se AVISA. Un documento viaja como `{ html }` o `{ formulario }` y las CUATRO salidas usan la misma (`documentoAPdf`), o el enlace de firma serviría otro documento. El tamaño de letra se fija en la CASILLA, no en el campo (pdf-lib pinta con el de la casilla); la CCAA se ELIGE del desplegable; el EURO no está en Latin-1 (`WINANSI_EXTRA`); y el sello "SIGN" de la plantilla se retira. **Los dos formatos conviven en Drive**, así que `fixedBox` admite una función `({numPaginas, oficial}) => caja` — el Anexo I se distingue por páginas (4 vs 3) y las fichas por el productor del PDF (pdf-lib vs Skia). La maqueta HTML se conserva tras el conmutador **Oficial · Clásico** de los cinco modales. Tras tocarlo: `node implementation/backend/scripts/test_impresos_oficiales.mjs` y `comparar_impresos_oficiales.mjs`. Ver "Las FICHAS y el ANEXO I se RELLENAN".
+
+42. **Al encargar el CEE, el cliente también se entera**: el MISMO botón de «Asignar y notificar» manda al contacto de notificaciones del cliente un aviso de que el trámite ha arrancado, quién lo lleva y que le avisaremos cuando esté registrado. El texto lo redacta el BACKEND (`encargoCeeClienteMsg` en [recordatorios.js](implementation/backend/services/recordatorios.js)) y el popup solo lo enseña —plegado— y deja retocarlo; el borrador y el destinatario salen de `GET /:id/aviso-cliente-cee`. NO sale con «Solo asignar» (el texto afirma que ya le hemos mandado las instrucciones al técnico), se avisa **una vez por fase** (sello en `documentacion.aviso_cliente_cee[fase]`: reasignar técnico no puede volver a anunciarle que su trámite empieza), el «no empieces la obra todavía» **solo si la obra no está hecha**, y no se promete fecha sino el aviso. Un fallo del aviso nunca tumba el encargo. Ver "Al encargar el CEE, el CLIENTE también se entera".
+
+42.b **Un TER173 (y un TER100) se crea DESDE LA OPORTUNIDAD**: selector de SECTOR en la calculadora junto a "Modo Reforma", y la chapa de la ficha del panel de admin es un desplegable (`PATCH /api/oportunidades/:id/ficha`, adminOnly). **El sector se DECLARA y la ficha se DEDUCE** con la misma función en los dos lados (`detectPrograma` · `fichaDesdeInputs`): un desplegable libre de cinco fichas dejaría elegir combinaciones que no existen. El sector se mira ANTES que la reforma (la RES080 es de VIVIENDAS y no existe en terciario), y sin `sector` en el payload manda lo ya declarado — un navegador con la versión anterior devolvería un TER173 a RES093, porque es una hibridación. El expediente HEREDA lo simulado (alcance, piscina, modo de D_ACS) o recalcularía otro ahorro. ⚠️ La D_ACS de la calculadora era un **2.731,4 cableado** que ignoraba el CEE cargado; en terciario se resuelve ya con `demandaAcs.js` (el residencial lo conserva). Ver "Se crea DESDE LA OPORTUNIDAD".
+
+42. **TER173 es la TER100 ponderada por el C_b de la RES093, y su impreso no tiene casilla para el C_b**: `AE_TOTAL = (AE_C + AE_ACS + AE_CAP) · C_b` (apartado 4), así que el total que imprime la ficha oficial NO cuadra con la suma de sus tres sumandos impresos — lo explica el CIFO (desglose con Σ AE y C_b + apartado 8). El C_b pondera el TOTAL, no solo la calefacción, **y por el mismo motivo se corrigió la RES093**, cuya ficha lo pone igual. La tabla del Anexo IV coincide valor a valor con la del Anexo III de la RES093: una sola `BIVALENCE_TABLE` (la columna de geotermia del Anexo IV no se implementa). Un TER173 **sin datos de hibridación no genera CIFO**: con C_b = 1 el ahorro sale más alto que el real y va firmado. Fuentes únicas: [logic/terciario.js](implementation/frontend/src/features/expedientes/logic/terciario.js) (que sustituye a `ter100.js`, renombrado porque resuelve las DOS fichas del terciario) y `calculateTerciario()` en `calculation.js`. Tras tocarlo: `test_ter173.mjs`, `test_impresos_oficiales.mjs` y `check_cifo_paginas.mjs`. Ver "Ficha TER173".
+
+43. **El precio CAE al cliente es 100 €/MWh en las propuestas NUEVAS, y lo ya guardado no se mueve**: `CAE_PRECIO_CLIENTE_NUEVAS` (100) va donde se COMPONEN inputs nuevos (calculadora · funnel) y `CAE_PRECIO_CLIENTE_ANTERIOR` (95 · 60 en RES080) es el respaldo de LECTURA de lo ya guardado sin precio propio — subirlo cambiaría el bono de expedientes ya firmados. Y el precio **se SELLA** en la oportunidad ([precioCae.js](implementation/backend/utils/precioCae.js)) copiando `caePriceClient` a `cae_client_rate`, que es la clave que el expediente lee y que hacía que el precio tecleado no le llegara (66 expedientes medidos, de 88 a 150 €/MWh). El sello se escribe **solo en las nuevas** —la presencia de la clave ES la marca, sin fechas de corte— y se mantiene al día. Ver "Precio CAE al cliente".
 
 38. **Con la BD caída, la app CALLA; nunca contesta una cifra tranquila**: un error de lectura no puede salir por 200. [middleware/auth.js](implementation/backend/middleware/auth.js) seguía adelante con el perfil a null —sin rol, sin empresa— y lo **cacheaba 5 minutos**, así que el partner salía como "USUARIO / LOGO PARTNER", con el menú recortado y, como `GET /oportunidades` acaba filtrando por `creador_id = null`, la cartera a CERO; y esa misma ruta convertía además cualquier fallo de Supabase en `200 []`. Un distribuidor con 19 oportunidades vio "0 oportunidades · 0,00 €" con toda la apariencia de dato bueno —que se lee como trabajo borrado— y recargar no lo arreglaba, porque el fantasma vivía en la caché. Medido el 08/09/2026: Postgres se cayó y arrancó en recuperación (`database system was not properly shut down`) y Cloudflare sirvió **521 Web server is down** delante de Supabase durante ~1 min. Ahora las dos rutas responden **503** (`PROFILE_UNAVAILABLE` / `OPORTUNIDADES_UNAVAILABLE`) y no se cachea nada; el frontend enseña `ProfileUnavailable` (reintentar, y "tus datos siguen ahí") en vez de un dashboard con identidad falsa, la lista conserva lo que ya tuviera, y **el resumen financiero no se pinta si no hay datos** — 0,00 € es justo la cifra que asusta. A quien YA tiene perfil bueno en caché no se le echa por un parpadeo. Vigilado por `node implementation/backend/scripts/test_caida_bd_no_miente.js`.
 

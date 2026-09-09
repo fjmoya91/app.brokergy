@@ -28,7 +28,8 @@ import { calculateRes060FC } from '../../calculator/logic/res060fc';
 import { acsComputaAhorro } from '../logic/aerotermiaUnits';
 import { ceeBaseDocumento } from '../logic/ceeFases';
 import { resolveDacs } from '../logic/demandaAcs';
-import { deriveTer100Vars, TER100_PRECIOS } from '../logic/ter100';
+import { deriveTerciarioVars, TERCIARIO_PRECIOS } from '../logic/terciario';
+import { CAE_PRECIO_CLIENTE_ANTERIOR } from '../../calculator/logic/calculation';
 import { propuestaGuardada } from '../logic/propuestaGuardada';
 import { SeguimientoModule } from '../components/SeguimientoModule';
 import { ComunicacionesCertificador } from '../components/ComunicacionesCertificador';
@@ -653,6 +654,8 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
             ficha = 'RES080';
         } else if (expediente.numero_expediente && expediente.numero_expediente.includes('RES093')) {
             ficha = 'RES093';
+        } else if (expediente.numero_expediente && expediente.numero_expediente.includes('TER173')) {
+            ficha = 'TER173';
         } else if (expediente.numero_expediente && expediente.numero_expediente.includes('TER100')) {
             ficha = 'TER100';
         }
@@ -734,14 +737,15 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                 // Contexto para el popup de desglose (mismas unidades que la calculadora).
                 res060fcCtx = { scopHeating, scopAcs, changeAcs: changeAcsFlag, dacs };
             }
-        } else if (ficha === 'TER100') {
-            // Caso TER100 (terciario): el ahorro se desglosa en AE_C (calefacción),
-            // AE_ACS y AE_CAP (piscina), y la actuación puede alcanzar solo uno de
-            // los tres. Toda la derivación vive en logic/ter100.js, la misma que usan
-            // el CIFO, la Ficha TER100 y el backend.
-            const ter = deriveTer100Vars({ ...expediente, cee, instalacion: inst });
+        } else if (ficha === 'TER100' || ficha === 'TER173') {
+            // TERCIARIO: el ahorro se desglosa en AE_C (calefacción), AE_ACS y AE_CAP
+            // (piscina), y la actuación puede alcanzar solo uno de los tres. En TER173
+            // esa suma va además ponderada por el C_b (hibridación en paralelo). Toda
+            // la derivación vive en logic/terciario.js, la misma que usan el CIFO, las
+            // fichas oficiales y el backend.
+            const ter = deriveTerciarioVars({ ...expediente, cee, instalacion: inst });
             if (ter.savingsKwh > 0) {
-                savings = { ...ter.savings, ter100: ter };
+                savings = { ...ter.savings, terciario: ter };
             }
         } else if (ficha === 'RES080') {
             // Caso RES080: emisiones manuales (sin .xml) o XML Inicial vs Final.
@@ -813,13 +817,20 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
         if (!savings) return null;
 
         // 4. Ejecutar Cálculo Financiero (Bono CAE, IRPF, etc.)
-        // TER100 es sector TERCIARIO: el titular es una empresa o un autónomo, así que
-        // no aplica ni la deducción de IRPF por obras en vivienda ni la tributación del
-        // bono CAE como ganancia patrimonial (ambas son de personas físicas).
-        const esTerciario = ficha === 'TER100';
+        // El sector TERCIARIO (TER100 · TER173) tiene por titular una empresa o un
+        // autónomo, así que no aplica ni la deducción de IRPF por obras en vivienda ni
+        // la tributación del bono CAE como ganancia patrimonial (ambas son de personas
+        // físicas).
+        const esTerciario = ficha === 'TER100' || ficha === 'TER173';
         const overrides = inst.economico_override || {};
-        const caePriceClientBase = overrides.cae_client_rate ?? (parseFloat(opInputs.cae_client_rate) || TER100_PRECIOS.cliente);
-        const caePriceSOBase = overrides.cae_so_rate ?? (parseFloat(opInputs.cae_so_rate) || TER100_PRECIOS.sujetoObligado);
+        // OJO: estos dos respaldos los usan TODAS las fichas, no solo el terciario.
+        // El del terciario puede ser ya el precio nuevo (no hay expedientes TER
+        // anteriores); el del resto tiene que seguir siendo el ANTERIOR, o un
+        // expediente ya firmado cambiaría de bono porque hoy cambie la tarifa.
+        const caePriceClientBase = overrides.cae_client_rate
+            ?? (parseFloat(opInputs.cae_client_rate)
+                || (esTerciario ? TERCIARIO_PRECIOS.cliente : CAE_PRECIO_CLIENTE_ANTERIOR.estandar));
+        const caePriceSOBase = overrides.cae_so_rate ?? (parseFloat(opInputs.cae_so_rate) || TERCIARIO_PRECIOS.sujetoObligado);
         const includeCommission = overrides.include_commission ?? !!opInputs.include_commission;
         const discountCertificates = overrides.discount_certificates ?? !!opInputs.discount_certificates;
         const includeLegalization = overrides.include_legalization ?? !!opInputs.include_legalization;
@@ -971,9 +982,11 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
     const numero = expediente.numero_expediente || '';
     const isHybrid = numero.includes('RES093');
     const isReforma = numero.includes('RES080');
-    // TER100: misma actuación que RES060 pero en el sector TERCIARIO (hoteles,
-    // residencias, gimnasios…), con el ahorro desglosado en calefacción/ACS/piscina.
-    const isTerciario = numero.includes('TER100');
+    // Sector TERCIARIO (hoteles, residencias, gimnasios…), con el ahorro desglosado en
+    // calefacción/ACS/piscina: TER100 sustituye la caldera y TER173 la hibrida.
+    const isTer100 = numero.includes('TER100');
+    const isTer173 = numero.includes('TER173');
+    const isTerciario = isTer100 || isTer173;
     const isSustitucion = numero.includes('RES060');
     
     const opInputs = op.datos_calculo?.inputs || {};
@@ -1222,7 +1235,9 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                                     <span className="text-[10px] font-black text-indigo-400 bg-indigo-400/10 px-2.5 py-1 rounded uppercase tracking-wider border border-indigo-400/20 group-hover:border-indigo-400/40">RES093 — Hibridación</span>
                                 ) : isReforma ? (
                                     <span className="text-[10px] font-black text-emerald-400 bg-emerald-400/10 px-2.5 py-1 rounded uppercase tracking-wider border border-emerald-500/20 group-hover:border-emerald-500/40">RES080 — Reforma</span>
-                                ) : isTerciario ? (
+                                ) : isTer173 ? (
+                                    <span className="text-[10px] font-black text-cyan-400 bg-cyan-400/10 px-2.5 py-1 rounded uppercase tracking-wider border border-cyan-400/20 group-hover:border-cyan-400/40">TER173 — Hibridación terciario</span>
+                                ) : isTer100 ? (
                                     <span className="text-[10px] font-black text-cyan-400 bg-cyan-400/10 px-2.5 py-1 rounded uppercase tracking-wider border border-cyan-400/20 group-hover:border-cyan-400/40">TER100 — Terciario</span>
                                 ) : (
                                     <span className="text-[10px] font-black text-brand/80 bg-brand/10 px-2.5 py-1 rounded uppercase tracking-wider border border-brand/20 group-hover:border-brand/40">RES060 — Sustitución</span>
@@ -1278,9 +1293,19 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                                         >
                                             <div className="flex flex-col">
                                                 <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider">TER100</span>
-                                                <span className="text-[10px] text-white/40 uppercase font-black">Terciario (Calefacción · ACS · Piscina)</span>
+                                                <span className="text-[10px] text-white/40 uppercase font-black">Terciario · sustitución (Calefacción · ACS · Piscina)</span>
                                             </div>
-                                            {isTerciario && <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />}
+                                            {isTer100 && <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />}
+                                        </button>
+                                        <button
+                                            onClick={() => handleMigrateProgram('TER173')}
+                                            className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 text-left border-t border-white/5 transition-colors"
+                                        >
+                                            <div className="flex flex-col">
+                                                <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider">TER173</span>
+                                                <span className="text-[10px] text-white/40 uppercase font-black">Terciario · hibridación (zona D1-D3)</span>
+                                            </div>
+                                            {isTer173 && <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />}
                                         </button>
                                     </div>
                                 </>

@@ -10,7 +10,7 @@
 import { mapBoiler, mapAcsType, shouldWarnBiomasa } from './boilerMapping';
 import { fotovoltaicaDesdeFunnel, FOTOVOLTAICA_VACIA } from '../../expedientes/logic/fotovoltaica';
 import { mapEmisor } from './emisoresMapping';
-import { getUByYear, getVentanaYACHByYear } from '../../calculator/logic/calculation';
+import { getUByYear, getVentanaYACHByYear, CAE_PRECIO_CLIENTE_NUEVAS } from '../../calculator/logic/calculation';
 import { PRESUPUESTO_ESTIMADO_EUR } from '../../calculator/logic/presupuestoEstimado';
 
 /**
@@ -53,7 +53,7 @@ const BASE_DEFAULTS = {
     changeAcs: false,
     scopAcs: 3.0,
     dacs: 2731.4,
-    caePriceClient: 95,
+    caePriceClient: CAE_PRECIO_CLIENTE_NUEVAS,
     caePriceSO: 160,
     caePricePrescriptor: 0,
     presupuesto: 12000,

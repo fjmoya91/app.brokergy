@@ -165,7 +165,7 @@ function tipoEquipoCe3x({ conAcs, conFrio }) {
 
 /** Fichas en las que la actuación es sustituir el generador (la envolvente no se toca). */
 function esSustitucionGenerador(numExp) {
-    return /RES060|RES093|TER100/i.test(String(numExp || ''));
+    return /RES060|RES093|TER100|TER173/i.test(String(numExp || ''));
 }
 
 /**

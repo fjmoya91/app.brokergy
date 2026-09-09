@@ -1427,6 +1427,106 @@ async function resolveSolicitudContacto(exp, target) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// AVISO AL CLIENTE AL ENCARGAR SU CEE
+// ─────────────────────────────────────────────────────────────────────────────
+// Sale a la vez que el encargo al certificador, por el MISMO botón. Hasta ahora
+// el primer movimiento visible del expediente era invisible para el cliente:
+// firmaba la propuesta y la siguiente noticia que tenía era la llamada de un
+// técnico al que nadie le había anunciado.
+//
+// REGLA — el texto lo redacta el BACKEND y lo enseña el popup, no al revés. Es el
+// mismo criterio que el resto de recordatorios (fuente única en recordatorios.js):
+// si el navegador lo compusiera, un envío desde otra superficie diría otra cosa.
+//
+// REGLA — al cliente se le avisa UNA vez por fase. Reasignar técnico es el caso
+// normal (el primero no puede, se pasa a otro) y el cliente no tiene por qué
+// enterarse dos veces de que su trámite ha arrancado. El sello vive en
+// `documentacion.aviso_cliente_cee[fase]` y el popup lo dice: no lo bloquea
+// —puede hacer falta reenviarlo—, pero deja de venir marcado.
+// ═════════════════════════════════════════════════════════════════════════════
+
+/** Señales de que la obra YA está ejecutada (mismo criterio que el radar). */
+function obraYaEjecutada(exp) {
+    const d = exp.documentacion || {};
+    return !!d.fecha_fin_obra_comunicada
+        || (Array.isArray(d.facturas) && d.facturas.length > 0)
+        || !!d.cert_cifo_drive_link || !!d.cert_cifo_signed_link || !!d.cert_rite_drive_link;
+}
+
+/**
+ * Borrador del aviso al cliente + a quién iría. No envía nada.
+ * @param {object} exp expediente completo
+ * @param {'initial'|'final'|'inicial'} phase
+ */
+async function buildAvisoClienteCee(exp, phase) {
+    const fase = phase === 'final' ? 'final' : 'inicial';
+    const contacto = await resolveSolicitudContacto(exp, 'CLIENTE');
+    const numExp = exp.numero_expediente || '';
+    const mensaje = recordatorios.encargoCeeClienteMsg({
+        destinatario: contacto.nombre,
+        numExp,
+        fase,
+        obraHecha: obraYaEjecutada(exp),
+    });
+    const asunto = fase === 'final'
+        ? `Certificado energético final de tu expediente ${numExp}`.trim()
+        : `Hemos iniciado el trámite de tu expediente ${numExp}`.trim();
+    const sello = (exp.documentacion?.aviso_cliente_cee || {})[fase] || null;
+    return { fase, ...contacto, mensaje, asunto, avisadoEn: sello?.at || null, avisadoA: sello?.to || null };
+}
+
+// ─── GET /api/expedientes/:id/aviso-cliente-cee?phase=initial ─────────────────
+// Lo que el popup de "Notificar certificador" necesita para enseñar el aviso al
+// cliente antes de mandarlo: destinatario, canales disponibles y el texto.
+router.get('/:id/aviso-cliente-cee', staffOnly, async (req, res) => {
+    try {
+        const { data: exp, error } = await supabase.from('expedientes')
+            .select('id, numero_expediente, cliente_id, oportunidad_id, documentacion')
+            .eq('id', req.params.id).single();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        res.json(await buildAvisoClienteCee(exp, req.query.phase));
+    } catch (err) {
+        console.error('[aviso-cliente-cee]', err.message);
+        res.status(500).json({ error: 'Error preparando el aviso al cliente' });
+    }
+});
+
+/**
+ * Envía el aviso al cliente por los canales pedidos y devuelve qué salió.
+ * Best-effort por canal: el encargo al certificador ya se ha mandado y no puede
+ * caerse porque el cliente no tenga email.
+ * @returns {{canales: string[], to: string|null, mensaje: string|null}}
+ */
+async function enviarAvisoClienteCee(exp, { phase, channels, mensaje, asunto }) {
+    const borrador = await buildAvisoClienteCee(exp, phase);
+    const texto = (mensaje || '').trim() || borrador.mensaje;
+    const subject = (asunto || '').trim() || borrador.asunto;
+    const canales = [];
+    const quiereWa = channels.includes('whatsapp');
+    const quiereEmail = channels.includes('email');
+
+    if (quiereWa && borrador.tlf) {
+        botVinculos.sembrarEnDiferido(borrador.tlf, exp.oportunidad_id);
+        try { await whatsappService.sendText(borrador.tlf, texto); canales.push('WhatsApp'); }
+        catch (e) { console.warn('[aviso-cliente-cee] WA:', e.message); canales.push('WhatsApp (encolado)'); }
+    }
+    if (quiereEmail && borrador.email) {
+        // Los saltos van en <br>: Outlook ignora `white-space:pre-wrap` (mismo
+        // motivo que en solicitar-faltantes) y el mensaje llegaba de una pieza.
+        const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#222;font-size:15px;line-height:24px">${texto.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r\n|\r|\n/g, '<br>')}</div>`;
+        try { await emailService.sendMail({ to: borrador.email, subject, text: texto, html }); canales.push('Email'); }
+        catch (e) { console.warn('[aviso-cliente-cee] Email:', e.message); }
+    }
+    return {
+        canales,
+        to: borrador.email || borrador.tlf || null,
+        nombre: borrador.nombre || null,
+        fase: borrador.fase,
+        mensaje: canales.length ? texto : null,
+    };
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // CONFIRMACIÓN DE COBRO — el enlace que se le manda al cliente para confirmar
 // sus datos de pago (y de paso cualificarlo para la venta cruzada).
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2454,7 +2554,7 @@ router.get('/:id/anexo-fotografico/estado', internalKeyOrAuth, async (req, res) 
 });
 
 // ─── POST /api/expedientes/:id/cifo/generar ──────────────────────────────────
-// Genera el Certificado CIFO (RES060/RES093/TER100) con el MISMO builder que el modal
+// Genera el Certificado CIFO (RES060/RES093/TER100/TER173) con el MISMO builder que el modal
 // (features/expedientes/logic/cifoDoc.js), fusiona las fichas técnicas, lo guarda
 // en "6. ANEXOS CAE" y enlaza documentacion.cert_cifo_drive_link. Registra
 // incidencias LEVE por lo que falte (y GRAVE, sin generar, si es imposible).
@@ -5649,6 +5749,15 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
         // Cuerpo del mensaje editado en el modal. Si viene, ES el texto que se envía
         // (sustituye al saludo+intro de la plantilla en email y al cuerpo en WhatsApp).
         const customMessage = (req.body?.customMessage || '').trim() || null;
+        // Aviso al CLIENTE, que sale por este MISMO botón: encargar el CEE es el
+        // primer movimiento del expediente y hasta ahora no se enteraba nadie más
+        // que el técnico. Solo sale si de verdad sale algo para el certificador —
+        // el texto le dice que ya le hemos mandado las instrucciones, y con "solo
+        // asignar" eso sería falso.
+        const avisarCliente = req.body?.avisarCliente === true;
+        const clienteChannels = Array.isArray(req.body?.clienteChannels) ? req.body.clienteChannels : ['whatsapp'];
+        const clienteMessage = (req.body?.clienteMessage || '').trim() || null;
+        const clienteAsunto = (req.body?.clienteAsunto || '').trim() || null;
         const dbCertId = exp.cee?.certificador_id || null;
         const certId = bodyCertId || dbCertId;
         if (!certId) return res.status(400).json({ error: 'El expediente no tiene certificador asignado' });
@@ -5721,6 +5830,7 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
         const tipoActuacion =
             ficha === 'RES080' ? 'REFORMA' :
             ficha === 'RES093' ? 'HIBRIDACIÓN' :
+            ficha === 'TER173' ? 'HIBRIDACIÓN TERCIARIO' :
             ficha === 'TER100' ? 'AEROTERMIA TERCIARIO' :
             'AEROTERMIA';
 
@@ -5905,6 +6015,35 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
             }
         }
 
+        // === AVISO AL CLIENTE (mismo botón) ===
+        let avisoCliente = null;
+        if (avisarCliente && channels.length > 0) {
+            try {
+                const r = await enviarAvisoClienteCee(exp, {
+                    phase, channels: clienteChannels, mensaje: clienteMessage, asunto: clienteAsunto,
+                });
+                if (r.canales.length) {
+                    avisoCliente = r;
+                    // Sello anti-repetición: reasignar técnico no puede volver a
+                    // anunciarle al cliente que su trámite acaba de empezar.
+                    const sello = {
+                        ...(exp.documentacion?.aviso_cliente_cee || {}),
+                        [r.fase]: { at: new Date().toISOString(), to: r.to, canales: r.canales },
+                    };
+                    // Se escribe en `exp.documentacion` ANTES de persistirlo porque el
+                    // bloque de historial que va justo debajo parte de ese objeto: sin
+                    // esto, su UPDATE se llevaría el sello por delante.
+                    exp.documentacion = { ...(exp.documentacion || {}), aviso_cliente_cee: sello };
+                    await supabase.from('expedientes')
+                        .update({ documentacion: exp.documentacion, updated_at: new Date().toISOString() })
+                        .eq('id', req.params.id);
+                }
+            } catch (avErr) {
+                // Nunca tumba el encargo: el certificador ya lo tiene.
+                console.error('[notify-certificador] aviso al cliente:', avErr.message);
+            }
+        }
+
         // ── Registro en historial (Trazabilidad) ────────────────────────────────
         if (channels.length > 0) {
             try {
@@ -5938,6 +6077,16 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
                     customMessage
                 });
 
+                if (avisoCliente) {
+                    historial.push({
+                        id: Date.now().toString() + '_avisocli',
+                        tipo: 'aviso_cliente_cee',
+                        texto: `Aviso de inicio de trámite (${phaseLabel}) enviado al Cliente${avisoCliente.nombre ? ` (${avisoCliente.nombre})` : ''} vía ${avisoCliente.canales.join(' + ')}`,
+                        fecha: new Date().toISOString(),
+                        usuario: userName,
+                    });
+                }
+
                 await supabase.from('expedientes')
                     .update({ documentacion: { ...docObj, historial }, updated_at: new Date().toISOString() })
                     .eq('id', req.params.id);
@@ -5963,7 +6112,10 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
             whatsAppSent: sendWhatsApp && channels.includes('WhatsApp'),
             channels,
             newEstado,
-            template
+            template,
+            avisoCliente: avisoCliente
+                ? { canales: avisoCliente.canales, to: avisoCliente.to, nombre: avisoCliente.nombre }
+                : null,
         });
     } catch (err) {
         console.error('[notify-certificador]', err.message);
@@ -6979,7 +7131,7 @@ router.get('/:id/anexos-cifo/:driveId/content', async (req, res) => {
 
 // ─── PUT /api/expedientes/:id/anexos-cifo/prefs ──────────────────────────────
 // Guarda el ORDEN de los anexos y las PÁGINAS EXCLUIDAS de cada uno para el
-// CIFO (RES060/RES093/TER100) y el Certificado RES080.
+// CIFO (RES060/RES093/TER100/TER173) y el Certificado RES080.
 // Body: { order: ['aerotermia_cal', 'extra_<driveId>'], excluded: { '<driveId>': [1,2,9] } }
 // Escritura atómica vía RPC: no toca el resto de `documentacion` (ver
 // scripts/cifo_annex_prefs.sql y utils/mergeDocumentacion.js).

@@ -17,10 +17,11 @@ import {
     calculateRes080,
     calculateHybridization,
     resolveHybridInputs,
-    BOILER_EFFICIENCIES
+    BOILER_EFFICIENCIES,
+    CAE_PRECIO_CLIENTE_ANTERIOR,
 } from '../../calculator/logic/calculation';
 import { computeExpedienteFinancials } from '../logic/expedienteFinancials';
-import { CCAA_MAP, pad2, getFicha, getCifoYear, getCCAA, FICHAS } from '../logic/expedienteTaxonomia';
+import { CCAA_MAP, pad2, getFicha, getCifoYear, getCCAA, FICHAS, fichaColor } from '../logic/expedienteTaxonomia';
 
 // ─── Dropzone de XML (migración de expedientes desde CE3X) ────────────────────
 function XmlDrop({ label, slot, error, onFile }) {
@@ -394,10 +395,13 @@ function NuevoExpedienteModal({ onClose, onCreated, existingOportunidadIds = [] 
                                             const op = selectedOpObj;
                                             const isReforma = op?.datos_calculo?.isReforma || op?.ficha === 'RES080';
                                             const isHybrid = !isReforma && (op?.datos_calculo?.hibridacion || op?.ficha === 'RES093');
-                                            // TER100 (terciario) solo llega declarada en la oportunidad: la
-                                            // calculadora es residencial y nunca la deduce de los inputs.
-                                            const programa = op?.ficha === 'TER100' ? 'TER100'
-                                                : isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060');
+                                            // Las fichas del TERCIARIO solo llegan declaradas en la
+                                            // oportunidad: la calculadora es residencial y nunca las deduce
+                                            // de los inputs. Y se miran ANTES que la hibridación, porque la
+                                            // TER173 es una hibridación y si no se la llevaría RES093.
+                                            const terciaria = FICHAS.find(f => f.startsWith('TER') && op?.ficha === f);
+                                            const programa = terciaria
+                                                || (isReforma ? 'RES080' : (isHybrid ? 'RES093' : 'RES060'));
                                             return `Se asignará el correlativo oficial ${new Date().getFullYear().toString().slice(-2)}${programa}_...`;
                                         })()}
                                     </p>
@@ -758,7 +762,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                     const fin = calculateFinancials({
                         presupuesto: overrides.presupuesto ?? (parseFloat(inst.presupuesto_final) || parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0),
                         savingsKwh: sv.savingsKwh,
-                        caePriceClient: overrides.cae_client_rate ?? (parseFloat(opInputs.cae_client_rate) || 95),
+                        caePriceClient: overrides.cae_client_rate ?? (parseFloat(opInputs.cae_client_rate) || CAE_PRECIO_CLIENTE_ANTERIOR.estandar),
                         caePriceSO: overrides.cae_so_rate ?? (parseFloat(opInputs.cae_so_rate) || 160),
                         caePricePrescriptor: includeCommission ? (parseFloat(overrides.cae_prescriptor_rate ?? opInputs.caePricePrescriptor ?? opInputs.cae_prescriptor_rate) || 0) : 0,
                         prescriptorMode: overrides.cae_prescriptor_mode ?? opInputs.cae_prescriptor_mode ?? opInputs.prescriptorMode ?? 'brokergy',
@@ -793,7 +797,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                     const fin = calculateFinancials({
                         presupuesto: overrides.presupuesto ?? (parseFloat(inst.presupuesto_final) || parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0),
                         savingsKwh: res080.ahorroEnergiaFinalTotal,
-                        caePriceClient: overrides.cae_client_rate ?? 60,
+                        caePriceClient: overrides.cae_client_rate ?? CAE_PRECIO_CLIENTE_ANTERIOR.res080,
                         caePriceSO: overrides.cae_so_rate ?? 140,
                         includeIrpf: true
                     });
@@ -1855,11 +1859,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                             value={fichaFilter}
                                             onChange={(e) => setFichaFilter(e.target.value)}
                                             className={`bg-transparent text-[10px] font-black uppercase tracking-wider focus:outline-none transition-colors cursor-pointer w-full p-0 appearance-none ${
-                                                fichaFilter === 'RES060' ? 'text-brand' :
-                                                fichaFilter === 'RES080' ? 'text-emerald-400' :
-                                                fichaFilter === 'RES093' ? 'text-indigo-400' :
-                                                fichaFilter === 'TER100' ? 'text-cyan-400' :
-                                                'text-white/40 hover:text-brand'
+                                                FICHAS.includes(fichaFilter) ? fichaColor(fichaFilter).texto : 'text-white/40 hover:text-brand'
                                             }`}
                                         >
                                             <option value="ALL" className="bg-bkg-deep text-white">TODAS</option>
@@ -1997,12 +1997,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
 
                                         {/* Ficha — badge con color */}
                                         <td className="px-4 py-3">
-                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border ${
-                                                fin.ficha === 'RES080' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                                                fin.ficha === 'RES093' ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' :
-                                                fin.ficha === 'TER100' ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' :
-                                                'bg-brand/10 text-brand border-brand/20'
-                                            }`}>
+                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border ${fichaColor(fin.ficha).badge}`}>
                                                 {fin.ficha}
                                             </span>
                                         </td>
@@ -2016,12 +2011,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                                     const initials = (cert.acronimo || cert.razon_social || '?').substring(0, 2).toUpperCase();
                                                     return (
                                                         <div className="flex items-center gap-2">
-                                                            <div className={`w-6 h-6 rounded-md flex items-center justify-center text-[9px] font-black shrink-0 ${
-                                                                fin.ficha === 'RES080' ? 'bg-emerald-500/15 text-emerald-400' :
-                                                                fin.ficha === 'RES093' ? 'bg-indigo-500/15 text-indigo-400' :
-                                                                fin.ficha === 'TER100' ? 'bg-cyan-500/15 text-cyan-400' :
-                                                                'bg-brand/15 text-brand'
-                                                            }`}>{initials}</div>
+                                                            <div className={`w-6 h-6 rounded-md flex items-center justify-center text-[9px] font-black shrink-0 ${fichaColor(fin.ficha).chip}`}>{initials}</div>
                                                             <span className="text-[10px] font-medium text-white/60 truncate max-w-[110px] leading-tight">
                                                                 {cert.razon_social || cert.acronimo}
                                                             </span>
@@ -2201,12 +2191,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                         <div className="text-white/30 text-[11px] mt-0.5 uppercase tracking-wide line-clamp-2">{dirText}</div>
                                     )}
                                 </div>
-                                <span className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border ${
-                                    fin.ficha === 'RES080' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                                        : fin.ficha === 'RES093' ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
-                                        : fin.ficha === 'TER100' ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
-                                            : 'bg-brand/10 text-brand border-brand/20'
-                                }`}>{fin.ficha}</span>
+                                <span className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border ${fichaColor(fin.ficha).badge}`}>{fin.ficha}</span>
                             </div>
 
                             {/* Métricas (no certificador) */}

@@ -5,6 +5,7 @@ import { analizarProceso, SLOTS } from '../logic/loteProceso';
 import { computeLoteEco } from '../logic/loteEco';
 import { EnviarDocLoteModal } from './EnviarDocLoteModal';
 import { AhorrosVerificadosModal } from './AhorrosVerificadosModal';
+import { FirmadosSoModal } from './FirmadosSoModal';
 import SendActionOverlay from '../../../components/SendActionOverlay';
 import { BotonCarpetaLocal } from './BotonCarpetaLocal';
 
@@ -211,6 +212,32 @@ const BotonSubir = ({ children, disabled, onFile, destacado = false }) => (
     </label>
 );
 
+// Zona de SUELTA para los firmados que devuelve el S.O. Admite varios ficheros
+// —vuelven los seis de una vez, adjuntos al mismo correo— y la tarjeta entera es
+// zona de suelta: con un cuadro pequeño hay que apuntar, y lo que se arrastra
+// aquí viene de una descarga de seis PDF.
+const ZonaFirmados = ({ onFiles, children }) => {
+    const [drag, setDrag] = useState(false);
+    const soltar = (e) => {
+        e.preventDefault();
+        setDrag(false);
+        const fs = Array.from(e.dataTransfer.files || []).filter(f => /\.pdf$/i.test(f.name));
+        if (fs.length) onFiles(fs);
+    };
+    return (
+        <label
+            onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+            onDragLeave={() => setDrag(false)}
+            onDrop={soltar}
+            className={`block rounded-xl border border-dashed px-3.5 py-3 cursor-pointer transition-all ${
+                drag ? 'border-brand bg-brand/[0.07]' : 'border-white/15 hover:border-brand/40 hover:bg-white/[0.02]'}`}>
+            {children}
+            <input type="file" accept="application/pdf" multiple className="hidden"
+                onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ''; if (fs.length) onFiles(fs); }} />
+        </label>
+    );
+};
+
 // Botón de acción de una fase (abre un modal del lote).
 const BotonAccion = ({ children, onClick, disabled, title, tono = 'brand' }) => (
     <button type="button" onClick={onClick} disabled={disabled} title={title}
@@ -234,6 +261,10 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     const [leyendoInforme, setLeyendoInforme] = useState(false);
     const [leyendoDictamen, setLeyendoDictamen] = useState(false);
     const [generandoAnexos, setGenerandoAnexos] = useState(false);
+    // Los PDF que acaba de soltar el usuario, a la espera de que el modal los
+    // analice. Se guardan los File tal cual: el modal los sube dos veces (analizar
+    // y aplicar) y así no hay que volver a pedirlos.
+    const [firmadosSueltos, setFirmadosSueltos] = useState(null);
     // Overlay ESTÁNDAR mientras se lee un PDF y para contar cómo ha ido. Leer un
     // informe tarda entre 6 y 14 segundos: sin él, el usuario pulsa y no pasa nada
     // visible, así que vuelve a pulsar. Nunca un showAlert pelado (ver el estándar
@@ -835,6 +866,21 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                         Requerimiento · reenviar para firma
                     </BotonAccion>
                 </div>
+                {/* Los firmados vuelven por email, con el MISMO nombre y sin
+                    clasificar. Se sueltan aquí todos juntos: la app lee la firma de
+                    cada PDF, ve de qué documento es y lo registra con su `_fdo`.
+                    Solo tiene sentido cuando ya se le ha pedido la firma. */}
+                {p.soEnviado && !p.soFirmado && (
+                    <ZonaFirmados onFiles={setFirmadosSueltos}>
+                        <p className="text-[11px] font-bold text-white/70">
+                            ↓ Arrastra aquí los PDF firmados que devuelva el S.O.
+                        </p>
+                        <p className="text-[10px] text-white/35 mt-0.5">
+                            Todos a la vez y sin renombrar nada: se comprueba la firma de cada uno,
+                            se identifica su documento y se guarda como <span className="text-white/55">…_fdo</span>.
+                        </p>
+                    </ZonaFirmados>
+                )}
                 {p.soEnviado && !p.soFirmado && (
                     <p className="text-[10px] text-white/30">Enviado. Esperando la firma del Sujeto Obligado.</p>
                 )}
@@ -1056,6 +1102,15 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 errorTitle={lectura?.errorTitle}
                 onClose={() => setLectura(null)}
             />
+
+            {firmadosSueltos && (
+                <FirmadosSoModal
+                    lote={lote}
+                    ficheros={firmadosSueltos}
+                    onChanged={() => { if (onChanged) onChanged(); }}
+                    onClose={() => setFirmadosSueltos(null)}
+                />
+            )}
 
             {propuestaAhorros && (
                 <AhorrosVerificadosModal

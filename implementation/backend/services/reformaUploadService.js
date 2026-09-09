@@ -165,7 +165,7 @@ const ADDABLE_CONCEPTS = [
     // temperatura de impulsión y con ella el SCOP que se declara, así que hay que
     // poder enseñarlo. Uno u otro, nunca los dos (ver conceptsFromInstalacion).
     { id: 'emisores', label: 'Radiadores / unidad terminal (antes)', slots: ['FOTO_EMISORES_ANTES'] },
-    // Calentamiento de agua de piscina (AE_CAP de la ficha TER100). La ficha exige
+    // Calentamiento de agua de piscina (AE_CAP de las fichas del terciario). La ficha exige
     // informe fotográfico "antes y después de la instalación de la bomba de calor",
     // y el circuito de piscina es una actuación aparte de la de calefacción/ACS.
     { id: 'piscina', label: 'Piscina: instalación actual + bomba de calor nueva', slots: ['FOTO_PISCINA_ANTES', 'FOTO_PISCINA_BDC'] },
@@ -211,7 +211,7 @@ function conceptsFromEnvolvente(envolvente) {
  *     Uno u otro: son el mismo dato visto por sus dos formas. Los emisores
  *     aire-aire de un RES080 (splits/conductos) no entran: esa foto ya es la de
  *     la unidad interior.
- *   · piscina: si el expediente TER100 incluye calentamiento de agua de piscina,
+ *   · piscina: si el expediente del terciario incluye calentamiento de agua de piscina,
  *     ese circuito es una actuación aparte que hay que documentar antes/después.
  * Ambos los fija el admin en Instalación, después de la simulación.
  */
@@ -375,7 +375,7 @@ function deriveSelectors(datosCalculo = {}) {
 
     // ── Elementos de ENVOLVENTE ──────────────────────────────────────────────
     // En un RES080 el alcance real lo declara la pestaña Envolvente del
-    // expediente; en las fichas de sustitución de caldera (RES060/093/TER100) no
+    // expediente; en las fichas de generador (RES060/093/TER100/TER173) no
     // hay obra de envolvente que documentar, así que ninguno de estos apartados
     // procede salvo que el admin lo añada a mano.
     const env = alc.envolvente || null;
@@ -405,7 +405,7 @@ function deriveSelectors(datosCalculo = {}) {
     const emisorTipo = String(pick(alc.emisor, inputs.emitterType, funnel.emisor_tipo, '')).toLowerCase();
     const sueloRadiante = emisorTipo === 'suelo_radiante';
 
-    // ── Piscina (TER100) ─────────────────────────────────────────────────────
+    // ── Piscina (terciario) ──────────────────────────────────────────────────
     const piscina = alc.piscina === true;
 
     // ── El GENERADOR DE CALOR que se sustituye ───────────────────────────────
@@ -532,7 +532,7 @@ function buildDocChecklist(datosCalculo = {}) {
     if (want('FOTO_CUBIERTA_ANTES', sel.reforma.cubierta)) push({ key: 'FOTO_CUBIERTA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Cubierta / tejado (antes)', help: 'El tejado tal y como está hoy, antes de aislarlo.' });
     if (want('FOTO_FACHADA_ANTES', sel.reforma.paredes))  push({ key: 'FOTO_FACHADA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Fachada a aislar (antes)' });
     if (want('FOTO_SUELO_ANTES', sel.reforma.suelo))    push({ key: 'FOTO_SUELO_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Suelo (antes)' });
-    // Piscina (TER100): el circuito se declara en la pestaña Instalación, nunca
+    // Piscina (terciario): el circuito se declara en la pestaña Instalación, nunca
     // en la simulación — llega por el alcance del expediente o por docs_overrides.
     if (want('FOTO_PISCINA_ANTES', sel.piscina)) push({ key: 'FOTO_PISCINA_ANTES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Calentamiento de piscina actual', help: 'El equipo que calienta hoy el agua de la piscina y su conexión con el circuito.' });
 

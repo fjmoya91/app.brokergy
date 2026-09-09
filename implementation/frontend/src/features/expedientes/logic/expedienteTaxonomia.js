@@ -29,12 +29,33 @@ export const pad2 = (v) => { const s = String(v ?? '').trim(); return s ? s.padS
 // Tipologías de ficha que maneja la app. FUENTE ÚNICA de la lista: los filtros,
 // el selector de "cambiar tipo de actuación" y el cuadro de mando la recorren,
 // así que añadir una ficha nueva aquí la propaga a todas esas pantallas.
-export const FICHAS = ['RES060', 'RES080', 'RES093', 'TER100'];
+export const FICHAS = ['RES060', 'RES080', 'RES093', 'TER100', 'TER173'];
+
+// ─── Color de cada ficha ─────────────────────────────────────────────────────
+// Los mismos tres usos en las cuatro superficies que pintan la ficha (el selector
+// del filtro, el badge de la tabla, la inicial del certificador y la tarjeta del
+// móvil). Estaban escritos como cuatro cadenas de ternarios idénticas, y al entrar
+// la TER173 se habría quedado alguna atrás pintándola del color de RES060 — que es
+// justo la que NO es.
+//
+// TER100 y TER173 son las dos del terciario y comparten familia (cian/teal): en un
+// listado lo que hay que distinguir de un vistazo es el sector.
+const COLOR_POR_DEFECTO = { texto: 'text-brand', badge: 'bg-brand/10 text-brand border-brand/20', chip: 'bg-brand/15 text-brand' };
+export const FICHA_COLOR = {
+    RES060: COLOR_POR_DEFECTO,
+    RES080: { texto: 'text-emerald-400', badge: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20', chip: 'bg-emerald-500/15 text-emerald-400' },
+    RES093: { texto: 'text-indigo-400', badge: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20', chip: 'bg-indigo-500/15 text-indigo-400' },
+    TER100: { texto: 'text-cyan-400', badge: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20', chip: 'bg-cyan-500/15 text-cyan-400' },
+    TER173: { texto: 'text-teal-400', badge: 'bg-teal-500/10 text-teal-400 border-teal-500/20', chip: 'bg-teal-500/15 text-teal-400' },
+};
+export const fichaColor = (ficha) => FICHA_COLOR[ficha] || COLOR_POR_DEFECTO;
 
 export const getFicha = (exp) => {
-    if (exp.numero_expediente?.includes('RES080')) return 'RES080';
-    if (exp.numero_expediente?.includes('RES093')) return 'RES093';
-    if (exp.numero_expediente?.includes('TER100')) return 'TER100';
+    const num = exp.numero_expediente || '';
+    if (num.includes('RES080')) return 'RES080';
+    if (num.includes('RES093')) return 'RES093';
+    if (num.includes('TER173')) return 'TER173';
+    if (num.includes('TER100')) return 'TER100';
     return 'RES060';
 };
 
@@ -65,6 +86,32 @@ export const getCCAA = (exp) => {
     if (exp.clientes?.provincia) return exp.clientes.provincia;
     return '—';
 };
+
+// ─── Qué ficha produce una SIMULACIÓN ────────────────────────────────────────
+// Espejo de `detectPrograma` del backend (utils/fichas.js) para el lado de la
+// CALCULADORA, donde todavía no hay ni número de expediente ni `op.ficha`: la
+// ficha se deduce de lo que el usuario ha marcado.
+//
+// REGLA — el SECTOR se declara y se mira ANTES que la reforma. La RES080 es
+// "rehabilitación profunda de edificios de VIVIENDAS" y no existe en el
+// terciario, así que un terciario no puede caer nunca ahí. Dentro de cada sector
+// lo que distingue la actuación es la hibridación:
+//
+//              │ sin hibridar │ hibridado
+//   residencial│   RES060     │  RES093     (+ RES080 si es reforma)
+//   terciario  │   TER100     │  TER173
+export const SECTORES = { RESIDENCIAL: 'residencial', TERCIARIO: 'terciario' };
+
+export const fichaDesdeInputs = (inputs = {}) => {
+    const hibrido = inputs.hibridacion === true;
+    if (inputs.sector === SECTORES.TERCIARIO) return hibrido ? 'TER173' : 'TER100';
+    const reforma = inputs.isReforma === true || ['onlyReforma', 'both'].includes(inputs.reformaType);
+    if (reforma) return 'RES080';
+    return hibrido ? 'RES093' : 'RES060';
+};
+
+/** ¿La simulación es de un edificio del sector TERCIARIO (TER100 · TER173)? */
+export const esSectorTerciario = (inputs = {}) => inputs.sector === SECTORES.TERCIARIO;
 
 // ─── Normalización de CCAA para AGRUPAR ──────────────────────────────────────
 // getCCAA devuelve la etiqueta bonita del CCAA_MAP cuando hay código de provincia,

@@ -36,13 +36,14 @@ const { PDFDocument, PDFTextField, PDFCheckBox, PDFDropdown, PDFSignature, Stand
 
 const DIR = path.join(__dirname, '..', 'plantillas');
 
-// Las cinco plantillas oficiales. La clave es lo que viaja por la API: cualquier
-// otra cosa se rechaza (nadie puede pedir que se rellene un fichero arbitrario).
+// Las plantillas oficiales. La clave es lo que viaja por la API: cualquier otra
+// cosa se rechaza (nadie puede pedir que se rellene un fichero arbitrario).
 const PLANTILLAS = {
     RES060: { fichero: 'FichaRES060.pdf', titulo: 'Ficha RES060' },
     RES080: { fichero: 'FichaRES080.pdf', titulo: 'Ficha RES080' },
     RES093: { fichero: 'FichaRES093.pdf', titulo: 'Ficha RES093' },
     TER100: { fichero: 'FichaTER100.pdf', titulo: 'Ficha TER100' },
+    TER173: { fichero: 'FichaTER173.pdf', titulo: 'Ficha TER173' },
     ANEXO_I: { fichero: 'AnexoIDeclaracionResponsable.pdf', titulo: 'Anexo I · Declaración responsable' },
 };
 
@@ -63,6 +64,15 @@ const CENTRADOS = {
         'ni c', 'SCOP c', 'Dc c', 'S c', 'Fp c', 'AEc',
         'FP acs', 'ni acs', 'SCOPdhw acs', 'DACS', 'AEacs',
         'FP cap', 'n cap', 'SCOPpwh cap', 'DCAP', 'AEcap',
+        'AEtotal', 'Di',
+    ],
+    // TER173: mismos tres apartados que la TER100, pero su impreso nombra las
+    // casillas repetidas con el sufijo que les pone el formulario ('ni', 'ni-0',
+    // 'ni-1'; 'Fp', 'Fp-0', 'FP'). Son los nombres de LA PLANTILLA: no se tocan.
+    TER173: [
+        'ni', 'SCOP', 'Dc', 'S', 'Fp', 'AEc',
+        'ni-0', 'SCOPdhw', 'DACS', 'Fp-0', 'AEacs',
+        'FP', 'ni-1', 'SCOPpwh', 'DCAP', 'AEcap',
         'AEtotal', 'Di',
     ],
     ANEXO_I: ['día', 'año'],

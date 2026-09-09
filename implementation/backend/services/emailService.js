@@ -708,7 +708,7 @@ const sendCertificadorNotificationEmail = async ({
     customMessage = null,
 }) => {
     const isReforma = ficha === 'RES080';
-    const tipoLabel = tipoActuacion || (isReforma ? 'REFORMA' : ficha === 'RES093' ? 'HIBRIDACIÓN' : ficha === 'TER100' ? 'AEROTERMIA TERCIARIO' : 'AEROTERMIA');
+    const tipoLabel = tipoActuacion || (isReforma ? 'REFORMA' : ficha === 'RES093' ? 'HIBRIDACIÓN' : ficha === 'TER173' ? 'HIBRIDACIÓN TERCIARIO' : ficha === 'TER100' ? 'AEROTERMIA TERCIARIO' : 'AEROTERMIA');
     const clienteUpper = (clienteName || '').toUpperCase().trim();
     const isUrgent = priority === 'urgent';
     const subject = `${isUrgent ? '🚨 URGENTE — ' : ''}“${expedienteNum} ENCARGO CEE (${tipoLabel}) – “${clienteUpper}”`;
@@ -910,7 +910,7 @@ const sendCertificadorFinalNotificationEmail = async ({
     customMessage = null,
 }) => {
     const isReforma = ficha === 'RES080';
-    const tipoLabel = tipoActuacion || (isReforma ? 'REFORMA' : ficha === 'RES093' ? 'HIBRIDACIÓN' : ficha === 'TER100' ? 'AEROTERMIA TERCIARIO' : 'AEROTERMIA');
+    const tipoLabel = tipoActuacion || (isReforma ? 'REFORMA' : ficha === 'RES093' ? 'HIBRIDACIÓN' : ficha === 'TER173' ? 'HIBRIDACIÓN TERCIARIO' : ficha === 'TER100' ? 'AEROTERMIA TERCIARIO' : 'AEROTERMIA');
     const clienteUpper = (clienteName || '').toUpperCase().trim();
     const isUrgent = priority === 'urgent';
     const subject = `${isUrgent ? '🚨 URGENTE — ' : ''}“${expedienteNum} ENCARGO CEE FINAL (${tipoLabel}) – “${clienteUpper}”`;

@@ -8,6 +8,7 @@
 import { buildInstalacionAddress } from '../../expedientes/utils/docGenerators';
 import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
 import { calcCifo } from '../../expedientes/logic/calcCifo';
+import { getFicha } from '../../expedientes/logic/expedienteTaxonomia';
 
 // Fecha del convenio de compraventa con el S.O. (fija; editable en el popup).
 export const CONVENIO_FECHA_DEFAULT = '27/02/2026';
@@ -17,13 +18,13 @@ export const FICHA_TITULO = {
     RES080: 'Rehabilitación profunda de edificios de viviendas',
     RES093: 'Hibridación en modo paralelo de caldera/s de combustión con bomba de calor de accionamiento eléctrico en edificios residenciales ubicados en la zona climática D1, D2 o D3',
     TER100: 'Sustitución de caldera de combustión existente por bomba de calor de accionamiento eléctrico.',
+    TER173: 'Hibridación en modo paralelo de caldera/s de combustión con bomba de calor de accionamiento eléctrico en edificios no residenciales ubicados en la zona climática D1, D2 o D3',
 };
 
-export const fichaDe = (numero) =>
-    String(numero || '').includes('RES080') ? 'RES080'
-        : String(numero || '').includes('RES093') ? 'RES093'
-            : String(numero || '').includes('TER100') ? 'TER100'
-                : 'RES060';
+// La ficha se resuelve con el criterio ÚNICO del frontend (expedienteTaxonomia):
+// aquí había una cadena de `includes` propia y, al entrar la TER173, se habría
+// quedado atrás sin fallar — devolviendo RES060 para un terciario.
+export const fichaDe = (numero) => getFicha({ numero_expediente: numero });
 
 const vidaUtilDe = (ficha) => (ficha === 'RES080' ? 25 : 15);
 

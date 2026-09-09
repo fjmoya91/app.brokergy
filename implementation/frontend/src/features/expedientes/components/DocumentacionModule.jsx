@@ -8,8 +8,8 @@ import { AnexoCesionModal } from './AnexoCesionModal';
 import { FichaRes060Modal } from './FichaRes060Modal';
 import { FichaRes080Modal } from './FichaRes080Modal';
 import { FichaRes093Modal } from './FichaRes093Modal';
-import { FichaTer100Modal } from './FichaTer100Modal';
-import { esTer100 } from '../logic/ter100';
+import { FichaTerciarioModal } from './FichaTerciarioModal';
+import { esTer100, esTer173 } from '../logic/terciario';
 import { CertificadoCifoModal } from './CertificadoCifoModal';
 import { CertificadoRes080Modal } from './CertificadoRes080Modal';
 import { AnexoFotograficoModal } from './AnexoFotograficoModal';
@@ -814,9 +814,12 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     // TER100: mismo flujo documental que RES060 (comparte los slots ficha_res060_* y
     // cert_cifo_*), solo cambia la ficha oficial que se genera.
     const isTer100  = esTer100(expediente);
+    // TER173: hibridación en el terciario. Comparte flujo documental con TER100
+    // (mismos slots ficha_res060_* y cert_cifo_*); solo cambia la ficha oficial.
+    const isTer173  = esTer173(expediente);
     // Nombre de la ficha oficial del expediente. Se usa en la etiqueta de la fila, en
     // el nombre del documento firmado y en el aviso de "ya generado".
-    const fichaLabel = isReforma ? 'Ficha RES080' : isHybrid ? 'Ficha RES093' : isTer100 ? 'Ficha TER100' : 'Ficha RES060';
+    const fichaLabel = isReforma ? 'Ficha RES080' : isTer173 ? 'Ficha TER173' : isHybrid ? 'Ficha RES093' : isTer100 ? 'Ficha TER100' : 'Ficha RES060';
 
     const [local, setLocal] = useState(() => {
         const doc = {
@@ -1021,7 +1024,8 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     const [showFichaRes060, setShowFichaRes060] = useState(false);
     const [showFichaRes080, setShowFichaRes080] = useState(false);
     const [showFichaRes093, setShowFichaRes093] = useState(false);
-    const [showFichaTer100, setShowFichaTer100] = useState(false);
+    // Un solo estado para las dos fichas del terciario: comparten modal.
+    const [showFichaTerciario, setShowFichaTerciario] = useState(false);
     const [showCertificadoCifo, setShowCertificadoCifo] = useState(false);
     const [showCertificadoRes080, setShowCertificadoRes080] = useState(false);
     const [showAnexoFotografico, setShowAnexoFotografico] = useState(false);
@@ -2454,10 +2458,11 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 results={results}
                 onSaveDrive={(link) => handleModalSaveDrive('ficha_res060_drive_link', link)}
             />
-            <FichaTer100Modal
-                isOpen={showFichaTer100}
-                onClose={() => setShowFichaTer100(false)}
+            <FichaTerciarioModal
+                isOpen={showFichaTerciario}
+                onClose={() => setShowFichaTerciario(false)}
                 expediente={expediente}
+                ficha={isTer173 ? 'TER173' : 'TER100'}
                 onSaveDrive={(link) => handleModalSaveDrive('ficha_res060_drive_link', link)}
             />
             <CertificadoCifoModal
@@ -3029,7 +3034,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 <div className={`flex items-center justify-between gap-6 max-md:flex-col max-md:items-stretch max-md:gap-3 p-4 max-md:p-3 rounded-2xl transition-all group ${dragRow === 'res060' ? 'ring-2 ring-brand/40 bg-brand/[0.05]' : 'bg-white/[0.01] hover:bg-white/[0.03]'}`} {...rowDragProps('res060', f => handleSignedUpload('ficha_res060_signed_link', f))}>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-black text-white uppercase tracking-tight mb-0.5">{fichaLabel}</p>
-                                        <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">{isReforma ? 'Resultado del cálculo de ahorro — Reforma' : isHybrid ? 'Resultado del cálculo de ahorro — Hibridación' : isTer100 ? 'Resultado del cálculo de ahorro — Terciario (calefacción · ACS · piscina)' : 'Resultado del cálculo de ahorro energético'}</p>
+                                        <p className="text-white/30 text-[9px] font-bold uppercase tracking-widest leading-tight">{isReforma ? 'Resultado del cálculo de ahorro — Reforma' : isTer173 ? 'Resultado del cálculo de ahorro — Hibridación en terciario (calefacción · ACS · piscina)' : isHybrid ? 'Resultado del cálculo de ahorro — Hibridación' : isTer100 ? 'Resultado del cálculo de ahorro — Terciario (calefacción · ACS · piscina)' : 'Resultado del cálculo de ahorro energético'}</p>
                                         {local.ficha_res060_drive_link && user?.rol === 'ADMIN' && (
                                             <a href={local.ficha_res060_drive_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-brand/60 hover:text-brand font-black uppercase underline decoration-1 underline-offset-4 tracking-[0.15em] transition-all mt-1.5 inline-block">Ver Borrador</a>
                                         )}
@@ -3038,7 +3043,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                         {/* 1. BORRADOR */}
                                         <div className="w-[100px]">
                                             <button 
-                                                onClick={() => handleGenerateClick('res060', fichaLabel, () => isReforma ? setShowFichaRes080(true) : isHybrid ? setShowFichaRes093(true) : isTer100 ? setShowFichaTer100(true) : setShowFichaRes060(true))}
+                                                onClick={() => handleGenerateClick('res060', fichaLabel, () => isReforma ? setShowFichaRes080(true) : (isTer100 || isTer173) ? setShowFichaTerciario(true) : isHybrid ? setShowFichaRes093(true) : setShowFichaRes060(true))}
                                                 className={`w-full py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${
                                                     local.ficha_res060_drive_link 
                                                     ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-bkg-deep shadow-[0_0_15px_rgba(16,185,129,0.1)]' 

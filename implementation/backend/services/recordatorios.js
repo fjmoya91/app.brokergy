@@ -176,6 +176,45 @@ function firmaMsg({ destinatario, docs = [], numExp, obra, dias, url, esInstalad
     return `${hola}\n\n${cabecera}\n\nEs lo que nos falta para poder seguir con la tramitación de la ayuda.\n\n✍️ ${varios ? 'Fírmalos' : 'Fírmalo'} aquí (se ${varios ? 'hacen' : 'hace'} en 2 minutos desde el móvil):\n${url}\n\nSi tienes cualquier duda, respóndenos por aquí mismo.\n\n¡Gracias!\n${FIRMA}`;
 }
 
+// ─── Cliente: le hemos encargado su certificado ───────────────────────────────
+//
+// REGLA — encargar el CEE es el primer movimiento VISIBLE del expediente, y hasta
+// ahora el cliente no se enteraba. Firma la propuesta, se le crea el expediente y
+// pasan semanas en las que, desde fuera, no ocurre nada: la primera noticia que
+// recibe es la llamada de un técnico que no sabe quién es. Este mensaje sale a la
+// vez que el encargo al certificador y cierra ese hueco.
+//
+// REGLA — no se promete fecha. Depende de la agenda del técnico y de Industria;
+// una fecha aquí es una reclamación garantizada dentro de dos semanas. Lo que sí
+// se promete —y se cumple— es el AVISO cuando quede registrado.
+//
+// REGLA — el aviso de "no empieces la obra todavía" solo sale si la obra NO está
+// hecha. Las facturas anteriores al registro del CEE inicial son una incidencia
+// (facturaIncidencias · FECHA), así que decírselo AHORA le ahorra el problema; pero
+// decírselo a quien ya ha terminado es echarle en cara algo que no puede deshacer.
+
+/**
+ * @param {object} p
+ * @param {string} p.destinatario  nombre del contacto de notificaciones del cliente
+ * @param {string} p.numExp
+ * @param {'inicial'|'final'} p.fase
+ * @param {boolean} [p.obraHecha]  hay factura, CIFO, RITE o fin de obra comunicado
+ */
+function encargoCeeClienteMsg({ destinatario, numExp, fase, obraHecha = false }) {
+    const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
+    const exp = `*${numExp}*`;
+
+    if (fase === 'final') {
+        return `${hola}\n\nYa hemos encargado el *certificado de eficiencia energética final* de tu vivienda (expediente ${exp}): el que recoge la instalación ya terminada y con el que se justifica el ahorro conseguido.\n\nHemos asignado al *técnico certificador* y le hemos enviado toda la documentación de la obra junto con las instrucciones para emitirlo. Se pondrá en contacto contigo para la visita final.\n\nEn cuanto esté registrado te avisamos por aquí. Por tu parte no hace falta nada más de momento.\n\n¡Gracias!\n${FIRMA}`;
+    }
+
+    const aviso = obraHecha
+        ? ''
+        : `\n\n⚠️ *Importante:* no empieces la obra hasta que ese certificado esté registrado. Las facturas de la instalación tienen que ser posteriores a esa fecha; si son anteriores, la ayuda no se puede tramitar.`;
+
+    return `${hola}\n\nYa hemos puesto en marcha tu expediente ${exp}.\n\nHemos asignado al *técnico certificador* y le hemos enviado tu documentación junto con las instrucciones para que emita el *certificado de eficiencia energética inicial* de tu vivienda. Es el primer paso del trámite y se hace sobre la situación de partida, antes de la reforma.\n\nEl técnico se pondrá en contacto contigo para concertar la visita.${aviso}\n\nEn cuanto quede registrado te avisamos por aquí. Por tu parte no tienes que hacer nada más de momento.\n\n¡Gracias!\n${FIRMA}`;
+}
+
 // ─── Mensajes de LOTE: un destinatario, varios expedientes ────────────────────
 //
 // Un certificador con cuatro CEE sin registrar no necesita cuatro mensajes idénticos
@@ -250,7 +289,7 @@ function cobroLoteWa({ destinatario, items }) {
 }
 
 module.exports = {
-    certRegistroWa, certEmisionWa,
+    certRegistroWa, certEmisionWa, encargoCeeClienteMsg,
     finObraMsg, firmaMsg, bloqueAcciones,
     certRegistroLoteWa, certEmisionLoteWa, finObraLoteWa, firmaLoteWa, cobroLoteWa, listaExpedientes,
     capitalizar, nombrePila, nombreSaludo, direccionLimpia, FIRMA,

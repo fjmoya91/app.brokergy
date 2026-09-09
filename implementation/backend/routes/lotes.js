@@ -1444,6 +1444,54 @@ router.post('/:id/solicitud/archivar', staffOnly, async (req, res) => {
     }
 });
 
+// ─── POST /api/lotes/:id/firmados — SUELTA TODOS los firmados del S.O. ──────────
+// El S.O. devuelve el Anexo I y las cinco fichas firmados y CON EL MISMO NOMBRE
+// con el que se los mandamos. Aquí se sueltan de golpe: la app lee las firmas del
+// propio PDF (sin llamar a ningún servicio), identifica de qué documento es cada
+// fichero y lo registra por el camino de siempre (`guardarDocFirmado`), que ya lo
+// renombra `_fdo` y lo deja donde lo espera el paquete E{n} (regla 40).
+//
+// Multipart, no base64 en JSON: son seis PDF de unos cientos de KB y el JSON los
+// infla un tercio (mismo criterio que el OCR de facturas).
+const firmadosUpload = require('multer')({
+    storage: require('multer').memoryStorage(),
+    limits: { fileSize: 30 * 1024 * 1024, files: 25 },
+});
+
+router.post('/:id/firmados', staffOnly, (req, res) => {
+    firmadosUpload.array('files', 25)(req, res, async (err) => {
+        if (err) {
+            console.error('[lotes/firmados] multer:', err.message);
+            return res.status(400).json({ error: `No se pudieron leer los ficheros: ${err.message}` });
+        }
+        try {
+            const ficheros = (req.files || []).map(f => ({
+                // El nombre llega de un formulario: en Windows puede venir con la
+                // ruta entera y en algunos navegadores mal codificado en latin1.
+                nombre: Buffer.from(f.originalname, 'latin1').toString('utf8').split(/[\\/]/).pop(),
+                buffer: f.buffer,
+            }));
+            if (!ficheros.length) return res.status(400).json({ error: 'No se ha recibido ningún fichero' });
+
+            const parse = (v, def) => { try { return v ? JSON.parse(v) : def; } catch { return def; } };
+            const { procesarFirmados } = require('../services/firmadosSo');
+            const informe = await procesarFirmados(req.params.id, ficheros, {
+                asignar: parse(req.body?.asignar, {}),
+                forzar: parse(req.body?.forzar, []),
+                dryRun: req.body?.dryRun === 'true' || req.body?.dryRun === true,
+                usuario: usuarioDe(req),
+            });
+
+            const { data: updated } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+            const [enriched] = await enrichLotes([updated]);
+            res.json({ ...informe, lote: scrubLoteForUser(enriched, req) });
+        } catch (e) {
+            console.error('[POST /lotes/:id/firmados]', e.message);
+            res.status(500).json({ error: e.message || 'Error al registrar los firmados' });
+        }
+    });
+});
+
 // ─── POST /api/lotes/:id/documentos/:key/firmado — registrar el PDF firmado ─────
 // Sirve para CUALQUIER documento del lote (Anexo I, fichas, solicitud, oferta), no
 // solo la oferta: el S.O. puede devolver cualquiera firmado por email o traerlo ya

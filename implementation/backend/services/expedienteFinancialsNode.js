@@ -20,15 +20,15 @@ function loadCalc() {
     }
     return _calcPromise;
 }
-// Derivación de la ficha TER100 (terciario) — mismo módulo puro que usan el panel
-// económico, el CIFO y la Ficha TER100 en el frontend.
-let _ter100Promise = null;
-function loadTer100() {
-    if (!_ter100Promise) {
-        const url = pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/ter100.js')).href;
-        _ter100Promise = import(url);
+// Derivación de las fichas del TERCIARIO (TER100 · TER173) — mismo módulo puro que
+// usan el panel económico, el CIFO y las fichas oficiales en el frontend.
+let _terciarioPromise = null;
+function loadTerciario() {
+    if (!_terciarioPromise) {
+        const url = pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/terciario.js')).href;
+        _terciarioPromise = import(url);
     }
-    return _ter100Promise;
+    return _terciarioPromise;
 }
 let _dacsPromise = null;
 function loadDacs() {
@@ -42,11 +42,12 @@ function loadDacs() {
 // Espejo de computeExpedienteFinancials(exp) del frontend, con `op` explícito.
 async function computeExpedienteFinancialsNode(exp, op) {
     if (!op) return { ficha: '—', savingsKwh: null, cae: null, profit: null };
-    const { calculateSavings, calculateFinancials, calculateRes080, calculateHybridization, resolveHybridInputs, BOILER_EFFICIENCIES } = await loadCalc();
+    const { calculateSavings, calculateFinancials, calculateRes080, calculateHybridization, resolveHybridInputs, BOILER_EFFICIENCIES, CAE_PRECIO_CLIENTE_ANTERIOR } = await loadCalc();
 
     let ficha = op.ficha || 'RES060';
     if (exp.numero_expediente?.includes('RES080')) ficha = 'RES080';
     else if (exp.numero_expediente?.includes('RES093')) ficha = 'RES093';
+    else if (exp.numero_expediente?.includes('TER173')) ficha = 'TER173';
     else if (exp.numero_expediente?.includes('TER100')) ficha = 'TER100';
 
     const cee = exp.cee || {};
@@ -97,7 +98,7 @@ async function computeExpedienteFinancialsNode(exp, op) {
                 const includeCommission = overrides.include_commission ?? !!opInputs.include_commission;
                 const finArgs = {
                     presupuesto: overrides.presupuesto ?? (parseFloat(inst.presupuesto_final) || parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0),
-                    caePriceClient: overrides.cae_client_rate ?? (parseFloat(opInputs.cae_client_rate) || 95),
+                    caePriceClient: overrides.cae_client_rate ?? (parseFloat(opInputs.cae_client_rate) || CAE_PRECIO_CLIENTE_ANTERIOR.estandar),
                     caePriceSO: overrides.cae_so_rate ?? (parseFloat(opInputs.cae_so_rate) || 160),
                     caePricePrescriptor: includeCommission ? (parseFloat(overrides.cae_prescriptor_rate ?? opInputs.cae_prescriptor_rate) || 0) : 0,
                     prescriptorMode: overrides.cae_prescriptor_mode ?? opInputs.cae_prescriptor_mode ?? 'brokergy',
@@ -113,16 +114,17 @@ async function computeExpedienteFinancialsNode(exp, op) {
                 savingsKwh = sv.savingsKwh;
             }
         }
-    } else if (ficha === 'TER100') {
-        // TER100 (terciario): AE_C + AE_ACS + AE_CAP, sin IRPF (el titular es empresa).
-        const { deriveTer100Vars, TER100_PRECIOS } = await loadTer100();
-        const ter = deriveTer100Vars({ ...exp, oportunidades: op });
+    } else if (ficha === 'TER100' || ficha === 'TER173') {
+        // Terciario: AE_C + AE_ACS + AE_CAP (ponderado por C_b en TER173), sin IRPF
+        // (el titular es una empresa o un autónomo, no un particular).
+        const { deriveTerciarioVars, TERCIARIO_PRECIOS } = await loadTerciario();
+        const ter = deriveTerciarioVars({ ...exp, oportunidades: op });
         if (ter.savingsKwh > 0) {
             const overrides = inst.economico_override || {};
             const finArgs = {
                 presupuesto: overrides.presupuesto ?? (parseFloat(inst.presupuesto_final) || parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0),
-                caePriceClient: overrides.cae_client_rate ?? (parseFloat(opInputs.cae_client_rate) || TER100_PRECIOS.cliente),
-                caePriceSO: overrides.cae_so_rate ?? (parseFloat(opInputs.cae_so_rate) || TER100_PRECIOS.sujetoObligado),
+                caePriceClient: overrides.cae_client_rate ?? (parseFloat(opInputs.cae_client_rate) || TERCIARIO_PRECIOS.cliente),
+                caePriceSO: overrides.cae_so_rate ?? (parseFloat(opInputs.cae_so_rate) || TERCIARIO_PRECIOS.sujetoObligado),
                 includeIrpf: false,
                 aplicarIrpfCae: false,
                 titularType: 'empresa',
@@ -149,7 +151,7 @@ async function computeExpedienteFinancialsNode(exp, op) {
                 const overrides = inst.economico_override || {};
                 const finArgs = {
                     presupuesto: overrides.presupuesto ?? (parseFloat(inst.presupuesto_final) || parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0),
-                    caePriceClient: overrides.cae_client_rate ?? 60,
+                    caePriceClient: overrides.cae_client_rate ?? CAE_PRECIO_CLIENTE_ANTERIOR.res080,
                     caePriceSO: overrides.cae_so_rate ?? 140,
                     includeIrpf: true
                 };

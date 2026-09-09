@@ -3,8 +3,9 @@ import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { postEmail } from '../../../utils/emailFallback';
 import { buildFichaTer100Html, buildFichaTer100Body, fichaTer100Css, deriveFichaTer100 } from '../logic/fichaTer100Html';
+import { deriveFichaTer173 } from '../logic/fichaTer173';
 // El documento se genera rellenando el IMPRESO OFICIAL del Ministerio; la
-// maqueta HTML de este fichero se conserva como formato CLÁSICO para poder
+// maqueta HTML de la TER100 se conserva como formato CLÁSICO para poder
 // comparar los dos y como salida si el impreso cambiara.
 import { fichaFormulario } from '../logic/fichasFormulario';
 import { DocumentoOficialPreview, FormatoDocumentoSwitch } from './DocumentoOficialPreview';
@@ -12,15 +13,19 @@ import { DocumentoOficialPreview, FormatoDocumentoSwitch } from './DocumentoOfic
 // sin cortar los compuestos ("MARIA JOSÉ" no es "Maria").
 import { nombreSaludo } from '../../../utils/nombres.js';
 
-// ─── Modal de la Ficha TER100 (sector terciario) ──────────────────────────────
+// ─── Modal de las fichas del SECTOR TERCIARIO (TER100 · TER173) ───────────────
+// Las dos fichas son el mismo documento con el mismo desglose de tres servicios;
+// TER173 añade la ponderación por el coeficiente de cobertura por bivalencia. Por
+// eso hay UN modal parametrizado y no dos gemelos: dos copias divergirían justo en
+// la cabecera de cifras, que es lo que se mira antes de enviar.
+//
 // A diferencia de los modales de RES060/RES080/RES093 —que repiten el documento
 // dos veces: una en JSX para la vista previa y otra como plantilla de texto para
-// el PDF— aquí la previsualización se pinta con el MISMO builder que genera el
-// PDF (logic/fichaTer100Html.js). Así lo que se ve en pantalla es literalmente lo
-// que se descarga, y un cambio en la ficha se hace en un solo sitio.
+// el PDF— aquí la previsualización se pinta con el MISMO builder que genera el PDF.
 //
-// El CSS del documento es el de impresión más unas pocas reglas de PANTALLA
-// (páginas separadas, con sombra y alto mínimo en vez de alto fijo).
+// La TER173 NO tiene formato CLÁSICO: nació después de que el Ministerio publicara
+// los impresos como PDF de formulario, así que no existen borradores del formato
+// anterior en Drive y no hay nada que conservar. Su conmutador no se pinta.
 const SCREEN_CSS = `
 .doc-wrap { background: #e8e8e8; width: 794px; }
 .doc-wrap .doc-page {
@@ -31,7 +36,7 @@ const SCREEN_CSS = `
 }
 `;
 
-export function FichaTer100Modal({ isOpen, onClose, expediente, onSaveDrive }) {
+export function FichaTerciarioModal({ isOpen, onClose, expediente, onSaveDrive, ficha = 'TER100' }) {
     const { user } = useAuth();
     const containerRef = useRef(null);
     const [generating, setGenerating] = useState(false);
@@ -58,16 +63,17 @@ export function FichaTer100Modal({ isOpen, onClose, expediente, onSaveDrive }) {
 
     if (!isOpen || !expediente) return null;
 
+    const esTer173 = ficha === 'TER173';
+    const titulo = `Ficha ${ficha}`;
+    const subtitulo = esTer173 ? 'Hibridación · sector terciario' : 'Sector terciario';
+
     const op = expediente.oportunidades || {};
     // `clientes` es el join real del expediente; `cliente` se mantiene por
     // compatibilidad con las llamadas antiguas de los modales de ficha.
     const cli = expediente.clientes || expediente.cliente || {};
     const numexpte = expediente.numero_expediente || '';
 
-    const datos = deriveFichaTer100(expediente);
-    const bodyHtml = buildFichaTer100Body(expediente);
-    const staticHtml = () => buildFichaTer100Html(expediente);
-
+    const datos = esTer173 ? deriveFichaTer173(expediente) : deriveFichaTer100(expediente);
     const folderId = op.drive_folder_id || op.datos_calculo?.drive_folder_id || op.datos_calculo?.inputs?.drive_folder_id;
 
     // ── El documento ──────────────────────────────────────────────────────────
@@ -75,14 +81,16 @@ export function FichaTer100Modal({ isOpen, onClose, expediente, onSaveDrive }) {
     // backend); en CLÁSICO, como la maqueta HTML de siempre. Las cuatro acciones
     // —descargar, Drive, email y WhatsApp— pasan por aquí para que no puedan
     // mandar formatos distintos.
-    // La TER100 deriva sus tres ahorros del propio expediente (logic/ter100.js), así
-    // que no recibe `results` como las demás fichas.
-    const formularioOficial = () => fichaFormulario('TER100', expediente);
-    const docPayload = () => (formato === 'oficial' ? { formulario: formularioOficial() } : { html: staticHtml() });
+    // Las fichas del terciario derivan sus tres ahorros del propio expediente
+    // (logic/terciario.js), así que no reciben `results` como las demás.
+    const formularioOficial = () => fichaFormulario(ficha, expediente);
+    const staticHtml = () => buildFichaTer100Html(expediente);
+    const usaClasico = !esTer173 && formato === 'clasico';
+    const docPayload = () => (usaClasico ? { html: staticHtml() } : { formulario: formularioOficial() });
     const pdfBase64Doc = async () => (await axios.post('/api/pdf/generate', docPayload())).data?.pdf;
     // El email adjunta el PDF ya hecho cuando es el impreso oficial (así se manda
     // EXACTAMENTE lo que se ha revisado en pantalla).
-    const emailDocPayload = async () => (formato === 'oficial' ? { pdfBase64: await pdfBase64Doc() } : { html: staticHtml() });
+    const emailDocPayload = async () => (usaClasico ? { html: staticHtml() } : { pdfBase64: await pdfBase64Doc() });
 
     const handleDownloadPdf = async () => {
         setGenerating(true);
@@ -92,7 +100,7 @@ export function FichaTer100Modal({ isOpen, onClose, expediente, onSaveDrive }) {
             const blob = new Blob([bytes], { type: 'application/pdf' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
-            a.download = `${numexpte || 'DRAFT'} - Ficha TER100.pdf`;
+            a.download = `${numexpte || 'DRAFT'} - ${titulo}.pdf`;
             a.click();
         } catch { alert('Error al generar el PDF.'); }
         finally { setGenerating(false); }
@@ -105,7 +113,7 @@ export function FichaTer100Modal({ isOpen, onClose, expediente, onSaveDrive }) {
             const { data } = await axios.post('/api/pdf/save-to-drive', {
                 ...docPayload(),
                 folderId,
-                fileName: `${numexpte || 'DRAFT'} - Ficha TER100`,
+                fileName: `${numexpte || 'DRAFT'} - ${titulo}`,
                 subfolderName: '6. ANEXOS CAE'
             });
             if (data.driveLink) {
@@ -126,9 +134,9 @@ export function FichaTer100Modal({ isOpen, onClose, expediente, onSaveDrive }) {
                 ...(await emailDocPayload()),
                 to: toEmail,
                 userName,
-                summaryData: { id: numexpte, docType: 'Ficha TER100', userName }
+                summaryData: { id: numexpte, docType: titulo, userName }
             });
-            if (response.data.success) alert(`✅ Ficha TER100 enviada correctamente a ${toEmail}`);
+            if (response.data.success) alert(`✅ ${titulo} enviada correctamente a ${toEmail}`);
         } catch (error) {
             console.error('Error sending email:', error);
             alert('❌ Error al enviar el correo: ' + (error.response?.data?.message || error.message));
@@ -144,14 +152,14 @@ export function FichaTer100Modal({ isOpen, onClose, expediente, onSaveDrive }) {
             if (!st.data?.ready) { alert('❌ WhatsApp no está conectado.'); return; }
             const pdfResp = await axios.post('/api/pdf/generate', docPayload());
             const firstName = nombreSaludo(cli.nombre_razon_social);
-            const caption = `Hola ${firstName},\n\nTe adjunto la *Ficha TER100* de tu expediente *${numexpte}*.\n\nUn saludo,\n*BROKERGY*`;
+            const caption = `Hola ${firstName},\n\nTe adjunto la *${titulo}* de tu expediente *${numexpte}*.\n\nUn saludo,\n*BROKERGY*`;
             await axios.post('/api/whatsapp/send-media', {
                 phone: toPhone,
                 caption,
-                media: { base64: pdfResp.data?.pdf, filename: `${numexpte}_Ficha_TER100.pdf`, mimetype: 'application/pdf' },
+                media: { base64: pdfResp.data?.pdf, filename: `${numexpte}_${titulo.replace(/\s+/g, '_')}.pdf`, mimetype: 'application/pdf' },
                 asDocument: true,
             });
-            alert('✅ Ficha TER100 enviada por WhatsApp correctamente.');
+            alert(`✅ ${titulo} enviada por WhatsApp correctamente.`);
         } catch (error) {
             console.error('Error sending WhatsApp:', error);
             alert('❌ Error al enviar por WhatsApp: ' + (error.response?.data?.message || error.message));
@@ -159,6 +167,17 @@ export function FichaTer100Modal({ isOpen, onClose, expediente, onSaveDrive }) {
     };
 
     const busy = generating || savingDrive || sendingEmail || sendingWhatsapp;
+
+    // Desglose del ahorro por servicio: es lo propio del terciario. En TER173 se
+    // enseña además el C_b, porque su impreso NO lo imprime y es lo que explica que
+    // el AE total no sea la suma de los tres sumandos que sí salen impresos.
+    const metricas = [
+        { label: 'AE calefacción', value: datos.aeCal, color: 'text-brand' },
+        { label: 'AE ACS', value: datos.aeAcs, color: 'text-cyan-400' },
+        { label: 'AE piscina', value: datos.aeCap, color: 'text-sky-400' },
+        ...(esTer173 ? [{ label: 'C b', value: datos.cb, color: 'text-amber-400' }] : []),
+        { label: 'AE total', value: datos.aeTotal, color: 'text-emerald-400' },
+    ];
 
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
@@ -174,19 +193,13 @@ export function FichaTer100Modal({ isOpen, onClose, expediente, onSaveDrive }) {
                             </svg>
                         </button>
                         <div className="border-l border-white/10 pl-3">
-                            <h2 className="text-sm font-black text-white tracking-wider uppercase">Ficha TER100</h2>
-                            <p className="text-white/30 text-xs mt-0.5">{numexpte} · 5 páginas · Sector terciario</p>
+                            <h2 className="text-sm font-black text-white tracking-wider uppercase">{titulo}</h2>
+                            <p className="text-white/30 text-xs mt-0.5">{numexpte} · 5 páginas · {subtitulo}</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-3">
-                        {/* Desglose del ahorro por servicio: es lo propio de TER100 */}
                         <div className="hidden md:flex items-center gap-4 mr-3 pr-3 border-r border-white/10">
-                            {[
-                                { label: 'AE calefacción', value: datos.aeCal, color: 'text-brand' },
-                                { label: 'AE ACS', value: datos.aeAcs, color: 'text-cyan-400' },
-                                { label: 'AE piscina', value: datos.aeCap, color: 'text-sky-400' },
-                                { label: 'AE total', value: datos.aeTotal, color: 'text-emerald-400' },
-                            ].map(m => (
+                            {metricas.map(m => (
                                 <div key={m.label} className="text-center">
                                     <div className={`${m.color} font-black text-sm`}>{m.value}</div>
                                     <div className="text-white/25 text-[10px] uppercase tracking-wider">{m.label}</div>
@@ -194,7 +207,7 @@ export function FichaTer100Modal({ isOpen, onClose, expediente, onSaveDrive }) {
                             ))}
                         </div>
 
-                        <FormatoDocumentoSwitch formato={formato} onChange={setFormato} disabled={busy} />
+                        {!esTer173 && <FormatoDocumentoSwitch formato={formato} onChange={setFormato} disabled={busy} />}
                         {user?.rol?.toUpperCase() === 'ADMIN' && (
                             <button
                                 onClick={handleSaveToDrive}
@@ -240,22 +253,34 @@ export function FichaTer100Modal({ isOpen, onClose, expediente, onSaveDrive }) {
                     </div>
                 </div>
 
-                {/* Área scrolleable — el MISMO HTML que se manda a generar el PDF */}
-                {/* La vista previa del OFICIAL es el propio PDF: lo que se revisa es
-                    exactamente lo que se descarga, se guarda y se envía. */}
-                {formato === 'oficial' && (
-                    <div className="flex-1 min-h-0">
-                        <DocumentoOficialPreview formulario={formularioOficial()} titulo="Ficha TER100"
-                            onFallback={() => setFormato('clasico')} />
+                {/* En TER173 el AE total NO es la suma de los tres sumandos que imprime
+                    el impreso: su tabla de resultado no reserva casilla para el C_b. Se
+                    dice aquí, que es donde se revisa antes de enviarlo a firmar. */}
+                {esTer173 && (
+                    <div className="flex-shrink-0 px-5 py-2 border-b border-white/[0.07] bg-amber-400/[0.06] text-[11px] text-amber-200/80 leading-relaxed">
+                        AE<sub>TOTAL</sub> = (AE<sub>C</sub> + AE<sub>ACS</sub> + AE<sub>CAP</sub>) · C<sub>b</sub> = {datos.aeTotalSinCb} × {datos.cb} = <b className="text-amber-100">{datos.aeTotal} kWh/año</b>.
+                        {' '}El impreso oficial no tiene casilla para el C<sub>b</sub>, así que el total impreso no coincide con la suma de sus sumandos: el cálculo se desarrolla en el apartado 8 del CIFO.
+                        {datos.cbIncompleto && <b className="text-red-300"> Faltan los datos de hibridación (potencia de la bomba y, si procede, de la caldera): sin ellos el C<sub>b</sub> vale 1 y el ahorro sale como si la caldera se hubiera retirado.</b>}
                     </div>
                 )}
-                <div ref={containerRef} className={`flex-1 overflow-auto bg-[#16181D] py-8 px-4 text-center ${formato === 'oficial' ? 'hidden' : ''}`}>
-                    <div className="inline-block text-left"
-                         style={{ transform: `scale(${scale})`, transformOrigin: 'top center', width: 794, flexShrink: 0 }}>
-                        <style dangerouslySetInnerHTML={{ __html: fichaTer100Css() + SCREEN_CSS }} />
-                        <div className="doc-wrap" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
+
+                {/* Área scrolleable. La vista previa del OFICIAL es el propio PDF: lo
+                    que se revisa es exactamente lo que se descarga, se guarda y se envía. */}
+                {!usaClasico && (
+                    <div className="flex-1 min-h-0">
+                        <DocumentoOficialPreview formulario={formularioOficial()} titulo={titulo}
+                            onFallback={esTer173 ? undefined : () => setFormato('clasico')} />
                     </div>
-                </div>
+                )}
+                {!esTer173 && (
+                    <div ref={containerRef} className={`flex-1 overflow-auto bg-[#16181D] py-8 px-4 text-center ${usaClasico ? '' : 'hidden'}`}>
+                        <div className="inline-block text-left"
+                             style={{ transform: `scale(${scale})`, transformOrigin: 'top center', width: 794, flexShrink: 0 }}>
+                            <style dangerouslySetInnerHTML={{ __html: fichaTer100Css() + SCREEN_CSS }} />
+                            <div className="doc-wrap" dangerouslySetInnerHTML={{ __html: buildFichaTer100Body(expediente) }} />
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

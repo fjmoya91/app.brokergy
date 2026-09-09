@@ -39,6 +39,7 @@ const { scanCeeSection } = require('./ceeUploadService');
 const { carpetaDeExpediente } = require('./expedienteFolderSync');
 const { mergePdfs } = require('../utils/dniAnexo');
 const { crearZip } = require('../utils/zipStore');
+const { fichaFromNumero } = require('../utils/fichas');
 
 // Código del CERTIFICADO RITE dentro del grupo 3.
 //
@@ -66,10 +67,11 @@ const limpio = (s) => String(s || '').replace(/[\\/<>:"|?*]/g, '_').replace(/\s+
 // Marca con la que se nombra al S.O. en el convenio ("BROKERGY-INTERALCO").
 const marcaSo = (so) => limpio(so?.acronimo || so?.razon_social || 'SUJETO OBLIGADO').toUpperCase();
 
-// Ficha de un expediente por su número ({AA}RES060_12 → RES060).
+// Ficha de un expediente por su número ({AA}RES060_12 → RES060). La lista sale de
+// la fuente única `utils/fichas.js`: una copia aquí se quedaría atrás al entrar
+// una ficha nueva y devolvería RES060 en silencio.
 function fichaDe(numero) {
-    const m = String(numero || '').match(/(RES060|RES080|RES093|TER100)/i);
-    return m ? m[1].toUpperCase() : 'RES060';
+    return fichaFromNumero(numero) || 'RES060';
 }
 
 // ─── El ÍNDICE del paquete ───────────────────────────────────────────────────

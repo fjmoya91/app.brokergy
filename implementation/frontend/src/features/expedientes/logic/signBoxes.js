@@ -75,6 +75,11 @@ export const SIGN_BOXES = {
     ficha_res080_oficial: { page: 2, llx: 220.01, lly: 493.32, urx: 517.29, ury: 513.19 },
     ficha_res093_oficial: { page: 3, llx: 258.31, lly: 599.35, urx: 517.10, ury: 627.80 },
     ficha_ter100_oficial: { page: 4, llx: 229.48, lly: 220.69, urx: 516.96, ury: 240.52 },
+    // TER173: la tabla de fechas y representante NO cae en la misma página que la
+    // del resultado (que es la 4), sino en la 5 — al contrario que en la TER100.
+    // Aquí no hay maqueta clásica: esta ficha nació con el impreso ya publicado
+    // como formulario, así que no existen borradores del formato anterior.
+    ficha_ter173_oficial: { page: 5, llx: 258.35, lly: 619.13, urx: 516.96, ury: 647.59 },
 
     ficha_res060: { page: 3, llx: 254.12, lly: 709.20, urx: 518.90, ury: 729.20 },
     ficha_res080: { page: 2, llx: 254.12, lly: 523.20, urx: 518.90, ury: 543.20 }, // derivada
@@ -93,7 +98,7 @@ export const SIGN_BOXES = {
 };
 
 /**
- * La caja de una ficha ('RES060'|'RES080'|'RES093'|'TER100').
+ * La caja de una ficha ('RES060'|'RES080'|'RES093'|'TER100'|'TER173').
  *
  * Devuelve una FUNCIÓN del nº de páginas del PDF que se va a firmar, porque en
  * Drive conviven los dos formatos del mismo documento: el impreso OFICIAL del

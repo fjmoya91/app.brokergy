@@ -1,5 +1,5 @@
 // ============================================================
-// fichasFormulario.js — las cuatro FICHAS (RES060 · RES080 · RES093 · TER100)
+// fichasFormulario.js — las FICHAS (RES060 · RES080 · RES093 · TER100 · TER173)
 // sobre el IMPRESO OFICIAL en formato formulario.
 //
 // POR QUÉ EXISTE
@@ -26,13 +26,17 @@ import { deriveFichaRes060 } from './fichaRes060Html.js';
 import { deriveFichaRes080 } from './fichaRes080Html.js';
 import { deriveFichaRes093 } from './fichaRes093Html.js';
 import { deriveFichaTer100 } from './fichaTer100Html.js';
+// La TER173 no tiene maqueta HTML (nació con los impresos ya publicados como
+// formulario), así que su derivación vive en su propio módulo.
+import { deriveFichaTer173 } from './fichaTer173.js';
 
-/** Las cuatro plantillas, con el nombre que espera el backend. */
+/** Las plantillas, con el nombre que espera el backend. */
 export const PLANTILLA_DE_FICHA = {
     RES060: 'RES060',
     RES080: 'RES080',
     RES093: 'RES093',
     TER100: 'TER100',
+    TER173: 'TER173',
 };
 
 function camposRes060(expediente, results, opts) {
@@ -128,11 +132,61 @@ function camposTer100(expediente, opts = {}) {
 }
 
 /**
+ * TER173 (hibridación en paralelo, terciario). Su impreso repite tres veces las
+ * mismas variables —una por servicio— y el formulario resuelve la colisión con
+ * sufijos: 'ni' · 'ni-0' · 'ni-1' para η_i, y 'Fp' · 'Fp-0' · 'FP' para el factor
+ * de ponderación. Son los nombres de LA PLANTILLA, leídos con
+ * `pdf.getForm().getFields()`: "arreglarlos" solo dejaría el impreso con huecos.
+ *
+ * ⚠️ El impreso NO tiene casilla para el C_b, aunque su apartado 4 lo incluya en
+ * la fórmula. Por eso el AE_TOTAL que se imprime no es la suma de los tres AE
+ * impresos: la diferencia es exactamente la ponderación por bivalencia, y quien
+ * desarrolla ese cálculo paso a paso es el CIFO (su apartado del C_b).
+ */
+function camposTer173(expediente, opts = {}) {
+    const d = deriveFichaTer173(expediente);
+    // El representante lo inyecta el lote (sale del Sujeto Obligado); el respaldo
+    // es el mismo que en las demás fichas.
+    const rep = opts.representanteNombre || 'Pedro José López Montero';
+    const repNif = opts.representanteNif || '06239730-Z';
+    return {
+        // Apartado de CALEFACCIÓN (página 2 del impreso)
+        'ni': d.eta,
+        'SCOP': d.scopCal,
+        'Dc': d.dcal,
+        'S': d.s,
+        'Fp': d.fp,
+        'AEc': d.aeCal,                // el mismo campo sale también en el total
+        // Apartado de ACS (página 3)
+        'ni-0': d.eta,
+        'SCOPdhw': d.scopAcs,
+        'DACS': d.dacs,
+        'Fp-0': d.fp,
+        'AEacs': d.aeAcs,
+        // Apartado de PISCINA (página 4)
+        'FP': d.fp,
+        'ni-1': d.eta,
+        'SCOPpwh': d.scopPool,
+        'DCAP': d.dcap,
+        'AEcap': d.aeCap,
+        // Resultado total (página 4). AEc/AEacs/AEcap son el MISMO campo del
+        // formulario que en sus apartados: el impreso los repite a propósito.
+        'AEtotal': d.aeTotal,
+        'Di': String(d.vidaUtil),
+        'Fecha inicio actuación': d.fechaInicio,
+        'Fecha fin actuación': d.fechaFin,
+        // Ojo: aquí SÍ lleva el espacio (en RES080 y TER100 la plantilla lo omite).
+        'Representante del solicitante': rep,
+        'NIFNIE': repNif,
+    };
+}
+
+/**
  * El `formulario` que viaja al backend: `{ plantilla, campos }`. Lo consumen
  * `/api/pdf/generate`, `/api/pdf/save-to-drive`, `/api/pdf/send-annex` y el envío
  * del lote al Sujeto Obligado — todos con el mismo objeto.
  *
- * @param {string} ficha       'RES060' | 'RES080' | 'RES093' | 'TER100'
+ * @param {string} ficha       'RES060' | 'RES080' | 'RES093' | 'TER100' | 'TER173'
  * @param {object} expediente
  * @param {object} opts        { results?, representanteNombre?, representanteNif? }
  *                             `results` solo lo necesita RES060 (el ahorro llega ya
@@ -143,7 +197,8 @@ export function fichaFormulario(ficha, expediente, opts = {}) {
     const f = String(ficha || 'RES060').toUpperCase();
     const campos = f === 'RES080' ? camposRes080(expediente, rep)
         : f === 'RES093' ? camposRes093(expediente, rep)
-            : f === 'TER100' ? camposTer100(expediente, rep)
-                : camposRes060(expediente, results, rep);
+            : f === 'TER173' ? camposTer173(expediente, rep)
+                : f === 'TER100' ? camposTer100(expediente, rep)
+                    : camposRes060(expediente, results, rep);
     return { plantilla: PLANTILLA_DE_FICHA[f] || 'RES060', campos };
 }

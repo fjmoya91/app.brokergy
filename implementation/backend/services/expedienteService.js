@@ -5,7 +5,7 @@ const { getCoordinatesByRC } = require('./catastroService');
 const driveService = require('./driveService');
 const { syncExpedienteFolder } = require('./expedienteFolderSync');
 const { ALLOWED_PROVINCES } = require('../data/allowedProvinces');
-const { FICHAS, correlativoInicial, detectPrograma } = require('../utils/fichas');
+const { FICHAS, correlativoInicial, detectPrograma, esHibridacion } = require('../utils/fichas');
 
 // ─── Import ESM diferido del módulo puro del frontend ────────────────────────
 // La forma canónica del autoconsumo fotovoltaico (y su normalización) es fuente
@@ -147,6 +147,12 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
 
         const cambioAcs = opInputs.changeAcs === true;
 
+        // Programa/ficha del expediente (RES060 · RES080 · RES093 · TER100 · TER173).
+        // El expediente aún no tiene número, así que se deduce de la oportunidad. Se
+        // resuelve AQUÍ y no más abajo porque la instalación ya lo necesita para
+        // sembrar la hibridación.
+        const programa = detectPrograma({}, op);
+
         const aerotermiaCal = await resolveAerotermia(
             opInputs.aerothermiaModel,
             opInputs.customBrandName,
@@ -195,25 +201,34 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             caldera_antigua_acs: { marca: '', modelo: '', numero_serie: '', rendimiento_id: opInputs.boilerId || 'default' },
             aerotermia_cal: aerotermiaCal,
             // Alcance de la actuación sobre la CALEFACCIÓN. En RES060/RES093 siempre
-            // es sí (la actuación ES el cambio de caldera de calefacción); en TER100
-            // puede darse una sustitución que solo alcance el ACS o la piscina.
-            cambio_calefaccion: true,
+            // es sí (la actuación ES el cambio de caldera de calefacción); en el
+            // TERCIARIO (TER100/TER173) puede darse una actuación que solo alcance el
+            // ACS o la piscina, y eso ya se declaró en la simulación: se hereda, o el
+            // expediente recalcularía un ahorro distinto del que se le presupuestó.
+            cambio_calefaccion: opInputs.changeHeating !== false,
             cambio_acs: cambioAcs,
             misma_aerotermia_acs: !cambioAcs,
             aerotermia_acs: aerotermiaAcs,
-            // Calentamiento de agua de piscina (AE_CAP de la ficha TER100). Es el
-            // caso raro: nace SIEMPRE desactivado y se habilita a mano en el
-            // expediente. Con `activa: false` no entra en la fórmula del ahorro.
+            // Calentamiento de agua de piscina (AE_CAP de las fichas del terciario).
+            // Es el caso raro y nace desactivado, SALVO que la simulación ya lo
+            // hubiera activado: entonces se hereda con su demanda y su SCOP_pwh, que
+            // es lo que se usó para calcular el bono que se le prometió al cliente.
+            // El equipo (marca/modelo/nº de serie) se rellena luego en el expediente.
             piscina: {
-                activa: false,
-                demanda_kwh: null,
-                scop: null,
+                activa: opInputs.piscinaActiva === true,
+                demanda_kwh: parseFloat(opInputs.dcap) || null,
+                scop: parseFloat(opInputs.scopPool) || null,
                 equipo: { marca: '', modelo: '', numero_serie: '' }
             },
             // Placas solares YA instaladas en la vivienda (no las de esta obra).
             // `estado: null` = todavía no se ha preguntado; NO es lo mismo que 'no'.
             fotovoltaica,
-            hibridacion: opInputs.hibridacion === true,
+            // En las fichas de HIBRIDACIÓN (RES093 · TER173) la hibridación ES la
+            // actuación, no una opción: se siembra activada aunque la oportunidad no
+            // lo traiga en sus inputs. Un TER173 con esto en `false` calcularía su
+            // ahorro con C_b = 1 —o sea, como si la caldera se hubiera retirado— y
+            // esa cifra es MÁS ALTA que la real y acaba firmada.
+            hibridacion: opInputs.hibridacion === true || esHibridacion(programa),
             potencia_bomba: opInputs.potenciaBomba != null && opInputs.potenciaBomba !== '' ? Number(opInputs.potenciaBomba) : 0,
             // Base del % de cobertura del Cb ('demanda' | 'caldera') y, si es por
             // caldera, su potencia nominal. Se heredan de la oportunidad.
@@ -260,10 +275,6 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             `hibridacion=${instalacion.hibridacion} potencia=${instalacion.potencia_bomba} ` +
             `cb_base=${instalacion.hibridacion_metodo}${instalacion.hibridacion_metodo === 'caldera' ? `/${instalacion.potencia_caldera}kW` : ''}`);
 
-        // Programa/ficha del expediente (RES060 · RES080 · RES093 · TER100).
-        // El expediente aún no tiene número, así que se deduce de la oportunidad.
-        const programa = detectPrograma({}, op);
-
         // Decisión del cliente en la firma sobre el CEE inicial (si aportó uno):
         // 'usar_cee_aportado' → NO se pide un CEE nuevo al certificador; queda para revisión interna.
         // 'calcular_cee_nuevo' (o sin decisión) → flujo normal (se solicita CEE al certificador).
@@ -284,7 +295,15 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             cee_decision: ceeDecision,
             cliente_aporta_cee: clienteAportaCee,
             cee_previo_data: clienteAportaCee ? (opInputs.cee_previo || null) : null,
-            cee_final_data: opInputs.cee_final || null
+            cee_final_data: opInputs.cee_final || null,
+            // Cómo se resolvió la demanda de ACS en la simulación ('xml' · 'cte' ·
+            // 'manual'). Se hereda para que el expediente calcule la MISMA D_ACS: en
+            // el terciario va por plaza o la da el proyecto, y sin esto el expediente
+            // caería al CTE por habitaciones y daría otro ahorro que el prometido.
+            // Fuente única de la derivación: logic/demandaAcs.js.
+            acs_method: opInputs.acsMethod || undefined,
+            dacs_manual: parseFloat(opInputs.dacsManual) || undefined,
+            num_rooms: parseInt(opInputs.numRooms, 10) || undefined,
         };
 
         // ── Facturas ya leídas en la simulación ────────────────────────────────
@@ -534,8 +553,8 @@ async function migrateExpedienteProgram(expedienteId, usuarioName = 'Sistema', t
         // Limpiar referencia de cliente (quitar etiquetas antiguas de programas si existen)
         // y poner la del programa de destino. Se quitan TODAS las etiquetas conocidas y
         // luego se añade la que toca: así cambiar de ficha dos veces no las acumula.
-        const ETIQUETAS = /RES060|RES080|RES093|TER100|SUSTITUCION|SUSTITUCIÓN|REFORMA|HIBRIDACIÓN|HIBRIDACION|TERCIARIO/g;
-        const PREFIJO_REF = { RES080: 'REFORMA', RES093: 'HIBRIDACION', TER100: 'TERCIARIO' };
+        const ETIQUETAS = /RES060|RES080|RES093|TER100|TER173|SUSTITUCION|SUSTITUCIÓN|REFORMA|HIBRIDACION TERCIARIO|HIBRIDACIÓN|HIBRIDACION|TERCIARIO/g;
+        const PREFIJO_REF = { RES080: 'REFORMA', RES093: 'HIBRIDACION', TER100: 'TERCIARIO', TER173: 'HIBRIDACION TERCIARIO' };
         let cleanRef = (exp.referencia_cliente || op.referencia_cliente || '')
             .toUpperCase().replace(ETIQUETAS, '').trim().replace(/\s+/g, ' ');
         const prefijo = PREFIJO_REF[newPrograma];
@@ -626,7 +645,11 @@ async function migrateExpedienteProgram(expedienteId, usuarioName = 'Sistema', t
         const dc = op.datos_calculo || {};
         const inputs = dc.inputs || {};
         
-        if (newPrograma === 'RES093') {
+        if (esHibridacion(newPrograma)) {
+            // RES093 y TER173 son la MISMA actuación (hibridación en paralelo) en
+            // sectores distintos: las dos activan el flag, y el sector lo distingue
+            // `ficha`. Sin esto, un TER173 se quedaría sin C_b y su ahorro saldría
+            // como si la caldera se hubiera retirado.
             inputs.hibridacion = true;
             inputs.isReforma = false;
         } else if (newPrograma === 'RES080') {

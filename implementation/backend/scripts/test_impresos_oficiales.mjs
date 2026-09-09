@@ -1,7 +1,7 @@
 /**
  * test_impresos_oficiales.mjs — el impreso oficial se rellena entero y sin sorpresas.
  * ---------------------------------------------------------------------------
- * Las cuatro fichas y el Anexo I se generan rellenando el PDF de formulario del
+ * Las fichas y el Anexo I se generan rellenando el PDF de formulario del
  * Ministerio. Lo que puede romperse ahí no da error: deja un HUECO. Un nombre de
  * campo mal escrito, una CCAA que no casa con ninguna opción del desplegable, un
  * carácter que la tipografía no sabe escribir — el PDF sale, se firma y se presenta,

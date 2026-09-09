@@ -1,5 +1,5 @@
 // ============================================================================
-// cifoDoc.js — FUENTE ÚNICA del Certificado CIFO (RES060 / RES093).
+// cifoDoc.js — FUENTE ÚNICA del Certificado CIFO (RES060 · RES093 · TER100 · TER173).
 // ----------------------------------------------------------------------------
 // Módulo JS PURO (sin React, sin DOM, sin axios). Extraído de
 // CertificadoCifoModal.jsx para que el MISMO código produzca el PDF por dos
@@ -26,7 +26,11 @@ import { calcCifo } from './calcCifo.js';
 import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevo, tipoEquipoNuevoLabel, esTermoElectrico, datosAcumulador, EQUIPO_NUEVO } from './aerotermiaUnits.js';
 import { resolveDacs, ACS_METHOD } from './demandaAcs.js';
 import { ceeBaseDocumento, acsEnAlcance } from './ceeFases.js';
-import { deriveTer100Vars, esTer100, TER100_NOMBRE_ACTUACION, TER100_FICHA_COMPLETA } from './ter100.js';
+import {
+    deriveTerciarioVars, esTerciario, esTer173,
+    TER100_NOMBRE_ACTUACION, TER100_FICHA_COMPLETA,
+    TER173_NOMBRE_ACTUACION, TER173_FICHA_COMPLETA,
+} from './terciario.js';
 // Quién firma el CIFO. FUENTE ÚNICA con los popups de envío: si la regla se
 // duplicara, el popup anunciaría un firmante y el documento saldría con otro.
 import { firmanteCifo } from './instaladorPendientes.js';
@@ -368,18 +372,20 @@ export function deriveCifoData({ expediente, results }) {
     const metodoCal = inst.aerotermia_cal?.metodo_scop || 'ficha';
     const metodoAcs = inst.aerotermia_acs?.metodo_scop || 'ficha';
 
-    // ─── TER100 (sector terciario) ────────────────────────────────────────────
-    // La misma actuación que RES060 pero con el ahorro desglosado en tres sumandos
-    // (calefacción · ACS · calentamiento de piscina) y con la calefacción como
-    // alcance OPCIONAL. El desglose se toma de logic/ter100.js para que el
+    // ─── SECTOR TERCIARIO (TER100 · TER173) ───────────────────────────────────
+    // La misma actuación que RES060/RES093 pero con el ahorro desglosado en tres
+    // sumandos (calefacción · ACS · calentamiento de piscina) y con la calefacción
+    // como alcance OPCIONAL. El desglose se toma de logic/terciario.js para que el
     // certificado y el panel económico impriman exactamente los mismos números.
-    const isTer100 = esTer100(exp);
-    // El alcance sobre calefacción solo es una pregunta en TER100; en RES060/RES093
-    // la actuación ES el cambio de la caldera de calefacción.
-    const tieneCalefaccion = !isTer100 || inst.cambio_calefaccion !== false;
+    const isTerciario = esTerciario(exp);
+    // TER173 es además una HIBRIDACIÓN: el ahorro va ponderado por el C_b.
+    const isTer173 = esTer173(exp);
+    // El alcance sobre calefacción solo es una pregunta en el terciario; en
+    // RES060/RES093 la actuación ES el cambio de la caldera de calefacción.
+    const tieneCalefaccion = !isTerciario || inst.cambio_calefaccion !== false;
 
     const piscinaObj = inst.piscina || {};
-    const tienePiscina = isTer100 && piscinaObj.activa === true;
+    const tienePiscina = isTerciario && piscinaObj.activa === true;
     const dcapRaw = tienePiscina ? (parseFloat(piscinaObj.demanda_kwh) || 0) : 0;
     const dcapStr = tienePiscina
         ? dcapRaw.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -396,14 +402,23 @@ export function deriveCifoData({ expediente, results }) {
     // parámetro: si el llamante pasara un ahorro desfasado, el certificado saldría
     // con un total que no es la suma de sus tres sumandos — justo lo que el
     // verificador comprueba primero.
-    let aeCalStr = '—', aeAcsStr = '—', aeCapStr = '—', ter100SavingsKwh = null;
-    if (isTer100) {
-        const ter = deriveTer100Vars(exp);
+    let aeCalStr = '—', aeAcsStr = '—', aeCapStr = '—', terciarioSavingsKwh = null;
+    // Suma cruda de los tres sumandos, ANTES de ponderar por el C_b. Solo se imprime
+    // en TER173, donde el total no coincide con la suma de lo que se ve.
+    let aeSinCbStr = '—';
+    // TER173 sin datos de hibridación: el C_b se queda en 1 y el ahorro sale como si
+    // la caldera se hubiera retirado. Lo comprueba la validación del backend, que lo
+    // trata como bloqueante — la cifra que produce es más alta que la real.
+    let cbIncompleto = false;
+    if (isTerciario) {
+        const ter = deriveTerciarioVars(exp);
         const fmt = (v) => Math.round(v || 0).toLocaleString('es-ES');
         aeCalStr = tieneCalefaccion ? fmt(ter.savings.aeCal) : 'no aplica';
         aeAcsStr = tieneAcs ? fmt(ter.savings.aeAcs) : 'no aplica';
         aeCapStr = tienePiscina ? fmt(ter.savings.aeCap) : 'no aplica';
-        ter100SavingsKwh = ter.savingsKwh;
+        aeSinCbStr = fmt(ter.savingsSinCb);
+        terciarioSavingsKwh = ter.savingsKwh;
+        cbIncompleto = !!ter.cbIncompleto;
         savingsKwhDoc = ter.savingsKwh;
     }
 
@@ -411,7 +426,12 @@ export function deriveCifoData({ expediente, results }) {
     const aeKwhVal = savingsKwhDoc ? Math.round(savingsKwhDoc).toLocaleString('es-ES') : '—';
     const beneficioStr = Math.round(savingsKwhDoc * (results?.price_kwh || 0.10)).toLocaleString('es-ES');
 
-    const isHybrid = numexpte.includes('RES093');
+    // Hibridación en paralelo: RES093 (residencial) y TER173 (terciario). Las dos
+    // ponderan el ahorro con el C_b de la misma tabla y desarrollan el mismo
+    // apartado del certificado; lo único que cambia es de qué ficha es la tabla.
+    const isHybrid = numexpte.includes('RES093') || isTer173;
+    // Anexo donde vive la tabla del C_b: III en la RES093, IV en la TER173.
+    const cbAnexo = isTer173 ? 'IV' : 'III';
     let cbStr = '—', pDesignKwStr = '—', coveragePct = 0, coveragePctStr = '—';
     let thZone = 0, pbdcKw = 0, pbdcKwStr = '—', demandaAnualKwhStr = '—', appliedCovStr = '—';
     // Método de cálculo de la cobertura: 'demanda' (P_diseño) o 'caldera' (P nominal caldera).
@@ -451,11 +471,11 @@ export function deriveCifoData({ expediente, results }) {
         // objetos crudos usados directamente en el HTML
         inst, cli, ceeFinal,
         // identificación / cabecera
-        isHybrid, isTer100, numexpte, zoneStr, zoneLabel,
+        isHybrid, isTerciario, isTer173, cbAnexo, cbIncompleto, numexpte, zoneStr, zoneLabel,
         // variables de la fórmula
         dcal, dcalRaw, sStr, sRaw, dacsStr, acsMode, numRooms, numPeople,
         etaStr, scopCalStr, scopCalRaw, scopAcsStr, scopAcsRaw,
-        aeKwh, aeKwhVal, beneficioStr, savingsKwhDoc, ter100SavingsKwh,
+        aeKwh, aeKwhVal, beneficioStr, savingsKwhDoc, terciarioSavingsKwh,
         // localización / propietario
         locCA, locFullDir, locRefCat, locUtmX, locUtmY, facturasList,
         cliNombre, cliDir, cliNif, cliTlf,
@@ -467,8 +487,8 @@ export function deriveCifoData({ expediente, results }) {
         // piscina (TER100)
         tienePiscina, dcapRaw, dcapStr, scopPoolRaw, scopPoolStr,
         pisNuMarca, pisNuMod, pisNuSerie,
-        // desglose del ahorro (TER100)
-        aeCalStr, aeAcsStr, aeCapStr,
+        // desglose del ahorro (terciario)
+        aeCalStr, aeAcsStr, aeCapStr, aeSinCbStr,
         // ACS
         tieneAcs, acsExTipo, acsExMarca, acsExMod, acsExComb, acsExSerie,
         acsEsAcumulador, acsEsTermo, acsNuTipo, acsNuMarca, acsNuMod, acsNuSerieEx, acsNuUds,
@@ -494,7 +514,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     const APP_URL = appUrl || '';
     const {
         inst, cli, ceeFinal,
-        isHybrid, isTer100, numexpte, zoneStr, zoneLabel,
+        isHybrid, isTerciario, isTer173, cbAnexo, numexpte, zoneStr, zoneLabel,
         dcal, sStr, dacsStr, acsMode, numRooms, numPeople,
         etaStr, scopCalStr, scopCalRaw, scopAcsStr, scopAcsRaw,
         aeKwh, aeKwhVal,
@@ -505,7 +525,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         calExTipo, calExMarca, calExMod, calExComb, calExSerie,
         calNuMarca, calNuMod, calNuSerieEx, calNuUds,
         tienePiscina, dcapStr, scopPoolStr, pisNuMarca, pisNuMod, pisNuSerie,
-        aeCalStr, aeAcsStr, aeCapStr,
+        aeCalStr, aeAcsStr, aeCapStr, aeSinCbStr,
         tieneAcs, acsExTipo, acsExMarca, acsExMod, acsExComb, acsExSerie,
         acsEsAcumulador, acsEsTermo, acsNuTipo, acsNuMarca, acsNuMod, acsNuSerieEx, acsNuUds,
         acsTermoFuera, acsFueraMarca, acsFueraMod, acsFueraSerie,
@@ -517,15 +537,22 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     } = data;
 
     const pages = [];
-    const cifoLabel = isHybrid ? 'RES093' : isTer100 ? 'TER100' : 'RES060';
-    const actuacionNombre = isHybrid
+    // El TERCIARIO se comprueba ANTES que la hibridación: TER173 es las dos cosas a
+    // la vez (terciaria e híbrida) y lo que la nombra es su propio código, no el de
+    // la RES093 con la que comparte la tabla del C_b.
+    const cifoLabel = isTer173 ? 'TER173' : isHybrid ? 'RES093' : isTerciario ? 'TER100' : 'RES060';
+    const actuacionNombre = isTer173
+        ? TER173_NOMBRE_ACTUACION
+        : isHybrid
         ? 'Hibridación de combustión con bomba de calor de accionamiento eléctrico'
-        : isTer100
+        : isTerciario
         ? TER100_NOMBRE_ACTUACION
         : 'Sustitución de caldera de combustión por una bomba de calor aire-agua (aerotermia)';
-    const fichaNombreCompleto = isHybrid
+    const fichaNombreCompleto = isTer173
+        ? TER173_FICHA_COMPLETA
+        : isHybrid
         ? 'RES093: Hibridación en modo paralelo de caldera/s de combustión con bomba de calor de accionamiento eléctrico en edificios residenciales ubicados en la zona climática D1, D2 o D3'
-        : isTer100
+        : isTerciario
         ? TER100_FICHA_COMPLETA
         : 'RES060: Sustitución de caldera de combustión por una bomba de calor tipo aire-aire, aire-agua, agua-agua o combinadas';
 
@@ -600,25 +627,41 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         { th: 'D<sub>i</sub>', td: '15' },
     ];
 
-    // TER100 desglosa el ahorro por servicio (apartado 4 de la ficha): AE_TOTAL es la
-    // suma de los sumandos que apliquen, y el verificador espera ver los tres.
-    const desgloseTer100Box = !isTer100 ? '' : `
-        ${subLabel('Desglose del ahorro por servicio · apartado 4 de la ficha TER100', '#6E6E66', '12px')}
+    // El terciario desglosa el ahorro por servicio (apartado 4 de la ficha):
+    // AE_TOTAL es la suma de los sumandos que apliquen, y el verificador espera ver
+    // los tres.
+    //
+    // En TER173 esa suma va ADEMÁS ponderada por el C_b, así que el total no es la
+    // suma de las tres columnas: se añaden dos columnas más, la suma sin ponderar
+    // (Σ AE) y el propio C_b, que dejan la aritmética a la vista junto al total.
+    //
+    // El PORQUÉ no se explica aquí sino en el apartado 8 (`notaImpreso`), que es
+    // donde el verificador lee el desarrollo del C_b. No es una preferencia: esta
+    // hoja es la más cargada del documento en TER173 —lleva la tabla de piscina, la
+    // de variables con su fila de C_b y la leyenda entera— y un párrafo aquí la
+    // desbordaba 23px. Medido con check_cifo_paginas.mjs; holgura actual, +46px.
+    const desgloseTerciarioBox = !isTerciario ? '' : `
+        ${subLabel(`Desglose del ahorro por servicio · apartado 4 de la ficha ${cifoLabel}`, '#6E6E66', '12px')}
         <div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;">
             <table style="width:100%;border-collapse:collapse;">
                 <thead><tr>
                     ${['AE<sub>C</sub><br><span style="font-weight:500;font-size:8.5px;">Calefacción</span>',
                        'AE<sub>ACS</sub><br><span style="font-weight:500;font-size:8.5px;">Agua caliente sanitaria</span>',
                        'AE<sub>CAP</sub><br><span style="font-weight:500;font-size:8.5px;">Calentamiento de piscina</span>',
+                       ...(isTer173 ? ['&Sigma; AE<br><span style="font-weight:500;font-size:8.5px;">Suma sin ponderar</span>',
+                                       'C<sub>b</sub><br><span style="font-weight:500;font-size:8.5px;">Cobertura</span>'] : []),
                        'AE<sub>TOTAL</sub><br><span style="font-weight:500;font-size:8.5px;">kWh/año</span>']
                         .map(t => `<th style="padding:7px 4px;background:#1A1A1A;color:#fff;font-weight:700;font-size:9.5px;text-align:center;line-height:1.35;">${t}</th>`).join('')}
                 </tr></thead>
                 <tbody><tr>
-                    ${[[aeCalStr, false], [aeAcsStr, false], [aeCapStr, false], [aeKwhVal, true]]
+                    ${[[aeCalStr, false], [aeAcsStr, false], [aeCapStr, false],
+                       ...(isTer173 ? [[aeSinCbStr, false], [cbStr, false]] : []),
+                       [aeKwhVal, true]]
                         .map(([v, hi]) => `<td style="padding:9px 4px;text-align:center;font-weight:${hi ? 800 : 600};font-size:${hi ? '13px' : '12px'};background:${hi ? '#F3F8E6' : '#FAFAF6'};color:${hi ? '#4d6a12' : '#1A1A1A'};">${v}</td>`).join('')}
                 </tr></tbody>
             </table>
-        </div>`;
+        </div>
+`;
     const varTableBox = `
         <div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;">
             <table style="width:100%;border-collapse:collapse;">
@@ -630,8 +673,8 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     const donde = (() => {
         const items = [
             { sym: 'F<sub>P</sub>', desc: 'Factor de ponderación', val: '1' },
-            { sym: 'D<sub>CAL</sub>', desc: isTer100 ? 'Demanda de energía en calefacción del edificio' : 'Demanda de energía en calefacción del edificio/vivienda', val: tieneCalefaccion ? `${dcal} kWh/m²·año` : 'no aplica' },
-            { sym: 'S', desc: isTer100 ? 'Superficie útil habitable del edificio' : 'Superficie útil habitable del edificio o vivienda', val: tieneCalefaccion ? `${sStr} m²` : 'no aplica' },
+            { sym: 'D<sub>CAL</sub>', desc: isTerciario ? 'Demanda de energía en calefacción del edificio' : 'Demanda de energía en calefacción del edificio/vivienda', val: tieneCalefaccion ? `${dcal} kWh/m²·año` : 'no aplica' },
+            { sym: 'S', desc: isTerciario ? 'Superficie útil habitable del edificio' : 'Superficie útil habitable del edificio o vivienda', val: tieneCalefaccion ? `${sStr} m²` : 'no aplica' },
             { sym: 'D<sub>ACS</sub>', desc: 'Demanda de energía en agua caliente sanitaria', val: tieneAcs ? `${dacsStr} kWh/año` : 'no aplica' },
             ...(tienePiscina ? [{ sym: 'D<sub>CAP</sub>', desc: 'Demanda anual de energía térmica para el calentamiento de agua de piscina', val: `${dcapStr} kWh/año` }] : []),
             { sym: 'η<sub>i</sub>', desc: 'Rendimiento de caldera de combustión(PCS)', val: etaStr },
@@ -871,7 +914,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     // no descoloca nada: es justo encima de la tabla en la que aparece su
     // D_CAP y su SCOP_pwh.
     const piscinaBlock = tienePiscina ? `
-        ${sectionTitle('Datos de la instalación de calentamiento de agua de piscina', '16px')}
+        ${sectionTitle('Datos de la instalación de calentamiento de agua de piscina', '12px')}
         ${cmpBox(cmpHead(), `
             ${cmpRow('Tipo de equipo', calExTipo, 'Bomba de calor para calentamiento de piscina')}
             ${cmpRow('Marca', calExMarca, pisNuMarca)}
@@ -888,9 +931,9 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         <div class="doc-page">
             ${pageHeader}
             ${piscinaBlock}
-            ${subLabel('Valores de las variables para el ahorro de energía', '#6E6E66', tienePiscina ? '18px' : '16px')}
+            ${subLabel('Valores de las variables para el ahorro de energía', '#6E6E66', tienePiscina ? '12px' : '16px')}
             ${varTableBox}
-            ${desgloseTer100Box}
+            ${desgloseTerciarioBox}
 
             ${subLabel('Donde', '#6E6E66', '12px')}
             ${dondeBox}
@@ -955,7 +998,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         ` : ''}
 
         ${subLabel(`${tienePiscina ? 6 : 5}. Justificación rendimiento de caldera de combustión η<sub>i</sub>`, '#6E6E66', '16px')}
-        <p style="margin:0;font-size:12.5px;color:#4a4a44;">Se ha utilizado un rendimiento estacional de <b style="color:#1A1A1A;">${etaStr}</b>, al tratarse de una caldera de <b style="color:#1A1A1A;">${calExTipo}</b>, siguiendo las indicaciones del Ministerio para la Transición Ecológica y el Reto Demográfico recogidas en los criterios de verificación "24/11.03: Rendimientos estacionales vs. nominales en fichas IND040, RES060, RES090-099, TER100 y TER170-179".</p>
+        <p style="margin:0;font-size:12.5px;color:#4a4a44;">Se ha utilizado un rendimiento estacional de <b style="color:#1A1A1A;">${etaStr}</b>, al tratarse de una caldera de <b style="color:#1A1A1A;">${calExTipo}</b>, siguiendo las indicaciones del Ministerio para la Transición Ecológica y el Reto Demográfico recogidas en los criterios de verificación "24/11.03: Rendimientos estacionales vs. nominales en fichas IND040, RES060, RES090-099, TER100 y TER170-179".${isTer173 ? ` El valor procede de la tabla B.3 <i>«Rendimiento estacional por defecto basado en el combustible, la antigüedad y el tipo de caldera»</i> que recoge el <b>Anexo VIII de la propia ficha TER173</b> para el caso —el de esta actuación— en que no se dispone del rendimiento estacional sobre energía primaria de la instalación existente.` : ''}</p>
     `;
 
     const renderEprelJustification = (isAcs = false) => {
@@ -970,8 +1013,8 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             ? `<a href="${eprelUrl}" style="color: #0000EE; text-decoration: underline;">Ficha EPREL</a>`
             : 'Ficha EPREL';
         // El anexo donde la ficha define el cálculo del SCOP cambia con la ficha:
-        // RES060 → Anexo IV · RES093 → Anexo II · TER100 → Anexos II y III.
-        const anexoRef = isTer100
+        // RES060 → Anexo IV · RES093 → Anexo II · TER100/TER173 → Anexos II y III.
+        const anexoRef = isTerciario
             ? `Anexos II y III de la ficha ${cifoLabel}`
             : `Anexo ${isHybrid ? 'II' : 'IV'} de la ficha ${cifoLabel}`;
         return scopBox(
@@ -1001,7 +1044,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                 ? `<a href="${acsEprelUrl}" style="color: #0000EE; text-decoration: underline;">Ficha EPREL</a>`
                 : 'Ficha EPREL';
             return scopBox(
-                `Justificación del SCOP en ACS — ${isTer100 ? 'Anexo II ficha TER100' : 'Anexo IV ficha RES060'} (depósito ACS en conjunto con la BdC)`,
+                `Justificación del SCOP en ACS — ${isTerciario ? `Anexo II ficha ${cifoLabel}` : 'Anexo IV ficha RES060'} (depósito ACS en conjunto con la BdC)`,
                 `SCOP<sub>dhw</sub> = CC · η<sub>wh</sub>`,
                 `${svRow('CC', 'Coeficiente de conversión', '2,5')}
                  ${svRow('η<sub>wh</sub>', `Eficiencia energética de caldeo de agua (obtenida de la ${fichaEprel} — clima ${zoneLabel.toLowerCase()} y perfil ACS)`, `${etaWh}%`)}
@@ -1018,7 +1061,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                 <div style="margin-top:12px;padding:16px 20px;border:1px solid #E9E9E1;border-radius:16px;font-size:12.5px;line-height:1.5;color:#4a4a44;">
                     <div style="font-weight:800;font-size:13px;text-transform:uppercase;color:#1A1A1A;margin-bottom:8px;">Cálculo del SCOP en ACS</div>
                     <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Fórmula aplicada</div>
-                    <p style="margin:0 0 6px;">Según el ${isTer100 ? 'Anexo VII de la ficha TER100 (condiciones generales para el cálculo del coeficiente de eficiencia estacional en el calentamiento de ACS)' : 'Anexo VI de la ficha RES060 (Caso 3: bomba de calor aerotérmica con depósito de ACS no suministrado como conjunto)'}, para la zona climática ${zoneStr}:</p>
+                    <p style="margin:0 0 6px;">Según el ${isTer173 ? 'Anexo II de la ficha TER173 (bombas de calor aerotérmicas y depósitos no suministrados como conjunto)' : isTerciario ? 'Anexo VII de la ficha TER100 (condiciones generales para el cálculo del coeficiente de eficiencia estacional en el calentamiento de ACS)' : 'Anexo VI de la ficha RES060 (Caso 3: bomba de calor aerotérmica con depósito de ACS no suministrado como conjunto)'}, para la zona climática ${zoneStr}:</p>
                     <div style="text-align:center;font-weight:800;font-size:15px;background:#FBF6EE;border-radius:10px;padding:8px;margin:10px 0;color:#1A1A1A;">SCOP<sub>dhw</sub> = COP · F<sub>c</sub></div>
                     <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Donde</div>
                     <ul style="list-style:none;margin:0 0 10px;padding-left:0;">
@@ -1087,10 +1130,16 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         pages.push(`<div class="doc-page">${pageHeader}${anexoIBlock}${scopJustBlock}${footer}</div>`);
     }
 
-    // PÁGINA (solo RES093): Coeficiente de cobertura por bivalencia
+    // PÁGINA (RES093 y TER173): Coeficiente de cobertura por bivalencia.
+    //
+    // Las dos fichas de hibridación en paralelo desarrollan el MISMO procedimiento y
+    // leen la MISMA tabla de coeficientes (comparada valor a valor). Lo único que
+    // cambia es de qué ficha es y en qué anexo vive: Anexo III en la RES093 y
+    // Anexo IV en la TER173 — `cbAnexo`. Por eso hay un apartado y no dos: dos
+    // redacciones del mismo cálculo acabarían diciendo cosas distintas.
     if (isHybrid) {
         const cappedNote = coveragePct >= 95
-            ? obsBox(`<p style="margin:0;"><b>Nota:</b> El porcentaje de cobertura calculado (${coveragePctStr}%) es superior al 95%. Conforme al Anexo III de la ficha RES093, el valor máximo aplicable es el 95% (límite de la tabla de bivalencia).</p>`, '10px')
+            ? obsBox(`<p style="margin:0;"><b>Nota:</b> El porcentaje de cobertura calculado (${coveragePctStr}%) es superior al 95%. Conforme al Anexo ${cbAnexo} de la ficha ${cifoLabel}, el valor máximo aplicable es el 95% (límite de la tabla de bivalencia).</p>`, '10px')
             : '';
 
         // La cobertura admite dos determinaciones: por CARGA DE DISEÑO PARA CALEFACCIÓN
@@ -1140,6 +1189,13 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             ? `, orden de magnitud propio de una vivienda existente sin actuación sobre la envolvente, lo que confirma la representatividad del resultado`
             : '';
 
+        // El impreso oficial de la TER173 no reserva casilla para el C_b: su tabla de
+        // resultado son AE_C · AE_ACS · AE_CAP · AE_TOTAL · D_i. Así que el total que
+        // figura en la ficha NO es la suma de los tres sumandos que ella misma
+        // imprime, y este certificado es el ÚNICO sitio donde esa diferencia se
+        // explica — es lo primero que cruza quien la revisa.
+        const notaImpreso = !isTer173 ? '' : obsBox(`<p style="margin:0;"><b>Sobre la ficha TER173.</b> Su impreso oficial no reserva casilla para el C<sub>b</sub>: la tabla de resultado del apartado 4 recoge AE<sub>C</sub>, AE<sub>ACS</sub>, AE<sub>CAP</sub>, AE<sub>TOTAL</sub> y D<sub>i</sub>. Por eso el AE<sub>TOTAL</sub> que figura en la ficha (<b>${aeKwhVal} kWh/año</b>) no coincide con la suma de sus tres sumandos (${aeSinCbStr} kWh/año): la diferencia es exactamente la ponderación por bivalencia que se desarrolla en este apartado, conforme al apartado 4 de la propia ficha.</p>`, '12px');
+
         const cbTable = `
                 <div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;">
                     <table class="cmp" style="width:100%;border-collapse:collapse;font-size:12px;"><tbody>
@@ -1154,7 +1210,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             <div class="doc-page">
                 ${pageHeader}
                 ${subLabel('8. Coeficiente de cobertura por bivalencia C<sub>b</sub>', '#6E6E66', '20px')}
-                ${par('La ficha técnica RES093 establece que el ahorro de energía se pondera mediante el coeficiente de cobertura por bivalencia (C<sub>b</sub>), que refleja la fracción de la demanda de energía térmica anual cubierta por la bomba de calor cuando ésta opera combinada con el generador auxiliar de combustión (caldera) formando un sistema híbrido. En esta actuación dicha fracción se determina por la relación entre la potencia térmica de la bomba de calor instalada y la potencia nominal de la caldera existente, obteniéndose el valor de C<sub>b</sub> de la tabla del Anexo III de la ficha RES093:')}
+                ${par(`La ficha técnica ${cifoLabel} establece que el ahorro de energía se pondera mediante el coeficiente de cobertura por bivalencia (C<sub>b</sub>), que refleja la fracción de la demanda de energía térmica anual cubierta por la bomba de calor cuando ésta opera combinada con el generador auxiliar de combustión (caldera) formando un sistema híbrido. En esta actuación dicha fracción se determina por la relación entre la potencia térmica de la bomba de calor instalada y la potencia nominal de la caldera existente, obteniéndose el valor de C<sub>b</sub> de la tabla del Anexo ${cbAnexo} de la ficha ${cifoLabel}:`)}
 
                 ${subLabel('Paso 1 — Potencia nominal de la caldera existente (P<sub>caldera</sub>)', '#6E6E66', '16px')}
                 ${par('La caldera de combustión existente permanece en la instalación como generador auxiliar del sistema híbrido. Su potencia nominal, según la placa de características del equipo, es:')}
@@ -1166,8 +1222,9 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                 ${cappedNote}
 
                 ${subLabel('Paso 3 — Valor de C<sub>b</sub> aplicado', '#6E6E66', '16px')}
-                ${par(`Aplicando el ${appliedCovStr}% en la tabla del Anexo III de la ficha RES093:`)}
+                ${par(`Aplicando el ${appliedCovStr}% en la tabla del Anexo ${cbAnexo} de la ficha ${cifoLabel}:`)}
                 ${cbTable}
+                ${notaImpreso}
                 ${footer}
             </div>
         `);
@@ -1181,21 +1238,23 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             <div class="doc-page">
                 ${pageHeader}
                 ${subLabel('8. Coeficiente de cobertura por bivalencia C<sub>b</sub>', '#6E6E66', '20px')}
-                ${par('La ficha RES093 <b>[R4]</b> establece que el ahorro de energía se pondera mediante el coeficiente de cobertura por bivalencia (C<sub>b</sub>), definido como <i>«el porcentaje de la demanda de energía térmica anual cubierta por bombas de calor cuando está combinada con generadores auxiliares (calderas) formando un sistema híbrido»</i>. Su valor se obtiene de la tabla del <b>Anexo III</b> de la ficha, cuya variable de entrada es el <i>«porcentaje de potencia térmica nominal de bomba de calor sobre la potencia térmica total necesaria en proyecto»</i>, interpolando linealmente entre los valores más próximos de la tabla.')}
-                ${par(`Para determinar la <b>potencia térmica total necesaria en proyecto</b> se aplica el procedimiento establecido en el <b>${link(URL_813, 'Reglamento (UE) n.º 813/2013')} [R1]</b>, norma de aplicación directa que define tanto la carga de diseño para calefacción como las horas anuales equivalentes en modo activo, y que constituye el marco al que remiten expresamente el Anexo II de la propia ficha RES093 <b>[R4]</b> y el Anexo V de la ficha RES060 <b>[R5]</b>.`)}
+                ${par(`La ficha ${cifoLabel} <b>[R4]</b> establece que el ahorro de energía se pondera mediante el coeficiente de cobertura por bivalencia (C<sub>b</sub>), definido como <i>«el porcentaje de la demanda de energía térmica anual cubierta por bombas de calor cuando está combinada con generadores auxiliares (calderas) formando un sistema híbrido»</i>. Su valor se obtiene de la tabla del <b>Anexo ${cbAnexo}</b> de la ficha, cuya variable de entrada es el <i>«porcentaje de potencia térmica nominal de bomba de calor sobre la potencia térmica total necesaria en proyecto»</i>, interpolando linealmente entre los valores más próximos de la tabla.`)}
+                ${par(`Para determinar la <b>potencia térmica total necesaria en proyecto</b> se aplica el procedimiento establecido en el <b>${link(URL_813, 'Reglamento (UE) n.º 813/2013')} [R1]</b>, norma de aplicación directa que define tanto la carga de diseño para calefacción como las horas anuales equivalentes en modo activo, y que constituye el marco al que remite expresamente el Anexo II de la propia ficha ${cifoLabel} <b>[R4]</b>${isTer173 ? '' : ' y el Anexo V de la ficha RES060 <b>[R5]</b>'}.`)}
 
                 ${subLabel('Paso 1 — Horas anuales equivalentes en modo activo (H<sub>HE</sub>)', '#6E6E66', '18px')}
                 ${par(`El ${link(URL_813, 'Reglamento (UE) n.º 813/2013')} <b>[R1]</b>, <b>Anexo III, punto 4, letra c)</b>, establece literalmente:`)}
                 ${quoteBox('«La demanda anual de calor de referencia Q<sub>H</sub> será la carga de diseño para calefacción P<sub>designh</sub> multiplicada por las horas anuales equivalentes en modo activo H<sub>HE</sub> de 2 066.»')}
                 ${cite(`— Reglamento (UE) n.º 813/2013, Anexo III, punto 4, letra c) — ${link(URL_813, 'DOUE L 239 de 6.9.2013, pág. L 239/153')} [R1]`)}
                 ${par(`El ${link(URL_811, 'Reglamento Delegado (UE) n.º 811/2013')} <b>[R2]</b>, Anexo VII, punto 4, letra c) (pág. L 239/72), recoge la misma relación para las tres temporadas de calefacción de referencia, con valores de H<sub>HE</sub> de <b>2.066 h</b> (condiciones medias), <b>2.465 h</b> (más frías) y <b>1.336 h</b> (más cálidas).`)}
-                ${esCalido
+                ${isTer173
+                    ? par(`Se aplica la temporada de calefacción de referencia en la que ${fuenteScop} el <b>SCOP = ${scopCalStr}</b> adoptado en el apartado ${nScopCal} de este anexo (<i>${condScop}</i>): ${esCalido ? '<b>condiciones climáticas más cálidas</b>' : '<b>condiciones climáticas medias</b>'}. El rendimiento estacional y las horas anuales equivalentes son parámetros de una <b>misma</b> temporada de referencia y se toman conjuntamente: determinar la carga de diseño con las horas de una temporada distinta de aquella en la que se declara el SCOP dejaría de comparar en igualdad de condiciones.`)
+                    : esCalido
                     ? par(`Se aplica la temporada de <b>condiciones climáticas más cálidas</b>: es la que el <b>Anexo III de la ficha RES060 [R5]</b> —tabla de equivalencia entre las zonas climáticas del CTE y las temporadas establecidas en los Reglamentos 813/2013 <b>[R1]</b> y 811/2013 <b>[R2]</b>— asigna a la zona climática <b>${zoneStr}</b> en la que se ubica la instalación, y es también aquella en la que ${fuenteScop} el SCOP = ${scopCalStr} adoptado en el apartado ${nScopCal} de este anexo (<i>${condScop}</i>). El rendimiento estacional y las horas anuales equivalentes son parámetros de una <b>misma</b> temporada de calefacción de referencia y se toman conjuntamente: determinar la carga de diseño con las horas de una temporada distinta de aquella en la que se declara el SCOP dejaría de comparar en igualdad de condiciones.`)
                     : par(`Se aplica la temporada de <b>condiciones climáticas medias</b>. No se dispone del rendimiento estacional del equipo para condiciones más cálidas, y el <b>Anexo III de la ficha RES060 [R5]</b> admite expresamente ese caso: <i>«el SCOP utilizado deberá ser, al menos, el de las condiciones de clima medio establecidas en los reglamentos de ecodiseño, o el indicado para la zona climática equivalente en calefacción»</i>. El SCOP = ${scopCalStr} adoptado en el apartado ${nScopCal} de este anexo es el declarado en esas condiciones (<i>${condScop}</i>), de modo que la carga de diseño se determina con las horas equivalentes de esa <b>misma</b> temporada: rendimiento estacional y carga de diseño quedan así establecidos en igualdad de condiciones.`)}
                 ${formulaBox(`H<sub>HE</sub> = <span style="color:#4d6a12;">${hHEStr} h/año</span>`)}
 
                 ${subLabel('Paso 2 — Demanda anual de calor (Q<sub>H</sub>)', '#6E6E66', '18px')}
-                ${par('La demanda anual de calor es la demanda de calefacción del edificio por la superficie útil habitable calefactada, ambas tomadas del certificado de eficiencia energética registrado que impone la ficha RES093 <b>[R4]</b> como fuente de la demanda:')}
+                ${par(`La demanda anual de calor es la demanda de calefacción del edificio por la superficie útil habitable calefactada, ambas tomadas del certificado de eficiencia energética registrado que la ficha ${cifoLabel} <b>[R4]</b> admite como fuente de la demanda:`)}
                 ${formulaBox(`Q<sub>H</sub> = D<sub>CAL</sub> × S = ${dcal} kWh/m²·año × ${sStr} m² = <span style="color:#4d6a12;">${demandaAnualKwhStr} kWh/año</span>`)}
                 ${footer}
             </div>
@@ -1212,13 +1271,14 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                 ${par(`<b>Comprobación de coherencia.</b> La potencia específica resultante es ${pDesignWStr} W / ${sStr} m² = <b>${pEspecificaStr} W/m²</b>${coherenciaTxt}.`)}
 
                 ${subLabel('Paso 4 — Porcentaje de cobertura de la bomba de calor', '#6E6E66', '16px')}
-                ${par(`Potencia térmica nominal de la bomba de calor en las condiciones que exige el Anexo III de la ficha RES093 —${condPotencia} <b>[R3]</b>—, según la ficha técnica del fabricante: <b>${pbdcKwStr} kW</b>.`)}
+                ${par(`Potencia térmica nominal de la bomba de calor en las condiciones que exige el Anexo ${cbAnexo} de la ficha ${cifoLabel} —${condPotencia} <b>[R3]</b>—, según la ficha técnica del fabricante: <b>${pbdcKwStr} kW</b>.`)}
                 ${formulaBox(`% cobertura = ${pbdcKwStr} kW / ${pDesignKwStr} kW = <span style="color:#4d6a12;">${coveragePctStr}%</span>`)}
                 ${cappedNote}
 
                 ${subLabel('Paso 5 — Valor de C<sub>b</sub> aplicado', '#6E6E66', '16px')}
-                ${par(`Aplicando el ${appliedCovStr}% en la tabla del Anexo III de la ficha RES093, con interpolación lineal entre los valores más próximos:`)}
+                ${par(`Aplicando el ${appliedCovStr}% en la tabla del Anexo ${cbAnexo} de la ficha ${cifoLabel}, con interpolación lineal entre los valores más próximos:`)}
                 ${cbTable}
+                ${notaImpreso}
 
                 ${obsBox(`
                     <b style="font-size:11px;">Referencias</b>
@@ -1228,8 +1288,8 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                         <b>[R2]</b> Reglamento Delegado (UE) n.º 811/2013 de la Comisión, de 18 de febrero de 2013, por el que se complementa la Directiva 2010/30/UE en lo relativo al etiquetado energético de los aparatos de calefacción — DOUE L 239 de 6.9.2013, págs. L 239/1 a L 239/82 (la letra c) citada, en la pág. L 239/72).<br>
                         <span style="font-size:9px;">Texto oficial: ${link(URL_811, URL_811)}</span><br>
                         <b>[R3]</b> UNE-EN 14511 (condiciones de ensayo de potencia térmica) y UNE-EN 14825 (condiciones de cálculo del rendimiento estacional SCOP por temporada de calefacción).<br>
-                        <b>[R4]</b> Ficha RES093 del Anexo I de la Orden TED/845/2023, de 18 de julio, actualizado por la Resolución de 3 de julio de 2024 de la Dirección General de Planificación y Coordinación Energética.<br>
-                        <b>[R5]</b> Ficha RES060, misma fuente que [R4]. Su <b>Anexo III</b> «Equivalencias climas CTE y zonas climáticas europeas, en calefacción» (BOE núm. 173 de 18.7.2024, pág. 91401) es la tabla que equipara cada zona del CTE con la temporada de calefacción de los Reglamentos 813/2013 y 811/2013.
+                        <b>[R4]</b> Ficha ${cifoLabel} del Anexo I de la Orden TED/845/2023, de 18 de julio, actualizado por la Resolución de 3 de julio de 2024 de la Dirección General de Planificación y Coordinación Energética.${isTer173 ? '' : '<br>'}
+                        ${isTer173 ? '' : `<b>[R5]</b> Ficha RES060, misma fuente que [R4]. Su <b>Anexo III</b> «Equivalencias climas CTE y zonas climáticas europeas, en calefacción» (BOE núm. 173 de 18.7.2024, pág. 91401) es la tabla que equipara cada zona del CTE con la temporada de calefacción de los Reglamentos 813/2013 y 811/2013.`}
                     </div>
                 `, '14px')}
                 ${footer}

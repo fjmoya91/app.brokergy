@@ -18,7 +18,8 @@ import {
     calculateRes080Estimated,
     calculateRes080FromEmissions,
     calculatePayback,
-    FACTORES_PASO
+    FACTORES_PASO,
+    CAE_PRECIO_CLIENTE_NUEVAS,
 } from '../../calculator/logic/calculation';
 
 /**
@@ -54,7 +55,7 @@ export function computeLandingResult(inputs) {
     const finRes = calculateFinancials({
         presupuesto: inputs.presupuesto,
         savingsKwh: savingsRes.savingsKwh,
-        caePriceClient: inputs.caePriceClient || 95,
+        caePriceClient: inputs.caePriceClient || CAE_PRECIO_CLIENTE_NUEVAS,
         caePriceSO: inputs.caePriceSO || 160,
         caePricePrescriptor: 0,
         prescriptorMode: 'brokergy',
@@ -76,7 +77,7 @@ export function computeLandingResult(inputs) {
             finRes080 = calculateFinancials({
                 presupuesto: (inputs.presupuesto || 0) + (inputs.presupuestoEnvolvente || 0),
                 savingsKwh: res080.ahorroEnergiaFinalTotal,
-                caePriceClient: inputs.caePriceClient || 95,
+                caePriceClient: inputs.caePriceClient || CAE_PRECIO_CLIENTE_NUEVAS,
                 caePriceSO: inputs.caePriceSO || 160,
                 caePricePrescriptor: 0,
                 prescriptorMode: 'brokergy',
@@ -261,7 +262,7 @@ export function computeFullCalculatorResult(inputs) {
     const financialRes = calculateFinancials({
         presupuesto: inputs.presupuesto,
         savingsKwh: savingsRes.savingsKwh,
-        caePriceClient: inputs.caePriceClient || 95,
+        caePriceClient: inputs.caePriceClient || CAE_PRECIO_CLIENTE_NUEVAS,
         caePriceSO: inputs.caePriceSO || 160,
         caePricePrescriptor: inputs.includeCommission ? (inputs.caePricePrescriptor || 0) : 0,
         prescriptorMode: inputs.prescriptorMode || 'brokergy',
@@ -336,7 +337,7 @@ export function computeFullCalculatorResult(inputs) {
             financialsRes080 = calculateFinancials({
                 presupuesto: (inputs.presupuesto || 0) + (inputs.presupuestoEnvolvente || 0),
                 savingsKwh: res080Data.ahorroEnergiaFinalTotal,
-                caePriceClient: inputs.caePriceClient || 95,
+                caePriceClient: inputs.caePriceClient || CAE_PRECIO_CLIENTE_NUEVAS,
                 caePriceSO: inputs.caePriceSO || 160,
                 caePricePrescriptor: inputs.includeCommission ? (inputs.caePricePrescriptor || 0) : 0,
                 prescriptorMode: inputs.prescriptorMode || 'brokergy',

@@ -134,7 +134,7 @@ function alcanceEsperado(ficha, exp, op) {
     const set = new Set();
 
     if (esSustitucionCaldera(ficha)) {
-        // RES060 / RES093 / TER100: se sustituye el generador. Nada de envolvente.
+        // RES060 / RES093 / TER100 / TER173: se actúa sobre el generador. Nada de envolvente.
         set.add('AEROTERMIA');
         if (inst.cambio_acs !== false) set.add('ACS');
         return set;
@@ -241,7 +241,7 @@ function detectarIncidenciasFactura({ ocr, exp, op, cliente, instalador, factura
     // Las unidades terminales (radiadores, suelo radiante, fancoils) se tratan de
     // forma OPUESTA según la ficha, y es de lo que más incidencias trae:
     //
-    //   · RES060 / RES093 / TER100 — la actuación es sustituir el GENERADOR y nada
+    //   · RES060 / RES093 / TER100 / TER173 — la actuación es sobre el GENERADOR y nada
     //     más. La unidad terminal existente es un dato de ENTRADA: fija la
     //     temperatura de impulsión (35 suelo radiante / 55 radiadores) y con ella el
     //     SCOP con el que se calcula el ahorro. Tocarla no está contemplado en la

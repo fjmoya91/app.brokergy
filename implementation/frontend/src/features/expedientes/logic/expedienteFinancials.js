@@ -17,11 +17,12 @@ import {
     calculateHybridization,
     resolveHybridInputs,
     BOILER_EFFICIENCIES,
+    CAE_PRECIO_CLIENTE_ANTERIOR,
 } from '../../calculator/logic/calculation.js';
 import { acsComputaAhorro } from './aerotermiaUnits.js';
 import { ceeBaseDocumento } from './ceeFases.js';
 import { resolveDacs } from './demandaAcs.js';
-import { deriveTer100Vars, TER100_PRECIOS } from './ter100.js';
+import { deriveTerciarioVars, TERCIARIO_PRECIOS, esTerciario, fichaTerciaria } from './terciario.js';
 import { propuestaGuardada } from './propuestaGuardada.js';
 
 export function computeExpedienteFinancials(exp) {
@@ -31,7 +32,7 @@ export function computeExpedienteFinancials(exp) {
     let ficha = op.ficha || 'RES060';
     if (exp.numero_expediente?.includes('RES080')) ficha = 'RES080';
     else if (exp.numero_expediente?.includes('RES093')) ficha = 'RES093';
-    else if (exp.numero_expediente?.includes('TER100')) ficha = 'TER100';
+    else if (esTerciario(exp)) ficha = fichaTerciaria(exp);
 
     const cee = exp.cee || {};
     const inst = exp.instalacion || {};
@@ -97,7 +98,7 @@ export function computeExpedienteFinancials(exp) {
 
                 const finArgs = {
                     presupuesto: overrides.presupuesto ?? (parseFloat(inst.presupuesto_final) || parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0),
-                    caePriceClient: overrides.cae_client_rate ?? (parseFloat(opInputs.cae_client_rate) || 95),
+                    caePriceClient: overrides.cae_client_rate ?? (parseFloat(opInputs.cae_client_rate) || CAE_PRECIO_CLIENTE_ANTERIOR.estandar),
                     caePriceSO: overrides.cae_so_rate ?? (parseFloat(opInputs.cae_so_rate) || 160),
                     caePricePrescriptor: includeCommission ? (parseFloat(overrides.cae_prescriptor_rate ?? opInputs.caePricePrescriptor ?? opInputs.cae_prescriptor_rate) || 0) : 0,
                     prescriptorMode: overrides.cae_prescriptor_mode ?? opInputs.cae_prescriptor_mode ?? opInputs.prescriptorMode ?? 'brokergy',
@@ -123,19 +124,20 @@ export function computeExpedienteFinancials(exp) {
                 }
             }
         }
-    } else if (ficha === 'TER100') {
-        // TER100 (terciario): el ahorro es la suma de AE_C + AE_ACS + AE_CAP, y la
-        // actuación puede alcanzar solo uno de los tres servicios. Toda la
-        // derivación vive en logic/ter100.js (fuente única con el CIFO y la ficha).
-        const ter = deriveTer100Vars(exp);
+    } else if (ficha === 'TER100' || ficha === 'TER173') {
+        // Terciario: el ahorro es la suma de AE_C + AE_ACS + AE_CAP, y la actuación
+        // puede alcanzar solo uno de los tres servicios. En TER173 (hibridación) esa
+        // suma va además ponderada por el C_b. Toda la derivación vive en
+        // logic/terciario.js (fuente única con el CIFO y las fichas).
+        const ter = deriveTerciarioVars(exp);
         if (ter.savingsKwh > 0) {
             const overrides = inst.economico_override || {};
             const includeCommission = overrides.include_commission ?? !!(opInputs.include_commission ?? opInputs.includeCommission);
 
             const finArgs = {
                 presupuesto: overrides.presupuesto ?? (parseFloat(inst.presupuesto_final) || parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0),
-                caePriceClient: overrides.cae_client_rate ?? (parseFloat(opInputs.cae_client_rate) || TER100_PRECIOS.cliente),
-                caePriceSO: overrides.cae_so_rate ?? (parseFloat(opInputs.cae_so_rate) || TER100_PRECIOS.sujetoObligado),
+                caePriceClient: overrides.cae_client_rate ?? (parseFloat(opInputs.cae_client_rate) || TERCIARIO_PRECIOS.cliente),
+                caePriceSO: overrides.cae_so_rate ?? (parseFloat(opInputs.cae_so_rate) || TERCIARIO_PRECIOS.sujetoObligado),
                 caePricePrescriptor: includeCommission ? (parseFloat(overrides.cae_prescriptor_rate ?? opInputs.caePricePrescriptor ?? opInputs.cae_prescriptor_rate) || 0) : 0,
                 prescriptorMode: overrides.cae_prescriptor_mode ?? opInputs.cae_prescriptor_mode ?? opInputs.prescriptorMode ?? 'brokergy',
                 discountCertificates: overrides.discount_certificates ?? !!opInputs.discount_certificates,
@@ -181,7 +183,7 @@ export function computeExpedienteFinancials(exp) {
                 const overrides = inst.economico_override || {};
                 const finArgs = {
                     presupuesto: overrides.presupuesto ?? (parseFloat(inst.presupuesto_final) || parseFloat(opInputs.presupuesto || opInputs.importe_total) || 0),
-                    caePriceClient: overrides.cae_client_rate ?? 60,
+                    caePriceClient: overrides.cae_client_rate ?? CAE_PRECIO_CLIENTE_ANTERIOR.res080,
                     caePriceSO: overrides.cae_so_rate ?? 140,
                     includeIrpf: true
                 };

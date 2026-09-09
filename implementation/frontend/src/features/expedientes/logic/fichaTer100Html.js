@@ -32,14 +32,14 @@
 // actuación se imprimen como "no aplica", no como 0: el verificador tiene que ver
 // que la actuación no alcanzaba ese servicio, no que el cálculo dio cero.
 //
-// Los números salen de logic/ter100.js (la misma derivación que el CIFO y el panel
+// Los números salen de logic/terciario.js (la misma derivación que el CIFO y el panel
 // económico), así que ficha y certificado nunca pueden contradecirse.
 //
 // Imports CON extensión: además de Vite, este módulo tiene que poder cargarse por
 // import() dinámico desde Node (igual que cifoDoc.js) si algún día la ficha se
 // genera server-side. Node ESM no resuelve rutas sin extensión.
 // ============================================================
-import { deriveTer100Vars, TER100_VIDA_UTIL, TER100_FP } from './ter100.js';
+import { deriveTerciarioVars, TER100_VIDA_UTIL, TER100_FP } from './terciario.js';
 import { calcCifo } from './calcCifo.js';
 
 // Márgenes medidos sobre `plantillas/Ficha TER100.pdf` con PyMuPDF y convertidos a
@@ -141,7 +141,7 @@ const parenClose = '<span class="paren">)</span>';
 export function deriveFichaTer100(expediente) {
     const exp = expediente || {};
     const doc = exp.documentacion || {};
-    const ter = deriveTer100Vars(exp);
+    const ter = deriveTerciarioVars(exp);
 
     // Mismos fallbacks de fecha que el CIFO, para que ambos documentos coincidan.
     const fechas = calcCifo(doc);

@@ -10,7 +10,7 @@
 //
 // v1: solo REFORMA (RES080). Para no-reforma (RES060) devuelve null (pendiente).
 
-import { calculateRes080FromEmissions, calculateFinancials, calculateSavings } from './calculation';
+import { calculateRes080FromEmissions, calculateFinancials, calculateSavings, CAE_PRECIO_CLIENTE_NUEVAS } from './calculation';
 import { computeFullCalculatorResult } from '../../landing/data/landingCalculation';
 import { demandaDeCalculo } from '../../cee/ceeAvisos';
 
@@ -21,7 +21,7 @@ function financialParams(inputs, savingsKwh, presupuesto) {
   return {
     presupuesto,
     savingsKwh,
-    caePriceClient: inputs.caePriceClient || 95,
+    caePriceClient: inputs.caePriceClient || CAE_PRECIO_CLIENTE_NUEVAS,
     caePriceSO: inputs.caePriceSO || 160,
     caePricePrescriptor: inputs.includeCommission ? (inputs.caePricePrescriptor || 0) : 0,
     prescriptorMode: inputs.prescriptorMode || 'brokergy',

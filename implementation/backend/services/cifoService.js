@@ -22,7 +22,7 @@ const driveService = require('./driveService');
 const pdfService = require('./pdfService');
 const { getUnidades: getUnidadesAero, unidadesSinSerie, esTermoElectrico: esTermoAero, esAcumuladorAcs: esAcumuladorAero, acsComputaAhorro } = require('../utils/aerotermiaUnits');
 const { resolveInstaladorFirmante } = require('../utils/instaladorFirmante');
-const { detectPrograma } = require('../utils/fichas');
+const { detectPrograma, esHibridacion } = require('../utils/fichas');
 
 const SUBCARPETA_ANEXOS = '6. ANEXOS CAE';
 const SUBCARPETA_FT = '3. FICHAS TÉCNICAS Y CERTIFICACIONES';
@@ -72,13 +72,13 @@ function loadAnnexPrefs() {
     }
     return _annexPrefsPromise;
 }
-let _ter100Promise = null;
-function loadTer100() {
-    if (!_ter100Promise) {
-        const url = pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/ter100.js')).href;
-        _ter100Promise = import(url);
+let _terciarioPromise = null;
+function loadTerciario() {
+    if (!_terciarioPromise) {
+        const url = pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/terciario.js')).href;
+        _terciarioPromise = import(url);
     }
-    return _ter100Promise;
+    return _terciarioPromise;
 }
 let _dacsPromise = null;
 function loadDacs() {
@@ -288,11 +288,12 @@ async function computeSavingsKwh(exp, op) {
     const calcInputs = op?.datos_calculo?.inputs || {};
     let savings = null;
 
-    // TER100 (terciario): AE_C + AE_ACS + AE_CAP. Toda la derivación vive en el módulo
-    // compartido logic/ter100.js, así que no hay que replicar el mapeo aquí.
-    if (ficha === 'TER100') {
-        const { deriveTer100Vars } = await loadTer100();
-        return deriveTer100Vars({ ...exp, oportunidades: op }).savingsKwh || 0;
+    // TERCIARIO (TER100 · TER173): AE_C + AE_ACS + AE_CAP, ponderado por el C_b en
+    // TER173. Toda la derivación vive en el módulo compartido logic/terciario.js,
+    // así que no hay que replicar el mapeo aquí.
+    if (ficha === 'TER100' || ficha === 'TER173') {
+        const { deriveTerciarioVars } = await loadTerciario();
+        return deriveTerciarioVars({ ...exp, oportunidades: op }).savingsKwh || 0;
     }
 
     if (ficha === 'RES060' || ficha === 'RES093') {
@@ -310,7 +311,7 @@ async function computeSavingsKwh(exp, op) {
             const scopHeating = parseFloat(inst.aerotermia_cal?.scop) || 3.2;
             const scopAcs = inst.misma_aerotermia_acs ? scopHeating : (parseFloat(inst.aerotermia_acs?.scop) || 2.5);
             let cb = 1;
-            const hibridActive = (inst.hibridacion ?? calcInputs.hibridacion) ?? (ficha === 'RES093');
+            const hibridActive = (inst.hibridacion ?? calcInputs.hibridacion) ?? esHibridacion(ficha);
             if (hibridActive) {
                 const hybridRes = calculateHybridization({
                     demandAnnual: q_net_heating,
@@ -494,7 +495,7 @@ function buildValidation(exp, data, savingsKwh, folderId) {
     const warnings = [];
 
     // Bloqueantes (GRAVE): sin ellos el CIFO es inválido.
-    // En TER100 la calefacción es alcance OPCIONAL (puede ser solo ACS y/o piscina),
+    // En el terciario la calefacción es alcance OPCIONAL (puede ser solo ACS y/o piscina),
     // así que la demanda/superficie/SCOP de calefacción solo se exigen si se actúa
     // sobre ella; a cambio se exige que el ahorro total no sea cero.
     if (data.tieneCalefaccion) {
@@ -505,7 +506,7 @@ function buildValidation(exp, data, savingsKwh, folderId) {
             blocking.push('No se puede generar el CIFO: falta el SCOP de la bomba de calor de calefacción.');
         }
     }
-    if (data.isTer100) {
+    if (data.isTerciario) {
         if (!data.tieneCalefaccion && !data.tieneAcs && !data.tienePiscina) {
             blocking.push('No se puede generar el CIFO: la actuación no alcanza ningún servicio (calefacción, ACS ni piscina). Marca el alcance en la pestaña Instalación.');
         }
@@ -519,6 +520,13 @@ function buildValidation(exp, data, savingsKwh, folderId) {
             blocking.push('No se puede generar el CIFO: el ahorro de energía calculado es cero. Revisa las demandas y los SCOP de los servicios dentro del alcance.');
         }
     }
+    // TER173 sin datos de hibridación: el C_b se queda en 1 y el ahorro sale como si
+    // la caldera se hubiera retirado —o sea, declarando como ahorro lo que la caldera
+    // sigue aportando—. Es BLOQUEANTE y no un aviso: la cifra que produce no es
+    // conservadora, es más alta que la real, y va firmada.
+    if (data.isTer173 && data.cbIncompleto) {
+        blocking.push('No se puede generar el CIFO: en TER173 el ahorro se pondera con el coeficiente de cobertura por bivalencia (C_b) y faltan sus datos. Rellena en la pestaña Instalación la potencia térmica de la bomba de calor y, si el método es por caldera, la potencia nominal de la caldera existente.');
+    }
     if (!data.empNombre || data.empNombre === '—') {
         blocking.push('No se puede generar el CIFO: falta la empresa instaladora asociada al expediente.');
     }
@@ -530,7 +538,7 @@ function buildValidation(exp, data, savingsKwh, folderId) {
     if (data.tieneCalefaccion && data.metodoCal === 'eprel' && !inst.aerotermia_cal?.url_eprel) {
         warnings.push('El método de SCOP en calefacción es EPREL pero falta la URL EPREL de la unidad exterior.');
     }
-    // Piscina (TER100): el SCOP_pwh se justifica con la ficha técnica del equipo, que
+    // Piscina (terciario): el SCOP_pwh se justifica con la ficha técnica del equipo, que
     // se adjunta como anexo extra del CIFO (no tiene slot propio en el catálogo).
     if (data.tienePiscina) {
         const extras = Array.isArray(doc.cifo_extra_annexes) ? doc.cifo_extra_annexes : [];

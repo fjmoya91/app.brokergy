@@ -28,7 +28,7 @@ const { PDFDocument, StandardFonts } = require('pdf-lib');
 
 const PLANTILLA = path.join(__dirname, '..', 'plantillas', 'AnexoActuacionEstandarizada.pdf');
 
-// Las cuatro fichas con las que trabajamos, con el texto EXACTO de la opción del
+// Las fichas con las que trabajamos, con el texto EXACTO de la opción del
 // desplegable oficial. Si alguna vez se añade una ficha, hay que copiar su opción
 // tal cual: `pdf.getForm().getDropdown('Código de ficha').getOptions()` las lista.
 const FICHA_CATALOGO = {
@@ -36,11 +36,14 @@ const FICHA_CATALOGO = {
     RES080: 'RES080: Rehabilitación profunda de edificios de viviendas.',
     RES093: 'RES093: Hibridación en paralelo de caldera de comb. con bomba de calor, edif. residenciales (D1, D2 o D3).',
     TER100: 'TER100: Sustitución de caldera de combustión existente por bomba de calor de accionamiento eléctrico.',
+    // Abreviada en el propio desplegable del Ministerio ("Hibrid.", "comb.",
+    // "edif."): se copia como está, porque lo que se selecciona es su opción.
+    TER173: 'TER173: Hibrid. en paralelo de caldera de comb. con bomba de calor, edif. no residenciales (D1, D2, D3).',
 };
 
 // Vida útil por ficha, para cuando el dictamen todavía no la ha fijado. Es la que
 // declara cada ficha del catálogo y la que imprimen los informes de verificación.
-const VIDA_UTIL = { RES060: 15, RES093: 15, TER100: 15, RES080: 25 };
+const VIDA_UTIL = { RES060: 15, RES093: 15, TER100: 15, TER173: 15, RES080: 25 };
 
 // CNAE de "instalaciones de fontanería, sistemas de calefacción y aire
 // acondicionado", que es el que viene declarándose y el que recogen los informes

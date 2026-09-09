@@ -18,6 +18,10 @@ import {
     calculateRes080FromEmissions
 } from '../logic/calculation';
 import { PROVINCE_CLIMATE_MAP } from '../data/provinceMapping';
+// El SECTOR decide la ficha, y con ella cómo se reparte el ahorro. La derivación
+// es la misma que aplica el backend al guardar (utils/fichas.detectPrograma).
+import { fichaDesdeInputs, SECTORES, fichaColor } from '../../expedientes/logic/expedienteTaxonomia';
+import { ACS_METHOD } from '../../expedientes/logic/demandaAcs';
 import { FV, FV_OPCIONES, normalizarFotovoltaica, potenciaTexto, etiquetaFotovoltaica } from '../../expedientes/logic/fotovoltaica';
 import { useAuth } from '../../../context/AuthContext';
 import { parseCeeXml } from '../logic/xmlCeeParser';
@@ -549,6 +553,14 @@ export function CalculatorForm({
         reader.readAsText(file);
     };
 
+    // ── Sector y ficha ────────────────────────────────────────────────────────
+    // El sector lo declara quien simula (la calculadora nació residencial, así que
+    // ése es el valor por defecto) y de él sale la ficha, con el MISMO criterio que
+    // aplica el backend al guardar la oportunidad.
+    const sectorActual = inputs.sector || SECTORES.RESIDENCIAL;
+    const esTerciario = sectorActual === SECTORES.TERCIARIO;
+    const fichaActual = fichaDesdeInputs(inputs);
+
     const handleDragOverFinal = (e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingFinal(true); };
     const handleDragLeaveFinal = (e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingFinal(false); };
     const handleDropFinal = (e) => {
@@ -560,21 +572,73 @@ export function CalculatorForm({
     return (
         <>
         <SectionCard className="h-full">
+            {/* SECTOR — su propia fila, ANTES del título.
+                Primero se dice de qué edificio es y luego se ajustan los parámetros:
+                el sector decide la ficha, y la ficha decide la fórmula del ahorro.
+                No va dentro del encabezado a propósito: ahí es `justify-between` y
+                la tarjeta mide ~589px, así que estos tres controles dejaban el
+                título en 115px y lo partían en tres líneas.
+                Solo lo ve el STAFF: un partner no elige sector. */}
+            {showBrokergy && (
+                <div className="flex flex-wrap items-center gap-2 mb-4 p-1.5 border border-white/5 bg-slate-900/50 rounded-xl shadow-inner">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 px-2">Sector</span>
+                    {[
+                        { id: SECTORES.RESIDENCIAL, label: 'Residencial', title: 'Vivienda — RES060 · RES093 · RES080' },
+                        { id: SECTORES.TERCIARIO, label: 'Terciario', title: 'Hoteles, residencias, gimnasios, centros educativos, oficinas… — TER100 · TER173' },
+                    ].map(opt => (
+                        <button
+                            key={opt.id}
+                            type="button"
+                            title={opt.title}
+                            onClick={() => onInputChange(prev => ({
+                                ...prev,
+                                sector: opt.id,
+                                ...(opt.id === SECTORES.TERCIARIO ? { isReforma: false, reformaType: 'none' } : {}),
+                            }))}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors border ${
+                                sectorActual === opt.id
+                                    ? 'bg-white/10 border-white/20 text-white'
+                                    : 'bg-transparent border-transparent text-slate-500 hover:text-white'
+                            }`}
+                        >
+                            {opt.label}
+                        </button>
+                    ))}
+                    <span className="ml-auto flex items-center gap-2 pr-1">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Ficha</span>
+                        <span
+                            title="Ficha que se aplicará al guardar la oportunidad. Sale del sector + hibridación + reforma."
+                            className={`px-2 py-1 rounded text-[10px] font-black tracking-wider border ${fichaColor(fichaActual).badge}`}
+                        >
+                            {fichaActual}
+                        </span>
+                    </span>
+                </div>
+            )}
+
             <div className="flex items-center justify-between mb-6">
                 <div>
                     <h2 className="text-2xl font-bold text-white mb-1">Cálculo de Eficiencia</h2>
                     <p className="text-sm text-slate-400">Personaliza los parámetros técnicos</p>
                 </div>
-                {/* Botón de Reforma: Ahora visible para todos (Admin y Partner) */}
+                {/* Reforma. En TERCIARIO se deshabilita: la RES080 es
+                    "rehabilitación profunda de edificios de VIVIENDAS" y no existe en
+                    el terciario, así que al marcar Terciario se apaga y el botón se
+                    deshabilita — en vez de dejar elegir una combinación imposible. */}
                 <div className="flex items-center gap-2 border border-white/5 bg-slate-900/50 rounded-xl p-1 shadow-inner">
                     <button
+                        disabled={esTerciario}
                         onClick={() => onInputChange(prev => ({ ...prev, isReforma: !prev.isReforma, reformaType: !prev.isReforma ? 'estimated' : 'none', comparativaReforma: true }))}
                         className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-colors ${
-                            inputs.isReforma 
-                                ? 'bg-purple-500/20 border-purple-500/50 text-purple-300 shadow-[0_0_15px_rgba(168,85,247,0.2)]' 
+                            esTerciario
+                                ? 'bg-slate-900 border-slate-800 text-slate-600 cursor-not-allowed'
+                                : inputs.isReforma
+                                ? 'bg-purple-500/20 border-purple-500/50 text-purple-300 shadow-[0_0_15px_rgba(168,85,247,0.2)]'
                                 : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white hover:border-slate-500'
                         }`}
-                        title="Activar o desactivar Reforma Integral (RES080)"
+                        title={esTerciario
+                            ? 'La RES080 es rehabilitación profunda de edificios de VIVIENDAS: no aplica en el sector terciario.'
+                            : 'Activar o desactivar Reforma Integral (RES080)'}
                     >
                         <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
@@ -1856,6 +1920,126 @@ export function CalculatorForm({
                                     </div>
                                 </div>
 
+                                    {/* ── SECTOR TERCIARIO ─────────────────────────────
+                                        Lo que las fichas TER100/TER173 piden y el
+                                        residencial no tiene: el ALCANCE (la actuación
+                                        puede no tocar la calefacción), la D_ACS —que en
+                                        un hotel va por plaza o la da el proyecto, no la
+                                        fórmula del CTE por dormitorios— y el
+                                        calentamiento de PISCINA, que es el tercer
+                                        sumando del ahorro. */}
+                                    {esTerciario && (
+                                        <div className="animate-scale-in p-4 bg-cyan-500/5 border border-cyan-500/20 rounded-2xl space-y-4 mb-4">
+                                            <div className="flex items-center justify-between">
+                                                <Label className="text-[9px] text-cyan-400/80 font-black uppercase tracking-widest">Alcance de la actuación · sector terciario</Label>
+                                                <span className="text-[9px] text-slate-500 uppercase tracking-wider">AE = AE<sub>C</sub> + AE<sub>ACS</sub> + AE<sub>CAP</sub></span>
+                                            </div>
+
+                                            {/* Alcance de la CALEFACCIÓN. En el residencial no es una
+                                                pregunta: la actuación ES cambiar la caldera. */}
+                                            <label className="flex items-center gap-3 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={inputs.changeHeating !== false}
+                                                    onChange={e => handleChange('changeHeating', e.target.checked)}
+                                                    className="w-4 h-4 accent-cyan-500"
+                                                />
+                                                <span className="text-xs font-bold text-slate-300">La actuación alcanza la CALEFACCIÓN</span>
+                                                <span className="text-[10px] text-slate-500">— desmárcalo si solo se actúa sobre el ACS o la piscina</span>
+                                            </label>
+
+                                            {/* D_ACS — el mismo criterio que el expediente (demandaAcs.js). */}
+                                            {inputs.changeAcs && (
+                                                <div className="space-y-2 pt-1 border-t border-white/5">
+                                                    <Label className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Demanda anual de ACS (D<sub>ACS</sub>)</Label>
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        {[
+                                                            { id: ACS_METHOD.XML, label: 'Del CEE', title: 'Del certificado cargado: demanda de ACS (kWh/m²·año) × superficie útil' },
+                                                            { id: ACS_METHOD.CTE, label: 'CTE', title: 'Anejo F del CTE por nº de habitaciones. Pensado para vivienda: en terciario rara vez encaja' },
+                                                            { id: ACS_METHOD.MANUAL, label: 'A mano', title: 'kWh/año del proyecto o por plaza/servicio. Es el modo normal en terciario' },
+                                                        ].map(opt => (
+                                                            <button
+                                                                key={opt.id}
+                                                                type="button"
+                                                                title={opt.title}
+                                                                onClick={() => handleChange('acsMethod', opt.id)}
+                                                                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-colors ${
+                                                                    (inputs.acsMethod || ACS_METHOD.CTE) === opt.id
+                                                                        ? 'bg-cyan-500/15 border-cyan-500/50 text-cyan-300'
+                                                                        : 'bg-slate-900/40 border-slate-700/50 text-slate-500 hover:text-white'
+                                                                }`}
+                                                            >
+                                                                {opt.label}
+                                                            </button>
+                                                        ))}
+                                                        {(inputs.acsMethod || ACS_METHOD.CTE) === ACS_METHOD.MANUAL && (
+                                                            <Input
+                                                                type="number"
+                                                                value={inputs.dacsManual || ''}
+                                                                onChange={e => handleChange('dacsManual', e.target.value)}
+                                                                placeholder="kWh/año"
+                                                                className="w-32 text-xs"
+                                                            />
+                                                        )}
+                                                        {(inputs.acsMethod || ACS_METHOD.CTE) === ACS_METHOD.CTE && (
+                                                            <Input
+                                                                type="number"
+                                                                value={inputs.numRooms ?? 4}
+                                                                onChange={e => handleChange('numRooms', e.target.value)}
+                                                                placeholder="habitaciones"
+                                                                className="w-32 text-xs"
+                                                            />
+                                                        )}
+                                                    </div>
+                                                    {(inputs.acsMethod || ACS_METHOD.CTE) === ACS_METHOD.XML && !xmlDemandData && (
+                                                        <p className="text-[10px] text-amber-400/80">Aún no hay CEE cargado: sin él la demanda de ACS del certificado sale 0.</p>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            {/* PISCINA — el tercer sumando. Casi nunca aplica, por eso nace apagado. */}
+                                            <div className="space-y-2 pt-1 border-t border-white/5">
+                                                <label className="flex items-center gap-3 cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={inputs.piscinaActiva === true}
+                                                        onChange={e => handleChange('piscinaActiva', e.target.checked)}
+                                                        className="w-4 h-4 accent-sky-500"
+                                                    />
+                                                    <span className="text-xs font-bold text-slate-300">Calentamiento de agua de PISCINA</span>
+                                                    <span className="text-[10px] text-slate-500">— tercer sumando del ahorro. Casi nunca aplica</span>
+                                                </label>
+                                                {inputs.piscinaActiva && (
+                                                    <div className="grid grid-cols-2 gap-3 pl-7">
+                                                        <div>
+                                                            <Label className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">D<sub>CAP</sub> (kWh/año)</Label>
+                                                            <Input
+                                                                type="number"
+                                                                value={inputs.dcap || ''}
+                                                                onChange={e => handleChange('dcap', e.target.value)}
+                                                                placeholder="kWh/año"
+                                                                className="text-xs"
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <Label className="text-[9px] text-slate-500 font-bold uppercase tracking-widest" title="No sale del catálogo: se toma de la ficha técnica del equipo de piscina (Anexo III de la ficha)">
+                                                                SCOP<sub>pwh</sub>
+                                                            </Label>
+                                                            <Input
+                                                                type="number"
+                                                                step="0.01"
+                                                                value={inputs.scopPool || ''}
+                                                                onChange={e => handleChange('scopPool', e.target.value)}
+                                                                placeholder="de la ficha técnica"
+                                                                className="text-xs"
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {inputs.hibridacion && (
                                         <div className="animate-scale-in p-4 bg-brand/5 border border-brand/20 rounded-2xl space-y-4 mb-4 relative overflow-hidden">
                                             <div className="absolute top-0 right-0 p-4 opacity-[0.03] pointer-events-none">
@@ -1892,7 +2076,10 @@ export function CalculatorForm({
                                             <div className="min-w-[140px]">
                                                 <div className="flex items-center gap-2 mb-3">
                                                     <div className="w-2 h-2 rounded-full bg-brand shadow-[0_0_8px_rgba(255,160,0,0.5)] animate-pulse" />
-                                                    <h4 className="text-[10px] font-black text-brand uppercase tracking-widest">Cálculo RES093</h4>
+                                                    {/* El C_b es de la ficha que toque: RES093 en el residencial y TER173 en el
+                                                        terciario. Rotularlo siempre "RES093" mandaba a leer el anexo de
+                                                        una ficha que no es la del expediente. */}
+                                                    <h4 className="text-[10px] font-black text-brand uppercase tracking-widest">Cálculo {esTerciario ? 'TER173' : 'RES093'}</h4>
                                                 </div>
                                                 <div className="flex gap-3">
                                                     <div className="flex-1">

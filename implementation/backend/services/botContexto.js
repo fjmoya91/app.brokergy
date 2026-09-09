@@ -2,7 +2,7 @@
  * botContexto — de un número de teléfono a "qué le pasa a esta persona".
  *
  * El bot de WhatsApp no puede contestar "qué documentación hay que aportar"
- * en abstracto: lo que hace falta depende de la ficha (RES060/080/093/TER100),
+ * en abstracto: lo que hace falta depende de la ficha (RES060/080/093/TER100/TER173),
  * de si la propuesta está aceptada, de si el CEE inicial está registrado, de si
  * la obra ya se ha hecho y de qué se ha subido ya. Este módulo reúne todo eso
  * en un DOSSIER, y el cerebro se limita a redactarlo.

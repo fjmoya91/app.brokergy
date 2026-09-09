@@ -11,6 +11,35 @@
 // ============================================================================
 // GRADOS DÍA DE CALEFACCIÓN (HDD) - Base 15°C (método CTE)
 // ============================================================================
+// ============================================================================
+// PRECIO CAE AL CLIENTE — €/MWh
+// ----------------------------------------------------------------------------
+// Hay DOS cifras y NO son lo mismo. Confundirlas cambia el bono de expedientes
+// que ya están firmados, así que cada sitio tiene que elegir a conciencia:
+//
+//   · _NUEVAS (100 €/MWh) — lo que se estampa en una propuesta que se hace HOY.
+//     Va donde se COMPONEN inputs nuevos: la calculadora y el funnel. Desde ahí
+//     viaja guardado en `datos_calculo.inputs.caePriceClient`, así que el precio
+//     de cada propuesta queda escrito en su oportunidad y no depende de esta
+//     constante nunca más.
+//
+//   · _ANTERIOR — el respaldo de LECTURA de lo ya guardado SIN precio propio.
+//     Es el valor con el que se calcularon en su día (95 €/MWh en las fichas de
+//     sustitución/hibridación, 60 en RES080), y por eso no puede subir a 100: un
+//     expediente antiguo no puede cambiar de bono porque hoy cambie la tarifa.
+//     Va donde se LEE un expediente: el panel económico, su gemelo de Node y el
+//     editor de la pestaña Economía.
+//
+// El precio al SUJETO OBLIGADO sigue siendo propio de cada ficha (160 €/MWh en
+// las de sustitución/hibridación, 140 en RES080): ahí no hay política única.
+//
+// ⚠️ Ninguna de las dos manda sobre un dato guardado: si la oportunidad trae su
+// `caePriceClient` o el expediente su `economico_override.cae_client_rate`, ése
+// es el precio y estas constantes ni se miran.
+// ============================================================================
+export const CAE_PRECIO_CLIENTE_NUEVAS = 100;
+export const CAE_PRECIO_CLIENTE_ANTERIOR = { estandar: 95, res080: 60 };
+
 export const HDD = {
     A3: 600, A4: 550,
     B3: 950, B4: 900,
@@ -64,6 +93,21 @@ export function normalizeClimateSeason(season) {
     return HE_ACTIVE_MODE_HOURS[s] ? s : HE_DEFAULT_SEASON;
 }
 
+// ----------------------------------------------------------------------------
+// TABLA DE COBERTURA POR BIVALENCIA PARALELA (C_b) — zona climática D1-D3
+//
+// La MISMA tabla en las dos fichas de hibridación en paralelo que maneja la app:
+// Anexo III de la RES093 (residencial) y Anexo IV de la TER173 (terciario). Se ha
+// comparado valor a valor: coinciden los 16 escalones. Por eso hay una sola tabla
+// y no una por ficha — dos copias divergirían el día que el Ministerio corrija una.
+//
+// El Anexo IV de la TER173 trae ADEMÁS una segunda columna para bombas de calor
+// geotérmicas e hidrotérmicas (al 50 % de cobertura: 86,38 % frente al 80,45 % de
+// la aerotermia). No se implementa: la app solo trabaja con aerotermia —su catálogo
+// de equipos se llama así y no tiene un solo modelo geotérmico—, y un selector que
+// nadie usa es código que envejece sin que nadie lo compruebe. Si algún día entra
+// una geotérmica, la columna está en el Anexo IV de la ficha.
+// ----------------------------------------------------------------------------
 export const BIVALENCE_TABLE = [
     { coverage: 0.20, cb: 0.3946 },
     { coverage: 0.25, cb: 0.4828 },
@@ -734,11 +778,18 @@ export function calculateSavings({
     const totalFinalEnergyNew = finalEnergyHeatingNew + finalEnergyAcsNew;
 
     // 3. Ahorros (Aplicando Cb si es híbrido)
-    // El ahorro solo se produce sobre la fracción de demanda que cubre la bomba de calor
+    // El ahorro solo se produce sobre la fracción de demanda que cubre la bomba de calor.
+    //
+    // REGLA — el Cb pondera TAMBIÉN el ACS. La fórmula de la ficha RES093 lo pone
+    // fuera del corchete, sobre los DOS servicios:
+    //     AE_TOTAL = F_P · [ (D_CAL·S)·(1/η−1/SCOP) + D_ACS·(1/η−1/SCOP_dhw) ] · C_b
+    // Hasta 2026-09-09 aquí solo multiplicaba a la calefacción, con el argumento de
+    // que "el ACS no se ve afectado si es independiente". No lo es: en una
+    // hibridación en paralelo la caldera sigue aportando su parte también al
+    // depósito, que es justo lo que el C_b mide. Un ahorro de ACS sin ponderar
+    // declara como cubierto por la bomba algo que cubre la caldera.
     const savingsHeatingKwh = (finalEnergyHeatingOld - finalEnergyHeatingNew) * cb;
-    
-    // El ahorro de ACS no se ve afectado por Cb si es independiente o si se asume cobertura total
-    const savingsAcsKwh = finalEnergyAcsOld - finalEnergyAcsNew;
+    const savingsAcsKwh = (finalEnergyAcsOld - finalEnergyAcsNew) * cb;
 
     const savingsKwh = savingsHeatingKwh + savingsAcsKwh;
     const savingsPercent = (savingsKwh / totalFinalEnergyOld) * 100;
@@ -752,11 +803,23 @@ export function calculateSavings({
 }
 
 // ============================================================================
-// CÁLCULO DE AHORROS TER100 (SECTOR TERCIARIO)
+// CÁLCULO DE AHORROS DEL SECTOR TERCIARIO (fichas TER100 y TER173)
 // ----------------------------------------------------------------------------
-// Ficha TER100 V1.1: "Sustitución de caldera de combustión existente por bomba
-// de calor de accionamiento eléctrico" en el sector TERCIARIO (hoteles,
-// restaurantes, residencias, gimnasios, centros educativos, oficinas…).
+// Dos fichas del sector TERCIARIO (hoteles, restaurantes, residencias, gimnasios,
+// centros educativos, oficinas…) que comparten EXACTAMENTE los tres sumandos y
+// solo se separan en el último paso:
+//
+//   · TER100 V1.1 — "Sustitución de caldera de combustión existente por bomba de
+//     calor de accionamiento eléctrico". AE_TOTAL = AE_C + AE_ACS + AE_CAP.
+//   · TER173 V1.0 — "Hibridación en modo paralelo de caldera/s de combustión con
+//     bomba de calor de accionamiento eléctrico en edificios NO residenciales
+//     ubicados en la zona climática D1, D2 o D3". La caldera NO se retira: sigue
+//     aportando, y por eso el ahorro se pondera con el coeficiente de cobertura
+//     por bivalencia:  AE_TOTAL = (AE_C + AE_ACS + AE_CAP) · C_b   (apartado 4).
+//
+// Por eso el C_b es un PARÁMETRO de esta función y no hay una gemela: cambiar la
+// fórmula de los tres sumandos en un sitio y no en el otro es exactamente el
+// fallo que un verificador encuentra comparando la ficha con el CIFO.
 //
 // A diferencia de RES060 —que agrupa todo en un único AE_TOTAL— la ficha TER100
 // desglosa el ahorro en TRES sumandos independientes, cada uno con su propio
@@ -765,18 +828,18 @@ export function calculateSavings({
 //   AE_C   = (1/η_i − 1/SCOP)      · D_C   · S · F_P      [calefacción]
 //   AE_ACS = (1/η_i − 1/SCOP_dhw)  · D_ACS     · F_P      [agua caliente sanitaria]
 //   AE_CAP = (1/η_i − 1/SCOP_pwh)  · D_CAP     · F_P      [calentamiento de piscina]
-//   AE_TOTAL = AE_C + AE_ACS + AE_CAP
+//   AE_TOTAL = (AE_C + AE_ACS + AE_CAP) · C_b   (C_b = 1 en TER100)
 //
 // Ojo con las UNIDADES, que no son homogéneas en la ficha: D_C va en kWh/año·m²
 // (por eso se multiplica por S) mientras D_ACS y D_CAP ya son kWh/año absolutos.
 // Aquí se recibe `q_net_heating` = D_C · S ya multiplicado, igual que en
 // calculateSavings, para que el mapeo desde el CEE sea el mismo en toda la app.
 //
-// En TER100 la actuación puede alcanzar SOLO calefacción, SOLO ACS o AMBAS (y
-// opcionalmente piscina): cada sumando se activa con su propio flag y el que no
-// aplica no entra en la fórmula (no suma 0 "por dentro", queda fuera).
+// En el terciario la actuación puede alcanzar SOLO calefacción, SOLO ACS o AMBAS
+// (y opcionalmente piscina): cada sumando se activa con su propio flag y el que
+// no aplica no entra en la fórmula (no suma 0 "por dentro", queda fuera).
 // ============================================================================
-export function calculateTer100({
+export function calculateTerciario({
     q_net_heating = 0,   // D_C · S — demanda anual de calefacción (kWh/año)
     dacs = 0,            // D_ACS — demanda anual de ACS (kWh/año, absoluta)
     dcap = 0,            // D_CAP — demanda anual de calentamiento de piscina (kWh/año)
@@ -787,7 +850,8 @@ export function calculateTer100({
     changeHeating = true,// ¿la actuación alcanza la calefacción?
     changeAcs = false,   // ¿la actuación alcanza el ACS?
     changePool = false,  // ¿la actuación alcanza el calentamiento de piscina?
-    fp = 1               // F_P — factor de ponderación (la ficha lo fija en 1)
+    fp = 1,              // F_P — factor de ponderación (la ficha lo fija en 1)
+    cb = 1               // C_b — cobertura por bivalencia (TER173). 1 = sin hibridar
 }) {
     const eff = parseFloat(boilerEff) || 0;
     // Un sumando solo cuenta si está en el alcance Y tiene demanda y SCOP válidos:
@@ -802,7 +866,12 @@ export function calculateTer100({
     const aeCal = term(changeHeating, q_net_heating, scopHeating);
     const aeAcs = term(changeAcs, dacs, scopAcs);
     const aeCap = term(changePool, dcap, scopPool);
-    const savingsKwh = aeCal + aeAcs + aeCap;
+    // El C_b pondera el TOTAL, no solo la calefacción: en TER173 la caldera sigue
+    // aportando a los tres servicios hibridados (apartado 4 de la ficha).
+    const cbAplicado = parseFloat(cb);
+    const cbNum = Number.isFinite(cbAplicado) && cbAplicado > 0 ? cbAplicado : 1;
+    const savingsSinCb = aeCal + aeAcs + aeCap;
+    const savingsKwh = savingsSinCb * cbNum;
 
     // Energía final antes/después, solo sobre los servicios dentro del alcance —
     // es lo que alimenta el % de ahorro y los paneles de resumen.
@@ -814,6 +883,10 @@ export function calculateTer100({
 
     return {
         aeCal, aeAcs, aeCap,
+        // `savingsSinCb` es la suma cruda de los tres sumandos: es lo que la ficha
+        // TER173 imprime en sus tres casillas (su impreso no tiene casilla de C_b),
+        // así que hace falta poder enseñar las dos cifras y explicar la diferencia.
+        cb: cbNum, savingsSinCb,
         savingsKwh,
         finalEnergyOld,
         finalEnergyNew,
@@ -1339,7 +1412,7 @@ export function calculateFinancials({
     presupuesto = 12000,
     presupuestoFotovoltaica = 0, // Presupuesto de instalación fotovoltaica (se suma a la base de deducción IRPF)
     savingsKwh,
-    caePriceClient = 95,
+    caePriceClient = CAE_PRECIO_CLIENTE_ANTERIOR.estandar,
     caePriceSO = 160,
     caePricePrescriptor = 0,
     prescriptorMode = 'brokergy', // 'client', 'brokergy', 'both'

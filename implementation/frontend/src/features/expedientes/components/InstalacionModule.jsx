@@ -4,7 +4,7 @@ import { BOILER_EFFICIENCIES, getScopFromModel, getScopSeason, getScopAcsFromMod
 import { PROVINCE_CODE_TO_CCAA, PROVINCE_CODE_TO_NAME } from '../utils/docGenerators';
 import { withScopAplicado, cloneAero, potenciaTotal, countUnidades, scopPropioUnidad1, scopAplicado, tipoEquipoNuevo, datosAcumulador, EQUIPO_NUEVO, RENDIMIENTO_JOULE, acsEquipoPropio } from '../logic/aerotermiaUnits';
 import { EMITTER_OPTIONS, getEmitterTemp } from '../logic/cifoDoc';
-import { esTer100 } from '../logic/ter100';
+import { esTer173, esTerciario } from '../logic/terciario';
 import { FV, FV_OPCIONES, normalizarFotovoltaica, potenciaTexto } from '../logic/fotovoltaica';
 import { useAuth } from '../../../context/AuthContext';
 import { getRoleFlags } from '../../../utils/roleFlags';
@@ -322,7 +322,7 @@ function PiscinaSection({ data, onChange, readOnly }) {
             <div className="flex flex-wrap items-center justify-between gap-4 relative z-10">
                 <div className="flex flex-col gap-1">
                     <span className="text-[10px] font-black text-cyan-400 uppercase tracking-widest">Calentamiento de agua de piscina · AE_CAP</span>
-                    <span className="text-[10px] text-white/35">Tercer sumando del ahorro en TER100. Casi nunca aplica: actívalo solo si la actuación calienta el agua de una piscina.</span>
+                    <span className="text-[10px] text-white/35">Tercer sumando del ahorro en el terciario. Casi nunca aplica: actívalo solo si la actuación calienta el agua de una piscina.</span>
                 </div>
                 <button
                     type="button"
@@ -1378,8 +1378,11 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
         // Placas ya instaladas. Se normaliza igual que tipo_emisor: un expediente
         // guardado antes de blacklistear la clave puede traer 'FUTURO'.
         fotovoltaica: normalizarFotovoltaica(expediente?.instalacion?.fotovoltaica),
-        // Si el número de expediente es RES093, forzamos hibridación a true si no viene ya definida
-        hibridacion: (expediente?.numero_expediente?.includes('RES093') ? true : (expediente?.instalacion?.hibridacion ?? false))
+        // En las fichas de HIBRIDACIÓN (RES093 y TER173) el análisis nace activado si
+        // no viene ya definido: es la actuación, no una opción. En TER173 dejarlo
+        // apagado calcularía el ahorro con Cb = 1, o sea como si la caldera se
+        // hubiera retirado — más alto que el real, y firmado.
+        hibridacion: (/RES093|TER173/.test(expediente?.numero_expediente || '') ? true : (expediente?.instalacion?.hibridacion ?? false))
     }));
 
     // Notificar al padre de cambios en tiempo real para el resumen sticky y autosave
@@ -1642,10 +1645,13 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
         }
     };
 
-    // TER100 (terciario) admite que la actuación NO alcance la calefacción (solo ACS
-    // y/o piscina). En RES060/RES093 la actuación ES el cambio de la caldera de
-    // calefacción, así que ahí el toggle no se ofrece y `cambio_calefaccion` es true.
-    const esTerciario = esTer100(expediente);
+    // El TERCIARIO (TER100 · TER173) admite que la actuación NO alcance la calefacción
+    // (solo ACS y/o piscina). En RES060/RES093 la actuación ES el cambio de la caldera
+    // de calefacción, así que ahí el toggle no se ofrece y `cambio_calefaccion` es true.
+    const esExpTerciario = esTerciario(expediente);
+    // TER173 es terciaria E híbrida: la piscina y el alcance de calefacción son suyos
+    // igual que en TER100, pero además necesita el bloque de hibridación (el C_b).
+    const esExpTer173 = esTer173(expediente);
 
     const handleCambioCalefaccionChange = (val) => {
         // Si se saca la calefacción del alcance, el ACS pasa a tener sus propios
@@ -1842,7 +1848,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                 {/* ── PREGUNTA CALEFACCIÓN (solo TER100) ──
                     En el terciario la sustitución puede alcanzar solo el ACS o solo la
                     piscina, así que el alcance sobre calefacción es una pregunta real. */}
-                {esTerciario && (
+                {esExpTerciario && (
                     <div className={`bg-slate-900 border p-4 rounded-xl ${readOnly ? 'border-white/5 opacity-80' : 'border-brand/20'}`}>
                         <div className="flex items-center justify-between">
                             <span className="text-xs font-black text-white uppercase tracking-widest">¿Se va a actuar sobre la calefacción?</span>
@@ -2056,8 +2062,8 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                     )}
                 </div>
 
-                {/* ── PISCINA (AE_CAP · solo TER100) ── */}
-                {esTerciario && (
+                {/* ── PISCINA (AE_CAP · solo terciario) ── */}
+                {esExpTerciario && (
                     <PiscinaSection
                         data={local.piscina}
                         onChange={v => setLocal(p => ({ ...p, piscina: v }))}
@@ -2066,10 +2072,12 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                 )}
 
                 {/* ── HIBRIDACIÓN ──
-                    No aplica en TER100: la ficha del terciario no contempla el
-                    coeficiente de cobertura por bivalencia (Cb), así que el bloque se
-                    oculta para no ofrecer un dato que su fórmula ignora. */}
-                <div className={`bg-slate-950/80 border border-brand/20 p-5 rounded-2xl space-y-4 shadow-2xl relative overflow-hidden group ${esTerciario ? 'hidden' : ''}`}>
+                    No aplica en TER100: su ficha es de SUSTITUCIÓN total y no contempla
+                    el coeficiente de cobertura por bivalencia (Cb), así que el bloque se
+                    oculta para no ofrecer un dato que su fórmula ignora. En TER173 SÍ
+                    aplica —es la hibridación del terciario— y ahí el Cb no es opcional:
+                    sin él, el ahorro sale como si la caldera se hubiera retirado. */}
+                <div className={`bg-slate-950/80 border border-brand/20 p-5 rounded-2xl space-y-4 shadow-2xl relative overflow-hidden group ${esExpTerciario && !esExpTer173 ? 'hidden' : ''}`}>
                     <div className="absolute top-0 right-0 p-8 bg-brand/5 rounded-full blur-3xl -mr-10 -mt-10" />
 
                     <div className="flex flex-wrap items-center justify-between gap-4 relative z-10">
