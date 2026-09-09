@@ -4588,7 +4588,7 @@ etiqueta `INSTALADORES` la ponía alguien a mano cuando se acordaba — medido e
 | La agenda (leer contacto · guardar sin pisar) | [whatsappContactos.js](implementation/backend/services/whatsappContactos.js) |
 | Ruta | `POST /api/whatsapp/etiquetas/sincronizar-instaladores` — **adminOnly o `x-internal-key`** |
 | Superficie | Panel de WhatsApp: "Ver qué haría" → "Sincronizar ahora" |
-| Repaso completo desde el VPS | `docker exec brokergy-backend node scripts/sincronizar_etiquetas_instaladores.js [--execute]` |
+| Repaso completo desde el VPS | `cd /opt/brokergy/implementation/backend && node scripts/sincronizar_etiquetas_instaladores.js [--execute]` |
 | Prueba de lo puro, en local | `node implementation/backend/scripts/test_sync_etiquetas_instaladores.js` |
 
 **REGLA — un nombre que YA está en la agenda no se toca jamás.** Lo puso una
@@ -4635,6 +4635,23 @@ verdad. Y `dryRun` es el valor por DEFECTO de la ruta — la llamada que se hace
 pensar es la que no toca nada. Pausa de `WA_SYNC_PAUSA_MS` (1,5 s) entre chats, y
 corte tras 3 tiempos de espera seguidos: 90 operaciones en ráfaga contra ese
 Chrome es justo lo que no conviene hacerle.
+
+**REGLA — el repaso va a TROZOS.** Son ~90 teléfonos a segundo y medio y nginx
+corta la petición a los 60 s: el repaso entero devolvía un **504 con medio
+trabajo hecho y sin informe**, que es la peor combinación (no sabes qué se hizo).
+La ruta mira como mucho `WA_SYNC_LIMITE` (12) teléfonos y devuelve en `restantes`
+los instaladores que faltan; el script y el botón encadenan las pasadas y enseñan
+el avance. Mismo patrón que el paquete de actuaciones de un lote.
+
+⚠️ **El script se ejecuta en el HOST del VPS, no dentro del contenedor**:
+`.dockerignore` excluye `scripts/` a propósito. Y en el host no hay
+`node_modules` —viven en la imagen—, así que ese script no puede requerir NADA:
+lee el `.env` a mano y usa el `fetch` de Node.
+
+Medido el 09/09/2026 al estrenarlo: 71 instaladores, 83 teléfonos, **54 chats
+etiquetados** (18 ya la tenían) y solo **6 contactos nuevos** en la agenda — casi
+todos estaban ya guardados, que es justo lo que la regla protege. La etiqueta
+pasó de 26 a 80 chats. Once números no tienen WhatsApp: son los fijos de empresa.
 
 **Etiqueta que no existe = se dice cómo crearla.** No se puede crear desde la app
 (WhatsApp no lo expone y la librería tiene rota toda esa familia — ver "Lo que
