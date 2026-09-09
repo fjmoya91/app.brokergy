@@ -694,15 +694,14 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     const [paquete, setPaquete] = useState(null);   // informe del último dryRun
     const [modoPaquete, setModoPaquete] = useState('expediente');
 
-    const pedirPaquete = async (modo, dryRun) => {
+    const pedirPaquete = async (modo, dryRun = true) => {
         setError('');
         setModoPaquete(modo);
-        const nombre = modo === 'gestor' ? 'el envío al gestor' : 'los expedientes';
         setLectura({
             phase: 'sending',
-            sendingTitle: dryRun ? 'Comprobando el paquete…' : 'Renombrando y comprimiendo…',
-            subtitle: dryRun ? `Buscando los documentos de cada actuación` : `Un ZIP por actuación para ${nombre}`,
-            icon: dryRun ? 'read' : 'upload',
+            sendingTitle: 'Comprobando el paquete…',
+            subtitle: 'Buscando los documentos de cada actuación',
+            icon: 'read',
         });
         try {
             const { data } = await axios.post(`/api/lotes/${lote.id}/paquete-actuaciones`, { modo, dryRun });
@@ -712,17 +711,12 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
             setLectura({
                 phase: 'done',
                 ok: completas.length > 0 && !data.bloqueados.length,
-                okTitle: dryRun
-                    ? (data.bloqueados.length ? 'Faltan documentos' : `${completas.length} actuaciones listas`)
-                    : `${data.generados.length} paquetes generados`,
+                okTitle: data.bloqueados.length ? 'Faltan documentos' : `${completas.length} actuaciones listas`,
                 errorTitle: completas.length ? 'Faltan documentos' : 'No se puede armar ningún paquete',
-                subtitle: dryRun
-                    ? 'Nada se ha escrito todavía en Drive'
-                    : `${lote?.codigo} · ${data.destino?.nombre || ''}`,
+                subtitle: 'Nada se ha escrito todavía en Drive',
                 items: [
                     ...completas.map(a => ({
-                        texto: `E${a.n} · ${a.numero_expediente} — ${a.n_ficheros} documentos`
-                            + (dryRun ? '' : (a.zip ? ` → ${a.zip.nombre}` : '')),
+                        texto: `E${a.n} · ${a.numero_expediente} — ${a.n_ficheros} documentos`,
                     })),
                     // Lo que la app no tiene APUNTADO se dice aunque el paquete salga:
                     // hoy funciona porque alguien dejó una copia en la carpeta, y el
@@ -742,18 +736,79 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 // El paso siguiente obvio va EN el popup. Comprobar y generar son dos
                 // gestos a propósito (regla 40), pero eso no obliga a cerrar y volver
                 // a buscar el botón en la pantalla de detrás.
-                accion: (dryRun && listas > 0) ? {
+                accion: listas > 0 ? {
                     etiqueta: `📦 Generar ${listas} ZIP${modo === 'gestor' ? ' para el gestor' : ' en los expedientes'}`,
-                    onClick: () => pedirPaquete(modo, false),
+                    // La lista de actuaciones viaja EN el closure, no se lee del
+                    // estado: `setPaquete` acaba de llamarse y el `paquete` de este
+                    // render sigue siendo el anterior.
+                    onClick: () => generarPaquete(modo, completas),
                 } : null,
                 errorText: data.bloqueados.length ? data.bloqueados.join('\n') : null,
             });
         } catch (err) {
             setLectura({
-                phase: 'done', ok: false, errorTitle: 'No se pudo preparar el paquete',
-                errorText: err.response?.data?.error || 'Error al generar el paquete de actuaciones.',
+                phase: 'done', ok: false, errorTitle: 'No se pudo comprobar el paquete',
+                errorText: err.response?.data?.error || 'La comprobación no llegó a terminar.',
             });
         }
+    };
+
+    // ── Generar: UNA petición por actuación ──────────────────────────────────
+    // Las cinco de un tirón son varios minutos (≈18 ficheros por actuación que se
+    // bajan de Drive, se copian con su nombre del índice y se comprimen) y eso NO
+    // cabe en los 120 s del proxy: la respuesta se cortaba y la pantalla decía "no
+    // se pudo preparar el paquete" mientras el servidor seguía escribiendo los ZIP
+    // y los terminaba — daba por fallido un trabajo hecho, que es el peor error que
+    // puede cometer una pantalla. De una en una, cada petición dura lo que dura su
+    // actuación, se puede decir por dónde va, y si una se cae las demás quedan.
+    const generarPaquete = async (modo, actuaciones) => {
+        const cola = (actuaciones || []).filter(a => a && a.ok);
+        if (!cola.length) return;
+        setError('');
+        setModoPaquete(modo);
+        const hechas = [];
+        const fallidas = [];
+        let destino = '';
+        for (let i = 0; i < cola.length; i++) {
+            const a = cola[i];
+            setLectura({
+                phase: 'sending',
+                sendingTitle: `Renombrando y comprimiendo… ${i + 1} de ${cola.length}`,
+                subtitle: `E${a.n} · ${a.numero_expediente}`,
+                icon: 'upload',
+            });
+            try {
+                const { data } = await axios.post(`/api/lotes/${lote.id}/paquete-actuaciones`,
+                    { modo, dryRun: false, soloActuacion: a.n });
+                destino = data.destino?.nombre || destino;
+                const r = (data.actuaciones || [])[0];
+                if (r && r.ok) hechas.push(r);
+                else fallidas.push(`E${a.n} · ${a.numero_expediente}: ${(data.bloqueados || []).join(' · ') || 'no se pudo armar'}`);
+            } catch (err) {
+                fallidas.push(`E${a.n} · ${a.numero_expediente}: ${err.response?.data?.error
+                    || 'la petición no llegó a terminar — mira su carpeta en Drive antes de repetirla'}`);
+            }
+        }
+        setLectura({
+            phase: 'done',
+            ok: hechas.length > 0,
+            okTitle: fallidas.length
+                ? `${hechas.length} de ${cola.length} paquetes generados`
+                : `${hechas.length} paquetes generados`,
+            errorTitle: 'No se pudo generar ningún paquete',
+            subtitle: `${lote?.codigo} · ${destino}`,
+            items: [
+                ...hechas.map(r => ({
+                    texto: `E${r.n} · ${r.numero_expediente} — ${r.n_ficheros} documentos`
+                        + (r.zip ? ` → ${r.zip.nombre}` : ''),
+                })),
+                // Lo que ha fallado va EN la lista y en ámbar, no escondido en el
+                // texto de error: aquí lo demás SÍ se ha generado.
+                ...fallidas.map(t => ({ texto: t, tono: 'aviso' })),
+            ],
+            errorText: hechas.length ? null : fallidas.join('\n'),
+        });
+        if (onChanged) onChanged();
     };
 
     const generarAnexos = async () => {
@@ -1002,7 +1057,8 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                         </BotonAccion>
                         {paquete && paquete.dryRun && paquete.modo === 'expediente'
                             && paquete.actuaciones.some(a => a.ok) && (
-                            <BotonAccion onClick={() => pedirPaquete('expediente', false)} tono="amber">
+                            <BotonAccion tono="amber"
+                                onClick={() => generarPaquete('expediente', paquete.actuaciones.filter(a => a.ok))}>
                                 📦 Generar {paquete.actuaciones.filter(a => a.ok).length} ZIP en los expedientes
                             </BotonAccion>
                         )}
@@ -1141,7 +1197,8 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                                 ⌕ Comprobar el paquete E1-E5
                             </BotonAccion>
                             {paquete && paquete.dryRun && paquete.actuaciones.some(a => a.ok) && (
-                                <BotonAccion onClick={() => pedirPaquete(modoPaquete, false)} tono="amber">
+                                <BotonAccion tono="amber"
+                                    onClick={() => generarPaquete(modoPaquete, paquete.actuaciones.filter(a => a.ok))}>
                                     📦 Generar {paquete.actuaciones.filter(a => a.ok).length} ZIP
                                     {modoPaquete === 'gestor' ? ' para el gestor' : ' en los expedientes'}
                                 </BotonAccion>

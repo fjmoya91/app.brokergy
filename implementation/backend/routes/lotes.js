@@ -1015,8 +1015,13 @@ router.post('/:id/paquete-actuaciones', adminOnly, async (req, res) => {
     try {
         const modo = req.body?.modo === 'gestor' ? 'gestor' : 'expediente';
         const dryRun = !!req.body?.dryRun;
+        // Generar se pide de UNA actuación en UNA petición (`soloActuacion`): las
+        // cinco de un tirón pasan de los 120 s del proxy y la respuesta se corta con
+        // los ZIP a medio escribir — la pantalla daba error de algo que sí se estaba
+        // haciendo. La comprobación en seco no baja ficheros y sigue yendo entera.
+        const soloActuacion = Number(req.body?.soloActuacion) || null;
         const { construirPaquete } = require('../services/envioGestorService');
-        const informe = await construirPaquete(req.params.id, { modo, dryRun, usuario: usuarioDe(req) });
+        const informe = await construirPaquete(req.params.id, { modo, dryRun, soloActuacion, usuario: usuarioDe(req) });
 
         // Solo se deja constancia de lo que se ha ESCRITO: una comprobación en seco
         // no es un hito del lote y llenaría el historial de líneas que no ocurrieron.

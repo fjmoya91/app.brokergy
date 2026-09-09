@@ -539,12 +539,19 @@ async function paqueteDeActuacion(ctx, { modo, dryRun, zipEnMemoria = false }) {
 /**
  * Arma el paquete de TODAS las actuaciones del lote.
  *
+ * `soloActuacion` arma UNA sola (por su nº E{n}). Generar las cinco de un tirón
+ * son varios minutos —~18 ficheros por actuación que se bajan, se copian y se
+ * comprimen— y eso no cabe en el plazo de un proxy: se cortaba la respuesta y la
+ * pantalla decía "no se pudo preparar el paquete" mientras el servidor seguía
+ * escribiendo los ZIP y los terminaba. Pidiéndolas de una en una, cada petición
+ * dura lo que dura una actuación y además se puede decir por dónde va.
+ *
  * @param {string} loteId
- * @param {{ modo?: 'expediente'|'gestor', dryRun?: boolean, usuario?: string }} opts
+ * @param {{ modo?: 'expediente'|'gestor', dryRun?: boolean, soloActuacion?: number, usuario?: string }} opts
  * @returns {Promise<object>} informe por actuación (nunca lanza por un expediente
  *          incompleto: lo devuelve en `bloqueados`).
  */
-async function construirPaquete(loteId, { modo = 'expediente', dryRun = false, zipEnMemoria = false, usuario = 'SISTEMA' } = {}) {
+async function construirPaquete(loteId, { modo = 'expediente', dryRun = false, zipEnMemoria = false, soloActuacion = null, usuario = 'SISTEMA' } = {}) {
     const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', loteId).maybeSingle();
     if (error) throw error;
     if (!lote) throw new Error('Lote no encontrado');
@@ -586,6 +593,9 @@ async function construirPaquete(loteId, { modo = 'expediente', dryRun = false, z
             bloqueados.push(`${exp.numero_expediente}: sin nº de actuación — registra antes los ahorros del informe de verificación`);
             continue;
         }
+        // Pedida UNA actuación, las demás no se tocan ni se cuentan como bloqueadas:
+        // no se ha intentado armarlas.
+        if (soloActuacion && n !== Number(soloActuacion)) continue;
         const driveFolderId = await carpetaDeExpediente(exp);
         if (!driveFolderId) {
             bloqueados.push(`E${n} · ${exp.numero_expediente}: el expediente no tiene carpeta en Drive`);
@@ -620,6 +630,7 @@ async function construirPaquete(loteId, { modo = 'expediente', dryRun = false, z
     return {
         modo,
         dryRun: !!dryRun,
+        solo_actuacion: soloActuacion ? Number(soloActuacion) : null,
         codigo: lote.codigo,
         destino: modo === 'gestor'
             ? { nombre: CARPETA_GESTOR(lote.codigo), link: destinoLink }

@@ -3700,6 +3700,27 @@ sin explicación se lee como un olvido.
 la hora de subir a beCAE todavía no existe y exigirlo bloqueaba el paquete entero por
 un papel que no puede estar.
 
+**REGLA — GENERAR se pide de UNA actuación por PETICIÓN.** Armar las cinco de un
+tirón son ~5 minutos (medido en el VPS el 09/09/2026: **~50 s por actuación**, E1 a
+las 15:21:14 y E5 a las 15:24:47) y eso no cabe en los **120 s** de `proxy_read_timeout`
+de `/api/`: nginx cortaba la respuesta a la altura de la segunda y la pantalla decía
+**"no se pudo preparar el paquete"** mientras el servidor seguía y terminaba los cinco
+ZIP. Dar por fallido un trabajo hecho es el peor error que puede cometer una pantalla
+—el mismo vicio que el ACK de WhatsApp (regla 39)—. Ahora el frontend recorre las
+actuaciones (`generarPaquete`) llamando con **`soloActuacion: n`**: cada petición dura
+lo que dura su actuación, el overlay dice por dónde va ("Renombrando y comprimiendo… 3
+de 5 · E3 · 26RES080_56") y si una se cae las demás quedan generadas y se dice cuál
+falló. La comprobación en seco no baja ficheros y sigue yendo entera.
+
+⚠️ Como red de seguridad, esas dos rutas tienen su propia `location` en nginx con
+**900 s** (`~ ^/api/lotes/[^/]+/(paquete-actuaciones|anexos-actuacion)$`; la de regex
+gana a la de prefijo `/api/`, que se queda en 120 s — un plazo generoso para TODA la
+API es una conexión colgada un cuarto de hora por cada petición que se atasque).
+Aplicada **a mano en el VPS**, en `nginx.conf` y en su `nginx.https.conf` local, porque
+esa config está divergida del repo y un cambio por `git pull` aborta el deploy entero
+(ver `deploy_workflow`); y con `docker compose restart nginx`, nunca `reload`, por el
+gotcha del inodo del bind-mount.
+
 ⚠️ Armando el ZIP **en memoria** no hay carpeta destino: `E{n}` puede no existir
 todavía —y no existe en un lote que aún no se ha presentado, que es justo el que se
 quiere comprobar—. Antes eso moría con "No se pudo preparar la carpeta E1".
