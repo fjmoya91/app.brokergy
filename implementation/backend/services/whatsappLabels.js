@@ -221,19 +221,29 @@ async function poner(chatId, labelIds) {
         throw deDato(`Estas etiquetas ya no existen en WhatsApp: ${desconocidas.join(', ')}. Recarga la lista.`);
     }
 
-    // Si la conversación no existe todavía, se prepara: etiquetar a un cliente
-    // al que aún no has escrito es un caso normal —lo das de alta y lo clasificas
-    // antes de hablar con él— y no tendría sentido obligar a mandarle un mensaje
-    // para poder ponerle una etiqueta.
-    await asegurarChat(chatId);
-
+    // La conversación se prepara y se etiqueta DENTRO DE LA MISMA evaluate, y
+    // conservando el modelo que devuelve `findOrCreateLatestChat`.
+    //
+    // ⚠️ No vale crearla antes con `asegurarChat` y volver a buscarla aquí: un
+    // chat recién creado al que nunca se ha escrito NO entra en `C.Chat` con su
+    // `@c.us` —medido el 09/09/2026: `findOrCreateLatestChat` devuelve
+    // `{chat, created}` y `C.Chat.get(id)` sigue dando `undefined`, porque el
+    // chat vive bajo su `@lid`—, así que el `C.Chat.get` de después fallaba con
+    // "Ese chat ya no existe en WhatsApp". Es decir: etiquetar a alguien a quien
+    // aún no has escrito —el caso normal al dar de alta a un instalador— era
+    // justo el que no funcionaba.
     await conPlazo(client.pupPage.evaluate(async (chatId, destino) => {
         const Conn = window.require('WAWebConnModel').Conn;
         if (['smba', 'smbi'].indexOf(Conn.platform) === -1) {
             throw new Error('Las etiquetas solo existen en WhatsApp Business.');
         }
         const C = window.require('WAWebCollections');
-        const chat = C.Chat.get(chatId);
+        let chat = C.Chat.get(chatId);
+        if (!chat) {
+            const wid = window.require('WAWebWidFactory').createWid(chatId);
+            const r = await window.require('WAWebFindChatAction').findOrCreateLatestChat(wid);
+            chat = C.Chat.get(chatId) || (r && r.chat) || null;
+        }
         if (!chat) throw new Error('Ese chat ya no existe en WhatsApp.');
 
         const actuales = (chat.labels || []).map(String);

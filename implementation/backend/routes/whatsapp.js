@@ -132,6 +132,7 @@ router.post('/send-media', requireAuth, requireService, async (req, res) => {
 // nombre de BROKERGY.
 // ─────────────────────────────────────────────────────────────────────────────
 const waLabels = require('../services/whatsappLabels');
+const waSync = require('../services/whatsappInstaladoresSync');
 
 // Un fallo de dato o de estado (WhatsApp caído, chat inexistente, cuenta que no
 // es Business) NO es una avería del servidor: su mensaje ya está escrito para
@@ -185,6 +186,34 @@ router.put('/etiquetas/:telefono', adminOnly, async (req, res) => {
         const chatId = await waLabels.chatIdDeTelefono(req.params.telefono, { crear: true });
         const puestas = await waLabels.poner(chatId, ids);
         res.json({ ok: true, chat_id: chatId, puestas });
+    } catch (e) { errorLabels(res, e); }
+});
+
+// POST /api/whatsapp/etiquetas/sincronizar-instaladores  { dryRun?, ids? }
+//
+// Repasa la cartera de instaladores y deja cada chat con su etiqueta (y, si el
+// número no está guardado, con su nombre). ADMIN: escribe en la AGENDA del
+// teléfono, que es lo más difícil de deshacer de toda la app.
+//
+// Acepta además la llamada interna con `x-internal-key` (mismo patrón que el
+// CIFO y el anexo fotográfico): la sesión de WhatsApp es un SINGLETON dentro de
+// este proceso, así que un script suelto —`node scripts/…`— no la ve. El repaso
+// de toda la cartera tiene que entrar por aquí.
+//
+// `dryRun` va por defecto a TRUE: la llamada que se hace sin pensar es la que no
+// toca nada. Para ejecutar de verdad hay que pedirlo (`dryRun: false`).
+const adminOInterno = (req, res, next) => {
+    const key = req.headers['x-internal-key'];
+    if (key && process.env.INTERNAL_API_KEY && key === process.env.INTERNAL_API_KEY) return next();
+    return adminOnly(req, res, next);
+};
+
+router.post('/etiquetas/sincronizar-instaladores', adminOInterno, async (req, res) => {
+    try {
+        const dryRun = req.body?.dryRun !== false;
+        const ids = Array.isArray(req.body?.ids) && req.body.ids.length ? req.body.ids : null;
+        const informe = await waSync.sincronizar({ dryRun, ids });
+        res.json(informe);
     } catch (e) { errorLabels(res, e); }
 });
 

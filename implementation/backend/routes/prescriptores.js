@@ -6,6 +6,16 @@ const { normalizeContactos } = require('../services/notifyContacts');
 const { searchAddress } = require('../services/googleService');
 const marketplaceStats = require('../services/marketplaceStatsRefresher');
 const certificadorFacturacion = require('../services/certificadorFacturacion');
+const waSync = require('../services/whatsappInstaladoresSync');
+
+// ¿El guardado ha tocado algún teléfono? Solo entonces hay que volver a mirar
+// WhatsApp: reetiquetar en cada guardado de una ficha (que se guarda por
+// cualquier cosa — un cambio de comisión, una nota) sería una llamada a
+// Puppeteer por pulsación, contra la sesión de la que depende todo lo demás.
+const tocaTelefonos = (payload = {}) => payload.tlf !== undefined
+    || payload.tlf_responsable !== undefined
+    || payload.tlf_contacto !== undefined
+    || payload.contactos_notificacion !== undefined;
 
 // `prescriptores.notas` son notas INTERNAS del equipo sobre el partner. Un partner
 // nunca debe leerlas, ni siquiera las de su propia ficha, así que se eliminan de la
@@ -726,6 +736,13 @@ router.post('/avanzado', enforceAuth, async (req, res) => {
             console.log(`[Avanzado] Nuevo Instalador ${nuevoPrescriptor.id_empresa} asociado automáticamente al distribuidor ${req.user.prescriptor_id}`);
         }
         
+        // Un instalador nuevo nace ya clasificado en WhatsApp: su chat con la
+        // etiqueta y, si el número no estaba guardado, con su nombre. En
+        // diferido y sin poder tumbar el alta (ver whatsappInstaladoresSync).
+        if (nuevoPrescriptor.tipo_empresa === 'INSTALADOR') {
+            waSync.sincronizarEnDiferido(nuevoPrescriptor.id_empresa, { motivo: 'alta' });
+        }
+
         res.status(201).json({ message: 'Alta completada', prescriptor: nuevoPrescriptor });
 
     } catch (err) {
@@ -1184,6 +1201,14 @@ router.patch('/:id', enforceAuth, async (req, res) => {
                     console.log('[PATCH] Supabase Auth actualizado correctamente para:', uInfo.auth_user_id);
                 }
             }
+        }
+
+        // La ficha y su chat de WhatsApp, al día: si es un INSTALADOR y le han
+        // tocado algún teléfono, se le pone su etiqueta (y su nombre, si no lo
+        // tenías guardado). Va en diferido y se traga sus errores — que WhatsApp
+        // esté desconectado no puede hacer fallar el guardado de una ficha.
+        if (presData?.tipo_empresa === 'INSTALADOR' && tocaTelefonos(payload)) {
+            waSync.sincronizarEnDiferido(presData.id_empresa, { motivo: 'edición' });
         }
 
       res.json(presData);

@@ -19,6 +19,9 @@ export function WhatsappSettingsView() {
     const pollRef = useRef(null);
     const [groups, setGroups] = useState(null);
     const [loadingGroups, setLoadingGroups] = useState(false);
+    // Sincronización de la cartera de instaladores con su etiqueta de WhatsApp.
+    const [sync, setSync] = useState(null);
+    const [syncing, setSyncing] = useState(false);
 
     const fetchStatus = useCallback(async () => {
         try {
@@ -51,6 +54,31 @@ export function WhatsappSettingsView() {
             setError(err.response?.data?.error || err.message);
         } finally {
             setLoading(false);
+        }
+    };
+
+    // Deja cada instalador de la BBDD con su etiqueta en WhatsApp (y con su
+    // nombre, si el número no estaba guardado). En seco por defecto: lo que
+    // escribe de verdad es la AGENDA del teléfono, y eso no se deshace desde
+    // aquí, así que primero se ve qué haría.
+    const sincronizarInstaladores = async (dryRun) => {
+        if (!dryRun) {
+            const confirmado = await showConfirm(
+                `Se etiquetarán ${sync?.etiquetados ?? ''} chats y se guardarán ${sync?.contactosGuardados ?? ''} contactos nuevos en la agenda de tu teléfono. `
+                + 'Los que ya tengas guardados con un nombre NO se tocan, y ninguna otra etiqueta se pierde. No se envía ningún mensaje.',
+                'Sincronizar instaladores con WhatsApp',
+                'warning'
+            );
+            if (!confirmado) return;
+        }
+        setSyncing(true);
+        try {
+            const res = await axios.post('/api/whatsapp/etiquetas/sincronizar-instaladores', { dryRun });
+            setSync({ ...res.data, dryRun });
+        } catch (err) {
+            showAlert(err.response?.data?.error || err.message, 'No se ha podido sincronizar', 'error');
+        } finally {
+            setSyncing(false);
         }
     };
 
@@ -264,6 +292,61 @@ export function WhatsappSettingsView() {
                                 ))}
                             </div>
                         )
+                    )}
+                </div>
+            )}
+
+            {status?.ready && (
+                <div className="bg-bkg-surface border border-white/5 rounded-2xl p-6">
+                    <h2 className="text-sm font-bold uppercase tracking-widest text-white/60 mb-1">Instaladores en WhatsApp</h2>
+                    <p className="text-xs text-white/40 leading-relaxed mb-4">
+                        Deja cada instalador de la base de datos con la etiqueta <span className="font-mono text-white/60">INSTALADORES</span> en
+                        su chat y, si el número no lo tienes guardado, con su nombre en la agenda.
+                        Los nombres que ya tengas puestos no se tocan y no se envía ningún mensaje.
+                    </p>
+
+                    <div className="flex flex-wrap gap-2">
+                        <button
+                            onClick={() => sincronizarInstaladores(true)}
+                            disabled={syncing}
+                            className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-sm text-white/80 disabled:opacity-50"
+                        >
+                            {syncing ? 'Mirando…' : 'Ver qué haría'}
+                        </button>
+                        <button
+                            onClick={() => sincronizarInstaladores(false)}
+                            disabled={syncing || !sync}
+                            title={!sync ? 'Primero mira qué haría' : ''}
+                            className="px-4 py-2 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/30 text-sm text-emerald-200 disabled:opacity-40"
+                        >
+                            Sincronizar ahora
+                        </button>
+                    </div>
+
+                    {sync && (
+                        <div className="mt-4 text-sm text-white/70 space-y-1">
+                            <p>
+                                <span className="text-white/40">{sync.dryRun ? 'Se harían: ' : 'Hecho: '}</span>
+                                <span className="text-white font-semibold">{sync.etiquetados}</span> chats etiquetados
+                                {' · '}
+                                <span className="text-white font-semibold">{sync.contactosGuardados}</span> contactos guardados
+                                <span className="text-white/40"> (de {sync.instaladores} instaladores, {sync.telefonos} teléfonos; {sync.yaEtiquetados} ya estaban)</span>
+                            </p>
+                            {sync.sinTelefono?.length > 0 && (
+                                <p className="text-amber-300/80 text-xs">Sin teléfono en su ficha: {sync.sinTelefono.join(', ')}</p>
+                            )}
+                            {sync.sinWhatsapp?.length > 0 && (
+                                <p className="text-amber-300/80 text-xs">
+                                    Sin WhatsApp: {sync.sinWhatsapp.map(x => `${x.instalador} (${x.tlf})`).join(', ')}
+                                </p>
+                            )}
+                            {sync.errores?.length > 0 && (
+                                <p className="text-red-300/80 text-xs">
+                                    Errores: {sync.errores.map(x => `${x.instalador}: ${x.error}`).join(' · ')}
+                                </p>
+                            )}
+                            {sync.abortado && <p className="text-red-300/90 text-xs">{sync.abortado}</p>}
+                        </div>
                     )}
                 </div>
             )}
