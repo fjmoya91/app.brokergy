@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="iso-8859-1"?>
+<DescribeStoredQueriesResponse xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xmlns:xsd="http://www.w3.org/2001/XMLSchema" 
+xmlns:gml="http://www.opengis.net/gml/3.2" 
+xmlns:cp="http://inspire.ec.europa.eu/schemas/cp/4.0/" 
+xmlns:fes="http://www.opengis.net/fes/2.0" 
+xsi:schemaLocation="http://www.opengis.net/gml/3.2 http://schemas.opengis.net/gml/3.2.1/gml.xsd http://www.opengis.net/wfs/2.0 http://schemas.opengis.net/wfs/2.0/wfs.xsd" 
+xmlns="http://www.opengis.net/wfs/2.0">
+  <StoredQueryDescription id="GetParcel">
+    <Title xml:lang="es">Parcela Catastral</Title>
+	<Title xml:lang="en">Cadastral parcel</Title>
+    <Abstract xml:lang="es">Parcela catastral por identificador común, los parámetros requeridos son REFCAT y SRSNAME</Abstract>
+    <Abstract xml:lang="en">Cadastral parcel by common identification or name, parameters REFCAT and SRSNAME are mutually exclusive</Abstract>
+    <Parameter name="REFCAT" type="fes:Literal">
+      <Title xml:lang="es">Referencia catastral</Title>
+	  <Title xml:lang="en">National cadastral reference</Title>
+      <Abstract xml:lang="es">Código de identificación de la parcela catastral</Abstract>
+      <Abstract xml:lang="en">Cadastral parcel identification</Abstract>
+    </Parameter>
+    <Parameter name="SRSNAME" type="fes:Literal">
+      <Title xml:lang="es">Sistema de referencia de coordenadas</Title>
+	  <Title xml:lang="en">Coordinate reference system</Title>
+      <Abstract xml:lang="es">Huso de la petición</Abstract>
+      <Abstract xml:lang="en">Cadastre projection</Abstract>
+    </Parameter>
+    <QueryExpressionText returnFeatureTypes="cp:CadastralParcel" language="urn:ogc:def:queryLanguage:OGC-WFS::WFS_QueryExpression" isPrivate="true" />
+  </StoredQueryDescription>
+  <StoredQueryDescription id="GetFeatureById">
+    <Title xml:lang="es">Elemento por identificador</Title>
+    <Title xml:lang="en">Feature by identifier</Title>
+    <Abstract xml:lang="es">Parcela catastral por identificador común, los parámetros requeridos son ID y SRSNAME</Abstract>
+    <Abstract xml:lang="en">Cadastral parcel by common identification or name, parameters ID and SRSNAME are mutually exclusive</Abstract>
+    <Parameter name="ID" type="fes:Literal">
+      <Title xml:lang="es">Identificador del elemento</Title>
+      <Title xml:lang="en">Identifier of the feature</Title>
+      <Abstract xml:lang="es">Código de identificación del elemento</Abstract>
+      <Abstract xml:lang="en">Feature identification</Abstract>
+    </Parameter>
+    <Parameter name="SRSNAME" type="fes:Literal">
+      <Title xml:lang="es">Sistema de referencia de coordenadas</Title>
+	  <Title xml:lang="en">Coordinate reference system</Title>
+      <Abstract xml:lang="es">Huso de la petición</Abstract>
+      <Abstract xml:lang="en">Cadastre projection</Abstract>
+    </Parameter>
+    <QueryExpressionText returnFeatureTypes="cp:CadastralParcel" language="urn:ogc:def:queryLanguage:OGC-WFS::WFS_QueryExpression" isPrivate="true" />
+  </StoredQueryDescription>
+  <StoredQueryDescription id="GetNeighbourParcel">
+    <Title xml:lang="es">Parcelas catastrales vecinas</Title>
+    <Title xml:lang="en">Neighbour parcels</Title>
+    <Abstract xml:lang="es">Parcelas catastrales vecinas por identificador común, los parámetros requeridos son REFCAT y SRSNAME</Abstract>
+    <Abstract xml:lang="en">Cadastral parcels neighbours by common identification, parameters REFCAT and SRSNAME are mutually exclusive</Abstract>
+    <Parameter name="REFCAT" type="fes:Literal">
+      <Title xml:lang="es">Referencia catastral</Title>
+	  <Title xml:lang="en">National cadastral reference</Title>
+      <Abstract xml:lang="es">Código de identificación de la parcela catastral</Abstract>
+      <Abstract xml:lang="en">Cadastral parcel identification</Abstract>
+    </Parameter>
+    <Parameter name="SRSNAME" type="fes:Literal">
+      <Title xml:lang="es">Sistema de referencia de coordenadas</Title>
+	  <Title xml:lang="en">Coordinate reference system</Title>
+      <Abstract xml:lang="es">Huso de la petición</Abstract>
+      <Abstract xml:lang="en">Cadastre projection</Abstract>
+    </Parameter>
+    <QueryExpressionText returnFeatureTypes="cp:CadastralParcel" language="urn:ogc:def:queryLanguage:OGC-WFS::WFS_QueryExpression" isPrivate="true" />
+  </StoredQueryDescription>
+  <StoredQueryDescription id="GetZoning">
+    <Title xml:lang="es">Zona Catastral</Title>
+    <Title xml:lang="en">Cadastral zoning</Title>
+    <Abstract xml:lang="es">Zona catastral por identificador común, los parámetros requeridos son COD_ZONA y SRSNAME</Abstract>
+    <Abstract xml:lang="en">Cadastre by common identification or name, parameters COD_ZONA and SRSNAME are mutually exclusive</Abstract>
+    <Parameter name="COD_ZONA" type="fes:Literal">
+      <Title xml:lang="es"></Title>
+	  <Title xml:lang="en"></Title>
+      <Abstract xml:lang="es">Código de zona catastral</Abstract>
+      <Abstract xml:lang="en">Cadastre code</Abstract>
+    </Parameter>
+    <Parameter name="SRSNAME" type="fes:Literal">
+      <Title xml:lang="es">Sistema de referencia de coordenadas</Title>
+	  <Title xml:lang="en">Coordinate reference system</Title>
+      <Abstract xml:lang="es">Huso de la petición</Abstract>
+      <Abstract xml:lang="en">Cadastre projection</Abstract>
+    </Parameter>
+    <QueryExpressionText returnFeatureTypes="cp:CadastralZoning" language="urn:ogc:def:queryLanguage:OGC-WFS::WFS_QueryExpression" isPrivate="true" />
+  </StoredQueryDescription>
+  <StoredQueryDescription id="GetParcelByZoning">
+    <Title xml:lang="es">Parcelas catastrales por zona</Title>
+    <Title xml:lang="en">Cadastral parcels by zoning</Title>
+    <Abstract xml:lang="es">Parcelas catastral por identificador común de zona, los parámetros requeridos son COD_ZONA y SRSNAME</Abstract>
+    <Abstract xml:lang="en">Cadastral parcels by common identification zone, parameters COD_ZONA and SRSNAME are mutually exclusive</Abstract>
+    <Parameter name="COD_ZONA" type="fes:Literal">
+      <Title xml:lang="es">Código de zona catastral</Title>
+	  <Title xml:lang="en">Cadastral zoning code</Title>
+      <Abstract xml:lang="es">Código de zona catastral</Abstract>
+      <Abstract xml:lang="en">Cadastre code</Abstract>
+    </Parameter>
+    <Parameter name="SRSNAME" type="fes:Literal">
+      <Title xml:lang="es">Sistema de referencia de coordenadas</Title>
+	  <Title xml:lang="en">Coordinate reference system</Title>
+      <Abstract xml:lang="es">Huso de la petición</Abstract>
+      <Abstract xml:lang="en">Cadastre projection</Abstract>
+    </Parameter>
+    <QueryExpressionText returnFeatureTypes="cp:CadastralParcel" language="urn:ogc:def:queryLanguage:OGC-WFS::WFS_QueryExpression" isPrivate="true" />
+  </StoredQueryDescription>
+</DescribeStoredQueriesResponse>

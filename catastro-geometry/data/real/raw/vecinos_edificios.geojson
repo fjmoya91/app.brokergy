@@ -1,0 +1,113 @@
+{
+ "type": "FeatureCollection",
+ "crs": {
+  "type": "name",
+  "properties": {
+   "name": "EPSG:25830"
+  }
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "id": "ES.SDGC.BU.4410203WJ0641S",
+   "properties": {
+    "source": "BU:4410203WJ0641S",
+    "tipo": "Building",
+    "original_id": "ES.SDGC.BU.4410203WJ0641S",
+    "Building@id": "ES.SDGC.BU.4410203WJ0641S",
+    "beginLifespanVersion": "2004-06-09T00:00:00",
+    "conditionOfConstruction": "functional",
+    "beginning": "1960-01-01T00:00:00",
+    "end": "2000-01-01T00:00:00",
+    "endLifespanVersion@nilReason": "other:unpopulated",
+    "informationSystem": "https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?rc1=4410203&rc2=WJ0641S",
+    "reference": "4410203WJ0641S",
+    "localId": "4410203WJ0641S",
+    "namespace": "ES.SDGC.BU",
+    "addresses@href": "http://ovc.catastro.meh.es/INSPIRE/wfsAD.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetadByRefcat&refcat=4410203WJ0641S&srsname=EPSG::25830",
+    "cadastralParcels@href": "http://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetParcel&refcat=4410203WJ0641S&srsname=EPSG::25830",
+    "horizontalGeometryEstimatedAccuracy": "0.1",
+    "horizontalGeometryReference": "footPrint",
+    "referenceGeometry": "true",
+    "currentUse": "1_residential",
+    "numberOfBuildingUnits": "1",
+    "numberOfDwellings": "1",
+    "numberOfFloorsAboveGround@nilReason": "other:unpopulated",
+    "documentLink": "http://ovc.catastro.meh.es/OVCServWeb/OVCWcfLibres/OVCFotoFachada.svc/RecuperarFotoFachadaGet?ReferenciaCatastral=4410203WJ0641S",
+    "format": "jpeg",
+    "sourceStatus": "NotOfficial",
+    "officialAreaReference": "grossFloorArea",
+    "value": "219"
+   },
+   "geometry": null
+  },
+  {
+   "type": "Feature",
+   "id": "ES.SDGC.BU.4410202WJ0641S",
+   "properties": {
+    "source": "BU:4410202WJ0641S",
+    "tipo": "Building",
+    "original_id": "ES.SDGC.BU.4410202WJ0641S",
+    "Building@id": "ES.SDGC.BU.4410202WJ0641S",
+    "beginLifespanVersion": "2001-10-09T00:00:00",
+    "conditionOfConstruction": "functional",
+    "beginning": "1999-01-01T00:00:00",
+    "end": "1999-01-01T00:00:00",
+    "endLifespanVersion@nilReason": "other:unpopulated",
+    "informationSystem": "https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?rc1=4410202&rc2=WJ0641S",
+    "reference": "4410202WJ0641S",
+    "localId": "4410202WJ0641S",
+    "namespace": "ES.SDGC.BU",
+    "addresses@href": "http://ovc.catastro.meh.es/INSPIRE/wfsAD.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetadByRefcat&refcat=4410202WJ0641S&srsname=EPSG::25830",
+    "cadastralParcels@href": "http://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetParcel&refcat=4410202WJ0641S&srsname=EPSG::25830",
+    "horizontalGeometryEstimatedAccuracy": "0.1",
+    "horizontalGeometryReference": "footPrint",
+    "referenceGeometry": "true",
+    "currentUse": "3_industrial",
+    "numberOfBuildingUnits": "1",
+    "numberOfDwellings": "0",
+    "numberOfFloorsAboveGround@nilReason": "other:unpopulated",
+    "documentLink": "http://ovc.catastro.meh.es/OVCServWeb/OVCWcfLibres/OVCFotoFachada.svc/RecuperarFotoFachadaGet?ReferenciaCatastral=4410202WJ0641S",
+    "format": "jpeg",
+    "sourceStatus": "NotOfficial",
+    "officialAreaReference": "grossFloorArea",
+    "value": "106"
+   },
+   "geometry": null
+  },
+  {
+   "type": "Feature",
+   "id": "ES.SDGC.BU.4410213WJ0641S",
+   "properties": {
+    "source": "BU:4410213WJ0641S",
+    "tipo": "Building",
+    "original_id": "ES.SDGC.BU.4410213WJ0641S",
+    "Building@id": "ES.SDGC.BU.4410213WJ0641S",
+    "beginLifespanVersion": "2001-10-09T00:00:00",
+    "conditionOfConstruction": "functional",
+    "beginning": "1995-01-01T00:00:00",
+    "end": "1995-01-01T00:00:00",
+    "endLifespanVersion@nilReason": "other:unpopulated",
+    "informationSystem": "https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?rc1=4410213&rc2=WJ0641S",
+    "reference": "4410213WJ0641S",
+    "localId": "4410213WJ0641S",
+    "namespace": "ES.SDGC.BU",
+    "addresses@href": "http://ovc.catastro.meh.es/INSPIRE/wfsAD.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetadByRefcat&refcat=4410213WJ0641S&srsname=EPSG::25830",
+    "cadastralParcels@href": "http://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetParcel&refcat=4410213WJ0641S&srsname=EPSG::25830",
+    "horizontalGeometryEstimatedAccuracy": "0.1",
+    "horizontalGeometryReference": "footPrint",
+    "referenceGeometry": "true",
+    "currentUse": "3_industrial",
+    "numberOfBuildingUnits": "1",
+    "numberOfDwellings": "0",
+    "numberOfFloorsAboveGround@nilReason": "other:unpopulated",
+    "documentLink": "http://ovc.catastro.meh.es/OVCServWeb/OVCWcfLibres/OVCFotoFachada.svc/RecuperarFotoFachadaGet?ReferenciaCatastral=4410213WJ0641S",
+    "format": "jpeg",
+    "sourceStatus": "NotOfficial",
+    "officialAreaReference": "grossFloorArea",
+    "value": "188"
+   },
+   "geometry": null
+  }
+ ]
+}

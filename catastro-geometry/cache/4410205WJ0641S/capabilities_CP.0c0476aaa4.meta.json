@@ -1,0 +1,6 @@
+{
+  "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&request=GetCapabilities",
+  "status": 200,
+  "bytes": 14510,
+  "fetched_at": "2026-09-09T22:17:01+0000"
+}

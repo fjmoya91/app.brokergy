@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="iso-8859-1"?>
+<DescribeStoredQueriesResponse xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+                               xmlns:xsd="http://www.w3.org/2001/XMLSchema" 
+xmlns:gml="http://www.opengis.net/gml/3.2" 
+xmlns:bu="urn:x-inspire:specification:gmlas:Buildings:3.0" 
+xmlns:fes="http://www.opengis.net/fes/2.0" 
+xsi:schemaLocation="http://www.opengis.net/gml/3.2 http://schemas.opengis.net/gml/3.2.1/gml.xsd http://www.opengis.net/wfs/2.0 http://schemas.opengis.net/wfs/2.0/wfs.xsd" 
+  xmlns="http://www.opengis.net/wfs/2.0">
+    
+  <StoredQueryDescription id="GetBuildingByParcel">
+    <Abstract>Edificios por referencia catastral, los parámetros requeridos son REFCAT y SRSNAME</Abstract>
+    <Abstract>Buildings by common cadastral parcel identification, parameters REFCAT and SRSNAME are mutually exclusive</Abstract>
+    <Abstract xml:lang="en">Any parameter KEY of type fes:Literal is substituable by common KVP standard KEY=VALUE</Abstract>
+    <Parameter name="REFCAT" type="fes:Literal">
+      <Abstract>Referencia catastral</Abstract>
+      <Abstract>Common cadastral parcel identification</Abstract>
+    </Parameter>    
+    <Parameter name="SRSNAME" type="fes:Literal">
+      <Abstract>Huso de la petición</Abstract>
+      <Abstract>Cadastre projection</Abstract>
+    </Parameter>
+    <QueryExpressionText returnFeatureTypes="bu:Building" language="urn:ogc:def:queryLanguage:OGC-WFS::WFS_QueryExpression" isPrivate="true" />
+  </StoredQueryDescription>
+  <StoredQueryDescription id="GetFeatureById">
+    <Abstract>Edificios por identificacion de elemento, los parámetros requeridos son ID y SRSNAME</Abstract>
+    <Abstract>Buildings by common feature identification, parameters ID and SRSNAME are mutually exclusive</Abstract>
+    <Abstract xml:lang="en">Any parameter KEY of type fes:Literal is substituable by common KVP standard KEY=VALUE</Abstract>
+    <Parameter name="ID" type="fes:Literal">
+      <Abstract>Identificación del elemento</Abstract>
+      <Abstract>Feature identification</Abstract>
+    </Parameter>    
+    <Parameter name="SRSNAME" type="fes:Literal">
+      <Abstract>Huso de la petición</Abstract>
+      <Abstract>Cadastre projection</Abstract>
+    </Parameter>
+    <QueryExpressionText returnFeatureTypes="bu:Building" language="urn:ogc:def:queryLanguage:OGC-WFS::WFS_QueryExpression" isPrivate="true" />
+  </StoredQueryDescription>
+  <StoredQueryDescription id="GetBuildingPartByParcel">
+    <Abstract>Partes de Edificios por referencia catastral, los parámetros requeridos son REFCAT y SRSNAME</Abstract>
+    <Abstract>Buildings parts by common cadastral parcel identification, parameters REFCAT and SRSNAME are mutually exclusive</Abstract>
+    <Abstract xml:lang="en">Any parameter KEY of type fes:Literal is substituable by common KVP standard KEY=VALUE</Abstract>
+    <Parameter name="REFCAT" type="fes:Literal">
+      <Abstract>Referencia catastral</Abstract>
+      <Abstract>Common cadastral parcel identification</Abstract>
+    </Parameter>    
+    <Parameter name="SRSNAME" type="fes:Literal">
+      <Abstract>Huso de la petición</Abstract>
+      <Abstract>Cadastre projection</Abstract>
+    </Parameter>
+    <QueryExpressionText returnFeatureTypes="bu:Building" language="urn:ogc:def:queryLanguage:OGC-WFS::WFS_QueryExpression" isPrivate="true" />
+  </StoredQueryDescription>
+  <StoredQueryDescription id="GetOtherBuildingByParcel">
+    <Abstract>Otros Edificios por referencia catastral, los parÃ¡metros requeridos son REFCAT y SRSNAME</Abstract>
+    <Abstract>Other Buildings by common cadastral parcel identification, parameters REFCAT and SRSNAME are mutually exclusive</Abstract>
+    <Abstract xml:lang="en">Any parameter KEY of type fes:Literal is substituable by common KVP standard KEY=VALUE</Abstract>
+    <Parameter name="REFCAT" type="fes:Literal">
+      <Abstract>Referencia catastral</Abstract>
+      <Abstract>Common cadastral parcel identification</Abstract>
+    </Parameter>    
+    <Parameter name="SRSNAME" type="fes:Literal">
+      <Abstract>Huso de la peticiÃ³n</Abstract>
+      <Abstract>Cadastre projection</Abstract>
+    </Parameter>
+    <QueryExpressionText returnFeatureTypes="bu:Building" language="urn:ogc:def:queryLanguage:OGC-WFS::WFS_QueryExpression" isPrivate="true" />
+  </StoredQueryDescription>
+  <StoredQueryDescription id="GetAllConstructionByParcel">
+    <Abstract>Edificios y Otros Edificios por referencia catastral, los parÃ¡metros requeridos son REFCAT y SRSNAME</Abstract>
+    <Abstract>Buildings and Other Buildings by common cadastral parcel identification, parameters REFCAT and SRSNAME are mutually exclusive</Abstract>
+    <Abstract xml:lang="en">Any parameter KEY of type fes:Literal is substituable by common KVP standard KEY=VALUE</Abstract>
+    <Parameter name="REFCAT" type="fes:Literal">
+      <Abstract>Referencia catastral</Abstract>
+      <Abstract>Common cadastral parcel identification</Abstract>
+    </Parameter>    
+    <Parameter name="SRSNAME" type="fes:Literal">
+      <Abstract>Huso de la peticiÃ³n</Abstract>
+      <Abstract>Cadastre projection</Abstract>
+    </Parameter>
+    <QueryExpressionText returnFeatureTypes="bu:Building" language="urn:ogc:def:queryLanguage:OGC-WFS::WFS_QueryExpression" isPrivate="true" />
+  </StoredQueryDescription>
+</DescribeStoredQueriesResponse>
