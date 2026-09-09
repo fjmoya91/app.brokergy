@@ -588,6 +588,61 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     // mismos datos y tienen que casar entre sí: la fila E3 de la solicitud es el
     // expediente cuyo anexo se llama AnexoE3. Los dos rellenan el formulario
     // OFICIAL, no una copia.
+    // ── El PAQUETE de cada actuación: renombrar a "E{n}-…" y zipear ──────────
+    // Dos gestos, y el primero es COMPROBAR. Generar sin mirar deja un paquete
+    // incompleto que se presenta igual de bien que uno completo, y el requerimiento
+    // llega tres semanas después; por eso se enseña primero qué falta y en qué
+    // expediente, y solo entonces se ofrece generar.
+    const [paquete, setPaquete] = useState(null);   // informe del último dryRun
+    const [modoPaquete, setModoPaquete] = useState('expediente');
+
+    const pedirPaquete = async (modo, dryRun) => {
+        setError('');
+        setModoPaquete(modo);
+        const nombre = modo === 'gestor' ? 'el envío al gestor' : 'los expedientes';
+        setLectura({
+            phase: 'sending',
+            sendingTitle: dryRun ? 'Comprobando el paquete…' : 'Renombrando y comprimiendo…',
+            subtitle: dryRun ? `Buscando los documentos de cada actuación` : `Un ZIP por actuación para ${nombre}`,
+            icon: dryRun ? 'read' : 'upload',
+        });
+        try {
+            const { data } = await axios.post(`/api/lotes/${lote.id}/paquete-actuaciones`, { modo, dryRun });
+            setPaquete(data);
+            const completas = data.actuaciones.filter(a => a.ok);
+            const conAviso = data.actuaciones.filter(a => a.ok && (a.faltan_leves.length
+                || a.piezas.some(x => x.estado === 'manual' || x.estado === 'drive')));
+            setLectura({
+                phase: 'done',
+                ok: completas.length > 0 && !data.bloqueados.length,
+                okTitle: dryRun
+                    ? (data.bloqueados.length ? 'Faltan documentos' : `${completas.length} actuaciones listas`)
+                    : `${data.generados.length} paquetes generados`,
+                errorTitle: completas.length ? 'Faltan documentos' : 'No se puede armar ningún paquete',
+                subtitle: dryRun
+                    ? 'Nada se ha escrito todavía en Drive'
+                    : `${lote?.codigo} · ${data.destino?.nombre || ''}`,
+                items: [
+                    ...completas.map(a => `E${a.n} · ${a.numero_expediente} — ${a.n_ficheros} documentos`
+                        + (dryRun ? '' : (a.zip ? ` → ${a.zip.nombre}` : ''))),
+                    // Lo que la app no tiene APUNTADO se dice aunque el paquete salga:
+                    // hoy funciona porque alguien dejó una copia en la carpeta, y el
+                    // lote que viene detrás no la va a tener.
+                    ...conAviso.flatMap(a => a.piezas
+                        .filter(x => x.estado === 'manual' || x.estado === 'drive')
+                        .map(x => `⚠ E${a.n} · ${x.etiqueta}: sale de un fichero suelto en Drive, no consta en el expediente`)),
+                    ...completas.flatMap(a => a.faltan_leves.map(f => `· E${a.n} · sin ${f} (no bloquea)`)),
+                ],
+                errorText: data.bloqueados.length ? data.bloqueados.join('\n') : null,
+            });
+        } catch (err) {
+            setLectura({
+                phase: 'done', ok: false, errorTitle: 'No se pudo preparar el paquete',
+                errorText: err.response?.data?.error || 'Error al generar el paquete de actuaciones.',
+            });
+        }
+    };
+
     const generarAnexos = async () => {
         setError('');
         setGenerandoAnexos(true);
@@ -714,6 +769,7 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
 
     const [f1, f2, f3, f4, f5, f6] = p.fases;
     const nExps = (lote?.expedientes || []).length;
+    const api = lote?.verificacion_api || null;
 
     return (
         <div className="space-y-2.5">
@@ -730,18 +786,42 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 )}
             </div>
 
-            {/* 1 · Solicitud al verificador */}
+            {/* 1 · Solicitud al verificador.
+                La solicitud que se archiva aquí es el BORRADOR: la firma el S.O. en
+                el paso 2, junto al Anexo I. Decía "subir solicitud firmada" y hacía
+                buscar una firma que en este momento no existe todavía. */}
             <Fase f={f1}>
+                {/* Lo enviado por API deja de ser invisible. El nº de solicitud que
+                    devuelve Marwen es la referencia con la que se le habla del lote
+                    (y con la que vuelve firmada: "Solicitud-0035-S06_fdo.pdf"); se
+                    guardaba en `verificacion_api` y no se enseñaba en ningún sitio. */}
+                {api && (
+                    <div className="flex items-center gap-2 flex-wrap rounded-xl border border-emerald-500/20 bg-emerald-500/[0.05] px-3 py-2">
+                        <span className="text-[9px] font-black uppercase tracking-wider text-emerald-400/80 shrink-0">⚡ Enviada por API</span>
+                        {api.num_solicitud && <span className="text-[11px] font-bold text-white/80">nº {api.num_solicitud}</span>}
+                        <span className="text-[9px] text-white/30">
+                            {[fmtFecha(api.enviado_at), api.n_actuaciones ? `${api.n_actuaciones} actuaciones` : null,
+                              api.enviado_por].filter(Boolean).join(' · ')}
+                        </span>
+                    </div>
+                )}
                 <div className="flex items-center gap-2 flex-wrap">
                     <BotonAccion onClick={acciones.abrirSolicitud} disabled={!nExps}
                         title={!nExps ? 'El lote no tiene expedientes' : 'Genera el formulario de solicitud'}>
-                        Generar solicitud
+                        {api ? 'Volver a generar la solicitud' : 'Generar solicitud'}
                     </BotonAccion>
                     <BotonSubir disabled={subiendo === 'solicitud_verificacion'} onFile={subirSolicitud}
                         destacado={!p.solicitud}>
-                        {subiendo === 'solicitud_verificacion' ? 'Subiendo…' : (p.solicitud ? 'Reemplazar' : '↑ Subir solicitud firmada')}
+                        {subiendo === 'solicitud_verificacion' ? 'Subiendo…'
+                            : (p.solicitud ? 'Reemplazar el borrador' : '↑ Subir la solicitud (borrador)')}
                     </BotonSubir>
                 </div>
+                {!p.solicitud && (
+                    <p className="text-[10px] text-white/30">
+                        Sin firmar: es el documento que el S.O. firma en el paso 2, con el Anexo I y las fichas.
+                        Al generarla se archiva aquí sola.
+                    </p>
+                )}
             </Fase>
 
             {/* 2 · Firma del Sujeto Obligado */}
@@ -884,6 +964,30 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                             {generandoAnexos ? 'Generando…' : '📄 Generar la solicitud y los anexos'}
                         </BotonAccion>
                     )}
+                    {/* El paquete de cada actuación: los documentos del expediente
+                        renombrados a "E{n}-…" y su ZIP. Se COMPRUEBA antes de generar
+                        (el mismo botón dice cuántas actuaciones están listas), y el
+                        del gestor solo aparece con el dictamen ya subido: sin él, ese
+                        paquete no puede estar completo. */}
+                    {canSeeMargin && (
+                        <>
+                            <BotonAccion onClick={() => pedirPaquete('expediente', true)}>
+                                ⌕ Comprobar el paquete E1-E5
+                            </BotonAccion>
+                            {paquete && paquete.dryRun && paquete.actuaciones.some(a => a.ok) && (
+                                <BotonAccion onClick={() => pedirPaquete(modoPaquete, false)} tono="amber">
+                                    📦 Generar {paquete.actuaciones.filter(a => a.ok).length} ZIP
+                                    {modoPaquete === 'gestor' ? ' para el gestor' : ' en los expedientes'}
+                                </BotonAccion>
+                            )}
+                            {p.dictamen && (
+                                <BotonAccion onClick={() => pedirPaquete('gestor', true)}
+                                    title="Añade el dictamen favorable y los escritos del lote">
+                                    ⌕ Comprobar el envío al gestor
+                                </BotonAccion>
+                            )}
+                        </>
+                    )}
                     {!p.justificanteMiteco && (
                         <BotonSubir disabled={subiendo === 'justificante_miteco'} onFile={(f) => subir('justificante_miteco', f)}>
                             {subiendo === 'justificante_miteco' ? 'Subiendo…' : '↑ Justificante de subida a MITECO'}
@@ -938,8 +1042,10 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
             {/* Overlay ESTÁNDAR de la app mientras se lee un PDF: leer un informe
                 tarda entre 6 y 14 s y sin señal el usuario vuelve a pulsar. Se usa
                 el mismo de los envíos (icono 'read': la lupa recorre la hoja). */}
+            {/* Casi todo lo que abre este overlay es una LECTURA de un PDF; el
+                paquete de actuaciones sí ESCRIBE ficheros y lo dice con su icono. */}
             <SendActionOverlay
-                icon="read"
+                icon={lectura?.icon || 'read'}
                 phase={lectura?.phase || null}
                 ok={!!lectura?.ok}
                 subtitle={lectura?.subtitle}

@@ -17,12 +17,12 @@ import {
     calculateHybridization,
     resolveHybridInputs,
     BOILER_EFFICIENCIES,
-} from '../../calculator/logic/calculation';
-import { acsComputaAhorro } from './aerotermiaUnits';
-import { ceeBaseDocumento } from './ceeFases';
-import { resolveDacs } from './demandaAcs';
-import { deriveTer100Vars, TER100_PRECIOS } from './ter100';
-import { propuestaGuardada } from './propuestaGuardada';
+} from '../../calculator/logic/calculation.js';
+import { acsComputaAhorro } from './aerotermiaUnits.js';
+import { ceeBaseDocumento } from './ceeFases.js';
+import { resolveDacs } from './demandaAcs.js';
+import { deriveTer100Vars, TER100_PRECIOS } from './ter100.js';
+import { propuestaGuardada } from './propuestaGuardada.js';
 
 export function computeExpedienteFinancials(exp) {
     const op = exp.oportunidades;

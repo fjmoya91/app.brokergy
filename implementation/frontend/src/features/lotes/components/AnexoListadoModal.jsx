@@ -3,10 +3,10 @@ import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { useModal } from '../../../context/ModalContext';
 import { buildAnexoListadoHtml, buildAnexoListadoRows, buildAnexoListadoTotals, CONVENIO_FECHA_DEFAULT, fichaDe } from '../logic/anexoListado';
-import { buildFichaRes060Html } from '../../expedientes/logic/fichaRes060Html';
-import { buildFichaRes080Html } from '../../expedientes/logic/fichaRes080Html';
-import { buildFichaRes093Html } from '../../expedientes/logic/fichaRes093Html';
-import { buildFichaTer100Html } from '../../expedientes/logic/fichaTer100Html';
+// La ficha que viaja al Sujeto Obligado es el IMPRESO OFICIAL del Ministerio
+// (formato formulario): se manda `formulario` y lo rellena el backend. La maqueta
+// HTML sigue existiendo en logic/ficha*Html.js para poder comparar los dos.
+import { fichaFormulario } from '../../expedientes/logic/fichasFormulario';
 import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
 import { SIGN_BOXES, fichaSignBox } from '../../expedientes/logic/signBoxes';
 import FirmarConCertificadoModal from '../../expedientes/components/FirmarConCertificadoModal';
@@ -93,11 +93,8 @@ Un saludo.`.replace(/ ,/g, ',');
         const docs = [{ html, pdfBase64: proveedorSigned, fileName: `${lote.codigo || 'LOTE'} - Anexo I Listado Cesion`, label: 'Anexo I', tipo: 'anexo_i_listado', expediente_id: null, anchor: ANEXO_ANCHOR, fixedBox: SIGN_BOXES.anexo_i_listado }];
         for (const e of (lote.expedientes || [])) {
             const f = fichaDe(e.numero_expediente);
-            const fichaHtml = f === 'RES080' ? buildFichaRes080Html(e, rep)
-                : f === 'RES093' ? buildFichaRes093Html(e, rep)
-                    : f === 'TER100' ? buildFichaTer100Html(e, rep)
-                        : buildFichaRes060Html(e, computeExpedienteFinancials(e), rep);
-            docs.push({ html: fichaHtml, fileName: `${e.numero_expediente} - Ficha ${f}`, label: `Ficha ${f}`, tipo: 'ficha_res', expediente_id: e.id, anchor: FICHA_ANCHOR, fixedBox: fichaSignBox(f) });
+            const formulario = fichaFormulario(f, e, { ...rep, results: computeExpedienteFinancials(e) });
+            docs.push({ formulario, fileName: `${e.numero_expediente} - Ficha ${f}`, label: `Ficha ${f}`, tipo: 'ficha_res', expediente_id: e.id, anchor: FICHA_ANCHOR, fixedBox: fichaSignBox(f) });
         }
         return docs;
     };
@@ -274,15 +271,40 @@ Un saludo.`.replace(/ ,/g, ',');
         setProvPdfB64(null);
     };
 
-    // Antes de enviar: si NO se ha subido la Solicitud de Verificación, preguntar si
-    // continuar sin ella o volver para subirla. Devuelve true = enviar, false = cancelar.
+    // ── Dos comprobaciones ANTES de enviar. true = enviar, false = cancelar ───
+    //
+    // 1) SIN SOLICITUD NO SE ENVÍA. Era un aviso que además mentía: te decía que
+    //    pulsaras "Enviar sin solicitud" y los botones de showConfirm son
+    //    Confirmar/Cancelar. Y un lote que sale sin ella deja al S.O. firmando media
+    //    ronda: hay que volver a escribirle para pedirle la firma del papel que
+    //    faltaba, que es justo lo que se trata de no hacer.
+    //
+    // 2) EL ANEXO I LO FIRMA BROKERGY PRIMERO. Si no, vuelve firmado solo por el
+    //    S.O. y hay que firmarlo después sobre su PDF, o pedirle que lo firme otra
+    //    vez. Aquí NO se bloquea (un lote que ya salió sin firmar hay que poder
+    //    reenviarlo), pero se dice lo que va a pasar. OJO: reenviar REGENERA el PDF
+    //    desde el HTML, así que la firma de un envío anterior se pierde.
     const confirmAntesDeEnviar = async () => {
-        if (solicitud || solicitudYaSubida) return true;
-        return showConfirm(
-            'No has adjuntado la Solicitud de Verificación (PDF). Si continúas, se enviará al S.O. sin ella y no entrará en la firma en cadena.\n\nPulsa "Enviar sin solicitud" para continuar, o "Cancelar" para subirla primero.',
-            'Falta la solicitud de verificación',
-            'warning'
-        );
+        if (!solicitud && !solicitudYaSubida) {
+            showAlert(
+                `Falta la Solicitud de Verificación (PDF). Adjúntala aquí abajo, o súbela en el paso 1 del proceso del lote.
+
+Es uno de los tres documentos que el S.O. firma en esta misma ronda: si el lote sale sin ella, hay que volver a pedirle firma solo para ese papel.`,
+                'No se puede enviar sin la solicitud',
+                'warning'
+            );
+            return false;
+        }
+        if (!proveedorSigned) {
+            return showConfirm(
+                `El Anexo I va SIN la firma de Brokergy (Proveedor).
+
+Si lo envías así, el S.O. lo devolverá firmado solo por él y tendrás que firmarlo después sobre su PDF. Cancela y pulsa "🖊️ Firmar (Proveedor)" para que el S.O. solo tenga que añadir su firma.`,
+                'El Anexo I va sin tu firma',
+                'warning'
+            );
+        }
+        return true;
     };
 
     const handleDownloadPdf = async () => {
@@ -354,7 +376,13 @@ Un saludo.`.replace(/ ,/g, ',');
                             <button onClick={handleFirmarProveedor} disabled={provBusy} className="text-[10px] font-black uppercase tracking-wider text-white/40 hover:text-white/70 shrink-0">Volver a firmar</button>
                         </div>
                     ) : (
-                        <p className="text-[11px] text-white/40">Recomendado: firma el Anexo I como <b className="text-white/70">Proveedor (Brokergy)</b> antes de enviarlo al S.O.</p>
+                        <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500/[0.08] border border-amber-400/25">
+                            <span className="text-[13px] shrink-0">🖊️</span>
+                            <span className="text-[11px] text-amber-200/90 flex-1">
+                                Firma el Anexo I como <b>Proveedor (Brokergy)</b> antes de enviarlo: así el S.O. solo añade
+                                su firma y no hay que firmarlo después sobre el PDF que devuelva.
+                            </span>
+                        </div>
                     )}
                 </div>
 

@@ -5,7 +5,7 @@ import SignaturePad from './SignaturePad';
 import FirmarConMovil from './FirmarConMovil';
 import LectorDocumento from './LectorDocumento';
 import { firmarYEscanear, comprimirImagen } from './escaneado';
-import { SIGN_BOXES } from '../expedientes/logic/signBoxes';
+import { SIGN_BOXES, anexoISignBox } from '../expedientes/logic/signBoxes';
 
 /**
  * Firmar los anexos A MANO, con el dedo, desde el propio móvil.
@@ -133,7 +133,7 @@ export function AsistenteFirmaManuscrita({ expedienteId, info, apiUrl, onHecho, 
     const docs = useMemo(() => {
         const lista = [];
         if (info?.anexo_cesion_disponible) lista.push({ which: 'cesion', label: 'Convenio de Cesión de Ahorros', corto: 'Cesión de Ahorros', box: SIGN_BOXES.anexo_cesion, fichero: `${info.numero_expediente} - Anexo Cesion_fdo.pdf`, campo: 'anexo_cesion' });
-        if (info?.anexo_i_disponible) lista.push({ which: 'anexo_i', label: 'Anexo I · Declaración Responsable', corto: 'Anexo I', box: SIGN_BOXES.anexo_i, fichero: `${info.numero_expediente} - Anexo I_fdo.pdf`, campo: 'anexo_i' });
+        if (info?.anexo_i_disponible) lista.push({ which: 'anexo_i', label: 'Anexo I · Declaración Responsable', corto: 'Anexo I', box: anexoISignBox, fichero: `${info.numero_expediente} - Anexo I_fdo.pdf`, campo: 'anexo_i' });
         return lista;
     }, [info?.anexo_cesion_disponible, info?.anexo_i_disponible, info?.numero_expediente]);
 

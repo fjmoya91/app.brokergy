@@ -12,7 +12,7 @@ const { carpetaObjetivoLote } = require('../services/driveFolders');
 const {
     syncLoteFolder, absorberExpedientesEnLote, devolverExpedienteDeLote, carpetaDeExpediente,
 } = require('../services/expedienteFolderSync');
-const { htmlToPdf } = require('../services/pdfService');
+const { htmlToPdf, documentoAPdf } = require('../services/pdfService');
 
 const {
     MAX_RECOMENDADO, ESTADOS_COMPLETO, LOTE_ESTADOS,
@@ -1001,6 +1001,44 @@ router.post('/:id/ahorros-verificados/leer', adminOnly, async (req, res) => {
 // Los dos rellenan el formulario OFICIAL (anexoActuacionService / solicitudCaeService),
 // no una copia.
 //
+// ─── POST /api/lotes/:id/paquete-actuaciones — renombrar a "E{n}-…" y zipear ────
+// Los ~20 documentos de cada expediente, copiados con su código del índice y
+// comprimidos. Se hacía a mano cinco veces por lote. `modo`:
+//   · 'expediente' → la carpeta "E{n}" del propio expediente + "E{n}.zip"
+//   · 'gestor'     → "{LOTE} - ENVIO GESTOR/E{n}" + "ActuacionE{n}.zip" (a MITECO),
+//                    que añade el dictamen y los escritos del lote
+// Con `dryRun: true` solo COMPRUEBA (no escribe en Drive): es lo que se pinta antes
+// de generar para decir qué falta y en qué expediente.
+//
+// ADMIN: el paquete lleva las facturas de la obra, que son precio.
+router.post('/:id/paquete-actuaciones', adminOnly, async (req, res) => {
+    try {
+        const modo = req.body?.modo === 'gestor' ? 'gestor' : 'expediente';
+        const dryRun = !!req.body?.dryRun;
+        const { construirPaquete } = require('../services/envioGestorService');
+        const informe = await construirPaquete(req.params.id, { modo, dryRun, usuario: usuarioDe(req) });
+
+        // Solo se deja constancia de lo que se ha ESCRITO: una comprobación en seco
+        // no es un hito del lote y llenaría el historial de líneas que no ocurrieron.
+        if (!dryRun && informe.generados.length) {
+            const { data: lote } = await supabase.from('lotes').select('historial').eq('id', req.params.id).maybeSingle();
+            const historial = Array.isArray(lote?.historial) ? [...lote.historial] : [];
+            historial.push({
+                id: `${Date.now()}_paquete`, tipo: 'sistema',
+                texto: `Paquete de actuaciones (${modo === 'gestor' ? 'envío al gestor' : 'expediente'}) generado: `
+                    + informe.generados.map(g => `E${g.n} ${g.numero_expediente}`).join(', ')
+                    + (informe.bloqueados.length ? ` · sin generar: ${informe.bloqueados.length}` : ''),
+                fecha: nowIso(), usuario: usuarioDe(req),
+            });
+            await supabase.from('lotes').update({ historial, updated_at: nowIso() }).eq('id', req.params.id);
+        }
+        res.json(informe);
+    } catch (err) {
+        console.error('[POST /lotes/:id/paquete-actuaciones]', err.message);
+        res.status(500).json({ error: err.message || 'Error al generar el paquete de actuaciones' });
+    }
+});
+
 // ADMIN: lleva la inversión, que es precio.
 router.post('/:id/anexos-actuacion', adminOnly, async (req, res) => {
     try {
@@ -1318,6 +1356,91 @@ router.post('/:id/ahorros-verificados', adminOnly, async (req, res) => {
     } catch (err) {
         console.error('[POST /lotes/:id/ahorros-verificados]', err.message);
         res.status(500).json({ error: err.message || 'Error al registrar los ahorros verificados' });
+    }
+});
+
+// ─── Archivar el BORRADOR de la solicitud de verificación ───────────────────────
+// La solicitud se generaba, se descargaba a mano y se volvía a subir al lote: tres
+// gestos para dejar en el slot 1 un PDF que la app acaba de crear. Y enviarla por
+// API no dejaba NINGÚN rastro en el lote, así que la fase 1 seguía diciendo "ahora"
+// con la solicitud ya creada en el verificador.
+//
+// Es el BORRADOR (sin firmar): la firma la pone el S.O. en la fase 2, junto al
+// Anexo I y las fichas. Por eso NUNCA pisa una entrada que ya venga firmada — ahí
+// el reemplazo tiene que decidirlo una persona con el botón "Reemplazar".
+// Devuelve { archivada: bool, motivo?: string, documento? }.
+async function archivarSolicitudBorrador(lote, pdf, { usuario = 'SISTEMA' } = {}) {
+    if (!pdf || !pdf.length) return { archivada: false, motivo: 'sin PDF' };
+
+    const { data: fresh } = await supabase
+        .from('lotes').select('documentos_so, historial').eq('id', lote.id).maybeSingle();
+    const docs = Array.isArray(fresh?.documentos_so) ? [...fresh.documentos_so] : [];
+    const idx = docs.findIndex(d => d?.key === 'solicitud_verificacion');
+    if (idx >= 0 && docs[idx].signed_link) {
+        return { archivada: false, motivo: 'la solicitud del lote ya está firmada', documento: docs[idx] };
+    }
+
+    const docsFolder = await ensureLoteDocsFolder(lote);
+    const baseName = nombreDocLote('solicitud_verificacion', { codigo: lote.codigo });
+    const name = pdfFileName(baseName);
+    const saved = await saveOrReplacePdf(docsFolder, name, pdf);
+    if (!saved) throw new Error('No se pudo guardar la solicitud en Drive');
+
+    const entrada = {
+        ...(idx >= 0 ? docs[idx] : {}),
+        key: 'solicitud_verificacion',
+        tipo: 'solicitud_verificacion',
+        label: 'Solicitud de Verificación',
+        expediente_id: null,
+        exp_folder_id: null,
+        file_name: name,
+        anchor: ['solicitante', 'fdo', 'firma'],
+        draft_link: saved.link,
+        draft_file_id: saved.id,
+        signed_link: null,
+        signed_file_id: null,
+        // Se conserva `sent_at` si ya se había mandado al S.O.: el documento es el
+        // mismo trámite y borrarlo haría creer que nunca salió.
+        sent_at: (idx >= 0 ? docs[idx].sent_at : null) || null,
+        signed_at: null,
+        uploaded_at: nowIso(),
+        origen: 'generada por la app',
+    };
+    if (idx >= 0) docs[idx] = entrada; else docs.push(entrada);
+
+    const historial = Array.isArray(fresh?.historial) ? [...fresh.historial] : [];
+    historial.push({
+        id: `${Date.now()}_solicitud_auto`, tipo: 'sistema',
+        texto: `Archivada la Solicitud de Verificación (borrador) en el lote (${name}).`,
+        fecha: nowIso(), usuario,
+    });
+    await supabase.from('lotes')
+        .update({ documentos_so: docs, historial, updated_at: nowIso() })
+        .eq('id', lote.id);
+    await sincronizarEstadoLote(lote.id, { docs, usuario, motivo: 'solicitud de verificación archivada' });
+    return { archivada: true, documento: entrada };
+}
+
+// POST /api/lotes/:id/solicitud/archivar — { html } | { base64 }
+// Lo llaman las tres salidas del popup de la solicitud (descargar, enviar por email
+// y enviar por API), para que el PDF que sale de la app quede SIEMPRE en el slot 1.
+router.post('/:id/solicitud/archivar', staffOnly, async (req, res) => {
+    try {
+        const { html, base64 } = req.body || {};
+        if (!html && !base64) return res.status(400).json({ error: 'Falta el HTML o el PDF de la solicitud' });
+
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        const pdf = base64 ? Buffer.from(String(base64).split(',').pop(), 'base64') : await htmlToPdf(html);
+        const r = await archivarSolicitudBorrador(lote, pdf, { usuario: usuarioDe(req) });
+
+        const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
+        const [enriched] = await enrichLotes([updated]);
+        res.json({ ok: true, ...r, lote: scrubLoteForUser(enriched, req) });
+    } catch (err) {
+        console.error('[POST /lotes/:id/solicitud/archivar]', err.message);
+        res.status(500).json({ error: err.message || 'No se pudo archivar la solicitud en el lote' });
     }
 });
 
@@ -1867,10 +1990,11 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
         }
 
         for (const d of docs) {
-            if (!d.html && !d.pdfBase64) continue;
+            if (!d.html && !d.pdfBase64 && !d.formulario) continue;
             // `pdfBase64` = PDF ya firmado (p.ej. el Anexo I firmado por el PROVEEDOR/Brokergy);
-            // tiene prioridad sobre el HTML para no regenerarlo y perder la firma.
-            const pdf = d.pdfBase64 ? Buffer.from(d.pdfBase64, 'base64') : await htmlToPdf(d.html);
+            // tiene prioridad para no regenerarlo y perder la firma. `formulario` = el
+            // impreso OFICIAL de la ficha, que se rellena en vez de rasterizar HTML.
+            const pdf = await documentoAPdf(d);
             const key = d.expediente_id ? `ficha_${d.expediente_id}` : (d.key || `anexo_i`);
             // Carpeta destino del borrador: expediente/"6. ANEXOS CAE" si es ficha con
             // carpeta resoluble; si no, la carpeta del lote.
@@ -2079,7 +2203,7 @@ router.post('/:id/requerimiento', staffOnly, async (req, res) => {
         const ronda = String(Date.parse(sentAt) || Date.now());
 
         for (const d of docs) {
-            if (!d.html && !d.pdfBase64) continue;
+            if (!d.html && !d.pdfBase64 && !d.formulario) continue;
             const key = keyOf(d);
             const idx = documentosSo.findIndex(x => x.key === key);
             const existing = idx >= 0 ? documentosSo[idx] : null;
@@ -2093,7 +2217,7 @@ router.post('/:id/requerimiento', staffOnly, async (req, res) => {
 
             // Guardar como nueva revisión: archiva a OLD la versión anterior (borrador +
             // firmado, si existían) y nombra el nuevo con sufijo _rev{N}. Ver saveDocRevision().
-            const pdf = d.pdfBase64 ? Buffer.from(d.pdfBase64, 'base64') : await htmlToPdf(d.html);
+            const pdf = await documentoAPdf(d);
             const baseFileName = d.expediente_id ? d.fileName : nombreDocLote(key, { codigo: lote.codigo });
             const { rev, fileName, saved } = await saveDocRevision({ existing, baseFileName, key, expFolder, draftFolder, folderId: docsFolder, pdf });
             attachments.push({ filename: fileName, content: pdf });
@@ -2437,13 +2561,83 @@ function toIsoDate(d) {
     return s;
 }
 
+// ── Lo que Marwen exige, comprobado ANTES de enviar ─────────────────────────────
+// Marwen valida el lote ENTERO: un solo campo malo en una actuación tumba las
+// cinco, y contesta "Errores actuación 5" — un ordinal que obliga a contar para
+// saber de qué expediente habla. Medido en LOTE-2025-006: una factura de
+// 25RES080_28 tenía la fecha guardada como "2024" (el año suelto, sin mes ni
+// día), calcCifo la propagó como fecha de inicio de actuación y el envío moría
+// con un 400 ilegible.
+//
+// REGLA — lo que se puede comprobar aquí se dice con el NÚMERO DE EXPEDIENTE y
+// en el dry-run, que es la pantalla donde todavía se puede corregir. Y una fecha
+// que no es una fecha no es solo un problema de Marwen: es la que imprime el
+// CIFO de ese expediente.
+const FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+function validarActuaciones(step2, step3) {
+    const problemas = [];
+    step2.forEach((a, i) => {
+        const quien = a.SE_nombre_actuacion || `Actuación ${i + 1}`;
+        const emp = step3[i] || {};
+
+        for (const [campo, comoSeLlama] of [['SE_fecha_inicio', 'inicio'], ['SE_fecha_fin', 'fin']]) {
+            const v = a[campo];
+            if (!v) {
+                problemas.push(`${quien}: falta la fecha de ${comoSeLlama} de actuación.`);
+            } else if (!FECHA_ISO.test(String(v)) || Number.isNaN(Date.parse(v))) {
+                problemas.push(`${quien}: la fecha de ${comoSeLlama} de actuación no es una fecha ("${v}"). Sale de las fechas de las facturas y del certificado de instalación — revísalas en su Documentación.`);
+            }
+        }
+        if (FECHA_ISO.test(String(a.SE_fecha_inicio || '')) && FECHA_ISO.test(String(a.SE_fecha_fin || ''))
+            && a.SE_fecha_inicio > a.SE_fecha_fin) {
+            problemas.push(`${quien}: la fecha de inicio (${a.SE_fecha_inicio}) es posterior a la de fin (${a.SE_fecha_fin}).`);
+        }
+
+        if (!(Number(a.SE_ahorro_anual) > 0)) problemas.push(`${quien}: el ahorro anual es 0 o no está calculado.`);
+        if (!String(a.SE_inversion || '').trim()) problemas.push(`${quien}: no hay inversión (suma de las facturas sin IVA).`);
+        if (!String(a.SE_propietario_inicial || '').trim()) problemas.push(`${quien}: falta el titular (propietario inicial del ahorro).`);
+        if (!String(a.SE_cod_ficha || '').trim()) problemas.push(`${quien}: no se ha podido deducir el código de ficha.`);
+
+        if (!String(emp.SE_direccion_instalacion || '').trim()) problemas.push(`${quien}: falta la dirección de la instalación.`);
+        if (!String(emp.SE_referencia_catastral || '').trim()) problemas.push(`${quien}: falta la referencia catastral.`);
+        if (!String(emp.SE_coordenadas_utm || '').replace(/[^0-9]/g, '')) problemas.push(`${quien}: faltan las coordenadas UTM.`);
+        if (!String(emp.SE_comunidad_autonoma || '').trim()) problemas.push(`${quien}: el lote no tiene comunidad autónoma.`);
+
+        // Con ayuda pública declarada, Marwen exige los seis campos del programa:
+        // o van todos o rechaza la solicitud entera. Se comprueba aquí porque una
+        // ayuda a medias es lo mismo que no declararla — y el Anexo I que se
+        // adjunta sí la declara.
+        if (a.SE_apoyo_programa === 'si') {
+            const exigidos = [
+                ['SE_denominacion_programa', 'la denominación del programa de ayuda'],
+                ['SE_entidad_gestor', 'la entidad u órgano gestor'],
+                ['SE_anio_solicitud', 'el año de la solicitud'],
+                ['SE_disposicion_reguladora', 'la disposición reguladora'],
+                ['SE_cuantia_ayuda', 'la cuantía de la ayuda'],
+                ['SE_fondo_nacional', 'si es con cargo a fondos nacionales'],
+            ];
+            for (const [campo, comoSeLlama] of exigidos) {
+                if (!String(a[campo] == null ? '' : a[campo]).trim()) {
+                    problemas.push(`${quien}: declara una ayuda pública pero falta ${comoSeLlama} (pestaña Subvenciones del expediente).`);
+                }
+            }
+        }
+    });
+    return problemas;
+}
+
 router.post('/:id/enviar-verificador-api', staffOnly, async (req, res) => {
     try {
         if (!marwenService.isConfigured()) {
             return res.status(503).json({ error: 'La integración con Marwen no está configurada (falta MARWEN_API_KEY en el backend).' });
         }
 
-        const { contacto = {}, figura = 'obligado', step2 = [], step3 = [], dryRun = false } = req.body || {};
+        const { contacto = {}, figura = 'obligado', step2 = [], step3 = [], dryRun = false,
+            // HTML de la MISMA solicitud que se está enviando: se archiva como
+            // borrador en el slot 1 del lote para no tener que descargarla y
+            // volver a subirla a mano (ver archivarSolicitudBorrador).
+            solicitudHtml = null } = req.body || {};
 
         // 1. Lote + Sujeto Obligado (solicitante autoritativo).
         const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
@@ -2499,6 +2693,7 @@ router.post('/:id/enviar-verificador-api', staffOnly, async (req, res) => {
         const blocking = [];
         if (step1.SE_provincia == null) blocking.push('No se pudo resolver el ID de PROVINCIA del Sujeto Obligado en Marwen.');
         if (step1.SE_localidad == null) blocking.push('No se pudo resolver el ID de LOCALIDAD del Sujeto Obligado en Marwen.');
+        blocking.push(...validarActuaciones(step2norm, step3));
 
         // 5. dryRun → previsualización sin enviar.
         if (dryRun) {
@@ -2514,7 +2709,7 @@ router.post('/:id/enviar-verificador-api', staffOnly, async (req, res) => {
         }
 
         // 6. Envío real.
-        if (blocking.length) return res.status(422).json({ error: blocking.join(' '), warnings: geo.warnings });
+        if (blocking.length) return res.status(422).json({ error: blocking.join('\n'), warnings: geo.warnings, blocking });
         if (!step1.SE_email || !step1.SE_contacto) return res.status(400).json({ error: 'Falta la persona de contacto o el email del solicitante.' });
 
         const result = await marwenService.enviarSolicitudEstandarizada(payload);
@@ -2543,13 +2738,30 @@ router.post('/:id/enviar-verificador-api', staffOnly, async (req, res) => {
         }
         const { data: updated, error: upErr } = await supabase.from('lotes').update(update).eq('id', lote.id).select().single();
         if (upErr) throw upErr;
-        const [enriched] = await enrichLotes([updated]);
+
+        // 8. El PDF de la solicitud que se acaba de crear en el verificador queda
+        //    archivado en el lote. Best-effort: la solicitud YA está enviada y un
+        //    fallo de Drive no puede presentarse como un fallo de envío.
+        let solicitud_archivada = null;
+        if (solicitudHtml) {
+            try {
+                const pdf = await htmlToPdf(solicitudHtml);
+                solicitud_archivada = await archivarSolicitudBorrador(updated || lote, pdf, { usuario: usuarioDe(req) });
+            } catch (e) {
+                console.warn('[enviar-verificador-api] archivar solicitud:', e.message);
+                solicitud_archivada = { archivada: false, motivo: e.message };
+            }
+        }
+
+        const { data: final } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
+        const [enriched] = await enrichLotes([final || updated]);
 
         res.json({
             ok: true,
             num_solicitud: result.num_solicitud,
             tipo_solicitud: result.tipo_solicitud,
             message: result.message,
+            solicitud_archivada,
             lote: scrubLoteForUser(enriched, req),
         });
     } catch (err) {

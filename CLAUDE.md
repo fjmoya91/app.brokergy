@@ -3194,6 +3194,83 @@ antes de presentarlo, se puede.
 
 ---
 
+## El PAQUETE de cada actuación — renombrar a E{n} y zipear (2026-09-08)
+
+Los ~20 documentos de cada expediente se bajaban de Drive, se renombraban a mano
+uno a uno con su código del índice (`E3-3-5 - …`) y se comprimían. **Cinco veces por
+lote.** Ahora sale de un botón, y antes de generar nada **dice qué falta y en qué
+expediente**.
+
+| Qué | Dónde |
+|---|---|
+| El ÍNDICE (qué documento es cada código y de dónde sale) | [envioGestorService.js](implementation/backend/services/envioGestorService.js) — `INDICE` |
+| ZIP sin dependencias nuevas | [utils/zipStore.js](implementation/backend/utils/zipStore.js) |
+| Ruta | `POST /api/lotes/:id/paquete-actuaciones` — `{ modo, dryRun }`, **adminOnly** |
+| Botones | Fase 5 de `LoteProcesoFases` ("Comprobar el paquete E1-E5" → "Generar N ZIP") |
+| El convenio del S.O. | `prescriptores.convenio_cae_link` · ficha del S.O. (`ConvenioCae` en `PrescriptorDetailModal`) |
+| Prueba sin escribir en Drive | `node scripts/test_paquete_actuaciones.js LOTE-2026-004 [--gestor] [--zip]` |
+
+**REGLA — la nomenclatura NO se inventa: se REPRODUCE.** Sale de los lotes ya
+presentados (medida sobre LOTE-2025-002, 003 y 2026-004, que coinciden entre sí) y es
+la que el verificador y la Gestora de Ahorros ya han aceptado. El prefijo es
+`E{n}-{código}` y el orden de `INDICE` **es** el orden en que lo lee quien lo revisa.
+
+**REGLA — el nº de actuación es el del INFORME de verificación**
+(`instalacion.verificacion.orden_actuacion`), el mismo que rotula el anexo del MITECO
+(regla 29). Sin él no se arma nada y se dice por qué: deducirlo de otra cosa haría que
+los adjuntos dejaran de casar con el anexo que los cita.
+
+**REGLA — lo IMPRESCINDIBLE bloquea; lo leve avisa.** Un paquete sin el justificante
+de registro del CEE se presenta igual de bien que uno completo y el requerimiento
+llega tres semanas después; uno sin la etiqueta energética, no. Cada pieza declara su
+`obligatorio` y esa es la única fuente del corte. Las que faltan se dicen **por
+expediente y con nombre**, y las demás actuaciones se generan igual.
+
+**REGLA — los ficheros se COPIAN, nunca se mueven.** El original sigue en su carpeta
+de siempre ("6. ANEXOS CAE", "5. FACTURAS", "1. CEE/…"), que es la que audita todo lo
+demás. El paquete es una vista derivada: se puede regenerar, y lo que reemplaza lo
+borra en vez de archivarlo en OLD porque nunca es la única copia de nada.
+
+**REGLA — lo que ya está colocado con su código NO se toca.** Ni se renombra ni se
+sustituye: ese nombre es el que el verificador ha visto (con su `_rev1`, su `_fdo_fdo`
+y sus mayúsculas), y "corregirlo" solo dejaría dos copias del mismo papel con nombres
+distintos. Es además lo que hace que regenerar sea idempotente y que un documento que
+alguien dejó ahí a mano no desaparezca del ZIP por no constar en la base de datos.
+Cuando una pieza sale de ahí —o de un respaldo en Drive— **se dice** (`⚠ sale de un
+fichero suelto en Drive, no consta en el expediente`): hoy funciona porque hay una
+copia, y el lote que viene detrás no la va a tener.
+
+**REGLA — el nombre lo decide la PIEZA, no quien la encontró.** `nombreDe(ctx)` para
+las dinámicas (el convenio con la marca del S.O., `Ficha RES080_fdo`, y el CIFO que en
+un RES080 se llama Certificado de Reforma). Cayendo en la etiqueta de la interfaz
+salían ficheros llamados `E1-3-1 - … - Ficha RES firmada por el S.O..pdf`.
+
+**DOS paquetes, porque se arman en dos momentos:**
+- `expediente` → la carpeta `E{n}` **dentro del expediente** + `E{n}.zip`. Se puede
+  montar en cuanto el informe numera las actuaciones, semanas antes del dictamen.
+- `gestor` → `{LOTE} - ENVIO GESTOR/E{n}` + `ActuacionE{n}.zip`: lo mismo MÁS el
+  dictamen favorable (`E{n}-2`) y los escritos del lote (`E{n}-5-x`). Es el que se
+  sube a MITECO, y su botón solo aparece con el dictamen ya subido.
+
+**El CERTIFICADO RITE pasa a `3-2`.** En los lotes ya enviados comparte el `3-6` con
+el justificante de registro del CEE final —dos ficheros con el mismo código— y el
+`3-2` estaba libre en todos ellos. Se cambia en `COD_RITE` y en ningún otro sitio.
+
+**REGLA — el CONVENIO CAE vive en la ficha del S.O.**, no en el lote: es el mismo
+documento en las cinco actuaciones y en todos sus lotes. Se sube una vez (o se pega su
+enlace de Drive) y va a una carpeta **fuera de cualquier lote o expediente** — dentro
+de uno, quien ordene esa carpeta se lleva por delante el convenio de todos los demás
+paquetes (mismo criterio que el catálogo de fichas técnicas).
+
+**El ZIP se escribe sin dependencias nuevas** (`utils/zipStore.js`, modo STORE): el
+contenido son PDFs, que ya vienen comprimidos por dentro, así que deflatearlos otra vez
+ahorra una migaja y costaría una dependencia más en la imagen del backend. Verificado
+con `zipfile` de Python sobre los cuatro ZIP de LOTE-2026-004 (12-29 MB cada uno).
+
+⚠️ El atajo de "en seco no fusiono las fichas técnicas" (son varios PDF que se unen en
+uno) **no puede aplicarse cuando se arma el ZIP de verdad**: con él puesto, el paquete
+salía sin las fichas técnicas y sin decirlo.
+
 ## Pedirle cosas al SUJETO OBLIGADO desde el cuadro de mando (2026-09-01)
 
 Los envíos que ya existían son de UN documento de UN lote (firmar el Anexo I, firmar la
@@ -4125,6 +4202,120 @@ proyecto aparte.
 
 ---
 
+## Las FICHAS y el ANEXO I se RELLENAN, ya no se redibujan (2026-09-08)
+
+Las cuatro fichas (RES060 · RES080 · RES093 · TER100) y el **Anexo I** se
+REPLICABAN en HTML: ~1.100 líneas imitando el modelo del Ministerio hasta los saltos
+de página, el ancho de la caja de texto y las notas al pie, con un medidor propio
+para comprobar que nada desbordaba. El Ministerio publica ahora esos cinco impresos
+como **PDF de FORMULARIO**, así que se rellena el suyo: el documento pasa a ser
+literalmente el oficial y lo único nuestro son las cifras.
+
+Es el mismo camino que ya hacía `anexoActuacionService` con el anexo del MITECO
+(regla 29); este es su hermano para los documentos de la ficha.
+
+| Qué | Dónde |
+|---|---|
+| Rellenar el impreso (tamaños, casillas, desplegables, firma) | [formularioOficialService.js](implementation/backend/services/formularioOficialService.js) |
+| Plantillas | `backend/plantillas/Ficha{RES060,RES080,RES093,TER100}.pdf` · `AnexoIDeclaracionResponsable.pdf` |
+| QUÉ casilla ocupa cada dato — fichas | [logic/fichasFormulario.js](implementation/frontend/src/features/expedientes/logic/fichasFormulario.js) |
+| QUÉ casilla ocupa cada dato — Anexo I | [logic/anexoIFormulario.js](implementation/frontend/src/features/expedientes/logic/anexoIFormulario.js) |
+| El documento, venga como venga | `documentoAPdf()` en [pdfService.js](implementation/backend/services/pdfService.js) |
+| Vista previa (es el PDF de verdad) | `DocumentoOficialPreview.jsx` |
+| Prueba sin BD (empresa · subvención · cascada · CCAA · euro) | `node implementation/backend/scripts/test_impresos_oficiales.mjs` |
+| Contraste contra EXPEDIENTES REALES, y los dos PDF en disco | `node implementation/backend/scripts/comparar_impresos_oficiales.mjs` |
+
+**REGLA — el impreso no CALCULA nada.** Los valores salen de los `derive*` de las
+plantillas HTML (`deriveFichaRes060/080/093`, `deriveFichaTer100`, `deriveAnexoI`),
+que son los mismos que alimentan el CIFO y el panel económico. Por eso esos cuatro
+ficheros exportan ahora su derivación aparte de su maqueta: si el formulario
+recalculara por su cuenta, el mismo expediente tendría dos documentos con números
+distintos según por dónde se generase.
+
+**REGLA — los nombres de campo son los de la PLANTILLA, erratas incluidas.** `ri i`
+es η_i, `E F` es EF_i, `Representante delsolicitante` va sin espacio en RES080 y
+TER100, y el impreso trunca a 50 caracteres (`Dirección postal de la instalación en
+que se ejecu`). Se leen con `pdf.getForm().getFields()`. "Corregirlos" solo deja el
+impreso con un hueco — y un campo que la plantilla no tiene **se AVISA**, nunca se
+traga en silencio.
+
+**REGLA — un documento viaja como `{ html }` o como `{ formulario }`, y las cuatro
+salidas usan la MISMA.** Descargar, guardar en Drive, enviar por email/WhatsApp y el
+envío del lote al S.O. pasan por `documentoAPdf`. Si una se quedara sin la rama del
+formulario seguiría mandando la maqueta antigua sin que nadie lo notara — y el
+enlace de firma del cliente sirve el borrador de Drive, así que sería OTRO documento
+el que se firma.
+
+**REGLA — el tamaño de letra se fija en la CASILLA, no en el campo.**
+`field.setFontSize()` solo toca el /DA del campo, y pdf-lib pinta con el de la
+casilla si lo tiene (`widgetFontSize ?? fieldFontSize`). Estos impresos lo traen en
+la casilla y con valor 0 ("ajústalo tú"), así que sin `fijarTamano()` el tamaño
+calculado se ignoraba: en la tabla del total de la ficha TER100 salían tres cifras a
+16pt junto a otras dos a 12, en un documento cuyo cuerpo es de 12. Un campo con
+VARIAS casillas (el AE de cada servicio en TER100 sale en su apartado y otra vez en
+el total) se ajusta a la MÁS PEQUEÑA.
+
+**REGLA — la comunidad autónoma se ELIGE del desplegable.** La BD guarda "Comunidad
+Valenciana", "Baleares", "Navarra" o "CASTILLA-LA MANCHA" y el impreso dice
+"Comunitat Valenciana", "Illes Balears", "Comunidad Foral de Navarra"…
+`resolverOpcion` casa por normalización y por una tabla de alias; una CCAA que no
+case deja el impreso sin ella, que es el campo por el que el Gestor Autonómico lo
+reparte. Nunca se escribe a pelo una cadena que no sea una opción.
+
+⚠️ **WinAnsi NO es Latin-1.** El EURO (U+20AC) está fuera de `\x00-\xFF` y con un
+filtro por rango la cuantía de una subvención salía impresa como **"18.800,00 ?"**.
+`WINANSI_EXTRA` recoge los 27 caracteres del hueco 0x80-0x9F que sí se pueden
+escribir.
+
+⚠️ **La plantilla trae dentro un sello naranja "SIGN"** en su campo de firma (lo deja
+la herramienta con la que se hizo el formulario). Se firma con Autofirma, que crea el
+suyo, así que ese campo se RETIRA al rellenar — `form.removeField()` no vale (revienta
+leyendo su /AP), hay que quitarlo de `AcroForm.Fields` y de las anotaciones de su
+página.
+
+### Los DOS formatos conviven, y la firma no cae en el mismo sitio
+
+En Drive hay borradores del formato anterior esperando firma. Las cajas de
+`signBoxes.js` se han duplicado (`_oficial` + la de siempre) y `fixedBox` admite
+ahora una **FUNCIÓN** `({ numPaginas, oficial }) => caja`, que resuelven
+`FirmarConCertificadoModal` (Autofirma) y `firmarYEscanear` (firma manuscrita):
+
+- **Anexo I** — 4 páginas el oficial (firma en la 4ª) y 3 la maqueta. Manda el nº de
+  páginas: sin esto, un borrador viejo recibiría la firma en una página que no existe.
+- **Fichas** — los dos formatos tienen las MISMAS páginas, así que se mira quién
+  produjo el PDF: el impreso oficial lo rellena **pdf-lib** y la maqueta la rasteriza
+  Chrome ("Skia/PDF").
+
+Las cajas `_oficial` salen del CAMPO DE FIRMA de la propia plantilla, leído con
+PyMuPDF: son las coordenadas que el impreso reserva, no una estimación.
+
+### El "Fdo." del Anexo I no es un campo
+
+El impreso deja ahí unos guiones bajos. El nombre del firmante se ESCRIBE sobre la
+página (`FDO_ANEXO_I`, medido sobre la plantilla): sin él el documento no dice quién
+firma, que es lo primero que mira quien lo recibe.
+
+### Qué se conserva del formato anterior
+
+La maqueta HTML **no se ha borrado**. Los cuatro modales de ficha y el del Anexo I
+llevan un conmutador **Oficial · Clásico** (`FormatoDocumentoSwitch`) que cambia lo
+que se previsualiza Y lo que se envía, para poder comparar los dos documentos del
+mismo expediente y como salida si el impreso cambiara. El OFICIAL es el valor por
+defecto y lo que sale por las superficies sin conmutador (envío de anexos, convenio
+de cesión, lote al S.O.).
+
+**REGLA — la vista previa del oficial es EL PDF que se va a enviar**, no una maqueta
+parecida: se pide a `/api/pdf/generate` y se enseña en un iframe. Una réplica en
+pantalla volvería a abrir la puerta a que lo que se revisa y lo que se manda no sean
+el mismo documento.
+
+⚠️ Las casillas del Anexo I **se marcan en la pestaña Subvenciones**; el formato
+clásico conserva su edición en pantalla (contenteditable + casillas) y lo que se
+toque ahí se refleja en el oficial, porque el estado es el mismo. La nota del popup
+lo dice.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -4208,6 +4399,10 @@ proyecto aparte.
 36. **La CONFIRMACIÓN DE COBRO es un formulario de la app, no de Tally**: `/cobro/:id?token=` cualifica al cliente (tarifa · fotovoltaica · IRPF) y confirma sus datos de pago cuando el lote llega a fase de pago. Lo obligatorio va AL FINAL y lo comercial delante, y **nunca retiene el cobro**. La forma de pago solo se pregunta a quien asume el coste (`discountCertificates` la calla, porque su convenio no la menciona), y las dos opciones NO cuestan lo mismo: el descuento va sobre la BASE sin IVA y la factura lo repercute, así que sale marcada `desaconsejada` con lo que cuesta de más y el retraso del cobro. **Cambiar de IBAN exige justificante NUEVO** —el anterior acredita la cuenta vieja— y el cambio va lo primero en el aviso al staff. Los datos van a `clientes` y el justificante a su slot de siempre; en `documentacion.cobro`, solo metadatos con RPC de MERGE. Fuentes únicas: [logic/cobroForm.js](implementation/frontend/src/features/cobro/logic/cobroForm.js) (qué se pregunta) y [cobroService.js](implementation/backend/services/cobroService.js) (a quién y con qué datos). Ver "Confirmación de cobro".
 
 39. **Un mensaje de WhatsApp con el RELOJ no está enviado, y el "escribiendo…" es lo que rompe la sesión**: `sendMessage()` devuelve el id en cuanto el mensaje se INSERTA en el chat, así que ese `{ok:true}` no significa entregado — el 08/09/2026 una propuesta quedó sellada con "✓ whatsapp ok" para el cliente y el instalador con los dos PDF dos horas en el reloj. Lo único que lo dice es el **ACK**: `confirmarEntrega()` lo espera tras `waitUntilMsgSent: true` y, si sigue en 0, es error de verdad → FAILED **sin reintentos** (el mensaje ya existe en el chat: reenviarlo lo duplica) + email al admin; si el ack no se puede leer, no se afirma nada. **NUNCA `getChatById`/`getChats`/`msg.getChat`/`sendSeen` en el camino de envío**: en WhatsApp Web 2.3000.x dejan la sesión enviando sin ACK hasta que se desconecta sola ([wwebjs#201849](https://github.com/wwebjs/whatsapp-web.js/issues/201849), sin arreglo publicado). `WWA_TYPING` y `WWA_SEND_SEEN` a `false`; la pausa humana entre mensajes se queda. Fijar la versión de la web (`WWA_WEB_VERSION`) NO sirve: se auto-actualiza igual. Ver "Un mensaje con el RELOJ no está enviado".
+
+40. **El PAQUETE de cada actuación se genera, no se renombra a mano**: los ~20 documentos del expediente copiados como `E{n}-{código}` y comprimidos, en dos modos —`expediente` (la carpeta `E{n}` + `E{n}.zip`) y `gestor` (`{LOTE} - ENVIO GESTOR` + `ActuacionE{n}.zip`, que añade el dictamen y los escritos)—. La nomenclatura se REPRODUCE de los lotes ya presentados, no se inventa; el nº de actuación es el del informe de verificación (regla 29); lo imprescindible BLOQUEA y lo leve solo avisa; los ficheros se COPIAN y **lo que ya está colocado con su código no se renombra ni se sustituye** (y si una pieza sale de un fichero suelto de Drive, se dice). Fuente única del índice: [envioGestorService.js](implementation/backend/services/envioGestorService.js) (`INDICE`, `COD_RITE`). El convenio CAE vive en la ficha del S.O. (`prescriptores.convenio_cae_link`), fuera de cualquier lote. Ver "El PAQUETE de cada actuación".
+
+41. **Las FICHAS y el ANEXO I se RELLENAN sobre el impreso OFICIAL, ya no se redibujan**: las cinco plantillas son PDF de formulario del Ministerio y se escriben sus casillas ([formularioOficialService.js](implementation/backend/services/formularioOficialService.js)); qué dato ocupa cada una vive en [logic/fichasFormulario.js](implementation/frontend/src/features/expedientes/logic/fichasFormulario.js) y [logic/anexoIFormulario.js](implementation/frontend/src/features/expedientes/logic/anexoIFormulario.js). **El impreso no calcula nada**: los valores salen de los `derive*` de las maquetas, que son los mismos del CIFO. Los nombres de campo son los de la plantilla, ERRATAS INCLUIDAS (`ri i`, `E F`, `Representante delsolicitante`), y un campo que no existe se AVISA. Un documento viaja como `{ html }` o `{ formulario }` y las CUATRO salidas usan la misma (`documentoAPdf`), o el enlace de firma serviría otro documento. El tamaño de letra se fija en la CASILLA, no en el campo (pdf-lib pinta con el de la casilla); la CCAA se ELIGE del desplegable; el EURO no está en Latin-1 (`WINANSI_EXTRA`); y el sello "SIGN" de la plantilla se retira. **Los dos formatos conviven en Drive**, así que `fixedBox` admite una función `({numPaginas, oficial}) => caja` — el Anexo I se distingue por páginas (4 vs 3) y las fichas por el productor del PDF (pdf-lib vs Skia). La maqueta HTML se conserva tras el conmutador **Oficial · Clásico** de los cinco modales. Tras tocarlo: `node implementation/backend/scripts/test_impresos_oficiales.mjs` y `comparar_impresos_oficiales.mjs`. Ver "Las FICHAS y el ANEXO I se RELLENAN".
 
 38. **Con la BD caída, la app CALLA; nunca contesta una cifra tranquila**: un error de lectura no puede salir por 200. [middleware/auth.js](implementation/backend/middleware/auth.js) seguía adelante con el perfil a null —sin rol, sin empresa— y lo **cacheaba 5 minutos**, así que el partner salía como "USUARIO / LOGO PARTNER", con el menú recortado y, como `GET /oportunidades` acaba filtrando por `creador_id = null`, la cartera a CERO; y esa misma ruta convertía además cualquier fallo de Supabase en `200 []`. Un distribuidor con 19 oportunidades vio "0 oportunidades · 0,00 €" con toda la apariencia de dato bueno —que se lee como trabajo borrado— y recargar no lo arreglaba, porque el fantasma vivía en la caché. Medido el 08/09/2026: Postgres se cayó y arrancó en recuperación (`database system was not properly shut down`) y Cloudflare sirvió **521 Web server is down** delante de Supabase durante ~1 min. Ahora las dos rutas responden **503** (`PROFILE_UNAVAILABLE` / `OPORTUNIDADES_UNAVAILABLE`) y no se cachea nada; el frontend enseña `ProfileUnavailable` (reintentar, y "tus datos siguen ahí") en vez de un dashboard con identidad falsa, la lista conserva lo que ya tuviera, y **el resumen financiero no se pinta si no hay datos** — 0,00 € es justo la cifra que asusta. A quien YA tiene perfil bueno en caché no se le echa por un parpadeo. Vigilado por `node implementation/backend/scripts/test_caida_bd_no_miente.js`.
 

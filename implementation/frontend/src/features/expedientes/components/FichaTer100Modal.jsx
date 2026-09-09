@@ -3,6 +3,11 @@ import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { postEmail } from '../../../utils/emailFallback';
 import { buildFichaTer100Html, buildFichaTer100Body, fichaTer100Css, deriveFichaTer100 } from '../logic/fichaTer100Html';
+// El documento se genera rellenando el IMPRESO OFICIAL del Ministerio; la
+// maqueta HTML de este fichero se conserva como formato CLÁSICO para poder
+// comparar los dos y como salida si el impreso cambiara.
+import { fichaFormulario } from '../logic/fichasFormulario';
+import { DocumentoOficialPreview, FormatoDocumentoSwitch } from './DocumentoOficialPreview';
 // Los nombres van en MAYÚSCULAS en la ficha: en el saludo se escriben bien y
 // sin cortar los compuestos ("MARIA JOSÉ" no es "Maria").
 import { nombreSaludo } from '../../../utils/nombres.js';
@@ -34,6 +39,8 @@ export function FichaTer100Modal({ isOpen, onClose, expediente, onSaveDrive }) {
     const [sendingEmail, setSendingEmail] = useState(false);
     const [sendingWhatsapp, setSendingWhatsapp] = useState(false);
     const [scale, setScale] = useState(1);
+    // 'oficial' = el impreso del Ministerio relleno (lo que se envía y se firma).
+    const [formato, setFormato] = useState('oficial');
 
     const updateScale = useCallback(() => {
         if (!containerRef.current) return;
@@ -63,10 +70,24 @@ export function FichaTer100Modal({ isOpen, onClose, expediente, onSaveDrive }) {
 
     const folderId = op.drive_folder_id || op.datos_calculo?.drive_folder_id || op.datos_calculo?.inputs?.drive_folder_id;
 
+    // ── El documento ──────────────────────────────────────────────────────────
+    // En formato OFICIAL viaja como `formulario` (el impreso, que rellena el
+    // backend); en CLÁSICO, como la maqueta HTML de siempre. Las cuatro acciones
+    // —descargar, Drive, email y WhatsApp— pasan por aquí para que no puedan
+    // mandar formatos distintos.
+    // La TER100 deriva sus tres ahorros del propio expediente (logic/ter100.js), así
+    // que no recibe `results` como las demás fichas.
+    const formularioOficial = () => fichaFormulario('TER100', expediente);
+    const docPayload = () => (formato === 'oficial' ? { formulario: formularioOficial() } : { html: staticHtml() });
+    const pdfBase64Doc = async () => (await axios.post('/api/pdf/generate', docPayload())).data?.pdf;
+    // El email adjunta el PDF ya hecho cuando es el impreso oficial (así se manda
+    // EXACTAMENTE lo que se ha revisado en pantalla).
+    const emailDocPayload = async () => (formato === 'oficial' ? { pdfBase64: await pdfBase64Doc() } : { html: staticHtml() });
+
     const handleDownloadPdf = async () => {
         setGenerating(true);
         try {
-            const { data } = await axios.post('/api/pdf/generate', { html: staticHtml() });
+            const { data } = await axios.post('/api/pdf/generate', docPayload());
             const bytes = new Uint8Array(atob(data.pdf).split('').map(c => c.charCodeAt(0)));
             const blob = new Blob([bytes], { type: 'application/pdf' });
             const a = document.createElement('a');
@@ -82,7 +103,7 @@ export function FichaTer100Modal({ isOpen, onClose, expediente, onSaveDrive }) {
         setSavingDrive(true);
         try {
             const { data } = await axios.post('/api/pdf/save-to-drive', {
-                html: staticHtml(),
+                ...docPayload(),
                 folderId,
                 fileName: `${numexpte || 'DRAFT'} - Ficha TER100`,
                 subfolderName: '6. ANEXOS CAE'
@@ -102,7 +123,7 @@ export function FichaTer100Modal({ isOpen, onClose, expediente, onSaveDrive }) {
         try {
             const userName = [cli.nombre_razon_social, cli.apellidos].filter(Boolean).join(' ');
             const response = await postEmail('/api/pdf/send-proposal', {
-                html: staticHtml(),
+                ...(await emailDocPayload()),
                 to: toEmail,
                 userName,
                 summaryData: { id: numexpte, docType: 'Ficha TER100', userName }
@@ -121,7 +142,7 @@ export function FichaTer100Modal({ isOpen, onClose, expediente, onSaveDrive }) {
         try {
             const st = await axios.get('/api/whatsapp/status');
             if (!st.data?.ready) { alert('❌ WhatsApp no está conectado.'); return; }
-            const pdfResp = await axios.post('/api/pdf/generate', { html: staticHtml() });
+            const pdfResp = await axios.post('/api/pdf/generate', docPayload());
             const firstName = nombreSaludo(cli.nombre_razon_social);
             const caption = `Hola ${firstName},\n\nTe adjunto la *Ficha TER100* de tu expediente *${numexpte}*.\n\nUn saludo,\n*BROKERGY*`;
             await axios.post('/api/whatsapp/send-media', {
@@ -173,6 +194,7 @@ export function FichaTer100Modal({ isOpen, onClose, expediente, onSaveDrive }) {
                             ))}
                         </div>
 
+                        <FormatoDocumentoSwitch formato={formato} onChange={setFormato} disabled={busy} />
                         {user?.rol?.toUpperCase() === 'ADMIN' && (
                             <button
                                 onClick={handleSaveToDrive}
@@ -219,7 +241,15 @@ export function FichaTer100Modal({ isOpen, onClose, expediente, onSaveDrive }) {
                 </div>
 
                 {/* Área scrolleable — el MISMO HTML que se manda a generar el PDF */}
-                <div ref={containerRef} className="flex-1 overflow-auto bg-[#16181D] py-8 px-4 text-center">
+                {/* La vista previa del OFICIAL es el propio PDF: lo que se revisa es
+                    exactamente lo que se descarga, se guarda y se envía. */}
+                {formato === 'oficial' && (
+                    <div className="flex-1 min-h-0">
+                        <DocumentoOficialPreview formulario={formularioOficial()} titulo="Ficha TER100"
+                            onFallback={() => setFormato('clasico')} />
+                    </div>
+                )}
+                <div ref={containerRef} className={`flex-1 overflow-auto bg-[#16181D] py-8 px-4 text-center ${formato === 'oficial' ? 'hidden' : ''}`}>
                     <div className="inline-block text-left"
                          style={{ transform: `scale(${scale})`, transformOrigin: 'top center', width: 794, flexShrink: 0 }}>
                         <style dangerouslySetInnerHTML={{ __html: fichaTer100Css() + SCREEN_CSS }} />

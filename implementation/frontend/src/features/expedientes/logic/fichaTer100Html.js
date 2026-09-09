@@ -39,7 +39,7 @@
 // import() dinámico desde Node (igual que cifoDoc.js) si algún día la ficha se
 // genera server-side. Node ESM no resuelve rutas sin extensión.
 // ============================================================
-import { deriveTer100Vars, TER100_VIDA_UTIL } from './ter100.js';
+import { deriveTer100Vars, TER100_VIDA_UTIL, TER100_FP } from './ter100.js';
 import { calcCifo } from './calcCifo.js';
 
 // Márgenes medidos sobre `plantillas/Ficha TER100.pdf` con PyMuPDF y convertidos a
@@ -148,6 +148,9 @@ export function deriveFichaTer100(expediente) {
 
     return {
         ter,
+        // El factor de ponderación se imprime en las TRES tablas de resultado y en el
+        // impreso oficial son tres casillas distintas: sale de un solo sitio.
+        fp: String(TER100_FP),
         eta: coma2(ter.boilerEff),
         // Fuera del alcance → "no aplica" (no 0): la ficha debe dejar ver el alcance.
         dcal: ter.alcance.calefaccion ? coma2(ter.dcalRaw) : NO_APLICA,
@@ -223,7 +226,7 @@ export function buildFichaTer100Body(expediente, opts = {}) {
 <div class="calc-group">
     <table class="calc-table" style="width:80.5%">
         <thead><tr><th style="width:20%">η<sub>i</sub></th><th style="width:20%">SCOP</th><th style="width:20%">D<sub>C</sub></th><th style="width:20%">S</th><th style="width:20%">F<sub>p</sub></th></tr></thead>
-        <tbody><tr><td>${d.eta}</td><td>${d.scopCal}</td><td>${d.dcal}</td><td>${d.s}</td><td>1</td></tr></tbody>
+        <tbody><tr><td>${d.eta}</td><td>${d.scopCal}</td><td>${d.dcal}</td><td>${d.s}</td><td>${d.fp}</td></tr></tbody>
     </table>
     <div class="calc-gap" style="width:1.5%"></div>
     <table class="calc-table" style="width:18%">
@@ -267,7 +270,7 @@ export function buildFichaTer100Body(expediente, opts = {}) {
 <div class="calc-group">
     <table class="calc-table" style="width:64.7%">
         <thead><tr><th style="width:25%">F<sub>P</sub></th><th style="width:24.8%">η<sub>i</sub></th><th style="width:27.7%">SCOP<sub>dhw</sub></th><th style="width:22.5%">D<sub>ACS</sub></th></tr></thead>
-        <tbody><tr><td>1</td><td>${d.eta}</td><td>${d.scopAcs}</td><td>${d.dacs}</td></tr></tbody>
+        <tbody><tr><td>${d.fp}</td><td>${d.eta}</td><td>${d.scopAcs}</td><td>${d.dacs}</td></tr></tbody>
     </table>
     <div class="calc-gap" style="width:3.2%"></div>
     <table class="calc-table" style="width:16%">
@@ -311,7 +314,7 @@ export function buildFichaTer100Body(expediente, opts = {}) {
 <div class="calc-group">
     <table class="calc-table" style="width:64.7%">
         <thead><tr><th style="width:25%">F<sub>P</sub></th><th style="width:24.8%">η<sub>i</sub></th><th style="width:27.7%">SCOP<sub>pwh</sub></th><th style="width:22.5%">D<sub>CAP</sub></th></tr></thead>
-        <tbody><tr><td>1</td><td>${d.eta}</td><td>${d.scopPool}</td><td>${d.dcap}</td></tr></tbody>
+        <tbody><tr><td>${d.fp}</td><td>${d.eta}</td><td>${d.scopPool}</td><td>${d.dcap}</td></tr></tbody>
     </table>
     <div class="calc-gap" style="width:3.2%"></div>
     <table class="calc-table" style="width:16%">

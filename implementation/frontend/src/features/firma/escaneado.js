@@ -218,7 +218,11 @@ export function estamparFirma(canvas, viewport, box, imagen) {
  * @param {ArrayBuffer|Uint8Array} bytes  el PDF original (el borrador de Drive)
  * @param {object} opts
  *   - firma {string}     PNG de la firma (data URL). Sin ella solo se escanea.
- *   - box {object}       recuadro de `SIGN_BOXES` donde cae la firma
+ *   - box {object|function}  recuadro de `SIGN_BOXES` donde cae la firma. Puede ser
+ *       una FUNCIÓN `({ numPaginas, oficial }) => recuadro`: el mismo documento
+ *       convive en dos formatos —el impreso OFICIAL del Ministerio y la maqueta
+ *       anterior, que sigue en Drive en los expedientes ya enviados— y la firma no
+ *       cae en el mismo sitio. Ver `signBoxes.js`.
  *   - onProgreso {(hecho:number, total:number) => void}
  * @returns {{ blob: Blob, vista: string }} `vista` es la página de la firma ya
  *   rasterizada (data URL), para enseñar cómo ha quedado sin renderizar otra vez.
@@ -228,16 +232,24 @@ export function estamparFirma(canvas, viewport, box, imagen) {
 export async function firmarYEscanear(bytes, { firma, box, onProgreso } = {}) {
     const doc = await cargarPdf(bytes);
     const total = doc.numPages;
+    // Qué formato es este PDF: el impreso oficial lo rellena pdf-lib; la maqueta la
+    // rasteriza Chrome ("Skia/PDF"). Mismo criterio que FirmarConCertificadoModal.
+    let caja = box;
+    if (typeof box === 'function') {
+        let productor = '';
+        try { productor = (await doc.getMetadata())?.info?.Producer || ''; } catch { /* da igual */ }
+        caja = box({ numPaginas: total, oficial: /pdf-lib/i.test(productor) });
+    }
     // Si la plantilla se quedara con menos páginas de las que dice el recuadro,
     // la firma va a la ÚLTIMA: mejor firmada donde se pueda que perdida.
-    const paginaFirma = box ? Math.min(box.page || total, total) : 0;
+    const paginaFirma = caja ? Math.min(caja.page || total, total) : 0;
     const imagen = firma ? await cargarImagen(firma) : null;
 
     let pdf = null;
     let vista = null;
     for (let n = 1; n <= total; n++) {
         const { canvas, viewport } = await renderizarPagina(doc, n);
-        if (imagen && n === paginaFirma) estamparFirma(canvas, viewport, box, imagen);
+        if (imagen && n === paginaFirma) estamparFirma(canvas, viewport, caja, imagen);
 
         const jpeg = await aJpeg(canvas);
         if (n === (paginaFirma || 1)) vista = jpeg;

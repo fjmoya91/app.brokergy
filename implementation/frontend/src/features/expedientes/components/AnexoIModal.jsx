@@ -1,6 +1,12 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import axios from 'axios';
 import { buildAnexoIHtml, buildAnexoCesionHtml, getDualMessage, getClientCaeRate, DOC_WIDTH, ANEXO_I_CSS } from '../utils/docGenerators';
+import { anexoIStates } from '../logic/subvenciones';
+// El Anexo I se genera rellenando el IMPRESO OFICIAL; la maqueta HTML de
+// docGenerators se conserva como formato CLÁSICO (y es la que permite marcar las
+// casillas a mano en pantalla).
+import { anexoIFormulario } from '../logic/anexoIFormulario';
+import { DocumentoOficialPreview, FormatoDocumentoSwitch } from './DocumentoOficialPreview';
 import { useAuth } from '../../../context/AuthContext';
 import AppConfirm from '../../../components/AppConfirm';
 import { postEmail } from '../../../utils/emailFallback';
@@ -31,20 +37,41 @@ export function AnexoIModal({ isOpen, onClose, expediente, results, onSaveDrive,
     const [sendingEmail,  setSendingEmail]  = useState(false);
     const [sendingWhatsapp, setSendingWhatsapp] = useState(false);
     const [scale,         setScale]         = useState(1);
+    // 'oficial' = el impreso del Ministerio relleno (lo que se envía y se firma).
+    const [formato,       setFormato]       = useState('oficial');
     const [confirmConfig, setConfirmConfig] = useState(null);
 
-    // Estado para interactividad (checkboxes y radios)
-    const [bonoSocial, setBonoSocial] = useState([false, false, false, false, false, true]);
-    const [noSolicitado,   setNoSolicitado]   = useState(true);
-    const [seSolicitado,   setSeSolicitado]   = useState(false);
-    const [ayudaOptions,   setAyudaOptions]   = useState([false, false, false]);
-    
+    // Estado para interactividad (checkboxes y radios).
+    // Arranca de lo DECLARADO en la pestaña Subvenciones del expediente, no de
+    // cero: si no, abrir este popup enseñaba "no solicitado" en un expediente
+    // que sí tiene una ayuda declarada, y lo que se generase desde aquí
+    // contradiría al Anexo I firmado.
+    const declarado = anexoIStates(expediente);
+    const [bonoSocial, setBonoSocial] = useState(declarado.bonoSocial);
+    const [noSolicitado,   setNoSolicitado]   = useState(declarado.noSolicitado);
+    const [seSolicitado,   setSeSolicitado]   = useState(declarado.seSolicitado);
+    const [ayudaOptions,   setAyudaOptions]   = useState(declarado.ayudaOptions);
+
     // Uso de Ref para campos editables para evitar re-renders mientras el usuario escribe
-    const ayudaRef = useRef({ 
-        denominacion: '', entidad: '', anio: '', disposicion: '', 
-        num_expediente: '', estado: '', fecha_solicitud: '', 
-        fecha_resolucion: '', cuantia: '' 
+    const ayudaRef = useRef({
+        denominacion: '', entidad: '', anio: '', disposicion: '',
+        num_expediente: '', estado: '', fecha_solicitud: '',
+        fecha_resolucion: '', cuantia: '',
+        ...declarado.ayudaFields,
     });
+
+    // Al abrir, releer lo declarado: entre dos aperturas se puede haber tocado la
+    // pestaña Subvenciones, y este popup no puede quedarse con la foto vieja.
+    useEffect(() => {
+        if (!isOpen) return;
+        const d = anexoIStates(expediente);
+        setBonoSocial(d.bonoSocial);
+        setNoSolicitado(d.noSolicitado);
+        setSeSolicitado(d.seSolicitado);
+        setAyudaOptions(d.ayudaOptions);
+        ayudaRef.current = { ...ayudaRef.current, ...d.ayudaFields };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, expediente?.id, JSON.stringify(expediente?.documentacion?.subvenciones || null)]);
 
     const updateScale = useCallback(() => {
         if (!containerRef.current) return;
@@ -130,17 +157,27 @@ export function AnexoIModal({ isOpen, onClose, expediente, results, onSaveDrive,
     const beneficioRaw = results?.caeBonus ?? (aeRaw && rateMwh ? aeRaw / 1000 * rateMwh : null);
     const beneficioStr = beneficioRaw ? Math.round(beneficioRaw).toLocaleString('es-ES', { useGrouping: true }) : '___________';
 
-    const buildFullHtmlForPdf = () => {
-        return buildAnexoIHtml(expediente, results, {
-            bonoSocial, noSolicitado, seSolicitado, ayudaOptions,
-            ayudaFields: ayudaRef.current
-        }, true);
-    };
+    const estadoDeclarado = () => ({
+        bonoSocial, noSolicitado, seSolicitado, ayudaOptions,
+        ayudaFields: ayudaRef.current,
+    });
+
+    const buildFullHtmlForPdf = () => buildAnexoIHtml(expediente, results, estadoDeclarado(), true);
+
+    // ── El documento ──────────────────────────────────────────────────────────
+    // En formato OFICIAL viaja como `formulario` (el impreso, que rellena el
+    // backend); en CLÁSICO, como la maqueta HTML de siempre. Todas las salidas
+    // —descargar, Drive, email, WhatsApp y el popup de envío— pasan por aquí, para
+    // que no puedan mandar formatos distintos del mismo Anexo I.
+    const formularioOficial = () => anexoIFormulario(expediente, results, estadoDeclarado());
+    const docPayload = () => (formato === 'oficial'
+        ? { formulario: formularioOficial() }
+        : { html: buildFullHtmlForPdf() });
 
     const handleDownload = async () => {
         setGenerating(true);
         try {
-            const { data } = await axios.post('/api/pdf/generate', { html: buildFullHtmlForPdf() });
+            const { data } = await axios.post('/api/pdf/generate', docPayload());
             if (!data.pdf) throw new Error();
             const bytes = Uint8Array.from(atob(data.pdf), c => c.charCodeAt(0));
             const blob = new Blob([bytes], { type: 'application/pdf' });
@@ -170,9 +207,8 @@ export function AnexoIModal({ isOpen, onClose, expediente, results, onSaveDrive,
             setSendingEmail(true);
             try {
                 const summaryData = { id: numexpte, docType: sendDual ? 'Anexo I y Anexo de Cesión' : 'Anexo I', userName: [cliente.nombre_razon_social, cliente.apellidos].filter(Boolean).join(' ') };
-                const htmlAnexoI = buildAnexoIHtml(expediente, results, { bonoSocial, noSolicitado, seSolicitado, ayudaOptions, ayudaFields: ayudaRef.current }, true);
                 const firstName = nombreSaludo(cliente.nombre_razon_social);
-                const docs = [{ html: htmlAnexoI, fileName: `${numexpte}_Anexo_I.pdf` }];
+                const docs = [{ ...docPayload(), fileName: `${numexpte}_Anexo_I.pdf` }];
                 let customMessage = null;
                 if (sendDual) {
                     const htmlCesion = buildAnexoCesionHtml(expediente, results);
@@ -243,17 +279,16 @@ export function AnexoIModal({ isOpen, onClose, expediente, results, onSaveDrive,
                     return;
                 }
                 const firstName = nombreSaludo(cliente.nombre_razon_social);
-                const htmlAnexoI = buildAnexoIHtml(expediente, results, { bonoSocial, noSolicitado, seSolicitado, ayudaOptions, ayudaFields: ayudaRef.current }, true);
                 if (sendDual) {
                     const htmlCesion = buildAnexoCesionHtml(expediente, results);
                     const caption = getDualMessage(firstName, beneficioStr, numexpte);
-                    const resI = await axios.post('/api/pdf/generate', { html: htmlAnexoI });
+                    const resI = await axios.post('/api/pdf/generate', docPayload());
                     const resC = await axios.post('/api/pdf/generate', { html: htmlCesion });
                     await axios.post('/api/whatsapp/send-media', { phone: toPhone, caption, media: { base64: resI.data.pdf, filename: `${numexpte}_Anexo_I.pdf`, mimetype: 'application/pdf' }, asDocument: true });
                     await axios.post('/api/whatsapp/send-media', { phone: toPhone, caption: 'Anexo de Cesión de Ahorros', media: { base64: resC.data.pdf, filename: `${numexpte}_Anexo_Cesion.pdf`, mimetype: 'application/pdf' }, asDocument: true });
                     setConfirmConfig({ title: 'Éxito', message: '✅ Ambos anexos enviados por WhatsApp correctamente.', confirmText: 'Genial', onConfirm: () => setConfirmConfig(null) });
                 } else {
-                    const pdfResp = await axios.post('/api/pdf/generate', { html: htmlAnexoI });
+                    const pdfResp = await axios.post('/api/pdf/generate', docPayload());
                     const caption = `Hola ${firstName},\n\nTe adjunto el *Anexo I (Declaración Responsable)* para tu expediente *${numexpte}*.\n\nPor favor, revísalo y quedo a tu disposición para cualquier duda.\n\nUn saludo,\n*BROKERGY*`;
                     await axios.post('/api/whatsapp/send-media', { phone: toPhone, caption, media: { base64: pdfResp.data?.pdf, filename: `${numexpte}_Anexo_I.pdf`, mimetype: 'application/pdf' }, asDocument: true });
                     setConfirmConfig({ title: 'Éxito', message: '✅ Anexo I enviado por WhatsApp correctamente.', confirmText: 'Genial', onConfirm: () => setConfirmConfig(null) });
@@ -298,7 +333,7 @@ export function AnexoIModal({ isOpen, onClose, expediente, results, onSaveDrive,
         if (!folderId) { alert('Error: No se encontró el identificador de la carpeta de Drive en la oportunidad.'); return; }
         setSavingDrive(true);
         try {
-            const { data } = await axios.post('/api/pdf/save-to-drive', { html: buildFullHtmlForPdf(), folderId, fileName: `${numexpte} - Anexo I`, subfolderName: '6. ANEXOS CAE' });
+            const { data } = await axios.post('/api/pdf/save-to-drive', { ...docPayload(), folderId, fileName: `${numexpte} - Anexo I`, subfolderName: '6. ANEXOS CAE' });
             if (data.driveLink && onSaveDrive) onSaveDrive(data.driveLink);
             alert('✅ Guardado en Drive correctamente');
         } catch (err) { alert('Error al guardar en Drive'); } finally { setSavingDrive(false); }
@@ -317,7 +352,7 @@ export function AnexoIModal({ isOpen, onClose, expediente, results, onSaveDrive,
                             </button>
                             <div className="border-l border-white/10 pl-3">
                                 <h2 className="text-sm font-black text-white tracking-wider uppercase">Anexo I - Declaración Responsable</h2>
-                                <p className="text-white/30 text-xs mt-0.5">{numexpte} · 2 páginas</p>
+                                <p className="text-white/30 text-xs mt-0.5">{numexpte} · {formato === 'oficial' ? 'impreso oficial · 4 páginas' : 'formato clásico · 3 páginas'}</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-3">
@@ -325,6 +360,7 @@ export function AnexoIModal({ isOpen, onClose, expediente, results, onSaveDrive,
                                 <div className="text-center"><div className="text-brand font-black text-sm">{aeKwh} kWh</div><div className="text-white/25 text-[10px] uppercase tracking-wider">Ahorro</div></div>
                                 <div className="text-center"><div className="text-amber-400 font-black text-sm">{beneficioStr} €</div><div className="text-white/25 text-[10px] uppercase tracking-wider">Bono CAE ({rateMWhStr} €)</div></div>
                             </div>
+                            <FormatoDocumentoSwitch formato={formato} onChange={setFormato} disabled={generating || savingDrive || sendingEmail || sendingWhatsapp} />
                             {user?.rol?.toUpperCase() === 'ADMIN' && (
                                 <button
                                     onClick={handleSaveDrive}
@@ -343,7 +379,7 @@ export function AnexoIModal({ isOpen, onClose, expediente, results, onSaveDrive,
                             )}
                             {onRequestSend ? (
                                 <button
-                                    onClick={() => onRequestSend({ docs: ['anexo1'], overrides: { anexo1: buildFullHtmlForPdf() } })}
+                                    onClick={() => onRequestSend({ docs: ['anexo1'], overrides: { anexo1: docPayload() } })}
                                     disabled={generating || savingDrive}
                                     title="Enviar al cliente o al instalador (Email / WhatsApp)"
                                     className="flex items-center gap-2 px-4 py-2 rounded-xl border border-white/10 text-white/80 text-xs font-black uppercase tracking-wider hover:text-white hover:border-brand/40 hover:bg-brand/5 transition-all active:scale-95 disabled:opacity-30 shrink-0"
@@ -368,7 +404,18 @@ export function AnexoIModal({ isOpen, onClose, expediente, results, onSaveDrive,
                         </div>
                     </div>
 
-                    <div ref={containerRef} className="flex-1 overflow-auto bg-[#16181D] py-8 px-4 text-center">
+                    {/* La vista previa del OFICIAL es el propio PDF: lo que se revisa es
+                        exactamente lo que se descarga, se guarda y se envía. Las casillas
+                        se marcan en la pestaña Subvenciones del expediente (o a mano en el
+                        formato clásico, que sigue siendo interactivo). */}
+                    {formato === 'oficial' && (
+                        <div className="flex-1 min-h-0">
+                            <DocumentoOficialPreview formulario={formularioOficial()} titulo="Anexo I"
+                                nota="Lo declarado sale de la pestaña Subvenciones. Para marcarlo aquí mismo, cambia a «Clásico»."
+                                onFallback={() => setFormato('clasico')} />
+                        </div>
+                    )}
+                    <div ref={containerRef} className={`flex-1 overflow-auto bg-[#16181D] py-8 px-4 text-center ${formato === 'oficial' ? 'hidden' : ''}`}>
                         <div className="inline-block text-left" style={{ transform: `scale(${scale})`, transformOrigin: 'top center' }}>
                             <div
                                 className="doc-content-container"

@@ -8,8 +8,11 @@
 // Autocontenido: calcula `results` por dentro con calculateRes080(...) a partir de
 // expediente.cee, igual que la rama RES080 de computeExpedienteFinancials.
 // ============================================================
-import { calculateRes080 } from '../../calculator/logic/calculation';
-import { calcCifo } from './calcCifo';
+// Imports CON extensión: además de Vite, este módulo se carga por import()
+// dinámico desde Node (comparativa y pruebas del impreso oficial). Node ESM no
+// resuelve rutas sin extensión.
+import { calculateRes080 } from '../../calculator/logic/calculation.js';
+import { calcCifo } from './calcCifo.js';
 
 const PAGE_PADDING = '93px 95px 19px 113px';
 
@@ -50,7 +53,18 @@ td.lbl { background-color: #f2f2f2; }
 // Representante por defecto (compatibilidad). En producción se inyecta el del S.O.
 const REPRESENTANTE_DEFAULT = { nombre: 'Pedro José López Montero', nif: '06239730-Z' };
 
-export function buildFichaRes080Html(expediente, opts = {}) {
+// Constantes de la ficha. La duración indicativa se imprime "15/25" —es lo que
+// declara el modelo para esta ficha, según el alcance de la rehabilitación— y la
+// escriben los DOS documentos (HTML clásico e impreso oficial).
+const FP = '1';
+const DI = '15/25';
+
+/**
+ * Valores YA FORMATEADOS del apartado 4. Fuente única para el HTML clásico y para
+ * el impreso OFICIAL en formato formulario (logic/fichasFormulario.js). Ver la
+ * misma nota en fichaRes060Html.js.
+ */
+export function deriveFichaRes080(expediente, opts = {}) {
     const doc = expediente.documentacion || {};
     const cee = expediente.cee || {};
 
@@ -92,6 +106,20 @@ export function buildFichaRes080Html(expediente, opts = {}) {
 
     const REPRESENTANTE_NOMBRE = opts.representanteNombre || REPRESENTANTE_DEFAULT.nombre;
     const REPRESENTANTE_NIF    = opts.representanteNif || REPRESENTANTE_DEFAULT.nif;
+
+    return {
+        fp: FP, efi: eFiStr, eff: eFfStr, aeTotal: aeTotalStr, di: DI,
+        fechaInicio, fechaFin,
+        representante: REPRESENTANTE_NOMBRE, representanteNif: REPRESENTANTE_NIF,
+    };
+}
+
+export function buildFichaRes080Html(expediente, opts = {}) {
+    const {
+        fp: FP_V, efi: eFiStr, eff: eFfStr, aeTotal: aeTotalStr, di: DI_V,
+        fechaInicio, fechaFin,
+        representante: REPRESENTANTE_NOMBRE, representanteNif: REPRESENTANTE_NIF,
+    } = deriveFichaRes080(expediente, opts);
 
     return `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <style>${PDF_CSS}</style>
@@ -141,7 +169,7 @@ export function buildFichaRes080Html(expediente, opts = {}) {
 <div class="calc-table-group" style="width: 100%; display: flex; justify-content: space-between">
     <table class="calc-table" style="width: 20%">
         <thead><tr><th>F<sub>P</sub></th></tr></thead>
-        <tbody><tr><td>1</td></tr></tbody>
+        <tbody><tr><td>${FP_V}</td></tr></tbody>
     </table>
     <table class="calc-table" style="width: 26%">
         <thead><tr><th>EF<sub>i</sub></th></tr></thead>
@@ -157,7 +185,7 @@ export function buildFichaRes080Html(expediente, opts = {}) {
     </table>
     <table class="calc-table" style="width: 8%">
         <thead><tr><th><em>D<sub>i</sub></em></th></tr></thead>
-        <tbody><tr><td>15/25</td></tr></tbody>
+        <tbody><tr><td>${DI_V}</td></tr></tbody>
     </table>
 </div>
 

@@ -5,6 +5,7 @@
  */
 
 import { formatSeries, countUnidades, esAcumuladorAcs, datosAcumulador } from '../logic/aerotermiaUnits.js';
+import { anexoIStates, BONO_SOCIAL_LABELS } from '../logic/subvenciones.js';
 
 // Node-safe: este módulo también se importa server-side (cifoService vía cifoDoc).
 // En Node no existen import.meta.env ni window, así que se accede con guardas.
@@ -288,14 +289,11 @@ export const tieneCuentaBancaria = (cliente) => {
 export const ANEXO_I_TEXTS = {
     TITULO_PRINCIPAL: "ANEXO I DECLARACIÓN RESPONSABLE FORMALIZADA POR EL PROPIETARIO INICIAL DEL AHORRO REFERIDA A LA SOLICITUD Y/U OBTENCIÓN DE AYUDAS O SUBVENCIONES PÚBLICAS PARA LA MISMA ACTUACIÓN DE AHORRO DE ENERGÍA",
     NOMBRE_ACTUACION_FIXED: "Sustitución caldera existente por bomba de calor (aerotermia)",
-    BONO_LABELS: [
-        'Bono social eléctrico para consumidores vulnerables',
-        'Bono social eléctrico para consumidores vulnerables severos',
-        'Bono social eléctrico en riesgo de exclusión social',
-        'Bono social de justicia energética',
-        'Bono social térmico',
-        'Ninguno de los anteriores',
-    ]
+    // Fuente única en logic/subvenciones.js: las mismas seis opciones que ofrece
+    // la pestaña Subvenciones, en el mismo orden. Las casillas del impreso se
+    // pintan POR POSICIÓN, así que dos listas separadas se desalinean en cuanto
+    // una cambie.
+    BONO_LABELS: BONO_SOCIAL_LABELS
 };
 
 export const DOC_WIDTH = '794px';
@@ -415,13 +413,38 @@ export const ANEXO_CESION_CSS = `
 .conv-footer-pg { font-size: 8px; color: #BDBDBD; font-weight: 700; }
 `;
 
-export const buildAnexoIHtml = (expediente, results, states = {}, isForPdf = true) => {
+/**
+ * Los datos del Anexo I, ya resueltos y sin maquetar. Fuente ÚNICA de los dos
+ * documentos que existen del mismo impreso: el HTML clásico de más abajo y el
+ * impreso OFICIAL en formato formulario (logic/anexoIFormulario.js), que se rellena
+ * en el backend. Calcularlos dos veces sería tener dos Anexos I que pueden decir
+ * cosas distintas del mismo expediente.
+ *
+ * `opts.dash` es lo que se escribe cuando falta un dato: el HTML pinta una línea de
+ * guiones bajos (así se ve el hueco sobre el papel) y el formulario deja la casilla
+ * VACÍA, que es como se ve un hueco en un impreso oficial.
+ */
+export const deriveAnexoI = (expediente, results, states = {}, opts = {}) => {
+    const dash = opts.dash !== undefined ? opts.dash : '___________';
+    // Separador de línea DENTRO de un mismo dato (las series de una cascada). El
+    // HTML lleva <br>; el impreso oficial, un salto de línea de verdad en una
+    // casilla multilínea. Escrito a pelo, el formulario imprimiría "<br>".
+    const sep = opts.sep !== undefined ? opts.sep : '<br>';
+    // El bono social y la ayuda pública se declaran en la pestaña SUBVENCIONES
+    // del expediente, y eso es la BASE del documento: `states` solo la pisa
+    // mientras alguien edita en vivo (el popup del Anexo I).
+    //
+    // Antes el valor por defecto era "no solicitado" fijo, y de los cuatro sitios
+    // que generan este documento solo el popup pasaba `states`: el Anexo I que
+    // se ENVIABA al cliente declaraba que no había ayudas aunque el firmado
+    // dijera lo contrario. Medido en 25RES080_28, que declara 18.800 € del MITMA.
+    const base = anexoIStates(expediente);
     const {
-        bonoSocial = [false, false, false, false, false, true],
-        noSolicitado = true,
-        seSolicitado = false,
-        ayudaOptions = [false, false, false],
-        ayudaFields = {}
+        bonoSocial = base.bonoSocial,
+        noSolicitado = base.noSolicitado,
+        seSolicitado = base.seSolicitado,
+        ayudaOptions = base.ayudaOptions,
+        ayudaFields = base.ayudaFields
     } = states;
 
     const { oportunidades: op = {}, clientes: cliente = {}, instalacion: inst = {}, numero_expediente: numexpte = '' } = expediente;
@@ -449,7 +472,7 @@ export const buildAnexoIHtml = (expediente, results, states = {}, isForPdf = tru
     // Dirección de la INSTALACIÓN (vivienda del Catastro), NUNCA la del cliente.
     const instAddr = buildInstalacionAddress(expediente);
     const ccaa = (instAddr.ccaa || 'CASTILLA-LA MANCHA').toUpperCase();
-    const dirActuacion = instAddr.full.toUpperCase() || '___________';
+    const dirActuacion = instAddr.full.toUpperCase() || dash;
     const opInputs = op?.datos_calculo?.inputs || {};
     // inst.cambio_acs es autoritativo (fijado por el usuario en InstalacionModule);
     // si no está establecido aún, cae al valor del calculador de la oportunidad.
@@ -461,7 +484,7 @@ export const buildAnexoIHtml = (expediente, results, states = {}, isForPdf = tru
     // plural). formatSeries numera las unidades cuando hay más de una.
     const nUdsCal = countUnidades(inst.aerotermia_cal);
     const nUdsAcs = inst.misma_aerotermia_acs ? nUdsCal : countUnidades(inst.aerotermia_acs);
-    const snExt = formatSeries(inst.aerotermia_cal, { dash: '___________', prefijo: '' });
+    const snExt = formatSeries(inst.aerotermia_cal, { dash, sep, prefijo: '' });
     // ACS resuelto con un ACUMULADOR: el depósito solo tiene nº de serie si se ha
     // declarado a mano (no es un equipo del catálogo). Si no lo tiene, NO se
     // imprime la línea de la ud. interior: repetir ahí la serie de la exterior le
@@ -471,28 +494,72 @@ export const buildAnexoIHtml = (expediente, results, states = {}, isForPdf = tru
     const snAcum = acsEsAcumulador ? datosAcumulador(acsAero).serie : '';
     const snInt = acsEsAcumulador
         ? snAcum
-        : (inst.misma_aerotermia_acs ? snExt : formatSeries(inst.aerotermia_acs, { dash: '___________', prefijo: '' }));
+        : (inst.misma_aerotermia_acs ? snExt : formatSeries(inst.aerotermia_acs, { dash, sep, prefijo: '' }));
     const mostrarInt = hasAcs && (!acsEsAcumulador || !!snAcum);
-    const refCatastral = instAddr.refCatastral || '___________';
+    const refCatastral = instAddr.refCatastral || dash;
     // Con una sola unidad la línea queda igual que siempre ("Ud. exterior: XXX").
     // Con varias, el rótulo lleva el recuento y las series se listan numeradas debajo.
     const bloqueSeries = (label, plural, n, valor) =>
-        n > 1 ? `${plural} (${n}):<br>${valor}` : `${label}: ${valor}`;
-    const serialsHtml = [
+        n > 1 ? `${plural} (${n}):${sep}${valor}` : `${label}: ${valor}`;
+    // Una unidad SIN nº de serie no deja un rótulo suelto: en el impreso oficial
+    // "Ud. exterior:" y nada detrás es una línea que no dice nada (la maqueta ahí
+    // pinta la raya de guiones bajos, que sí se lee como "falta el dato").
+    const conValor = (linea) => !!String(linea).replace(/^[^:]*:\s*/, '').trim();
+    const serialsLineas = [
         bloqueSeries('Ud. exterior', 'Uds. exteriores', nUdsCal, snExt),
         ...(mostrarInt ? [bloqueSeries('Ud. interior', 'Uds. interiores', acsEsAcumulador ? 1 : nUdsAcs, snInt)] : []),
-    ].join('<br>');
-    const nombrePropietario = [cliente.nombre_razon_social, cliente.apellidos].filter(Boolean).join(' ') || '___________';
-    const nif = cliente.dni_nie || cliente.dni || '___________';
+    ].filter(conValor);
+    const nombrePropietario = [cliente.nombre_razon_social, cliente.apellidos].filter(Boolean).join(' ') || dash;
+    const nif = cliente.dni_nie || cliente.dni || dash;
     // Persona jurídica: el propietario del ahorro sigue siendo la sociedad, pero
     // quien firma es su representante legal (apartado 3 del Anexo I).
     const esEmpresa = !!cliente.es_empresa;
     const nombreRepresentante = [cliente.representante_nombre, cliente.representante_apellidos].filter(Boolean).join(' ');
     const dniRepresentante = cliente.representante_dni || '';
     const firmante = esEmpresa && nombreRepresentante ? nombreRepresentante : nombrePropietario;
-    const domicilio = [cliente.direccion, cliente.codigo_postal, cliente.municipio].filter(Boolean).join(', ') || '___________';
-    const municipioFirma = (cliente.municipio || '___________').toUpperCase();
+    const domicilio = [cliente.direccion, cliente.codigo_postal, cliente.municipio].filter(Boolean).join(', ') || dash;
+    const municipioFirma = (cliente.municipio || dash).toUpperCase();
     const fechaFirma = new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+
+    // Las tres partes de la fecha que pide el impreso oficial ("en ___, a __ de
+    // ______ de 20__"). El HTML las escribe seguidas; el formulario, en sus tres
+    // casillas. Salen del MISMO Date para que no puedan discrepar.
+    const hoy = new Date();
+    const fechaPartes = {
+        dia: String(hoy.getDate()),
+        mes: hoy.toLocaleDateString('es-ES', { month: 'long' }),
+        anio2: String(hoy.getFullYear()).slice(-2),
+    };
+
+    return {
+        numexpte, fichaType, nombreActuacion, codigoFicha,
+        ccaa, dirActuacion, refCatastral,
+        // Las líneas del recuadro "número de serie de los equipos": el HTML las une
+        // con <br> y el formulario con saltos de línea.
+        serialsLineas,
+        nombrePropietario, nif, domicilio,
+        telefono: cliente.tlf || cliente.telefono || dash,
+        email: cliente.email || dash,
+        hasAcs,
+        esEmpresa, nombreRepresentante, dniRepresentante, firmante,
+        // El "otro documento" que acredita la representación: SIEMPRE el convenio de
+        // cesión de este expediente, que es lo que de verdad se adjunta.
+        otroDocumento: `${numexpte} - ANEXO CESIÓN AHORRO`,
+        municipioFirma, fechaFirma, fechaPartes,
+        bonoSocial, noSolicitado, seSolicitado, ayudaOptions, ayudaFields,
+    };
+};
+
+export const buildAnexoIHtml = (expediente, results, states = {}, isForPdf = true) => {
+    const d = deriveAnexoI(expediente, results, states);
+    const {
+        numexpte, nombreActuacion, codigoFicha, ccaa, dirActuacion, refCatastral,
+        nombrePropietario, nif, domicilio, telefono, email,
+        esEmpresa, nombreRepresentante, dniRepresentante, firmante,
+        municipioFirma, fechaFirma,
+        bonoSocial, noSolicitado, seSolicitado, ayudaOptions, ayudaFields,
+    } = d;
+    const serialsHtml = d.serialsLineas.join('<br>');   // el <br> interno ya lo pone `sep`
 
     const cb = (v) => v ? 'X' : '';
     const edVal = (f) => ayudaFields[f] || '';
@@ -513,8 +580,8 @@ export const buildAnexoIHtml = (expediente, results, states = {}, isForPdf = tru
             <table class="doc-table">
                 <tr><td class="lbl">Propietario inicial del ahorro<sup>2</sup> (Nombre y apellidos / Razón social)</td><td colspan="2">${nombrePropietario}</td><td style="width:10%">NIF/NIE</td><td>${nif}</td></tr>
                 <tr><td class="lbl">Domicilio</td><td colspan="4">${domicilio}</td></tr>
-                <tr><td class="lbl">Teléfono</td><td colspan="4">${cliente.tlf || cliente.telefono || '___________'}</td></tr>
-                <tr><td class="lbl">Correo electrónico</td><td colspan="4">${cliente.email || '___________'}</td></tr>
+                <tr><td class="lbl">Teléfono</td><td colspan="4">${telefono}</td></tr>
+                <tr><td class="lbl">Correo electrónico</td><td colspan="4">${email}</td></tr>
             </table>
             <div class="doc-p" style="font-size: 11pt; margin-top: 6px">En el caso de que el propietario inicial del ahorro no coincida con el beneficiario del ahorro, completar también la siguiente tabla:</div>
             <table class="doc-table">
@@ -567,9 +634,25 @@ export const buildAnexoIHtml = (expediente, results, states = {}, isForPdf = tru
             </div>
             <div class="doc-p" style="margin-top: 20px">En todo caso, se deberán indicar los siguientes datos para cada ayuda o subvención:</div>
             <table class="doc-table">
-                ${['denominacion', 'entidad', 'anio', 'disposicion', 'num_expediente', 'estado', 'fecha_solicitud', 'fecha_resolucion', 'cuantia'].map(field => `
+                ${Object.entries({
+                    // Los rótulos del impreso OFICIAL, literales. Se generaban a
+                    // partir del nombre del campo ("Denominacion", "Anio",
+                    // "Disposicion"): sin tildes y sin el resto del enunciado. No
+                    // cantaba porque la tabla salía vacía; en cuanto se rellena, un
+                    // Anexo I con rótulos que no son los del Ministerio es lo
+                    // primero que ve quien lo revisa.
+                    denominacion:     'Denominación del programa de ayuda',
+                    entidad:          'Entidad u órgano gestor',
+                    anio:             'Año',
+                    disposicion:      'Disposición reguladora',
+                    num_expediente:   'Número de expediente',
+                    estado:           'Estado de la concesión',
+                    fecha_solicitud:  'Fecha de solicitud',
+                    fecha_resolucion: 'Fecha de la resolución de concesión',
+                    cuantia:          'Cuantía de la ayuda obtenida o esperada',
+                }).map(([field, rotulo]) => `
                     <tr>
-                        <td class="lbl">${field === 'num_expediente' ? 'Número de expediente' : field.charAt(0).toUpperCase() + field.slice(1).replace('_', ' ')}</td>
+                        <td class="lbl">${rotulo}</td>
                         <td contenteditable="${!isForPdf}" class="${isForPdf ? '' : 'doc-editable'}" data-field="${field}">${edVal(field)}</td>
                     </tr>
                 `).join('')}

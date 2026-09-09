@@ -18,7 +18,7 @@ import { SendActionOverlay } from '../../../components/SendActionOverlay';
 // aquí solo construimos step2/step3 + contacto editable.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function EnviarApiVerificadorModal({ lote, payloadOpts, onClose, onSent }) {
+export function EnviarApiVerificadorModal({ lote, payloadOpts, solicitudHtml = null, onClose, onSent }) {
     const base = useMemo(() => buildSolicitudVerificacionPayload(lote, payloadOpts || {}), [lote, payloadOpts]);
 
     const [phase, setPhase] = useState('loading'); // loading | ready | error (dry-run)
@@ -58,7 +58,10 @@ export function EnviarApiVerificadorModal({ lote, payloadOpts, onClose, onSent }
     const handleSend = async () => {
         setSendPhase('sending'); setSendError('');
         try {
-            const r = await axios.post(`/api/lotes/${lote.id}/enviar-verificador-api`, body);
+            // El HTML viaja SOLO en el envío real: con él, el backend archiva el PDF
+            // de esta misma solicitud en el paso 1 del lote (nada de descargarla y
+            // volver a subirla). En el dryRun sobraría.
+            const r = await axios.post(`/api/lotes/${lote.id}/enviar-verificador-api`, { ...body, solicitudHtml });
             setResult(r.data);
             setSendOk(true);
             setSendPhase('done');
@@ -128,7 +131,10 @@ export function EnviarApiVerificadorModal({ lote, payloadOpts, onClose, onSent }
                             {blocking.length > 0 && (
                                 <div className="rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 space-y-1">
                                     {blocking.map((b, i) => <p key={i} className="text-[11px] text-red-300">⛔ {b}</p>)}
-                                    <p className="text-[10px] text-white/40 pt-1">Revisa la provincia/municipio del Sujeto Obligado en su ficha de partner.</p>
+                                    <p className="text-[10px] text-white/40 pt-1">
+                                        Marwen valida el lote entero: un dato mal en una actuación tumba las {nAct}.
+                                        Corrígelo en el expediente (o en la ficha del Sujeto Obligado) y vuelve a abrir esta ventana.
+                                    </p>
                                 </div>
                             )}
                             {warnings.length > 0 && blocking.length === 0 && (
@@ -165,7 +171,14 @@ export function EnviarApiVerificadorModal({ lote, payloadOpts, onClose, onSent }
                 phase={sendPhase}
                 ok={sendOk}
                 subtitle={`${lote.codigo || 'Lote'} · Verificador`}
-                items={sendOk && result ? [`Nº de solicitud: ${result.num_solicitud || '—'}`] : []}
+                items={sendOk && result ? [
+                    `Nº de solicitud: ${result.num_solicitud || '—'}`,
+                    // Decir si el PDF quedó archivado es lo que evita el paso manual
+                    // de "descargar y volver a subir": si no lo dice, se hace igual.
+                    result.solicitud_archivada?.archivada
+                        ? 'Solicitud archivada en el paso 1 del lote'
+                        : `La solicitud NO se archivó en el lote${result.solicitud_archivada?.motivo ? ` (${result.solicitud_archivada.motivo})` : ''} — súbela a mano en el paso 1`,
+                ] : []}
                 errorText={sendError}
                 onClose={() => { if (sendOk) { onClose(); } else { setSendPhase(null); } }}
                 sendingTitle="Enviando al verificador…"

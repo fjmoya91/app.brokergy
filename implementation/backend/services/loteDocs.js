@@ -7,7 +7,7 @@
 // desbloquea cada hito. El espejo en frontend es `features/lotes/logic/loteProceso.js`.
 //
 // El proceso real (2026-08-03):
-//   1. Solicitud al verificador  → se genera, se sube firmada  → SOLICITADO PRESUPUESTO
+//   1. Solicitud al verificador  → se genera y se archiva (borrador) → SOLICITADO PRESUPUESTO
 //   2. Firma del Sujeto Obligado → Anexo I + fichas + solicitud → PTE. FIRMA S.O.
 //                                  cuando el S.O. firma todo    → PTE. OFERTA VERIFICADOR
 //   3. Oferta de verificación    → se sube y se manda al S.O.   → PTE. FIRMA OFERTA S.O.
@@ -180,11 +180,19 @@ async function guardarDocFirmado(lote, docKey, buffer) {
         signed_at: new Date().toISOString(),
         validado_at: null, validado_por: null,
     };
+    // "Todos firmados" = todos los que se le PIDIERON al S.O. (los firmables que ya
+    // salieron), no todas las entradas del lote. Contando los informes de
+    // inexactitudes, el dictamen y la factura del verificador —que no firma nadie—
+    // el aviso de "lote firmado" dejaba de saltar para siempre en cuanto existía
+    // papeleo de la fase 4, y su texto contaba documentos que el S.O. nunca vio.
+    const deFirma = docsParaFirma(docsSo);
     return {
         docsSo,
         entry: docsSo[idx],
         saved,
-        todosFirmados: docsSo.length > 0 && docsSo.every(d => d.signed_link),
+        todosFirmados: deFirma.length > 0 && deFirma.every(d => d.signed_link),
+        firmables: deFirma.length,
+        firmados: deFirma.filter(d => d.signed_link).length,
     };
 }
 

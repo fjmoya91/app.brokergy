@@ -8,10 +8,13 @@
 // Autocontenido: el ahorro (savingsKwh) se calcula con computeExpedienteFinancials
 // y el resto de variables (Cb, etc.) con calculateHybridization, igual que el modal.
 // ============================================================
-import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs } from '../../calculator/logic/calculation';
-import { computeExpedienteFinancials } from './expedienteFinancials';
-import { calcCifo } from './calcCifo';
-import { ceeBaseDocumento, acsEnAlcance } from './ceeFases';
+// Imports CON extensión: además de Vite, este módulo se carga por import()
+// dinámico desde Node (comparativa y pruebas del impreso oficial). Node ESM no
+// resuelve rutas sin extensión.
+import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs } from '../../calculator/logic/calculation.js';
+import { computeExpedienteFinancials } from './expedienteFinancials.js';
+import { calcCifo } from './calcCifo.js';
+import { ceeBaseDocumento, acsEnAlcance } from './ceeFases.js';
 
 const PAGE_PADDING = '93px 95px 19px 113px';
 
@@ -52,7 +55,18 @@ td.lbl { background-color: #f2f2f2; }
 // Representante por defecto (compatibilidad). En producción se inyecta el del S.O.
 const REPRESENTANTE_DEFAULT = { nombre: 'Pedro José López Montero', nif: '06239730-Z' };
 
-export function buildFichaRes093Html(expediente, opts = {}) {
+// Constantes de la ficha (factor de ponderación y duración indicativa). Las
+// imprimen los DOS documentos —el HTML clásico y el impreso oficial en formato
+// formulario—, así que viven en un solo sitio.
+const FP = '1';
+const DI = '15';
+
+/**
+ * Valores YA FORMATEADOS del apartado 4. Fuente única para el HTML clásico y para
+ * el impreso OFICIAL en formato formulario (logic/fichasFormulario.js). Ver la
+ * misma nota en fichaRes060Html.js.
+ */
+export function deriveFichaRes093(expediente, opts = {}) {
     const op   = expediente.oportunidades || {};
     const inst = expediente.instalacion || {};
     const doc  = expediente.documentacion || {};
@@ -127,6 +141,23 @@ export function buildFichaRes093Html(expediente, opts = {}) {
     const REPRESENTANTE_NOMBRE = opts.representanteNombre || REPRESENTANTE_DEFAULT.nombre;
     const REPRESENTANTE_NIF    = opts.representanteNif || REPRESENTANTE_DEFAULT.nif;
 
+    return {
+        fp: FP, dcal, s: sStr, dacs: dacsStr, eta: etaStr,
+        scopCal: scopCalStr, scopAcs: scopAcsStr, cb: cbStr,
+        aeTotal: aeKwh, di: DI,
+        fechaInicio, fechaFin,
+        representante: REPRESENTANTE_NOMBRE, representanteNif: REPRESENTANTE_NIF,
+    };
+}
+
+export function buildFichaRes093Html(expediente, opts = {}) {
+    const {
+        fp: FP_V, dcal, s: sStr, dacs: dacsStr, eta: etaStr,
+        scopCal: scopCalStr, scopAcs: scopAcsStr, cb: cbStr,
+        aeTotal: aeKwh, di: DI_V, fechaInicio, fechaFin,
+        representante: REPRESENTANTE_NOMBRE, representanteNif: REPRESENTANTE_NIF,
+    } = deriveFichaRes093(expediente, opts);
+
     return `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <style>${PDF_CSS}</style>
 </head><body>
@@ -185,7 +216,7 @@ export function buildFichaRes093Html(expediente, opts = {}) {
             <tr><th>F<sub>p</sub></th><th>D<sub>CAL</sub></th><th>S</th><th>D<sub>ACS</sub></th><th>η<sub>i</sub></th><th>SCOP</th><th>SCOP<sub>dhw</sub></th><th>C<sub>b</sub></th></tr>
         </thead>
         <tbody>
-            <tr><td>1</td><td>${dcal}</td><td>${sStr}</td><td>${dacsStr}</td><td>${etaStr}</td><td>${scopCalStr}</td><td>${scopAcsStr}</td><td>${cbStr}</td></tr>
+            <tr><td>${FP_V}</td><td>${dcal}</td><td>${sStr}</td><td>${dacsStr}</td><td>${etaStr}</td><td>${scopCalStr}</td><td>${scopAcsStr}</td><td>${cbStr}</td></tr>
         </tbody>
     </table>
 
@@ -203,7 +234,7 @@ export function buildFichaRes093Html(expediente, opts = {}) {
             <tr><th><em>D<sub>i</sub></em></th></tr>
         </thead>
         <tbody>
-            <tr><td>15</td></tr>
+            <tr><td>${DI_V}</td></tr>
         </tbody>
     </table>
 </div>

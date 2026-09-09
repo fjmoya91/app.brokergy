@@ -103,6 +103,31 @@ async function htmlToPdf(html) {
     }
 }
 
+
+/**
+ * Los bytes de UN documento, venga como venga. Es el punto por el que pasan las
+ * tres formas que ya conviven en la app:
+ *
+ *   { pdfBase64 }   → el PDF ya está hecho (p.ej. uno que acaba de firmarse).
+ *   { formulario }  → un IMPRESO OFICIAL en formato formulario, que se rellena
+ *                     (fichas RES060/RES080/RES093/TER100 y Anexo I).
+ *   { html }        → la maqueta clásica, rasterizada con Puppeteer.
+ *
+ * Existe para que las cuatro superficies que generan estos documentos —descargar,
+ * guardar en Drive, enviar por email y el envío del lote al Sujeto Obligado— no
+ * tengan cada una su propia cascada: si una se quedara sin la rama del formulario,
+ * ese camino seguiría mandando la maqueta antigua sin que nadie lo notara.
+ */
+async function documentoAPdf(doc) {
+    const d = doc || {};
+    if (d.pdfBase64) return Buffer.from(d.pdfBase64, 'base64');
+    if (d.formulario) {
+        const { rellenarDesdePeticion } = require('./formularioOficialService');
+        return rellenarDesdePeticion(d.formulario);
+    }
+    return htmlToPdf(d.html);
+}
+
 // ── Concatenación de anexos (movido desde routes/pdf.js para reutilizarlo también
 // desde cifoService). Detecta tipo por magic bytes y embebe cada página/imagen en
 // una A4 escalada y centrada, para que todo el PDF final tenga el mismo tamaño.
@@ -195,6 +220,7 @@ module.exports = {
     getBrowser,
     imageToPdf,
     htmlToPdf,
+    documentoAPdf,
     detectBufferType,
     mergePdfs,
     fetchAnnexBuffers,

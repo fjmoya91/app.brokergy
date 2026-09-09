@@ -1,7 +1,12 @@
 const express = require('express');
 const router = express.Router();
 
-const { getBrowser, mergePdfs, fetchAnnexBuffers } = require("../services/pdfService");
+const { getBrowser, mergePdfs, fetchAnnexBuffers, documentoAPdf } = require("../services/pdfService");
+const { esPlantillaValida } = require("../services/formularioOficialService");
+
+// Un documento puede llegar como maqueta HTML o como IMPRESO OFICIAL en formato
+// formulario (`{ plantilla, campos }`). Ver services/formularioOficialService.
+const esFormulario = (b) => !!(b && b.formulario && esPlantillaValida(b.formulario.plantilla));
 
 // Anexos a concatenar. Formato actual: `annexes` = [{ driveId, excludedPages }]
 // (permite recortar páginas de cada anexo, ver documentacion.cifo_annex_prefs).
@@ -18,6 +23,21 @@ router.post('/generate', async (req, res) => {
     const { html } = req.body;
     const annexes = annexSpecs(req.body);
     console.log(`[PDF] Generando PDF oficial... (Payload: ${Math.round((html?.length || 0)/1024)} KB, anexos=${annexes?.length || 0})`);
+
+    // Impreso OFICIAL en formato formulario: no hay nada que rasterizar, se rellena
+    // el PDF del Ministerio y se le concatenan los anexos igual que a la maqueta.
+    if (esFormulario(req.body)) {
+        try {
+            const annexPromise = fetchAnnexBuffers(annexes);
+            let pdfBuffer = await documentoAPdf(req.body);
+            const annexBuffers = await annexPromise;
+            if (annexBuffers.length > 0) pdfBuffer = await mergePdfs(pdfBuffer, annexBuffers);
+            return res.json({ pdf: Buffer.from(pdfBuffer).toString('base64') });
+        } catch (error) {
+            console.error('Error rellenando el impreso oficial:', error);
+            return res.status(500).json({ error: 'Error al rellenar el impreso oficial.', message: error.message });
+        }
+    }
 
     if (!html || typeof html !== 'string') {
         return res.status(400).json({ error: 'Se requiere el campo "html" con el contenido HTML.' });
@@ -88,8 +108,8 @@ router.post('/save-to-drive', async (req, res) => {
     const annexes = annexSpecs(req.body);
     const driveService = require('../services/driveService');
 
-    if (!html || !folderId) {
-        return res.status(400).json({ error: 'Se requiere el contenido HTML y el ID de la carpeta de Drive.' });
+    if ((!html && !esFormulario(req.body)) || !folderId) {
+        return res.status(400).json({ error: 'Se requiere el contenido (HTML o formulario oficial) y el ID de la carpeta de Drive.' });
     }
 
     let browser = null;
@@ -97,22 +117,28 @@ router.post('/save-to-drive', async (req, res) => {
     try {
         const annexPromise = fetchAnnexBuffers(annexes);
 
-        browser = await getBrowser();
-        page = await browser.newPage();
-        await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 2 });
-        await page.setContent(html, {
-            waitUntil: 'domcontentloaded',
-            timeout: 60000
-        });
+        // El impreso OFICIAL se rellena; la maqueta clásica se rasteriza.
+        let pdfBuffer;
+        if (esFormulario(req.body)) {
+            pdfBuffer = await documentoAPdf(req.body);
+        } else {
+            browser = await getBrowser();
+            page = await browser.newPage();
+            await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 2 });
+            await page.setContent(html, {
+                waitUntil: 'domcontentloaded',
+                timeout: 60000
+            });
 
-        await new Promise(r => setTimeout(r, 1000));
-        try { await page.evaluate(() => document.fonts.ready); } catch (_) { }
+            await new Promise(r => setTimeout(r, 1000));
+            try { await page.evaluate(() => document.fonts.ready); } catch (_) { }
 
-        let pdfBuffer = await page.pdf({
-            format: 'A4',
-            printBackground: true,
-            margin: { top: 0, right: 0, bottom: 0, left: 0 }
-        });
+            pdfBuffer = await page.pdf({
+                format: 'A4',
+                printBackground: true,
+                margin: { top: 0, right: 0, bottom: 0, left: 0 }
+            });
+        }
 
         const annexBuffers = await annexPromise;
         if (annexBuffers.length > 0) {
@@ -292,22 +318,28 @@ router.post('/send-annex', async (req, res) => {
         const attachments = [];
 
         for (const doc of docs) {
-            const page = await browser.newPage();
-            await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 2 });
-            await page.setContent(doc.html, { waitUntil: 'domcontentloaded', timeout: 30000 });
-            try { await page.evaluateHandle('document.fonts.ready'); } catch (_) { }
+            let pdfBuffer;
+            // Un adjunto puede ser el IMPRESO OFICIAL (formulario) o la maqueta HTML.
+            if (esFormulario(doc)) {
+                pdfBuffer = await documentoAPdf(doc);
+            } else {
+                const page = await browser.newPage();
+                await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 2 });
+                await page.setContent(doc.html, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                try { await page.evaluateHandle('document.fonts.ready'); } catch (_) { }
 
-            const pdfBuffer = await page.pdf({
-                format: 'A4',
-                printBackground: true,
-                margin: { top: 0, right: 0, bottom: 0, left: 0 }
-            });
-            
+                pdfBuffer = await page.pdf({
+                    format: 'A4',
+                    printBackground: true,
+                    margin: { top: 0, right: 0, bottom: 0, left: 0 }
+                });
+                await page.close();
+            }
+
             attachments.push({
                 filename: (doc.fileName || 'Documento').endsWith('.pdf') ? doc.fileName : `${doc.fileName}.pdf`,
                 content: pdfBuffer
             });
-            await page.close();
         }
 
         await emailService.sendAnnexEmail({

@@ -11,6 +11,7 @@ import { EnviarApiVerificadorModal } from './EnviarApiVerificadorModal';
 export function SolicitudVerificacionModal({ lote, onClose, onSent }) {
     const { showAlert } = useModal();
     const exps = lote.expedientes || [];
+    const [archivando, setArchivando] = useState(false);
 
     const [contacto, setContacto] = useState({ ...SOLICITUD_DEFAULTS.contacto });
     const [intermediaria, setIntermediaria] = useState(SOLICITUD_DEFAULTS.intermediaria);
@@ -42,6 +43,24 @@ export function SolicitudVerificacionModal({ lote, onClose, onSent }) {
 
     const upd = (patch) => setContacto(c => ({ ...c, ...patch }));
 
+    // ── El PDF que sale de aquí queda SIEMPRE en el slot 1 del lote ───────────
+    // Se descargaba a mano y se volvía a subir: tres gestos para archivar un PDF que
+    // la app acaba de crear, y mientras no estaba subido la fase 2 no dejaba avanzar.
+    // Se archiva EL MISMO buffer que se descarga (no se vuelve a rasterizar el HTML),
+    // así el papel que firma el S.O. es exactamente el que tú tienes delante.
+    // No bloquea: si Drive falla, el PDF ya está en tu disco.
+    const archivarEnLote = async (base64 = null) => {
+        setArchivando(true);
+        try {
+            await axios.post(`/api/lotes/${lote.id}/solicitud/archivar`, base64 ? { base64 } : { html });
+            if (onSent) onSent();
+            return true;
+        } catch (err) {
+            console.warn('[solicitud] no se pudo archivar en el lote:', err.response?.data?.error || err.message);
+            return false;
+        } finally { setArchivando(false); }
+    };
+
     const handleDownloadPdf = async () => {
         setGenerating(true);
         try {
@@ -52,6 +71,7 @@ export function SolicitudVerificacionModal({ lote, onClose, onSent }) {
             a.href = URL.createObjectURL(blob);
             a.download = `${lote.codigo || 'LOTE'} - Solicitud Verificacion.pdf`;
             a.click();
+            await archivarEnLote(data.pdf);
         } catch (err) {
             showAlert(err.response?.data?.error || 'Error al generar el PDF', 'Error', 'error');
         } finally { setGenerating(false); }
@@ -119,6 +139,13 @@ export function SolicitudVerificacionModal({ lote, onClose, onSent }) {
 
                 </div>
 
+                <div className="px-6 pb-1">
+                    <p className="text-[10px] text-white/30">
+                        {archivando ? 'Archivando la solicitud en el lote…'
+                            : 'Cualquiera de las tres salidas archiva el PDF en el paso 1 del lote (borrador, sin firmar): no hay que descargarlo y volver a subirlo.'}
+                    </p>
+                </div>
+
                 <div className="flex items-center justify-between gap-3 p-6 border-t border-white/[0.06] flex-wrap">
                     <button onClick={onClose} className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest text-white/50 hover:text-white transition-colors">Cerrar</button>
                     <div className="flex items-center gap-2 flex-wrap">
@@ -147,6 +174,7 @@ export function SolicitudVerificacionModal({ lote, onClose, onSent }) {
                     defaultMessage={sendMsg}
                     summaryData={{ id: lote.codigo || 'LOTE', docType: 'Solicitud de Verificación Estandarizada' }}
                     docs={[{ html, fileName: `${lote.codigo || 'LOTE'} - Solicitud Verificacion`, label: 'Solicitud' }]}
+                    onBeforeSend={async () => { await archivarEnLote(); return true; }}
                     onClose={() => setSendOpen(false)}
                 />
             )}
@@ -154,6 +182,7 @@ export function SolicitudVerificacionModal({ lote, onClose, onSent }) {
                 <EnviarApiVerificadorModal
                     lote={lote}
                     payloadOpts={payloadOpts}
+                    solicitudHtml={html}
                     onClose={() => setApiOpen(false)}
                     onSent={onSent}
                 />

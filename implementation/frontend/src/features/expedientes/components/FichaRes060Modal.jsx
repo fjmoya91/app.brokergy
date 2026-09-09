@@ -5,6 +5,11 @@ import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
 import { calcCifo } from '../logic/calcCifo';
 import { ceeBaseDocumento, acsEnAlcance } from '../logic/ceeFases';
 import { postEmail } from '../../../utils/emailFallback';
+// El documento se genera rellenando el IMPRESO OFICIAL del Ministerio; la
+// maqueta HTML de este fichero se conserva como formato CLÁSICO para poder
+// comparar los dos y como salida si el impreso cambiara.
+import { fichaFormulario } from '../logic/fichasFormulario';
+import { DocumentoOficialPreview, FormatoDocumentoSwitch } from './DocumentoOficialPreview';
 // Los nombres van en MAYÚSCULAS en la ficha: en el saludo se escriben bien y
 // sin cortar los compuestos ("MARIA JOSÉ" no es "Maria").
 import { nombreSaludo } from '../../../utils/nombres.js';
@@ -138,6 +143,8 @@ export function FichaRes060Modal({ isOpen, onClose, expediente, results, onSaveD
     const [sendingEmail, setSendingEmail] = useState(false);
     const [sendingWhatsapp, setSendingWhatsapp] = useState(false);
     const [scale, setScale] = useState(1);
+    // 'oficial' = el impreso del Ministerio relleno (lo que se envía y se firma).
+    const [formato, setFormato] = useState('oficial');
 
     const updateScale = useCallback(() => {
         if (!containerRef.current) return;
@@ -363,11 +370,23 @@ export function FichaRes060Modal({ isOpen, onClose, expediente, results, onSaveD
 </body></html>`;
     };
 
+    // ── El documento ──────────────────────────────────────────────────────────
+    // En formato OFICIAL viaja como `formulario` (el impreso, que rellena el
+    // backend); en CLÁSICO, como la maqueta HTML de siempre. Las cuatro acciones
+    // —descargar, Drive, email y WhatsApp— pasan por aquí para que no puedan
+    // mandar formatos distintos.
+    const formularioOficial = () => fichaFormulario('RES060', expediente, { results });
+    const docPayload = () => (formato === 'oficial' ? { formulario: formularioOficial() } : { html: buildStaticHtml() });
+    const pdfBase64Doc = async () => (await axios.post('/api/pdf/generate', docPayload())).data?.pdf;
+    // El email adjunta el PDF ya hecho cuando es el impreso oficial (así se manda
+    // EXACTAMENTE lo que se ha revisado en pantalla).
+    const emailDocPayload = async () => (formato === 'oficial' ? { pdfBase64: await pdfBase64Doc() } : { html: buildStaticHtml() });
+
     // ── Handlers ──────────────────────────────────────────────────────────────
     const handleDownloadPdf = async () => {
         setGenerating(true);
         try {
-            const { data } = await axios.post('/api/pdf/generate', { html: buildStaticHtml() });
+            const { data } = await axios.post('/api/pdf/generate', docPayload());
             const bytes = new Uint8Array(atob(data.pdf).split('').map(c => c.charCodeAt(0)));
             const blob = new Blob([bytes], { type: 'application/pdf' });
             const a = document.createElement('a');
@@ -384,7 +403,7 @@ export function FichaRes060Modal({ isOpen, onClose, expediente, results, onSaveD
         setSavingDrive(true);
         try {
             const { data } = await axios.post('/api/pdf/save-to-drive', {
-                html: buildStaticHtml(),
+                ...docPayload(),
                 folderId,
                 fileName: `${numexpte || 'DRAFT'} - Ficha RES060`,
                 subfolderName: '6. ANEXOS CAE'
@@ -412,7 +431,7 @@ export function FichaRes060Modal({ isOpen, onClose, expediente, results, onSaveD
             };
 
             const response = await postEmail('/api/pdf/send-proposal', {
-                html: buildStaticHtml(),
+                ...(await emailDocPayload()),
                 to: toEmail,
                 userName: summaryData.userName,
                 summaryData: { ...summaryData, id: numexpte }
@@ -445,7 +464,7 @@ export function FichaRes060Modal({ isOpen, onClose, expediente, results, onSaveD
             }
 
             // 2. Generar PDF
-            const pdfResp = await axios.post('/api/pdf/generate', { html: buildStaticHtml() });
+            const pdfResp = await axios.post('/api/pdf/generate', docPayload());
             const pdfBase64 = pdfResp.data?.pdf;
 
             // 3. Construir mensaje
@@ -502,6 +521,7 @@ export function FichaRes060Modal({ isOpen, onClose, expediente, results, onSaveD
                                 <div className="text-white/25 text-[10px] uppercase tracking-wider">Bono CAE</div>
                             </div>
                         </div>
+                        <FormatoDocumentoSwitch formato={formato} onChange={setFormato} disabled={generating || savingDrive || sendingEmail || sendingWhatsapp} />
                         {user?.rol?.toUpperCase() === 'ADMIN' && (
                             <button
                                 onClick={handleSaveToDrive}
@@ -560,7 +580,15 @@ export function FichaRes060Modal({ isOpen, onClose, expediente, results, onSaveD
                 </div>
 
                 {/* Área scrolleable */}
-                <div ref={containerRef} className="flex-1 overflow-auto bg-[#16181D] py-8 px-4 text-center">
+                {/* La vista previa del OFICIAL es el propio PDF: lo que se revisa es
+                    exactamente lo que se descarga, se guarda y se envía. */}
+                {formato === 'oficial' && (
+                    <div className="flex-1 min-h-0">
+                        <DocumentoOficialPreview formulario={formularioOficial()} titulo="Ficha RES060"
+                            onFallback={() => setFormato('clasico')} />
+                    </div>
+                )}
+                <div ref={containerRef} className={`flex-1 overflow-auto bg-[#16181D] py-8 px-4 text-center ${formato === 'oficial' ? 'hidden' : ''}`}>
                     <div className="inline-block text-left" 
                          style={{ transform: `scale(${scale})`, transformOrigin: 'top center', width: 794, flexShrink: 0 }}>
                         <style dangerouslySetInnerHTML={{ __html: DOC_CSS }} />

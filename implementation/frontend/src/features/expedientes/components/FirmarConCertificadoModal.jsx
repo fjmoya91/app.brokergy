@@ -153,6 +153,13 @@ export default function FirmarConCertificadoModal({
                               // Documentos propios (plantilla fija): salta el escaneo de texto y
                               // sitúa el recuadro ya mismo → un solo click en "Firmar con Autofirma".
                               // Tiene prioridad sobre signatureAnchor si ambos se pasan.
+                              //
+                              // También admite una FUNCIÓN `({ numPaginas, oficial }) => caja`. Hace falta
+                              // porque un mismo documento convive en dos formatos: el impreso
+                              // OFICIAL del Ministerio y la maqueta anterior, con la firma en
+                              // páginas distintas. Un expediente puede tener en Drive un
+                              // borrador del formato viejo esperando firma, y ahí una caja fija
+                              // pondría la rúbrica en una página que no existe.
     onClose,
     onSigned,
 }) {
@@ -196,8 +203,17 @@ export default function FirmarConCertificadoModal({
                 userDrewRef.current = false;
                 // Caja EXACTA (documentos propios, plantilla fija) → salta el escaneo de
                 // texto; si no hay caja fija, cae al escaneo por texto ancla (heurística).
-                anchorRef.current = fixedBox
-                    ? { page: fixedBox.page, pdf: { llx: fixedBox.llx, lly: fixedBox.lly, urx: fixedBox.urx, ury: fixedBox.ury } }
+                // `oficial`: el PDF se ha rellenado sobre el impreso del Ministerio
+                // (lo produce pdf-lib) y no rasterizado desde la maqueta HTML (Chrome
+                // firma sus PDF como "Skia/PDF"). Es lo que distingue los dos formatos
+                // del mismo documento cuando ambos tienen el mismo nº de páginas.
+                let productor = '';
+                try { productor = (await doc.getMetadata())?.info?.Producer || ''; } catch (_) { }
+                const caja = typeof fixedBox === 'function'
+                    ? fixedBox({ numPaginas: doc.numPages, oficial: /pdf-lib/i.test(productor) })
+                    : fixedBox;
+                anchorRef.current = caja
+                    ? { page: caja.page, pdf: { llx: caja.llx, lly: caja.lly, urx: caja.urx, ury: caja.ury } }
                     : signatureAnchor
                         ? await findSignatureAnchor(doc, signatureAnchor).catch(() => null)
                         : null;

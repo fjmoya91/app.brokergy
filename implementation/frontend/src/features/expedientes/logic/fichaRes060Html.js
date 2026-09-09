@@ -5,9 +5,12 @@
 // modal (envío por LOTE al Sujeto Obligado). El representante que firma se inyecta
 // por opts (Slice 4: sale del Sujeto Obligado del lote del expediente).
 // ============================================================
-import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
-import { calcCifo } from './calcCifo';
-import { ceeBaseDocumento, acsEnAlcance } from './ceeFases';
+// Imports CON extensión: además de Vite, este módulo se carga por import()
+// dinámico desde Node (comparativa y pruebas del impreso oficial). Node ESM no
+// resuelve rutas sin extensión.
+import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation.js';
+import { calcCifo } from './calcCifo.js';
+import { ceeBaseDocumento, acsEnAlcance } from './ceeFases.js';
 
 const PAGE_PADDING = '93px 95px 19px 113px';
 
@@ -48,7 +51,24 @@ td.lbl { background-color: #f2f2f2; }
 // Representante por defecto (compatibilidad). En producción se inyecta el del S.O.
 const REPRESENTANTE_DEFAULT = { nombre: 'Pedro José López Montero', nif: '06239730-Z' };
 
-export function buildFichaRes060Html(expediente, results = {}, opts = {}) {
+// Constantes de la ficha: el factor de ponderación y la duración indicativa de la
+// actuación. Van aquí porque las imprimen los DOS documentos (el HTML y el impreso
+// oficial) y escritas a pelo en cada uno acabarían diciendo cosas distintas.
+const FP = '1';
+const DI = '15';
+
+/**
+ * Los valores YA FORMATEADOS del apartado 4 de la ficha (y las fechas y el
+ * representante que firma). Se expone aparte de la plantilla porque de aquí beben
+ * DOS documentos: el HTML clásico de abajo y el impreso OFICIAL en formato
+ * formulario (logic/fichasFormulario.js → backend/services/formularioOficialService).
+ *
+ * REGLA — la ficha y el CIFO no pueden contradecirse, así que estas cifras salen
+ * de las mismas derivaciones que el certificado (ceeBaseDocumento, acsEnAlcance,
+ * calcCifo). Si esto se calculara dos veces, el día que cambie una regla el
+ * expediente tendría dos documentos con números distintos.
+ */
+export function deriveFichaRes060(expediente, results = {}, opts = {}) {
     const inst = expediente.instalacion || {};
     const doc = expediente.documentacion || {};
     const cee = expediente.cee || {};
@@ -110,6 +130,23 @@ export function buildFichaRes060Html(expediente, results = {}, opts = {}) {
     const REPRESENTANTE_NOMBRE = opts.representanteNombre || REPRESENTANTE_DEFAULT.nombre;
     const REPRESENTANTE_NIF = opts.representanteNif || REPRESENTANTE_DEFAULT.nif;
 
+    return {
+        fp: FP, dcal, s: sStr, dacs: dacsStr, eta: etaStr,
+        scopCal: scopCalStr, scopAcs: scopAcsStr,
+        aeTotal: aeKwh, di: DI,
+        fechaInicio, fechaFin,
+        representante: REPRESENTANTE_NOMBRE, representanteNif: REPRESENTANTE_NIF,
+    };
+}
+
+export function buildFichaRes060Html(expediente, results = {}, opts = {}) {
+    const {
+        fp: FP_V, dcal, s: sStr, dacs: dacsStr, eta: etaStr,
+        scopCal: scopCalStr, scopAcs: scopAcsStr, aeTotal: aeKwh, di: DI_V,
+        fechaInicio, fechaFin,
+        representante: REPRESENTANTE_NOMBRE, representanteNif: REPRESENTANTE_NIF,
+    } = deriveFichaRes060(expediente, results, opts);
+
     return `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <style>${PDF_CSS}</style>
 </head><body>
@@ -167,7 +204,7 @@ export function buildFichaRes060Html(expediente, results = {}, opts = {}) {
             <tr><th>F<sub>p</sub></th><th>D<sub>CAL</sub></th><th>S</th><th>D<sub>ACS</sub></th><th>η<sub>i</sub></th><th>SCOP</th><th>SCOP<sub>dhw</sub></th></tr>
         </thead>
         <tbody>
-            <tr><td>1</td><td>${dcal}</td><td>${sStr}</td><td>${dacsStr}</td><td>${etaStr}</td><td>${scopCalStr}</td><td>${scopAcsStr}</td></tr>
+            <tr><td>${FP_V}</td><td>${dcal}</td><td>${sStr}</td><td>${dacsStr}</td><td>${etaStr}</td><td>${scopCalStr}</td><td>${scopAcsStr}</td></tr>
         </tbody>
     </table>
 
@@ -185,7 +222,7 @@ export function buildFichaRes060Html(expediente, results = {}, opts = {}) {
             <tr><th><em>D<sub>i</sub></em></th></tr>
         </thead>
         <tbody>
-            <tr><td>15</td></tr>
+            <tr><td>${DI_V}</td></tr>
         </tbody>
     </table>
 </div>

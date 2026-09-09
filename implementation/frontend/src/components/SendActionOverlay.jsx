@@ -164,7 +164,9 @@ export function SendActionOverlay({
                                     ))}
                                 </div>
                             )}
-                            {!ok && errorText && <p className="mt-4 text-[11px] text-red-400/80">{errorText}</p>}
+                            {/* `whitespace-pre-line`: un error que viene de una API ajena puede traer
+                                VARIOS motivos (uno por línea). En un solo párrafo se leían pegados. */}
+                            {!ok && errorText && <p className="mt-4 text-[11px] text-red-400/80 whitespace-pre-line">{errorText}</p>}
                             <div className="mt-7 w-full">
                                 <button onClick={onClose}
                                     className="w-full py-3 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all">

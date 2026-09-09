@@ -2,10 +2,10 @@ import React, { useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { buildAnexoListadoHtml, CONVENIO_FECHA_DEFAULT, fichaDe } from '../logic/anexoListado';
-import { buildFichaRes060Html } from '../../expedientes/logic/fichaRes060Html';
-import { buildFichaRes080Html } from '../../expedientes/logic/fichaRes080Html';
-import { buildFichaRes093Html } from '../../expedientes/logic/fichaRes093Html';
-import { buildFichaTer100Html } from '../../expedientes/logic/fichaTer100Html';
+// La ficha que viaja al Sujeto Obligado es el IMPRESO OFICIAL del Ministerio
+// (formato formulario): se manda `formulario` y lo rellena el backend. La maqueta
+// HTML sigue existiendo en logic/ficha*Html.js para poder comparar los dos.
+import { fichaFormulario } from '../../expedientes/logic/fichasFormulario';
 import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
 import { SIGN_BOXES, fichaSignBox } from '../../expedientes/logic/signBoxes';
 import { EnviarLoteDocModal } from './EnviarLoteDocModal';
@@ -75,12 +75,9 @@ export function RequerimientoModal({ lote, onClose, onSent }) {
         }
         for (const e of selectedExps) {
             const f = fichaDe(e.numero_expediente);
-            const html = f === 'RES080' ? buildFichaRes080Html(e, rep)
-                : f === 'RES093' ? buildFichaRes093Html(e, rep)
-                    : f === 'TER100' ? buildFichaTer100Html(e, rep)
-                        : buildFichaRes060Html(e, computeExpedienteFinancials(e), rep);
+            const formulario = fichaFormulario(f, e, { ...rep, results: computeExpedienteFinancials(e) });
             docs.push({
-                html, fileName: `${e.numero_expediente} - Ficha ${f}`, label: `Ficha ${f} · ${e.numero_expediente}`,
+                formulario, fileName: `${e.numero_expediente} - Ficha ${f}`, label: `Ficha ${f} · ${e.numero_expediente}`,
                 tipo: 'ficha_res', expediente_id: e.id, anchor: FICHA_ANCHOR, fixedBox: fichaSignBox(f),
             });
         }

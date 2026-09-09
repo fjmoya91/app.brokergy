@@ -5,7 +5,7 @@
 // qué acciones ofrece y por qué está bloqueada. Así el orden de la pantalla es el
 // orden real del trámite y no hay que acordarse de qué va antes de qué.
 //
-//   1. Solicitud al verificador   → se genera, se sube firmada
+//   1. Solicitud al verificador   → se genera y se archiva su BORRADOR (sin firmar)
 //   2. Firma del Sujeto Obligado  → Anexo I + fichas RES + solicitud
 //   3. Oferta de verificación     → llega del verificador, la firma el S.O.
 //   4. Verificación               → inexactitudes, informe, dictamen, factura
@@ -76,7 +76,7 @@ export function analizarProceso(lote) {
             n: 2,
             titulo: 'Firma del Sujeto Obligado',
             hecha: soFirmado,
-            bloqueo: solicitud ? null : 'Sube antes la solicitud de verificación firmada.',
+            bloqueo: solicitud ? null : 'Sube antes la solicitud de verificación (el borrador: la firma el S.O. aquí, en el paso 2).',
             docs: [anexo, ...fichas].filter(Boolean),
         },
         {

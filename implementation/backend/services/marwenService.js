@@ -151,6 +151,50 @@ async function resolveGeoSolicitante({ provincia, municipio }) {
     return { provincia: prov, localidad: loc, warnings };
 }
 
+// El 400 de Marwen NO es una cadena: es un ARBOL de arrays y objetos, y las
+// etiquetas que dicen DÓNDE está el fallo son las CLAVES ("Errores actuación 5").
+// Interpolarlo daba literalmente "Marwen (400): [object Object]" — un error que
+// no dice nada y que obliga a rebuscar en los logs del servidor.
+//
+//   { message: "Error al guardar la solicitud",
+//     error: [ { "Errores actuación 5": [ "…formato de 'SE_fecha_inicio'…",
+//                                         { message: "La fecha de inicio…" } ] } ] }
+//     →  Errores actuación 5: …formato de 'SE_fecha_inicio' debe ser yyyy-mm-dd
+//        Errores actuación 5: La fecha de inicio no puede ser posterior a la de fin
+//
+// Se arrastra la clave hasta cada hoja: sin ella, "debe ser yyyy-mm-dd" no dice
+// de qué actuación habla, que es la mitad de la información.
+function textosDeError(nodo, prefijo = '', out = []) {
+    if (nodo == null) return out;
+    if (typeof nodo === 'string' || typeof nodo === 'number') {
+        const s = String(nodo).trim();
+        if (s) out.push(prefijo ? `${prefijo}: ${s}` : s);
+        return out;
+    }
+    if (Array.isArray(nodo)) {
+        nodo.forEach(n => textosDeError(n, prefijo, out));
+        return out;
+    }
+    if (typeof nodo === 'object') {
+        for (const [k, v] of Object.entries(nodo)) {
+            // Los índices de array y los envoltorios genéricos no cualifican nada.
+            const generica = /^\d+$/.test(k) || ['message', 'error', 'errors', 'msg', 'detail'].includes(k);
+            const sub = generica ? prefijo : (prefijo ? `${prefijo} · ${k}` : k);
+            textosDeError(v, sub, out);
+        }
+        return out;
+    }
+    return out;
+}
+
+// Aplana la respuesta de error de Marwen a líneas legibles (sin duplicados).
+function formatMarwenError(data) {
+    const detalles = [...new Set(textosDeError(data.error != null ? data.error : data.errors))];
+    const cabecera = typeof data.message === 'string' ? data.message.trim() : '';
+    if (detalles.length) return { texto: [cabecera, ...detalles].filter(Boolean).join('\n'), detalles };
+    return { texto: cabecera || JSON.stringify(data), detalles: cabecera ? [cabecera] : [] };
+}
+
 // Envía la solicitud estandarizada. Devuelve los datos de la respuesta (201) o
 // lanza Error con el mensaje devuelto por Marwen (400/401/422…).
 async function enviarSolicitudEstandarizada(payload) {
@@ -162,9 +206,10 @@ async function enviarSolicitudEstandarizada(payload) {
     } catch (err) {
         const r = err.response;
         if (r && r.data) {
-            const msg = r.data.error || r.data.message || JSON.stringify(r.data);
-            const e = new Error(`Marwen (${r.status}): ${msg}`);
+            const { texto, detalles } = formatMarwenError(r.data);
+            const e = new Error(`Marwen (${r.status}): ${texto}`);
             e.marwen = r.data;
+            e.detalles = detalles;
             e.status = r.status;
             throw e;
         }
@@ -175,6 +220,7 @@ async function enviarSolicitudEstandarizada(payload) {
 module.exports = {
     BASE_URL,
     isConfigured,
+    formatMarwenError,
     getProvincias,
     getLocalidades,
     resolveProvincia,

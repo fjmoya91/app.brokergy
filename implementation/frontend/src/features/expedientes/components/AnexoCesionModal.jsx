@@ -1,6 +1,10 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import axios from 'axios';
-import { buildAnexoCesionHtml, buildAnexoIHtml, getDualMessage, getClientCaeRate, esCesionPrevia, ANEXO_CESION_CSS } from '../utils/docGenerators';
+// Cuando este popup manda TAMBIÉN el Anexo I, lo hace con el impreso OFICIAL, el
+// mismo que sale por las demás superficies: dos formatos del mismo documento según
+// por dónde se envíe es justo lo que esto viene a evitar.
+import { anexoIFormulario } from '../logic/anexoIFormulario';
+import { buildAnexoCesionHtml, getDualMessage, getClientCaeRate, esCesionPrevia, ANEXO_CESION_CSS } from '../utils/docGenerators';
 import { useAuth } from '../../../context/AuthContext';
 import AppConfirm from '../../../components/AppConfirm';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
@@ -199,8 +203,7 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
                 const docs = [{ html: htmlCesion, fileName: `${numexpte}_Anexo_Cesion.pdf` }];
                 let customMessage = null;
                 if (sendDual) {
-                    const htmlAnexoI = buildAnexoIHtml(expediente, results);
-                    docs.push({ html: htmlAnexoI, fileName: `${numexpte}_Anexo_I.pdf` });
+                    docs.push({ formulario: anexoIFormulario(expediente, results), fileName: `${numexpte}_Anexo_I.pdf` });
                     customMessage = getDualMessage(firstName, beneficioStr, numexpte);
                 }
                 await postEmail('/api/pdf/send-annex', { to: toEmail, userName: summaryData.userName, customMessage, summaryData, docs });
@@ -269,10 +272,9 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
                 const firstName = nombreSaludo(cliente.nombre_razon_social);
                 const htmlCesion = buildAnexoCesionHtml(expediente, results, docOpts);
                 if (sendDual) {
-                    const htmlAnexoI = buildAnexoIHtml(expediente, results);
                     const caption = getDualMessage(firstName, beneficioStr, numexpte);
                     const resC = await axios.post('/api/pdf/generate', { html: htmlCesion });
-                    const resI = await axios.post('/api/pdf/generate', { html: htmlAnexoI });
+                    const resI = await axios.post('/api/pdf/generate', { formulario: anexoIFormulario(expediente, results) });
                     await axios.post('/api/whatsapp/send-media', { phone: toPhone, caption, media: { base64: resC.data.pdf, filename: `${numexpte}_Anexo_Cesion.pdf`, mimetype: 'application/pdf' }, asDocument: true });
                     await axios.post('/api/whatsapp/send-media', { phone: toPhone, caption: 'Anexo I (Declaración Responsable)', media: { base64: resI.data.pdf, filename: `${numexpte}_Anexo_I.pdf`, mimetype: 'application/pdf' }, asDocument: true });
                     setConfirmConfig({ title: 'Éxito', message: '✅ Ambos anexos enviados por WhatsApp correctamente.', confirmText: 'Genial', onConfirm: () => setConfirmConfig(null) });

@@ -3,7 +3,7 @@ import axios from 'axios';
 import { DynamicNetworkBackground } from '../../../components/DynamicNetworkBackground';
 import FirmarConCertificadoModal from '../../expedientes/components/FirmarConCertificadoModal';
 import AsistenteFirmaManuscrita from '../../firma/AsistenteFirmaManuscrita';
-import { SIGN_BOXES } from '../../expedientes/logic/signBoxes';
+import { SIGN_BOXES, anexoISignBox } from '../../expedientes/logic/signBoxes';
 
 /**
  * RELATIVA, también en desarrollo.
@@ -252,7 +252,7 @@ export function FirmarAnexosView({ expedienteId }) {
 
     const startDigital = async () => {
         const q = [];
-        if (info.anexo_i_disponible) q.push({ which: 'anexo_i', label: 'Anexo I', anchor: ['fdo.:^above', 'fdo.^above', 'firma del propietario'], fixedBox: SIGN_BOXES.anexo_i });
+        if (info.anexo_i_disponible) q.push({ which: 'anexo_i', label: 'Anexo I', anchor: ['fdo.:^above', 'fdo.^above', 'firma del propietario'], fixedBox: anexoISignBox });
         if (info.anexo_cesion_disponible) q.push({ which: 'cesion', label: 'Anexo de Cesión de Ahorros', anchor: ['el cedente@2', 'cedente@2', 'el cedente', 'cedente'], fixedBox: SIGN_BOXES.anexo_cesion });
         if (!q.length) { setPrepError('No hay anexos disponibles para firmar todavía.'); return; }
         setSignedFiles({});

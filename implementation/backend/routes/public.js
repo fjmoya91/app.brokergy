@@ -2946,10 +2946,14 @@ router.post('/lote-firma/:loteId/firmar', async (req, res) => {
         // panel: services/loteDocs.guardarDocFirmado (misma carpeta, mismo nombre,
         // y retira el visto bueno anterior porque hay que revisar el nuevo).
         const buf = Buffer.from(signedPdfBase64, 'base64');
-        let docsSo, idx, saved, todosFirmados;
+        let docsSo, idx, saved, todosFirmados, nFirmables, nFirmados;
         try {
             const r = await require('../services/loteDocs').guardarDocFirmado(lote, docKey, buf);
             docsSo = r.docsSo; saved = r.saved; todosFirmados = r.todosFirmados;
+            // Se cuentan los documentos que se le PIDIERON al S.O., no todas las
+            // entradas del lote: los informes y las facturas del verificador no los
+            // firma nadie y hacían que el aviso contara papeles que él nunca vio.
+            nFirmables = r.firmables; nFirmados = r.firmados;
             idx = docsSo.findIndex(d => d.key === docKey);
         } catch (e) {
             return res.status(400).json({ error: e.message });
@@ -2957,7 +2961,7 @@ router.post('/lote-firma/:loteId/firmar', async (req, res) => {
         const historial = Array.isArray(lote.historial) ? [...lote.historial] : [];
         historial.push({
             id: `${Date.now()}_firma_so`, tipo: 'sistema',
-            texto: `S.O. firmó "${docsSo[idx].label || docKey}"${todosFirmados ? ' — TODOS los documentos firmados' : ` (${docsSo.filter(d => d.signed_link).length}/${docsSo.length})`}.`,
+            texto: `S.O. firmó "${docsSo[idx].label || docKey}"${todosFirmados ? ' — TODOS los documentos firmados' : ` (${nFirmados}/${nFirmables})`}.`,
             fecha: new Date().toISOString(), usuario: 'Sujeto Obligado',
         });
         await supabase.from('lotes').update({ documentos_so: docsSo, historial, updated_at: new Date().toISOString() }).eq('id', lote.id);
@@ -2995,19 +2999,19 @@ router.post('/lote-firma/:loteId/firmar', async (req, res) => {
             setImmediate(async () => {
                 const adminPhone = process.env.WHATSAPP_ADMIN_CHAT;
                 const adminEmail = process.env.ADMIN_EMAIL || 'franciscojavier.moya.s2e2@gmail.com';
-                const msg = `✅ *Lote firmado por el S.O.*\nLote: *${lote.codigo || lote.id}*\nEl Sujeto Obligado ha firmado los ${docsSo.length} documentos (Anexo I + fichas + solicitud). Ya están en la carpeta del lote en Drive.`;
+                const msg = `✅ *Lote firmado por el S.O.*\nLote: *${lote.codigo || lote.id}*\nEl Sujeto Obligado ha firmado los ${nFirmables} documentos que le mandamos. Ya están en la carpeta del lote en Drive.`;
                 try { if (adminPhone) await whatsappService.sendText(adminPhone, msg); } catch (e) {}
                 try {
                     await emailService.sendMail({
                         to: adminEmail,
                         subject: `✅ Lote ${lote.codigo || ''} firmado por el S.O.`,
-                        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;"><div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:20px 28px;"><h2 style="margin:0;color:#fff;font-size:16px;">BROKERGY · Lote firmado</h2></div><div style="padding:24px;background:#fff;"><p>El Sujeto Obligado ha firmado <strong>todos</strong> los documentos del lote <strong>${lote.codigo || lote.id}</strong> (${docsSo.length} documentos).</p><p style="margin-top:12px;">Los firmados están en la carpeta del lote en Drive. Ya puedes continuar con el envío al verificador.</p></div></div>`,
+                        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;"><div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:20px 28px;"><h2 style="margin:0;color:#fff;font-size:16px;">BROKERGY · Lote firmado</h2></div><div style="padding:24px;background:#fff;"><p>El Sujeto Obligado ha firmado <strong>todos</strong> los documentos del lote <strong>${lote.codigo || lote.id}</strong> (${nFirmables} documentos).</p><p style="margin-top:12px;">Los firmados están en la carpeta del lote en Drive. Ya puedes continuar con el envío al verificador.</p></div></div>`,
                     });
                 } catch (e) {}
             });
         }
 
-        res.json({ ok: true, todos_firmados: todosFirmados, firmados: docsSo.filter(d => d.signed_link).length, total: docsSo.length });
+        res.json({ ok: true, todos_firmados: todosFirmados, firmados: nFirmados, total: nFirmables });
     } catch (e) {
         console.error('[lote-firma firmar] Error:', e.message);
         res.status(500).json({ error: e.message || 'Error al guardar el documento firmado' });

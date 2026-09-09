@@ -3,7 +3,10 @@ import axios from 'axios';
 import confetti from 'canvas-confetti';
 import { useModal } from '../../../context/ModalContext';
 import { postEmail } from '../../../utils/emailFallback';
-import { buildAnexoIHtml, buildAnexoCesionHtml, getDualMessage, getClientCaeRate, buildInstalacionAddress, esCesionPrevia, tieneCuentaBancaria } from '../utils/docGenerators';
+// El Anexo I sale del IMPRESO OFICIAL del Ministerio (formato formulario). El
+// Convenio de Cesión sigue siendo maqueta propia: no hay impreso oficial de él.
+import { anexoIFormulario } from '../logic/anexoIFormulario';
+import { buildAnexoCesionHtml, getDualMessage, getClientCaeRate, buildInstalacionAddress, esCesionPrevia, tieneCuentaBancaria } from '../utils/docGenerators';
 import { clienteContacts, instaladorContacts, phoneValid } from '../utils/docContacts';
 import { unidadesSinSerie, countUnidades } from '../logic/aerotermiaUnits';
 // Canal de envío de la barra inferior — COMPARTIDO con los otros popups de envío.
@@ -511,10 +514,23 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     };
 
     // ── Construcción de los documentos seleccionados ─────────────────────────
+    // Cada documento viaja como `{ html }` (maqueta) o `{ formulario }` (impreso
+    // oficial). `fuenteDoc` es lo que se manda a generar el PDF, y las TRES
+    // salidas —WhatsApp, email y el borrador que se guarda en Drive— usan la misma:
+    // el enlace de firma sirve ese borrador, así que no puede ser otro documento.
+    //
+    // Un `override` es lo que el popup del Anexo I acaba de enseñar en pantalla, y
+    // ya viene con el formato elegido allí; si llega como cadena, es HTML (formato
+    // anterior de esta prop).
+    const fuenteDoc = (d) => (d.formulario ? { formulario: d.formulario } : { html: d.html });
+
     const buildDocDefs = () => sendDocs.map(k => {
         if (k === 'anexo1') {
-            const html = (overrides && overrides.anexo1) ? overrides.anexo1 : buildAnexoIHtml(expediente, resultsDoc, {}, true);
-            return { key: 'anexo1', label: 'Anexo I', fileName: `${numexpte}${DOC_DEFS.anexo1.file}`, html };
+            const ov = overrides && overrides.anexo1;
+            const fuente = typeof ov === 'string' ? { html: ov }
+                : (ov && (ov.formulario || ov.html)) ? ov
+                    : { formulario: anexoIFormulario(expediente, resultsDoc, {}) };
+            return { key: 'anexo1', label: 'Anexo I', fileName: `${numexpte}${DOC_DEFS.anexo1.file}`, ...fuente };
         }
         const html = (overrides && overrides.cesion) ? overrides.cesion : buildAnexoCesionHtml(expediente, resultsDoc);
         return { key: 'cesion', label: 'Anexo de Cesión', fileName: `${numexpte}${DOC_DEFS.cesion.file}`, html };
@@ -548,7 +564,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
             try {
                 waPdfs = [];
                 for (const d of docDefs) {
-                    const gen = await axios.post('/api/pdf/generate', { html: d.html });
+                    const gen = await axios.post('/api/pdf/generate', fuenteDoc(d));
                     if (!gen.data?.pdf) throw new Error('No se pudo generar el PDF');
                     waPdfs.push({ ...d, base64: gen.data.pdf });
                 }
@@ -582,7 +598,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                             // mala de la noticia.
                             preheader: tituloRequerimiento({ importeAnterior: imp.anterior, importeNuevo: imp.nuevo }),
                         } : {}),
-                        docs: docDefs.map(d => ({ html: d.html, fileName: d.fileName })),
+                        docs: docDefs.map(d => ({ ...fuenteDoc(d), fileName: d.fileName })),
                     }, showConfirm);
                     out.push({ channel: 'email', status: 'ok', text: `${c.label} → ${c.email}` });
                 } catch (err) {
@@ -627,7 +643,7 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                         const fileName = d.key === 'anexo1' ? `${numexpte} - Anexo I` : `${numexpte} - Anexo Cesion ahorro`;
                         // replaceExisting: el borrador anterior se archiva en OLD. Es el PDF que
                         // sirve el enlace de firma del cliente — no puede haber dos en la carpeta.
-                        const r = await axios.post('/api/pdf/save-to-drive', { html: d.html, folderId, fileName, subfolderName: '6. ANEXOS CAE', replaceExisting: true });
+                        const r = await axios.post('/api/pdf/save-to-drive', { ...fuenteDoc(d), folderId, fileName, subfolderName: '6. ANEXOS CAE', replaceExisting: true });
                         if (r.data?.driveLink) driveLinks[d.key] = r.data.driveLink;
                     } catch (e) { /* no romper el envío si Drive falla */ }
                 }

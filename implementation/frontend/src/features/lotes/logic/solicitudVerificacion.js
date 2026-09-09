@@ -9,6 +9,7 @@
 import { buildInstalacionAddress } from '../../expedientes/utils/docGenerators';
 import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
 import { calcCifo } from '../../expedientes/logic/calcCifo';
+import { camposSolicitudVerificacion, leerSubvenciones, datosPrograma, importeEs } from '../../expedientes/logic/subvenciones';
 import { fichaDe, FICHA_TITULO } from './anexoListado';
 
 // Datos por defecto del solicitante / contacto (editables en el popup).
@@ -145,7 +146,20 @@ export function buildSolicitudVerificacionHtml(lote, opts = {}) {
             ${row('Fecha fin actuación', fmtDate(calcCifo(doc).fin || doc.fecha_fin_cifo))}
             ${row('Inversión de la actuación sin IVA (€)', `${nf(inversion, 2)} €`)}
             ${row('Costes operativos anuales para el mantenimiento de la actuación sin IVA (€)', '0,00')}
-            ${row('¿La actuación ha solicitado o recibido apoyo de algún programa público de ayudas?', 'no')}
+            ${(() => {
+                // El PDF y el payload de la API tienen que decir LO MISMO: los dos
+                // salen de lo declarado en el expediente. Antes iba 'no' fijo aquí
+                // y en el payload, contradiciendo al Anexo I que se adjunta.
+                const sub = leerSubvenciones(e);
+                if (!sub.solicitada) return row('¿La actuación ha solicitado o recibido apoyo de algún programa público de ayudas?', 'no');
+                const p = datosPrograma(sub);
+                return row('¿La actuación ha solicitado o recibido apoyo de algún programa público de ayudas?', 'sí')
+                    + row('Denominación del programa de ayuda', p.denominacion)
+                    + row('Entidad u órgano gestor', p.organo)
+                    + row('Año', p.anio)
+                    + row('Disposición reguladora', p.disposicion)
+                    + row('Cuantía de la ayuda obtenida o esperada', sub.ayuda.cuantia_eur ? `${importeEs(sub.ayuda.cuantia_eur)} €` : '');
+            })()}
           </tbody></table>`;
 
         const tablaB = `
@@ -226,7 +240,12 @@ export function buildSolicitudVerificacionPayload(lote, opts = {}) {
             // Importe sin IVA en formato español (máx. 2 decimales). Acepta "0", no vacío.
             SE_inversion: nf(inversion, 2),
             SE_costes_operativos: '0',
-            SE_apoyo_programa: 'no',
+            // La ayuda pública sale de lo DECLARADO en el expediente (pestaña
+            // Subvenciones), que es lo mismo que firma el titular en su Anexo I.
+            // Iba fija a 'no': en 25RES080_28 el Anexo I declaraba 18.800 € del
+            // MITMA y la solicitud le habría dicho al verificador lo contrario,
+            // con ese mismo Anexo I adjunto en el envío.
+            ...camposSolicitudVerificacion(e),
         });
 
         step3.push({

@@ -7,6 +7,8 @@ import { CeeModule } from '../components/CeeModule';
 import { InstalacionModule } from '../components/InstalacionModule';
 import { EquipoInfoModal } from '../components/EquipoInfoModal';
 import { EnvolventeModule } from '../components/EnvolventeModule';
+import { SubvencionesModule } from '../components/SubvencionesModule';
+import { leerSubvenciones } from '../logic/subvenciones';
 import { DocumentacionModule } from '../components/DocumentacionModule';
 import { ChecklistModule } from '../components/ChecklistModule';
 import { EconomicoModule } from '../components/EconomicoModule';
@@ -355,6 +357,10 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
             { id: 'instalacion',   label: 'Instalación',   full: 'Instalación',                          show: true },
             { id: 'envolvente',    label: 'Envolvente',    full: 'Envolvente',                           show: num.includes('RES080') },
             { id: 'documentacion', label: 'Documentación', full: 'Documentación',                        show: !isCertificador },
+            // Bono social y ayudas públicas: lo declara el titular en el Anexo I y
+            // de ahí viaja a la solicitud de verificación. Oculto al certificador,
+            // que no interviene en esa declaración.
+            { id: 'subvenciones',  label: 'Subvenciones',  full: 'Bono social y ayudas públicas',        show: !isCertificador },
             { id: 'economico',     label: 'Económico',     full: 'Datos Económicos',                     show: isAdmin },
         ].filter(t => t.show);
     }, [expediente?.numero_expediente, isCertificador, isAdmin]);
@@ -1686,6 +1692,26 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                             // `documentacion.incidencias[]`, así que hay que releer:
                             // el mismo refresco silencioso que usa IncidenciasModal.
                             onIncidenciasChanged={() => fetchExpediente(true)}
+                        />
+                    </ModuleSection>
+                )}
+
+                {/* Bono social y ayudas públicas: lo que el titular declara en el
+                    Anexo I. Se guarda aquí una vez y lo leen el Anexo I, la
+                    solicitud de verificación y el control de sobrefinanciación. */}
+                {!isCertificador && (
+                    <ModuleSection
+                        id="subvenciones"
+                        title="Subvenciones"
+                        activeSection={activeSection}
+                        onToggle={setActiveSection}
+                        badge={leerSubvenciones(expediente).solicitada ? 'AYUDA DECLARADA' : null}
+                    >
+                        <SubvencionesModule
+                            expediente={expediente}
+                            onSave={handleSave}
+                            onLiveUpdate={setLiveDoc}
+                            saving={saving}
                         />
                     </ModuleSection>
                 )}

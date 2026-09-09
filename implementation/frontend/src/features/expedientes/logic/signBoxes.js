@@ -25,6 +25,16 @@ export const SIGN_BOXES = {
     cifo_res060: { page: 2, llx: 318.92, lly: 87.40, urx: 545.74, ury: 147.94 },
 
     // Anexo I (individual, cliente) — FirmarAnexosView.jsx.
+    //
+    // Hay DOS: el impreso OFICIAL del Ministerio (4 páginas, la firma en la 4ª) y la
+    // maqueta anterior (3 páginas). Se elige por el nº de páginas del PDF que se está
+    // firmando — ver `anexoISignBox()` — porque en Drive conviven los dos: un
+    // expediente puede tener un borrador del formato viejo esperando firma, y ahí la
+    // caja nueva pondría la rúbrica en una página que no existe.
+    //
+    // La OFICIAL sale del campo de firma de la propia plantilla
+    // (`plantillas/Anexo I de las fichas_DR subvenciones.pdf`), medido con PyMuPDF.
+    anexo_i_oficial: { page: 4, llx: 122.10, lly: 352.08, urx: 390.31, ury: 399.49 },
     anexo_i: { page: 3, llx: 57.10, lly: 80.20, urx: 284.57, ury: 155.74 },
 
     // Anexo de Cesión de Ahorros — las DOS columnas de `.conv-sign-grid` (docGenerators.js).
@@ -54,7 +64,18 @@ export const SIGN_BOXES = {
     anexo_i_listado: { page: 1, llx: 534.45, lly: 188.32, urx: 736.06, ury: 269.30 },
     anexo_i_listado_proveedor: { page: 1, llx: 129, lly: 188.32, urx: 331, ury: 269.30 },
 
-    // Fichas RES del lote (firma el S.O.) — una por tipo de ficha.
+    // Fichas RES/TER del lote (firma el S.O.) — una por tipo de ficha.
+    //
+    // Las _oficial salen del CAMPO DE FIRMA de la propia plantilla del Ministerio
+    // (`plantillas/Ficha RES0xx.pdf`), leído con PyMuPDF: son las coordenadas que el
+    // impreso reserva para la firma, no una estimación. Las otras son las de la
+    // maqueta anterior y siguen vivas para los borradores que ya estén en Drive.
+    // Se elige por el nº de páginas del PDF (ver `fichaSignBox`).
+    ficha_res060_oficial: { page: 3, llx: 258.33, lly: 680.80, urx: 516.99, ury: 709.39 },
+    ficha_res080_oficial: { page: 2, llx: 220.01, lly: 493.32, urx: 517.29, ury: 513.19 },
+    ficha_res093_oficial: { page: 3, llx: 258.31, lly: 599.35, urx: 517.10, ury: 627.80 },
+    ficha_ter100_oficial: { page: 4, llx: 229.48, lly: 220.69, urx: 516.96, ury: 240.52 },
+
     ficha_res060: { page: 3, llx: 254.12, lly: 709.20, urx: 518.90, ury: 729.20 },
     ficha_res080: { page: 2, llx: 254.12, lly: 523.20, urx: 518.90, ury: 543.20 }, // derivada
     ficha_res093: { page: 3, llx: 254.12, lly: 709.20, urx: 518.90, ury: 729.20 }, // idéntica a RES060
@@ -71,7 +92,33 @@ export const SIGN_BOXES = {
     solicitud_verificacion: { page: 12, llx: 145.46, lly: 450.00, urx: 348.72, ury: 528.20 },
 };
 
-// Devuelve la caja de una ficha por código ('RES060'|'RES080'|'RES093'|'TER100').
+/**
+ * La caja de una ficha ('RES060'|'RES080'|'RES093'|'TER100').
+ *
+ * Devuelve una FUNCIÓN del nº de páginas del PDF que se va a firmar, porque en
+ * Drive conviven los dos formatos del mismo documento: el impreso OFICIAL del
+ * Ministerio y la maqueta anterior. Firmar un borrador viejo con la caja del nuevo
+ * (o al revés) deja la rúbrica en el sitio equivocado — y en TER100, en una página
+ * que no existe. `FirmarConCertificadoModal` acepta `fixedBox` como función.
+ *
+ * En las fichas el nº de páginas NO distingue —los dos formatos tienen las mismas—,
+ * así que se mira quién produjo el PDF: el impreso oficial se rellena con pdf-lib y
+ * la maqueta la rasteriza Chrome. Lo resuelve `FirmarConCertificadoModal`, que pasa
+ * `oficial` ya calculado.
+ */
 export function fichaSignBox(fichaCode) {
-    return SIGN_BOXES[`ficha_${String(fichaCode || '').toLowerCase()}`] || null;
+    const cod = String(fichaCode || '').toLowerCase();
+    const oficial = SIGN_BOXES[`ficha_${cod}_oficial`];
+    const clasica = SIGN_BOXES[`ficha_${cod}`] || null;
+    if (!oficial) return clasica;
+    return (info) => ((info && info.oficial ? oficial : clasica) || oficial);
+}
+
+/**
+ * La caja del Anexo I. El impreso OFICIAL tiene 4 páginas y firma en la última; la
+ * maqueta anterior tiene 3.
+ */
+export function anexoISignBox(info) {
+    const paginas = typeof info === 'number' ? info : (info?.numPaginas || 0);
+    return paginas >= 4 ? SIGN_BOXES.anexo_i_oficial : SIGN_BOXES.anexo_i;
 }

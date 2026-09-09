@@ -129,6 +129,92 @@ function Section({ title, iconPath, badge, children, className = '' }) {
     );
 }
 
+// ─── El CONVENIO CAE firmado con el Sujeto Obligado ──────────────────────
+// Es la primera pieza del paquete de cada actuación ("E{n}-1"): el MISMO documento
+// en las cinco actuaciones de un lote y en todos los lotes de ese S.O. Vive aquí
+// porque se firma una vez y se cita siempre — adjuntarlo en cada lote sería
+// adjuntarlo cinco veces al mes sin garantía de que fuera el mismo papel.
+//
+// Se guarda al momento, no con el resto del formulario: es un fichero que sube a
+// Drive, y mezclarlo con el guardado general obligaría a rehacer la subida cada
+// vez que se cancela una edición.
+function ConvenioCae({ soId, inicial }) {
+    const [convenio, setConvenio] = useState(inicial || {});
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState('');
+    const [enlace, setEnlace] = useState('');
+
+    useEffect(() => { setConvenio(inicial || {}); }, [inicial?.convenio_cae_link, soId]);
+
+    const guardar = async (body) => {
+        setBusy(true); setErr('');
+        try {
+            const { data } = await axios.put(`/api/prescriptores/${soId}/convenio-cae`, body);
+            setConvenio(data);
+            setEnlace('');
+        } catch (e) {
+            setErr(e.response?.data?.error || 'No se pudo guardar el convenio.');
+        } finally { setBusy(false); }
+    };
+
+    const subir = async (file) => {
+        if (!file) return;
+        if (file.type !== 'application/pdf') { setErr('El convenio debe ser un PDF.'); return; }
+        try {
+            const base64 = await new Promise((res, rej) => {
+                const r = new FileReader();
+                r.onload = () => res(String(r.result).split(',')[1] || '');
+                r.onerror = rej;
+                r.readAsDataURL(file);
+            });
+            await guardar({ base64, fileName: file.name });
+        } catch { setErr('No se pudo leer el fichero.'); }
+    };
+
+    const onFile = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) subir(f); };
+
+    return (
+        <div className="sm:col-span-2 p-4 rounded-2xl bg-white/[0.03] border border-white/10 space-y-2.5">
+            <div>
+                <span className="font-black text-white text-xs uppercase tracking-wider block">Convenio CAE firmado</span>
+                <span className="text-[10px] text-white/30 block mt-0.5">
+                    Va como primera pieza del paquete de cada actuación del lote. Se sube una vez y vale para todos.
+                </span>
+            </div>
+
+            {convenio?.convenio_cae_link ? (
+                <div className="flex items-center gap-2 flex-wrap px-3 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-400/30">
+                    <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                    <span className="text-[11px] text-white/80 truncate flex-1 min-w-0">{convenio.convenio_cae_nombre || 'Convenio CAE'}</span>
+                    <a href={convenio.convenio_cae_link} target="_blank" rel="noopener noreferrer"
+                        className="text-[9px] font-black uppercase tracking-widest text-emerald-400/80 hover:text-emerald-300 shrink-0">Ver</a>
+                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-white cursor-pointer shrink-0">
+                        {busy ? '…' : 'Reemplazar'}
+                        <input type="file" accept="application/pdf" className="hidden" disabled={busy} onChange={onFile} />
+                    </label>
+                    <button type="button" disabled={busy} onClick={() => guardar({ link: '' })}
+                        className="text-[9px] font-black uppercase tracking-widest text-white/25 hover:text-red-400 shrink-0">Quitar</button>
+                </div>
+            ) : (
+                <div className="space-y-2">
+                    <label className={`flex items-center gap-2 px-3 py-3.5 rounded-xl border border-dashed text-[11px] cursor-pointer transition-all ${busy ? 'opacity-50' : 'border-white/15 text-white/50 hover:border-brand/40 hover:text-white/70'}`}>
+                        <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                        {busy ? 'Subiendo…' : 'Sube el PDF del convenio firmado'}
+                        <input type="file" accept="application/pdf" className="hidden" disabled={busy} onChange={onFile} />
+                    </label>
+                    {/* Si ya está en Drive no hace falta duplicarlo: basta su enlace. */}
+                    <div className="flex items-center gap-2">
+                        <Inp value={enlace} onChange={e => setEnlace(e.target.value)} placeholder="…o pega su enlace de Drive" />
+                        <button type="button" disabled={busy || !enlace.trim()} onClick={() => guardar({ link: enlace.trim() })}
+                            className="shrink-0 px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-brand/30 bg-brand/10 text-brand disabled:opacity-30">Usar</button>
+                    </div>
+                </div>
+            )}
+            {err && <p className="text-[10px] text-red-400">{err}</p>}
+        </div>
+    );
+}
+
 function FI({ label, required, children }) {
     return (
         <div>
@@ -1522,6 +1608,12 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                         <FI label="Código identificación (MITERD)">
                                             <Inp value={form.codigo_identificacion} uppercase onChange={e => upd({ codigo_identificacion: e.target.value })} placeholder="SO-A13035266" />
                                         </FI>
+                                    )}
+                                    {/* El convenio marco firmado con este S.O.: solo ADMIN
+                                        (es el contrato) y solo con la ficha ya creada, que
+                                        es cuando hay a quién colárselo. */}
+                                    {form.tipo_empresa === 'SUJETO_OBLIGADO' && isAdmin && p?.id_empresa && (
+                                        <ConvenioCae soId={p.id_empresa} inicial={p} />
                                     )}
 
                                     {/* ── Comisión por defecto ────────────────────────────────────
