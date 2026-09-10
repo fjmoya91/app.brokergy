@@ -35,6 +35,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 const supabase = require('./supabaseClient');
 const driveService = require('./driveService');
+const { asegurarFichasTecnicas } = require('./fichaTecnicaSlot');
 const { scanCeeSection } = require('./ceeUploadService');
 const { carpetaDeExpediente } = require('./expedienteFolderSync');
 const { crearZip } = require('../utils/zipStore');
@@ -190,7 +191,59 @@ const INDICE = [
 // módulos del frontend no se pueden cargar o el expediente no declara equipos, se
 // barren los `ft_*_link` de `documentacion` — es lo que se hacía antes, y perder
 // las fichas técnicas por no poder leer una preferencia sería peor que ignorarla.
+// Por qué NO se ha podido resolver un hueco, dicho como una tarea y no como un
+// código de error: los tres motivos que se dan de verdad se arreglan todos en el
+// mismo sitio (el catálogo o la pestaña Envolvente / Instalación).
+const MOTIVO_FICHA = {
+    no_model: 'no está elegido del catálogo — elígelo en la pestaña Envolvente / Instalación',
+    model_not_found: 'el modelo que declara ya no existe en el catálogo',
+    no_ficha_in_db: 'el modelo está en el catálogo pero SIN ficha técnica — súbesela al catálogo',
+    external_not_pdf: 'la ficha del catálogo no es un PDF',
+    external_fetch_failed: 'no se pudo descargar la ficha del catálogo',
+    bad_ficha_url: 'la ficha del catálogo no es una URL utilizable',
+    no_drive_folder: 'el expediente no tiene carpeta de Drive',
+};
+
+async function rellenarFichasDelCatalogo(ctx) {
+    ctx.avisosFicha = ctx.avisosFicha || [];
+    try {
+        const parte = await asegurarFichasTecnicas(ctx.exp, { driveFolderId: ctx.driveFolderId });
+        for (const r of parte) {
+            if (r.ok) {
+                ctx.avisosFicha.push(r.source === 'existing'
+                    ? `${r.label}: estaba en Drive sin enlazar — se ha enlazado al expediente`
+                    : `${r.label}: copiada del catálogo (${r.model})`);
+            } else {
+                ctx.avisosFicha.push(`${r.label}: ${MOTIVO_FICHA[r.error] || r.error}`);
+            }
+        }
+        // `asegurarFichasTecnicas` deja `exp.documentacion` al día, pero el ctx
+        // arrastra la copia con la que se entró: sin esto, el hueco recién
+        // rellenado se seguiría leyendo vacío en la misma pasada.
+        ctx.doc = ctx.exp.documentacion || ctx.doc;
+    } catch (e) {
+        console.warn('[envioGestor] rellenando fichas del catálogo:', e.message);
+    }
+}
+
 async function anexosFichaTecnica(ctx) {
+    // ANTES de leer los huecos, se rellenan los que el CATÁLOGO puede resolver.
+    //
+    // El paquete lee el SLOT (`ft_*_link`), y hasta hoy ese slot solo lo escribía
+    // el modal del certificado al abrirlo. O sea que un expediente con el modelo
+    // elegido del catálogo y su ficha EN el catálogo llegaba aquí diciendo que le
+    // faltaba un documento que no faltaba — nadie había pasado por esa pantalla
+    // (medido en LOTE-2025-005, 10/09/2026: dos de cinco actuaciones bloqueadas).
+    //
+    // Copiar aquí es idempotente y es EXACTAMENTE lo que haría abrir el
+    // certificado: misma función, mismo fichero, mismo nombre canónico, mismo
+    // slot. Lo que no se puede resolver se anota en `ctx.avisosFicha` para
+    // DECIRLO: una ficha que aparece sola en el paquete sin explicación no se
+    // puede auditar tres meses después, y un hueco que no se puede rellenar tiene
+    // siempre la misma causa —el modelo no está elegido del catálogo, o está sin
+    // ficha— que es lo único que hay que ir a arreglar.
+    await rellenarFichasDelCatalogo(ctx);
+
     const doc = ctx.doc || {};
     try {
         const { resolveAllFichaSlots, ftDocFields } = await loadFichasTecnicas();
@@ -483,6 +536,11 @@ async function paqueteDeActuacion(ctx, { modo, dryRun, zipEnMemoria = false }) {
         faltan_obligatorias: faltanObligatorias,
         faltan_leves: faltanLeves,
         no_proceden: noProceden,
+        // Qué se ha rellenado solo desde el catálogo y qué hueco no se ha podido
+        // rellenar, con su motivo. Sale aunque la actuación esté completa: el que
+        // se resuelva hoy con una copia del catálogo no quita que el expediente
+        // siga sin declarar su modelo.
+        avisos_ficha: ctx.avisosFicha || [],
         n_ficheros: resueltas.filter(x => x.r).length,
         ok: faltanObligatorias.length === 0,
         carpeta_link: null,

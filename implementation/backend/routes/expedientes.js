@@ -41,6 +41,8 @@ const { syncExpedienteFolderAsync } = require('../services/expedienteFolderSync'
 // bomba de calor). FUENTE ÚNICA con la app y con cifoService: se importa el módulo
 // ESM del frontend, igual que hace cifoService.js con cifoDoc.js. Si esta decisión
 // se duplicara aquí, subir a un hueco que el modal ya no enseña respondería 200.
+const { asegurarFichaTecnica } = require('../services/fichaTecnicaSlot');
+
 let _fichasTecnicasPromise = null;
 function loadFichasTecnicas() {
     if (!_fichasTecnicasPromise) {
@@ -6910,16 +6912,16 @@ router.get('/:id/fichas-tecnicas/:type', async (req, res) => {
 });
 
 // ─── POST /api/expedientes/:id/fichas-tecnicas/auto-copy ─────────────────────
-// Copia la ficha técnica del modelo de aerotermia (campo aerotermia.ficha_tecnica)
-// a la subcarpeta "3. FICHAS TÉCNICAS Y CERTIFICACIONES" del expediente.
-// Body: { type: 'cal'|'acs'|'cal2'…, force?: boolean }
+// Copia la ficha tecnica del modelo (aerotermia, marco o vidrio) a la subcarpeta
+// "3. FICHAS TECNICAS Y CERTIFICACIONES" del expediente y la deja enlazada en su
+// slot. La DECISION vive en services/fichaTecnicaSlot.js, no aqui: a esta ruta
+// solo la llamaba el modal del certificado, y por eso un expediente cuyo modelo
+// estaba elegido y tenia ficha en el catalogo llegaba al paquete del lote con el
+// slot vacio (LOTE-2025-005). Ahora el paquete puede pedir la misma copia.
+// Body: { type: 'cal'|'acs'|'cal2'...|'marco'|'cristal', force?: boolean }
 // Responde 200 { link, driveId, copied, source } o 400 { error, model? }
 router.post('/:id/fichas-tecnicas/auto-copy', enforceAuth, async (req, res) => {
     const { type, force } = req.body;
-    const { parseFtType, ftFileName, ftDocFields, findSlotForExpediente } = await loadFichasTecnicas();
-    if (!parseFtType(type)) {
-        return res.status(400).json({ error: 'bad_type', message: 'type debe ser cal, acs, su variante numerada (cal2, acs2…), marco o cristal' });
-    }
     try {
         const { data: exp } = await supabase
             .from('expedientes')
@@ -6928,130 +6930,29 @@ router.post('/:id/fichas-tecnicas/auto-copy', enforceAuth, async (req, res) => {
             .single();
         if (!exp) return res.status(404).json({ error: 'expediente_not_found' });
 
-        const { data: op } = await supabase
-            .from('oportunidades')
-            .select('datos_calculo')
-            .eq('id', exp.oportunidad_id)
-            .single();
-
-        const driveFolderId = op?.datos_calculo?.drive_folder_id || op?.datos_calculo?.inputs?.drive_folder_id;
-        if (!driveFolderId) return res.status(400).json({ error: 'no_drive_folder' });
-
-        // Resolver el modelo que aplica a este hueco. Manda el alcance documental
-        // del expediente: si este hueco no le corresponde (p. ej. el ACS lo resuelve
-        // el MISMO equipo que la calefacción, o es un termo eléctrico, o el RES080
-        // no toca las ventanas), no hay ficha que copiar — y no se inventa una copia
-        // del modelo de al lado.
-        const slot = findSlotForExpediente(exp, type);
-        if (!slot) {
-            return res.status(400).json({ error: 'slot_no_aplica', message: 'Este expediente no lleva esa ficha técnica.' });
+        const r = await asegurarFichaTecnica(exp, type, { force: !!force });
+        if (r.ok) {
+            return res.json({ driveId: r.driveId, link: r.link, copied: r.copied, source: r.source });
         }
-        const modeloId = slot.modelId;
-        if (!modeloId) {
-            return res.status(400).json({
-                error: 'no_model',
-                message: type === 'marco'
-                    ? 'Elige el marco en el catálogo de ventanas (pestaña Envolvente)'
-                    : (type === 'cristal'
-                        ? 'Elige el vidrio en el catálogo de ventanas (pestaña Envolvente)'
-                        : 'Selecciona un modelo de aerotermia primero'),
-            });
-        }
-
-        // De qué catálogo sale la ficha. Los tres se leen igual: una fila con su
-        // `ficha_tecnica` (URL de Drive o del fabricante). Ver services/catalogoFichas.js.
-        const CATALOGO = {
-            marco:   { tabla: 'ventanas_marcos',    sel: 'id, marca, serie, apertura, ficha_tecnica',              etiqueta: (e) => [e.marca, e.serie, e.apertura].filter(Boolean).join(' ') },
-            cristal: { tabla: 'ventanas_cristales', sel: 'id, fabricante, gama, composicion, ficha_tecnica',       etiqueta: (e) => [e.fabricante, e.gama, e.composicion].filter(Boolean).join(' ') },
-            aero:    { tabla: 'aerotermia',         sel: 'id, marca, modelo_comercial, modelo_conjunto, ficha_tecnica', etiqueta: (e) => e.modelo_comercial || e.modelo_conjunto || `id=${e.id}` },
-        }[type === 'marco' ? 'marco' : (type === 'cristal' ? 'cristal' : 'aero')];
-
-        const { data: equipo } = await supabase
-            .from(CATALOGO.tabla)
-            .select(CATALOGO.sel)
-            .eq('id', modeloId)
-            .single();
-        if (!equipo) return res.status(400).json({ error: 'model_not_found', modeloId });
-        const modelLabel = CATALOGO.etiqueta(equipo);
-
-        if (!equipo.ficha_tecnica) {
-            return res.status(400).json({ error: 'no_ficha_in_db', model: modelLabel });
-        }
-
-        const { findSubfolderByName, createSubfolder, findFileByName, copyFile, deleteFile, getFileMetadata, saveFileToFolder } = require('../services/driveService');
-
-        let ftFolderId = await findSubfolderByName(driveFolderId, '3. FICHAS TÉCNICAS Y CERTIFICACIONES');
-        if (!ftFolderId) ftFolderId = await createSubfolder(driveFolderId, '3. FICHAS TÉCNICAS Y CERTIFICACIONES');
-
-        const fileName = ftFileName(exp.numero_expediente, type);
-
-        // Si ya existe y no fuerzan, devolver el existente
-        const existingId = await findFileByName(ftFolderId, fileName);
-        if (existingId && !force) {
-            const meta = await getFileMetadata(existingId);
-            return res.json({
-                driveId: existingId,
-                link: meta?.webViewLink || `https://drive.google.com/file/d/${existingId}/view`,
-                copied: false,
-                source: 'existing'
-            });
-        }
-        if (existingId && force) {
-            await deleteFile(existingId);
-        }
-
-        // La ficha del modelo puede vivir en Google Drive (copia Drive→Drive) o en
-        // una URL EXTERNA del fabricante/EPREL (descarga HTTP + subida a Drive).
-        // Antes solo se contemplaba Drive: cualquier URL externa (p.ej. la ficha de
-        // ACS "AEROMAX VM" en ayudasaerotermia.com) devolvía bad_ficha_url y la
-        // ficha NO se adjuntaba al CIFO aunque el modelo estuviera seleccionado.
-        const fichaUrl = String(equipo.ficha_tecnica);
-        const driveMatch = fichaUrl.match(/\/d\/([a-zA-Z0-9_-]+)/) || fichaUrl.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-        const sourceFileId = driveMatch?.[1];
-
-        let result;
-        if (sourceFileId) {
-            result = await copyFile(sourceFileId, ftFolderId, fileName);
-        } else if (/^https?:\/\//i.test(fichaUrl)) {
-            let dl;
-            try {
-                dl = await axios.get(fichaUrl, {
-                    responseType: 'arraybuffer',
-                    timeout: 20000,
-                    maxRedirects: 5,
-                    validateStatus: s => s >= 200 && s < 400,
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (compatible; Brokergy/1.0; +https://app.brokergy.es)',
-                        'Accept': 'application/pdf,*/*'
-                    }
-                });
-            } catch (dlErr) {
-                console.error(`[FT auto-copy] descarga externa falló (${fichaUrl}): ${dlErr.message}`);
-                return res.status(400).json({ error: 'external_fetch_failed', model: modelLabel, url: fichaUrl });
-            }
-            const buf = Buffer.from(dl.data);
-            const ct = String(dl.headers['content-type'] || '').toLowerCase();
-            const isPdf = buf.slice(0, 5).toString('latin1') === '%PDF-' || ct.includes('application/pdf');
-            if (!isPdf) {
-                // p.ej. una URL a una página de producto HTML, no al PDF de la ficha.
-                console.warn(`[FT auto-copy] URL externa no es un PDF (${fichaUrl}, content-type="${ct}")`);
-                return res.status(400).json({ error: 'external_not_pdf', model: modelLabel, url: fichaUrl });
-            }
-            result = await saveFileToFolder(ftFolderId, fileName, 'application/pdf', buf);
-            if (result) console.log(`[FT auto-copy] ficha externa descargada y subida (${buf.length} bytes) ← ${fichaUrl}`);
-        } else {
-            return res.status(400).json({ error: 'bad_ficha_url', model: modelLabel, url: fichaUrl });
-        }
-        if (!result) return res.status(500).json({ error: 'copy_failed' });
-
-        const fields = ftDocFields(type);
-        const docObj = { ...(exp.documentacion || {}), [fields.link]: result.link, [fields.id]: result.id };
-        await supabase.from('expedientes')
-            .update({ documentacion: docObj, updated_at: new Date().toISOString() })
-            .eq('id', req.params.id);
-
-        console.log(`[FT auto-copy] ${fileName} ← modelo "${modelLabel}" (driveId=${result.id})`);
-        res.json({ driveId: result.id, link: result.link, copied: true, source: 'model' });
+        // El mensaje de cada fallo se escribe AQUI, no en el servicio: el servicio
+        // lo llaman tambien el paquete del lote y los scripts, y "Elige el marco en
+        // el catalogo de ventanas (pestana Envolvente)" es una instruccion para
+        // quien tiene la pantalla delante.
+        const mensajes = {
+            slot_no_aplica: 'Este expediente no lleva esa ficha tecnica.',
+            bad_type: 'type debe ser cal, acs, su variante numerada (cal2, acs2...), marco o cristal',
+            no_model: type === 'marco'
+                ? 'Elige el marco en el catalogo de ventanas (pestana Envolvente)'
+                : (type === 'cristal'
+                    ? 'Elige el vidrio en el catalogo de ventanas (pestana Envolvente)'
+                    : 'Selecciona un modelo de aerotermia primero'),
+        };
+        const body = { error: r.error };
+        if (mensajes[r.error]) body.message = mensajes[r.error];
+        if (r.model) body.model = r.model;
+        if (r.url) body.url = r.url;
+        if (r.modeloId) body.modeloId = r.modeloId;
+        return res.status(r.status || 400).json(body);
     } catch (err) {
         console.error('Error POST /:id/fichas-tecnicas/auto-copy:', err);
         res.status(500).json({ error: 'internal', message: err.message });

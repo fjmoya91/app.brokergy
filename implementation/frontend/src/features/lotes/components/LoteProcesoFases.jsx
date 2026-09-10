@@ -720,16 +720,29 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
             setGenerado(g => ({ ...g, [modo]: 0 }));
             const completas = data.actuaciones.filter(a => a.ok);
             const listas = completas.length;
+            // La comprobación ya no es del todo "en seco": si un hueco de ficha
+            // técnica se puede resolver desde el catálogo, se resuelve aquí — es
+            // idempotente y es lo mismo que haría abrir el certificado. Decirlo
+            // importa, porque el subtítulo prometía que no se tocaba nada.
+            const enlazadas = data.actuaciones.some(a => (a.avisos_ficha || []).some(t => /copiada|se ha enlazado/.test(t)));
             setLectura({
                 phase: 'done',
                 ok: completas.length > 0 && !data.bloqueados.length,
                 okTitle: data.bloqueados.length ? 'Faltan documentos' : `${completas.length} actuaciones listas`,
                 errorTitle: completas.length ? 'Faltan documentos' : 'No se puede armar ningún paquete',
-                subtitle: 'Nada se ha escrito todavía en Drive',
+                subtitle: enlazadas
+                    ? 'No se ha armado ningún ZIP · solo se han enlazado fichas técnicas que faltaban'
+                    : 'Nada se ha escrito todavía en Drive',
                 items: [
                     ...completas.map(a => ({
                         texto: `E${a.n} · ${a.numero_expediente} — ${a.n_ficheros} documentos`,
                     })),
+                    // Lo de las fichas técnicas se dice de TODAS las actuaciones, no
+                    // solo de las completas: cuando bloquea es justo cuando hace falta
+                    // saber POR QUÉ, y el motivo siempre es el mismo —el modelo no
+                    // está elegido del catálogo, o está sin ficha—.
+                    ...agruparPorMensaje(data.actuaciones, a => a.avisos_ficha || [], data.actuaciones.length)
+                        .map(g => ({ texto: g.texto, tono: 'aviso' })),
                     // Lo que la app no tiene APUNTADO se dice aunque el paquete salga:
                     // hoy funciona porque alguien dejó una copia en la carpeta, y el
                     // lote que viene detrás no la va a tener.
