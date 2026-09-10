@@ -18,6 +18,20 @@ function Paso($n, $texto) { Write-Host "`n[$n/6] $texto" -ForegroundColor Cyan }
 function Bien($texto)     { Write-Host "      OK  $texto" -ForegroundColor Green }
 function Morir($texto)    { Write-Host "`nFALLO: $texto`n" -ForegroundColor Red; exit 1 }
 
+# Ejecuta un programa y devuelve TODA su salida (stdout + stderr) como texto.
+#
+# Hace falta esto porque con $ErrorActionPreference = 'Stop', PowerShell
+# convierte en error MORTAL cualquier linea que un programa nativo escriba por
+# stderr en cuanto se usa 2>&1. Y src.main escribe sus logs (INFO ...) por
+# stderr, que es lo correcto: son trazas, no resultados. Sin esto, el script
+# reventaba en el paso 6 con NativeCommandError aunque el programa fuera bien.
+function Capturar($exe, [string[]]$argumentos) {
+    $antes = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try     { return (& $exe @argumentos 2>&1 | Out-String) }
+    finally { $ErrorActionPreference = $antes }
+}
+
 # ---------------------------------------------------------------- 0. requisitos
 Paso 0 'Comprobando git y Python'
 
@@ -104,7 +118,7 @@ Bien 'Dependencias instaladas'
 
 # --------------------------------------------------------------------- 5. tests
 Paso 5 'Pasando los tests'
-$salidaTests = & $py -m pytest -q 2>&1 | Out-String
+$salidaTests = Capturar $py @('-m', 'pytest', '-q')
 if ($salidaTests -match '(\d+) passed') {
     Bien "$($Matches[1]) tests en verde"
 } else {
@@ -115,7 +129,8 @@ if ($salidaTests -match '(\d+) passed') {
 # ----------------------------------------------------- 6. la vivienda de verdad
 Paso 6 'Analizando la vivienda real (sin pedirle nada a Catastro)'
 $cache = Join-Path $destino 'ejemplos\4410205WJ0641S-pedro-munoz\cache'
-$salida = & $py -m src.main 4410205WJ0641S0001JH --offline --skip-lidar --cache $cache --floor-height 2.70 2>&1 | Out-String
+$salida = Capturar $py @('-m', 'src.main', '4410205WJ0641S0001JH', '--offline',
+                         '--skip-lidar', '--cache', $cache, '--floor-height', '2.70')
 
 # Los numeros que TIENEN que salir. Si no salen, algo se ha corrompido por el camino.
 $esperado = @{
