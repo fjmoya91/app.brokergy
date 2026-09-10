@@ -3826,7 +3826,7 @@ gotcha del inodo del bind-mount.
 todavía —y no existe en un lote que aún no se ha presentado, que es justo el que se
 quiere comprobar—. Antes eso moría con "No se pudo preparar la carpeta E1".
 
-## Pedirle cosas al SUJETO OBLIGADO desde el cuadro de mando (2026-09-01)
+## Pedirle cosas al SUJETO OBLIGADO desde el cuadro de mando (2026-09-01 · ofertas 2026-09-10)
 
 Los envíos que ya existían son de UN documento de UN lote (firmar el Anexo I, firmar la
 oferta). Éstos son de otra naturaleza: **un solo correo por varios lotes**, que es como
@@ -3837,9 +3837,54 @@ a ninguno.
 | Qué | Dónde |
 |---|---|
 | Qué se puede pedir, el texto y el asunto | [peticionesSo.js](implementation/frontend/src/features/lotes/logic/peticionesSo.js) |
-| El envío | `POST /api/lotes/solicitar-pago-verificacion` (**adminOnly**, de la COLECCIÓN) |
+| El envío | `POST /api/lotes/peticion-so` (**adminOnly**, de la COLECCIÓN) |
 | Botón | Cabecera de `LotesResumen` |
 | Popup | `PedirAlSoModal`, que reutiliza `EnviarLoteDocModal` con `onSendOverride` |
+| Qué se pediría hoy, sin enviar nada | `node implementation/backend/scripts/test_peticiones_so.mjs [ESTADO] [--simular-ofertas]` |
+
+### Las DOS peticiones que hay (2026-09-10)
+
+| Petición | Qué manda | Cuándo se ofrece |
+|---|---|---|
+| `firma_ofertas` | Las ofertas de verificación, **para que las firme** | El lote no ha pasado de `PTE. FIRMA OFERTA S.O.`, tiene la oferta subida y **sin** `signed_link` |
+| `pago_verificacion` | Las facturas del verificador, para que las pague | El lote **ya está verificado** (tiene informe o dictamen), tiene la factura y sin `pagado_at` |
+
+**REGLA — el ORDEN es de prioridad, y se pintan TODAS las aplicables.** La firma va
+primero porque bloquea el ARRANQUE de la verificación; el pago se reclama con el
+trabajo ya hecho. Pueden coincidir —firmar las ofertas de unos lotes y reclamar el
+pago de otros—, y esconder la segunda detrás de la primera obliga a resolver una
+para descubrir que había otra.
+
+**REGLA — un lote al que TODAVÍA NO LE TOCA no se cuenta ni se nombra.** Medido el
+10/09/2026: la petición de firma proponía pedirle al S.O. que firmara la oferta de
+LOTE-2025-002 y 003, **ya subidos a MITECO** (su oferta no tiene `signed_link`
+porque se firmó fuera de la app), y el "se quedan fuera" del pago listaba seis
+lotes, entre ellos uno ya cobrado y cuatro que aún esperan la oferta. Un aviso que
+sale siempre y nunca hay que atender es el que enseña a ignorar la lista entera —
+mismo criterio que `soloSiExiste` en el índice del paquete (regla 40). El tramo se
+expresa por su ÚLTIMO estado contra el orden de `LOTE_ESTADOS` (`hastaEstado`), no
+enumerando los excluidos, que habría que ampliar con cada estado nuevo; y para el
+pago se mira el HECHO (`haVerificado`: informe o dictamen subidos), no el estado,
+que se mueve a mano y en los lotes anteriores a la app no describe este tramo.
+
+**REGLA — el popup es UNO para todas las peticiones.** Lo que cambia entre ellas
+—qué se adjunta (`docs`), cómo se llama (`sustantivo`), quién se queda fuera y por
+qué (`fuera`)— lo aporta la propia petición, no un `if` dentro de `PedirAlSoModal`:
+dos popups gemelos divergirían justo en la parte delicada, que es la lista de lo que
+va adjunto. La ruta también es una (`PETICIONES_SO` en `routes/lotes.js`): las dos
+son el mismo gesto —un correo con N adjuntos, uno por lote— y solo cambian en qué
+documento viaja y qué se sella. `/solicitar-pago-verificacion` sigue viva y delega,
+porque un navegador sin refrescar sigue posteando ahí.
+
+**La OFERTA se sube ARRASTRÁNDOLA** a la fase 3, como los firmados de la fase 2. La
+suelta tiene dos significados y **los decide el estado, no una pregunta**: sin oferta,
+lo único que puede llegar es la del verificador; ya enviada a firmar, lo que vuelve es
+la FIRMADA por el S.O., que entra por el camino de los firmados (`oferta_verificacion`
+ya está en `TIPOS_FIRMABLES`, así que se le leen las firmas antes de registrarla).
+Con la oferta subida y aún sin enviar **no se acepta suelta**: ahí lo que toca es
+mandarla, y un PDF soltado en ese momento sería un reemplazo silencioso del que se va
+a mandar a firmar. Y el popup que sale al subirla dice que, con varios lotes en
+marcha, conviene decir que NO y mandarlas todas juntas.
 
 **REGLA — el botón va en el CUADRO DE MANDO, no en la cabecera de la vista.** Actúa
 sobre el conjunto que se está viendo (respeta el filtro) y las cifras que manda son
@@ -5197,7 +5242,7 @@ compatibilidad) y lo único que se contesta es qué recibe cada persona.
 29.d **El informe de una acción NO repite el mismo aviso por cada elemento, y no todo es un ✓**: el popup de comprobación del paquete listaba quince líneas de las que trece decían lo mismo (el aviso de cada actuación, una por una) y **todas con la palomita verde**, así que un aviso y un "no procede" se leían como una cosa más que había ido bien — y las cinco líneas que se venía a leer quedaban enterradas con el botón de cerrar al final. `items` de `SendActionOverlay` acepta ahora `{ texto, tono }` con **ok** (verde), **aviso** (ámbar, hay que mirarlo aunque no bloquee) e **info** (gris, NO PROCEDE: se cuenta para que no parezca un olvido); una cadena sigue siendo un ✓ verde, así que las demás llamadas no cambian. Los avisos se agrupan por TEXTO y se dice DÓNDE (`agruparPorMensaje` → "en las 5 actuaciones" / "en E1, E3"): de 15 líneas a 7, y el popup cabe sin scroll. Y el paso siguiente obvio va **dentro** del popup (`accion: { etiqueta, onClick }`, que convierte Cerrar en secundario): comprobar y generar siguen siendo dos gestos (regla 40), pero eso no obliga a cerrar y volver a buscar el botón en la pantalla de detrás.
 
 29.b **`SendActionOverlay` se PORTALEA a `document.body`**: un `position: fixed` se ancla al ancestro más cercano con `backdrop-filter` (o `transform`) — es lo que hace `LoteDetailModal` —, así que el overlay se recortaba a la caja del modal y la pantalla se veía a parches, una zona negra y otra difuminada. `createPortal` lo saca de ahí. Por el mismo motivo el velo va casi opaco (93 %) y con blur fuerte: abierto sobre otro modal de fondo claro, uno más ligero lo deja traslucir y el fondo vuelve a verse desigual.
-30. **Al Sujeto Obligado se le pide UNA vez por VARIOS lotes**: el botón vive en el cuadro de mando de Lotes (actúa sobre lo filtrado), dice qué pide y por cuánto, y no existe si no hay nada que pedir. Un lote sin su factura subida se queda fuera y **se dice en el subtítulo del popup**. Fuente única de qué se puede pedir y con qué texto: [peticionesSo.js](implementation/frontend/src/features/lotes/logic/peticionesSo.js); el envío, `POST /api/lotes/solicitar-pago-verificacion`, que prepara TODOS los adjuntos antes de mandar nada y sella `pago_solicitado_at`. Ver "Pedirle cosas al SUJETO OBLIGADO desde el cuadro de mando".
+30. **Al Sujeto Obligado se le pide UNA vez por VARIOS lotes**: el botón vive en el cuadro de mando de Lotes (actúa sobre lo filtrado), dice qué pide y por cuánto, y no existe si no hay nada que pedir. Hay DOS peticiones —**firmar las ofertas** de verificación y **pagar** las facturas del verificador— y se pintan todas las aplicables, la firma primero porque bloquea el arranque. **Un lote al que todavía no le toca no se cuenta ni se nombra** (`hastaEstado` para la firma, `haVerificado` para el pago): listar como "se queda fuera" un lote ya cobrado, o pedir la firma de la oferta de uno ya subido a MITECO, es lo que enseña a ignorar la lista. El popup y la ruta son UNO para las dos (`PETICIONES_SO`); lo que cambia —qué se adjunta, cómo se llama, quién queda fuera— lo aporta la petición. Fuente única: [peticionesSo.js](implementation/frontend/src/features/lotes/logic/peticionesSo.js); el envío, `POST /api/lotes/peticion-so`, que prepara TODOS los adjuntos antes de mandar nada y sella su marca. La **oferta se sube arrastrándola** a la fase 3. Tras tocarlo: `node implementation/backend/scripts/test_peticiones_so.mjs`. Ver "Pedirle cosas al SUJETO OBLIGADO desde el cuadro de mando".
 
 31. **Una propuesta con presupuesto ESTIMADO lo dice, y dice a qué afecta**: el flujo interno pregunta el dinero UNA vez (`StepDocsObra`: documento · importe a mano · estimar 15.000 €) y la marca viaja en `inputs.presupuestoEstimado` hasta la portada, la tabla, el recuadro, la nota al pie y el mensaje de envío. El **bono CAE no cambia** (sale del ahorro certificado) y **la deducción del IRPF sí** (es un % del coste con IVA); sin deducción en juego, ese párrafo no se escribe. Fuente única del texto y de la cifra: [logic/presupuestoEstimado.js](implementation/frontend/src/features/calculator/logic/presupuestoEstimado.js), que carga también el backend (`leadMessages`) por import() ESM. Cualquier presupuesto tecleado en la calculadora LEVANTA la marca. Ver "Presupuesto ESTIMADO".
 

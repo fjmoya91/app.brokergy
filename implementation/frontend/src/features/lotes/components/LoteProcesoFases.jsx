@@ -509,7 +509,12 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         const r = await subir('oferta_verificacion', file);
         if (!r?.documento) return;
         const enviar = await showConfirm(
-            'La oferta de verificación ya está guardada en la carpeta del lote.\n\n¿La enviamos ahora al Sujeto Obligado para que la firme?',
+            'La oferta de verificación ya está guardada en la carpeta del lote.\n\n¿La enviamos ahora al Sujeto Obligado para que la firme?'
+            // Con varios lotes en marcha, mandarlas de una en una son cuatro correos
+            // iguales el mismo día — la forma de que no conteste a ninguno. Se dice
+            // aquí, que es donde se está decidiendo, y no en una ayuda que nadie abre.
+            + '\n\nSi vas a subir las de varios lotes, dile que NO y mándalas todas en un solo correo'
+            + ' desde el resumen de Lotes: \u201c\u2709 Pedir la firma de las ofertas\u201d.',
             'Oferta subida', 'success'
         );
         if (enviar) setDocAEnviar(r.documento);
@@ -1142,8 +1147,27 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 )}
             </Fase>
 
-            {/* 3 · Oferta de verificación */}
-            <Fase f={f3}>
+            {/* 3 · Oferta de verificación.
+
+                La suelta tiene DOS significados y los decide el estado, no una
+                pregunta al usuario: mientras no hay oferta, lo único que puede
+                llegar es la que manda el verificador; una vez mandada a firmar, lo
+                que vuelve es la FIRMADA por el S.O., que entra por el mismo camino
+                que los firmados de la fase 2 (`oferta_verificacion` ya está en
+                TIPOS_FIRMABLES) y por tanto se le leen las firmas antes de
+                registrarla. Con la oferta subida y sin enviar todavía no se acepta
+                suelta: ahí lo que toca es mandarla, y un PDF soltado en ese momento
+                sería un reemplazo silencioso del que se va a mandar a firmar.
+
+                Solo el primer fichero: la oferta es UNA por lote. Quien tenga las
+                cuatro las suelta en su lote, que es donde cada una significa algo. */}
+            <Fase f={f3}
+                soltar={!p.oferta
+                    ? (fs) => subirOferta(fs[0])
+                    : (p.ofertaEnviada && !p.ofertaFirmada ? setFirmadosSueltos : null)}
+                pista={!p.oferta
+                    ? 'Arrastra aquí la oferta que mande el verificador'
+                    : 'Arrastra aquí la oferta que devuelva firmada el S.O.'}>
                 {/* El ZIP para beCAE se arma AQUÍ, y esto es lo primero de la fase.
                     Con el Anexo I y las fichas ya firmados, lo siguiente es subir al
                     verificador la documentación de cada actuación (un ZIP por

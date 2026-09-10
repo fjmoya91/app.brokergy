@@ -1740,12 +1740,81 @@ router.delete('/:id/documentos/:key', staffOnly, async (req, res) => {
 // ⚠️ Es una POST de UN SOLO segmento: mientras no exista un `POST /:id`, Express no
 // la confunde con un id. Si algún día se añade uno, esta ruta tiene que quedar por
 // delante (el mismo gotcha que `/parte/global` y `/fin-obra`).
-router.post('/solicitar-pago-verificacion', adminOnly, async (req, res) => {
+// ─────────────────────────────────────────────────────────────────────────────
+// PETICIONES al SUJETO OBLIGADO sobre VARIOS lotes a la vez.
+//
+// Las dos que hay hoy son el mismo gesto —un correo con N documentos adjuntos, uno
+// por lote— y solo cambian en QUÉ documento viaja y qué se sella al mandarlo. Por
+// eso comparten ruta: dos rutas gemelas acabarían divergiendo justo en la parte
+// delicada, que es el "todo o nada" de los adjuntos.
+//
+// `bloqueo` es la comprobación que se repite AQUÍ aunque la pantalla ya la haga:
+// entre que se pinta el botón y se pulsa puede haber cambiado el estado (o haberlo
+// cambiado otra persona), y una vez sale el correo no hay vuelta atrás.
+const PETICIONES_SO = {
+    pago_verificacion: {
+        key: 'factura_verificador',
+        nombre: (n) => `${n} factura${n === 1 ? '' : 's'} del verificador`,
+        asuntoPorDefecto: 'Facturas de verificación pendientes de pago',
+        etiquetaPorDefecto: 'Pago de la verificación',
+        // Una factura ya COBRADA no se reclama: reclamarle a quien ya pagó es la
+        // peor forma de reclamar.
+        bloqueo: (d) => (d?.pagado_at ? 'ya consta PAGADA' : null),
+        faltaTexto: 'la factura del verificador',
+        // Qué se anota al mandarlo. El sello NO apaga la petición: la convierte en
+        // "volver a pedir" y el correo en un recordatorio.
+        sello: (d, { to }) => ({
+            pago_solicitado_at: nowIso(),
+            pago_solicitado_to: to || d.pago_solicitado_to || null,
+            pago_solicitado_veces: (Number(d.pago_solicitado_veces) || 0) + 1,
+            sent_at: d.sent_at || nowIso(),
+        }),
+        veces: (d) => Number(d?.pago_solicitado_veces) || 0,
+        historial: ({ previas, codigos, total, canales, to }) =>
+            `${previas ? `Recordado al S.O. (${previas + 1}ª vez)` : 'Pedido al S.O.'}`
+            + ` el pago de la verificación (${codigos.length} lote${codigos.length === 1 ? '' : 's'}: ${codigos.join(', ')})`
+            + `${total ? `, ${total.toLocaleString('es-ES', { minimumFractionDigits: 2 })} € en total` : ''}`
+            + ` por ${canales}${to ? ` a ${to}` : ''}.`,
+    },
+    firma_ofertas: {
+        key: 'oferta_verificacion',
+        nombre: (n) => `${n} oferta${n === 1 ? '' : 's'} de verificación`,
+        asuntoPorDefecto: 'Ofertas de verificación para firma',
+        etiquetaPorDefecto: 'Firma de las ofertas',
+        // Pedir que firme lo que ya ha firmado hace dudar de si su firma llegó, y lo
+        // siguiente es que la mande otra vez.
+        bloqueo: (d) => (d?.signed_link ? 'ya consta FIRMADA' : null),
+        faltaTexto: 'la oferta del verificador',
+        sello: (d, { to }) => ({
+            sent_at: nowIso(),
+            firma_solicitada_to: to || d.firma_solicitada_to || null,
+            firma_solicitada_veces: (Number(d.firma_solicitada_veces) || 0) + 1,
+        }),
+        veces: (d) => Number(d?.firma_solicitada_veces) || 0,
+        historial: ({ previas, codigos, canales, to }) =>
+            `${previas ? `Recordada al S.O. (${previas + 1}ª vez)` : 'Pedida al S.O.'}`
+            + ` la firma de la oferta de verificación (${codigos.length} lote${codigos.length === 1 ? '' : 's'}: ${codigos.join(', ')})`
+            + ` por ${canales}${to ? ` a ${to}` : ''}.`,
+    },
+};
+
+router.post('/peticion-so', adminOnly, async (req, res) => peticionSo(req, res));
+
+// La ruta anterior seguía viva en cualquier navegador que no se hubiera refrescado
+// tras el deploy. Delega: no puede quedarse pidiendo algo con otro criterio.
+router.post('/solicitar-pago-verificacion', adminOnly, async (req, res) =>
+    peticionSo({ ...req, body: { ...(req.body || {}), peticion: 'pago_verificacion' } }, res));
+
+async function peticionSo(req, res) {
     try {
         const {
+            peticion: idPeticion = 'pago_verificacion',
             lote_ids = [], to, cc, phone, channels = { email: true, whatsapp: false },
             customMessage, asunto, etiqueta,
         } = req.body || {};
+
+        const P = PETICIONES_SO[idPeticion];
+        if (!P) return res.status(400).json({ error: `Petición desconocida: ${idPeticion}` });
 
         if (!Array.isArray(lote_ids) || !lote_ids.length) {
             return res.status(400).json({ error: 'No se ha indicado ningún lote.' });
@@ -1762,13 +1831,18 @@ router.post('/solicitar-pago-verificacion', adminOnly, async (req, res) => {
         // entre que se pinta y se pulsa puede haberse marcado el pago (o haberlo
         // hecho otra persona): reclamarle a quien ya pagó es la peor forma de
         // reclamar, y aquí no hay vuelta atrás una vez sale el correo.
-        const yaPagadas = lotes
-            .filter(l => (l.documentos_so || []).find(d => d?.key === 'factura_verificador')?.pagado_at)
-            .map(l => l.codigo);
-        if (yaPagadas.length) {
+        const bloqueados = [];
+        for (const l of lotes) {
+            const d = (l.documentos_so || []).find(x => x?.key === P.key);
+            const motivo = P.bloqueo(d);
+            if (motivo) bloqueados.push({ codigo: l.codigo, motivo });
+        }
+        if (bloqueados.length) {
+            const cods = bloqueados.map(b => b.codigo);
             return res.status(409).json({
-                error: `La factura del verificador de ${yaPagadas.join(', ')} ya consta PAGADA. Quita ${yaPagadas.length === 1 ? 'ese lote' : 'esos lotes'} del envío.`,
-                yaPagadas,
+                error: `${bloqueados[0].motivo === 'ya consta PAGADA' ? 'La factura del verificador' : 'La oferta de verificación'}`
+                    + ` de ${cods.join(', ')} ${bloqueados[0].motivo}. Quita ${cods.length === 1 ? 'ese lote' : 'esos lotes'} del envío.`,
+                bloqueados: cods,
             });
         }
 
@@ -1777,27 +1851,30 @@ router.post('/solicitar-pago-verificacion', adminOnly, async (req, res) => {
         // pagando de menos y a nosotros sin saber cuál faltó. Mismo criterio que
         // el envío conjunto al instalador: todo o nada.
         const adjuntos = [];
-        const sinFactura = [];
+        const sinDoc = [];
         for (const l of lotes) {
-            const f = (l.documentos_so || []).find(d => d?.key === 'factura_verificador');
-            const fileId = f?.draft_file_id;
-            if (!fileId) { sinFactura.push(l.codigo); continue; }
+            const f = (l.documentos_so || []).find(d => d?.key === P.key);
+            // Un enlace que apunta a un fichero borrado tampoco vale: `getFileContent`
+            // devuelve null y el correo saldría anunciando un adjunto que no lleva.
+            const fileId = f?.draft_file_id || idDeDriveLink(f?.draft_link);
+            if (!fileId) { sinDoc.push(l.codigo); continue; }
             const buf = await driveService.getFileContent(fileId);
-            if (!buf) { sinFactura.push(l.codigo); continue; }
+            if (!buf) { sinDoc.push(l.codigo); continue; }
             adjuntos.push({
-                filename: f.file_name || `${l.codigo} - Factura del verificador.pdf`,
+                filename: f.file_name || `${l.codigo} - ${P.faltaTexto}.pdf`,
                 content: buf,
                 loteId: l.id, codigo: l.codigo, importe: Number(f.importe) || null,
             });
         }
         if (!adjuntos.length) {
             return res.status(409).json({
-                error: `No hay ninguna factura del verificador que adjuntar${sinFactura.length ? ` (falta en ${sinFactura.join(', ')})` : ''}.`,
+                error: `No hay ningún documento que adjuntar${sinDoc.length ? ` (falta ${P.faltaTexto} en ${sinDoc.join(', ')})` : ''}.`,
             });
         }
-        if (sinFactura.length) {
+        if (sinDoc.length) {
             return res.status(409).json({
-                error: `Falta la factura del verificador de ${sinFactura.join(', ')}. Súbela o quita ese lote del envío: un correo que anuncia las facturas y no las lleva todas deja el pago incompleto.`,
+                error: `Falta ${P.faltaTexto} de ${sinDoc.join(', ')}. Súbela o quita ese lote del envío:`
+                    + ' un correo que anuncia los documentos y no los lleva todos deja el trámite incompleto.',
             });
         }
 
@@ -1813,11 +1890,11 @@ router.post('/solicitar-pago-verificacion', adminOnly, async (req, res) => {
                     userName: codigos.join(' · '),
                     attachments: adjuntos.map(a => ({ filename: a.filename, content: a.content })),
                     customMessage: customMessage || '',
-                    summaryData: { id: codigos.join(' · '), docType: asunto || 'Facturas de verificación pendientes de pago' },
+                    summaryData: { id: codigos.join(' · '), docType: asunto || P.asuntoPorDefecto },
                     from: SO_EMAIL_FROM,
-                    pillLabel: etiqueta || 'Pago de la verificación',
-                    preheader: `${adjuntos.length} factura${adjuntos.length === 1 ? '' : 's'} del verificador`
-                        + `${total ? ` por ${total.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €` : ''} — pendiente${adjuntos.length === 1 ? '' : 's'} de pago.`,
+                    pillLabel: etiqueta || P.etiquetaPorDefecto,
+                    preheader: P.nombre(adjuntos.length)
+                        + `${total ? ` por ${total.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €` : ''}.`,
                 });
             } catch (e) { warnings.push(`Email: ${e.message}`); }
         }
@@ -1845,24 +1922,16 @@ router.post('/solicitar-pago-verificacion', adminOnly, async (req, res) => {
         // recordatorio. Mismo criterio que la reinsistencia del parte diario.
         const enviado = warnings.length < (Number(!!channels.email) + Number(!!channels.whatsapp));
         if (enviado) {
+            const canales = [channels.email && 'email', channels.whatsapp && 'WhatsApp'].filter(Boolean).join(' + ');
             for (const l of lotes) {
-                const previas = Number(
-                    (l.documentos_so || []).find(d => d?.key === 'factura_verificador')?.pago_solicitado_veces) || 0;
-                const docs = (l.documentos_so || []).map(d => d?.key === 'factura_verificador'
-                    ? {
-                        ...d,
-                        pago_solicitado_at: nowIso(),
-                        pago_solicitado_to: to || d.pago_solicitado_to || null,
-                        pago_solicitado_veces: previas + 1,
-                        sent_at: d.sent_at || nowIso(),
-                    } : d);
+                const actual = (l.documentos_so || []).find(d => d?.key === P.key);
+                const previas = P.veces(actual);
+                const docs = (l.documentos_so || []).map(d => d?.key === P.key
+                    ? { ...d, ...P.sello(d, { to }) } : d);
                 const historial = Array.isArray(l.historial) ? [...l.historial] : [];
                 historial.push({
-                    id: `${Date.now()}_pago_verif`, tipo: 'sistema',
-                    texto: `${previas ? `Recordado al S.O. (${previas + 1}ª vez)` : 'Pedido al S.O.'}`
-                        + ` el pago de la verificación (${codigos.length} lote${codigos.length === 1 ? '' : 's'}: ${codigos.join(', ')})`
-                        + `${total ? `, ${total.toLocaleString('es-ES', { minimumFractionDigits: 2 })} € en total` : ''}`
-                        + ` por ${[channels.email && 'email', channels.whatsapp && 'WhatsApp'].filter(Boolean).join(' + ')}${to ? ` a ${to}` : ''}.`,
+                    id: `${Date.now()}_${idPeticion}`, tipo: 'sistema',
+                    texto: P.historial({ previas, codigos, total, canales, to }),
                     fecha: nowIso(), usuario: usuarioDe(req),
                 });
                 await supabase.from('lotes')
@@ -1876,10 +1945,16 @@ router.post('/solicitar-pago-verificacion', adminOnly, async (req, res) => {
             total, warnings,
         });
     } catch (err) {
-        console.error('[POST /lotes/solicitar-pago-verificacion]', err.message);
-        res.status(500).json({ error: err.message || 'Error al pedir el pago de la verificación' });
+        console.error('[POST /lotes/peticion-so]', err.message);
+        res.status(500).json({ error: err.message || 'Error al enviar la petición al Sujeto Obligado' });
     }
-});
+}
+
+/** El id de un fichero dentro de una URL de Drive. */
+function idDeDriveLink(url) {
+    const m = String(url || '').match(/\/d\/([\w-]+)/) || String(url || '').match(/[?&]id=([\w-]+)/);
+    return m ? m[1] : null;
+}
 
 // ─── POST /api/lotes/:id/enviar-documento/:key — mandar un documento al S.O. ─────
 // Sirve para CUALQUIER documento del lote que haya que remitir: la oferta de

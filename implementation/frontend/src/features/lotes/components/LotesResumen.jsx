@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { computeLotesResumen } from '../logic/loteEco';
-import { peticionPrincipal } from '../logic/peticionesSo';
+import { peticionesAplicables } from '../logic/peticionesSo';
 import { loteEstadoBadge } from '../loteConstants';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -66,8 +66,11 @@ export function LotesResumen({ lotes, todosLotes, canSeeMargin = false, filtroEs
     // actúa sobre ESTE conjunto —el que deja el filtro— y porque las cifras que
     // manda son exactamente las de estas tarjetas. Si no hay nada que pedir, no hay
     // botón: uno deshabilitado con un tooltip obliga a pulsarlo para saber por qué.
-    const peticion = useMemo(
-        () => (canSeeMargin ? peticionPrincipal(lotes, r) : null),
+    // Pueden coincidir DOS: firmar las ofertas de unos lotes y reclamar el pago de
+    // otros. Esconder la segunda detrás de la primera obliga a resolver una para
+    // descubrir que había otra, así que se pintan las que apliquen (normalmente una).
+    const peticiones = useMemo(
+        () => (canSeeMargin ? peticionesAplicables(lotes, r) : []),
         [lotes, r, canSeeMargin]);
 
     return (
@@ -86,8 +89,8 @@ export function LotesResumen({ lotes, todosLotes, canSeeMargin = false, filtroEs
                         señal en pantalla de que el envío anterior llegó a salir. En
                         reinsistencia el botón se pinta apagado —la acción no urge
                         igual— pero se pulsa lo mismo. */}
-                    {peticion && onPedirAlSo && (
-                        <div className="flex flex-col items-end gap-0.5">
+                    {onPedirAlSo && peticiones.map(peticion => (
+                        <div key={peticion.id} className="flex flex-col items-end gap-0.5">
                             <button type="button" onClick={() => onPedirAlSo(peticion)}
                                 title={`${peticion.titulo} · ${peticion.lotes.length} lote${peticion.lotes.length === 1 ? '' : 's'}`}
                                 className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-all ${
@@ -100,7 +103,7 @@ export function LotesResumen({ lotes, todosLotes, canSeeMargin = false, filtroEs
                                 <p className="text-[9px] text-white/25 normal-case">✓ {peticion.nota}</p>
                             )}
                         </div>
-                    )}
+                    ))}
                 </div>
             </div>
 

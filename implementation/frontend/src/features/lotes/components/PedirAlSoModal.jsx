@@ -8,17 +8,22 @@ import { fmtFecha } from '../logic/peticionesSo';
 // Petición al SUJETO OBLIGADO sobre VARIOS lotes a la vez.
 //
 // Los envíos que ya existían son de UN documento de UN lote (firmar el Anexo I,
-// firmar la oferta). Éste es de otra naturaleza: un solo correo con las facturas
-// de los cuatro lotes, que es como se trabaja con él. Mandarle cuatro correos
-// iguales el mismo día es la forma de que no conteste a ninguno.
+// firmar la oferta de ESE lote). Éste es de otra naturaleza: un solo correo con
+// las cuatro ofertas —o las cuatro facturas—, que es como se trabaja con él.
+// Mandarle cuatro correos iguales el mismo día es la forma de que no conteste a
+// ninguno.
+//
+// El popup es UNO para todas las peticiones. Lo que cambia entre ellas —qué se
+// adjunta, cómo se llama, quién se queda fuera y por qué— lo aporta la propia
+// petición (`docs`, `sustantivo`, `fuera`), no un `if` aquí dentro: dos popups
+// gemelos acabarían divergiendo justo en la parte delicada, que es la lista de lo
+// que va adjunto.
 //
 // Reutiliza `EnviarLoteDocModal` —los mismos canales, los mismos contactos, el
 // mismo overlay de envío— con `onSendOverride`, porque la ruta es de la colección
 // y no de un lote. Qué se pide, con qué texto y con qué asunto lo decide
 // `logic/peticionesSo.js`: aquí solo se manda.
 // ─────────────────────────────────────────────────────────────────────────────
-
-const eur = (n) => `${Number(n || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 
 export function PedirAlSoModal({ peticion, onClose, onSent }) {
     // El S.O. es el mismo en todos los lotes del envío; se toma del primero que lo
@@ -47,7 +52,8 @@ export function PedirAlSoModal({ peticion, onClose, onSent }) {
     // terminar, y con un solo "enviado" no se sabría si salió el email, el WhatsApp
     // o los dos.
     const enviar = async ({ email, cc, phone, channels, message }) => {
-        const { data } = await axios.post('/api/lotes/solicitar-pago-verificacion', {
+        const { data } = await axios.post('/api/lotes/peticion-so', {
+            peticion: peticion.id,
             lote_ids: peticion.lotes.map(x => x.lote.id),
             to: email, cc, phone, channels,
             customMessage: message,
@@ -59,17 +65,21 @@ export function PedirAlSoModal({ peticion, onClose, onSent }) {
         const fallo = (canal) => (data.warnings || []).find(w => String(w).toLowerCase().startsWith(canal));
         const out = [];
         const n = data.enviados?.length || 0;
+        // El acuse dice QUÉ ha viajado, con el nombre de la petición: "3 ofertas a
+        // jesus@…". Un "enviado" a secas no distingue un correo con las facturas de
+        // uno con las ofertas, y son dos trámites distintos con el mismo destinatario.
+        const cosa = n === 1 ? (peticion.sustantivo?.sing || 'documento') : (peticion.sustantivo?.plur || 'documentos');
         if (channels.email) {
             const err = fallo('email');
             out.push(err
                 ? { channel: 'email', status: 'fail', text: err }
-                : { channel: 'email', status: 'ok', text: `${n} factura${n === 1 ? '' : 's'} a ${email}` });
+                : { channel: 'email', status: 'ok', text: `${n} ${cosa} a ${email}` });
         }
         if (channels.whatsapp) {
             const err = fallo('whatsapp');
             out.push(err
                 ? { channel: 'whatsapp', status: 'fail', text: err }
-                : { channel: 'whatsapp', status: 'ok', text: `${n} factura${n === 1 ? '' : 's'} a ${phone}` });
+                : { channel: 'whatsapp', status: 'ok', text: `${n} ${cosa} a ${phone}` });
         }
         return out;
     };
@@ -86,9 +96,7 @@ export function PedirAlSoModal({ peticion, onClose, onSent }) {
             // mandar un correo que anuncia "las facturas de los lotes".
             subtitle={`${codigos.length} lote${codigos.length === 1 ? '' : 's'} · ${codigos.join(' · ')}`
                 + (peticion.ultimaAt ? `   ✓ pedido el ${fmtFecha(peticion.ultimaAt)}` : '')
-                + (peticion.sinFactura?.length
-                    ? `   ⚠ fuera: ${peticion.sinFactura.map(l => l.codigo).join(', ')} (sin factura)`
-                    : '')}
+                + (peticion.fuera ? `   ⚠ fuera: ${peticion.fuera.resumen}` : '')}
             defaultEmail={envio.notifyEmail}
             defaultPhone={envio.notifyPhone}
             defaultCc={CC_BROKERGY}
@@ -104,28 +112,18 @@ export function PedirAlSoModal({ peticion, onClose, onSent }) {
             // Cada línea dice además si esa factura YA se reclamó y cuándo: con
             // varios lotes en el mismo correo, es lo que distingue lo que se pide
             // por primera vez de lo que se está recordando.
-            docs={(peticion.lotes || []).map(x => ({
-                key: x.lote.id,
-                label: `${x.lote.codigo} · ${x.factura?.numero_factura || 'Factura del verificador'}`,
-                detail: [
-                    x.importe ? eur(x.importe) : null,
-                    x.pedidoAt ? `pedido el ${fmtFecha(x.pedidoAt)}${x.veces > 1 ? ` · ${x.veces} veces` : ''}` : null,
-                ].filter(Boolean).join(' · ') || null,
-            }))}
+            docs={peticion.docs || []}
             onSendOverride={enviar}
             // ── Los lotes que se QUEDAN FUERA ─────────────────────────────────
             // Un lote sin su factura subida no se puede reclamar: no habría nada
             // que adjuntar. Pero callarlo es peor que excluirlo — se manda el
             // correo creyendo que van los cuatro y el S.O. paga tres. Se dice aquí,
             // con el nombre del lote y lo que le falta.
-            extraBody={peticion.sinFactura?.length ? (
+            extraBody={peticion.fuera ? (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2.5">
                     <p className="text-[11px] text-amber-300/90 leading-snug">
-                        ⚠ {peticion.sinFactura.length === 1 ? 'Se queda fuera' : 'Se quedan fuera'}{' '}
-                        <b>{peticion.sinFactura.map(l => l.codigo).join(', ')}</b>:{' '}
-                        {peticion.sinFactura.length === 1 ? 'no tiene' : 'no tienen'} subida la factura del
-                        verificador, así que no hay nada que adjuntar. Súbela en su fase 4 y vuelve a
-                        entrar si quieres reclamarla en este mismo correo.
+                        ⚠ {peticion.fuera.lotes.length === 1 ? 'Se queda fuera' : 'Se quedan fuera'}{' '}
+                        <b>{peticion.fuera.lotes.map(l => l.codigo).join(', ')}</b>: {peticion.fuera.aviso}
                     </p>
                 </div>
             ) : null}
