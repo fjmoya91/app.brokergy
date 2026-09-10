@@ -3693,6 +3693,35 @@ pieza se EXTRAE del propio certificado: la regla es que el `4-1` sea página a
 página su bloque de anexos, y eso manda sobre lo que diga el catálogo hoy.
 Comprobado sobre 25RES080_26 (6 páginas) y 26RES080_34 (8): idénticos.
 
+**REGLA — un enlace que apunta a un fichero BORRADO no es una pieza presente.**
+Medido en LOTE-2025-005 el 10/09/2026: la comprobación dijo **18/18 en las cinco**
+actuaciones y el ZIP de E3 salió con **15** documentos y el de E2 con 16. Lo que
+faltaba —el Convenio de Cesión firmado, el Anexo Fotográfico y el Anexo I de
+25RES080_7— seguía enlazado en el expediente, pero su fichero ya no estaba en
+Drive: `getFileContent` daba 404, `copyFile` fallaba y el bucle de copia se saltaba
+la pieza con un `if (bytes && bytes.length)`. **Un paquete al que le faltan tres
+papeles se presenta igual de bien que uno completo**, que es justo lo que este
+índice viene a evitar. `comprobarExisten()` mira ahora la metadata de cada pieza
+que sale de un ENLACE guardado —las que se han encontrado listando una carpeta
+existen por definición— y trata como ausente tanto el 404 como el fichero **en la
+papelera**, que todavía se descarga pero desaparece el día que se vacíe. Se dice
+con sus palabras (`estado: 'roto'`, "el fichero enlazado ya no existe en Drive —
+vuelve a subirlo"): no es lo mismo que no tenerlo, porque el documento se generó y
+se firmó y lo que hay que hacer es re-enlazarlo, no rehacerlo. Y si aun así una
+copia se cae al generar, la actuación sale **NO OK** con la pieza listada, nunca
+tragada. Cuesta ~10 s más por comprobación (de 12 a 23 s en un lote de cinco).
+
+⚠️ **Un clic que no hace NADA es el peor final posible** — no se distingue de un
+botón roto y lleva a pulsar otra vez, que aquí significa rehacer 120 MB. Pasó el
+10/09/2026 con "Generar" y tenía DOS causas, las dos ahora cerradas: el texto del
+`showConfirm` interpolaba una variable inexistente y el `ReferenceError` moría
+dentro de un `async` que nadie escucha; y el popup de confirmación lo pinta
+`ModalContext` DENTRO de `#root` mientras `SendActionOverlay` se portalea a
+`document.body` (regla 29.b), así que **la pregunta quedaba tapada por el propio
+overlay** y la función esperaba un "sí" invisible. Ahora el overlay se retira antes
+de preguntar y se repone si la respuesta es que no, y `generarPaquete` envuelve
+todo en un `catch` que saca el error en pantalla.
+
 **REGLA — el Nº DE ACTUACIÓN se SELLA al enviar la solicitud por API.** Es el orden en
 que las actuaciones se acaban de declarar al verificador, y es el que rotula cada
 fichero del ZIP (`E3-3-1 - …`) y, meses después, el anexo del MITECO que los cita

@@ -486,6 +486,33 @@ function exigencia(pieza, modo, ctx) {
 }
 
 // ─── El paquete de UNA actuación ─────────────────────────────────────────────
+/**
+ * Marca como AUSENTE toda pieza cuyo fichero ya no exista en Drive, y deja dicho
+ * que el enlace está roto — que no es lo mismo que no tenerlo: el documento se
+ * generó y se firmó, y lo que hay que hacer es volver a subirlo o re-enlazarlo,
+ * no rehacerlo.
+ *
+ * Va con concurrencia limitada: son ~18 piezas por actuación y Drive no agradece
+ * una ráfaga de veinte peticiones.
+ */
+async function comprobarExisten(resueltas) {
+    const aMirar = resueltas.filter(x => x.r && x.r.fileId && !x.r.yaColocada && !x.r.respaldo);
+    for (let i = 0; i < aMirar.length; i += 6) {
+        await Promise.all(aMirar.slice(i, i + 6).map(async (x) => {
+            let meta = null;
+            try { meta = await driveService.getFileMetadata(x.r.fileId, 'id, trashed'); } catch (_) { meta = null; }
+            // `trashed`: en la papelera el fichero todavía se descarga, pero está
+            // borrado a todos los efectos y el día que se vacíe desaparece del
+            // paquete sin avisar. Cuenta como roto.
+            if (!meta || meta.trashed) {
+                x.enlaceRoto = true;
+                x.r = null;
+                x.nombre = null;
+            }
+        }));
+    }
+}
+
 async function paqueteDeActuacion(ctx, { modo, dryRun, zipEnMemoria = false }) {
     const { exp, n } = ctx;
     const piezas = INDICE.filter(p => modo === 'gestor' || !p.soloGestor);
@@ -509,9 +536,29 @@ async function paqueteDeActuacion(ctx, { modo, dryRun, zipEnMemoria = false }) {
         resueltas.push({ pieza, r, nombre: r ? nombreFinal(pieza, r, ctx) : null });
     }
 
+    // Un enlace que apunta a un fichero BORRADO no es una pieza presente.
+    //
+    // Medido en LOTE-2025-005 el 10/09/2026: la comprobación dijo 18/18 en las cinco
+    // actuaciones y el ZIP de E3 salió con 15 documentos y el de E2 con 16. Los que
+    // faltaban —el Convenio de Cesión firmado, el Anexo Fotográfico, el Anexo I, dos
+    // XML del CEE— seguían enlazados en el expediente, pero su fichero ya no está en
+    // Drive: `getFileContent` daba 404, `copyFile` fallaba, y el bucle de copia
+    // saltaba la pieza con un `if (bytes && bytes.length)`. Un paquete al que le
+    // faltan tres papeles se presenta igual de bien que uno completo, y el
+    // requerimiento llega tres semanas después — el fallo exacto que este índice
+    // viene a evitar.
+    //
+    // Solo se comprueban los que salen de un ENLACE guardado; los que se han
+    // encontrado listando una carpeta (el respaldo, lo ya colocado, el anexo del
+    // MITECO) existen por definición: se acaban de leer de ahí.
+    await comprobarExisten(resueltas);
+
     for (const x of resueltas) x.exigencia = exigencia(x.pieza, modo, ctx);
-    const faltanObligatorias = resueltas.filter(x => !x.r && x.exigencia === 'obligatoria').map(x => x.pieza.etiqueta);
-    const faltanLeves = resueltas.filter(x => !x.r && x.exigencia === 'leve').map(x => x.pieza.etiqueta);
+    const etiquetaFalta = (x) => (x.enlaceRoto
+        ? `${x.pieza.etiqueta} (el fichero enlazado ya no existe en Drive — vuelve a subirlo)`
+        : x.pieza.etiqueta);
+    const faltanObligatorias = resueltas.filter(x => !x.r && x.exigencia === 'obligatoria').map(etiquetaFalta);
+    const faltanLeves = resueltas.filter(x => !x.r && x.exigencia === 'leve').map(etiquetaFalta);
     // 'silenciosa' no aparece en ninguna lista: ni falta, ni leve, ni "no procede".
     const noProceden = resueltas.filter(x => !x.r && x.exigencia === 'no_procede')
         .map(x => `${x.pieza.etiqueta} — ${x.pieza.motivoExenta || 'no procede en este expediente'}`);
@@ -529,7 +576,7 @@ async function paqueteDeActuacion(ctx, { modo, dryRun, zipEnMemoria = false }) {
             // `manual` = estaba en la carpeta del paquete pero la app no lo tiene
             // apuntado. Cuenta como presente y se DICE: es lo que hay que registrar
             // en el expediente para que el siguiente lote no dependa de una copia.
-            estado: !x.r ? (x.exigencia === 'no_procede' ? 'no_procede' : 'falta')
+            estado: !x.r ? (x.enlaceRoto ? 'roto' : (x.exigencia === 'no_procede' ? 'no_procede' : 'falta'))
                 : (x.r.yaColocada ? 'manual' : (x.r.respaldo ? 'drive' : 'ok')),
             nombre: x.nombre,
         })),
@@ -558,6 +605,7 @@ async function paqueteDeActuacion(ctx, { modo, dryRun, zipEnMemoria = false }) {
     if (!destino && !zipEnMemoria) throw new Error(`No se pudo preparar la carpeta E${n}`);
 
     const entradasZip = [];
+    const falladas = [];
     for (const x of resueltas) {
         if (!x.r) continue;
 
@@ -605,6 +653,19 @@ async function paqueteDeActuacion(ctx, { modo, dryRun, zipEnMemoria = false }) {
             await driveService.saveFileToFolder(destino, x.nombre, x.r.mime || 'application/pdf', bytes);
         }
         if (bytes && bytes.length) entradasZip.push({ name: x.nombre, data: bytes });
+        // Cinturón: si pese a la comprobación previa el fichero no se ha podido
+        // bajar, la pieza NO entra en el ZIP — y eso hay que DECIRLO. Tragárselo es
+        // lo que hizo que LOTE-2025-005 informara de 18/18 con quince documentos
+        // dentro.
+        else falladas.push(`${x.pieza.cod} ${x.pieza.etiqueta}`);
+    }
+    if (falladas.length) {
+        salida.no_copiadas = falladas;
+        salida.ok = false;
+        salida.faltan_obligatorias = [
+            ...salida.faltan_obligatorias,
+            ...falladas.map(t => `${t} — no se pudo leer de Drive al copiarlo`),
+        ];
     }
 
     if (!zipEnMemoria) {

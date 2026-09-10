@@ -58,6 +58,10 @@ const { construirPaquete } = require('../services/envioGestorService');
         // paquete depende de una copia que alguien colocó a mano.
         const MARCA = {
             falta:  (ob) => ob ? '✗ FALTA   ' : '· leve    ',
+            // El fichero EXISTIÓ y ya no está: no es lo mismo que no tenerlo, porque
+            // el documento se generó y se firmó — hay que volver a subirlo o
+            // re-enlazarlo, no rehacerlo.
+            roto:   (ob) => ob ? '✗ ROTO    ' : '· roto    ',
             no_procede: () => '– no proc.',
             manual: () => '⚠ a mano  ',
             drive:  () => '⚠ de Drive',

@@ -788,20 +788,50 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     // y los terminaba — daba por fallido un trabajo hecho, que es el peor error que
     // puede cometer una pantalla. De una en una, cada petición dura lo que dura su
     // actuación, se puede decir por dónde va, y si una se cae las demás quedan.
-    const generarPaquete = async (modo, actuaciones) => {
+    // Un clic que no hace NADA es el peor final posible: no se distingue de un botón
+    // roto y lleva a pulsar otra vez, que aquí significa rehacer 120 MB. Cualquier
+    // cosa que reviente dentro sale en el overlay con su mensaje.
+    const generarPaquete = (modo, actuaciones) => generarPaqueteInterno(modo, actuaciones).catch(err => {
+        console.error('[paquete] generar:', err);
+        setLectura({
+            phase: 'done', ok: false,
+            errorTitle: 'No se pudo arrancar la generación',
+            errorText: err?.message || String(err),
+        });
+    });
+
+    const generarPaqueteInterno = async (modo, actuaciones) => {
         const cola = (actuaciones || []).filter(a => a && a.ok);
         if (!cola.length) return;
 
         // Volver a generar NO se hace en silencio: son ~120 MB que se rehacen y unos
         // minutos de espera, y el botón se queda igual que antes de haber generado.
         // Si ya se generó en esta sesión, se pregunta.
+        //
+        // ⚠️ DOS COSAS QUE DEJABAN EL BOTÓN MUDO (medido el 10/09/2026, "le doy a
+        // generar y no hace nada"):
+        //
+        //  1. El texto interpolaba una variable NL que no existe en este módulo:
+        //     evaluarlo lanzaba un ReferenceError DENTRO de un `async` cuya promesa
+        //     nadie escucha, así que el clic no hacía absolutamente nada — ni
+        //     preguntaba, ni generaba, ni daba error. Los saltos de línea van
+        //     literales.
+        //  2. El popup de confirmación lo pinta `ModalContext` DENTRO de `#root`,
+        //     mientras que `SendActionOverlay` se portalea a `document.body` (regla
+        //     29.b). Como el portal es hermano posterior de `#root`, tapa la
+        //     confirmación por mucho z-index que ésta lleve: se quedaba esperando un
+        //     "sí" a una pregunta invisible. Por eso el overlay se RETIRA antes de
+        //     preguntar y se REPONE si la respuesta es que no — quien venía de
+        //     comprobar no pierde el informe que estaba leyendo.
         if (generado[modo]) {
+            const informe = lectura;
+            setLectura(null);
             const otraVez = await showConfirm(
-                `Este paquete ya se generó hace un momento (${generado[modo]} actuaciones).`
-                + `${NL}${NL}Volver a generarlo rehace las carpetas E{n} y sus ZIP con lo que haya AHORA en el expediente.`
-                + ` Tarda unos minutos y no aporta nada si no has cambiado ningún documento desde entonces.`,
+                `Este paquete ya se generó hace un momento (${generado[modo]} actuaciones).\n\n`
+                + 'Volver a generarlo rehace las carpetas E{n} y sus ZIP con lo que haya AHORA en el expediente.'
+                + ' Tarda unos minutos y no aporta nada si no has cambiado ningún documento desde entonces.',
                 'Volver a generar el paquete', 'warning');
-            if (!otraVez) return;
+            if (!otraVez) { setLectura(informe); return; }
         }
 
         setError('');
