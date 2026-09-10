@@ -1,0 +1,6 @@
+{
+  "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetNeighbourParcel&REFCAT=4410205WJ0641S&srsname=EPSG%3A%3A25830",
+  "status": 200,
+  "bytes": 12682,
+  "fetched_at": "2026-09-09T22:17:19+0000"
+}

@@ -2,6 +2,11 @@ __pycache__/
 *.pyc
 .pytest_cache/
 *.egg-info/
-cache/
-data/raw/
-data/processed/
+.venv/
+venv/
+
+# Directorios de TRABAJO, solo en la raiz. Lo que vale la pena conservar se
+# copia a ejemplos/, que SI se versiona (incluido ejemplos/*/cache).
+/cache/
+/data/
+/output/
