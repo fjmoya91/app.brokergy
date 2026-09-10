@@ -23,6 +23,7 @@ RC  →  Catastro  →  geometría  →  clasificación  →  tabla CE3X
 | [07 — Trazabilidad](07-trazabilidad.md) | por qué cada número lleva pegado de dónde sale |
 | [08 — La salida hacia CE3X](08-salida-ce3x.md) | qué columna es cada campo del formulario |
 | [09 — Limitaciones conocidas](09-limitaciones.md) | lo que NO funciona, dicho antes de que te lo encuentres |
+| [10 — Siguientes pasos](10-siguientes-pasos.md) | el plan para depurar unifamiliares, y con qué medirse |
 
 ## Las tres reglas de fondo
 
