@@ -23,7 +23,14 @@ const LOTE_DOC_SLOTS = {
     solicitud_verificacion: { label: 'Solicitud de Verificación', fase: 1, multiple: false, firmable: true },
     anexo_i:                { label: 'Anexo I', fase: 2, multiple: false, firmable: true },
     ficha_res:              { label: 'Ficha RES', fase: 2, multiple: true, firmable: true, generado: true },
-    oferta_verificacion:    { label: 'Oferta de verificación', fase: 3, multiple: false, firmable: true },
+    // Lleva IMPORTE: es lo que el verificador PIDE por verificar el lote, y es el
+    // dato por el que el S.O. decide si firma. Un correo que le pide firmar cuatro
+    // ofertas sin decir cuánto cuesta ninguna le obliga a abrir los cuatro PDF.
+    // ⚠️ NO se copia a `lotes.coste_verificacion`: ése es el coste REAL y sale de la
+    // factura. Una oferta es un precio ofrecido, y presentarlo como coste metería
+    // una estimación en el €/MWh del cuadro de mando sin que nadie lo hubiera
+    // decidido.
+    oferta_verificacion:    { label: 'Oferta de verificación', fase: 3, multiple: false, firmable: true, importe: true },
     informe_inexactitudes:  { label: 'Informe de inexactitudes', fase: 4, multiple: true, firmable: false },
     informe_verificacion:   { label: 'Informe de Verificación', fase: 4, multiple: false, firmable: false },
     dictamen_favorable:     { label: 'Dictamen favorable', fase: 4, multiple: false, firmable: false },

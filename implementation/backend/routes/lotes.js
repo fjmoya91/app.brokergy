@@ -1590,6 +1590,63 @@ router.post('/:id/documentos/:key/validar', adminOnly, async (req, res) => {
 // un dictamen no se pagan, y ofrecerlo en su fila sería ruido.
 //
 // ADMIN: aquí hay dinero (regla del proyecto — los importes no los ve el TRABAJADOR).
+// ─── POST /api/lotes/:id/documentos/:key/importe ─────────────────────────────
+// El importe de un documento que lo tenga (la oferta, la factura), escrito a mano.
+//
+// Hasta ahora solo se podía poner AL SUBIR el fichero, en un campo que había que
+// acordarse de rellenar antes de soltarlo — y si se te olvidaba, el documento
+// quedaba sin precio y no había forma de arreglarlo desde la app. Es justo lo que
+// pasa con las ofertas: llegan por email, se sueltan, y el precio se queda fuera.
+//
+// ADMIN: aquí hay dinero (los importes no los ve el TRABAJADOR).
+router.post('/:id/documentos/:key/importe', adminOnly, async (req, res) => {
+    try {
+        const { key } = req.params;
+        const { importe } = req.body || {};
+        const num = Number(importe);
+        if (!Number.isFinite(num) || num < 0) {
+            return res.status(400).json({ error: 'El importe tiene que ser un número.' });
+        }
+        const { data: lote, error } = await supabase.from('lotes')
+            .select('id, codigo, documentos_so, historial').eq('id', req.params.id).maybeSingle();
+        if (error) throw error;
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        const docs = Array.isArray(lote.documentos_so) ? [...lote.documentos_so] : [];
+        const idx = docs.findIndex(d => d && d.key === key);
+        if (idx < 0) return res.status(404).json({ error: 'Ese documento no está subido en el lote.' });
+
+        const slot = LOTE_DOC_SLOTS[docs[idx].tipo || key];
+        if (!slot?.importe) {
+            return res.status(400).json({ error: 'Este documento no lleva importe.' });
+        }
+
+        const antes = Number(docs[idx].importe);
+        // `importe_ocr` marcaba "lo he leído yo, compruébalo". Escrito a mano deja de
+        // ser una lectura: la marca se retira o el aviso se quedaría para siempre.
+        docs[idx] = { ...docs[idx], importe: num, importe_ocr: false };
+
+        const historial = Array.isArray(lote.historial) ? [...lote.historial] : [];
+        historial.push({
+            id: `${Date.now()}_importe`, tipo: 'sistema',
+            texto: `${slot.label}: importe ${Number.isFinite(antes) && antes > 0 ? `${antes} € → ` : ''}${num} €`,
+            fecha: nowIso(), usuario: usuarioDe(req),
+        });
+
+        const update = { documentos_so: docs, historial, updated_at: nowIso() };
+        // La FACTURA sí manda sobre el coste de verificación del lote —es lo que de
+        // verdad se paga—; la oferta no (ver LOTE_DOC_SLOTS).
+        if (key === 'factura_verificador') update.coste_verificacion = num;
+
+        const { error: upErr } = await supabase.from('lotes').update(update).eq('id', lote.id);
+        if (upErr) throw upErr;
+        res.json({ ok: true, importe: num });
+    } catch (err) {
+        console.error('[POST /lotes/:id/documentos/:key/importe]', err.message);
+        res.status(500).json({ error: err.message || 'No se pudo guardar el importe' });
+    }
+});
+
 router.post('/:id/documentos/:key/pago', adminOnly, async (req, res) => {
     try {
         const { pagado, fecha, base64, fileName } = req.body || {};

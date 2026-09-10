@@ -297,6 +297,7 @@ function firmaOfertas(lotes) {
         pendientes.push({
             lote: l,
             oferta: o,
+            importe: Number(o.importe) > 0 ? Number(o.importe) : null,
             pedidoAt: o.sent_at || null,
             pedidoA: o.firma_solicitada_to || null,
             veces: Number(o.firma_solicitada_veces) || 0,
@@ -310,6 +311,11 @@ function firmaOfertas(lotes) {
     const dias = diasDesde(ultimaAt);
     const destinoPrevio = yaPedidos.map(x => x.pedidoA).find(Boolean) || null;
     const codigos = pendientes.map(x => x.lote.codigo).filter(Boolean);
+    // El PRECIO de cada oferta es el dato por el que el S.O. decide si firma. Sin él
+    // el correo le pide firmar cuatro papeles sin decirle cuánto cuesta ninguno, y
+    // tiene que abrir los cuatro PDF para saberlo. Los que falten se piden ANTES de
+    // abrir el envío y se guardan en su lote — así el correo siguiente ya los trae.
+    const faltanImporte = pendientes.filter(x => x.importe == null);
 
     return {
         id: 'firma_ofertas',
@@ -340,12 +346,18 @@ function firmaOfertas(lotes) {
         nuevos,
         yaPedidos,
         firmadas,
+        faltanImporte,
+        // El importe se escribe donde vive: en el documento del lote.
+        campoImporte: { key: 'oferta_verificacion', label: 'Precio de la oferta' },
         sustantivo: { sing: 'oferta', plur: 'ofertas' },
         docs: pendientes.map(x => ({
             key: x.lote.id,
-            label: `${x.lote.codigo} · ${x.oferta?.file_name || 'Oferta de verificación'}`,
+            // Lo que hay que comprobar antes de mandar un correo que pide una firma
+            // es QUÉ se firma y POR CUÁNTO: el precio va en la línea, no escondido.
+            label: `${x.lote.codigo}${x.importe != null ? ` · ${eur(x.importe)}` : ''}`,
             detail: [
-                x.lote.n_expedientes ? `${x.lote.n_expedientes} actuaciones` : null,
+                x.importe == null ? '⚠ sin precio' : null,
+                x.oferta?.file_name || 'Oferta de verificación',
                 x.pedidoAt ? `pedido el ${fmtFecha(x.pedidoAt)}${x.veces > 1 ? ` · ${x.veces} veces` : ''}` : null,
             ].filter(Boolean).join(' · ') || null,
         })),
@@ -360,43 +372,69 @@ function firmaOfertas(lotes) {
             : firmadas.length && !sinOferta.length
                 ? 'Las ofertas de verificación de estos lotes ya están firmadas.'
                 : 'Ninguno de estos lotes tiene subida la oferta del verificador.',
-        mensaje: ({ saludo }) => (reinsistencia
-            ? mensajeRecordatorioOfertas({ saludo, codigos, ultimaAt })
-            : mensajeFirmaOfertas({ saludo, codigos })),
+        // `precios` son los que se acaban de teclear en el popup, que todavía no
+        // han vuelto de la base de datos. Sin ellos el correo saldría sin la cifra
+        // que se acaba de introducir, que es justo por lo que se pidió.
+        mensaje: ({ saludo, precios = {} }) => {
+            const lineas = pendientes.map(x => ({
+                codigo: x.lote.codigo,
+                importe: precios[x.lote.id] != null ? Number(precios[x.lote.id]) : x.importe,
+            }));
+            return reinsistencia
+                ? mensajeRecordatorioOfertas({ saludo, lineas, ultimaAt })
+                : mensajeFirmaOfertas({ saludo, lineas });
+        },
     };
 }
 
-function mensajeFirmaOfertas({ saludo, codigos }) {
-    const lista = codigos.length === 1
-        ? `la oferta de verificación del lote ${codigos[0]}`
-        : `las ${codigos.length} ofertas de verificación de los lotes ${codigos.join(' · ')}`;
+/**
+ * El desglose por lote. Va SIEMPRE que se sepa algún precio, y el total solo
+ * cuando se saben TODOS: un total al que le falta un sumando es peor que no
+ * ponerlo, porque quien lo lee lo da por bueno.
+ */
+function desglose(lineas) {
+    const conPrecio = lineas.filter(l => l.importe != null);
+    if (!conPrecio.length) return lineas.map(l => `- ${l.codigo}`).join('\n');
+    const filas = lineas.map(l => `- ${l.codigo}: ${l.importe != null ? eur(l.importe) : 'precio por confirmar'}`);
+    if (conPrecio.length === lineas.length && lineas.length > 1) {
+        filas.push(`- TOTAL: ${eur(conPrecio.reduce((a, l) => a + l.importe, 0))}`);
+    }
+    return filas.join('\n');
+}
+
+function mensajeFirmaOfertas({ saludo, lineas }) {
+    const n = lineas.length;
+    const una = n === 1;
+    const lista = una
+        ? `la oferta de verificación del lote ${lineas[0].codigo}`
+        : `las ${n} ofertas de verificación de la entidad verificadora`;
 
     return `${saludo}
 
-Os adjunto ${lista}, que ha emitido la entidad verificadora.
+Os adjunto ${lista}${una ? ', que ha emitido la entidad verificadora' : ''}:
 
-${codigos.length === 1 ? 'Lote' : 'Lotes'}: ${codigos.join(' · ')}
+${desglose(lineas)}
 
-Necesitamos que ${codigos.length === 1 ? 'la firméis' : 'las firméis'} y ${codigos.length === 1 ? 'nos la devolváis' : 'nos las devolváis'}: la verificación no arranca hasta que ${codigos.length === 1 ? 'la oferta esté firmada' : 'las ofertas estén firmadas'}, y con ${codigos.length === 1 ? 'ella' : 'ellas'} en la mano el verificador ya puede ponerse con ${codigos.length === 1 ? 'el lote' : 'los lotes'}.
+Necesitamos que ${una ? 'la firméis' : 'las firméis'} y ${una ? 'nos la devolváis' : 'nos las devolváis'}: la verificación no arranca hasta que ${una ? 'la oferta esté firmada' : 'las ofertas estén firmadas'}, y con ${una ? 'ella' : 'ellas'} en la mano el verificador ya puede ponerse con ${una ? 'el lote' : 'los lotes'}.
 
-Podéis ${codigos.length === 1 ? 'devolvérnosla' : 'devolvérnoslas'} firmada${codigos.length === 1 ? '' : 's'} en este mismo correo.
+Podéis ${una ? 'devolvérnosla' : 'devolvérnoslas'} firmada${una ? '' : 's'} en este mismo correo.
 
 Un saludo,
 BROKERGY · Ingeniería Energética`;
 }
 
-function mensajeRecordatorioOfertas({ saludo, codigos, ultimaAt }) {
-    const lista = codigos.length === 1 ? `del lote ${codigos[0]}` : `de los lotes ${codigos.join(' · ')}`;
+function mensajeRecordatorioOfertas({ saludo, lineas, ultimaAt }) {
+    const una = lineas.length === 1;
 
     return `${saludo}
 
-Os escribo para recordaros que siguen pendientes de firma las ofertas de verificación ${lista}, que os remití el ${fmtFecha(ultimaAt)}.
+Os escribo para recordaros que ${una ? 'sigue pendiente' : 'siguen pendientes'} de firma ${una ? 'la oferta de verificación' : 'las ofertas de verificación'} que os remití el ${fmtFecha(ultimaAt)}:
 
-- ${codigos.length === 1 ? 'Lote' : 'Lotes'}: ${codigos.join(' · ')}
+${desglose(lineas)}
 
-Os ${codigos.length === 1 ? 'la adjunto' : 'las adjunto'} de nuevo para que ${codigos.length === 1 ? 'la tengáis' : 'las tengáis'} a mano. Hasta que no ${codigos.length === 1 ? 'esté firmada' : 'estén firmadas'}, la entidad verificadora no arranca con ${codigos.length === 1 ? 'ese lote' : 'esos lotes'}, así que es lo único que frena ahora mismo la tramitación.
+Os ${una ? 'la adjunto' : 'las adjunto'} de nuevo para que ${una ? 'la tengáis' : 'las tengáis'} a mano. Hasta que no ${una ? 'esté firmada' : 'estén firmadas'}, la entidad verificadora no arranca con ${una ? 'ese lote' : 'esos lotes'}, así que es lo único que frena ahora mismo la tramitación.
 
-¿Podéis confirmarme si ${codigos.length === 1 ? 'podéis firmarla' : 'podéis firmarlas'} esta semana?
+¿Podéis confirmarme si ${una ? 'podéis firmarla' : 'podéis firmarlas'} esta semana?
 
 Un saludo,
 BROKERGY · Ingeniería Energética`;

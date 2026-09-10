@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { CanalChip, avisoCanales } from '../../../components/CanalChip';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import confetti from 'canvas-confetti';
@@ -278,33 +279,6 @@ export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = ''
                         <p className="mt-1 text-[9px] text-white/25">Solo relevante si marcas el canal WhatsApp.</p>
                     </div>
 
-                    {/* Canal de envío */}
-                    <div>
-                        <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Enviar por</label>
-                        <div className="grid grid-cols-2 gap-2">
-                            <button type="button" disabled={!canEmail} onClick={() => toggleChannel('email')}
-                                className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all ${!canEmail ? 'opacity-40 cursor-not-allowed border-white/10 bg-white/[0.02]' : (channels.email ? 'border-brand/50 bg-brand/10' : 'border-white/10 bg-white/[0.02] hover:border-white/20')}`}>
-                                <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${willEmail ? 'border-brand bg-brand' : 'border-white/20'}`}>
-                                    {willEmail && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
-                                </span>
-                                <div className="min-w-0">
-                                    <div className="text-[11px] font-black uppercase tracking-wider text-white">Email</div>
-                                    <div className="text-[10px] text-white/40 truncate">{canEmail ? 'con email' : 'sin email'}</div>
-                                </div>
-                            </button>
-                            <button type="button" disabled={!canWhatsapp} onClick={() => toggleChannel('whatsapp')}
-                                className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all ${!canWhatsapp ? 'opacity-40 cursor-not-allowed border-white/10 bg-white/[0.02]' : (channels.whatsapp ? 'border-emerald-400/50 bg-emerald-400/10' : 'border-white/10 bg-white/[0.02] hover:border-white/20')}`}>
-                                <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${willWhatsapp ? 'border-emerald-400 bg-emerald-400' : 'border-white/20'}`}>
-                                    {willWhatsapp && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
-                                </span>
-                                <div className="min-w-0">
-                                    <div className="text-[11px] font-black uppercase tracking-wider text-white">WhatsApp</div>
-                                    <div className="text-[10px] text-white/40 truncate">{!phoneOk ? 'sin teléfono' : (waReady === false ? 'no conectado' : 'con teléfono')}</div>
-                                </div>
-                            </button>
-                        </div>
-                    </div>
-
                     {/* Mensaje (editable) */}
                     <div>
                         <div className="flex items-center justify-between mb-2">
@@ -341,10 +315,43 @@ export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = ''
                     )}
                 </div>
 
-                {/* Footer */}
-                <div className="px-6 py-4 bg-white/[0.02] border-t border-white/[0.07] flex items-center justify-between gap-3">
-                    <span className="text-[9px] font-bold uppercase tracking-widest text-white/25">{docList.length} doc{docList.length === 1 ? '' : 's'} · {[willEmail && 'Email', willWhatsapp && 'WhatsApp'].filter(Boolean).join(' + ') || 'sin canal'}</span>
-                    <div className="flex items-center gap-3">
+                {/* ── Barra inferior: los CANALES y, pegado a ellos, lo único
+                    irreversible ──────────────────────────────────────────────
+                    Estaban en el cuerpo, entre el teléfono y el mensaje: con el
+                    modal desplazado no se veían y ENVIAR aparecía apagado sin que
+                    nada explicase por qué. Aquí se reconocen por el LOGO —que se
+                    lee antes que la palabra— y el email y el teléfono a los que va
+                    el mensaje se leen DENTRO de la propia píldora: comprobarlos es
+                    justo lo que se hace antes de pulsar. Es el mismo `CanalChip` de
+                    los popups del certificador, del CIFO y de la propuesta: una
+                    copia por modal acabaría divergiendo en lo delicado, que es
+                    cuándo un canal está disponible y qué se dice cuando no. */}
+                <div className="px-6 py-4 bg-white/[0.02] border-t border-white/[0.07] flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-2">
+                        <CanalChip
+                            canal="email" nombre="Email"
+                            activo={willEmail} disponible={canEmail}
+                            detalle={email.trim()} motivo="sin email"
+                            bloqueado={busy}
+                            onClick={() => toggleChannel('email')}
+                        />
+                        <CanalChip
+                            canal="whatsapp" nombre="WhatsApp"
+                            activo={willWhatsapp} disponible={canWhatsapp}
+                            detalle={phone.trim()}
+                            motivo={!phoneOk ? 'sin teléfono' : 'WhatsApp sin conectar'}
+                            bloqueado={busy}
+                            onClick={() => toggleChannel('whatsapp')}
+                        />
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                        {/* Por qué no se puede enviar, dicho antes de pulsar. El botón
+                            solo sabe estar apagado. */}
+                        {avisoCanales({ nDest: null, canEmail, hayTelefono: phoneOk, waReady, willEmail, willWhatsapp }) && (
+                            <span className="text-[9px] font-bold uppercase tracking-widest text-amber-400/80 whitespace-nowrap">
+                                {avisoCanales({ nDest: null, canEmail, hayTelefono: phoneOk, waReady, willEmail, willWhatsapp })}
+                            </span>
+                        )}
                         <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all">Cerrar</button>
                         <button onClick={handleSend} disabled={busy || !docList.length || (!willEmail && !willWhatsapp)}
                             title={(!willEmail && !willWhatsapp) ? 'Selecciona al menos un canal disponible' : (!docList.length ? 'No hay documentos' : 'Enviar')}
@@ -352,7 +359,7 @@ export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = ''
                             {sending
                                 ? <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
                                 : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>}
-                            {sending ? 'Enviando…' : 'Enviar'}
+                            {sending ? 'Enviando…' : `Enviar ${docList.length} doc${docList.length === 1 ? '' : 's'}`}
                         </button>
                     </div>
                 </div>

@@ -79,6 +79,11 @@ for (const p of todas) {
     p.docs.forEach(d => console.log(`      · ${d.label}${d.detail ? `  (${d.detail})` : ''}`));
     if (p.fuera) console.log(`   ⚠ fuera: ${p.fuera.resumen} — ${p.fuera.aviso}`);
     console.log('   ── mensaje ──');
-    console.log(p.mensaje({ saludo: 'Buenos días Jesús,' }).split('\n').map(x => `   ${x}`).join('\n'));
+    // --precios=1450,1200,... simula los importes que se teclearían en el popup,
+    // para ver el correo con su desglose sin escribir nada en ningún sitio.
+    const sim = (process.argv.find(a => a.startsWith('--precios=')) || '').split('=')[1];
+    const precios = {};
+    if (sim && p.lotes) sim.split(',').forEach((v, i) => { if (p.lotes[i]) precios[p.lotes[i].lote.id] = Number(v); });
+    console.log(p.mensaje({ saludo: 'Buenos días Jesús,', precios }).split('\n').map(x => `   ${x}`).join('\n'));
 }
 console.log(`\nBotones que se pintarían: ${aplicables.length}\n`);

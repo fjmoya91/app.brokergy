@@ -15,7 +15,7 @@
 // Slots que se suben a mano. `multiple` = admite varios (informes de inexactitudes).
 export const SLOTS = {
     solicitud_verificacion: { label: 'Solicitud de Verificación', multiple: false, firmable: true },
-    oferta_verificacion:    { label: 'Oferta de verificación', multiple: false, firmable: true },
+    oferta_verificacion:    { label: 'Oferta de verificación', multiple: false, firmable: true, importe: true },
     informe_inexactitudes:  { label: 'Informe de inexactitudes', multiple: true, firmable: false },
     informe_verificacion:   { label: 'Informe de Verificación', multiple: false, firmable: false },
     dictamen_favorable:     { label: 'Dictamen favorable', multiple: false, firmable: false },
