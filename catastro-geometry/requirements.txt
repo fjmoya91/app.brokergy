@@ -1,0 +1,17 @@
+# Núcleo geométrico
+shapely>=2.0
+pyproj>=3.4
+lxml>=4.9
+numpy>=1.24
+
+# Salidas de depuración
+matplotlib>=3.7
+folium>=0.14
+
+# Desarrollo
+pytest>=7
+
+# NO se usa geopandas a propósito: da problemas de instalación (GDAL) y no
+# aporta nada que no hagan shapely + pyproj directamente.
+# NO se usa requests: impone su propio orden de cabeceras y el WAF del Catastro
+# lo bloquea. Ver docs/01-catastro-fuentes.md.

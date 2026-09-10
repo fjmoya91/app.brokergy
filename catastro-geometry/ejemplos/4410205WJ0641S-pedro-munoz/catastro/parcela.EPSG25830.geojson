@@ -1,0 +1,85 @@
+{
+ "type": "FeatureCollection",
+ "crs": {
+  "type": "name",
+  "properties": {
+   "name": "EPSG:25830"
+  }
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "id": "ES.SDGC.CP.4410205WJ0641S",
+   "properties": {
+    "source": "modelo",
+    "tipo": "parcela",
+    "original_id": "ES.SDGC.CP.4410205WJ0641S",
+    "CadastralParcel@id": "ES.SDGC.CP.4410205WJ0641S",
+    "areaValue": "219",
+    "beginLifespanVersion": "2001-10-09T00:00:00",
+    "endLifespanVersion@nilReason": "http://inspire.ec.europa.eu/codelist/VoidReasonValue/Unpopulated",
+    "localId": "4410205WJ0641S",
+    "namespace": "ES.SDGC.CP",
+    "label": "05",
+    "nationalCadastralReference": "4410205WJ0641S",
+    "area": 218.72,
+    "use": null
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       504345.44,
+       4360855.22
+      ],
+      [
+       504347.85,
+       4360855.16
+      ],
+      [
+       504354.49,
+       4360854.99
+      ],
+      [
+       504353.59,
+       4360850.74
+      ],
+      [
+       504352.78,
+       4360846.88
+      ],
+      [
+       504351.44,
+       4360840.49
+      ],
+      [
+       504337.32,
+       4360840.94
+      ],
+      [
+       504337.49,
+       4360849.96
+      ],
+      [
+       504337.6,
+       4360854.54
+      ],
+      [
+       504341.87,
+       4360854.46
+      ],
+      [
+       504345.28,
+       4360854.4
+      ],
+      [
+       504345.44,
+       4360855.22
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}

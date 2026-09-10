@@ -1,0 +1,30 @@
+# Saltos de linea. Importa porque este proyecto se trabaja desde Windows y git
+# convierte por su cuenta los ficheros que cree de texto.
+
+# --- El codigo: LF dentro del repositorio, pase lo que pase ---
+*.py     text eol=lf
+*.md     text eol=lf
+*.yml    text eol=lf
+*.toml   text eol=lf
+*.txt    text eol=lf
+*.json   text eol=lf
+
+# Los .ps1 solo se usan en Windows, y ahi CRLF es lo natural
+*.ps1    text eol=crlf
+
+*.png    binary
+*.cex    binary
+
+# --- ejemplos/ NO se toca. Es la REFERENCIA byte a byte ---
+#
+# Va al FINAL a proposito: en .gitattributes gana la ultima regla que casa. Si
+# estas lineas fueran antes, el `*.json` o el `*.csv` de arriba se llevarian por
+# delante las respuestas de Catastro y nuestra propia salida.
+#
+# Y `-text` en vez de `text eol=lf`: Catastro sirve su GML con CRLF (es un
+# servicio .NET) y el modulo csv de Python escribe CRLF. Normalizarlos a LF
+# significa que lo guardado deja de ser lo que devolvio Catastro y lo que
+# escribe el programa — que es justo lo contrario de para lo que existe este
+# fichero.
+ejemplos/**               -text
+ejemplos/**/cache/**      -text -diff

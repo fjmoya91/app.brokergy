@@ -1,0 +1,1830 @@
+{
+  "referencia_catastral": {
+    "entrada": "4410205WJ0641S0001JH",
+    "refcat_parcela": "4410205WJ0641S",
+    "refcat_inmueble": "4410205WJ0641S0001JH",
+    "cargo": "0001",
+    "digitos_control_ok": true
+  },
+  "crs_metrico": "EPSG:25830",
+  "parametros": {
+    "boundary_tolerance_m": 0.15,
+    "min_contact_m": 0.3,
+    "floor_height_m": 2.7,
+    "floor_height_dada_por_usuario": true,
+    "skip_lidar": true
+  },
+  "alturas": {
+    "plantas_sobre_rasante": 2,
+    "lidar": {
+      "omitido": "--skip-lidar"
+    },
+    "altura_total": {
+      "value": 5.4,
+      "source": "CATASTRO_WFS_BU",
+      "confidence": 0.5,
+      "evidence_type": "INFERRED",
+      "note": "2 plantas de Catastro x 2.7 m (--floor-height)"
+    },
+    "altura_de_planta": {
+      "value": 2.7,
+      "source": "USER_INPUT",
+      "confidence": 0.5,
+      "evidence_type": "MANUAL",
+      "note": "valor dado con --floor-height"
+    }
+  },
+  "modelo": {
+    "refcat_parcela": "4410205WJ0641S",
+    "refcat_inmueble": "4410205WJ0641S0001JH",
+    "crs": "EPSG:25830",
+    "parcel": {
+      "source": "CP",
+      "original_id": "ES.SDGC.CP.4410205WJ0641S",
+      "area": 218.72,
+      "use": null,
+      "floor": null,
+      "confidence": 1.0,
+      "geometry_wkt": "POLYGON ((504345.44 4360855.22, 504347.85 4360855.16, 504354.49 4360854.99, 504353.59 4360850.74, 504352.78 4360846.88, 504351.44 4360840.49, 504337.32 4360840.94, 504337.49 4360849.96, 504337.6 4360854.54, 504341.87 4360854.46, 504345.28 4360854.4, 504345.44 4360855.22))",
+      "attrs": {
+        "CadastralParcel@id": "ES.SDGC.CP.4410205WJ0641S",
+        "areaValue": "219",
+        "beginLifespanVersion": "2001-10-09T00:00:00",
+        "endLifespanVersion@nilReason": "http://inspire.ec.europa.eu/codelist/VoidReasonValue/Unpopulated",
+        "localId": "4410205WJ0641S",
+        "namespace": "ES.SDGC.CP",
+        "label": "05",
+        "nationalCadastralReference": "4410205WJ0641S"
+      }
+    },
+    "buildings": [
+      {
+        "source": "BU",
+        "original_id": "ES.SDGC.BU.4410205WJ0641S",
+        "area": 191.5,
+        "use": "1_residential",
+        "floor": null,
+        "confidence": 1.0,
+        "geometry_wkt": "POLYGON ((504341.83 4360849.28, 504341.83 4360851.34, 504337.53 4360851.34, 504337.6 4360854.54, 504341.87 4360854.46, 504345.28 4360854.4, 504345.44 4360855.22, 504347.85 4360855.16, 504354.49 4360854.99, 504353.59 4360850.74, 504348.42 4360850.7, 504348.42 4360849.28, 504348.42 4360846.88, 504352.78 4360846.88, 504351.44 4360840.49, 504347.93 4360840.6, 504337.32 4360840.94, 504337.48 4360849.28, 504341.83 4360849.28))",
+        "attrs": {
+          "Building@id": "ES.SDGC.BU.4410205WJ0641S",
+          "beginLifespanVersion": "2017-06-12T00:00:00",
+          "conditionOfConstruction": "functional",
+          "beginning": "1994-01-01T00:00:00",
+          "end": "1994-01-01T00:00:00",
+          "endLifespanVersion@nilReason": "other:unpopulated",
+          "informationSystem": "https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?rc1=4410205&rc2=WJ0641S",
+          "reference": "4410205WJ0641S",
+          "localId": "4410205WJ0641S",
+          "namespace": "ES.SDGC.BU",
+          "addresses@href": "http://ovc.catastro.meh.es/INSPIRE/wfsAD.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetadByRefcat&refcat=4410205WJ0641S&srsname=EPSG::25830",
+          "cadastralParcels@href": "http://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetParcel&refcat=4410205WJ0641S&srsname=EPSG::25830",
+          "horizontalGeometryEstimatedAccuracy": "0.1",
+          "horizontalGeometryReference": "footPrint",
+          "referenceGeometry": "true",
+          "currentUse": "1_residential",
+          "numberOfBuildingUnits": "1",
+          "numberOfDwellings": "1",
+          "numberOfFloorsAboveGround@nilReason": "other:unpopulated",
+          "documentLink": "http://ovc.catastro.meh.es/OVCServWeb/OVCWcfLibres/OVCFotoFachada.svc/RecuperarFotoFachadaGet?ReferenciaCatastral=4410205WJ0641S",
+          "format": "jpeg",
+          "sourceStatus": "NotOfficial",
+          "officialAreaReference": "grossFloorArea",
+          "value": "266"
+        }
+      }
+    ],
+    "building_parts": [
+      {
+        "source": "BU",
+        "original_id": "ES.SDGC.BU.4410205WJ0641S_part1",
+        "area": 90.8,
+        "use": null,
+        "floor": null,
+        "confidence": 1.0,
+        "geometry_wkt": "POLYGON ((504347.93 4360840.6, 504337.32 4360840.94, 504337.48 4360849.28, 504341.83 4360849.28, 504348.42 4360849.28, 504348.42 4360846.88, 504347.93 4360846.88, 504347.93 4360840.6))",
+        "attrs": {
+          "BuildingPart@id": "ES.SDGC.BU.4410205WJ0641S_part1",
+          "beginLifespanVersion": "2017-06-12T00:00:00",
+          "conditionOfConstruction@nilReason": "other:unpopulated",
+          "localId": "4410205WJ0641S_part1",
+          "namespace": "ES.SDGC.BU",
+          "addresses@href": "http://ovc.catastro.meh.es/INSPIRE/wfsAD.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetadByRefcat&refcat=4410205WJ0641S&srsname=EPSG::25830",
+          "cadastralParcels@href": "http://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetParcel&refcat=4410205WJ0641S&srsname=EPSG::25830",
+          "horizontalGeometryEstimatedAccuracy": "0.1",
+          "horizontalGeometryReference": "footPrint",
+          "referenceGeometry": "true",
+          "numberOfFloorsAboveGround": "1",
+          "heightBelowGround": "0",
+          "numberOfFloorsBelowGround": "0"
+        }
+      },
+      {
+        "source": "BU",
+        "original_id": "ES.SDGC.BU.4410205WJ0641S_part2",
+        "area": 74.18,
+        "use": null,
+        "floor": null,
+        "confidence": 1.0,
+        "geometry_wkt": "POLYGON ((504337.53 4360851.34, 504337.6 4360854.54, 504341.87 4360854.46, 504345.28 4360854.4, 504345.44 4360855.22, 504347.85 4360855.16, 504354.49 4360854.99, 504353.59 4360850.74, 504348.42 4360850.7, 504348.42 4360849.28, 504341.83 4360849.28, 504341.83 4360851.34, 504337.53 4360851.34))",
+        "attrs": {
+          "BuildingPart@id": "ES.SDGC.BU.4410205WJ0641S_part2",
+          "beginLifespanVersion": "2017-06-12T00:00:00",
+          "conditionOfConstruction@nilReason": "other:unpopulated",
+          "localId": "4410205WJ0641S_part2",
+          "namespace": "ES.SDGC.BU",
+          "addresses@href": "http://ovc.catastro.meh.es/INSPIRE/wfsAD.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetadByRefcat&refcat=4410205WJ0641S&srsname=EPSG::25830",
+          "cadastralParcels@href": "http://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetParcel&refcat=4410205WJ0641S&srsname=EPSG::25830",
+          "horizontalGeometryEstimatedAccuracy": "0.1",
+          "horizontalGeometryReference": "footPrint",
+          "referenceGeometry": "true",
+          "numberOfFloorsAboveGround": "2",
+          "heightBelowGround": "0",
+          "numberOfFloorsBelowGround": "0"
+        }
+      },
+      {
+        "source": "BU",
+        "original_id": "ES.SDGC.BU.4410205WJ0641S_part3",
+        "area": 26.52,
+        "use": null,
+        "floor": null,
+        "confidence": 1.0,
+        "geometry_wkt": "POLYGON ((504352.78 4360846.88, 504351.44 4360840.49, 504347.93 4360840.6, 504347.93 4360846.88, 504348.42 4360846.88, 504352.78 4360846.88))",
+        "attrs": {
+          "BuildingPart@id": "ES.SDGC.BU.4410205WJ0641S_part3",
+          "beginLifespanVersion": "2017-06-12T00:00:00",
+          "conditionOfConstruction@nilReason": "other:unpopulated",
+          "localId": "4410205WJ0641S_part3",
+          "namespace": "ES.SDGC.BU",
+          "addresses@href": "http://ovc.catastro.meh.es/INSPIRE/wfsAD.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetadByRefcat&refcat=4410205WJ0641S&srsname=EPSG::25830",
+          "cadastralParcels@href": "http://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetParcel&refcat=4410205WJ0641S&srsname=EPSG::25830",
+          "horizontalGeometryEstimatedAccuracy": "0.1",
+          "horizontalGeometryReference": "footPrint",
+          "referenceGeometry": "true",
+          "numberOfFloorsAboveGround": "1",
+          "heightBelowGround": "0",
+          "numberOfFloorsBelowGround": "0"
+        }
+      }
+    ],
+    "neighbours": [
+      {
+        "source": "BU:4410203WJ0641S",
+        "original_id": "ES.SDGC.BU.4410203WJ0641S",
+        "area": 136.24,
+        "use": null,
+        "floor": null,
+        "confidence": 1.0,
+        "geometry_wkt": "POLYGON ((504359.8 4360866.78, 504369.93 4360867, 504368.34 4360860.27, 504367.19 4360855.4, 504363 4360855.27, 504358.68 4360855.13, 504357.05 4360855.1, 504358.07 4360859.71, 504355.62 4360860.35, 504356.86 4360866.71, 504359.8 4360866.78))",
+        "attrs": {
+          "Building@id": "ES.SDGC.BU.4410203WJ0641S",
+          "beginLifespanVersion": "2004-06-09T00:00:00",
+          "conditionOfConstruction": "functional",
+          "beginning": "1960-01-01T00:00:00",
+          "end": "2000-01-01T00:00:00",
+          "endLifespanVersion@nilReason": "other:unpopulated",
+          "informationSystem": "https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?rc1=4410203&rc2=WJ0641S",
+          "reference": "4410203WJ0641S",
+          "localId": "4410203WJ0641S",
+          "namespace": "ES.SDGC.BU",
+          "addresses@href": "http://ovc.catastro.meh.es/INSPIRE/wfsAD.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetadByRefcat&refcat=4410203WJ0641S&srsname=EPSG::25830",
+          "cadastralParcels@href": "http://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetParcel&refcat=4410203WJ0641S&srsname=EPSG::25830",
+          "horizontalGeometryEstimatedAccuracy": "0.1",
+          "horizontalGeometryReference": "footPrint",
+          "referenceGeometry": "true",
+          "currentUse": "1_residential",
+          "numberOfBuildingUnits": "1",
+          "numberOfDwellings": "1",
+          "numberOfFloorsAboveGround@nilReason": "other:unpopulated",
+          "documentLink": "http://ovc.catastro.meh.es/OVCServWeb/OVCWcfLibres/OVCFotoFachada.svc/RecuperarFotoFachadaGet?ReferenciaCatastral=4410203WJ0641S",
+          "format": "jpeg",
+          "sourceStatus": "NotOfficial",
+          "officialAreaReference": "grossFloorArea",
+          "value": "219"
+        }
+      },
+      {
+        "source": "BU:4410202WJ0641S",
+        "original_id": "ES.SDGC.BU.4410202WJ0641S",
+        "area": 106.09,
+        "use": null,
+        "floor": null,
+        "confidence": 1.0,
+        "geometry_wkt": "POLYGON ((504347.51 4360866.5, 504356.86 4360866.71, 504355.62 4360860.35, 504354.49 4360854.99, 504347.85 4360855.16, 504345.44 4360855.22, 504347.51 4360866.5))",
+        "attrs": {
+          "Building@id": "ES.SDGC.BU.4410202WJ0641S",
+          "beginLifespanVersion": "2001-10-09T00:00:00",
+          "conditionOfConstruction": "functional",
+          "beginning": "1999-01-01T00:00:00",
+          "end": "1999-01-01T00:00:00",
+          "endLifespanVersion@nilReason": "other:unpopulated",
+          "informationSystem": "https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?rc1=4410202&rc2=WJ0641S",
+          "reference": "4410202WJ0641S",
+          "localId": "4410202WJ0641S",
+          "namespace": "ES.SDGC.BU",
+          "addresses@href": "http://ovc.catastro.meh.es/INSPIRE/wfsAD.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetadByRefcat&refcat=4410202WJ0641S&srsname=EPSG::25830",
+          "cadastralParcels@href": "http://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetParcel&refcat=4410202WJ0641S&srsname=EPSG::25830",
+          "horizontalGeometryEstimatedAccuracy": "0.1",
+          "horizontalGeometryReference": "footPrint",
+          "referenceGeometry": "true",
+          "currentUse": "3_industrial",
+          "numberOfBuildingUnits": "1",
+          "numberOfDwellings": "0",
+          "numberOfFloorsAboveGround@nilReason": "other:unpopulated",
+          "documentLink": "http://ovc.catastro.meh.es/OVCServWeb/OVCWcfLibres/OVCFotoFachada.svc/RecuperarFotoFachadaGet?ReferenciaCatastral=4410202WJ0641S",
+          "format": "jpeg",
+          "sourceStatus": "NotOfficial",
+          "officialAreaReference": "grossFloorArea",
+          "value": "106"
+        }
+      },
+      {
+        "source": "BU:4410213WJ0641S",
+        "original_id": "ES.SDGC.BU.4410213WJ0641S",
+        "area": 190.08,
+        "use": null,
+        "floor": null,
+        "confidence": 1.0,
+        "geometry_wkt": "POLYGON ((504330.2 4360866.12, 504347.51 4360866.5, 504345.44 4360855.22, 504345.28 4360854.4, 504341.87 4360854.46, 504337.6 4360854.54, 504333.96 4360854.6, 504330.31 4360854.66, 504330.2 4360866.12))",
+        "attrs": {
+          "Building@id": "ES.SDGC.BU.4410213WJ0641S",
+          "beginLifespanVersion": "2001-10-09T00:00:00",
+          "conditionOfConstruction": "functional",
+          "beginning": "1995-01-01T00:00:00",
+          "end": "1995-01-01T00:00:00",
+          "endLifespanVersion@nilReason": "other:unpopulated",
+          "informationSystem": "https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?rc1=4410213&rc2=WJ0641S",
+          "reference": "4410213WJ0641S",
+          "localId": "4410213WJ0641S",
+          "namespace": "ES.SDGC.BU",
+          "addresses@href": "http://ovc.catastro.meh.es/INSPIRE/wfsAD.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetadByRefcat&refcat=4410213WJ0641S&srsname=EPSG::25830",
+          "cadastralParcels@href": "http://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=wfs&version=2&request=GetFeature&STOREDQUERIE_ID=GetParcel&refcat=4410213WJ0641S&srsname=EPSG::25830",
+          "horizontalGeometryEstimatedAccuracy": "0.1",
+          "horizontalGeometryReference": "footPrint",
+          "referenceGeometry": "true",
+          "currentUse": "3_industrial",
+          "numberOfBuildingUnits": "1",
+          "numberOfDwellings": "0",
+          "numberOfFloorsAboveGround@nilReason": "other:unpopulated",
+          "documentLink": "http://ovc.catastro.meh.es/OVCServWeb/OVCWcfLibres/OVCFotoFachada.svc/RecuperarFotoFachadaGet?ReferenciaCatastral=4410213WJ0641S",
+          "format": "jpeg",
+          "sourceStatus": "NotOfficial",
+          "officialAreaReference": "grossFloorArea",
+          "value": "188"
+        }
+      }
+    ],
+    "floors": [
+      {
+        "nivel": 0,
+        "planta": "PB",
+        "area_m2": 191.5,
+        "usos": {
+          "VIVIENDA": 165.0,
+          "ALMACEN": 27.0
+        },
+        "uso_dominante": "VIVIENDA",
+        "confidence": 0.43,
+        "nota": "varios usos en la misma planta (VIVIENDA 165 m2, ALMACEN 27 m2): Catastro no dice que poligono es cada uno"
+      },
+      {
+        "nivel": 1,
+        "planta": "P1",
+        "area_m2": 74.18,
+        "usos": {
+          "ALMACEN": 74.0
+        },
+        "uso_dominante": "ALMACEN",
+        "confidence": 0.85,
+        "nota": "unico uso declarado en la planta"
+      }
+    ],
+    "spaces": [
+      {
+        "source": "CATASTRO_OVC_JSON",
+        "original_id": null,
+        "area": 165.0,
+        "use": "VIVIENDA",
+        "floor": 0,
+        "confidence": 1.0,
+        "geometry_wkt": null,
+        "attrs": {
+          "uso_literal": "VIVIENDA",
+          "planta_literal": "00",
+          "escalera": "1",
+          "puerta": "01",
+          "habitable": true,
+          "geometria": "NO DISPONIBLE en los servicios publicos de Catastro"
+        }
+      },
+      {
+        "source": "CATASTRO_OVC_JSON",
+        "original_id": null,
+        "area": 27.0,
+        "use": "ALMACEN",
+        "floor": 0,
+        "confidence": 1.0,
+        "geometry_wkt": null,
+        "attrs": {
+          "uso_literal": "ALMACEN",
+          "planta_literal": "00",
+          "escalera": "1",
+          "puerta": "02",
+          "habitable": false,
+          "geometria": "NO DISPONIBLE en los servicios publicos de Catastro"
+        }
+      },
+      {
+        "source": "CATASTRO_OVC_JSON",
+        "original_id": null,
+        "area": 74.0,
+        "use": "ALMACEN",
+        "floor": 1,
+        "confidence": 1.0,
+        "geometry_wkt": null,
+        "attrs": {
+          "uso_literal": "ALMACEN",
+          "planta_literal": "01",
+          "escalera": "1",
+          "puerta": "01",
+          "habitable": false,
+          "geometria": "NO DISPONIBLE en los servicios publicos de Catastro"
+        }
+      }
+    ],
+    "catastro": {
+      "cliente": "WCF JSON + INSPIRE WFS",
+      "stored_queries_CP": {
+        "descubrimiento": "DescribeStoredQueries",
+        "ids": [
+          "GetFeatureById",
+          "GetNeighbourParcel",
+          "GetParcel",
+          "GetParcelByZoning",
+          "GetZoning"
+        ]
+      },
+      "stored_queries_BU": {
+        "descubrimiento": "DescribeStoredQueries",
+        "ids": [
+          "GetAllConstructionByParcel",
+          "GetBuildingByParcel",
+          "GetBuildingPartByParcel",
+          "GetFeatureById",
+          "GetOtherBuildingByParcel"
+        ]
+      },
+      "parcelas_colindantes": [
+        "4410203WJ0641S",
+        "4410202WJ0641S",
+        "4410216WJ0641S",
+        "4410214WJ0641S",
+        "4410213WJ0641S"
+      ],
+      "inmueble": {
+        "refcat": "4410205WJ0641S0001JH",
+        "uso_principal": "VIVIENDA",
+        "superficie_m2": 266.0,
+        "antiguedad": 1994,
+        "direccion": "CL MEJICO 4, PEDRO MUÑOZ, CIUDAD REAL",
+        "unidades": [
+          {
+            "uso": "VIVIENDA",
+            "uso_literal": "VIVIENDA",
+            "planta": 0,
+            "planta_literal": "00",
+            "escalera": "1",
+            "puerta": "01",
+            "superficie_m2": 165.0,
+            "tipo_reforma": null,
+            "habitable": true
+          },
+          {
+            "uso": "ALMACEN",
+            "uso_literal": "ALMACEN",
+            "planta": 0,
+            "planta_literal": "00",
+            "escalera": "1",
+            "puerta": "02",
+            "superficie_m2": 27.0,
+            "tipo_reforma": null,
+            "habitable": false
+          },
+          {
+            "uso": "ALMACEN",
+            "uso_literal": "ALMACEN",
+            "planta": 1,
+            "planta_literal": "01",
+            "escalera": "1",
+            "puerta": "01",
+            "superficie_m2": 74.0,
+            "tipo_reforma": null,
+            "habitable": false
+          }
+        ],
+        "superficie_por_uso": {
+          "VIVIENDA": 165.0,
+          "ALMACEN": 101.0
+        },
+        "usos_por_planta": {
+          "0": {
+            "VIVIENDA": 165.0,
+            "ALMACEN": 27.0
+          },
+          "1": {
+            "ALMACEN": 74.0
+          }
+        },
+        "inmuebles_parcela": [],
+        "aviso": null
+      },
+      "traza_http": [
+        {
+          "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&request=GetCapabilities",
+          "status": null,
+          "bytes": 14510,
+          "from_cache": true,
+          "seconds": 0.0,
+          "error": null
+        },
+        {
+          "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=DescribeStoredQueries",
+          "status": null,
+          "bytes": 6925,
+          "from_cache": true,
+          "seconds": 0.0,
+          "error": null
+        },
+        {
+          "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&request=GetCapabilities",
+          "status": null,
+          "bytes": 16182,
+          "from_cache": true,
+          "seconds": 0.0,
+          "error": null
+        },
+        {
+          "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=DescribeStoredQueries",
+          "status": null,
+          "bytes": 5429,
+          "from_cache": true,
+          "seconds": 0.0,
+          "error": null
+        },
+        {
+          "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetParcel&REFCAT=4410205WJ0641S&srsname=EPSG%3A%3A25830",
+          "status": null,
+          "bytes": 2796,
+          "from_cache": true,
+          "seconds": 0.0,
+          "error": null
+        },
+        {
+          "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingByParcel&REFCAT=4410205WJ0641S&srsname=EPSG%3A%3A25830",
+          "status": null,
+          "bytes": 6051,
+          "from_cache": true,
+          "seconds": 0.0,
+          "error": null
+        },
+        {
+          "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingPartByParcel&REFCAT=4410205WJ0641S&srsname=EPSG%3A%3A25830",
+          "status": null,
+          "bytes": 8908,
+          "from_cache": true,
+          "seconds": 0.0,
+          "error": null
+        },
+        {
+          "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetNeighbourParcel&REFCAT=4410205WJ0641S&srsname=EPSG%3A%3A25830",
+          "status": null,
+          "bytes": 12682,
+          "from_cache": true,
+          "seconds": 0.0,
+          "error": null
+        },
+        {
+          "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingByParcel&REFCAT=4410203WJ0641S&srsname=EPSG%3A%3A25830",
+          "status": null,
+          "bytes": 5873,
+          "from_cache": true,
+          "seconds": 0.0,
+          "error": null
+        },
+        {
+          "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingPartByParcel&REFCAT=4410203WJ0641S&srsname=EPSG%3A%3A25830",
+          "status": null,
+          "bytes": 6423,
+          "from_cache": true,
+          "seconds": 0.0,
+          "error": null
+        },
+        {
+          "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingByParcel&REFCAT=4410202WJ0641S&srsname=EPSG%3A%3A25830",
+          "status": null,
+          "bytes": 5799,
+          "from_cache": true,
+          "seconds": 0.0,
+          "error": null
+        },
+        {
+          "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingPartByParcel&REFCAT=4410202WJ0641S&srsname=EPSG%3A%3A25830",
+          "status": null,
+          "bytes": 3925,
+          "from_cache": true,
+          "seconds": 0.0,
+          "error": null
+        },
+        {
+          "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingByParcel&REFCAT=4410216WJ0641S&srsname=EPSG%3A%3A25830",
+          "status": null,
+          "bytes": 1497,
+          "from_cache": true,
+          "seconds": 0.0,
+          "error": null
+        },
+        {
+          "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingPartByParcel&REFCAT=4410216WJ0641S&srsname=EPSG%3A%3A25830",
+          "status": null,
+          "bytes": 1497,
+          "from_cache": true,
+          "seconds": 0.0,
+          "error": null
+        },
+        {
+          "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingByParcel&REFCAT=4410214WJ0641S&srsname=EPSG%3A%3A25830",
+          "status": null,
+          "bytes": 1497,
+          "from_cache": true,
+          "seconds": 0.0,
+          "error": null
+        },
+        {
+          "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingPartByParcel&REFCAT=4410214WJ0641S&srsname=EPSG%3A%3A25830",
+          "status": null,
+          "bytes": 1497,
+          "from_cache": true,
+          "seconds": 0.0,
+          "error": null
+        },
+        {
+          "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingByParcel&REFCAT=4410213WJ0641S&srsname=EPSG%3A%3A25830",
+          "status": null,
+          "bytes": 5834,
+          "from_cache": true,
+          "seconds": 0.0,
+          "error": null
+        },
+        {
+          "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx?service=WFS&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetBuildingPartByParcel&REFCAT=4410213WJ0641S&srsname=EPSG%3A%3A25830",
+          "status": null,
+          "bytes": 3963,
+          "from_cache": true,
+          "seconds": 0.0,
+          "error": null
+        },
+        {
+          "url": "https://ovc.catastro.meh.es/OVCServWeb/OVCWcfCallejero/COVCCallejero.svc/json/Consulta_DNPRC?Provincia=&Municipio=&RefCat=4410205WJ0641S0001JH",
+          "status": null,
+          "bytes": 1245,
+          "from_cache": true,
+          "seconds": 0.0,
+          "error": null
+        }
+      ],
+      "cruce_superficies": [
+        {
+          "planta": "PB",
+          "huella_m2": 191.5,
+          "catastro_m2": 192.0,
+          "desvio": 0.003
+        },
+        {
+          "planta": "P1",
+          "huella_m2": 74.18,
+          "catastro_m2": 74.0,
+          "desvio": 0.002
+        }
+      ],
+      "patios": {
+        "huecos_interiores": [],
+        "espacios_libres_parcela": [
+          {
+            "area_m2": 18.29,
+            "cerramiento": 0.79,
+            "es_patio": true
+          },
+          {
+            "area_m2": 8.94,
+            "cerramiento": 0.951,
+            "es_patio": true
+          }
+        ]
+      }
+    },
+    "diagnostics": {
+      "codes": [
+        "SPACE_GEOMETRY_UNAVAILABLE"
+      ],
+      "messages": [
+        "SPACE_GEOMETRY_UNAVAILABLE: Catastro da uso/planta/superficie de cada unidad constructiva pero NO su poligono. Aporta el DXF de la parcela con --dxf para repartirlo."
+      ]
+    }
+  },
+  "resumen": {
+    "total": 29,
+    "por_tipo": {
+      "FACHADA": 21,
+      "MEDIANERA": 3,
+      "SUELO": 1,
+      "CUBIERTA": 2,
+      "PARTICION_INTERIOR_HORIZONTAL": 2
+    },
+    "revision": 26,
+    "superficie_por_tipo_m2": {
+      "FACHADA": 284.17,
+      "MEDIANERA": 47.44,
+      "SUELO": 191.5,
+      "CUBIERTA": 191.5,
+      "PARTICION_INTERIOR_HORIZONTAL": 148.36
+    }
+  },
+  "elementos": [
+    {
+      "id": "F01",
+      "planta": "PB",
+      "nivel": 0,
+      "tipo": "FACHADA",
+      "subtipo": "CALLE",
+      "contacto": "EXTERIOR_CALLE",
+      "espacio_origen": "VIVIENDA",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": "E",
+      "azimut": 101.84,
+      "largo": {
+        "value": 6.53,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "6.53 x 2.70",
+      "superficie": {
+        "value": 17.63,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "fuera de la parcela | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "PB-S001",
+      "geometria_wkt": "LINESTRING (504351.44 4360840.49, 504352.78 4360846.88)"
+    },
+    {
+      "id": "F02",
+      "planta": "PB",
+      "nivel": 0,
+      "tipo": "FACHADA",
+      "subtipo": "PATIO",
+      "contacto": "PATIO_PARCELA",
+      "espacio_origen": "VIVIENDA",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": "N",
+      "azimut": 0.0,
+      "largo": {
+        "value": 4.36,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "4.36 x 2.70",
+      "superficie": {
+        "value": 11.77,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "patio: el 79% de su borde lo forman edificios | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "PB-S002",
+      "geometria_wkt": "LINESTRING (504352.78 4360846.88, 504348.42 4360846.88)"
+    },
+    {
+      "id": "F03",
+      "planta": "PB",
+      "nivel": 0,
+      "tipo": "FACHADA",
+      "subtipo": "PATIO",
+      "contacto": "PATIO_PARCELA",
+      "espacio_origen": "VIVIENDA",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": "E",
+      "azimut": 90.0,
+      "largo": {
+        "value": 3.82,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "3.82 x 2.70",
+      "superficie": {
+        "value": 10.31,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "patio: el 79% de su borde lo forman edificios | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "PB-S003",
+      "geometria_wkt": "LINESTRING (504348.42 4360846.88, 504348.42 4360850.7)"
+    },
+    {
+      "id": "F04",
+      "planta": "PB",
+      "nivel": 0,
+      "tipo": "FACHADA",
+      "subtipo": "PATIO",
+      "contacto": "PATIO_PARCELA",
+      "espacio_origen": "VIVIENDA",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": "S",
+      "azimut": 179.56,
+      "largo": {
+        "value": 5.17,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "5.17 x 2.70",
+      "superficie": {
+        "value": 13.96,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "patio: el 79% de su borde lo forman edificios | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "PB-S005",
+      "geometria_wkt": "LINESTRING (504348.42 4360850.7, 504353.59 4360850.74)"
+    },
+    {
+      "id": "F05",
+      "planta": "PB",
+      "nivel": 0,
+      "tipo": "FACHADA",
+      "subtipo": "CALLE",
+      "contacto": "EXTERIOR_CALLE",
+      "espacio_origen": "VIVIENDA",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": "E",
+      "azimut": 101.96,
+      "largo": {
+        "value": 4.34,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "4.34 x 2.70",
+      "superficie": {
+        "value": 11.73,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "fuera de la parcela | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "PB-S006",
+      "geometria_wkt": "LINESTRING (504353.59 4360850.74, 504354.49 4360854.99)"
+    },
+    {
+      "id": "M01",
+      "planta": "PB",
+      "nivel": 0,
+      "tipo": "MEDIANERA",
+      "subtipo": "EDIFICIO_COLINDANTE",
+      "contacto": "OTHER_BUILDING",
+      "espacio_origen": "VIVIENDA",
+      "espacio_destino": "EDIFICIO_VECINO",
+      "orientacion": "N",
+      "azimut": 1.47,
+      "largo": {
+        "value": 9.05,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "9.05 x 2.70",
+      "superficie": {
+        "value": 24.44,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "coincide con la huella de un edificio colindante | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "PB-S007",
+      "geometria_wkt": "LINESTRING (504354.49 4360854.99, 504345.44 4360855.22)"
+    },
+    {
+      "id": "M02",
+      "planta": "PB",
+      "nivel": 0,
+      "tipo": "MEDIANERA",
+      "subtipo": "EDIFICIO_COLINDANTE",
+      "contacto": "OTHER_BUILDING",
+      "espacio_origen": "VIVIENDA",
+      "espacio_destino": "EDIFICIO_VECINO",
+      "orientacion": "O",
+      "azimut": 281.04,
+      "largo": {
+        "value": 0.84,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "0.84 x 2.70",
+      "superficie": {
+        "value": 2.26,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "coincide con la huella de un edificio colindante | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "PB-S009",
+      "geometria_wkt": "LINESTRING (504345.44 4360855.22, 504345.28 4360854.4)"
+    },
+    {
+      "id": "M03",
+      "planta": "PB",
+      "nivel": 0,
+      "tipo": "MEDIANERA",
+      "subtipo": "EDIFICIO_COLINDANTE",
+      "contacto": "OTHER_BUILDING",
+      "espacio_origen": "VIVIENDA",
+      "espacio_destino": "EDIFICIO_VECINO",
+      "orientacion": "N",
+      "azimut": 1.01,
+      "largo": {
+        "value": 7.68,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "7.68 x 2.70",
+      "superficie": {
+        "value": 20.74,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "coincide con la huella de un edificio colindante | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "PB-S010",
+      "geometria_wkt": "LINESTRING (504345.28 4360854.4, 504337.6 4360854.54)"
+    },
+    {
+      "id": "F06",
+      "planta": "PB",
+      "nivel": 0,
+      "tipo": "FACHADA",
+      "subtipo": "CALLE",
+      "contacto": "EXTERIOR_CALLE",
+      "espacio_origen": "VIVIENDA",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": "O",
+      "azimut": 271.25,
+      "largo": {
+        "value": 3.2,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "3.20 x 2.70",
+      "superficie": {
+        "value": 8.64,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "fuera de la parcela | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "PB-S012",
+      "geometria_wkt": "LINESTRING (504337.6 4360854.54, 504337.53 4360851.34)"
+    },
+    {
+      "id": "F07",
+      "planta": "PB",
+      "nivel": 0,
+      "tipo": "FACHADA",
+      "subtipo": "PATIO",
+      "contacto": "PATIO_PARCELA",
+      "espacio_origen": "VIVIENDA",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": "S",
+      "azimut": 180.0,
+      "largo": {
+        "value": 4.3,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "4.30 x 2.70",
+      "superficie": {
+        "value": 11.61,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "patio: el 95% de su borde lo forman edificios | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "PB-S013",
+      "geometria_wkt": "LINESTRING (504337.53 4360851.34, 504341.83 4360851.34)"
+    },
+    {
+      "id": "F08",
+      "planta": "PB",
+      "nivel": 0,
+      "tipo": "FACHADA",
+      "subtipo": "PATIO",
+      "contacto": "PATIO_PARCELA",
+      "espacio_origen": "VIVIENDA",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": "O",
+      "azimut": 270.0,
+      "largo": {
+        "value": 2.06,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "2.06 x 2.70",
+      "superficie": {
+        "value": 5.56,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "patio: el 95% de su borde lo forman edificios | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "PB-S014",
+      "geometria_wkt": "LINESTRING (504341.83 4360851.34, 504341.83 4360849.28)"
+    },
+    {
+      "id": "F09",
+      "planta": "PB",
+      "nivel": 0,
+      "tipo": "FACHADA",
+      "subtipo": "PATIO",
+      "contacto": "PATIO_PARCELA",
+      "espacio_origen": "VIVIENDA",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": "N",
+      "azimut": 0.0,
+      "largo": {
+        "value": 4.35,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "4.35 x 2.70",
+      "superficie": {
+        "value": 11.74,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "patio: el 95% de su borde lo forman edificios | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "PB-S015",
+      "geometria_wkt": "LINESTRING (504341.83 4360849.28, 504337.48 4360849.28)"
+    },
+    {
+      "id": "F10",
+      "planta": "PB",
+      "nivel": 0,
+      "tipo": "FACHADA",
+      "subtipo": "CALLE",
+      "contacto": "EXTERIOR_CALLE",
+      "espacio_origen": "VIVIENDA",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": "O",
+      "azimut": 271.1,
+      "largo": {
+        "value": 8.34,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "8.34 x 2.70",
+      "superficie": {
+        "value": 22.52,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "fuera de la parcela | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "PB-S016",
+      "geometria_wkt": "LINESTRING (504337.48 4360849.28, 504337.32 4360840.94)"
+    },
+    {
+      "id": "F11",
+      "planta": "PB",
+      "nivel": 0,
+      "tipo": "FACHADA",
+      "subtipo": "CALLE",
+      "contacto": "EXTERIOR_CALLE",
+      "espacio_origen": "VIVIENDA",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": "S",
+      "azimut": 181.84,
+      "largo": {
+        "value": 14.13,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "14.13 x 2.70",
+      "superficie": {
+        "value": 38.14,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "fuera de la parcela | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "PB-S017",
+      "geometria_wkt": "LINESTRING (504337.32 4360840.94, 504351.44 4360840.49)"
+    },
+    {
+      "id": "F12",
+      "planta": "P1",
+      "nivel": 1,
+      "tipo": "FACHADA",
+      "subtipo": "PATIO",
+      "contacto": "PATIO_PARCELA",
+      "espacio_origen": "ALMACEN",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": "S",
+      "azimut": 180.0,
+      "largo": {
+        "value": 4.3,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "4.30 x 2.70",
+      "superficie": {
+        "value": 11.61,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "patio: el 95% de su borde lo forman edificios | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "P1-S001",
+      "geometria_wkt": "LINESTRING (504337.53 4360851.34, 504341.83 4360851.34)"
+    },
+    {
+      "id": "F13",
+      "planta": "P1",
+      "nivel": 1,
+      "tipo": "FACHADA",
+      "subtipo": "PATIO",
+      "contacto": "PATIO_PARCELA",
+      "espacio_origen": "ALMACEN",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": "O",
+      "azimut": 270.0,
+      "largo": {
+        "value": 2.06,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "2.06 x 2.70",
+      "superficie": {
+        "value": 5.56,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "patio: el 95% de su borde lo forman edificios | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "P1-S002",
+      "geometria_wkt": "LINESTRING (504341.83 4360851.34, 504341.83 4360849.28)"
+    },
+    {
+      "id": "F14",
+      "planta": "P1",
+      "nivel": 1,
+      "tipo": "FACHADA",
+      "subtipo": "SOBRE_CUBIERTA_INFERIOR",
+      "contacto": "EXTERIOR_SOBRE_CUBIERTA",
+      "espacio_origen": "ALMACEN",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": "S",
+      "azimut": 180.0,
+      "largo": {
+        "value": 6.59,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "6.59 x 2.70",
+      "superficie": {
+        "value": 17.79,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "da al aire exterior, levantado sobre la cubierta de la planta inferior | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "P1-S003",
+      "geometria_wkt": "LINESTRING (504341.83 4360849.28, 504348.42 4360849.28)"
+    },
+    {
+      "id": "F15",
+      "planta": "P1",
+      "nivel": 1,
+      "tipo": "FACHADA",
+      "subtipo": "PATIO",
+      "contacto": "PATIO_PARCELA",
+      "espacio_origen": "ALMACEN",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": "E",
+      "azimut": 90.0,
+      "largo": {
+        "value": 1.42,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "1.42 x 2.70",
+      "superficie": {
+        "value": 3.83,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "patio: el 79% de su borde lo forman edificios | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "P1-S004",
+      "geometria_wkt": "LINESTRING (504348.42 4360849.28, 504348.42 4360850.7)"
+    },
+    {
+      "id": "F16",
+      "planta": "P1",
+      "nivel": 1,
+      "tipo": "FACHADA",
+      "subtipo": "PATIO",
+      "contacto": "PATIO_PARCELA",
+      "espacio_origen": "ALMACEN",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": "S",
+      "azimut": 179.56,
+      "largo": {
+        "value": 5.17,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "5.17 x 2.70",
+      "superficie": {
+        "value": 13.96,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "patio: el 79% de su borde lo forman edificios | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "P1-S005",
+      "geometria_wkt": "LINESTRING (504348.42 4360850.7, 504353.59 4360850.74)"
+    },
+    {
+      "id": "F17",
+      "planta": "P1",
+      "nivel": 1,
+      "tipo": "FACHADA",
+      "subtipo": "CALLE",
+      "contacto": "EXTERIOR_CALLE",
+      "espacio_origen": "ALMACEN",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": "E",
+      "azimut": 101.96,
+      "largo": {
+        "value": 4.34,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "4.34 x 2.70",
+      "superficie": {
+        "value": 11.73,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "fuera de la parcela | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "P1-S006",
+      "geometria_wkt": "LINESTRING (504353.59 4360850.74, 504354.49 4360854.99)"
+    },
+    {
+      "id": "F18",
+      "planta": "P1",
+      "nivel": 1,
+      "tipo": "FACHADA",
+      "subtipo": "SOBRE_CUBIERTA_COLINDANTE",
+      "contacto": "EXTERIOR_SOBRE_VECINO",
+      "espacio_origen": "ALMACEN",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": "N",
+      "azimut": 1.47,
+      "largo": {
+        "value": 9.05,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "9.05 x 2.70",
+      "superficie": {
+        "value": 24.44,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "da al aire exterior, sobre la cubierta del edificio colindante (no llega a esta planta) | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "P1-S007",
+      "geometria_wkt": "LINESTRING (504354.49 4360854.99, 504345.44 4360855.22)"
+    },
+    {
+      "id": "F19",
+      "planta": "P1",
+      "nivel": 1,
+      "tipo": "FACHADA",
+      "subtipo": "SOBRE_CUBIERTA_COLINDANTE",
+      "contacto": "EXTERIOR_SOBRE_VECINO",
+      "espacio_origen": "ALMACEN",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": "O",
+      "azimut": 281.04,
+      "largo": {
+        "value": 0.84,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "0.84 x 2.70",
+      "superficie": {
+        "value": 2.26,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "da al aire exterior, sobre la cubierta del edificio colindante (no llega a esta planta) | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "P1-S009",
+      "geometria_wkt": "LINESTRING (504345.44 4360855.22, 504345.28 4360854.4)"
+    },
+    {
+      "id": "F20",
+      "planta": "P1",
+      "nivel": 1,
+      "tipo": "FACHADA",
+      "subtipo": "SOBRE_CUBIERTA_COLINDANTE",
+      "contacto": "EXTERIOR_SOBRE_VECINO",
+      "espacio_origen": "ALMACEN",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": "N",
+      "azimut": 1.01,
+      "largo": {
+        "value": 7.68,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "7.68 x 2.70",
+      "superficie": {
+        "value": 20.74,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "da al aire exterior, sobre la cubierta del edificio colindante (no llega a esta planta) | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "P1-S010",
+      "geometria_wkt": "LINESTRING (504345.28 4360854.4, 504337.6 4360854.54)"
+    },
+    {
+      "id": "F21",
+      "planta": "P1",
+      "nivel": 1,
+      "tipo": "FACHADA",
+      "subtipo": "CALLE",
+      "contacto": "EXTERIOR_CALLE",
+      "espacio_origen": "ALMACEN",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": "O",
+      "azimut": 271.25,
+      "largo": {
+        "value": 3.2,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 1.0,
+        "evidence_type": "MEASURED",
+        "note": "longitud del segmento de la huella catastral"
+      },
+      "alto": {
+        "value": 2.7,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "MANUAL",
+        "note": "valor dado con --floor-height"
+      },
+      "largo_x_alto": "3.20 x 2.70",
+      "superficie": {
+        "value": 8.64,
+        "source": "USER_INPUT",
+        "confidence": 0.5,
+        "evidence_type": "COMPUTED",
+        "note": "largo x alto (bruta, sin descontar huecos)"
+      },
+      "confianza": 0.5,
+      "requiere_revision": true,
+      "nota": "fuera de la parcela | ALTO NO MEDIDO (valor dado con --floor-height): la superficie es provisional",
+      "ring": "exterior",
+      "segmento_origen": "P1-S012",
+      "geometria_wkt": "LINESTRING (504337.6 4360854.54, 504337.53 4360851.34)"
+    },
+    {
+      "id": "SU01",
+      "planta": "PB",
+      "nivel": 0,
+      "tipo": "SUELO",
+      "subtipo": "TERRENO",
+      "contacto": "TERRENO",
+      "espacio_origen": "VIVIENDA",
+      "espacio_destino": "TERRENO",
+      "orientacion": null,
+      "azimut": null,
+      "largo": {
+        "value": null,
+        "source": "UNAVAILABLE",
+        "confidence": 0.0,
+        "evidence_type": "INFERRED",
+        "note": "elemento horizontal: no aplica largo x alto"
+      },
+      "alto": {
+        "value": null,
+        "source": "UNAVAILABLE",
+        "confidence": 0.0,
+        "evidence_type": "INFERRED",
+        "note": "elemento horizontal: no aplica largo x alto"
+      },
+      "largo_x_alto": "",
+      "superficie": {
+        "value": 191.5,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 0.85,
+        "evidence_type": "COMPUTED",
+        "note": "area del poligono resultante de la interseccion vertical"
+      },
+      "confianza": 0.85,
+      "requiere_revision": false,
+      "nota": "no hay planta construida debajo",
+      "ring": null,
+      "segmento_origen": null,
+      "geometria_wkt": "POLYGON ((504351.44 4360840.49, 504347.93 4360840.6, 504337.32 4360840.94, 504337.48 4360849.28, 504341.83 4360849.28, 504341.83 4360851.34, 504337.53 4360851.34, 504337.6 4360854.54, 504341.87 4360854.46, 504345.28 4360854.4, 504345.44 4360855.22, 504347.85 4360855.16, 504354.49 4360854.99, 504353.59 4360850.74, 504348.42 4360850.7, 504348.42 4360849.28, 504348.42 4360846.88, 504352.78 4360846.88, 504351.44 4360840.49))",
+      "extra": {
+        "relevante_ce3x": true
+      }
+    },
+    {
+      "id": "CU01",
+      "planta": "PB",
+      "nivel": 0,
+      "tipo": "CUBIERTA",
+      "subtipo": "AIRE_EXTERIOR",
+      "contacto": "AIRE_EXTERIOR",
+      "espacio_origen": "VIVIENDA",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": null,
+      "azimut": null,
+      "largo": {
+        "value": null,
+        "source": "UNAVAILABLE",
+        "confidence": 0.0,
+        "evidence_type": "INFERRED",
+        "note": "elemento horizontal: no aplica largo x alto"
+      },
+      "alto": {
+        "value": null,
+        "source": "UNAVAILABLE",
+        "confidence": 0.0,
+        "evidence_type": "INFERRED",
+        "note": "elemento horizontal: no aplica largo x alto"
+      },
+      "largo_x_alto": "",
+      "superficie": {
+        "value": 117.32,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 0.85,
+        "evidence_type": "COMPUTED",
+        "note": "area del poligono resultante de la interseccion vertical"
+      },
+      "confianza": 0.85,
+      "requiere_revision": false,
+      "nota": "la planta P1 no cubre esta parte",
+      "ring": null,
+      "segmento_origen": null,
+      "geometria_wkt": "POLYGON ((504347.93 4360840.6, 504337.32 4360840.94, 504337.48 4360849.28, 504341.83 4360849.28, 504348.42 4360849.28, 504348.42 4360846.88, 504352.78 4360846.88, 504351.44 4360840.49, 504347.93 4360840.6))",
+      "extra": {
+        "relevante_ce3x": true
+      }
+    },
+    {
+      "id": "PH01",
+      "planta": "PB",
+      "nivel": 0,
+      "tipo": "PARTICION_INTERIOR_HORIZONTAL",
+      "subtipo": "ESPACIO_NO_HABITABLE_SUPERIOR",
+      "contacto": "ESPACIO_NO_HABITABLE_SUPERIOR",
+      "espacio_origen": "VIVIENDA",
+      "espacio_destino": "ALMACEN",
+      "orientacion": null,
+      "azimut": null,
+      "largo": {
+        "value": null,
+        "source": "UNAVAILABLE",
+        "confidence": 0.0,
+        "evidence_type": "INFERRED",
+        "note": "elemento horizontal: no aplica largo x alto"
+      },
+      "alto": {
+        "value": null,
+        "source": "UNAVAILABLE",
+        "confidence": 0.0,
+        "evidence_type": "INFERRED",
+        "note": "elemento horizontal: no aplica largo x alto"
+      },
+      "largo_x_alto": "",
+      "superficie": {
+        "value": 74.18,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 0.43,
+        "evidence_type": "COMPUTED",
+        "note": "area del poligono resultante de la interseccion vertical"
+      },
+      "confianza": 0.43,
+      "requiere_revision": true,
+      "nota": "techo de PB bajo P1",
+      "ring": null,
+      "segmento_origen": null,
+      "geometria_wkt": "POLYGON ((504341.83 4360851.34, 504337.53 4360851.34, 504337.6 4360854.54, 504341.87 4360854.46, 504345.28 4360854.4, 504345.44 4360855.22, 504347.85 4360855.16, 504354.49 4360854.99, 504353.59 4360850.74, 504348.42 4360850.7, 504348.42 4360849.28, 504341.83 4360849.28, 504341.83 4360851.34))",
+      "extra": {
+        "relevante_ce3x": true
+      }
+    },
+    {
+      "id": "PH02",
+      "planta": "P1",
+      "nivel": 1,
+      "tipo": "PARTICION_INTERIOR_HORIZONTAL",
+      "subtipo": "ENTRE_PLANTAS",
+      "contacto": "ENTRE_PLANTAS",
+      "espacio_origen": "ALMACEN",
+      "espacio_destino": "VIVIENDA",
+      "orientacion": null,
+      "azimut": null,
+      "largo": {
+        "value": null,
+        "source": "UNAVAILABLE",
+        "confidence": 0.0,
+        "evidence_type": "INFERRED",
+        "note": "elemento horizontal: no aplica largo x alto"
+      },
+      "alto": {
+        "value": null,
+        "source": "UNAVAILABLE",
+        "confidence": 0.0,
+        "evidence_type": "INFERRED",
+        "note": "elemento horizontal: no aplica largo x alto"
+      },
+      "largo_x_alto": "",
+      "superficie": {
+        "value": 74.18,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 0.43,
+        "evidence_type": "COMPUTED",
+        "note": "area del poligono resultante de la interseccion vertical"
+      },
+      "confianza": 0.43,
+      "requiere_revision": true,
+      "nota": "suelo de P1 sobre PB",
+      "ring": null,
+      "segmento_origen": null,
+      "geometria_wkt": "POLYGON ((504337.6 4360854.54, 504341.87 4360854.46, 504345.28 4360854.4, 504345.44 4360855.22, 504347.85 4360855.16, 504354.49 4360854.99, 504353.59 4360850.74, 504348.42 4360850.7, 504348.42 4360849.28, 504341.83 4360849.28, 504341.83 4360851.34, 504337.53 4360851.34, 504337.6 4360854.54))",
+      "extra": {
+        "relevante_ce3x": true
+      }
+    },
+    {
+      "id": "CU02",
+      "planta": "P1",
+      "nivel": 1,
+      "tipo": "CUBIERTA",
+      "subtipo": "AIRE_EXTERIOR",
+      "contacto": "AIRE_EXTERIOR",
+      "espacio_origen": "ALMACEN",
+      "espacio_destino": "EXTERIOR",
+      "orientacion": null,
+      "azimut": null,
+      "largo": {
+        "value": null,
+        "source": "UNAVAILABLE",
+        "confidence": 0.0,
+        "evidence_type": "INFERRED",
+        "note": "elemento horizontal: no aplica largo x alto"
+      },
+      "alto": {
+        "value": null,
+        "source": "UNAVAILABLE",
+        "confidence": 0.0,
+        "evidence_type": "INFERRED",
+        "note": "elemento horizontal: no aplica largo x alto"
+      },
+      "largo_x_alto": "",
+      "superficie": {
+        "value": 74.18,
+        "source": "CATASTRO_WFS_BU",
+        "confidence": 0.85,
+        "evidence_type": "COMPUTED",
+        "note": "area del poligono resultante de la interseccion vertical"
+      },
+      "confianza": 0.85,
+      "requiere_revision": false,
+      "nota": "no hay planta construida encima",
+      "ring": null,
+      "segmento_origen": null,
+      "geometria_wkt": "POLYGON ((504337.53 4360851.34, 504337.6 4360854.54, 504341.87 4360854.46, 504345.28 4360854.4, 504345.44 4360855.22, 504347.85 4360855.16, 504354.49 4360854.99, 504353.59 4360850.74, 504348.42 4360850.7, 504348.42 4360849.28, 504341.83 4360849.28, 504341.83 4360851.34, 504337.53 4360851.34))",
+      "extra": {
+        "relevante_ce3x": true
+      }
+    }
+  ]
+}

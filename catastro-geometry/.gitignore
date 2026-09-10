@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+
+# Directorios de TRABAJO, solo en la raiz. Lo que vale la pena conservar se
+# copia a ejemplos/, que SI se versiona (incluido ejemplos/*/cache).
+/cache/
+/data/
+/output/
+
+# Ficheros de CE3X: llevan dentro nombre y direccion del titular, y telefono y
+# email del tecnico. NO se commitean. Para el banco de pruebas, uno propio y
+# anonimizado, y entonces se añade a mano con `git add -f`.
+*.cex

@@ -1,0 +1,26 @@
+AUTOPRUEBA — GEOMETRIA SINTETICA, NO ES NINGUN INMUEBLE REAL
+============================================================
+
+Estos ficheros NO corresponden a 4410205WJ0641S0001JH ni a ninguna vivienda.
+Salen de tools/make_fixture.py, que fabrica unas respuestas con la MISMA forma
+que las de Catastro para una casa inventada (RC 9999999XX9999X, coordenadas en
+un descampado). Existen por una sola razon: demostrar que el recorrido completo
+funciona de punta a punta y que el resultado es el que se conoce de antemano.
+
+    RC -> "Catastro" -> GML -> geometria -> clasificacion -> CSV/JSON/plano/mapa
+
+Lo que se comprueba aqui (y en tests/test_pipeline.py):
+  * medianera parcial: el vecino del Este ocupa 6 de los 10 m -> 6,00 m de
+    medianera y 4,00 m de fachada, sin que la tolerancia se cuele en la medida;
+  * la vecindad se resuelve POR PLANTA: ese mismo muro, en la planta primera,
+    ya no es medianera porque el vecino solo tiene planta baja;
+  * el patio interior sale como fachada a patio, no como medianera;
+  * vivienda sobre espacio no habitable, cubierta parcial y suelo en terreno;
+  * el alto va marcado como NO MEDIDO, asi que toda superficie de muro sale
+    como provisional y con requiere_revision = true.
+
+Para regenerarlos:
+
+    python tools/make_fixture.py tests/fixtures/sintetico
+    python -m src.main 9999999XX9999X --fixture tests/fixtures/sintetico \
+        --skip-lidar --output output/_autoprueba_sintetica
