@@ -10,3 +10,8 @@ venv/
 /cache/
 /data/
 /output/
+
+# Ficheros de CE3X: llevan dentro nombre y direccion del titular, y telefono y
+# email del tecnico. NO se commitean. Para el banco de pruebas, uno propio y
+# anonimizado, y entonces se añade a mano con `git add -f`.
+*.cex
