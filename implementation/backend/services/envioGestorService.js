@@ -124,8 +124,19 @@ const INDICE = [
       // Respaldo: es donde `guardarDocFirmado` deja las fichas que firma el S.O.
       // Hace falta para los lotes cuyo `documentos_so` se regeneró en un reenvío.
       respaldo: { carpeta: '10. EXPEDIENTE CAE', incluye: ['ficha'], sufijoFdo: true } },
-    { cod: COD_RITE, etiqueta: 'Certificado RITE',                obligatorio: true,  de: 'doc_exp',  campo: 'cert_rite_drive_link',     nombre: 'CERTIFICADO RITE' },
-    { cod: '3-3', etiqueta: 'Facturas de la obra (PDF único)',    obligatorio: true,  de: 'facturas', nombre: 'FACTURAS' },
+    // Respaldo: el certificado está en su carpeta aunque nadie lo haya enlazado en
+    // el expediente (medido en 25RES080_7: el PDF firmado y registrado llevaba meses
+    // ahí y el paquete decía que faltaba). Se excluye la MEMORIA, que vive en la
+    // misma carpeta y es el documento de al lado (regla 27).
+    { cod: COD_RITE, etiqueta: 'Certificado RITE',                obligatorio: true,  de: 'doc_exp',  campo: 'cert_rite_drive_link',     nombre: 'CERTIFICADO RITE',
+      respaldo: { carpeta: '7. LEGALIZACION RITE', incluye: ['certificado'], excluye: ['memoria', '.zip', '_old'], unico: true } },
+    // Respaldo: el PDF único ya generado se llama SIEMPRE "{nº} - FACTURAS.pdf", así
+    // que se reconoce por " - facturas" sin confundirlo con las facturas sueltas de
+    // la misma carpeta. ⚠️ Puede ser ANTERIOR a la última factura registrada — por
+    // eso sale marcado como "sale de un fichero suelto en Drive": si se ha añadido
+    // una factura después, hay que volver a generarlo.
+    { cod: '3-3', etiqueta: 'Facturas de la obra (PDF único)',    obligatorio: true,  de: 'facturas', nombre: 'FACTURAS',
+      respaldo: { carpeta: '5. FACTURAS', incluye: [' - facturas'], excluye: ['_scanned', '_fdo', '_old'], unico: true } },
     { cod: '3-4', etiqueta: 'Anexo fotográfico firmado',          obligatorio: true,  de: 'doc_exp',  campo: 'anexo_fotografico_signed_link', nombre: 'ANEXO FOTOGRAFICO_fdo' },
     { cod: '3-5', etiqueta: 'Certificado de fin de obra (CIFO)',  obligatorio: true,  de: 'cifo',
       // En un RES080 el mismo slot guarda el Certificado de Reforma, que es
@@ -347,6 +358,11 @@ async function buscarEnCarpeta(driveFolderId, respaldo) {
     // sirve de respaldo de un documento que el paquete necesita firmado.
     if (respaldo.sufijoFdo) cand = cand.filter(f => /_fdo\.pdf$/i.test(f.name));
     if (!cand.length) return null;
+    // Con `unico`, DOS candidatos son tan malos como ninguno: quedarse con el
+    // primero es elegir a ojo qué papel viaja al verificador. Se dice que falta y
+    // lo resuelve una persona enlazándolo en el expediente, que además lo arregla
+    // para el lote siguiente.
+    if (respaldo.unico && cand.length > 1) return null;
     return { fileId: cand[0].id, respaldo: true };
 }
 

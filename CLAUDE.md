@@ -3700,6 +3700,22 @@ enseña a ignorar la lista entera. La del HUSO (`5-2`) SÍ avisa —está en los
 RESPONSABLE INVERSION"): el índice del gestor reutiliza ese hueco para lo que haya que
 responder, así que no es "el" 4-7 de nada.
 
+**REGLA — si el documento ESTÁ en Drive, el paquete lo coge** (`respaldo`). Es la
+regla 20 aplicada aquí: un fichero que existe en su carpeta de siempre no puede
+declararse "falta" porque nadie lo enlazara en el expediente. Medido en LOTE-2025-005:
+el **Certificado RITE** de 25RES080_7 llevaba meses en `7. LEGALIZACION RITE` firmado y
+registrado, y el **PDF único de facturas** de otras dos actuaciones estaba generado en
+`5. FACTURAS` — tres de los cinco bloqueos eran enlaces que faltaban, no papeles. El
+RITE excluye la MEMORIA, que vive en la misma carpeta y es el documento de al lado; las
+facturas se reconocen por `" - facturas"`, que es como se llama siempre el combinado.
+
+⚠️ **Con DOS candidatos el respaldo NO elige** (`unico`): quedarse con el primero es
+decidir a ojo qué papel viaja al verificador. Se dice que falta y lo resuelve una
+persona enlazándolo, que además lo deja arreglado para el lote siguiente. Y cuando una
+pieza sale del respaldo el paquete lo DICE ("sale de un fichero suelto en Drive"), que
+es lo que avisa de que el combinado de facturas puede ser anterior a la última factura
+registrada.
+
 **REGLA — una pieza puede NO PROCEDER, y eso no es que falte.** `exigencia()` da tres
 respuestas y la tercera es la que evita los falsos bloqueos. El caso medido: el
 **justificante de registro del CEE inicial** no existe cuando el CEE inicial es una
