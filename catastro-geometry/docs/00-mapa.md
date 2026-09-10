@@ -1,7 +1,12 @@
 # Por dónde empezar
 
 Este proyecto convierte **una referencia catastral** en la **envolvente medida y
-clasificada** de un edificio, lista para teclear en CE3X.
+clasificada** de un edificio.
+
+**Es una ayuda para el CERTIFICADOR, antes de emitir el CEE**: le da lo que no
+puede sacar fácil (qué muro es medianera y hasta qué altura, la orientación
+exacta, patio o calle, las particiones con espacios no habitables) y le deja a
+él lo que mide en la visita (altura libre y huecos).
 
 No calcula nada térmico. Calcula geometría: qué cerramiento es cada cosa, contra
 qué da, cuánto mide y hacia dónde mira.
@@ -23,7 +28,8 @@ RC  →  Catastro  →  geometría  →  clasificación  →  tabla CE3X
 | [07 — Trazabilidad](07-trazabilidad.md) | por qué cada número lleva pegado de dónde sale |
 | [08 — La salida hacia CE3X](08-salida-ce3x.md) | qué columna es cada campo del formulario |
 | [09 — Limitaciones conocidas](09-limitaciones.md) | lo que NO funciona, dicho antes de que te lo encuentres |
-| [10 — Siguientes pasos](10-siguientes-pasos.md) | el plan para depurar unifamiliares, y con qué medirse |
+| [10 — Siguientes pasos](10-siguientes-pasos.md) | el plan, y para quién es esto |
+| [11 — El fichero `.cex` de CE3X](11-el-fichero-cex-de-ce3x.md) | qué hay dentro, y por qué puede cambiar el entregable |
 
 ## Las tres reglas de fondo
 

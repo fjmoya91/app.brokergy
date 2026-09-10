@@ -14,6 +14,23 @@ RC  →  Catastro  →  geometría  →  clasificación  →  tabla CE3X
 No calcula transmitancias ni nada térmico: eso ya se resuelve aparte. Calcula
 **qué cerramiento es cada cosa, contra qué da, cuánto mide y hacia dónde mira**.
 
+## Para quién es — esto decide las prioridades
+
+**Para el CERTIFICADOR, antes de emitir el CEE.** No es auditoría a posteriori.
+
+Le damos lo que **no** puede sacar fácil: qué muro es medianera y **hasta qué
+altura** (hace falta saber cuántas plantas tiene cada colindante), la orientación
+exacta, patio o calle, las particiones con espacios no habitables, y las
+superficies por planta cuadradas contra Catastro.
+
+Lo que **mide él en la visita** —altura libre y huecos— **no se persigue**. Por
+eso el LiDAR y los huecos están despriorizados a propósito.
+
+⚠️ **El `.cex` de CE3X es un pickle de Python** (ver `docs/11`). Si se puede
+escribir, el entregable deja de ser una tabla para teclear y pasa a ser un
+fichero que el certificador abre con la envolvente ya puesta — y entonces
+Computer Use sobra. Es el paso 1 de `docs/10`.
+
 Estado: **funciona sobre viviendas unifamiliares**. Ver `docs/09-limitaciones.md`.
 
 ## Arranque rápido
