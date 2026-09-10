@@ -513,9 +513,13 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
             // Con varios lotes en marcha, mandarlas de una en una son cuatro correos
             // iguales el mismo día — la forma de que no conteste a ninguno. Se dice
             // aquí, que es donde se está decidiendo, y no en una ayuda que nadie abre.
-            + '\n\nSi vas a subir las de varios lotes, dile que NO y mándalas todas en un solo correo'
-            + ' desde el resumen de Lotes: \u201c\u2709 Pedir la firma de las ofertas\u201d.',
-            'Oferta subida', 'success'
+            + '\n\nCon varios lotes en marcha se mandan todas en un solo correo desde el resumen de'
+            + ' Lotes: \u201c\u2709 Pedir la firma de las ofertas\u201d.',
+            'Oferta subida', 'success',
+            // Las palabras de la DECISIÓN, no "Aceptar / Cancelar": aquí *Cancelar*
+            // se lee como deshacer la subida —que es justo lo que no hace— y quien
+            // quería mandarlas juntas no encontraba dónde decir que no.
+            { confirmar: '✉ Enviarla ahora al S.O.', cancelar: 'Ahora no · las mando juntas' }
         );
         if (enviar) setDocAEnviar(r.documento);
     };
@@ -835,7 +839,8 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 `Este paquete ya se generó hace un momento (${generado[modo]} actuaciones).\n\n`
                 + 'Volver a generarlo rehace las carpetas E{n} y sus ZIP con lo que haya AHORA en el expediente.'
                 + ' Tarda unos minutos y no aporta nada si no has cambiado ningún documento desde entonces.',
-                'Volver a generar el paquete', 'warning');
+                'Volver a generar el paquete', 'warning',
+                { confirmar: '↻ Sí, volver a generarlo', cancelar: 'No, déjalo como está' });
             if (!otraVez) { setLectura(informe); return; }
         }
 
