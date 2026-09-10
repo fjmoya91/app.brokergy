@@ -1,0 +1,14 @@
+# Windows: git convierte saltos de linea en ficheros que cree de texto. La cache
+# de los ejemplos es la REFERENCIA contra la que se comprueba todo, asi que tiene
+# que llegar byte a byte igual que la devolvio Catastro.
+ejemplos/**/cache/**   -text -diff
+ejemplos/**/*.gml      text eol=lf
+*.png                  binary
+*.cex                  binary
+
+# El codigo, con saltos LF en el repositorio pase lo que pase
+*.py    text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.toml  text eol=lf
+*.csv   text eol=lf
