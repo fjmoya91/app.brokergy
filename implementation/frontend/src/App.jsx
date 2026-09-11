@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useRef, Suspense } from 'react';
 import axios from 'axios';
 import { CatastroSearchBox } from './components/CatastroSearchBox';
+import { ParcelaCard } from './components/ParcelaCard';
+// Un bloque se simula con el certificado del EDIFICIO: el mismo sembrado que aplica el
+// funnel al aceptar la puerta previa, para que la demanda y la superficie sean las del
+// certificado y no una estimación por envolvente.
+import { seedInputsFromCees } from './features/calculator/logic/ceeSeed';
 import { ConfirmationCard } from './components/ConfirmationCard';
 import { PropertySheet } from './components/PropertySheet';
 import { GeoLocatingOverlay } from './components/GeoLocatingOverlay';
@@ -396,10 +401,18 @@ function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [step]);
 
+  // Una PARCELA con división horizontal no se pinta con PropertySheet: esa ficha describe
+  // UN inmueble (sus construcciones, su planta, su participación) y aquí lo que hay es un
+  // edificio entero. Los tres sitios que abrían la ficha pasan por aquí para no tener que
+  // acordarse de la excepción en cada uno.
+  const mostrarFicha = (data) => {
+    setPropertyData(data);
+    setStep(data?.isParcela ? 'PARCELA' : 'RESULT');
+  };
+
   const checkExistingOpportunity = async (data) => {
     if (!data?.rc) {
-      setPropertyData(data);
-      setStep('RESULT');
+      mostrarFicha(data);
       return;
     }
 
@@ -413,8 +426,7 @@ function App() {
       setShowExistingModal(true);
     } catch (err) {
       // 404 es que no existe, lo tratamos como nueva
-      setPropertyData(data);
-      setStep('RESULT');
+      mostrarFicha(data);
     } finally {
       setLoading(false);
     }
@@ -428,7 +440,10 @@ function App() {
     try {
       const res = await axios.get(`${API_URL}/search`, { params: { q: query } });
 
-      if (res.data.type === 'RC_RESULT') {
+      if (res.data.type === 'RC_RESULT' || res.data.type === 'RC_PARCELA') {
+        // RC_PARCELA es un EDIFICIO completo. Comparte camino con el inmueble — incluido
+        // el aviso de "oportunidad ya existente", que se busca por la misma RC — y solo
+        // cambia la pantalla que se pinta al final (`mostrarFicha`).
         checkExistingOpportunity(res.data.data);
       } else if (res.data.type === 'ADDRESS_CANDIDATES') {
         if (res.data.data.length === 0) {
@@ -447,7 +462,7 @@ function App() {
       let errorMsg = 'No se pudo completar la búsqueda.';
       
       if (code === 'RC_INVALID_FORMAT') {
-        errorMsg = 'La referencia catastral no tiene un formato válido (deben ser 20 caracteres alfanuméricos). Revisa que no falte ningún dígito.';
+        errorMsg = 'La referencia catastral no tiene un formato válido: 20 caracteres si es de una vivienda o local, 14 si es la del edificio o la parcela. Revisa que no falte ningún dígito.';
       } else if (code === 'RC_NOT_FOUND') {
         errorMsg = 'No se ha encontrado ninguna propiedad con esa referencia. Verifica que sea correcta o busca por dirección.';
       } else if (code === 'CATASTRO_TIMEOUT' || details.includes('timeout')) {
@@ -657,6 +672,43 @@ function App() {
     setPendingPropertyData(null);
     setShowExistingModal(false);
     setShowOverwriteConfirm(false);
+  };
+
+  // Abre la calculadora con el EDIFICIO COMPLETO como objeto de la actuación.
+  //
+  // REGLA — del Catastro sale la IDENTIDAD del edificio (dirección, zona, año, cuántas
+  // viviendas), nunca la superficie del cálculo: la del Catastro es CONSTRUIDA y por
+  // inmueble, y la ficha RES060 pide la útil habitable "del edificio o vivienda según
+  // certificado de eficiencia energética". Esa la trae el .xml, y por eso se entra ya en
+  // modo "Cálculo Real": arrancar en estimado invitaría a firmar una demanda inventada
+  // para un edificio, que es justo lo que el certificado da hecho.
+  const handleCalcularBloque = (parcela, cees = null) => {
+    if (!parcela) return;
+    // El CEE que se haya cargado en la puerta previa (`CeePrevioGate`) entra aquí igual
+    // que entra en el funnel: siembra demanda, superficie y el objeto `cee_previo`. Sin
+    // esto, el .xml del edificio se quedaba en la puerta y había que volver a subirlo.
+    const semillaCee = (cees?.inicial || cees?.final)
+      ? seedInputsFromCees({ inicial: cees.inicial || null, final: cees.final || null, inputs: {} })
+      : {};
+    handleOpenCalculator({
+      ...semillaCee,
+      rc: parcela.rc,
+      tipoInmueble: 'bloque',
+      // El nº de viviendas del Catastro es la mejor semilla para repartir la deducción
+      // del IRPF entre propietarios; se puede corregir en la calculadora.
+      numViviendas: parcela.dwellingCount || 0,
+      numOwners: parcela.dwellingCount || 1,
+      anio: parcela.yearBuilt || undefined,
+      zona: parcela.climateInfo?.climateZone || undefined,
+      provincia: parcela.provinceCode || '',
+      direccion: parcela.address || '',
+      refCatastral: parcela.rc,
+      // Un bloque es de la comunidad de propietarios, que tiene CIF: nunca es "piso"
+      // con participación parcial (eso bajaría la deducción al 40 %).
+      tipo: 'unifamiliar',
+      participation: 100,
+      demandMode: 'manual',
+    });
   };
 
   const handleOpenCalculator = (data) => {
@@ -1222,6 +1274,18 @@ function App() {
                   </div>
                 )}
 
+                {step === 'PARCELA' && propertyData?.isParcela && (
+                  <div className="animate-slide-up max-w-4xl mx-auto">
+                    <ParcelaCard
+                      parcela={propertyData}
+                      permiteBloque={isStaffUser}
+                      onCalcularBloque={handleCalcularBloque}
+                      onSelectDwelling={(d) => d?.rc && handleSearch(d.rc)}
+                      onCancel={reset}
+                    />
+                  </div>
+                )}
+
                 {step === 'RESULT' && propertyData && (
                   <div className="animate-slide-up">
                     <button
@@ -1312,6 +1376,11 @@ function App() {
               variant="reforma"
               initialCeeData={ceePrevioData}
               onCancel={closeNewSimulation}
+              // La referencia buscada era la de un EDIFICIO y se ha elegido simularlo
+              // entero: el funnel de preguntas (caldera, emisores, habitaciones) es de
+              // una vivienda y aquí no aplica, así que se sale directo a la calculadora
+              // en modo bloque. La oportunidad se guarda desde ella, como siempre.
+              onBloque={(parcela) => { closeNewSimulation(); handleCalcularBloque(parcela, ceePrevioData); }}
               onCreated={async (opResult) => {
                 newSimulationOpen = false;
                 setShowSearchModal(false);
@@ -1366,8 +1435,7 @@ function App() {
                       setShowExistingModal(false);
                       const inputs = existingOpportunityData.datos_calculo?.inputs || {};
                       setPersistentCalculatorInputs(inputs);
-                      setPropertyData(pendingPropertyData);
-                      setStep('RESULT');
+                      mostrarFicha(pendingPropertyData);
                     }}
                   >
                     Cargar datos existentes
@@ -1396,8 +1464,7 @@ function App() {
                       setShowExistingModal(false);
                       setShowOverwriteConfirm(false);
                       setPersistentCalculatorInputs(null);
-                      setPropertyData(pendingPropertyData);
-                      setStep('RESULT');
+                      mostrarFicha(pendingPropertyData);
                     }}
                   >
                     Sí, sobrescribir datos

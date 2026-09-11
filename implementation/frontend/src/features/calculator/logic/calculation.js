@@ -774,6 +774,17 @@ export function calculateSavings({
     scopHeating = 4.5, // SCOP Nueva Bomba de Calor
     scopAcs = 3.0, // SCOP ACS Nueva
     changeAcs = false, // ¿Se cambia también ACS?
+    // ¿La actuación alcanza la CALEFACCIÓN? Por defecto SÍ: en una vivienda la actuación
+    // ES cambiar la caldera, y con `true` esta función devuelve exactamente lo que
+    // devolvía antes de existir el parámetro.
+    //
+    // En un BLOQUE con caldera centralizada de solo ACS, no. La ficha RES060 lo admite
+    // ("para calefacción Y/O agua caliente sanitaria") y el tratamiento es el SIMÉTRICO
+    // del que el ACS ya tenía: el servicio que queda fuera se calcula DESPUÉS con el
+    // rendimiento de la caldera antigua, así que se cancela contra sí mismo y su ahorro
+    // es cero, sin sacarlo del consumo de partida. No hay una rama nueva ni una fórmula
+    // paralela que pueda divergir de la de siempre.
+    changeHeating = true,
     cb = 1.0 // Coeficiente de bivalencia (1.0 si no es híbrido)
 }) {
     // 1. Energía Final Situación Actual (Old)
@@ -792,8 +803,12 @@ export function calculateSavings({
     const totalFinalEnergyOld = finalEnergyHeatingOld + finalEnergyAcsOld;
 
     // 2. Energía Final Situación Propuesta (New)
-    // Calefacción con Aerotermia
-    const finalEnergyHeatingNew = q_net_heating / scopHeating;
+    // Calefacción con Aerotermia.
+    // Si la calefacción NO entra en la actuación (bloque con caldera centralizada de
+    // solo ACS), la sigue dando la caldera: su rendimiento es el de siempre y el
+    // término se cancela. Mismo mecanismo que `effAcsNew` justo debajo.
+    const effHeatingNew = changeHeating ? scopHeating : boilerEff;
+    const finalEnergyHeatingNew = q_net_heating / effHeatingNew;
 
     // ACS Nueva
     // Si se cambia ACS -> Usamos SCOP ACS
@@ -1448,6 +1463,10 @@ export function calculateFinancials({
     tipo = 'unifamiliar',
     participation = 100, // Porcentaje de participación en la propiedad
     numOwners = 1, // Número de propietarios para dividir la deducción
+    // ¿La actuación es sobre el EDIFICIO completo? Decide la modalidad de la deducción
+    // del IRPF: la de obras en edificios de uso predominantemente residencial (60 %),
+    // que aplica cada propietario sobre la derrama que le repercute la comunidad.
+    esBloque = false,
     discountCertificates = false, // Si Brokergy asume el coste de los certificados
     includeLegalization = false, // Si se incluye el trámite de legalización
     legalizationMode = 'client', // 'client', 'brokergy', 'both'
@@ -1536,7 +1555,11 @@ export function calculateFinancials({
         irpfCap = 9000;
 
         const participationNum = parseFloat(participation) || 100;
-        if (tipo === 'piso' || participationNum < 100) {
+        // Un BLOQUE va SIEMPRE por la modalidad de edificio (60 %): `tipo` y
+        // `participation` describen una vivienda suelta dentro de un inmueble ajeno y
+        // aquí la obra es de la comunidad. Sin esta excepción, una participación
+        // heredada por debajo de 100 la bajaría al 40 % sin que nadie lo decidiera.
+        if (!esBloque && (tipo === 'piso' || participationNum < 100)) {
             irpfRate = 0.40;
             irpfCap = 3000;
         }

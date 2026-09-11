@@ -19,7 +19,14 @@ export function emptyCeeData() {
     identificacion: { direccion: '', municipio: '', provincia: '', cp: '', zona_climatica: '' },
     fecha_certificado: '',
     superficie_habitable_m2: '',
-    demandas: { calefaccion_kwh_m2_ano: '', refrigeracion_kwh_m2_ano: '' },
+    // `TipoDeEdificio` del certificado, en crudo. Es lo que distingue el CEE de una
+    // vivienda del de un BLOQUE COMPLETO; lo interpreta `logic/tipoInmueble.js`.
+    tipo_edificio: '',
+    // La demanda de ACS viaja desde 2026-09-11. Antes se descartaba, asi que un CEE
+    // cargado por la puerta previa llegaba al expediente con D_ACS = 0 aunque el
+    // certificado la declarase --- y en un BLOQUE que solo cambia el ACS es LA cifra
+    // de la que sale todo el ahorro.
+    demandas: { calefaccion_kwh_m2_ano: '', acs_kwh_m2_ano: '', refrigeracion_kwh_m2_ano: '' },
     // Emisiones por USO (calefaccion/acs/refrigeracion) → método DETALLADO, y los dos
     // totales del edificio por VECTOR energético (consumo_electrico_m2/consumo_otros_m2)
     // → método SIMPLIFICADO. Ver calculateRes080Simplificado en logic/calculation.js.
@@ -53,8 +60,10 @@ export function ceeFromXml(xml) {
   };
   d.fecha_certificado = xml?.fechaFirma || '';
   d.superficie_habitable_m2 = xml?.superficieHabitable ?? '';
+  d.tipo_edificio = xml?.tipoEdificio || '';
   d.demandas = {
     calefaccion_kwh_m2_ano: xml?.demandaCalefaccion ?? '',
+    acs_kwh_m2_ano: xml?.demandaACS ?? '',
     refrigeracion_kwh_m2_ano: xml?.demandaRefrigeracion ?? '',
   };
   // El XML trae tanto las emisiones por USO como el reparto por VECTOR energético
@@ -176,7 +185,7 @@ export function ceeToXmlShape(data) {
   const num = (v) => { const n = Number(v); return isFinite(n) ? n : null; };
   return {
     demandaCalefaccion: num(data.demandas?.calefaccion_kwh_m2_ano),
-    demandaACS: null,
+    demandaACS: num(data.demandas?.acs_kwh_m2_ano),
     demandaRefrigeracion: num(data.demandas?.refrigeracion_kwh_m2_ano),
     demandaGlobal: null,
     emisionesCalefaccion: num(data.emisiones?.calefaccion),
@@ -193,6 +202,7 @@ export function ceeToXmlShape(data) {
     // desde lo que imprime el PDF.
     energiaFinalVectores: data.energia_final_vectores || null,
     superficieHabitable: num(data.superficie_habitable_m2),
+    tipoEdificio: data.tipo_edificio || null,
     zonaClimatica: data.identificacion?.zona_climatica || null,
     identificacion: {
       nombre: null,

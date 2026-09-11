@@ -125,6 +125,11 @@ router.get('/search', async (req, res) => {
         if (isRC) {
             // Direct Catastro Lookup
             const data = await catastroService.getByRC(cleanQ);
+            // Una RC de PARCELA con división horizontal no describe una vivienda: describe
+            // el EDIFICIO entero (118 inmuebles en el caso medido). Se anuncia con un tipo
+            // propio en vez de colarlo como RC_RESULT, para que ningún consumidor lo trate
+            // por error como si fuera un inmueble y pinte media ficha vacía.
+            if (data?.isParcela) return res.json({ type: 'RC_PARCELA', data });
             // If found, return as final result
             return res.json({ type: 'RC_RESULT', data });
         } else {

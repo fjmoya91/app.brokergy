@@ -21,7 +21,9 @@ import { PROVINCE_CLIMATE_MAP } from '../data/provinceMapping';
 // El SECTOR decide la ficha, y con ella cómo se reparte el ahorro. La derivación
 // es la misma que aplica el backend al guardar (utils/fichas.detectPrograma).
 import { fichaDesdeInputs, SECTORES, fichaColor } from '../../expedientes/logic/expedienteTaxonomia';
-import { ACS_METHOD } from '../../expedientes/logic/demandaAcs';
+import { ACS_METHOD, resolveDacs } from '../../expedientes/logic/demandaAcs';
+// El OBJETO de la simulación: una vivienda o el EDIFICIO completo.
+import { esBloque, TIPO_INMUEBLE, clasificarTipoEdificio, etiquetaTipoEdificio, avisoTipoEdificio, IRPF_EDIFICIO_REQUISITO } from '../logic/tipoInmueble';
 import { FV, FV_OPCIONES, normalizarFotovoltaica, potenciaTexto, etiquetaFotovoltaica } from '../../expedientes/logic/fotovoltaica';
 import { useAuth } from '../../../context/AuthContext';
 import { parseCeeXml } from '../logic/xmlCeeParser';
@@ -561,6 +563,48 @@ export function CalculatorForm({
     const esTerciario = sectorActual === SECTORES.TERCIARIO;
     const fichaActual = fichaDesdeInputs(inputs);
 
+    // ── Objeto de la actuación: vivienda o EDIFICIO completo ────────────────
+    // Un bloque con caldera centralizada es la MISMA ficha RES060 ("sustitución de la
+    // caldera de combustión en un EDIFICIO de uso residencial privado […] para
+    // calefacción Y/O agua caliente sanitaria"), pero la demanda y la superficie salen
+    // del certificado del edificio y la actuación puede alcanzar solo el ACS.
+    const bloque = esBloque(inputs);
+    const ceeBaseForm = inputs.xmlDemandDataFinal?.demandaCalefaccion ? inputs.xmlDemandDataFinal : (xmlDemandData || inputs.xmlDemandData || null);
+    const supCeeForm = parseFloat(ceeBaseForm?.superficieHabitable) || parseFloat(inputs.manualSuperficie) || 0;
+    // La MISMA resolución que aplica el cálculo (y que el expediente): enseñar aquí una
+    // cifra calculada de otra manera sería enseñar una que luego no sale en la propuesta.
+    const dacsForm = bloque
+        ? resolveDacs(
+            { acs_method: inputs.acsMethod === ACS_METHOD.CTE ? ACS_METHOD.XML : inputs.acsMethod, dacs_manual: inputs.dacsManual },
+            { demandaACS: ceeBaseForm?.demandaACS, superficieHabitable: supCeeForm },
+          )
+        : null;
+    const avisoCeeTipo = avisoTipoEdificio(inputs, ceeBaseForm);
+    const tipoCeeDeclarado = etiquetaTipoEdificio(ceeBaseForm?.tipoEdificio);
+
+    const marcarObjeto = (tipoObjeto) => onInputChange(prev => ({
+        ...prev,
+        tipoInmueble: tipoObjeto,
+        ...(tipoObjeto === TIPO_INMUEBLE.BLOQUE ? {
+            // La RES080 es rehabilitación de la envolvente de una vivienda: no es lo que
+            // se está simulando aquí, y dejarla activa mezclaría dos fichas.
+            isReforma: false,
+            reformaType: 'none',
+            // La demanda de un edificio NO se estima por envolvente: la da su certificado.
+            demandMode: 'manual',
+            // La fórmula del CTE por habitaciones describe UNA vivienda.
+            acsMethod: prev.acsMethod === ACS_METHOD.MANUAL ? ACS_METHOD.MANUAL : ACS_METHOD.XML,
+            // La obra es de la comunidad: nunca es un piso con participación parcial.
+            tipo: 'unifamiliar',
+            participation: 100,
+        } : {
+            // Al volver a VIVIENDA se sueltan las dos decisiones que solo tienen sentido
+            // en un edificio; lo demás (superficie, CEE cargado) se conserva.
+            changeHeating: true,
+            numViviendas: 0,
+        }),
+    }));
+
     const handleDragOverFinal = (e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingFinal(true); };
     const handleDragLeaveFinal = (e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingFinal(false); };
     const handleDropFinal = (e) => {
@@ -604,6 +648,32 @@ export function CalculatorForm({
                             {opt.label}
                         </button>
                     ))}
+                    {/* OBJETO de la actuación. Solo en residencial: en terciario el
+                        edificio completo ya es lo normal (TER100) y su alcance y su
+                        D_ACS se piden en su propio bloque. */}
+                    {!esTerciario && (
+                        <>
+                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 px-2 border-l border-white/10">Objeto</span>
+                            {[
+                                { id: TIPO_INMUEBLE.VIVIENDA, label: 'Vivienda', title: 'Una vivienda: unifamiliar o piso' },
+                                { id: TIPO_INMUEBLE.BLOQUE, label: 'Edificio completo', title: 'Bloque de viviendas con instalación centralizada — un solo CAE para la comunidad de propietarios' },
+                            ].map(opt => (
+                                <button
+                                    key={opt.id}
+                                    type="button"
+                                    title={opt.title}
+                                    onClick={() => marcarObjeto(opt.id)}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors border ${
+                                        (bloque ? TIPO_INMUEBLE.BLOQUE : TIPO_INMUEBLE.VIVIENDA) === opt.id
+                                            ? 'bg-white/10 border-white/20 text-white'
+                                            : 'bg-transparent border-transparent text-slate-500 hover:text-white'
+                                    }`}
+                                >
+                                    {opt.label}
+                                </button>
+                            ))}
+                        </>
+                    )}
                     <span className="ml-auto flex items-center gap-2 pr-1">
                         <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Ficha</span>
                         <span
@@ -613,6 +683,167 @@ export function CalculatorForm({
                             {fichaActual}
                         </span>
                     </span>
+                </div>
+            )}
+
+            {/* EDIFICIO COMPLETO — lo que un bloque tiene y una vivienda no.
+                Va ARRIBA, pegado al conmutador que acaba de marcarse, porque decide de
+                dónde sale la demanda: con la calefacción fuera del alcance, la mitad de
+                los campos de más abajo (envolvente, fachadas, patios) dejan de pintar
+                nada en el resultado y no puede descubrirse al final. */}
+            {bloque && (
+                <div className="animate-scale-in p-4 mb-5 bg-amber-500/5 border border-amber-500/20 rounded-2xl space-y-4">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                        <Label className="text-[9px] text-amber-400/80 font-black uppercase tracking-widest">
+                            Edificio completo · comunidad de propietarios
+                        </Label>
+                        <div className="flex items-center gap-3">
+                            <span className="text-[9px] text-slate-500 uppercase tracking-wider">
+                                RES060 · "caldera de combustión en un edificio […] para calefacción y/o ACS"
+                            </span>
+                            {/* Salida del modo bloque SIEMPRE a la vista: el conmutador
+                                Vivienda/Edificio vive en la fila del sector, que solo ve un
+                                ADMIN — un TRABAJADOR que llegue aquí por error se quedaría
+                                encerrado en una simulación de edificio. */}
+                            <button
+                                type="button"
+                                onClick={() => marcarObjeto(TIPO_INMUEBLE.VIVIENDA)}
+                                className="text-[9px] font-black uppercase tracking-wider text-slate-500 hover:text-white underline underline-offset-2 transition-colors"
+                                title="Volver a simular una sola vivienda"
+                            >
+                                Es una sola vivienda
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-end gap-4">
+                        <div>
+                            <Label className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Viviendas del edificio</Label>
+                            <Input
+                                type="number"
+                                // Lee `numOwners`, que es el campo que de verdad usa el cálculo y
+                                // que también se edita en Datos Económicos: leyendo `numViviendas`
+                                // los dos controles del MISMO dato podrían enseñar cifras distintas.
+                                value={inputs.numOwners > 1 ? inputs.numOwners : (inputs.numViviendas || '')}
+                                onChange={e => {
+                                    const v = e.target.value;
+                                    // El nº de viviendas ES el nº de propietarios entre los que se
+                                    // reparte la deducción del IRPF.
+                                    onInputChange(prev => ({ ...prev, numViviendas: v, numOwners: parseInt(v, 10) || 1 }));
+                                }}
+                                placeholder="85"
+                                className="w-28 text-xs"
+                            />
+                        </div>
+                        <div className="text-[11px] text-slate-400 leading-relaxed">
+                            <span className="block">
+                                Superficie útil del certificado:{' '}
+                                <strong className="text-white">{supCeeForm > 0 ? `${supCeeForm.toLocaleString('es-ES')} m²` : '—'}</strong>
+                            </span>
+                            {tipoCeeDeclarado && (
+                                <span className="block text-slate-500">El CEE cargado declara: {tipoCeeDeclarado}</span>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* ALCANCE. En una vivienda no es una pregunta — la actuación ES cambiar
+                        la caldera —; en un bloque la centralizada puede dar solo el ACS. */}
+                    <div className="space-y-2 pt-1 border-t border-white/5">
+                        <Label className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Qué da la caldera centralizada que se sustituye</Label>
+                        <label className="flex items-center gap-3 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={inputs.changeHeating !== false}
+                                onChange={e => handleChange('changeHeating', e.target.checked)}
+                                className="w-4 h-4 accent-amber-500"
+                            />
+                            <span className="text-xs font-bold text-slate-300">Calefacción</span>
+                            <span className="text-[10px] text-slate-500">— desmárcalo si cada vivienda tiene la suya</span>
+                        </label>
+                        <label className="flex items-center gap-3 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={!!inputs.changeAcs}
+                                onChange={e => handleChange('changeAcs', e.target.checked)}
+                                className="w-4 h-4 accent-amber-500"
+                            />
+                            <span className="text-xs font-bold text-slate-300">Agua caliente sanitaria (ACS)</span>
+                        </label>
+                        {inputs.changeHeating === false && !inputs.changeAcs && (
+                            <p className="text-[11px] text-red-400/90 font-bold">
+                                Sin calefacción ni ACS en el alcance no hay actuación que certificar: el ahorro sale 0.
+                            </p>
+                        )}
+                    </div>
+
+                    {/* D_ACS — el MISMO criterio que el expediente (demandaAcs.js). El modo
+                        CTE no se ofrece: su fórmula es por dormitorios de UNA vivienda. */}
+                    {inputs.changeAcs && (
+                        <div className="space-y-2 pt-1 border-t border-white/5">
+                            <Label className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Demanda anual de ACS del edificio (D<sub>ACS</sub>)</Label>
+                            <div className="flex flex-wrap items-center gap-2">
+                                {[
+                                    { id: ACS_METHOD.XML, label: 'Del CEE', title: 'Del certificado del edificio: demanda de ACS (kWh/m²·año) × superficie útil' },
+                                    { id: ACS_METHOD.MANUAL, label: 'A mano', title: 'kWh/año del proyecto o de la memoria de la instalación' },
+                                ].map(opt => (
+                                    <button
+                                        key={opt.id}
+                                        type="button"
+                                        title={opt.title}
+                                        onClick={() => handleChange('acsMethod', opt.id)}
+                                        className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-colors ${
+                                            (inputs.acsMethod === ACS_METHOD.MANUAL ? ACS_METHOD.MANUAL : ACS_METHOD.XML) === opt.id
+                                                ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
+                                                : 'bg-slate-900/40 border-slate-700/50 text-slate-500 hover:text-white'
+                                        }`}
+                                    >
+                                        {opt.label}
+                                    </button>
+                                ))}
+                                {inputs.acsMethod === ACS_METHOD.MANUAL && (
+                                    <Input
+                                        type="number"
+                                        value={inputs.dacsManual || ''}
+                                        onChange={e => handleChange('dacsManual', e.target.value)}
+                                        placeholder="kWh/año"
+                                        className="w-32 text-xs"
+                                    />
+                                )}
+                                {dacsForm?.value > 0 && (
+                                    <span className="text-[11px] text-emerald-300 font-bold">
+                                        = {Math.round(dacsForm.value).toLocaleString('es-ES')} kWh/año
+                                        {dacsForm.mode === ACS_METHOD.XML && dacsForm.dacsPorM2 > 0 && (
+                                            <span className="text-slate-500 font-normal">
+                                                {' '}({dacsForm.dacsPorM2.toLocaleString('es-ES')} kWh/m²·año × {supCeeForm.toLocaleString('es-ES')} m²)
+                                            </span>
+                                        )}
+                                    </span>
+                                )}
+                            </div>
+                            {inputs.acsMethod !== ACS_METHOD.MANUAL && !(dacsForm?.value > 0) && (
+                                <p className="text-[11px] text-amber-400/90">
+                                    Carga el <strong>.xml</strong> del certificado del edificio: la demanda de ACS solo está ahí
+                                    (el PDF del CEE no la imprime, así que el lector de PDF no puede sacarla). Sin ella, el ahorro de ACS sale 0.
+                                </p>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Que el certificado sea de otra cosa no lo decide la app: se avisa. */}
+                    {avisoCeeTipo && (
+                        <p className="text-[11px] text-red-400/90 font-bold pt-1 border-t border-white/5">{avisoCeeTipo}</p>
+                    )}
+
+                    {/* La deducción del 60 % no es automática y la propuesta la presenta como
+                        una cifra firme: de qué depende tiene que estar a la vista de quien
+                        la envía, no solo en la cabeza de quien la programó. */}
+                    {inputs.includeIrpf !== false && (
+                        <p className="text-[11px] text-slate-400 leading-relaxed pt-1 border-t border-white/5">
+                            <strong className="text-slate-300">Deducción del IRPF al 60 %</strong> (obras en el edificio),
+                            repartida entre {parseInt(inputs.numOwners, 10) || 1} propietario{(parseInt(inputs.numOwners, 10) || 1) === 1 ? '' : 's'}.
+                            {' '}{IRPF_EDIFICIO_REQUISITO}
+                        </p>
+                    )}
                 </div>
             )}
 

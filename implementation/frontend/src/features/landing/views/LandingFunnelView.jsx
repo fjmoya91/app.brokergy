@@ -16,6 +16,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import axios from 'axios';
 
 import { CatastroSearchBox } from '../../../components/CatastroSearchBox';
+import { ParcelaCard } from '../../../components/ParcelaCard';
 import { ConfirmationCard } from '../../../components/ConfirmationCard';
 import { GeoLocatingOverlay } from '../../../components/GeoLocatingOverlay';
 import { DynamicNetworkBackground } from '../../../components/DynamicNetworkBackground';
@@ -46,7 +47,7 @@ import { buildAccentVars } from '../../../utils/partnerTheme';
 
 const CATASTRO_API = '/api/catastro';
 
-export default function LandingFunnelView({ route, mode = 'public', variant = 'default', onCreated, onCancel, initialCeeData = null }) {
+export default function LandingFunnelView({ route, mode = 'public', variant = 'default', onCreated, onCancel, onBloque = null, initialCeeData = null }) {
     const isInternal = mode === 'internal';
     const isReformaVariant = variant === 'reforma';
     // Tras resolver el catastro, /reforma muestra primero "¿estado de la obra?".
@@ -88,6 +89,9 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
         return (s?.phase === 'FUNNEL' && s?.catastro) ? s.catastro : null;
     });
     const [confirmCandidate, setConfirmCandidate] = useState(null);
+    // Parcela con división horizontal (un EDIFICIO): la referencia buscada no es de
+    // ninguna vivienda concreta, así que hay que preguntar cuál.
+    const [parcela, setParcela] = useState(null);
     const [catastroLoading, setCatastroLoading] = useState(false);
     const [catastroError, setCatastroError] = useState(null);
     const [geoBlockedInfo, setGeoBlockedInfo] = useState(null);
@@ -174,7 +178,14 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
             const res = await axios.get(`${CATASTRO_API}/search`, { params: { q: query } });
             if (res.data.type === 'RC_RESULT') {
                 // Es una RC ya resuelta — pasamos al gate sin pantalla de confirmación
+                setParcela(null);
                 handleCatastroResolved(res.data.data);
+            } else if (res.data.type === 'RC_PARCELA') {
+                // La referencia es la del EDIFICIO, no la de una vivienda. Aquí no se
+                // simula el bloque —eso es del flujo interno, donde hace falta el
+                // certificado del edificio—: se pregunta cuál de sus viviendas es la
+                // suya y se vuelve a buscar con la referencia de 20.
+                setParcela(res.data.data);
             } else if (res.data.type === 'ADDRESS_CANDIDATES') {
                 if (!res.data.data.length) {
                     setCatastroError('No encontramos direcciones. Intenta ser más específico.');
@@ -595,7 +606,7 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                 <main className="max-w-3xl mx-auto">
                     {phase === 'HOME' && (
                         <>
-                            {!confirmCandidate && (
+                            {!confirmCandidate && !parcela && (
                                 <div className="text-center mb-10">
                                     <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight leading-tight">
                                         {isInternal ? (
@@ -620,7 +631,19 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                                 </div>
                             )}
 
-                            {!confirmCandidate ? (
+                            {parcela ? (
+                                <ParcelaCard
+                                    parcela={parcela}
+                                    // El EDIFICIO completo solo en el flujo interno: un visitante
+                                    // de la landing que lo simulara se llevaría un bono que no es
+                                    // suyo. "Nueva simulación" ES este componente en modo interno,
+                                    // así que es aquí donde tiene que estar el botón.
+                                    permiteBloque={isInternal && !!onBloque}
+                                    onCalcularBloque={(pcl) => { setParcela(null); onBloque?.(pcl); }}
+                                    onSelectDwelling={(d) => { if (d?.rc) { setParcela(null); handleSearch(d.rc); } }}
+                                    onCancel={() => setParcela(null)}
+                                />
+                            ) : !confirmCandidate ? (
                                 <CatastroSearchBox
                                     onSearch={handleSearch}
                                     onAddressSelect={handleAddressSelect}
@@ -653,7 +676,7 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                             {/* Secciones informativas (badges + cómo funciona + FAQ).
                                 Solo en HOME sin candidato confirmado — no estorba el flujo.
                                 Se omiten en modo internal (partner/admin no las necesita). */}
-                            {!confirmCandidate && !isInternal && <HomeInfoSections />}
+                            {!confirmCandidate && !parcela && !isInternal && <HomeInfoSections />}
                         </>
                     )}
 

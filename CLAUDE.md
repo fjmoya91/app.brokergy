@@ -5296,6 +5296,136 @@ compatibilidad) y lo único que se contesta es qué recibe cada persona.
 
 ---
 
+## BLOQUES de viviendas — el edificio completo como objeto (2026-09-11)
+
+Hasta ahora la app suponía siempre UNA vivienda: una superficie, una caldera, un
+titular. Buscar la referencia de un bloque (`3121402WN4032S`, CL Fuenmayor 66-74 de
+Logroño) **no daba "es un edificio": daba un error genérico**, y la calculadora no tenía
+forma de simular una caldera centralizada que solo da el ACS.
+
+**REGLA — no hace falta ficha nueva: es la RES060.** Lo dice su propio texto —
+*"Sustitución de la caldera de combustión **en un edificio** de uso residencial privado
+[…] para calefacción **y/o** agua caliente sanitaria"*— y sus variables hablan de la
+demanda y la superficie *"del **edificio** o vivienda según certificado de eficiencia
+energética"*. Lo que faltaba era app, no normativa.
+
+| Qué | Dónde |
+|---|---|
+| Qué es un bloque, cómo se lee del `.xml` y el requisito del IRPF | [logic/tipoInmueble.js](implementation/frontend/src/features/calculator/logic/tipoInmueble.js) |
+| El Catastro reconoce la parcela | `resumirParcela` / `extraerInmuebles` en [catastroService.js](implementation/backend/services/catastroService.js) → `/search` devuelve **`RC_PARCELA`** |
+| La pantalla del edificio | [ParcelaCard.jsx](implementation/frontend/src/components/ParcelaCard.jsx) — flujo interno (`App.jsx`) y landing |
+| El alcance en el ahorro | `changeHeating` en `calculateSavings` ([calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js)) |
+| D_ACS del edificio | `resolveDacs` ([demandaAcs.js](implementation/frontend/src/features/expedientes/logic/demandaAcs.js)), el MISMO módulo que el expediente |
+| Prueba | `node implementation/backend/scripts/test_bloque_viviendas.mjs` |
+
+### El Catastro responde de DOS formas a una RC de 14, y solo se leía una
+
+Si la finca no tiene división horizontal devuelve `bico` (UN inmueble); si la tiene,
+devuelve `lrcdnp` (la LISTA) y **ningún `bico`**. `getByRC` leía `bico.bi` a pelo, así
+que el bloque moría en un `TypeError` y la app decía *"no se pudo completar la
+búsqueda"*. Ahora se resume como lo que es: 118 inmuebles, **85 viviendas**, 9.913 m²
+construidos de vivienda, 2008, zona D2.
+
+**REGLA — la dirección se compone del nodo ESTRUCTURADO (`dir`), no del `ldt`.** Ese
+texto lleva pegado el interior ("Es:1 Pl:00 Pt:01") y el primer número que aparece no es
+siempre el del portal. Y un bloque puede dar a **dos calles** (éste hace esquina: CL
+Fuenmayor 66-68-70-72-74 **y** CL Irlanda 1); las dos se enseñan, o quien busca duda de
+si la referencia encontrada es la suya.
+
+**REGLA — la pantalla del bloque NO decide por el usuario.** La misma referencia sirve
+para dos trabajos opuestos: simular el EDIFICIO (una caldera centralizada, un CAE para la
+comunidad) o entrar a UNA vivienda. Se ofrecen los dos.
+
+**REGLA — el edificio completo es del flujo INTERNO** (`permiteBloque`). En la landing
+pública solo se ofrece elegir la vivienda: un visitante que simulara el bloque entero se
+llevaría un bono que no es suyo. Antes de esto la landing se quedaba **muda** con una RC
+de 14 (ninguna rama la trataba), que es peor que el error que había.
+
+⚠️ **"Nueva simulación" ES `LandingFunnelView` en modo interno**, no la pantalla
+`SEARCH` de `App.jsx`. La primera versión puso el botón solo en aquella y el único
+camino por el que el staff crea una simulación se quedó sin él: la tarjeta del edificio
+salía, pero no dejaba continuar. Desde el bloque **se sale DIRECTO a la calculadora**
+(`onBloque`), sin pasar por el funnel —sus preguntas (caldera, emisores, habitaciones)
+son de UNA vivienda— y con el CEE de la puerta previa ya sembrado
+(`seedInputsFromCees`): si no, el `.xml` del edificio se quedaba en la puerta y había
+que volver a subirlo. La oportunidad se guarda desde la calculadora, y el backend la
+reconoce por su RC si ya existía.
+
+### Lo que cambia en el cálculo, y lo que NO
+
+**REGLA — el servicio fuera de alcance se CANCELA, no se resta.** `changeHeating: false`
+hace exactamente lo que `changeAcs: false` ya hacía con el ACS: el servicio que queda
+fuera se calcula después **con el rendimiento de la caldera antigua**, así que su ahorro
+es cero y su consumo sigue contando en la energía final de partida. No hay una fórmula
+paralela que pueda divergir de la de siempre, y con el valor por defecto (`true`) una
+vivienda devuelve el mismo número que antes de que el parámetro existiera.
+
+**REGLA — `changeHeating` solo se pregunta en un BLOQUE.** En una vivienda la actuación
+ES cambiar la caldera, así que el cálculo fuerza `true`: un valor heredado (de una
+simulación reclasificada, por ejemplo) no puede dejar la calefacción fuera a espaldas de
+nadie.
+
+**REGLA — la D_ACS de un edificio sale del CERTIFICADO, nunca del CTE.** La fórmula del
+Anejo F es por dormitorios de UNA vivienda (2.731,4 kWh/año con cuatro), y en un edificio
+de 85 no describe nada; si llegara ese método, se lee el certificado. El residencial de
+UNA vivienda **conserva su 2.731,4 de siempre**: cambiarlo movería el ahorro de toda
+propuesta nueva y no se ha pedido.
+
+⚠️ **La demanda de ACS solo está en el `.xml`.** El PDF del CEE no la imprime (su Anexo II
+solo trae la calificación parcial de calefacción y refrigeración), así que el OCR no puede
+sacarla y un bloque necesita el fichero. Se dice en pantalla.
+
+⚠️ **Esa demanda se estaba PERDIENDO por el camino.** `ceeFromXml` no la copiaba y
+`ceeToXmlShape` la ponía a `null`, así que un CEE cargado por la puerta previa llegaba al
+expediente con `cee_inicial.demandaACS` vacío y la ficha imprimía **D_ACS = 0,00** en modo
+'xml'. Ahora viaja; para el residencial es una corrección (de 0 al valor del certificado),
+para el bloque es LA cifra de la que sale todo el ahorro.
+
+### El `<TipoDeEdificio>` del certificado
+
+`parseCeeXml` lo lee ya, en crudo, y **quién decide qué significa es el código**
+(`clasificarTipoEdificio`). Se compara por SUBCADENA normalizada —"bloque" + "completo"—
+y no contra cadenas exactas: el enum se escribe de varias formas según la herramienta que
+genere el XML, y de los **462 certificados reales** de la carpeta de casos ninguno es de
+bloque completo (405 `ViviendaUnifamiliar`, 40 `ViviendaIndividualEnBloque`, 9
+`EdificioUsoTerciario`, 8 `LocalUsoTerciario`), así que no hay forma de verificar hoy la
+cadena exacta. Un tipo desconocido devuelve `null` —"no consta"—, que **no es lo mismo que
+"es una vivienda"** y no apaga ni enciende nada por su cuenta.
+
+Si el certificado contradice lo declarado, **se avisa y no se corrige solo**: un CEE de una
+vivienda suelta aplicado a un bloque da una D_ACS ~100 veces menor que la real, y al revés
+infla el ahorro de un piso con el del edificio entero. Las dos cosas acaban firmadas.
+
+### El dinero: un bono, una comunidad, la deducción de cada vecino
+
+- **El bono CAE va ÍNTEGRO a la comunidad de propietarios**: un CIF, un IBAN, un convenio
+  de cesión firmado por el presidente.
+- **La deducción del IRPF es la del EDIFICIO: 60 %** (tope 9.000 € de deducción, 15.000 € de
+  base acumulada), y la aplica **cada propietario** sobre la derrama que le repercute la
+  comunidad — por eso se reparte entre el nº de viviendas (`numOwners`, sembrado desde el
+  Catastro). **REGLA — ni `tipo: 'piso'` ni una participación heredada < 100 la bajan al
+  40 %** (`esBloque` en `calculateFinancials`): esos dos campos describen una vivienda
+  suelta dentro de un inmueble ajeno, y aquí la obra es de la comunidad.
+- **REGLA — el requisito se dice en pantalla.** La deducción exige que el certificado
+  posterior acredite **≥30 % de reducción del consumo de energía primaria no renovable**
+  del edificio, o letra A/B en ese indicador (lo comprueba `logic/irpfEpnr.js` sobre el
+  expediente, cuando ese certificado existe). Con una actuación **solo sobre el ACS** eso
+  hay que comprobarlo antes de prometerlo: una propuesta que anuncia 9.000 € por vivienda
+  sin decir de qué dependen se lee como un derecho adquirido.
+
+### Lo que todavía NO cubre
+
+El encargo llegó hasta **simular y guardar la oportunidad**. Queda fuera, y hay que
+hacerlo antes de tramitar un bloque de verdad: que el EXPEDIENTE herede el alcance
+(`changeHeating`) y el modo de D_ACS —hoy `expedienteService` solo los copia en el
+terciario, así que un bloque aceptado recalcularía el ahorro CON la calefacción, distinto
+del que se le presupuestó—, y que la **Ficha RES060 y el CIFO impriman "no aplica"** en
+D_CAL, S y SCOP cuando la calefacción queda fuera, como ya hace la TER100 con sus
+servicios (regla 12.b) y con el mismo motivo: un valor a la vista invita al verificador a
+multiplicarlo.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -5402,6 +5532,8 @@ compatibilidad) y lo único que se contesta es qué recibe cada persona.
 44. **Cada aviso va al COMERCIAL o al TÉCNICO del partner, no "al instalador"**: cada persona de `contactos_notificacion` lleva `roles: ['comercial'|'tecnico']` y quien envía pide el suyo — fuente única [notifyContacts.js](implementation/backend/services/notifyContacts.js) (`partnerNotifyTarget(p, rol)`, `rolDeDocumento`) y su espejo [docContacts.js](implementation/frontend/src/features/expedientes/utils/docContacts.js). El RITE, el CIFO y sus rechazos son del TÉCNICO; propuestas, fotos y seguimiento, del COMERCIAL. **El representante legal NO es un buzón**: su nombre es el que firma el CIFO, y ofrecerlo como destinatario era el fallo — 67 de 70 fichas no tienen `tlf_responsable`, así que su nombre salía pegado al teléfono de la EMPRESA ("Jesús · 654547040", el número de Carlos). Sin nadie marcado se envía al canal GENERAL, rotulado como tal y avisado en ámbar; a una empresa se le saluda en genérico y a un autónomo por su nombre; al CERTIFICADOR no se le aplica el reparto (sus plantillas no admiten nombre vacío). Un contacto sin roles se comporta como hasta ahora y **no se le adivina** el suyo. En el CIFO no va ningún teléfono. Tras tocarlo: `node implementation/backend/scripts/test_reparto_contactos.js`. Ver "El aviso lo recibe el COMERCIAL o el TÉCNICO".
 
 43. **La cartera de INSTALADORES se etiqueta sola en WhatsApp**: al dar de alta o editar un instalador (y en el repaso completo desde el panel de WhatsApp) su chat queda con la etiqueta `INSTALADORES` y, si el número no lo tenías guardado, con su nombre de la BBDD en la agenda. **Un nombre ya guardado NO se toca nunca** —lo puso una persona, a veces con el apodo por el que conoce al instalador— y la lista de etiquetas se manda COMPLETA (`poner()` sustituye, así que va lo que ya tenía MÁS la nuestra). Se etiquetan TODOS los teléfonos que constan (empresa, responsable y contactos de notificación: en 20 de 71 fichas el chat que se usa es el del jefe de obra), deduplicados por los 9 dígitos finales. Fuente única: [whatsappInstaladoresSync.js](implementation/backend/services/whatsappInstaladoresSync.js) + [whatsappContactos.js](implementation/backend/services/whatsappContactos.js). ⚠️ `poner()` fallaba con un chat nunca escrito (`findOrCreateLatestChat` lo devuelve pero `C.Chat.get(@c.us)` sigue vacío porque vive bajo su `@lid`): ahora se crea y se etiqueta en la misma `evaluate`. ⚠️ Un `node scripts/…` NO ve la sesión de WhatsApp (singleton del proceso del servidor), por eso el repaso entra por la ruta con `x-internal-key`. Apagado por defecto (`WA_SYNC_INSTALADORES`) y `dryRun` por defecto en la ruta. Ver "La cartera de instaladores, etiquetada sola en WhatsApp".
+
+45. **Una RC de 14 con división horizontal es un EDIFICIO, y se puede simular entero**: el Catastro devuelve `lrcdnp` y ningún `bico`, y leerlo a pelo era lo que hacía morir la búsqueda de un bloque (`resumirParcela` en `catastroService.js`; `/search` responde **`RC_PARCELA`**). No hace falta ficha nueva: la RES060 es "la caldera de combustión en un EDIFICIO […] para calefacción **y/o** ACS". El alcance selectivo se resuelve con `changeHeating` en `calculateSavings`, con el MISMO mecanismo que el ACS ya tenía —el servicio que queda fuera se calcula con el rendimiento de la caldera y se cancela—, y por defecto (`true`) una vivienda da el número de siempre. **La D_ACS de un edificio sale del `.xml`** (el PDF no la imprime, así que el OCR no puede): nunca del CTE, que es por dormitorios de una vivienda. La deducción del IRPF es la del edificio (**60 %**) repartida entre las viviendas, y **se dice de qué depende** (≥30 % de reducción de EPnr o letra A/B). El bloque es del flujo **interno**; en la landing solo se elige vivienda. Fuente única del concepto: [logic/tipoInmueble.js](implementation/frontend/src/features/calculator/logic/tipoInmueble.js). Tras tocarlo: `node implementation/backend/scripts/test_bloque_viviendas.mjs`. Ver "BLOQUES de viviendas".
 
 38. **Con la BD caída, la app CALLA; nunca contesta una cifra tranquila**: un error de lectura no puede salir por 200. [middleware/auth.js](implementation/backend/middleware/auth.js) seguía adelante con el perfil a null —sin rol, sin empresa— y lo **cacheaba 5 minutos**, así que el partner salía como "USUARIO / LOGO PARTNER", con el menú recortado y, como `GET /oportunidades` acaba filtrando por `creador_id = null`, la cartera a CERO; y esa misma ruta convertía además cualquier fallo de Supabase en `200 []`. Un distribuidor con 19 oportunidades vio "0 oportunidades · 0,00 €" con toda la apariencia de dato bueno —que se lee como trabajo borrado— y recargar no lo arreglaba, porque el fantasma vivía en la caché. Medido el 08/09/2026: Postgres se cayó y arrancó en recuperación (`database system was not properly shut down`) y Cloudflare sirvió **521 Web server is down** delante de Supabase durante ~1 min. Ahora las dos rutas responden **503** (`PROFILE_UNAVAILABLE` / `OPORTUNIDADES_UNAVAILABLE`) y no se cachea nada; el frontend enseña `ProfileUnavailable` (reintentar, y "tus datos siguen ahí") en vez de un dashboard con identidad falsa, la lista conserva lo que ya tuviera, y **el resumen financiero no se pinta si no hay datos** — 0,00 € es justo la cifra que asusta. A quien YA tiene perfil bueno en caché no se le echa por un parpadeo. Vigilado por `node implementation/backend/scripts/test_caida_bd_no_miente.js`.
 

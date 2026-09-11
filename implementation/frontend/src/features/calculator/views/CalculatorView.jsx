@@ -27,6 +27,9 @@ import {
 // El SECTOR (residencial / terciario) decide la ficha y, con ella, cómo se
 // reparte el ahorro. Fuente única con el backend y con el resto de pantallas.
 import { esSectorTerciario, SECTORES } from '../../expedientes/logic/expedienteTaxonomia';
+// El OBJETO de la simulacion: una vivienda o el EDIFICIO completo. Cambia de donde sale
+// la demanda, si la calefaccion entra en el alcance y entre cuantos se reparte el IRPF.
+import { esBloque, TIPO_INMUEBLE } from '../logic/tipoInmueble';
 // La demanda de ACS se resuelve EXACTAMENTE igual que en el expediente: xml, CTE
 // o a mano. Es el mismo módulo, no una copia — si divergieran, la propuesta y el
 // expediente del mismo cliente darían ahorros distintos.
@@ -68,6 +71,12 @@ const INITIAL_INPUTS = {
     // ── Sector y alcance ──────────────────────────────────────────────────
     // El residencial es el caso por defecto: la calculadora nació para él.
     sector: SECTORES.RESIDENCIAL,
+    // Objeto de la actuación: una VIVIENDA (el caso de siempre) o el EDIFICIO completo.
+    // En un bloque la caldera es centralizada, el titular es la comunidad de
+    // propietarios y la demanda sale del certificado del edificio, no de la envolvente
+    // estimada de una vivienda.
+    tipoInmueble: TIPO_INMUEBLE.VIVIENDA,
+    numViviendas: 0,
     // Alcance de la actuación sobre la CALEFACCIÓN. Solo es una pregunta en el
     // terciario; en el residencial la actuación ES el cambio de la caldera.
     changeHeating: true,
@@ -466,6 +475,14 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         // En el TERCIARIO se resuelve como en el expediente (xml · CTE · manual);
         // en el residencial se conserva la estimación de siempre.
         const esTerciarioCalc = esSectorTerciario(inputs);
+        // Un BLOQUE resuelve la D_ACS como el terciario: del certificado del EDIFICIO
+        // (kWh/m²·año × m² útiles) o a mano. La fórmula del CTE por habitaciones es de
+        // UNA vivienda —2.731,4 kWh/año para cuatro dormitorios—, así que en un edificio
+        // de 85 viviendas no describe nada: si llegara ese método se lee el certificado.
+        const esBloqueCalc = esBloque(inputs);
+        const acsMethodCalc = (esBloqueCalc && inputs.acsMethod === ACS_METHOD.CTE)
+            ? ACS_METHOD.XML
+            : inputs.acsMethod;
         // El CEE que MANDA: el final si está cargado, si no el inicial. Es la misma
         // regla que aplica el expediente (ceeFases.ceeBaseDocumento) y la que ya usa
         // unas líneas más abajo la demanda de calefacción.
@@ -476,9 +493,9 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             || parseFloat(inputs.manualSuperficie)
             || parseFloat(inputs.superficieCalefactable)
             || parseFloat(inputs.superficie) || 0;
-        const dacsCalculada = esTerciarioCalc
+        const dacsCalculada = (esTerciarioCalc || esBloqueCalc)
             ? resolveDacs(
-                { acs_method: inputs.acsMethod, num_rooms: inputs.numRooms, dacs_manual: inputs.dacsManual },
+                { acs_method: acsMethodCalc, num_rooms: inputs.numRooms, dacs_manual: inputs.dacsManual },
                 { demandaACS: ceeBaseCalc?.demandaACS, superficieHabitable: superficieCee },
             ).value
             : 2731.4;
@@ -646,6 +663,11 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 scopHeating: sanitizedInputs.scopHeating,
                 scopAcs: sanitizedInputs.scopAcs,
                 changeAcs: sanitizedInputs.changeAcs,
+                // El alcance de la calefacción SOLO se pregunta en un bloque. En una
+                // vivienda la actuación ES cambiar la caldera, así que un `changeHeating`
+                // heredado (de una simulación reclasificada, por ejemplo) no puede dejarla
+                // fuera a espaldas de nadie.
+                changeHeating: esBloqueCalc ? inputs.changeHeating !== false : true,
                 cb: cb
             });
 
@@ -661,6 +683,9 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             tipo: sanitizedInputs.tipo,
             participation: sanitizedInputs.participation,
             numOwners: sanitizedInputs.numOwners,
+            // En un BLOQUE la deducción es la de obras en el EDIFICIO (60 %) y la aplica
+            // cada propietario sobre su derrama, no la comunidad.
+            esBloque: esBloqueCalc,
             discountCertificates: sanitizedInputs.discountCertificates,
             includeLegalization: sanitizedInputs.includeLegalization,
             installerNoCard: sanitizedInputs.installerNoCard,

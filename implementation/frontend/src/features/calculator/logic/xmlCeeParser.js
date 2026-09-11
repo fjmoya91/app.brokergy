@@ -82,6 +82,11 @@ export function parseCeeXml(xmlString) {
         emisionesTotalOtros: null,       // kgCO2/año     (<TotalConsumoOtros>)
         superficieHabitable: null,   // m²
         zonaClimatica: null,
+        // <TipoDeEdificio> tal cual lo declara el certificado, sin interpretar. Es lo que
+        // distingue una vivienda suelta de un BLOQUE DE VIVIENDAS COMPLETO, y con ello si
+        // la demanda y la superficie son las de un piso o las del edificio entero. Quién
+        // decide qué significa cada valor es `logic/tipoInmueble.js`, no este parser.
+        tipoEdificio: null,
         identificacion: null,
         fechaFirma: null,            // YYYY-MM-DD (de <Fecha>)
         fechaVisita: null,           // YYYY-MM-DD (de <FechaVisita>)
@@ -210,6 +215,11 @@ export function parseCeeXml(xmlString) {
         const municipio = idNode.getElementsByTagName('Municipio');
         const provincia = idNode.getElementsByTagName('Provincia');
         const refCatastral = idNode.getElementsByTagName('ReferenciaCatastral');
+        const tipoEd = idNode.getElementsByTagName('TipoDeEdificio');
+        if (tipoEd.length > 0) {
+            const t = tipoEd[0].textContent.trim();
+            if (t) result.tipoEdificio = t;
+        }
 
         result.identificacion = {
             nombre: nombre.length > 0 ? nombre[0].textContent.trim() : null,

@@ -317,6 +317,16 @@ async function getByRC(rc) {
             throw error;
         }
 
+        // PARCELA con división horizontal: el Catastro devuelve la LISTA de inmuebles
+        // (`lrcdnp`) y ningún `bico`. Es un EDIFICIO completo, no una vivienda, así que se
+        // resume como tal en vez de morir leyendo `bico.bi` de un undefined.
+        if (!consulta.bico && consulta.lrcdnp) {
+            const parcela = resumirParcela(cleanRC, consulta, coordinates);
+            monitor.recordSuccess();
+            cache.set(cacheKey, parcela, cache.TTL_RC);
+            return parcela;
+        }
+
         const bico = consulta.bico;
         const bi = Array.isArray(bico.bi) ? bico.bi[0] : bico.bi;
         const debi = bi?.debi || {};
@@ -720,6 +730,132 @@ function isLikelyNonResidentialFloor(floor) {
 }
 
 /**
+ * Un inmueble de la lista `lrcdnp` (o el `bi` de un bico), en la forma que consume la app.
+ * Vive fuera de `getDwellingsByParcel` porque `getByRC` lo necesita sobre la respuesta que
+ * YA tiene en la mano: repetirlo alli acabaria con dos lecturas distintas del mismo JSON.
+ */
+function extraerInmueble(item) {
+    const rcNode = item.rc || item.idbi?.rc;
+    let fullRc = '';
+    if (rcNode && rcNode.pc1 && rcNode.pc2) {
+        fullRc = rcNode.pc1 + rcNode.pc2 + (rcNode.car || '') + (rcNode.cc1 || '') + (rcNode.cc2 || '');
+    }
+    const dt = item.dt || {};
+    const lourb = dt.locs?.lous?.lourb || dt.lourb || {};
+    const loint = lourb.loint || {};
+    const debi = item.debi || {};
+    return {
+        rc: fullRc,
+        address: String(item.ldt || '') || buildAddressFromDt(dt),
+        block: String(loint.es || ''),
+        floor: String(loint.pt || ''),
+        door: String(loint.pu || ''),
+        use: String(debi.luso || ''),
+        surface: parseInt(debi.sfc) || 0,
+        yearBuilt: parseInt(debi.ant) || 0,
+    };
+}
+
+/** Marca cada inmueble como residencial o no. El USO manda; sin uso, la planta desempata. */
+function extraerInmuebles(consulta) {
+    let lista = [];
+    if (consulta?.lrcdnp) {
+        const raw = consulta.lrcdnp;
+        const rcList = Array.isArray(raw) ? raw : (raw.rcdnp ? (Array.isArray(raw.rcdnp) ? raw.rcdnp : [raw.rcdnp]) : []);
+        lista = rcList.map(extraerInmueble).filter(d => d.rc);
+    } else if (consulta?.bico) {
+        const bi = Array.isArray(consulta.bico.bi) ? consulta.bico.bi[0] : consulta.bico.bi;
+        if (bi) {
+            const d = extraerInmueble(bi);
+            if (d.rc) lista.push(d);
+        }
+    }
+    return lista.map(d => {
+        const u = (d.use || '').toUpperCase();
+        let isResidential;
+        if (u) isResidential = /RESIDENCIAL|VIVIENDA/.test(u);
+        else if (isLikelyNonResidentialFloor(d.floor)) isResidential = false;
+        else isResidential = true;
+        return { ...d, isResidential };
+    });
+}
+
+/**
+ * Resumen de una PARCELA con division horizontal --- un bloque de viviendas.
+ *
+ * El Catastro responde a una RC de 14 de dos formas distintas e incompatibles: si la finca
+ * no esta dividida devuelve `bico` (UN inmueble) y si lo esta devuelve `lrcdnp` (la LISTA).
+ * `getByRC` solo sabia leer la primera, asi que buscar el bloque de la calle Fuenmayor
+ * 72-74 de Logrono (118 inmuebles) moria en `bico.bi` sobre un undefined y la app decia
+ * "no se pudo completar la busqueda" --- no que fuera un edificio.
+ *
+ * Lo que se devuelve aqui NO es una vivienda: es el EDIFICIO. Por eso no lleva
+ * `constructions` (son las de un inmueble) y si lleva lo que hace falta para decidir:
+ * cuantos inmuebles hay, cuantos son viviendas y de que portales.
+ */
+function resumirParcela(cleanRC, consulta, coordinates) {
+    const inmuebles = extraerInmuebles(consulta);
+    const viviendas = inmuebles.filter(i => i.isResidential);
+    const rcdnpLista = (() => {
+        const raw = consulta?.lrcdnp?.rcdnp;
+        return Array.isArray(raw) ? raw : (raw ? [raw] : []);
+    })();
+    const inmueblesDt = rcdnpLista.map(i => ({ dt: i.dt || {} }));
+
+    // Un bloque ocupa varios portales y a veces DOS CALLES: el de Fuenmayor hace esquina
+    // con Irlanda. El Catastro no publica una direccion "de la parcela", asi que se compone
+    // agrupando los portales por via --- y desde el nodo ESTRUCTURADO (`dir`), nunca
+    // parseando el `ldt`: ese texto lleva pegado el interior ("Es:1 Pl:00 Pt:01") y el
+    // primer numero que aparece en el no siempre es el del portal.
+    const porVia = new Map();
+    inmueblesDt.forEach(({ dt }) => {
+        const dir = (dt.locs?.lous?.lourb || dt.lourb || {}).dir || {};
+        const via = [String(dir.tv || '').trim(), String(dir.nv || '').trim()].filter(Boolean).join(' ');
+        if (!via) return;
+        if (!porVia.has(via)) porVia.set(via, new Set());
+        if (dir.pnp) porVia.get(via).add(String(dir.pnp).trim());
+    });
+    const direcciones = [...porVia.entries()]
+        // La via principal es la que reune mas inmuebles; las demas van detras.
+        .sort((a, b) => b[1].size - a[1].size)
+        .map(([via, nums]) => `${via} ${[...nums].sort((x, y) => Number(x) - Number(y)).join('-')}`.trim());
+
+    const anios = inmuebles.map(i => i.yearBuilt).filter(Boolean).sort((a, b) => a - b);
+
+    const dt0 = rcdnpLista[0]?.dt || {};
+    const lourb0 = dt0.locs?.lous?.lourb || dt0.lourb || {};
+
+    return {
+        rc: cleanRC,
+        // La bandera que lee el frontend. Un consumidor que no la conozca sigue recibiendo
+        // un objeto con `rc` y `address`, no un undefined a media pantalla.
+        isParcela: true,
+        kind: 'PARCELA',
+        address: direcciones[0] || inmuebles[0]?.address || 'Dirección no disponible',
+        // Todas las vías de la parcela. Un bloque en esquina tiene dos, y esconder la
+        // segunda hace dudar de si la referencia buscada es la correcta.
+        addresses: direcciones,
+        totalUnits: inmuebles.length,
+        dwellingCount: viviendas.length,
+        // Superficie CONSTRUIDA (Catastro), no util habitable: la del calculo sale del CEE.
+        dwellingSurface: viviendas.reduce((a, i) => a + (i.surface || 0), 0),
+        totalSurface: inmuebles.reduce((a, i) => a + (i.surface || 0), 0),
+        yearBuilt: anios.length ? anios[Math.floor(anios.length / 2)] : 0,
+        dwellings: inmuebles,
+        utm: coordinates || { x: 0, y: 0, zone: 30, srs: 'EPSG:25830' },
+        provinceCode: String(dt0.loine?.cp || ''),
+        municipalityCode: String(dt0.loine?.cm || ''),
+        postalCode: String(lourb0.dp || '') || null,
+        municipality: getText(dt0.nm) || null,
+        province: getText(dt0.np) || null,
+        climateInfo: climateService.getClimateInfo(dt0.loine?.cp, dt0.loine?.cm),
+        typeCatastro: 'Parcela con división horizontal (edificio completo)',
+        verified: true,
+        source: 'Catastro (OVCC)',
+    };
+}
+
+/**
  * Lista de inmuebles (viviendas, locales, trasteros) de una parcela con división horizontal.
  * Solo se llama BAJO DEMANDA desde /api/catastro/dwellings/:rc14, no en cada búsqueda.
  * Cache 30 días gestionado por el handler de la ruta.
@@ -749,50 +885,7 @@ async function getDwellingsByParcel(rc14) {
 
         monitor.recordSuccess();
 
-        const extractBasic = (item) => {
-            const rcNode = item.rc || item.idbi?.rc;
-            let fullRc = '';
-            if (rcNode && rcNode.pc1 && rcNode.pc2) {
-                fullRc = rcNode.pc1 + rcNode.pc2 + (rcNode.car || '') + (rcNode.cc1 || '') + (rcNode.cc2 || '');
-            }
-            const dt = item.dt || {};
-            const lourb = dt.locs?.lous?.lourb || dt.lourb || {};
-            const loint = lourb.loint || {};
-            const block = String(loint.es || '');
-            const floor = String(loint.pt || '');
-            const door = String(loint.pu || '');
-            const debi = item.debi || {};
-            const use = String(debi.luso || '');
-            const surface = parseInt(debi.sfc) || 0;
-            const address = String(item.ldt || '') || buildAddressFromDt(dt);
-            return { rc: fullRc, address, block, floor, door, use, surface };
-        };
-
-        let dwellings = [];
-        if (consulta.lrcdnp) {
-            const raw = consulta.lrcdnp;
-            const rcList = Array.isArray(raw) ? raw : (raw.rcdnp ? (Array.isArray(raw.rcdnp) ? raw.rcdnp : [raw.rcdnp]) : []);
-            dwellings = rcList.map(extractBasic).filter(d => d.rc);
-        } else if (consulta.bico) {
-            const bi = Array.isArray(consulta.bico.bi) ? consulta.bico.bi[0] : consulta.bico.bi;
-            if (bi) {
-                const d = extractBasic(bi);
-                if (d.rc) dwellings.push(d);
-            }
-        }
-
-        return dwellings.map(d => {
-            const u = (d.use || '').toUpperCase();
-            let isResidential;
-            if (u) {
-                isResidential = /RESIDENCIAL|VIVIENDA/.test(u);
-            } else if (isLikelyNonResidentialFloor(d.floor)) {
-                isResidential = false;
-            } else {
-                isResidential = true;
-            }
-            return { ...d, isResidential };
-        });
+        return extraerInmuebles(consulta);
     } catch (error) {
         if (error instanceof CatastroBlockedError) throw error;
         if (isRateLimitResponse(error)) {
@@ -869,4 +962,4 @@ async function getParcelImage(rc) {
 
 async function getDetails(rc) { return await getByRC(rc); }
 
-module.exports = { getByRC, getRCByCoords, getDetails, getFacadeImage, getCoordinatesByRC, getParcelImage, getDwellingsByParcel };
+module.exports = { getByRC, getRCByCoords, getDetails, getFacadeImage, getCoordinatesByRC, getParcelImage, getDwellingsByParcel, extraerInmuebles, resumirParcela };
