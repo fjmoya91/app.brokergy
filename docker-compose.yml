@@ -17,6 +17,7 @@ services:
       - NODE_ENV=production
       - PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
       - RITE_SERVICE_URL=http://rite-generator:8080
+      - CEE_ENGINE_URL=http://cee-engine:8080
     volumes:
       - whatsapp_auth:/app/.wwebjs_auth
       - whatsapp_cache:/app/.wwebjs_cache
@@ -30,6 +31,17 @@ services:
     env_file: ./implementation/backend/.env
     environment:
       - MCP_PORT=3001
+    networks:
+      - brokergy
+
+  # Motor de envolvente termica (CE3X). Python por la misma razon que el RITE:
+  # GEOS y PROJ no tienen equivalente en Node, y el .cex son pickles de Python.
+  cee-engine:
+    build: ./implementation/cee-engine
+    container_name: brokergy-cee-engine
+    restart: unless-stopped
+    environment:
+      - PORT=8080
     networks:
       - brokergy
 

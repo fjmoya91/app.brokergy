@@ -1,0 +1,1 @@
+GEOMETRIA SINTETICA DE PRUEBA - NO CORRESPONDE A NINGUN INMUEBLE REAL (generada por tools/make_fixture.py)

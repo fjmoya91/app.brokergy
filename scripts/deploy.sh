@@ -30,12 +30,15 @@ cd $APP_DIR
 echo "    OK"
 
 # ── 3. Reconstruir servicios ───────────────────
-echo "[3/4] Reconstruyendo backend, MCP y RITE generator..."
+echo "[3/4] Reconstruyendo backend, MCP, RITE y motor CEE..."
 docker compose build --no-cache backend mcp
 # rite-generator: build con caché (la capa pesada de pip se reutiliza salvo que
 # cambie requirements.txt; el código se recopia siempre).
 docker compose build rite-generator
-docker compose up -d backend mcp rite-generator
+# cee-engine: mismo criterio que el RITE. La imagen corre los tests del
+# motor al construirse, asi que una imagen que sale es una imagen que pasa.
+docker compose build cee-engine
+docker compose up -d backend mcp rite-generator cee-engine
 echo "    OK"
 
 # ── 4. Recargar nginx ──────────────────────────

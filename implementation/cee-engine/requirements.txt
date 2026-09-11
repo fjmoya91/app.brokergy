@@ -1,0 +1,30 @@
+# cee-engine — motor de envolvente térmica. Dependencias.
+
+# --- Núcleo geométrico ---
+# GEOS (shapely) y PROJ (pyproj) son la razón de que esto sea un servicio
+# Python y no código dentro del backend Node: no tienen equivalente en JS y
+# todas las tolerancias del proyecto están medidas contra su comportamiento.
+shapely>=2.0
+pyproj>=3.4
+lxml>=4.9
+numpy>=1.24
+
+# --- Las dos imágenes del .cex ---
+# Foto de fachada y plano de situación, que CE3X guarda como PNG de 134 px.
+Pillow>=10.0
+
+# --- Los planos del plan de fotos ---
+# Un PNG por toma, con la pared marcada, que se le enseña al cliente.
+matplotlib>=3.7
+
+# --- API ---
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9        # subida del .cex en /leer-cex
+
+# --- Desarrollo ---
+pytest>=7
+
+# NO se usa geopandas a propósito: arrastra GDAL y no aporta nada sobre
+# shapely + pyproj. NO se usa requests: impone su propio orden de cabeceras y
+# el WAF de Catastro lo bloquea — el cliente habla `http.client` pelado.

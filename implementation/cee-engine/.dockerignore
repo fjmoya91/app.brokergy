@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+# Ningún .cex de expediente entra en la imagen: llevan dentro el nombre, la
+# dirección y el teléfono del titular. La plantilla en blanco SÍ entra, y va
+# en assets/ con otro nombre.
+*.cex
+!assets/plantilla-virgen.cex
+ejemplos/
+output/
+data/

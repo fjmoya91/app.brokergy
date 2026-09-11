@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+output/
+data/
+
+# Ningun .cex de expediente entra en el repositorio: lleva dentro el nombre,
+# la direccion y el telefono del titular, y el DNI del tecnico que firma.
+# La UNICA excepcion es la plantilla, y va en blanco a proposito — hay un test
+# (`test_la_plantilla_del_servicio_NO_lleva_datos_de_nadie`) que lo comprueba
+# en cada build de la imagen.
+*.cex
+!assets/plantilla-virgen.cex
