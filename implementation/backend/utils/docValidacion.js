@@ -11,23 +11,35 @@
 // requerimiento. Al re-validarlo, la copia previa de "10. EXPEDIENTE CAE" se archiva
 // en su subcarpeta OLD y la nueva la sustituye.
 
+// REGLA: esta tabla es el NOMBRE del fichero en "10. EXPEDIENTE CAE" (`{nº} -
+// {etiqueta}.pdf`). Un slot que falte aquí no deja de copiarse: se copia con el
+// nombre del CAMPO —"25RES060_93 - cert rite drive link.pdf", visto en producción—,
+// que en la carpeta que se audita no dice qué documento es.
+//
+// El RITE son DOS documentos y por eso tiene dos entradas: el CERTIFICADO que emite
+// el instalador ante Industria (`cert_rite_drive_link`, la fila "Certificado RITE")
+// y la MEMORIA que redactamos nosotros y nos vuelve firmada (`cert_rite_signed_link`,
+// desde el 27/08/2026 — ver `memoria_rite_docx_link`). No pueden llamarse igual: el
+// segundo que se valide archivaría al primero en OLD y la carpeta de auditoría se
+// quedaría con uno solo de los dos.
 const DOCUMENTO_VALIDABLE_LABELS = {
     anexo_i_signed_link: 'Anexo I',
     anexo_cesion_signed_link: 'Anexo Cesión de Ahorro',
     cert_cifo_signed_link: 'Certificado CIFO',
     ficha_res060_signed_link: 'Ficha RES',
     anexo_fotografico_signed_link: 'Anexo Fotográfico',
-    cert_rite_signed_link: 'Certificado RITE',
+    cert_rite_drive_link: 'CERTIFICADO RITE',
+    cert_rite_signed_link: 'Memoria RITE',
     facturas_combined_link: 'FACTURAS',
 };
 
-// Campo escrito → slot validable al que afecta. Solo hace falta declarar los que NO
-// coinciden consigo mismos: el Certificado RITE se valida por `cert_rite_signed_link`
-// pero puede subirse como enlace manual en `cert_rite_drive_link` (ver
-// VALIDAR_LINK_FALLBACK en routes/expedientes.js).
-const CAMPO_A_SLOT_VALIDABLE = {
-    cert_rite_drive_link: 'cert_rite_signed_link',
-};
+// Campo escrito → slot validable al que afecta, para los que NO coinciden consigo
+// mismos. Hoy no hay ninguno: `cert_rite_drive_link` apuntaba aquí a
+// `cert_rite_signed_link` de cuando los dos campos eran el mismo documento, y con la
+// separación eso mandaba la invalidación al documento de al lado — subir un
+// certificado nuevo dejaba en verde el certificado sin revisar y tumbaba la
+// validación de la Memoria.
+const CAMPO_A_SLOT_VALIDABLE = {};
 
 const slotValidableDe = (campo) => CAMPO_A_SLOT_VALIDABLE[campo] || campo;
 

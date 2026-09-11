@@ -36,6 +36,7 @@ import { avisosCeeDocumento, ceeBaseDocumento, hayAvisosBloqueantes } from '../l
 // firmado desde la app no acabe en otra carpeta distinta de la suya.
 const SIGNED_SUBFOLDER_DEFAULT = '6. ANEXOS CAE';
 const SIGNED_SUBFOLDER = {
+    cert_rite_drive_link: '7. LEGALIZACION RITE',
     cert_rite_signed_link: '7. LEGALIZACION RITE',
     facturas_combined_link: '5. FACTURAS',
 };
@@ -2191,6 +2192,14 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             setCesionManuscrita({ file });
             return;
         }
+
+        // El CERTIFICADO RITE entra siempre por su camino, se suelte donde se suelte:
+        // "7. LEGALIZACION RITE", nombre canónico, sello `cert_rite_aportado_at` y
+        // lectura de sus fechas. Por aquí llega el "Sustituir" del gestor, que si no
+        // caía en la subida genérica y lo dejaba en "6. ANEXOS CAE" llamado
+        // "{nº} - CERT RITE DRIVE LINK_fdo.pdf" — ni en su carpeta ni con su nombre.
+        if (field === 'cert_rite_drive_link') return leerCertificadoRite(file);
+
         return uploadSignedPlain(field, file);
     };
 

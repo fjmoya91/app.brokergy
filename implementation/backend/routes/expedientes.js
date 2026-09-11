@@ -1957,13 +1957,12 @@ function extractDriveFileId(link) {
     return m ? m[1] : null;
 }
 
-// El Certificado RITE no lleva firma digital propia (es gestión manual: un único
-// enlace en cert_rite_drive_link, sin versión "_signed" separada). Si aún no se ha
-// subido una versión "firmada" específica, se valida/copia directamente el enlace
-// manual — no hay firma que comprobar en este documento.
-const VALIDAR_LINK_FALLBACK = {
-    cert_rite_signed_link: 'cert_rite_drive_link',
-};
+// Nombre con el que se copiaba antes un slot SIN etiqueta en DOCUMENTO_VALIDABLE_LABELS
+// ("25RES060_93 - cert rite drive link.pdf"). Ya no se genera ninguno así, pero los que
+// se validaron entonces siguen en la carpeta: al re-validar se archivan en OLD, o
+// quedarían los dos ficheros —el del nombre feo y el bueno— como si fueran dos
+// documentos distintos. Se puede retirar cuando no quede ninguno.
+const nombreHeredado = (field) => field.replace(/_/g, ' ');
 
 router.post('/:id/documentos/validar', enforceAuth, async (req, res) => {
     try {
@@ -1974,8 +1973,7 @@ router.post('/:id/documentos/validar', enforceAuth, async (req, res) => {
         if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
 
         const docObj = exp.documentacion || {};
-        const fallbackField = VALIDAR_LINK_FALLBACK[field];
-        const link = docObj[field] || (fallbackField && docObj[fallbackField]);
+        const link = docObj[field];
         if (!link) return res.status(400).json({ error: 'El documento aún no tiene un fichero firmado que copiar' });
 
         let auditLink = null;
@@ -1989,15 +1987,20 @@ router.post('/:id/documentos/validar', enforceAuth, async (req, res) => {
             if (driveFolderId && fileId) {
                 const driveService = require('../services/driveService');
                 const auditFolderId = await driveService.getOrCreateSubfolderNormalized(driveFolderId, '10. EXPEDIENTE CAE');
-                const baseName = DOCUMENTO_VALIDABLE_LABELS[field] || field.replace(/_/g, ' ');
+                const baseName = DOCUMENTO_VALIDABLE_LABELS[field] || nombreHeredado(field);
                 const copyName = `${exp.numero_expediente || ''} - ${baseName}.pdf`.trim();
                 // Re-validación (versión nueva del documento): la copia anterior NO se
                 // borra, se archiva en "OLD" como {nombre}_OLD, _OLD1… — igual que
                 // /documentos/validar-cee. Si el archivado falla, se borra para no dejar
-                // dos ficheros homónimos en la carpeta de auditoría.
-                const prevId = await driveService.findFileByName(auditFolderId, copyName);
-                if (prevId) {
-                    const archived = await driveService.archiveExistingToOld(auditFolderId, prevId, copyName);
+                // dos ficheros homónimos en la carpeta de auditoría. Se busca también con
+                // el nombre heredado, o la copia vieja se quedaría al lado de la nueva.
+                const nombresPrevios = [copyName];
+                const heredado = `${exp.numero_expediente || ''} - ${nombreHeredado(field)}.pdf`.trim();
+                if (heredado !== copyName) nombresPrevios.push(heredado);
+                for (const nombre of nombresPrevios) {
+                    const prevId = await driveService.findFileByName(auditFolderId, nombre);
+                    if (!prevId) continue;
+                    const archived = await driveService.archiveExistingToOld(auditFolderId, prevId, nombre);
                     if (!archived) await driveService.deleteFile(prevId);
                 }
                 const copied = await driveService.copyFile(fileId, auditFolderId, copyName);

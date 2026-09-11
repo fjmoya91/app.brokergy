@@ -2969,7 +2969,22 @@ vez y se pierde al cerrar el popup no sirve de nada.
 **Soltar un PDF en esa fila es soltar el CERTIFICADO.** Antes la fila lo recogía como
 `cert_rite_signed_link`, que es la *memoria firmada* —el documento de al lado—. El fichero
 va a `7. LEGALIZACION RITE` con el nombre canónico y al slot `cert_rite_drive_link`, por el
-MISMO camino que la subida del instalador.
+MISMO camino que la subida del instalador. **También el "Sustituir" del gestor**
+(`handleSignedUpload`): caía en la subida genérica y lo dejaba en `6. ANEXOS CAE` llamado
+`{nº} - CERT RITE DRIVE LINK_fdo.pdf`.
+
+**REGLA — un slot validable DECLARA su nombre en `DOCUMENTO_VALIDABLE_LABELS`.** Es el
+nombre con el que la validación copia el fichero a `10. EXPEDIENTE CAE`; el slot que falte
+ahí no deja de copiarse, se copia con el nombre del CAMPO —`25RES060_93 - cert rite drive
+link.pdf`, 9 expedientes en producción—, que en la carpeta que audita el verificador no
+dice qué documento es. Y el RITE necesita sus **DOS** entradas con nombres DISTINTOS
+(`cert_rite_drive_link` → *CERTIFICADO RITE*, `cert_rite_signed_link` → *Memoria RITE*): con
+el mismo, el segundo que se valide archiva al primero en OLD. Por el mismo motivo se vació
+`CAMPO_A_SLOT_VALIDABLE`, que mandaba la invalidación del certificado al slot de la memoria
+—subir un certificado nuevo dejaba en verde el que nadie había revisado—. Lo ya copiado con
+el nombre viejo: `node implementation/backend/scripts/renombrar_copias_auditoria.js`
+(en seco sin `--execute`; deja a mano los expedientes donde existan los dos ficheros, porque
+cuál vale no se puede decidir a ciegas).
 
 ---
 
@@ -4827,7 +4842,6 @@ podría ser una subida a mano con el nombre canónico.
 Si fallara el sellado del slot, las piezas NO se retiran y la respuesta lo dice
 con esas palabras — es el único estado desde el que un ⟳ duplicaría el EPREL.
 
----
 ---
 
 ## La cartera de instaladores, etiquetada sola en WhatsApp (2026-09-09)

@@ -29,16 +29,11 @@ const driveService = require('../services/driveService');
 
 const AUDIT_FOLDER_NAME = '10. EXPEDIENTE CAE';
 
-// Mismo mapeo que POST /:id/documentos/validar (routes/expedientes.js) — mantener
-// sincronizado si se añade un nuevo documento validable.
-const DOCUMENTO_VALIDABLE_LABELS = {
-    anexo_i_signed_link: 'Anexo I',
-    anexo_cesion_signed_link: 'Anexo Cesión de Ahorro',
-    cert_cifo_signed_link: 'Certificado CIFO',
-    ficha_res060_signed_link: 'Ficha RES',
-    anexo_fotografico_signed_link: 'Anexo Fotográfico',
-    cert_rite_signed_link: 'Certificado RITE',
-};
+// Los nombres los manda la FUENTE ÚNICA, la misma que POST /:id/documentos/validar.
+// Copiada aquí, se quedó atrás: seguía llamando "Certificado RITE" a
+// `cert_rite_signed_link`, que desde el 27/08/2026 es la MEMORIA firmada, y no
+// conocía el slot del certificado de verdad (`cert_rite_drive_link`).
+const { DOCUMENTO_VALIDABLE_LABELS } = require('../utils/docValidacion');
 
 function extractDriveFileId(link) {
     if (!link) return null;
@@ -110,6 +105,14 @@ async function main() {
         }
 
         if (!pendientes.length) continue; // nada validado en este expediente
+
+        // Un mismo nombre no se copia dos veces: las facturas salen del bucle de
+        // validados (están en la fuente única) y otra vez del bloque 2, que las copia
+        // aunque nadie las haya validado.
+        const vistos = new Set();
+        const unicos = pendientes.filter(p => !vistos.has(p.name) && vistos.add(p.name));
+        pendientes.length = 0;
+        pendientes.push(...unicos);
 
         procesados++;
         conAlgoQueCopiar++;
