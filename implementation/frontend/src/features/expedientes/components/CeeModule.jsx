@@ -7,6 +7,7 @@ import CeeUploadModal from '../../cee/CeeUploadModal';
 import { ceeToXmlShape } from '../../cee/ceeExtract';
 import { EfficiencyTable, CATEGORIES_SIMPLIFICADO } from '../../calculator/components/EfficiencyTable';
 import { CeeDocumentsGrid } from './CeeDocumentsGrid';
+import { EnvolventeView } from '../../cee-envolvente/views/EnvolventeView';
 import { AvisoIrpfEpnr } from './AvisoIrpfEpnr';
 import { TecnicoPicker } from './TecnicoPicker';
 import { Ce3xAyudasModal } from './Ce3xAyudasModal';
@@ -1877,6 +1878,16 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
             </div>
 
             {isReforma ? renderRes080() : renderRes060()}
+
+            {/* ── Envolvente térmica ────────────────────────────────────────
+                Va AQUI, en el modulo compartido, y no en la ficha de cada
+                negocio: es la misma herramienta para un CEE directo que para el
+                CEE de un expediente CAE, y duplicarla seria arreglarla dos veces.
+                Es lo que se usa ANTES de tener el certificado: de la referencia
+                catastral al .cex con la envolvente puesta. */}
+            <div className="mt-8">
+                <EnvolventeView expediente={expediente} />
+            </div>
 
             {/* ¿Los dos certificados valen para la deducción del IRPF? Solo tiene
                 sentido con las DOS fases: sin el CEE de después no hay nada que
