@@ -6932,7 +6932,13 @@ router.post('/:id/fichas-tecnicas/auto-copy', enforceAuth, async (req, res) => {
 
         const r = await asegurarFichaTecnica(exp, type, { force: !!force });
         if (r.ok) {
-            return res.json({ driveId: r.driveId, link: r.link, copied: r.copied, source: r.source });
+            return res.json({
+                driveId: r.driveId, link: r.link, copied: r.copied, source: r.source,
+                // Qué trae dentro la ficha del modelo cuando es un CONJUNTO (ficha
+                // del fabricante + EPREL + etiqueta). Se enseña en el gestor de
+                // anexos para no tener que abrir el PDF y comprobarlo.
+                partes: r.partes || null,
+            });
         }
         // El mensaje de cada fallo se escribe AQUI, no en el servicio: el servicio
         // lo llaman tambien el paquete del lote y los scripts, y "Elige el marco en
@@ -6955,6 +6961,60 @@ router.post('/:id/fichas-tecnicas/auto-copy', enforceAuth, async (req, res) => {
         return res.status(r.status || 400).json(body);
     } catch (err) {
         console.error('Error POST /:id/fichas-tecnicas/auto-copy:', err);
+        res.status(500).json({ error: 'internal', message: err.message });
+    }
+});
+
+// ─── POST /api/expedientes/:id/fichas-tecnicas/consolidar ────────────────────
+// Une varios anexos del gestor en UN PDF y lo deja como ficha del MODELO en el
+// catálogo (y en el slot de este expediente). Es lo que cierra el círculo de la
+// ficha que llega incompleta: la del fabricante + la ficha EPREL + la etiqueta
+// se unen una vez, y a partir de ahí las copia sola cualquier expediente que
+// elija ese equipo.
+//
+// staffOnly: escribe en el CATÁLOGO, que es compartido — la misma regla que dar
+// de alta o editar un modelo (un TRABAJADOR es quien rellena el expediente, y si
+// esto exigiera ADMIN la ficha no se guardaría nunca).
+//
+// Body: { type, piezas: [{ driveId, excludedPages? }] } en el ORDEN final.
+router.post('/:id/fichas-tecnicas/consolidar', staffOnly, async (req, res) => {
+    const { type, piezas } = req.body || {};
+    try {
+        const { data: exp } = await supabase
+            .from('expedientes')
+            .select('id, oportunidad_id, numero_expediente, documentacion, instalacion')
+            .eq('id', req.params.id)
+            .single();
+        if (!exp) return res.status(404).json({ error: 'expediente_not_found' });
+
+        const r = await require('../services/fichaConsolidada').consolidarFicha(exp, { type, piezas });
+        if (r.ok) return res.json(r);
+
+        // El texto de cada fallo se escribe AQUÍ: el servicio lo llaman también
+        // scripts, y "vuelve a subir el PDF" es una instrucción para quien tiene
+        // la pantalla delante.
+        const mensajes = {
+            bad_type: 'Ese hueco de ficha técnica no existe.',
+            slot_no_aplica: 'Este expediente no lleva esa ficha técnica.',
+            no_model: 'Ese hueco no tiene un modelo del catálogo detrás: no hay a quién guardarle la ficha.',
+            pocas_piezas: 'Hace falta más de un documento para unir un conjunto.',
+            pieza_repetida: 'Un mismo documento no puede ir dos veces en el conjunto.',
+            pieza_ajena: 'Ese documento no es de este expediente.',
+            pieza_ilegible: 'No se pudo leer uno de los documentos en Drive — vuelve a subirlo y reinténtalo.',
+            union_vacia: 'El conjunto se queda sin ninguna página (revisa los recortes).',
+            catalogo_error: 'No se pudo guardar la ficha en el catálogo. No se ha cambiado nada.',
+            slot_error: 'La ficha ya está en el catálogo, pero no se pudo dejar en este expediente. '
+                      + 'Pulsa ⟳ en la ficha para traerla y quita a mano los PDFs sueltos: si se quedan, '
+                      + 'el certificado los llevaría dos veces.',
+        };
+        const body = { error: r.error };
+        if (mensajes[r.error]) body.message = mensajes[r.error];
+        for (const k of ['model', 'driveId', 'motivo', 'catalogoOk', 'link']) {
+            if (r[k] !== undefined) body[k] = r[k];
+        }
+        return res.status(r.status || 400).json(body);
+    } catch (err) {
+        console.error('Error POST /:id/fichas-tecnicas/consolidar:', err);
         res.status(500).json({ error: 'internal', message: err.message });
     }
 });

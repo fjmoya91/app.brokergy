@@ -4758,7 +4758,76 @@ Nombres canónicos en Drive: `{nº} - FT MARCO VENTANA.pdf` y `{nº} - FT VIDRIO
 (sin "AEROTERMIA": se archivan en la misma carpeta y el nombre es lo que las
 distingue). Campos: `documentacion.ft_marco_link` / `ft_cristal_link`.
 
+---
 
+## La ficha del catálogo cuando son VARIOS papeles (2026-09-11)
+
+El catálogo guardaba UNA ficha por modelo y durante mucho tiempo bastó. Dejó de
+bastar con el **EPREL**: cuando el SCOP se justifica por ahí, el certificado
+necesita **tres documentos** —la ficha del fabricante, la ficha EPREL y la
+etiqueta energética— y el catálogo solo aportaba el primero. Así que en cada
+expediente con ese equipo alguien buscaba los otros dos y los soltaba a mano en
+el gestor de anexos (`LABEL_673322.pdf`, `FICHE_673322_ES.pdf`). Otra vez. Y otra.
+
+Ahora eso se hace **una sola vez**: los anexos ya dados por buenos se unen en un
+PDF y ese PDF pasa a ser la ficha del modelo. El siguiente expediente que elija
+ese equipo se la copia entera.
+
+| Qué | Dónde |
+|---|---|
+| Unir, subir al catálogo, sellar el slot y retirar las piezas | [fichaConsolidada.js](implementation/backend/services/fichaConsolidada.js) |
+| Ruta | `POST /api/expedientes/:id/fichas-tecnicas/consolidar`, **staffOnly** |
+| Qué se ofrece y qué se propone marcar | [logic/fichaConsolidable.js](implementation/frontend/src/features/expedientes/logic/fichaConsolidable.js) |
+| Popup | `ConsolidarFichaModal.jsx`, desde el gestor de anexos del CIFO y del RES080 |
+| Qué trae dentro la ficha del catálogo | `ficha_tecnica_partes` (`scripts/ficha_tecnica_consolidada.sql`) |
+| Prueba sin BD, sin Drive y sin tocar el catálogo | `node implementation/backend/scripts/test_ficha_consolidada.mjs` |
+
+**REGLA — se une EXACTAMENTE lo que va al certificado.** Mismo orden del gestor,
+mismos recortes de páginas (`cifo_annex_prefs.excluded`) y el mismo `unirAnexos`
+que produce la ficha técnica suelta del paquete E{n}. Si la ficha del catálogo no
+fuera página a página el bloque de anexos, el documento suelto y el que va dentro
+del certificado dejarían de coincidir — que es lo que compara quien lo verifica.
+Por eso el ORDEN no se toca en el popup: se cambia en el gestor, que es donde
+manda.
+
+**REGLA — consolidar deja el EXPEDIENTE consolidado también.** El catálogo y el
+expediente no pueden contar cosas distintas: si aquí se quedaran las piezas
+sueltas, el día que alguien pulse ⟳ en la ficha se traería el conjunto —que ya
+lleva el EPREL dentro— y el certificado saldría con el **EPREL dos veces**
+(`dedupeByDriveId` no lo ve: son ficheros distintos). Las piezas salen de la
+lista de anexos, pero **no se borran de Drive**: son la prueba de lo que se unió.
+El slot se sella por el MISMO camino que el botón ⟳ (`asegurarFichaTecnica` con
+`force`), para que no haya dos formas de dejarlo.
+
+**REGLA — con VARIOS modelos, los sueltos NO vienen marcados.** Qué equipo
+justifica cada PDF suelto no lo puede adivinar la app: marcarlo por ti es meter
+la ficha EPREL de un equipo dentro de la ficha del otro, y desde el catálogo eso
+se propaga a todos los expedientes que lleven ese modelo. Con un solo modelo no
+hay ambigüedad y van marcados. La ficha del OTRO modelo tampoco se ofrece como
+pieza.
+
+**REGLA — una pieza que no se puede leer ABORTA.** `fetchAnnexBuffers` se salta
+en silencio lo que no baja; aquí no vale: una ficha incompleta subida al catálogo
+no se queda en este expediente. Y solo se unen ficheros DE ESTE EXPEDIENTE (el
+driveId lo manda el navegador): se comprueba contra los slots de ficha y contra
+`cifo_extra_annexes`, mismo criterio que el proxy de contenido de los anexos.
+
+**REGLA — se dice qué trae dentro.** `ficha_tecnica_partes` guarda los METADATOS
+del conjunto (nombre de cada pieza, sus páginas y cuándo se unió — regla 21) y el
+gestor lo pinta bajo el badge: *"📎 Conjunto de 3 documentos · 5 págs"*. Sin eso,
+el siguiente expediente ve "5 págs" y no sabe si el EPREL va dentro sin abrir el
+PDF — que es exactamente lo que lleva a subirlo otra vez. Se escribe **siempre**
+que se toca `ficha_tecnica`: guardar una ficha suelta lo pone a NULL, porque una
+nota de "conjunto" que sobrevive a la ficha que describe miente con toda la
+autoridad de un registro. Solo se afirma sobre un fichero que ACABA de salir del
+catálogo (`source: 'model'`): sobre uno adoptado de la carpeta del expediente
+podría ser una subida a mano con el nombre canónico.
+
+⚠️ El orden de operaciones no es indiferente: **catálogo → slot → retirar piezas**.
+Si fallara el sellado del slot, las piezas NO se retiran y la respuesta lo dice
+con esas palabras — es el único estado desde el que un ⟳ duplicaría el EPREL.
+
+---
 ---
 
 ## La cartera de instaladores, etiquetada sola en WhatsApp (2026-09-09)
@@ -5296,6 +5365,8 @@ compatibilidad) y lo único que se contesta es qué recibe cada persona.
 35. **"¿Tienes placas solares?" se pregunta en `/reforma` y llega hasta el CEE**: la respuesta (`si` | `futuro` | `no`) y la potencia viajan `funnel → inputs.fotovoltaica → instalacion.fotovoltaica → encargo al certificador`. Fuente única: [logic/fotovoltaica.js](implementation/frontend/src/features/expedientes/logic/fotovoltaica.js), que el backend carga por import() ESM. **A quien ya tiene placas NO se le propone la medida de mejora de autoconsumo**: se le dice al certificador que las declare como instalación EXISTENTE (`ce3xTextos` · `buildCe3xFinal`). `estado: null` ("sin declarar") no es `'no'`, y la clave va en la BLACKLIST de `normalizeData` porque el enum es en minúscula. No confundir con `reforma_elementos.placas`, que son las placas de ESTA obra. Ver "¿Tienes placas solares?".
 
 37. **El Uf del marco y el Ug del vidrio salen del CATÁLOGO DE VENTANAS, y la MARCA no es el CARPINTERO**: `ventanas_marcos` (una fila por marca+serie+**apertura**: el mismo sistema da otro Uf en corredera) y `ventanas_cristales` (una fila por fabricante+gama+**composición**: el mismo Guardian Sun da Ug 1,3 con aire y 1,0 con argón). Sustituyen a las listas que vivían en el `localStorage` del navegador y a los defaults 2,7 · 1,3 · 0,43, que acabaron impresos tal cual en varios expedientes. La carpintería que fabrica y monta la ventana va en `documentacion.envolvente.marco_carpinteria`, NUNCA en la marca. Un modelo sin el dato **no pisa** lo ya escrito y se avisa en la fila; no se siembra nada que no esté escrito DENTRO de la ficha. El RES080 adjunta la ficha del marco y la del vidrio como anexos (`resolveEnvolventeFichaSlots`), y **la ficha que se sube a un expediente se ofrece para el catálogo** —también en aerotermia—, copiándola SIEMPRE a la carpeta del catálogo y nunca dejándola dentro de un expediente ([catalogoFichas.js](implementation/backend/services/catalogoFichas.js)). Fuentes únicas: [logic/ventanasCatalogo.js](implementation/frontend/src/features/expedientes/logic/ventanasCatalogo.js) y [routes/ventanas.js](implementation/backend/routes/ventanas.js). Ver "El CATÁLOGO DE VENTANAS".
+
+37.b **La ficha del catálogo puede ser VARIOS papeles unidos, y se une UNA vez**: con el SCOP justificado por EPREL el certificado necesita la ficha del fabricante + la ficha EPREL + la etiqueta, y el catálogo solo aportaba la primera — así que las otras dos se subían a mano en CADA expediente con ese equipo. El botón del gestor de anexos las une en un PDF y lo deja como `ficha_tecnica` del modelo ([fichaConsolidada.js](implementation/backend/services/fichaConsolidada.js), `POST /:id/fichas-tecnicas/consolidar`, **staffOnly**). Se une EXACTAMENTE lo que va al certificado (mismo orden del gestor, mismos recortes, mismo `unirAnexos`), y **consolidar deja el expediente consolidado también**: si las piezas sueltas se quedaran, un ⟳ traería el conjunto y el certificado llevaría el EPREL DOS VECES — salen de la lista de anexos, nunca de Drive. Con VARIOS modelos los sueltos **no vienen marcados** (la app no sabe de cuál es cada uno, y el error se propaga a todos los expedientes de ese modelo); una pieza ilegible ABORTA; solo se unen ficheros de ESE expediente. `ficha_tecnica_partes` dice qué trae dentro y se pone a NULL al guardar una ficha suelta. Tras tocarlo: `node implementation/backend/scripts/test_ficha_consolidada.mjs`. Ver "La ficha del catálogo cuando son VARIOS papeles".
 
 36. **La CONFIRMACIÓN DE COBRO es un formulario de la app, no de Tally**: `/cobro/:id?token=` cualifica al cliente (tarifa · fotovoltaica · IRPF) y confirma sus datos de pago cuando el lote llega a fase de pago. Lo obligatorio va AL FINAL y lo comercial delante, y **nunca retiene el cobro**. La forma de pago solo se pregunta a quien asume el coste (`discountCertificates` la calla, porque su convenio no la menciona), y las dos opciones NO cuestan lo mismo: el descuento va sobre la BASE sin IVA y la factura lo repercute, así que sale marcada `desaconsejada` con lo que cuesta de más y el retraso del cobro. **Cambiar de IBAN exige justificante NUEVO** —el anterior acredita la cuenta vieja— y el cambio va lo primero en el aviso al staff. Los datos van a `clientes` y el justificante a su slot de siempre; en `documentacion.cobro`, solo metadatos con RPC de MERGE. Fuentes únicas: [logic/cobroForm.js](implementation/frontend/src/features/cobro/logic/cobroForm.js) (qué se pregunta) y [cobroService.js](implementation/backend/services/cobroService.js) (a quién y con qué datos). Ver "Confirmación de cobro".
 

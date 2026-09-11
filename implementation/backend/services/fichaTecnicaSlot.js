@@ -44,10 +44,15 @@ const CARPETA_FT = '3. FICHAS TÉCNICAS Y CERTIFICACIONES';
 
 // De qué catálogo sale la ficha de cada tipo de hueco. Los tres se leen igual:
 // una fila con su `ficha_tecnica` (URL de Drive o del fabricante).
+// `ficha_tecnica_partes` describe el CONJUNTO cuando la ficha del modelo son
+// varios documentos unidos (ficha + EPREL + etiqueta). Viaja de vuelta a quien
+// pide la copia para poder DECIR qué trae dentro: si no, el siguiente expediente
+// ve "5 págs" y no sabe si el EPREL va ahí — que es lo que lleva a subirlo otra
+// vez y a que el certificado acabe con el EPREL duplicado.
 const CATALOGO = {
-    marco:   { tabla: 'ventanas_marcos',    sel: 'id, marca, serie, apertura, ficha_tecnica',                   etiqueta: (e) => [e.marca, e.serie, e.apertura].filter(Boolean).join(' ') },
-    cristal: { tabla: 'ventanas_cristales', sel: 'id, fabricante, gama, composicion, ficha_tecnica',            etiqueta: (e) => [e.fabricante, e.gama, e.composicion].filter(Boolean).join(' ') },
-    aero:    { tabla: 'aerotermia',         sel: 'id, marca, modelo_comercial, modelo_conjunto, ficha_tecnica', etiqueta: (e) => e.modelo_comercial || e.modelo_conjunto || `id=${e.id}` },
+    marco:   { tabla: 'ventanas_marcos',    sel: 'id, marca, serie, apertura, ficha_tecnica, ficha_tecnica_partes',                   etiqueta: (e) => [e.marca, e.serie, e.apertura].filter(Boolean).join(' ') },
+    cristal: { tabla: 'ventanas_cristales', sel: 'id, fabricante, gama, composicion, ficha_tecnica, ficha_tecnica_partes',            etiqueta: (e) => [e.fabricante, e.gama, e.composicion].filter(Boolean).join(' ') },
+    aero:    { tabla: 'aerotermia',         sel: 'id, marca, modelo_comercial, modelo_conjunto, ficha_tecnica, ficha_tecnica_partes', etiqueta: (e) => e.modelo_comercial || e.modelo_conjunto || `id=${e.id}` },
 };
 const catalogoDe = (type) => CATALOGO[type === 'marco' ? 'marco' : (type === 'cristal' ? 'cristal' : 'aero')];
 
@@ -153,7 +158,14 @@ async function asegurarFichaTecnica(exp, type, opts = {}) {
 
     await sellarSlot(exp, fields, result.link, result.id);
     console.log(`[FT slot] ${fileName} <- modelo "${model}" (driveId=${result.id})`);
-    return { ok: true, driveId: result.id, link: result.link, fileName, copied: true, source: 'model', model };
+    // `partes` solo se afirma cuando el fichero ACABA de salir del catálogo. Sobre
+    // uno adoptado de la carpeta (`source: 'existing'`) no se puede decir qué trae
+    // dentro: puede ser una subida a mano con el nombre canónico.
+    return {
+        ok: true, driveId: result.id, link: result.link, fileName,
+        copied: true, source: 'model', model,
+        partes: equipo.ficha_tecnica_partes || null,
+    };
 }
 
 /**

@@ -13,6 +13,9 @@ import { instaladorContacts, defaultContactIds, avisoReparto, priorizarPorRol } 
 import { ContactoPickRow, NotaVariosDestinatarios } from './ContactoPickRow';
 import { resolveFichaSlots, ftAttachmentSlots, ftSlotId, ftTypeFromSlotId } from '../logic/fichasTecnicas';
 import { GuardarEnCatalogoGate } from '../../ventanas/components/GuardarEnCatalogoGate';
+// La ficha del catálogo cuando son VARIOS papeles (ficha + EPREL + etiqueta).
+import ConsolidarFichaModal from './ConsolidarFichaModal';
+import { puedeConsolidar, resumenPartes } from '../logic/fichaConsolidable';
 import { postEmail } from '../../../utils/emailFallback';
 // Canal de envío de la barra inferior — COMPARTIDO con los otros popups de envío.
 import { CanalChip, avisoCanales } from '../../../components/CanalChip';
@@ -124,6 +127,8 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     // guardado en Drive, el envío al instalador y la generación automática (MCP).
     const [annexPrefs, setAnnexPrefs] = useState(() => readAnnexPrefs(expediente?.documentacion));
     const [pagesModalFor, setPagesModalFor] = useState(null);   // id del slot con el selector de páginas abierto
+    // "Esto que ya has dado por bueno, guárdalo como LA ficha del modelo".
+    const [consolidarAbierto, setConsolidarAbierto] = useState(false);
 
     // Solo re-leemos de BD al ABRIR: mientras el modal está abierto manda el estado
     // local (cada guardado del expediente dispara un refetch que, si llegase tarde,
@@ -173,11 +178,15 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     };
 
     // Construye un slot a partir de los metadatos devueltos por el backend.
-    const makeSlotFile = ({ driveId, link, fileName, source, label }) => ({
+    const makeSlotFile = ({ driveId, link, fileName, source, label, partes }) => ({
         driveId,
         link,
         name: fileName || label || 'Ficha técnica',
-        source // 'drive' | 'model_copy' | 'manual_upload'
+        source, // 'drive' | 'model_copy' | 'manual_upload'
+        // Qué trae dentro la ficha del modelo cuando es un CONJUNTO (ficha del
+        // fabricante + EPREL + etiqueta). Solo viene cuando el fichero ACABA de
+        // copiarse del catálogo: sobre uno adoptado de la carpeta no se afirma.
+        partes: partes || null,
     });
 
     const setSlot = (slotId, updater) => {
@@ -230,7 +239,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
             if (copyRes.status === 200) {
                 if (onSaveFichaLink) onSaveFichaLink(type, copyRes.data.link, copyRes.data.driveId);
                 setSlot(slotId, () => ({
-                    file: makeSlotFile({ driveId: copyRes.data.driveId, link: copyRes.data.link, fileName: null, source: 'model_copy' }),
+                    file: makeSlotFile({ driveId: copyRes.data.driveId, link: copyRes.data.link, fileName: null, source: 'model_copy', partes: copyRes.data.partes }),
                     missing: false, missingReason: null, missingModel: null
                 }));
                 hydrateSlotPreview(slotId, type);
@@ -263,7 +272,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
             if (copyRes.status === 200) {
                 if (onSaveFichaLink) onSaveFichaLink(type, copyRes.data.link, copyRes.data.driveId);
                 setSlot(slotId, () => ({
-                    file: makeSlotFile({ driveId: copyRes.data.driveId, link: copyRes.data.link, fileName: null, source: 'model_copy' }),
+                    file: makeSlotFile({ driveId: copyRes.data.driveId, link: copyRes.data.link, fileName: null, source: 'model_copy', partes: copyRes.data.partes }),
                     missing: false, missingReason: null, missingModel: null
                 }));
                 hydrateSlotPreview(slotId, type);
@@ -439,6 +448,35 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
             console.error('[CIFO] guardar preferencias de anexos falló:', err);
             alert('❌ No se pudo guardar el orden / recorte de los anexos.');
         }
+    };
+
+    // El backend ya lo ha escrito TODO (catálogo, slot del expediente, anexos
+    // retirados y preferencias saneadas). Aquí solo se refleja, sin volver a
+    // persistir nada: dos escrituras de lo mismo acaban divergiendo.
+    const aplicarConsolidacion = (r) => {
+        const slotId = r.destino.id;
+        const retirados = new Set(r.retirados || []);
+        setAttachments(prev => prev
+            .filter(a => !(a.isExtra && retirados.has(a.file?.driveId)))
+            .map(a => (a.id === slotId
+                ? {
+                    ...a,
+                    file: makeSlotFile({
+                        driveId: r.driveId, link: r.link, fileName: r.fileName, source: 'model_copy',
+                        partes: { paginas: r.paginas, piezas: r.partes },
+                    }),
+                    missing: false, missingReason: null, missingModel: null,
+                }
+                : a)));
+        if (onSaveFichaLink) onSaveFichaLink(r.destino.type, r.link, r.driveId);
+        (r.retirados || []).forEach(driveId => onSaveExtraAnnexes && onSaveExtraAnnexes('remove', { driveId }));
+        if (r.prefs) {
+            setAnnexPrefs(r.prefs);
+            if (onSaveAnnexPrefs) onSaveAnnexPrefs(r.prefs);
+        }
+        // El fichero es OTRO (otro driveId): sin rehidratar, el preview seguiría
+        // enseñando las páginas de la ficha anterior.
+        hydrateSlotPreview(slotId, r.destino.type);
     };
 
     const updateScale = useCallback(() => {
@@ -861,6 +899,12 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                                                 {badge && (
                                                     <span className={`text-[9px] text-${badge.tone}-400/70 font-bold uppercase tracking-wider`}>✓ {badge.text}</span>
                                                 )}
+                                                {/* La ficha del modelo ya viene UNIDA (ficha + EPREL + etiqueta).
+                                                    Decirlo evita el viaje de abrir el PDF a comprobar si el EPREL
+                                                    está dentro — que es lo que lleva a subirlo otra vez. */}
+                                                {resumenPartes(item.file.partes) && (
+                                                    <span className="text-[9px] text-sky-300/60 font-bold uppercase tracking-wider">📎 {resumenPartes(item.file.partes)}</span>
+                                                )}
                                                 {excluded.length > 0 && (
                                                     <span className="text-[9px] text-red-400/80 font-bold uppercase tracking-wider">✂ No se anexan las págs {formatPageRanges(excluded)}</span>
                                                 )}
@@ -936,6 +980,25 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4"/></svg>
                             Explorar Archivos
                         </button>
+
+                        {/* El círculo que cierra la ficha incompleta: lo que se acaba de
+                            montar a mano se guarda como LA ficha del modelo, y el
+                            siguiente expediente con ese equipo ya la trae unida. */}
+                        {puedeConsolidar(orderedAttachments, resolveFichaSlots(inst)) && (
+                            <div className="w-full rounded-2xl border border-sky-400/25 bg-sky-400/[0.05] p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                                <p className="text-[10px] text-white/45 leading-snug flex-1">
+                                    ¿Este conjunto es la ficha buena del equipo? Guárdalo en el catálogo y los
+                                    próximos expedientes con ese modelo lo traerán ya unido — sin volver a buscar
+                                    el EPREL ni la etiqueta.
+                                </p>
+                                <button
+                                    onClick={() => setConsolidarAbierto(true)}
+                                    className="shrink-0 px-5 py-2.5 rounded-xl bg-sky-500/15 hover:bg-sky-500/30 border border-sky-400/40 text-sky-200 text-[10px] font-black uppercase tracking-[0.15em] transition-all active:scale-95"
+                                >
+                                    Guardar como ficha del modelo
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -1367,6 +1430,20 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                 </div>
 
                 {isAnexosOpen && <AnexosModal />}
+
+            {/* Se monta FUERA de AnexosModal: ése es una función que se recrea en
+                cada render, y dentro de él este popup perdería su estado (el
+                marcado de piezas) en cuanto se rasterizara una página. */}
+            {consolidarAbierto && (
+                <ConsolidarFichaModal
+                    expediente={expediente}
+                    attachments={orderedAttachments}
+                    annexPrefs={annexPrefs}
+                    slots={resolveFichaSlots(inst)}
+                    onHecho={aplicarConsolidacion}
+                    onClose={() => setConsolidarAbierto(false)}
+                />
+            )}
 
             {/* "Esta ficha, ¿la guardo también en el catálogo?" — se pregunta al
                 elegir el fichero, no después: es la única ocasión en la que quien

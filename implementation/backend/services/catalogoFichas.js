@@ -85,6 +85,12 @@ function limpiarNombre(s) {
  * @param {string} [opts.driveId] fichero ya en Drive del que copiar el contenido
  * @param {boolean} [opts.sustituir] permite pisar una ficha que ya exista
  * @param {string} [opts.campo]   'ficha_tecnica' (por defecto) o 'eprel' en aerotermia
+ * @param {object} [opts.partes]  metadatos del CONJUNTO cuando la ficha son varios
+ *                                documentos unidos (ver fichaConsolidada.js). Se
+ *                                escribe SIEMPRE que se toca `ficha_tecnica`: sin
+ *                                `partes` la columna se pone a NULL, porque una
+ *                                nota de "conjunto" que sobrevive a la ficha que
+ *                                describe miente con autoridad de registro.
  * @returns {{ ok:boolean, motivo?:string, modelo?:string, link?:string, driveId?:string }}
  */
 async function guardarFichaEnCatalogo(kind, modelId, opts = {}) {
@@ -124,9 +130,11 @@ async function guardarFichaEnCatalogo(kind, modelId, opts = {}) {
     const subido = await saveFileToFolder(carpeta.id, fileName, 'application/pdf', buffer);
     if (!subido) return { ok: false, motivo: 'drive_error', modelo };
 
+    const cambio = { [campo]: subido.link };
+    if (campo === 'ficha_tecnica') cambio.ficha_tecnica_partes = opts.partes || null;
     const { error: upErr } = await supabase
         .from(cfg.tabla)
-        .update({ [campo]: subido.link })
+        .update(cambio)
         .eq('id', modelId);
     if (upErr) return { ok: false, motivo: 'db_error', modelo };
 
