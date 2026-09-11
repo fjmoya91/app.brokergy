@@ -6979,9 +6979,12 @@ router.post('/:id/fichas-tecnicas/auto-copy', enforceAuth, async (req, res) => {
 // de alta o editar un modelo (un TRABAJADOR es quien rellena el expediente, y si
 // esto exigiera ADMIN la ficha no se guardaría nunca).
 //
-// Body: { type, piezas: [{ driveId, excludedPages? }] } en el ORDEN final.
+// Body: { grupos: [{ type, piezas: [{ driveId, excludedPages? }] }] } — UNO POR
+// HUECO, con sus piezas en el ORDEN final. Un expediente puede llevar la bomba de
+// calefacción y el equipo de ACS, que son dos modelos del catálogo: nunca comparten
+// pack. Se admite también `{ type, piezas }` suelto.
 router.post('/:id/fichas-tecnicas/consolidar', staffOnly, async (req, res) => {
-    const { type, piezas } = req.body || {};
+    const { type, piezas, grupos } = req.body || {};
     try {
         const { data: exp } = await supabase
             .from('expedientes')
@@ -6990,17 +6993,20 @@ router.post('/:id/fichas-tecnicas/consolidar', staffOnly, async (req, res) => {
             .single();
         if (!exp) return res.status(404).json({ error: 'expediente_not_found' });
 
-        const r = await require('../services/fichaConsolidada').consolidarFicha(exp, { type, piezas });
+        const r = await require('../services/fichaConsolidada').consolidarFicha(exp, { type, piezas, grupos });
         if (r.ok) return res.json(r);
 
         // El texto de cada fallo se escribe AQUÍ: el servicio lo llaman también
         // scripts, y "vuelve a subir el PDF" es una instrucción para quien tiene
         // la pantalla delante.
         const mensajes = {
+            sin_grupos: 'No se ha marcado ningún equipo.',
+            grupo_repetido: 'Ese equipo aparece dos veces.',
             bad_type: 'Ese hueco de ficha técnica no existe.',
             slot_no_aplica: 'Este expediente no lleva esa ficha técnica.',
             no_model: 'Ese hueco no tiene un modelo del catálogo detrás: no hay a quién guardarle la ficha.',
-            pocas_piezas: 'Hace falta más de un documento para unir un conjunto.',
+            pocas_piezas: 'Ahí no hay nada que unir ni ninguna página quitada: la ficha quedaría '
+                        + 'igual que la que ya tiene el catálogo.',
             pieza_repetida: 'Un mismo documento no puede ir dos veces en el conjunto.',
             pieza_ajena: 'Ese documento no es de este expediente.',
             pieza_ilegible: 'No se pudo leer uno de los documentos en Drive — vuelve a subirlo y reinténtalo.',
@@ -7012,7 +7018,7 @@ router.post('/:id/fichas-tecnicas/consolidar', staffOnly, async (req, res) => {
         };
         const body = { error: r.error };
         if (mensajes[r.error]) body.message = mensajes[r.error];
-        for (const k of ['model', 'driveId', 'motivo', 'catalogoOk', 'link']) {
+        for (const k of ['model', 'driveId', 'motivo', 'catalogoOk', 'link', 'type']) {
             if (r[k] !== undefined) body[k] = r[k];
         }
         return res.status(r.status || 400).json(body);

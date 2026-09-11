@@ -705,33 +705,42 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
         }
     };
 
-    // El backend ya lo ha escrito TODO (catálogo, slot del expediente, anexos
-    // retirados y preferencias saneadas). Aquí solo se refleja, sin volver a
-    // persistir nada: dos escrituras de lo mismo acaban divergiendo.
+    // El backend ya lo ha escrito TODO (catálogo, slots, anexos retirados y
+    // preferencias saneadas). Aquí solo se refleja, sin volver a persistir nada:
+    // dos escrituras de lo mismo acaban divergiendo. Viene UN grupo por equipo.
     const aplicarConsolidacion = (r) => {
-        const slotId = r.destino.id;
         const retirados = new Set(r.retirados || []);
+        const porSlot = new Map((r.grupos || []).map(g => [g.slotId, g]));
         setAttachments(prev => prev
             .filter(a => !(a.isExtra && retirados.has(a.file?.driveId)))
-            .map(a => (a.id === slotId
-                ? {
+            .map(a => {
+                const g = porSlot.get(a.id);
+                if (!g) return a;
+                return {
                     ...a,
                     file: makeSlotFile({
-                        driveId: r.driveId, link: r.link, fileName: r.fileName, source: 'model_copy',
-                        partes: { paginas: r.paginas, piezas: r.partes },
+                        driveId: g.driveId, link: g.link, fileName: g.fileName, source: 'model_copy',
+                        partes: { paginas: g.paginas, piezas: g.partes },
                     }),
                     missing: false, missingReason: null, missingModel: null,
-                }
-                : a)));
-        if (onSaveFichaLink) onSaveFichaLink(r.destino.type, r.link, r.driveId);
+                };
+            }));
+        (r.grupos || []).forEach(g => onSaveFichaLink && onSaveFichaLink(g.type, g.link, g.driveId));
         (r.retirados || []).forEach(driveId => onSaveExtraAnnexes && onSaveExtraAnnexes('remove', { driveId }));
         if (r.prefs) {
             setAnnexPrefs(r.prefs);
             if (onSaveAnnexPrefs) onSaveAnnexPrefs(r.prefs);
         }
-        // El fichero es OTRO (otro driveId): sin rehidratar, el preview seguiría
-        // enseñando las páginas de la ficha anterior.
-        hydrateSlotPreview(slotId, r.destino.type);
+        // El fichero de cada hueco es OTRO (otro driveId): sin rehidratar, el
+        // preview seguiría enseñando las páginas de la ficha anterior.
+        (r.grupos || []).forEach(g => hydrateSlotPreview(g.slotId, g.type));
+        // Un equipo que no se pudo guardar NO se traga: el catálogo de los otros ya
+        // está escrito y hay que saber cuál falta por hacer.
+        if ((r.fallidos || []).length > 0) {
+            alert('⚠ No se pudo guardar la ficha de: '
+                + r.fallidos.map(f => f.type).join(', ')
+                + '. Las demás sí se han guardado.');
+        }
     };
 
 
@@ -2302,12 +2311,12 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                         {/* El círculo que cierra la ficha incompleta: lo que se acaba de
                             montar a mano se guarda como LA ficha del modelo, y el
                             siguiente expediente con ese equipo ya la trae unida. */}
-                        {puedeConsolidar(orderedAttachments, resolveAllFichaSlots(expediente)) && (
+                        {puedeConsolidar(orderedAttachments, annexPrefs, resolveAllFichaSlots(expediente)) && (
                             <div className="w-full rounded-2xl border border-sky-400/25 bg-sky-400/[0.05] p-4 flex flex-col sm:flex-row sm:items-center gap-3">
                                 <p className="text-[10px] text-white/45 leading-snug flex-1">
-                                    ¿Este conjunto es la ficha buena del equipo? Guárdalo en el catálogo y los
-                                    próximos expedientes con ese modelo lo traerán ya unido — sin volver a buscar
-                                    el EPREL ni la etiqueta.
+                                    ¿La ficha de algún equipo ya está como debe —con su EPREL, su etiqueta y sin las
+                                    páginas que sobran—? Guárdala así en el catálogo y los próximos expedientes con
+                                    ese modelo la traerán ya hecha. Cada equipo lleva la suya.
                                 </p>
                                 <button
                                     onClick={() => setConsolidarAbierto(true)}
