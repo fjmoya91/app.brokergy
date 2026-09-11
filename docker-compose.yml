@@ -42,6 +42,12 @@ services:
     restart: unless-stopped
     environment:
       - PORT=8080
+      - CEE_CACHE_DIR=/cache
+    volumes:
+      # La cache de Catastro SOBREVIVE a los despliegues a proposito: cada
+      # consulta pasa por el mismo WAF del que depende el buscador en
+      # produccion, y lo que ya se pregunto una vez no se vuelve a preguntar.
+      - cee_cache:/cache
     networks:
       - brokergy
 
@@ -75,6 +81,7 @@ services:
       - brokergy
 
 volumes:
+  cee_cache:
   whatsapp_auth:
   whatsapp_cache:
 

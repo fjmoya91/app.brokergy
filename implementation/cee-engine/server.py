@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import sys
 import tempfile
@@ -40,6 +41,7 @@ from src.catastro import refcat as refcat_mod         # noqa: E402
 from src.catastro.client import CatastroError         # noqa: E402
 from src.ce3x import export                           # noqa: E402
 from src.model import Modelo                          # noqa: E402
+from src.viz import plano_svg                         # noqa: E402
 
 import generar_cex as G                               # noqa: E402
 import leer_cex as L                                  # noqa: E402
@@ -60,6 +62,13 @@ PLANTILLA = RAIZ / "assets" / "plantilla-virgen.cex"
 #: es almacenamiento, es un sitio donde el pipeline pueda escribir sus ficheros.
 TRABAJO = Path(tempfile.gettempdir()) / "cee-engine"
 
+#: La caché de Catastro, SEPARADA del trabajo de cada petición y configurable.
+#: No es una optimización: cada consulta pasa por el mismo WAF del que depende
+#: el buscador de la app en producción, así que lo que ya se preguntó una vez
+#: no se vuelve a preguntar. En el VPS conviene montarla en un volumen para que
+#: sobreviva a los despliegues; en local se apunta a `ejemplos/`.
+CACHE = Path(os.environ.get("CEE_CACHE_DIR") or (TRABAJO / "cache"))
+
 
 # --------------------------------------------------------------------------
 # Salud
@@ -73,6 +82,9 @@ def health() -> dict:
         "ok": PLANTILLA.is_file(),
         "servicio": "cee-engine",
         "plantilla": PLANTILLA.name if PLANTILLA.is_file() else None,
+        "cache": str(CACHE),
+        "cacheados": sorted(p.name for p in CACHE.glob("*") if p.is_dir())[:20]
+                     if CACHE.is_dir() else [],
     }
 
 
@@ -101,13 +113,12 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
         raise HTTPException(400, f"referencia catastral no válida: {exc}")
 
     trabajo = TRABAJO / f"{rc.parcela}-{uuid.uuid4().hex[:8]}"
-    cache = TRABAJO / "cache"                 # se reaprovecha entre peticiones
     try:
         o = pipeline.Opciones(
             refcat=rc.parcela,
             output=trabajo / "salida",
             data=trabajo / "datos",
-            cache=cache,
+            cache=CACHE,
             floor_height=float(payload.get("altura_planta") or 2.70),
             floor_height_dada=payload.get("altura_planta") is not None,
             skip_lidar=bool(payload.get("skip_lidar", True)),
@@ -124,10 +135,16 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
         geometria = json.loads(
             (o.output / "ce3x_geometry.json").read_text(encoding="utf-8"))
         plan = _plan_de_fotos(o.output)
+        # El plano ya colocado. Se calcula AQUI, donde esta la geometria: el
+        # navegador recibe puntos y no calcula ni un metro.
+        dibujo = plano_svg.plantas(geometria)
 
         return JSONResponse({
             "referencia_catastral": rc.to_dict(),
             "geometria": geometria,
+            "ancho": dibujo["ancho"],
+            "alto": dibujo["alto"],
+            "plantas": dibujo["plantas"],
             "plan_fotos": plan,
             "resumen": export.resumen(res.elementos),
             # Lo que NO se ha podido saber. Va al primer plano a propósito: es
