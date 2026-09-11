@@ -4,7 +4,7 @@ import axios from 'axios';
 import SignaturePad from './SignaturePad';
 import FirmarConMovil from './FirmarConMovil';
 import LectorDocumento from './LectorDocumento';
-import { firmarYEscanear, comprimirImagen } from './escaneado';
+import { firmarYEscanear, comprimirImagen, cargarPdf, resolverCaja } from './escaneado';
 import { SIGN_BOXES, anexoISignBox } from '../expedientes/logic/signBoxes';
 
 /**
@@ -141,6 +141,9 @@ export function AsistenteFirmaManuscrita({ expedienteId, info, apiUrl, onHecho, 
     const [paso, setPaso] = useState('preparar');
     const [idx, setIdx] = useState(0);
     const [buffer, setBuffer] = useState(null);
+    // El recuadro de ESTE PDF, ya resuelto: del Anexo I depende del formato del
+    // impreso, y de su tamaño sale el grosor con el que se pinta la firma.
+    const [cajaFirma, setCajaFirma] = useState(null);
     const [cargando, setCargando] = useState(false);
     const [leido, setLeido] = useState(false);
     const [progreso, setProgreso] = useState(null);
@@ -193,6 +196,15 @@ export function AsistenteFirmaManuscrita({ expedienteId, info, apiUrl, onHecho, 
         try {
             const { data } = await axios.get(`${apiUrl}/anexos-upload/${expedienteId}/descargar/${d.which}`, { responseType: 'arraybuffer' });
             pdfRef.current = data;
+            // Se abre aquí, donde el cliente ya está esperando, y no al firmar:
+            // al pulsar "Firmar" la hoja tiene que salir al instante.
+            let caja = d.box;
+            try {
+                const pdf = await cargarPdf(data);
+                caja = await resolverCaja(pdf, d.box);
+                try { pdf.destroy(); } catch { /* da igual */ }
+            } catch { /* se queda con lo declarado; `firmarYEscanear` lo resolverá */ }
+            setCajaFirma(caja);
             setBuffer(data);
             setIdx(n);
             setPaso('leer');
@@ -215,7 +227,7 @@ export function AsistenteFirmaManuscrita({ expedienteId, info, apiUrl, onHecho, 
         try {
             const { blob, vista } = await firmarYEscanear(pdfRef.current, {
                 firma: ink.dataUrl,
-                box: doc.box,
+                box: cajaFirma || doc.box,
                 onProgreso: (hecha, total) => setProgreso({ hecha, total }),
             });
             setFirmados(prev => ({ ...prev, [doc.which]: { blob, vista, nombre: doc.fichero, campo: doc.campo } }));
@@ -265,6 +277,7 @@ export function AsistenteFirmaManuscrita({ expedienteId, info, apiUrl, onHecho, 
             <>
                 <SignaturePad
                     titulo={doc?.corto}
+                    caja={cajaFirma}
                     textoAceptar="Usar esta firma"
                     onCancel={() => setPaso('leer')}
                     onAccept={alFirmar}
@@ -375,6 +388,7 @@ export function AsistenteFirmaManuscrita({ expedienteId, info, apiUrl, onHecho, 
                 <FirmarConMovil
                     apiUrl={apiUrl}
                     etiqueta={doc.label}
+                    caja={cajaFirma}
                     onFirma={alFirmar}
                     onRaton={() => setPaso('firmar')}
                 />

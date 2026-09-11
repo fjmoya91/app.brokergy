@@ -23,7 +23,7 @@ const MAX_FIRMA_BYTES = 8 * 1024 * 1024;
 /** Tope de enlaces vivos: nadie infla la memoria del proceso pidiendo enlaces. */
 const MAX_SESIONES = 200;
 
-/** token → { caduca, usada, firma, etiqueta, expedienteId, doc } */
+/** token → { caduca, usada, firma, etiqueta, caja } */
 const sesiones = new Map();
 
 function limpiar() {
@@ -89,14 +89,33 @@ function basesParaMovil(origen) {
 }
 
 /**
+ * El recuadro, con solo sus cuatro números y su página.
+ *
+ * Llega de un navegador, así que no se guarda el objeto tal cual: lo que se
+ * devuelve luego acaba decidiendo con qué grosor se pinta una firma.
+ */
+function cajaLimpia(caja) {
+    if (!caja) return null;
+    const n = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+    const c = { page: n(caja.page), llx: n(caja.llx), lly: n(caja.lly), urx: n(caja.urx), ury: n(caja.ury) };
+    if (c.llx === null || c.lly === null || c.urx === null || c.ury === null) return null;
+    if (c.urx <= c.llx || c.ury <= c.lly) return null;
+    return c;
+}
+
+/**
  * Abre un enlace de firma. Un enlace vale para UNA firma y caduca a los 10 min.
  *
  * @param {object} opts
  *   - etiqueta {string}  qué se firma, para que el móvil lo diga ("Convenio de
  *     Cesión de Ahorros"). Es lo ÚNICO del expediente que viaja al teléfono.
+ *   - caja {object}      el RECUADRO de firma del documento (`SIGN_BOXES`), para
+ *     que el teléfono pueda dejar el trazo del grosor que le toca. Son cuatro
+ *     coordenadas de una plantilla: geometría, no un dato de nadie — el
+ *     documento sigue sin salir de la sesión del ordenador.
  *   - origen {string}    el Origin del PC que lo pide.
  */
-function abrir({ etiqueta, origen } = {}) {
+function abrir({ etiqueta, caja, origen } = {}) {
     limpiar();
     if (sesiones.size >= MAX_SESIONES) {
         throw new Error('Hay demasiados enlaces de firma abiertos. Inténtalo en unos minutos.');
@@ -108,6 +127,7 @@ function abrir({ etiqueta, origen } = {}) {
         usada: false,
         firma: null,
         etiqueta: String(etiqueta || 'documento').slice(0, 80),
+        caja: cajaLimpia(caja),
     });
     const bases = basesParaMovil(origen);
     const enlace = base => `${base}/firma-movil/${token}`;
@@ -124,7 +144,7 @@ function info(token) {
     limpiar();
     const s = sesiones.get(token);
     if (!s) return null;
-    return { etiqueta: s.etiqueta, caducaEn: s.caduca, yaFirmada: !!s.firma };
+    return { etiqueta: s.etiqueta, caja: s.caja, caducaEn: s.caduca, yaFirmada: !!s.firma };
 }
 
 /**

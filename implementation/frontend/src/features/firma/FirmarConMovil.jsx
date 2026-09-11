@@ -27,7 +27,7 @@ const D_OK = 'M5 13l4 4L19 7';
 /** Cada cuánto se pregunta al servidor si ya ha firmado. */
 const POLL_MS = 2000;
 
-export function FirmarConMovil({ apiUrl, etiqueta, onFirma, onRaton }) {
+export function FirmarConMovil({ apiUrl, etiqueta, caja, onFirma, onRaton }) {
     const [enlace, setEnlace] = useState(null);
     const [error, setError] = useState(null);
     const [restante, setRestante] = useState(0);
@@ -51,7 +51,7 @@ export function FirmarConMovil({ apiUrl, etiqueta, onFirma, onRaton }) {
         let cancelado = false;
         (async () => {
             try {
-                const { data } = await axios.post(`${apiUrl}/firma-movil`, { etiqueta });
+                const { data } = await axios.post(`${apiUrl}/firma-movil`, { etiqueta, caja });
                 if (cancelado || !vivo.current) return;
                 setError(null);
                 setOtras(false);
@@ -64,7 +64,7 @@ export function FirmarConMovil({ apiUrl, etiqueta, onFirma, onRaton }) {
             }
         })();
         return () => { cancelado = true; vivo.current = false; };
-    }, [apiUrl, etiqueta, intento]);
+    }, [apiUrl, etiqueta, caja, intento]);
 
     /** Pedir otro enlace a mano (el anterior caducó). */
     const renovar = () => { setEnlace(null); setQrActual(null); setIntento(n => n + 1); };

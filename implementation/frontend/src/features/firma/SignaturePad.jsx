@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { InkBrush, INSTRUMENTS, applyPaperGrain, extractInk } from './ink';
+import { radioParaTrazo } from './trazoFirma';
 
 /**
  * La hoja en blanco donde el cliente firma con el dedo, el lápiz o el ratón.
@@ -13,26 +14,27 @@ import { InkBrush, INSTRUMENTS, applyPaperGrain, extractInk } from './ink';
  * DIFERENCIA con ScannerApp: aquí NO hay selectores. Allí firma quien maneja la
  * app; aquí firma un cliente al que se le está pidiendo un papel, y elegir entre
  * tres plumas y tres grosores es una decisión que no le aporta nada y una
- * pantalla más antes de la única que importa. Va fijo en PLUMA y trazo MEDIO
- * (`INSTRUMENTO`/`PUNTA`), que es lo que más se parece a firmar en papel.
+ * pantalla más antes de la única que importa. Va fijo en PLUMA, que es lo que
+ * más se parece a firmar en papel, y el GROSOR no se elige: lo fija el documento
+ * en el que va a acabar (ver `accept` y `TRAZO_PT`).
  */
 
 /**
- * La punta se mide en FRACCIÓN DEL ANCHO de la hoja, no en píxeles.
+ * La punta MIENTRAS se firma, en fracción del ancho de la hoja.
  *
- * Se firma en una hoja de mil y pico píxeles y luego eso se estampa a un cuarto
- * del ancho de un A4: con un radio en píxeles absolutos, el trazo llegaba al
- * documento como un pelo de medio píxel. En proporción, el trazo pesa lo mismo
- * sea cual sea la pantalla en la que se haya firmado.
+ * En ScannerApp se elige entre tres (fina 0,0030 · media 0,0042 · gruesa 0,0058)
+ * y ahí el trazo final es el que se pinta. Aquí el grosor del documento lo fija
+ * `TRAZO_PT` y este valor solo decide **lo que se ve en la pantalla mientras se
+ * firma**, así que se calibra para que ya sea el bueno en el caso normal —una
+ * firma que ocupa la mitad de la hoja— y el reajuste del final no se note:
+ * medido, con 0,0022 ese caso sale a 2,04 pt y el objetivo es 2,00.
+ *
+ * Con la `media` de ScannerApp salía a 3,70 pt, y la firma se veía el doble de
+ * gorda que la de Brokergy impresa en la columna de al lado.
  */
-const NIBS = [
-    { key: 'fina', label: 'Fina', factor: 0.0030 },   // ~0,35 mm
-    { key: 'media', label: 'Media', factor: 0.0042 },  // ~0,50 mm
-    { key: 'gruesa', label: 'Gruesa', factor: 0.0058 }, // ~0,70 mm
-];
+const FACTOR_PUNTA = 0.0022;
 
 const INSTRUMENTO = Math.max(0, INSTRUMENTS.findIndex(i => i.key === 'pluma'));
-const PUNTA = 1; // media
 
 const Icono = ({ d, className = 'w-5 h-5' }) => (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -48,20 +50,25 @@ const D_OK = 'M5 13l4 4L19 7';
  * @param {(ink:{dataUrl:string,width:number,height:number}) => void} props.onAccept
  * @param {() => void} [props.onCancel]  sin él no se pinta la salida
  * @param {string} [props.titulo]        qué se está firmando, arriba a la izquierda
+ * @param {object} [props.caja]  recuadro de `SIGN_BOXES` donde acabará la firma.
+ *   Con él, el trazo se normaliza para medir `TRAZO_PT` en el documento; sin él
+ *   se entrega tal y como se pintó.
  * @param {string} [props.textoAceptar]
  */
-export function SignaturePad({ onAccept, onCancel, titulo, textoAceptar = 'Usar esta firma' }) {
+export function SignaturePad({ onAccept, onCancel, titulo, caja, textoAceptar = 'Usar esta firma' }) {
     const canvasRef = useRef(null);
     const sheetRef = useRef(null);
     const brushRef = useRef(null);
     const strokesRef = useRef([]);
     const currentRef = useRef(null);
     const sizeRef = useRef({ width: 0, height: 0, scale: 2 });
+    /** Radio impuesto al normalizar (px CSS). Mientras es null manda la punta. */
+    const radioRef = useRef(null);
     const [empty, setEmpty] = useState(true);
 
     const tool = INSTRUMENTS[INSTRUMENTO];
     const nibRadius = useCallback(
-        () => Math.min(9, Math.max(0.8, sizeRef.current.width * NIBS[PUNTA].factor)),
+        () => radioRef.current ?? Math.min(9, Math.max(0.8, sizeRef.current.width * FACTOR_PUNTA)),
         [],
     );
 
@@ -228,15 +235,42 @@ export function SignaturePad({ onAccept, onCancel, titulo, textoAceptar = 'Usar 
 
     const clear = useCallback(() => {
         strokesRef.current = [];
+        radioRef.current = null;
         setEmpty(true);
         redraw();
     }, [redraw]);
 
+    /**
+     * Acepta la firma, con el trazo ya a la medida del documento.
+     *
+     * REGLA — el grosor lo fija el DOCUMENTO, no la pantalla. Como la firma se
+     * estampa al ancho de su recuadro, el trazo acababa midiendo lo que tocara
+     * según lo grande que cada uno firmase: medido, de 2,44 pt firmando grande a
+     * 5,92 firmando compacto — 2,4 veces, con la misma punta. Así que se repinta
+     * con el radio que deja `TRAZO_PT` una vez aplicada la escala de estampado.
+     *
+     * Se repite DOS veces porque cambiar el radio mueve un poco la caja de la
+     * tinta (un trazo más fino ocupa menos), y con ella la escala. La segunda
+     * pasada ya converge: medido, queda dentro del 2 %.
+     */
     const accept = () => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-        const ink = extractInk(canvas, tool, Math.round(sizeRef.current.scale * 8));
-        if (ink) onAccept(ink);
+        const padding = Math.round(sizeRef.current.scale * 8);
+        let ink = extractInk(canvas, tool, padding);
+        if (!ink) return;
+        if (caja) {
+            for (let i = 0; i < 2; i++) {
+                const radio = radioParaTrazo(ink, caja, sizeRef.current.scale);
+                if (!radio) break;
+                radioRef.current = radio;
+                redraw();
+                const repintada = extractInk(canvas, tool, padding);
+                if (!repintada) break;
+                ink = repintada;
+            }
+        }
+        onAccept(ink);
     };
 
     // --------------------------------------------------------------- render

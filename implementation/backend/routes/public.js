@@ -2550,6 +2550,7 @@ router.post('/firma-movil', async (req, res) => {
     try {
         const enlace = firmaMovil.abrir({
             etiqueta: req.body?.etiqueta,
+            caja: req.body?.caja,
             origen: req.get('origin') || req.get('referer'),
         });
         // El QR se dibuja AQUÍ y no en el navegador: la alternativa es meter una

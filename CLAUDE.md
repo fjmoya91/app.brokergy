@@ -4257,12 +4257,52 @@ jsPDF): no hay Python delante del cliente, y de paso sale gratis lo que en Scann
 dos operaciones — si la página se convierte en imagen, la firma se pinta sobre el píxel y
 no hay que incrustar nada en el PDF.
 
+**REGLA — el GROSOR del trazo lo fija el DOCUMENTO, no la pantalla.** La firma se
+estampa al ancho de su recuadro, así que el trazo acababa midiendo lo que tocara según
+lo grande que cada uno firmase: medido, **de 2,44 pt firmando grande a 5,92 firmando
+compacto** — 2,4 veces, con la misma punta. Ninguna calibración fija aguanta eso. Al
+aceptar, `SignaturePad` **repinta la firma** con el radio que deja `TRAZO_PT` = 2,0 pt
+una vez aplicada la escala de estampado (`radioParaTrazo`), en dos pasadas porque
+cambiar el radio mueve un poco la caja de la tinta. Resultado medido: las seis
+combinaciones dentro del ±3 %.
+
+Los 2 pt no son un gusto: la firma de **Brokergy impresa en la columna de al lado** del
+Convenio mide 2,25 pt de trazo (medido sobre `firma_brokergy.png`), y dos firmas con
+grosores distintos en la misma página es lo que se ve a un metro, antes que nada del
+documento. Antes salía a 3,70 pt en el caso normal — casi el doble que la de al lado.
+
+⚠️ Esto arregla también el fallo CONTRARIO: en el Anexo I **oficial**, cuyo recuadro es
+más pequeño, el trazo salía a **0,53 pt**, un pelo casi invisible.
+
+**REGLA — la calibración se COMPRUEBA, porque depende de la tinta.** `radioParaTrazo`
+usa dos constantes medidas sobre la física de `ink.js` (`TRAZO_A`/`TRAZO_B`), y `ink.js`
+es un port literal que se re-porta entero cuando ScannerApp cambia. Si se quedan atrás,
+nada falla de forma visible: la firma sale de otro grosor y nadie se entera hasta ver un
+documento. Tras tocar la tinta o el estampado:
+
+```bash
+node implementation/backend/scripts/check_trazo_firma.mjs
+```
+
+Vive en [trazoFirma.js](implementation/frontend/src/features/firma/trazoFirma.js) y no en
+`escaneado.js` por dos motivos: lo necesita el LIENZO —y `escaneado.js` arrastra pdf.js y
+jsPDF, 1,4 MB que el teléfono no abre— y sin dependencias se puede medir desde el script.
+
+⚠️ **La caja del documento tiene que llegar hasta el lienzo**, también por el QR: el
+teléfono no sabe qué se está firmando, así que el recuadro viaja en la sesión de firma
+móvil (son cuatro coordenadas de una plantilla, geometría y no un dato de nadie; el
+documento sigue sin salir del ordenador). Y en el Anexo I `SIGN_BOXES` entrega una
+FUNCIÓN —la caja depende del formato del impreso (regla 41)—, así que el asistente la
+resuelve al abrir el PDF (`resolverCaja`) y pasa la MISMA al lienzo y al estampado: con
+dos criterios distintos se calibraría contra un recuadro y se estamparía en otro.
+
 **REGLA — el tope que manda es el ALTO, no el ancho.** Una firma de verdad es una rúbrica
 compacta —más cuadrada que apaisada— y los recuadros de firma son apaisados, así que el que
 recorta casi siempre es el alto. Con el alto al 62 % una rúbrica cuadrada salía ocupando un
 cuarto del ancho de su caja y en el Anexo I se veía perdida en el hueco; al **82 %** queda del
 tamaño con el que se firma un papel. Referencia para no pasarse: la firma de Brokergy impresa
-en la columna del Cesionario del Convenio ocupa el 97 % del alto de la suya.
+en la columna del Cesionario del Convenio ocupa el 97 % del alto de la suya. (Esto decide el
+TAMAÑO de la firma; el grosor del trazo lo fija `TRAZO_PT`, arriba.)
 
 **REGLA — la firma cae donde diga `signBoxes.js`, la misma fuente que Autofirma.** Con una
 copia de las coordenadas aquí, la firma electrónica y la manuscrita acabarían en sitios
@@ -5250,7 +5290,7 @@ compatibilidad) y lo único que se contesta es qué recibe cada persona.
 
 33. **Un REQUERIMIENTO vuelve a pedir la firma del Anexo I y del Convenio, y lo dice con el importe nuevo**: mismo mecanismo que la re-firma del CIFO, generalizado en `BORRADORES_CLIENTE.refirma` ([docValidacion.js](implementation/backend/utils/docValidacion.js) — `refirmaPendiente`, `firmaVigente`). Se lanza desde el **popup de envío** (selector *Primera firma · Requerimiento*, como el del instalador; sale marcado solo si ya hay alguna firma) o desde el MISMO popup del rechazo (`tipo:'requerimiento'`), y en los dos casos sella solo los anexos que ya están firmados. El importe nuevo sale del **ahorro verificado** que se guarda en el expediente, nunca de un campo del mensaje, y con él se generan los anexos mientras el requerimiento siga vivo (`resultsParaDocumento`) — también desde el botón "Generar", o el borrador bueno de Drive se machacaría. El firmado anterior deja de contar (slot ámbar, vista pública y parte diario), sin borrarse. **Un importe que baja se cuenta con lo que ha costado sostenerlo** —qué se ha hecho primero, la cifra dentro de "el expediente sigue adelante"—, y las cuatro superficies lo dicen igual. Textos, importes y plazo: fuente única en [logic/requerimientoFirma.js](implementation/frontend/src/features/expedientes/logic/requerimientoFirma.js). Ver "Un REQUERIMIENTO vuelve a pedir la firma del Anexo I y del Convenio".
 
-34. **La firma A MANO se hace con el MÓVIL, y el documento sale rasterizado**: en `/firmar-anexos`, "Firma a mano" abre un asistente (leer → firmar con el dedo → revisar, por cada documento; después el DNI cara a cara) que estampa la firma en la caja de `SIGN_BOXES` —la MISMA fuente que Autofirma— y rasteriza el PDF a 150 DPI, para que sea indistinguible de un escaneo. La vía de siempre queda como "Ya lo tengo firmado en papel". La tinta es un **port literal** de `ScannerApp/src/renderer/lib/ink.ts` ([ink.js](implementation/frontend/src/features/firma/ink.js)), fija en pluma y trazo medio: se corrige allí y se vuelve a portar, nunca se parchea aquí. Dos gotchas de pdf.js que no se pueden deshacer: `page.render` necesita **`intent: 'print'`** (para pantalla usa `requestAnimationFrame`, que NO corre con la pestaña oculta ni el móvil bloqueado → el escaneo se colgaba para siempre) y **vacía el array que recibe**, así que `cargarPdf` copia siempre. Se LEE hasta la última página antes de poder firmar. **Con un ratón delante no se abre la hoja: se ofrece pasar la firma al MÓVIL con un QR** ([firmaMovil.js](implementation/backend/services/firmaMovil.js) + `FirmarConMovil` + `/firma-movil/:token`), port de `signServer.ts` de ScannerApp — token de un solo uso, 10 minutos, sesión en memoria, y al teléfono NO le viaja el documento, solo vuelve el PNG. En local el enlace se compone con la **IP de la LAN** (en el móvil `localhost` es el móvil), lo que además exigió que esa vista pida la API en relativo y que el CORS admita rangos privados fuera de producción. `SignaturePad` y el aviso de girar van **portaleados a `document.body`** o la tarjeta con `backdrop-blur` los recorta (regla 29.b). Único cambio de fondo en el backend: `dni_pdf` como alternativa a las dos caras y `firma_origen`. Ver "La firma A MANO se hace CON EL MÓVIL".
+34. **La firma A MANO se hace con el MÓVIL, y el documento sale rasterizado**: en `/firmar-anexos`, "Firma a mano" abre un asistente (leer → firmar con el dedo → revisar, por cada documento; después el DNI cara a cara) que estampa la firma en la caja de `SIGN_BOXES` —la MISMA fuente que Autofirma— y rasteriza el PDF a 150 DPI, para que sea indistinguible de un escaneo. La vía de siempre queda como "Ya lo tengo firmado en papel". La tinta es un **port literal** de `ScannerApp/src/renderer/lib/ink.ts` ([ink.js](implementation/frontend/src/features/firma/ink.js)), fija en pluma y trazo medio: se corrige allí y se vuelve a portar, nunca se parchea aquí. Dos gotchas de pdf.js que no se pueden deshacer: `page.render` necesita **`intent: 'print'`** (para pantalla usa `requestAnimationFrame`, que NO corre con la pestaña oculta ni el móvil bloqueado → el escaneo se colgaba para siempre) y **vacía el array que recibe**, así que `cargarPdf` copia siempre. Se LEE hasta la última página antes de poder firmar. **El GROSOR del trazo lo fija el DOCUMENTO**: la firma se estampa al ancho de su recuadro, así que el mismo ajuste daba de 2,44 pt firmando grande a 5,92 firmando compacto (y 0,53 en el recuadro del Anexo I oficial). Al aceptar se REPINTA con el radio que deja `TRAZO_PT` = 2,0 pt ya estampada ([trazoFirma.js](implementation/frontend/src/features/firma/trazoFirma.js) · `radioParaTrazo`), que es el grosor de la firma de Brokergy impresa en la columna de al lado (2,25 pt medidos). Sus constantes salen de la física de `ink.js`, que se re-porta entero, así que se comprueban con `node implementation/backend/scripts/check_trazo_firma.mjs`. La caja del documento llega hasta el lienzo también por el QR (viaja en la sesión de firma móvil) y en el Anexo I la resuelve `resolverCaja`, porque depende del formato del impreso. **Con un ratón delante no se abre la hoja: se ofrece pasar la firma al MÓVIL con un QR** ([firmaMovil.js](implementation/backend/services/firmaMovil.js) + `FirmarConMovil` + `/firma-movil/:token`), port de `signServer.ts` de ScannerApp — token de un solo uso, 10 minutos, sesión en memoria, y al teléfono NO le viaja el documento, solo vuelve el PNG. En local el enlace se compone con la **IP de la LAN** (en el móvil `localhost` es el móvil), lo que además exigió que esa vista pida la API en relativo y que el CORS admita rangos privados fuera de producción. `SignaturePad` y el aviso de girar van **portaleados a `document.body`** o la tarjeta con `backdrop-blur` los recorta (regla 29.b). Único cambio de fondo en el backend: `dni_pdf` como alternativa a las dos caras y `firma_origen`. Ver "La firma A MANO se hace CON EL MÓVIL".
 
 
 35. **"¿Tienes placas solares?" se pregunta en `/reforma` y llega hasta el CEE**: la respuesta (`si` | `futuro` | `no`) y la potencia viajan `funnel → inputs.fotovoltaica → instalacion.fotovoltaica → encargo al certificador`. Fuente única: [logic/fotovoltaica.js](implementation/frontend/src/features/expedientes/logic/fotovoltaica.js), que el backend carga por import() ESM. **A quien ya tiene placas NO se le propone la medida de mejora de autoconsumo**: se le dice al certificador que las declare como instalación EXISTENTE (`ce3xTextos` · `buildCe3xFinal`). `estado: null` ("sin declarar") no es `'no'`, y la clave va en la BLACKLIST de `normalizeData` porque el enum es en minúscula. No confundir con `reforma_elementos.placas`, que son las placas de ESTA obra. Ver "¿Tienes placas solares?".

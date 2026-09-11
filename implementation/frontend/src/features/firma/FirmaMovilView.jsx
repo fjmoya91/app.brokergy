@@ -147,6 +147,7 @@ export function FirmaMovilView({ token }) {
                 girarlo, aparece hecha y con su tamaño. El aviso va encima. */}
             <SignaturePad
                 titulo={info?.etiqueta}
+                caja={info?.caja}
                 textoAceptar="Enviar firma"
                 onAccept={enviar}
             />

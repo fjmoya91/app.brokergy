@@ -1,6 +1,11 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import jsPDF from 'jspdf';
+// El grosor de la firma y el encaje en su recuadro viven aparte: los necesita el
+// LIENZO de firma, y arrastrar pdf.js hasta el teléfono para eso sobraba.
+import { ANCHO_MAX, ALTO_MAX, LINEA, escalaEstampado, radioParaTrazo, TRAZO_PT } from './trazoFirma';
+
+export { escalaEstampado, radioParaTrazo, TRAZO_PT };
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -33,22 +38,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 // pesa ~200 KB en JPEG.
 const DPI = 150;
 const CALIDAD_JPEG = 0.85;
-
-/**
- * Cuánto del recuadro puede ocupar la rúbrica.
- *
- * El tope que manda casi siempre es el de ALTO, no el de ancho: una firma de
- * verdad es una rúbrica compacta —más cuadrada que apaisada— y los recuadros de
- * firma son apaisados. Con el alto al 62 % una rúbrica cuadrada salía ocupando
- * un cuarto del ancho de su caja, y en el Anexo I se veía perdida en el hueco.
- * Al 82 % queda del tamaño con el que se firma un papel, y sigue sin tocar los
- * bordes: la firma de Brokergy impresa en la columna de al lado del Convenio
- * ocupa el 97 % del alto de la suya.
- */
-const ANCHO_MAX = 0.90;
-const ALTO_MAX = 0.82;
-/** A qué altura de la caja se apoya la firma (fracción desde abajo). */
-const LINEA = 0.10;
 
 /** Carga un PNG/JPG (data URL o URL) como imagen ya lista para dibujar. */
 export function cargarImagen(src) {
@@ -199,6 +188,9 @@ function cajaEnCanvas(viewport, box) {
  */
 export function estamparFirma(canvas, viewport, box, imagen) {
     const caja = cajaEnCanvas(viewport, box);
+    // La MISMA cuenta que `escalaEstampado`, pero sobre la caja ya convertida a
+    // píxeles del lienzo (aquélla trabaja en puntos, que es lo que necesita el
+    // lienzo de firma para saber a qué tamaño acabará su trazo).
     const escala = Math.min(
         (caja.w * ANCHO_MAX) / imagen.width,
         (caja.h * ALTO_MAX) / imagen.height,
@@ -210,6 +202,23 @@ export function estamparFirma(canvas, viewport, box, imagen) {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(imagen, x, y, w, h);
     return { x, y, w, h, caja };
+}
+
+/**
+ * La caja de firma de ESTE PDF concreto.
+ *
+ * `SIGN_BOXES` entrega una FUNCIÓN cuando conviven dos formatos del mismo
+ * impreso (regla 41): el oficial lo rellena pdf-lib y la maqueta la rasteriza
+ * Chrome, y no firman en la misma página. Se exporta porque el lienzo de firma
+ * necesita la misma caja ANTES de estampar nada — de su tamaño sale el grosor
+ * del trazo, y con dos criterios distintos se calibraría contra una caja y se
+ * estamparía en otra.
+ */
+export async function resolverCaja(doc, box) {
+    if (typeof box !== 'function') return box || null;
+    let productor = '';
+    try { productor = (await doc.getMetadata())?.info?.Producer || ''; } catch { /* da igual */ }
+    return box({ numPaginas: doc.numPages, oficial: /pdf-lib/i.test(productor) });
 }
 
 /**
@@ -234,12 +243,7 @@ export async function firmarYEscanear(bytes, { firma, box, onProgreso } = {}) {
     const total = doc.numPages;
     // Qué formato es este PDF: el impreso oficial lo rellena pdf-lib; la maqueta la
     // rasteriza Chrome ("Skia/PDF"). Mismo criterio que FirmarConCertificadoModal.
-    let caja = box;
-    if (typeof box === 'function') {
-        let productor = '';
-        try { productor = (await doc.getMetadata())?.info?.Producer || ''; } catch { /* da igual */ }
-        caja = box({ numPaginas: total, oficial: /pdf-lib/i.test(productor) });
-    }
+    const caja = await resolverCaja(doc, box);
     // Si la plantilla se quedara con menos páginas de las que dice el recuadro,
     // la firma va a la ÚLTIMA: mejor firmada donde se pueda que perdida.
     const paginaFirma = caja ? Math.min(caja.page || total, total) : 0;
