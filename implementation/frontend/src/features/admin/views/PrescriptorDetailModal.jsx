@@ -129,6 +129,150 @@ function Section({ title, iconPath, badge, children, className = '' }) {
     );
 }
 
+// ─── El CONTRATO firmado con un CERTIFICADOR ─────────────────────────────
+// Gemelo del Convenio CAE de abajo, con una diferencia que es la razón de ser de
+// este bloque: aquí importa QUIÉN ha firmado.
+//
+// REGLA — NO se pone en verde hasta que consten las DOS firmas. Un contrato a
+// medio firmar no obliga a nadie, y un slot que se pone verde al subir el fichero
+// convierte "lo tenemos" en "lo hemos cerrado", que no es lo mismo — y es
+// justo lo que se mira de un vistazo antes de encargarle un CEE a alguien.
+// Firmado electrónicamente, el PDF lo dice por dentro y se lee solo. Firmado en
+// papel y escaneado no hay nada que leer: lo confirma una PERSONA, y por eso se
+// distingue en pantalla de lo que consta probado.
+function ContratoCertificador({ presId, inicial }) {
+    const [c, setC] = useState(inicial || {});
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState('');
+    const [enlace, setEnlace] = useState('');
+
+    useEffect(() => { setC(inicial || {}); }, [inicial?.contrato_link, presId]);
+
+    const f = c?.contrato_firmas || {};
+    const det = f.detectado || {};
+    const hay = !!c?.contrato_link;
+    const completo = !!(f.certificador && f.brokergy);
+
+    const guardar = async (body) => {
+        setBusy(true); setErr('');
+        try {
+            const { data } = await axios.put(`/api/prescriptores/${presId}/contrato`, body);
+            setC(data);
+            setEnlace('');
+        } catch (e) {
+            setErr(e.response?.data?.error || 'No se pudo guardar el contrato.');
+        } finally { setBusy(false); }
+    };
+
+    const subir = async (file) => {
+        if (!file) return;
+        if (file.type !== 'application/pdf') { setErr('El contrato debe ser un PDF.'); return; }
+        try {
+            const base64 = await new Promise((res, rej) => {
+                const r = new FileReader();
+                r.onload = () => res(String(r.result).split(',')[1] || '');
+                r.onerror = rej;
+                r.readAsDataURL(file);
+            });
+            await guardar({ base64, fileName: file.name });
+        } catch { setErr('No se pudo leer el fichero.'); }
+    };
+    const onFile = (e) => { const fl = e.target.files?.[0]; e.target.value = ''; if (fl) subir(fl); };
+
+    // Una firma LEÍDA del PDF es prueba y no se puede desmarcar; una confirmada a
+    // mano es una declaración y se puede corregir.
+    const Firma = ({ parte, label }) => {
+        const leida = !!det[parte];
+        const puesta = !!f[parte];
+        return (
+            <button type="button" disabled={busy || leida}
+                onClick={() => guardar({ manual: { [parte]: !f.manual?.[parte] } })}
+                title={leida ? 'Leída del propio PDF: no se puede desmarcar' : 'Confirmar a mano que ha firmado'}
+                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[10px] font-bold uppercase tracking-wider transition-all ${
+                    puesta ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-300'
+                           : 'border-white/10 bg-white/[0.02] text-white/35 hover:text-white/70 hover:border-white/25'
+                } ${leida ? 'cursor-default' : 'cursor-pointer'}`}>
+                <span>{puesta ? '✓' : '○'}</span>
+                <span>{label}</span>
+                {puesta && <span className="text-[8px] font-black opacity-60">{leida ? 'FIRMA DIGITAL' : 'A MANO'}</span>}
+            </button>
+        );
+    };
+
+    return (
+        <div className="sm:col-span-2 p-4 rounded-2xl bg-white/[0.03] border border-white/10 space-y-2.5">
+            <div>
+                <span className="font-black text-white text-xs uppercase tracking-wider block">Contrato del certificador</span>
+                <span className="text-[10px] text-white/30 block mt-0.5">
+                    Se guarda en su carpeta de <span className="text-white/45">01. CONTRATOS Y ACUERDOS / 04. CERTIFICADORES</span>.
+                </span>
+            </div>
+
+            {hay ? (
+                <>
+                    <div className={`flex items-center gap-2 flex-wrap px-3 py-2.5 rounded-xl border ${
+                        completo ? 'bg-emerald-500/10 border-emerald-400/30' : 'bg-amber-500/10 border-amber-400/30'
+                    }`}>
+                        <span className={`shrink-0 text-sm ${completo ? 'text-emerald-400' : 'text-amber-400'}`}>{completo ? '✓' : '⚠️'}</span>
+                        <span className="text-[11px] text-white/80 truncate flex-1 min-w-0">{c.contrato_nombre || 'Contrato'}</span>
+                        <a href={c.contrato_link} target="_blank" rel="noopener noreferrer"
+                            className={`text-[9px] font-black uppercase tracking-widest shrink-0 ${completo ? 'text-emerald-400/80 hover:text-emerald-300' : 'text-amber-400/80 hover:text-amber-300'}`}>Ver</a>
+                        <label className="text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-white cursor-pointer shrink-0">
+                            {busy ? '…' : 'Reemplazar'}
+                            <input type="file" accept="application/pdf" className="hidden" disabled={busy} onChange={onFile} />
+                        </label>
+                        <button type="button" disabled={busy} onClick={() => guardar({ link: '' })}
+                            className="text-[9px] font-black uppercase tracking-widest text-white/25 hover:text-red-400 shrink-0">Quitar</button>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <Firma parte="certificador" label="Certificador" />
+                        <Firma parte="brokergy" label="Brokergy" />
+                    </div>
+
+                    {!completo && (
+                        <p className="text-[10px] text-amber-400/70">
+                            Falta {[!f.certificador && 'la firma del certificador', !f.brokergy && 'la firma de Brokergy']
+                                .filter(Boolean).join(' y ')}. Si ya está firmado en papel, márcalo arriba.
+                        </p>
+                    )}
+                    {f.manual?.confirmado_por && (
+                        <p className="text-[10px] text-white/25">
+                            Firmas confirmadas a mano por {f.manual.confirmado_por}
+                            {f.manual.confirmado_at ? ` · ${new Date(f.manual.confirmado_at).toLocaleDateString('es-ES')}` : ''}.
+                        </p>
+                    )}
+                    {/* Quién firma el PDF, para poder contrastarlo sin abrirlo. */}
+                    {Array.isArray(f.firmantes) && f.firmantes.length > 0 && (
+                        <p className="text-[10px] text-white/25">
+                            Firma digital de {f.firmantes.map(x => [x.nombre, x.nif].filter(Boolean).join(' · ')).join(' / ')}.
+                        </p>
+                    )}
+                    {/* Los avisos son para RESOLVER el contrato; con las dos firmas ya
+                        constando, "no lleva firma electrónica" es ruido sobre algo hecho. */}
+                    {!completo && Array.isArray(f.avisos) && f.avisos.map((a, i) => (
+                        <p key={i} className="text-[10px] text-white/30">{a}</p>
+                    ))}
+                </>
+            ) : (
+                <div className="space-y-2">
+                    <label className={`flex items-center gap-2 px-3 py-3.5 rounded-xl border border-dashed text-[11px] cursor-pointer transition-all ${busy ? 'opacity-50' : 'border-white/15 text-white/50 hover:border-brand/40 hover:text-white/70'}`}>
+                        <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                        {busy ? 'Subiendo y leyendo sus firmas…' : 'Sube el PDF del contrato firmado'}
+                        <input type="file" accept="application/pdf" className="hidden" disabled={busy} onChange={onFile} />
+                    </label>
+                    <div className="flex items-center gap-2">
+                        <Inp value={enlace} onChange={e => setEnlace(e.target.value)} placeholder="…o pega su enlace de Drive" />
+                        <button type="button" disabled={busy || !enlace.trim()} onClick={() => guardar({ link: enlace.trim() })}
+                            className="shrink-0 px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-brand/30 bg-brand/10 text-brand disabled:opacity-30">Usar</button>
+                    </div>
+                </div>
+            )}
+            {err && <p className="text-[10px] text-red-400">{err}</p>}
+        </div>
+    );
+}
+
 // ─── El CONVENIO CAE firmado con el Sujeto Obligado ──────────────────────
 // Es la primera pieza del paquete de cada actuación ("E{n}-1"): el MISMO documento
 // en las cinco actuaciones de un lote y en todos los lotes de ese S.O. Vive aquí
@@ -562,6 +706,14 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
         tecnico_firmante_apellidos: '',
         tecnico_firmante_dni: '',
         tecnico_firmante_carnet_rite: '',
+        // Técnico competente (CERTIFICADOR): lo que le acredita para SUSCRIBIR un
+        // CEE. El carnet RITE habilita para montar la instalación, no para
+        // certificarla; con el RD 659/2025 hace falta además la inscripción en el
+        // registro autonómico de técnicos competentes.
+        titulacion: '',
+        colegio_profesional: '',
+        numero_colegiado: '',
+        registro_tecnico_competente: '',
         // Landing white-label de captación de leads (/p/<slug>)
         landing_slug: '',
         landing_activa: false,
@@ -774,6 +926,10 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 tecnico_firmante_apellidos:   p.tecnico_firmante_apellidos || '',
                 tecnico_firmante_dni:         p.tecnico_firmante_dni || '',
                 tecnico_firmante_carnet_rite: p.tecnico_firmante_carnet_rite || '',
+                titulacion:                   p.titulacion || '',
+                colegio_profesional:          p.colegio_profesional || '',
+                numero_colegiado:             p.numero_colegiado || '',
+                registro_tecnico_competente:  p.registro_tecnico_competente || '',
                 instalador_rite_id:           p.instalador_rite_id || '',
                 landing_slug:                 p.landing_slug || '',
                 landing_activa:               p.landing_activa || false,
@@ -992,6 +1148,13 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 tecnico_firmante_apellidos:   form.tecnico_firmante_apellidos.trim() || null,
                 tecnico_firmante_dni:         form.tecnico_firmante_dni.trim().toUpperCase() || null,
                 tecnico_firmante_carnet_rite: form.tecnico_firmante_carnet_rite.trim() || null,
+                // Técnico competente. Se envía SIEMPRE, no solo si es CERTIFICADOR:
+                // el form los trae hidratados de la ficha, así que reclasificar un
+                // partner no puede llevarse por delante su titulación.
+                titulacion:                  form.titulacion.trim() || null,
+                colegio_profesional:         form.colegio_profesional.trim() || null,
+                numero_colegiado:            form.numero_colegiado.trim() || null,
+                registro_tecnico_competente: form.registro_tecnico_competente.trim() || null,
 
                 // Landing white-label — branding editable por el propio partner.
                 landing_color_primary:        form.landing_color_primary.trim() || null,
@@ -1121,6 +1284,13 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
     const isEntidadCae = form.tipo_empresa === 'SUJETO_OBLIGADO' || form.tipo_empresa === 'VERIFICADOR';
     // Las marcas de aerotermia solo aplican a distribuidores/instaladores.
     const tieneMarcas = form.tipo_empresa === 'DISTRIBUIDOR' || form.tipo_empresa === 'INSTALADOR';
+    // Un CERTIFICADOR no se acredita con el carnet RITE (eso habilita para MONTAR
+    // la instalación, no para certificarla): se acredita con su titulación y su
+    // inscripción en el registro de técnicos competentes. Se le cambia un bloque
+    // por el otro. Si alguno tuviera ya el RITE marcado NO se le esconde: ninguno
+    // lo tiene hoy, pero un dato guardado no se oculta nunca.
+    const esCertificador = form.tipo_empresa === 'CERTIFICADOR';
+    const muestraRite = !isEntidadCae && (!esCertificador || form.tiene_carnet_rite);
 
     // Mínimos para poder guardar. Se calcula aquí porque el botón de guardar vive
     // en la cabecera (fija) y no al final del formulario.
@@ -1448,6 +1618,64 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                     </div>
                                 </Section>
                             )}
+
+                            {/* Técnico Competente (Vista) — solo CERTIFICADOR. Se enseña
+                                también en blanco: "¿está inscrito en el registro del RD
+                                659/2025?" es una pregunta que hay que poder contestar de
+                                un vistazo, y "no consta" es la respuesta que hay que ver. */}
+                            {p.tipo_empresa === 'CERTIFICADOR' && (
+                                <Section title="Técnico Competente" iconPath="M12 14l9-5-9-5-9 5 9 5zm0 0l6.16-3.42A12 12 0 0112 21a12 12 0 01-6.16-10.42L12 14z">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+                                        <FV label="Titulación" value={p.titulacion} />
+                                        <FV label="Colegio Profesional" value={p.colegio_profesional} />
+                                        <FV label="N.º de Colegiado" value={p.numero_colegiado} mono />
+                                        <FV label="N.º Registro Técnicos Competentes" value={p.registro_tecnico_competente} mono />
+                                    </div>
+                                    {!p.registro_tecnico_competente && (
+                                        <p className="text-[11px] text-amber-400/70 mt-3">
+                                            ⚠️ Sin n.º de inscripción en el registro de técnicos competentes (RD 659/2025).
+                                        </p>
+                                    )}
+                                </Section>
+                            )}
+
+                            {/* Contrato (Vista) — solo ADMIN, como el resto de lo contractual.
+                                Se enseña TAMBIÉN sin contrato: "¿tenemos contrato firmado con
+                                este técnico?" es lo que se mira antes de encargarle un CEE, y
+                                la respuesta que hay que ver es justamente la que falta. */}
+                            {p.tipo_empresa === 'CERTIFICADOR' && isAdmin && (() => {
+                                const f = p.contrato_firmas || {};
+                                const completo = !!(f.certificador && f.brokergy);
+                                const falta = [!f.certificador && 'el certificador', !f.brokergy && 'Brokergy'].filter(Boolean);
+                                return (
+                                    <Section title="Contrato" iconPath="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                        badge={p.contrato_link
+                                            ? (completo
+                                                ? <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400">Firmado</span>
+                                                : <span className="text-[9px] font-black uppercase tracking-widest text-amber-400">Pendiente de firma</span>)
+                                            : <span className="text-[9px] font-black uppercase tracking-widest text-white/30">Sin contrato</span>}>
+                                        {p.contrato_link ? (
+                                            <div className="space-y-2">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <a href={p.contrato_link} target="_blank" rel="noopener noreferrer"
+                                                        className={`text-[12px] font-semibold truncate ${completo ? 'text-emerald-300 hover:text-emerald-200' : 'text-amber-300 hover:text-amber-200'}`}>
+                                                        {p.contrato_nombre || 'Contrato'}
+                                                    </a>
+                                                </div>
+                                                {!completo && (
+                                                    <p className="text-[11px] text-amber-400/70">
+                                                        ⚠️ Falta la firma de {falta.join(' y ')}.
+                                                    </p>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <p className="text-[11px] text-white/30">
+                                                Sin contrato registrado. Súbelo desde “Editar”.
+                                            </p>
+                                        )}
+                                    </Section>
+                                );
+                            })()}
 
                             {/* Avisos y contactos (Vista) */}
                             {/* Se enseña SIEMPRE, también sin contactos: "a quién le
@@ -2044,7 +2272,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                 Los datos del firmante son los que salen en la Memoria RITE,
                                 el Certificado y el CIFO; los avisos siguen yendo a este
                                 partner, que es el que factura. */}
-                            {!isEntidadCae && (
+                            {muestraRite && (
                             <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-4 py-4 space-y-4">
                                 <SwitchRow
                                     checked={form.tiene_carnet_rite}
@@ -2119,6 +2347,62 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                         </p>
                                     </div>
                                 ) : null}
+                            </div>
+                            )}
+
+                            {/* ── TÉCNICO COMPETENTE (CERTIFICADOR) ──────────────────
+                                Lo que acredita a quien SUSCRIBE el certificado. Es el
+                                bloque hermano del RITE —que es de instaladores— y ocupa
+                                su sitio. Los datos son de la PERSONA que firma: en un
+                                autónomo, el titular de la ficha; en una empresa, el
+                                técnico que consta como persona de contacto. */}
+                            {esCertificador && (
+                            <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-4 py-4 space-y-4">
+                                <div>
+                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Técnico Competente</p>
+                                    <p className="text-[11px] text-white/25 mt-1">
+                                        {form.es_autonomo
+                                            ? 'Con qué se acredita para firmar los certificados.'
+                                            : 'Con qué se acredita el técnico que firma los certificados.'}
+                                    </p>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    {/* El contrato solo se puede subir con la ficha ya creada:
+                                        antes no hay carpeta de Drive a la que mandarlo. */}
+                                    {isAdmin && p?.id_empresa && (
+                                        <ContratoCertificador presId={p.id_empresa} inicial={p} />
+                                    )}
+                                    <div className="sm:col-span-2">
+                                        <FI label="Titulación">
+                                            <Inp value={form.titulacion} uppercase
+                                                onChange={e => upd({ titulacion: e.target.value })}
+                                                placeholder="INGENIERO TÉCNICO INDUSTRIAL" />
+                                        </FI>
+                                    </div>
+                                    <FI label="Colegio Profesional">
+                                        <Inp value={form.colegio_profesional} uppercase
+                                            onChange={e => upd({ colegio_profesional: e.target.value })}
+                                            placeholder="COITI CIUDAD REAL" />
+                                    </FI>
+                                    <FI label="N.º de Colegiado">
+                                        <Inp value={form.numero_colegiado} uppercase
+                                            onChange={e => upd({ numero_colegiado: e.target.value })}
+                                            placeholder="1234" />
+                                    </FI>
+                                    <div className="sm:col-span-2">
+                                        <FI label="N.º Registro de Técnicos Competentes">
+                                            <Inp value={form.registro_tecnico_competente} uppercase
+                                                onChange={e => upd({ registro_tecnico_competente: e.target.value })}
+                                                placeholder="CLM-TC-01234" />
+                                        </FI>
+                                        {/* El registro lo lleva cada comunidad autónoma, así que un
+                                            número a secas puede no identificar a nadie fuera de ella. */}
+                                        <p className="text-[10px] text-white/25 mt-1.5">
+                                            Inscripción exigida por el RD 659/2025. El registro es autonómico:
+                                            anota el distintivo de la comunidad si el número solo no lo identifica.
+                                        </p>
+                                    </div>
+                                </div>
                             </div>
                             )}
 

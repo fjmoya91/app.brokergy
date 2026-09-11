@@ -307,6 +307,41 @@ router.put('/:id/convenio-cae', adminOnly, async (req, res) => {
     }
 });
 
+// ─── El CONTRATO firmado con un CERTIFICADOR ────────────────────────────────────
+// Mismo patrón que el convenio del S.O., con una diferencia: aquí importa QUIÉN
+// ha firmado. Un contrato a medio firmar no obliga a nadie, así que el slot no
+// pasa a verde hasta que consten las DOS firmas — la del certificador y la de
+// Brokergy. La del PDF se lee sola (`utils/firmasPdf`, sin coste); la del papel
+// escaneado la confirma una persona y queda sellada con su nombre.
+//
+// PUT /api/prescriptores/:id/contrato
+//   { base64, fileName }  → sube el PDF y lee sus firmas
+//   { link }              → apunta uno que ya está en Drive ('' lo quita)
+//   { manual: { certificador?, brokergy? } } → quién consta que ha firmado a mano
+router.put('/:id/contrato', adminOnly, async (req, res) => {
+    try {
+        const { base64, fileName, link, manual } = req.body || {};
+        const { registrarContrato } = require('../services/contratoCertificador');
+        // Quién confirma queda sellado: una confirmación a mano es una declaración
+        // de una persona, no una comprobación, y tiene que saberse de quién es.
+        const perfil = req.user?.perfilCompleto || {};
+        const quien = [perfil.nombre, perfil.apellidos].filter(Boolean).join(' ').trim()
+            || req.user?.email || null;
+        const data = await registrarContrato(req.params.id, {
+            buffer: base64 ? Buffer.from(String(base64).split(',').pop(), 'base64') : null,
+            link,
+            fileName,
+            manual: manual || null,
+            quien,
+        });
+        res.json({ ok: true, ...data });
+    } catch (err) {
+        console.error('Error PUT contrato certificador:', err.message);
+        const code = /debe ser|Falta|enlace|Todavía|No se encontró/.test(err.message) ? 400 : 500;
+        res.status(code).json({ error: err.message || 'No se pudo guardar el contrato' });
+    }
+});
+
 router.get('/:id/facturacion-certificador', adminOnly, async (req, res) => {
     try {
         const data = await certificadorFacturacion.buildFacturacion(req.params.id, req.query.mes);
@@ -703,7 +738,13 @@ router.post('/avanzado', enforceAuth, async (req, res) => {
             tecnico_firmante_nombre: payload.tecnico_firmante_nombre,
             tecnico_firmante_apellidos: payload.tecnico_firmante_apellidos,
             tecnico_firmante_dni: payload.tecnico_firmante_dni,
-            tecnico_firmante_carnet_rite: payload.tecnico_firmante_carnet_rite
+            tecnico_firmante_carnet_rite: payload.tecnico_firmante_carnet_rite,
+            // Técnico competente (CERTIFICADOR): lo que le acredita para suscribir
+            // un CEE. El carnet RITE es de instaladores y aquí no dice nada.
+            titulacion: payload.titulacion,
+            colegio_profesional: payload.colegio_profesional,
+            numero_colegiado: payload.numero_colegiado,
+            registro_tecnico_competente: payload.registro_tecnico_competente
         };
 
         console.log(`[Avanzado] Creando Empresa:`, empresaPayload);
@@ -921,7 +962,14 @@ router.patch('/:id', enforceAuth, async (req, res) => {
             tecnico_firmante_nombre: payload.tecnico_firmante_nombre,
             tecnico_firmante_apellidos: payload.tecnico_firmante_apellidos,
             tecnico_firmante_dni: payload.tecnico_firmante_dni,
-            tecnico_firmante_carnet_rite: payload.tecnico_firmante_carnet_rite
+            tecnico_firmante_carnet_rite: payload.tecnico_firmante_carnet_rite,
+            // Técnico competente (CERTIFICADOR) — ver POST /avanzado. No se limpian
+            // al cambiar de tipo: reclasificar una ficha no puede borrar en silencio
+            // la titulación de nadie.
+            titulacion: payload.titulacion,
+            colegio_profesional: payload.colegio_profesional,
+            numero_colegiado: payload.numero_colegiado,
+            registro_tecnico_competente: payload.registro_tecnico_competente
         };
 
         if (payload.logo_empresa !== undefined) {
