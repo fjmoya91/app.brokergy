@@ -319,17 +319,44 @@ function driveIdDeFactura(f) {
     return m ? m[1] : null;
 }
 
-function FacturasSection({ expedienteId, facturas, onChange, onCommit, readOnly, onGenerateCombined, combinedLink, generating, huerfanos, ultimoCombinado }) {
+function FacturasSection({ expedienteId, facturas, onChange, onCommit, readOnly, onGenerateCombined, combinedLink, generating, huerfanos, ultimoCombinado, incidencias = [], onIncidenciasChanged }) {
     const { user } = useAuth();
     const isAdmin = user?.rol === 'ADMIN';
     const [uploading, setUploading] = useState({}); // idx → bool
     const [ocrBusy, setOcrBusy] = useState(false);
+    const [progreso, setProgreso] = useState(null);  // { hecho, total } mientras lee
     const [dragOver, setDragOver] = useState(false);
-    // Resultado del último OCR pendiente de confirmar: { numero, incidencias[] }.
-    // Las incidencias se PROPONEN; solo se registran las que el usuario deja marcadas.
-    const [revision, setRevision] = useState(null);
+    // Lo leído en la última tanda, pendiente de confirmar: un BLOQUE POR FACTURA
+    // ({ numero, driveId, incidencias[] }). Se sueltan varias facturas de una vez y
+    // cada una trae las suyas: un solo montón obligaría a leerlas todas para saber
+    // cuál de los PDF hay que corregir. Las incidencias se PROPONEN; solo se
+    // registran las que el usuario deje marcadas.
+    const [revision, setRevision] = useState(null);   // { bloques: [], fallos: [] }
+    // Marcadas, por clave "<idx de bloque>:<idx de incidencia>".
     const [incSel, setIncSel] = useState(new Set());
     const [regBusy, setRegBusy] = useState(false);
+
+    // Las incidencias YA REGISTRADAS de una factura concreta. Se cuelgan de ella por
+    // el `drive_id` (ref), así que la fila enseña las suyas y no las del vecino.
+    const incidenciasDeFactura = React.useCallback((f) => {
+        const id = driveIdDeFactura(f);
+        if (!id) return [];
+        return (incidencias || [])
+            .filter(i => i && i.estado !== 'SUBSANADA' && i.ref === id)
+            .sort((a, b) => (b.severidad === 'GRAVE') - (a.severidad === 'GRAVE'));
+    }, [incidencias]);
+
+    // Las que NO caen en ninguna fila: las del histórico (anteriores a que la
+    // incidencia dijera de qué factura es) y las de una factura que se quitó
+    // después. Salen al final, no se esconden: son incidencias abiertas del
+    // expediente, y dejarlas fuera de la única pantalla que habla de facturas sería
+    // esconder justo las más viejas.
+    const incidenciasSueltas = React.useMemo(() => {
+        const refs = new Set(facturas.map(driveIdDeFactura).filter(Boolean));
+        return (incidencias || [])
+            .filter(i => i && i.estado !== 'SUBSANADA' && !(i.ref && refs.has(i.ref)))
+            .sort((a, b) => (b.severidad === 'GRAVE') - (a.severidad === 'GRAVE'));
+    }, [incidencias, facturas]);
 
     const addFactura = () => {
         onChange([...facturas, { numero_factura: '', fecha_factura: null, importe_sin_iva: 0, drive_link: null, validada: false }]);
@@ -368,12 +395,37 @@ function FacturasSection({ expedienteId, facturas, onChange, onCommit, readOnly,
     // Todas subidas (con PDF) y validadas → habilita el PDF único.
     const canGenerate = facturas.length > 0 && facturas.every(f => f.drive_link && f.validada);
 
-    // Sube la factura y la LEE (OCR). `idx = null` → alta nueva; con idx, rellena esa
-    // fila sin pisar lo que ya esté escrito a mano (el OCR propone, no manda).
+    // Agrupa lo que se suelta en DOCUMENTOS, con el MISMO criterio que el backend:
+    // cada PDF es una factura entera; las imágenes son páginas de una sola (una foto
+    // no es un documento). Se agrupa aquí además para poder ir de UNA EN UNA: leer
+    // cinco facturas en una sola petición son ~55 s y nginx corta `/api/` a los 120;
+    // así cada petición dura lo que dura su factura, se ve por dónde va, y si una
+    // falla las demás quedan leídas.
+    const agruparDocumentos = (files) => {
+        const esPdf = (f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name || '');
+        const grupos = files.filter(esPdf).map(f => [f]);
+        const imagenes = files.filter(f => !esPdf(f));
+        if (imagenes.length) grupos.push(imagenes);
+        return grupos;
+    };
+
+    // Sube las facturas y las LEE (OCR). `idx = null` → altas nuevas; con idx, rellena
+    // esa fila sin pisar lo que ya esté escrito a mano (el OCR propone, no manda).
     const procesarFactura = async (fileList, idx = null) => {
         const files = Array.from(fileList || []).filter(Boolean);
         if (!files.length || !expedienteId) return;
-        if (idx === null) setOcrBusy(true); else setUploading(u => ({ ...u, [idx]: true }));
+
+        // Se agrupa igual venga de la zona de suelta o del botón de una fila: ese
+        // input admite varios, y el criterio no puede cambiar según por dónde entres
+        // o el segundo PDF volvería a perderse. Con idx, el PRIMER grupo reemplaza esa
+        // fila y los demás se añaden como facturas nuevas.
+        const grupos = agruparDocumentos(files);
+        if (!grupos.length) return;
+
+        setProgreso({ hecho: 0, total: grupos.length });
+        if (idx === null) setOcrBusy(true);
+        else setUploading(u => ({ ...u, [idx]: true }));
+
         try {
             // Si la fila ya tenía PDF (Reemplazar), se archiva el anterior antes de subir
             // el nuevo: si no, quedan los dos en la carpeta.
@@ -385,75 +437,147 @@ function FacturasSection({ expedienteId, facturas, onChange, onCommit, readOnly,
                 }
             }
 
-            const form = new FormData();
-            files.forEach(f => form.append('files', f));
-            const { data } = await axios.post(`/api/expedientes/${expedienteId}/facturas/ocr`, form);
-
-            // El fichero YA está en Drive: la fila se persiste de inmediato (autoguardado,
-            // modelo C del módulo). Si se dejara solo en estado local y se cerrase el modal
-            // sin guardar, el PDF quedaría huérfano en la carpeta.
             const guardar = onCommit || onChange;
-            const leida = data.factura || {};
-            if (idx === null) {
-                guardar([...facturas, leida]);
-            } else {
-                // Solo rellena los huecos: si ya habías escrito el nº o el importe, manda lo tuyo.
-                guardar(facturas.map((f, i) => i !== idx ? f : {
-                    ...f,
-                    numero_factura: f.numero_factura || leida.numero_factura || '',
-                    fecha_factura: f.fecha_factura || leida.fecha_factura || null,
-                    importe_sin_iva: Number(f.importe_sin_iva) || leida.importe_sin_iva || 0,
-                    drive_link: leida.drive_link,
-                    drive_id: leida.drive_id,
-                    origen: 'ocr',
-                    validada: false,   // una versión nueva vuelve a estar sin validar
-                    // Partidas del OCR: identifican la factura de la instalación
-                    // térmica (de ella sale la fecha de pruebas del RITE).
-                    partidas: leida.partidas || f.partidas || [],
-                }));
+            const bloques = [];
+            const fallos = [];
+            // `lista` acumula lo ya añadido en esta tanda: `facturas` es la prop del
+            // render en curso y no cambia entre vueltas del bucle, así que partir
+            // siempre de ella dejaría en la lista solo la última factura.
+            let lista = facturas;
+
+            for (let n = 0; n < grupos.length; n++) {
+                const grupo = grupos[n];
+                const nombre = grupo.map(f => f.name).filter(Boolean).join(' + ') || 'documento';
+                try {
+                    const form = new FormData();
+                    grupo.forEach(f => form.append('files', f));
+                    const { data } = await axios.post(`/api/expedientes/${expedienteId}/facturas/ocr`, form);
+
+                    // El backend sabe leer varias por petición (hace falta para un
+                    // navegador sin refrescar, que las manda todas juntas); desde
+                    // aquí siempre viene una.
+                    const leidas = Array.isArray(data.facturas) && data.facturas.length
+                        ? data.facturas
+                        : [{ factura: data.factura || {}, incidencias: data.incidencias || [] }];
+
+                    for (const { factura: leida, incidencias: incs } of leidas) {
+                        // Solo el primer documento reemplaza la fila; el resto son altas.
+                        const destino = (idx !== null && !bloques.length) ? idx : null;
+                        if (destino === null) {
+                            lista = [...lista, leida];
+                        } else {
+                            // Solo rellena los huecos: si ya habías escrito el nº o el importe, manda lo tuyo.
+                            lista = lista.map((f, i) => i !== destino ? f : {
+                                ...f,
+                                numero_factura: f.numero_factura || leida.numero_factura || '',
+                                fecha_factura: f.fecha_factura || leida.fecha_factura || null,
+                                importe_sin_iva: Number(f.importe_sin_iva) || leida.importe_sin_iva || 0,
+                                drive_link: leida.drive_link,
+                                drive_id: leida.drive_id,
+                                origen: 'ocr',
+                                validada: false,   // una versión nueva vuelve a estar sin validar
+                                // Partidas del OCR: identifican la factura de la instalación
+                                // térmica (de ella sale la fecha de pruebas del RITE).
+                                partidas: leida.partidas || f.partidas || [],
+                            });
+                        }
+                        bloques.push({
+                            numero: leida.numero_factura || '',
+                            driveId: leida.drive_id || null,
+                            fichero: nombre,
+                            incidencias: incs || [],
+                        });
+                    }
+                    // Se persiste TRAS CADA FACTURA, no al final de la tanda. Dos
+                    // motivos: el fichero ya está en Drive y sin su fila quedaría
+                    // huérfano si se cierra el modal a medias; y el backend cruza
+                    // cada factura con las YA REGISTRADAS (DUPLICADA,
+                    // SOBREFINANCIACION), así que si la primera no está en BD
+                    // cuando se lee la segunda, soltar dos veces la misma no se
+                    // detecta.
+                    guardar(lista);
+                } catch (err) {
+                    console.error(`Error procesando "${nombre}":`, err);
+                    fallos.push({
+                        fichero: nombre,
+                        error: err.response?.data?.error || err.response?.data?.details || err.message || 'fallo desconocido',
+                    });
+                }
+                setProgreso({ hecho: n + 1, total: grupos.length });
             }
 
-            const incidencias = data.incidencias || [];
-            setRevision({ numero: leida.numero_factura || '', incidencias, ocr: data.ocr });
-            setIncSel(new Set(incidencias.map((_, i) => i)));   // se proponen todas marcadas
-        } catch (err) {
-            console.error('Error procesando la factura:', err);
-            const detail = err.response?.data?.error || err.response?.data?.details || err.message || '';
-            alert('No se pudo procesar la factura.' + (detail ? `\n\nDetalle: ${detail}` : ''));
+            if (!bloques.length) {
+                alert('No se pudo procesar ninguna factura.\n\n'
+                    + fallos.map(f => `· ${f.fichero}: ${f.error}`).join('\n'));
+                return;
+            }
+
+            setRevision({ bloques, fallos });
+            // Se proponen todas marcadas.
+            setIncSel(new Set(bloques.flatMap((b, bi) => b.incidencias.map((_, i) => `${bi}:${i}`))));
         } finally {
-            if (idx === null) setOcrBusy(false); else setUploading(u => ({ ...u, [idx]: false }));
+            setProgreso(null);
+            if (idx === null) setOcrBusy(false);
+            else setUploading(u => ({ ...u, [idx]: false }));
         }
     };
 
-    // Da de alta en el expediente SOLO las incidencias que sigan marcadas.
+    // Da de alta en el expediente SOLO las incidencias que sigan marcadas. Cada una
+    // queda colgada de SU factura (`ref` = drive_id), que es lo que permite luego
+    // enseñarla en su fila en vez de en un montón común.
     const registrarIncidencias = async () => {
-        const elegidas = (revision?.incidencias || []).filter((_, i) => incSel.has(i));
+        const elegidas = (revision?.bloques || []).flatMap((b, bi) =>
+            b.incidencias
+                .map((inc, i) => ({ inc, clave: `${bi}:${i}`, bloque: b }))
+                .filter(({ clave }) => incSel.has(clave))
+        );
         if (!elegidas.length) { setRevision(null); return; }
         setRegBusy(true);
+        let ok = false;
         try {
-            for (const inc of elegidas) {
-                const texto = [
-                    `${inc.titulo}. ${inc.texto}`,
-                    inc.evidencia ? `\nEvidencia en la factura: ${inc.evidencia}` : '',
-                    `\nDetectado al subir la factura ${revision.numero || '(sin nº)'}.`,
-                ].join('');
-                await axios.post(`/api/expedientes/${expedienteId}/incidencias`, {
-                    texto,
-                    severidad: inc.severidad,
-                    procedencia: 'AGENTE_IA',
-                    // De dónde sale y a qué documento se refiere. Sin esto la
-                    // incidencia solo aparecía en el contador de la cabecera y
-                    // había que adivinar cuál de los ocho documentos falla.
-                    tipo: inc.tipo || null,
-                    slot: inc.slot || 'facturas',
-                });
-            }
-            alert(`${elegidas.length} incidencia(s) registrada(s) en el expediente.`);
+            // En UNA petición: cada alta suelta relee y reescribe `documentacion`
+            // entera, así que seis incidencias eran seis vueltas — y si fallaba la
+            // tercera quedaban dos registradas y un error en pantalla. En lote entran
+            // todas o ninguna.
+            await axios.post(`/api/expedientes/${expedienteId}/incidencias/lote`, {
+                incidencias: elegidas.map(({ inc, bloque }) => {
+                    const nombreFactura = bloque.numero ? `factura ${bloque.numero}` : `factura de "${bloque.fichero}"`;
+                    return {
+                        texto: [
+                            `${inc.titulo}. ${inc.texto}`,
+                            inc.evidencia ? `\nEvidencia en la factura: ${inc.evidencia}` : '',
+                            `\nDetectado al subir la ${nombreFactura}.`,
+                        ].join(''),
+                        severidad: inc.severidad,
+                        procedencia: 'AGENTE_IA',
+                        // De dónde sale y a qué documento se refiere. Sin esto la
+                        // incidencia solo aparecía en el contador de la cabecera y
+                        // había que adivinar cuál de los ocho documentos falla.
+                        // `codigo` es como lo emite facturaIncidencias.js: se mandaba
+                        // `inc.tipo`, que no existe, así que el código se perdía siempre.
+                        tipo: inc.codigo || inc.tipo || null,
+                        slot: inc.slot || 'facturas',
+                        // A QUÉ factura. El expediente tiene varias y sin esto las cinco
+                        // incidencias de tres facturas distintas caen en el mismo montón.
+                        ref: bloque.driveId || null,
+                        ref_label: bloque.numero ? `Factura ${bloque.numero}` : null,
+                    };
+                }),
+            });
+            ok = true;
         } catch (err) {
             alert(err.response?.data?.error || 'No se pudieron registrar las incidencias.');
         } finally {
             setRegBusy(false);
-            setRevision(null);
+            if (ok) {
+                setRevision(null);
+                // Refrescar el expediente: sin esto las recién registradas no aparecen
+                // ni en la fila de su factura ni en el aviso de la cabecera hasta
+                // recargar la página, y parece que no se han guardado.
+                onIncidenciasChanged?.();
+            }
+            // Si ha fallado, la revisión se queda abierta: cerrarla dejaría lo leído
+            // sin forma de volver a registrarlo salvo subiendo la factura otra vez.
         }
     };
 
@@ -502,15 +626,22 @@ function FacturasSection({ expedienteId, facturas, onChange, onCommit, readOnly,
                             <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                             </svg>
-                            <span className="text-[11px] font-black uppercase tracking-widest">Leyendo la factura…</span>
+                            {/* Van de una en una: con varias, se dice por cuál va. Un
+                                spinner mudo durante medio minuto se lee como colgado. */}
+                            <span className="text-[11px] font-black uppercase tracking-widest">
+                                {progreso && progreso.total > 1
+                                    ? `Leyendo factura ${Math.min(progreso.hecho + 1, progreso.total)} de ${progreso.total}…`
+                                    : 'Leyendo la factura…'}
+                            </span>
                         </>
                     ) : (
                         <>
                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 13h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V20a2 2 0 01-2 2z" />
                             </svg>
-                            <span className="text-[11px] font-black uppercase tracking-widest">Suelta aquí la factura</span>
-                            <span className="text-[10px] normal-case opacity-70">PDF o foto · rellena nº, fecha e importe y revisa incidencias</span>
+                            <span className="text-[11px] font-black uppercase tracking-widest">Suelta aquí las facturas</span>
+                            <span className="text-[10px] normal-case opacity-70">Puedes soltar varias a la vez · cada PDF es una factura</span>
+                            <span className="text-[10px] normal-case opacity-50">Rellena nº, fecha e importe y revisa incidencias</span>
                         </>
                     )}
                     <input
@@ -520,68 +651,123 @@ function FacturasSection({ expedienteId, facturas, onChange, onCommit, readOnly,
                 </label>
             )}
 
-            {/* Revisión del OCR: incidencias PROPUESTAS. Solo se registran las marcadas. */}
-            {revision && (
+            {/* Revisión del OCR: UN BLOQUE POR FACTURA con sus incidencias PROPUESTAS.
+                Se sueltan varias de golpe y cada una trae las suyas: en un montón
+                común habría que leerlas todas para saber qué PDF hay que corregir.
+                Solo se registran las marcadas. */}
+            {revision && (() => {
+                const totalInc = revision.bloques.reduce((n, b) => n + b.incidencias.length, 0);
+                const limpias = revision.bloques.filter(b => !b.incidencias.length).length;
+                return (
                 <div className="mb-4 rounded-xl border border-white/10 bg-bkg-elevated/60 overflow-hidden">
                     <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between gap-3">
-                        <p className="text-[11px] font-black uppercase tracking-widest text-white/70">
-                            {revision.incidencias.length
-                                ? `${revision.incidencias.length} posible(s) incidencia(s)`
-                                : 'Factura leída sin incidencias'}
-                        </p>
-                        <button onClick={() => setRevision(null)} className="text-white/25 hover:text-white/60 transition-colors" title="Cerrar">
+                        <div className="min-w-0">
+                            <p className="text-[11px] font-black uppercase tracking-widest text-white/70">
+                                {revision.bloques.length} factura{revision.bloques.length === 1 ? '' : 's'} leída{revision.bloques.length === 1 ? '' : 's'}
+                                {totalInc ? ` · ${totalInc} posible(s) incidencia(s)` : ' · sin incidencias'}
+                            </p>
+                            {totalInc > 0 && limpias > 0 && (
+                                <p className="text-[10px] text-emerald-400/70 normal-case mt-0.5">
+                                    {limpias} sin nada que objetar.
+                                </p>
+                            )}
+                        </div>
+                        <button onClick={() => setRevision(null)} className="text-white/25 hover:text-white/60 transition-colors shrink-0" title="Cerrar">
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                         </button>
                     </div>
-                    {revision.incidencias.length === 0 ? (
-                        <p className="px-4 py-3 text-[11px] text-emerald-400/80 normal-case">
-                            Nada que objetar: titular, alcance, fechas e importes cuadran con el expediente.
-                        </p>
-                    ) : (
-                        <>
-                            <div className="max-h-72 overflow-y-auto divide-y divide-white/[0.05]">
-                                {revision.incidencias.map((inc, i) => (
-                                    <label key={i} className="flex gap-3 px-4 py-3 cursor-pointer hover:bg-white/[0.02] transition-colors">
-                                        <input
-                                            type="checkbox" checked={incSel.has(i)}
-                                            onChange={() => setIncSel(prev => {
-                                                const next = new Set(prev);
-                                                next.has(i) ? next.delete(i) : next.add(i);
-                                                return next;
-                                            })}
-                                            className="mt-1 accent-brand w-3.5 h-3.5 flex-shrink-0"
-                                        />
-                                        <div className="min-w-0">
-                                            <p className="flex items-center gap-2 flex-wrap">
-                                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-widest ${
-                                                    inc.severidad === 'GRAVE'
-                                                        ? 'bg-red-500/15 text-red-400 border border-red-500/25'
-                                                        : 'bg-amber-500/15 text-amber-400 border border-amber-500/25'
-                                                }`}>{inc.severidad}</span>
-                                                <span className="text-[12px] font-bold text-white/85 normal-case">{inc.titulo}</span>
-                                            </p>
-                                            <p className="text-[11px] text-white/45 normal-case mt-1 leading-snug">{inc.texto}</p>
-                                            {inc.evidencia && (
-                                                <p className="text-[10px] text-white/30 normal-case mt-1 italic truncate">{inc.evidencia}</p>
-                                            )}
-                                        </div>
-                                    </label>
+
+                    {/* Lo que NO se ha podido leer. Antes se descartaba en silencio y el
+                        fichero desaparecía sin dejar rastro. */}
+                    {revision.fallos?.length > 0 && (
+                        <div className="px-4 py-3 border-b border-white/[0.06] bg-red-500/[0.06]">
+                            <p className="text-[11px] font-black uppercase tracking-widest text-red-300">
+                                {revision.fallos.length} no se pudo leer
+                            </p>
+                            <ul className="mt-1 space-y-0.5">
+                                {revision.fallos.map((f, i) => (
+                                    <li key={i} className="text-[11px] text-white/50 normal-case leading-snug">
+                                        · <strong className="text-white/70">{f.fichero}</strong> — {f.error}
+                                    </li>
                                 ))}
-                            </div>
-                            <div className="px-4 py-3 bg-white/[0.02] border-t border-white/[0.06] flex justify-end gap-2">
-                                <button onClick={() => setRevision(null)} disabled={regBusy}
-                                        className="px-4 py-2 rounded-lg border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">
-                                    No registrar
-                                </button>
-                                <button onClick={registrarIncidencias} disabled={regBusy || incSel.size === 0}
-                                        className="px-4 py-2 rounded-lg bg-brand/10 border border-brand/30 text-brand text-[10px] font-black uppercase tracking-widest hover:bg-brand hover:text-bkg-deep transition-all disabled:opacity-40">
-                                    {regBusy ? 'Registrando…' : `Registrar ${incSel.size}`}
-                                </button>
-                            </div>
-                        </>
+                            </ul>
+                        </div>
                     )}
+
+                    <div className="max-h-[26rem] overflow-y-auto divide-y divide-white/[0.06]">
+                        {revision.bloques.map((b, bi) => (
+                            <div key={bi}>
+                                <div className="px-4 pt-3 pb-1.5 flex items-center gap-2 flex-wrap">
+                                    <span className="text-[11px] font-black uppercase tracking-widest text-white/55">
+                                        {b.numero ? `Factura ${b.numero}` : b.fichero}
+                                    </span>
+                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-widest border ${
+                                        b.incidencias.length
+                                            ? (b.incidencias.some(i => i.severidad === 'GRAVE')
+                                                ? 'bg-red-500/15 text-red-400 border-red-500/25'
+                                                : 'bg-amber-500/15 text-amber-400 border-amber-500/25')
+                                            : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
+                                    }`}>
+                                        {b.incidencias.length ? `${b.incidencias.length} incidencia${b.incidencias.length === 1 ? '' : 's'}` : 'sin incidencias'}
+                                    </span>
+                                </div>
+                                {b.incidencias.length === 0 ? (
+                                    <p className="px-4 pb-3 text-[11px] text-white/35 normal-case leading-snug">
+                                        Titular, alcance, fechas e importes cuadran con el expediente.
+                                    </p>
+                                ) : (
+                                    <div className="pb-1">
+                                        {b.incidencias.map((inc, i) => {
+                                            const clave = `${bi}:${i}`;
+                                            return (
+                                                <label key={clave} className="flex gap-3 px-4 py-2.5 cursor-pointer hover:bg-white/[0.02] transition-colors">
+                                                    <input
+                                                        type="checkbox" checked={incSel.has(clave)}
+                                                        onChange={() => setIncSel(prev => {
+                                                            const next = new Set(prev);
+                                                            next.has(clave) ? next.delete(clave) : next.add(clave);
+                                                            return next;
+                                                        })}
+                                                        className="mt-1 accent-brand w-3.5 h-3.5 flex-shrink-0"
+                                                    />
+                                                    <div className="min-w-0">
+                                                        <p className="flex items-center gap-2 flex-wrap">
+                                                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-widest ${
+                                                                inc.severidad === 'GRAVE'
+                                                                    ? 'bg-red-500/15 text-red-400 border border-red-500/25'
+                                                                    : 'bg-amber-500/15 text-amber-400 border border-amber-500/25'
+                                                            }`}>{inc.severidad}</span>
+                                                            <span className="text-[12px] font-bold text-white/85 normal-case">{inc.titulo}</span>
+                                                        </p>
+                                                        <p className="text-[11px] text-white/45 normal-case mt-1 leading-snug">{inc.texto}</p>
+                                                        {inc.evidencia && (
+                                                            <p className="text-[10px] text-white/30 normal-case mt-1 italic truncate">{inc.evidencia}</p>
+                                                        )}
+                                                    </div>
+                                                </label>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="px-4 py-3 bg-white/[0.02] border-t border-white/[0.06] flex justify-end gap-2">
+                        <button onClick={() => setRevision(null)} disabled={regBusy}
+                                className="px-4 py-2 rounded-lg border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all disabled:opacity-40">
+                            {totalInc ? 'No registrar' : 'Cerrar'}
+                        </button>
+                        {totalInc > 0 && (
+                            <button onClick={registrarIncidencias} disabled={regBusy || incSel.size === 0}
+                                    className="px-4 py-2 rounded-lg bg-brand/10 border border-brand/30 text-brand text-[10px] font-black uppercase tracking-widest hover:bg-brand hover:text-bkg-deep transition-all disabled:opacity-40">
+                                {regBusy ? 'Registrando…' : `Registrar ${incSel.size}`}
+                            </button>
+                        )}
+                    </div>
                 </div>
-            )}
+                );
+            })()}
 
             {/* Ficheros sueltos en "5. FACTURAS" que no corresponden a ninguna factura de
                 la lista. Ya NO entran en el PDF combinado, pero conviene limpiarlos. */}
@@ -601,8 +787,13 @@ function FacturasSection({ expedienteId, facturas, onChange, onCommit, readOnly,
                 <p className="text-white/30 text-xs italic">Sin facturas.</p>
             ) : (
                 <div className="space-y-3">
-                    {facturas.map((f, idx) => (
-                        <div key={idx} className="bg-bkg-elevated/60 rounded-xl p-4 border border-white/[0.06] relative">
+                    {facturas.map((f, idx) => {
+                      const incF = incidenciasDeFactura(f);
+                      const gravesF = incF.filter(i => i.severidad === 'GRAVE').length;
+                      return (
+                        <div key={idx} className={`bg-bkg-elevated/60 rounded-xl p-4 border relative ${
+                            gravesF ? 'border-red-500/35' : incF.length ? 'border-amber-500/30' : 'border-white/[0.06]'
+                        }`}>
                             {!readOnly && (
                                 <button
                                     onClick={() => removeFactura(idx)}
@@ -730,8 +921,47 @@ function FacturasSection({ expedienteId, facturas, onChange, onCommit, readOnly,
                                     )}
                                 </div>
                             </div>
+
+                            {/* Las incidencias REGISTRADAS de ESTA factura, en su fila.
+                                Se cuelgan de ella por su `drive_id` (`ref`): el slot
+                                "facturas" es uno solo para todas, así que sin esto las
+                                cinco incidencias de tres facturas distintas salían en
+                                el mismo montón y había que leerlas una a una para
+                                saber cuál de los PDF hay que corregir. Se subsana,
+                                reclasifica o descarta desde aquí. */}
+                            {incF.length > 0 && (
+                                <div className="mt-3 pt-3 border-t border-white/[0.06]">
+                                    <IncidenciasSlotPanel
+                                        expedienteId={expedienteId}
+                                        slot="facturas"
+                                        incidencias={incF}
+                                        compacto
+                                        onCambio={() => onIncidenciasChanged?.()}
+                                    />
+                                </div>
+                            )}
                         </div>
-                    ))}
+                      );
+                    })}
+                </div>
+            )}
+
+            {/* Las que no se pueden colgar de una fila (ver incidenciasSueltas). */}
+            {incidenciasSueltas.length > 0 && (
+                <div className="mt-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-white/35 mb-2">
+                        Otras incidencias de facturas
+                        <span className="normal-case font-normal tracking-normal opacity-70">
+                            {' '}— no consta de cuál de las facturas son
+                        </span>
+                    </p>
+                    <IncidenciasSlotPanel
+                        expedienteId={expedienteId}
+                        slot="facturas"
+                        incidencias={incidenciasSueltas}
+                        compacto
+                        onCambio={() => onIncidenciasChanged?.()}
+                    />
                 </div>
             )}
 
@@ -4054,6 +4284,11 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 generating={generatingFacturas}
                                 huerfanos={huerfanosFacturas}
                                 ultimoCombinado={ultimoCombinado}
+                                // Solo las de FACTURAS: incidenciasSlot son las de todo
+                                // el expediente, y las del Anexo I o el CIFO no pintan nada
+                                // en esta pantalla.
+                                incidencias={incSlot('facturas')}
+                                onIncidenciasChanged={() => onIncidenciasChanged?.()}
                             />
                         </div>
                         <div className="p-4 sm:p-5 border-t border-white/5 bg-white/[0.01] flex justify-end gap-3">

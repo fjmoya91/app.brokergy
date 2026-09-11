@@ -91,6 +91,11 @@ const INITIAL_INPUTS = {
     dcap: 0,
     scopPool: 0,
     caePriceSO: 160,
+    // Coste del informe de VERIFICACIÓN de este expediente (€). Solo ADMIN. No es un
+    // coste nuestro —lo paga el Sujeto Obligado—, pero repercutido en €/MWh dice cuánto
+    // le sale a él la operación y, con la equivalencia financiera, hasta dónde se le
+    // puede pedir. Ver `calculateFinancials`.
+    costeVerificacion: 0,
     presupuesto: 12000,
     presupuestoFotovoltaica: 0,
 
@@ -532,6 +537,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             participation: parseFloat(inputs.participation) || 100,
             caePriceClient: parseFloat(inputs.caePriceClient) || CAE_PRECIO_CLIENTE_NUEVAS,
             caePriceSO: parseFloat(inputs.caePriceSO) || 160,
+            costeVerificacion: parseFloat(inputs.costeVerificacion) || 0,
             caePricePrescriptor: parseFloat(inputs.caePricePrescriptor) || 0,
             numOwners: parseInt(inputs.numOwners) || 1,
             legalizationPrice: parseFloat(inputs.legalizationPrice) || 250,
@@ -683,6 +689,9 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             tipo: sanitizedInputs.tipo,
             participation: sanitizedInputs.participation,
             numOwners: sanitizedInputs.numOwners,
+            // No entra en nuestro margen (lo paga el S.O.): sirve para saber lo que le
+            // cuesta a él el MWh y hasta dónde se le puede pedir.
+            costeVerificacion: sanitizedInputs.costeVerificacion,
             // En un BLOQUE la deducción es la de obras en el EDIFICIO (60 %) y la aplica
             // cada propietario sobre su derrama, no la comunidad.
             esBloque: esBloqueCalc,
@@ -732,6 +741,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 savingsKwh: res060fcData.cae,
                 caePriceClient: sanitizedInputs.caePriceClient,
                 caePriceSO: sanitizedInputs.caePriceSO,
+                costeVerificacion: sanitizedInputs.costeVerificacion,
                 caePricePrescriptor: inputs.includeCommission ? sanitizedInputs.caePricePrescriptor : 0,
                 prescriptorMode: sanitizedInputs.prescriptorMode,
                 tipo: sanitizedInputs.tipo,
@@ -880,6 +890,9 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 savingsKwh: res080Data.ahorroEnergiaFinalTotal,
                 caePriceClient: sanitizedInputs.caePriceClient,
                 caePriceSO: sanitizedInputs.caePriceSO,
+                // El informe de verificación se paga UNA vez por expediente: repercutido
+                // sobre el ahorro del RES080 (que es el que se presentaría) da su €/MWh.
+                costeVerificacion: sanitizedInputs.costeVerificacion,
                 caePricePrescriptor: inputs.includeCommission ? sanitizedInputs.caePricePrescriptor : 0,
                 prescriptorMode: sanitizedInputs.prescriptorMode,
                 tipo: sanitizedInputs.tipo,

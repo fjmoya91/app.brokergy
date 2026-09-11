@@ -38,6 +38,19 @@
 // es el precio y estas constantes ni se miran.
 // ============================================================================
 export const CAE_PRECIO_CLIENTE_NUEVAS = 100;
+
+// Equivalencia financiera del CAE (€/MWh): lo que le costaría al Sujeto Obligado
+// cumplir su obligación pagando al FNEE en vez de comprarnos CAEs. Es el TECHO de lo
+// que se le puede pedir — por encima, le sale más barato pagar al Fondo — y por eso
+// es la referencia contra la que se negocia el precio.
+//
+// Vive aquí, y no en `lotes/logic/loteEco.js` como hasta 2026-09-11, porque ahora la
+// necesitan los dos extremos del negocio: la SIMULACIÓN (para saber cuánto se le
+// puede llegar a pedir por ese expediente) y el LOTE (para saber cuánto se le
+// ahorró de verdad). `loteEco` la reexporta, así que sus consumidores no cambian.
+// Valor de 2026 fijado por el usuario (2026-08-04). REVISAR EN 2027: hay que
+// actualizarlo a mano cuando salga el del año nuevo.
+export const EQUIVALENCIA_FINANCIERA = 198.62;
 export const CAE_PRECIO_CLIENTE_ANTERIOR = { estandar: 95, res080: 60 };
 
 export const HDD = {
@@ -1478,7 +1491,10 @@ export function calculateFinancials({
     includeIrpf = true, // Si se aplica la deducción al IRPF
     titularType = 'particular', // 'particular', 'autonomo', 'empresa'
     aplicarIrpfCae = true, // Si se aplica tributación de ganancia patrimonial al CAE
-    includeIVA = false // Si las cifras se presentan con IVA incluido (toggle "IVA Incluido / Sin IVA")
+    includeIVA = false, // Si las cifras se presentan con IVA incluido (toggle "IVA Incluido / Sin IVA")
+    // Coste del INFORME DE VERIFICACIÓN de este expediente (€). Lo teclea el ADMIN en la
+    // simulación; el real llega después con la factura del verificador (`lotes.coste_verificacion`).
+    costeVerificacion = 0
 }) {
     const savingsMwh = savingsKwh / 1000;
     const priceClientBase = parseFloat(caePriceClient) || 0;
@@ -1582,6 +1598,28 @@ export function calculateFinancials({
     }
     const caeNeto = Math.max(0, caeBonusBruto - irpfCaeAmount);
 
+    // 5.b Lo que le cuesta al SUJETO OBLIGADO, y hasta dónde se le puede pedir
+    // ------------------------------------------------------------------------
+    // REGLA — el coste de la verificación NO es nuestro: lo paga el S.O. (decisión
+    // 2026-08-04, la misma que aplica `lotes/logic/loteEco.js`), así que NO se resta del
+    // beneficio de Brokergy. Se calcula porque es lo que permite negociar: el desembolso
+    // del S.O. por cada MWh es lo que nos paga MÁS lo que le cuesta verificarlo, y su
+    // alternativa es la equivalencia financiera. La diferencia es lo que se ahorra
+    // viniendo con nosotros, y el techo de lo que se le puede llegar a pedir.
+    //
+    // Un informe de 1.500 € repercute muy distinto según el tamaño de la actuación:
+    // sobre 10 MWh son 150 €/MWh (se come el negocio) y sobre 110 MWh, 13,6.
+    const costeVerifTotal = Math.max(0, parseFloat(costeVerificacion) || 0);
+    const costeVerifMwh = savingsMwh > 0 ? costeVerifTotal / savingsMwh : 0;
+    // Desembolso del S.O.: el bono que nos compra + la verificación que contrata él.
+    const costeSoMwh = priceSOBase + costeVerifMwh;
+    const costeSoTotal = savingsMwh * priceSOBase + costeVerifTotal;
+    // Techo del precio que se le puede pedir sin que le salga más caro que el FNEE.
+    const techoPrecioSo = Math.max(0, EQUIVALENCIA_FINANCIERA - costeVerifMwh);
+    const ahorroSoMwh = EQUIVALENCIA_FINANCIERA - costeSoMwh;
+    const ahorroSoTotal = ahorroSoMwh * savingsMwh;
+    const ahorroSoPct = EQUIVALENCIA_FINANCIERA > 0 ? (ahorroSoMwh / EQUIVALENCIA_FINANCIERA) * 100 : 0;
+
     // 6. Totales
     const totalBeneficioFiscal = caeNeto + irpfDeductionTotal;
     const porcentajeCubierto = Math.min(100, (totalBeneficioFiscal / budgetNum) * 100);
@@ -1614,6 +1652,18 @@ export function calculateFinancials({
         itpCost,
         itpPercent: includeItp ? itpPercent : 0,
         includeItp,
+        // Coste de verificación y su repercusión. No tocan `profitBrokergy` (lo paga
+        // el S.O.): describen SU operación, que es lo que se negocia.
+        costeVerificacion: costeVerifTotal,
+        costeVerifMwh,
+        costeSoMwh,
+        costeSoTotal,
+        techoPrecioSo,
+        ahorroSoMwh,
+        ahorroSoTotal,
+        ahorroSoPct,
+        equivalenciaFinanciera: EQUIVALENCIA_FINANCIERA,
+        savingsMwh,
         titularType,
         isParticular,
         includeIVA

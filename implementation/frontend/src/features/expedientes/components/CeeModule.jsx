@@ -7,7 +7,7 @@ import CeeUploadModal from '../../cee/CeeUploadModal';
 import { ceeToXmlShape } from '../../cee/ceeExtract';
 import { EfficiencyTable, CATEGORIES_SIMPLIFICADO } from '../../calculator/components/EfficiencyTable';
 import { CeeDocumentsGrid } from './CeeDocumentsGrid';
-import { EnvolventeView } from '../../cee-envolvente/views/EnvolventeView';
+import { EnvolventeModal } from '../../cee-envolvente/components/EnvolventeModal';
 import { AvisoIrpfEpnr } from './AvisoIrpfEpnr';
 import { TecnicoPicker } from './TecnicoPicker';
 import { Ce3xAyudasModal } from './Ce3xAyudasModal';
@@ -253,6 +253,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
     const [ceeLoadTarget, setCeeLoadTarget] = useState(null);
     // Caja de herramientas del certificador (textos fijos de CE3X).
     const [ayudasCe3x, setAyudasCe3x] = useState(false);
+    const [envolvente, setEnvolvente] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
     const [isDraggingFinal, setIsDraggingFinal] = useState(false);
     // Autoguardado: el módulo siempre está editable, sin botón "Editar Módulo".
@@ -1871,6 +1872,18 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                         <span>🧰</span>
                         <span>Ayudas CE3X</span>
                     </button>
+                    {/* De la referencia catastral al .cex con la envolvente ya
+                        puesta. Va en ventana porque dentro hay planos: en la
+                        columna del modulo no se distingue una pared de otra. */}
+                    <button
+                        type="button"
+                        onClick={() => setEnvolvente(true)}
+                        title="Generar el .cex con la envolvente medida"
+                        className="flex items-center gap-2 px-3 py-2 rounded-xl border border-brand/40 bg-brand/10 text-[9px] font-black uppercase tracking-widest text-brand hover:bg-brand hover:text-black transition-colors max-md:w-full max-md:justify-center max-md:py-3.5 max-md:text-[10px]"
+                    >
+                        <span>📐</span>
+                        <span>CE3X</span>
+                    </button>
                 </div>
                 {saving && (
                     <span className="text-[10px] font-black uppercase tracking-widest text-white/30">Guardando…</span>
@@ -1878,16 +1891,6 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
             </div>
 
             {isReforma ? renderRes080() : renderRes060()}
-
-            {/* ── Envolvente térmica ────────────────────────────────────────
-                Va AQUI, en el modulo compartido, y no en la ficha de cada
-                negocio: es la misma herramienta para un CEE directo que para el
-                CEE de un expediente CAE, y duplicarla seria arreglarla dos veces.
-                Es lo que se usa ANTES de tener el certificado: de la referencia
-                catastral al .cex con la envolvente puesta. */}
-            <div className="mt-8">
-                <EnvolventeView expediente={expediente} />
-            </div>
 
             {/* ¿Los dos certificados valen para la deducción del IRPF? Solo tiene
                 sentido con las DOS fases: sin el CEE de después no hay nada que
@@ -1903,6 +1906,12 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 popup necesita el expediente con su instalación VIVA (`instalacionViva`):
                 el autoguardado del detalle se confirma un render más tarde, y copiar
                 al CE3X un SCOP desfasado es justo lo que esto viene a evitar. */}
+            <EnvolventeModal
+                abierto={envolvente}
+                onCerrar={() => setEnvolvente(false)}
+                expediente={expediente}
+            />
+
             <Ce3xAyudasModal
                 isOpen={ayudasCe3x}
                 onClose={() => setAyudasCe3x(false)}

@@ -44,6 +44,11 @@ export function CalculatorForm({
     const { user } = useAuth();
     const isAdmin = user?.rol?.toUpperCase() === 'ADMIN';
 
+    // El coste del informe de verificación es para CASOS PUNTUALES: la pantalla de
+    // siempre no lleva ese campo, y por eso nace plegado. Si la oportunidad ya trae un
+    // importe, se abre sola — un dato guardado no puede quedar escondido detrás de un
+    // clic que nadie sabe que hay que dar.
+    const [verifAbierto, setVerifAbierto] = useState(false);
     const [showXmlModal, setShowXmlModal] = useState(false);
     const [showCeeLoad, setShowCeeLoad] = useState(false);
     const [xmlError, setXmlError] = useState(null);
@@ -3178,6 +3183,59 @@ export function CalculatorForm({
                                                     />
                                                 </div>
 
+                                                {/* COSTE DEL INFORME DE VERIFICACIÓN.
+                                                    No es un coste nuestro: lo paga el Sujeto Obligado
+                                                    (misma regla que en el lote). Se teclea aquí porque
+                                                    repercutido sobre el ahorro dice lo que le sale a ÉL
+                                                    el MWh, y con la equivalencia financiera, hasta dónde
+                                                    se le puede pedir por este expediente.
+
+                                                    Nace PLEGADO: es para casos puntuales, y un campo más
+                                                    en la fila del precio del S.O. cambiaría la pantalla
+                                                    de todas las oportunidades para lo que se usa en unas
+                                                    pocas. */}
+                                                {(verifAbierto || Number(inputs.costeVerificacion) > 0) ? (
+                                                    <div className="space-y-2 animate-fade-in">
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <Label htmlFor="private-coste-verif">
+                                                                Informe de verificación (€)
+                                                            </Label>
+                                                            {/* Quitarlo BORRA el importe: dejar el campo a la
+                                                                vista con un valor suelto invitaría a creer que
+                                                                sigue contando cuando ya no se ve. */}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => { setVerifAbierto(false); handleChange('costeVerificacion', 0); }}
+                                                                className="text-slate-600 hover:text-orange-400 text-[10px] font-black uppercase tracking-wider transition-colors"
+                                                                title="Quitar el coste de verificación de esta simulación"
+                                                            >
+                                                                Quitar
+                                                            </button>
+                                                        </div>
+                                                        <Input
+                                                            id="private-coste-verif"
+                                                            type="number"
+                                                            min="0"
+                                                            placeholder="0"
+                                                            autoFocus={verifAbierto}
+                                                            className="bg-slate-950/80 border-orange-500/40 text-orange-100 focus:border-orange-500 focus:ring-orange-500/20"
+                                                            value={inputs.costeVerificacion || ''}
+                                                            onChange={e => handleChange('costeVerificacion', parseFloat(e.target.value) || 0)}
+                                                        />
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex flex-col justify-end pb-1.5">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setVerifAbierto(true)}
+                                                            className="text-left text-[10px] font-black uppercase tracking-[0.1em] text-slate-500 hover:text-orange-400 transition-colors"
+                                                            title="Qué le costaría al Sujeto Obligado este expediente, con la verificación repercutida"
+                                                        >
+                                                            + Coste de verificación
+                                                        </button>
+                                                    </div>
+                                                )}
+
                                                 <div className="flex flex-col justify-end pb-1.5">
                                                     <label className="flex items-center gap-3 cursor-pointer group">
                                                         <div className="relative flex items-center">
@@ -3387,6 +3445,62 @@ export function CalculatorForm({
                                                 <div className="flex justify-start text-[10px] text-orange-500/40 font-bold uppercase tracking-widest mt-1">
                                                     <span>Margen Neto: {result.financials.caePriceBrokergy.toLocaleString('es-ES', { maximumFractionDigits: 0 })} €/MWh</span>
                                                 </div>
+
+                                                {/* LO QUE LE CUESTA AL SUJETO OBLIGADO.
+                                                    Solo aparece con un coste de verificación tecleado: sin
+                                                    él estas tres cifras serían el precio del S.O. repetido
+                                                    tres veces, y una fila que sale siempre y nunca dice
+                                                    nada es la que se deja de leer. */}
+                                                {result.financials.costeVerificacion > 0 && (
+                                                    <div className="mt-3 pt-3 border-t border-orange-500/20 space-y-1.5 animate-fade-in">
+                                                        <div className="flex items-center justify-between gap-3">
+                                                            <span className="text-orange-300/60 text-[9px] font-black uppercase tracking-[0.15em]">Le cuesta al S.O.</span>
+                                                            <span className="text-orange-200 font-mono font-black text-sm whitespace-nowrap">
+                                                                {result.financials.costeSoMwh.toLocaleString('es-ES', { maximumFractionDigits: 2 })} €/MWh
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex items-center justify-between gap-3">
+                                                            <span className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">
+                                                                Verificación repercutida
+                                                            </span>
+                                                            <span className="text-slate-400 font-mono text-[11px] whitespace-nowrap">
+                                                                {result.financials.costeVerificacion.toLocaleString('es-ES', { maximumFractionDigits: 2 })} € ÷ {result.financials.savingsMwh.toLocaleString('es-ES', { maximumFractionDigits: 2 })} MWh = {result.financials.costeVerifMwh.toLocaleString('es-ES', { maximumFractionDigits: 2 })} €/MWh
+                                                            </span>
+                                                        </div>
+                                                        {/* El TECHO: por encima de la equivalencia financiera
+                                                            al S.O. le sale más barato pagar al FNEE. */}
+                                                        <div className="flex items-center justify-between gap-3 pt-1.5 border-t border-orange-500/10">
+                                                            <span className="text-emerald-400/70 text-[9px] font-black uppercase tracking-[0.15em]">
+                                                                Máximo que se le puede pedir
+                                                            </span>
+                                                            <span className={`font-mono font-black text-sm whitespace-nowrap ${
+                                                                result.financials.ahorroSoMwh >= 0 ? 'text-emerald-400' : 'text-red-400'
+                                                            }`}>
+                                                                {result.financials.techoPrecioSo.toLocaleString('es-ES', { maximumFractionDigits: 2 })} €/MWh
+                                                            </span>
+                                                        </div>
+                                                        <p className={`text-[10px] leading-snug ${result.financials.ahorroSoMwh >= 0 ? 'text-slate-500' : 'text-red-400/90 font-bold'}`}>
+                                                            {result.financials.ahorroSoMwh >= 0 ? (
+                                                                <>
+                                                                    Con {parseFloat(inputs.caePriceSO || 0).toLocaleString('es-ES')} €/MWh se ahorra{' '}
+                                                                    <strong className="text-emerald-400/90">
+                                                                        {result.financials.ahorroSoMwh.toLocaleString('es-ES', { maximumFractionDigits: 2 })} €/MWh
+                                                                    </strong>{' '}
+                                                                    ({Math.round(result.financials.ahorroSoPct)} %) frente a los{' '}
+                                                                    {result.financials.equivalenciaFinanciera.toLocaleString('es-ES', { maximumFractionDigits: 2 })} €/MWh
+                                                                    {' '}de la equivalencia financiera — son{' '}
+                                                                    {Math.round(result.financials.ahorroSoTotal).toLocaleString('es-ES')} € en este expediente.
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    A {parseFloat(inputs.caePriceSO || 0).toLocaleString('es-ES')} €/MWh le sale MÁS CARO que
+                                                                    pagar al FNEE ({result.financials.equivalenciaFinanciera.toLocaleString('es-ES', { maximumFractionDigits: 2 })} €/MWh):
+                                                                    con esta verificación no compraría el expediente.
+                                                                </>
+                                                            )}
+                                                        </p>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
