@@ -10,6 +10,7 @@ import { postEmail } from '../../../utils/emailFallback';
 // Los nombres se guardan en MAYÚSCULAS (el formulario las fuerza): en el saludo
 // se escriben bien. FUENTE ÚNICA con el resto de mensajes de la app.
 import { nombreSaludo } from '../../../utils/nombres.js';
+import { tipoEmpresaLabel } from '../../../utils/tiposEmpresa';
 
 const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
 
@@ -1982,6 +1983,14 @@ info@brokergy.es · 623 926 179`;
     // sin salir del popup de envío: pasa a menudo que la propuesta está lista y el
     // cliente no tiene ni email ni teléfono guardados, y hasta ahora había que
     // cerrar, ir a su ficha, volver y rehacer el mensaje.
+    // ¿El partner que trajo la oportunidad ES el instalador asociado? En 32
+    // oportunidades el `prescriptor_id` y el `instalador_asociado_id` son el
+    // MISMO id, así que la lista de destinatarios pintaba dos tarjetas de la
+    // misma empresa —mismo nombre, mismo teléfono, mismo email— y marcar las dos
+    // le mandaba la propuesta por duplicado a la misma persona.
+    const mismoPartnerEInstalador = !!inputs?.prescriptor_id
+        && String(inputs.prescriptor_id) === String(inputs?.instalador_asociado_id || '');
+
     const propCandidates = (() => {
         const list = [{
             mode: 'CLIENTE',
@@ -1993,9 +2002,16 @@ info@brokergy.es · 623 926 179`;
         }];
         // `label` = la persona a la que se escribe (interlocutor de notificaciones);
         // `org` = la empresa, que se muestra debajo para no perder de vista quién es.
-        if (partnerInfo) list.push({ mode: 'PARTNER', label: partnerInfo.name || 'Distribuidor', sublabel: 'Distribuidor', org: partnerInfo.org || '', email: partnerInfo.email || '', phone: partnerInfo.phone || '',
+        // La chapa dice lo que ES el partner (su `tipo_empresa`), no "Distribuidor"
+        // a secas: de las 202 oportunidades con prescriptor, 179 son de un
+        // INSTALADOR — el rótulo fijo estaba mal casi siempre.
+        if (partnerInfo) list.push({ mode: 'PARTNER', label: partnerInfo.name || tipoEmpresaLabel(partnerInfo.tipo), sublabel: tipoEmpresaLabel(partnerInfo.tipo), org: partnerInfo.org || '', email: partnerInfo.email || '', phone: partnerInfo.phone || '',
             entidad: inputs?.prescriptor_id ? { tipo: 'prescriptor', id: inputs.prescriptor_id } : null });
-        if (instaladorInfo) list.push({ mode: 'INSTALADOR', label: instaladorInfo.name || 'Instalador', sublabel: 'Instalador', org: instaladorInfo.org || '', email: instaladorInfo.email || '', phone: instaladorInfo.phone || '',
+        // El instalador asociado solo es OTRA fila si es OTRA empresa. En 32
+        // oportunidades el partner Y el instalador son el mismo id: salían dos
+        // tarjetas con el mismo nombre, el mismo teléfono y el mismo email, y
+        // marcar las dos le mandaba la propuesta dos veces a la misma persona.
+        if (instaladorInfo && !mismoPartnerEInstalador) list.push({ mode: 'INSTALADOR', label: instaladorInfo.name || 'Instalador', sublabel: tipoEmpresaLabel(instaladorInfo.tipo, 'Instalador'), org: instaladorInfo.org || '', email: instaladorInfo.email || '', phone: instaladorInfo.phone || '',
             entidad: inputs?.instalador_asociado_id ? { tipo: 'prescriptor', id: inputs.instalador_asociado_id } : null });
         return list;
     })();
@@ -3304,8 +3320,8 @@ info@brokergy.es · 623 926 179`;
 
                 const options = [
                     { mode: 'CLIENTE',    label: 'Cliente',    sublabel: clienteInfo?.name || inputs?.referenciaCliente || null, phone: clienteInfo?.phone || null },
-                    ...(partnerInfo    ? [{ mode: 'PARTNER',    label: 'Distribuidor', sublabel: partnerInfo.name,    phone: partnerInfo.phone }]    : []),
-                    ...(instaladorInfo ? [{ mode: 'INSTALADOR', label: 'Instalador',   sublabel: instaladorInfo.name, phone: instaladorInfo.phone }] : []),
+                    ...(partnerInfo    ? [{ mode: 'PARTNER',    label: tipoEmpresaLabel(partnerInfo.tipo), sublabel: partnerInfo.name,    phone: partnerInfo.phone }]    : []),
+                    ...(instaladorInfo && !mismoPartnerEInstalador ? [{ mode: 'INSTALADOR', label: tipoEmpresaLabel(instaladorInfo.tipo, 'Instalador'), sublabel: instaladorInfo.name, phone: instaladorInfo.phone }] : []),
                     { mode: 'OTRO', label: 'Otro contacto', sublabel: manualContact.name || 'Introducir manualmente', phone: manualContact.phone || null },
                 ];
 
@@ -3485,8 +3501,8 @@ info@brokergy.es · 623 926 179`;
                 };
                 const options = [
                     { mode: 'CLIENTE', label: 'CLIENTE', sublabel: clienteInfo?.name || inputs?.referenciaCliente || null, contact: clienteInfo?.email || null, color: 'bg-primary-600/20 border-primary-500/40 hover:border-primary-500', checkColor: 'bg-primary-500' },
-                    ...(partnerInfo ? [{ mode: 'PARTNER', label: 'DISTRIBUIDOR', sublabel: partnerInfo.name, contact: partnerInfo.email, color: 'bg-blue-500/10 border-blue-500/30 hover:border-blue-500', checkColor: 'bg-blue-500' }] : []),
-                    ...(instaladorInfo ? [{ mode: 'INSTALADOR', label: 'INSTALADOR', sublabel: instaladorInfo.name, contact: instaladorInfo.email, color: 'bg-amber-500/10 border-amber-500/30 hover:border-amber-500', checkColor: 'bg-amber-500' }] : []),
+                    ...(partnerInfo ? [{ mode: 'PARTNER', label: tipoEmpresaLabel(partnerInfo.tipo).toUpperCase(), sublabel: partnerInfo.name, contact: partnerInfo.email, color: 'bg-blue-500/10 border-blue-500/30 hover:border-blue-500', checkColor: 'bg-blue-500' }] : []),
+                    ...(instaladorInfo && !mismoPartnerEInstalador ? [{ mode: 'INSTALADOR', label: tipoEmpresaLabel(instaladorInfo.tipo, 'Instalador').toUpperCase(), sublabel: instaladorInfo.name, contact: instaladorInfo.email, color: 'bg-amber-500/10 border-amber-500/30 hover:border-amber-500', checkColor: 'bg-amber-500' }] : []),
                     { mode: 'OTRO', label: 'OTRO CONTACTO', sublabel: manualContact.name || 'Introducir manualmente', contact: manualContact.email || null, color: 'bg-slate-700/30 border-white/10 hover:border-white/30', checkColor: 'bg-slate-400' }
                 ];
 

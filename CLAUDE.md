@@ -888,6 +888,13 @@ Nunca volver a poner un `FOLDER_MAP` suelto en una ruta.
   (quitarlo o borrar el lote) vuelve a la carpeta de su estado.
 - El sincronizador se llama en `setImmediate` y **nunca** bloquea la respuesta; `moveFolder` no
   escribe si la carpeta ya está en el destino (idempotente).
+- **Al mover también se endereza el NOMBRE** (`asegurarNombreCarpeta`, 2026-09-13): un expediente
+  migrado (o uno al que se le cambió el cliente después) puede arrastrar un nombre de carpeta que
+  no dice de quién es — medido en 25RES060_79, que seguía llamándose "... C. CHILE N. 1 (DIMAS)
+  PEDRO MUÑOZ" en vez del nombre de su cliente. En cada `syncExpedienteFolder` se recalcula
+  `{nº expediente} - {CLIENTE}` desde `clientes` (mismo patrón que `createExpediente` /
+  `migrateExpedienteProgram`) y solo se renombra si difiere. Sin `cliente_id` vinculado no se toca
+  nada — nunca se inventa un nombre.
 - Recolocación masiva: `node scripts/recolocar_carpetas_drive.js` (dry-run) / `--execute`.
 
 ---
@@ -5284,6 +5291,29 @@ error, porque es lo último que se mira antes de pulsar.
   cuyo teléfono coincidiera con el del destinatario por defecto, y el del contacto y el de
   la empresa son el MISMO en la mayoría de fichas.
 
+### Y se le llama por lo que ES (2026-09-13)
+
+El popup de **Enviar propuesta** rotulaba al partner con la palabra "Distribuidor"
+**escrita a mano**, en sus tres listas (el popup unificado, el de WhatsApp y el de
+email). Medido el 13/09/2026: de las 202 oportunidades con prescriptor, **179 son de un
+INSTALADOR** y solo 20 de un distribuidor — el rótulo estaba mal el 89 % de las veces.
+Visto en 26RES060_OP191: FONCAMAN CRIPTANA, SL figura en su ficha como INSTALADOR y la
+chapa decía DISTRIBUIDOR.
+
+El dato ya estaba cargado (`partnerInfo.tipo`, de `prescriptores.tipo_empresa`) y ya lo
+miraba el **co-branding** de la propia propuesta, con esta misma razón escrita al lado:
+*"llamar instalador a quien no lo es queda mal delante del cliente"*. Lo que faltaba era
+aplicarlo a los rótulos. Fuente única:
+[utils/tiposEmpresa.js](implementation/frontend/src/utils/tiposEmpresa.js) —
+`tipoEmpresaLabel(tipo)`, que ante un tipo que no consta dice **"Partner"** en vez de
+afirmar uno sin comprobar.
+
+**REGLA — el instalador asociado solo es OTRA fila si es OTRA empresa.** En **32
+oportunidades** `prescriptor_id` e `instalador_asociado_id` son el MISMO id, y la lista
+pintaba dos tarjetas con el mismo nombre, el mismo teléfono y el mismo email: marcar las
+dos le mandaba la propuesta por duplicado a la misma persona
+(`mismoPartnerEInstalador`).
+
 ### El formulario: una sola pregunta y CERO interruptores
 
 Eran dos toggles anidados ("desviar a otros contactos" + "enviar notificaciones a estos
@@ -5442,6 +5472,233 @@ multiplicarlo.
 
 ---
 
+## El COSTE DEL INFORME DE VERIFICACIÓN, ya en la simulación (2026-09-11)
+
+Campo nuevo en **Datos Económicos → Configuración y margen Brokergy** (ADMIN, como todo
+ese bloque): el importe en € del informe de verificación de ese expediente. De él salen
+tres cifras que antes solo existían cuando el lote ya estaba montado y la factura del
+verificador subida — es decir, meses después de haber pactado el precio.
+
+| Qué | Cómo |
+|---|---|
+| Verificación repercutida | `coste ÷ MWh de la actuación` |
+| Le cuesta al S.O. | `precio CAE S.O. + repercutida` (€/MWh) |
+| Máximo que se le puede pedir | `EQUIVALENCIA_FINANCIERA − repercutida` |
+
+**REGLA — el coste de la verificación NO es nuestro y NO toca el margen.** Lo paga el
+SUJETO OBLIGADO (decisión 2026-08-04, la misma que aplica `lotes/logic/loteEco.js`): el
+beneficio de Brokergy sigue siendo `precio S.O. − precio cliente`, ni un euro menos. Si
+se restara aquí, el mismo expediente daría un beneficio en la oportunidad y otro distinto
+en su lote.
+
+**REGLA — la EQUIVALENCIA FINANCIERA es una sola.** 198,62 €/MWh (2026) vive ahora en
+[calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js) y
+`loteEco.js` la **reexporta**: la necesitan los dos extremos del negocio —la simulación,
+para saber hasta dónde se puede pedir; el lote, para saber cuánto se le ahorró de verdad—
+y dos copias divergirían el año que el Ministerio la cambie. **Revisar en 2027.**
+
+**Por qué importa el €/MWh y no el importe**: el mismo informe de 1.500 € pesa 13,64
+€/MWh sobre una actuación de 110 MWh y **150 €/MWh** sobre una de 10 — ahí el expediente
+deja de tener sentido para el S.O., que pagaría más que al FNEE. Por eso, cuando el
+desembolso del S.O. supera la equivalencia, la cifra sale en **rojo** y se dice con todas
+las letras que a ese precio no lo compraría.
+
+**REGLA — esto es para CASOS PUNTUALES: por defecto no se ve ni cambia nada.** El campo
+nace **plegado** detrás de un "+ Coste de verificación" y las tres líneas solo aparecen
+con un importe tecleado, así que la pantalla de siempre —y el recuadro de beneficio— se
+ven exactamente igual que antes. Si la oportunidad ya trae un importe guardado, se abre
+sola: un dato guardado no puede quedar escondido detrás de un clic que nadie sabe que hay
+que dar. "Quitar" borra el importe además de plegarlo, o quedaría un valor contando sin
+estar a la vista.
+
+⚠️ **`calculateFinancials` tiene 15 consumidores** (expedientes, lotes, cuadro de mando,
+landing, comparativas y el gemelo de Node) y **ninguno pasa `costeVerificacion`**: todos
+reciben 0 y su resultado es idéntico al de antes. El test lo comprueba campo a campo
+—los 28 que la función ya devolvía— sobre 13 escenarios × 2 importes, y que omitir el
+parámetro devuelva el MISMO objeto que pasar 0.
+
+El valor viaja en `inputs.costeVerificacion` y se guarda con la oportunidad. **No pisa
+`lotes.coste_verificacion`**, que es el REAL y sale de la factura (regla 28): éste es una
+estimación para negociar.
+
+```bash
+node implementation/backend/scripts/test_coste_verificacion.mjs
+```
+
+---
+
+## El mismo vecino volviendo al funnel NO estrena oportunidad (2026-09-11)
+
+Medido el 11/09/2026: **26RES060_OP113 y 26RES060_OP179**, misma referencia
+catastral (`0032105VJ7103S0001RA`), mismo móvil, dos oportunidades y **dos
+clientes**. Manuela rellenó el formulario público en junio y otra vez en
+septiembre, y la segunda vez nació de cero. De 310 oportunidades era el único
+duplicado real —la otra RC repetida es la migración de AppSheet, que es
+esperada—, pero el agujero estaba abierto para cualquiera.
+
+**El duplicado no nacía en la comprobación de la oportunidad: nacía en el
+CLIENTE.** `upsertClienteFromLanding` solo reconoce a alguien por **email o
+DNI**, y **85 de los 376 clientes no tienen ninguno de los dos** — solo
+teléfono. Así que el mismo vecino estrenaba ficha, y la idempotencia de abajo,
+que exigía `ref_catastral` **Y `cliente_id`**, ya no podía casar nada. Por eso la
+comprobación se ha subido ANTES del upsert (`buscarLeadPrevio` en
+[leadService.js](implementation/backend/services/leadService.js)): si hay lead
+previo se reutiliza SU cliente y solo se le **rellenan los huecos** (el apellido
+que ahora sí ha dado), nunca se pisa lo escrito.
+
+**REGLA — el TELÉFONO solo desempata DENTRO de la misma vivienda, jamás a
+secas.** Es el arreglo que pide el cuerpo y sería el peor: medido sobre los 376
+clientes, el móvil `695615330` figura en **cinco** fichas de personas distintas
+(JUAN, EVA MAYRA VERDEJO, jesús, DAVID PEDRAZA, RAFAEL) y el `610171667` en
+cuatro — son teléfonos de instalador o de comercial metidos como contacto del
+cliente. Deduplicar la base de clientes por teléfono **fusionaría expedientes de
+gente distinta**, que es mucho peor que el duplicado que esto evita. Pero el
+mismo número sobre la MISMA referencia catastral ya no es coincidencia: es la
+misma gestión. Y se compara por los **nueve últimos dígitos** (`tlf9`), porque la
+misma persona llega unas veces como `+34672358309` y otras como `672358309` —
+306 clientes guardados sin prefijo y 9 con él.
+
+**REGLA — solo se reutiliza un LEAD.** Una oportunidad ENVIADA o ACEPTADA tiene
+propuesta enviada, carpeta de Drive movida y puede tener expediente detrás:
+machacarla con lo que teclee alguien en el formulario público sería mucho peor
+que tener dos filas. El buscador mira además **los diez últimos** registros de
+esa RC y no solo el más reciente — era un `.limit(1)` + `find(LEAD)`, así que un
+LEAD detrás de una ENVIADA no se veía siquiera.
+
+**REGLA — al visitante se le AVISA, nunca se le bloquea.** `GET
+/api/landing/check-rc/:rc` ya enseña "ya hicimos una simulación para esta
+vivienda" al resolver el inmueble (con botón **Abrir oportunidad** cuando quien
+mira es staff). A un cliente no se le puede cerrar la puerta, y hay segundas
+altas legítimas: otro escenario, la anterior rechazada, una compraventa con
+cambio de titular, o dos vecinos distintos de la misma finca.
+
+**REGLA — pero un alta sobre una vivienda que YA tiene oportunidad se ANOTA.** Si
+no se reutiliza nada, el historial de la nueva recibe una entrada del Sistema con
+**cuáles son las otras, su estado y su fecha**. Sin eso, quien la abra dentro de
+tres meses no tiene forma de saber que existe la otra — que es exactamente lo que
+pasó aquí: la OP179 se trabajó cuatro meses sin que nadie supiera de la OP113.
+
+**En modo interno ("Nueva simulación") NO hay upsert**, a propósito: el
+partner/admin puede querer rehacer cálculos. Ahí la red es el aviso del funnel y
+esta nota en el historial.
+
+```bash
+node implementation/backend/scripts/test_lead_duplicado.js          # los puros, sin BD
+node implementation/backend/scripts/probar_lead_previo.js [RC]      # contra datos reales, solo lee
+```
+
+---
+
+## El `.cex` de la envolvente: dónde acaba y con qué transmitancias (2026-09-13)
+
+De la referencia catastral sale la envolvente medida; lo que el `.cex` necesita
+ALREDEDOR —titular, zona climática, transmitancias— no está en Catastro y hasta
+ahora no lo componía nadie: el botón de generar leía `expediente.ce3x_datos`,
+**que no existe en ninguna tabla**, y el motor moría con un `500 'termicas'`.
+
+| Qué | Dónde |
+|---|---|
+| La ficha del certificador (fuente única, la comparten vista y backend) | [logic/fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js) |
+| Cargar el expediente, componer y guardar | [ceeEnvolventeCex.js](implementation/backend/services/ceeEnvolventeCex.js) |
+| Rutas | `POST /api/cee-envolvente/:id/ficha` (lo que se va a escribir, sin escribir) · `POST .../cex` |
+| Prueba de punta a punta con un expediente real | `node implementation/backend/scripts/probar_cex_envolvente.js 26RES060_186 [--escribir]` |
+
+**REGLA — las transmitancias son las MISMAS que estudiaron la oportunidad.**
+Salen de `getUByYear(anio, zona)` de
+[calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js),
+que YA implementa la *Guía de Transmitancias CE3X de BROKERGY* valor a valor
+(2,20/2,50/1,25 antes de 1960 · 1,90/2,10/1,10 hasta 1978 · 1,80/1,90/1,05 hasta
+1990 · 1,69/1,69/1,00 hasta 2007 · U_max del CTE 2006 por zona hasta 2013 ·
+0,35/0,25/0,35 desde 2014). **No se copia ni una U: se importa.** Un `.cex` con
+transmitancias distintas de las que se usaron para prometerle el ahorro al
+cliente es un certificado que contradice su propia propuesta.
+
+Lo único que la guía tiene y la calculadora no es la **partición interior**
+(2,56 · 2,20 · 2,10 · 2,00 · 1,80 · 1,60), que no entra en la demanda simulada.
+Y las **masas superficiales** (fachada 200 · cubierta 100 · suelo 750 ·
+partición horizontal 500 · vertical 60) no están en la guía: son las del `.cex`
+real de 26RES060_186.
+
+**Verificado contra ese mismo expediente**: la ficha derivada reproduce
+**19 de 19** campos del `.cex` que el certificador escribió a mano —normativa
+NBE-CT-79, zona D3, 165 m², 1 planta, ventilación 0,83, año 1994 y las seis
+transmitancias con sus masas—. La ventilación sale también de la app
+(`getVentanaYACHByYear`), no de una tabla nueva.
+
+**REGLA — el `.cex` se GUARDA SIEMPRE en la carpeta del expediente**, `1. CEE /
+CEE INICIAL`, que es la que ya se comparte con el certificador al encargarle el
+CEE (la resuelve `ceeUploadService.ensureCeeSectionFolder`, no se escribe
+ninguna ruta a mano). No se descarga y ya está: un fichero en la carpeta de
+descargas de quien pulsó el botón no está en el expediente — no lo ve el
+técnico, no lo ve quien revisa, y a la semana nadie sabe si llegó a generarse.
+Si Drive falla, la respuesta es un **502 que lo dice**, nunca un "generado".
+
+**REGLA — el nombre lleva `_REVISAR` y eso es funcional, no decorativo.**
+`{nº} - CEE INICIAL_REVISAR.cex` lo ha escrito una máquina: hay que abrirlo en
+CE3X y comprobarlo antes de que valga como certificado. Y sobre todo, vive en la
+MISMA carpeta y con la MISMA extensión que el `.cex` que entrega el técnico, que
+`matchSlot` reconoce **solo por la extensión**: sin la salida de
+`_revisar.cex → null` en [ceeUploadService](implementation/backend/services/ceeUploadService.js),
+generarlo dejaría la rejilla del CEE y el popup público del certificador diciendo
+que el certificado ya está presentado. El paquete del verificador no se ve
+afectado: pide `xml`/`pdf`/`registro`/`etiqueta`, nunca un `.cex`.
+
+**REGLA — la ficha se compone en el BACKEND, no llega del navegador.** Los datos
+son del expediente y las U de la función que estudió la oportunidad. Si los
+mandara el cliente, cualquiera con la sesión abierta podría escribir un
+certificado con las transmitancias que quisiera. El navegador solo manda lo que
+se señala en el plano: los huecos, la entrada y qué medianeras dan a un espacio
+no habitable (`loSenalado()`).
+
+**REGLA — lo que no se puede derivar sale DECLARADO, no inventado.** La demanda
+de ACS (140 l/día), la masa de particiones ('Pesada') y el tipo de edificio son
+decisiones del certificador: van con su valor por defecto —el de los expedientes
+ya emitidos— y **dicen que lo son**. La **zona HE4** (la de radiación, para ACS)
+solo se afirma donde está comprobada contra `.cex` reales (Ciudad Real y Toledo →
+V); en el resto se dice que falta en vez de escribir una plausible. Cada valor
+de la ficha lleva su `de:`, y el popup "Lo que se va a escribir en el .cex" los
+enseña antes de generar.
+
+**REGLA — la foto de fachada y el croquis van DENTRO del `.cex`, y salen del
+Catastro.** Son las MISMAS que la app ya rescata para la ficha catastral
+(`catastroService.getFacadeImage` / `getParcelImage`): aquí no hay un cliente
+nuevo contra Catastro, se reutiliza el que ya respeta el WAF. Van **en serie y
+con pausa**, no se piden si el monitor está en modo bloqueado, y se cachean por
+RC mientras viva el proceso — regenerar tres veces no puede costar nueve
+peticiones. Solo se bajan **al GENERAR**: la previsualización de la ficha se
+abre muchas veces. Que falte una no impide generar (muchos inmuebles no tienen
+foto registrada): se dice en los avisos y se puede poner en CE3X. Medido en
+26RES060_186: el `.cex` pasa de 13 KB a 86,7 KB y las dos entran como PNG de
+179×134, que es lo que guarda CE3X.
+
+⚠️ **La foto de fachada del Catastro llega MAL TERMINADA** (medido en esa RC:
+330.687 bytes que acaban en `ff00`, con el fin de JPEG en el byte 62.354 —
+idéntico byte a byte descargándolo con `curl`, así que no lo corrompe la app).
+El motor ya lo contempla y usa lo que puede leer, pero su aviso lo daba por un
+fichero de disco: `p.name` con bytes en base64 reventaba con un
+`UnboundLocalError` **justo en el caso para el que ese aviso existe**. Arreglado
+en `tools/generar_cex.py` de los DOS repos a la vez (app y `C:\Proyectos\CEE`),
+que se mantienen idénticos.
+
+⚠️ **`AVISOS_IMAGEN` es una lista GLOBAL del módulo** y el CLI la usa una vez por
+proceso; el servicio vive semanas. Sin vaciarla en cada petición, el `.cex` de un
+expediente salía con los avisos de todos los anteriores — con fotos de otros
+clientes nombradas dentro. La limpia `server.py` al entrar en `/cex`.
+
+**La altura de planta es la que se usó para MEDIR** (`parametros.floor_height_m`),
+no una decisión aparte: si la ficha declarara 2,8 y las fachadas se hubieran
+medido con 2,7, las superficies del `.cex` no cuadrarían con su propia altura.
+Para cambiarla hay que volver a traer la envolvente.
+
+⚠️ Las cadenas de los desplegables de CE3X son EXACTAS y están medidas sobre el
+corpus de 1.188 `.cex`: normativa `Anterior` · `NBE-CT-79` · `C.T.E.` ·
+`CTE 2013` (no hay opción para el CTE 2019: un edificio de 2020 se escribe como
+CTE 2013 aunque su U sea la de nZEB), municipio `Otro` + el nombre en texto, y
+la provincia capitalizada ("Ciudad Real", no "CIUDAD REAL") o CE3X la deja
+vacía.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -5550,6 +5807,12 @@ multiplicarlo.
 43. **La cartera de INSTALADORES se etiqueta sola en WhatsApp**: al dar de alta o editar un instalador (y en el repaso completo desde el panel de WhatsApp) su chat queda con la etiqueta `INSTALADORES` y, si el número no lo tenías guardado, con su nombre de la BBDD en la agenda. **Un nombre ya guardado NO se toca nunca** —lo puso una persona, a veces con el apodo por el que conoce al instalador— y la lista de etiquetas se manda COMPLETA (`poner()` sustituye, así que va lo que ya tenía MÁS la nuestra). Se etiquetan TODOS los teléfonos que constan (empresa, responsable y contactos de notificación: en 20 de 71 fichas el chat que se usa es el del jefe de obra), deduplicados por los 9 dígitos finales. Fuente única: [whatsappInstaladoresSync.js](implementation/backend/services/whatsappInstaladoresSync.js) + [whatsappContactos.js](implementation/backend/services/whatsappContactos.js). ⚠️ `poner()` fallaba con un chat nunca escrito (`findOrCreateLatestChat` lo devuelve pero `C.Chat.get(@c.us)` sigue vacío porque vive bajo su `@lid`): ahora se crea y se etiqueta en la misma `evaluate`. ⚠️ Un `node scripts/…` NO ve la sesión de WhatsApp (singleton del proceso del servidor), por eso el repaso entra por la ruta con `x-internal-key`. Apagado por defecto (`WA_SYNC_INSTALADORES`) y `dryRun` por defecto en la ruta. Ver "La cartera de instaladores, etiquetada sola en WhatsApp".
 
 45. **Una RC de 14 con división horizontal es un EDIFICIO, y se puede simular entero**: el Catastro devuelve `lrcdnp` y ningún `bico`, y leerlo a pelo era lo que hacía morir la búsqueda de un bloque (`resumirParcela` en `catastroService.js`; `/search` responde **`RC_PARCELA`**). No hace falta ficha nueva: la RES060 es "la caldera de combustión en un EDIFICIO […] para calefacción **y/o** ACS". El alcance selectivo se resuelve con `changeHeating` en `calculateSavings`, con el MISMO mecanismo que el ACS ya tenía —el servicio que queda fuera se calcula con el rendimiento de la caldera y se cancela—, y por defecto (`true`) una vivienda da el número de siempre. **La D_ACS de un edificio sale del `.xml`** (el PDF no la imprime, así que el OCR no puede): nunca del CTE, que es por dormitorios de una vivienda. La deducción del IRPF es la del edificio (**60 %**) repartida entre las viviendas, y **se dice de qué depende** (≥30 % de reducción de EPnr o letra A/B). El bloque es del flujo **interno**; en la landing solo se elige vivienda. Fuente única del concepto: [logic/tipoInmueble.js](implementation/frontend/src/features/calculator/logic/tipoInmueble.js). Tras tocarlo: `node implementation/backend/scripts/test_bloque_viviendas.mjs`. Ver "BLOQUES de viviendas".
+
+46. **El coste del INFORME DE VERIFICACIÓN se teclea ya en la simulación** (ADMIN, en el bloque de margen) y se repercute en €/MWh sobre el ahorro de la actuación: de ahí salen lo que le cuesta al S.O. cada MWh (`precio + repercutida`) y el **techo** de lo que se le puede pedir (`EQUIVALENCIA_FINANCIERA − repercutida`). **No toca el margen de Brokergy**: lo paga el S.O. (decisión 2026-08-04, la misma de `loteEco.js`), y restarlo aquí haría que la oportunidad y su lote dieran beneficios distintos. La **equivalencia financiera** (198,62 €/MWh, revisar en 2027) pasa a vivir en `calculation.js` y `loteEco` la reexporta: la necesitan los dos extremos del negocio. El mismo informe pesa 13,64 €/MWh sobre 110 MWh y 150 sobre 10, así que cuando el desembolso del S.O. supera la equivalencia se avisa en rojo. Tras tocarlo: `node implementation/backend/scripts/test_coste_verificacion.mjs`. Ver "El COSTE DEL INFORME DE VERIFICACIÓN".
+
+47. **El mismo vecino volviendo al funnel NO estrena oportunidad**: el duplicado no nacía en la comprobación de la oportunidad sino en el CLIENTE — `upsertClienteFromLanding` solo reconoce por email o DNI y **85 de 376 clientes no tienen ninguno de los dos**, así que estrenaba ficha y la idempotencia (que exigía `ref_catastral` **Y** `cliente_id`) ya no podía casar nada. La comprobación sube ANTES del upsert (`buscarLeadPrevio` en [leadService.js](implementation/backend/services/leadService.js)), reutiliza SU cliente y solo le rellena huecos. **El TELÉFONO desempata solo DENTRO de la misma vivienda, jamás a secas**: el móvil 695615330 figura en CINCO fichas de personas distintas (son móviles de instalador/comercial) y deduplicar clientes por teléfono fusionaría expedientes de gente distinta; se compara por los 9 últimos dígitos, porque la misma persona llega con y sin `+34`. **Solo se reutiliza un LEAD** — una ENVIADA tiene propuesta, carpeta movida y quizá expediente. **Al visitante se le avisa, no se le bloquea** (`check-rc`, que ya existía): hay segundas altas legítimas. **Pero un alta sobre una vivienda que ya tiene oportunidad se ANOTA en el historial** con cuáles son y en qué estado, o nadie se entera — la OP179 se trabajó cuatro meses sin saber de la OP113. En modo interno NO hay upsert, a propósito. Tras tocarlo: `node implementation/backend/scripts/test_lead_duplicado.js`. Ver "El mismo vecino volviendo al funnel".
+
+48. **El `.cex` de la envolvente se guarda SIEMPRE en `1. CEE / CEE INICIAL` como `{nº} - CEE INICIAL_REVISAR.cex`, y sus transmitancias son las de la oportunidad**: salen de `getUByYear` ([calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js)), que ya implementa la Guía de Transmitancias de BROKERGY valor a valor — no se copia ninguna U. La ficha la compone el BACKEND desde el expediente ([fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js) + [ceeEnvolventeCex.js](implementation/backend/services/ceeEnvolventeCex.js)), nunca el navegador. El `_REVISAR` del nombre es funcional: `matchSlot` reconoce el `.cex` del técnico **solo por la extensión**, así que sin la salida `_revisar.cex → null` la rejilla daría el certificado por presentado. La **foto de fachada y el croquis de parcela** van dentro, bajados del Catastro con las funciones que la app ya tiene (en serie, con pausa, mirando el monitor del WAF y cacheados por RC) — y solo al generar, no al previsualizar. Lo que no se puede derivar (demanda ACS, masa de particiones, zona HE4 fuera de las comprobadas) sale declarado con su `de:`, nunca inventado. Verificado contra el `.cex` que un certificador hizo a mano para 26RES060_186: **19 de 19 campos coinciden**. Tras tocarlo: `node implementation/backend/scripts/probar_cex_envolvente.js 26RES060_186`. Ver "El `.cex` de la envolvente".
 
 38. **Con la BD caída, la app CALLA; nunca contesta una cifra tranquila**: un error de lectura no puede salir por 200. [middleware/auth.js](implementation/backend/middleware/auth.js) seguía adelante con el perfil a null —sin rol, sin empresa— y lo **cacheaba 5 minutos**, así que el partner salía como "USUARIO / LOGO PARTNER", con el menú recortado y, como `GET /oportunidades` acaba filtrando por `creador_id = null`, la cartera a CERO; y esa misma ruta convertía además cualquier fallo de Supabase en `200 []`. Un distribuidor con 19 oportunidades vio "0 oportunidades · 0,00 €" con toda la apariencia de dato bueno —que se lee como trabajo borrado— y recargar no lo arreglaba, porque el fantasma vivía en la caché. Medido el 08/09/2026: Postgres se cayó y arrancó en recuperación (`database system was not properly shut down`) y Cloudflare sirvió **521 Web server is down** delante de Supabase durante ~1 min. Ahora las dos rutas responden **503** (`PROFILE_UNAVAILABLE` / `OPORTUNIDADES_UNAVAILABLE`) y no se cachea nada; el frontend enseña `ProfileUnavailable` (reintentar, y "tus datos siguen ahí") en vez de un dashboard con identidad falsa, la lista conserva lo que ya tuviera, y **el resumen financiero no se pinta si no hay datos** — 0,00 € es justo la cifra que asusta. A quien YA tiene perfil bueno en caché no se le echa por un parpadeo. Vigilado por `node implementation/backend/scripts/test_caida_bd_no_miente.js`.
 
