@@ -15,6 +15,7 @@ import { parseEmisionesTotalesFromXml } from '../../calculator/logic/xmlCeeParse
 import { buildCe3xFinal, CE3X_FALTA } from '../logic/ce3xFinal';
 import { getUnidades } from '../logic/aerotermiaUnits';
 import { hayCee, patchVaciarCee, textoVaciarCee } from '../logic/ceeFases';
+import { resolveDacs, ACS_METHOD } from '../logic/demandaAcs';
 import { SolicitarFaltantesModal } from './SolicitarFaltantesModal';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
 import { WhatsappConnectModal } from '../../whatsapp/components/WhatsappConnectModal';
@@ -254,6 +255,7 @@ export function CeeDocumentsGrid({
     acsMethod,
     numRooms,
     dacsManual, // D_ACS en kWh/año introducida a mano (modo 'manual', ficha TER100)
+    dacsLitrosDia, // Litros/día a 60 °C que declara el certificado (modo 'litros')
     onManualUpdate,
     onAutoStatus,
     onForceNotify,
@@ -1221,10 +1223,15 @@ Según el documento:
         );
     };
 
-    // Cálculo de ACS HAB
-    const calcAcsHab = (rooms) => {
-        const numPeople = (parseInt(rooms) || 4) + 1;
-        return (28 * numPeople * 0.001162 * 365 * 46).toFixed(2);
+    // Lo tecleado aquí es lo VIVO del módulo, no lo que tenga guardado el
+    // expediente (entre el cambio y el refetch van un par de segundos). Se le da
+    // a `resolveDacs` con la forma de un `cee` para que la cifra de la pantalla
+    // salga de la MISMA función que la del CIFO y la de la ficha.
+    const ceeAcsVivo = {
+        acs_method: acsMethod,
+        num_rooms: numRooms,
+        dacs_manual: dacsManual,
+        dacs_litros_dia: dacsLitrosDia,
     };
 
     // El modo MANUAL de D_ACS solo se ofrece en el TERCIARIO (TER100 · TER173): en un
@@ -1332,11 +1339,15 @@ Según el documento:
                     };
 
                     const sectionDemand = demands?.[section] || {};
-                    const isHab = acsMethod === 'cte';
-                    const isDacsManual = acsMethod === 'manual';
-                    const acsValue = isHab ? calcAcsHab(numRooms)
-                        : isDacsManual ? (parseFloat(dacsManual) || 0).toFixed(2)
-                        : (parseFloat(sectionDemand.demandaACS) || 0).toFixed(2);
+                    const isHab = acsMethod === ACS_METHOD.CTE;
+                    const isDacsManual = acsMethod === ACS_METHOD.MANUAL;
+                    const isLitros = acsMethod === ACS_METHOD.LITROS;
+                    // En modo XML la casilla enseña la demanda POR M² de ESTA fase
+                    // (es el dato del certificado de esta fase, que es lo que se
+                    // contrasta ahí); en los demás, la D_ACS anual ya resuelta.
+                    const acsValue = acsMethod === ACS_METHOD.XML || !acsMethod
+                        ? (parseFloat(sectionDemand.demandaACS) || 0).toFixed(2)
+                        : resolveDacs(ceeAcsVivo, sectionDemand).value.toFixed(2);
 
                     return (
                         // Las cinco columnas miden 250+150+225+320+340 px y el panel recorta:
@@ -1542,24 +1553,31 @@ Según el documento:
                                 <div className="flex items-center gap-2.5 max-md:justify-between">
                                     {/* Toggles */}
                                     <div className="flex flex-col gap-1.5">
-                                        <div className="flex p-0.5 bg-black/40 rounded-lg border border-white/5 max-md:w-full">
+                                        <div className="flex flex-wrap justify-center p-0.5 bg-black/40 rounded-lg border border-white/5 max-md:w-full">
                                             <button 
-                                                onClick={() => onManualUpdate({ acs_method: 'xml' })}
-                                                className={`px-3 py-1 max-md:flex-1 max-md:flex max-md:items-center max-md:justify-center max-md:min-h-[44px] max-md:text-[10px] rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${acsMethod === 'xml' ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
+                                                onClick={() => onManualUpdate({ acs_method: ACS_METHOD.XML })}
+                                                className={`px-2.5 py-1 max-md:flex-1 max-md:flex max-md:items-center max-md:justify-center max-md:min-h-[44px] max-md:text-[10px] rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${acsMethod === ACS_METHOD.XML || !acsMethod ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
                                             >
                                                 XML
                                             </button>
                                             <button
-                                                onClick={() => onManualUpdate({ acs_method: 'cte' })}
-                                                className={`px-3 py-1 max-md:flex-1 max-md:flex max-md:items-center max-md:justify-center max-md:min-h-[44px] max-md:text-[10px] rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${acsMethod === 'cte' ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
+                                                onClick={() => onManualUpdate({ acs_method: ACS_METHOD.CTE })}
+                                                className={`px-2.5 py-1 max-md:flex-1 max-md:flex max-md:items-center max-md:justify-center max-md:min-h-[44px] max-md:text-[10px] rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${isHab ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
                                             >
                                                 HAB
                                             </button>
+                                            <button
+                                                onClick={() => onManualUpdate({ acs_method: ACS_METHOD.LITROS })}
+                                                title="Litros/día a 60 °C que declara el propio certificado, en su apartado de instalaciones de ACS. Es un dato del CEE, no una estimación por dormitorios: cuando el certificado lo trae, es el bueno."
+                                                className={`px-2.5 py-1 max-md:flex-1 max-md:flex max-md:items-center max-md:justify-center max-md:min-h-[44px] max-md:text-[10px] rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${isLitros ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
+                                            >
+                                                L/D
+                                            </button>
                                             {permiteDacsManual && (
                                                 <button
-                                                    onClick={() => onManualUpdate({ acs_method: 'manual' })}
+                                                    onClick={() => onManualUpdate({ acs_method: ACS_METHOD.MANUAL })}
                                                     title="Demanda anual de ACS en kWh/año, según el proyecto o el anexo de la ficha. En el terciario la demanda va por plaza o servicio, no por dormitorios."
-                                                    className={`px-3 py-1 max-md:flex-1 max-md:flex max-md:items-center max-md:justify-center max-md:min-h-[44px] max-md:text-[10px] rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${isDacsManual ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
+                                                    className={`px-2.5 py-1 max-md:flex-1 max-md:flex max-md:items-center max-md:justify-center max-md:min-h-[44px] max-md:text-[10px] rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${isDacsManual ? 'bg-brand text-black' : 'text-white/30 hover:text-white'}`}
                                                 >
                                                     MAN
                                                 </button>
@@ -1573,6 +1591,20 @@ Según el documento:
                                                     value={numRooms}
                                                     onChange={e => onManualUpdate({ num_rooms: parseInt(e.target.value) || 0 })}
                                                     className="w-8 max-md:w-12 bg-transparent text-[10px] text-brand font-mono font-bold focus:outline-none border-0 p-0 text-center"
+                                                />
+                                            </div>
+                                        )}
+                                        {isLitros && (
+                                            <div className="flex items-center gap-1.5 bg-black/40 px-2 py-1 rounded-lg border border-white/5">
+                                                <span className="text-[8px] font-black text-white/20 uppercase tracking-widest">L/día:</span>
+                                                <input
+                                                    type="number"
+                                                    step="any"
+                                                    value={dacsLitrosDia ?? ''}
+                                                    placeholder="0"
+                                                    title="Demanda diaria de ACS a 60 °C, tal y como la declara el certificado"
+                                                    onChange={e => onManualUpdate({ dacs_litros_dia: e.target.value })}
+                                                    className="w-12 max-md:w-20 bg-transparent text-[10px] text-brand font-mono font-bold focus:outline-none border-0 p-0 text-center"
                                                 />
                                             </div>
                                         )}
@@ -1593,11 +1625,13 @@ Según el documento:
                                     {/* Valor */}
                                     <div className="flex flex-col items-start gap-0.5">
                                         <div className="bg-white/[0.03] border border-white/5 px-4 py-2.5 rounded-2xl shadow-inner min-w-[92px] text-center">
-                                            <span className={`text-sm font-mono font-bold ${isHab || isDacsManual ? 'text-brand shadow-[0_0_15px_rgba(238,143,31,0.2)]' : 'text-white/80'}`}>
+                                            <span className={`text-sm font-mono font-bold ${isHab || isDacsManual || isLitros ? 'text-brand shadow-[0_0_15px_rgba(238,143,31,0.2)]' : 'text-white/80'}`}>
                                                 {acsValue}
                                             </span>
                                         </div>
-                                        <span className="text-[7px] max-md:text-[10px] max-md:text-white/25 text-white/10 font-bold uppercase tracking-widest self-center">kWh/año</span>
+                                        <span className="text-[7px] max-md:text-[10px] max-md:text-white/25 text-white/10 font-bold uppercase tracking-widest self-center">
+                                            {isHab || isDacsManual || isLitros ? 'kWh/año' : 'kWh/m²·año'}
+                                        </span>
                                     </div>
                                 </div>
                             </div>

@@ -22,6 +22,7 @@ import {
 } from '../../calculator/logic/calculation';
 import { computeExpedienteFinancials } from '../logic/expedienteFinancials';
 import { CCAA_MAP, pad2, getFicha, getCifoYear, getCCAA, FICHAS, fichaColor } from '../logic/expedienteTaxonomia';
+import { resolveDacs } from '../logic/demandaAcs';
 
 // ─── Dropzone de XML (migración de expedientes desde CE3X) ────────────────────
 function XmlDrop({ label, slot, error, onFile }) {
@@ -718,13 +719,11 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                 const superficie = parseFloat(ceeBase.superficieHabitable) || 0;
                 const q_net_heating = (parseFloat(ceeBase.demandaCalefaccion) || 0) * superficie;
 
-                let dacs = 0;
-                if (cee.acs_method === 'cte') {
-                    const numPeople = (parseInt(cee.num_rooms) || 4) + 1;
-                    dacs = 28 * numPeople * 0.001162 * 365 * 46;
-                } else {
-                    dacs = (parseFloat(ceeBase.demandaACS) || 0) * superficie;
-                }
+                // Fuente ÚNICA en logic/demandaAcs.js: esta copia solo entendía
+                // 'cte' y dejaba el resto de modos cayendo en el cálculo por m²,
+                // que en un TER100 (manual) o con los litros/día del certificado
+                // da una cifra distinta de la del CIFO del mismo expediente.
+                const dacs = resolveDacs(cee, ceeBase).value;
 
                 if (superficie > 0 && q_net_heating > 0) {
                     const boilerEffId = inst.caldera_antigua_cal?.rendimiento_id || 'default';

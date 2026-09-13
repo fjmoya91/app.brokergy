@@ -241,6 +241,8 @@ export function deriveCifoData({ expediente, results }) {
     const acsMode = acsResolved.mode;
     const numRooms = parseInt(cee.num_rooms) || 4;
     const numPeople = acsResolved.personas;
+    const litrosDiaAcs = acsResolved.litrosDia;
+    const litrosDiaStr = litrosDiaAcs.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const dacsValue = acsResolved.value;
     const dacsStr = dacsValue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -478,7 +480,7 @@ export function deriveCifoData({ expediente, results }) {
         // identificación / cabecera
         isHybrid, isTerciario, isTer173, cbAnexo, cbIncompleto, numexpte, zoneStr, zoneLabel,
         // variables de la fórmula
-        dcal, dcalRaw, sStr, sRaw, dacsStr, acsMode, numRooms, numPeople,
+        dcal, dcalRaw, sStr, sRaw, dacsStr, acsMode, numRooms, numPeople, litrosDiaStr,
         etaStr, scopCalStr, scopCalRaw, scopAcsStr, scopAcsRaw,
         aeKwh, aeKwhVal, beneficioStr, savingsKwhDoc, terciarioSavingsKwh,
         // localización / propietario
@@ -520,7 +522,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     const {
         inst, cli, ceeFinal,
         isHybrid, isTerciario, isTer173, cbAnexo, numexpte, zoneStr, zoneLabel,
-        dcal, sStr, dacsStr, acsMode, numRooms, numPeople,
+        dcal, sStr, dacsStr, acsMode, numRooms, numPeople, litrosDiaStr,
         etaStr, scopCalStr, scopCalRaw, scopAcsStr, scopAcsRaw,
         aeKwh, aeKwhVal,
         locCA, locFullDir, locRefCat, locUtmX, locUtmY, facturasList,
@@ -949,7 +951,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     // La justificación de D_ACS por el CTE lleva dos tablas: con ella el Anexo I no
     // cabe en la misma página que la justificación de los SCOP. El modo MANUAL es un
     // párrafo, así que no obliga a partir.
-    const acsDemandHeavy = tieneAcs && acsMode === ACS_METHOD.CTE;
+    const acsDemandHeavy = tieneAcs && (acsMode === ACS_METHOD.CTE || acsMode === ACS_METHOD.LITROS);
     const anexoIBlock = `
         ${sectionTitle(`Anexo I · Justificación de las variables — apartado 3 de la ficha ${cifoLabel}`, '20px')}
 
@@ -974,6 +976,29 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             ? `<p style="margin:0 0 6px;font-size:12.5px;color:#4a4a44;line-height:1.6;">La demanda anual de agua caliente sanitaria del edificio es de <b style="color:#1A1A1A;">${dacsStr} kWh/año</b>, determinada conforme al Anexo V de la ficha ${cifoLabel} (demanda anual de ACS) a partir del uso y de la ocupación reales del edificio recogidos en el proyecto de la instalación térmica, que se aporta como documentación justificativa del expediente CAE.</p>`
             : acsMode === ACS_METHOD.XML
             ? `<p style="margin:0 0 6px;font-size:12.5px;color:#4a4a44;line-height:1.6;">La demanda de ACS ha sido calculada según el archivo .xml del certificado de eficiencia energética cuyo valor es <b style="color:#1A1A1A;">${parseFloat(ceeFinal.demandaACS || 0).toFixed(2).replace('.', ',')} kWh/m²·año</b>, que multiplicado por la superficie habitable (<b style="color:#1A1A1A;">${parseFloat(ceeFinal.superficieHabitable || 0).toFixed(2).replace('.', ',')} m²</b>) da como resultado <b style="color:#1A1A1A;">${dacsStr} kWh/año</b>.</p>`
+            // Litros/día declarados por el propio certificado. Aquí NO interviene la
+            // ocupación: el dato ya es el consumo diario del edificio, así que la
+            // fórmula del Anejo F se aplica sin el tramo D_L/D · N_P. Se dice de
+            // dónde sale (el CEE aportado), que es lo que lo separa de una estimación.
+            : acsMode === ACS_METHOD.LITROS
+            ? `
+            <p style="margin:0 0 10px;font-size:12.5px;color:#4a4a44;line-height:1.6;">La demanda diaria de agua caliente sanitaria es de <b style="color:#1A1A1A;">${litrosDiaStr} litros/día a 60 °C</b>, valor que consta en el <b style="color:#1A1A1A;">Certificado de Eficiencia Energética</b> aportado a este expediente CAE (apartado <i>«Instalaciones de Agua Caliente Sanitaria»</i>), elaborado y firmado por técnico competente de acuerdo con lo dispuesto en el RD 390/2021, de 1 de junio. A partir de ella, la demanda anual se obtiene según el Anejo F del documento de Ahorro de Energía HE, del Código Técnico de la Edificación (año 2022):</p>
+            <div style="text-align:center;margin:10px 0;font-weight:800;font-size:15px;background:#FBF6EE;border-radius:10px;padding:8px;">D<sub>ACS</sub> = D<sub>L/D</sub> · C<sub>e</sub> · 365 · ΔT</div>
+            ${rowsBox(`
+                ${kv('D<sub>ACS</sub>', 'Demanda de energía anual para ACS (kWh/año)')}
+                ${kv('D<sub>L/D</sub>', 'Demanda diaria de ACS a 60 °C (litros/día), según el certificado de eficiencia energética del edificio')}
+                ${kv('C<sub>e</sub>', 'Calor específico (agua) = 0,001162 kWh/kg·°C')}
+                ${kv('ΔT', 'Salto térmico con instalaciones a 60°C de acumulación = 60°C − 14°C = 46°C', true)}
+            `)}
+            <div style="margin-top:12px;">
+                ${rowsBox(`
+                    ${kv('Litros/día a 60 °C', litrosDiaStr)}
+                    ${kv('C<sub>e</sub> · 365 · ΔT', '0,001162 · 365 · 46')}
+                    ${kv('D<sub>ACS</sub> (resultado)', `<b style="color:#4d6a12;">${dacsStr} kWh/año</b>`, true)}
+                `)}
+            </div>
+            <p style="margin:12px 0 0;font-size:11px;color:#6E6E66;">Al tratarse de la demanda diaria declarada por el propio certificado, no procede aplicar la estimación por ocupación de la tabla c del Anejo F: el valor de partida corresponde ya al consumo del edificio, y el salto térmico considerado (ΔT = 46 °C) es coherente con la temperatura de acumulación de 60 °C a la que está referida dicha demanda.</p>
+            `
             : `
             <p style="margin:0 0 10px;font-size:12.5px;color:#4a4a44;">Según el Anejo F del documento de Ahorro de Energía HE, del Código Técnico de la Edificación (año 2022):</p>
             <div style="text-align:center;margin:10px 0;font-weight:800;font-size:15px;background:#FBF6EE;border-radius:10px;padding:8px;">D<sub>ACS</sub> = D<sub>L/D</sub> · N<sub>P</sub> · C<sub>e</sub> · 365 · ΔT</div>

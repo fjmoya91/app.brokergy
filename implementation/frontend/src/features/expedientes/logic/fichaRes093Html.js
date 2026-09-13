@@ -15,6 +15,7 @@ import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs } from
 import { computeExpedienteFinancials } from './expedienteFinancials.js';
 import { calcCifo } from './calcCifo.js';
 import { ceeBaseDocumento, acsEnAlcance } from './ceeFases.js';
+import { resolveDacs } from './demandaAcs.js';
 
 const PAGE_PADDING = '93px 95px 19px 113px';
 
@@ -89,13 +90,13 @@ export function deriveFichaRes093(expediente, opts = {}) {
     // eléctrico (efecto Joule, rendimiento 1) no computa en el ahorro CAE.
     const tieneAcs = acsEnAlcance(inst);
 
-    // Demanda de ACS — DEBE coincidir con la del Certificado CIFO (CertificadoCifoModal.jsx).
-    // Misma lógica: por defecto modo 'xml' (demandaACS · superficie); en modo CTE, fórmula por personas.
-    const acsMode = cee.acs_method || 'xml';
-    const numPeopleAcs = (parseInt(cee.num_rooms) || 4) + 1;
-    const dacsValue = acsMode === 'xml'
-        ? (parseFloat(ceeFinal.demandaACS) || 0) * sRaw
-        : 28 * numPeopleAcs * 0.001162 * 365 * 46;
+    // Demanda de ACS — fuente ÚNICA en logic/demandaAcs.js, la MISMA que el CIFO
+    // (cifoDoc.js) y el panel económico. Aquí había una copia de la fórmula que
+    // solo entendía 'xml' y 'cte': cualquier otro modo (el manual del terciario,
+    // los litros/día del certificado) caía en la estimación por dormitorios y la
+    // ficha imprimía una D_ACS distinta de la del CIFO del mismo expediente.
+    // La ficha solo imprime la cifra: el modo y la ocupación los justifica el CIFO.
+    const dacsValue = resolveDacs(cee, ceeFinal).value;
     // Fuera del alcance → "no aplica", nunca el valor ni 0: con la cifra a la vista
     // el verificador podría multiplicarla y obtener un ahorro de ACS que no existe.
     const dacsStr = tieneAcs

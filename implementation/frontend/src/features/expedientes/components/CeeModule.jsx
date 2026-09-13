@@ -45,79 +45,6 @@ function TableCell({ value, onChange, readOnly, type = 'number', highlight = fal
     );
 }
 
-const getAcsCalculatedValue = (isFinal, local) => {
-    const ceeObj = isFinal ? local.cee_final : local.cee_inicial;
-    const method = local.acs_method;
-    const rooms = local.num_rooms;
-    
-    if (method === 'xml' && ceeObj) {
-        const dacsKwhM2 = parseFloat(ceeObj.demandaACS) || 0;
-        const superficie = parseFloat(ceeObj.superficieHabitable) || 0;
-        return (dacsKwhM2 * superficie).toFixed(2);
-    } else if (method === 'cte') {
-        const numPeople = rooms + 1;
-        const val = 28 * numPeople * 0.001162 * 365 * 46;
-        return val.toFixed(2);
-    }
-    return '—';
-};
-
-function AcsCell({ isFinal, local, setLocal, editMode }) {
-    const method = local.acs_method;
-    const rooms = local.num_rooms;
-    const val = getAcsCalculatedValue(isFinal, local);
-
-    return (
-        <div className="flex flex-col gap-2 p-2 h-full justify-center">
-            <div className="flex items-center gap-1 bg-white/[0.03] p-0.5 rounded-lg border border-white/[0.06] self-start">
-                {['xml', 'cte'].map(m => (
-                    <button 
-                        key={m} 
-                        type="button"
-                        onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            if (editMode) {
-                                setLocal(p => ({ ...p, acs_method: m }));
-                            }
-                        }}
-                        className={`px-2 py-1 rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${
-                            method === m ? 'bg-brand text-black' : 'text-white/20 hover:text-white/40'
-                        } ${!editMode ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                    >
-                        {m === 'xml' ? 'XML' : 'Hab.'}
-                    </button>
-                ))}
-            </div>
-            
-            <div className="flex items-center gap-3">
-                {method === 'cte' && (
-                    <div className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.03] border border-white/10 rounded-lg">
-                        <span className="text-[8px] font-bold text-white/20 uppercase">Dorm:</span>
-                        <input 
-                            type="number" 
-                            disabled={!editMode}
-                            value={rooms} 
-                            onChange={e => {
-                                e.stopPropagation();
-                                setLocal(p => ({ ...p, num_rooms: parseInt(e.target.value) || 0 }))
-                            }}
-                            className="w-8 bg-transparent text-[11px] font-bold text-brand text-center outline-none disabled:opacity-50" 
-                        />
-                    </div>
-                )}
-                
-                <div className="flex flex-col gap-0.5 min-w-[80px]">
-                    <span className="text-[7px] font-black text-white/30 uppercase tracking-[0.15em] leading-none">Demanda ACS</span>
-                    <span className="text-[12px] font-black text-brand leading-none">
-                        {val} <span className="text-[8px] text-white/40 font-bold ml-0.5">kWh/año</span>
-                    </span>
-                </div>
-            </div>
-        </div>
-    );
-}
-
 function TableHeader({ label, ceeType, required, onOpenModal, editMode, filename }) {
     const [isDragging, setIsDragging] = useState(false);
 
@@ -210,6 +137,8 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
             num_rooms: 4,
             // D_ACS en kWh/año introducida a mano (solo modo 'manual', ficha TER100).
             dacs_manual: null,
+            // Litros/día a 60 °C que declara el certificado (solo modo 'litros').
+            dacs_litros_dia: null,
             certificador_id: null,
             // Los comb_* (acs/cal/ref · inicial/final) se inicializan más abajo, en el
             // bloque de normalización (tras ...saved), con su mismo valor por defecto.
@@ -999,6 +928,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 acsMethod={local.acs_method}
                 numRooms={local.num_rooms}
                 dacsManual={local.dacs_manual}
+                dacsLitrosDia={local.dacs_litros_dia}
                 onManualUpdate={(patch) => {
                     const nextLocal = { ...local, ...patch };
                     setLocal(nextLocal);
@@ -1123,6 +1053,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 acsMethod={local.acs_method}
                 numRooms={local.num_rooms}
                 dacsManual={local.dacs_manual}
+                dacsLitrosDia={local.dacs_litros_dia}
                 onManualUpdate={(patch) => {
                     const nextLocal = { ...local, ...patch };
                     setLocal(nextLocal);

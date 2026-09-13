@@ -134,6 +134,19 @@ const casos = [
     ['RES060 · 4 en cascada', cascada(4)],
     ['RES060 · 5 en cascada', cascada(5)],
     ['RES060 · sin ACS', (() => { const e = cascada(3); e.instalacion.cambio_acs = false; return e; })()],
+    // Los dos modos de D_ACS que llevan DOS tablas en el Anexo I (`acsDemandHeavy`).
+    // Sin ellos, la hoja del Anexo I solo se medía con el párrafo corto del modo
+    // 'xml' y nadie sabía cuánta holgura le queda a la que de verdad va cargada.
+    ['RES060 · D_ACS por dormitorios (CTE) · 5 en cascada', (() => {
+        const e = cascada(5); e.cee.acs_method = 'cte'; e.cee.num_rooms = 4; return e;
+    })()],
+    ['RES060 · D_ACS por litros/día del CEE · 5 en cascada', (() => {
+        const e = cascada(5); e.cee.acs_method = 'litros'; e.cee.dacs_litros_dia = 120; return e;
+    })()],
+    ['RES060 · D_ACS por litros/día · 2 empresas', (() => {
+        const e = cascada(3); e.cee.acs_method = 'litros'; e.cee.dacs_litros_dia = 1200;
+        return conDelegacion(e, { largos: true });
+    })()],
     ['RES093 · 1 equipo', (() => { const e = base('26RES093_9'); return e; })()],
     ['RES093 · 3 en cascada', (() => {
         const e = base('26RES093_9'); e.instalacion.aerotermia_cal = aero(3); return e;

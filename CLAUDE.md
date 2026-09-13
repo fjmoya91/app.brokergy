@@ -4038,6 +4038,63 @@ del coste de obra y la del ahorro anual eran las dos "NOTA 3" y podían salir ju
 
 ---
 
+## La D_ACS por LITROS/DÍA del certificado (2026-09-13)
+
+El CEE declara en su apartado *«Instalaciones de Agua Caliente Sanitaria»* una
+**Demanda diaria de ACS a 60° (litros/día)**. Cuando la trae, esa cifra es un DATO
+del certificado —no una estimación—, así que el técnico la teclea y la D_ACS anual
+sale de ella. Tercer modo de `expedientes.cee.acs_method`, junto a `xml` y `cte`:
+
+| Modo | Toggle | De dónde sale |
+|---|---|---|
+| `xml` | **XML** | demandaACS (kWh/m²·año) × superficie útil del certificado |
+| `cte` | **HAB** | Anejo F por dormitorios: 28 l/persona·día · N_P · C_e · 365 · ΔT |
+| `litros` | **L/D** | `cee.dacs_litros_dia` · C_e · 365 · ΔT |
+| `manual` | **MAN** | kWh/año a pelo (solo terciario, ver TER100) |
+
+**REGLA — con los litros/día NO interviene la ocupación.** La fórmula es la misma
+del Anejo F pero SIN el tramo `D_L/D · N_P`: el dato del certificado ya es el
+consumo diario del EDIFICIO, y multiplicarlo otra vez por el número de personas lo
+multiplicaría por cinco. Por eso la fórmula que imprime el CIFO es
+`D_ACS = D_L/D · C_e · 365 · ΔT` y su tabla de leyenda no menciona N_P.
+
+**REGLA — el ΔT de 46 °C sigue valiendo, y por eso se dice a qué temperatura está
+referida la demanda.** El certificado la declara **a 60 °C**, que son exactamente
+los 60 − 14 del salto térmico del Anejo F: si algún día se leyera de un impreso que
+la dé a otra temperatura, el salto habría que rehacerlo.
+
+**REGLA — el CIFO dice de DÓNDE sale.** Su Anexo I nombra el Certificado de
+Eficiencia Energética aportado y el apartado del que se copia: es lo único que
+separa este número de una estimación, y es lo primero que comprueba quien lo
+verifica. Es la misma hoja que el modo CTE (`acsDemandHeavy` la parte igual);
+holgura medida: **+71 px** en el peor caso (`check_cifo_paginas.mjs`).
+
+**REGLA — la fórmula vive en `demandaAcs.js` y NADIE más la escribe.** Había TRES
+copias que solo entendían `xml` y `cte` —`fichaRes060Html.js`, `fichaRes093Html.js`
+y sus dos modales, más la del listado en `ExpedientesView.jsx`—, así que un
+expediente en cualquier otro modo imprimía en su **ficha** una D_ACS distinta de la
+de su propio **CIFO**: hoy le pasa a todo TER100 en modo manual, que en la ficha
+sale con la estimación por dormitorios. Ahora las cinco superficies llaman a
+`resolveDacs`. De paso se retiraron dos copias muertas (`AcsCell` en `CeeModule` y
+el bloque de D_ACS de `CertificadoCifoModal`, que renderiza `buildCifoHtml`).
+
+**REGLA — el listado también necesita el campo.** `CEE_ECO_FIELDS` pedía
+`acs_method` y `num_rooms` pero **no** `dacs_manual` (ni el nuevo
+`dacs_litros_dia`): los modos tecleados salían a 0 en la economía del listado y de
+los lotes, distinta de la del propio expediente.
+
+**REGLA — un modo TECLEADO sin cifra BLOQUEA el documento.** `litros` y `manual` se
+quedan en 0 si nadie escribe nada, y el CIFO saldría con «D_ACS = 0,00» y el ahorro
+de ACS a cero sin que nada lo delate. `validateExpediente` lo cuenta como dato que
+FALTA (solo si el ACS entra en el documento — regla 12.b).
+
+```bash
+node implementation/backend/scripts/test_dacs_litros.mjs
+node implementation/backend/scripts/check_cifo_paginas.mjs
+```
+
+---
+
 ## El CEE que MANDA, y qué se avisa antes de generar (2026-09-03)
 
 La demanda de calefacción, la superficie y la demanda de ACS de todo documento del
@@ -5462,6 +5519,7 @@ multiplicarlo.
 11. **XML Upload**: Parseo automático de demandas y también de `fechaFirma` y `fechaVisita`.
 12. **ACS en Anexo I**: Validar `inputs.changeAcs || inputs.incluir_acs`. Si es false, ocultar unidad interior.
 12.b **ACS fuera del alcance → "no aplica", nunca el valor ni 0**: en la tabla del apartado 4 (Ficha RES060/RES093/TER100 y Certificado CIFO), si el ACS no computa, **D<sub>ACS</sub> se imprime "no aplica"** igual que SCOP<sub>dhw</sub>. Dejar la demanda a la vista invita al verificador a multiplicarla y a obtener un AE<sub>ACS</sub> que no forma parte de la actuación; un 0 afirma una demanda nula, que es falso. Mismo criterio que D<sub>CAL</sub>/S cuando la calefacción queda fuera (TER100). El alcance se decide igual que en el CIFO: `cambio_acs !== false` **y** que el equipo nuevo no sea un termo eléctrico (efecto Joule, rendimiento 1). Son CINCO sitios y van a la vez: `logic/cifoDoc.js`, `logic/fichaRes060Html.js`, `logic/fichaRes093Html.js` y los modales `FichaRes060Modal.jsx` / `FichaRes093Modal.jsx` (que duplican el HTML **y** la vista previa React). La ficha TER100 ya lo resuelve en `logic/ter100.js` (`alcance`).
+12.d **La D_ACS admite los LITROS/DÍA que declara el certificado** (`acs_method: 'litros'` + `cee.dacs_litros_dia`, toggle **L/D** en la rejilla del CEE): misma fórmula del Anejo F pero **SIN el tramo de ocupación** —el dato del CEE ya es el consumo diario del edificio y multiplicarlo por N_P lo multiplicaría por cinco—, y el CIFO dice que sale del **Certificado de Eficiencia Energética aportado**, que es lo que lo separa de una estimación. Fuente única: [demandaAcs.js](implementation/frontend/src/features/expedientes/logic/demandaAcs.js), que ahora llaman TAMBIÉN las fichas RES060/RES093 y sus modales y el listado — tenían su propia copia que solo entendía 'xml' y 'cte', así que un TER100 en modo manual imprimía en la ficha una D_ACS distinta de la de su CIFO. `dacs_manual`/`dacs_litros_dia` entran en `CEE_ECO_FIELDS` (sin ellos el listado los resolvía a 0), y un modo tecleado **sin cifra bloquea el documento**. Tras tocarlo: `node implementation/backend/scripts/test_dacs_litros.mjs` y `check_cifo_paginas.mjs`. Ver "La D_ACS por LITROS/DÍA del certificado".
 12.c **`misma_aerotermia_acs` NO puede esconder un equipo de ACS DECLARADO**: ese flag no se edita en ninguna pantalla —se pone a `true` al activar "se actúa sobre el ACS" y solo baja a `false` al tocar el bloque *Aerotermia Nueva — ACS*—, así que cuando el equipo de ACS lo escribe una migración, un script o una skill de relleno, el flag se queda arriba y **la máquina real desaparece de los documentos**: se declara como SCOP<sub>dhw</sub> el de la bomba de CALEFACCIÓN, que no calienta esa agua (medido en 26RES080_54: 6,47 en vez de 3,69, y el equipo de ACS ni salía en el popup «Datos del equipo»). Entre un booleano que nadie ha tocado y una máquina con marca, modelo y nº de serie, **manda la máquina**. Fuente única: `acsEquipoPropio` / `acsMismoEquipo` en [aerotermiaUnits.js](implementation/frontend/src/features/expedientes/logic/aerotermiaUnits.js). ⚠️ La comparación es **por MODELO** (`aerotermia_db_id`, o marca+modelo si no está en catálogo), **nunca por nº de serie**: con el flag activo la app CLONA el nodo de calefacción y ese clon se queda atrás en cuanto se teclea una serie — medido, 11 expedientes difieren solo en la serie sin tener un segundo equipo. Hoy lo aplican las superficies **CE3X** (`resolverCe3x` → popup «Datos del equipo» y encargo al certificador); el CIFO, las fichas y el ahorro siguen leyendo el flag a propósito —cambiarlo movería cifras de expedientes ya emitidos—, así que la contradicción se **AVISA** en el popup y en Instalación, con un botón que corrige el dato y con él todo lo demás.
 
 13. **WhatsApp en Sidebar**: El botón debe estar posicionado en la sección inferior (entre tabs principales y user profile). Polling del estado: **30s** en sidebar, **8s** en WhatsappSettingsView (reducido desde 5s/2.5s el 2026-04-29 para limitar egress de Supabase — cada request pasa por auth middleware y generaba ~720 req/hora). No bloquear app si servicio no está disponible (graceful degradation con 503).

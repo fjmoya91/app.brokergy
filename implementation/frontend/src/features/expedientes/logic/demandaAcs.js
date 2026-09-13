@@ -12,6 +12,14 @@
 //   · 'cte'    → estimación del Anejo F del CTE DB-HE para residencial privado:
 //                28 l/persona·día · N_P · C_e (0,001162 kWh/kg·°C) · 365 · ΔT(46°C),
 //                con N_P = nº de habitaciones + 1.
+//   · 'litros' → los LITROS/DÍA que declara el propio certificado ("Demanda diaria
+//                de ACS a 60°", en su apartado de instalaciones de ACS), tecleados
+//                por el técnico. Misma fórmula del Anejo F, pero SIN el tramo de
+//                ocupación: la demanda diaria ya viene medida para el edificio, así
+//                que multiplicarla otra vez por el nº de personas la multiplicaría
+//                por cinco. Es el modo bueno cuando el certificado la trae, porque
+//                entonces la cifra no es una estimación por dormitorios: es un dato
+//                del CEE, y el ΔT de 46 °C (60 − 14) casa con esos mismos 60 °C.
 //   · 'manual' → valor introducido a mano en kWh/año (`cee.dacs_manual`).
 //                Es el modo del sector TERCIARIO (ficha TER100): en un hotel, una
 //                residencia o un gimnasio la demanda de ACS va por plaza/servicio
@@ -22,7 +30,7 @@
 // por import() dinámico, los servicios del backend.
 // ============================================================================
 
-export const ACS_METHOD = { XML: 'xml', CTE: 'cte', MANUAL: 'manual' };
+export const ACS_METHOD = { XML: 'xml', CTE: 'cte', LITROS: 'litros', MANUAL: 'manual' };
 
 /** Constantes de la fórmula del Anejo F del CTE DB-HE (residencial privado). */
 export const CTE_ACS = {
@@ -43,13 +51,28 @@ export function dacsCte(cee = {}) {
     return LITROS_PERSONA_DIA * personasCte(cee) * CALOR_ESPECIFICO * DIAS * SALTO_TERMICO;
 }
 
+/** Litros/día a 60 °C declarados por el certificado (modo 'litros'). */
+export function litrosDia(cee = {}) {
+    return parseFloat(cee.dacs_litros_dia) || 0;
+}
+
+/**
+ * D_ACS (kWh/año) a partir de los litros/día del certificado.
+ * Misma fórmula que `dacsCte` salvo el tramo de ocupación (L/persona·día · N_P),
+ * que aquí sobra: el dato del CEE ya es el consumo diario del edificio entero.
+ */
+export function dacsLitros(cee = {}) {
+    const { CALOR_ESPECIFICO, DIAS, SALTO_TERMICO } = CTE_ACS;
+    return litrosDia(cee) * CALOR_ESPECIFICO * DIAS * SALTO_TERMICO;
+}
+
 /**
  * Resuelve la demanda anual de ACS del expediente.
  *
  * @param {Object} cee      - `expedientes.cee`
  * @param {Object} ceeBase  - el CEE que manda (final si es válido, si no el inicial)
  * @param {Object} [extra]  - fallbacks de la oportunidad: { demandAcsFallback }
- * @returns {{ value:number, mode:string, dacsPorM2:number, superficie:number, personas:number }}
+ * @returns {{ value:number, mode:string, dacsPorM2:number, superficie:number, personas:number, litrosDia:number }}
  */
 export function resolveDacs(cee = {}, ceeBase = {}, extra = {}) {
     const mode = cee.acs_method || ACS_METHOD.XML;
@@ -59,11 +82,13 @@ export function resolveDacs(cee = {}, ceeBase = {}, extra = {}) {
     let value;
     if (mode === ACS_METHOD.MANUAL) {
         value = parseFloat(cee.dacs_manual) || 0;
+    } else if (mode === ACS_METHOD.LITROS) {
+        value = dacsLitros(cee);
     } else if (mode === ACS_METHOD.CTE) {
         value = dacsCte(cee);
     } else {
         value = dacsPorM2 * superficie || parseFloat(extra.demandAcsFallback) || 0;
     }
 
-    return { value, mode, dacsPorM2, superficie, personas: personasCte(cee) };
+    return { value, mode, dacsPorM2, superficie, personas: personasCte(cee), litrosDia: litrosDia(cee) };
 }
