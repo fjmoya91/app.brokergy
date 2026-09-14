@@ -13,6 +13,12 @@ numpy>=1.24
 # Foto de fachada y plano de situación, que CE3X guarda como PNG de 134 px.
 Pillow>=10.0
 
+# --- El mapa de diagnostico ---
+# `viz/map_html.py`: cada segmento pulsable con su ID, su orientacion y contra
+# que da. NO es opcional: `pipeline.escribir_salidas` lo importa, y esa es la
+# funcion que llama la ruta /envolvente — sin folium la ruta revienta entera.
+folium>=0.15
+
 # --- Los planos del plan de fotos ---
 # Un PNG por toma, con la pared marcada, que se le enseña al cliente.
 matplotlib>=3.7
