@@ -103,17 +103,51 @@ const sinScop = instalacionNueva({
     expediente: expediente({ aerotermia_cal: { ...PANASONIC, scop: 0 } }), superficie: 165 });
 comprueba('sin SCOP no se declara rendimiento', sinScop.equipo, null);
 
-// ── 4. Cuando el ACS lo hace OTRA máquina ────────────────────────────────────
-console.log('\n4. El ACS con otro equipo: solo calefacción, y avisando');
+// ── 4. El ACS en OTRA máquina: son DOS equipos, y los dos se escriben ───────
+// Sin el segundo, CE3X se niega a calcular: «La instalación de ACS no está bien
+// definida. El porcentaje de demanda cubierta debe ser el 100 %» — pasó en
+// 26RES060_187 y dejó el .cex inservible con la medida ya definida.
+console.log('\n4. El ACS con otro equipo: DOS equipos');
 const otroAcs = instalacionNueva({
     expediente: expediente({
         aerotermia_acs: { aerotermia_db_id: 9, marca: 'OTRA', modelo: 'Z', scop: 3 },
     }), superficie: 165 });
-comprueba('slot de SOLO calefacción', otroAcs.equipo.slot, 'calefaccion');
+comprueba('el de calefacción va en su slot', otroAcs.equipo.slot, 'calefaccion');
 comprueba('sin rendimiento de ACS', otroAcs.equipo.rend_acs, undefined);
 comprueba('sin superficie de ACS', otroAcs.equipo.superficie_acs, undefined);
-comprueba('se dice que el ACS va aparte',
-          otroAcs.avisos.some(a => a.includes('OTRO equipo')), true);
+
+const acs = (otroAcs.extras || [])[0];
+comprueba('y se escribe TAMBIÉN el de ACS', !!acs, true);
+comprueba('en el slot ACS', acs?.slot, 'ACS');
+comprueba('nombrado como en el título del conjunto', acs?.nombre,
+          'BOMBA DE CALOR ACS OTRA Z');
+comprueba('con el SCOP_dhw, no el de calefacción', acs?.rend_acs, '300');
+comprueba('rendimiento CONOCIDO: es un SCOP ensayado', acs?.rendimiento, 'conocido');
+comprueba('cubre el 100 % de la demanda de ACS —es lo que CE3X comprueba—',
+          acs?.pct_acs, '100');
+comprueba('y su superficie servida', acs?.superficie_acs, 165);
+comprueba('se dice lo que se ha escrito',
+          otroAcs.avisos.some(a => a.includes('ACS aparte')), true);
+
+// Sin SCOP_dhw no se inventa un rendimiento: se dice y se deja fuera.
+const acsSinScop = instalacionNueva({
+    expediente: expediente({
+        aerotermia_acs: { aerotermia_db_id: 9, marca: 'OTRA', modelo: 'Z' },
+    }), superficie: 165 });
+comprueba('sin SCOP_dhw, el equipo de ACS NO se escribe',
+          (acsSinScop.extras || []).length, 0);
+comprueba('  …y se dice por qué',
+          acsSinScop.avisos.some(a => a.includes('no consta su SCOP_dhw')), true);
+
+// Un TERMO ELÉCTRICO es efecto Joule al 100 %: ahí CE3X sí estima.
+const conTermo = instalacionNueva({
+    expediente: expediente({
+        aerotermia_acs: { tipo_equipo_nuevo: 'termo_electrico', marca: 'X', modelo: 'T' },
+    }), superficie: 165 });
+const termo = (conTermo.extras || [])[0];
+comprueba('el TERMO se escribe por efecto Joule', termo?.generador, 'Efecto Joule');
+comprueba('  …con el rendimiento ESTIMADO', termo?.rendimiento, 'estimado');
+comprueba('  …al 100 %', termo?.rend_nominal, '100');
 
 // ── 5. Lo que decide el MOTOR al copiar el .cex inicial ──────────────────────
 // (`slots_a_retirar` y `heredar_del_base` viven en Python; aquí se comprueba que

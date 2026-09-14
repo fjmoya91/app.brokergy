@@ -64,6 +64,47 @@ def test_equipo_de_acs_tiene_la_forma_medida():
     assert any("lo calcula" in a for a in avisos)
 
 
+def test_equipo_de_acs_con_rendimiento_conocido():
+    """La BOMBA DE CALOR DE ACS: su COP viene ensayado, y la cola DESAPARECE.
+
+    Forma medida sobre el corpus: de los 544 equipos del slot ACS, 205 declaran
+    el rendimiento como conocido —183 de ellos bombas de calor— y en 204 de esos
+    205 el campo [7] es EXACTAMENTE el mismo trio que el [2]. Ejemplo literal,
+    de «CEE PROYECTO JESUS RUIZ.cex».
+
+    Sin esta rama se escribia la cola del estimado bajo la casilla «Conocido», y
+    entonces CE3X se niega a calcular la medida: «La instalacion de ACS no esta
+    bien definida. El porcentaje de demanda cubierta debe ser el 100 %».
+    """
+    registro, avisos = G.equipo_acs({
+        "nombre": "BOMBA DE CALOR ACS THERMOR VM 150",
+        "generador": "Bomba de Calor - Caudal Ref. Variable",
+        "combustible": "Electricidad",
+        "superficie_acs": 141.0,
+        "pct_acs": "100",
+        "rendimiento": "conocido",
+        "rend_acs": "334",
+    }, ZONA)
+
+    assert _plano(registro) == [
+        "BOMBA DE CALOR ACS THERMOR VM 150",
+        "ACS",
+        ["334", "", ""],
+        "Bomba de Calor - Caudal Ref. Variable",
+        "Electricidad",
+        # El corpus escribe "141.0"; `_num` normaliza el .0 y CE3X lo admite
+        # igual (el .cex de 26RES060_187 lleva "231" y abre sin queja).
+        [["141", "100"], ["", ""], ["", ""]],
+        "Conocido (Ensayado/justificado)",
+        ["334", "", ""],
+        [False],
+        ZONA,
+    ]
+    # Un SCOP ensayado es un DATO: no hay nada que aproximar, asi que no se
+    # avisa de un estacional que CE3X vaya a recalcular.
+    assert not any("lo calcula" in a for a in avisos)
+
+
 def test_equipo_de_acs_con_deposito():
     """Con acumulacion, el bloque [8] es el mismo que el del mixto."""
     registro, _ = G.equipo_acs({

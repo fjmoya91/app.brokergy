@@ -66,7 +66,7 @@ console.log('\n5. Sin los cuatro imprescindibles, NO se inventa nada');
 {
     const { equipo, avisos } = equipoConAjustes(null, { nombre: 'ALGO' }, { superficie: 165 });
     ok(equipo === null, 'sigue sin escribirse');
-    ok(avisos.some(a => a.includes('hacen falta')), 'y se dice qué falta');
+    ok(avisos.some(a => a.includes('faltan')), 'y se dice qué falta');
 }
 
 console.log('\n6. Lo NO comprobado en un .cex real se avisa');

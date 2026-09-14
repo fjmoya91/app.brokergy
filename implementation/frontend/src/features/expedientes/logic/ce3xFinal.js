@@ -91,21 +91,32 @@ function nombreEquipo(aero, prefijo = 'AEROTERMIA ', { udExterior = true, conteo
 }
 
 /**
- * Lo que se le añade al nombre del conjunto cuando el ACS lo resuelve OTRO
- * aparato.
+ * Cómo se llama el aparato que resuelve el ACS cuando va APARTE.
  *
- * Solo cuando va APARTE: si es la misma máquina ya está nombrada, y repetirla
- * daría «AEROTERMIA X + AEROTERMIA X». Cada tipo se nombra por lo que es — una
- * bomba de calor de ACS lleva su marca y su modelo, que es lo que identifica la
- * máquina; un termo o un acumulador no hace falta que la lleven en el TÍTULO,
- * porque el párrafo de características los describe entero.
+ * Una sola función porque ese nombre sale en DOS sitios y tienen que decir lo
+ * mismo: el título del conjunto de medidas y la casilla «Nombre» del equipo de
+ * ACS que se escribe en el `.cex`. Con dos redacciones, el certificado
+ * nombraría una máquina en el título y otra en Instalaciones.
+ *
+ * Cada tipo se nombra por lo que es — una bomba de calor de ACS lleva su marca
+ * y su modelo, que es lo que identifica la máquina; un termo o un acumulador no
+ * hace falta que la lleven en el TÍTULO, porque el párrafo de características
+ * los describe entero.
+ */
+export function nombreAcsCe3x({ acsTipo, acsNode } = {}) {
+    if (acsTipo === EQUIPO_NUEVO.TERMO) return 'TERMO ELÉCTRICO PARA ACS';
+    if (acsTipo === EQUIPO_NUEVO.ACUMULADOR) return 'ACUMULACIÓN DE ACS';
+    const n = nombreEquipo(acsNode, '', { udExterior: false, conteo: false });
+    return n ? `BOMBA DE CALOR ACS ${n}` : 'BOMBA DE CALOR PARA ACS';
+}
+
+/**
+ * Lo que se le añade al nombre del conjunto cuando el ACS lo resuelve OTRO
+ * aparato. Solo cuando va APARTE: si es la misma máquina ya está nombrada, y
+ * repetirla daría «AEROTERMIA X + AEROTERMIA X».
  */
 function sufijoConjunto({ acsAparte, acsTipo, acsNode }) {
-    if (!acsAparte) return '';
-    if (acsTipo === EQUIPO_NUEVO.TERMO) return ' + TERMO ELÉCTRICO PARA ACS';
-    if (acsTipo === EQUIPO_NUEVO.ACUMULADOR) return ' + ACUMULACIÓN DE ACS';
-    const n = nombreEquipo(acsNode, '', { udExterior: false, conteo: false });
-    return n ? ` + BOMBA DE CALOR ACS ${n}` : ' + BOMBA DE CALOR PARA ACS';
+    return acsAparte ? ` + ${nombreAcsCe3x({ acsTipo, acsNode })}` : '';
 }
 
 /**
@@ -301,6 +312,11 @@ export function resolverCe3x(exp, { modelos = {} } = {}) {
         // párrafo de características, dos líneas más abajo, sí la nombraba.
         nombreConjunto: nombreEquipo(cal, prefijoNombre)
             + sufijoConjunto({ acsAparte, acsTipo, acsNode: inst.aerotermia_acs }),
+        //: Cómo se llama el aparato del ACS cuando va aparte. El MISMO nombre
+        //: que el título del conjunto, para que el .cex no nombre una máquina
+        //: en el título y otra en Instalaciones.
+        nombreAcs: acsAparte
+            ? nombreAcsCe3x({ acsTipo, acsNode: inst.aerotermia_acs }) : null,
         // El mismo nombre SIN la unidad exterior entre paréntesis. La casilla
         // "Nombre" de CE3X la lleva (identifica la máquina); una frase corrida, no:
         // "AEROTERMIA SH MASTER 14 (MASTER 14)" se lee como una errata.

@@ -465,20 +465,34 @@ _COLA_SIMPLE = [False, "1.0", "0.0"]
 def equipo_acs(eq: dict, espacio: str) -> tuple[list, list[str]]:
     """Un equipo de SOLO ACS (el slot 'ACS'): 10 campos.
 
-    Es el caso del TERMO ELECTRICO: la caldera da la calefaccion y parte del
-    agua, y un termo aparte da el resto. En CE3X son DOS equipos y cada uno
-    declara el % de la demanda de ACS que cubre; aqui tambien.
+    Dos casos, y NO tienen la misma forma.
 
-    Forma medida sobre «CEE DISTINTOS USOS CALEFACCION Y ACS Y AACC.cex»
-    (Efecto Joule, Electricidad, 82,5 m2 al 50 %, rendimiento nominal 100 %):
+    ESTIMADO — el TERMO ELECTRICO: la caldera da la calefaccion y parte del
+    agua, y un termo aparte da el resto. En CE3X son DOS equipos y cada uno
+    declara el % de la demanda de ACS que cubre. Forma medida sobre «CEE
+    DISTINTOS USOS CALEFACCION Y ACS Y AACC.cex» (Efecto Joule, Electricidad,
+    82,5 m2 al 50 %, rendimiento nominal 100 %):
 
         ['TERMO ACS', 'ACS', [100.0, '', ''], 'Efecto Joule', 'Electricidad',
          [['82.5','50'], ['',''], ['','']], 'Estimado segun Instalacion',
          [['100.0','',''], [False,False,True], [False,'1.0','0.0']],
          [False], 'Edificio Objeto']
 
-    OJO con la COLA [7]: NO es la de la caldera. Un equipo asi no tiene
-    aislamiento ni carga media ni potencia — tiene un RENDIMIENTO NOMINAL y ya.
+    CONOCIDO — la BOMBA DE CALOR DE ACS (un aerotermo, un termo aerotermico):
+    su COP viene ensayado en la ficha, asi que CE3X no calcula nada y la cola
+    DESAPARECE. Medido sobre el corpus: de los 544 equipos del slot ACS, 205 lo
+    declaran conocido (183 de ellos bombas de calor), y en 204 de esos 205 el
+    campo [7] es EXACTAMENTE el mismo trio que el [2]:
+
+        ['BOMBA DE CALOR ACS THERMOR VM 150', 'ACS', ['334','',''],
+         'Bomba de Calor - Caudal Ref. Variable', 'Electricidad',
+         [['141.0','100'], ['',''], ['','']], 'Conocido (Ensayado/justificado)',
+         ['334','',''], [False], 'Edificio Objeto']
+
+    Es el mismo corte que ya hacen el mixto y el de calefaccion: la casilla [6]
+    manda sobre la FORMA del bloque [7]. Escribir la cola del estimado con la
+    casilla en «Conocido» deja el equipo mal definido, y entonces CE3X se niega
+    a calcular la medida entera.
     """
     nominal = str(eq.get("rend_nominal", "100.0"))
     acum = eq.get("acumulacion")
@@ -492,24 +506,38 @@ def equipo_acs(eq: dict, espacio: str) -> tuple[list, list[str]]:
     else:
         bloque_acum = [False]
 
-    # El estacional lo RECALCULA CE3X al abrir. En el medido coincide con el
-    # nominal (un efecto Joule no tiene perdidas que descontar), asi que se
-    # escribe ese y se dice que es aproximado.
-    aviso = (f"instalacion {eq['nombre']}: el rendimiento medio estacional lo calcula "
-             f"CE3X. Aqui va el nominal ({nominal} %). Abre Instalaciones y dale a "
-             f"Modificar para que ponga el suyo.")
+    modo = eq.get("rendimiento", "estimado")
+    if modo not in RENDIMIENTO:
+        raise GeneracionError(
+            f"rendimiento {modo!r} no contemplado; CE3X usa {list(RENDIMIENTO)}")
+
+    if modo == "conocido":
+        # El COP ensayado se teclea tal cual, en %. No hay nada que aproximar y
+        # por eso no hay aviso: esto SI es un dato.
+        rend = str(_v(eq.get("rend_acs"), "instalaciones.rend_acs"))
+        campo2, cola, avisos = [rend, "", ""], [rend, "", ""], []
+    else:
+        # El estacional lo RECALCULA CE3X al abrir. En el medido coincide con el
+        # nominal (un efecto Joule no tiene perdidas que descontar), asi que se
+        # escribe ese y se dice que es aproximado.
+        campo2 = [_numf(nominal) or 0.0, "", ""]
+        cola = [[nominal, "", ""], list(_INTERRUPTORES_ACS), list(_COLA_SIMPLE)]
+        avisos = [f"instalacion {eq['nombre']}: el rendimiento medio estacional lo "
+                  f"calcula CE3X. Aqui va el nominal ({nominal} %). Abre Instalaciones "
+                  f"y dale a Modificar para que ponga el suyo."]
+
     return [
         str(eq["nombre"]),
         Cadena("ACS"),
-        [_numf(nominal) or 0.0, "", ""],
+        campo2,
         str(_v(eq.get("generador"), "instalaciones.generador")),
         str(_v(eq.get("combustible"), "instalaciones.combustible")),
         [[_sup(eq, "superficie_acs"), _pct(eq.get("pct_acs"))], ["", ""], ["", ""]],
-        RENDIMIENTO[eq.get("rendimiento", "estimado")],
-        [[nominal, "", ""], list(_INTERRUPTORES_ACS), list(_COLA_SIMPLE)],
+        RENDIMIENTO[modo],
+        cola,
         bloque_acum,
         espacio,
-    ], [aviso]
+    ], avisos
 
 
 def equipo_refrigeracion(eq: dict, espacio: str) -> tuple[list, list[str]]:

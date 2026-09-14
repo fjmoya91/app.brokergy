@@ -6847,6 +6847,70 @@ node implementation/backend/scripts/test_imagenes_cex.mjs
 
 ---
 
+## El ACS que hace OTRA máquina también se escribe (2026-09-14)
+
+CE3X se negó a calcular la medida de mejora de 26RES060_187:
+
+> **La instalación de ACS no está bien definida. El porcentaje de demanda
+> cubierta debe ser el 100 %.**
+
+No era la medida: era que el `.cex` declaraba UN solo equipo. La obra monta una
+**BAXI IRIDIUM 12** para calefacción y una **BAXI BC ACS 150 IN** para el agua,
+y del segundo aparato solo salía un aviso pidiéndole al certificador que lo
+añadiera a mano en CE3X. **Un aviso no rellena una casilla**: con el ACS cubierto
+al 0 %, CE3X no deja calcular ni la medida ni el certificado.
+
+| Qué | Dónde |
+|---|---|
+| Qué equipo resuelve el ACS y con qué rendimiento | `equipoDeAcs()` en [fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js) |
+| Cómo se llama (título del conjunto **y** casilla del equipo) | `nombreAcsCe3x()` en [ce3xFinal.js](implementation/frontend/src/features/expedientes/logic/ce3xFinal.js) |
+| Cómo se escribe en el fichero | `equipo_acs()` en [generar_cex.py](implementation/cee-engine/tools/generar_cex.py) |
+| Pruebas | `node implementation/backend/scripts/test_cex_final.mjs` · `pytest implementation/cee-engine/tests/test_equipos.py` |
+
+**REGLA — una obra con el ACS APARTE son DOS equipos, y los dos se escriben.**
+`instalacionNueva` devuelve `extras`, que entran tanto en la instalación del CEE
+final como en el `datosInstalaciones` de la medida de mejora —la medida es TODO
+lo que se instala, igual que su título (regla del nombre del conjunto)—. El de
+ACS cubre el **100 %** de esa demanda: es el único aparato que la produce, y es
+exactamente lo que CE3X comprueba antes de dejar calcular.
+
+**REGLA — en el slot ACS, la casilla [6] manda sobre la FORMA del [7]**, igual
+que en el mixto y en el de calefacción. Medido sobre el corpus: de los **544**
+equipos del slot ACS, **205 declaran el rendimiento CONOCIDO** (183 de ellos
+bombas de calor) y en **204 de esos 205** el campo [7] es el MISMO trío que el
+[2] — sin interruptores y sin cola, porque un COP ensayado no tiene nada que
+aproximar:
+
+```
+['BOMBA DE CALOR ACS THERMOR VM 150', 'ACS', ['334','',''],
+ 'Bomba de Calor - Caudal Ref. Variable', 'Electricidad',
+ [['141.0','100'], ['',''], ['','']], 'Conocido (Ensayado/justificado)',
+ ['334','',''], [False], 'Edificio Objeto']
+```
+
+Un **TERMO** va por la otra rama —`Efecto Joule`, estimado al 100 %—, que son
+los 260 casos más frecuentes del corpus. Y **sin SCOP_dhw no se escribe nada**:
+declarar «conocido» con la casilla vacía deja el equipo tan mal definido como no
+ponerlo, y además inventaría un rendimiento.
+
+**REGLA — el DEPÓSITO cuelga de la máquina que calienta el agua.** Si el ACS va
+aparte, los litros son de ESA máquina, no del equipo de calefacción — que además
+es un slot de 9 campos, sin sitio donde escribirlos. El motor sigue heredando el
+depósito del `.cex` que se copia cuando el expediente no lo declara.
+
+⚠️ **Y el CEE FINAL salía SIN NINGUNA INSTALACIÓN, en silencio.** Se descubrió
+tirando de este hilo: `equipoConAjustes` exigía **potencia** para escribir
+cualquier equipo, y la potencia es de la cola con la que CE3X ESTIMA el
+rendimiento de una caldera — una bomba de calor declara su SCOP ensayado y esa
+cola ni existe. La aerotermia se caía a `null` y, como `ajustes` viene vacío, ni
+siquiera salía el aviso. Ahora la potencia (y el aislamiento, y el rendimiento de
+combustión) solo se exigen y solo se escriben cuando el rendimiento es
+`estimado`.
+
+⚠️ `tools/generar_cex.py` de `C:\Proyectos\CEE` **ya NO es idéntico** al de la
+app (1.548 líneas frente a 1.884: no tiene ni `equipo_acs`). El que se despliega
+es el de la app; el otro se quedó atrás.
+
 ## Los administrativos se CORRIGEN desde la ventana, en su fuente (2026-09-14)
 
 Dos cosas que salieron de usarla, y son la misma: la pestaña de **Datos
@@ -7153,6 +7217,8 @@ cuanto el popup rellene el η_wh de alguno de los 27, que es justo para lo que e
 48. **El `.cex` de la envolvente se guarda SIEMPRE en `1. CEE / CEE INICIAL` como `{nº} - CEE INICIAL_REVISAR.cex`, y sus transmitancias son las de la oportunidad**: salen de `getUByYear` ([calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js)), que ya implementa la Guía de Transmitancias de BROKERGY valor a valor — no se copia ninguna U. La ficha la compone el BACKEND desde el expediente ([fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js) + [ceeEnvolventeCex.js](implementation/backend/services/ceeEnvolventeCex.js)), nunca el navegador. El `_REVISAR` del nombre es funcional: `matchSlot` reconoce el `.cex` del técnico **solo por la extensión**, así que sin la salida `_revisar.cex → null` la rejilla daría el certificado por presentado. La **foto de fachada y el croquis de parcela** van dentro, bajados del Catastro con las funciones que la app ya tiene (en serie, con pausa, mirando el monitor del WAF y cacheados por RC) — y solo al generar, no al previsualizar. Lo que no se puede derivar (demanda ACS, masa de particiones, zona HE4 fuera de las comprobadas) sale declarado con su `de:`, nunca inventado. Verificado contra el `.cex` que un certificador hizo a mano para 26RES060_186: **19 de 19 campos coinciden**. Tras tocarlo: `node implementation/backend/scripts/probar_cex_envolvente.js 26RES060_186`. Ver "El `.cex` de la envolvente".
 
 48.b **El CEE FINAL se hace COPIANDO el inicial, no regenerándolo**: se coge `{nº} - CEE INICIAL_REVISAR.cex` de la carpeta, se le cambia SOLO el pickle de instalaciones y se guarda como `{nº} - CEE FINAL_REVISAR.cex` en `1. CEE / CEE FINAL`. Es como se hace a mano y está comprobado pickle a pickle contra el `.cex` que guardó el certificador desde CE3X en 26RES060_186: de los 15 pickles solo cambia el 4, y sus **10 campos salen idénticos**. Sin inicial en la carpeta → **409**: el final es el inicial con un cambio. El generador viejo se **RETIRA** (es la actuación, no un añadido) y se dice con su nombre; qué slots se vacían lo deduce `SERVICIOS_DEL_SLOT`, así que lo que la obra no toca —placas solares, iluminación, bombas— se queda. **Lo que ya dice el fichero manda**: la superficie servida y el DEPÓSITO de ACS se heredan de él (el depósito es del edificio, no de la caldera). El rendimiento de una bomba de calor va como **CONOCIDO**, que cambia la casilla `[6]` y con ella la FORMA del bloque `[7]` — medido sobre los 1.506 `.cex` de producción (138 mixtos con BdC: 132 conocidos, 138 con `Electricidad`, 123 sin acumulación). La **hibridación no se escribe**: ahí la caldera se queda y son dos generadores. Fuentes únicas: `instalacionNueva()` en [fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js) (qué equipo) y `sustituir_pickle` / `slots_a_retirar` / `heredar_del_base` en el motor (cómo se escribe). Tras tocarlo: `node implementation/backend/scripts/test_cex_final.mjs`. ⚠️ Un equipo de ACS con el MISMO modelo que el de calefacción es UNA máquina (41 expedientes declaraban dos), y el SCOP_dhw sale del nodo de ACS cuando lo declara. ⚠️ La altura de planta por defecto pasa a **2,80 m** en los cuatro sitios: las envolventes traídas antes dan otra superficie de fachada. Ver "El CEE FINAL se hace COPIANDO el inicial".
+
+48.e **Cuando el ACS lo hace OTRA máquina, se escriben DOS equipos**: CE3X no calcula nada si la demanda de ACS no está cubierta al 100 % («La instalación de ACS no está bien definida»), y hasta ahora el segundo aparato solo salía como un aviso pidiendo añadirlo a mano. `instalacionNueva` devuelve `extras`, que entran en la instalación del CEE final Y en la medida de mejora —la medida es TODO lo que se instala—. En el slot ACS la casilla [6] manda sobre la FORMA del [7]: con **CONOCIDO** es el mismo trío que el [2], sin interruptores ni cola (medido: 205 de los 544 equipos del slot ACS del corpus, 204 de ellos con [2] == [7]); un TERMO va por `Efecto Joule` estimado al 100 %. **Sin SCOP_dhw no se escribe**, y el DEPÓSITO cuelga de la máquina que calienta el agua. ⚠️ Tirando de ese hilo salió que **el CEE FINAL se generaba SIN NINGUNA instalación y en silencio**: `equipoConAjustes` exigía la POTENCIA —que es de la cola con la que CE3X *estima* una caldera— para escribir también una bomba de calor, cuyo rendimiento va ENSAYADO y no tiene esa cola. Tras tocarlo: `node implementation/backend/scripts/test_cex_final.mjs` y `pytest implementation/cee-engine/tests/test_equipos.py`. Ver "El ACS que hace OTRA máquina también se escribe".
 
 48.c **Los ADMINISTRATIVOS del `.cex` se corrigen desde la ventana, escribiendo en SU FUENTE**: el botón de editar de «Datos del cliente» y de «Datos del técnico» escribe en `clientes` y en `prescriptores` (`PUT /:id/cliente`, **staffOnly**; `PUT /:id/tecnico`, equipo interno **o el propio técnico asignado**), nunca en una copia dentro del trabajo. En lectura se enseña el valor COMPUESTO —lo que va al `.cex`— y en edición las COLUMNAS, que es lo único sobre lo que se puede escribir; la `fuente` en crudo viaja FUERA de `ficha`. Y el **teléfono y el correo del titular caen a su PERSONA DE CONTACTO** cuando él no dio los suyos —el número marcado «Notif. aquí» es a menudo el único que tenemos—, campo a campo y **diciendo de quién es**: medido en 26RES060_187, la ficha decía «no consta» de dos datos escritos dos líneas más abajo. Tras tocarlo: `node implementation/backend/scripts/test_contacto_cliente_ce3x.mjs`. Ver "Los administrativos se CORRIGEN desde la ventana".
 

@@ -4,6 +4,8 @@ import { resolverCe3x, buildMedidaMejora } from '../../expedientes/logic/ce3xFin
 import { PRUEBAS_CERTIFICADOR, OTROS_DATOS_MEDIDA, MEDIDA_AUTOCONSUMO,
          techoAutoconsumo } from '../../expedientes/logic/ce3xTextos.js';
 import { normalizarFotovoltaica } from '../../expedientes/logic/fotovoltaica.js';
+import { EQUIPO_NUEVO, RENDIMIENTO_JOULE }
+    from '../../expedientes/logic/aerotermiaUnits.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // La ficha del certificador: lo que el `.cex` necesita ALREDEDOR de la
@@ -342,14 +344,29 @@ export function equipoConAjustes(equipo, ajustes, { superficie } = {}) {
     const combustible = tocado('combustible', a.combustible) || equipo?.combustible || null;
     const potencia = tocado('potencia', a.potencia) || equipo?.potencia || null;
     const rend = tocado('rend_combustion', a.rend_combustion) || equipo?.rend_combustion || null;
-    const aislamiento = tocado('aislamiento', a.aislamiento)
-        || equipo?.aislamiento || AISLAMIENTO_POR_DEFECTO;
 
-    // Sin estos cuatro el motor no sabe escribirlo, y no se inventa ninguno.
-    if (!nombre || !generador || !combustible || !potencia) {
+    // ⚠️ La POTENCIA, el aislamiento y el rendimiento de combustión son de la
+    // COLA que CE3X usa para ESTIMAR el rendimiento estacional de una caldera.
+    // Una bomba de calor declara su SCOP ENSAYADO («Conocido») y esa cola ni
+    // existe en el fichero, así que no hay dónde escribirlos.
+    //
+    // Exigírselos dejaba el CEE FINAL **sin ninguna instalación**: la aerotermia
+    // que devuelve `instalacionNueva` no trae potencia, aquí se caía a `null`, y
+    // como `ajustes` viene vacío ni siquiera salía el aviso. Un certificado sin
+    // generador es justo lo que esta pantalla existe para evitar.
+    const conocido = (tocado('rendimiento', a.rendimiento)
+                      || equipo?.rendimiento) === 'conocido';
+    const aislamiento = conocido ? null : (tocado('aislamiento', a.aislamiento)
+        || equipo?.aislamiento || AISLAMIENTO_POR_DEFECTO);
+
+    // Sin esto el motor no sabe escribirlo, y no se inventa nada.
+    const faltan = [!nombre && 'el nombre', !generador && 'el tipo de generador',
+                    !combustible && 'el combustible',
+                    (!conocido && !potencia) && 'la potencia'].filter(Boolean);
+    if (faltan.length) {
         if (Object.keys(a).length) {
-            avisos.push('La instalación existente sigue sin escribirse: hacen falta nombre, '
-                        + 'tipo de generador, combustible y potencia.');
+            avisos.push(`El equipo sigue sin escribirse: ${faltan.length === 1
+                ? 'falta' : 'faltan'} ${faltan.join(', ')}.`);
         }
         return { equipo: null, avisos };
     }
@@ -363,9 +380,10 @@ export function equipoConAjustes(equipo, ajustes, { superficie } = {}) {
     const nuevo = {
         ...(equipo || {}),
         slot, nombre, generador, combustible,
-        aislamiento,
-        potencia: String(potencia),
-        ...(rend ? { rend_combustion: String(rend) } : {}),
+        //: Los tres solo cuando CE3X va a estimar: ver arriba.
+        ...(aislamiento ? { aislamiento } : {}),
+        ...(potencia && !conocido ? { potencia: String(potencia) } : {}),
+        ...(rend && !conocido ? { rend_combustion: String(rend) } : {}),
         // La superficie servida se puede repartir: en el `.cex` medido la caldera
         // da los 165 m² de calefacción pero solo 82,5 de ACS, porque la otra
         // mitad la da el termo.
@@ -396,7 +414,7 @@ export function equipoConAjustes(equipo, ajustes, { superficie } = {}) {
         if (a[k] !== undefined && a[k] !== null && a[k] !== '') cambios.push(rotulo);
     }
     if (cambios.length) {
-        avisos.push(`Instalación existente: ${cambios.join(', ')} ${cambios.length === 1
+        avisos.push(`Instalación «${nombre}»: ${cambios.join(', ')} ${cambios.length === 1
             ? 'lo ha puesto' : 'los ha puesto'} a mano el certificador.`);
     }
     if (!vistoEn(GENERADORES_CE3X, generador)) {
@@ -585,10 +603,8 @@ export function instalacionNueva({ expediente, superficie, modelos = {} } = {}) 
         avisos.push('La aerotermia produce también el ACS pero no consta su SCOP_dhw: '
                     + 'se escribe como equipo de SOLO calefacción. Ponlo en Instalación.');
     }
-    if (d.acsAparte) {
-        avisos.push('El ACS lo resuelve OTRO equipo: el .cex lleva solo el de calefacción. '
-                    + 'Añade el de ACS en CE3X (Instalaciones → Equipo de ACS).');
-    }
+    const acs = equipoDeAcs(d, superficie);
+    avisos.push(...acs.avisos);
     if (d.acsFlagContradice) {
         avisos.push('El expediente dice «misma aerotermia para ACS» y a la vez declara otra '
                     + 'máquina. Se ha escrito lo que dicen los equipos: compruébalo.');
@@ -597,7 +613,11 @@ export function instalacionNueva({ expediente, superficie, modelos = {} } = {}) 
     // El depósito NO se inventa: 123 de los 138 equipos con bomba de calor del
     // corpus van sin acumulación, y los litros son un dato del expediente. Si no
     // constan, se dice — es una casilla de CE3X que hay que marcar a mano.
-    const acumulacion = d.litros > 0 ? { volumen: d.litros } : null;
+    //
+    // Y cuelga de la máquina que calienta el agua: si el ACS va aparte, el
+    // depósito es SUYO (lo pone `equipoDeAcs`), no del equipo de calefacción —
+    // que además es un slot de 9 campos, sin sitio donde escribirlo.
+    const acumulacion = (d.litros > 0 && !d.acsAparte) ? { volumen: d.litros } : null;
     if (mixto && !acumulacion) {
         avisos.push('No consta el volumen del depósito de ACS: el equipo sale SIN '
                     + 'acumulación. Si lo lleva, márcalo en CE3X (o ponlo en Instalación).');
@@ -609,6 +629,7 @@ export function instalacionNueva({ expediente, superficie, modelos = {} } = {}) 
         + 'Sale de la aerotermia del expediente: compruébalo con su ficha técnica.');
 
     return {
+        extras: acs.equipo ? [acs.equipo] : [],
         equipo: {
             slot: mixto ? 'mixto2' : 'calefaccion',
             nombre: d.nombre,
@@ -628,6 +649,77 @@ export function instalacionNueva({ expediente, superficie, modelos = {} } = {}) 
                 + 'popup «Datos del equipo» y el encargo al certificador).',
         },
         avisos,
+    };
+}
+
+/**
+ * El equipo que resuelve el ACS cuando NO lo hace la bomba de calefacción.
+ *
+ * POR QUÉ EXISTE: sin él, CE3X se niega a calcular — «La instalación de ACS no
+ * está bien definida. El porcentaje de demanda cubierta debe ser el 100 %». Y
+ * no es solo la medida de mejora: un certificado cuya agua caliente no la
+ * produce nadie no se puede emitir. Pasó en 26RES060_187, con una BAXI IRIDIUM
+ * 12 para calefacción y una BAXI BC ACS 150 IN para el agua: el `.cex` salía
+ * con un solo equipo y un aviso pidiendo que el certificador añadiera el otro a
+ * mano. Un aviso no rellena una casilla.
+ *
+ * En CE3X son DOS equipos, cada uno con el % de la demanda que cubre, y el que
+ * se escribe aquí cubre el 100 % del ACS: es el único que la produce.
+ *
+ * REGLA — el rendimiento de una BOMBA DE CALOR de ACS va como CONOCIDO, y eso
+ * cambia la FORMA del registro (ver `equipo_acs` en el motor). Medido: de los
+ * 544 equipos del slot ACS del corpus, 205 lo declaran conocido y 183 de ellos
+ * son bombas de calor. Un TERMO va como estimado al 100 % —efecto Joule, sin
+ * pérdidas que descontar—, que son los 260 casos más frecuentes.
+ *
+ * REGLA — sin SCOP_dhw NO se escribe. Declarar «conocido» con la casilla vacía
+ * es dejar el equipo tan mal definido como no ponerlo, y además inventaría un
+ * rendimiento. Se dice, y el certificador lo pone en CE3X.
+ */
+function equipoDeAcs(d, superficie) {
+    if (!d.acsAparte) return { equipo: null, avisos: [] };
+
+    const nombre = d.nombreAcs || 'EQUIPO DE ACS';
+    //: El depósito es de la máquina que calienta el agua. Si no constan los
+    //: litros no se inventa uno: sale sin acumulación y se dice.
+    const acumulacion = d.litros > 0 ? { volumen: d.litros } : null;
+    const comun = {
+        slot: 'ACS',
+        nombre,
+        combustible: 'Electricidad',
+        superficie_acs: superficie,
+        //: Lo cubre entero: es el único aparato que produce el agua caliente.
+        //: Es justo lo que CE3X comprueba antes de dejar calcular.
+        pct_acs: '100',
+        ...(acumulacion ? { acumulacion } : {}),
+        de: 'del equipo de ACS declarado en el expediente.',
+    };
+
+    if (d.acsTipo === EQUIPO_NUEVO.TERMO) {
+        return {
+            equipo: { ...comun, generador: 'Efecto Joule', rendimiento: 'estimado',
+                      rend_nominal: String(RENDIMIENTO_JOULE * 100) },
+            avisos: [`ACS aparte: se escribe «${nombre}» al 100 % de la demanda, por `
+                     + 'efecto Joule (rendimiento 100 %). CE3X recalcula su estacional '
+                     + 'al abrir Instalaciones.'],
+        };
+    }
+
+    const rend = Math.round((d.scopAcs || 0) * 100);
+    if (!rend) {
+        return { equipo: null, avisos: [
+            `El ACS lo resuelve OTRO equipo (${nombre}) pero no consta su SCOP_dhw: `
+            + 'no se puede escribir su rendimiento y el .cex sale sin él. Ponlo en '
+            + 'Instalación, o añade el equipo a mano en CE3X — sin él, CE3X no deja '
+            + 'calcular («la instalación de ACS no está bien definida»).'] };
+    }
+    return {
+        equipo: { ...comun, generador: d.generadorBdc, rendimiento: 'conocido',
+                  rend_acs: String(rend) },
+        avisos: [`ACS aparte: se escribe «${nombre}» al 100 % de la demanda, con `
+                 + `${rend} % de rendimiento`
+                 + `${acumulacion ? ` y depósito de ${d.litros} l` : ' y SIN depósito'}. `
+                 + 'Compruébalo con su ficha técnica.'],
     };
 }
 
@@ -726,7 +818,8 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
     const avisos = [];
 
     // ── 1. La AEROTERMIA: la actuación de este expediente ────────────────────
-    const { equipo, avisos: avEquipo } = instalacionNueva({ expediente, superficie, modelos });
+    const { equipo, extras = [], avisos: avEquipo } =
+        instalacionNueva({ expediente, superficie, modelos });
     const texto = equipo ? (buildMedidaMejora(expediente, { modelos }) || {}) : {};
     const invers = inversionDeLaObra(expediente);
     const aero = {
@@ -748,7 +841,10 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
             inversion: invers.importe,
             coste_mantenimiento: 0,
             vida_util: VIDA_UTIL_MEDIDA,
-            instalaciones: [equipo],
+            // TODO lo que se instala, no solo el generador: si el ACS lo
+            // resuelve otra máquina, esa máquina forma parte de la medida —y
+            // sin ella CE3X se niega a calcularla entera.
+            instalaciones: [equipo, ...extras],
         } : null,
     };
     if (aero.disponible) {
@@ -1009,7 +1105,13 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
     const anadidos = (cfg.equipos_extra || []).map(x => equipoAnadido(x, { superficie }));
     const instalacion = {
         equipo: conMano.equipo,
-        equipos: [conMano.equipo, ...anadidos.map(a => a.equipo)].filter(Boolean),
+        // Los EXTRAS son los equipos que la propia derivación necesita además
+        // del generador: hoy, el que resuelve el ACS cuando no lo hace la bomba
+        // de calefacción. Sin ellos CE3X no deja calcular («la instalación de
+        // ACS no está bien definida»). Van antes que los AÑADIDOS a mano, que
+        // son los que el certificador mete en su pestaña.
+        equipos: [conMano.equipo, ...(derivada.extras || []),
+                  ...anadidos.map(a => a.equipo)].filter(Boolean),
         falta: conMano.equipo ? null : derivada.falta,
         avisos: [...derivada.avisos, ...conMano.avisos,
                  ...anadidos.flatMap(a => a.avisos)],
