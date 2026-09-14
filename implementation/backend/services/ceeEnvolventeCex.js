@@ -17,6 +17,7 @@ const { pathToFileURL } = require('url');
 const supabase = require('./supabaseClient');
 const driveService = require('./driveService');
 const ceeUploadService = require('./ceeUploadService');
+const { getUnidades } = require('../utils/aerotermiaUnits');
 const catastroService = require('./catastroService');
 const catastroMonitor = require('./catastroMonitor');
 
@@ -113,7 +114,36 @@ async function cargarExpediente(clave) {
     // El id de la carpeta vive en `datos_calculo` de la oportunidad, no en el
     // expediente. Lo resuelve ceeUploadService y no se repite aquí.
     const driveFolderId = await ceeUploadService.resolveDriveFolderId(expediente);
-    return { expediente, cliente, certificador, driveFolderId };
+    const modelos = await modelosDeAerotermia(expediente);
+    return { expediente, cliente, certificador, driveFolderId, modelos };
+}
+
+/**
+ * Los modelos de aerotermia del CATÁLOGO que usa este expediente.
+ *
+ * ⚠️ Sin esto, la ficha decía que faltaba el SEER de equipos que SÍ lo tienen.
+ * El expediente sella del modelo lo que entra en el ahorro —los SCOP— pero el
+ * SEER se queda en el catálogo, así que preguntándole solo al expediente no
+ * aparece nunca: medido en 26RES060_187 con una BAXI IRIDIUM 12, que tiene SEER
+ * 3,66 en la tabla y salía como «falta el SEER» en las medidas de mejora.
+ *
+ * Es lo mismo que hace el popup «Datos del equipo (CE3X)» del módulo CEE, que
+ * carga el catálogo en el navegador; aquí la ficha se compone en el backend y
+ * tiene que cargarlo él.
+ */
+async function modelosDeAerotermia(expediente) {
+    const ids = [...new Set(getUnidades(expediente?.instalacion?.aerotermia_cal)
+        .concat(getUnidades(expediente?.instalacion?.aerotermia_acs))
+        .map(u => u?.aerotermia_db_id).filter(Boolean))];
+    if (!ids.length) return {};
+    const { data, error } = await supabase.from('aerotermia').select('*').in('id', ids);
+    if (error || !data) {
+        // Que no se pueda leer el catálogo NO puede tumbar la generación: lo
+        // peor que pasa es que la ficha pida un dato que ya estaba.
+        console.warn('[ceeEnvolvente] catálogo de aerotermia:', error?.message);
+        return {};
+    }
+    return Object.fromEntries(data.map(m => [m.id, m]));
 }
 
 /**
@@ -224,7 +254,7 @@ async function componerFicha(ctx, { geometria, envolvente, ajustes, medidas = nu
         : { avisos: [] };
     const { ficha, avisos, medidas: catalogo, faltan } = fichaCe3x({
         expediente: ctx.expediente, cliente: ctx.cliente,
-        certificador: ctx.certificador,
+        certificador: ctx.certificador, modelos: ctx.modelos,
         geo: { geometria }, envolvente, ajustes, imagenes, fase, medidas,
     });
     // El CATÁLOGO viaja aparte de la ficha: es lo que la pestaña de medidas

@@ -152,5 +152,62 @@ comprueba('y un 0 tampoco la inventa',
           instalacionExistente({ expediente: expediente(), superficie: 165, litros: 0 })
               .equipo.acumulacion, undefined);
 
+// ─────────────────────────────────────────────────────────────────────────────
+// El CATÁLOGO de aerotermia: sin él, la ficha pide datos que YA ESTÁN
+// ─────────────────────────────────────────────────────────────────────────────
+// El expediente sella del modelo lo que entra en el ahorro —los SCOP— pero el
+// SEER se queda en el catálogo. Preguntándole solo al expediente no aparece
+// nunca: medido en 26RES060_187 con una BAXI IRIDIUM 12, que tiene SEER 3,66 en
+// la tabla y salía como «falta el SEER» en las medidas de mejora.
+const conAcsAparte = () => ({
+    numero_expediente: '26RES060_187',
+    instalacion: {
+        // Suelo radiante porque es el que DA FRÍO: con radiadores no hay modo
+        // refrigeración y el SEER ni se menciona, que es justo el dato que este
+        // bloque vigila (`EMISORES_CON_FRIO`).
+        cambio_calefaccion: true, tipo_emisor: 'suelo_radiante',
+        cambio_acs: true, misma_aerotermia_acs: false,
+        caldera_antigua_cal: { rendimiento_id: 'gasoil_pre1980' },
+        aerotermia_cal: { marca: 'BAXI', modelo: 'IRIDIUM', modelo_ud_exterior: 'IRIDIUM 12',
+                          aerotermia_db_id: 122, scop: 4.77 },
+        aerotermia_acs: { marca: 'BAXI', modelo: 'BC ACS 150 IN', scop: 3.4 },
+    },
+    cee: {}, documentacion: {},
+});
+const CATALOGO = { 122: { id: 122, seer: 3.66 } };
+const medidaAero = (modelos) => (medidasCe3x({
+    expediente: conAcsAparte(), superficie: 120, fase: 'inicial', modelos,
+}).catalogo || []).find(m => m.id === 'aerotermia');
+
+comprueba('SIN catálogo, la ficha dice que falta el SEER',
+          /Falta el SEER/.test(medidaAero({})?.nota || ''), true);
+comprueba('CON catálogo, ya no lo pide',
+          /Falta el SEER/.test(medidaAero(CATALOGO)?.nota || ''), false);
+comprueba('y el texto lleva el SEER del modelo',
+          /SEER de 3,66/.test(medidaAero(CATALOGO)?.datos?.caracteristicas || ''), true);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// El nombre del CONJUNTO lleva el equipo de ACS si va aparte
+// ─────────────────────────────────────────────────────────────────────────────
+// Una medida de mejora es TODO lo que se instala. Con el nombre del generador a
+// secas, el conjunto se llamaba «AEROTERMIA BAXI IRIDIUM» en una obra que monta
+// además una BAXI BC ACS 150 IN — y el párrafo de características, dos líneas
+// más abajo, sí la nombraba.
+comprueba('el nombre del conjunto nombra las DOS máquinas',
+          medidaAero(CATALOGO)?.datos?.nombre,
+          'AEROTERMIA BAXI IRIDIUM (IRIDIUM 12) + BOMBA DE CALOR ACS BAXI BC ACS 150 IN');
+
+const mismaMaquinaAcs = () => {
+    const e = conAcsAparte();
+    e.instalacion.aerotermia_acs = { ...e.instalacion.aerotermia_cal };
+    return e;
+};
+comprueba('si el ACS es la MISMA máquina, no se repite en el nombre',
+          ((medidasCe3x({ expediente: mismaMaquinaAcs(), superficie: 120, fase: 'inicial',
+                          modelos: CATALOGO }).catalogo || [])
+              .find(m => m.id === 'aerotermia')?.datos?.nombre || '').includes(' + '),
+          false);
+
+
 console.log(fallos ? `\n${fallos} FALLAN` : '\nTodo correcto.');
 process.exit(fallos ? 1 : 0);

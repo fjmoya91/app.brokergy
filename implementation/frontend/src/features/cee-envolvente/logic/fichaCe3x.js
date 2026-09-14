@@ -549,9 +549,11 @@ const positivo = v => (Number(v) > 0 ? Number(v) : null);
  * 1.506 `.cex` de producción, 132 de los 138 equipos mixtos con bomba de calor
  * lo declaran así.
  */
-export function instalacionNueva({ expediente, superficie } = {}) {
+export function instalacionNueva({ expediente, superficie, modelos = {} } = {}) {
     const avisos = [];
-    const d = resolverCe3x(expediente, {});
+    // ⚠️ CON el catálogo. Iba `{}`, y entonces todo lo que vive en el modelo y
+    // no se sella en el expediente —el SEER— salía como si faltara.
+    const d = resolverCe3x(expediente, { modelos });
     if (!d) {
         return { equipo: null, falta: 'falta la aerotermia',
                  avisos: ['No consta la aerotermia nueva en el expediente: el .cex '
@@ -718,19 +720,19 @@ export const AUTOCONSUMO_DECLARABLE = 0.9;
  * calcular, y el certificador solo pulsa «Actualizar».
  */
 export function medidasCe3x({ expediente, superficie, fase = 'inicial',
-                              elegidas = null, textos = null } = {}) {
+                              elegidas = null, textos = null, modelos = {} } = {}) {
     const esFinal = fase === 'final';
     const catalogo = [];
     const avisos = [];
 
     // ── 1. La AEROTERMIA: la actuación de este expediente ────────────────────
-    const { equipo, avisos: avEquipo } = instalacionNueva({ expediente, superficie });
-    const texto = equipo ? (buildMedidaMejora(expediente) || {}) : {};
+    const { equipo, avisos: avEquipo } = instalacionNueva({ expediente, superficie, modelos });
+    const texto = equipo ? (buildMedidaMejora(expediente, { modelos }) || {}) : {};
     const invers = inversionDeLaObra(expediente);
     const aero = {
         id: 'aerotermia',
         titulo: 'Sustitución por aerotermia',
-        resumen: equipo?.nombre || 'La actuación de este expediente',
+        resumen: nombreDelConjunto(expediente, equipo, modelos),
         porDefecto: !esFinal,
         disponible: !!equipo && !esFinal,
         motivo: esFinal
@@ -738,7 +740,9 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
             : (equipo ? null : (avEquipo[0] || 'El expediente no declara equipo nuevo.')),
         nota: null,
         datos: equipo ? {
-            nombre: equipo.nombre,
+            // El nombre del CONJUNTO, no el del generador: la medida es todo lo
+            // que se instala, y el equipo de ACS —si va aparte— también entra.
+            nombre: nombreDelConjunto(expediente, equipo, modelos),
             caracteristicas: texto.texto || '',
             otros_datos: OTROS_DATOS_MEDIDA,
             inversion: invers.importe,
@@ -925,6 +929,12 @@ export function faltaPorPreguntar(cfg = {}, { fase = 'inicial' } = {}) {
 }
 
 
+/** El nombre del conjunto de medidas, con el equipo de ACS si va aparte. */
+function nombreDelConjunto(expediente, equipo, modelos) {
+    const d = resolverCe3x(expediente, { modelos });
+    return d?.nombreConjunto || equipo?.nombre || 'La actuación de este expediente';
+}
+
 /**
  * Las casillas del diálogo «Opciones del Informe» de CE3X.
  *
@@ -951,7 +961,8 @@ export function informeCe3x(expediente, fase = 'inicial') {
 
 
 export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, imagenes,
-                            certificador, fase = 'inicial', medidas = null } = {}) {
+                            certificador, modelos = {},
+                            fase = 'inicial', medidas = null } = {}) {
     const g = geo?.geometria || geo || {};
     const inmueble = g.modelo?.catastro?.inmueble || {};
     const cfg = { ...AJUSTES_POR_DEFECTO, ...(ajustes || {}) };
@@ -985,7 +996,7 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
     // los dos `.cex` de 26RES060_186: solo cambia el de instalaciones.
     const esFinal = fase === 'final';
     const derivada = esFinal
-        ? instalacionNueva({ expediente, superficie })
+        ? instalacionNueva({ expediente, superficie, modelos })
         : instalacionExistente({ expediente, superficie,
                                 litros: positivo(cfg.acumulacion_litros) });
     // Lo que el certificador haya tecleado en la pestaña de Instalaciones manda
@@ -1004,7 +1015,7 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
     };
     // Las MEDIDAS DE MEJORA que el certificador haya marcado en su pestaña. Sin
     // elección manda lo que describe la fase (ver `medidasCe3x`).
-    const mejora = medidasCe3x({ expediente, superficie, fase, elegidas: medidas,
+    const mejora = medidasCe3x({ expediente, superficie, fase, elegidas: medidas, modelos,
                                  textos: cfg.medidas_texto });
     if (!he4.valor) {
         avisos.push(`Zona climática HE4 sin determinar para ${dir.provincia || 'esta provincia'}: `

@@ -91,6 +91,24 @@ function nombreEquipo(aero, prefijo = 'AEROTERMIA ', { udExterior = true, conteo
 }
 
 /**
+ * Lo que se le añade al nombre del conjunto cuando el ACS lo resuelve OTRO
+ * aparato.
+ *
+ * Solo cuando va APARTE: si es la misma máquina ya está nombrada, y repetirla
+ * daría «AEROTERMIA X + AEROTERMIA X». Cada tipo se nombra por lo que es — una
+ * bomba de calor de ACS lleva su marca y su modelo, que es lo que identifica la
+ * máquina; un termo o un acumulador no hace falta que la lleven en el TÍTULO,
+ * porque el párrafo de características los describe entero.
+ */
+function sufijoConjunto({ acsAparte, acsTipo, acsNode }) {
+    if (!acsAparte) return '';
+    if (acsTipo === EQUIPO_NUEVO.TERMO) return ' + TERMO ELÉCTRICO PARA ACS';
+    if (acsTipo === EQUIPO_NUEVO.ACUMULADOR) return ' + ACUMULACIÓN DE ACS';
+    const n = nombreEquipo(acsNode, '', { udExterior: false, conteo: false });
+    return n ? ` + BOMBA DE CALOR ACS ${n}` : ' + BOMBA DE CALOR PARA ACS';
+}
+
+/**
  * SEER aplicado del bloque = el MENOR de las unidades (mismo criterio conservador
  * que el SCOP en cascada). `modelos` es el mapa id→fila del catálogo, porque el
  * SEER vive en la ficha del MODELO, no en el expediente.
@@ -275,6 +293,14 @@ export function resolverCe3x(exp, { modelos = {} } = {}) {
         coberturaBdc, repartoValido, pctCal,
         tipoEquipo: tipoEquipoCe3x({ conAcs: acsEnMismoEquipo, conFrio }),
         nombre: nombreEquipo(cal, prefijoNombre),
+        // El nombre del CONJUNTO de medidas de mejora, que NO es el del equipo:
+        // una medida de mejora es TODO lo que se instala, y si el ACS lo
+        // resuelve otra máquina, esa máquina también se instala. Con el nombre
+        // del generador a secas, el conjunto se llamaba «AEROTERMIA BAXI
+        // IRIDIUM» en una obra que monta además una BAXI BC ACS 150 IN — y el
+        // párrafo de características, dos líneas más abajo, sí la nombraba.
+        nombreConjunto: nombreEquipo(cal, prefijoNombre)
+            + sufijoConjunto({ acsAparte, acsTipo, acsNode: inst.aerotermia_acs }),
         // El mismo nombre SIN la unidad exterior entre paréntesis. La casilla
         // "Nombre" de CE3X la lleva (identifica la máquina); una frase corrida, no:
         // "AEROTERMIA SH MASTER 14 (MASTER 14)" se lee como una errata.
