@@ -4,6 +4,7 @@ import axios from 'axios';
 import { EnvolventeView } from './EnvolventeView';
 import { PestanasCe3x } from '../components/PestanasCe3x';
 import { buildInstalacionAddress } from '../../expedientes/utils/docGenerators';
+import { EnlacesInmueble } from '../../../components/EnlacesInmueble';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // La envolvente en su PROPIA VENTANA (`/envolvente/:expedienteId`).
@@ -76,6 +77,11 @@ export function EnvolventeVentana({ expedienteId }) {
         );
     }
 
+    // DÓNDE está el inmueble, con su referencia: de aquí salen el subtítulo y los
+    // dos enlaces. Es la fuente única de la dirección de instalación, que NO es
+    // el domicilio del cliente.
+    const donde = buildInstalacionAddress(expediente) || {};
+
     return (
         <div className="min-h-screen bg-bkg-base text-white">
             {/* La cabecera y la barra de apartados van JUNTAS y pegadas arriba:
@@ -83,8 +89,9 @@ export function EnvolventeVentana({ expedienteId }) {
                 el número mágico que se descuadra en cuanto alguien cambia el
                 logo. */}
             <div className="sticky top-0 z-10">
-                <header className="flex items-center gap-3 border-b border-white/[0.07]
-                                   bg-bkg-deep/95 px-5 py-3 backdrop-blur">
+                <header className="flex flex-wrap items-center gap-x-3 gap-y-2
+                                   border-b border-white/[0.07] bg-bkg-deep/95 px-5 py-3
+                                   backdrop-blur">
                     <img src="/logo-ce3x.svg" alt="CE3X" className="h-9 w-9 shrink-0" />
                     <div className="min-w-0">
                         <h1 className="truncate text-sm font-black uppercase tracking-widest">
@@ -95,8 +102,40 @@ export function EnvolventeVentana({ expedienteId }) {
                         </p>
                     </div>
 
+                    {/* La referencia y sus dos enlaces, los mismos que la ficha
+                        técnica de la oportunidad. Aquí se está midiendo ESTE
+                        inmueble: comprobar en Catastro lo que Catastro dice de
+                        él —y ver dónde cae— es parte del trabajo, y salir de la
+                        ventana a buscarlo pierde el sitio del plano.
+
+                        La referencia va seleccionable y solo en pantallas
+                        anchas: en una estrecha empuja fuera los botones, que es
+                        lo que de verdad se pulsa. */}
+                    {/* La referencia y sus dos enlaces van en UN grupo, y el
+                        `ml-auto` es del grupo y no de la referencia: ella se
+                        esconde por debajo de 1536 px —en una pantalla estrecha
+                        empuja fuera los botones, que es lo que de verdad se
+                        pulsa— y con el margen puesto en ella, al ocultarse se
+                        llevaba por delante el alineado a la derecha de TODA la
+                        cabecera. */}
+                    <div className="ml-auto flex items-center gap-2">
+                        {donde.refCatastral && (
+                            <code className="hidden shrink-0 select-all rounded-lg border
+                                             border-white/10 bg-white/[0.04] px-2.5 py-2
+                                             font-mono text-[11px] font-bold tracking-tight
+                                             text-white/70 2xl:inline-block">
+                                {donde.refCatastral}
+                            </code>
+                        )}
+                        {/* ⚠️ `buildInstalacionAddress` devuelve un OBJETO y la
+                            dirección entera es su campo `full`: pasándole el
+                            objeto, Maps se abría buscando "[object Object]". */}
+                        <EnlacesInmueble compacto rc={donde.refCatastral}
+                                         direccion={donde.full} />
+                    </div>
+
                     {aviso && (
-                        <span className="ml-auto truncate text-[11px] text-emerald-300">
+                        <span className="truncate text-[11px] text-emerald-300">
                             {aviso}
                         </span>
                     )}
@@ -105,8 +144,7 @@ export function EnvolventeVentana({ expedienteId }) {
                         sidebar: para ver la app en claro había que salir. Y es
                         justo aquí donde se mira el contraste, con el plano
                         delante. */}
-                    <ThemeToggle collapsed
-                                 className={`${aviso ? '' : 'ml-auto'} !h-9 !w-9`} />
+                    <ThemeToggle collapsed className="!h-9 !w-9" />
                     <a href={`/?tab=expedientes&exp=${expedienteId}`}
                        className="shrink-0 rounded-lg border border-white/10
                                   px-3 py-2 text-[10px] font-black uppercase tracking-widest

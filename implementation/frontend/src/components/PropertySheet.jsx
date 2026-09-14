@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { desgloseConstrucciones } from '../utils/construcciones';
+import { EnlacesInmueble } from './EnlacesInmueble';
 
 const API_URL = '/api/catastro';
 
@@ -120,13 +121,6 @@ export function PropertySheet({ data, onCalculateDemand, initialSelection }) {
             return;
         }
         const url = `https://www1.sedecatastro.gob.es/Cartografia/mapa.aspx?del=${data.provinceCode}&mun=${data.municipalityCode}&refcat=${data.rc}`;
-        window.open(url, '_blank');
-    };
-
-    const handleOpenPDF = () => {
-        const rc1 = data.rc.substring(0, 7);
-        const rc2 = data.rc.substring(7, 14);
-        const url = `https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?rc1=${rc1}&rc2=${rc2}&RCCompleta=${data.rc}`;
         window.open(url, '_blank');
     };
 
@@ -303,33 +297,12 @@ export function PropertySheet({ data, onCalculateDemand, initialSelection }) {
                                 </div>
                             </button>
 
-                            {/* Action Links */}
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={handleOpenPDF}
-                                    className="h-[52px] px-4 btn-secondary text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border-white/10 rounded-xl"
-                                    title="Ir a la Sede Electrónica del Catastro"
-                                >
-                                    <svg className="w-4 h-4 text-brand flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                    </svg>
-                                    <span className="hidden sm:inline">Enlace a Catastro</span>
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        const query = encodeURIComponent(data.address);
-                                        window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, '_blank');
-                                    }}
-                                    className="h-[52px] px-4 btn-secondary text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border-white/10 rounded-xl"
-                                    title="Ver en Google Maps"
-                                >
-                                    <svg className="w-4 h-4 text-green-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                                    </svg>
-                                    <span className="hidden sm:inline">Ver en Maps</span>
-                                </button>
-                            </div>
+                            {/* Action Links — los MISMOS que la ventana de la
+                                envolvente. Lo que no puede divergir es la URL de
+                                la Sede: parte la referencia en dos trozos de 7 y
+                                una partida distinta no da error, abre la ficha de
+                                OTRO inmueble. */}
+                            <EnlacesInmueble rc={data.rc} direccion={data.address} />
                         </div>
                     </div>
 
