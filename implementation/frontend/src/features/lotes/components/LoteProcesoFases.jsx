@@ -1224,6 +1224,15 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
             <Fase f={f4} pendiente={canSeeMargin && (!verif.completo || !p.facturaVerificador)}>
                 <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2 flex-wrap">
+                        {/* Lo primero que manda el verificador cuando ya tiene la
+                            oferta aceptada, antes del informe de inexactitudes: por
+                            eso abre la fase. Solo se ofrece mientras no esté subido
+                            —es UNO por lote— y su reemplazo va en la propia fila. */}
+                        {!p.planVerificacion && (
+                            <BotonSubir disabled={subiendo === 'plan_verificacion'} onFile={(f) => subir('plan_verificacion', f)}>
+                                {subiendo === 'plan_verificacion' ? 'Subiendo…' : '↑ Plan de verificación'}
+                            </BotonSubir>
+                        )}
                         <BotonSubir disabled={subiendo === 'informe_inexactitudes'} onFile={(f) => subir('informe_inexactitudes', f)}>
                             {subiendo === 'informe_inexactitudes' ? 'Subiendo…' : `+ Informe de inexactitudes${p.inexactitudes.length ? ` (${p.inexactitudes.length})` : ''}`}
                         </BotonSubir>
