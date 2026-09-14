@@ -5499,6 +5499,61 @@ multiplicarlo.
 
 ---
 
+## El COSTE DEL INFORME DE VERIFICACIÓN, ya en la simulación (2026-09-11)
+
+Campo nuevo en **Datos Económicos → Configuración y margen Brokergy** (ADMIN, como todo
+ese bloque): el importe en € del informe de verificación de ese expediente. De él salen
+tres cifras que antes solo existían cuando el lote ya estaba montado y la factura del
+verificador subida — es decir, meses después de haber pactado el precio.
+
+| Qué | Cómo |
+|---|---|
+| Verificación repercutida | `coste ÷ MWh de la actuación` |
+| Le cuesta al S.O. | `precio CAE S.O. + repercutida` (€/MWh) |
+| Máximo que se le puede pedir | `EQUIVALENCIA_FINANCIERA − repercutida` |
+
+**REGLA — el coste de la verificación NO es nuestro y NO toca el margen.** Lo paga el
+SUJETO OBLIGADO (decisión 2026-08-04, la misma que aplica `lotes/logic/loteEco.js`): el
+beneficio de Brokergy sigue siendo `precio S.O. − precio cliente`, ni un euro menos. Si
+se restara aquí, el mismo expediente daría un beneficio en la oportunidad y otro distinto
+en su lote.
+
+**REGLA — la EQUIVALENCIA FINANCIERA es una sola.** 198,62 €/MWh (2026) vive ahora en
+[calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js) y
+`loteEco.js` la **reexporta**: la necesitan los dos extremos del negocio —la simulación,
+para saber hasta dónde se puede pedir; el lote, para saber cuánto se le ahorró de verdad—
+y dos copias divergirían el año que el Ministerio la cambie. **Revisar en 2027.**
+
+**Por qué importa el €/MWh y no el importe**: el mismo informe de 1.500 € pesa 13,64
+€/MWh sobre una actuación de 110 MWh y **150 €/MWh** sobre una de 10 — ahí el expediente
+deja de tener sentido para el S.O., que pagaría más que al FNEE. Por eso, cuando el
+desembolso del S.O. supera la equivalencia, la cifra sale en **rojo** y se dice con todas
+las letras que a ese precio no lo compraría.
+
+**REGLA — esto es para CASOS PUNTUALES: por defecto no se ve ni cambia nada.** El campo
+nace **plegado** detrás de un "+ Coste de verificación" y las tres líneas solo aparecen
+con un importe tecleado, así que la pantalla de siempre —y el recuadro de beneficio— se
+ven exactamente igual que antes. Si la oportunidad ya trae un importe guardado, se abre
+sola: un dato guardado no puede quedar escondido detrás de un clic que nadie sabe que hay
+que dar. "Quitar" borra el importe además de plegarlo, o quedaría un valor contando sin
+estar a la vista.
+
+⚠️ **`calculateFinancials` tiene 15 consumidores** (expedientes, lotes, cuadro de mando,
+landing, comparativas y el gemelo de Node) y **ninguno pasa `costeVerificacion`**: todos
+reciben 0 y su resultado es idéntico al de antes. El test lo comprueba campo a campo
+—los 28 que la función ya devolvía— sobre 13 escenarios × 2 importes, y que omitir el
+parámetro devuelva el MISMO objeto que pasar 0.
+
+El valor viaja en `inputs.costeVerificacion` y se guarda con la oportunidad. **No pisa
+`lotes.coste_verificacion`**, que es el REAL y sale de la factura (regla 28): éste es una
+estimación para negociar.
+
+```bash
+node implementation/backend/scripts/test_coste_verificacion.mjs
+```
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -5608,6 +5663,8 @@ multiplicarlo.
 43. **La cartera de INSTALADORES se etiqueta sola en WhatsApp**: al dar de alta o editar un instalador (y en el repaso completo desde el panel de WhatsApp) su chat queda con la etiqueta `INSTALADORES` y, si el número no lo tenías guardado, con su nombre de la BBDD en la agenda. **Un nombre ya guardado NO se toca nunca** —lo puso una persona, a veces con el apodo por el que conoce al instalador— y la lista de etiquetas se manda COMPLETA (`poner()` sustituye, así que va lo que ya tenía MÁS la nuestra). Se etiquetan TODOS los teléfonos que constan (empresa, responsable y contactos de notificación: en 20 de 71 fichas el chat que se usa es el del jefe de obra), deduplicados por los 9 dígitos finales. Fuente única: [whatsappInstaladoresSync.js](implementation/backend/services/whatsappInstaladoresSync.js) + [whatsappContactos.js](implementation/backend/services/whatsappContactos.js). ⚠️ `poner()` fallaba con un chat nunca escrito (`findOrCreateLatestChat` lo devuelve pero `C.Chat.get(@c.us)` sigue vacío porque vive bajo su `@lid`): ahora se crea y se etiqueta en la misma `evaluate`. ⚠️ Un `node scripts/…` NO ve la sesión de WhatsApp (singleton del proceso del servidor), por eso el repaso entra por la ruta con `x-internal-key`. Apagado por defecto (`WA_SYNC_INSTALADORES`) y `dryRun` por defecto en la ruta. Ver "La cartera de instaladores, etiquetada sola en WhatsApp".
 
 45. **Una RC de 14 con división horizontal es un EDIFICIO, y se puede simular entero**: el Catastro devuelve `lrcdnp` y ningún `bico`, y leerlo a pelo era lo que hacía morir la búsqueda de un bloque (`resumirParcela` en `catastroService.js`; `/search` responde **`RC_PARCELA`**). No hace falta ficha nueva: la RES060 es "la caldera de combustión en un EDIFICIO […] para calefacción **y/o** ACS". El alcance selectivo se resuelve con `changeHeating` en `calculateSavings`, con el MISMO mecanismo que el ACS ya tenía —el servicio que queda fuera se calcula con el rendimiento de la caldera y se cancela—, y por defecto (`true`) una vivienda da el número de siempre. **La D_ACS de un edificio sale del `.xml`** (el PDF no la imprime, así que el OCR no puede): nunca del CTE, que es por dormitorios de una vivienda. La deducción del IRPF es la del edificio (**60 %**) repartida entre las viviendas, y **se dice de qué depende** (≥30 % de reducción de EPnr o letra A/B). El bloque es del flujo **interno**; en la landing solo se elige vivienda. Fuente única del concepto: [logic/tipoInmueble.js](implementation/frontend/src/features/calculator/logic/tipoInmueble.js). Tras tocarlo: `node implementation/backend/scripts/test_bloque_viviendas.mjs`. Ver "BLOQUES de viviendas".
+
+46. **El coste del INFORME DE VERIFICACIÓN se teclea ya en la simulación** (ADMIN, en el bloque de margen) y se repercute en €/MWh sobre el ahorro de la actuación: de ahí salen lo que le cuesta al S.O. cada MWh (`precio + repercutida`) y el **techo** de lo que se le puede pedir (`EQUIVALENCIA_FINANCIERA − repercutida`). **No toca el margen de Brokergy**: lo paga el S.O. (decisión 2026-08-04, la misma de `loteEco.js`), y restarlo aquí haría que la oportunidad y su lote dieran beneficios distintos. La **equivalencia financiera** (198,62 €/MWh, revisar en 2027) pasa a vivir en `calculation.js` y `loteEco` la reexporta: la necesitan los dos extremos del negocio. El mismo informe pesa 13,64 €/MWh sobre 110 MWh y 150 sobre 10, así que cuando el desembolso del S.O. supera la equivalencia se avisa en rojo. Tras tocarlo: `node implementation/backend/scripts/test_coste_verificacion.mjs`. Ver "El COSTE DEL INFORME DE VERIFICACIÓN".
 
 38. **Con la BD caída, la app CALLA; nunca contesta una cifra tranquila**: un error de lectura no puede salir por 200. [middleware/auth.js](implementation/backend/middleware/auth.js) seguía adelante con el perfil a null —sin rol, sin empresa— y lo **cacheaba 5 minutos**, así que el partner salía como "USUARIO / LOGO PARTNER", con el menú recortado y, como `GET /oportunidades` acaba filtrando por `creador_id = null`, la cartera a CERO; y esa misma ruta convertía además cualquier fallo de Supabase en `200 []`. Un distribuidor con 19 oportunidades vio "0 oportunidades · 0,00 €" con toda la apariencia de dato bueno —que se lee como trabajo borrado— y recargar no lo arreglaba, porque el fantasma vivía en la caché. Medido el 08/09/2026: Postgres se cayó y arrancó en recuperación (`database system was not properly shut down`) y Cloudflare sirvió **521 Web server is down** delante de Supabase durante ~1 min. Ahora las dos rutas responden **503** (`PROFILE_UNAVAILABLE` / `OPORTUNIDADES_UNAVAILABLE`) y no se cachea nada; el frontend enseña `ProfileUnavailable` (reintentar, y "tus datos siguen ahí") en vez de un dashboard con identidad falsa, la lista conserva lo que ya tuviera, y **el resumen financiero no se pinta si no hay datos** — 0,00 € es justo la cifra que asusta. A quien YA tiene perfil bueno en caché no se le echa por un parpadeo. Vigilado por `node implementation/backend/scripts/test_caida_bd_no_miente.js`.
 

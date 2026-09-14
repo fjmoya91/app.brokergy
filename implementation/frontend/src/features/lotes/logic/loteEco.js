@@ -10,9 +10,13 @@ import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteF
 // Equivalencia financiera del CAE (€/MWh): lo que le costaría al Sujeto Obligado
 // cumplir su obligación pagando al FNEE en vez de comprando CAEs. Es la referencia
 // contra la que se mide lo que se ahorra viniendo con nosotros.
-// Valor de 2026 fijado por el usuario (2026-08-04). REVISAR EN 2027: hay que
-// actualizarlo a mano cuando salga el del año nuevo.
-export const EQUIVALENCIA_FINANCIERA = 198.62;
+//
+// Vive en `calculator/logic/calculation.js` desde 2026-09-11: la simulación también la
+// necesita (para saber hasta dónde se le puede pedir al S.O. por un expediente) y dos
+// copias del mismo número acabarían divergiendo el año que el Ministerio lo cambie.
+// Se reexporta para no tocar a quien ya la importaba de aquí.
+export { EQUIVALENCIA_FINANCIERA } from '../../calculator/logic/calculation';
+import { EQUIVALENCIA_FINANCIERA } from '../../calculator/logic/calculation';
 
 /**
  * Resumen agregado de VARIOS lotes — el cuadro de mando de la vista de Lotes,
