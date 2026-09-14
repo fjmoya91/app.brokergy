@@ -1016,7 +1016,12 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
             nombre_edificio: dato(`${(cfg.tipo_edificio || '').toUpperCase()} EN ${dir.calle}`.trim(),
                                   'compuesto con la dirección de Catastro'),
             direccion: dato(dir.calle, 'CATASTRO'),
-            provincia: dato(dir.provincia, 'CATASTRO'),
+            // ⚠️ SIEMPRE por `provinciaCe3x`, aunque venga bien: es un
+            // DESPLEGABLE de CE3X, y una provincia que no case letra a letra
+            // deja el campo VACÍO — y con él la zona climática, que es de donde
+            // cuelga media ficha. La BD las guarda en MAYÚSCULAS
+            // (`normalizeData`), así que llegan como 'CIUDAD REAL'.
+            provincia: dato(provinciaCe3x(dir.provincia), 'CATASTRO'),
             // 'Otro' + el nombre en texto: el desplegable de municipios de CE3X
             // no tiene los nombres tal cual los escribe Catastro, y elegir uno
             // parecido cambiaría el municipio del certificado.
@@ -1027,7 +1032,8 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
             cliente_nombre: dato(nombreCliente(cliente), 'ficha del cliente'),
             cliente_direccion: dato(cliente?.direccion || null, 'ficha del cliente'),
             cliente_localidad: dato(cliente?.municipio || null, 'ficha del cliente'),
-            cliente_provincia: dato(cliente?.provincia || dir.provincia, 'ficha del cliente'),
+            cliente_provincia: dato(provinciaCe3x(cliente?.provincia || dir.provincia),
+                                    'ficha del cliente'),
             cliente_cp: dato(cliente?.codigo_postal || null, 'ficha del cliente'),
             cliente_telefono: dato(cliente?.tlf || null, 'ficha del cliente'),
             cliente_email: dato(cliente?.email || null, 'ficha del cliente'),
@@ -1153,6 +1159,7 @@ const PROVINCIA_TILDE = {
     'ALMERIA': 'Almería', 'GUIPUZCOA': 'Guipúzcoa', 'A CORUÑA': 'A Coruña',
 };
 function provinciaCe3x(texto) {
+    if (!texto) return texto || null;
     const crudo = String(texto).trim().toUpperCase();
     if (PROVINCIA_TILDE[crudo]) return PROVINCIA_TILDE[crudo];
     const menores = new Set(['de', 'del', 'la', 'las', 'los', 'y']);
