@@ -252,3 +252,55 @@ def test_una_pared_que_solo_cambia_de_sitio_no_repite_la_cifra():
         "PBE1": {"lienzo": [[0, 0], [0, 5.10]]}}}})
     assert "solo cambia de sitio" in avisos[0]
     assert avisos[0].count("5.10") == 1
+
+
+# ---------------------------------------------------------------------------
+# El TIPO de un hueco: `Hueco` o `Lucernario`, y nada mas
+# ---------------------------------------------------------------------------
+# El esquema del CTE lo declara como `pattern 'Hueco|Lucernario'`. Mandabamos
+# 'Ventana' y 'Puerta' —que es como los llama la vista del certificador— y el
+# visor oficial devolvia 20 errores de validacion: con el XML rechazado, el
+# certificado NO SE PUEDE REGISTRAR. Medido sobre 914 XML de certificadores:
+# 10.535 `Hueco`, 116 `Lucernario`, y ni un `Ventana` que no fuera nuestro.
+
+def test_los_dos_unicos_tipos_pasan_tal_cual():
+    for t in ("Hueco", "Lucernario"):
+        assert G.tipo_de_hueco(t) == (t, None)
+
+
+def test_una_ventana_se_escribe_como_hueco_y_se_dice():
+    tipo, aviso = G.tipo_de_hueco("Ventana")
+    assert tipo == "Hueco"
+    assert aviso and "Ventana" in aviso
+
+
+def test_una_puerta_tambien_es_un_hueco():
+    """En CE3X lo que hace puerta a una puerta es su % de marco, no el tipo."""
+    assert G.tipo_de_hueco("Puerta")[0] == "Hueco"
+
+
+def test_sin_tipo_sale_hueco_y_sin_aviso():
+    assert G.tipo_de_hueco(None) == ("Hueco", None)
+
+
+def test_se_corrige_en_vez_de_abortar():
+    """Un .cex que no se genera deja al certificador sin nada, y la traduccion
+    aqui es inequivoca. Pero no puede ser en silencio."""
+    tipo, aviso = G.tipo_de_hueco("loquesea")
+    assert tipo == "Hueco" and aviso
+
+
+def test_el_cex_NUNCA_sale_con_un_tipo_que_el_esquema_rechaza():
+    """De punta a punta: aunque la vista mande 'Ventana', en el fichero va
+    'Hueco' — que es lo unico que el registro acepta."""
+    geo = {"elementos": [dict(_pared("FBS1", 9.05), subtipo="CALLE")]}
+    datos = _datos({})
+    datos["envolvente"]["huecos"] = [
+        {"id": "V1", "cerramiento": "FBS1", "ancho": 1.3, "alto": 1.3, "tipo": "Ventana"},
+        {"id": "PE", "cerramiento": "FBS1", "ancho": 0.9, "alto": 2.1, "tipo": "Puerta",
+         "porc_marco": "90", "marco": "Madera"},
+    ]
+    env, avisos = G.construir_envolvente(geo, datos)
+    tipos = {str(h.estado["tipo"]) for h in env[1]}
+    assert tipos == {"Hueco"}
+    assert sum("solo admite" in a for a in avisos) == 2

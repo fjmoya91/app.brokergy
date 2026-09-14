@@ -183,6 +183,35 @@ PSI = {
 }
 
 
+#: Los DOS valores que admite el campo `tipo` de un hueco. No es una opinion:
+#: el esquema del CTE lo declara como `pattern 'Hueco|Lucernario'` y el visor
+#: oficial (visorxml.codigotecnico.org) rechaza el XML con cualquier otro — con
+#: el XML rechazado, el certificado NO SE PUEDE REGISTRAR.
+#:
+#: Medido sobre 914 XML de certificadores: 10.535 `Hueco` y 116 `Lucernario`, y
+#: ni un solo `Ventana` o `Puerta` que no saliera de nosotros. Y en un .cex de
+#: certificador, un hueco llamado `V1` lleva `tipo = 'Hueco'`: CE3X NO distingue
+#: ahi la puerta de la ventana. Lo que hace puerta a una puerta es su 90 % de
+#: marco, no este campo.
+TIPO_HUECO = ("Hueco", "Lucernario")
+
+
+def tipo_de_hueco(valor):
+    """El `tipo` que se escribe, y el aviso si hubo que corregirlo.
+
+    Se CORRIGE en vez de abortar: un `.cex` que no se genera deja al
+    certificador sin nada, y aqui la traduccion es inequivoca —una ventana y una
+    puerta son huecos—. Pero se DICE, porque un valor que no sale del programa
+    es justo lo que acaba en un requerimiento tres semanas despues.
+    """
+    v = str(valor or "Hueco").strip()
+    if v in TIPO_HUECO:
+        return v, None
+    return "Hueco", (f"hueco de tipo {v!r}: CE3X solo admite "
+                     f"{' o '.join(TIPO_HUECO)}, se escribe 'Hueco' "
+                     f"(una puerta se declara por su % de marco, no por aqui)")
+
+
 def hueco(h: dict, cerramiento: list, espacio: str, defecto: dict):
     """Un hueco, como el `INST` que escribe CE3X.
 
@@ -203,7 +232,7 @@ def hueco(h: dict, cerramiento: list, espacio: str, defecto: dict):
     return P.Instancia("Envolvente.objetosEnvolvente", "HuecoEstimadas", {
         Cadena("__tipo__"): Cadena("HuecoEstimadas"),
         Cadena("descripcion"): str(h["id"]),
-        Cadena("tipo"): Cadena(h.get("tipo", "Hueco")),
+        Cadena("tipo"): Cadena(tipo_de_hueco(h.get("tipo"))[0]),
         Cadena("cerramientoAsociado"): str(cerramiento[0]),
         Cadena("orientacion"): (str(cerramiento[5])
                                 if cerramiento[1] == "Fachada" else ""),
@@ -1195,6 +1224,9 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
             raise GeneracionError(
                 f"el hueco {h.get('id')!r} esta en {soporte[0]!r}, que da a "
                 f"{soporte[-1]!r}. Un hueco solo va en un cerramiento al exterior.")
+        _, aviso_tipo = tipo_de_hueco(h.get("tipo"))
+        if aviso_tipo:
+            avisos.append(f"{h.get('id')}: {aviso_tipo}")
         huecos.append(hueco(h, soporte, str(soporte[-2]), defecto))
         if h.get("de"):
             avisos.append(f"hueco {h['id']}: {h['de']}")

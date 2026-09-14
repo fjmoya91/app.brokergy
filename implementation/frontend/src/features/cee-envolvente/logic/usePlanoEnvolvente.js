@@ -486,7 +486,16 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                     // motor, y si se ha renombrado, el viejo ya no existe allí.
                     id: h.nombre, cerramiento: nombreDe(m),
                     ancho: Number(h.ancho), alto: Number(h.alto),
-                    tipo: esPuerta ? 'Puerta' : 'Ventana',
+                    // ⚠️ SIEMPRE 'Hueco'. CE3X no distingue aquí la puerta de la
+                    // ventana: sus dos valores son `Hueco` y `Lucernario`, el
+                    // esquema del CTE lo declara como `pattern 'Hueco|Lucernario'`
+                    // y el visor oficial RECHAZA el XML con cualquier otro — y con
+                    // el XML rechazado el certificado no se puede registrar.
+                    // Mandábamos 'Ventana'/'Puerta' y por eso el registro de la
+                    // JCCM devolvía 20 errores de validación en 26RES060_186.
+                    // Lo que hace puerta a una puerta es su 90 % de marco, que va
+                    // aquí debajo; el nombre (PE, V1) ya dice cuál es cuál.
+                    tipo: 'Hueco',
                     // Una puerta de entrada es casi toda opaca: 90% de marco,
                     // no el 20% de una ventana.
                     ...(esPuerta ? { porc_marco: '90', marco: 'Madera' } : {}),
