@@ -6847,6 +6847,77 @@ node implementation/backend/scripts/test_imagenes_cex.mjs
 
 ---
 
+## Los administrativos se CORRIGEN desde la ventana, en su fuente (2026-09-14)
+
+Dos cosas que salieron de usarla, y son la misma: la pestaña de **Datos
+administrativos** decía «no consta» de datos que la app SÍ tiene, y no daba
+forma de arreglarlos sin cerrar la pestaña.
+
+| Qué | Dónde |
+|---|---|
+| La cascada del teléfono y el correo del titular | `contactoDelCliente()` en [fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js) |
+| Escribir en la ficha del cliente / del técnico | `guardarCliente` · `guardarTecnico` · `fuenteEditable` en [ceeEnvolventeCex.js](implementation/backend/services/ceeEnvolventeCex.js) |
+| Rutas | `PUT /:id/cliente` (**staffOnly**) · `PUT /:id/tecnico` (equipo interno **o el propio técnico**) |
+| Superficie | `PanelAdministrativos` / `GrupoFicha` en [PanelesFicha.jsx](implementation/frontend/src/features/cee-envolvente/components/PanelesFicha.jsx) |
+| Prueba | `node implementation/backend/scripts/test_contacto_cliente_ce3x.mjs` |
+
+**REGLA — el teléfono y el correo del titular caen a su PERSONA DE CONTACTO, y
+se dice con su nombre.** En muchas obras quien lleva el trato es un hijo, la
+pareja o el instalador, y su número —el marcado «Notif. aquí»— es el único que
+tenemos: la ficha preguntaba solo por `tlf` y `email`, así que ese dato no
+llegaba nunca al `.cex`. Medido en 26RES060_187: el titular los tiene a null y
+los de JUAN ANTONIO estaban escritos dos líneas más abajo. El del TITULAR manda
+cuando existe —en el certificado el cliente es él—, la decisión es **campo a
+campo** (hay fichas con el móvil del titular y el correo del contacto), y cuando
+sale del contacto el `de:` lo dice: no es lo mismo el correo de quien firma que
+el de quien lleva la obra.
+
+**REGLA — se corrige EN LA FUENTE, no en una copia.** El botón de editar escribe
+en `clientes` y en `prescriptores`, que es de donde lo lee todo lo demás: el
+Anexo I, el convenio y los avisos. Un titular guardado también dentro del
+trabajo acabaría ganándolo el que se guardara el último. Por eso la regla de la
+pestaña sigue en pie —los administrativos NO se teclean en la ficha— y lo que
+cambia es que ya no hay que salir a arreglarlos a otra pantalla.
+
+**REGLA — en LECTURA se enseña lo compuesto; en EDICIÓN, las COLUMNAS.** Lo que
+hay que revisar es lo que va a ir al `.cex` (el nombre ya unido a los apellidos,
+la provincia pasada por el desplegable de CE3X), y sobre eso no se puede
+escribir: dejar editable «Nombre o razón social» obligaría a adivinar dónde
+acaban el nombre y empiezan los apellidos. El backend devuelve `fuente` —las
+columnas en crudo— FUERA de `ficha`, que es lo que se le manda al motor.
+
+**REGLA — el CLIENTE lo corrige el equipo interno; el TÉCNICO, también ÉL.** Del
+titular cuelgan el Anexo I y el convenio que ya puede estar firmado: ahí el
+certificador no pinta nada. Sus once campos sí son suyos —es él quien sabe su nº
+de colegiado— y se comprueban contra el certificador **ASIGNADO** a ese
+expediente, nunca sobre la ficha de otro. El `dni` del cliente no está en la
+lista: el bloque de CE3X no tiene NIF y ése cuelga de documentos firmados.
+
+**REGLA — lo que se escribe pasa por `normalizeData`,** igual que el formulario
+de Clientes. Si no, el mismo dato quedaría en MAYÚSCULAS escrito desde una
+pantalla y capitalizado desde la otra, y `provinciaCe3x` —que casa contra un
+desplegable de CE3X— dejaría de encontrarlo.
+
+## Lo que el CERTIFICADOR no tiene que ver ni tocar (2026-09-14)
+
+El expediente es interno y él entra a lo suyo: medir, emitir y subir el
+certificado. Cuatro cosas que veía y no le correspondían:
+
+- **La EMPRESA INSTALADORA asignada** (`InstalacionModule`): es un dato
+  comercial del que no cuelga nada suyo, y el desplegable —aunque fuera en solo
+  lectura— le enseñaba la cartera entera de instaladores.
+- **El conmutador `Auto XML · Manual`** y el del método del ahorro RES080
+  (`CeeModule`): deciden de dónde salen las cifras del CIFO y de la ficha, que
+  firmamos nosotros.
+- **El método de la D_ACS** (`XML · HAB · L/D · MAN`, en `CeeDocumentsGrid`):
+  **el VALOR se queda** —es lo que tiene que teclear en CE3X—, los botones no.
+- **«Certificador no asignado»**: quitarse a sí mismo devuelve el expediente a
+  la cola, le retira su propio acceso y nadie se entera, porque en la ficha
+  sigue pareciendo que está en marcha. `TecnicoPicker` deja de ofrecerlo
+  (`permiteVaciar`) **y el `PUT /api/expedientes/:id` lo repite**: si quien
+  pregunta es CERTIFICADOR, `cee.certificador_id` no se mueve — mismo blindaje
+  que `cee.estado` y que REGISTRADO.
+
 ## Un CONJUNTO resuelve el ACS solo (2026-09-13)
 
 Muchos equipos del catálogo traen el acumulador DENTRO — lo que en obra se llama un
@@ -7082,6 +7153,10 @@ cuanto el popup rellene el η_wh de alguno de los 27, que es justo para lo que e
 48. **El `.cex` de la envolvente se guarda SIEMPRE en `1. CEE / CEE INICIAL` como `{nº} - CEE INICIAL_REVISAR.cex`, y sus transmitancias son las de la oportunidad**: salen de `getUByYear` ([calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js)), que ya implementa la Guía de Transmitancias de BROKERGY valor a valor — no se copia ninguna U. La ficha la compone el BACKEND desde el expediente ([fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js) + [ceeEnvolventeCex.js](implementation/backend/services/ceeEnvolventeCex.js)), nunca el navegador. El `_REVISAR` del nombre es funcional: `matchSlot` reconoce el `.cex` del técnico **solo por la extensión**, así que sin la salida `_revisar.cex → null` la rejilla daría el certificado por presentado. La **foto de fachada y el croquis de parcela** van dentro, bajados del Catastro con las funciones que la app ya tiene (en serie, con pausa, mirando el monitor del WAF y cacheados por RC) — y solo al generar, no al previsualizar. Lo que no se puede derivar (demanda ACS, masa de particiones, zona HE4 fuera de las comprobadas) sale declarado con su `de:`, nunca inventado. Verificado contra el `.cex` que un certificador hizo a mano para 26RES060_186: **19 de 19 campos coinciden**. Tras tocarlo: `node implementation/backend/scripts/probar_cex_envolvente.js 26RES060_186`. Ver "El `.cex` de la envolvente".
 
 48.b **El CEE FINAL se hace COPIANDO el inicial, no regenerándolo**: se coge `{nº} - CEE INICIAL_REVISAR.cex` de la carpeta, se le cambia SOLO el pickle de instalaciones y se guarda como `{nº} - CEE FINAL_REVISAR.cex` en `1. CEE / CEE FINAL`. Es como se hace a mano y está comprobado pickle a pickle contra el `.cex` que guardó el certificador desde CE3X en 26RES060_186: de los 15 pickles solo cambia el 4, y sus **10 campos salen idénticos**. Sin inicial en la carpeta → **409**: el final es el inicial con un cambio. El generador viejo se **RETIRA** (es la actuación, no un añadido) y se dice con su nombre; qué slots se vacían lo deduce `SERVICIOS_DEL_SLOT`, así que lo que la obra no toca —placas solares, iluminación, bombas— se queda. **Lo que ya dice el fichero manda**: la superficie servida y el DEPÓSITO de ACS se heredan de él (el depósito es del edificio, no de la caldera). El rendimiento de una bomba de calor va como **CONOCIDO**, que cambia la casilla `[6]` y con ella la FORMA del bloque `[7]` — medido sobre los 1.506 `.cex` de producción (138 mixtos con BdC: 132 conocidos, 138 con `Electricidad`, 123 sin acumulación). La **hibridación no se escribe**: ahí la caldera se queda y son dos generadores. Fuentes únicas: `instalacionNueva()` en [fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js) (qué equipo) y `sustituir_pickle` / `slots_a_retirar` / `heredar_del_base` en el motor (cómo se escribe). Tras tocarlo: `node implementation/backend/scripts/test_cex_final.mjs`. ⚠️ Un equipo de ACS con el MISMO modelo que el de calefacción es UNA máquina (41 expedientes declaraban dos), y el SCOP_dhw sale del nodo de ACS cuando lo declara. ⚠️ La altura de planta por defecto pasa a **2,80 m** en los cuatro sitios: las envolventes traídas antes dan otra superficie de fachada. Ver "El CEE FINAL se hace COPIANDO el inicial".
+
+48.c **Los ADMINISTRATIVOS del `.cex` se corrigen desde la ventana, escribiendo en SU FUENTE**: el botón de editar de «Datos del cliente» y de «Datos del técnico» escribe en `clientes` y en `prescriptores` (`PUT /:id/cliente`, **staffOnly**; `PUT /:id/tecnico`, equipo interno **o el propio técnico asignado**), nunca en una copia dentro del trabajo. En lectura se enseña el valor COMPUESTO —lo que va al `.cex`— y en edición las COLUMNAS, que es lo único sobre lo que se puede escribir; la `fuente` en crudo viaja FUERA de `ficha`. Y el **teléfono y el correo del titular caen a su PERSONA DE CONTACTO** cuando él no dio los suyos —el número marcado «Notif. aquí» es a menudo el único que tenemos—, campo a campo y **diciendo de quién es**: medido en 26RES060_187, la ficha decía «no consta» de dos datos escritos dos líneas más abajo. Tras tocarlo: `node implementation/backend/scripts/test_contacto_cliente_ce3x.mjs`. Ver "Los administrativos se CORRIGEN desde la ventana".
+
+48.d **Al CERTIFICADOR no se le enseña lo que no es suyo**: la EMPRESA INSTALADORA asignada (dato comercial, y el desplegable le abría la cartera entera), el conmutador `Auto XML · Manual` y el método del ahorro RES080, y los botones del método de la D_ACS —**el valor se queda**, que es lo que teclea en CE3X—. Y **no puede dejarse «sin asignar»**: eso devuelve el expediente a la cola, le retira su propio acceso y nadie se entera, porque en la ficha sigue pareciendo que está en marcha. `TecnicoPicker` deja de ofrecerlo (`permiteVaciar`) y el `PUT /api/expedientes/:id` lo repite, como con `cee.estado`. Ver "Lo que el CERTIFICADOR no tiene que ver ni tocar".
 
 38. **Con la BD caída, la app CALLA; nunca contesta una cifra tranquila**: un error de lectura no puede salir por 200. [middleware/auth.js](implementation/backend/middleware/auth.js) seguía adelante con el perfil a null —sin rol, sin empresa— y lo **cacheaba 5 minutos**, así que el partner salía como "USUARIO / LOGO PARTNER", con el menú recortado y, como `GET /oportunidades` acaba filtrando por `creador_id = null`, la cartera a CERO; y esa misma ruta convertía además cualquier fallo de Supabase en `200 []`. Un distribuidor con 19 oportunidades vio "0 oportunidades · 0,00 €" con toda la apariencia de dato bueno —que se lee como trabajo borrado— y recargar no lo arreglaba, porque el fantasma vivía en la caché. Medido el 08/09/2026: Postgres se cayó y arrancó en recuperación (`database system was not properly shut down`) y Cloudflare sirvió **521 Web server is down** delante de Supabase durante ~1 min. Ahora las dos rutas responden **503** (`PROFILE_UNAVAILABLE` / `OPORTUNIDADES_UNAVAILABLE`) y no se cachea nada; el frontend enseña `ProfileUnavailable` (reintentar, y "tus datos siguen ahí") en vez de un dashboard con identidad falsa, la lista conserva lo que ya tuviera, y **el resumen financiero no se pinta si no hay datos** — 0,00 € es justo la cifra que asusta. A quien YA tiene perfil bueno en caché no se le echa por un parpadeo. Vigilado por `node implementation/backend/scripts/test_caida_bd_no_miente.js`.
 

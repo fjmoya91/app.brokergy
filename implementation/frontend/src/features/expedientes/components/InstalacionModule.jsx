@@ -1558,7 +1558,10 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
     // La ficha del instalador lleva dinero (precio de referencia, comisiones) y
     // acceso al portal: se abre desde aquí SOLO para ADMIN, igual que en la Red de
     // Prescriptores. Ver "project_expedientes_internos_rbac".
-    const { isAdmin } = getRoleFlags(user);
+    // Y quién es el INSTALADOR no es asunto suyo: el certificador viene a medir
+    // la vivienda y a emitir el certificado, no a saber con qué empresa
+    // trabajamos ni a asignarla (ver abajo, «bloque del INSTALADOR»).
+    const { isAdmin, isCertificador } = getRoleFlags(user);
     const [showInstaladorFicha, setShowInstaladorFicha] = useState(false);
     const [marcas, setMarcas] = useState([]);
     const [modelosPorMarca, setModelosPorMarca] = useState({});
@@ -2590,7 +2593,13 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                     </div>
                 </div>
 
-                {/* ── INSTALADOR ── */}
+                {/* ── INSTALADOR ──
+                    NO se le enseña al CERTIFICADOR. Es un dato COMERCIAL —con
+                    qué empresa trabajamos en esa obra— del que no cuelga nada de
+                    lo suyo: ni la envolvente, ni el CEE, ni el .cex. Y el
+                    desplegable, en solo lectura, seguía enseñándole la cartera
+                    entera de instaladores. */}
+                {!isCertificador && (
                 <div className="bg-bkg-surface/60 rounded-xl p-6 border border-white/[0.06] space-y-4">
                     <div className="flex items-center gap-2 mb-2">
                         <div className="w-6 h-6 rounded bg-brand/10 flex items-center justify-center">
@@ -2669,24 +2678,28 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         />
                     )}
 
-                    {/* Hueco del CATÁLOGO, no del expediente: se pide el η_wh del EPREL
-                        del conjunto para que el SCOP en ACS deje de caer a un 3,0 por
-                        defecto — aquí y en todos los expedientes con ese equipo. */}
-                    {eprelGate && (
-                        <EprelAcsModal
-                            model={eprelGate.model}
-                            modo={eprelGate.modo}
-                            zona={zonaInstalacion}
-                            onCerrar={() => {
-                                // Solo se silencia el automático: un popup abierto a
-                                // mano desde el aviso debe poder volver a abrirse.
-                                if (eprelGate.modo === 'conjunto') eprelDescartados.current.add(String(eprelGate.model?.id));
-                                setEprelGate(null);
-                            }}
-                            onCompletado={handleEprelCompletado}
-                        />
-                    )}
                 </div>
+                )}
+
+                {/* Hueco del CATÁLOGO, no del expediente: se pide el η_wh del EPREL
+                    del conjunto para que el SCOP en ACS deje de caer a un 3,0 por
+                    defecto — aquí y en todos los expedientes con ese equipo.
+                    Vive FUERA del bloque del instalador: es del catálogo, y ahí
+                    dentro dejaría de montarse en cuanto ese bloque se oculta. */}
+                {eprelGate && (
+                    <EprelAcsModal
+                        model={eprelGate.model}
+                        modo={eprelGate.modo}
+                        zona={zonaInstalacion}
+                        onCerrar={() => {
+                            // Solo se silencia el automático: un popup abierto a
+                            // mano desde el aviso debe poder volver a abrirse.
+                            if (eprelGate.modo === 'conjunto') eprelDescartados.current.add(String(eprelGate.model?.id));
+                            setEprelGate(null);
+                        }}
+                        onCompletado={handleEprelCompletado}
+                    />
+                )}
             </div>
 
         </div>

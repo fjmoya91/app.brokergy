@@ -18,6 +18,7 @@ const supabase = require('./supabaseClient');
 const driveService = require('./driveService');
 const ceeUploadService = require('./ceeUploadService');
 const { getUnidades } = require('../utils/aerotermiaUnits');
+const { normalizeData } = require('../utils/normalization');
 const catastroService = require('./catastroService');
 const catastroMonitor = require('./catastroMonitor');
 
@@ -234,6 +235,126 @@ async function guardarConstrucciones(clave, elegidas, desglose) {
     return { elegidas: codigos, construcciones: lista };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Corregir el TITULAR y el TÉCNICO sin salir de la ventana
+//
+// Los administrativos SIGUEN sin teclearse en la ficha: lo que se escribe aquí
+// va a la FUENTE —`clientes` y `prescriptores`—, no a una copia dentro del
+// trabajo. Esa es toda la diferencia con los ajustes de «Datos generales», que
+// solo valen para este `.cex`: el titular no puede estar en dos sitios y que
+// gane el que se guarde el último.
+//
+// Sale de usarlo: con el plano medio hecho se ve que al cliente le falta el
+// teléfono, y cerrar la pestaña para ir a su ficha —y volver a encontrar el
+// sitio— es el camino que nadie recorre.
+// ─────────────────────────────────────────────────────────────────────────────
+
+//: Los campos del CLIENTE que se pueden corregir desde aquí: EXACTAMENTE los
+//: que CE3X pide en «Datos del cliente», ni uno más. El formulario de la vista
+//: (`PanelesFicha.CAMPOS_CLIENTE`) tiene que decir lo mismo — lo que no esté en
+//: esta lista no se guarda, y desde el navegador no se ve por qué.
+//:
+//: El `dni` NO está: el bloque del cliente de CE3X no tiene NIF, y del NIF del
+//: expediente cuelgan el Anexo I y el convenio que ya puede haber firmado.
+const CAMPOS_CLIENTE = ['nombre_razon_social', 'apellidos', 'direccion', 'municipio',
+                        'provincia', 'codigo_postal', 'tlf', 'email'];
+
+//: Y los once del TÉCNICO, que son los de su ficha de Prescriptores. Se escribe
+//: en `*_responsable` y no en `tlf`/`email` a propósito: aquéllos son los de la
+//: PERSONA que firma —que es lo que CE3X pide— y éstos, los generales de la
+//: empresa, por los que además le escribe media app.
+const CAMPOS_TECNICO = ['nombre_responsable', 'apellidos_responsable', 'nif_responsable',
+                        'razon_social', 'cif', 'direccion', 'municipio', 'provincia',
+                        'codigo_postal', 'tlf_responsable', 'email_responsable',
+                        'titulacion', 'colegio_profesional', 'numero_colegiado'];
+
+/** Solo lo que está en la lista; vacío es `null`, no la cadena vacía. */
+function soloCampos(campos, lista) {
+    const out = {};
+    for (const k of lista) {
+        if (!campos || !(k in campos)) continue;
+        const v = campos[k];
+        out[k] = typeof v === 'string' ? (v.trim() || null) : (v ?? null);
+    }
+    return out;
+}
+
+/** Lo que el formulario edita: las columnas en CRUDO, no la ficha compuesta. */
+function fuenteEditable(ctx) {
+    const coge = (fila, lista) => Object.fromEntries(
+        lista.map(k => [k, fila?.[k] ?? null]));
+    return {
+        cliente: ctx?.cliente ? coge(ctx.cliente, CAMPOS_CLIENTE) : null,
+        tecnico: ctx?.certificador ? coge(ctx.certificador, CAMPOS_TECNICO) : null,
+    };
+}
+
+//: `cee` lleva dentro el XML del certificado (megas): de ahí solo se pide el id
+//: del certificador (regla 22). El resto es una fila corta y da igual.
+async function expedienteBasico(clave, columnas) {
+    const esUuid = /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(String(clave));
+    const { data, error } = await supabase.from('expedientes').select(columnas)
+        .eq(esUuid ? 'id' : 'numero_expediente', clave).maybeSingle();
+    if (error) throw new Error(error.message);
+    return data || null;
+}
+
+const alto = (msg, status) => Object.assign(new Error(msg), { status });
+
+/**
+ * Escribe en la ficha del CLIENTE. Quién puede, lo decide la ruta.
+ *
+ * Pasa por `normalizeData` igual que el formulario de Clientes: si no, el mismo
+ * dato quedaría en MAYÚSCULAS escrito desde una pantalla y en minúsculas desde
+ * la otra, y `provinciaCe3x` —que es un desplegable de CE3X— dejaría de casar.
+ */
+async function guardarCliente(clave, campos) {
+    const exp = await expedienteBasico(clave, 'id, numero_expediente, cliente_id');
+    if (!exp) throw alto('Expediente no encontrado.', 404);
+    if (!exp.cliente_id) {
+        throw alto('Este expediente no tiene cliente vinculado: no hay ficha donde '
+                   + 'escribir. Vincúlalo desde el expediente.', 409);
+    }
+    const patch = normalizeData(soloCampos(campos, CAMPOS_CLIENTE));
+    if (!Object.keys(patch).length) throw alto('No hay nada que guardar.', 400);
+
+    const { data, error } = await supabase.from('clientes')
+        .update(patch).eq('id_cliente', exp.cliente_id)
+        .select(CAMPOS_CLIENTE.join(', ')).maybeSingle();
+    if (error) throw new Error(error.message);
+    return { cliente: data, campos: Object.keys(patch) };
+}
+
+/**
+ * Escribe en la ficha del TÉCNICO (su fila de `prescriptores`).
+ *
+ * `soloSuyo` es el `id_empresa` de quien pregunta cuando NO es del equipo
+ * interno: un certificador corrige sus once campos y nada más. Se comprueba
+ * contra el certificador ASIGNADO al expediente, que es el único cuyo nombre va
+ * a salir en este `.cex`.
+ */
+async function guardarTecnico(clave, campos, { soloSuyo = null } = {}) {
+    const exp = await expedienteBasico(
+        clave, 'id, numero_expediente, certificador_id:cee->>certificador_id');
+    if (!exp) throw alto('Expediente no encontrado.', 404);
+    const certId = exp.certificador_id || null;
+    if (!certId) {
+        throw alto('Este expediente no tiene certificador asignado: asígnalo en el '
+                   + 'módulo CEE y entonces se podrán corregir sus datos.', 409);
+    }
+    if (soloSuyo !== null && String(soloSuyo) !== String(certId)) {
+        throw alto('Solo puedes corregir TUS datos de técnico certificador.', 403);
+    }
+    const patch = normalizeData(soloCampos(campos, CAMPOS_TECNICO));
+    if (!Object.keys(patch).length) throw alto('No hay nada que guardar.', 400);
+
+    const { data, error } = await supabase.from('prescriptores')
+        .update(patch).eq('id_empresa', certId)
+        .select(CAMPOS_TECNICO.join(', ')).maybeSingle();
+    if (error) throw new Error(error.message);
+    return { tecnico: data, campos: Object.keys(patch) };
+}
+
 /**
  * Lo que se va a escribir alrededor de la envolvente, con su procedencia.
  *
@@ -259,7 +380,14 @@ async function componerFicha(ctx, { geometria, envolvente, ajustes, medidas = nu
     });
     // El CATÁLOGO viaja aparte de la ficha: es lo que la pestaña de medidas
     // pinta para que se elijan, y no es un dato que vaya dentro del `.cex`.
-    return { ficha, catalogo, faltan, avisos: [...avisos, ...imagenes.avisos] };
+    // Y la FUENTE en crudo: es lo que edita el formulario de administrativos.
+    // La ficha trae los valores COMPUESTOS (el nombre con los apellidos, la
+    // provincia pasada por el desplegable de CE3X) y sobre eso no se puede
+    // escribir: lo que se corrige son las columnas de `clientes` y
+    // `prescriptores`. Viaja FUERA de `ficha`, que es lo que se le manda al
+    // motor.
+    return { ficha, catalogo, faltan, fuente: fuenteEditable(ctx),
+             avisos: [...avisos, ...imagenes.avisos] };
 }
 
 //: Las dos imágenes del pickle 2 del `.cex`: la foto de fachada y el croquis de
@@ -624,6 +752,8 @@ module.exports = {
     guardarTrabajo,
     construccionesElegidas,
     guardarConstrucciones,
+    guardarCliente,
+    guardarTecnico,
     cartografia,
     SUFIJO_REVISAR,
     loadFichaCe3x,

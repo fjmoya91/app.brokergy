@@ -983,6 +983,7 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
     if (!zona) avisos.push('No consta la zona climática del expediente.');
 
     const dir = partesDireccion(inmueble.direccion);
+    const contacto = contactoDelCliente(cliente);
     const habitables = plantasHabitables(g);
     const superficie = superficieHabitable(g);
     //: El respaldo tiene que ser el MISMO que el del motor (`Opciones.floor_height`),
@@ -1046,8 +1047,8 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
             cliente_provincia: dato(provinciaCe3x(cliente?.provincia || dir.provincia),
                                     'ficha del cliente'),
             cliente_cp: dato(cliente?.codigo_postal || null, 'ficha del cliente'),
-            cliente_telefono: dato(cliente?.tlf || null, 'ficha del cliente'),
-            cliente_email: dato(cliente?.email || null, 'ficha del cliente'),
+            cliente_telefono: contacto.telefono,
+            cliente_email: contacto.email,
         },
         generales: {
             normativa: puesto('normativa', anio ? normativaCe3x(anio) : null,
@@ -1269,6 +1270,32 @@ function refCatastral(geo, expediente) {
         || geo?.geometria?.referencia_catastral?.inmueble
         || expediente?.instalacion?.ref_catastral
         || null;
+}
+
+/**
+ * El teléfono y el correo del titular, con su PERSONA DE CONTACTO de respaldo.
+ *
+ * Muchos titulares no dan los suyos: quien lleva la obra es un hijo, la pareja
+ * o el instalador, y es SU número el que está en la ficha —marcado «Notif.
+ * aquí»— y por el que de verdad se le localiza. Preguntando solo por `tlf` y
+ * `email`, la ficha decía «no consta» de un cliente que tenía los dos datos
+ * escritos dos líneas más abajo (medido en 26RES060_187: los de JUAN ANTONIO).
+ *
+ * El del TITULAR manda cuando existe —en el certificado el cliente es él— y
+ * cuando sale del contacto SE DICE con su nombre: no es lo mismo el correo de
+ * quien firma que el de quien lleva la obra, y esa distinción es justo lo que
+ * el certificador está comprobando en esta pantalla.
+ */
+function contactoDelCliente(c) {
+    const quien = (c?.persona_contacto_nombre || '').trim();
+    const de = `persona de contacto${quien ? ` (${quien})` : ''} de la ficha del cliente`;
+    const cae = (propio, respaldo) => (propio || !respaldo
+        ? dato(propio || null, 'ficha del cliente')
+        : dato(respaldo, de));
+    return {
+        telefono: cae(c?.tlf, c?.persona_contacto_tlf),
+        email: cae(c?.email, c?.persona_contacto_email),
+    };
 }
 
 function nombreCliente(c) {

@@ -10,10 +10,16 @@ import { AISLAMIENTOS_CE3X, COMBUSTIBLES_CE3X, esDeCaldera, GENERADORES_CE3X,
 // entra, se rellena y se sale. Con un scroll largo no se sabe nunca si lo que
 // falta está más abajo.
 //
-// REGLA — los ADMINISTRATIVOS no se teclean aquí. Los compone el backend desde
-// el expediente y desde Catastro (`fichaCe3x.js`), así que esta pantalla los
-// ENSEÑA y dice dónde se corrigen. Escribirlos aquí sería tener el titular en
-// dos sitios y que ganara el que se guardara el último.
+// REGLA — los ADMINISTRATIVOS no se TECLEAN aquí: se corrigen EN SU FUENTE.
+// Los compone el backend desde el expediente, desde Catastro y desde las fichas
+// de Clientes y Prescriptores, así que la pantalla los enseña con su
+// procedencia; y cuando hay algo que arreglar, el botón de editar escribe en
+// esas fichas —`clientes` y `prescriptores`—, nunca en una copia local. Un
+// titular guardado en dos sitios acaba ganándolo el que se guarde el último.
+//
+// Quién puede: el equipo interno corrige al cliente; el TÉCNICO, sus once
+// campos —son suyos, y es él quien sabe su nº de colegiado—. Un certificador no
+// toca al titular, del que cuelgan el Anexo I y el convenio.
 //
 // REGLA — los GENERALES sí, y lo que se toque queda marcado. Catastro se
 // equivoca —una ampliación sin declarar, una planta que consta como almacén y
@@ -48,22 +54,65 @@ const EDIFICIO = [
       campo: 'masa_particiones', opciones: ['Ligera', 'Media', 'Pesada'] },
 ];
 
+//: Lo que se corrige del TITULAR, y en qué columna de `clientes` se escribe.
+//: Tiene que decir lo mismo que `CAMPOS_CLIENTE` en `ceeEnvolventeCex.js`, que
+//: es la lista que MANDA: lo que no esté allí no se guarda, y desde aquí no se
+//: vería por qué. Son los de «Datos del cliente» de CE3X y ni uno más.
+const CLIENTE = [
+    { k: 'nombre_razon_social', etiqueta: 'Nombre o razón social', ancho: true },
+    { k: 'apellidos', etiqueta: 'Apellidos', ancho: true },
+    { k: 'direccion', etiqueta: 'Dirección', ancho: true },
+    { k: 'provincia', etiqueta: 'Provincia' },
+    { k: 'municipio', etiqueta: 'Localidad' },
+    { k: 'codigo_postal', etiqueta: 'Código postal' },
+    { k: 'tlf', etiqueta: 'Teléfono' },
+    { k: 'email', etiqueta: 'E-mail', ancho: true, minusculas: true },
+];
+
+//: Y los once del TÉCNICO, que son los de su ficha de Prescriptores. El
+//: teléfono y el correo se escriben en `*_responsable`: son los de la PERSONA
+//: que firma —lo que CE3X pide—, no los generales de la empresa.
+const TECNICO = [
+    { k: 'nombre_responsable', etiqueta: 'Nombre' },
+    { k: 'apellidos_responsable', etiqueta: 'Apellidos' },
+    { k: 'nif_responsable', etiqueta: 'NIF' },
+    { k: 'razon_social', etiqueta: 'Razón social' },
+    { k: 'cif', etiqueta: 'CIF' },
+    { k: 'direccion', etiqueta: 'Dirección', ancho: true },
+    { k: 'provincia', etiqueta: 'Provincia' },
+    { k: 'municipio', etiqueta: 'Localidad' },
+    { k: 'codigo_postal', etiqueta: 'Código postal' },
+    { k: 'tlf_responsable', etiqueta: 'Teléfono' },
+    { k: 'email_responsable', etiqueta: 'E-mail', ancho: true, minusculas: true },
+    { k: 'titulacion', etiqueta: 'Titulación', ancho: true },
+    { k: 'colegio_profesional', etiqueta: 'Colegio profesional' },
+    { k: 'numero_colegiado', etiqueta: 'Nº de colegiado' },
+];
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * DATOS ADMINISTRATIVOS: de quién es, dónde está y quién lo firma.
  *
- * Se COMPRUEBAN, no se rellenan: un certificado a nombre de otro titular, o sin
- * técnico, es de las pocas cosas que no se arreglan reabriendo el `.cex`.
+ * Se entra a COMPROBARLOS: un certificado a nombre de otro titular, o sin
+ * técnico, es de las pocas cosas que no se arreglan reabriendo el `.cex`. Y lo
+ * que haya que arreglar se arregla aquí mismo —sin cerrar la pestaña ni perder
+ * el sitio del plano—, pero escribiendo en la FICHA de la que salen.
  */
-export function PanelAdministrativos({ datos }) {
+export function PanelAdministrativos({ datos, fuente, puedeCliente = false,
+                                       puedeTecnico = false,
+                                       onGuardarCliente, onGuardarTecnico }) {
     const a = datos?.ficha?.administrativos || {};
     const t = datos?.ficha?.tecnico;
     const v = (x) => x?.valor ?? null;
+    //: El `de:` solo se enseña cuando NO es lo obvio: «ficha del cliente»
+    //: repetido en siete filas es ruido, y lo que hay que ver es la excepción.
+    const salvoObvio = (d) => (d && d !== 'ficha del cliente' ? d : null);
     return (
         <Ventana titulo="Datos administrativos"
-                 pie="Salen del expediente y de Catastro. Lo que falte se corrige en la ficha
-                      del cliente o en Prescriptores, no aquí.">
+                 pie="Salen del expediente y de Catastro. Lo que se edita aquí se guarda en la
+                      ficha del cliente y en la de Prescriptores, que es de donde lo lee todo
+                      lo demás: no queda una copia dentro del .cex.">
             <Grupo titulo="Localización e identificación del edificio">
                 <Fila rotulo="Nombre del edificio" v={v(a.nombre_edificio)} ancho />
                 <Fila rotulo="Dirección" v={v(a.direccion)} ancho />
@@ -73,17 +122,30 @@ export function PanelAdministrativos({ datos }) {
                 <Fila rotulo="Referencia catastral" v={v(a.referencia_catastral)} />
             </Grupo>
 
-            <Grupo titulo="Datos del cliente">
+            <GrupoFicha titulo="Datos del cliente" campos={CLIENTE}
+                        valores={fuente?.cliente} puede={puedeCliente}
+                        onGuardar={onGuardarCliente}
+                        pie="Se escribe en la ficha del cliente, la misma que abre el expediente.">
                 <Fila rotulo="Nombre o razón social" v={v(a.cliente_nombre)} ancho />
                 <Fila rotulo="Dirección" v={v(a.cliente_direccion)} ancho />
                 <Fila rotulo="Provincia" v={v(a.cliente_provincia)} />
                 <Fila rotulo="Localidad" v={v(a.cliente_localidad)} />
                 <Fila rotulo="Código postal" v={v(a.cliente_cp)} />
-                <Fila rotulo="Teléfono" v={v(a.cliente_telefono)} />
-                <Fila rotulo="E-mail" v={v(a.cliente_email)} ancho />
-            </Grupo>
+                {/* El teléfono y el correo pueden salir de la PERSONA DE
+                    CONTACTO cuando el titular no dio los suyos, y entonces el
+                    `de:` lo dice con su nombre: no es lo mismo el correo de
+                    quien firma que el de quien lleva la obra. */}
+                <Fila rotulo="Teléfono" v={v(a.cliente_telefono)}
+                      de={salvoObvio(a.cliente_telefono?.de)} />
+                <Fila rotulo="E-mail" v={v(a.cliente_email)}
+                      de={salvoObvio(a.cliente_email?.de)} ancho />
+            </GrupoFicha>
 
-            <Grupo titulo="Datos del técnico certificador">
+            <GrupoFicha titulo="Datos del técnico certificador" campos={TECNICO}
+                        valores={fuente?.tecnico} puede={puedeTecnico && !!t}
+                        onGuardar={onGuardarTecnico}
+                        pie="Se escribe en su ficha de Prescriptores: vale para todos los
+                             certificados que firme, no solo para éste.">
                 {t ? (
                     <>
                         <Fila rotulo="Nombre y apellidos" v={t.nombre} />
@@ -105,8 +167,106 @@ export function PanelAdministrativos({ datos }) {
                         módulo CEE del expediente.
                     </p>
                 )}
-            </Grupo>
+            </GrupoFicha>
         </Ventana>
+    );
+}
+
+/**
+ * Un recuadro de la ficha que además se puede CORREGIR.
+ *
+ * Dos caras a propósito. En lectura enseña lo que va a ir al `.cex` —el nombre
+ * ya compuesto con los apellidos, la provincia pasada por el desplegable de
+ * CE3X— que es lo que hay que revisar. En edición enseña las COLUMNAS, que es
+ * lo único sobre lo que se puede escribir: sobre un valor compuesto no se
+ * puede, y dejar editable «Nombre o razón social» obligaría a adivinar dónde
+ * acaba el nombre y empiezan los apellidos.
+ *
+ * Sin permiso no hay botón: el certificador ve el bloque del cliente igual que
+ * hasta ahora.
+ */
+function GrupoFicha({ titulo, campos, valores, puede, onGuardar, pie, children }) {
+    const [editando, setEditando] = useState(false);
+    const [form, setForm] = useState({});
+    const [guardando, setGuardando] = useState(false);
+    const [error, setError] = useState(null);
+
+    const abrir = () => {
+        setForm(Object.fromEntries(campos.map(c => [c.k, valores?.[c.k] ?? ''])));
+        setError(null);
+        setEditando(true);
+    };
+
+    const guardar = async () => {
+        setGuardando(true);
+        setError(null);
+        try {
+            await onGuardar?.(form);
+            setEditando(false);
+        } catch (e) {
+            setError(e?.response?.data?.error || 'No se ha podido guardar.');
+        } finally {
+            setGuardando(false);
+        }
+    };
+
+    const accion = !puede ? null : editando ? (
+        <div className="flex items-center gap-2">
+            <button onClick={() => setEditando(false)} disabled={guardando}
+                    className="text-[10px] font-bold uppercase tracking-widest
+                               text-white/35 hover:text-white/70">
+                Cancelar
+            </button>
+            <button onClick={guardar} disabled={guardando}
+                    className="rounded-lg bg-brand/15 px-2.5 py-1 text-[10px] font-black
+                               uppercase tracking-widest text-brand hover:bg-brand/25
+                               disabled:opacity-50">
+                {guardando ? 'Guardando…' : 'Guardar'}
+            </button>
+        </div>
+    ) : (
+        <button onClick={abrir}
+                className="text-[10px] font-bold uppercase tracking-widest
+                           text-white/35 hover:text-brand">
+            ✎ Editar
+        </button>
+    );
+
+    return (
+        <Grupo titulo={titulo} accion={accion}>
+            {editando
+                ? campos.map(c => (
+                    <CampoFuente key={c.k} c={c} valor={form[c.k] ?? ''}
+                                 onCambiar={x => setForm(f => ({ ...f, [c.k]: x }))} />
+                  ))
+                : children}
+            {editando && pie && (
+                <p className="md:col-span-2 pt-1 text-[10.5px] text-white/30">{pie}</p>
+            )}
+            {error && (
+                <p className="md:col-span-2 text-[11px] text-red-300">{error}</p>
+            )}
+        </Grupo>
+    );
+}
+
+/** Un campo del formulario: una COLUMNA, con su rótulo de CE3X. */
+function CampoFuente({ c, valor, onCambiar }) {
+    return (
+        <div className={`flex items-center gap-2 text-[12px] ${c.ancho ? 'md:col-span-2' : ''}`}>
+            <dt className="w-44 shrink-0 text-white/45">{c.etiqueta}</dt>
+            <dd className="min-w-0 flex-1">
+                <input
+                    value={valor} aria-label={c.etiqueta}
+                    onChange={e => onCambiar(e.target.value)}
+                    // `no-uppercase` en el correo: la regla global de `index.css`
+                    // pone en MAYÚSCULAS todo `input`, y un email se guarda en
+                    // minúsculas — se vería una cosa y se guardaría otra.
+                    className={`w-full rounded-md border border-white/10 bg-white/[0.04]
+                                px-2 py-1 text-[12.5px] font-bold
+                                ${c.minusculas ? 'no-uppercase lowercase' : ''}`} />
+            </dd>
+        </div>
     );
 }
 
@@ -1014,22 +1174,31 @@ export function Ventana({ titulo, pie, children }) {
 }
 
 /** Un recuadro con título, como los de CE3X. */
-function Grupo({ titulo, children }) {
+function Grupo({ titulo, accion, children }) {
     return (
         <div className="rounded-xl border border-white/[0.07] px-4 pb-3 pt-2.5">
-            <p className="mb-2 text-[11px] font-bold text-brand">{titulo}</p>
+            <div className="mb-2 flex min-h-[22px] items-center justify-between gap-3">
+                <p className="text-[11px] font-bold text-brand">{titulo}</p>
+                {accion}
+            </div>
             <dl className="grid gap-x-6 gap-y-1.5 md:grid-cols-2">{children}</dl>
         </div>
     );
 }
 
 /** Un dato de solo lectura. Lo que falta se dice; no se deja en blanco. */
-function Fila({ rotulo, v, ancho }) {
+function Fila({ rotulo, v, de, ancho }) {
     return (
         <div className={`flex items-baseline gap-2 text-[12px] ${ancho ? 'md:col-span-2' : ''}`}>
             <dt className="w-44 shrink-0 text-white/45">{rotulo}</dt>
             <dd className={`min-w-0 break-words ${v ? 'text-white/85' : 'text-amber-300/90'}`}>
                 {v || 'no consta'}
+                {/* De dónde sale, solo cuando NO es lo obvio: un teléfono que
+                    es el de la persona de contacto y no el del titular hay que
+                    poder verlo sin abrir la ficha del cliente. */}
+                {v && de && (
+                    <span className="ml-2 text-[10.5px] text-white/30">{de}</span>
+                )}
             </dd>
         </div>
     );

@@ -2996,6 +2996,18 @@ router.put('/:id', enforceAuth, async (req, res) => {
             if (existing.cee && 'estado' in existing.cee) {
                 updates.cee.estado = existing.cee.estado;
             }
+            // Un CERTIFICADOR no se retira a sí mismo del expediente ni se lo
+            // pasa a otro. Dejarlo «sin asignar» lo devuelve a la cola, le quita
+            // su propio acceso —deja de verlo— y nadie se entera: en la ficha
+            // sigue pareciendo que está en marcha. Si no puede con la obra lo
+            // dice, y reasigna el equipo interno. Mismo blindaje que `cee.estado`.
+            if (req.user?.rol_nombre === 'CERTIFICADOR' && existing.cee?.certificador_id
+                && String(updates.cee.certificador_id || '')
+                   !== String(existing.cee.certificador_id)) {
+                console.warn(`[PUT expediente ${req.params.id}] Ignorado intento del `
+                             + 'certificador de cambiar quién tiene asignado el expediente.');
+                updates.cee.certificador_id = existing.cee.certificador_id;
+            }
         }
         if (instalacion !== undefined)   updates.instalacion   = { ...existing.instalacion,   ...instalacion };
         if (seguimiento !== undefined) {

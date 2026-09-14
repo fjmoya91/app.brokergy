@@ -278,6 +278,14 @@ export function CeeDocumentsGrid({
     const esAdmin = (user?.rol || '').toUpperCase() === 'ADMIN'
         || (user?.rol_nombre || '').toUpperCase() === 'ADMIN'
         || Number(user?.id_rol) === 1;
+    // CÓMO se calcula la demanda de ACS —del .xml, por dormitorios, por los
+    // litros/día del certificado— es una decisión NUESTRA: de ella cuelgan el
+    // CIFO y la ficha, y cambiarla mueve el ahorro de un expediente en marcha.
+    // El técnico ve la cifra, que es lo que necesita para teclearla en CE3X;
+    // los botones se los quitamos porque ahí no hay nada que decidir para él.
+    const esCertificador = (user?.rol || '').toUpperCase() === 'CERTIFICADOR'
+        || (user?.rol_nombre || '').toUpperCase() === 'CERTIFICADOR'
+        || Number(user?.id_rol) === 4;
     // Lo leído del certificado de cada fase, con la copia VIVA del módulo (`demands`),
     // no con la del expediente: entre el vaciado y el refetch van un par de segundos.
     const ceeVivo = { cee_inicial: demands?.inicial || null, cee_final: demands?.final || null };
@@ -1551,7 +1559,11 @@ Según el documento:
                             <div className="flex flex-col items-center gap-2 w-[225px] border-l border-white/5 shrink-0 max-md:w-full max-md:items-stretch max-md:border-l-0 max-md:border-t max-md:border-white/[0.04] max-md:pt-4">
                                 <span className="text-[9px] font-black uppercase text-white/30 tracking-[0.2em] mb-1 max-md:mb-0 max-md:text-left">Demanda ACS</span>
                                 <div className="flex items-center gap-2.5 max-md:justify-between">
-                                    {/* Toggles */}
+                                    {/* Toggles. Al CERTIFICADOR no se le enseñan:
+                                        elegir el método es decidir con qué cifra
+                                        se emiten el CIFO y la ficha, y él viene a
+                                        leer el valor, no a cambiarlo. */}
+                                    {!esCertificador && (
                                     <div className="flex flex-col gap-1.5">
                                         <div className="flex flex-wrap justify-center p-0.5 bg-black/40 rounded-lg border border-white/5 max-md:w-full">
                                             <button 
@@ -1622,6 +1634,7 @@ Según el documento:
                                             </div>
                                         )}
                                     </div>
+                                    )}
                                     {/* Valor */}
                                     <div className="flex flex-col items-start gap-0.5">
                                         <div className="bg-white/[0.03] border border-white/5 px-4 py-2.5 rounded-2xl shadow-inner min-w-[92px] text-center">

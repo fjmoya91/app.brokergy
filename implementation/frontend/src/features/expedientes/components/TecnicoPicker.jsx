@@ -53,7 +53,7 @@ function Logo({ c, size = 'w-9 h-9' }) {
 }
 
 // ─── Escritorio: el desplegable de siempre ───────────────────────────────────
-function DesktopSelect({ value, onChange, options, placeholder, disabled }) {
+function DesktopSelect({ value, onChange, options, placeholder, disabled, permiteVaciar = true }) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [coords, setCoords] = useState(null); // posición fixed del menú (portal)
@@ -158,12 +158,14 @@ function DesktopSelect({ value, onChange, options, placeholder, disabled }) {
                         />
                     </div>
                     <ul className="max-h-48 overflow-y-auto">
-                        <li
-                            onClick={() => handleSelect('')}
-                            className="px-4 py-2 text-[10px] font-black uppercase text-white/30 hover:bg-white/5 cursor-pointer tracking-widest"
-                        >
-                            {placeholder}
-                        </li>
+                        {permiteVaciar && (
+                            <li
+                                onClick={() => handleSelect('')}
+                                className="px-4 py-2 text-[10px] font-black uppercase text-white/30 hover:bg-white/5 cursor-pointer tracking-widest"
+                            >
+                                {placeholder}
+                            </li>
+                        )}
                         {filtered.length === 0 && (
                             <li className="px-4 py-2 text-[10px] text-white/20 italic">Sin resultados</li>
                         )}
@@ -270,23 +272,35 @@ function MobileSheet({ certificadores, value, onChange, onClose }) {
                     )}
                 </div>
 
-                <div className="shrink-0 px-4 pt-3 border-t border-white/[0.06]"
-                    style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
-                    <button
-                        type="button"
-                        onClick={() => elegir('')}
-                        className="w-full py-3 rounded-xl border border-white/10 text-white/45 font-bold text-[11px] uppercase tracking-wider active:bg-white/5"
-                    >
-                        Dejar sin técnico asignado
-                    </button>
-                </div>
+                {permiteVaciar && (
+                    <div className="shrink-0 px-4 pt-3 border-t border-white/[0.06]"
+                        style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
+                        <button
+                            type="button"
+                            onClick={() => elegir('')}
+                            className="w-full py-3 rounded-xl border border-white/10 text-white/45 font-bold text-[11px] uppercase tracking-wider active:bg-white/5"
+                        >
+                            Dejar sin técnico asignado
+                        </button>
+                    </div>
+                )}
             </div>
         </div>,
         document.body
     );
 }
 
-export function TecnicoPicker({ certificadores = [], value, onChange, disabled = false }) {
+/**
+ * `permiteVaciar` a false quita la salida «sin técnico asignado».
+ *
+ * Es para el propio CERTIFICADOR: quitarse del expediente lo devuelve a la cola
+ * de Brokergy, le retira su propio acceso —deja de verlo— y nadie se entera,
+ * porque en la ficha sigue pareciendo que está en marcha. Reasignar es del
+ * equipo interno; si él no puede con la obra, lo dice y se le cambia. El
+ * backend lo repite en el PUT del expediente: esto solo es la pantalla.
+ */
+export function TecnicoPicker({ certificadores = [], value, onChange, disabled = false,
+                                permiteVaciar = true }) {
     const isMobile = useIsMobile();
     const [abierto, setAbierto] = useState(false);
 
@@ -302,6 +316,7 @@ export function TecnicoPicker({ certificadores = [], value, onChange, disabled =
                 onChange={onChange}
                 disabled={disabled}
                 placeholder="Certificador no asignado"
+                permiteVaciar={permiteVaciar}
                 options={certificadores.map(c => ({ value: c.id_empresa, label: c.razon_social || c.acronimo }))}
             />
         );

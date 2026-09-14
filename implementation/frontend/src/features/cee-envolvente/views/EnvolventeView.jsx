@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import { useAuth } from '../../../context/AuthContext';
+import { getRoleFlags } from '../../../utils/roleFlags';
 import { PlanoPlanta } from '../components/PlanoPlanta';
 import { PanelPared } from '../components/PanelPared';
 import { usePlanoEnvolvente } from '../logic/usePlanoEnvolvente';
@@ -25,6 +27,17 @@ const API = '/api/cee-envolvente';
 
 export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     const id = expediente?.id;
+    // Quién puede CORREGIR los administrativos, que se escriben en su fuente
+    // (`clientes` y `prescriptores`), no aquí. Se repite en el backend: esto
+    // solo decide si se pinta el botón.
+    //  · el TITULAR lo corrige el equipo interno: de él cuelgan el Anexo I y el
+    //    convenio, y el certificador no tiene por qué tocarlos.
+    //  · el TÉCNICO, el equipo interno y ÉL MISMO — son sus datos, y es él quien
+    //    sabe su nº de colegiado.
+    const { user } = useAuth();
+    const { isStaff: esStaff } = getRoleFlags(user);
+    const suFicha = !!user?.prescriptor_id
+        && String(user.prescriptor_id) === String(expediente?.cee?.certificador_id || '');
     // La RC vive en distinto sitio segun el negocio. Mismo orden que usan los
     // anexos (AnexoIModal, AnexoCesionModal): lo que ya funciona, no se cambia.
     const rc = (expediente?.instalacion?.ref_catastral
@@ -418,6 +431,18 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         }
     }
 
+    // ── Corregir al TITULAR o al TÉCNICO sin salir de aquí ───────────────────
+    // Se escribe en la ficha de Clientes / Prescriptores, que es la fuente, y
+    // después se vuelve a pedir la ficha: la compone el servidor desde ellas, y
+    // sin esto la pantalla seguiría enseñando lo anterior. El error se DEVUELVE
+    // para que lo enseñe el propio recuadro, junto al campo que se estaba
+    // tecleando, y no en la barra de arriba.
+    const guardarFuente = (que, aviso) => async (campos) => {
+        await axios.put(`${API}/${id}/${que}`, { campos });
+        setRefrescoFicha(n => n + 1);
+        onAviso?.(aviso);
+    };
+
     //: Qué .cex se está generando. La ENVOLVENTE es la misma en las dos fases —la
     //: obra no la toca—: lo único que cambia es el generador (la caldera que sale
     //: o la aerotermia que entra) y la carpeta donde acaba. Por eso son dos
@@ -614,7 +639,15 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             </div>
 
             {activa === 'administrativos' && (
-                ficha ? <PanelAdministrativos datos={ficha} /> : <Cargando />)}
+                ficha
+                    ? <PanelAdministrativos
+                          datos={ficha} fuente={ficha.fuente}
+                          puedeCliente={esStaff} puedeTecnico={esStaff || suFicha}
+                          onGuardarCliente={guardarFuente(
+                              'cliente', 'Ficha del cliente actualizada.')}
+                          onGuardarTecnico={guardarFuente(
+                              'tecnico', 'Datos del técnico actualizados.')} />
+                    : <Cargando />)}
 
             {activa === 'generales' && (
                 ficha

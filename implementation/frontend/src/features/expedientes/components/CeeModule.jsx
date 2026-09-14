@@ -19,6 +19,8 @@ import { fireSuccessConfetti } from '../utils/successConfetti';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
 // Canal de envío de la barra inferior — COMPARTIDO con los popups de envío.
 import { CanalChip } from '../../../components/CanalChip';
+import { useAuth } from '../../../context/AuthContext';
+import { getRoleFlags } from '../../../utils/roleFlags';
 
 // ─── Componentes de Celda ──────────────────────────────────────────────────
 function TableCell({ value, onChange, readOnly, type = 'number', highlight = false }) {
@@ -125,6 +127,12 @@ function normalizeCombKey(val) {
 // expediente no existe.
 export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUpdate, onRefresh, saving, certificadores = [], onAutoStatus, onEditCliente, apiBase = '/api/expedientes', secciones = ['inicial', 'final'], msgCtx = {} }) {
     const isReforma = expediente?.oportunidades?.ficha === 'RES080' || expediente?.cee?.is_reforma;
+    // De dónde salen las cifras del CEE (del .xml o a mano) y con qué método se
+    // calcula el ahorro es cosa NUESTRA: decide lo que acaban diciendo el CIFO y
+    // la ficha, que firmamos nosotros. El técnico entra aquí a subir su
+    // certificado y a mirar los datos, no a cambiar cómo se calculan.
+    const { user } = useAuth();
+    const { isCertificador } = getRoleFlags(user);
 
     const [local, setLocal] = useState(() => {
         const saved = expediente?.cee || {};
@@ -1729,7 +1737,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
             <div className="flex items-center justify-between flex-wrap gap-4 max-md:flex-col max-md:items-stretch max-md:gap-3">
                 <div className="flex items-center gap-5 max-md:flex-col max-md:items-stretch max-md:gap-3 max-md:min-w-0">
                     <h3 className="text-xs font-black text-white uppercase tracking-widest border-l-2 border-brand pl-4">Certs. Energéticos</h3>
-                    {!isReforma && (
+                    {!isReforma && !isCertificador && (
                         <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] max-md:w-full">
                             {['xml', 'aportado'].map(t => (
                                 <button
@@ -1749,7 +1757,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                         </div>
                     )}
                     {/* Reforma RES080: fuente del cálculo — desde .xml o emisiones a mano */}
-                    {isReforma && (
+                    {isReforma && !isCertificador && (
                         <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] max-md:w-full">
                             {[{ id: 'xml', label: 'Auto XML' }, { id: 'manual', label: 'Manual' }].map(t => (
                                 <button
@@ -1773,7 +1781,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                         aplicar cuando un mismo uso mezcla dos generadores de combustibles
                         distintos y el CEE no dice qué porcentaje es cada uno. Vale con .xml y
                         a mano: el reparto por vector lo publica el propio XML. */}
-                    {isReforma && (
+                    {isReforma && !isCertificador && (
                         <div className="flex items-center gap-1 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06] max-md:w-full">
                             {[{ id: 'detallado', label: 'Por uso' }, { id: 'simplificado', label: 'Por vector' }].map(t => (
                                 <button
@@ -1797,6 +1805,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                             certificadores={certificadores}
                             value={local.certificador_id || ''}
                             onChange={handleCertificadorChange}
+                            permiteVaciar={!isCertificador}
                         />
                     </div>
                     {/* Caja de herramientas del certificador: los textos que se

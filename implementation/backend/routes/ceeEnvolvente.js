@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-const { internalOnly } = require('../middleware/auth');
+const { internalOnly, staffOnly, isStaff } = require('../middleware/auth');
 const cex = require('../services/ceeEnvolventeCex');
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -168,14 +168,17 @@ router.post('/:expedienteId/ficha', internalOnly, async (req, res) => {
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
 
         const fase = req.body?.fase || 'inicial';
-        const { ficha, catalogo, faltan, avisos } = await cex.componerFicha(ctx, {
+        const { ficha, catalogo, faltan, avisos, fuente } = await cex.componerFicha(ctx, {
             geometria, envolvente: req.body?.envolvente, ajustes: req.body?.ajustes,
             medidas: req.body?.medidas, fase,
         });
         // `medidas` es el CATÁLOGO de mejoras que se pueden proponer, con su
         // motivo cuando no procede: es lo que pinta la pestaña de Medidas para
         // que el certificador elija, y no viaja dentro del `.cex`.
-        res.json({ ficha, avisos, fase, medidas: catalogo, faltan,
+        // `fuente` son las COLUMNAS en crudo del cliente y del técnico: es lo
+        // que edita el formulario de administrativos, porque sobre el valor
+        // compuesto de la ficha no se puede escribir.
+        res.json({ ficha, avisos, fase, medidas: catalogo, faltan, fuente,
                    nombre: cex.nombreDelCex(ctx.expediente, fase) });
     } catch (e) {
         console.error('[ceeEnvolvente] ficha:', e.message);
@@ -249,6 +252,52 @@ router.put('/:expedienteId/construcciones', internalOnly, async (req, res) => {
         res.json({ ok: true, ...r });
     } catch (e) {
         console.error('[ceeEnvolvente] construcciones:', e.message);
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+/**
+ * PUT /api/cee-envolvente/:expedienteId/cliente
+ * Body: { campos: { ... } }
+ *
+ * Corregir la ficha del TITULAR sin salir de la ventana. Se escribe en
+ * `clientes`, que es la fuente: aquí no queda ninguna copia.
+ *
+ * REGLA — el CERTIFICADOR no toca los datos del cliente. Es el titular del
+ * expediente y de sus documentos —el Anexo I, el convenio de cesión y el
+ * certificado salen de ahí—, así que se corrige donde se corrige todo lo demás
+ * suyo. Al técnico le toca su propio bloque, que es el de abajo.
+ */
+router.put('/:expedienteId/cliente', staffOnly, async (req, res) => {
+    try {
+        const r = await cex.guardarCliente(req.params.expedienteId, req.body?.campos);
+        res.json({ ok: true, ...r });
+    } catch (e) {
+        console.error('[ceeEnvolvente] guardar cliente:', e.message);
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+/**
+ * PUT /api/cee-envolvente/:expedienteId/tecnico
+ * Body: { campos: { ... } }
+ *
+ * Los once campos de «Datos del técnico certificador», que viven en su ficha de
+ * Prescriptores. Los corrige el equipo interno o EL PROPIO técnico —son sus
+ * datos, y es él quien sabe su nº de colegiado—, nunca un certificador sobre la
+ * ficha de otro: se comprueba contra el que está ASIGNADO a este expediente,
+ * que es el único cuyo nombre va a salir en este `.cex`.
+ */
+router.put('/:expedienteId/tecnico', internalOnly, async (req, res) => {
+    try {
+        // `soloSuyo` a null = sin restricción (equipo interno). Un CERTIFICADOR
+        // sin empresa queda en 0, que no casa con ningún id: 403.
+        const soloSuyo = isStaff(req) ? null : (req.user?.prescriptor_id || 0);
+        const r = await cex.guardarTecnico(
+            req.params.expedienteId, req.body?.campos, { soloSuyo });
+        res.json({ ok: true, ...r });
+    } catch (e) {
+        console.error('[ceeEnvolvente] guardar tecnico:', e.message);
         res.status(e.status || 500).json({ error: e.message });
     }
 });
