@@ -9,7 +9,7 @@ import { anexoIFormulario } from '../logic/anexoIFormulario';
 import { buildAnexoCesionHtml, getDualMessage, getClientCaeRate, buildInstalacionAddress, esCesionPrevia, tieneCuentaBancaria } from '../utils/docGenerators';
 import { clienteContacts, instaladorContacts, defaultContactIds, priorizarPorRol, phoneValid } from '../utils/docContacts';
 import { ContactoPickRow, NotaVariosDestinatarios } from './ContactoPickRow';
-import { unidadesSinSerie, countUnidades } from '../logic/aerotermiaUnits';
+import { unidadesSinSerie, countUnidades, acsEsOtraMaquina } from '../logic/aerotermiaUnits';
 // Canal de envío de la barra inferior — COMPARTIDO con los otros popups de envío.
 import { CanalChip, avisoCanales } from '../../../components/CanalChip';
 // Los nombres se guardan en MAYÚSCULAS (los formularios las fuerzan) y los
@@ -93,7 +93,8 @@ function anexoBlockers(expediente) {
     const hayAcs = inst.cambio_acs != null
         ? (inst.cambio_acs === true || String(inst.cambio_acs).toLowerCase() === 'si')
         : !!(opInputs.changeAcs === true || opInputs.incluir_acs === true);
-    if (hayAcs && !inst.misma_aerotermia_acs) {
+    // Solo si el ACS es OTRA máquina: un conjunto ya declaró su serie arriba.
+    if (hayAcs && acsEsOtraMaquina(inst)) {
         const nAcs = countUnidades(inst.aerotermia_acs);
         for (const n of unidadesSinSerie(inst.aerotermia_acs)) {
             series.push(nAcs > 1 ? `nº de serie ud. interior/ACS (equipo ${n})` : 'nº de serie de la unidad interior (ACS)');

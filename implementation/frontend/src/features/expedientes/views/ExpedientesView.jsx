@@ -22,6 +22,7 @@ import {
 } from '../../calculator/logic/calculation';
 import { computeExpedienteFinancials } from '../logic/expedienteFinancials';
 import { CCAA_MAP, pad2, getFicha, getCifoYear, getCCAA, FICHAS, fichaColor } from '../logic/expedienteTaxonomia';
+import { resolveDacs } from '../logic/demandaAcs';
 
 // ─── Dropzone de XML (migración de expedientes desde CE3X) ────────────────────
 function XmlDrop({ label, slot, error, onFile }) {
@@ -718,13 +719,11 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                 const superficie = parseFloat(ceeBase.superficieHabitable) || 0;
                 const q_net_heating = (parseFloat(ceeBase.demandaCalefaccion) || 0) * superficie;
 
-                let dacs = 0;
-                if (cee.acs_method === 'cte') {
-                    const numPeople = (parseInt(cee.num_rooms) || 4) + 1;
-                    dacs = 28 * numPeople * 0.001162 * 365 * 46;
-                } else {
-                    dacs = (parseFloat(ceeBase.demandaACS) || 0) * superficie;
-                }
+                // Fuente ÚNICA en logic/demandaAcs.js: esta copia solo entendía
+                // 'cte' y dejaba el resto de modos cayendo en el cálculo por m²,
+                // que en un TER100 (manual) o con los litros/día del certificado
+                // da una cifra distinta de la del CIFO del mismo expediente.
+                const dacs = resolveDacs(cee, ceeBase).value;
 
                 if (superficie > 0 && q_net_heating > 0) {
                     const boilerEffId = inst.caldera_antigua_cal?.rendimiento_id || 'default';
@@ -1245,6 +1244,32 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
         return matchesSearch && matchesStatus && matchesCert && matchesCCAA && matchesPrioridad && matchesYear && matchesFicha;
     });
 
+    // ── "0 resultados" con un pill de estado en 14 no es un fallo del pill ──────
+    // El pill (y su contador) solo suman por ESTADO; la lista final además pasa por
+    // Prioridad/Ficha/CCAA/Año/Certificador, y esos cinco viven en la fila de
+    // filtros de la TABLA — que en desktop desaparece justo cuando la lista queda
+    // vacía (regla: el bloque "Tabla" solo se pinta si `filtered.length > 0`). Sin
+    // esto, un filtro que quedó puesto de una búsqueda anterior deja la lista en
+    // 0 sin ninguna pista de por qué, ni forma de quitarlo desde el desktop.
+    const activeExtraFilters = [
+        prioridadFilter !== 'ALL' && { label: 'Prioridad', value: prioridadFilter },
+        fichaFilter !== 'ALL' && { label: 'Ficha', value: fichaFilter },
+        ccaaFilter !== 'ALL' && { label: 'CCAA', value: ccaaFilter },
+        yearFilter !== 'ALL' && { label: 'Año', value: yearFilter },
+        certificadorFilter !== 'ALL' && {
+            label: 'Certificador',
+            value: certificadorFilter === 'NONE'
+                ? 'Sin asignar'
+                : (certificadores.find(c => String(c.id_empresa) === String(certificadorFilter))?.razon_social
+                    || certificadores.find(c => String(c.id_empresa) === String(certificadorFilter))?.acronimo
+                    || certificadorFilter),
+        },
+    ].filter(Boolean);
+    const limpiarOtrosFiltros = () => {
+        setPrioridadFilter('ALL'); setFichaFilter('ALL'); setCcaaFilter('ALL');
+        setCertificadorFilter('ALL'); setYearFilter('ALL');
+    };
+
     const PRIORITY_ORDER = { URGENTE: 0, ALTA: 1, NORMAL: 2 };
     const sortedFiltered = [...filtered].sort((a, b) =>
         (PRIORITY_ORDER[a.prioridad || 'NORMAL'] ?? 2) - (PRIORITY_ORDER[b.prioridad || 'NORMAL'] ?? 2)
@@ -1629,9 +1654,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                         )}
                     </div>
                     {(() => {
-                        const activeCount = [
-                            prioridadFilter, fichaFilter, ccaaFilter, certificadorFilter, yearFilter
-                        ].filter(v => v && v !== 'ALL').length;
+                        const activeCount = activeExtraFilters.length;
                         return (
                             <button
                                 onClick={() => setShowMobileFilters(v => !v)}
@@ -1708,9 +1731,9 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                             </div>
                         )}
                         {/* Limpiar */}
-                        {[prioridadFilter, fichaFilter, ccaaFilter, certificadorFilter, yearFilter].some(v => v && v !== 'ALL') && (
+                        {activeExtraFilters.length > 0 && (
                             <button
-                                onClick={() => { setPrioridadFilter('ALL'); setFichaFilter('ALL'); setCcaaFilter('ALL'); setCertificadorFilter('ALL'); setYearFilter('ALL'); }}
+                                onClick={limpiarOtrosFiltros}
                                 className="col-span-2 py-2 rounded-lg border border-white/10 text-white/50 hover:text-white text-[10px] font-black uppercase tracking-widest transition-all"
                             >
                                 Limpiar filtros
@@ -1733,7 +1756,29 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                     <svg className="w-12 h-12 text-white/10 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
-                    <p className="text-white/30 text-sm">{search ? 'Sin resultados para tu búsqueda.' : 'Aún no hay expedientes.'}</p>
+                    <p className="text-white/30 text-sm">
+                        {search ? 'Sin resultados para tu búsqueda.'
+                            : expedientes.length > 0 ? 'Ningún expediente coincide con los filtros aplicados.'
+                            : 'Aún no hay expedientes.'}
+                    </p>
+                    {activeExtraFilters.length > 0 && (
+                        <div className="mt-4 flex flex-col items-center gap-2.5 px-6">
+                            <p className="text-white/40 text-xs max-w-md">
+                                Además del estado{statusSel.size > 1 ? 's' : ''} elegido{statusSel.size > 1 ? 's' : ''}, hay
+                                {' '}{activeExtraFilters.length} filtro{activeExtraFilters.length > 1 ? 's' : ''} más activo{activeExtraFilters.length > 1 ? 's' : ''}
+                                {' '}que puede{activeExtraFilters.length > 1 ? 'n' : ''} estar dejando la lista vacía:{' '}
+                                <span className="text-white/60 font-bold">
+                                    {activeExtraFilters.map(f => `${f.label}: ${f.value}`).join(' · ')}
+                                </span>
+                            </p>
+                            <button
+                                onClick={limpiarOtrosFiltros}
+                                className="px-3 py-1.5 rounded-lg border border-white/10 text-white/60 hover:text-white hover:border-brand text-[10px] font-black uppercase tracking-widest transition-all"
+                            >
+                                Quitar esos filtros
+                            </button>
+                        </div>
+                    )}
                 </div>
             ) : (
                 <>

@@ -7,7 +7,7 @@ const { enforceAuth, adminOnly, staffOnly, internalOnly } = require('../middlewa
 const { stripDatosCalculoMargin } = require('../utils/financialScrub');
 const { getCoordinatesByRC } = require('../services/catastroService');
 const { normalizeData } = require('../utils/normalization');
-const { unidadesSinSerie, countUnidades: countUnidadesAero } = require('../utils/aerotermiaUnits');
+const { unidadesSinSerie, countUnidades: countUnidadesAero, acsEsOtraMaquina } = require('../utils/aerotermiaUnits');
 const {
     validateMemoriaRite, resolvePotenciasCatalogo,
     potenciasCatalogoPendientes, situadoEnPendiente, SITUADO_EN_OPCIONES,
@@ -1229,7 +1229,9 @@ function seriesPendientesAnexoI(exp, op) {
     const hayAcs = inst.cambio_acs != null
         ? (inst.cambio_acs === true || String(inst.cambio_acs).toLowerCase() === 'si')
         : !!(inputs.changeAcs === true || inputs.incluir_acs === true);
-    if (hayAcs && !inst.misma_aerotermia_acs) {
+    // Solo se pide la serie del ACS cuando es OTRA máquina: un conjunto deja los
+    // dos nodos con el mismo equipo y la misma serie, ya declarada arriba.
+    if (hayAcs && acsEsOtraMaquina(inst)) {
         const nAcs = countUnidadesAero(inst.aerotermia_acs);
         for (const n of unidadesSinSerie(inst.aerotermia_acs)) {
             faltan.push(nAcs > 1 ? `el nº de serie de la ud. interior/ACS (equipo ${n})` : 'el nº de serie de la unidad interior (ACS)');
@@ -3507,6 +3509,21 @@ const normTipo = (t) => {
     const v = String(t || '').trim().toUpperCase();
     return /^[A-Z_]{3,40}$/.test(v) ? v : null;
 };
+// `ref` señala a QUÉ ELEMENTO del slot se refiere la incidencia, cuando el slot
+// tiene varios. Un expediente tiene UN Anexo I pero VARIAS facturas: sin esto,
+// las cinco incidencias de tres facturas distintas caen todas en el mismo montón
+// y hay que leerlas una a una para saber cuál corregir. Es el `drive_id` de la
+// factura; `ref_label` es cómo se la llama en pantalla ("Factura 202631").
+// Opaco a propósito: el día que un slot con varios elementos sea otro (una unidad
+// de la cascada, una foto del anexo), vale igual.
+const normRef = (r) => {
+    const v = String(r || '').trim();
+    return /^[A-Za-z0-9_-]{6,120}$/.test(v) ? v : null;
+};
+const normRefLabel = (l) => {
+    const v = String(l || '').trim().replace(/\s+/g, ' ');
+    return v ? v.slice(0, 80) : null;
+};
 
 // Tipos válidos de entrada del hilo. NOTA la escribe una persona; el resto las
 // genera el sistema al subsanar / reabrir / reclasificar.
@@ -3588,6 +3605,69 @@ router.get('/:id/incidencias', staffOnly, async (req, res) => {
     }
 });
 
+// Una entrada de `documentacion.incidencias[]` a partir de lo que llega por la
+// ruta. Fuente única del shape: lo usan el alta suelta y el alta en lote.
+function nuevaIncidencia(body, req, sufijo = 0) {
+    return {
+        // El sufijo evita que dos altas del MISMO milisegundo compartan id, que es
+        // justo lo que pasa registrando un lote: el id es la clave con la que luego
+        // se subsana o se borra, y con dos iguales se actuaría sobre la otra.
+        id: `${Date.now()}_${sufijo}_inc`,
+        texto: (body.texto || '').trim(),
+        procedencia: normProcedencia(body.procedencia),
+        severidad: normSeveridad(body.severidad),
+        slot: normSlot(body.slot),
+        tipo: normTipo(body.tipo),
+        // De qué factura (o de qué elemento del slot) habla, cuando el slot
+        // tiene varios. Ver normRef.
+        ref: normRef(body.ref),
+        ref_label: normRefLabel(body.ref_label),
+        estado: 'ABIERTA',
+        fecha: new Date().toISOString(),
+        usuario: incidenciaUsuario(req),
+        resuelta_at: null,
+        resuelta_por: null,
+    };
+}
+
+// Alta EN LOTE. Las incidencias de una factura se registran juntas —y soltando
+// varias facturas de golpe salen cinco o seis de una vez—, y una petición por
+// incidencia es una relectura y una reescritura de `documentacion` ENTERA cada
+// vez: lento, y con una ventana en la que el autoguardado del módulo se puede
+// colar entre el read y el write. Además es atómico: o entran todas o ninguna, en
+// vez de dejar dos registradas y un error en pantalla.
+//
+// Se declara ANTES que las rutas con `:incId` para que "lote" no se tome por un id.
+const MAX_INCIDENCIAS_LOTE = 50;
+
+router.post('/:id/incidencias/lote', staffOnly, async (req, res) => {
+    try {
+        // Sin normalizeData: el texto de la incidencia debe conservar mayúsculas/minúsculas tal cual.
+        const items = Array.isArray(req.body?.incidencias) ? req.body.incidencias : null;
+        if (!items || !items.length) return res.status(400).json({ error: 'No se recibió ninguna incidencia.' });
+        if (items.length > MAX_INCIDENCIAS_LOTE) {
+            return res.status(400).json({ error: `Demasiadas incidencias de una vez (máximo ${MAX_INCIDENCIAS_LOTE}).` });
+        }
+        for (const it of items) {
+            const texto = (it?.texto || '').trim();
+            if (!texto) return res.status(400).json({ error: 'El texto de la incidencia es obligatorio.' });
+            const mal = validarTextoIncidencia(texto, MAX_TEXTO_INCIDENCIA, 'texto de la incidencia');
+            if (mal) return res.status(400).json({ error: mal });
+        }
+
+        const loaded = await loadIncidencias(req.params.id);
+        if (!loaded) return res.status(404).json({ error: 'No encontrado.' });
+
+        items.forEach((it, i) => loaded.incidencias.push(nuevaIncidencia(it, req, i)));
+
+        const saved = await saveIncidencias(req.params.id, loaded.docObj, loaded.incidencias);
+        if (!saved) return res.status(500).json({ error: 'Error al registrar las incidencias.' });
+        res.status(200).json(saved);
+    } catch (error) {
+        res.status(500).json({ error: 'Error del servidor.' });
+    }
+});
+
 // Crear incidencia
 router.post('/:id/incidencias', staffOnly, async (req, res) => {
     try {
@@ -3601,19 +3681,7 @@ router.post('/:id/incidencias', staffOnly, async (req, res) => {
         const loaded = await loadIncidencias(req.params.id);
         if (!loaded) return res.status(404).json({ error: 'No encontrado.' });
 
-        loaded.incidencias.push({
-            id: Date.now().toString() + '_inc',
-            texto,
-            procedencia: normProcedencia(body.procedencia),
-            severidad: normSeveridad(body.severidad),
-            slot: normSlot(body.slot),
-            tipo: normTipo(body.tipo),
-            estado: 'ABIERTA',
-            fecha: new Date().toISOString(),
-            usuario: incidenciaUsuario(req),
-            resuelta_at: null,
-            resuelta_por: null
-        });
+        loaded.incidencias.push(nuevaIncidencia(body, req));
 
         const saved = await saveIncidencias(req.params.id, loaded.docObj, loaded.incidencias);
         if (!saved) return res.status(500).json({ error: 'Error al registrar la incidencia.' });
@@ -4052,12 +4120,23 @@ router.delete('/:id/facturas/:driveId', staffOnly, async (req, res) => {
 });
 
 // ─── POST /api/expedientes/:id/facturas/ocr ───────────────────────────────────
-// Sueltas la factura y la app hace el resto: la sube a "5. FACTURAS", la LEE con el
-// mismo OCR multimodal que ya usamos para los CEE, y pasa un FILTRO PREVIO de
-// incidencias cruzándola con el expediente (facturaIncidencias.js).
+// Sueltas las facturas y la app hace el resto: las sube a "5. FACTURAS", las LEE
+// con el mismo OCR multimodal que ya usamos para los CEE, y pasa un FILTRO PREVIO
+// de incidencias cruzando cada una con el expediente (facturaIncidencias.js).
 //
-// Devuelve la fila lista para el modal + las incidencias PROPUESTAS. No registra
-// ninguna: las confirma una persona. La IA solo lee; el criterio es de las reglas.
+// Devuelve una fila por factura + sus incidencias PROPUESTAS. No registra ninguna:
+// las confirma una persona. La IA solo lee; el criterio es de las reglas.
+//
+// REGLA — cada PDF es UNA factura; las imágenes sueltas son páginas de UNA.
+// `normalizeToPdf` está escrita para el caso de las fotos ("varias páginas de un
+// mismo documento") y ante DOS PDF se queda con el primero — `files.find(isPdf)`.
+// Soltando dos facturas a la vez, la segunda no se leía, no se subía a Drive y no
+// dejaba rastro: desaparecía en silencio. Un PDF ya es un documento entero, así
+// que dos PDF son dos facturas; una foto no lo es, así que las fotos se agrupan.
+//
+// REGLA — cada factura se cruza con las ANTERIORES de la misma tanda. Si no, dos
+// copias del mismo PDF soltadas juntas no se detectan como DUPLICADA y la
+// sobrefinanciación se calcula ignorando lo que se acaba de leer.
 //
 // ADMIN-only: aquí se leen importes (regla de dinero del módulo).
 const facturaUpload = require('multer')({
@@ -4075,6 +4154,63 @@ async function nombreLibreEnCarpeta(driveService, folderId, base, ext) {
         n++;
     }
     return candidate;
+}
+
+// Uno por PDF, y todas las imágenes juntas. Fuente única (y probada) en
+// utils/agruparFacturas.js; el frontend aplica el mismo criterio.
+const { agruparDocumentosFactura } = require('../utils/agruparFacturas');
+
+// Lee UN documento (el grupo de ficheros que forman una factura), lo archiva en
+// "5. FACTURAS" y devuelve la fila lista para el modal + sus incidencias.
+async function leerYArchivarFactura(grupo, ctx) {
+    const ceeOcrService = require('../services/ceeOcrService');
+    const facturaOcrService = require('../services/facturaOcrService');
+    const driveService = require('../services/driveService');
+
+    // 1) Normalizar a PDF (una foto o varias páginas sueltas se unen antes de leer).
+    const { pdf } = await ceeOcrService.normalizeToPdf(grupo);
+
+    // 2) Leer la factura.
+    const ocr = await facturaOcrService.extractFacturaFromPdf(pdf);
+
+    // 3) Guardar en "5. FACTURAS" con un nombre que identifique la factura.
+    const numLimpio = String(ocr.numero_factura || '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+    const base = numLimpio ? `FACTURA_${numLimpio}` : (grupo[0].originalname || 'FACTURA').replace(/\.[a-z0-9]+$/i, '');
+    const fileName = await nombreLibreEnCarpeta(driveService, ctx.facturasFolderId, base, '.pdf');
+    const saved = await driveService.saveFileToFolder(ctx.facturasFolderId, fileName, 'application/pdf', pdf);
+    if (!saved?.link) throw new Error('La factura se ha leído pero no se pudo guardar en Drive.');
+
+    // 4) Filtro previo de incidencias (determinista, sobre el JSON del OCR).
+    const { detectarIncidenciasFactura } = require('../services/facturaIncidencias');
+    const incidencias = detectarIncidenciasFactura({
+        ocr,
+        exp: ctx.exp,
+        op: ctx.op,
+        cliente: ctx.cliente,
+        instalador: ctx.instalador,
+        facturasExistentes: ctx.facturasExistentes,
+        caeEstimado: ctx.caeEstimado,
+    });
+
+    const factura = {
+        numero_factura: ocr.numero_factura || '',
+        fecha_factura: ocr.fecha_factura || null,
+        importe_sin_iva: ocr.totales?.base_imponible ?? 0,
+        drive_link: saved.link,
+        drive_id: saved.id,
+        origen: 'ocr',
+        validada: false,
+        // Partidas presentes en la factura (AEROTERMIA, VENTANAS, …). Se
+        // persisten porque en una REFORMA hay varias facturas y hace falta
+        // saber CUÁL es la de la instalación térmica: de ella sale la fecha
+        // de pruebas de la Memoria RITE (ver resolveFechasRite). Son unas
+        // pocas etiquetas cortas, no el desglose completo.
+        partidas: [...new Set((ocr.lineas || [])
+            .map(l => String(l?.partida || '').trim().toUpperCase())
+            .filter(Boolean))],
+    };
+
+    return { factura, incidencias, ocr };
 }
 
 router.post('/:id/facturas/ocr', adminOnly, (req, res, next) => {
@@ -4105,37 +4241,9 @@ router.post('/:id/facturas/ocr', adminOnly, (req, res, next) => {
             .select('id, ficha, datos_calculo, cliente_id, instalador_asociado_id, prescriptor_id')
             .eq('id', exp.oportunidad_id).single();
 
-        // 1) Normalizar a PDF (una foto o varias páginas sueltas se unen antes de leer).
-        const ceeOcrService = require('../services/ceeOcrService');
-        let pdf;
-        try {
-            ({ pdf } = await ceeOcrService.normalizeToPdf(files));
-        } catch (e) {
-            return res.status(400).json({ error: e.message });
-        }
-
-        // 2) Leer la factura.
-        const facturaOcrService = require('../services/facturaOcrService');
-        let ocr;
-        try {
-            ocr = await facturaOcrService.extractFacturaFromPdf(pdf);
-        } catch (e) {
-            console.error('[facturaOcr] extracción falló:', e.message);
-            return res.status(e.status === 429 ? 429 : 502).json({ error: 'La lectura de la factura falló: ' + e.message });
-        }
-
-        // 3) Guardar en "5. FACTURAS" con un nombre que identifique la factura.
-        const driveService = require('../services/driveService');
         const { facturasFolderId } = await carpetaFacturas(op);
         if (!facturasFolderId) return res.status(400).json({ error: 'La oportunidad no tiene carpeta de Drive configurada.' });
 
-        const numLimpio = String(ocr.numero_factura || '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
-        const base = numLimpio ? `FACTURA_${numLimpio}` : (files[0].originalname || 'FACTURA').replace(/\.[a-z0-9]+$/i, '');
-        const fileName = await nombreLibreEnCarpeta(driveService, facturasFolderId, base, '.pdf');
-        const saved = await driveService.saveFileToFolder(facturasFolderId, fileName, 'application/pdf', pdf);
-        if (!saved?.link) return res.status(500).json({ error: 'La factura se ha leído pero no se pudo guardar en Drive.' });
-
-        // 4) Filtro previo de incidencias (determinista, sobre el JSON del OCR).
         const [{ data: cliente }, { data: instalador }] = await Promise.all([
             op?.cliente_id
                 ? supabase.from('clientes').select('nombre_razon_social, apellidos, dni, direccion, municipio, codigo_postal').eq('id_cliente', op.cliente_id).maybeSingle()
@@ -4154,37 +4262,52 @@ router.post('/:id/facturas/ocr', adminOnly, (req, res, next) => {
             caeEstimado = fin?.cae ?? null;
         } catch (e) { console.warn('[facturaOcr] CAE estimado:', e.message); }
 
-        const { detectarIncidenciasFactura } = require('../services/facturaIncidencias');
-        const incidencias = detectarIncidenciasFactura({
-            ocr, exp, op, cliente, instalador,
-            facturasExistentes: Array.isArray(exp.documentacion?.facturas) ? exp.documentacion.facturas : [],
-            caeEstimado,
-        });
+        // Las ya registradas en el expediente, MÁS las que se vayan leyendo en esta
+        // tanda: sin acumular, dos copias del mismo PDF soltadas juntas no se
+        // detectan como DUPLICADA y la sobrefinanciación ignora lo recién leído.
+        const facturasExistentes = Array.isArray(exp.documentacion?.facturas)
+            ? [...exp.documentacion.facturas] : [];
 
-        // 5) Fila lista para el modal. NO se persiste aquí: la añade el frontend con el
-        //    resto de la documentación (una sola forma de guardar el expediente).
+        const grupos = agruparDocumentosFactura(files);
+        const leidas = [];
+        const fallos = [];
+        for (const grupo of grupos) {
+            const fichero = grupo.map(f => f.originalname).filter(Boolean).join(' + ') || 'documento';
+            try {
+                const r = await leerYArchivarFactura(grupo, {
+                    exp, op, cliente, instalador, caeEstimado, facturasExistentes, facturasFolderId,
+                });
+                leidas.push({ ...r, fichero });
+                facturasExistentes.push(r.factura);
+            } catch (e) {
+                // Una factura ilegible NO tumba a las demás: se dice cuál ha fallado y
+                // las otras quedan leídas y archivadas.
+                console.error(`[facturaOcr] "${fichero}" falló:`, e.message);
+                fallos.push({ fichero, error: e.message });
+            }
+        }
+
+        // Ninguna se pudo leer: eso sí es un error de la petición, no un parcial.
+        if (!leidas.length) {
+            const detalle = fallos.map(f => `${f.fichero}: ${f.error}`).join(' · ');
+            const cuota = fallos.some(f => /\b429\b|cuota|quota/i.test(f.error || ''));
+            return res.status(cuota ? 429 : 502).json({ error: 'La lectura de la factura falló: ' + (detalle || 'sin detalle') });
+        }
+
+        // 5) Filas listas para el modal. NO se persisten aquí: las añade el frontend
+        //    con el resto de la documentación (una sola forma de guardar el expediente).
+        const facturaOcrService = require('../services/facturaOcrService');
         res.json({
             success: true,
             provider: facturaOcrService.PROVIDER,
-            factura: {
-                numero_factura: ocr.numero_factura || '',
-                fecha_factura: ocr.fecha_factura || null,
-                importe_sin_iva: ocr.totales?.base_imponible ?? 0,
-                drive_link: saved.link,
-                drive_id: saved.id,
-                origen: 'ocr',
-                validada: false,
-                // Partidas presentes en la factura (AEROTERMIA, VENTANAS, …). Se
-                // persisten porque en una REFORMA hay varias facturas y hace falta
-                // saber CUÁL es la de la instalación térmica: de ella sale la fecha
-                // de pruebas de la Memoria RITE (ver resolveFechasRite). Son unas
-                // pocas etiquetas cortas, no el desglose completo.
-                partidas: [...new Set((ocr.lineas || [])
-                    .map(l => String(l?.partida || '').trim().toUpperCase())
-                    .filter(Boolean))],
-            },
-            ocr,
-            incidencias,
+            // Una entrada por factura leída, cada una con SUS incidencias.
+            facturas: leidas,
+            fallos,
+            // Compatibilidad con un navegador que aún no se haya refrescado: sigue
+            // encontrando la primera factura donde la esperaba.
+            factura: leidas[0].factura,
+            incidencias: leidas[0].incidencias,
+            ocr: leidas[0].ocr,
         });
     } catch (err) {
         console.error('Error POST expedientes/:id/facturas/ocr:', err);
@@ -4320,6 +4443,171 @@ router.post('/:id/rite/ocr', staffOnly, (req, res, next) => {
     } catch (err) {
         console.error('Error POST expedientes/:id/rite/ocr:', err);
         res.status(500).json({ error: 'Error procesando el certificado RITE', details: err.message });
+    }
+});
+
+// ─── POST /api/expedientes/:id/placa-caldera/ocr ──────────────────────────────
+// Lee la PLACA DE CARACTERÍSTICAS de la caldera existente y rellena con ella la
+// instalación: marca, modelo, nº de serie y POTENCIA.
+//
+// La potencia es el motivo de que esto exista. Sin ella, `instalacionExistente()`
+// no escribe el equipo en el `.cex` y el certificador acaba abriendo la foto y
+// tecleándola — teniéndola nosotros en Drive desde que el instalador subió la
+// etiqueta al slot `FOTO_PLACA_CALDERA_ANTES`, que precisamente se sube a
+// resolución original para que ese número se lea.
+//
+// Las fotos NO llegan del navegador: se cogen de la carpeta del expediente, que
+// es la fuente de verdad de qué ficheros hay (regla 20). Se admite además soltar
+// una foto suelta (multipart `files[]`) para el caso en que la placa se fotografíe
+// en la visita y todavía no esté subida.
+//
+// REGLA — se PROPONE, y al aplicar solo se rellenan HUECOS. Lo que hay escrito lo
+// puso una persona con la caldera delante; una máquina que lee una foto movida no
+// puede pisarlo. Y el COMBUSTIBLE no se escribe NUNCA: de él cuelgan el
+// rendimiento de la tabla, el ahorro y la propuesta que el cliente ya firmó, así
+// que una discrepancia es un hallazgo que mira una persona, no una corrección.
+//
+// staffOnly: no hay importes, pero es documentación del expediente y la lectura
+// cuesta una llamada de pago a Gemini (~0,001 € y ~4 s).
+const placaUpload = require('multer')({
+    storage: require('multer').memoryStorage(),
+    limits: { fileSize: 25 * 1024 * 1024, files: 6 },
+});
+
+router.post('/:id/placa-caldera/ocr', staffOnly, (req, res, next) => {
+    placaUpload.array('files', 6)(req, res, (err) => {
+        if (err) {
+            if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'Alguna foto supera los 25 MB.' });
+            return res.status(400).json({ error: 'No se pudieron procesar las fotos.' });
+        }
+        next();
+    });
+}, async (req, res) => {
+    try {
+        const aplicar = req.body?.aplicar === true || req.body?.aplicar === 'true';
+
+        const { data: exp, error: expErr } = await supabase
+            .from('expedientes')
+            .select('id, oportunidad_id, numero_expediente, instalacion')
+            .eq('id', req.params.id)
+            .maybeSingle();
+        if (expErr || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const placaOcr = require('../services/placaOcrService');
+        const files = req.files || [];
+
+        // Con qué funciona la caldera. No es un adorno: las calderas antiguas de
+        // fundición son POLICOMBUSTIBLE y su placa declara una potencia por
+        // combustible, así que sin este dato no se puede elegir la buena. Se pide
+        // solo el subcampo, nunca `datos_calculo` entero (regla 22).
+        let fuelType = null;
+        if (exp.oportunidad_id) {
+            const { data: op } = await supabase
+                .from('oportunidades')
+                .select('fuel:datos_calculo->inputs->>fuelType')
+                .eq('id', exp.oportunidad_id).maybeSingle();
+            fuelType = op?.fuel || null;
+        }
+        const combustible = placaOcr.combustibleDeclarado(exp.instalacion, { fuelType });
+
+        let lectura;
+        if (files.length) {
+            lectura = await placaOcr.leerPlacaCaldera(files, { combustible });
+        } else {
+            // La carpeta se resuelve con el MISMO camino que el resto del expediente,
+            // en vez de traerse `datos_calculo` entero (86 KB de media — regla 22).
+            const { carpetaDeExpediente } = require('../services/expedienteFolderSync');
+            const folderId = await carpetaDeExpediente(exp);
+            if (!folderId) return res.status(400).json({ error: 'El expediente no tiene carpeta de Drive.' });
+            lectura = await placaOcr.leerPlacaCaldera(
+                { datos_calculo: { drive_folder_id: folderId } }, { combustible });
+        }
+
+        if (lectura.sin_fotos) {
+            return res.status(404).json({
+                error: 'No hay fotos de la caldera ni de su placa en el expediente.',
+                avisos: lectura.avisos,
+            });
+        }
+
+        const inst = exp.instalacion || {};
+        const cal = { ...(inst.caldera_antigua_cal || {}) };
+        const vacio = (v) => v === null || v === undefined || String(v).trim() === '';
+        const leido = lectura.leido || {};
+
+        // Qué se escribiría: solo los huecos. Lo que ya está puesto se devuelve
+        // igualmente para que se vean las dos versiones y se decida a la vista.
+        const propuesta = [];
+        const conflictos = [];
+        const proponer = (campo, etiqueta, actual, nuevo) => {
+            if (vacio(nuevo)) return;
+            if (vacio(actual)) propuesta.push({ campo, etiqueta, valor: nuevo });
+            else if (String(actual).trim().toUpperCase() !== String(nuevo).trim().toUpperCase()) {
+                conflictos.push({ campo, etiqueta, actual, leido: nuevo });
+            }
+        };
+        proponer('marca', 'Marca', cal.marca, leido.marca);
+        proponer('modelo', 'Modelo', cal.modelo, leido.modelo);
+        proponer('numero_serie', 'Nº de serie', cal.numero_serie, leido.numero_serie);
+        // Un CERO no es una potencia: `potencia_caldera` nace en '' y se guarda
+        // como 0 en cuanto alguien abre y guarda Instalación sin tocarlo. Si
+        // contara como valor puesto, la placa saldría como «conflicto» contra un
+        // dato que no existe y no se rellenaría el hueco que sí hay.
+        const potActual = [inst.potencia_caldera_kw, inst.potencia_caldera]
+            .map(Number).find((n) => n > 0) || null;
+        proponer('potencia_caldera_kw', 'Potencia (kW)', potActual, lectura.potencia_kw);
+
+        let escrito = [];
+        if (aplicar && propuesta.length) {
+            const nueva = { ...inst, caldera_antigua_cal: cal };
+            for (const p of propuesta) {
+                if (p.campo === 'potencia_caldera_kw') nueva.potencia_caldera_kw = p.valor;
+                else cal[p.campo] = p.valor;
+                escrito.push(p.campo);
+            }
+            // La app CLONA la caldera de calefacción en la de ACS mientras sea la
+            // misma (`misma_caldera_acs`): si no se hiciera aquí, el CIFO imprimiría
+            // la marca en un servicio y un hueco en el otro.
+            if (inst.misma_caldera_acs !== false) {
+                const acs = { ...(inst.caldera_antigua_acs || {}) };
+                for (const p of propuesta) {
+                    if (p.campo !== 'potencia_caldera_kw' && vacio(acs[p.campo])) acs[p.campo] = p.valor;
+                }
+                nueva.caldera_antigua_acs = acs;
+            }
+            // Huella de qué leyó la máquina y de dónde: una comprobación que se ve
+            // una vez y se pierde al cerrar el popup no sirve de nada. Solo
+            // metadatos (regla 21).
+            nueva.placa_ocr = {
+                at: new Date().toISOString(),
+                por: req.user?.email || null,
+                leido, potencia_kw: lectura.potencia_kw, potencia_base: lectura.potencia_base,
+                fotos: (lectura.fotos || []).map((f) => f.name),
+                escrito,
+            };
+
+            const { error: upErr } = await supabase
+                .from('expedientes')
+                .update({ instalacion: nueva, updated_at: new Date().toISOString() })
+                .eq('id', exp.id);
+            if (upErr) return res.status(500).json({ error: 'No se pudo guardar en el expediente.', details: upErr.message });
+        }
+
+        res.json({
+            success: true,
+            leido,
+            potencia_kw: lectura.potencia_kw,
+            potencia_base: lectura.potencia_base,
+            potencia_candidatos: lectura.potencia_candidatos,
+            fotos: lectura.fotos,
+            propuesta, conflictos,
+            escrito: aplicar ? escrito : [],
+            avisos: lectura.avisos || [],
+        });
+    } catch (err) {
+        console.error('Error POST expedientes/:id/placa-caldera/ocr:', err.message);
+        res.status(err.status && err.status < 500 ? err.status : 500)
+           .json({ error: err.message || 'No se ha podido leer la placa.' });
     }
 });
 

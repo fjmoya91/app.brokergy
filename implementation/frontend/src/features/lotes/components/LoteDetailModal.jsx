@@ -6,6 +6,8 @@ import { getRoleFlags } from '../../../utils/roleFlags';
 import { LOTE_ESTADOS, loteEstadoBadge } from '../loteConstants';
 import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
 import { computeLoteEco } from '../logic/loteEco';
+import { estimar, tarifaPara, comparar } from '../logic/tarifasVerificacion';
+import { getFicha } from '../../expedientes/logic/expedienteTaxonomia';
 import { AnexoListadoModal } from './AnexoListadoModal';
 import { SolicitudVerificacionModal } from './SolicitudVerificacionModal';
 import { FacturaSoModal } from './FacturaSoModal';
@@ -90,6 +92,10 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
     const [showExpedientes, setShowExpedientes] = useState(true);
     const [soList, setSoList] = useState(soListProp || []);
     const [verList, setVerList] = useState(verListProp || []);
+    // Tarifas del verificador asignado: la referencia orientativa con la que se
+    // mira si lo que nos pide por este lote cuadra. Solo ADMIN — son importes, y
+    // la ruta que las sirve es adminOnly.
+    const [tarifasVerif, setTarifasVerif] = useState(null);
 
     // Carga SO/Verificador si no se pasan como props (ej. apertura desde expediente).
     useEffect(() => {
@@ -148,6 +154,37 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
     //   beneficioLote = ofertaLote(€/MWh) × ahorro(MWh) − pagoCliente(€)
     //   beneficioActual = Σ profitBrokergy por expediente (el "antes", sin oferta de lote)
     const eco = useMemo(() => computeLoteEco(lote), [lote?.expedientes, lote?.coste_verificacion, lote?.oferta_lote]);
+
+    // ─── Lo que la TARIFA del verificador dice que debería costar ────────────
+    // No sustituye a nada: `coste_verificacion` sigue siendo lo que de verdad se
+    // paga (sale de su factura). Esto es la referencia con la que se mira si la
+    // oferta que llega cuadra, que es justo lo que no se podía hacer sin salir a
+    // buscar el correo donde pasó los precios.
+    useEffect(() => {
+        if (!canSeeMargin || !lote?.verificador_id) { setTarifasVerif(null); return; }
+        let vivo = true;
+        axios.get(`/api/prescriptores/${lote.verificador_id}/tarifas-verificacion`)
+            .then(r => { if (vivo) setTarifasVerif(r.data?.tarifas || []); })
+            .catch(() => { if (vivo) setTarifasVerif(null); });
+        return () => { vivo = false; };
+    }, [canSeeMargin, lote?.verificador_id]);
+
+    const refVerif = useMemo(() => {
+        const exps = lote?.expedientes || [];
+        // Sin NINGUNA tarifa registrada no se dice nada: un aviso que sale en todos
+        // los lotes de todos los verificadores sin tarifa es el que enseña a no
+        // leer esta zona. Lo que sí se dice es que hay tarifas y no encaja ninguna,
+        // que eso sí se arregla.
+        if (!tarifasVerif?.length || !exps.length) return null;
+        // Una actuación = un expediente del lote. Es la unidad con la que factura
+        // el verificador y la que numera su informe.
+        const n = exps.length;
+        const fichas = [...new Set(exps.map(getFicha).filter(Boolean))];
+        const { tarifa, motivo } = tarifaPara(tarifasVerif, fichas);
+        if (!tarifa) return { motivo, n };
+        const estimacion = estimar(tarifa, n);
+        return { tarifa, estimacion, n, comparacion: comparar(estimacion, lote?.coste_verificacion) };
+    }, [tarifasVerif, lote?.expedientes, lote?.coste_verificacion]);
 
     // Los datos del dictamen viven en la entrada de su documento: se leen del PDF
     // al subirlo (ver loteOcrService) y no hay ningún campo que teclear.
@@ -334,6 +371,39 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                         onBlur={() => { if (String(costeVerifInput) !== String(lote.coste_verificacion ?? '')) patchLote({ coste_verificacion: costeVerifInput }); }}
                                         placeholder="0"
                                         className="w-full bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white focus:border-brand/40 focus:outline-none" />
+                                    {/* La referencia de SU tarifa, debajo del campo: es
+                                        donde se teclea lo que pide, y por tanto donde
+                                        sirve saber lo que debería pedir. */}
+                                    {refVerif?.estimacion && (
+                                        <p className="text-[9px] text-white/30 mt-1 leading-relaxed">
+                                            Su tarifa para {refVerif.n} {refVerif.n === 1 ? 'actuación' : 'actuaciones'}:{' '}
+                                            <span className="text-white/60 font-black">
+                                                {Number(refVerif.estimacion.importe).toLocaleString('es-ES', { maximumFractionDigits: 0 })} €
+                                            </span>
+                                            <span className="text-white/25"> · {Number(refVerif.estimacion.porActuacion).toLocaleString('es-ES', { maximumFractionDigits: 0 })} €/act.</span>
+                                            {refVerif.comparacion && (
+                                                <span className={`block font-black ${refVerif.comparacion.tono === 'ok' ? 'text-emerald-400/80' : refVerif.comparacion.tono === 'caro' ? 'text-amber-400/90' : 'text-cyan-400/80'}`}>
+                                                    {refVerif.comparacion.tono === 'ok' ? '✓ ' : '⚠ '}{refVerif.comparacion.texto}
+                                                    {refVerif.comparacion.pct != null && refVerif.comparacion.tono !== 'ok'
+                                                        ? ` (${refVerif.comparacion.pct > 0 ? '+' : ''}${refVerif.comparacion.pct.toLocaleString('es-ES', { maximumFractionDigits: 0 })} %)` : ''}
+                                                </span>
+                                            )}
+                                            {refVerif.estimacion.fueraDeTabla && (
+                                                <span className="block text-amber-400/70">⚠ {refVerif.estimacion.aviso}</span>
+                                            )}
+                                            {/* Un lote son 5 actuaciones como mucho, pero a
+                                                verificar se mandan varios a la vez y el
+                                                escalón es por envío: sin esto, comparar el
+                                                total de la factura contra un solo lote sale
+                                                siempre "caro". */}
+                                            <span className="block text-white/20">
+                                                Orientativa. Si se verifica junto a otros lotes, compara el €/actuación.
+                                            </span>
+                                        </p>
+                                    )}
+                                    {refVerif && !refVerif.estimacion && refVerif.motivo && (
+                                        <p className="text-[9px] text-white/25 mt-1">{refVerif.motivo}</p>
+                                    )}
                                 </div>
                                 )}
                                 {canSeeMargin && (

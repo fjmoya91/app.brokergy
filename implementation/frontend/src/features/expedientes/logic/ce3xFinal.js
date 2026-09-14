@@ -206,7 +206,15 @@ export function resolverCe3x(exp, { modelos = {} } = {}) {
     // máquina con marca, modelo y nº de serie propios — y era justo lo que pasaba
     // con los expedientes rellenados desde fuera de la pantalla de Instalación.
     const mismoEquipoAcs = acsMismoEquipo(inst);
-    const acsNode = mismoEquipoAcs ? cal : inst.aerotermia_acs;
+    // El SCOP_dhw es el del NODO DE ACS siempre que lo declare: una misma bomba
+    // rinde 4,34 en calefacción y 3,00 en ACS, y son dos ensayos distintos. Solo
+    // cuando no hay nodo —o no trae SCOP— se cae al de calefacción, que es el
+    // caso de "la misma aerotermia lo produce todo" sin nodo propio. Al revés, un
+    // equipo unificado declararía como SCOP_dhw el de calefacción, que es el
+    // número alto: el ACS saldría rindiendo más de lo que rinde.
+    const acsNode = parseFloat(inst.aerotermia_acs?.scop) > 0
+        ? inst.aerotermia_acs
+        : (mismoEquipoAcs ? cal : inst.aerotermia_acs);
     const acsTipo = inst.aerotermia_acs ? tipoEquipoNuevo(inst.aerotermia_acs) : null;
     // Con "misma aerotermia para ACS" puede no haber nodo propio de ACS: el equipo
     // de calefacción lo produce todo. Mismo criterio que `tieneAcs` en cifoDoc.js.

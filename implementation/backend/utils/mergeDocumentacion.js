@@ -12,8 +12,14 @@
  *   · cifo_annex_prefs                  → RPC cifo_annex_prefs_set (/anexos-cifo/prefs)
  *   · anexo_comentarios/_excluidas/_orden → PUT /:id/anexo-fotografico/config
  *   · ce3x_capturas                     → RPC res080_ce3x_set (/res080/ce3x/:slot)
+ *   · incidencias                       → POST/PATCH/DELETE /:id/incidencias (y el MCP)
  *
- * Vive aparte para poder probarse sin levantar la ruta entera.
+ * ⚠️ `incidencias` no estaba protegida y era una PÉRDIDA DE DATOS silenciosa, no
+ * un descuadre: se registraban tres incidencias de una factura, el siguiente
+ * autoguardado del módulo de Documentación (subir otra factura, tocar un campo,
+ * "Guardar Facturas") reenviaba `documentacion` entera desde la copia hidratada
+ * al abrir la vista —donde esas tres no existen— y las BORRABA. El aviso decía
+ * "3 incidencia(s) registrada(s)" y en el panel no había ninguna.
  */
 const CLAVES_PROTEGIDAS = [
     'cifo_extra_annexes',
@@ -22,6 +28,7 @@ const CLAVES_PROTEGIDAS = [
     'anexo_excluidas',
     'anexo_orden',
     'ce3x_capturas',
+    'incidencias',
 ];
 
 const { DOCUMENTO_VALIDABLE_LABELS, BORRADORES_CLIENTE, invalidarValidacionDocs } = require('./docValidacion');

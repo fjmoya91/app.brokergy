@@ -65,6 +65,11 @@ const LandingFunnelView = lazyWithReload(() => import('./features/landing/views/
   name: 'LandingFunnelView',
   beforeReload: markResumeNewSimulation,
 });
+// La envolvente en su propia ventana (/envolvente/:id) — chunk lazy: solo se
+// descarga cuando se abre, no en cada carga del panel.
+const EnvolventeVentana = lazyWithReload(
+    () => import('./features/cee-envolvente/views/EnvolventeVentana'),
+    { name: 'EnvolventeVentana' });
 // Puerta "¿Tienes el CEE anterior?" previa a Nueva simulación (SOLO ADMIN) — chunk lazy
 const CeePrevioGate = lazyWithReload(() => import('./features/cee/CeePrevioGate'), {
   name: 'CeePrevioGate',
@@ -198,6 +203,16 @@ function App() {
   const [instaladorId] = useState(() => {
     const path = window.location.pathname;
     if (path.startsWith('/instalador/')) return path.split('/instalador/')[1]?.split('/')[0] || null;
+    return null;
+  });
+
+  // Envolvente térmica en VENTANA PROPIA: /envolvente/:expedienteId.
+  // No es una ruta pública —exige sesión, como el resto del expediente—: se
+  // abre en otra pestaña para poder seguir consultando la app sin perder lo
+  // que se lleve señalado en el plano.
+  const [envolventeId] = useState(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/envolvente/')) return path.split('/envolvente/')[1]?.split('/')[0] || null;
     return null;
   });
 
@@ -726,6 +741,8 @@ function App() {
           plantas: data.plantas,
           superficieCalefactable: data.superficieCalefactable,
           selectedConstructions: data.selectedConstructions,
+          construcciones: data.construcciones,
+          construcciones_elegidas: data.construcciones_elegidas,
           isPersistent: true
         };
       } else {
@@ -1027,8 +1044,8 @@ function App() {
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
   const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cobroData || cifoUploadId || riteUploadId || instaladorId || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || firmarLoteId || portalRoute);
-  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cobroData && !cifoUploadId && !riteUploadId && !instaladorId && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !reformaDocsData && !landingRoute && !portalRoute;
-  const wrapperPadding = (isLoggedDashboard || isPublicRoute) ? 'p-0' : 'px-4 py-8';
+  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cobroData && !cifoUploadId && !riteUploadId && !instaladorId && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
+  const wrapperPadding = (isLoggedDashboard || isPublicRoute || (user && envolventeId)) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
   return (
@@ -1037,7 +1054,17 @@ function App() {
       {!isPublicRoute && <DynamicNetworkBackground />}
 
       <div className={`relative z-10 ${wrapperPadding} ${wrapperHeight}`}>
-        {landingRoute ? (
+        {user && envolventeId ? (
+          <Suspense fallback={
+            <div className="min-h-screen flex items-center justify-center">
+              <div className="animate-pulse text-brand font-bold tracking-widest text-sm uppercase">
+                Cargando la envolvente…
+              </div>
+            </div>
+          }>
+            <EnvolventeVentana expedienteId={envolventeId} />
+          </Suspense>
+        ) : landingRoute ? (
           <Suspense fallback={
             <div className="min-h-screen flex items-center justify-center">
               <div className="animate-pulse text-amber-500 font-bold tracking-widest text-sm uppercase">Cargando…</div>

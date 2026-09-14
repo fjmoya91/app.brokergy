@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { desgloseConstrucciones } from '../utils/construcciones';
 
 const API_URL = '/api/catastro';
 
@@ -155,7 +156,11 @@ export function PropertySheet({ data, onCalculateDemand, initialSelection }) {
                 plantas,
                 superficie,
                 superficieCalefactable,
-                selectedConstructions: selectedElements, // Persistimos los índices seleccionados
+                selectedConstructions: selectedElements, // los índices, para reabrir esta ficha
+                // Y lo mismo por CÓDIGO, que es lo único que identifica una
+                // construcción fuera de esta pantalla: de aquí lo lee la
+                // envolvente para saber qué plantas van al .cex.
+                ...desgloseConstrucciones(data.constructions, selectedElements),
                 rc,
                 zona,
                 tipo,

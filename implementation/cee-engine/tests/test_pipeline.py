@@ -111,8 +111,10 @@ def test_el_csv_lleva_las_columnas_pedidas_y_el_largo_por_alto(corrida):
         assert col in filas[0]
     # el ID lleva planta y orientacion: FBS1 = Fachada, Baja, Sur, la primera
     sur = next(f for f in filas if f["ID"] == "FBS1")
-    assert sur["largo_x_alto"] == "12.00 x 2.70"
-    assert float(sur["superficie_m2"]) == pytest.approx(12.0 * 2.70)
+    # 2,80 es la altura por defecto del motor (`Opciones.floor_height`): se
+    # cambio de 2,70 y este test se quedo con la anterior.
+    assert sur["largo_x_alto"] == "12.00 x 2.80"
+    assert float(sur["superficie_m2"]) == pytest.approx(12.0 * 2.80)
 
 
 def test_la_altura_por_defecto_va_marcada_como_no_medida(corrida):

@@ -7,7 +7,6 @@ import CeeUploadModal from '../../cee/CeeUploadModal';
 import { ceeToXmlShape } from '../../cee/ceeExtract';
 import { EfficiencyTable, CATEGORIES_SIMPLIFICADO } from '../../calculator/components/EfficiencyTable';
 import { CeeDocumentsGrid } from './CeeDocumentsGrid';
-import { EnvolventeModal } from '../../cee-envolvente/components/EnvolventeModal';
 import { AvisoIrpfEpnr } from './AvisoIrpfEpnr';
 import { TecnicoPicker } from './TecnicoPicker';
 import { Ce3xAyudasModal } from './Ce3xAyudasModal';
@@ -42,79 +41,6 @@ function TableCell({ value, onChange, readOnly, type = 'number', highlight = fal
                     highlight ? 'font-bold text-brand border-brand/20 bg-brand/[0.02]' : ''
                 }`}
             />
-        </div>
-    );
-}
-
-const getAcsCalculatedValue = (isFinal, local) => {
-    const ceeObj = isFinal ? local.cee_final : local.cee_inicial;
-    const method = local.acs_method;
-    const rooms = local.num_rooms;
-    
-    if (method === 'xml' && ceeObj) {
-        const dacsKwhM2 = parseFloat(ceeObj.demandaACS) || 0;
-        const superficie = parseFloat(ceeObj.superficieHabitable) || 0;
-        return (dacsKwhM2 * superficie).toFixed(2);
-    } else if (method === 'cte') {
-        const numPeople = rooms + 1;
-        const val = 28 * numPeople * 0.001162 * 365 * 46;
-        return val.toFixed(2);
-    }
-    return '—';
-};
-
-function AcsCell({ isFinal, local, setLocal, editMode }) {
-    const method = local.acs_method;
-    const rooms = local.num_rooms;
-    const val = getAcsCalculatedValue(isFinal, local);
-
-    return (
-        <div className="flex flex-col gap-2 p-2 h-full justify-center">
-            <div className="flex items-center gap-1 bg-white/[0.03] p-0.5 rounded-lg border border-white/[0.06] self-start">
-                {['xml', 'cte'].map(m => (
-                    <button 
-                        key={m} 
-                        type="button"
-                        onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            if (editMode) {
-                                setLocal(p => ({ ...p, acs_method: m }));
-                            }
-                        }}
-                        className={`px-2 py-1 rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${
-                            method === m ? 'bg-brand text-black' : 'text-white/20 hover:text-white/40'
-                        } ${!editMode ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                    >
-                        {m === 'xml' ? 'XML' : 'Hab.'}
-                    </button>
-                ))}
-            </div>
-            
-            <div className="flex items-center gap-3">
-                {method === 'cte' && (
-                    <div className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.03] border border-white/10 rounded-lg">
-                        <span className="text-[8px] font-bold text-white/20 uppercase">Dorm:</span>
-                        <input 
-                            type="number" 
-                            disabled={!editMode}
-                            value={rooms} 
-                            onChange={e => {
-                                e.stopPropagation();
-                                setLocal(p => ({ ...p, num_rooms: parseInt(e.target.value) || 0 }))
-                            }}
-                            className="w-8 bg-transparent text-[11px] font-bold text-brand text-center outline-none disabled:opacity-50" 
-                        />
-                    </div>
-                )}
-                
-                <div className="flex flex-col gap-0.5 min-w-[80px]">
-                    <span className="text-[7px] font-black text-white/30 uppercase tracking-[0.15em] leading-none">Demanda ACS</span>
-                    <span className="text-[12px] font-black text-brand leading-none">
-                        {val} <span className="text-[8px] text-white/40 font-bold ml-0.5">kWh/año</span>
-                    </span>
-                </div>
-            </div>
         </div>
     );
 }
@@ -211,6 +137,8 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
             num_rooms: 4,
             // D_ACS en kWh/año introducida a mano (solo modo 'manual', ficha TER100).
             dacs_manual: null,
+            // Litros/día a 60 °C que declara el certificado (solo modo 'litros').
+            dacs_litros_dia: null,
             certificador_id: null,
             // Los comb_* (acs/cal/ref · inicial/final) se inicializan más abajo, en el
             // bloque de normalización (tras ...saved), con su mismo valor por defecto.
@@ -253,7 +181,18 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
     const [ceeLoadTarget, setCeeLoadTarget] = useState(null);
     // Caja de herramientas del certificador (textos fijos de CE3X).
     const [ayudasCe3x, setAyudasCe3x] = useState(false);
-    const [envolvente, setEnvolvente] = useState(false);
+    /**
+     * La envolvente se abre en una VENTANA PROPIA, no en un modal: sobre el
+     * plano se pasa un rato largo y a mitad hace falta mirar otra cosa del
+     * expediente. Con un modal hay que cerrar y perder el sitio.
+     *
+     * `noopener` porque la pestaña nueva no necesita nada de esta, y sin él
+     * comparte proceso: un tirón allí frena el expediente de aquí.
+     */
+    const abrirEnvolvente = (id) => {
+        if (!id) return;
+        window.open(`/envolvente/${id}`, `envolvente-${id}`, 'noopener');
+    };
     const [isDragging, setIsDragging] = useState(false);
     const [isDraggingFinal, setIsDraggingFinal] = useState(false);
     // Autoguardado: el módulo siempre está editable, sin botón "Editar Módulo".
@@ -1001,6 +940,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 acsMethod={local.acs_method}
                 numRooms={local.num_rooms}
                 dacsManual={local.dacs_manual}
+                dacsLitrosDia={local.dacs_litros_dia}
                 onManualUpdate={(patch) => {
                     const nextLocal = { ...local, ...patch };
                     setLocal(nextLocal);
@@ -1125,6 +1065,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 acsMethod={local.acs_method}
                 numRooms={local.num_rooms}
                 dacsManual={local.dacs_manual}
+                dacsLitrosDia={local.dacs_litros_dia}
                 onManualUpdate={(patch) => {
                     const nextLocal = { ...local, ...patch };
                     setLocal(nextLocal);
@@ -1877,11 +1818,16 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                         columna del modulo no se distingue una pared de otra. */}
                     <button
                         type="button"
-                        onClick={() => setEnvolvente(true)}
-                        title="Generar el .cex con la envolvente medida"
+                        onClick={() => abrirEnvolvente(expediente?.id)}
+                        title="Abrir la envolvente y generar el .cex (se abre en otra pestaña)"
                         className="flex items-center gap-2 px-3 py-2 rounded-xl border border-brand/40 bg-brand/10 text-[9px] font-black uppercase tracking-widest text-brand hover:bg-brand hover:text-black transition-colors max-md:w-full max-md:justify-center max-md:py-3.5 max-md:text-[10px]"
                     >
-                        <span>📐</span>
+                        {/* El logo de CE3X: es la herramienta que se va a abrir, y
+                            con él el botón se reconoce sin leerlo. No se tiñe con
+                            el hover —lleva sus colores— y por eso va aparte del
+                            texto, que sí cambia. */}
+                        <img src="/logo-ce3x.svg" alt="" aria-hidden="true"
+                             className="h-5 w-5 shrink-0" />
                         <span>CE3X</span>
                     </button>
                 </div>
@@ -1906,12 +1852,6 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 popup necesita el expediente con su instalación VIVA (`instalacionViva`):
                 el autoguardado del detalle se confirma un render más tarde, y copiar
                 al CE3X un SCOP desfasado es justo lo que esto viene a evitar. */}
-            <EnvolventeModal
-                abierto={envolvente}
-                onCerrar={() => setEnvolvente(false)}
-                expediente={expediente}
-            />
-
             <Ce3xAyudasModal
                 isOpen={ayudasCe3x}
                 onClose={() => setAyudasCe3x(false)}

@@ -781,6 +781,15 @@ input[autocomplete="new-password"] {
 }
 
 /* ── Texto blanco → texto oscuro (primario + escala de opacidad) ── */
+/* La cartografía del Catastro DEBAJO del plano de la envolvente.
+   Es papel blanco con líneas de colores: sobre el papel oscuro del plano hay
+   que invertirla o tapa el dibujo, y el giro de tono de 180° evita que los
+   colores de Catastro —que su usuario reconoce— salgan los complementarios.
+   Va aquí y no en el componente porque leyendo la clase del tema en JS se
+   calcula una vez y al cambiar de tema el plano se quedaba invertido. */
+.plano-catastro { filter: invert(1) hue-rotate(180deg); }
+.theme-light .plano-catastro { filter: none; }
+
 .theme-light .text-white { color: #16181D !important; }
 .theme-light .text-white\/90 { color: rgba(22, 24, 29, 0.92) !important; }
 .theme-light .text-white\/85 { color: rgba(22, 24, 29, 0.88) !important; }

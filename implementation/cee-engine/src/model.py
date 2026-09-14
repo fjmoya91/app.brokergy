@@ -51,6 +51,13 @@ class Modelo:
     #: BuildingParts de las parcelas colindantes: dicen hasta que planta
     #: llega cada vecino, y por tanto hasta donde hay medianera de verdad.
     neighbour_partes: list[ParteEdificio] = field(default_factory=list)
+
+    #: Las PARCELAS de alrededor. Ya se descargan (de ellas salen las
+    #: referencias de los vecinos) y se tiraban: son las lindes que dibuja el
+    #: visor de Catastro, y sin ellas el plano solo ensena las masas de los
+    #: edificios que TOCAN — con los solares y los patios de al lado en blanco,
+    #: que es justo lo que hace falta ver para saber si una pared da a la calle.
+    neighbour_parcels: list[Objeto] = field(default_factory=list)
     catastro: dict = field(default_factory=dict)
     diagnostics: Diagnostics = field(default_factory=Diagnostics)
 
@@ -74,6 +81,7 @@ class Modelo:
             "buildings": [b.to_dict() for b in self.buildings],
             "building_parts": [p.to_dict() for p in self.building_parts],
             "neighbours": [n.to_dict() for n in self.neighbours],
+            "neighbour_parcels": [n.to_dict() for n in self.neighbour_parcels],
             "floors": [{"nivel": f.nivel, "planta": f.etiqueta, "area_m2": f.area_m2,
                         "usos": f.usos, "uso_dominante": f.uso_dominante,
                         "confidence": f.confianza_uso, "nota": f.nota_uso}

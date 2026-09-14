@@ -11,7 +11,7 @@
  *
  * El XML solo se usa en el DETALLE de un expediente (CeeModule,
  * CertificadoRes080Modal, res080Doc.js y services/cifoService.js), que carga la
- * fila por id. Los listados solo necesitan los 11 campos del cálculo económico,
+ * fila por id. Los listados solo necesitan los campos del cálculo económico,
  * que es lo que declara este módulo.
  *
  * Uso:
@@ -27,6 +27,12 @@ const CEE_ECO_FIELDS = [
     'cee_final',
     'acs_method',
     'num_rooms',
+    // Los dos modos de D_ACS que NO se derivan del certificado. Sin ellos, el
+    // listado los resolvía como si el expediente no los tuviera: un TER100 en
+    // modo manual y un residencial con los litros/día del CEE salían con una
+    // D_ACS distinta (0, o la del certificado) de la de su propio CIFO.
+    'dacs_manual',
+    'dacs_litros_dia',
     'superficie_custom',
     'comb_acs_inicial',
     'comb_acs_final',

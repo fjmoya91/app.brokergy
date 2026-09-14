@@ -25,6 +25,7 @@ import { ACS_METHOD, resolveDacs } from '../../expedientes/logic/demandaAcs';
 // El OBJETO de la simulación: una vivienda o el EDIFICIO completo.
 import { esBloque, TIPO_INMUEBLE, clasificarTipoEdificio, etiquetaTipoEdificio, avisoTipoEdificio, IRPF_EDIFICIO_REQUISITO } from '../logic/tipoInmueble';
 import { FV, FV_OPCIONES, normalizarFotovoltaica, potenciaTexto, etiquetaFotovoltaica } from '../../expedientes/logic/fotovoltaica';
+import { produceAcs, litrosAcsCatalogo, esConjuntoAcs } from '../../expedientes/logic/acsCatalogo';
 import { useAuth } from '../../../context/AuthContext';
 import { parseCeeXml } from '../logic/xmlCeeParser';
 import CeeUploadModal from '../../cee/CeeUploadModal';
@@ -350,16 +351,20 @@ export function CalculatorForm({
     const marcasAcsDisponibles = React.useMemo(() => {
         const brandsMap = new Map();
         dbModels.forEach(m => {
-            // Un equipo es para ACS si tiene SCOP de ACS o volumen de depósito
-            const isAcsModel = m.scop_dhw_medio > 0 || m.scop_dhw_calido > 0 || m.deposito_acs_incluido > 0 || String(m.tipo || '').includes('ACS');
-            if (m.marca && isAcsModel && !brandsMap.has(m.marca)) {
+            // Qué equipo puede dar ACS lo decide `produceAcs` (logic/acsCatalogo.js),
+            // la MISMA función que filtra el desplegable del expediente. Este criterio
+            // estaba escrito aquí aparte y admitía equipos con depósito pero sin ningún
+            // dato de ACS, cuyo SCOP acaba cayendo al 3,0 por defecto de
+            // `getScopAcsFromModel`. Dos criterios para lo mismo acaban ofreciendo
+            // cosas distintas en la propuesta y en el expediente.
+            if (m.marca && produceAcs(m, inputs.zona) && !brandsMap.has(m.marca)) {
                 brandsMap.set(m.marca, m.logo_marca);
             }
         });
         return Array.from(brandsMap.entries())
             .map(([nombre, logo]) => ({ nombre, logo }))
             .sort((a, b) => a.nombre.localeCompare(b.nombre));
-    }, [dbModels]);
+    }, [dbModels, inputs.zona]);
 
     const filteredMarcas = marcasDisponibles.filter(m =>
         norm(m.nombre).includes(norm(brandSearchTerm))
@@ -2517,10 +2522,17 @@ export function CalculatorForm({
                                                                 <option value="custom">-- Seleccionar modelo ACS --</option>
                                                                 <optgroup label={selectedMarcaAcs || 'Modelos ACS'}>
                                                                     {dbModels
-                                                                        .filter(m => m.marca === selectedMarcaAcs && (m.scop_dhw_medio || m.scop_dhw_calido || m.deposito_acs_incluido || String(m.tipo || '').includes('ACS')))
+                                                                        .filter(m => m.marca === selectedMarcaAcs && produceAcs(m, inputs.zona))
                                                                         .map(m => (
                                                                             <option key={m.id} value={m.id}>
-                                                                                {m.modelo_comercial} {m.modelo_conjunto ? `(${m.modelo_conjunto})` : (typeof m.deposito_acs_incluido === 'number' && m.deposito_acs_incluido > 0 ? `(${m.deposito_acs_incluido}L)` : '')}
+                                                                                {/* Los litros salen de `litros_acs`. Antes se leían de
+                                                                                    `deposito_acs_incluido`, que hoy es un BOOLEANO: la
+                                                                                    condición `typeof === 'number'` no se cumplía nunca y
+                                                                                    la acumulación no se enseñaba jamás. */}
+                                                                                {m.modelo_comercial}{' '}
+                                                                                {m.modelo_conjunto
+                                                                                    ? `(${m.modelo_conjunto})`
+                                                                                    : (esConjuntoAcs(m) && litrosAcsCatalogo(m) ? `(${litrosAcsCatalogo(m)} L)` : '')}
                                                                             </option>
                                                                         ))
                                                                     }

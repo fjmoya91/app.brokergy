@@ -71,6 +71,147 @@ function isLeadCaliente(score, funnel) {
 // ============================================================================
 
 /**
+ * Los NUEVE últimos dígitos de un teléfono, que es lo único estable: la misma
+ * persona llega unas veces como "+34672358309" y otras como "672358309", y un
+ * `eq` sobre la cadena no las casa (medido: 306 clientes guardados sin prefijo
+ * y 9 con él).
+ *
+ * ⚠️ Devuelve null si no salen 9 dígitos — un teléfono a medias no puede
+ * emparejar a nadie.
+ */
+function tlf9(tlf) {
+    const d = String(tlf || '').replace(/\D/g, '');
+    return d.length >= 9 ? d.slice(-9) : null;
+}
+
+/**
+ * ¿El contacto que acaba de rellenar el funnel es el MISMO que el titular de
+ * un lead anterior?
+ *
+ * REGLA — el TELÉFONO solo desempata DENTRO de la misma vivienda, nunca a
+ * secas. Medido sobre los 376 clientes: un móvil (695615330) figura en CINCO
+ * fichas de personas distintas y otro (610171667) en cuatro — son teléfonos de
+ * instalador o de comercial metidos como contacto del cliente. Deduplicar la
+ * base de clientes por teléfono fusionaría expedientes de gente distinta, que
+ * es mucho peor que el duplicado que esto viene a evitar. Pero el mismo número
+ * sobre la MISMA referencia catastral ya no es una coincidencia: es la misma
+ * gestión, que es justo el caso que se escapaba (un lead sin email ni DNI —85
+ * de 376 clientes no tienen ninguno de los dos— volvía a entrar y nacía otra
+ * vez de cero).
+ */
+function mismoTitular(contacto, cliente) {
+    if (!cliente) return false;
+    const email = contacto?.email ? String(contacto.email).trim().toLowerCase() : null;
+    if (email && cliente.email && email === String(cliente.email).trim().toLowerCase()) return true;
+    const dni = contacto?.dni ? String(contacto.dni).trim().toUpperCase() : null;
+    if (dni && cliente.dni && dni === String(cliente.dni).trim().toUpperCase()) return true;
+    const t = tlf9(contacto?.tlf);
+    return !!(t && t === tlf9(cliente.tlf));
+}
+
+/**
+ * El LEAD que ya existe sobre esta vivienda y es de este mismo titular, o null.
+ *
+ * REGLA — solo se reutiliza un LEAD. Una oportunidad que ya está ENVIADA o
+ * ACEPTADA tiene propuesta enviada, carpeta de Drive movida y puede tener
+ * expediente detrás: machacarla con lo que teclee alguien en el formulario
+ * público sería mucho peor que tener dos filas. Ahí el visitante ve el aviso de
+ * "ya hicimos una simulación para esta vivienda" (`GET /api/landing/check-rc`)
+ * y decide — que es lo correcto: a un cliente no se le puede bloquear.
+ *
+ * Nunca lanza: un fallo de lectura aquí no puede tumbar la captación de un lead.
+ */
+async function buscarLeadPrevio(refCatastral, contacto) {
+    const previas = await oportunidadesDeLaVivienda(refCatastral);
+    return elegirLeadPrevio(previas, contacto);
+}
+
+/**
+ * Todo lo que ya existe sobre esta referencia catastral, de lo más reciente a lo
+ * más antiguo. Nunca lanza: un fallo de lectura aquí no puede tumbar la
+ * captación de un lead — se sigue como alta nueva, que es lo que pasaba antes.
+ */
+async function oportunidadesDeLaVivienda(refCatastral) {
+    if (!refCatastral || refCatastral === 'MANUAL') return [];
+    try {
+        const { data, error } = await supabase
+            .from('oportunidades')
+            .select('id, id_oportunidad, cliente_id, prescriptor_id, created_at, datos_calculo')
+            .eq('ref_catastral', refCatastral)
+            .order('created_at', { ascending: false })
+            .limit(10);
+        if (error) {
+            console.error('[leadService] No se pudieron leer las oportunidades de la vivienda:', error.message);
+            return [];
+        }
+        return data || [];
+    } catch (err) {
+        console.error('[leadService] oportunidadesDeLaVivienda falló (seguimos como alta nueva):', err.message);
+        return [];
+    }
+}
+
+/** De las oportunidades de esa vivienda, el LEAD que es de este mismo titular. */
+async function elegirLeadPrevio(previas, contacto) {
+    try {
+        // Los LEAD, del más reciente al más antiguo. Antes esto era un `.limit(1)`
+        // + `find(LEAD)`: si la más reciente ya estaba ENVIADA, el LEAD que había
+        // detrás no se veía siquiera.
+        const leads = (previas || []).filter(o => o.datos_calculo?.estado === 'LEAD' && o.cliente_id);
+        if (!leads.length) return null;
+
+        const { data: clientes } = await supabase
+            .from('clientes')
+            .select('id_cliente, email, dni, tlf')
+            .in('id_cliente', [...new Set(leads.map(o => o.cliente_id))]);
+        const porId = new Map((clientes || []).map(c => [c.id_cliente, c]));
+
+        const match = leads.find(o => mismoTitular(contacto, porId.get(o.cliente_id)));
+        if (match) {
+            console.log(`[leadService] Lead previo para RC ${match.datos_calculo?.inputs?.rc || ''}: ${match.id_oportunidad} — se reutiliza en vez de duplicar`);
+        }
+        return match || null;
+    } catch (err) {
+        console.error('[leadService] elegirLeadPrevio falló (seguimos como alta nueva):', err.message);
+        return null;
+    }
+}
+
+/**
+ * Rellena los campos VACÍOS de un cliente ya existente. Nunca pisa un valor
+ * escrito: lo que consta puede haberlo corregido una persona a mano, y el
+ * formulario público lo rellena quien tenga el móvil delante.
+ *
+ * ⚠️ `clientes.dni` es UNIQUE (regla 9): si el DNI que ahora se da ya es de otra
+ * ficha, el UPDATE devuelve 23505. Se registra y se sigue — el lead es el
+ * trabajo, y completar un hueco es una comodidad que no puede tumbarlo.
+ */
+async function completarHuecosCliente(idCliente, campos) {
+    try {
+        const { data: actual } = await supabase
+            .from('clientes')
+            .select('apellidos, email, dni, tlf, municipio, direccion, codigo_postal')
+            .eq('id_cliente', idCliente)
+            .maybeSingle();
+        if (!actual) return;
+
+        const patch = {};
+        for (const [k, v] of Object.entries(campos || {})) {
+            const nuevo = v == null ? null : String(v).trim();
+            if (!nuevo) continue;
+            const viejo = actual[k] == null ? '' : String(actual[k]).trim();
+            if (!viejo) patch[k] = k === 'email' ? nuevo.toLowerCase() : (k === 'dni' ? nuevo.toUpperCase() : nuevo);
+        }
+        if (Object.keys(patch).length === 0) return;
+
+        const { error } = await supabase.from('clientes').update(patch).eq('id_cliente', idCliente);
+        if (error) console.error('[leadService] No se pudieron completar huecos del cliente:', error.message);
+    } catch (err) {
+        console.error('[leadService] completarHuecosCliente falló:', err.message);
+    }
+}
+
+/**
  * Busca un cliente por email (case-insensitive) o DNI. Si existe, devuelve
  * su id_cliente. Si no, lo crea y devuelve el id nuevo.
  *
@@ -233,19 +374,50 @@ async function createLead({ contacto, catastro, funnel, calculatorInputs, precom
         : 'landing_publica';
     const estadoLead = isInternal ? 'PTE ENVIAR' : 'LEAD';
 
-    // 2. Cliente: upsert por email/DNI
-    const { id_cliente, created: clienteCreated } = await upsertClienteFromLanding({
-        nombre: contacto.nombre,
-        apellidos: contacto.apellidos,
-        email: contacto.email,
-        tlf: contacto.tlf,
-        dni: contacto.dni,
-        provincia: geoContext.provincia,
-        municipio: catastro.municipio || null,
-        direccion: catastro.address || null,
-        codigo_postal: catastro.codigo_postal || null,
-        prescriptor_id: prescriptorId || null
-    });
+    // 2. ¿Ya hay un LEAD sobre ESTA MISMA VIVIENDA del mismo titular?
+    //
+    // Va ANTES de tocar clientes a propósito. El duplicado no nacía aquí abajo:
+    // nacía en el upsert del cliente. `upsertClienteFromLanding` solo reconoce a
+    // alguien por email o DNI, y 85 de los 376 clientes no tienen ninguno de los
+    // dos (solo teléfono) — así que el mismo vecino volviendo al funnel meses
+    // después estrenaba ficha de cliente, y con ella la comprobación de abajo
+    // ya no podía casar nada. Medido en 26RES060_OP113 / OP179: misma RC
+    // (0032105VJ7103S0001RA), mismo móvil, dos oportunidades y dos clientes.
+    const previasDeLaVivienda = await oportunidadesDeLaVivienda(catastro.ref_catastral);
+    const leadPrevio = isInternal ? null : await elegirLeadPrevio(previasDeLaVivienda, contacto);
+
+    // 3. Cliente: el del lead previo si lo hay; si no, upsert por email/DNI
+    let id_cliente;
+    let clienteCreated = false;
+    if (leadPrevio) {
+        id_cliente = leadPrevio.cliente_id;
+        // Rellenamos SUS huecos con lo que ahora sí ha contestado (el apellido
+        // completo, un email que antes no dio) — nunca pisamos lo que ya consta.
+        await completarHuecosCliente(id_cliente, {
+            apellidos: contacto.apellidos,
+            email: contacto.email,
+            dni: contacto.dni,
+            tlf: contacto.tlf,
+            municipio: catastro.municipio,
+            direccion: catastro.address,
+            codigo_postal: catastro.codigo_postal
+        });
+    } else {
+        const up = await upsertClienteFromLanding({
+            nombre: contacto.nombre,
+            apellidos: contacto.apellidos,
+            email: contacto.email,
+            tlf: contacto.tlf,
+            dni: contacto.dni,
+            provincia: geoContext.provincia,
+            municipio: catastro.municipio || null,
+            direccion: catastro.address || null,
+            codigo_postal: catastro.codigo_postal || null,
+            prescriptor_id: prescriptorId || null
+        });
+        id_cliente = up.id_cliente;
+        clienteCreated = up.created;
+    }
 
     // 3. Score y banderas
     const score = calculateLeadScore(funnel);
@@ -326,23 +498,38 @@ async function createLead({ contacto, catastro, funnel, calculatorInputs, precom
         }]
     };
 
-    // 6. Idempotencia: si ya existe una oportunidad LEAD para la misma RC y
-    // mismo cliente, ACTUALIZAR esa fila en vez de crear duplicado. Esto evita
-    // que un cliente que prueba el funnel varias veces acumule oportunidades.
-    const { data: existing } = await supabase
-        .from('oportunidades')
-        .select('id, id_oportunidad, datos_calculo')
-        .eq('ref_catastral', catastro.ref_catastral)
-        .eq('cliente_id', id_cliente)
-        .order('created_at', { ascending: false })
-        .limit(1);
+    // REGLA — un alta sobre una vivienda que YA tiene oportunidad se ANOTA.
+    // Aquí no se reutiliza nada: o es otro titular (dos vecinos legítimos: el que
+    // compra y el que vende, el propietario y su instalador) o la anterior ya está
+    // en gestión y machacarla sería mucho peor que tener dos filas. Pero sin
+    // dejarlo escrito, quien abra esta oportunidad dentro de tres meses no tiene
+    // forma de saber que existe la otra — que es exactamente lo que pasó con
+    // 26RES060_OP113 / OP179. El visitante ve el aviso y puede seguir; el staff
+    // se entera por aquí.
+    if (!leadPrevio && previasDeLaVivienda.length > 0) {
+        const otras = previasDeLaVivienda
+            .map(o => `${o.id_oportunidad} (${o.datos_calculo?.estado || '?'}, ${new Date(o.created_at).toLocaleDateString('es-ES')})`)
+            .join(' · ');
+        datosCalculo.historial.push({
+            id: `${Date.now()}_rc_duplicada`,
+            tipo: 'comentario',
+            fecha: now,
+            usuario: 'Sistema',
+            texto: `⚠️ Esta vivienda ya tenía ${previasDeLaVivienda.length === 1 ? 'otra oportunidad' : 'otras oportunidades'}: ${otras}. Misma referencia catastral (${catastro.ref_catastral}), titular distinto o simulación ya en gestión — compruébalo antes de trabajarla.`
+        });
+        console.warn(`[leadService] Alta sobre RC ya usada ${catastro.ref_catastral}: ya existían ${otras}`);
+    }
 
-    // En modo público reusamos LEADs previos (upsert por RC+cliente). En modo
-    // internal NUNCA hacemos upsert — cada simulación interna crea su propia
-    // oportunidad porque el partner/admin puede querer rehacer cálculos.
-    const existingLead = (!isInternal && existing && existing.length > 0)
-        ? existing.find(o => o.datos_calculo?.estado === 'LEAD')
-        : null;
+    // 6. Idempotencia: si ya había un LEAD de este titular para esta vivienda,
+    // ACTUALIZAMOS esa fila en vez de crear un duplicado. Ya está resuelto en el
+    // paso 2 (`buscarLeadPrevio`), que además es quien evita que se estrene
+    // ficha de cliente.
+    //
+    // En modo internal NUNCA hay upsert — cada simulación interna crea su propia
+    // oportunidad porque el partner/admin puede querer rehacer cálculos. La red
+    // ahí es el aviso de RC duplicada que el funnel enseña al resolver la
+    // vivienda, con su botón de "Abrir oportunidad".
+    const existingLead = leadPrevio;
 
     if (existingLead) {
         // UPDATE — preservamos id_oportunidad e historial original
@@ -454,5 +641,11 @@ module.exports = {
     isLeadCaliente,
     determineFichaType,
     generateOpportunityId,
-    upsertClienteFromLanding
+    upsertClienteFromLanding,
+    // Puros — se exportan para poder comprobarlos sin BD (test_lead_duplicado.js).
+    tlf9,
+    mismoTitular,
+    // Solo LECTURA — para comprobar el emparejamiento contra datos reales sin
+    // dar de alta nada (scripts/probar_lead_previo.js).
+    buscarLeadPrevio
 };

@@ -8,7 +8,7 @@
 //   1. Solicitud al verificador   → se genera y se archiva su BORRADOR (sin firmar)
 //   2. Firma del Sujeto Obligado  → Anexo I + fichas RES + solicitud
 //   3. Oferta de verificación     → llega del verificador, la firma el S.O.
-//   4. Verificación               → inexactitudes, informe, dictamen, factura
+//   4. Verificación               → plan, inexactitudes, informe, dictamen, factura
 //   5. Cobro                      → factura de Brokergy al S.O.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -16,6 +16,10 @@
 export const SLOTS = {
     solicitud_verificacion: { label: 'Solicitud de Verificación', multiple: false, firmable: true },
     oferta_verificacion:    { label: 'Oferta de verificación', multiple: false, firmable: true, importe: true },
+    // Lo manda el VERIFICADOR con la oferta ya aceptada: es lo primero de la fase 4
+    // y llega antes que el informe de inexactitudes. No lo firma nadie por nuestra
+    // parte — se recibe y se archiva.
+    plan_verificacion:      { label: 'Plan de verificación', multiple: false, firmable: false },
     informe_inexactitudes:  { label: 'Informe de inexactitudes', multiple: true, firmable: false },
     informe_verificacion:   { label: 'Informe de Verificación', multiple: false, firmable: false },
     dictamen_favorable:     { label: 'Dictamen favorable', multiple: false, firmable: false },
@@ -44,6 +48,7 @@ export function analizarProceso(lote) {
     const anexo = byKey('anexo_i');
     const fichas = porTipo('ficha_res');
     const oferta = byKey('oferta_verificacion');
+    const planVerificacion = byKey('plan_verificacion');
     const inexactitudes = porTipo('informe_inexactitudes');
     const informeVerificacion = byKey('informe_verificacion');
     const dictamen = byKey('dictamen_favorable');
@@ -91,7 +96,7 @@ export function analizarProceso(lote) {
             titulo: 'Verificación',
             hecha: verificado,
             bloqueo: ofertaFirmada ? null : 'Se habilita cuando el S.O. devuelva la oferta firmada.',
-            docs: [...inexactitudes, informeVerificacion, dictamen, facturaVerificador].filter(Boolean),
+            docs: [planVerificacion, ...inexactitudes, informeVerificacion, dictamen, facturaVerificador].filter(Boolean),
         },
         {
             n: 5,
@@ -111,7 +116,7 @@ export function analizarProceso(lote) {
     const actual = fases.find(f => !f.hecha && !f.bloqueo) || fases.find(f => !f.hecha) || null;
 
     return {
-        docs, solicitud, anexo, fichas, oferta, inexactitudes,
+        docs, solicitud, anexo, fichas, oferta, planVerificacion, inexactitudes,
         informeVerificacion, dictamen, facturaVerificador,
         justificanteMiteco, requerimientosGa, certificadoCae, facturaSo,
         soEnviado, soFirmado, ofertaEnviada, ofertaFirmada, verificado, caeEmitido,

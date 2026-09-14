@@ -32,7 +32,7 @@ import { parseEmisionesTotalesFromXml } from '../../calculator/logic/xmlCeeParse
 
 // Las pruebas, comprobaciones e inspecciones de la visita. Es un párrafo largo
 // que se pega en el cuadro homónimo del CE3X y viaja al PDF del certificado.
-const PRUEBAS_CERTIFICADOR = `Se ha realizado la visita al inmueble, llevando a cabo las siguientes verificaciones:
+export const PRUEBAS_CERTIFICADOR = `Se ha realizado la visita al inmueble, llevando a cabo las siguientes verificaciones:
 
 -Medición de alturas y longitudes de las fachadas.
 -Medición de los huecos y acristalamientos.
@@ -60,7 +60,12 @@ Para el cálculo de la producción de energía fotovoltaica se ha recurrido al s
 // expresamente "derivado del uso de la aerotermia": en el certificado del
 // estado inicial esa aerotermia todavía no existe, así que proponerlo ahí
 // describiría una vivienda que no es la del certificado.
-const MEDIDA_AUTOCONSUMO = [
+// La casilla «Otros datos» del conjunto de medidas. Se copia a mano en CE3X y
+// también viaja dentro del `.cex` que escribe el motor, así que vive aquí una
+// sola vez: dos copias dirían plazos distintos.
+export const OTROS_DATOS_MEDIDA = 'Plazo de amortización aproximado de 3 años.';
+
+export const MEDIDA_AUTOCONSUMO = [
     {
         campo: 'Nombre conjunto medidas mejora',
         valor: 'AUTOCONSUMO FOTOVOLTAICO',
@@ -97,7 +102,7 @@ const num2 = (n) => n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximu
  * cargados antes de que el parser leyera ese dato no lo tienen en el objeto
  * guardado, así que sin el rescate esto solo valdría para lo que se suba hoy.
  */
-function techoAutoconsumo(expediente) {
+export function techoAutoconsumo(expediente) {
     const cee = expediente?.cee || {};
     for (const [fase, key, xmlKey] of [
         ['final', 'cee_final', 'xml_final'],
@@ -141,7 +146,7 @@ export function buildCe3xTextos(expediente, { modelos = {} } = {}) {
                 : null,
             campos: [
                 { campo: 'Características', parrafo: true, valor: medida.texto },
-                { campo: 'Otros datos', valor: 'Plazo de amortización aproximado de 3 años.' },
+                { campo: 'Otros datos', valor: OTROS_DATOS_MEDIDA },
             ],
         });
     }

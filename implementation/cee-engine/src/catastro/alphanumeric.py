@@ -95,6 +95,9 @@ class UnidadConstructiva:
     puerta: str | None
     superficie_m2: float | None
     tipo_reforma: str | None = None
+    #: El `pt` TAL CUAL viene de Catastro ("00", "01", "02"). `planta_literal`
+    #: ya esta normalizado a como se lee, y el codigo se compone con el bruto.
+    planta_bruta: str | None = None
 
     @property
     def habitable(self) -> bool | None:
@@ -104,9 +107,26 @@ class UnidadConstructiva:
             return False
         return None
 
+    @property
+    def codigo(self) -> str:
+        """Como se llama esta construccion en la FICHA TECNICA de la app.
+
+        Escalera/planta/puerta, que es lo que Catastro usa para distinguir dos
+        filas de `lcons` de la misma parcela. La receta —y los valores por
+        defecto— son los MISMOS que los de `catastroService.js`
+        (`${es||'01'}/${pt||'00'}/${pu||'001'}`), porque de eso depende que lo
+        que se marca en la oportunidad case aqui con su construccion. Los dos
+        leen el mismo `loint`, asi que no hay nada que adivinar; pero si uno de
+        los dos cambia la receta, la seleccion deja de casar EN SILENCIO.
+        """
+        return "/".join([self.escalera or "01",
+                         self.planta_bruta or "00",
+                         self.puerta or "001"])
+
     def to_dict(self) -> dict:
         d = self.__dict__.copy()
         d["habitable"] = self.habitable
+        d["codigo"] = self.codigo
         return d
 
 
@@ -214,6 +234,7 @@ def _unidades(lcons) -> list[UnidadConstructiva]:
             escalera=loint.get("es"), puerta=loint.get("pu"),
             superficie_m2=_num(_g(c, "dfcons", "stl")),
             tipo_reforma=_g(c, "dfcons", "dt"),
+            planta_bruta=loint.get("pt"),
         ))
     return out
 

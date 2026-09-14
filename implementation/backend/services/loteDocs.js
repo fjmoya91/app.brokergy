@@ -12,7 +12,8 @@
 //                                  cuando el S.O. firma todo    → PTE. OFERTA VERIFICADOR
 //   3. Oferta de verificación    → se sube y se manda al S.O.   → PTE. FIRMA OFERTA S.O.
 //                                  cuando vuelve firmada        → ENVIADO A VERIFICADOR
-//   4. Verificación              → informes de inexactitudes    → REQUERIMIENTO VERIFICADOR
+//   4. Verificación              → plan de verificación (lo manda el verificador)
+//                                  informes de inexactitudes    → REQUERIMIENTO VERIFICADOR
 //                                  informe + dictamen favorable → VERIFICADO
 //   5. Presentación a MITECO     → justificante de registro      → SUBIDO A MITECO
 //                                  certificado CAE emitido       → CAE EMITIDO
@@ -31,6 +32,12 @@ const LOTE_DOC_SLOTS = {
     // una estimación en el €/MWh del cuadro de mando sin que nadie lo hubiera
     // decidido.
     oferta_verificacion:    { label: 'Oferta de verificación', fase: 3, multiple: false, firmable: true, importe: true },
+    // Lo emite el VERIFICADOR en cuanto tiene la oferta aceptada, y es lo PRIMERO
+    // que llega de la fase 4: dice quién verifica (verificador jefe y revisor), a
+    // quién y con qué alcance. No lo firma nadie por nuestra parte — se recibe y se
+    // archiva. Por eso su prefijo en Drive es 4.0: va delante del papeleo que sale
+    // después (inexactitudes 4.1, informe 4.2…) sin renumerar lo ya subido.
+    plan_verificacion:      { label: 'Plan de verificación', fase: 4, multiple: false, firmable: false },
     informe_inexactitudes:  { label: 'Informe de inexactitudes', fase: 4, multiple: true, firmable: false },
     informe_verificacion:   { label: 'Informe de Verificación', fase: 4, multiple: false, firmable: false },
     dictamen_favorable:     { label: 'Dictamen favorable', fase: 4, multiple: false, firmable: false },
@@ -47,7 +54,8 @@ const LOTE_DOC_SLOTS = {
 // Slots que se suben a mano desde el módulo de documentos (los de fase 2 los genera
 // la app al enviar al S.O., no se suben sueltos).
 const SLOTS_SUBIBLES = [
-    'solicitud_verificacion', 'oferta_verificacion', 'informe_inexactitudes',
+    'solicitud_verificacion', 'oferta_verificacion', 'plan_verificacion',
+    'informe_inexactitudes',
     'informe_verificacion', 'dictamen_favorable', 'factura_verificador',
     'justificante_miteco', 'requerimiento_ga', 'certificado_cae',
 ];
@@ -114,6 +122,7 @@ const PREFIJO_DOC = {
     solicitud_verificacion: '1.',
     anexo_i:                '2.',
     oferta_verificacion:    '3.',
+    plan_verificacion:      '4.0',
     informe_inexactitudes:  '4.1',
     informe_verificacion:   '4.2',
     dictamen_favorable:     '4.3',

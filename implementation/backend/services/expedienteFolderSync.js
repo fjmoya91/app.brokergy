@@ -23,7 +23,40 @@ const {
 
 // Campos mínimos para decidir el destino (nada de JSONB pesados: `cee` se pide
 // entero porque de él sale `certificador_id`, pero nunca `documentacion`).
-const CAMPOS_DECISION = 'id, numero_expediente, estado, lote_id, oportunidad_id, cee';
+// `cliente_id` se añade para poder enderezar el NOMBRE de la carpeta (ver abajo).
+const CAMPOS_DECISION = 'id, numero_expediente, estado, lote_id, oportunidad_id, cee, cliente_id';
+
+/**
+ * Nombre de cliente para la carpeta del expediente: el mismo `{nombre} {apellidos}`
+ * en MAYÚSCULAS que usan createExpediente y migrateExpedienteProgram. Null si no
+ * hay cliente vinculado o no se encuentra — nunca se inventa un nombre.
+ */
+async function nombreClienteParaCarpeta(clienteId) {
+    if (!clienteId) return null;
+    const { data: cliente } = await supabase
+        .from('clientes').select('nombre_razon_social, apellidos').eq('id_cliente', clienteId).maybeSingle();
+    if (!cliente) return null;
+    const full = `${cliente.nombre_razon_social || ''} ${cliente.apellidos || ''}`.trim().toUpperCase().replace(/\s+/g, ' ');
+    return full || null;
+}
+
+/**
+ * Endereza el NOMBRE de la carpeta del expediente al patrón `{nº} - {CLIENTE}`.
+ * Va junto al movimiento porque es el mismo chokepoint: un expediente migrado (o
+ * uno al que se le cambió el cliente después) arrastra un nombre que no dice de
+ * quién es la carpeta — medido en 25RES060_79, cuya carpeta seguía llamándose
+ * "... C. CHILE N. 1 (DIMAS) PEDRO MUÑOZ" en vez de su cliente real. Solo escribe
+ * si el nombre difiere, mismo criterio idempotente que `moveFolder`.
+ */
+async function asegurarNombreCarpeta(folderId, exp) {
+    if (!folderId || !exp?.numero_expediente) return false;
+    const nombreCliente = await nombreClienteParaCarpeta(exp.cliente_id);
+    if (!nombreCliente) return false; // sin cliente vinculado: no se inventa el nombre
+    const esperado = driveService.sanitizeWindowsSegment(`${exp.numero_expediente} - ${nombreCliente}`);
+    const meta = await driveService.getFileMetadata(folderId, 'name');
+    if (!meta || meta.name === esperado) return false;
+    return driveService.renameFolder(folderId, esperado);
+}
 
 /**
  * Resuelve el expediente (por UUID o nº) + el id/enlace de su carpeta raíz de Drive.
@@ -108,10 +141,11 @@ async function syncExpedienteFolder(expOrId, opts = {}) {
         const folderId = await carpetaDeExpediente(exp);
         if (!folderId) return { moved: false, motivo: 'sin carpeta en Drive' };
 
+        const renamed = await asegurarNombreCarpeta(folderId, exp).catch(() => false);
         const ok = await driveService.moveFolder(folderId, destino);
         const ref = exp.numero_expediente || exp.id;
-        console.log(`[FolderSync] ${ref} (${exp.estado}) → ${nombreCarpeta(destino)}${opts.motivo ? ` · ${opts.motivo}` : ''} · ${ok ? 'OK' : 'FALLO'}`);
-        return { moved: !!ok, destino };
+        console.log(`[FolderSync] ${ref} (${exp.estado}) → ${nombreCarpeta(destino)}${opts.motivo ? ` · ${opts.motivo}` : ''} · ${ok ? 'OK' : 'FALLO'}${renamed ? ' · renombrada' : ''}`);
+        return { moved: !!ok, destino, renamed };
     } catch (err) {
         console.error('[FolderSync] Error moviendo carpeta de expediente:', err.message);
         return { moved: false, motivo: err.message };

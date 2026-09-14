@@ -898,6 +898,70 @@ async function getDwellingsByParcel(rc14) {
     }
 }
 
+/**
+ * La MINIATURA que la foto de fachada lleva dentro, para MIRARLA.
+ *
+ * Catastro sirve la fachada a tamaño de cámara —medido en 4410205WJ0641S0001JH:
+ * **2304×1728 y 323 KB**— y la app la pinta en un recuadro de 300×170. En base64
+ * dentro de un JSON son 431 KB que hay que esperar para ver una foto del tamaño
+ * de un sello: por eso la imagen del certificado tardaba en aparecer.
+ *
+ * Pero el fichero YA trae una miniatura de **640×480 en 58 KB** metida en su
+ * segmento EXIF, que es de sobra para lo único que se hace con ella (comprobar
+ * que es esta casa). Sacarla no cuesta nada y no hay que reescalar ni añadir una
+ * dependencia de imágenes al backend.
+ *
+ * REGLA — esto es para la VISTA. Al `.cex` sigue yendo la grande: el motor la
+ * reescala él a los 179×134 que guarda CE3X, y esa parte está verificada contra
+ * un `.cex` real.
+ *
+ * Ante cualquier duda devuelve `null` y se enseña la grande: una foto pesada
+ * tarda; una foto cortada por donde no es, no se ve.
+ */
+function miniaturaExif(buf) {
+    if (!buf || buf.length < 4 || buf[0] !== 0xFF || buf[1] !== 0xD8) return null;
+    // El APP1 con "Exif  " es donde vive; se localiza por marcadores y no
+    // buscando a ojo, que en un binario encuentra cualquier cosa.
+    let i = 2;
+    while (i + 3 < buf.length && buf[i] === 0xFF) {
+        const marca = buf[i + 1];
+        if (marca === 0xDA || marca === 0xD9) return null;     // ya son datos
+        const largo = buf.readUInt16BE(i + 2);
+        if (largo < 2) return null;
+        if (marca === 0xE1 && buf.subarray(i + 4, i + 8).toString('latin1') === 'Exif') {
+            return _jpegDentro(buf.subarray(i + 4, Math.min(i + 2 + largo, buf.length)));
+        }
+        i += 2 + largo;
+    }
+    return null;
+}
+
+/** El primer JPEG COMPLETO que haya dentro de un bloque, si se sostiene solo. */
+function _jpegDentro(bloque) {
+    const ini = bloque.indexOf(Buffer.from([0xFF, 0xD8, 0xFF]));
+    if (ini < 0) return null;
+    const fin = bloque.lastIndexOf(Buffer.from([0xFF, 0xD9]));
+    if (fin <= ini) return null;
+    const jpeg = Buffer.from(bloque.subarray(ini, fin + 2));
+    return _dimensiones(jpeg) ? jpeg : null;   // si no se puede leer, no vale
+}
+
+/** `[ancho, alto]` de un JPEG, o null. Sirve para comprobar que lo es. */
+function _dimensiones(b) {
+    let i = 2;
+    while (i + 9 < b.length && b[i] === 0xFF) {
+        const m = b[i + 1];
+        if (m >= 0xC0 && m <= 0xCF && m !== 0xC4 && m !== 0xC8 && m !== 0xCC) {
+            return [b.readUInt16BE(i + 7), b.readUInt16BE(i + 5)];
+        }
+        if (i + 3 >= b.length) return null;
+        const largo = b.readUInt16BE(i + 2);
+        if (largo < 2) return null;
+        i += 2 + largo;
+    }
+    return null;
+}
+
 async function getFacadeImage(rc) {
     const cleanRC = rc.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
     const imageUrl = `https://ovc.catastro.meh.es/OVCServWeb/OVCWcfLibres/OVCFotoFachada.svc/RecuperarFotoFachadaGet?ReferenciaCatastral=${cleanRC}`;
@@ -920,7 +984,10 @@ async function getFacadeImage(rc) {
                 console.warn(`Facade Image [${rc}]: placeholder descartado (${byteLength} bytes)`);
                 return null;
             }
-            return { data: response.data, contentType: response.headers['content-type'] };
+            const grande = Buffer.from(response.data);
+            return { data: grande, contentType: response.headers['content-type'],
+                     // La misma foto, en pequeño, para enseñarla sin esperar.
+                     miniatura: miniaturaExif(grande) };
         }
         return null;
     } catch (error) {
@@ -929,31 +996,73 @@ async function getFacadeImage(rc) {
     }
 }
 
+const WMS_CATASTRO = 'http://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx';
+
+/**
+ * La cartografía del Catastro de UN RECTÁNGULO concreto.
+ *
+ * El WMS sirve lo que se le pida en las coordenadas que se le pidan, así que
+ * dándole el mismo rectángulo en el que el motor dibujó el plano, la imagen
+ * encaja con él **píxel a píxel**: no hay nada que ajustar a ojo, ni un
+ * desplazamiento que corregir cuando el edificio esté en otra esquina.
+ *
+ * `bbox` va en el orden de un WMS 1.1.1: `[oeste, sur, este, norte]`, en las
+ * unidades del CRS (metros en EPSG:25830).
+ *
+ * REGLA — el ancho y el alto en píxeles guardan la MISMA proporción que el
+ * bbox. El WMS no la corrige: estira la imagen para llenar lo que se le pide, y
+ * un plano estirado es un plano que miente sobre las medidas que enseña.
+ */
+async function getWmsImage(bbox, { crs = 'EPSG:25830', ladoMax = 1600,
+                                   formato = 'image/png',
+                                   px = null } = {}) {
+    const [oeste, sur, este, norte] = (bbox || []).map(Number);
+    if (![oeste, sur, este, norte].every(Number.isFinite)
+        || este <= oeste || norte <= sur) {
+        throw new Error('El rectángulo pedido no es válido.');
+    }
+    const anchoM = este - oeste;
+    const altoM = norte - sur;
+    const k = ladoMax / Math.max(anchoM, altoM);
+    // `px` fuerza un tamaño concreto. Lo usa el croquis del `.cex`, que lleva
+    // pidiendo 800×600 desde siempre y está verificado contra un fichero real:
+    // no se cambia de tamaño por pasar por aquí.
+    const ancho = px ? px[0] : Math.max(1, Math.min(2048, Math.round(anchoM * k)));
+    const alto = px ? px[1] : Math.max(1, Math.min(2048, Math.round(altoM * k)));
+
+    const response = await catastroGet(WMS_CATASTRO, {
+        params: {
+            SERVICE: 'WMS', REQUEST: 'GetMap', VERSION: '1.1.1',
+            SRS: crs, LAYERS: 'Catastro', STYLES: '', FORMAT: formato,
+            WIDTH: String(ancho), HEIGHT: String(alto),
+            BBOX: `${oeste},${sur},${este},${norte}`, TRANSPARENT: 'false',
+        },
+        responseType: 'arraybuffer',
+        timeout: 20000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; Brokergy/1.0; +https://app.brokergy.es)',
+            'Accept': '*/*',
+            'Accept-Encoding': 'identity',
+        },
+    });
+    // Un WMS contesta los errores con un XML y status 200: si no es una imagen,
+    // no lo es — devolverlo dejaría un cuadro roto de fondo del plano.
+    const tipo = response.headers['content-type'] || '';
+    if (!tipo.includes('image')) {
+        throw new Error(`el WMS del Catastro no ha devuelto una imagen (${tipo})`);
+    }
+    return { data: Buffer.from(response.data), contentType: tipo, ancho, alto };
+}
+
 async function getParcelImage(rc) {
     try {
         const coords = await getCoordinatesByRC(rc);
         if (!coords) return null;
         const x = parseFloat(coords.x);
         const y = parseFloat(coords.y);
-        const radius = 30; // Zoom level (smaller radius = closer)
-        const bbox = `${x - radius},${y - radius},${x + radius},${y + radius}`;
-
-        // Use HTTPS if possible, or handle mixed content in backend (which we do)
-        const wmsUrl = 'http://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx';
-        const params = { SERVICE: 'WMS', REQUEST: 'GetMap', SRS: 'EPSG:25830', LAYERS: 'Catastro', STYLES: '', FORMAT: 'image/jpeg', WIDTH: '800', HEIGHT: '600', BBOX: bbox, TRANSPARENT: 'false', VERSION: '1.1.1' };
-
-        const response = await catastroGet(wmsUrl, {
-            params,
-            responseType: 'arraybuffer',
-            timeout: 15000,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (compatible; Brokergy/1.0; +https://app.brokergy.es)',
-                'Accept': '*/*',
-                'Accept-Encoding': 'identity'
-            }
-        });
-
-        return { data: response.data, contentType: response.headers['content-type'] };
+        const radio = 30;   // cuánto se aleja: menos radio, más cerca
+        return await getWmsImage([x - radio, y - radio, x + radio, y + radio],
+                                 { formato: 'image/jpeg', px: [800, 600] });
     } catch (error) {
         console.error(`Parcel Image Error for ${rc}:`, error.message);
         return null;
@@ -962,4 +1071,4 @@ async function getParcelImage(rc) {
 
 async function getDetails(rc) { return await getByRC(rc); }
 
-module.exports = { getByRC, getRCByCoords, getDetails, getFacadeImage, getCoordinatesByRC, getParcelImage, getDwellingsByParcel, extraerInmuebles, resumirParcela };
+module.exports = { getByRC, getRCByCoords, getDetails, getFacadeImage, getCoordinatesByRC, getParcelImage, getDwellingsByParcel, extraerInmuebles, resumirParcela, miniaturaExif, getWmsImage };

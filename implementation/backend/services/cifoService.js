@@ -20,7 +20,7 @@ const { pathToFileURL } = require('url');
 const supabase = require('./supabaseClient');
 const driveService = require('./driveService');
 const pdfService = require('./pdfService');
-const { getUnidades: getUnidadesAero, unidadesSinSerie, esTermoElectrico: esTermoAero, esAcumuladorAcs: esAcumuladorAero, acsComputaAhorro } = require('../utils/aerotermiaUnits');
+const { getUnidades: getUnidadesAero, unidadesSinSerie, esTermoElectrico: esTermoAero, esAcumuladorAcs: esAcumuladorAero, acsComputaAhorro, acsEsOtraMaquina } = require('../utils/aerotermiaUnits');
 const { resolveInstaladorFirmante } = require('../utils/instaladorFirmante');
 const { detectPrograma, esHibridacion } = require('../utils/fichas');
 
@@ -571,7 +571,9 @@ function buildValidation(exp, data, savingsKwh, folderId) {
         const serieAcs = inst.misma_aerotermia_acs ? serieCal : (inst.aerotermia_acs?.numero_serie || inst.aerotermia_acs?.n_serie_ext);
         // El acumulador queda fuera: su serie es la del DEPÓSITO (dato distinto por
         // naturaleza), y los nodos antiguos arrastran la de la BdC sin que se imprima.
-        if (!inst.misma_aerotermia_acs && !esAcumuladorAero(acsAero) && serieAcs && serieCal && serieAcs === serieCal) {
+        // En un CONJUNTO las dos series COINCIDEN porque es la misma máquina: el
+        // aviso solo tiene sentido cuando el ACS es otro equipo (`acsEsOtraMaquina`).
+        if (acsEsOtraMaquina(inst) && !esAcumuladorAero(acsAero) && serieAcs && serieCal && serieAcs === serieCal) {
             warnings.push('El nº de serie del equipo de ACS coincide con el de calefacción: revisa que no sea una copia por error.');
         }
     }

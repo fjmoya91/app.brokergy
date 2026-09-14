@@ -169,11 +169,20 @@ def _fin_de_pickle(data: bytes, offset: int) -> tuple[int, int]:
 
 def trocear(ruta: Path) -> Cex:
     """Parte el .cex en sus pickles sin reconstruir nada todavia."""
-    crudo = ruta.read_bytes()
+    return trocear_bytes(ruta.read_bytes(), ruta=ruta)
+
+
+def trocear_bytes(crudo: bytes, ruta: Path | None = None) -> Cex:
+    """Lo mismo, desde MEMORIA.
+
+    Hace falta para editar un .cex que llega por HTTP y para releer el resultado
+    sin pasar por el disco. `trocear` es este mismo recorrido con el fichero ya
+    leido: un .cex que viene de Drive no tiene por que tocar el disco para nada.
+    """
     data = normalizar(crudo)
 
-    cex = Cex(ruta=ruta, bytes_crudos=len(crudo), bytes_norm=len(data),
-              version=None, version_conocida=False)
+    cex = Cex(ruta=ruta or Path("<memoria>"), bytes_crudos=len(crudo),
+              bytes_norm=len(data), version=None, version_conocida=False)
 
     offset = 0
     indice = 0

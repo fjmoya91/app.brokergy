@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { BOILER_EFFICIENCIES, SIN_CALEFACCION_ID, esSinCalefaccion, getScopFromModel, getScopSeason, getScopAcsFromModel, calculateHybridization, resolveHybridInputs, HYBRID_METHODS } from '../../calculator/logic/calculation';
 import { PROVINCE_CODE_TO_CCAA, PROVINCE_CODE_TO_NAME } from '../utils/docGenerators';
-import { withScopAplicado, cloneAero, potenciaTotal, countUnidades, scopPropioUnidad1, scopAplicado, tipoEquipoNuevo, datosAcumulador, EQUIPO_NUEVO, RENDIMIENTO_JOULE, acsEquipoPropio } from '../logic/aerotermiaUnits';
+import { withScopAplicado, cloneAero, potenciaTotal, countUnidades, scopPropioUnidad1, scopAplicado, tipoEquipoNuevo, datosAcumulador, EQUIPO_NUEVO, RENDIMIENTO_JOULE, acsEquipoPropio, getUnidades, mismaMaquina } from '../logic/aerotermiaUnits';
+import { esConjuntoAcs, produceAcs, metodoAcsDelModelo, litrosAcsCatalogo, nodoAcsDesdeConjunto, FALTA_ACS } from '../logic/acsCatalogo';
 import { EMITTER_OPTIONS, getEmitterTemp } from '../logic/cifoDoc';
 import { emisorFinalOptions, emisorInicialOptions, esRes080, EMISOR_NINGUNO } from '../logic/emisores';
 import { esTer173, esTerciario } from '../logic/terciario';
@@ -10,11 +11,30 @@ import { FV, FV_OPCIONES, normalizarFotovoltaica, potenciaTexto } from '../logic
 import { useAuth } from '../../../context/AuthContext';
 import { getRoleFlags } from '../../../utils/roleFlags';
 import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal';
+import EprelAcsModal from './EprelAcsModal';
 
 // Lista de emisores: fuente única en logic/cifoDoc.js (la misma que imprimen el
 // CIFO y el RES080), y la capa de "inicial vs finales" en logic/emisores.js. Las
 // unidades AIRE-AIRE (splits / conductos) solo se ofrecen en expedientes RES080.
 const emitterOptionsFor = emisorFinalOptions;
+
+/**
+ * ¿El ACS ya está decidido POR SEPARADO, de modo que el autorrelleno del conjunto
+ * no debe tocarlo? Es la regla de siempre: se rellenan HUECOS, nunca se pisa lo
+ * que ha escrito una persona.
+ *
+ * Cuentan como decisión tomada un termo eléctrico o un acumulador (se eligen a
+ * mano, en su pestaña) y un equipo de OTRO modelo. NO cuentan el hueco vacío ni
+ * el nodo que ya nombra la máquina de calefacción —la de antes o la de ahora—,
+ * que es justamente el conjunto que se está resolviendo.
+ */
+function acsDecididoAparte(prev, nuevoCal) {
+    const acs = prev?.aerotermia_acs;
+    if (tipoEquipoNuevo(acs) !== EQUIPO_NUEVO.BDC) return true;
+    if (prev?.misma_aerotermia_acs) return false;
+    if (!getUnidades(acs).length) return false;
+    return !mismaMaquina(acs, prev?.aerotermia_cal) && !mismaMaquina(acs, nuevoCal);
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function Field({ label, value, onChange, type = 'text', readOnly = false, placeholder = '' }) {
@@ -503,7 +523,7 @@ function EquipoRefLinks({ model, data, metodoScop = null }) {
 }
 
 // ─── Sección Aerotermia Nueva ─────────────────────────────────────────────────
-function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tipoEmisor, zona = 'D3', isAcs = false, readOnly = false, calData = null, emisorPorUnidad = false, numeroExpediente = '' }) {
+function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tipoEmisor, zona = 'D3', isAcs = false, readOnly = false, calData = null, emisorPorUnidad = false, numeroExpediente = '', onCompletarCatalogo = null }) {
     // Zona climática REAL de la instalación (la de la oportunidad). El Anexo III de
     // la ficha RES060 la equipara a la temporada europea del Rgto. 813/2013: A3-D3
     // → cálidas, E1 → medias. De ahí sale qué columna del catálogo se aplica, así
@@ -517,13 +537,35 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
     // comparten nombre y potencia (p. ej. dos "All in One 16 kW" con unidad exterior
     // distinta: WH-UD16HE5 vs WH-UD16HE8). Se muestra la referencia de la ud. exterior
     // (y la interior) como sublínea para poder distinguirlos y filtrar por ella.
-    const modelOptions = availableModels.map(m => {
+    // En la columna de ACS solo se ofrecen los modelos que tienen ALGÚN dato de ACS
+    // (SCOP_dhw de ficha, η_wh del EPREL o COP A7/55). Sin este filtro se podía
+    // elegir un equipo sin ningún dato y `getScopAcsFromModel` caía a un 3,0
+    // inventado que acababa en un certificado firmado — medido: 22 expedientes.
+    // Ver logic/acsCatalogo.js.
+    const modelosConAcs = isAcs ? availableModels.filter(m => produceAcs(m, zonaCE)) : availableModels;
+    // El que YA está guardado no se esconde nunca, aunque el filtro lo dejara
+    // fuera: el desplegable se quedaría en blanco y el siguiente guardado borraría
+    // un equipo que alguien eligió. Son 22 expedientes en producción (09/2026).
+    // Se conserva a la vista y se avisa debajo de por qué no sostiene su SCOP.
+    const yaElegidoFuera = isAcs && data?.aerotermia_db_id
+        && !modelosConAcs.some(m => String(m.id) === String(data.aerotermia_db_id))
+        ? availableModels.find(m => String(m.id) === String(data.aerotermia_db_id))
+        : null;
+    const modelosOfrecidos = yaElegidoFuera ? [yaElegidoFuera, ...modelosConAcs] : modelosConAcs;
+    const ocultosSinAcs = isAcs ? availableModels.length - modelosConAcs.length : 0;
+
+    const modelOptions = modelosOfrecidos.map(m => {
         // Línea 1: nombre comercial + potencia. Línea 2 (co-protagonista, resaltada):
         // la unidad exterior, que es la referencia de la placa. El par comercial +
         // ud. exterior es lo que evita equivocarse al elegir entre modelos gemelos.
         const ext = m.modelo_ud_exterior ? `Ud. ext: ${m.modelo_ud_exterior}` : '';
         const int = m.modelo_ud_interior ? `int: ${m.modelo_ud_interior}` : '';
-        const sub = [ext, int].filter(Boolean).join('  ·  ');
+        // Que el equipo traiga el depósito DENTRO cambia el trabajo: elegirlo en
+        // calefacción resuelve también el ACS. Se dice aquí, que es donde se elige.
+        const conj = esConjuntoAcs(m)
+            ? `Conjunto con ACS${litrosAcsCatalogo(m) ? ` · ${litrosAcsCatalogo(m)} L` : ''}`
+            : '';
+        const sub = [ext, int, conj].filter(Boolean).join('  ·  ');
         return {
             value: String(m.id),
             label: `${m.modelo_comercial || m.modelo_conjunto || ''}${m.potencia_calefaccion ? ` · ${m.potencia_calefaccion} kW` : ''}`,
@@ -553,6 +595,29 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
     const calModel = (isAcs && calData?.marca)
         ? ((modelosPorMarca[calData.marca.toUpperCase()] || []).find(m => String(m.id) === String(calData.aerotermia_db_id)) || null)
         : null;
+
+    // ── El ACS lo resuelve el CONJUNTO de calefacción ─────────────────────────
+    // El equipo trae el acumulador dentro: es UNA máquina que hace las dos cosas,
+    // así que aquí no hay nada que elegir. Se enseña cuál es y de dónde sale su
+    // SCOP_dhw, en vez de repetir los dos desplegables —que es lo que llevaba a
+    // teclear el mismo equipo dos veces (41 expedientes lo tienen así) y, cuando
+    // se elegía otro por error, a declarar dos máquinas donde hay una.
+    const acsPorConjunto = isAcs && !esTermo && !esAcumulador
+        && esConjuntoAcs(calModel) && mismaMaquina(data, calData);
+    const acsMetodoConjunto = acsPorConjunto ? metodoAcsDelModelo(calModel, zonaCE) : null;
+
+    // Deshacer el conjunto: el ACS lo hace OTRO equipo. Se vacía el nodo para
+    // poder elegirlo — nunca se deja el del conjunto a medias, que sería declarar
+    // una máquina que no es la que calienta esa agua.
+    const handleAcsOtroEquipo = () => emit({
+        tipo_equipo_nuevo: EQUIPO_NUEVO.BDC,
+        es_acumulador: false,
+        aerotermia_db_id: null,
+        marca: '', modelo: '', numero_serie: '',
+        modelo_ud_exterior: '', modelo_ud_interior: '', modelo_conjunto: '',
+        scop: null, metodo_scop: 'ficha', litros: null,
+        url_eprel: null, url_keymark: null, url_ficha: null,
+    });
 
     // ── Instalación EN CASCADA ────────────────────────────────────────────────
     // `data.equipos_extra` guarda las unidades 2..N. Todo cambio pasa por emit(),
@@ -871,7 +936,40 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                 </div>
             )}
 
-            {!esTermo && !esAcumulador && (
+            {/* El ACS lo hace el CONJUNTO de calefacción: no hay equipo que elegir.
+                Se dice cuál es, cuántos litros acumula y de dónde sale su SCOP_dhw
+                —que no es el de calefacción—, con la salida por si en esta obra lo
+                resolviera otra máquina. */}
+            {acsPorConjunto && (
+                <div className="bg-emerald-500/[0.07] border border-emerald-500/25 rounded-xl p-3 space-y-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">
+                            Conjunto con depósito de ACS
+                        </span>
+                        {litrosAcsCatalogo(calModel) && (
+                            <span className="text-[10px] font-bold text-emerald-300/80">· {litrosAcsCatalogo(calModel)} L</span>
+                        )}
+                    </div>
+                    <p className="text-[11px] text-white/60 leading-snug">
+                        Lo calienta el mismo equipo de calefacción
+                        (<span className="text-white/85 font-semibold">{[data?.marca, data?.modelo].filter(Boolean).join(' ') || 'sin identificar'}</span>),
+                        que trae el acumulador dentro. No hay un segundo equipo que declarar: el CIFO y el
+                        Anexo I lo imprimen una sola vez, con su mismo nº de serie.
+                    </p>
+                    <p className="text-[10px] text-white/40 leading-snug">
+                        {acsMetodoConjunto?.motivo}
+                    </p>
+                    {!readOnly && (
+                        <button type="button"
+                                onClick={handleAcsOtroEquipo}
+                                className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border border-white/15 text-white/50 hover:text-white hover:border-white/30 transition-colors">
+                            El ACS lo hace otro equipo
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {!esTermo && !esAcumulador && !acsPorConjunto && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <SearchableSelect
                     label="Marca"
@@ -881,16 +979,34 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                     disabled={readOnly}
                     searchPlaceholder="Buscar marca..."
                 />
-                <SearchableSelect
-                    label="Modelo"
-                    options={modelOptions}
-                    value={String(data?.aerotermia_db_id ?? '')}
-                    onChange={handleModeloChange}
-                    disabled={readOnly || !data?.marca}
-                    showAvatar={false}
-                    searchPlaceholder="Buscar por nombre o referencia (p. ej. UD16HE5)..."
-                    placeholder={data?.marca ? '— Selecciona —' : '— Elige marca primero —'}
-                />
+                <div className="space-y-1">
+                    <SearchableSelect
+                        label="Modelo"
+                        options={modelOptions}
+                        value={String(data?.aerotermia_db_id ?? '')}
+                        onChange={handleModeloChange}
+                        disabled={readOnly || !data?.marca}
+                        showAvatar={false}
+                        searchPlaceholder="Buscar por nombre o referencia (p. ej. UD16HE5)..."
+                        placeholder={data?.marca ? '— Selecciona —' : '— Elige marca primero —'}
+                    />
+                    {/* Un modelo sin ningún dato de ACS no puede justificar su
+                        SCOP_dhw: se deja fuera de la lista y se dice, o parecería
+                        que el catálogo está incompleto. */}
+                    {yaElegidoFuera && (
+                        <p className="text-[10px] text-amber-400/90 font-semibold leading-snug">
+                            ⚠ El modelo guardado no tiene en el catálogo con qué justificar su SCOP<sub>dhw</sub>:
+                            el valor de abajo no sale de su ficha ni del EPREL. Comprueba el equipo, o completa
+                            sus datos en el módulo Aerotermia.
+                        </p>
+                    )}
+                    {ocultosSinAcs > 0 && (
+                        <p className="text-[10px] text-white/30 leading-snug">
+                            {ocultosSinAcs} {ocultosSinAcs === 1 ? 'modelo de esta marca no aparece' : 'modelos de esta marca no aparecen'}: el
+                            catálogo no tiene con qué justificar su SCOP<sub>dhw</sub> (ni ficha, ni η<sub>wh</sub> del EPREL, ni COP A7/55).
+                        </p>
+                    )}
+                </div>
             </div>
             )}
 
@@ -940,7 +1056,7 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
             {/* Confirmación del equipo elegido: la ud. exterior es la referencia de la
                 placa que debe coincidir con las fotos y viaja al CIFO. Editable como
                 override por si el catálogo no la trae o es incorrecta. */}
-            {!esTermo && !esAcumulador && data?.aerotermia_db_id && (
+            {!esTermo && !esAcumulador && !acsPorConjunto && data?.aerotermia_db_id && (
                 <div className="bg-brand/[0.06] border border-brand/20 rounded-xl p-3 space-y-2">
                     <div className="flex items-center gap-1.5">
                         <svg className="w-3.5 h-3.5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
@@ -989,7 +1105,10 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                 </div>
             )}
 
-            <div className="space-y-1">
+            {/* Con un conjunto no hay segunda serie que teclear: es la misma máquina
+                y su nº de serie se escribe en la columna de calefacción. Un segundo
+                campo aquí solo podría divergir del primero. */}
+            <div className={`space-y-1 ${acsPorConjunto ? 'hidden' : ''}`}>
                 <label className="flex items-center gap-1.5 text-xs text-brand/40 uppercase tracking-wider font-bold">
                     <svg className="w-3 h-3 text-brand/50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
@@ -1084,11 +1203,27 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                                 ? <p className="text-[10px] text-amber-400/90 font-semibold">⚠ Elige primero el equipo de calefacción: el SCOP<sub>dhw</sub> del acumulador se calcula desde su COP. Mientras tanto, escribe el SCOP a mano.</p>
                                 : null;
                         }
+                        // El dato falta en el CATÁLOGO, así que se ofrece arreglarlo ahí
+                        // mismo: mandar a otra pantalla a por un número que se tiene
+                        // delante es lo que hacía que se acabara tecleando el SCOP a
+                        // mano, expediente tras expediente, sin arreglar el modelo.
+                        const faltaDato = (texto, modo) => (
+                            <div className="flex items-start gap-2 flex-wrap">
+                                <p className="text-[10px] text-amber-400/90 font-semibold flex-1 min-w-[180px]">⚠ {texto}</p>
+                                {!readOnly && onCompletarCatalogo && (
+                                    <button type="button"
+                                            onClick={() => onCompletarCatalogo(found, modo)}
+                                            className="shrink-0 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border border-amber-500/40 text-amber-300 hover:bg-amber-500/15 transition-colors">
+                                        Completarlo ahora
+                                    </button>
+                                )}
+                            </div>
+                        );
                         if (method === 'conjunto' && !found.eta_acs_calida && !found.eta_acs_media) {
-                            return <p className="text-[10px] text-amber-400/90 font-semibold">⚠ El modelo no tiene η ACS (eta_acs_calida / eta_acs_media). Rellena esos campos en la base de datos de aerotermia.</p>;
+                            return faltaDato(<>El modelo no tiene η<sub>wh</sub> del EPREL, que es de donde sale el Anexo IV.</>, 'conjunto');
                         }
                         if (method === 'independiente' && !found.cop_a7_55) {
-                            return <p className="text-[10px] text-amber-400/90 font-semibold">⚠ El modelo no tiene COP A7/55. Rellena ese campo en la base de datos de aerotermia.</p>;
+                            return faltaDato(<>El modelo no tiene COP A7/55, que es de donde sale el Anexo VI.</>, 'independiente');
                         }
                         return null;
                     })()}
@@ -1427,6 +1562,13 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
     const [showInstaladorFicha, setShowInstaladorFicha] = useState(false);
     const [marcas, setMarcas] = useState([]);
     const [modelosPorMarca, setModelosPorMarca] = useState({});
+    // Conjunto elegido del que el catálogo no sabe justificar el SCOP_dhw: se
+    // pide el η_wh del EPREL para dejar el MODELO arreglado (ver EprelAcsModal).
+    const [eprelGate, setEprelGate] = useState(null);
+    // Modelos para los que ya se ha dicho "ahora no": el popup no puede volver a
+    // salir en cada tecla del expediente. Es por sesión a propósito — el hueco del
+    // catálogo sigue ahí y la próxima vez vuelve a ofrecerse.
+    const eprelDescartados = React.useRef(new Set());
     const [prescriptores, setPrescriptores] = useState([]);
     const [fetchingUtm, setFetchingUtm] = useState(false);
     // Override manual de las coordenadas UTM. Por defecto las coords van bloqueadas
@@ -1555,6 +1697,71 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
             .catch(() => setProvincias([]))
             .finally(() => setLoadingGeo(p => ({ ...p, prov: false })));
     }, [local.ccaa, local.misma_direccion]);
+
+    // ── Conjunto sin rendimiento de ACS en el catálogo ───────────────────────
+    // Un equipo que trae el depósito dentro calienta también el agua, pero si el
+    // catálogo no tiene ni el SCOP_dhw de su ficha ni el η_wh de su EPREL no hay
+    // con qué declararlo: `getScopAcsFromModel` caía a un 3,0 por defecto que
+    // acababa impreso en el CIFO. Se pide el dato UNA vez y se arregla el MODELO,
+    // no este expediente. Ver logic/acsCatalogo.js y EprelAcsModal.
+    //
+    // Va en un efecto y no dentro del `setLocal` del autorrelleno a propósito: el
+    // updater de un setState puede ejecutarse dos veces (StrictMode) y abrir un
+    // popup desde ahí es un efecto secundario que se dispararía por duplicado.
+    useEffect(() => {
+        if (readOnly || !local.cambio_acs) return;
+        const cal = local.aerotermia_cal;
+        const id = cal?.aerotermia_db_id;
+        if (!id || eprelDescartados.current.has(String(id))) return;
+        const model = (modelosPorMarca[(cal.marca || '').toUpperCase()] || [])
+            .find(m => String(m.id) === String(id));
+        if (!model || !esConjuntoAcs(model)) return;
+        if (metodoAcsDelModelo(model, zonaInstalacion).falta !== FALTA_ACS.ETA_EPREL) return;
+        setEprelGate({ model, modo: 'conjunto' });
+    }, [local.aerotermia_cal?.aerotermia_db_id, local.aerotermia_cal?.marca, local.cambio_acs, modelosPorMarca, zonaInstalacion, readOnly]);
+
+    // El modelo ya tiene su η_wh: se refresca el catálogo en memoria (para que el
+    // aviso no vuelva a salir ni haya que recargar) y se recalcula el SCOP_dhw del
+    // nodo de ACS con el dato nuevo, que es para lo que se ha pedido.
+    const handleEprelCompletado = (actualizado) => {
+        const merged = { ...(eprelGate?.model || {}), ...(actualizado || {}) };
+        const marca = String(merged.marca || '').toUpperCase();
+        setModelosPorMarca(prev => ({
+            ...prev,
+            [marca]: (prev[marca] || []).map(m => (String(m.id) === String(merged.id) ? { ...m, ...merged } : m)),
+        }));
+        if (eprelGate?.modo === 'independiente') {
+            // Anexo VI: el SCOP_dhw sale del COP del equipo que calienta el depósito.
+            // Solo se recalcula el número; el nodo de ACS (acumulador o equipo propio)
+            // no se toca, que es de quien es la decisión.
+            setLocal(p => ({
+                ...p,
+                aerotermia_acs: {
+                    ...p.aerotermia_acs,
+                    metodo_scop: 'independiente',
+                    scop: getScopAcsFromModel(merged, zonaInstalacion, 'independiente'),
+                    url_ficha: merged.ficha_tecnica ?? p.aerotermia_acs?.url_ficha ?? null,
+                    url_eprel: merged.eprel ?? p.aerotermia_acs?.url_eprel ?? null,
+                },
+            }));
+            setEprelGate(null);
+            return;
+        }
+
+        const { metodo } = metodoAcsDelModelo(merged, zonaInstalacion);
+        if (metodo) {
+            setLocal(p => ({
+                ...p,
+                misma_aerotermia_acs: false,
+                aerotermia_acs: nodoAcsDesdeConjunto(p.aerotermia_cal, merged, {
+                    metodo,
+                    scop: getScopAcsFromModel(merged, zonaInstalacion, metodo),
+                    litros: litrosAcsCatalogo(merged) ?? p.aerotermia_acs?.litros ?? null,
+                }),
+            }));
+        }
+        setEprelGate(null);
+    };
 
     useEffect(() => {
         if (!local.provincia_cod || local.misma_direccion) return;
@@ -2165,7 +2372,41 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                                     aerotermia_cal: v,
                                     potencia_bomba: total || v.potencia || p.potencia_bomba
                                 };
-                                if (p.misma_aerotermia_acs) next.aerotermia_acs = cloneAero(v);
+                                // ── El equipo es un CONJUNTO: resuelve también el ACS ──
+                                // Trae el acumulador dentro, así que el agua caliente la
+                                // hace ESTA misma máquina y no hay un segundo equipo que
+                                // elegir. Lo que NO se hereda es el SCOP: el de ACS es
+                                // propio (la misma bomba rinde mucho menos calentando
+                                // agua a 55-60°), y clonarlo declaraba el de calefacción
+                                // como SCOP_dhw. Ver logic/acsCatalogo.js.
+                                const modelCal = (modelosPorMarca[(v.marca || '').toUpperCase()] || [])
+                                    .find(m => String(m.id) === String(v.aerotermia_db_id));
+                                if (p.cambio_acs && modelCal && esConjuntoAcs(modelCal) && !acsDecididoAparte(p, v)) {
+                                    const { metodo } = metodoAcsDelModelo(modelCal, zonaInstalacion);
+                                    // Este bloque se ejecuta en CADA cambio del equipo de
+                                    // calefacción (también al teclear su nº de serie), así
+                                    // que no puede rehacer lo que ya se ajustó a mano:
+                                    // mientras sea el MISMO modelo se conservan el SCOP, su
+                                    // método y los litros, y solo se refrescan las
+                                    // referencias que sí vienen de la máquina.
+                                    const yaEra = mismaMaquina(p.aerotermia_acs, v);
+                                    const scopPrevio = parseFloat(p.aerotermia_acs?.scop);
+                                    next.aerotermia_acs = nodoAcsDesdeConjunto(v, modelCal, {
+                                        metodo: yaEra ? (p.aerotermia_acs?.metodo_scop || metodo) : metodo,
+                                        scop: (yaEra && scopPrevio > 0)
+                                            ? p.aerotermia_acs.scop
+                                            : (metodo ? getScopAcsFromModel(modelCal, zonaInstalacion, metodo) : null),
+                                        litros: yaEra && p.aerotermia_acs?.litros != null && p.aerotermia_acs?.litros !== ''
+                                            ? p.aerotermia_acs.litros
+                                            : litrosAcsCatalogo(modelCal),
+                                    });
+                                    // El nodo de ACS pasa a tener SCOP propio, así que ya
+                                    // no puede leerse del de calefacción. Los documentos
+                                    // siguen viendo UNA sola máquina porque los dos nodos
+                                    // nombran el mismo modelo (`mismaMaquina`).
+                                    next.misma_aerotermia_acs = false;
+                                }
+                                else if (p.misma_aerotermia_acs) next.aerotermia_acs = cloneAero(v);
                                 // Acumulador: su SCOP_dhw se calcula (Anexo VI) sobre el
                                 // COP de ESTA bomba, así que cambiar el equipo de
                                 // calefacción lo recalcula. Si no, quedaría el del
@@ -2193,6 +2434,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                         zona={zonaInstalacion}
                         emisorPorUnidad={emisorPorUnidad}
                         numeroExpediente={expediente?.numero_expediente}
+                        onCompletarCatalogo={(model, modo) => setEprelGate({ model, modo })}
                     />
                     {local.cambio_acs && (
                         <AerotermiaSection
@@ -2205,6 +2447,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                             tipoEmisor={local.tipo_emisor}
                             zona={zonaInstalacion}
                             isAcs={true}
+                            onCompletarCatalogo={(model, modo) => setEprelGate({ model, modo })}
                             // El acumulador lo calienta la BdC de calefacción: de ahí
                             // sale su SCOP_dhw (Anexo VI) y su ficha justificante.
                             calData={local.aerotermia_cal}
@@ -2423,6 +2666,24 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                                     i.id_empresa === updated.id_empresa ? { ...i, ...updated } : i
                                 ));
                             }}
+                        />
+                    )}
+
+                    {/* Hueco del CATÁLOGO, no del expediente: se pide el η_wh del EPREL
+                        del conjunto para que el SCOP en ACS deje de caer a un 3,0 por
+                        defecto — aquí y en todos los expedientes con ese equipo. */}
+                    {eprelGate && (
+                        <EprelAcsModal
+                            model={eprelGate.model}
+                            modo={eprelGate.modo}
+                            zona={zonaInstalacion}
+                            onCerrar={() => {
+                                // Solo se silencia el automático: un popup abierto a
+                                // mano desde el aviso debe poder volver a abrirse.
+                                if (eprelGate.modo === 'conjunto') eprelDescartados.current.add(String(eprelGate.model?.id));
+                                setEprelGate(null);
+                            }}
+                            onCompletado={handleEprelCompletado}
                         />
                     )}
                 </div>

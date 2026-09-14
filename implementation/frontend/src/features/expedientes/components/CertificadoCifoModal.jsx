@@ -592,21 +592,9 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     const sRaw = parseFloat(ceeFinal.superficieHabitable) || 0;
     const sStr = sRaw.toFixed(2).replace('.', ',');
 
-    // Justificación Demand ACS
-    const acsMode = cee.acs_method || 'xml';
-    const numRooms = parseInt(cee.num_rooms) || 4;
-    const numPeople = numRooms + 1;
-    
-    // Valor ACS según modo
-    let dacsValue = 0;
-    if (acsMode === 'xml') {
-        const dacsKwhM2 = parseFloat(ceeFinal.demandaACS) || 0;
-        const superficie = parseFloat(ceeFinal.superficieHabitable) || 0;
-        dacsValue = dacsKwhM2 * superficie;
-    } else {
-        dacsValue = 28 * numPeople * 0.001162 * 365 * 46;
-    }
-    const dacsStr = dacsValue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // La D_ACS no se calcula aquí: la resuelve deriveCifoData (cifoDoc.js), que es
+    // lo que este modal renderiza. Había una copia de la fórmula que solo entendía
+    // 'xml' y 'cte' y que ya no la leía nadie.
 
     // Identificación Actuación (Location) — dirección de la INSTALACIÓN (vivienda
     // del Catastro/oportunidad), NUNCA el domicilio del cliente.

@@ -119,6 +119,17 @@ function funnelToCalculatorInputs(funnel, catastro, options = {}) {
     );
     inputs.superficieCalefactable = Number(catastro?.superficieCalefactable || catastro?.superficie || inputs.superficie);
     inputs.plantas = Number(catastro?.plantas || catastro?.floors?.total || BASE_DEFAULTS.plantas);
+    // Qué construcciones del Catastro cuentan. Esta función es una LISTA BLANCA,
+    // así que lo que no se copie aquí no llega: por eso la selección del funnel
+    // público no aparecía en ninguna oportunidad venida de la landing, aunque la
+    // pantalla de revisión del inmueble sí la preguntara.
+    if (catastro?.construcciones) inputs.construcciones = catastro.construcciones;
+    if (catastro?.construcciones_elegidas) {
+        inputs.construcciones_elegidas = catastro.construcciones_elegidas;
+    }
+    if (catastro?.selectedConstructions) {
+        inputs.selectedConstructions = catastro.selectedConstructions;
+    }
     inputs.zona = catastro?.zona || catastro?.climateInfo?.climateZone || BASE_DEFAULTS.zona;
     // Código INE de provincia — el panel admin lee CCAA desde aquí
     inputs.provincia = String(catastro?.provinceCode || '').padStart(2, '0').slice(0, 2);

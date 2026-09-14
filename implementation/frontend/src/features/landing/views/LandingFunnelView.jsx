@@ -359,6 +359,8 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
             ...prev,
             superficieCalefactable: selection.superficieCalefactable,
             selectedConstructions: selection.selectedConstructions,
+            construcciones: selection.construcciones,
+            construcciones_elegidas: selection.construcciones_elegidas,
         }));
         setPhase(FUNNEL_ENTRY_PHASE);
     };

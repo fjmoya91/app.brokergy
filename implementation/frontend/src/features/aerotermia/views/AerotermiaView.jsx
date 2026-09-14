@@ -289,7 +289,17 @@ export function AerotermiaView() {
                                 equipo.scop_cal_calido_35, equipo.scop_cal_medio_35,
                                 equipo.scop_cal_calido_55, equipo.scop_cal_medio_55,
                             ].some(v => v !== null && v !== undefined && v !== '');
-                            const hasAcs = !!equipo.deposito_acs_incluido;
+                            // La columna de la derecha enseña el SCOP_dhw, así que lo que
+                            // decide si aparece es TENERLO — no llevar depósito. Eran dos
+                            // cosas distintas leídas como una: 79 equipos declaran SCOP para
+                            // ACS con el depósito aparte y su columna salía vacía.
+                            const hasAcs = !!(equipo.scop_dhw_calido > 0 || equipo.scop_dhw_medio > 0);
+                            // Un CONJUNTO (depósito dentro) resuelve el ACS del expediente sin
+                            // volver a elegir equipo — pero solo si podemos justificar su
+                            // SCOP_dhw. Sin ninguno de los dos datos hay que aportar el EPREL.
+                            const esConjunto = !!equipo.deposito_acs_incluido;
+                            const acsSinJustificar = esConjunto && !hasAcs
+                                && !(equipo.eta_acs_calida > 0 || equipo.eta_acs_media > 0);
                             return (
                             <div
                                 key={equipo.id}
@@ -320,8 +330,18 @@ export function AerotermiaView() {
                                             {equipo.potencia_calefaccion && (
                                                 <Badge color="amber">{fmt(equipo.potencia_calefaccion)} kW</Badge>
                                             )}
-                                            {equipo.deposito_acs_incluido && (
-                                                <Badge color="green">ACS</Badge>
+                                            {esConjunto && (
+                                                <Badge color="green">
+                                                    CONJUNTO{equipo.litros_acs ? ` · ${fmt(equipo.litros_acs)} L` : ''}
+                                                </Badge>
+                                            )}
+                                            {!esConjunto && hasAcs && <Badge color="green">ACS</Badge>}
+                                            {acsSinJustificar && (
+                                                <span
+                                                    title="Trae depósito de ACS pero el catálogo no tiene ni su SCOP para ACS de ficha ni el η_wh de su EPREL: al elegirlo en un expediente se pedirá el dato."
+                                                    className="text-[8px] font-black text-amber-400 uppercase tracking-widest bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                                                    SIN η ACS
+                                                </span>
                                             )}
                                             {equipo.is_validated && (
                                                 <span className="flex items-center gap-1 text-[8px] font-black text-emerald-400 uppercase tracking-widest bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">

@@ -3061,6 +3061,82 @@ una sola.
 
 ---
 
+## La PLACA de la caldera se lee con IA (2026-09-13)
+
+De la caldera existente hacen falta tres datos para escribirla en el `.cex`: marca,
+modelo y **POTENCIA**. Los dos primeros dejan el equipo como «CALDERA EXISTENTE» si
+faltan; **sin la potencia no se escribe el equipo en absoluto**, y ese dato no está en
+ningún campo del expediente. Está en la placa de características, y su foto lleva
+meses en Drive: el instalador la sube al slot `FOTO_PLACA_CALDERA_ANTES` («la etiqueta
+con marca, modelo y potencia»), que además está en `FULL_RES_SLOTS` precisamente para
+que ese número se lea. Se seguía tecleando a mano mirando la foto.
+
+| Qué | Dónde |
+|---|---|
+| Lectura (prompt + esquema) y la ELECCIÓN de la potencia | [placaOcrService.js](implementation/backend/services/placaOcrService.js) |
+| Ruta | `POST /api/expedientes/:id/placa-caldera/ocr` (`aplicar`, multipart `files[]` opcional), **staffOnly** |
+| Superficie | Bloque **Caldera existente** de la ficha, en `/envolvente/:id` |
+| Qué se escribe con ello | `instalacionExistente()` en [fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js) |
+| Prueba de lo determinista | `node implementation/backend/scripts/test_placa_ocr.js` |
+| Probar contra un expediente real, sin escribir | `node implementation/backend/scripts/probar_placa_ocr.js 26RES060_186` |
+
+**REGLA — las fotos van como FOTOS, no como PDF.** Los demás lectores pasan por
+`ceeOcrService.normalizeToPdf` porque leen DOCUMENTOS. Una placa es un primer plano y
+lo que se busca —el nº de serie, un «23,3» grabado en relieve— vive en unos pocos
+píxeles: meterla en un PDF la recomprime por el camino, que es justo lo que
+`FULL_RES_SLOTS` evita al subirla. Gemini acepta varias imágenes en la misma petición.
+Medido sobre 26RES060_186: **3 fotos, 1.502 tokens de entrada, 2,2 s**, ~0,001 €.
+
+**REGLA — se leen también un par de fotos de la CALDERA ENTERA.** La MARCA suele estar
+en el frontal, en letras grandes, y no en la etiqueta de datos —que a veces solo trae
+el nº de serie y las potencias—. Con la etiqueta sola el modelo lee media respuesta.
+
+**REGLA — el modelo TRANSCRIBE las potencias una a una; cuál vale lo decide el
+código.** Una placa trae el consumo calorífico (`Qn`, `Hi`) y la potencia útil (`Pn`),
+que es la que pide CE3X, y casi siempre como RANGO porque la caldera modula. Se le
+piden todas con su rótulo literal (`potencias[]`) **y** la línea entera
+(`potencia_texto`), y `elegirPotencia()` aplica: útil sobre consumo, y de un rango el
+máximo. Esa línea es además la EVIDENCIA que se enseña en pantalla — es lo que separa
+«lo pone la placa» de «lo ha dicho una máquina».
+
+**REGLA — una placa POLICOMBUSTIBLE se resuelve con el combustible del EXPEDIENTE.**
+Las calderas antiguas de fundición queman lo que se les eche y declaran **una potencia
+por combustible**: la ROCA P-30-4 de 26RES060_186 pone «Potencia kW Sólido 15,3
+Líquido 23,3 Gas 23,3». Ahí no hay una potencia que leer, hay tres, y coger la primera
+—o la mayor— es declarar una caldera un **52 % más potente** que la real. La familia
+sale de `caldera_antigua_cal.rendimiento_id` + `inputs.fuelType`
+(`combustibleDeclarado`), porque `BOILER_EFFICIENCIES` no tiene fila de GLP ni
+distingue carbón de biomasa. **Sin combustible declarado NO se elige ninguna** y se
+dice por qué: adivinarla es escribir un certificado con la caldera de otro.
+⚠️ El orden de `FAMILIAS` importa: «gasóleo» contiene «gas».
+
+**REGLA — se PROPONE, y al aplicar solo se rellenan HUECOS.** Lo que hay escrito lo
+puso una persona con la caldera delante. Lo que difiere sale como **conflicto** con las
+dos versiones a la vista y no se toca. El `0` de `potencia_caldera` no cuenta como
+valor puesto: ese campo nace en `''` y se guarda como 0 en cuanto alguien abre y guarda
+Instalación, así que tomarlo por un dato dejaría el hueco sin rellenar para siempre.
+
+**REGLA — el COMBUSTIBLE leído NUNCA se escribe.** De él cuelgan el rendimiento de la
+tabla, el ahorro y la propuesta que el cliente ya firmó. Una discrepancia con la placa
+es un hallazgo que mira una persona, no una corrección que se aplica sola.
+
+**El decimal.** En los avisos y en pantalla va con COMA, que es castellano; el valor que
+viaja al `.cex` conserva el PUNTO, que es lo que escribe el propio CE3X en sus ficheros
+(`V24.0`, `V90.0`, medido en `CARBON.cex`).
+
+Se escribe en `caldera_antigua_cal` (y se refleja en `caldera_antigua_acs` mientras sea
+la misma, como hace la propia app) más `instalacion.potencia_caldera_kw`, con la huella
+en `instalacion.placa_ocr` —qué se leyó, de qué fotos, quién y cuándo (solo metadatos,
+regla 21)—: una comprobación que se ve una vez y se pierde al cerrar el popup no sirve
+de nada.
+
+⚠️ **`potencia_caldera` YA EXISTÍA** en Instalación: es la potencia nominal de la
+caldera existente que en un RES093 se teclea para la base del Cb. Es el MISMO número,
+así que `instalacionExistente()` lo mira también — antes un expediente que ya lo tenía
+escrito volvía a pedirlo.
+
+---
+
 ## Quién EJECUTA la obra y quién FIRMA ante Industria (2026-08-26)
 
 Un instalador no habilitado en Industria delega la firma en otra empresa
@@ -5527,6 +5603,71 @@ node implementation/backend/scripts/test_coste_verificacion.mjs
 
 ---
 
+## Las TARIFAS del verificador, en su ficha (2026-09-14)
+
+Lo que cobra un verificador no es un precio: es una TABLA POR TRAMOS, y con
+escalón — cuantas más actuaciones van juntas, menos sale cada una. La orientativa
+que pasa MARWEN (09/2026):
+
+| Actuaciones | Importe | €/actuación |
+|---|---|---|
+| 1 | 900 € | 900 |
+| 5 | 2.000 € | 400 |
+| 10 | 3.600 € | 360 |
+| 15 | 4.400 € | 293 |
+
+Hasta ahora vivía en un correo: al llegar su oferta o su factura no había contra
+qué compararla sin ir a buscarlo.
+
+| Qué | Dónde |
+|---|---|
+| Estimar, elegir tarifa y comparar (puro, sin imports) | [logic/tarifasVerificacion.js](implementation/frontend/src/features/lotes/logic/tarifasVerificacion.js) |
+| Persistencia (`app_settings` → `tarifas_verificacion:{id}`) | [services/tarifasVerificacion.js](implementation/backend/services/tarifasVerificacion.js) |
+| Rutas | `GET|PUT /api/prescriptores/:id/tarifas-verificacion`, **adminOnly** |
+| Superficie | Bloque **Tarifas de verificación** de la ficha (`TarifasVerificacionPanel`) + bajo el coste en `LoteDetailModal` |
+| Sembrar la de un verificador | `node scripts/sembrar_tarifa_verificacion.js B23627375 [--execute]` |
+| Prueba de lo puro | `node implementation/backend/scripts/test_tarifas_verificacion.mjs` |
+
+**REGLA — esto es ORIENTATIVO y NO contabiliza nada.** Lo que de verdad se paga
+sigue siendo `lotes.coste_verificacion`, que sale de la BASE IMPONIBLE de su
+factura (regla 28), y lo que se repercute al S.O. en la simulación sigue siendo
+`inputs.costeVerificacion` (regla 46). Esta tabla solo sirve para mirar una
+oferta y saber si cuadra: la palabra "orientativa" va en pantalla, porque una
+tabla de precios en una ficha se lee como lo que se paga.
+
+**REGLA — la columna que se compara es el €/ACTUACIÓN, no el total.** «2.000 €»
+no dice nada sin saber cuántas actuaciones cubre, y la factura del verificador
+puede agrupar varios lotes: un lote son 5 como máximo, pero a verificar se mandan
+varios juntos y el escalón es **por envío**. Por eso la tabla la lleva calculada,
+la estimación la devuelve siempre y el lote lo dice en su nota — comparar el total
+de una factura contra un solo lote sale siempre "caro".
+
+**REGLA — entre tramos se INTERPOLA; fuera de tabla se DICE que se está fuera.**
+Las actuaciones reales casi nunca caen en una fila. Por encima del último tramo se
+prolonga con el precio MARGINAL del último intervalo (160 €/act. en la tabla de
+arriba), nunca con su media: la media daría un 13 % de más a 20 actuaciones. Y
+sale marcado `fueraDeTabla` con su aviso, porque es una conjetura nuestra y no un
+precio que el verificador haya dado. Por debajo del primer tramo no se rebaja por
+nuestra cuenta: ese importe es el suelo.
+
+**REGLA — con varias tarifas NO se adivina cuál aplica**, y la cobertura se
+comprueba también con UNA sola. Una tarifa que declara «RES060 · RES080 · RES093 ·
+TER100» está diciendo que no cubre lo demás: aplicársela a un TER173 sería
+comparar contra un precio que nadie ha dado para esa ficha, y encima con la
+autoridad de una tabla. Sin fichas marcadas vale para todas — es lo correcto para
+quien solo tiene una tarifa.
+
+**El bloque va en la VISTA de la ficha, no en su modo edición**, y se edita desde
+él mismo: es un dato que se CONSULTA antes de mandar un lote a verificar, y
+esconderlo detrás de «Editar» lo dejaría sin usar. Solo **VERIFICADOR** y solo
+ADMIN (son importes, y esa ficha la puede abrir el propio partner; el backend lo
+repite). El €/actuación se ve **mientras se teclea**: es donde se nota un cero de
+más antes de guardarlo.
+
+⚠️ La columna del NIF en `prescriptores` es **`cif`**, no `cif_nif`.
+
+---
+
 ## El mismo vecino volviendo al funnel NO estrena oportunidad (2026-09-11)
 
 Medido el 11/09/2026: **26RES060_OP113 y 26RES060_OP179**, misma referencia
@@ -5586,6 +5727,682 @@ esta nota en el historial.
 node implementation/backend/scripts/test_lead_duplicado.js          # los puros, sin BD
 node implementation/backend/scripts/probar_lead_previo.js [RC]      # contra datos reales, solo lee
 ```
+
+---
+
+## El plano de la envolvente: lo que hace falta VER para decidir (2026-09-13)
+
+La vista pedía un juicio que no daba cómo hacer. Tres cosas, y las tres salieron
+de usarla:
+
+**REGLA — los colores del plano van por TOKEN de tema, nunca cableados.** Las
+paredes «sin tocar» eran `rgba(255,255,255,0.28)`: en tema claro quedan a
+**1,03:1** de contraste, o sea invisibles, y el plano parecía tener tres paredes
+en vez de catorce. No lo salvaba ninguna regla de `.theme-light` porque son
+atributos `stroke` de un SVG, no clases de Tailwind. Ahora `var(--success)`,
+`var(--warning)`, `var(--text-secondary)`. ⚠️ Lo que SÍ está remapeado en
+`index.css` es `text-white/XX`, `bg-white/[0.0X]` y compañía: en el JSX se usan
+esas, como el resto de la app, y no se inventan tokens nuevos.
+
+**REGLA — se ven los COLINDANTES, porque son la respuesta a la pregunta.** Una
+medianera lo es por lo que hay AL OTRO LADO; sin el edificio de al lado dibujado,
+el certificador solo puede fiarse de cómo lo clasificó Catastro. El motor ya
+tenía los vecinos (`modelo.neighbours`) y ahora los proyecta al mismo lienzo
+(`_contexto` en `viz/plano_svg.py`) — la geometría se resuelve donde están
+shapely y pyproj, y el navegador solo pinta puntos. Se dibujan las masas
+construidas Y las **lindes de las parcelas** de alrededor
+(`modelo.neighbour_parcels`): ya se descargaban —de ellas salen las referencias
+de los vecinos— y se tiraban, y sin ellas un solar o un patio del vecino se ven
+igual que la calle. En 26RES060_186: 3 edificios y **5 parcelas**.
+
+**REGLA — DOS encuadres, no uno.** Trabajar sobre las paredes pide la casa
+grande; juzgar el entorno pide ver la manzana, y no caben juntos: medido en
+26RES060_186, con margen suficiente para que entrara el contexto la casa bajaba
+al **50 %** del ancho y **aun así solo entraba la mitad de los vecinos**. El
+motor devuelve `entorno` (un rectángulo sobre las MISMAS coordenadas), así que
+el botón «Ver el entorno» solo cambia el `viewBox`: ni un metro se recalcula.
+Al alejar, los rótulos se ocultan salvo el de la pared seleccionada y el de la
+entrada — amontonados sobre la casa no dicen nada.
+
+**REGLA — el tipo de pared se puede CORREGIR, y queda escrito que se corrigió.**
+Lo que Catastro dice de una pared es una deducción geométrica y se equivoca: un
+cobertizo sin dar de alta convierte una medianera en fachada. El panel pregunta
+**«da contra»** —al exterior · al vecino · a un local—, que es lo que se está
+mirando en el plano, y no «fachada/medianera/partición vertical», que es como se
+llama en la norma. Viaja como `envolvente.reclasificar` y el motor **avisa de
+cada cambio** con lo que decía Catastro al lado: ese dato lo ha cambiado una
+persona y tiene que constar. `PARTICION_VERTICAL` se escribe por la rama de la
+medianera, que ya sabía emitir una partición con su U: un solo camino para las
+tres opciones.
+
+**REGLA — una pared se puede APARTAR, y eso no es un cuarto «da contra».**
+Catastro dibuja el perímetro de lo CONSTRUIDO, y ahí dentro hay cosas que no son
+la vivienda: el garaje, un trastero, un porche cerrado. Sus muros salen medidos y
+clasificados como cualquier otro —los de fuera, además, como FACHADA, porque
+geométricamente dan a la calle— pero no son la envolvente del espacio habitable:
+escribirlos infla la superficie de pérdidas y con ella la demanda del
+certificado. Medido en 26RES060_186: `FBN1` da a la calle y es del garaje.
+«Da contra» dice QUÉ HAY al otro lado; apartar dice si la pared CUENTA, y son dos
+preguntas distintas.
+
+Lo apartado **no se vuelca al `.cex`**: viaja en `envolvente.excluir_ids`, que el
+motor ya sabía saltarse (`generar_cex.py`), y **sus huecos tampoco se mandan** —
+un hueco que apunta a un cerramiento que no se escribe aborta la generación
+entera («no es ninguno de los cerramientos escritos»). Se guardan por si vuelve.
+
+En el plano se dibuja **a trazos y sin trama**: sigue ahí —hay que poder
+encontrarla y devolverla, y por eso conserva su rótulo y se puede pulsar— pero un
+muro macizo diría que forma parte de la envolvente. No se acota, no cuenta en
+«paredes por mirar» y no se puede señalar como entrada: por una pared que no
+cuenta no se entra a la vivienda. Y el titular lo dice («1 apartada de la
+envolvente»), porque cuatro trazos finos no pueden ser la única señal de algo que
+alguien sacó del certificado hace un mes.
+
+⚠️ Una pared apartada **se sigue pudiendo seleccionar**. `elegir()` salía por
+`if (m.fuera) return`, así que apartarla la dejaba fuera de alcance y no había
+forma de recuperarla.
+
+### La GEOMETRÍA se puede corregir, y eso se mide y se declara (2026-09-14)
+
+Catastro dibuja el perímetro de lo construido **y se equivoca**: con la
+cartografía debajo se ve que un tabique está medio metro a un lado, o que
+directamente no está. Medido en 26RES060_186: `PBE1` está dibujada donde no es.
+Hasta ahora eso no tenía arreglo — la app clasificaba lo que el motor medía, y
+punto.
+
+| Qué | Dónde |
+|---|---|
+| Medir lo movido y lo dibujado, y avisar | `aplicar_paredes` en [generar_cex.py](implementation/cee-engine/tools/generar_cex.py) |
+| El imán y la distancia punto-polilínea | `pegarAPared` · `puntoMasCercano` en [geometriaPlano.js](implementation/frontend/src/features/cee-envolvente/logic/geometriaPlano.js) |
+| El estado y las acciones | `muevePared` · `dibujaPared` · `borraPared` en [usePlanoEnvolvente.js](implementation/frontend/src/features/cee-envolvente/logic/usePlanoEnvolvente.js) |
+| Los gestos | `Tiradores` · `Trazo` en [PlanoPlanta.jsx](implementation/frontend/src/features/cee-envolvente/components/PlanoPlanta.jsx) |
+| Pruebas | `python -m pytest implementation/cee-engine/tests/test_paredes.py` |
+
+**REGLA — la mide el MOTOR, no el navegador.** Del plano solo viajan los DOS
+PUNTOS donde se ha soltado cada extremo (`envolvente.paredes`); el largo y la
+superficie los calcula `aplicar_paredes`, que es donde se miden todas las demás.
+Las coordenadas son las del LIENZO, y eso no es una aproximación: el lienzo es el
+mundo trasladado y con la Y del revés (`plano_svg.plantas`), y una traslación con
+un espejo **conserva las distancias** — un metro del lienzo es un metro del
+edificio, así que no hay que deshacer nada para medir. La superficie sale con la
+**misma altura de planta** con la que el motor midió las paredes vecinas, no con
+una decisión nueva.
+
+**REGLA — una pared que ha tocado una persona lo DICE, en los dos sitios.** De
+ahí sale una superficie que va a un certificado: su procedencia es `USER_INPUT` /
+`MANUAL` —la misma que `provenance.manual()`— y no la de Catastro, el `.cex` sale
+con su aviso (**con las dos cifras**, la nueva y la de Catastro, que sin ellas no
+hay forma de saber cuánto se ha corregido) y el panel la marca en ámbar con un
+botón para devolverla. Una que solo se ha deslizado en paralelo mide lo mismo, y
+ahí el aviso cambia de frase: repetir la cifra dos veces se lee como un fallo.
+
+**REGLA — mover una pared es EXPLÍCITO: hay que seleccionarla primero.** Los
+tiradores —uno en cada punta y uno en el medio— solo salen en la pared
+seleccionada. Si cualquiera se pudiera arrastrar sin más, **mover el plano con el
+puntero encima de una la movería sin querer**, y eso cambia una superficie que
+acaba firmada. Comprobado: arrastrar una pared no seleccionada mueve el plano y
+no toca la pared.
+
+**REGLA — los extremos se pegan a la pared más cercana (imán de 1,6 m).** Un
+extremo suelto en medio de la nada deja un plano que no cierra, y una pared que
+no llega a ninguna parte no es una pared: es una raya. El radio es generoso a
+propósito —un ancho de puerta— porque lo que se dibuja va DE PARED A PARED; si
+hay dos cerca gana la más próxima, así que de más no se equivoca, solo alcanza
+más lejos. Con 1,1 m, un tabique soltado a 1,12 m de la fachada se quedaba sin
+llegar.
+
+**REGLA — una pared dibujada nace PARTICIÓN.** Es lo que se dibuja dentro de un
+edificio y además es el único tipo que **no necesita orientación** — la de una
+fachada es la de su normal exterior y aquí no hay polígono del que sacarla (es lo
+mismo que hace `classifier` con las particiones que mide él). Si es otra cosa, se
+reclasifica con el mismo control que las demás. Se llama `PBX1`, `P1X1`…: la
+misma forma que las del motor con una **X** donde iría la orientación, que además
+no puede chocar con ninguna de Catastro (llevan siempre una de las ocho).
+
+**REGLA — dibujar es un MODO, no un gesto suelto.** Arrastrar sobre el plano ya
+significa moverlo, y no puede significar dos cosas según dónde se empiece. Solo
+en planta: una pared se coloca sobre la cartografía, que es lo que dice dónde
+está de verdad, y eso es un plano. El trazo enseña **la medida mientras se
+arrastra** —dibujar a ojo sin verla es lo mismo que teclear a ojo— y el punto de
+llegada se pinta lleno cuando ha pegado.
+
+⚠️ **La geometría corregida va en SU PROPIO estado, no dentro de `muros`.** De
+`plantas` cuelga el encuadre del plano, así que si dependiera del estado de los
+huecos, **poner una ventana devolvería el plano a su zoom de partida a media
+faena**. Comprobado que no pasa.
+
+⚠️ **Una pared DIBUJADA no se mueve por `movidas`**: los puntos que se sueltan
+SON su geometría y se escriben donde vive (`dibujadas`). Con las dos capas,
+moverla no hacía nada — `plantas` lee su trazado de `dibujadas` y nunca miraba la
+corrección.
+
+⚠️ **Un tirador NO corta la propagación del `pointerdown`.** El arrastre lo lleva
+el SVG y el tirador solo deja dicho qué se ha cogido; con `stopPropagation` el
+evento no llegaba al padre y la pared no se movía — se veía el tirador, se
+arrastraba, y no pasaba nada.
+
+⚠️ **Al recargar hay que rehacer la MARCA, no solo la medida.** Si no, la pared
+vuelve movida pero sin decirlo, que es justo lo que no puede pasar con una
+superficie que va al certificado.
+
+### Una medida por defecto se puede dar por BUENA de un clic
+
+El titular contaba «9 con medida por confirmar» y la única forma de quitar una de
+esa cuenta era **teclear encima el mismo número que ya ponía**. Cuando la medida
+por defecto es la buena —que en una ventana de 1,30 es lo corriente—, decir que sí
+tiene que costar un clic: `✓ OK` **junto a la medida**, que es lo que se está
+mirando cuando se decide, y «Dar por buenas las medidas de esta pared» para todas
+las suyas de una vez (`confirmaHueco` / `confirmaPared`). Queda escrito quién lo
+dio por bueno (`por_que`), igual que cuando se teclea.
+
+**REGLA — lo que impide generar se dice DONDE se hace.** Un hueco solo cabe en
+un cerramiento al exterior, así que reclasificar una pared que ya tiene ventanas
+deja el `.cex` sin poder escribirse — y eso se descubría al pulsar Generar, con
+las ventanas ya puestas una a una. El panel lo avisa al momento, con la salida
+(«Volver a exterior») en el propio aviso. Igual si se reclasifica la pared por
+la que se ha dicho que se entra.
+
+**REGLA — la envolvente se abre en VENTANA PROPIA (`/envolvente/:id`), no en un
+modal.** Sobre el plano se pasa un rato largo —las ventanas se ponen una a una—
+y a mitad hace falta mirar otra cosa del expediente: la instalación, el teléfono
+del cliente, el CEE anterior. Con un modal hay que cerrar y perder el sitio. Es
+una ruta INTERNA (exige sesión, como el expediente), el botón CE3X hace
+`window.open` con `noopener` —sin él, la pestaña nueva comparte proceso y un
+tirón allí frena el expediente— y el título de la pestaña lleva el número, que
+con tres abiertas «BROKERGY» no distingue ninguna. El `EnvolventeModal` se
+BORRÓ: dos superficies para lo mismo acaban divergiendo.
+
+**REGLA — lo señalado se guarda en el EXPEDIENTE, no solo en el navegador.**
+Vivía en `localStorage`: sobrevive a recargar, pero no a cambiar de ordenador,
+ni a limpiar el navegador, ni a que lo siga otra persona. Va a
+`expedientes.cee.envolvente` por la RPC `set_expediente_cee_field`
+(`scripts/cee_envolvente_trabajo.sql`), que **REEMPLAZA esa clave y no toca el
+resto de `cee`**: un MERGE dejaría puesto un hueco que se acaba de quitar, y
+escribir la columna entera desde Node pisaría `cee_inicial` o el seguimiento.
+Son ~1,8 KB de metadatos medidos — ni geometría ni ficheros (regla 21).
+Autoguardado con freno de 1,2 s (cada ventana es un cambio de estado) y **con
+acuse en pantalla**: un autoguardado mudo no se distingue de no guardar. Si se
+cierra la pestaña con algo sin guardar, `beforeunload` avisa. El `localStorage`
+se conserva como respaldo de lo que aún no llegó a guardarse.
+
+**REGLA — al reclasificar, el NOMBRE cambia de inicial, y se puede editar.**
+`FBE1` pasa a `PBE1` al convertirse en partición: es lo que se ve en CE3X y dice
+de un vistazo qué es cada cerramiento. Se PROPONE (si el certificador ya le puso
+nombre a mano, no se le pisa) y viaja como `envolvente.renombrar`. ⚠️ El motor
+casa cada hueco con su pared por el **id del nombre escrito**, así que la vista
+manda los huecos apuntando ya al nombre nuevo (`nombreDe(m)`); y dentro del
+motor el renombrado toca solo el NOMBRE — `ident` sigue siendo la clave con la
+que se comprueba todo lo demás, o `ident in como_particion` dejaría de casar.
+
+**REGLA — el TÉCNICO sale del certificador asignado, no se teclea.** Los once
+campos de «Datos del técnico certificador» de CE3X están en `prescriptores`
+—titulación, colegio y número incluidos—, así que `tecnicoCe3x()` los compone y
+van en el `.cex`. La titulación se redacta como la escriben ellos
+(«GRADUADO EN INGENIERÍA DE LA EDIFICACIÓN. COLEGIADO COAATM Nº 108180»,
+copiado de los certificados de Luis Alberto y Raquel): si aquí saliera de otra
+forma, un mismo técnico tendría dos redacciones según quién le preparase el
+`.cex`. En un AUTÓNOMO la razón social y el NIF son los suyos, como los tienen
+los tres. Lo que no consta NO se manda —el motor deja entonces lo de la
+plantilla en vez de escribir un hueco encima— y se avisa: sin titulación, CE3X
+la pide y hay que ponerla en Prescriptores.
+
+**REGLA — cada PARED puede llevar su propia U.** La tabla de la época vale para
+el edificio, pero una pared puede estar aislada y las demás no —una fachada
+rehecha, un patio cerrado después— y escribirlas todas iguales declara un
+edificio que no existe. El panel de la pared enseña la suya («la de su época»),
+se cambia ahí y viaja como `envolvente.u_por_cerramiento`. En el motor, `conU()`
+envuelve el bloque térmico de ESE cerramiento y avisa con la de la tabla al
+lado. Verificado: con `{FBE1: 0.45}`, el `.cex` sale con FBE1 a 0,45 y las otras
+diez fachadas a 1,69.
+
+**REGLA — TODOS los datos derivados del CEE son editables.** Catastro se
+equivoca —una ampliación sin declarar, una planta que consta como almacén y es
+vivienda— y el certificador tiene el edificio delante: los once campos de «Lo
+que se va a escribir en el .cex» se corrigen a mano (`CAMPOS_FICHA`), lo puesto
+sale marcado y su procedencia pasa a decir «puesto a mano por el certificador».
+Los ajustes se guardan con el trabajo, así que no se pierden al salir.
+
+⚠️ Cambiar la ALTURA DE PLANTA aquí no vuelve a medir: las superficies de
+fachada las midió el motor con la que se le pasó al traer la envolvente. Para
+que cuadren hay que traerla otra vez con esa altura.
+
+**REGLA — las TRANSMITANCIAS se pueden retocar en el momento, y el retoque
+CONSTA.** La tabla da el peor caso defendible de la época, pero el certificador
+tiene el edificio delante y puede haber visto una cámara sin aislar, o tener el
+proyecto. El campo es editable en «Lo que se va a escribir en el .cex», el valor
+puesto a mano sale marcado, y cada cambio va a los avisos con la cifra de la
+guía al lado (`_retocadas`): un valor que no sale de la guía tiene que constar.
+La MEDIANERA no se edita — es adiabática por definición, y si al otro lado hay
+un local lo que se cambia es el TIPO de la pared.
+
+**Duplicar un hueco** (⧉) copia sus medidas con nombre nuevo: una fachada con
+tres ventanas iguales es lo normal, y volver a teclear 1,40 × 1,10 en cada una
+es donde se cuela el error. La copia sale ya confirmada — sus medidas no son un
+valor por defecto.
+
+**Los contadores se fueron a una línea.** Cuatro cajas (medidos · dudosos · sin
+tocar · m² de hueco) ocupaban la primera fila y eran lo primero que se veía,
+cuando al entrar la única tarea es señalar la entrada. Lo que hace falta —por
+dónde se entra, si está guardado y cuánto queda— cabe en un renglón, y el estado
+de cada pared ya se ve en el plano por su color.
+
+⚠️ El aviso de «no cierres con trabajo sin guardar» NO cuenta la pared
+seleccionada (`hayCambios` la excluye). Se guarda —es cómodo volver donde
+estabas— pero preguntando por ella el navegador corta la salida cada vez que se
+pulsa una pared y se cierra, y un aviso que salta siempre se responde que sí sin
+leerlo, que es justo cuando se pierde algo.
+
+**REGLA — la CALDERA EXISTENTE se vuelca de la oportunidad, no se teclea.**
+`instalacionExistente()` compone el equipo de CE3X con lo que ya se rellenó:
+`rendimiento_id` (el `boilerId` del funnel) da el rendimiento de combustión de
+la MISMA tabla que usó la simulación, `misma_caldera_acs` decide si el equipo es
+`mixto2` o solo calefacción, y las superficies salen de la habitable. El
+aislamiento va al caso DESFAVORABLE («Sin aislamiento»), que es lo que pusieron
+los certificadores en los dos expedientes reales, y sale dicho.
+
+⚠️ **El `boilerId` del carbón y el de la biomasa son el MISMO** (`solid_*`): lo
+que los separa es `inputs.fuelType`, que la oportunidad sí guarda (comprobado en
+26RES060_OP181: «carbon»).
+
+⚠️ **Las cadenas del desplegable de combustible de CE3X están LEÍDAS, no
+deducidas**: de `.cex` guardados por el propio CE3X con cada una
+(`ejemplos/GAS_NATURAL.cex`, `CARBON.cex`, `PELLETS.cex`, `GLP.cex`) salen
+`Gas Natural` · `Carbón` · `BiomasaDens` · `GLP`, además del `Gasóleo-C` de los
+expedientes reales. `BiomasaDens` no se parece a nada que se hubiera adivinado,
+y de ahí la regla: `FACTORES_PASO` de la app NO sirve —sus nombres son otros
+(«Gasoleo Calefacción»)—. La **ELECTRICIDAD sigue pendiente**:
+`ELECTRICIDAD.cex` es byte a byte idéntico a `CARBON.cex` (mismo MD5), o sea que
+se guardó sin tocar el desplegable; puede que una caldera eléctrica se declare
+por efecto Joule y no lleve combustible. Lo no verificado NO se escribe: una
+cadena que CE3X no reconozca deja el campo vacío sin avisar. Igual con la
+POTENCIA, que está en la placa y no en el expediente.
+
+⚠️ **Un `.cex` se guarda en LATIN-1** (pickle de protocolo 0). Una raya larga o
+unas comillas tipográficas —que en castellano salen solas— rompían la escritura
+con un «codec can't encode character» que solo daba una posición en bytes.
+`pickle0.Emisor` las cambia por su equivalente y, lo que aun así no quepa, lo
+dice con el carácter y el texto delante.
+
+⚠️ **Y las CABECERAS HTTP también van en latin-1.** Los avisos de `/cex` viajan
+ahí (el cuerpo es binario), así que un aviso con una raya reventaba la respuesta
+entera **con el `.cex` ya escrito**: se perdía un fichero hecho, por un guion.
+Se serializan escapados a ASCII; el JSON sigue siendo válido.
+
+**La ventana RETOMA sola.** Si el expediente ya tiene trabajo guardado, la
+geometría se pide al abrir y se entra directo al plano: volver a la pantalla de
+«traer la envolvente» es un paso de más cuando ya se estuvo ahí. La geometría no
+se guarda —es el modelo entero, megas (regla 21)— pero el motor la tiene en
+caché y no vuelve a preguntar a Catastro.
+
+**El plano ocupa el ANCHO cuando hay una sola planta** (la rejilla de dos
+columnas estaba pensada para dos), con tope de `56vh`: a ancho completo, una
+casa casi cuadrada pide 900 px y se salía del modal.
+
+⚠️ **El motor hay que REINICIARLO tras tocarlo, y `/health` lo dice.** Python
+importa una vez por proceso: si lleva levantado desde antes del cambio, lo que
+se prueba es el código de antes y el resultado parece bueno (me pasó tres veces
+seguidas). `/health` devuelve `codigo_at` (lo cargado) y `codigo_en_disco_at`, y
+`probar_cex_envolvente.js` avisa cuando no coinciden.
+
+⚠️ **`uvicorn --reload` NO vale en Windows**: levanta un hijo por
+`multiprocessing` y al matar al padre el hijo queda HUÉRFANO sirviendo el código
+viejo. Llegué a tener TRES servidores compartiendo el 8090, con `netstat`
+mostrando PIDs que ya no existían y respondiendo el más antiguo. Sin `--reload`,
+y para cerrarlo `taskkill /PID x /T` (el árbol, no solo el padre).
+
+⚠️ `cee-engine` **comparte el puerto 8090 con `rite-generator`** en el
+`launch.json`, así que los dos no pueden estar levantados a la vez.
+
+### La pantalla se parece a CE3X, y el plano a un plano de obra (2026-09-13)
+
+Quien usa esto lleva veinte años tecleando certificados en CE3X y mirando planos
+de obra. La pantalla no se rediseña por gusto: se rediseña para que no haya que
+aprenderse otra forma de ordenar lo mismo.
+
+**Barra de apartados de CE3X** ([PestanasCe3x.jsx](implementation/frontend/src/features/cee-envolvente/components/PestanasCe3x.jsx)),
+pegada a la cabecera de la ventana: *Datos administrativos · Datos generales ·
+Envolvente térmica · Instalaciones · Medidas de mejora · Análisis económico*, y
+**Generar .cex** a la derecha, que es el final del recorrido.
+
+**REGLA — la segunda línea de cada pestaña dice la VERDAD del expediente.** Sale
+de `construirPestanas()` en `EnvolventeView` leyendo la ficha y el plano
+(`✓ completo` · `N por confirmar` · `! falta la potencia` · `lo pone CE3X`); una
+barra en la que todo pone siempre lo mismo se deja de leer a la segunda vez. Y
+sale de un cálculo, no de un rótulo escrito: si la barra calculara por su cuenta,
+acabaría diciendo algo distinto de la pantalla de debajo.
+
+**REGLA — QUÉ falta en Instalaciones viaja en ESTRUCTURA**, no dentro de la
+frase de un aviso: `fichaCe3x` devuelve `falta: 'falta la potencia'` y la ficha lo
+publica como `instalaciones_falta`. Leerlo de un texto en castellano se rompe la
+primera vez que alguien mejore la redacción (mismo criterio que `res.faltan[].rol`
+en los firmados del S.O.).
+
+**REGLA — cada apartado es una VENTANA que sustituye a la anterior, no un bloque
+al que se baja.** En CE3X cada pestaña ES una pantalla: se entra, se rellena y se
+sale. Con un scroll largo nunca se sabe si lo que falta está más abajo, y eso es
+justo lo que hay que poder contestar de un vistazo. Se arranca siempre en
+**Envolvente térmica**, que es a lo que se entra. Las ventanas viven en
+[PanelesFicha.jsx](implementation/frontend/src/features/cee-envolvente/components/PanelesFicha.jsx)
+y reproducen los recuadros de CE3X con sus mismos rótulos y su mismo orden
+(«Localización e identificación del edificio», «Datos del cliente», «Datos del
+técnico certificador»; «Datos generales» y «Definición del edificio»).
+
+**REGLA — la ventana de la ENVOLVENTE no se desmonta: se esconde.** Sobre el
+plano se pasa un rato largo —las ventanas se ponen una a una— y volver de mirar
+un dato no puede costar el encuadre, el zoom y la pared que se estaba mirando.
+Las demás son formularios y se montan a demanda.
+
+**REGLA — los ADMINISTRATIVOS se ENSEÑAN, no se teclean.** Los compone el backend
+desde el expediente y desde Catastro; escribirlos aquí sería tener el titular en
+dos sitios y que ganara el que se guardara el último. Estaban en la respuesta de
+la ficha y no los veía nadie — y un certificado a nombre de otro titular no se
+arregla reabriendo el `.cex`. Lo que falta sale en ámbar y se dice dónde se
+corrige. Los **GENERALES** sí se editan, y lo que se toca queda marcado.
+
+**REGLA — mientras se ESCRIBE el `.cex`, el mismo popup; y al acabar, el ENLACE
+(2026-09-14).** Generar tarda —componer la ficha, bajar del Catastro la foto y el
+croquis, escribir quince pickles sobre la plantilla y subirlo a Drive— y eso era
+un botón que ponía «Generando…» sobre una pantalla quieta. Es el problema que ya
+resolvió `MidiendoElEdificio` y se resuelve igual, en
+[EscribiendoElCex.jsx](implementation/frontend/src/features/cee-envolvente/components/EscribiendoElCex.jsx):
+SVG y `@keyframes`, ni un GIF ni una dependencia. El dibujo es **el edificio
+convirtiéndose en fichero** —la planta se traza, sus muros vuelan a la hoja y
+caen convertidos en renglones—, y **dos renglones van en el color de marca**
+porque son la envolvente y las instalaciones: lo único que la app escribe sobre
+la plantilla; los otros trece pickles se copian tal cual. Los rótulos son las
+fases REALES de la ruta y en su orden, y el INICIAL y el FINAL tienen las suyas
+(el final no pasa por Catastro: se copia el inicial).
+
+**REGLA — al terminar sale el ENLACE DE LA CARPETA, no el del fichero.** Es la
+que se le comparte al certificador al encargarle el CEE (`1. CEE / CEE INICIAL`),
+donde va a buscarlo y donde sube después el suyo; el enlace del fichero suelto no
+le sirve para eso. Ese enlace es el final del recorrido y no puede quedarse en
+una línea verde al pie de la pantalla, que es donde estaba. `guardarEnDrive`
+devuelve `carpeta_link` (`ensureCeeSectionFolder` ya la deja pública de lectura)
+y el popup lo ofrece con «Abrir la carpeta», «Copiar el enlace» y, aparte, el
+fichero. **El `_REVISAR` se explica AHÍ**: es la única pantalla que sale sola, así
+que es el único sitio donde se lee seguro que esto lo ha escrito la app y todavía
+no es el CEE.
+
+⚠️ El popup y el **recuadro verde de la ventana son dos estados distintos**: el
+recuadro se queda —es el rastro de lo que se generó— y el popup se cierra.
+Compartiendo estado, cerrarlo borraría el rastro.
+
+⚠️ **El papel del dibujo NO puede rellenarse con `--bkg-deep`**: en tema claro es
+BLANCO, igual que la tarjeta del popup, y la hoja desaparecía — solo se veían los
+renglones flotando. Va con un tinte del color del texto, que contrasta en los
+dos.
+
+⚠️ **Un «copiar» que falla se DICE.** Sin https o con el portapapeles capado,
+`navigator.clipboard` lanza; un botón que no hace nada no se distingue de uno
+roto y lo siguiente es volver a pulsarlo.
+
+**REGLA — mientras se MIDE, un popup con el edificio dibujándose**
+([MidiendoElEdificio.jsx](implementation/frontend/src/features/cee-envolvente/components/MidiendoElEdificio.jsx)).
+Traer la envolvente tarda entre veinte segundos y un minuto, y eso era un botón
+que ponía «Midiendo el edificio…» sobre una pantalla vacía: una espera larga
+delante de una pantalla quieta se lee como que se ha colgado, y lo siguiente es
+recargar, que vuelve a empezar la espera. Es SVG y `@keyframes` —ni un GIF ni una
+dependencia—: la parcela, los vecinos, la planta trazándose, los muros
+engordando con su trama, los huecos y las cotas.
+
+**REGLA — la cabecera dice DE QUÉ OBRA es.** El expediente, el titular y la
+dirección, que sale de `buildInstalacionAddress` —la de INSTALACIÓN, no la del
+cliente—. Con dos o tres ventanas abiertas, «26RES060_186 · ISAAC PLIEGO» no
+dice cuál es la casa que se tiene delante.
+
+**REGLA — la foto de fachada y el croquis se MIRAN, pero se piden A MANO**
+(`POST /:id/imagenes`). Van dentro del `.cex` y en CE3X se ven en Datos
+generales, así que aquí también — pero con botón: son dos consultas a Catastro y
+esta pantalla se abre muchas veces. La ruta es aparte de `/ficha` justamente por
+eso (la ficha se repide con cada tecla) y usa el MISMO helper cacheado que la
+generación, así que mirarlas no cuesta una petición más al generar.
+
+**REGLA — el texto de una MEDIDA DE MEJORA se ve tal y como se va a volcar, y se
+puede reescribir.** Son los tres campos del diálogo «Conjunto de medidas de
+mejora» de CE3X (nombre · características · otros datos) y son TEXTO: lo que
+compone la app es un borrador razonable, no un dato medido. Lo reescrito viaja
+en `ajustes.medidas_texto` —o sea, se guarda con el trabajo— y manda sobre lo
+compuesto; solo sobre el CONJUNTO, nunca sobre el equipo que lleva dentro, cuyo
+nombre es el que casa con el catálogo y con lo que se le dice al certificador que
+teclee. ⚠️ Los tres campos llevan `no-uppercase`: la regla global de `index.css`
+pone en MAYÚSCULAS todo `input` y `textarea`, y la pantalla enseñaba una cosa
+mientras el fichero llevaba otra.
+
+**REGLA — el EQUIPO se puede teclear, no solo leer de la placa**
+(`equipoConAjustes` en `fichaCe3x.js`, `ajustes.instalacion`). Leer la placa con
+IA es lo más rápido cuando hay foto, pero hay datos que no están en ninguna
+placa: el depósito de ACS, si la caldera está aislada, qué parte de la demanda
+cubre. Lo tecleado MANDA sobre lo derivado y sale dicho en los avisos —es un dato
+que va a un certificado—, y con ello se puede **rescatar un equipo que no se
+escribía**: sin potencia la instalación existente se queda fuera del `.cex`, y si
+alguien la teclea deja de faltar. Tras tocarlo:
+`node implementation/backend/scripts/test_instalacion_ce3x.mjs`.
+
+**REGLA — una vivienda puede tener VARIOS equipos, y se añaden con «+».** El
+caso que lo manda: la caldera da la calefacción y la MITAD del agua, y un termo
+eléctrico da la otra mitad. En CE3X son dos equipos, cada uno con el porcentaje
+de demanda que cubre; aquí también. El primero es el del expediente (con su
+«leer la placa») y los demás se añaden a mano, en `ajustes.equipos_extra`.
+
+**REGLA — las tarjetas van PLEGADAS y el resumen dice lo que se pregunta.** Tres
+formularios abiertos a la vez son una pantalla por la que hay que bajar para
+saber qué hay: plegado se lee «Equipo mixto de calefacción y ACS · CALDERA ROCA
+P-30-4 de carbón · 15,3 kW», que es qué es, cómo se llama y con qué anda. La que
+se acaba de añadir se abre sola — si no, pulsar «+» deja una línea que pone «sin
+datos» y parece que no ha pasado nada.
+
+**REGLA — el reparto se ve SIN abrir las tarjetas.** «Demanda cubierta en total:
+Calefacción 100 % · ACS 100 %», en verde, ámbar o rojo. Pasarse del 100 % declara
+más demanda cubierta de la que hay y el certificado sale con un consumo que no
+cuadra con su propia envolvente; quedarse corto es legítimo pero casi siempre es
+que falta un equipo. **El motor lo repite** (`_reparto` en `generar_cex.py`),
+porque ésa es la comprobación que manda: la hace sobre lo que de verdad se
+escribe. Y **avisa, no aborta**: un `.cex` que no se escribe por un porcentaje es
+peor que uno que lo dice.
+
+⚠️ **La forma de cada slot está MEDIDA, y las dos nuevas salen de un `.cex`
+concreto.** `equipo_acs` y `equipo_refrigeracion` se escribieron leyendo «CEE
+DISTINTOS USOS CALEFACCIÓN Y ACS Y AACC.cex», guardado desde CE3X con los tres
+equipos a la vez (caldera mixta + termo de ACS al 50 % + aire acondicionado). Su
+cola **NO es la de la caldera**: un equipo de ACS o de frío no tiene aislamiento,
+ni carga media, ni potencia — tiene un rendimiento nominal y ya, y sus
+interruptores son otros (`_INTERRUPTORES_ACS`, `_INTERRUPTORES_FRIO`). El de frío
+son 9 campos y lleva un cuarto elemento en la cola, la antigüedad del equipo. Los
+otros dos tipos del diálogo —«calefacción y refrigeración» y «mixto de los
+tres»— siguen sin escritor: no hay fichero donde medirlos. Vigilado por
+`python -m pytest implementation/cee-engine/tests/test_equipos.py`.
+
+⚠️ **El rendimiento medio estacional lo RECALCULA CE3X.** En estos dos equipos se
+escribe el nominal y se dice en los avisos, igual que ya se hacía con la caldera:
+en el fichero medido, el del aire acondicionado ponía 157,5 y su nominal era 250.
+
+⚠️ **Las cadenas de los desplegables son las del FICHERO, no los rótulos.** No
+son la misma: «Biomasa densificada (pelets)» se guarda como `BiomasaDens`. Por
+eso `GENERADORES_CE3X` y `COMBUSTIBLES_CE3X` llevan etiqueta y valor por
+separado, y marcan cuáles se han visto en un `.cex` real. Lo no comprobado se
+OFRECE igual —sin «Caldera Condensación» no se puede declarar media España— pero
+en su propio grupo del desplegable y sacando un aviso de la ficha.
+
+⚠️ **Lo que se enseña son las FASES del motor, no un porcentaje.** Los rótulos
+son los suyos y en su orden (`descargar` → `construir_modelo` → `analizar`), pero
+van por TIEMPO y no sincronizados, y por eso **se paran en la última** en vez de
+dar la vuelta: ahí es donde de verdad se está esperando a Catastro. Una barra que
+llega al 90 % y se queda ahí miente; una que vuelve a empezar, dos veces. El
+dibujo sí da vueltas, y eso está bien: es lo que dice que sigue vivo.
+
+**El plano pasa a ser un PLANO** ([PlanoPlanta.jsx](implementation/frontend/src/features/cee-envolvente/components/PlanoPlanta.jsx),
+con la geometría de dibujo —pura— en [geometriaPlano.js](implementation/frontend/src/features/cee-envolvente/logic/geometriaPlano.js)):
+muros con su grosor real (0,34 m perimetral · 0,24 m en patios y particiones,
+decidido por el SUBTIPO de Catastro, que es el hecho geométrico y no lo que el
+certificador reclasifique), trama a 45°, huecos que ABREN el muro, cotas fuera,
+retícula de un metro, leyenda, globo al pasar por encima, zoom y paneo, y un
+conmutador **2D / 3D** con la axonometría despiezada del edificio.
+
+**REGLA — el COLOR dice QUÉ ES la pared y el trazo en qué ESTADO está.** Antes el
+color decía el estado (verde/ámbar/gris) y el tipo no se veía — que es justo lo
+que hay que juzgar mirando el plano. Ahora fachada ámbar, medianera azul,
+partición rosa, sin mirar gris; y lo que tiene la medida por confirmar lleva una
+línea de puntos ámbar por el eje.
+
+**REGLA — el muro va HUECO por dentro.** Son cuatro capas sobre la misma
+polilínea: halo de selección, borde del color del tipo, **papel** y trama. Sin la
+capa de papel el muro sale macizo —la trama se pinta del mismo color del borde y
+por sus huecos se ve ese mismo color—, no hay orla de 0,05 m que lo lea como
+doble línea, y la línea de puntos de «por confirmar» desaparece sobre una
+fachada, que también es ámbar.
+
+**REGLA — dónde cae un hueco a lo largo del muro es COSMÉTICO, pero SE ARRASTRA
+(2026-09-14).** CE3X no coloca los huecos —quiere su superficie, su orientación y
+a qué cerramiento pertenecen—, así que `hueco.pos` NO viaja al `.cex` y no puede
+confundirse con un dato del certificado. Pero el plano se mira para PENSAR, y una
+fachada con la puerta en el centro y la ventana a un lado se reconoce de un
+vistazo; la misma con los huecos repartidos a partes iguales, no. Se arrastra en
+planta **y en 3D**, se guarda con el trabajo, y el que no se haya tocado se
+reparte como siempre — si no, colocar uno a mano movería a todos los demás.
+
+El arrastre se mide **proyectando lo que avanza el ratón sobre el eje del muro**
+(`ejeProyectado`): funciona igual en 2D y en 3D porque la proyección es lineal —
+una fracción del muro es la misma fracción de su sombra en pantalla— y así no
+hace falta invertir la axonometría. El tope es el medio ancho del propio hueco:
+no puede salirse de su pared. Sobre un muro QUEBRADO se toma la cuerda, así que
+queda aproximado; sigue siendo monótono, que es lo único que hace falta para
+arrastrar. La copia de `duplicaHueco` **no hereda el sitio**: caería justo encima
+del original y parecería que el botón no ha hecho nada.
+
+**REGLA — bajo el ratón puede haber una PARED o un HUECO, y no se pregunta lo
+mismo.** De la pared: qué es, cuánto mide y si le queda algo. Del hueco: cuál es
+(su nombre es el que va al `.cex` y enlaza sus puentes térmicos), cuánto mide, de
+qué pared es — y que se puede arrastrar, porque un gesto que no se anuncia no lo
+prueba nadie. El asa es más alta que el muro (0,6 m) y va **por encima de la zona
+de pulsación de la pared**: debajo, el arrastre se lo queda el plano.
+
+**REGLA — la PUERTA va en MARRÓN.** Iba en el naranja de la fachada, o sea del
+MISMO color que el muro sobre el que se dibuja: en planta se distinguía por el
+barrido de la hoja, pero en 3D es un paño naranja sobre una pared naranja y no se
+ve. Medido sobre el papel del plano: **5,3:1 en tema oscuro y 3,7:1 en claro**
+(no es texto, el listón son 3:1). La ventana se queda en el azul, que es el del
+vidrio, y los dos entran en la leyenda — que es donde vive el significado de los
+colores.
+
+⚠️ **La lejanía de un hueco en 3D es la DE SU TRAMO DE MURO, no la suya.** Un
+hueco es ese muro abierto, así que tiene que pintarse justo después de él pase lo
+que pase. Con su propia lejanía, en una pared que se aleja de la pantalla los
+huecos de la punta lejana caían por debajo de su propio muro y **desaparecían**
+—medido sobre una fachada sur en isométrica: dos de sus tres huecos tapados, y
+con ellos su asa—.
+
+En el 3D las plantas van **separadas**: pegadas una encima de otra, la baja queda
+tapada por la primera justo donde están sus paredes. La **última** se rotula por
+arriba y las demás por abajo, que es donde cada una tiene hueco libre. El forjado
+solo se dibuja en la baja: la huella que trae Catastro es la del edificio a ras de
+suelo, y repetirla bajo la primera declararía una planta que no es.
+
+**REGLA — el 3D SE GIRA, y con los gestos de un programa de arquitectura
+(2026-09-14).** La axonometría fija solo enseña dos de las cuatro esquinas: las
+dos de atrás no se ven, y son paredes que hay que clasificar igual que las
+demás. Los gestos no se inventan —quien mira esto los tiene ya en los dedos—:
+**AutoCAD, Revit y Blender coinciden** en el botón CENTRAL para mover y en
+**Mayús + central** para girar, y eso se respeta tal cual. En lo que no coinciden
+es en el botón izquierdo, y aquí **gira**: en 3D lo que se viene a hacer es mirar
+el edificio por el otro lado, no moverlo de sitio (en 2D sigue moviendo, como
+siempre). Más los botones **⟲ ⟳** de 45°, que son las cuatro esquinas y la única
+forma de girarlo con el dedo sin perder la pared que se estaba mirando.
+
+Se gira **agarrando el edificio**: lo que está bajo el ratón sigue al ratón —
+arrastrando a la derecha, la esquina de delante se va a la derecha (y por eso el
+acimut BAJA); arrastrando hacia abajo, esa esquina cae y aparece la cubierta.
+
+**REGLA — la proyección se PARAMETRIZA, no se sustituye.** `proyector({az, alt,
+pivote})` en [geometriaPlano.js](implementation/frontend/src/features/cee-envolvente/logic/geometriaPlano.js)
+es un plato giratorio, y la isométrica de siempre es EXACTAMENTE su caso **az 45°
+· alt 35,264°**: `iso()` sale de ahí y la vista de partida no se ha movido ni
+medio milímetro (comprobado punto a punto contra la fórmula anterior). El
+**PIVOTE** es lo que hace que girar no sea un salto: sin él el edificio da
+vueltas alrededor del origen del lienzo —que puede caer a treinta metros— y se
+sale de la pantalla al primer arrastre.
+
+**REGLA — el encuadre del 3D es una ESFERA, no la caja de lo proyectado.** Esa
+caja cambia con cada grado de giro, así que el encuadre se recalcularía en cada
+fotograma y **tiraría por tierra el zoom del usuario a mitad de arrastre**. Con
+el radio del edificio sobra sitio mire por donde se mire, y como la proyección
+gira sobre el pivote, el edificio se queda centrado solo. «Encuadrar» en 3D
+devuelve el encuadre **y el giro**: tras dar tres vueltas, lo que se busca al
+pulsarlo es la isométrica de siempre, no el mismo revoltijo pero centrado.
+
+⚠️ **La profundidad del algoritmo del pintor NO es `x + y`.** Eso solo vale para
+la isométrica de partida; al girar, las paredes de atrás se pintan encima de las
+de delante. Es la profundidad de la CÁMARA, que es lo mismo que la pantalla usa
+para bajar el punto: se saca proyectándolo con la altura a cero.
+
+**REGLA — con el 3D girable hace falta BRÚJULA.** En planta el norte es arriba y
+no hay nada que decir; en cuanto el edificio se puede girar, deja de saberse — y
+la orientación no es un adorno: de ella cuelga a qué da cada fachada, que es lo
+que se está clasificando. **No es un icono girado**: es el MISMO círculo
+horizontal del suelo pasado por la MISMA proyección que el edificio, así que se
+achata igual que él al bajar la cámara y la aguja apunta exactamente a donde
+apunta el norte del dibujo — un dibujo aparte se desincronizaría el día que se
+toque la proyección. Se pulsa para **poner el norte arriba** (az 0), que es lo
+que hace la brújula de cualquier programa de arquitectura.
+
+**REGLA — QUÉ SE VE se pregunta UNA vez y en UNA barra: qué plantas, y en planta
+o en 3D.** Son la misma pregunta, así que van juntas encima del dibujo
+(`BarraVista`). El conmutador 2D/3D estaba DENTRO de cada tarjeta y ahí sobraba
+dos veces: se repetía en cada planta —como si se pudiera tener una en planta y
+otra en axonometría, cuando el modo es de la pantalla— y en 3D quedaba dentro del
+único dibujo que ya era el edificio entero.
+
+Lo de las plantas son dos trabajos distintos sobre el mismo dibujo: COMPARARLAS
+—¿esta pared sigue hacia arriba?— pide tenerlas una al lado de la otra, y PONER
+LAS VENTANAS de una pide el plano lo más grande posible (se hace hueco a hueco, y
+a media pantalla no se distinguen dos ventanas de 1,30 m separadas por un pilar).
+Es **UN control** y no un modo más un selector: «Las dos» es una opción más de la
+misma fila. Con **tres o más se arranca en una sola**, porque ahí la vista
+dividida deja de serlo —la rejilla es de dos columnas, así que la tercera cae
+debajo y a media escala—; con dos se conserva lo de siempre. El valor por defecto
+se **DERIVA**, no se siembra con un efecto: así no hay un fotograma con la vista
+que no es, y al traer otra geometría vuelve a valer sin que nadie se acuerde de
+resetearlo. Lo que no se ve **sigue medido y se guarda igual**, y se dice.
+
+**REGLA — elegir planta vale IGUAL EN 3D, y quién se dibuja lo decide quien
+llama.** Con dos forjados uno encima de otro el de abajo se lee mal, así que hay
+que poder quedarse con uno sin salir de la axonometría: `PlanoPlanta` recibe
+`capas` y sin ellas dibuja el edificio entero, como hasta ahora. El BULTO del que
+salen el pivote del giro y el encuadre es el de **lo que se dibuja**, no el del
+edificio: con el del edificio entero, una planta sola saldría descentrada y en un
+encuadre que le queda grande. Y con una sola capa el 3D **se rotula como su
+planta**, no como «EDIFICIO · 1 PLANTA».
+
+⚠️ **La rejilla se parte por las TARJETAS que hay, no por las plantas.** En 3D es
+UN dibujo se enseñe una planta o las dos; contando plantas, la clase
+`md:grid-cols-2` seguía puesta con una sola tarjeta y **el 3D se quedaba
+encajonado en media pantalla con la otra media vacía**.
+
+⚠️ **El `outline` del navegador sobre un SVG escalado se dibuja en unidades de
+USUARIO.** Aquí la unidad es el METRO, así que la regla global de la app
+(`outline: auto 5px`) salía como una mancha naranja de CINCO METROS encima del
+plano en cuanto se pulsaba una pared. Se apaga y el foco del teclado se marca con
+el mismo halo que la selección, que sí está en metros a propósito.
+
+⚠️ **`setPointerCapture` al pulsar SE COME el `click`.** Con la captura puesta, el
+navegador dispara el `click` sobre el elemento que captura —el SVG— y no sobre la
+pared: pulsar una pared dejaba de seleccionarla. El puntero se captura solo
+cuando el arrastre pasa de 4 px, y así se conserva el paneo aunque el ratón se
+salga del plano.
+
+⚠️ **La rueda se engancha A MANO** (`addEventListener('wheel', …, {passive:false})`):
+React registra `onWheel` como PASIVO y con él `preventDefault()` no hace nada — al
+hacer zoom sobre el plano se scrollea la página entera.
+
+⚠️ **`normalizeData` reventaba la pantalla, y tardó en verse.** El trabajo se
+escribe con una RPC que NO normaliza, pero el detalle del expediente reenvía `cee`
+ENTERA al autoguardar y ahí sí pasa por `normalizeData`: los huecos quedaban con
+`tipo: 'VENTANA'` y `estado: 'MEDIDO'` en MAYÚSCULAS. Con eso,
+`POR_DEFECTO['VENTANA']` es `undefined` y **duplicar un hueco tumbaba la ventana
+entera** («undefined is not iterable»), además de perderse los colores de medido /
+por confirmar. Medido en 26RES060_186. `envolvente` está ahora en la BLACKLIST, y
+`rescatarHueco` devuelve a minúsculas lo que ya se guardó así — lo que hay en la
+BD tiene que poder abrirse. Es el mismo gotcha que `fotovoltaica` y `tipo_emisor`.
 
 ---
 
@@ -5697,6 +6514,396 @@ CTE 2013 aunque su U sea la de nZEB), municipio `Otro` + el nombre en texto, y
 la provincia capitalizada ("Ciudad Real", no "CIUDAD REAL") o CE3X la deja
 vacía.
 
+### El CEE FINAL se hace COPIANDO el inicial (2026-09-13)
+
+El certificado posterior a la obra no se levanta de cero: se abre el inicial, se
+quita la caldera, se pone la aerotermia y se guarda. Es como se hace a mano, y
+comprobado sobre 26RES060_186 comparando pickle a pickle el `.cex` que generó la
+app con el que el certificador guardó desde CE3X: **de los 15 pickles, el único
+que cambia de contenido es el 4** (las instalaciones). La envolvente, las
+transmitancias, el técnico y las dos imágenes del Catastro ya son las del final.
+
+| Qué | Dónde |
+|---|---|
+| Qué equipo se escribe (y cuál NO) | `instalacionNueva()` en [fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js) |
+| Sustituir UN pickle dejando los demás byte a byte igual | `sustituir_pickle` en [editar_cex.py](implementation/cee-engine/tools/editar_cex.py) |
+| Retirar el generador viejo y heredar del fichero | `slots_a_retirar` · `heredar_del_base` en `generar_cex.py` |
+| Ruta del motor | `POST /cex/instalaciones` (multipart: el `.cex` base + la ficha) |
+| Ruta de la app | `POST /api/cee-envolvente/:id/cex` con `fase: 'final'` |
+| Carpeta y nombre | `1. CEE / CEE FINAL` · `{nº} - CEE FINAL_REVISAR.cex` |
+| Pruebas | `node implementation/backend/scripts/test_cex_final.mjs` · `probar_cex_envolvente.js 26RES060_186 --final` |
+
+**REGLA — se COPIA, no se regenera.** Dos motivos y ninguno es comodidad: (1) el
+inicial ya tiene dentro la foto de fachada y el croquis, así que regenerar sería
+volver a pedirle DOS imágenes al mismo WAF del que depende el buscador; (2) si el
+certificador corrigió algo al abrirlo en CE3X, su corrección se conserva en vez
+de deshacerse sin decirlo. Sin inicial en la carpeta la ruta responde **409**
+diciendo que se genere ése primero: el final es el inicial con un cambio, y sin
+inicial no hay nada que cambiar.
+
+**REGLA — el generador viejo se RETIRA, y se dice con su nombre.** El CEE final
+no lleva la caldera Y la bomba de calor: la caldera se ha quitado — es la
+actuación entera. Qué slots se vacían se deduce de los SERVICIOS que asume el
+equipo nuevo (`SERVICIOS_DEL_SLOT`), no de una lista escrita a mano: un `mixto2`
+retira los generadores de calefacción y ACS, y el día que se escriba un `mixto3`
+retirará también la máquina de frío sin que haya que acordarse. Lo que la obra no
+toca —las placas solares del slot `renovable`, la iluminación, las bombas de
+circulación— se queda.
+
+**REGLA — lo que ya dice el fichero MANDA sobre lo que deduzca la app.** Es la
+consecuencia de copiar: la **superficie servida** y el **depósito de ACS** se
+heredan del `.cex` base. El depósito sobre todo — es del edificio, no de la
+caldera, y nadie lo tira al cambiar el generador; escribir `[False]` porque el
+expediente no guarda los litros declararía que la vivienda ha perdido su
+acumulación. Lo que el expediente SÍ declare gana (ahí hay un acumulador nuevo de
+verdad), y una superficie que difiera sale avisada con las dos cifras.
+
+**REGLA — una placa de bomba de calor declara el rendimiento como CONOCIDO.** El
+SCOP viene ensayado en la ficha del fabricante: CE3X no calcula nada. Eso cambia
+la casilla `[6]` y con ella **la forma del bloque `[7]`** que va detrás — con
+`Estimado según Instalación` son `[aislamiento, rend_combustión, carga, potencia,
+…]` y con `Conocido (Ensayado/justificado)` es `[rend_acs, rend_cal, '']`.
+Medido sobre los 1.506 `.cex` de producción: de los 138 equipos mixtos con bomba
+de calor, **132** lo declaran como conocido, los 138 con combustible
+`Electricidad`, y **123 sin acumulación**. El slot de SOLO calefacción son 9
+campos con el hueco del ACS vacío (226 casos reales, todos conocidos).
+
+**REGLA — la HIBRIDACIÓN no se escribe.** Ahí la caldera NO se retira: son dos
+generadores repartiéndose la demanda, y escribir solo la bomba declararía un
+edificio que no existe con el 100 % de la cobertura. Se dice y se para.
+
+**Resultado medido en 26RES060_186**: los **10 campos** del registro salen
+idénticos a los que tecleó el certificador (`mixto2` · `['300','434','']` ·
+`Bomba de Calor - Caudal Ref. Variable` · `Electricidad` · acumulación de 150 l),
+y del fichero entero **solo cambia el pickle 4**.
+
+⚠️ **Un equipo de ACS con el MISMO modelo que el de calefacción es UNA máquina.**
+`acsMismoEquipo` exigía `misma_aerotermia_acs`, un flag que baja a `false` en
+cuanto alguien rellena el bloque de ACS para poner su SCOP_dhw — que es lo
+normal, porque la misma bomba rinde 4,34 en calefacción y 3,00 en ACS. Medidos
+**41 expedientes** con el mismo modelo en los dos nodos y el flag en false: a
+todos se les decía que declararan DOS equipos en CE3X para una sola máquina. Es
+la regla 12.c leída por el otro lado —el flag tampoco puede PARTIR EN DOS una
+máquina— y afecta a las superficies CE3X (el popup «Datos del equipo» y el
+encargo al certificador), no al CIFO ni al ahorro. De paso, el **SCOP_dhw sale
+del nodo de ACS siempre que lo declare**: con el equipo unificado se estaba
+tomando el de calefacción, que es el número alto.
+
+⚠️ **La altura de planta por defecto pasa de 2,70 a 2,80 m.** Está en CUATRO
+sitios y van juntos: `Opciones.floor_height` (pipeline), el CLI, la ruta
+`/envolvente` del motor y el respaldo de `fichaCe3x`. No es cosmético: de ella
+salen las superficies de fachada que se miden, así que **las envolventes traídas
+antes de este cambio dan otra superficie** — hay que volver a traerlas para que
+el `.cex` cuadre con la altura que declara.
+
+⚠️ **Las PARTICIONES se pintan en ROSA** en el plano. Es el único tipo de
+cerramiento que no se distingue mirando: una fachada da a la calle y una
+medianera al vecino —los dos se ven en el contexto—, pero una partición da a un
+local o a un espacio no habitable, que es una DECISIÓN del certificador. Cuenta
+como partición lo que va a SALIR como tal en el `.cex`: la pared reclasificada
+**y** la medianera marcada como partición; pintar solo la primera dejaría la
+mitad con el color de otra cosa.
+
+---
+
+## Qué PLANTAS se miden lo marcó una persona, no Catastro (2026-09-14)
+
+Catastro dice de qué es cada trozo construido y **se equivoca**: una planta
+consta como ALMACEN y es vivienda —pasa con cualquier reforma sin declarar— o al
+revés, un porche cerrado consta como vivienda y no lo calienta nadie. Al abrir la
+oportunidad se marca en la ficha técnica cuáles cuentan (`CALC.` en el «Detalle
+de Construcciones»), y de ahí salen la superficie y el nº de plantas con los que
+se le presupuestó al cliente. **Esa misma marca tiene que llegar al `.cex`**, o
+el certificado mide otro edificio que la propuesta que se firmó.
+
+| Qué | Dónde |
+|---|---|
+| Cómo se identifica una construcción y qué se guarda | [utils/construcciones.js](implementation/frontend/src/utils/construcciones.js) — `desgloseConstrucciones` |
+| El mismo código, en el motor | `UnidadConstructiva.codigo` en [alphanumeric.py](implementation/cee-engine/src/catastro/alphanumeric.py) |
+| Aplicar la selección al modelo | `aplicar_seleccion` en [pipeline.py](implementation/cee-engine/src/pipeline.py) |
+| Leerla de la oportunidad y pasarla al motor | `construccionesElegidas` en [ceeEnvolventeCex.js](implementation/backend/services/ceeEnvolventeCex.js) + `POST /:id/geometria` |
+| Enseñar el desglose | bloque «Qué se mide de este edificio» de `PanelGenerales` |
+| Pruebas | `python -m pytest implementation/cee-engine/tests/test_construcciones.py` |
+
+**REGLA — la selección se guarda por CÓDIGO, nunca por el índice de la fila.**
+Se guardaba como `selectedConstructions: [0, 4, 5, 7]`, índices de una lista que
+**no se guardaba en ninguna parte**: fuera de esa pantalla no había forma de
+saber a qué apuntaban, y bastaba con que Catastro devolviera las filas en otro
+orden para que señalaran a otra cosa. El código es `escalera/planta/puerta`
+(`1/00/01`), que es lo que Catastro usa para distinguir dos filas de la misma
+parcela. ⚠️ **La receta y sus valores por defecto están en DOS sitios**
+(`${es||'01'}/${pt||'00'}/${pu||'001'}` en `catastroService.js` y
+`UnidadConstructiva.codigo` en el motor): si uno cambia, la selección deja de
+casar **en silencio**. Lo vigila `test_el_codigo_usa_los_mismos_valores_por_defecto_que_la_app`.
+
+**REGLA — se aplica sobre `attrs["habitable"]`, que es la llave de la que ya
+cuelga todo.** Qué plantas se dibujan y se miden (`plano_svg`), la superficie
+útil y el nº de plantas del `.cex` (`fichaCe3x`) y de qué paredes se piden fotos
+(`plan_fotos`) leen ese campo, así que no hay un camino paralelo que pueda
+divergir. Se aplica **antes de `analizar`**. Medido en 26RES060_186: marcando el
+almacén de la planta 1, la ficha pasa de **165 m² y 1 planta a 239 m² y 2**, y el
+plano dibuja las dos.
+
+**REGLA — sin selección guardada NO se toca nada.** El valor por defecto de la
+ficha técnica es «todas las de uso VIVIENDA», que es exactamente lo que ya hacía
+el motor con `habitable`: una oportunidad que nunca pasó por esa pantalla no
+puede empezar a medir distinto. Solo 85 de las 385 oportunidades tienen selección
+guardada (y la del funnel público **nunca llegaba**: `funnelToCalculatorInputs` es
+una LISTA BLANCA y no la copiaba).
+
+**REGLA — lo que se corrige se DICE, en los tres sitios.** Que un almacén cuente
+como vivienda es una decisión de una persona y no puede ser invisible: el motor
+lo saca como diagnóstico (`CONSTRUCCIONES_SELECCIONADAS`), la procedencia del
+campo deja de decir «CATASTRO» y pasa a «lo marcado en la ficha técnica de la
+oportunidad» (`deQuienSaleLoQueCuenta`), y el desglose lo avisa en ámbar. Lo que
+decía Catastro se conserva en `attrs["habitable_catastro"]`: el fichero no puede
+borrar el hecho de que su uso registrado es ALMACEN. Un código marcado que ya no
+existe en Catastro también se dice — callarlo sería medir de menos.
+
+**REGLA — el desglose también se MARCA desde la envolvente, y escribe en la
+OPORTUNIDAD.** Se marca al abrir la oportunidad, pero el error se ve con el
+PLANO delante: ahí es donde se nota que la planta que consta como almacén es
+vivienda. Obligar a salir, abrir la ficha técnica y volver es el camino que nadie
+recorre. `PUT /:id/construcciones` escribe en `inputs.construcciones_elegidas` de
+la oportunidad —la fuente— con la RPC `set_oportunidad_construcciones`
+(`jsonb_set` de esa clave: `datos_calculo` pesa 86 KB de media y un
+read-modify-write se pisa, regla 19), y lo anota en el historial.
+
+⚠️ **NO se tocan `superficie`, `plantas` ni `result` de la oportunidad.** Son las
+cifras con las que se le presupuestó al cliente y pueden estar en una propuesta
+firmada: moverlas desde aquí, sin recalcular el ahorro ni avisar a nadie,
+cambiaría el bono de un expediente en marcha. Lo que cambia es lo que MIDE el
+certificado, y la pantalla lo dice.
+
+**Y se VUELVE A MEDIR en el mismo gesto.** Marcar una casilla no cambia por sí
+sola lo medido —eso lo hace el motor—, y dejar un aviso de «ahora vuelve a medir»
+es justo el estado en el que uno se cree que ya está hecho: el plano seguiría
+enseñando la planta de antes. Se pide la geometría al guardar, y cuesta poco
+porque Catastro ya está en la caché del motor. Mientras, la línea del bloque dice
+«volviendo a medir…» y las casillas se bloquean.
+
+⚠️ **`oportunidades` NO tiene columna `historial`**: vive dentro de
+`datos_calculo`. Pedirla en un `select` hacía fallar la consulta ENTERA y la
+pantalla decía «este expediente no tiene oportunidad detrás» de uno que sí la
+tiene — el mismo gotcha que `prescriptores.telefono`. La escribe la RPC, en la
+misma sentencia que la selección: un rastro sin su selección, o al revés, es peor
+que no tener ninguno.
+
+La fila que NO cuenta va atenuada pero **legible** (medido: 5,3:1 en tema claro —
+con `/25` daba 2,6 y saber qué se dejó fuera es la mitad del valor del desglose).
+
+### La CARTOGRAFÍA del Catastro, debajo del plano (2026-09-14)
+
+Una medianera lo es por lo que hay AL OTRO LADO. El plano ya dibujaba los
+colindantes, pero con la cartografía de verdad debajo el certificador deja de
+tener que fiarse de cómo la clasificó Catastro: lo está viendo. Botón **▦
+Catastro** en la barra del plano.
+
+**REGLA — encaja porque se pide el MISMO rectángulo, no porque se ajuste a ojo.**
+El plano es la coordenada UTM trasladada (`x − minx + margen`, con la Y
+invertida), así que el motor devuelve `georef` con el rectángulo del lienzo en
+EPSG:25830 y al WMS del Catastro se le pide **ese**: la imagen cae píxel a
+píxel. Cualquier otro camino —una imagen centrada en la parcela y encajada a
+mano— se descoloca en cuanto el edificio esté en otra esquina.
+
+**REGLA — el ancho y el alto en píxeles guardan la proporción del bbox.** El WMS
+no la corrige: estira la imagen para llenar lo que se le pida, y un plano
+estirado miente sobre las medidas que enseña. ⚠️ El croquis del `.cex`
+(`getParcelImage`) sigue pidiendo **800×600 forzados** aunque su bbox sea
+cuadrado: lleva así desde siempre y está verificado contra un fichero real, así
+que no cambia de tamaño por pasar ahora por el helper común.
+
+Se pide del rectángulo del **ENTORNO**, que contiene al de la casa: la misma
+imagen sirve para los dos encuadres y no son dos peticiones. El backend la
+cachea por rectángulo — al otro lado está el mismo WMS del que depende el
+buscador de la app, así que encender y apagar el fondo no puede ser una petición
+cada vez. Un WMS contesta sus errores con un XML y status 200: si lo que vuelve
+no es una imagen, se dice.
+
+**Sale ENCENDIDA por defecto**: comprobar contra qué da cada pared es el trabajo,
+no un extra. Se separan la INTENCIÓN (`quiereCatastro`) y los datos (`catastro`)
+para que apagarla no la vuelva a pedir en bucle, y **un fallo no se reintenta ni
+sale por el aviso de error de la pantalla**: el plano funciona igual sin fondo, y
+un error rojo por algo accesorio tapa los que sí hay que leer — se marca en el
+propio botón (`▦ Catastro ⚠`) y volver a pulsarlo reintenta.
+
+⚠️ **El filtro que la oscurece vive en `index.css`, no en el componente.** Es
+papel blanco: sobre el papel oscuro del plano hay que invertirla (`invert(1)
+hue-rotate(180deg)` — el giro de tono evita que los colores de Catastro, que su
+usuario reconoce, salgan los complementarios). Leyendo la clase del tema en JS se
+calcula UNA vez y al cambiar a tema claro el plano se quedaba invertido sobre
+papel blanco.
+
+**El lienzo del plano creció a `clamp(360px, 68vh, 900px)`** (era 46vh): es a lo
+que se entra y donde se pasa el rato.
+
+**El selector de tema va en la cabecera de esta ventana.** No es el
+`DashboardLayout` —es propia—, así que no heredaba el del sidebar y para ver la
+app en claro había que salir. Es el MISMO `ThemeToggle` (`collapsed`), no una
+copia. ⚠️ Fuera del `ThemeProvider` `useTheme` cae a un no-op silencioso: un banco
+de pruebas que monte esta ventana suelta tiene que envolverla, o el botón parece
+roto sin serlo.
+
+### Las IMÁGENES del certificado se ven solas, y se pueden sustituir
+
+Estaban detrás de un botón «Traerlas de Catastro». Una imagen detrás de un botón
+es una imagen que nadie comprueba, y de todos modos el backend ya las cachea por
+referencia catastral con la MISMA caché que usa la generación: mirarlas no cuesta
+ni una petición más al WAF. Ahora se piden al abrir la ventana.
+
+**REGLA — la imagen PUESTA A MANO manda sobre la de Catastro.** Catastro no
+siempre tiene foto, y cuando la tiene puede ser de hace quince años o de la casa
+de al lado; el certificador ha estado delante del edificio. Se sube desde el
+propio bloque y va a **Drive**, a la misma carpeta que el `.cex`
+(`1. CEE / CEE INICIAL`), con nombre canónico; en la BD solo queda su id
+(`cee.envolvente_imagenes`, regla 21). La anterior se archiva en OLD: puede estar
+ya dentro de un `.cex` entregado.
+
+**REGLA — la vista y el `.cex` salen de la MISMA función** (`imagenesDelCex`).
+`componerFicha` llamaba a `imagenesDeCatastro` directamente: con las dos
+separadas, la pantalla enseñaría una imagen y el fichero llevaría otra, y eso no
+se descubre hasta abrirlo en CE3X.
+
+**REGLA — a la PANTALLA va la miniatura; al `.cex`, la grande.** Catastro sirve
+la fachada a tamaño de cámara —medido: **2304×1728 y 323 KB**, o **431 KB en
+base64**— y la app la pinta en un recuadro de 300×170: por eso tardaba en
+aparecer. Pero el fichero ya trae dentro de su EXIF una de **640×480 en 58 KB**,
+de sobra para lo único que se hace con ella (comprobar que es esta casa).
+`miniaturaExif()` la saca recorriendo los marcadores del JPEG —**nunca buscando
+el último `FFD9` a ojo**: dentro de los datos comprimidos un `FF` va escapado
+(`FF00`) o es un marcador de reinicio, y a ojo se corta por donde no es— y ante
+cualquier duda devuelve `null` y se enseña la grande. Al `.cex` sigue yendo la
+grande, que es lo verificado contra un fichero real (el motor la reescala él a
+los 179×134 que guarda CE3X).
+⚠️ No confundir con la nota de que la foto llega **mal terminada**: no es
+relleno, es que el fichero viene TRUNCADO sin su EOI. No hay nada que recortar.
+
+**REGLA — un enlace roto se DICE y se cae a la de Catastro.** Si el fichero
+sustituido ya no está en Drive, generar en silencio con otra imagen es peor que
+decirlo. Y `cee.envolvente_imagenes` va en clave APARTE del trabajo: el trabajo lo
+reemplaza entero el navegador en cada autoguardado, y una imagen subida entre dos
+guardados se perdería.
+
+```bash
+node implementation/backend/scripts/test_imagenes_cex.mjs
+```
+
+---
+
+## Un CONJUNTO resuelve el ACS solo (2026-09-13)
+
+Muchos equipos del catálogo traen el acumulador DENTRO — lo que en obra se llama un
+**conjunto** (all-in-one, compacto, hidrokit con depósito). Esa misma máquina calienta
+el agua, pero la app obligaba a volver a elegir marca y modelo en la columna de ACS:
+medido, **41 expedientes** tienen el mismo modelo tecleado dos veces, y en los que se
+elegía otro por error se declaraban DOS máquinas donde hay una.
+
+| Qué | Dónde |
+|---|---|
+| Qué ACS da un modelo del catálogo (método, justificante, qué falta) | [logic/acsCatalogo.js](implementation/frontend/src/features/expedientes/logic/acsCatalogo.js) |
+| ¿El nodo de ACS es OTRA máquina? | `acsEsOtraMaquina` en [aerotermiaUnits.js](implementation/frontend/src/features/expedientes/logic/aerotermiaUnits.js) (+ su espejo CJS) |
+| Popup que arregla el catálogo (η_wh del Anexo IV · COP A7/55 del Anexo VI) | `EprelAcsModal.jsx` → `PATCH /api/aerotermia/:id/datos-acs` (**staffOnly**) |
+| Unir el EPREL a la ficha del catálogo | [fichaEprelMerge.js](implementation/backend/services/fichaEprelMerge.js) (núcleo compartido con `scripts/combinar_ficha_eprel.js`) |
+| Pruebas | `node implementation/backend/scripts/test_acs_conjunto.mjs` |
+| Qué expedientes declaran hoy un SCOP que el catálogo no sostiene (solo LEE) | `node implementation/backend/scripts/revisar_acs_expedientes.js` |
+
+**REGLA — "lleva depósito" y "produce ACS" NO son lo mismo.** `deposito_acs_incluido`
+dice lo primero; los datos (`scop_dhw_*`, `eta_acs_*`, `cop_a7_55`) dicen lo segundo.
+Confundirlos estaba costando por los dos lados: **79 equipos producen ACS SIN depósito
+integrado** (el depósito va aparte, que es el supuesto del Anexo VI) y **27 llevan
+depósito sin ningún dato de ACS**. Por eso el badge del catálogo dice ahora **CONJUNTO**
+(con sus litros) y **ACS** por separado, y la columna de SCOP ACS de esa pantalla
+aparece cuando hay SCOP_dhw — no cuando hay depósito, que dejaba en blanco la columna
+de esos 79.
+
+**REGLA — el desplegable de ACS solo ofrece lo que puede JUSTIFICAR un SCOP_dhw.** Sin
+ese filtro, elegir un modelo sin datos no daba error: `getScopAcsFromModel` cae a un
+**3,0 inventado** que acaba impreso en el CIFO. Quedan 389 de 490. **Lo ya guardado no
+se esconde nunca** aunque el filtro lo dejara fuera —el desplegable se quedaría vacío y
+el siguiente guardado borraría el equipo—: se conserva a la vista y se avisa de que su
+SCOP no sale de ninguna parte.
+
+**REGLA — el SCOP_dhw sale de la FICHA si la ficha lo trae; si no, del Anexo IV.** El
+valor del fabricante es el más directo de defender (226 de los 253 conjuntos lo tienen);
+el Anexo IV (2,5 · η_wh, con el η_wh del EPREL) es el método propio del conjunto. El
+**Anexo VI NO es una alternativa**: su enunciado es "depósito **no** suministrado como
+conjunto", así que solo aplica a los equipos sin depósito integrado. En un conjunto sin
+ninguno de los dos datos no se inventa un tercero.
+
+**REGLA — lo que falta se arregla en el CATÁLOGO, no en el expediente.** Con esos 27
+conjuntos salta un popup que pide el η_wh del EPREL y **anexa su PDF a la ficha técnica
+del modelo** —que es el fichero que el CIFO adjunta como justificante—: se teclea UNA
+vez y queda resuelto para todos los expedientes que lleven ese equipo. Mismo criterio
+que el popup de datos del RITE. Se puede salir sin rellenar: es un hueco del catálogo,
+no un error del expediente.
+
+**REGLA — el conjunto hereda el equipo, NUNCA el SCOP.** Con `misma_aerotermia_acs` en
+true el nodo de ACS es un CLON del de calefacción, así que **se declaraba el SCOP de
+calefacción como SCOP_dhw** — y la misma bomba rinde mucho menos calentando agua a
+55-60°. Por eso el autorrelleno deja los dos nodos con el mismo modelo y la misma serie
+pero con el flag en **false** y su SCOP propio, que es exactamente lo que la gente ya
+hacía a mano (33 de esos 41 expedientes tienen los dos SCOP distintos).
+
+**REGLA — dos nodos no son dos máquinas: lo decide `acsEsOtraMaquina`, no el flag.** Al
+bajar el flag a false, cuatro validaciones habrían empezado a pedir "el nº de serie de
+la ud. interior (ACS)" de una máquina que ya lo declaró, y a avisar de que las dos
+series coinciden cuando coincidir es lo correcto (`routes/expedientes.js`,
+`cifoService`, `DocumentacionModule`, `EnviarAnexosModal`). Un nodo de ACS **vacío** sí
+sigue reclamándose: es un hueco por rellenar, no un conjunto resuelto.
+
+**REGLA — se rellenan HUECOS, nunca se pisa lo escrito.** El autorrelleno no toca un
+ACS ya decidido aparte (un termo, un acumulador o **otro modelo**) ni rehace el SCOP,
+el método o los litros que se hayan ajustado a mano mientras siga siendo el mismo
+equipo — y salta en cada cambio del bloque de calefacción, también al teclear su nº de
+serie.
+
+⚠️ **El flag `deposito_acs_incluido` tiene RUIDO en el catálogo, y el síntoma es
+`litros_acs` vacío.** 27 modelos lo tenían puesto sin litros y sin ningún dato de ACS,
+y todos son bombas de CALEFACCIÓN de 4 a 18 kW. **11 ya están corregidos**
+(`scripts/flag_conjunto_acs_mal_puesto.sql`), y en los 11 la prueba es documental y del
+propio fabricante: los 6 **SIME SHP M PRO** por su ficha de gama (Rgto. 811/2013, que las
+declara monobloque para calefacción, sin perfil de ACS ni volumen de acumulación), y otros
+5 porque su registro **EPREL es `spaceheaters`** —la categoría de CALEFACTOR, distinta de
+la del combinado que además da ACS— o su informe **Keymark** dice *"Application: Heating"*.
+**Quitar el flag no mueve ninguna cifra guardada**: solo se lee al ELEGIR el modelo, y los
+SCOP viven persistidos en `instalacion`.
+
+**REGLA — la ficha de una GAMA no prueba lo que lleva UN modelo.** Es lo que impide cerrar
+los 16 que quedan: el mismo PDF cubre la variante con depósito y la que no, así que
+mencionar un perfil de carga de ACS no dice que ESE modelo lo lleve. Lo que sí distingue es
+la CATEGORÍA EPREL (`spaceheaters` vs combinado) o el Keymark. Y el error existe en los dos
+sentidos: los **GREE VERSATI IV MB 12 y 16** SÍ producen ACS —su Keymark declara
+"Calefacción/ACS" con perfil de carga XL—, así que ahí lo que falta no es quitar el flag
+sino rellenar sus datos de ACS.
+
+**REGLA — el COP A7/W55 NO está en la ficha de producto, sino en las TABLAS DE
+RENDIMIENTO.** La ficha del Rgto. 811/2013 declara SCOP por clima y η_s; el punto de
+ensayo A7/W55 vive en la tabla de datos técnicos del catálogo (fila DB = 7 °C, columna
+LWT = 55 °C, EN 14511) o en el informe **Keymark** (EN 14511-2, *Medium temperature*). De
+ahí salieron los 6 de las SIME y 3 más. Cada valor se comprueba contra su propia fila
+(**COP = HC / PI**), que es la verificación que la tabla trae dentro.
+
+⚠️ **El único COP que había estaba MAL**: la SHP M PRO 010 tenía 3,650, que es su
+**A7/W45** copiado de la columna de al lado — un 18 % por encima del real (3,10). Con él,
+25RES060_68 declara un SCOP_dhw de 4,06 donde le corresponderían 3,45.
+
+⚠️ **Un documento COMPARTIDO entre modelos trae un bloque por modelo — hay que leerlos
+todos, no solo el primero.** BAXI certifica su Keymark por PAREJA ("Iridium 4/6",
+"Iridium 12/14"): el enlace de `ficha_tecnica` del 6 kW y del 14 kW YA apunta al PDF
+correcto, con su propio bloque `Model Iridium X MR` dentro. La primera lectura se quedó
+con el primer bloque del texto plano y por eso parecían "sin COP propio"; leyendo el
+documento entero cada uno tiene su ensayo: 6 kW → 3,20 (distinto del 4 kW: 3,24) y
+14 kW → 3,04 (distinto del 12 kW: 3,15). Los 5 IRIDIUM tienen ya su COP completo.
+
+No se siembra a ojo —de ese número sale el SCOP_dhw que se declara—: el aviso del
+expediente ofrece **"Completarlo ahora"**, que abre el mismo popup en modo Anexo VI y
+escribe el COP en el catálogo. Un COP fuera de 1,5-6 se rechaza: por encima suele ser el
+COP a 35 °C copiado por error.
+
+⚠️ **Con la prioridad "ficha primero", el método `conjunto` no se activa hoy en ningún
+modelo**: los 179 que tienen η_wh tienen además SCOP_dhw de ficha. Entrará en juego en
+cuanto el popup rellene el η_wh de alguno de los 27, que es justo para lo que existe.
+
 ---
 
 ## Reglas Críticas — No Romper
@@ -5756,6 +6963,8 @@ vacía.
 
 27.c **La FECHA DE REGISTRO del CEE se LEE del justificante, no es el día de la subida**: la trae impresa en su primera página («…número de registro 3014080/2025 solicitado el 19/07/2025…») y de ella cuelgan el plazo de la obra, el devengo del certificador y el cruce con las facturas. La leen las CUATRO superficies que la sellan (rejilla y enlace público, en CAE y en CEE directos) y se puede releer la de un justificante ya subido con el botón ⟳ (`POST /:id/cee/fecha-registro/leer`, declarada en las dos rutas del módulo CEE). El modelo solo LEE: se le pide la FRASE literal y el código reextrae de ella la fecha (`fechaDesdeFrase`), que es además la evidencia que se le enseña al usuario. Una lectura fallida no tira la subida: se cae a la fecha de hoy **y se dice**. Fuente única: [registroCeeOcrService.js](implementation/backend/services/registroCeeOcrService.js). Lo ya sellado mal se corrige con `scripts/releer_fechas_registro_cee.js`. Ver "La FECHA DE REGISTRO del CEE se LEE del justificante".
 
+27.d **La PLACA de la caldera se LEE con IA, y una placa POLICOMBUSTIBLE no tiene UNA potencia**: de ella salen marca, modelo, nº de serie y la POTENCIA, que no está en ningún campo del expediente y sin la cual la instalación existente no se escribe en el `.cex`. Las fotos van como FOTOS (no por `normalizeToPdf`): una placa es un primer plano y el número vive en unos pocos píxeles — es la razón de que su slot esté en `FULL_RES_SLOTS`. Se leen también un par de la caldera entera, porque la MARCA está en el frontal y no en la etiqueta. El modelo TRANSCRIBE todas las potencias con su rótulo y la línea literal; cuál vale lo decide `elegirPotencia()`: útil (`Pn`) sobre consumo (`Qn`), de un rango el máximo, y en una placa policombustible **la del combustible que declara el expediente** — la ROCA P-30-4 de 26RES060_186 pone «Sólido 15,3 · Líquido 23,3 · Gas 23,3» y coger la mayor declara una caldera un 52 % más potente que la real. Sin combustible declarado no se elige ninguna. Se PROPONE y solo se rellenan HUECOS (el `0` de `potencia_caldera` no es un valor puesto); el COMBUSTIBLE leído nunca se escribe, porque de él cuelga la propuesta ya firmada. Fuente única: [placaOcrService.js](implementation/backend/services/placaOcrService.js). Tras tocarlo: `node implementation/backend/scripts/test_placa_ocr.js`. Ver "La PLACA de la caldera se lee con IA".
+
 27. **Al instalador se le pide TODO de una vez, y un CIFO firmado NO cierra la tarea para siempre**: al enviar el CIFO o la documentación RITE, la app comprueba si el otro también falta y ofrece mandarlo en el MISMO mensaje, con UN enlace (`/instalador/:id`). Reenviarle el CIFO teniendo ya uno firmado (requerimiento) **anula esa firma** (`cert_cifo_refirma_at`), o el enlace de ese mismo correo le dice "todo recibido" y no le deja firmar; la cierran la subida pública y `mergeDocumentacion`, que además sella `cert_cifo_signed_at` y **no deja retroceder `_drive_at`**. Fuente única de qué falta y de los textos: [logic/instaladorPendientes.js](implementation/frontend/src/features/expedientes/logic/instaladorPendientes.js); del envío, `POST /api/expedientes/:id/instalador/enviar`. `cert_rite_drive_link` significa CERTIFICADO RITE aportado — la Memoria que generamos nosotros vive en `memoria_rite_docx_link`. Ver "Al instalador se le pide TODO de una vez".
 
 26. **El bot de WhatsApp solo habla en los chats ETIQUETADOS, en horario y sin tocar dinero**: contesta por la sesión real del VPS, así que sus frenos (etiqueta + lista blanca, 08:00-20:00 Madrid, ventana de silencio, silencio si escribe un humano, tope diario, apagado por defecto) protegen la cuenta de la que dependen TODOS los envíos automáticos. Los datos salen del dossier (`botContexto`, que reusa `buildChecklistData` y `ensureUploadLink`), nunca del prompt; los importes no viajan al dossier. Fuente única del texto: [botPrompt.js](implementation/backend/services/botPrompt.js). Ver "Bot de WhatsApp".
@@ -5814,7 +7023,15 @@ vacía.
 
 48. **El `.cex` de la envolvente se guarda SIEMPRE en `1. CEE / CEE INICIAL` como `{nº} - CEE INICIAL_REVISAR.cex`, y sus transmitancias son las de la oportunidad**: salen de `getUByYear` ([calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js)), que ya implementa la Guía de Transmitancias de BROKERGY valor a valor — no se copia ninguna U. La ficha la compone el BACKEND desde el expediente ([fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js) + [ceeEnvolventeCex.js](implementation/backend/services/ceeEnvolventeCex.js)), nunca el navegador. El `_REVISAR` del nombre es funcional: `matchSlot` reconoce el `.cex` del técnico **solo por la extensión**, así que sin la salida `_revisar.cex → null` la rejilla daría el certificado por presentado. La **foto de fachada y el croquis de parcela** van dentro, bajados del Catastro con las funciones que la app ya tiene (en serie, con pausa, mirando el monitor del WAF y cacheados por RC) — y solo al generar, no al previsualizar. Lo que no se puede derivar (demanda ACS, masa de particiones, zona HE4 fuera de las comprobadas) sale declarado con su `de:`, nunca inventado. Verificado contra el `.cex` que un certificador hizo a mano para 26RES060_186: **19 de 19 campos coinciden**. Tras tocarlo: `node implementation/backend/scripts/probar_cex_envolvente.js 26RES060_186`. Ver "El `.cex` de la envolvente".
 
+48.b **El CEE FINAL se hace COPIANDO el inicial, no regenerándolo**: se coge `{nº} - CEE INICIAL_REVISAR.cex` de la carpeta, se le cambia SOLO el pickle de instalaciones y se guarda como `{nº} - CEE FINAL_REVISAR.cex` en `1. CEE / CEE FINAL`. Es como se hace a mano y está comprobado pickle a pickle contra el `.cex` que guardó el certificador desde CE3X en 26RES060_186: de los 15 pickles solo cambia el 4, y sus **10 campos salen idénticos**. Sin inicial en la carpeta → **409**: el final es el inicial con un cambio. El generador viejo se **RETIRA** (es la actuación, no un añadido) y se dice con su nombre; qué slots se vacían lo deduce `SERVICIOS_DEL_SLOT`, así que lo que la obra no toca —placas solares, iluminación, bombas— se queda. **Lo que ya dice el fichero manda**: la superficie servida y el DEPÓSITO de ACS se heredan de él (el depósito es del edificio, no de la caldera). El rendimiento de una bomba de calor va como **CONOCIDO**, que cambia la casilla `[6]` y con ella la FORMA del bloque `[7]` — medido sobre los 1.506 `.cex` de producción (138 mixtos con BdC: 132 conocidos, 138 con `Electricidad`, 123 sin acumulación). La **hibridación no se escribe**: ahí la caldera se queda y son dos generadores. Fuentes únicas: `instalacionNueva()` en [fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js) (qué equipo) y `sustituir_pickle` / `slots_a_retirar` / `heredar_del_base` en el motor (cómo se escribe). Tras tocarlo: `node implementation/backend/scripts/test_cex_final.mjs`. ⚠️ Un equipo de ACS con el MISMO modelo que el de calefacción es UNA máquina (41 expedientes declaraban dos), y el SCOP_dhw sale del nodo de ACS cuando lo declara. ⚠️ La altura de planta por defecto pasa a **2,80 m** en los cuatro sitios: las envolventes traídas antes dan otra superficie de fachada. Ver "El CEE FINAL se hace COPIANDO el inicial".
+
 38. **Con la BD caída, la app CALLA; nunca contesta una cifra tranquila**: un error de lectura no puede salir por 200. [middleware/auth.js](implementation/backend/middleware/auth.js) seguía adelante con el perfil a null —sin rol, sin empresa— y lo **cacheaba 5 minutos**, así que el partner salía como "USUARIO / LOGO PARTNER", con el menú recortado y, como `GET /oportunidades` acaba filtrando por `creador_id = null`, la cartera a CERO; y esa misma ruta convertía además cualquier fallo de Supabase en `200 []`. Un distribuidor con 19 oportunidades vio "0 oportunidades · 0,00 €" con toda la apariencia de dato bueno —que se lee como trabajo borrado— y recargar no lo arreglaba, porque el fantasma vivía en la caché. Medido el 08/09/2026: Postgres se cayó y arrancó en recuperación (`database system was not properly shut down`) y Cloudflare sirvió **521 Web server is down** delante de Supabase durante ~1 min. Ahora las dos rutas responden **503** (`PROFILE_UNAVAILABLE` / `OPORTUNIDADES_UNAVAILABLE`) y no se cachea nada; el frontend enseña `ProfileUnavailable` (reintentar, y "tus datos siguen ahí") en vez de un dashboard con identidad falsa, la lista conserva lo que ya tuviera, y **el resumen financiero no se pinta si no hay datos** — 0,00 € es justo la cifra que asusta. A quien YA tiene perfil bueno en caché no se le echa por un parpadeo. Vigilado por `node implementation/backend/scripts/test_caida_bd_no_miente.js`.
+
+50. **Qué PLANTAS se miden lo marcó una persona, no Catastro**: al abrir la oportunidad se marca en la ficha técnica qué construcciones del Catastro cuentan, y de ahí salen la superficie y el nº de plantas que se le presupuestaron al cliente — esa marca llega ahora al `.cex`. **Se guarda por CÓDIGO** (`escalera/planta/puerta`), nunca por el índice de una lista que no se guardaba en ninguna parte; ⚠️ la receta está en DOS sitios (`catastroService.js` y `UnidadConstructiva.codigo`) y si una cambia la selección deja de casar EN SILENCIO. Se aplica sobre `attrs["habitable"]`, la llave de la que ya cuelgan el plano, la superficie del `.cex` y el plan de fotos (`aplicar_seleccion`, antes de `analizar`): medido en 26RES060_186, marcar el almacén de la planta 1 lleva la ficha de **165 m² y 1 planta a 239 m² y 2**. **Sin selección guardada NO se toca nada** —el defecto de esa pantalla es «todas las de uso VIVIENDA», lo mismo que ya hacía el motor— y lo corregido **se DICE** en los tres sitios (diagnóstico, procedencia del campo y desglose en ámbar), conservando en `habitable_catastro` lo que decía Catastro. El desglose **también se marca desde la envolvente** (ahí es donde se ve el error, con el plano delante) y escribe en la OPORTUNIDAD por RPC, **sin tocar `superficie`/`plantas`/`result`** —que pueden estar en una propuesta firmada— y avisando de que hay que **volver a medir**. Y las **IMÁGENES del certificado** se ven solas (misma caché que la generación: cero peticiones de más) y **se pueden sustituir**: la puesta a mano manda, va a Drive con nombre canónico y en la BD solo su id; la vista y el `.cex` salen de la MISMA función (`imagenesDelCex`), o la pantalla enseñaría una y el fichero llevaría otra. ⚠️ A la pantalla va la **miniatura EXIF de 640×480** que la foto ya trae dentro (Catastro la sirve a 2304×1728 y 431 KB en base64: eso es lo que la hacía tardar); se saca recorriendo los marcadores del JPEG, nunca buscando el último `FFD9`. Y el plano puede llevar **la CARTOGRAFÍA del Catastro debajo**: encaja píxel a píxel porque al WMS se le pide el MISMO rectángulo en el que el motor dibujó (`georef`), respetando la proporción del bbox (el WMS estira lo que le pidas) y cacheado por rectángulo; el filtro que la oscurece va en `index.css` o al cambiar de tema se queda invertida. Tras tocarlo: `pytest implementation/cee-engine/tests/test_construcciones.py` y `node implementation/backend/scripts/test_imagenes_cex.mjs`. Ver "Qué PLANTAS se miden".
+
+49. **Un CONJUNTO (equipo con el depósito de ACS dentro) rellena el bloque de ACS solo, y hereda el equipo pero NUNCA el SCOP**: `deposito_acs_incluido` dice "lleva depósito" y los datos (`scop_dhw_*`, `eta_acs_*`, `cop_a7_55`) dicen "produce ACS" — no son lo mismo (79 equipos dan ACS sin depósito integrado; 27 llevan depósito sin ningún dato). El SCOP_dhw sale de la FICHA si la trae y si no del Anexo IV; el **Anexo VI solo aplica a depósitos NO suministrados en conjunto**. Con `misma_aerotermia_acs` en true el nodo de ACS es un CLON y se declaraba el SCOP de CALEFACCIÓN como SCOP_dhw: el autorrelleno deja los dos nodos con el mismo modelo y la misma serie, el flag en **false** y el SCOP propio. Por eso **dos nodos no son dos máquinas** y las validaciones de serie preguntan por `acsEsOtraMaquina`, no por el flag. El desplegable de ACS solo ofrece lo que puede justificar un SCOP_dhw —sin ese filtro `getScopAcsFromModel` cae a un **3,0 inventado**— pero **lo ya guardado no se esconde nunca**. Lo que falte se arregla en el CATÁLOGO con el popup del η_wh del EPREL, que además **anexa su PDF a la ficha técnica del modelo**. Fuente única: [logic/acsCatalogo.js](implementation/frontend/src/features/expedientes/logic/acsCatalogo.js). Tras tocarlo: `node implementation/backend/scripts/test_acs_conjunto.mjs`. Ver "Un CONJUNTO resuelve el ACS solo".
+
+51. **Las TARIFAS del verificador viven en SU ficha, y son ORIENTATIVAS**: una tabla por tramos (nº de actuaciones → importe) con escalón, en `app_settings` como `tarifas_verificacion:{id}` (mismo patrón que las del certificador), editable desde el bloque **Tarifas de verificación** de la ficha del VERIFICADOR — en la VISTA, porque es un dato que se consulta antes de mandar un lote, y **adminOnly** en las dos capas. No contabiliza nada: lo que se paga sigue siendo `lotes.coste_verificacion` (de su factura, regla 28) y lo que se repercute al S.O., `inputs.costeVerificacion` (regla 46). **La columna que se compara es el €/ACTUACIÓN**: un total no dice nada sin saber cuántas cubre, y el escalón es por ENVÍO (un lote son 5 como máximo, pero se mandan varios juntos). Entre tramos se INTERPOLA; por encima del último se prolonga con el precio **marginal** del último intervalo —nunca con su media— y sale marcado `fueraDeTabla` con su aviso, porque es una conjetura nuestra. **Con varias tarifas no se adivina cuál aplica, y la cobertura por ficha se comprueba también con UNA sola**: una tarifa que declara las cuatro fichas de lote está diciendo que no cubre un TER173. Fuente única: [logic/tarifasVerificacion.js](implementation/frontend/src/features/lotes/logic/tarifasVerificacion.js). Tras tocarlo: `node implementation/backend/scripts/test_tarifas_verificacion.mjs`. Ver "Las TARIFAS del verificador, en su ficha".
 
 ---
 

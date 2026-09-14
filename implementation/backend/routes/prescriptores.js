@@ -6,6 +6,7 @@ const { normalizeContactos } = require('../services/notifyContacts');
 const { searchAddress } = require('../services/googleService');
 const marketplaceStats = require('../services/marketplaceStatsRefresher');
 const certificadorFacturacion = require('../services/certificadorFacturacion');
+const tarifasVerificacion = require('../services/tarifasVerificacion');
 const waSync = require('../services/whatsappInstaladoresSync');
 
 // ¿El guardado ha tocado algún teléfono? Solo entonces hay que volver a mirar
@@ -360,6 +361,34 @@ router.patch('/:id/facturacion-certificador/tarifas', adminOnly, async (req, res
     } catch (err) {
         console.error('Error PATCH tarifas del certificador:', err);
         res.status(400).json({ error: err.message || 'No se pudieron guardar las tarifas' });
+    }
+});
+
+// ─── Tarifas de VERIFICACIÓN ────────────────────────────────────────────────
+// Lo que cobra un verificador según cuántas actuaciones vayan juntas. Es la
+// referencia con la que se contrasta su oferta y su factura, así que son
+// importes: adminOnly, igual que las tarifas del certificador. Esta ficha la
+// puede abrir el propio partner.
+router.get('/:id/tarifas-verificacion', adminOnly, async (req, res) => {
+    try {
+        res.json(await tarifasVerificacion.getTarifas(req.params.id));
+    } catch (err) {
+        console.error('Error GET tarifas de verificación:', err.message);
+        res.status(500).json({ error: 'No se pudieron leer las tarifas de verificación' });
+    }
+});
+
+router.put('/:id/tarifas-verificacion', adminOnly, async (req, res) => {
+    try {
+        // Quién la tecleó queda sellado: una tarifa es lo que alguien dice que le
+        // han pasado, y meses después hace falta saber a quién preguntarle.
+        const perfil = req.user?.perfilCompleto || {};
+        const quien = [perfil.nombre, perfil.apellidos].filter(Boolean).join(' ').trim()
+            || req.user?.email || null;
+        res.json(await tarifasVerificacion.saveTarifas(req.params.id, req.body || {}, quien));
+    } catch (err) {
+        console.error('Error PUT tarifas de verificación:', err.message);
+        res.status(400).json({ error: err.message || 'No se pudieron guardar las tarifas de verificación' });
     }
 });
 

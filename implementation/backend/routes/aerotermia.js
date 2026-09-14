@@ -1,7 +1,9 @@
 const express = require('express');
+const multer = require('multer');
 const router = express.Router();
 const supabase = require('../services/supabaseClient');
 const { enforceAuth, staffOnly } = require('../middleware/auth');
+const { anexarEprelAFicha } = require('../services/fichaEprelMerge');
 
 // Solo ADMIN puede acceder a este módulo
 function requireAdmin(req, res, next) {
@@ -265,6 +267,126 @@ router.patch('/:id/datos-rite', staffOnly, async (req, res) => {
     } catch (err) {
         console.error('Error PATCH aerotermia/datos-rite:', err);
         res.status(500).json({ error: 'Error al guardar los datos del modelo', details: err.message });
+    }
+});
+
+// PATCH /api/aerotermia/:id/datos-acs — completar los datos de ACS del MODELO.
+//
+// Salta desde el expediente cuando se elige un CONJUNTO (equipo con el acumulador
+// dentro) del que el catálogo no puede justificar el SCOP_dhw: ni lo declara su
+// ficha técnica ni tenemos su η_wh del EPREL. Antes eso obligaba a teclear el SCOP
+// a mano en cada expediente con ese equipo —o, peor, a dejar que cayera al 3,0 por
+// defecto de `getScopAcsFromModel`—; ahora se rellena UNA vez, con el EPREL
+// delante, y queda para todos los que vengan detrás.
+//
+// Admite además los PDF del EPREL (ficha del producto y etiqueta): se ANEXAN a la
+// ficha técnica del catálogo, que es el fichero que el CIFO adjunta como anexo. Sin
+// ellos el certificado declara un SCOP calculado por el Anexo IV y no lleva el
+// documento que lo acredita.
+//
+// `staffOnly` como `datos-rite`: es un dato técnico del catálogo que teclea quien
+// está rellenando el expediente, sin dinero ni borrados de por medio.
+const eprelUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 15 * 1024 * 1024, files: 4 },
+});
+router.patch('/:id/datos-acs', staffOnly, (req, res, next) => {
+    eprelUpload.array('files', 4)(req, res, (err) => {
+        if (err) {
+            console.error('[aerotermia/datos-acs] multer:', err.message);
+            return res.status(400).json({ error: `No se pudo leer el fichero: ${err.message}` });
+        }
+        next();
+    });
+}, async (req, res) => {
+    try {
+        const updates = {};
+
+        // η_wh del EPREL, en %. Se acepta con coma (se teclea a mano) y se admite
+        // la fracción (1,27) subiéndola a porcentaje, igual que hace `buildPayload`
+        // con el resto de rendimientos: el catálogo los guarda siempre en %.
+        const raw = String(req.body?.eta_acs ?? '').replace(',', '.').trim();
+        if (raw) {
+            let eta = parseFloat(raw);
+            if (!Number.isFinite(eta) || eta <= 0) {
+                return res.status(400).json({ error: 'El η_wh tiene que ser un número mayor que 0.' });
+            }
+            if (eta < 10) eta *= 100;
+            // Un η_wh de ACS realista va del 60 % al 200 %. Fuera de ahí es una
+            // errata de tecleo, y de ese número sale el SCOP que se declara: vale
+            // más rechazarlo que dejar que llegue a un certificado.
+            if (eta < 60 || eta > 200) {
+                return res.status(400).json({ error: `η_wh = ${eta} % está fuera de lo razonable (60-200 %). Comprueba el dato en el EPREL.` });
+            }
+            // Se escribe en la columna de SU zona: son datos distintos, y rellenar
+            // las dos con el mismo número afirmaría un dato que nadie ha leído.
+            const zona = String(req.body?.zona || 'D3').toUpperCase();
+            updates[zona === 'E1' ? 'eta_acs_media' : 'eta_acs_calida'] = eta;
+        }
+
+        // COP A7/W55 — el dato del Anexo VI, para los equipos que calientan un
+        // depósito APARTE (el modo "Acumulador ACS" del expediente). No está en la
+        // ficha de producto del Rgto. 811/2013 sino en la tabla de datos técnicos
+        // del catálogo del fabricante, así que se teclea con ella delante.
+        const rawCop = String(req.body?.cop_a7_55 ?? '').replace(',', '.').trim();
+        if (rawCop) {
+            const cop = parseFloat(rawCop);
+            if (!Number.isFinite(cop) || cop <= 0) {
+                return res.status(400).json({ error: 'El COP A7/55 tiene que ser un número mayor que 0.' });
+            }
+            // Un COP a 55 °C realista va de 1,5 a 6. Por encima suele ser el COP a
+            // 35 °C copiado por error, y ése da un SCOP_dhw que no se sostiene.
+            if (cop < 1.5 || cop > 6) {
+                return res.status(400).json({ error: `COP A7/55 = ${cop} está fuera de lo razonable (1,5-6). Comprueba que no sea el COP a 35 °C.` });
+            }
+            updates.cop_a7_55 = cop;
+        }
+
+        const eprelUrl = String(req.body?.eprel || '').trim();
+        if (eprelUrl) updates.eprel = eprelUrl;
+
+        if (!Object.keys(updates).length && !(req.files || []).length) {
+            return res.status(400).json({ error: 'Indica el η_wh del EPREL, el COP A7/55, el enlace, o adjunta el PDF.' });
+        }
+
+        let data = null;
+        if (Object.keys(updates).length) {
+            const { data: fila, error } = await supabase
+                .from('aerotermia')
+                .update(updates)
+                .eq('id', req.params.id)
+                .select('id, marca, modelo_comercial, eta_acs_calida, eta_acs_media, scop_dhw_calido, scop_dhw_medio, cop_a7_55, deposito_acs_incluido, litros_acs, eprel, ficha_tecnica')
+                .single();
+            if (error) throw error;
+            if (!fila) return res.status(404).json({ error: 'Equipo no encontrado' });
+            data = fila;
+        }
+
+        // Los PDF del EPREL se anexan a la ficha técnica del catálogo. Un fallo aquí
+        // NO tira el dato numérico, que es lo que desbloquea el cálculo: se informa
+        // aparte para que se pueda reintentar sin volver a teclear el η_wh.
+        let anexo = null;
+        if ((req.files || []).length) {
+            const piezas = req.files.map(f => ({
+                nombre: Buffer.from(f.originalname || 'EPREL', 'latin1').toString('utf8').split(/[\\/]/).pop(),
+                buffer: f.buffer,
+            }));
+            anexo = await anexarEprelAFicha(req.params.id, piezas);
+        }
+
+        if (!data) {
+            const { data: fila } = await supabase
+                .from('aerotermia')
+                .select('id, marca, modelo_comercial, eta_acs_calida, eta_acs_media, scop_dhw_calido, scop_dhw_medio, cop_a7_55, deposito_acs_incluido, litros_acs, eprel, ficha_tecnica')
+                .eq('id', req.params.id)
+                .single();
+            data = fila || null;
+        }
+
+        res.json({ ...(data || {}), anexo });
+    } catch (err) {
+        console.error('Error PATCH aerotermia/datos-acs:', err);
+        res.status(500).json({ error: 'Error al guardar los datos de ACS del modelo', details: err.message });
     }
 });
 

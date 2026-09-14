@@ -40,6 +40,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import leer_cex as L  # noqa: E402
+import pickle0  # noqa: E402
 
 
 class EdicionError(Exception):
@@ -175,6 +176,64 @@ def aplicar(ruta_entrada: Path, cambios: list[tuple[int, list[int], str]],
 
     # Se devuelve el CRLF. La ida y vuelta es exacta (ver docstring).
     return data.replace(L.LF, L.CRLF)
+
+
+def sustituir_pickle(crudo: bytes, indice: int, dato) -> bytes:
+    """Cambia UN pickle entero. Envoltorio de `sustituir_pickles`."""
+    return sustituir_pickles(crudo, {indice: dato})
+
+
+def sustituir_pickles(crudo: bytes, cambios: dict) -> bytes:
+    """Cambia los pickles indicados y deja los demas byte a byte igual.
+
+    Es la version en grande de `aplicar`: alli se sustituyen los bytes de un
+    escalar y aqui los de un pickle completo. Sirve para lo mismo y por el mismo
+    motivo — no reescribir un fichero que CE3X ya sabe abrir.
+
+    ASI ES COMO SE HACE A MANO, Y POR ESO SE HACE ASI. El CEE final no se levanta
+    de cero: se abre el inicial, se cambia el generador y se guarda. De los 15
+    pickles de un .cex solo uno describe las instalaciones; la envolvente, las
+    transmitancias, el tecnico y las imagenes del inicial son ya las del final.
+    Regenerarlo entero seria volver a pedirle al Catastro dos fotos que ya
+    tenemos y arriesgarse a que algo salga distinto por el camino.
+
+    Que se puede hacer esto sin descuadrar nada lo dice el propio formato: el
+    protocolo 0 no guarda un solo offset absoluto (los PUT/GET son indices de
+    memo), asi que el pickle nuevo puede medir lo que quiera.
+    """
+    data = L.normalizar(crudo)
+    cex = L.trocear_bytes(data)
+    for indice in cambios:
+        if not (0 <= indice < len(cex.pickles)):
+            raise EdicionError(f"el .cex no tiene un pickle {indice}: "
+                               f"tiene {len(cex.pickles)}")
+        if cex.pickles[indice].error:
+            raise EdicionError(f"el pickle {indice} no se puede leer: "
+                               f"{cex.pickles[indice].error}")
+
+    # Se empalma de ATRAS hacia delante: cada pickle nuevo mide lo que mide, y
+    # sustituir uno de en medio primero dejaria los offsets de los siguientes
+    # apuntando a otro sitio.
+    salida = data
+    for indice in sorted(cambios, reverse=True):
+        p = cex.pickles[indice]
+        nuevo = pickle0.volcar(cambios[indice]).encode("latin-1")
+        salida = salida[:p.offset] + nuevo + salida[p.offset + p.tam:]
+
+    # Releerlo es lo unico que prueba que no se ha descuadrado el fichero: si el
+    # empalme dejara un byte de mas, el troceo daria otro numero de pickles.
+    rel = L.trocear_bytes(salida)
+    if len(rel.pickles) != len(cex.pickles):
+        raise EdicionError(
+            f"el empalme ha descuadrado el fichero: {len(rel.pickles)} pickles "
+            f"en vez de {len(cex.pickles)}")
+    for i, (a, b) in enumerate(zip(cex.pickles, rel.pickles)):
+        if a.error or b.error:
+            raise EdicionError(f"el pickle {i} ha dejado de leerse")
+        if i not in cambios and repr(L.leer(cex, i)) != repr(L.leer(rel, i)):
+            raise EdicionError(f"el pickle {i} NO tenia que cambiar y ha cambiado")
+
+    return salida.replace(L.LF, L.CRLF)
 
 
 def comprobar(entrada: Path, salida: Path, cambios) -> None:

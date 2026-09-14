@@ -10,6 +10,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { desgloseConstrucciones } from '../../../utils/construcciones';
 
 const API_URL = '/api/catastro';
 
@@ -97,6 +98,7 @@ export function LandingPropertyReview({ catastro, onConfirm, onBack }) {
             || 120;
         onConfirm({
             selectedConstructions: selectedElements,
+            ...desgloseConstrucciones(constructions, selectedElements),
             superficieCalefactable: selectedSurface || fallbackSurface,
             superficieUtil: selectedUsefulSurface || Math.round((selectedSurface || fallbackSurface) * 0.8),
         });

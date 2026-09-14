@@ -91,12 +91,60 @@ class Emisor:
         self.trozos.append("S" + repr(str(s)) + "\n")
         self._put()
 
+    #: Lo que la tipografia moderna escribe y latin-1 no tiene. Un `.cex` es un
+    #: pickle de PROTOCOLO 0 y acaba guardandose en latin-1: una raya larga o
+    #: unas comillas tipograficas revientan la escritura ENTERA con un "codec
+    #: can't encode character" que solo da una posicion en bytes. Y en
+    #: castellano se cuelan solas: cualquier texto copiado las lleva.
+    TIPOGRAFICOS = {
+        "—": "-", "–": "-", "‒": "-", "−": "-",
+        "“": '"', "”": '"', "„": '"',
+        "‘": "'", "’": "'", "‚": "'",
+        "…": "...", " ": " ", " ": " ", " ": " ",
+        "•": "-", "→": "->",
+    }
+
     def unicode(self, s: str) -> None:
-        """UNICODE. Python 2 lo escribia con raw-unicode-escape."""
-        if "\n" in s or "\r" in s:
-            raise Pickle0Error(f"{s!r} lleva un salto de linea: rompe el protocolo 0")
-        self.trozos.append("V" + s + "\n")
+        r"""UNICODE. Python 2 lo escribia con raw-unicode-escape.
+
+        El opcode V termina en un salto de linea, asi que un salto DENTRO del
+        texto partiria el opcode en dos. Python 2 lo resolvia escapandolo
+        (`pickle.save_unicode`) y CE3X escribe exactamente eso: medido en el
+        cuadro de «Pruebas, comprobaciones e inspecciones» de un .cex real, los
+        parrafos van como \u000a. El orden importa: la barra invertida
+        PRIMERO, o se escaparia la que acaba de ponerse.
+
+        Se escapa tambien el retorno de carro, que Python 2 no escapaba: el
+        fichero se guarda con CRLF y se relee normalizandolo, asi que un CRLF
+        dentro del texto volveria como un solo salto y el dato cambiaria por el
+        camino.
+        """
+        s = self._latin1(s)
+        s = (s.replace(chr(92), chr(92) + "u005c")
+              .replace(chr(10), chr(92) + "u000a")
+              .replace(chr(13), chr(92) + "u000d"))
+        self.trozos.append("V" + s + chr(10))
         self._put()
+
+    @classmethod
+    def _latin1(cls, s: str) -> str:
+        """El texto como puede guardarlo un `.cex`.
+
+        Los tipograficos se cambian por su equivalente de toda la vida; lo que
+        aun asi no quepa se dice CON EL CARACTER Y EL TEXTO delante, que es lo
+        que hace falta para arreglarlo.
+        """
+        for malo, bueno in cls.TIPOGRAFICOS.items():
+            if malo in s:
+                s = s.replace(malo, bueno)
+        try:
+            s.encode("latin-1")
+        except UnicodeEncodeError as exc:
+            malo = s[exc.start:exc.end]
+            raise Pickle0Error(
+                f"{malo!r} (U+{ord(malo[0]):04X}) no cabe en un .cex, que se "
+                f"guarda en latin-1. Esta en: {s[:80]!r}") from exc
+        return s
 
     def flotante(self, f: float) -> None:
         self.trozos.append(f"F{f!r}\n")     # los FLOAT no se memoizan

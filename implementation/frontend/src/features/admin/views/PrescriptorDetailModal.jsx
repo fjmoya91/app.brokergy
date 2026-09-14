@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { CertificadorResumenModal } from './CertificadorResumenModal';
+import TarifasVerificacionPanel from './TarifasVerificacionPanel';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 // Iniciales para el avatar cuando la empresa no tiene logo. Dos letras (las de
@@ -1676,6 +1677,15 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                     </Section>
                                 );
                             })()}
+
+                            {/* Tarifas de verificación — solo VERIFICADOR y solo ADMIN:
+                                son importes, y esta ficha la puede abrir el propio
+                                partner. Va en la VISTA porque es un dato que se consulta
+                                (antes de mandar un lote a verificar), no uno que se
+                                rellena; se edita desde el propio bloque. */}
+                            {!isCreating && p?.tipo_empresa === 'VERIFICADOR' && isAdmin && p?.id_empresa && (
+                                <TarifasVerificacionPanel verificadorId={p.id_empresa} nombreVerificador={p.acronimo || p.razon_social} />
+                            )}
 
                             {/* Avisos y contactos (Vista) */}
                             {/* Se enseña SIEMPRE, también sin contactos: "a quién le

@@ -289,7 +289,52 @@ export function acsEquipoPropio(inst) {
  * serie, manda la máquina.
  */
 export function acsMismoEquipo(inst) {
+    // Y al revés: el flag tampoco puede PARTIR EN DOS una sola máquina. Cuando
+    // alguien rellena el bloque de ACS para poner su SCOP_dhw —que es lo normal:
+    // la misma bomba rinde 4,34 en calefacción y 3,00 en ACS—, el flag baja a
+    // false y el equipo pasaba a declararse como DOS. Medido: 41 expedientes con
+    // el MISMO modelo en los dos nodos y el flag en false, a los que el encargo
+    // les pedía declarar dos equipos en CE3X para una sola máquina.
+    //
+    // Es la misma regla de arriba leída por el otro lado: entre un booleano que
+    // nadie ha tocado y dos nodos que nombran la misma máquina, manda la máquina.
+    if (mismaMaquina(inst?.aerotermia_cal, inst?.aerotermia_acs)) return true;
     return !!inst?.misma_aerotermia_acs && !acsEquipoPropio(inst);
+}
+
+/**
+ * ¿Los dos nodos nombran la MISMA máquina?
+ *
+ * Exige que esté IDENTIFICADA: dos nodos en blanco no son "el mismo equipo",
+ * son dos huecos, y darlos por uno escondería el que falta por rellenar.
+ */
+export function mismaMaquina(a, b) {
+    const ua = getUnidades(a)[0], ub = getUnidades(b)[0];
+    if (!ua || !ub) return false;
+    const id = (u) => String(u?.aerotermia_db_id ?? '').trim();
+    if (id(ua) && id(ub)) return id(ua) === id(ub);
+    const firma = (u) => [u?.marca, u?.modelo || u?.modelo_conjunto]
+        .map(v => String(v || '').trim().toUpperCase()).filter(Boolean).join('|');
+    return !!firma(ua) && firma(ua) === firma(ub);
+}
+
+/**
+ * ¿El nodo de ACS es una SEGUNDA máquina, que hay que identificar por separado?
+ *
+ * No basta con `!misma_aerotermia_acs`. Desde que un CONJUNTO (equipo con el
+ * acumulador dentro) rellena el bloque de ACS solo, lo normal es tener los DOS
+ * nodos con el MISMO modelo y el mismo nº de serie, y el flag en false — porque
+ * el SCOP_dhw sí es propio y no puede leerse del de calefacción. Leer eso como
+ * dos equipos produce avisos falsos: pedir "el nº de serie de la ud. interior
+ * (ACS)" de una máquina que ya lo ha declarado, o avisar de que las dos series
+ * coinciden cuando coincidir es lo correcto.
+ *
+ * Lo que decide es la MÁQUINA (`mismaMaquina`), no el flag.
+ */
+export function acsEsOtraMaquina(inst) {
+    if (!inst) return false;
+    if (inst.misma_aerotermia_acs) return false;
+    return !mismaMaquina(inst.aerotermia_acs, inst.aerotermia_cal);
 }
 
 /**

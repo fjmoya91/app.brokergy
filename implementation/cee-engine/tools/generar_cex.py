@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,9 @@ ADMINISTRATIVOS = 1
 GENERALES = 2
 ENVOLVENTE = 3
 INSTALACIONES = 4
+MEDIDAS = 5
+RESUMEN_MEDIDAS = 6
+INFORME = 11
 
 # El proyecto orienta con N/S/E/O; CE3X escribe los nombres largos. Vocabulario
 # medido sobre las 10.000 fachadas del corpus (docs/11).
@@ -296,51 +300,405 @@ _INTERRUPTORES = [False, False, True, False, False, True, False]
 _COLA_PARAMETROS = [1.0, 0.0]
 
 
-def equipo_mixto(eq: dict, espacio: str) -> tuple[list, list[str]]:
-    """Un equipo mixto de calefaccion y ACS (el slot 'mixto2')."""
-    avisos: list[str] = []
+#: Como declara CE3X de donde sale el rendimiento medio estacional. Son las dos
+#: unicas formas que aparecen en el corpus, y NO son intercambiables: cambian la
+#: casilla [6] y con ella la FORMA del bloque [7] que va detras.
+#:
+#:   estimado  (caldera)         [6]='Estimado segun Instalacion'
+#:                               [7]=[aislamiento, rend_combustion, carga, potencia, ...]
+#:   conocido  (bomba de calor)  [6]='Conocido (Ensayado/justificado)'
+#:                               [7]=[rend_acs, rend_calefaccion, '']   (= [2])
+#:
+#: Medido sobre los 1.506 .cex de produccion: de los 138 equipos mixtos con
+#: bomba de calor, 132 declaran el rendimiento como CONOCIDO — es lo que se hace
+#: con una aerotermia, cuyo SCOP viene ensayado en su ficha tecnica.
+RENDIMIENTO = {
+    "estimado": "Estimado según Instalación",
+    "conocido": "Conocido (Ensayado/justificado)",
+}
+
+
+def _pct(v) -> str:
+    """El % de la demanda que cubre el equipo. Por defecto lo cubre todo."""
+    return str(v) if v not in (None, "") else "100"
+
+
+def _sup(eq: dict, clave: str) -> str:
+    """La superficie servida, respetando la que venia en el .cex que se copia."""
+    crudo = eq.get(clave + "_cruda")
+    if crudo not in (None, ""):
+        return str(crudo)
+    return _num(_v(eq.get(clave), f"instalaciones.{clave}"))
+
+
+def _rendimientos(eq: dict) -> tuple[list, list, list[str]]:
+    """El par ([2], [7]) del registro, segun de donde salga el rendimiento.
+
+    Devuelve ademas los avisos: en el modo ESTIMADO el estacional no es un dato
+    sino una aproximacion de lo que CE3X calculara, y eso hay que decirlo.
+    """
+    modo = eq.get("rendimiento", "estimado")
+    if modo not in RENDIMIENTO:
+        raise GeneracionError(
+            f"rendimiento {modo!r} no contemplado; CE3X usa {list(RENDIMIENTO)}")
+
+    if modo == "conocido":
+        # El SCOP ensayado se teclea tal cual, en %. CE3X no calcula nada aqui,
+        # asi que [2] y [7] son el MISMO par y no hay nada que aproximar.
+        cal = str(_v(eq.get("rend_calefaccion"), "instalaciones.rend_calefaccion"))
+        acs = str(eq.get("rend_acs", "") or "")
+        return [acs, cal, ""], [acs, cal, ""], []
+
     aisl = _v(eq.get("aislamiento"), "instalaciones.aislamiento")
     if aisl not in K_ESTACIONAL:
         raise GeneracionError(f"aislamiento de caldera no valido: {aisl!r}. "
                               f"CE3X usa {list(K_ESTACIONAL)}")
     rend_comb = float(_v(eq.get("rend_combustion"), "instalaciones.rend_combustion"))
     estacional = round(rend_comb - K_ESTACIONAL[aisl], 1)
-    avisos.append(
+    aviso = (
         f"instalacion {eq['nombre']}: el rendimiento estacional {estacional} % NO es "
         f"un dato, es lo que CALCULA CE3X. Aqui va aproximado ({rend_comb} de "
         f"combustion menos {K_ESTACIONAL[aisl]}, medido en el corpus). Abre "
         f"Instalaciones y dale a Modificar para que CE3X ponga el suyo.")
+    cola = [aisl, str(rend_comb).rstrip("0").rstrip("."),
+            str(eq.get("carga_media", "0.2")),
+            str(_v(eq.get("potencia"), "instalaciones.potencia")),
+            list(_INTERRUPTORES), list(_COLA_PARAMETROS)]
+    return [estacional, estacional, ""], cola, [aviso]
 
-    sup_acs = _num(_v(eq.get("superficie_acs"), "instalaciones.superficie_acs"))
-    sup_cal = _num(_v(eq.get("superficie_calefaccion"), "instalaciones.superficie_calefaccion"))
+
+def equipo_mixto(eq: dict, espacio: str) -> tuple[list, list[str]]:
+    """Un equipo mixto de calefaccion y ACS (el slot 'mixto2'): 10 campos."""
+    rend, cola, avisos = _rendimientos(eq)
+
+    sup_acs = _sup(eq, "superficie_acs")
+    sup_cal = _sup(eq, "superficie_calefaccion")
     acum = eq.get("acumulacion")
-    if acum:
+    #: El bloque tal cual venia en el .cex que se copia (ver `_heredar_acumulacion`):
+    #: se reescribe IGUAL, con su UA y sus temperaturas, sin volver a componerlo.
+    crudo_acum = eq.get("acumulacion_cruda")
+    if crudo_acum:
+        bloque_acum = list(crudo_acum)
+    elif acum:
+        bloque_acum = [True, str(acum["volumen"]), str(acum.get("t_alta", "80")),
+                       str(acum.get("t_baja", "60")), str(acum.get("ua", "4.7")),
+                       "Por defecto", str(acum.get("mult", "1"))]
+    else:
+        # 123 de los 138 equipos mixtos con bomba de calor del corpus van SIN
+        # acumulacion. No se inventa un deposito que nadie ha declarado: si lo
+        # hay, se marca en CE3X (y el aviso de la ficha lo pide).
+        bloque_acum = [False]
+
+    return [
+        str(eq["nombre"]),
+        Cadena("mixto2"),
+        rend,
+        str(_v(eq.get("generador"), "instalaciones.generador")),
+        str(_v(eq.get("combustible"), "instalaciones.combustible")),
+        [[sup_acs, _pct(eq.get("pct_acs"))], [sup_cal, _pct(eq.get("pct_calefaccion"))], ["", ""]],
+        RENDIMIENTO[eq.get("rendimiento", "estimado")],
+        cola,
+        bloque_acum,
+        espacio,
+    ], avisos
+
+
+def equipo_calefaccion(eq: dict, espacio: str) -> tuple[list, list[str]]:
+    """Un equipo de SOLO calefaccion (el slot 'calefaccion'): 9 campos.
+
+    Es el mixto sin el bloque de acumulacion y con el hueco del ACS vacio, tanto
+    en los rendimientos como en la superficie. Medido sobre 226 equipos reales
+    del corpus, todos con el rendimiento declarado como CONOCIDO.
+    """
+    rend, cola, avisos = _rendimientos(eq)
+    sup_cal = _sup(eq, "superficie_calefaccion")
+    return [
+        str(eq["nombre"]),
+        Cadena("calefaccion"),
+        ["", rend[1], ""],
+        str(_v(eq.get("generador"), "instalaciones.generador")),
+        str(_v(eq.get("combustible"), "instalaciones.combustible")),
+        [["", ""], [sup_cal, _pct(eq.get("pct_calefaccion"))], ["", ""]],
+        RENDIMIENTO[eq.get("rendimiento", "estimado")],
+        ["", cola[1], ""] if eq.get("rendimiento") == "conocido" else cola,
+        espacio,
+    ], avisos
+
+
+#: Los interruptores de un equipo de SOLO ACS y de uno de SOLO refrigeracion.
+#: Forma medida en «CEE DISTINTOS USOS CALEFACCION Y ACS Y AACC.cex», guardado
+#: desde CE3X con los tres equipos a la vez. No se tocan, como los del mixto.
+_INTERRUPTORES_ACS = [False, False, True]
+_INTERRUPTORES_FRIO = [True, False, False]
+_COLA_SIMPLE = [False, "1.0", "0.0"]
+
+
+def equipo_acs(eq: dict, espacio: str) -> tuple[list, list[str]]:
+    """Un equipo de SOLO ACS (el slot 'ACS'): 10 campos.
+
+    Es el caso del TERMO ELECTRICO: la caldera da la calefaccion y parte del
+    agua, y un termo aparte da el resto. En CE3X son DOS equipos y cada uno
+    declara el % de la demanda de ACS que cubre; aqui tambien.
+
+    Forma medida sobre «CEE DISTINTOS USOS CALEFACCION Y ACS Y AACC.cex»
+    (Efecto Joule, Electricidad, 82,5 m2 al 50 %, rendimiento nominal 100 %):
+
+        ['TERMO ACS', 'ACS', [100.0, '', ''], 'Efecto Joule', 'Electricidad',
+         [['82.5','50'], ['',''], ['','']], 'Estimado segun Instalacion',
+         [['100.0','',''], [False,False,True], [False,'1.0','0.0']],
+         [False], 'Edificio Objeto']
+
+    OJO con la COLA [7]: NO es la de la caldera. Un equipo asi no tiene
+    aislamiento ni carga media ni potencia — tiene un RENDIMIENTO NOMINAL y ya.
+    """
+    nominal = str(eq.get("rend_nominal", "100.0"))
+    acum = eq.get("acumulacion")
+    crudo_acum = eq.get("acumulacion_cruda")
+    if crudo_acum:
+        bloque_acum = list(crudo_acum)
+    elif acum:
         bloque_acum = [True, str(acum["volumen"]), str(acum.get("t_alta", "80")),
                        str(acum.get("t_baja", "60")), str(acum.get("ua", "4.7")),
                        "Por defecto", str(acum.get("mult", "1"))]
     else:
         bloque_acum = [False]
 
+    # El estacional lo RECALCULA CE3X al abrir. En el medido coincide con el
+    # nominal (un efecto Joule no tiene perdidas que descontar), asi que se
+    # escribe ese y se dice que es aproximado.
+    aviso = (f"instalacion {eq['nombre']}: el rendimiento medio estacional lo calcula "
+             f"CE3X. Aqui va el nominal ({nominal} %). Abre Instalaciones y dale a "
+             f"Modificar para que ponga el suyo.")
     return [
         str(eq["nombre"]),
-        Cadena("mixto2"),
-        [estacional, estacional, ""],
+        Cadena("ACS"),
+        [_numf(nominal) or 0.0, "", ""],
         str(_v(eq.get("generador"), "instalaciones.generador")),
         str(_v(eq.get("combustible"), "instalaciones.combustible")),
-        [[sup_acs, "100"], [sup_cal, "100"], ["", ""]],
-        "Estimado según Instalación",
-        [aisl, str(rend_comb).rstrip("0").rstrip("."),
-         str(eq.get("carga_media", "0.2")),
-         str(_v(eq.get("potencia"), "instalaciones.potencia")),
-         list(_INTERRUPTORES), list(_COLA_PARAMETROS)],
+        [[_sup(eq, "superficie_acs"), _pct(eq.get("pct_acs"))], ["", ""], ["", ""]],
+        RENDIMIENTO[eq.get("rendimiento", "estimado")],
+        [[nominal, "", ""], list(_INTERRUPTORES_ACS), list(_COLA_SIMPLE)],
         bloque_acum,
+        espacio,
+    ], [aviso]
+
+
+def equipo_refrigeracion(eq: dict, espacio: str) -> tuple[list, list[str]]:
+    """Un equipo de SOLO refrigeracion (el slot 'refrigeracion'): 9 campos.
+
+    Forma medida sobre el mismo fichero (Maquina frigorifica, Electricidad,
+    16,5 m2 al 10 %, rendimiento nominal 250 %):
+
+        ['AIRE ACONDICIONADO', 'refrigeracion', ['', '', 157.5],
+         'Maquina frigorifica', 'Electricidad',
+         [['',''], ['',''], ['16.5','10']], 'Estimado segun Instalacion',
+         [['', '', '250.0'], [True,False,False], [False,'1.0','0.0'], 0],
+         'Edificio Objeto']
+
+    El `0` del final de la cola es la ANTIGUEDAD del equipo («Posterior a 2013»
+    en el fichero medido). Va como esta: no se sabe que mas valores admite.
+    """
+    nominal = str(eq.get("rend_nominal", "250.0"))
+    aviso = (f"instalacion {eq['nombre']}: el rendimiento medio estacional lo calcula "
+             f"CE3X. Aqui va el nominal ({nominal} %), y la antiguedad queda como "
+             f"«Posterior a 2013». Comprobalo en Instalaciones.")
+    return [
+        str(eq["nombre"]),
+        Cadena("refrigeracion"),
+        ["", "", _numf(nominal) or 0.0],
+        str(_v(eq.get("generador"), "instalaciones.generador")),
+        str(_v(eq.get("combustible"), "instalaciones.combustible")),
+        [["", ""], ["", ""],
+         [_sup(eq, "superficie_refrigeracion"), _pct(eq.get("pct_refrigeracion"))]],
+        RENDIMIENTO[eq.get("rendimiento", "estimado")],
+        [["", "", nominal], list(_INTERRUPTORES_FRIO), list(_COLA_SIMPLE),
+         eq.get("antiguedad", 0)],
+        espacio,
+    ], [aviso]
+
+
+def equipo_renovable(eq: dict, espacio: str) -> tuple[list, list[str]]:
+    """Una CONTRIBUCION ENERGETICA (el slot 'renovable'): 6 campos.
+
+    Es el dialogo «Definir nueva instalacion / Contribuciones energeticas», y
+    tiene DOS mitades excluyentes que sus dos banderas encienden: arriba las
+    fuentes de energia renovable (el % de demanda que cubren) y abajo la
+    generacion electrica para autoconsumo. Un autoconsumo fotovoltaico es solo
+    la segunda.
+
+    Forma medida sobre el corpus (4 equipos de autoconsumo y 1 de solar termica
+    de ACS): el bloque [3] son seis casillas —energia electrica generada, calor
+    recuperado para ACS, calor recuperado para calefaccion, frio recuperado,
+    energia consumida y tipo de combustible— y solo se escribe la primera.
+    """
+    avisos: list[str] = []
+    generada = _num(eq.get("generacion_electrica_kwh"))
+    pct_acs = _pct(eq.get("pct_acs")) if eq.get("pct_acs") else ""
+    pct_cal = _pct(eq.get("pct_calefaccion")) if eq.get("pct_calefaccion") else ""
+    pct_ref = _pct(eq.get("pct_refrigeracion")) if eq.get("pct_refrigeracion") else ""
+    hay_fuentes = bool(pct_acs or pct_cal or pct_ref)
+    if not generada and not hay_fuentes:
+        raise GeneracionError(
+            f"la contribucion «{eq.get('nombre')}» no declara ni energia generada ni "
+            f"porcentaje de demanda cubierta: CE3X la abriria vacia")
+    if generada:
+        avisos.append(f"contribucion {eq['nombre']}: {generada} kWh/año de generacion"
+                      " electrica para autoconsumo.")
+    return [
+        str(eq["nombre"]),
+        Cadena("renovable"),
+        [pct_acs, pct_cal, pct_ref, False],
+        [generada, "", "", "", "", ""],
+        [hay_fuentes, bool(generada)],
         espacio,
     ], avisos
 
 
+#: Que funcion escribe cada slot. Lo que no este aqui NO se sabe escribir, y se
+#: dice: un registro con la forma equivocada CE3X lo abre y no lo enseña.
+ESCRITORES = {"mixto2": equipo_mixto, "calefaccion": equipo_calefaccion,
+              "ACS": equipo_acs, "refrigeracion": equipo_refrigeracion,
+              "renovable": equipo_renovable}
+
+#: Que SERVICIOS da cada slot. Es lo que dice la propia pestaña de CE3X: un
+#: 'mixto2' es "Equipo mixto de calefaccion y ACS", un 'climatizacion' es
+#: calefaccion + refrigeracion, y un 'mixto3' los tres.
+SERVICIOS_DEL_SLOT = {
+    "ACS": {"acs"},
+    "calefaccion": {"calefaccion"},
+    "refrigeracion": {"refrigeracion"},
+    "climatizacion": {"calefaccion", "refrigeracion"},
+    "mixto2": {"calefaccion", "acs"},
+    "mixto3": {"calefaccion", "refrigeracion", "acs"},
+}
+
+
+def slots_a_retirar(equipos: list[dict]) -> set[str]:
+    """Que slots hay que VACIAR antes de escribir los equipos nuevos.
+
+    El CEE final de una sustitucion no lleva la caldera Y la bomba de calor: la
+    caldera se ha QUITADO. Asi que se retira el generador de cada servicio que
+    el equipo nuevo asume, y nada mas — un `renovable` (las placas solares), la
+    iluminacion o las bombas de circulacion siguen ahi porque la obra no los ha
+    tocado.
+
+    Se deduce del SLOT del equipo nuevo, no de una lista escrita a mano: si
+    mañana se escribe un 'mixto3', retirara tambien la maquina de frio sin que
+    haya que acordarse.
+    """
+    servicios: set[str] = set()
+    for eq in equipos:
+        servicios |= SERVICIOS_DEL_SLOT.get(eq.get("slot", "mixto2"), set())
+    return {slot for slot, da in SERVICIOS_DEL_SLOT.items() if da & servicios}
+
+
+def heredar_del_base(equipos: list[dict], plantilla: list) -> list[str]:
+    """Lo que el .cex QUE SE COPIA ya dice y el equipo nuevo hereda.
+
+    Dos cosas, y las dos por el mismo motivo: al copiar un fichero, lo que ya
+    esta escrito en el vale mas que lo que la app deduzca, porque puede haberlo
+    corregido el certificador en CE3X.
+    """
+    return _heredar_superficies(equipos, plantilla) + _heredar_acumulacion(equipos, plantilla)
+
+
+def _heredar_acumulacion(equipos: list[dict], plantilla: list) -> list[str]:
+    """El DEPOSITO de ACS es del edificio, no de la caldera.
+
+    En el CEE inicial lo calienta la caldera y en el final la bomba de calor,
+    pero el deposito es el mismo — nadie lo tira al cambiar el generador. Si se
+    escribiera `[False]` porque el expediente no guarda los litros, el CEE final
+    diria que la vivienda ha perdido su acumulacion de ACS, que es un cambio que
+    nadie ha hecho.
+
+    Lo que el expediente SI declare manda: ahi hay un acumulador nuevo de verdad.
+    """
+    avisos: list[str] = []
+    if not isinstance(plantilla, list) or len(plantilla) != len(SLOTS):
+        return avisos
+    previa = None
+    for i, nombre_slot in enumerate(SLOTS):
+        if "acs" not in SERVICIOS_DEL_SLOT.get(nombre_slot, set()):
+            continue
+        for viejo in (plantilla[i] if isinstance(plantilla[i], list) else []):
+            if len(viejo) > 8 and isinstance(viejo[8], list) and viejo[8] and viejo[8][0] is True:
+                previa = viejo[8]
+                break
+        if previa:
+            break
+    if not previa:
+        return avisos
+    for eq in equipos:
+        if "acs" not in SERVICIOS_DEL_SLOT.get(eq.get("slot", "mixto2"), set()):
+            continue
+        if eq.get("acumulacion"):
+            continue                       # lo declarado en el expediente manda
+        eq["acumulacion_cruda"] = list(previa)
+        avisos.append(
+            f"se conserva el deposito de ACS del .cex que se copia ({previa[1]} l): el "
+            f"generador cambia, el deposito no. Si la obra lo ha cambiado, corrigelo en CE3X.")
+    return avisos
+
+
+def _heredar_superficies(equipos: list[dict], plantilla: list) -> list[str]:
+    """La superficie servida la manda el .cex QUE SE COPIA, no la ficha.
+
+    Es la consecuencia de copiar el inicial en vez de levantarlo de cero: si el
+    certificador corrigio la superficie en CE3X —porque Catastro declaraba de
+    mas, o porque dejo fuera un anejo—, la aerotermia tiene que servir la MISMA
+    que servia la caldera. Escribir la de la ficha desharia su correccion sin
+    decirlo, que es justo lo que no puede pasar al copiar un fichero suyo.
+
+    Solo se hereda de un equipo que da EL MISMO servicio, y solo el numero: el
+    porcentaje de demanda cubierta lo decide el equipo nuevo.
+    """
+    avisos: list[str] = []
+    if not isinstance(plantilla, list) or len(plantilla) != len(SLOTS):
+        return avisos
+    # {servicio: superficie} de lo que ya hay escrito en el fichero.
+    servido: dict[str, str] = {}
+    for i, nombre_slot in enumerate(SLOTS):
+        for viejo in (plantilla[i] if isinstance(plantilla[i], list) else []):
+            if len(viejo) < 6 or not isinstance(viejo[5], list):
+                continue
+            acs, cal = viejo[5][0], viejo[5][1]
+            da = SERVICIOS_DEL_SLOT.get(nombre_slot, set())
+            if "acs" in da and isinstance(acs, list) and acs[0]:
+                servido.setdefault("acs", str(acs[0]))
+            if "calefaccion" in da and isinstance(cal, list) and cal[0]:
+                servido.setdefault("calefaccion", str(cal[0]))
+
+    for eq in equipos:
+        for servicio, clave in (("calefaccion", "superficie_calefaccion"),
+                                ("acs", "superficie_acs")):
+            if servicio not in SERVICIOS_DEL_SLOT.get(eq.get("slot", "mixto2"), set()):
+                continue
+            heredada = servido.get(servicio)
+            if not heredada:
+                continue
+            propia = eq.get(clave)
+            if propia not in (None, "") and _numf(propia) != _numf(heredada):
+                avisos.append(
+                    f"superficie de {servicio}: el .cex que se copia dice {heredada} m2 y "
+                    f"la ficha {propia} m2. Se conserva la del .cex — si el certificador "
+                    f"la corrigio en CE3X, esa es la buena.")
+            # Se marca como CRUDO: al venir del fichero que se copia, se
+            # reescribe TAL CUAL. Pasarlo por `_num` le quitaria el `.0` que
+            # escribe CE3X y el equipo nuevo no saldria como estaba el viejo.
+            eq[clave] = heredada
+            eq[clave + "_cruda"] = heredada
+    return avisos
+
+
 def construir_instalaciones(datos: dict, plantilla: list,
-                            zonas: set[str] | None = None) -> tuple[list, list[str]]:
+                            zonas: set[str] | None = None,
+                            retirar: set[str] | None = None) -> tuple[list, list[str]]:
     """Los 12 slots del pickle 4. Lo que no se sepa se queda vacio.
+
+    `retirar` vacia esos slots ANTES de escribir, y es lo que convierte "añadir
+    un equipo" en "SUSTITUIR el generador". Sin el, el CEE final saldria con la
+    caldera y la bomba de calor conviviendo — declarando un edificio con el
+    doble de generadores de los que tiene.
 
     OJO con la zona del equipo: es el mismo campo traicionero que en los
     cerramientos. Si apunta a una zona que no existe, **CE3X abre el fichero y
@@ -351,6 +709,17 @@ def construir_instalaciones(datos: dict, plantilla: list,
     if isinstance(plantilla, list) and len(plantilla) == len(SLOTS):
         slots = [list(x) if isinstance(x, list) else [] for x in plantilla]
     avisos: list[str] = []
+
+    # Lo retirado se dice CON SU NOMBRE. Que de un .cex desaparezca un generador
+    # no puede ser un efecto silencioso: es la actuacion entera.
+    for nombre_slot in sorted(retirar or ()):
+        i = SLOTS.index(nombre_slot)
+        for viejo in slots[i]:
+            avisos.append(
+                f"se RETIRA del CEE {str(viejo[0])!r} "
+                f"({str(viejo[3]) if len(viejo) > 3 else nombre_slot}): lo sustituye "
+                f"el equipo nuevo. Es la actuacion.")
+        slots[i] = []
     espacio = datos["envolvente"]["espacio"]
     if str(espacio).lower() == "auto":
         # los equipos van a la raiz: 604 de los 620 equipos mixtos del corpus
@@ -359,10 +728,9 @@ def construir_instalaciones(datos: dict, plantilla: list,
         tipo = eq.get("slot", "mixto2")
         if tipo not in SLOTS:
             raise GeneracionError(f"tipo de equipo no contemplado: {tipo!r}")
-        if tipo != "mixto2":
+        if tipo not in ESCRITORES:
             raise GeneracionError(
-                f"de momento solo se sabe escribir 'mixto2' (calefaccion+ACS); "
-                f"pediste {tipo!r}")
+                f"no se sabe escribir el slot {tipo!r}; medidos: {list(ESCRITORES)}")
         zona = eq.get("zona", espacio)
         declaradas = (zonas or set()) | {"Edificio Objeto"}
         if zona not in declaradas:
@@ -370,12 +738,55 @@ def construir_instalaciones(datos: dict, plantilla: list,
                 f"el equipo {eq.get('nombre')!r} dice estar en la zona {zona!r}, "
                 f"que no existe. Declaradas: {sorted(declaradas)}. CE3X abriria "
                 f"el fichero y la instalacion NO apareceria.")
-        registro, av = equipo_mixto(eq, zona)
+        registro, av = ESCRITORES[tipo](eq, zona)
         slots[SLOTS.index(tipo)].append(registro)
         avisos.extend(av)
         if eq.get("de"):
             avisos.append(f"instalacion {eq['nombre']}: {eq['de']}")
+    avisos.extend(_reparto(datos.get("instalaciones", [])))
     return slots, avisos
+
+
+#: Cuanta demanda de cada servicio cubren ENTRE TODOS los equipos.
+#: Es lo que CE3X reparte en la columna «Porcentaje (%)» de cada equipo: una
+#: caldera que da el 50 % del ACS y un termo que da el otro 50 %.
+_PCT_DEL_SERVICIO = {"acs": "pct_acs", "calefaccion": "pct_calefaccion",
+                     "refrigeracion": "pct_refrigeracion"}
+
+
+def _reparto(equipos: list[dict]) -> list[str]:
+    """Que la suma de porcentajes de cada servicio no pase del 100 %.
+
+    Pasarse no es un detalle: significa declarar mas demanda cubierta de la que
+    hay, y el certificado sale con un consumo que no cuadra con su propia
+    envolvente. Quedarse corto SI es legitimo —hay demanda que no cubre nadie—
+    pero conviene decirlo, porque casi siempre es que falta un equipo.
+
+    Se AVISA, no se aborta: quien firma puede tener un motivo, y un .cex que no
+    se escribe por un porcentaje es peor que uno que lo dice.
+    """
+    avisos: list[str] = []
+    for servicio, clave in _PCT_DEL_SERVICIO.items():
+        suma, cuantos = 0.0, 0
+        for eq in equipos:
+            if servicio not in SERVICIOS_DEL_SLOT.get(eq.get("slot", "mixto2"), set()):
+                continue
+            cuantos += 1
+            suma += _numf(eq.get(clave)) if eq.get(clave) not in (None, "") else 100.0
+        if not cuantos:
+            continue
+        suma = round(suma, 1)
+        if suma > 100:
+            avisos.append(
+                f"los equipos de {servicio} suman {suma} % de la demanda: pasan del "
+                f"100 %. CE3X lo admite, pero el certificado declara mas demanda "
+                f"cubierta de la que hay — repasa los porcentajes.")
+        elif suma < 100:
+            avisos.append(
+                f"los equipos de {servicio} cubren el {suma} % de la demanda: el "
+                f"{round(100 - suma, 1)} % restante no lo da ninguno. Si hay otro "
+                f"aparato, anadelo.")
+    return avisos
 
 
 # --------------------------------------------------------------------------
@@ -423,6 +834,141 @@ def _superficie(entrada: Any, medida: float) -> float:
     return medida if v is None else v
 
 
+def _a_mano(valor: float, nota: str) -> dict:
+    """Una medida que ha puesto una PERSONA, con su procedencia.
+
+    Es el mismo diccionario que produce `provenance.manual()`; se escribe a
+    mano porque `tools/` no importa de `src/` (el generador se usa suelto, con
+    un JSON delante y sin el motor detras).
+    """
+    return {"value": round(valor, 2), "source": "USER_INPUT", "confidence": 0.5,
+            "evidence_type": "MANUAL", "note": nota}
+
+
+def _valor(el: dict, campo: str):
+    v = el.get(campo)
+    return v.get("value") if isinstance(v, dict) else v
+
+
+def _alto_de_planta(elementos: list, planta: str):
+    """La altura libre de una planta, tomada de una pared que YA esta medida.
+
+    No se inventa ni se vuelve a pedir: es la misma altura con la que el motor
+    midio todas las fachadas de esa planta, asi que una pared dibujada a mano
+    sale con la misma que sus vecinas.
+    """
+    for el in elementos:
+        if el.get("planta") == planta and _valor(el, "alto"):
+            return _valor(el, "alto")
+    return None
+
+
+def aplicar_paredes(geo: dict, cfg: dict):
+    """Las paredes que el certificador ha MOVIDO o DIBUJADO.
+
+    Catastro dibuja el perimetro de lo construido y se equivoca: un tabique que
+    se ve perfectamente sobre la cartografia esta medio metro a un lado, o
+    directamente no esta. Con el plano delante el certificador lo ve, y esto es
+    lo que le deja corregirlo — pero lo que sale de aqui es una SUPERFICIE que
+    va a un certificado, asi que se MIDE aqui y se AVISA siempre.
+
+    REGLA — la medida la hace el motor, no el navegador. Le llegan los dos
+    puntos tal cual se han soltado sobre el plano y de ahi sale el largo.
+
+    Las coordenadas son las del LIENZO, y eso no es una aproximacion: el lienzo
+    es el mundo trasladado y con la Y del reves (`plano_svg.plantas`), y una
+    traslacion con un espejo CONSERVA LAS DISTANCIAS. Un metro del lienzo es un
+    metro del edificio, asi que no hay que deshacer nada para medir.
+
+    La superficie es largo x alto, con la MISMA altura de planta con la que el
+    motor midio las demas paredes de esa planta.
+    """
+    elementos = [dict(el) for el in geo.get("elementos", [])]
+    paredes = cfg.get("paredes") or {}
+    avisos = []
+
+    def largo_de(pts):
+        try:
+            (ax, ay), (bx, by) = pts[0], pts[-1]
+            L = math.hypot(float(bx) - float(ax), float(by) - float(ay))
+        except (TypeError, ValueError, IndexError):
+            return None
+        # Menos de esto no es una pared: es un resbalon del raton.
+        return L if L >= 0.2 else None
+
+    por_id = {el["id"]: el for el in elementos}
+
+    for ident, cambio in (paredes.get("movidas") or {}).items():
+        el = por_id.get(ident)
+        if el is None:
+            avisos.append(f"{ident}: se ha movido una pared que ya no esta en la "
+                          f"geometria; no se escribe el cambio")
+            continue
+        L = largo_de((cambio or {}).get("lienzo") or [])
+        alto = _valor(el, "alto")
+        if L is None or not alto:
+            avisos.append(f"{ident}: no se ha podido medir la pared movida; se "
+                          f"escribe como la midio Catastro")
+            continue
+        antes_l = _valor(el, "largo") or 0
+        antes_s = _valor(el, "superficie") or 0
+        el["largo"] = _a_mano(L, "movida por el certificador sobre el plano")
+        el["superficie"] = _a_mano(L * float(alto), "largo x alto de la planta")
+        # Una pared que se desliza en paralelo mide LO MISMO y solo cambia de
+        # sitio — y ahi repetir la cifra dos veces ("6.53 m, donde Catastro la
+        # mide 6.53 m") se lee como un fallo. Lo que ha cambiado sigue
+        # importando: contra que da esa pared.
+        if abs(L - float(antes_l or 0)) < 0.01:
+            avisos.append(
+                f"{ident}: la ha MOVIDO el certificador; sigue midiendo "
+                f"{L:.2f} m y {L * float(alto):.2f} m2, solo cambia de sitio")
+        else:
+            avisos.append(
+                f"{ident}: la ha MOVIDO el certificador — {L:.2f} m y "
+                f"{L * float(alto):.2f} m2, donde Catastro la mide "
+                f"{antes_l:.2f} m y {antes_s:.2f} m2")
+
+    for nueva in (paredes.get("nuevas") or []):
+        ident = str((nueva or {}).get("id") or "").strip()
+        planta = str((nueva or {}).get("planta") or "").strip()
+        if not ident or not planta:
+            continue
+        if ident in por_id:
+            avisos.append(f"{ident}: ya hay un cerramiento con ese nombre; la pared "
+                          f"dibujada no se escribe")
+            continue
+        L = largo_de(nueva.get("lienzo") or [])
+        alto = _alto_de_planta(elementos, planta)
+        if L is None or not alto:
+            avisos.append(f"{ident}: no se ha podido medir la pared dibujada "
+                          f"(hacen falta sus dos extremos y la altura de la planta)")
+            continue
+        tipo = str(nueva.get("tipo") or "PARTICION_VERTICAL").upper()
+        el = {
+            "id": ident, "planta": planta, "nivel": nueva.get("nivel"),
+            "tipo": tipo, "subtipo": "DIBUJADA",
+            "contacto": "", "espacio_origen": "", "espacio_destino": "",
+            # Una PARTICION no lleva orientacion —la de una fachada es la de su
+            # normal exterior, y aqui no hay poligono del que sacarla—, asi que
+            # se deja vacia. Es ademas lo que hace `classifier` con las
+            # particiones que mide el motor.
+            "orientacion": nueva.get("orientacion") or None, "azimut": None,
+            "largo": _a_mano(L, "dibujada por el certificador sobre el plano"),
+            "alto": _a_mano(float(alto), "altura de planta de sus vecinas"),
+            "superficie": _a_mano(L * float(alto), "largo x alto de la planta"),
+            "confianza": 0.5, "requiere_revision": True,
+            "nota": "pared dibujada por el certificador",
+            "ring": None, "segmento_origen": None, "geometria_wkt": None,
+        }
+        elementos.append(el)
+        por_id[ident] = el
+        avisos.append(
+            f"{ident}: pared DIBUJADA por el certificador — {L:.2f} m y "
+            f"{L * float(alto):.2f} m2. Catastro no la tiene")
+
+    return elementos, avisos
+
+
 def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
     """Devuelve (pickle 3, avisos)."""
     cfg = datos["envolvente"]
@@ -437,9 +983,39 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
 
     # medianeras que el certificador ha marcado como particion vertical
     como_particion = set(cfg.get("medianeras_como_particion", []))
+    # Y, mas general: el certificador puede RECLASIFICAR cualquier pared. Lo que
+    # Catastro dice de una pared es una deduccion geometrica —hay edificio
+    # pegado al otro lado, o no lo hay— y se equivoca: un cobertizo sin dar de
+    # alta convierte una medianera en fachada, y un patio compartido, al reves.
+    # Con los colindantes a la vista en la pantalla, el certificador lo ve; esto
+    # es lo que le deja corregirlo.
+    reclasificado = {k: str(v).upper()
+                     for k, v in (cfg.get("reclasificar") or {}).items() if v}
+    # El NOMBRE de cada cerramiento, si el certificador lo ha cambiado. Es lo
+    # que va a ver en CE3X, y la inicial dice de un vistazo lo que es: una
+    # pared que pasa a particion deja de llamarse `FBE1` y pasa a `PBE1`.
+    # Los huecos ya vienen apuntando al nombre nuevo (lo traduce la vista).
+    renombrado = {k: str(v).strip() for k, v in (cfg.get("renombrar") or {}).items()
+                  if str(v or "").strip()}
+    # La U de UNA pared concreta. La tabla de la epoca vale para el edificio,
+    # pero una pared puede estar aislada y las demas no —una fachada rehecha, un
+    # patio cerrado despues— y escribirlas todas iguales es declarar un edificio
+    # que no existe. Lo que se ponga aqui manda sobre `termicas`.
+    u_pared = {}
+    for k, v in (cfg.get("u_por_cerramiento") or {}).items():
+        try:
+            n = float(str(v).replace(",", "."))
+        except (TypeError, ValueError):
+            continue
+        if n >= 0:
+            u_pared[k] = n
     plantas = set(cfg["incluir_plantas"])
     excluidos = set(cfg["excluir_ids"]["ids"])
-    avisos: list[str] = []
+
+    # Lo que el certificador ha MOVIDO o DIBUJADO sobre el plano, ya medido. Va
+    # lo PRIMERO: de aqui salen superficies que van al certificado, y todo lo de
+    # abajo —reclasificar, renombrar, la U— tiene que verlas como una pared mas.
+    elementos, avisos = aplicar_paredes(geo, cfg)
 
     def medida(el: dict, campo: str):
         """Cada medida viene envuelta con su procedencia; aqui solo el numero."""
@@ -447,25 +1023,50 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
         return v.get("value") if isinstance(v, dict) else v
 
     cerramientos: list[list] = []
-    for el in geo["elementos"]:
+    for el in elementos:
         ident, tipo, planta = el["id"], el["tipo"], el["planta"]
         if ident in excluidos or planta not in plantas:
             continue
+        if ident in reclasificado and reclasificado[ident] != tipo:
+            avisos.append(
+                f"{ident}: se escribe como {reclasificado[ident]} y Catastro lo "
+                f"clasifica como {tipo} (lo ha cambiado el certificador)")
+            tipo = reclasificado[ident]
+        if tipo == "PARTICION_VERTICAL":
+            # Se escribe por la rama de la medianera, que ya sabe emitir una
+            # particion con su U. Asi las tres opciones que ve el certificador
+            # —fachada, medianera, particion— salen de un solo camino.
+            como_particion = como_particion | {ident}
+            tipo = "MEDIANERA"
         sup_medida = medida(el, "superficie")
         zona = por_nivel.get(el.get("nivel"), espacio) if auto else espacio
+        # El nombre puede cambiarlo el certificador; `ident` NO se toca, que es
+        # la clave con la que se comprueba todo lo demas.
+        nombre = renombrado.get(ident, ident)
+
+        def conU(term_base):
+            """El bloque termico de ESTA pared, con su U si se le ha puesto."""
+            if ident not in u_pared:
+                return term_base
+            propia = dict(term_base)
+            propia["u"] = u_pared[ident]
+            avisos.append(
+                f"{ident}: U {u_pared[ident]} W/m2K puesta a mano "
+                f"(la de la epoca es {term_base['u']})")
+            return propia
 
         if tipo == "FACHADA":
             cerramientos.append(muro(
-                f"{ident} {el['subtipo']}", sup_medida, el["orientacion"],
-                medida(el, "largo"), medida(el, "alto"), zona, term["fachada"]))
+                f"{nombre} {el['subtipo']}", sup_medida, el["orientacion"],
+                medida(el, "largo"), medida(el, "alto"), zona, conU(term["fachada"])))
         elif tipo == "MEDIANERA":
             # Una medianera es adiabatica SOLO si al otro lado hay vivienda. Si
             # el certificador sabe que hay un garaje, deja de serlo y pasa a ser
             # una particion vertical con su U: por ahi si se pierde calor.
             if ident in como_particion:
                 cerramientos.append(particion(
-                    f"{ident} PARTICION CON EL VECINO", sup_medida, "vertical",
-                    zona, term["particion_vertical"],
+                    f"{nombre} PARTICION CON EL VECINO", sup_medida, "vertical",
+                    zona, conU(term["particion_vertical"]),
                     largo=medida(el, "largo"), alto=medida(el, "alto")))
                 avisos.append(
                     f"{ident}: escrito como PARTICION VERTICAL, no como medianera "
@@ -473,8 +1074,8 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
                     f"habitable). Deja de ser adiabatico.")
             else:
                 cerramientos.append(medianera(
-                    f"{ident} MEDIANERA", sup_medida,
-                    medida(el, "largo"), medida(el, "alto"), zona, term["medianera"]))
+                    f"{nombre} MEDIANERA", sup_medida,
+                    medida(el, "largo"), medida(el, "alto"), zona, conU(term["medianera"])))
         elif tipo == "SUELO":
             sup = _superficie(cfg.get("suelo"), sup_medida)
             if abs(sup - sup_medida) > 0.01:
@@ -482,7 +1083,7 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
                     f"{ident}: se escribe {sup} m2 (decision del certificador) y la "
                     f"geometria mide {sup_medida} m2")
             cerramientos.append(suelo_terreno(
-                f"{ident} SUELO EN TERRENO", sup, zona, term["suelo_terreno"]))
+                f"{nombre} SUELO EN TERRENO", sup, zona, conU(term["suelo_terreno"])))
         elif tipo == "CUBIERTA":
             sup = _superficie(cfg.get("cubierta"), sup_medida)
             if abs(sup - sup_medida) > 0.01:
@@ -490,13 +1091,13 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
                     f"{ident}: se escribe {sup} m2 (derivado de la superficie de "
                     f"vivienda) y la geometria mide {sup_medida} m2")
             cerramientos.append(cubierta(
-                f"{ident} CUBIERTA", sup, zona, term["cubierta"]))
+                f"{nombre} CUBIERTA", sup, zona, conU(term["cubierta"])))
         elif tipo == "PARTICION_INTERIOR_HORIZONTAL":
             sup = _superficie(cfg.get("particion_superior"), sup_medida)
             cerramientos.append(particion(
-                f"{ident} PARTICION", sup, term["particion_superior"].get(
+                f"{nombre} PARTICION", sup, term["particion_superior"].get(
                     "sentido", "horizontal superior"),
-                zona, term["particion_superior"]))
+                zona, conU(term["particion_superior"])))
         else:
             avisos.append(f"{ident}: tipo {tipo} no contemplado, NO se escribe")
 
@@ -507,7 +1108,7 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
         cerramientos.append(particion(
             "PV01 PARTICION CON ALMACEN PB (ESTIMADA - MEDIR EN VISITA)",
             _v(pv["superficie"], "particion_vertical.superficie"), "vertical",
-            espacio, term["particion_vertical"],
+            espacio, conU(term["particion_vertical"]),
             largo=pv.get("largo", ""), alto=pv.get("alto", "")))
         avisos.append(f"PV01: superficie ESTIMADA, no medida. {pv['de']}")
 
@@ -716,11 +1317,18 @@ def imagen(ruta: Any) -> str:
     import io as _io
 
     fuente: Any = _bytes_de_imagen(ruta)
+    # Como se la llama en los avisos. Con BYTES no hay ningun fichero del que
+    # sacar un nombre, y el aviso de "fichero incompleto" lo daba por hecho:
+    # `p.name` reventaba con un UnboundLocalError justo en el caso que ese
+    # aviso existe para contar. Lo dispara la foto de fachada del Catastro,
+    # que llega mal terminada mas a menudo de lo que parece.
+    origen = "la imagen recibida"
     if fuente is None:
         p = Path(ruta)
         if not p.is_file():
             raise GeneracionError(f"no existe la imagen {p}")
         fuente = p
+        origen = p.name
 
     im = Image.open(fuente)
     try:
@@ -738,7 +1346,7 @@ def imagen(ruta: Any) -> str:
             im.load()
         finally:
             ImageFile.LOAD_TRUNCATED_IMAGES = False
-        AVISOS_IMAGEN.append(f"{p.name}: el fichero esta INCOMPLETO ({exc}). "
+        AVISOS_IMAGEN.append(f"{origen}: el fichero esta INCOMPLETO ({exc}). "
                              f"Se usa lo que se ha podido leer.")
     if im.mode not in ("RGB", "RGBA"):
         im = im.convert("RGB")
@@ -819,6 +1427,223 @@ def construir_administrativos(datos: dict, plantilla: list) -> list:
     out[18] = _opcional(a["cliente_cp"])
     # Los del tecnico ya se han puesto arriba, o se han dejado como estaban.
     return out
+
+
+# --------------------------------------------------------------------------
+# La MEDIDA DE MEJORA (pickles 5 y 6)
+# --------------------------------------------------------------------------
+#
+# Un grupo de medidas de mejora es «el mismo edificio con la instalacion del
+# CEE final»: medido sobre el .cex de 26RES060_186 que guardo el certificador,
+# su `cerramientosMejorados`, `huecosMejorados` y `puentesTermicosMejorados`
+# son COPIA LITERAL de los tres primeros del pickle 3, y su `datosInstalaciones`
+# es exactamente el pickle 4 del CEE final. Nada de eso hay que inventarlo.
+#
+# REGLA — lo que CALCULA CE3X se deja VACIO, nunca a ojo. El ahorro y los dos
+# `datosEdificio*` llevan dentro `datosResultados` (749 claves: demandas,
+# emisiones y limites de calificacion). Eso es la salida de su motor de
+# calculo, y este proyecto no calcula nada termico. Rellenarlos con los de otro
+# fichero pondria en el informe los ahorros de OTRA vivienda.
+#
+# Asi que la medida se entrega DEFINIDA y SIN CALCULAR: al abrir el .cex, el
+# certificador solo tiene que pulsar «Actualizar» en Medidas de Mejora. El
+# analisis economico sabemos escribirlo entero porque su forma sin calcular
+# esta EN EL FICHERO: `analisisFacturas` del caso real trae `''` en los siete
+# numeros, que es justo como queda lo que aun no se ha calculado.
+
+_MM = "MedidasDeMejora.objetoGrupoMejoras"
+
+#: Los `sistemas*MM` del grupo son el contenido de cada slot del pickle 4, con
+#: el nombre que le da el dialogo de medidas. El orden es el de `SLOTS`.
+SLOT_A_MM = {
+    "ACS": "sistemasACSMM", "calefaccion": "sistemasCalefaccionMM",
+    "refrigeracion": "sistemasRefrigeracionMM",
+    "climatizacion": "sistemasClimatizacionMM",
+    "mixto2": "sistemasMixto2MM", "mixto3": "sistemasMixto3MM",
+    "renovable": "sistemasContribucionesMM", "iluminacion": "sistemasIluminacionMM",
+    "ventilacion": "sistemasVentilacionMM", "ventiladores": "sistemasVentiladoresMM",
+    "bombas": "sistemasBombasMM", "": "sistemasTorresRefrigeracionMM",
+}
+
+
+def _reemitible(v: Any) -> Any:
+    """Un dato LEIDO de un .cex, listo para volver a escribirse.
+
+    `leer_cex` no construye nada: los objetos de CE3X vuelven como `Opaco`. Para
+    copiarlos a otro pickle hay que decirle al emisor que son instancias, y eso
+    es separar el nombre del modulo del de la clase. No se importa ni se llama
+    nada: sigue siendo texto leido del disco.
+    """
+    if isinstance(v, L.Opaco):
+        modulo, _, clase = v.clase.rpartition(".")
+        return P.Instancia(modulo, clase, _reemitible(v.estado))
+    if isinstance(v, dict):
+        return {Cadena(k) if isinstance(k, str) else k: _reemitible(x)
+                for k, x in v.items()}
+    if isinstance(v, list):
+        return [_reemitible(x) for x in v]
+    if isinstance(v, tuple):
+        return tuple(_reemitible(x) for x in v)
+    return v
+
+
+def _sin_calcular() -> P.Instancia:
+    """Un resultado economico en blanco, con la forma que tiene en el fichero."""
+    demandas = lambda: P.Instancia(_MM, "ResultadoDemandasyConsumosAnalisisEconomicoConjuntoMM", {
+        Cadena("ddaBrutaCal"): 0.0, Cadena("ddaNetaCal"): 0.0,
+        Cadena("ddaBrutaRef"): 0.0, Cadena("ddaNetaRef"): 0.0,
+        Cadena("ddaBrutaACS"): 0.0, Cadena("ddaNetaACS"): 0.0,
+        Cadena("diccCal"): {}, Cadena("diccRef"): {}, Cadena("diccACS"): {},
+        Cadena("diccIlum"): {}, Cadena("diccBombas"): {},
+        Cadena("diccVentiladores"): {}, Cadena("diccTorresRef"): {},
+        Cadena("diccContribuciones"): {},
+    })
+    return P.Instancia(_MM, "ResultadoAnalisisEconomicoConjuntoMM", {
+        Cadena("precioAnual_CB"): "", Cadena("precioAnual_CM"): "",
+        Cadena("ahorroEconomico"): "", Cadena("payBack"): "", Cadena("van"): "",
+        Cadena("resultadosCB"): demandas(), Cadena("resultadosCM"): demandas(),
+    })
+
+
+def construir_medida(m: dict, envolvente: list, instalaciones: list,
+                     ) -> tuple[list, list, list[str]]:
+    """UN grupo de medidas (pickle 5) y su fila del resumen (pickle 6).
+
+    `envolvente` es el pickle 3 de ESTE fichero (la medida no toca la obra) e
+    `instalaciones` es el pickle 4 **de la medida**: el del edificio con el
+    cambio que esa medida propone —la aerotermia sustituyendo a la caldera, o
+    el autoconsumo añadido a lo que ya hay—. Lo compone quien llama, porque
+    cada medida propone algo distinto.
+    """
+    avisos: list[str] = []
+    nombre = str((m or {}).get("nombre") or "").strip()
+    if not nombre:
+        return [], [], ["Sin nombre de la medida de mejora: no se escribe ninguna."]
+
+    sistemas = {v: [] for v in SLOT_A_MM.values()}
+    for slot, equipos in zip(SLOTS, instalaciones):
+        sistemas[SLOT_A_MM[slot]] = _reemitible(equipos)
+
+    economico = P.Instancia(_MM, "AnalisisEconomicoConjuntoMM", {
+        Cadena("inversionInicial"): [_numf(m.get("inversion")) or 0.0],
+        Cadena("costeMantenimiento"): [_numf(m.get("coste_mantenimiento")) or 0.0],
+        Cadena("vidaUtil"): [_numf(m.get("vida_util")) or 0.0],
+        Cadena("analisisTeorico"): _sin_calcular(),
+        Cadena("analisisFacturas"): _sin_calcular(),
+    })
+
+    instal = _reemitible(instalaciones)
+    estado = {
+        Cadena("nombre"): nombre,
+        Cadena("caracteristicas"): str(m.get("caracteristicas") or ""),
+        Cadena("otrosDatos"): str(m.get("otros_datos") or ""),
+        Cadena("datosInstalaciones"): instal,
+        Cadena("mejoras"): [[], ["", instal, True]],
+        Cadena("medidasMejoraEnvolvente"): [],
+        Cadena("cerramientosMejorados"): _reemitible(envolvente[0]),
+        Cadena("huecosMejorados"): _reemitible(envolvente[1]),
+        Cadena("puentesTermicosMejorados"): _reemitible(envolvente[2]),
+        Cadena("analisisEconomico"): economico,
+        # Lo que calcula CE3X. Se entrega vacio a proposito: ver la nota de
+        # arriba. El certificador pulsa «Actualizar» y los rellena su motor.
+        Cadena("ahorro"): [0.0] * 6,
+        Cadena("datosEdificioOriginal"): None,
+        Cadena("datosNuevoEdificio"): None,
+    }
+    for clave in SLOT_A_MM.values():
+        estado[Cadena(clave)] = sistemas[clave]
+
+    avisos.append(f"Medida de mejora «{nombre}» escrita SIN calcular: abre "
+                  "Medidas de Mejora en CE3X y pulsa Actualizar para que salgan "
+                  "su ahorro y su calificacion.")
+
+    fila = ["Nuevas Instalaciones", nombre, "Instalaciones",
+            _num(m.get("vida_util")), _num(m.get("inversion")),
+            _num(m.get("coste_mantenimiento") or 0)]
+    return [P.Instancia(_MM, "grupoMedidasMejora", estado)], fila, avisos
+
+
+#: Los PRECIOS DE LA ENERGIA del analisis economico de CE3X: diez casillas que
+#: se tecleaban a mano en cada certificado. Estos son los que usa Brokergy,
+#: copiados del `.cex` revisado de 26RES060_186 y contrastados con el corpus:
+#: de 238 ficheros con precios, 75 llevan exactamente este juego y son los mas
+#: recientes (desde 2025-12; su mediana es 2026-05). Otros 81 son el mismo con
+#: la casilla 3 —la que mas se mueve— en 0.3, y van de 2023 a 2025.
+#:
+#: REGLA — se escriben solo en el HUECO. Un certificado que ya los trae los ha
+#: tecleado alguien, y pisarlos cambiaria el analisis economico de sus medidas
+#: sin que nadie lo note. Van como TEXTO porque asi los guarda CE3X.
+PRECIOS_ENERGIA = ["0.0717", "0.0934", "0.2", "0.1095", "0.15",
+                   "0.0934", "0.05", "0.05", "4.5", "0.92"]
+
+
+def construir_resumen_medidas(filas: list[list], plantilla: Any) -> list:
+    """El pickle 6: los precios de la energia y una fila por medida."""
+    base = (list(plantilla) if isinstance(plantilla, list) and len(plantilla) == 4
+            else [[], [""] * 10, [], None])
+    precios = base[1] if isinstance(base[1], list) and len(base[1]) == 10 else [""] * 10
+    base[1] = [p if str(p).strip() else PRECIOS_ENERGIA[i]
+               for i, p in enumerate(precios)]
+    base[2] = [f for f in (filas or []) if f]
+    return base
+
+
+# --------------------------------------------------------------------------
+# El cuadro de texto del informe (pickle 11)
+# --------------------------------------------------------------------------
+
+#: Las SIETE casillas del dialogo «Opciones del Informe» de CE3X, medidas sobre
+#: 59 de 60 .cex del corpus (el unico que no lo trae es una plantilla virgen,
+#: donde el pickle 11 es una lista VACIA). Sin medidas de mejora definidas, la
+#: casilla 0 va vacia: es como lo escriben los 19 ficheros sin medidas.
+_INFORME_VACIO = ["", "", "", "", "", ["", "", ""], ["", "", ""]]
+
+
+def _fecha_cex(valor: Any) -> list[str] | None:
+    """'2026-09-13' -> ['13', '09', '2026'], que es como lo guarda CE3X.
+
+    Devuelve None si no hay fecha: una casilla de fecha en blanco es mejor que
+    una fecha inventada, porque esa fecha se imprime en el certificado.
+    """
+    texto = str(valor or "").strip()
+    if not texto:
+        return None
+    trozos = texto[:10].split("-")
+    if len(trozos) != 3 or not all(t.isdigit() for t in trozos):
+        return None
+    ano, mes, dia = trozos
+    return [f"{int(dia):02d}", f"{int(mes):02d}", ano]
+
+
+def construir_informe(datos: dict, plantilla: Any) -> tuple[list, list[str]]:
+    """Las casillas del informe: el texto de las pruebas y las dos fechas.
+
+    Es lo unico del dialogo que sale del expediente. La casilla 0 (el conjunto
+    de medidas que se incluye en el informe) NO se toca: la escribe CE3X al
+    elegir el grupo, y ponerle un nombre que no exista en el fichero dejaria el
+    informe apuntando a una medida que no esta.
+    """
+    inf = datos.get("informe") or {}
+    base = (list(plantilla) if isinstance(plantilla, list) and len(plantilla) == 7
+            else list(_INFORME_VACIO))
+    avisos: list[str] = []
+
+    texto = str(inf.get("pruebas") or "").strip()
+    if texto:
+        base[3] = texto
+    else:
+        avisos.append("Sin texto de pruebas y comprobaciones: ese cuadro del"
+                      " informe sale vacio y hay que escribirlo en CE3X.")
+
+    for clave, i, que in (("fecha_emision", 5, "emision"),
+                          ("fecha_visita", 6, "visita")):
+        fecha = _fecha_cex(inf.get(clave))
+        if fecha:
+            base[i] = fecha
+        elif not (isinstance(base[i], list) and any(base[i])):
+            avisos.append(f"No consta la fecha de {que}: se deja en blanco para"
+                          " ponerla en CE3X.")
+    return base, avisos
 
 
 # --------------------------------------------------------------------------
@@ -955,11 +1780,14 @@ def main(argv: list[str] | None = None) -> int:
         instalaciones, av_ins = construir_instalaciones(
             datos, L.leer(base, INSTALACIONES), zonas_decl)
         avisos.extend(av_ins)
+        informe, av_inf = construir_informe(datos, L.leer(base, INFORME))
+        avisos.extend(av_inf)
         nuevos = {
             ADMINISTRATIVOS: construir_administrativos(datos, L.leer(base, ADMINISTRATIVOS)),
             GENERALES: construir_generales(datos, L.leer(base, GENERALES)),
             ENVOLVENTE: envolvente,
             INSTALACIONES: instalaciones,
+            INFORME: informe,
         }
         salida = montar(args.plantilla, nuevos)
     except GeneracionError as exc:

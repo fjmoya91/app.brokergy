@@ -11,7 +11,13 @@
 // `fotovoltaica` va aquí por lo mismo: su `estado` es un enum en minúscula
 // ('si' | 'futuro' | 'no') que la app compara con ===. Blacklistear la clave del
 // objeto protege el sub-árbol entero de una vez.
-const BLACKLIST = ['id', 'id_oportunidad', 'id_cliente', 'password', 'token', 'reformaType', 'method', 'type', 'icon', 'link', 'url', 'ficha', 'tipo_emisor', 'tipo_equipo_nuevo', 'metodo_scop', 'hibridacion_metodo', 'rendimiento_id', 'comb_', 'datos_calculo', 'fotovoltaica'];
+// `envolvente` (cee.envolvente) igual, y ahí llegó a REVENTAR la pantalla: sus
+// huecos llevan `tipo: 'ventana'` y `estado: 'medido'`, y en MAYÚSCULAS
+// `POR_DEFECTO['VENTANA']` es undefined — duplicar un hueco tumbaba la ventana
+// entera de la envolvente. Lo escribe una RPC que NO normaliza, pero el detalle
+// del expediente reenvía `cee` completa al autoguardar y se lo llevaba por
+// delante. Medido en 26RES060_186.
+const BLACKLIST = ['id', 'id_oportunidad', 'id_cliente', 'password', 'token', 'reformaType', 'method', 'type', 'icon', 'link', 'url', 'ficha', 'tipo_emisor', 'tipo_equipo_nuevo', 'metodo_scop', 'hibridacion_metodo', 'rendimiento_id', 'comb_', 'datos_calculo', 'fotovoltaica', 'envolvente'];
 
 function normalizeData(obj) {
     if (!obj || typeof obj !== 'object') return obj;

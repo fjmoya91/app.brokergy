@@ -36,6 +36,24 @@ def _coords(wkt: str) -> list[tuple[float, float]]:
     return list(zip(nums[0::2], nums[1::2]))
 
 
+def _anillos(wkt: str) -> list[list[tuple[float, float]]]:
+    """Los anillos de un POLYGON, por separado.
+
+    `_coords` vale para una linea, pero un edificio de Catastro trae PATIOS:
+    son anillos interiores del mismo poligono, y leidos de corrido salen unidos
+    al contorno por una diagonal que cruza la casa. Se parte por los parentesis
+    de cada anillo.
+    """
+    if not wkt:
+        return []
+    salida = []
+    for trozo in re.findall(r"\(([^()]*)\)", wkt):
+        pts = _coords(trozo)
+        if len(pts) >= 3:
+            salida.append(pts)
+    return salida
+
+
 def _nombre(codigo: str) -> str:
     if codigo in NOMBRE_PLANTA:
         return NOMBRE_PLANTA[codigo]
@@ -108,10 +126,40 @@ def plantas(geo: dict, excluir: set[str] | None = None,
                     for x, y in m["_pts"]]
         del m["_pts"]
 
+    def al_lienzo(pts):
+        return [[round(x - minx + margen, 2), round(maxy - y + margen, 2)]
+                for x, y in pts]
+
+    contexto = _contexto(geo, al_lienzo)
     superficies = _superficies(geo)
+    ancho = round(maxx - minx + margen * 2, 2)
+    alto = round(maxy - miny + margen * 2, 2)
+    entorno = _entorno(contexto, ancho, alto)
     return {
-        "ancho": round(maxx - minx + margen * 2, 2),
-        "alto": round(maxy - miny + margen * 2, 2),
+        "ancho": ancho,
+        "alto": alto,
+        # DONDE esta el lienzo en el mundo. El plano es la misma coordenada
+        # trasladada (`x - minx + margen`, y la Y invertida), asi que con esto
+        # se puede pedir la cartografia del Catastro por su WMS con ESTE
+        # rectangulo y encaja pixel a pixel, sin ajustar nada a ojo. Se da el
+        # del ENTORNO porque es el mas amplio: la misma imagen sirve para los
+        # dos encuadres.
+        "georef": _georef(geo, minx, miny, maxx, maxy, margen, alto, entorno),
+        # Lo que hay ALREDEDOR, ya colocado sobre el mismo lienzo. No es
+        # decoracion: una medianera lo es por lo que hay AL OTRO LADO, y sin
+        # ver el edificio de al lado el certificador no puede juzgar si esa
+        # pared da a la calle, a un patio o al vecino — que es justo lo que la
+        # vista le pregunta. Se proyecta AQUI, donde estan las coordenadas.
+        "contexto": contexto,
+        # El encuadre AMPLIO, sobre las MISMAS coordenadas: para ver la manzana
+        # hay que alejarse, y al alejarse la casa se queda del tamano de un
+        # sello. Son dos tareas distintas —trabajar sobre las paredes y situar
+        # la casa entre las de al lado— y no caben en un solo encuadre: medido
+        # en 26RES060_186, con margen suficiente para que entre el contexto la
+        # casa baja al 50% del ancho y AUN ASI solo entra la mitad de los
+        # vecinos. Asi el navegador solo cambia el `viewBox`: ni un metro se
+        # recalcula, y el zoom sale exacto.
+        "entorno": entorno,
         "plantas": [
             {
                 "id": p,
@@ -122,6 +170,76 @@ def plantas(geo: dict, excluir: set[str] | None = None,
             }
             for p, ms in sorted(por_planta.items(), key=lambda kv: _orden(kv[0]))
         ],
+    }
+
+
+def _georef(geo: dict, minx, miny, maxx, maxy, margen, alto, entorno) -> dict:
+    """El rectangulo del lienzo en coordenadas del mundo.
+
+    Del lienzo al mundo: `x_mundo = x_lienzo + minx - margen` y
+    `y_mundo = maxy + margen - y_lienzo` (la Y va al reves en un SVG).
+
+    Se devuelve el del ENTORNO, que contiene al de la casa: pedir dos imagenes
+    seria pedirle dos veces al mismo WMS del que depende el buscador de la app.
+    """
+    crs = (geo.get("modelo") or {}).get("crs") or "EPSG:25830"
+    oeste = minx - margen + entorno["x"]
+    norte = maxy + margen - entorno["y"]
+    return {
+        "crs": crs,
+        # [oeste, sur, este, norte] — el orden del BBOX de un WMS 1.1.1.
+        "bbox": [round(oeste, 2), round(norte - entorno["alto"], 2),
+                 round(oeste + entorno["ancho"], 2), round(norte, 2)],
+        # Dónde va esa imagen DENTRO del lienzo, para colocarla sin calcular.
+        "en_el_lienzo": {"x": entorno["x"], "y": entorno["y"],
+                         "ancho": entorno["ancho"], "alto": entorno["alto"]},
+    }
+
+
+def _entorno(contexto: dict, ancho: float, alto: float) -> dict:
+    """El rectangulo que abarca la casa Y todo lo que la rodea."""
+    pts = [p for grupo in contexto.values() for anillo in grupo for p in anillo]
+    if not pts:
+        return {"x": 0, "y": 0, "ancho": ancho, "alto": alto}
+    xs = [p[0] for p in pts] + [0.0, ancho]
+    ys = [p[1] for p in pts] + [0.0, alto]
+    aire = 1.0            # un metro de respiro para que nada toque el borde
+    return {
+        "x": round(min(xs) - aire, 2),
+        "y": round(min(ys) - aire, 2),
+        "ancho": round(max(xs) - min(xs) + aire * 2, 2),
+        "alto": round(max(ys) - min(ys) + aire * 2, 2),
+    }
+
+
+def _contexto(geo: dict, al_lienzo) -> dict:
+    """Vecinos, parcela y huella del propio edificio, en coordenadas del SVG.
+
+    Se dibujan enteros aunque se salgan del lienzo: el navegador los recorta,
+    igual que el visor de Catastro recorta la manzana. Lo que hace falta ver es
+    la franja que TOCA cada pared, no la manzana entera — encuadrar para que
+    quepan todos dejaria la casa del tamano de un sello.
+    """
+    modelo = geo.get("modelo") or {}
+
+    def anillos_de(lista):
+        salida = []
+        for el in lista or []:
+            for anillo in _anillos(el.get("geometry_wkt") or ""):
+                salida.append(al_lienzo(anillo))
+        return salida
+
+    parcela = modelo.get("parcel")
+    return {
+        # Las masas construidas de al lado: lo que hace que una pared sea
+        # medianera de verdad.
+        "vecinos": anillos_de(modelo.get("neighbours")),
+        # Y las LINDES de alrededor, que es lo que dibuja el visor de Catastro:
+        # con solo las masas, un solar o un patio vecino salen en blanco y no
+        # se distingue de la calle.
+        "parcelas_vecinas": anillos_de(modelo.get("neighbour_parcels")),
+        "edificio": anillos_de(modelo.get("buildings")),
+        "parcela": anillos_de([parcela] if parcela else []),
     }
 
 

@@ -98,6 +98,12 @@ async function findCeeSectionFolderLink(driveFolderId, phase) {
 
 const matchSlot = (filename) => {
     const lower = (filename || '').toLowerCase();
+    // El borrador de envolvente que escribe la app (`… - CEE INICIAL_REVISAR.cex`)
+    // vive en ESTA misma carpeta y tiene la MISMA extensión que el .cex del
+    // técnico, pero no es su entrega: es un punto de partida para que lo abra
+    // en CE3X. Sin esta salida, la rejilla y el popup del certificador darían
+    // el certificado por presentado en cuanto se generase.
+    if (lower.endsWith('_revisar.cex')) return null;
     if (lower.endsWith('.xml')) return 'xml';
     if (lower.endsWith('.cex')) return 'cex';
     if (lower.endsWith('_reg.pdf')) return 'registro';

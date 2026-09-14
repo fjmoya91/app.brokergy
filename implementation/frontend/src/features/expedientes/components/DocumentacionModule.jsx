@@ -2,7 +2,7 @@ import React, { useState, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { toTitleCase } from '../logic/certMessages';
-import { unidadesSinSerie, countUnidades } from '../logic/aerotermiaUnits';
+import { unidadesSinSerie, countUnidades, acsEsOtraMaquina } from '../logic/aerotermiaUnits';
 import { AnexoIModal } from './AnexoIModal';
 import { AnexoCesionModal } from './AnexoCesionModal';
 import { FichaRes060Modal } from './FichaRes060Modal';
@@ -28,7 +28,8 @@ import { incidenciasFechasCifo } from '../logic/cifoFechas';
 import { IncidenciasSlotPanel } from './IncidenciasSlotPanel';
 import { readAnnexPrefs, orderAttachments } from '../logic/annexPrefs';
 import { ftAttachmentSlots, ftDocFields } from '../logic/fichasTecnicas';
-import { avisosCeeDocumento, ceeBaseDocumento, hayAvisosBloqueantes } from '../logic/ceeFases';
+import { avisosCeeDocumento, ceeBaseDocumento, hayAvisosBloqueantes, acsEnAlcance } from '../logic/ceeFases';
+import { ACS_METHOD, resolveDacs } from '../logic/demandaAcs';
 
 // Cada documento firmado vive en su subcarpeta de Drive: el RITE en
 // "7. LEGALIZACION RITE", las facturas en "5. FACTURAS" y el resto en "6. ANEXOS CAE".
@@ -1366,7 +1367,9 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             const hasAcs = inst.cambio_acs != null
                 ? !!(inst.cambio_acs === true || inst.cambio_acs === 'si')
                 : !!(op.datos_calculo?.inputs?.changeAcs === true || op.datos_calculo?.inputs?.incluir_acs === true);
-            if (hasAcs && !inst.misma_aerotermia_acs) {
+            // Un conjunto declara UNA máquina en los dos nodos: su serie ya se ha
+            // pedido arriba y volver a pedirla la daría por ausente.
+            if (hasAcs && acsEsOtraMaquina(inst)) {
                 const nAcs = countUnidades(inst.aerotermia_acs);
                 for (const n of unidadesSinSerie(inst.aerotermia_acs)) {
                     missing.push(nAcs > 1 ? `Número de Serie Ud. Interior (ACS) — equipo ${n}` : 'Número de Serie Ud. Interior (ACS)');
@@ -1382,6 +1385,20 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         // inicial. Que se esté usando la del inicial no es un dato que FALTE: es un
         // dato que hay que REVISAR, y de eso se encarga `avisosCeeDocumento`.
         const ceeBase = ceeBaseDocumento(cee).base;
+
+        // D_ACS tecleada: los modos que NO salen del certificado (los litros/día
+        // del CEE y el kWh/año del terciario) se quedan en 0 si nadie escribe la
+        // cifra, y el documento sale con "D_ACS = 0,00" y un ahorro de ACS nulo
+        // sin que nada lo delate. Solo se exige si el ACS entra en el documento.
+        const dacsTecleada = [ACS_METHOD.LITROS, ACS_METHOD.MANUAL].includes(cee.acs_method);
+        const faltaDacs = ['cifo', 'res060'].includes(docType)
+            && dacsTecleada && acsEnAlcance(inst)
+            && !(resolveDacs(cee, ceeBase).value > 0);
+        if (faltaDacs) {
+            missing.push(cee.acs_method === ACS_METHOD.LITROS
+                ? 'Demanda diaria de ACS (litros/día del certificado)'
+                : 'Demanda anual de ACS (kWh/año)');
+        }
 
         if (docType === 'cifo') {
             if (!isPresent(doc.fecha_inicio_cifo)) missing.push('Fecha Inicio CIFO (basada en facturas/certificados)');

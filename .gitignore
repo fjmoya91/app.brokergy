@@ -25,6 +25,9 @@ implementation/backend/scratch/
 
 # Volcados locales de la BD (datos de clientes — nunca subir)
 implementation/backend/scripts/backups/
+# Copias de seguridad de trabajo: llevan datos de expedientes REALES dentro y
+# este repo es publico.
+backups/
 
 # Tokens y credenciales generadas localmente
 implementation/backend/refresh_token.txt

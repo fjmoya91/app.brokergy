@@ -88,4 +88,32 @@ function acsComputaAhorro(inst) {
     return !!(inst.aerotermia_acs && inst.aerotermia_acs.aerotermia_db_id);
 }
 
-module.exports = { getUnidades, countUnidades, unidadesSinSerie, seriesPlanas, tipoEquipoNuevo, esTermoElectrico, esAcumuladorAcs, justificaScop, acsComputaAhorro };
+/**
+ * ¿Los dos nodos nombran la MISMA máquina? Espejo de `mismaMaquina` en la fuente
+ * ESM. Exige que esté IDENTIFICADA: dos nodos en blanco no son "el mismo equipo",
+ * son dos huecos, y darlos por uno escondería el que falta por rellenar.
+ */
+function mismaMaquina(a, b) {
+    const ua = getUnidades(a)[0], ub = getUnidades(b)[0];
+    if (!ua || !ub) return false;
+    const id = (u) => String((u && u.aerotermia_db_id) != null ? u.aerotermia_db_id : '').trim();
+    if (id(ua) && id(ub)) return id(ua) === id(ub);
+    const firma = (u) => [u && u.marca, (u && u.modelo) || (u && u.modelo_conjunto)]
+        .map(v => String(v || '').trim().toUpperCase()).filter(Boolean).join('|');
+    return !!firma(ua) && firma(ua) === firma(ub);
+}
+
+/**
+ * ¿El nodo de ACS es una SEGUNDA máquina, que hay que identificar por separado?
+ * Espejo de `acsEsOtraMaquina` en la fuente ESM: lo decide la MÁQUINA, no el
+ * flag `misma_aerotermia_acs`. Un CONJUNTO deja los dos nodos con el mismo modelo
+ * y el mismo nº de serie y el flag en false (su SCOP_dhw sí es propio); leer eso
+ * como dos equipos pide una serie que ya está declarada.
+ */
+function acsEsOtraMaquina(inst) {
+    if (!inst) return false;
+    if (inst.misma_aerotermia_acs) return false;
+    return !mismaMaquina(inst.aerotermia_acs, inst.aerotermia_cal);
+}
+
+module.exports = { getUnidades, countUnidades, unidadesSinSerie, seriesPlanas, tipoEquipoNuevo, esTermoElectrico, esAcumuladorAcs, justificaScop, acsComputaAhorro, mismaMaquina, acsEsOtraMaquina };

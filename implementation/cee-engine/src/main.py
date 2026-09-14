@@ -1,7 +1,7 @@
 """CLI (§18).
 
     python -m src.main 4410205WJ0641S0001JH
-    brokergy-geometry 4410205WJ0641S0001JH --output ./output --floor-height 2.70
+    brokergy-geometry 4410205WJ0641S0001JH --output ./output --floor-height 2.85
 """
 from __future__ import annotations
 
@@ -113,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
 
     o = Opciones(refcat=rc.parcela, output=args.output, data=args.data,
                  cache=args.cache,
-                 floor_height=args.floor_height if args.floor_height else 2.70,
+                 floor_height=args.floor_height if args.floor_height else 2.80,
                  floor_height_dada=args.floor_height is not None,
                  skip_lidar=args.skip_lidar, offline=args.offline,
                  refresh=args.refresh, tolerancia=args.tolerance,

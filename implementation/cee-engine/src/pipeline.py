@@ -36,7 +36,7 @@ class Opciones:
     output: Path = Path("output")
     data: Path = Path("data")
     cache: Path = Path("cache")
-    floor_height: float = 2.70
+    floor_height: float = 2.80
     floor_height_dada: bool = False
     skip_lidar: bool = False
     offline: bool = False
@@ -215,6 +215,18 @@ def construir_modelo(o: Opciones, rc: refcat_mod.ReferenciaCatastral,
             attrs=f.attrs))
     modelo.partes = partes
 
+    # Las parcelas de alrededor, tal cual las dibuja el visor de Catastro. No
+    # entran en ningun calculo: son para que el certificador SITUE la casa.
+    for f in feats.get("vecinos_parcelas", []):
+        if f.geometry is None:
+            continue
+        ref = "".join(ch for ch in str(f.attrs.get("nationalCadastralReference")
+                                       or f.attrs.get("localId") or "").upper()
+                      if ch.isalnum())[:14]
+        if ref == rc.parcela:          # la propia no es vecina
+            continue
+        modelo.neighbour_parcels.append(_objeto(f, crs))
+
     for f in feats.get("vecinos_edificios", []):
         if f.geometry is None:
             continue
@@ -267,7 +279,12 @@ def construir_modelo(o: Opciones, rc: refcat_mod.ReferenciaCatastral,
                 area=u.superficie_m2, use=u.uso, floor=u.planta, confidence=1.0,
                 attrs={"uso_literal": u.uso_literal, "planta_literal": u.planta_literal,
                        "escalera": u.escalera, "puerta": u.puerta,
+                       "codigo": u.codigo,
                        "habitable": u.habitable,
+                       # Lo que dice CATASTRO, aparte de lo que acabe mandando:
+                       # si el certificador cuenta un almacen como vivienda, el
+                       # fichero tiene que seguir diciendo que Catastro no lo era.
+                       "habitable_catastro": u.habitable,
                        "geometria": "NO DISPONIBLE en los servicios publicos de Catastro"}))
         if datos.unidades:
             modelo.diagnostics.add(
@@ -315,6 +332,72 @@ def _vecinos_en_nivel(modelo: Modelo, nivel: int):
         trozos = [p.geometry for p in modelo.neighbour_partes
                   if (p.plantas_bajo_rasante or 0) >= abs(nivel)]
     return unir(trozos)
+
+
+# ------------------------------------------ que construcciones CUENTAN
+def aplicar_seleccion(modelo: Modelo, incluidas) -> list[str]:
+    """Deja mandando la seleccion de la OPORTUNIDAD sobre el uso de Catastro.
+
+    POR QUE EXISTE: Catastro dice de que es cada trozo construido, y se
+    equivoca. Una planta puede constar como ALMACEN y ser vivienda —pasa a
+    menudo con las reformas sin declarar—, y al reves: un porche cerrado que
+    consta como vivienda y no calienta nadie. Al abrir la oportunidad se marca
+    en la ficha tecnica cuales cuentan, y de ahi sale la superficie con la que
+    se le prometio el ahorro al cliente. Esa misma marca tiene que llegar aqui,
+    o el `.cex` mide OTRO edificio que la propuesta que se firmo.
+
+    `incluidas` son los codigos `escalera/planta/puerta` marcados. Se aplica
+    sobre `attrs["habitable"]`, que es la llave de la que ya cuelga todo lo
+    demas —que plantas se dibujan y se miden (`plano_svg`), la superficie util
+    del `.cex` (`fichaCe3x`) y de que paredes se piden fotos—, asi que no hay
+    un camino paralelo que pueda divergir.
+
+    REGLA — sin seleccion NO se toca nada. El valor por defecto de la ficha
+    tecnica es "todas las de uso VIVIENDA", que es exactamente lo que ya hace
+    Catastro aqui: una oportunidad que nunca paso por esa pantalla tiene que
+    seguir midiendo igual que antes de que esto existiera.
+
+    Devuelve lo que ha CAMBIADO, para decirlo: que un almacen pase a contar
+    como vivienda es una decision de una persona y no puede ser invisible.
+    """
+    if not incluidas:
+        return []
+    marcadas = {str(c).strip() for c in incluidas if str(c).strip()}
+    cambios: list[str] = []
+    vistos: set[str] = set()
+
+    for s in modelo.spaces:
+        codigo = (s.attrs or {}).get("codigo")
+        if not codigo:
+            continue                      # del DXF: no viene de `lcons`
+        vistos.add(codigo)
+        antes = s.attrs.get("habitable")
+        ahora = codigo in marcadas
+        s.attrs["habitable"] = ahora
+        s.attrs["cuenta"] = ahora
+        if bool(antes) == ahora:
+            continue
+        cambios.append(
+            f"{codigo} ({s.attrs.get('uso_literal') or s.use}, "
+            f"{s.attrs.get('planta_literal') or s.floor}, {s.area} m2): "
+            + ("CUENTA como habitable aunque Catastro lo llame "
+               f"{s.attrs.get('uso_literal') or s.use}"
+               if ahora else
+               "NO cuenta, aunque Catastro lo tenga como "
+               f"{s.attrs.get('uso_literal') or s.use}"))
+
+    # Un codigo marcado que aqui no existe es que las dos listas ya no son la
+    # misma —Catastro ha cambiado, o la seleccion es de otra parcela—. Se dice:
+    # callarlo seria medir de menos sin que nadie se entere.
+    for c in sorted(marcadas - vistos):
+        cambios.append(f"la oportunidad marca la construccion {c}, que no esta "
+                       "en lo que devuelve Catastro hoy: comprueba la ficha tecnica")
+    if cambios:
+        modelo.diagnostics.add(
+            "CONSTRUCCIONES_SELECCIONADAS",
+            "las construcciones que cuentan las marco una persona en la "
+            f"oportunidad, no el uso de Catastro: {'; '.join(cambios)}")
+    return cambios
 
 
 # ------------------------------------------------------------- clasificacion
