@@ -68,6 +68,47 @@ export function CanalChip({ canal, nombre, activo, disponible, detalle, motivo, 
 }
 
 /**
+ * El MISMO canal, en pequeño y POR DESTINATARIO.
+ *
+ * El chip de la barra decide por dónde sale el envío entero; éste decide por
+ * dónde le llega a UNA persona, que no siempre es lo mismo: al comercial se le
+ * manda por WhatsApp, que es donde lee, y a administración por email. Sin esto
+ * había que enviar dos veces —una con cada canal marcado— y en la segunda vuelta
+ * el otro destinatario lo recibía repetido.
+ *
+ * Comparte glifo y color con el grande a propósito: es la misma decisión a otra
+ * escala, y dos iconos distintos para lo mismo se leen como dos cosas distintas.
+ */
+export function CanalMiniChip({ canal, activo, disponible, motivo, onClick, bloqueado = false }) {
+    const t = TONO_CANAL[canal];
+    const solido = canal === 'whatsapp';
+    const nombre = canal === 'email' ? 'email' : 'WhatsApp';
+    return (
+        <button
+            type="button"
+            role="switch"
+            aria-checked={!!activo && !!disponible}
+            aria-label={`Enviar por ${nombre} a este destinatario`}
+            disabled={!disponible || bloqueado}
+            onClick={onClick}
+            title={!disponible ? motivo : (activo ? `No enviar por ${nombre}` : `Enviar por ${nombre}`)}
+            className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border transition-all active:scale-90 ${
+                !disponible
+                    ? 'opacity-25 cursor-not-allowed border-white/10 bg-white/[0.02]'
+                    : activo
+                        ? `${t.bloque} border-transparent`
+                        : 'border-white/15 bg-white/[0.02] hover:border-white/35'
+            }`}
+        >
+            <svg className={`w-[14px] h-[14px] ${activo && disponible ? 'text-black' : 'text-white/45'}`} viewBox="0 0 24 24"
+                fill={solido ? 'currentColor' : 'none'} stroke={solido ? 'none' : 'currentColor'} strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d={ICONO_CANAL[canal]} />
+            </svg>
+        </button>
+    );
+}
+
+/**
  * Por qué no se puede enviar (null = se puede).
  *
  * "Marca un canal" solo vale cuando hay alguno QUE marcar: si el destinatario no

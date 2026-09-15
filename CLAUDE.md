@@ -5678,6 +5678,65 @@ pintaba dos tarjetas con el mismo nombre, el mismo teléfono y el mismo email: m
 dos le mandaba la propuesta por duplicado a la misma persona
 (`mismoPartnerEInstalador`).
 
+### Y a la propuesta se ELIGE quién de la empresa la recibe (2026-09-15)
+
+El popup de **Enviar propuesta** ofrecía UNA persona por partner: la que resolvía el
+desvío de notificaciones (`contacto_notificaciones_activas`), o el canal general si no
+había. O sea, exactamente el fallo de la regla del reparto pero en el otro extremo del
+proceso: en INSTALACIONES MIGUELTURRA se leía "TERE · 926241611", que es el nombre de una
+persona sobre el teléfono de la centralita, y **AURELIO —comercial, con su propio móvil—
+no se podía elegir sin salir a su ficha**. Ahora la tarjeta del partner es la EMPRESA y
+debajo van sus personas con la MISMA fila que los popups del expediente
+(`ContactoPickRow`), marcadas por defecto las que le tocan.
+
+**REGLA — la propuesta es asunto COMERCIAL** (`ROL_PROPUESTA`), igual que lo dice
+`rolDeDocumento` en el backend: la recibe quien lleva la obra con el cliente, no quien
+firma los certificados. Las personas y el marcado por defecto salen de
+[docContacts.js](implementation/frontend/src/features/expedientes/utils/docContacts.js)
+(`instaladorContacts` + `defaultContactIds`), que es la misma fuente que el CIFO, el RITE
+y "solicitar lo que falta" — no hay una segunda lista que pueda decir otra cosa.
+
+**REGLA — un modo marcado sin nadie detrás no existe.** Desmarcar la última persona
+desmarca la empresa entera, y volver a marcarla restaura las que le tocan. Y si lo único
+marcado es el canal general se **DICE** (`avisoReparto`), con el nombre del partner
+delante: un desvío silencioso a la centralita es justo lo que esto viene a evitar.
+
+**REGLA — dos personas de la MISMA empresa reciben UN correo con copia real.** El bucle
+de envío pasa a ir por GRUPO (empresa) y no por contacto: el `to` es el del rol
+(`priorizarPorRol`) y el resto va en `cc` — `POST /api/pdf/send-proposal` y
+`sendProposalEmail` lo aceptan. Dos correos idénticos por separado no son una copia:
+quien tiene que contestar no ve que su compañero lo tiene, y se contesta por duplicado.
+**WhatsApp no tiene copia**, así que ahí sí sale un mensaje a cada uno, y cada uno con su
+propio saludo.
+
+**REGLA — el mensaje saluda a quien va en el "Para".** El texto de la caja es el del
+principal del modo principal; cambiar de persona marcada lo rehace (si no se ha editado a
+mano). Marcar al compañero "para que se entere" no puede cambiar el saludo.
+
+**REGLA — el CANAL se elige POR DESTINATARIO, no solo para el envío entero.** Cada fila
+marcada lleva sus dos botones (`CanalMiniChip`, el mismo glifo y el mismo color que el de
+la barra: es la misma decisión a otra escala). Al comercial se le manda por WhatsApp, que
+es donde lee, y a administración por email — sin esto había que **enviar dos veces**, una
+con cada canal marcado, y en la segunda vuelta el otro destinatario lo recibía repetido.
+El chip de la barra sigue siendo el **interruptor maestro**: apagado ahí, no sale por ese
+canal aunque una fila lo tenga encendido.
+
+- Lo que se cuenta en la barra es lo que va a salir DE VERDAD ("a 2 destinatarios"), no
+  cuántos tienen el dato: "2 con email" cuando a uno le has quitado el correo es un
+  recuento falso, y es el número que se mira antes de pulsar.
+- Un canal sin dato (una persona sin teléfono) sale **deshabilitado con su motivo**, no
+  apagado: no es una decisión, es que no se puede.
+- **Marcado y sin ningún canal se DICE** ("⚠ TERE no recibirá la propuesta: sin canal
+  marcado"). No se le desmarca solo —la marca la puso una persona— pero callarlo sería
+  enviar creyendo que le llega.
+- La nota de copia cuenta los canales de cada uno: a quien le has quitado el correo no
+  puede aparecer "en copia", y la línea de WhatsApp solo sale si de verdad lo reciben dos.
+
+⚠️ `ContactoPickRow` es un `<button>` y los chips son botones: van **fuera** de la fila,
+en un contenedor flex, nunca dentro del componente compartido con los popups del
+expediente. Por el mismo motivo la tarjeta de "Otro contacto…" pasó de ser un botón raíz
+a un div con el botón dentro.
+
 ### El formulario: una sola pregunta y CERO interruptores
 
 Eran dos toggles anidados ("desviar a otros contactos" + "enviar notificaciones a estos
@@ -7799,6 +7858,7 @@ rechaza: `loteService.evaluarElegibilidadBase`).
 43. **El precio CAE al cliente es 100 €/MWh en las propuestas NUEVAS, y lo ya guardado no se mueve**: `CAE_PRECIO_CLIENTE_NUEVAS` (100) va donde se COMPONEN inputs nuevos (calculadora · funnel) y `CAE_PRECIO_CLIENTE_ANTERIOR` (95 · 60 en RES080) es el respaldo de LECTURA de lo ya guardado sin precio propio — subirlo cambiaría el bono de expedientes ya firmados. Y el precio **se SELLA** en la oportunidad ([precioCae.js](implementation/backend/utils/precioCae.js)) copiando `caePriceClient` a `cae_client_rate`, que es la clave que el expediente lee y que hacía que el precio tecleado no le llegara (66 expedientes medidos, de 88 a 150 €/MWh). El sello se escribe **solo en las nuevas** —la presencia de la clave ES la marca, sin fechas de corte— y se mantiene al día. Ver "Precio CAE al cliente".
 
 44. **Cada aviso va al COMERCIAL o al TÉCNICO del partner, no "al instalador"**: cada persona de `contactos_notificacion` lleva `roles: ['comercial'|'tecnico']` y quien envía pide el suyo — fuente única [notifyContacts.js](implementation/backend/services/notifyContacts.js) (`partnerNotifyTarget(p, rol)`, `rolDeDocumento`) y su espejo [docContacts.js](implementation/frontend/src/features/expedientes/utils/docContacts.js). El RITE, el CIFO y sus rechazos son del TÉCNICO; propuestas, fotos y seguimiento, del COMERCIAL. **El representante legal NO es un buzón**: su nombre es el que firma el CIFO, y ofrecerlo como destinatario era el fallo — 67 de 70 fichas no tienen `tlf_responsable`, así que su nombre salía pegado al teléfono de la EMPRESA ("Jesús · 654547040", el número de Carlos). Sin nadie marcado se envía al canal GENERAL, rotulado como tal y avisado en ámbar; a una empresa se le saluda en genérico y a un autónomo por su nombre; al CERTIFICADOR no se le aplica el reparto (sus plantillas no admiten nombre vacío). Un contacto sin roles se comporta como hasta ahora y **no se le adivina** el suyo. En el CIFO no va ningún teléfono. ⚠️ Y al CLIENTE se le saluda por **quien RECIBE el mensaje**: con el desvío activo (`notificaciones_contacto_activas`) el aviso sale al teléfono de su persona de contacto, y saludar al titular delata la plantilla — medido en 26RES060_187, el aviso de CEE presentado llegaba al WhatsApp de JUAN ANTONIO empezando por «¡Hola MARIA TERESA!». `nombreParaSaludo` en `routes/expedientes.js` lo resuelve en los tres avisos de CEE registrado; el del ENCARGO ya lo hacía bien porque pasa por `resolveSolicitudContacto`. Solo cambia el SALUDO: en los mensajes a staff y al partner el cliente sigue siendo el titular («Obra: …»). Tras tocarlo: `node implementation/backend/scripts/test_reparto_contactos.js`. Ver "El aviso lo recibe el COMERCIAL o el TÉCNICO".
+44.b **La PROPUESTA también elige a quién de la empresa**: su popup ofrecía UNA persona por partner —la del desvío de notificaciones, o el canal general— así que el comercial con el que se lleva la obra no se podía marcar sin salir a su ficha (medido en INSTALACIONES MIGUELTURRA: se leía «TERE · 926241611», el nombre de una persona sobre el teléfono de la centralita, y AURELIO no aparecía). Ahora la tarjeta es la EMPRESA y debajo van sus personas con la MISMA fila del expediente (`ContactoPickRow`), resueltas por `instaladorContacts` + `defaultContactIds` con rol **comercial**, que es el asunto que es. Desmarcar la última persona desmarca la empresa (y volver a marcarla restaura las que le tocan); si solo queda el canal general se dice con `avisoReparto`. El envío pasa a ir **por GRUPO**: dos personas de la misma empresa reciben UN correo con `cc` real (el `to`, el del rol) y por WhatsApp uno cada una con su propio saludo — `POST /api/pdf/send-proposal` y `sendProposalEmail` aceptan ya `cc`. Y **el canal se elige POR DESTINATARIO** (`CanalMiniChip` en cada fila marcada, con el chip de la barra de interruptor maestro): al comercial por WhatsApp y a administración por email en UN solo envío, en vez de enviar dos veces y duplicárselo al otro. Lo que la barra cuenta es lo que va a salir de verdad, y quien se queda sin ningún canal se dice en ámbar. Ver "Y a la propuesta se ELIGE quién de la empresa la recibe".
 
 43. **La cartera de INSTALADORES se etiqueta sola en WhatsApp**: al dar de alta o editar un instalador (y en el repaso completo desde el panel de WhatsApp) su chat queda con la etiqueta `INSTALADORES` y, si el número no lo tenías guardado, con su nombre de la BBDD en la agenda. **Un nombre ya guardado NO se toca nunca** —lo puso una persona, a veces con el apodo por el que conoce al instalador— y la lista de etiquetas se manda COMPLETA (`poner()` sustituye, así que va lo que ya tenía MÁS la nuestra). Se etiquetan TODOS los teléfonos que constan (empresa, responsable y contactos de notificación: en 20 de 71 fichas el chat que se usa es el del jefe de obra), deduplicados por los 9 dígitos finales. Fuente única: [whatsappInstaladoresSync.js](implementation/backend/services/whatsappInstaladoresSync.js) + [whatsappContactos.js](implementation/backend/services/whatsappContactos.js). ⚠️ `poner()` fallaba con un chat nunca escrito (`findOrCreateLatestChat` lo devuelve pero `C.Chat.get(@c.us)` sigue vacío porque vive bajo su `@lid`): ahora se crea y se etiqueta en la misma `evaluate`. ⚠️ Un `node scripts/…` NO ve la sesión de WhatsApp (singleton del proceso del servidor), por eso el repaso entra por la ruta con `x-internal-key`. Apagado por defecto (`WA_SYNC_INSTALADORES`) y `dryRun` por defecto en la ruta. Ver "La cartera de instaladores, etiquetada sola en WhatsApp".
 

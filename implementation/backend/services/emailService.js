@@ -428,7 +428,11 @@ const sendLeadSummaryEmail = async ({
 /**
  * Envía la propuesta en PDF al cliente por correo
  */
-const sendProposalEmail = async ({ to, userName, pdfBuffer, tableImageBase64, summaryData, customMessage = null, from = null }) => {
+// `cc`: cuando la propuesta va a DOS personas de la misma empresa (el comercial y
+// su compañero), sale UN solo correo con copia real. Dos correos idénticos por
+// separado no son una copia: quien tiene que contestar no ve que el otro lo
+// tiene, y se contesta por duplicado (misma regla que el envío al instalador).
+const sendProposalEmail = async ({ to, cc = null, userName, pdfBuffer, tableImageBase64, summaryData, customMessage = null, from = null }) => {
     const isB2B = summaryData.mode === 'PARTNER' || summaryData.mode === 'INSTALADOR';
     // Saludo/intro por defecto (cuando no hay mensaje editado en el popup de envío).
     const greetingHtml =
@@ -561,7 +565,7 @@ const sendProposalEmail = async ({ to, userName, pdfBuffer, tableImageBase64, su
         ? `¡Hola, ${userName}!\n\nAdjuntamos la propuesta para vuestro cliente ${summaryData.clienteName || ''} (Exp. ${summaryData.id}).\n\nEnlace de firma para el cliente: ${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${summaryData.urlId || summaryData.id}\n\nBROKERGY · Ingeniería Energética`
         : `¡Hola, ${userName}!\n\nYa hemos calculado las ayudas para tu instalación de aerotermia.\n\n🔹 Bono Energético CAE: ${summaryData.caeBonus}\n🔹 Deducciones IRPF: ${summaryData.irpfDeduction}\n\nResumen total ayudas: Hasta ${summaryData.totalAyuda}\n\nPasos a seguir:\n1. Aceptar presupuesto al instalador.\n2. Aceptar propuesta adjunta.\n\n📄 Ver propuesta online:\n${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/api/public/propuesta/${summaryData.urlId || summaryData.id}\n\nPuedes firmar directamente aquí: ${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${summaryData.urlId || summaryData.id}\n\nQuedo a tu disposición.\n\nBROKERGY · Ingeniería Energética`;
 
-    return sendMail({ to, subject, html, text, attachments, from });
+    return sendMail({ to, cc, subject, html, text, attachments, from });
 };
 
 /**

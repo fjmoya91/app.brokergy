@@ -182,7 +182,7 @@ router.post('/save-to-drive', async (req, res) => {
  * Body: { html: string, to: string, userName: string, summaryData: object }
  */
 router.post('/send-proposal', async (req, res) => {
-    const { html, to, userName, summaryData, customMessage, from, pdfBase64 } = req.body;
+    const { html, to, cc, userName, summaryData, customMessage, from, pdfBase64 } = req.body;
     const emailService = require('../services/emailService');
 
     // `pdfBase64`: el PDF ya viene hecho y no hay que rasterizar nada. Lo usa el
@@ -225,6 +225,8 @@ router.post('/send-proposal', async (req, res) => {
         // 3. Enviar email usando el servicio dedicado
         await emailService.sendProposalEmail({
             to,
+            // Varias personas de la MISMA empresa → un correo con copia real.
+            cc: cc || null,
             userName,
             pdfBuffer,
             tableImageBase64,

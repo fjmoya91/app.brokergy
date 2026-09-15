@@ -11,6 +11,11 @@ import { postEmail } from '../../../utils/emailFallback';
 // se escriben bien. FUENTE ÚNICA con el resto de mensajes de la app.
 import { nombreSaludo } from '../../../utils/nombres.js';
 import { tipoEmpresaLabel } from '../../../utils/tiposEmpresa';
+// A QUIÉN de la empresa se le manda. La MISMA fuente que usan los popups del
+// expediente (CIFO, RITE, solicitar lo que falta): un partner tiene comercial y
+// técnico, y la propuesta es asunto COMERCIAL. Aquí solo se listaba una persona
+// —la del desvío de notificaciones— y el resto de la ficha no se podía elegir.
+import { instaladorContacts, defaultContactIds } from '../../expedientes/utils/docContacts';
 
 const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
 
@@ -665,7 +670,11 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                     brand: p.acronimo || p.razon_social || null,
                     logo: p.logo_empresa || null,
                     cif: p.cif || null,
-                    tipo: p.tipo_empresa || null
+                    tipo: p.tipo_empresa || null,
+                    // La ficha ENTERA: de ella salen las personas a las que se
+                    // puede escribir (`instaladorContacts`). Sin esto, el popup
+                    // solo conocía el contacto que resolvía el desvío.
+                    ficha: p,
                 };
                 console.log('[PARTNER-DEBUG] Raw Data:', p);
                 console.log('[PARTNER-DEBUG] Redirección activa:', useContact);
@@ -689,7 +698,8 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                                 brand: found.acronimo || found.razon_social || null,
                                 logo: found.logo_empresa || null,
                                 cif: found.cif || null,
-                                tipo: found.tipo_empresa || null
+                                tipo: found.tipo_empresa || null,
+                                ficha: found,
                             });
                             console.log('[PARTNER] Cargado desde listado:', found.acronimo || found.razon_social);
                         } else {
@@ -716,7 +726,8 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                     brand: p.acronimo || p.razon_social || null,
                     logo: p.logo_empresa || null,
                     cif: p.cif || null,
-                    tipo: p.tipo_empresa || null
+                    tipo: p.tipo_empresa || null,
+                    ficha: p,
                 });
             })
             .catch(() => setInstaladorInfo({ name: 'Instalador', phone: null, email: null }));
@@ -1991,6 +2002,21 @@ info@brokergy.es · 623 926 179`;
     const mismoPartnerEInstalador = !!inputs?.prescriptor_id
         && String(inputs.prescriptor_id) === String(inputs?.instalador_asociado_id || '');
 
+    // ── A QUIÉN de la empresa ────────────────────────────────────────────────
+    // Un partner no es un buzón: tiene personas dadas de alta, y la propuesta es
+    // asunto COMERCIAL (regla del reparto comercial/técnico). Se ofrecen TODAS
+    // —incluido el canal general de la empresa— y viene marcada la que le toca;
+    // antes solo se listaba la que resolvía el desvío de notificaciones, así que
+    // el compañero con el que se lleva la obra no se podía elegir sin salir a su
+    // ficha. `ficha` viaja para poder advertir del desvío al canal general.
+    const personasDe = (info) => {
+        const ficha = info?.ficha;
+        if (!ficha) return {};
+        const personas = instaladorContacts(ficha);
+        if (personas.length < 1) return {};
+        return { ficha, personas, defaultIds: defaultContactIds('instalador', null, ficha, 'comercial') };
+    };
+
     const propCandidates = (() => {
         const list = [{
             mode: 'CLIENTE',
@@ -2006,12 +2032,14 @@ info@brokergy.es · 623 926 179`;
         // a secas: de las 202 oportunidades con prescriptor, 179 son de un
         // INSTALADOR — el rótulo fijo estaba mal casi siempre.
         if (partnerInfo) list.push({ mode: 'PARTNER', label: partnerInfo.name || tipoEmpresaLabel(partnerInfo.tipo), sublabel: tipoEmpresaLabel(partnerInfo.tipo), org: partnerInfo.org || '', email: partnerInfo.email || '', phone: partnerInfo.phone || '',
+            ...personasDe(partnerInfo),
             entidad: inputs?.prescriptor_id ? { tipo: 'prescriptor', id: inputs.prescriptor_id } : null });
         // El instalador asociado solo es OTRA fila si es OTRA empresa. En 32
         // oportunidades el partner Y el instalador son el mismo id: salían dos
         // tarjetas con el mismo nombre, el mismo teléfono y el mismo email, y
         // marcar las dos le mandaba la propuesta dos veces a la misma persona.
         if (instaladorInfo && !mismoPartnerEInstalador) list.push({ mode: 'INSTALADOR', label: instaladorInfo.name || 'Instalador', sublabel: tipoEmpresaLabel(instaladorInfo.tipo, 'Instalador'), org: instaladorInfo.org || '', email: instaladorInfo.email || '', phone: instaladorInfo.phone || '',
+            ...personasDe(instaladorInfo),
             entidad: inputs?.instalador_asociado_id ? { tipo: 'prescriptor', id: inputs.instalador_asociado_id } : null });
         return list;
     })();

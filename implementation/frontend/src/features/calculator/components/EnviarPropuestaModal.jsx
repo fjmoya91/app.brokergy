@@ -2,12 +2,17 @@ import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { fireSuccessConfetti } from '../../expedientes/utils/successConfetti';
 import { postEmail } from '../../../utils/emailFallback';
-import { CanalChip, avisoCanales } from '../../../components/CanalChip';
+import { CanalChip, CanalMiniChip, avisoCanales } from '../../../components/CanalChip';
 // Fichas para CORREGIR los datos de contacto sin salir del envío. Son las mismas
 // que se abren desde Clientes / Red de Prescriptores: aquí no hay un formulario
 // paralelo que pueda guardar cosas distintas.
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
 import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal';
+// A QUIÉN dentro del partner. La MISMA fila y el MISMO reparto que los popups
+// del expediente: es lo último que se mira antes de pulsar, y no puede estar
+// escrito de dos formas distintas según por dónde se envíe.
+import { ContactoPickRow, NotaVariosDestinatarios } from '../../expedientes/components/ContactoPickRow';
+import { priorizarPorRol, avisoReparto } from '../../expedientes/utils/docContacts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Envío unificado de la PROPUESTA al cliente — homogéneo con EnviarAnexosModal /
@@ -22,6 +27,9 @@ import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal
 
 const phoneValid = (ph) => (ph || '').replace(/[^0-9]/g, '').length >= 9;
 const MODE_ORDER = ['CLIENTE', 'PARTNER', 'INSTALADOR', 'OTRO'];
+// La propuesta es asunto COMERCIAL: dentro de un partner la recibe quien lleva la
+// obra con el cliente, no quien firma los certificados (regla del reparto).
+const ROL_PROPUESTA = 'comercial';
 
 
 // ── Nota adicional: se inserta en el cuerpo tras el "resumen de ayudas".
@@ -84,6 +92,17 @@ export function EnviarPropuestaModal({
     onContactoActualizado,          // () => void — el padre relee los contactos tras editarlos
 }) {
     const [selectedModes, setSelectedModes] = useState([]);
+    // Qué PERSONAS de cada empresa van marcadas: { PARTNER: ['c0','c1'], … }.
+    // Mientras un modo no tenga entrada propia manda su `defaultIds` (el que le
+    // toca por rol), así que abrir el popup y no tocar nada envía a quien
+    // corresponde sin haber tenido que decidir nada.
+    const [personasSel, setPersonasSel] = useState({});
+    // Por dónde le llega a CADA UNO. Al comercial se le manda por WhatsApp, que
+    // es donde lee, y a administración por email: sin esto había que enviar dos
+    // veces —una con cada canal— y en la segunda vuelta el otro lo recibía
+    // repetido. Mientras un destinatario no tenga entrada propia, recibe por
+    // todos los canales para los que tenga dato.
+    const [canalPorDest, setCanalPorDest] = useState({});
     const [manualContact, setManualContact] = useState({ name: '', phone: '', email: '' });
     const [channels, setChannels] = useState({ email: true, whatsapp: true });
     // Un canal apagado puede serlo por DOS motivos muy distintos: porque el
@@ -128,21 +147,75 @@ export function EnviarPropuestaModal({
 
     const hasOtro = true; // siempre permitimos un contacto manual
 
-    const resolveContact = (mode) => {
+    // Los ids de las personas marcadas de una empresa (o los que le tocan).
+    const idsDe = (mode, estado = personasSel) => {
+        const cand = candidates.find(c => c.mode === mode);
+        if (!cand?.personas?.length) return [];
+        return estado[mode] ?? (cand.defaultIds?.length ? cand.defaultIds : [cand.personas[0].id]);
+    };
+
+    // Un modo puede dar VARIOS destinatarios: el cliente es una persona, pero un
+    // partner son las personas de su ficha que se hayan marcado.
+    const resolveContacts = (mode, estado = personasSel) => {
         if (mode === 'OTRO') {
-            return { mode: 'OTRO', label: (manualContact.name || '').trim() || 'Otro contacto', sublabel: 'Manual', email: (manualContact.email || '').trim(), phone: (manualContact.phone || '').trim() };
+            return [{ mode: 'OTRO', label: (manualContact.name || '').trim() || 'Otro contacto', sublabel: 'Manual', email: (manualContact.email || '').trim(), phone: (manualContact.phone || '').trim() }];
         }
-        return candidates.find(c => c.mode === mode) || { mode, label: mode, email: '', phone: '' };
+        const cand = candidates.find(c => c.mode === mode);
+        if (!cand) return [{ mode, label: mode, email: '', phone: '' }];
+        if (!cand.personas?.length) return [cand];
+        const ids = idsDe(mode, estado);
+        return cand.personas.filter(p => ids.includes(p.id)).map(p => ({
+            mode, personaId: p.id,
+            label: p.label,
+            // `saludo`: cómo se le llama en el mensaje. Al canal general de una
+            // sociedad no se le saluda por el nombre de nadie.
+            saludo: p.saludo || (p.general ? '' : p.label),
+            sublabel: p.sublabel, org: cand.org || cand.label,
+            email: p.email || '', phone: p.phone || '',
+            roles: p.roles || [], general: !!p.general,
+            entidad: cand.entidad || null,
+        }));
+    };
+    // Compatibilidad con lo que solo necesita uno (el mensaje por defecto).
+    const resolveContact = (mode) => resolveContacts(mode)[0] || { mode, label: mode, email: '', phone: '' };
+    const saludoDe = (c) => (c?.saludo !== undefined ? c.saludo : c?.label) || '';
+
+    // ── Canal POR destinatario ───────────────────────────────────────────────
+    // La clave no puede ser el nombre ni el email (se repiten y se editan): es el
+    // modo + la persona dentro de él, que es lo que identifica la fila.
+    const claveDest = (c) => `${c.mode}:${c.personaId || ''}`;
+    const puedeCanal = (c, canal) => canal === 'email' ? !!c.email : phoneValid(c.phone);
+    const canalDe = (c, estado = canalPorDest) => {
+        const g = estado[claveDest(c)];
+        return {
+            email: puedeCanal(c, 'email') && (g ? g.email !== false : true),
+            whatsapp: puedeCanal(c, 'whatsapp') && (g ? g.whatsapp !== false : true),
+        };
+    };
+    const toggleCanalDest = (c, canal) => {
+        if (!puedeCanal(c, canal)) return;
+        const k = claveDest(c);
+        const actual = canalDe(c);
+        setCanalPorDest(prev => ({
+            ...prev,
+            [k]: { email: canal === 'email' ? !actual.email : actual.email, whatsapp: canal === 'whatsapp' ? !actual.whatsapp : actual.whatsapp },
+        }));
     };
 
     // Destinatario principal (para el mensaje por defecto): el de mayor prioridad seleccionado.
     const primaryMode = MODE_ORDER.find(m => selectedModes.includes(m)) || (candidates[0]?.mode || 'CLIENTE');
 
-    const applyDefaultMessage = (modes, ceeFlag = includeCee) => {
+    // Quién encabeza un grupo: el del ROL. Es quien va en el "Para" del correo,
+    // así que es a quien tiene que saludar el mensaje — marcar al compañero "para
+    // que se entere" no puede cambiar el saludo.
+    const principalDe = (mode, estado = personasSel) =>
+        priorizarPorRol(resolveContacts(mode, estado), ROL_PROPUESTA)[0] || null;
+
+    const applyDefaultMessage = (modes, ceeFlag = includeCee, estado = personasSel) => {
         if (userEditedRef.current) return;
         const pm = MODE_ORDER.find(m => modes.includes(m)) || (candidates[0]?.mode || 'CLIENTE');
-        const c = resolveContact(pm);
-        let base = buildDefaultMessage ? buildDefaultMessage(pm, c.label, { cee: ceeFlag }) : '';
+        const c = principalDe(pm, estado);
+        let base = buildDefaultMessage ? buildDefaultMessage(pm, saludoDe(c), { cee: ceeFlag }) : '';
         if (noteInMessage && extraNote.trim()) base = composeNote(base, extraNote);
         setMessage(base);
     };
@@ -152,8 +225,8 @@ export function EnviarPropuestaModal({
         const next = !includeCee;
         if (onIncludeCeeChange) onIncludeCeeChange(next);
         const pm = MODE_ORDER.find(m => selectedModes.includes(m)) || (candidates[0]?.mode || 'CLIENTE');
-        const c = resolveContact(pm);
-        let base = buildDefaultMessage ? buildDefaultMessage(pm, c.label, { cee: next }) : '';
+        const c = principalDe(pm);
+        let base = buildDefaultMessage ? buildDefaultMessage(pm, saludoDe(c), { cee: next }) : '';
         if (noteInMessage && extraNote.trim()) base = composeNote(base, extraNote);
         userEditedRef.current = false;
         setMessage(base);
@@ -179,17 +252,19 @@ export function EnviarPropuestaModal({
         const start = candidates.some(c => c.mode === 'CLIENTE') ? ['CLIENTE'] : (candidates[0] ? [candidates[0].mode] : []);
         userEditedRef.current = false;
         setSelectedModes(start);
+        setPersonasSel({});
+        setCanalPorDest({});
         setManualContact({ name: '', phone: '', email: '' });
         setExtraNote('');
         setNoteInMessage(true);
-        const sel = start.map(resolveContact);
+        const sel = start.flatMap(m => resolveContacts(m, {}));
         channelTouched.current = { email: false, whatsapp: false };
         setChannels({ email: sel.some(c => c.email), whatsapp: sel.some(c => phoneValid(c.phone)) });
         const pm = MODE_ORDER.find(m => start.includes(m)) || (candidates[0]?.mode || 'CLIENTE');
-        const pc = candidates.find(c => c.mode === pm);
+        const pc = principalDe(pm, {});
         // includeCee lo controla el padre (ProposalModal); usamos su valor para el mensaje inicial.
         const initCee = !!ceeComparisonAvailable && !!includeCee;
-        setMessage(buildDefaultMessage ? buildDefaultMessage(pm, pc?.label || '', { cee: initCee }) : '');
+        setMessage(buildDefaultMessage ? buildDefaultMessage(pm, saludoDe(pc), { cee: initCee }) : '');
         setStatus(null);
         setSendPhase(null);
         setSendResults([]);
@@ -198,6 +273,25 @@ export function EnviarPropuestaModal({
         axios.get('/api/whatsapp/status').then(r => setWaReady(!!r.data?.ready)).catch(() => setWaReady(false));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
+
+    // Editar la ficha desde aquí puede añadir o quitar personas, y los ids son
+    // posicionales: los que ya no existan se descartan, o la empresa se quedaría
+    // marcada sin nadie detrás y sin que se vea por qué.
+    useEffect(() => {
+        if (!isOpen) return;
+        setPersonasSel(prev => {
+            let cambia = false;
+            const next = {};
+            for (const [mode, ids] of Object.entries(prev)) {
+                const cand = candidates.find(c => c.mode === mode);
+                const vivos = (ids || []).filter(id => cand?.personas?.some(p => p.id === id));
+                if (vivos.length !== (ids || []).length) cambia = true;
+                if (vivos.length) next[mode] = vivos;
+            }
+            return cambia ? next : prev;
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [candidates]);
 
     // El estado de WhatsApp se consultaba UNA sola vez, al abrir. La sesión del
     // servidor se cae y vuelve sola (cada deploy la reinicia y tarda ~5 min en
@@ -216,32 +310,69 @@ export function EnviarPropuestaModal({
 
     if (!isOpen) return null;
 
-    const selectedContacts = selectedModes.map(resolveContact);
+    // Los grupos son la unidad de envío: un modo = una empresa (o el cliente), y
+    // dentro pueden ir varias personas — el correo sale UNA vez con copia real.
+    const grupos = selectedModes.map(m => resolveContacts(m)).filter(l => l.length);
+    const selectedContacts = grupos.flat();
     const contactPhoneValid = selectedContacts.some(c => phoneValid(c.phone));
     const canEmail = selectedContacts.some(c => c.email);
-    const willEmail = channels.email && canEmail;
-    const willWhatsapp = channels.whatsapp && contactPhoneValid && waReady !== false;
-    const nEmail = selectedContacts.filter(c => c.email).length;
-    const nPhone = selectedContacts.filter(c => phoneValid(c.phone)).length;
+    // El chip de la barra es el interruptor MAESTRO; los de cada fila dicen a
+    // quién le llega por ahí. Lo que se cuenta es lo que va a salir de verdad —
+    // "2 con email" cuando a uno le has quitado el correo es un recuento falso.
+    const nEmail = selectedContacts.filter(c => canalDe(c).email).length;
+    const nPhone = selectedContacts.filter(c => canalDe(c).whatsapp).length;
+    const willEmail = channels.email && nEmail > 0;
+    const willWhatsapp = channels.whatsapp && nPhone > 0 && waReady !== false;
     const avisoPie = avisoCanales({
         nDest: selectedContacts.length, canEmail, hayTelefono: contactPhoneValid,
         waReady, willEmail, willWhatsapp,
     });
 
+    // Un canal se ofrece si ALGUIEN de la selección tiene con qué. Se recalcula
+    // igual se cambie de empresa o de persona dentro de ella: sin esto, marcar al
+    // compañero que sí tiene móvil dejaba WhatsApp apagado y ENVIAR parecía roto.
+    const ajustarCanales = (modes, estado) => {
+        const sel = modes.flatMap(m => resolveContacts(m, estado));
+        const hayEmail = sel.some(c => c.email);
+        const hayTlf = sel.some(c => phoneValid(c.phone));
+        setChannels(ch => ({
+            email: hayEmail ? (channelTouched.current.email ? ch.email : true) : false,
+            whatsapp: hayTlf ? (channelTouched.current.whatsapp ? ch.whatsapp : true) : false,
+        }));
+    };
+
     const toggleMode = (mode) => {
-        setSelectedModes(prev => {
-            const next = prev.includes(mode) ? prev.filter(x => x !== mode) : [...prev, mode];
-            applyDefaultMessage(next);
-            // Reajusta canales disponibles según la nueva selección.
-            const sel = next.map(resolveContact);
-            const hayEmail = sel.some(c => c.email);
-            const hayTlf = sel.some(c => phoneValid(c.phone));
-            setChannels(ch => ({
-                email: hayEmail ? (channelTouched.current.email ? ch.email : true) : false,
-                whatsapp: hayTlf ? (channelTouched.current.whatsapp ? ch.whatsapp : true) : false,
-            }));
-            return next;
-        });
+        const next = selectedModes.includes(mode) ? selectedModes.filter(x => x !== mode) : [...selectedModes, mode];
+        // Al volver a marcar una empresa de la que se habían desmarcado todas sus
+        // personas, vuelve la que le toca: un modo marcado sin nadie detrás es un
+        // destinatario que no existe.
+        let estado = personasSel;
+        if (next.includes(mode) && !idsDe(mode).length) {
+            const cand = candidates.find(c => c.mode === mode);
+            if (cand?.personas?.length) {
+                estado = { ...personasSel };
+                delete estado[mode];
+                setPersonasSel(estado);
+            }
+        }
+        setSelectedModes(next);
+        applyDefaultMessage(next, includeCee, estado);
+        ajustarCanales(next, estado);
+    };
+
+    // Marcar/desmarcar una PERSONA dentro de una empresa. Quedarse sin ninguna
+    // desmarca la empresa entera, y marcar una vuelve a marcarla.
+    const togglePersona = (mode, id) => {
+        const actuales = idsDe(mode);
+        const ids = actuales.includes(id) ? actuales.filter(x => x !== id) : [...actuales, id];
+        const estado = { ...personasSel, [mode]: ids };
+        setPersonasSel(estado);
+        const modes = ids.length
+            ? (selectedModes.includes(mode) ? selectedModes : [...selectedModes, mode])
+            : selectedModes.filter(m => m !== mode);
+        setSelectedModes(modes);
+        applyDefaultMessage(modes, includeCee, estado);
+        ajustarCanales(modes, estado);
     };
     const toggleChannel = (ch) => {
         channelTouched.current[ch] = true;
@@ -249,6 +380,30 @@ export function EnviarPropuestaModal({
     };
 
     const exitAndClose = () => { setSendPhase(null); if (onClose) onClose(); };
+
+    // Los dos canales de UNA fila. Solo se pintan en un destinatario MARCADO: en
+    // uno que no lo está no deciden nada y convertirían la lista en un panel de
+    // interruptores donde lo primero que hay que contestar es a quién se le manda.
+    const ChipsCanal = ({ c }) => {
+        const ca = canalDe(c);
+        const tlf = puedeCanal(c, 'whatsapp');
+        return (
+            <div className="flex items-center gap-1.5 shrink-0">
+                <CanalMiniChip canal="email" activo={ca.email} disponible={puedeCanal(c, 'email')}
+                    motivo="sin email" bloqueado={busy} onClick={() => toggleCanalDest(c, 'email')} />
+                <CanalMiniChip canal="whatsapp" activo={ca.whatsapp} disponible={tlf && waReady !== false}
+                    motivo={!tlf ? 'sin teléfono' : 'WhatsApp no conectado'} bloqueado={busy}
+                    onClick={() => toggleCanalDest(c, 'whatsapp')} />
+            </div>
+        );
+    };
+
+    // Quien está marcado y no recibe por ningún canal. No se le desmarca solo —la
+    // marca la puso una persona— pero callarlo sería enviar creyendo que le llega.
+    const sinCanal = selectedContacts.filter(c => {
+        const ca = canalDe(c);
+        return !(ca.email && channels.email) && !(ca.whatsapp && channels.whatsapp && waReady !== false);
+    });
 
     // ── Orquestador de envío ─────────────────────────────────────────────────
     const handleSend = async () => {
@@ -311,20 +466,32 @@ export function EnviarPropuestaModal({
             return;
         }
 
-        // Mensaje POR destinatario: el principal usa el texto editado en la caja;
-        // el resto regenera el suyo (cliente recibe el de cliente, partner el de
-        // partner, etc.). La nota adicional se inserta en todos si está marcada.
+        // Mensaje POR destinatario: el que encabeza el modo principal usa el texto
+        // editado en la caja; el resto regenera el suyo (el cliente recibe el de
+        // cliente, el partner el de partner, y cada persona su propio saludo). La
+        // nota adicional se inserta en todos si está marcada.
+        const principalPrimary = principalDe(primaryMode);
         const messageFor = (c) => {
-            const base = (c.mode === primaryMode)
+            const esElDeLaCaja = c.mode === primaryMode
+                && (!c.personaId || c.personaId === principalPrimary?.personaId);
+            const base = esElDeLaCaja
                 ? stripNote(message)
-                : (buildDefaultMessage ? buildDefaultMessage(c.mode, c.label) : stripNote(message));
+                : (buildDefaultMessage ? buildDefaultMessage(c.mode, saludoDe(c)) : stripNote(message));
             return noteInMessage ? composeNote(base, extraNote) : base;
         };
 
-        for (const c of selectedContacts) {
-            const msg = messageFor(c);
-            // EMAIL
-            if (doEmail && c.email) {
+        for (const grupo of grupos) {
+            const mode = grupo[0].mode;
+            // ── EMAIL: UNO por empresa, con copia real ──────────────────────
+            // Dos personas de la misma empresa reciben el mismo correo, no dos
+            // correos idénticos: así quien tiene que contestar ve que su
+            // compañero está en el hilo y no se responde por duplicado.
+            const conEmail = priorizarPorRol(grupo, ROL_PROPUESTA).filter(c => canalDe(c).email);
+            if (doEmail && conEmail.length) {
+                const principal = conEmail[0];
+                const copia = conEmail.slice(1).map(c => c.email);
+                const msg = messageFor(principal);
+                const nombre = saludoDe(principal) || principal.label;
                 try {
                     await postEmail('/api/pdf/send-proposal', {
                         // `html` sigue yendo: alimenta la vista web pública y el
@@ -332,37 +499,42 @@ export function EnviarPropuestaModal({
                         // archivado — el mismo que va por WhatsApp.
                         html: emailHtml,
                         pdfBase64,
-                        to: c.email,
-                        userName: c.label,
+                        to: principal.email,
+                        cc: copia.length ? copia : undefined,
+                        userName: nombre,
                         summaryData: {
-                            ...(buildSummaryData ? buildSummaryData(c.mode, c.label) : { id: numexpte }),
+                            ...(buildSummaryData ? buildSummaryData(mode, nombre) : { id: numexpte }),
                             version: versionOut?.version || null,
                         },
                         customMessage: msg,
                     }, undefined, { timeout: 90000 });   // 3º arg = showConfirm; el config va en el 4º
-                    out.push({ channel: 'email', status: 'ok', text: `${c.label} → ${c.email}` });
-                    if (c.mode === 'CLIENTE') clienteOk = true;
+                    out.push({
+                        channel: 'email', status: 'ok',
+                        text: `${principal.label} → ${principal.email}${copia.length ? ` (+${copia.length} en copia)` : ''}`,
+                    });
+                    if (mode === 'CLIENTE') clienteOk = true;
                 } catch (err) {
-                    out.push({ channel: 'email', status: 'fail', text: `${c.label}: ${err.response?.data?.message || err.response?.data?.error || err.message}` });
+                    out.push({ channel: 'email', status: 'fail', text: `${principal.label}: ${err.response?.data?.message || err.response?.data?.error || err.message}` });
                 }
             }
-            // WHATSAPP
-            if (doWa && phoneValid(c.phone)) {
+            // ── WHATSAPP: no tiene copia, así que va uno a cada persona ─────
+            for (const c of grupo) {
+                if (!doWa || !canalDe(c).whatsapp) continue;
                 if (!waPdf) {
                     out.push({ channel: 'whatsapp', status: 'fail', text: `${c.label}: ${waGenError || 'No se pudo generar el PDF'}` });
-                } else {
-                    try {
-                        await axios.post('/api/whatsapp/send-media', {
-                            phone: String(c.phone).replace(/[^0-9]/g, ''),
-                            caption: msg,
-                            media: { base64: waPdf, filename, mimetype: 'application/pdf' },
-                            asDocument: true,
-                        });
-                        out.push({ channel: 'whatsapp', status: 'ok', text: `${c.label} → ${c.phone}` });
-                        if (c.mode === 'CLIENTE') clienteOk = true;
-                    } catch (err) {
-                        out.push({ channel: 'whatsapp', status: 'fail', text: `${c.label}: ${err.response?.data?.error || err.message}` });
-                    }
+                    continue;
+                }
+                try {
+                    await axios.post('/api/whatsapp/send-media', {
+                        phone: String(c.phone).replace(/[^0-9]/g, ''),
+                        caption: messageFor(c),
+                        media: { base64: waPdf, filename, mimetype: 'application/pdf' },
+                        asDocument: true,
+                    });
+                    out.push({ channel: 'whatsapp', status: 'ok', text: `${c.label} → ${c.phone}` });
+                    if (mode === 'CLIENTE') clienteOk = true;
+                } catch (err) {
+                    out.push({ channel: 'whatsapp', status: 'fail', text: `${c.label}: ${err.response?.data?.error || err.message}` });
                 }
             }
         }
@@ -451,53 +623,112 @@ export function EnviarPropuestaModal({
                         <div className="space-y-2">
                             {candidates.map(c => {
                                 const on = selectedModes.includes(c.mode);
+                                // Con VARIAS personas en la ficha, la tarjeta es la EMPRESA y
+                                // debajo se elige a quién. Con una sola (o ninguna), la tarjeta
+                                // ES esa persona: una lista de un elemento solo añade un clic.
+                                const elegidos = on ? resolveContacts(c.mode) : [];
+                                const varias = (c.personas?.length || 0) > 1;
+                                const cab = varias ? null : (resolveContacts(c.mode)[0] || c);
+                                const sinDatos = cab ? (!cab.phone && !cab.email) : false;
+                                // Si lo único marcado es el canal general de la empresa, se
+                                // DICE: un desvío silencioso al teléfono de la centralita es
+                                // justo lo que el reparto por rol viene a evitar.
+                                const soloGeneral = elegidos.length === 1 && elegidos[0].general;
+                                const aviso = soloGeneral ? avisoReparto(c.ficha, ROL_PROPUESTA, elegidos[0]) : null;
                                 return (
                                     // La fila NO puede ser un solo <button>: dentro va otro
                                     // (editar la ficha) y un botón no puede anidar botones.
                                     <div key={c.mode}
-                                        className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all ${on ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
-                                        <button type="button" onClick={() => toggleMode(c.mode)}
-                                            className="flex items-center gap-3 min-w-0 flex-1 text-left">
-                                            <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${on ? 'border-brand bg-brand' : 'border-white/20'}`}>
-                                                {on && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
-                                            </span>
-                                            <div className="min-w-0 flex-1">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-sm font-bold text-white truncate">{c.label}</span>
-                                                    <span className="text-[9px] uppercase tracking-wider text-white/30 font-bold shrink-0">{c.sublabel}</span>
+                                        className={`w-full rounded-xl border transition-all ${on ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
+                                        <div className="flex items-center gap-3 p-3">
+                                            <button type="button" onClick={() => toggleMode(c.mode)}
+                                                className="flex items-center gap-3 min-w-0 flex-1 text-left">
+                                                <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${on ? 'border-brand bg-brand' : 'border-white/20'}`}>
+                                                    {on && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                                </span>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm font-bold text-white truncate">{varias ? (c.org || c.label) : cab.label}</span>
+                                                        <span className="text-[9px] uppercase tracking-wider text-white/30 font-bold shrink-0">{c.sublabel}</span>
+                                                    </div>
+                                                    {varias ? (
+                                                        // Quién recibe, sin desplegar nada: es la pregunta
+                                                        // que contesta la tarjeta.
+                                                        <div className={`text-[11px] truncate ${on && !elegidos.length ? 'text-amber-400/80' : 'text-white/40'}`}>
+                                                            {on
+                                                                ? (elegidos.length ? `A ${elegidos.map(p => p.label).join(', ')}` : 'Nadie marcado — elige abajo a quién')
+                                                                : `${c.personas.length} personas · marca para elegir`}
+                                                        </div>
+                                                    ) : (<>
+                                                        {/* La empresa, cuando el destinatario es una persona dentro de ella */}
+                                                        {cab.org && cab.org !== cab.label && (
+                                                            <div className="text-[11px] text-white/50 truncate">{cab.org}</div>
+                                                        )}
+                                                        <div className={`text-[11px] truncate ${sinDatos ? 'text-amber-400/80' : 'text-white/40'}`}>
+                                                            {cab.phone || 'sin teléfono'}{cab.email ? ` · ${cab.email}` : (cab.phone ? '' : ' · sin email')}
+                                                        </div>
+                                                    </>)}
                                                 </div>
-                                                {/* La empresa, cuando el destinatario es una persona dentro de ella */}
-                                                {c.org && c.org !== c.label && (
-                                                    <div className="text-[11px] text-white/50 truncate">{c.org}</div>
-                                                )}
-                                                <div className={`text-[11px] truncate ${(!c.phone && !c.email) ? 'text-amber-400/80' : 'text-white/40'}`}>
-                                                    {c.phone || 'sin teléfono'}{c.email ? ` · ${c.email}` : (c.phone ? '' : ' · sin email')}
-                                                </div>
-                                            </div>
-                                        </button>
-                                        {/* Corregir sus datos sin salir del envío. Sin ficha guardada
-                                            (una simulación sin cliente) no hay nada que abrir: para eso
-                                            está "Otro contacto…". */}
-                                        {c.entidad && (
-                                            <button type="button" onClick={() => abrirFicha(c)} disabled={!!abriendoFicha}
-                                                title={`Editar los datos de ${c.label}`}
-                                                className={`shrink-0 px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${(!c.phone && !c.email)
-                                                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20'
-                                                    : 'border-white/10 text-white/40 hover:text-white hover:border-white/30'}`}>
-                                                {abriendoFicha === c.mode ? '…' : ((!c.phone && !c.email) ? 'Añadir datos' : 'Editar')}
                                             </button>
+                                            {/* Por dónde le llega A ÉL. Con varias personas los chips van en
+                                                cada una, que es donde se decide. */}
+                                            {on && !varias && cab && <ChipsCanal c={cab} />}
+                                            {/* Corregir sus datos sin salir del envío. Sin ficha guardada
+                                                (una simulación sin cliente) no hay nada que abrir: para eso
+                                                está "Otro contacto…". */}
+                                            {c.entidad && (
+                                                <button type="button" onClick={() => abrirFicha(c)} disabled={!!abriendoFicha}
+                                                    title={`Editar los datos de ${c.org || c.label}`}
+                                                    className={`shrink-0 px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${sinDatos
+                                                        ? 'border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20'
+                                                        : 'border-white/10 text-white/40 hover:text-white hover:border-white/30'}`}>
+                                                    {abriendoFicha === c.mode ? '…' : (sinDatos ? 'Añadir datos' : 'Editar')}
+                                                </button>
+                                            )}
+                                        </div>
+                                        {/* A QUIÉN de la empresa. Solo con el modo marcado: la lista
+                                            entera de personas de todos los partners a la vez sería un
+                                            muro, y lo que se decide primero es si se le manda o no. */}
+                                        {varias && on && (
+                                            <div className="px-3 pb-3 pt-0 space-y-1.5">
+                                                {c.personas.map(p => {
+                                                    const marcado = elegidos.find(x => x.personaId === p.id);
+                                                    return (
+                                                        // La fila es un <button>, así que los chips van FUERA de
+                                                        // ella (un botón no puede anidar botones), no dentro del
+                                                        // componente compartido con los popups del expediente.
+                                                        <div key={p.id} className="flex items-center gap-2">
+                                                            <ContactoPickRow contacto={p} rol={ROL_PROPUESTA} className="flex-1 min-w-0"
+                                                                on={!!marcado} onClick={() => togglePersona(c.mode, p.id)} />
+                                                            {marcado && <ChipsCanal c={marcado} />}
+                                                        </div>
+                                                    );
+                                                })}
+                                                {/* La nota dice lo que va a pasar, así que cuenta los canales
+                                                    de CADA UNO: a quien le hayas quitado el correo no puede
+                                                    aparecer "en copia". Se le pasa la lista con el email
+                                                    vaciado en vez de tocar el componente compartido. */}
+                                                <NotaVariosDestinatarios rol={ROL_PROPUESTA}
+                                                    seleccionados={elegidos.map(x => ({ ...x, email: canalDe(x).email ? x.email : '' }))}
+                                                    email={channels.email && elegidos.some(x => canalDe(x).email)}
+                                                    whatsapp={willWhatsapp && elegidos.filter(x => canalDe(x).whatsapp).length > 1} />
+                                                {aviso && <p className="text-[10px] text-amber-400/70 leading-relaxed">{aviso}</p>}
+                                            </div>
                                         )}
                                     </div>
                                 );
                             })}
                             {hasOtro && (
-                                <button type="button" onClick={() => toggleMode('OTRO')}
-                                    className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${selectedModes.includes('OTRO') ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
-                                    <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${selectedModes.includes('OTRO') ? 'border-brand bg-brand' : 'border-white/20'}`}>
-                                        {selectedModes.includes('OTRO') && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
-                                    </span>
-                                    <span className="text-sm font-bold text-white">Otro contacto…</span>
-                                </button>
+                                <div className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all ${selectedModes.includes('OTRO') ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
+                                    <button type="button" onClick={() => toggleMode('OTRO')}
+                                        className="flex items-center gap-3 min-w-0 flex-1 text-left">
+                                        <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${selectedModes.includes('OTRO') ? 'border-brand bg-brand' : 'border-white/20'}`}>
+                                            {selectedModes.includes('OTRO') && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                        </span>
+                                        <span className="text-sm font-bold text-white">Otro contacto…</span>
+                                    </button>
+                                    {selectedModes.includes('OTRO') && <ChipsCanal c={resolveContact('OTRO')} />}
+                                </div>
                             )}
                             {selectedModes.includes('OTRO') && (
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pl-7">
@@ -507,6 +738,16 @@ export function EnviarPropuestaModal({
                                 </div>
                             )}
                         </div>
+                        {/* Marcado y sin canal = no recibe nada. No se le desmarca solo,
+                            pero tampoco puede pasar inadvertido al pulsar ENVIAR. */}
+                        {!!sinCanal.length && (
+                            <p className="mt-2 text-[10px] text-amber-400/80 leading-relaxed">
+                                ⚠ {sinCanal.map(c => c.label).join(', ')} {sinCanal.length === 1 ? 'no recibirá' : 'no recibirán'} la propuesta: sin canal marcado.
+                            </p>
+                        )}
+                        <p className="mt-1.5 text-[9px] text-white/25">
+                            Los dos botones de cada destinatario eligen si le llega por email, por WhatsApp o por los dos.
+                        </p>
                     </div>
 
                     {/* Toggle: comparativa CEE aportado (solo si el cliente aportó CEE) */}
@@ -582,13 +823,13 @@ export function EnviarPropuestaModal({
                         <CanalChip
                             canal="email" nombre="Email"
                             activo={willEmail} disponible={canEmail}
-                            detalle={`${nEmail} con email`} motivo="sin email"
+                            detalle={nEmail === 1 ? 'a 1 destinatario' : `a ${nEmail} destinatarios`} motivo="sin email"
                             onClick={() => toggleChannel('email')}
                         />
                         <CanalChip
                             canal="whatsapp" nombre="WhatsApp"
                             activo={willWhatsapp} disponible={contactPhoneValid && waReady !== false}
-                            detalle={`${nPhone} con teléfono`}
+                            detalle={nPhone === 1 ? 'a 1 destinatario' : `a ${nPhone} destinatarios`}
                             motivo={!contactPhoneValid ? 'sin teléfono' : 'no conectado'}
                             onClick={() => toggleChannel('whatsapp')}
                         />
