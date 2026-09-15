@@ -19,6 +19,7 @@
  */
 
 const supabase = require('./supabaseClient');
+const { normalizeCliente } = require('../utils/normalization');
 
 // ============================================================================
 // LEAD SCORING — Heurística para priorizar leads en panel admin
@@ -204,7 +205,7 @@ async function completarHuecosCliente(idCliente, campos) {
         }
         if (Object.keys(patch).length === 0) return;
 
-        const { error } = await supabase.from('clientes').update(patch).eq('id_cliente', idCliente);
+        const { error } = await supabase.from('clientes').update(normalizeCliente(patch)).eq('id_cliente', idCliente);
         if (error) console.error('[leadService] No se pudieron completar huecos del cliente:', error.message);
     } catch (err) {
         console.error('[leadService] completarHuecosCliente falló:', err.message);
@@ -263,7 +264,7 @@ async function upsertClienteFromLanding({ nombre, apellidos, email, tlf, dni, pr
 
     const { data: inserted, error: insErr } = await supabase
         .from('clientes')
-        .insert(newCliente)
+        .insert(normalizeCliente(newCliente))
         .select('id_cliente')
         .single();
 

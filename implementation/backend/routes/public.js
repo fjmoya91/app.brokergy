@@ -13,6 +13,7 @@ const anexoFotograficoService = require('../services/anexoFotograficoService');
 const uploadNotifier = require('../services/uploadNotifier');
 const { buildCertClienteData } = require('../services/certClienteData');
 const cobroService = require('../services/cobroService');
+const { normalizeCliente } = require('../utils/normalization');
 // El nombre llega del formulario del cliente: puede traer espacios (que rompen
 // la *negrita* de WhatsApp: "*JESÚS *" no se marca) y va en MAYÚSCULAS.
 const { nombreSaludo } = require('../services/recordatorios');
@@ -566,7 +567,7 @@ router.patch('/datos/:id', async (req, res) => {
             if (telefono !== undefined) updates.tlf = telefono;
         }
 
-        const { error: updErr } = await supabase.from('clientes').update(updates).eq('id_cliente', opp.cliente_id);
+        const { error: updErr } = await supabase.from('clientes').update(normalizeCliente(updates)).eq('id_cliente', opp.cliente_id);
 
         if (updErr) return res.status(500).json({ error: 'Error al actualizar datos del cliente' });
 
@@ -2351,7 +2352,7 @@ router.post('/cobro/:expedienteId', upload.single('justificante'), async (req, r
                 datos.email = limpio(f.email) || exp.clientes?.email;
                 datos.tlf = limpio(f.telefono) || exp.clientes?.tlf;
             }
-            const { error: cErr } = await supabase.from('clientes').update(datos).eq('id_cliente', exp.cliente_id);
+            const { error: cErr } = await supabase.from('clientes').update(normalizeCliente(datos)).eq('id_cliente', exp.cliente_id);
             if (cErr) console.warn('[cobro POST] cliente:', cErr.message);
         }
 
@@ -2557,7 +2558,7 @@ router.post('/anexos-datos/:expedienteId',
             }
 
             if (Object.keys(clienteUpdate).length) {
-                const { error: upErr } = await supabase.from('clientes').update(clienteUpdate).eq('id_cliente', idCliente);
+                const { error: upErr } = await supabase.from('clientes').update(normalizeCliente(clienteUpdate)).eq('id_cliente', idCliente);
                 if (upErr) {
                     if (upErr.code === '23505') return res.status(409).json({ error: 'Ese DNI/CIF ya está registrado con otro cliente.' });
                     console.error('[anexos-datos] update cliente:', upErr.message);

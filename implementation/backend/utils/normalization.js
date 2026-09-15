@@ -64,4 +64,63 @@ function normalizeData(obj) {
     return normalized;
 }
 
-module.exports = { normalizeData };
+
+// ---------------------------------------------------------------------------
+// TABLA `clientes` — normalización EXPLÍCITA, campo a campo
+// ---------------------------------------------------------------------------
+// Por qué no basta con `normalizeData` (2026-09-15):
+//
+//  a) `apellidos` NUNCA se normalizaba. La BLACKLIST lleva 'id' y se compara con
+//     `includes`, así que "apellIDos" —y `representante_apellidos`— casaban y
+//     quedaban exentos. No se puede arreglar ahí: cambiar 'id' a comparación
+//     exacta dejaría de proteger `driveId`, `cliente_id` o `aerotermia_db_id`, y
+//     un fileId de Drive en MAYÚSCULAS rompe el enlace (ver la nota de las URLs).
+//
+//  b) Las escrituras PÚBLICAS a `clientes` no pasaban por `normalizeData`: el
+//     funnel de captación (`leadService`), el formulario de aceptación de la
+//     propuesta, el de cobro y el de datos de los anexos. Por ahí entraba el
+//     nombre tal y como lo teclea el cliente, así que la base se volvía a
+//     ensuciar sola con cada lead nuevo (medido: 72 de 379 fichas).
+//
+// REGLA — se normaliza el OBJETO QUE VA A LA BD, justo antes del insert/update,
+// nunca el body de la petición: así da igual por qué ruta se entre, y una ruta
+// nueva que escriba en `clientes` solo tiene que llamar aquí.
+const CLIENTE_MAYUSCULAS = [
+    'nombre_razon_social', 'apellidos',
+    'representante_nombre', 'representante_apellidos', 'representante_dni',
+    'persona_contacto_nombre',
+    'dni', 'direccion', 'municipio', 'provincia', 'ccaa', 'codigo_postal',
+    'numero_cuenta',
+];
+const CLIENTE_MINUSCULAS = ['email', 'persona_contacto_email'];
+const CLIENTE_SOLO_TRIM = ['tlf', 'persona_contacto_tlf'];
+
+/**
+ * Deja un patch/payload de `clientes` como lo guarda la app: MAYÚSCULAS y sin
+ * espacios sobrantes, con los emails en minúsculas.
+ *
+ * Solo toca las claves que estén PRESENTES y sean string: un `undefined` sigue
+ * siendo undefined (los UPDATE parciales se construyen con `!== undefined`) y un
+ * `null` sigue siendo null. Es idempotente, así que puede aplicarse encima de un
+ * valor que la ruta ya hubiera limpiado por su cuenta.
+ *
+ * ⚠️ No convierte '' a null: `nombre_razon_social` no puede quedar nulo por un
+ * campo que llegara en blanco, y esa validación es de cada ruta.
+ */
+function normalizeCliente(payload) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+    const out = { ...payload };
+
+    for (const k of CLIENTE_MAYUSCULAS) {
+        if (typeof out[k] === 'string') out[k] = out[k].trim().toUpperCase();
+    }
+    for (const k of CLIENTE_MINUSCULAS) {
+        if (typeof out[k] === 'string') out[k] = out[k].trim().toLowerCase();
+    }
+    for (const k of CLIENTE_SOLO_TRIM) {
+        if (typeof out[k] === 'string') out[k] = out[k].trim();
+    }
+    return out;
+}
+
+module.exports = { normalizeData, normalizeCliente };

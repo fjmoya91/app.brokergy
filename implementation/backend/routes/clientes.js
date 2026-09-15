@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const supabase = require('../services/supabaseClient');
 const { enforceAuth, adminOnly, isStaff } = require('../middleware/auth');
-const { normalizeData } = require('../utils/normalization');
+const { normalizeData, normalizeCliente } = require('../utils/normalization');
 
 // GET /api/clientes -> Listar clientes
 router.get('/', enforceAuth, async (req, res) => {
@@ -273,7 +273,7 @@ router.post('/', enforceAuth, async (req, res) => {
             notas: notas || null,
         };
 
-        const { data, error } = await supabase.from('clientes').insert([payload]).select().single();
+        const { data, error } = await supabase.from('clientes').insert([normalizeCliente(payload)]).select().single();
         if (error) throw error;
 
         // Si se asocia a una oportunidad, actualizar el cliente_id y campos de partner/instalador en oportunidades
@@ -402,7 +402,7 @@ router.put('/:id', enforceAuth, async (req, res) => {
 
         const { data, error } = await supabase
             .from('clientes')
-            .update(updates)
+            .update(normalizeCliente(updates))
             .eq('id_cliente', req.params.id)
             .select()
             .single();
