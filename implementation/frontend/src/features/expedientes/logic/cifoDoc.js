@@ -88,10 +88,14 @@ export function formatDateSpanish(isoStr) {
 const FONT_LATIN = 'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD';
 const FONT_LATINEXT = 'U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF';
 
-function buildFontFaces(appUrl) {
-    const fams = [
-        ['Instrument Sans', 'InstrumentSans', [400, 500, 600, 700]],
-    ];
+// `fams` por defecto es la del CIFO. Se parametriza porque la PROPUESTA necesita
+// exactamente lo mismo con OTRA familia (Inter): dependía de un <link> a Google
+// Fonts y, el día que esa descarga no llegaba a tiempo, el documento salía en la
+// única fuente del contenedor que responde a `sans-serif` — Liberation MONO. Un
+// documento de cliente en Courier. Auto-alojarla lo hace determinista.
+export function buildFontFaces(appUrl, fams = [
+    ['Instrument Sans', 'InstrumentSans', [400, 500, 600, 700]],
+]) {
     let out = '';
     for (const [name, slug, weights] of fams) {
         for (const w of weights) {

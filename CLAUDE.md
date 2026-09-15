@@ -7654,6 +7654,7 @@ apagar las que hagan falta, cada una con su propio filtro.
 |---|---|
 | EL REGISTRO — rótulo, ancho, filtro, valor y pintado de cada columna | [logic/expedientesColumnas.jsx](implementation/frontend/src/features/expedientes/logic/expedientesColumnas.jsx) |
 | El panel de selección y las vistas de fábrica | [components/ColumnasPicker.jsx](implementation/frontend/src/features/expedientes/components/ColumnasPicker.jsx) |
+| La cabecera: ordenar, redimensionar y REORDENAR arrastrando | [components/TablaExpedientesHead.jsx](implementation/frontend/src/features/expedientes/components/TablaExpedientesHead.jsx) |
 | Los datos que piden las columnas nuevas | `get_expedientes_list_v4` (`scripts/get_expedientes_list_v4.sql`) |
 
 **REGLA — las columnas son una LISTA DECLARATIVA, no N bloques de JSX copiados.**
@@ -7673,11 +7674,37 @@ le enseña al CERTIFICADOR** (regla 48.d: es dato comercial) y la ruta se lo cap
 de la respuesta; el **margen** sigue siendo solo de ADMIN, como ya hacía
 `stripBrokergyMargin`.
 
-**REGLA — el ORDEN de las columnas lo fija el registro, no el orden en que se
-marcan.** Si cada usuario pudiera reordenarlas, "mira la tercera columna" dejaría
-de significar lo mismo por teléfono, y el nº de expediente podría acabar el
-último, que es donde no sirve para nada. Los ANCHOS sí son de cada uno (el
-redimensionado de siempre, con su "Reset columnas").
+**REGLA — las columnas se REORDENAN arrastrando su cabecera, y el nº de
+expediente no se mueve.** Es lo que identifica la fila: con el identificador en
+medio de la tabla, las celdas de su izquierda no se sabe de quién son. Lo demás
+se coloca como cada uno quiera, y el orden —igual que los anchos— se guarda en su
+navegador. "↺ Orden", en el panel de columnas, devuelve el de la app.
+
+**REGLA — el arrastre va con EVENTOS DE PUNTERO, no con el drag&drop de HTML5.**
+Tres motivos y el tercero es el que decide: es el mismo mecanismo que el tirador
+de ancho que vive dos centímetros a la derecha en ese mismo `<th>`; el "fantasma"
+que genera Chrome de una cabecera de 360 px es un rectángulo enorme y translúcido,
+mientras que aquí se pinta una etiqueta del tamaño de un dedo; y el drag&drop
+nativo **no se puede disparar con eventos sintéticos**, así que un gesto escrito
+con él no se puede comprobar ni en un banco de pruebas ni en un navegador
+automatizado — se verifica a ojo o no se verifica.
+
+⚠️ Y el auto-desplazamiento va con `setInterval`, **no con `requestAnimationFrame`**:
+el navegador lo congela cuando la ventana no está a la vista, así que tampoco se
+puede comprobar. Es el mismo tropiezo que el rasterizado de pdf.js (regla 34).
+
+**REGLA — el gesto es TOLERANTE en los dos extremos.** Al llegar al borde, la
+tabla **se desplaza sola** (con muchas columnas encendidas hay scroll horizontal y
+la columna destino puede estar fuera de la vista: sin eso, llevar una del
+principio al final es imposible). Y lo que manda mientras se arrastra es la
+posición HORIZONTAL: soltar sobre "Acciones" la deja la última y soltar sobre el
+nº de expediente la deja justo detrás de él — si no, el arrastre se queda sin
+sitio donde soltar justo en los dos sitios a los que más se mueve.
+
+⚠️ Un arrastre NO puede acabar ordenando la columna: el `click` llega después del
+`pointerup` y el navegador no sabe que veníamos de mover algo. Se guarda CUÁNDO
+acabó el arrastre (120 ms de ventana), no un booleano — con una bandera, el clic
+que se tragaba podía ser el de media hora después sobre otra cabecera.
 
 **REGLA — un filtro activo NO puede esconderse al ocultar su columna.** Al
 apagarla se limpia su filtro. Una lista recortada por algo que no se ve en
@@ -7800,6 +7827,7 @@ rechaza: `loteService.evaluarElegibilidadBase`).
     rechazo.
     ⚠️ `cert_cifo_*` es el mismo slot para dos documentos distintos: el **CIFO** lo firma el INSTALADOR (enlace bloqueable) y el **Certificado RES080** lo firma Brokergy y solo se ENTREGA al cliente. `DOC_REGENERABLE` lo distingue por `isReforma`.
 25. **La PROPUESTA se versiona al ENVIARLA, nunca al guardarla**: cada envío archiva su PDF en `0. PROPUESTAS` como `Propuesta_{expte}_v{N}.pdf`, imprime la marca DENTRO del documento y sella qué versión aceptó el cliente. Fuente única: [propuestaVersiones.js](implementation/backend/services/propuestaVersiones.js) — no volver a generar el PDF de la propuesta por separado en cada canal (el del email y el de WhatsApp acababan siendo documentos distintos), ni guardar el HTML de una versión en el JSONB (353 KB de media, regla 21). Ver "Versiones de la PROPUESTA".
+25.b **Las TIPOGRAFÍAS de un documento se AUTO-ALOJAN, nunca se piden a Google Fonts.** El PDF lo rasteriza Puppeteer en el servidor abriendo y cerrando un Chrome en CADA documento —sin caché entre uno y otro—, así que un `<link>` a `fonts.googleapis.com` significa volver a descargar la fuente en cada propuesta y depender de que llegue a tiempo. Y cuando no llega, el resultado no es "parecido": el contenedor solo tiene `fonts-liberation`, ninguna de las familias del respaldo (Arial, Roboto, Noto Sans, Segoe UI) existe, y `fc-match sans-serif` devolvía **Liberation MONO** — la propuesta 26RES060_OP193 salió ENTERA en Courier y así la recibió el cliente (15/09/2026). **Reproducido** quitando el `<link>`: idéntico al PDF que llegó. El CIFO ya lo hacía bien; ahora la propuesta usa **la misma función** (`buildFontFaces(appUrl, familias)` en [cifoDoc.js](implementation/frontend/src/features/expedientes/logic/cifoDoc.js)) y los mismos nombres de fichero en `frontend/public/fonts` — el contenedor las pide a su propio nginx (93 ms medidos). Y como red de seguridad, [fontconfig-local.conf](implementation/backend/fontconfig-local.conf) mapea `sans-serif` → Liberation **Sans** y las familias de respaldo que no existen: un fallo de fuente podrá cambiar la letra, pero **no volverá a dar Courier**. Para comprobar dónde cae hoy: `docker exec brokergy-backend fc-match sans-serif`.
 
 26.b **El CIFO y el certificado RES080 identifican a las DOS empresas cuando no son la misma**: la que EJECUTA y factura (instalador asignado) y la HABILITADA que firma ante Industria (`instalador_rite_id`). Sin las dos, el NIF del certificado no casa con el de las facturas del expediente. Fuente única de la decisión y del texto: `empresasActuacion` / `notaDelegacionRite` en [docGenerators.js](implementation/frontend/src/features/expedientes/utils/docGenerators.js). Con una sola empresa el documento no cambia. Los dos documentos tienen hojas de alto FIJO: tras tocarlos, pasar `check_cifo_paginas.mjs` **y** `check_res080_paginas.mjs`. Ver "Quién EJECUTA la obra y quién FIRMA ante Industria".
 
@@ -8024,7 +8052,7 @@ WA_SYNC_PAUSA_MS=1500              ← pausa entre chats (no hacerle ráfagas a 
 WA_SYNC_FALLOS_MAX=3               ← tiempos de espera seguidos tras los que se corta el repaso
 ```
 
-53. **Las COLUMNAS del listado de expedientes se ELIGEN, y son una lista declarativa**: botón **▦ Columnas · N** con vistas de fábrica (Operativa · Seguimiento CEE · Económica · Cartera). Cada columna se declara UNA vez en [logic/expedientesColumnas.jsx](implementation/frontend/src/features/expedientes/logic/expedientesColumnas.jsx) —rótulo, ancho, filtro, `valor()` y `render()`— y de ahí salen la cabecera, la fila de filtros, las celdas, el ORDEN (clic en la cabecera; el tercer clic vuelve al orden por PRIORIDAD, que es el de siempre) y el CSV, que exporta **lo que se está viendo**. Antes eran siete columnas escritas a mano en tres sitios alineados por posición, y por eso no se podía filtrar por **instalador**. **Un filtro activo NO puede esconderse**: al apagar su columna se limpia. **El orden de las columnas lo fija el registro**, no el usuario (los anchos sí son suyos); y **`roles` es una comodidad de pantalla, nunca el control de acceso** — el instalador se le capa al CERTIFICADOR también en la ruta (regla 48.d) y el margen sigue siendo de ADMIN. La columna INSTALADOR resuelve `instalacion.instalador_id → expedientes.instalador_asociado_id → oportunidad`, la misma primera fuente que la FICHA, y **marca lo heredado** (con la primera sola, 98 de 267 saldrían vacíos teniéndolo). Los datos los trae `get_expedientes_list_v4` (lote, instalador y `seguimiento` podado a sus cuatro claves de fase), que de paso arregla que `lote_id` **nunca llegara** al listado y los 45 expedientes ya loteados se ofrecieran para lotear. Ver "El listado de expedientes: las columnas se ELIGEN".
+53. **Las COLUMNAS del listado de expedientes se ELIGEN, y son una lista declarativa**: botón **▦ Columnas · N** con vistas de fábrica (Operativa · Seguimiento CEE · Económica · Cartera). Cada columna se declara UNA vez en [logic/expedientesColumnas.jsx](implementation/frontend/src/features/expedientes/logic/expedientesColumnas.jsx) —rótulo, ancho, filtro, `valor()` y `render()`— y de ahí salen la cabecera, la fila de filtros, las celdas, el ORDEN (clic en la cabecera; el tercer clic vuelve al orden por PRIORIDAD, que es el de siempre) y el CSV, que exporta **lo que se está viendo**. Antes eran siete columnas escritas a mano en tres sitios alineados por posición, y por eso no se podía filtrar por **instalador**. **Un filtro activo NO puede esconderse**: al apagar su columna se limpia. Las columnas se **REORDENAN arrastrando su cabecera** (con eventos de PUNTERO y no con el drag&drop de HTML5, que no se puede disparar con eventos sintéticos y por tanto no se puede verificar; y con `setInterval` y no `requestAnimationFrame`, que el navegador congela con la ventana oculta): la tabla se desplaza sola al llegar al borde, soltar sobre "Acciones" la deja la última y sobre el nº de expediente —que no se mueve nunca, identifica la fila— justo detrás. El orden se guarda como los anchos, y **`roles` es una comodidad de pantalla, nunca el control de acceso** — el instalador se le capa al CERTIFICADOR también en la ruta (regla 48.d) y el margen sigue siendo de ADMIN. La columna INSTALADOR resuelve `instalacion.instalador_id → expedientes.instalador_asociado_id → oportunidad`, la misma primera fuente que la FICHA, y **marca lo heredado** (con la primera sola, 98 de 267 saldrían vacíos teniéndolo). Los datos los trae `get_expedientes_list_v4` (lote, instalador y `seguimiento` podado a sus cuatro claves de fase), que de paso arregla que `lote_id` **nunca llegara** al listado y los 45 expedientes ya loteados se ofrecieran para lotear. Ver "El listado de expedientes: las columnas se ELIGEN".
 
 ---
 

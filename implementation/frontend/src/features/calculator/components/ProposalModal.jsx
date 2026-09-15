@@ -16,12 +16,34 @@ import { tipoEmpresaLabel } from '../../../utils/tiposEmpresa';
 // técnico, y la propuesta es asunto COMERCIAL. Aquí solo se listaba una persona
 // —la del desvío de notificaciones— y el resto de la ficha no se podía elegir.
 import { instaladorContacts, defaultContactIds } from '../../expedientes/utils/docContacts';
+// Las @font-face auto-alojadas: la MISMA función que usa el CIFO, para que los
+// dos documentos carguen sus tipografías por el mismo camino.
+import { buildFontFaces } from '../../expedientes/logic/cifoDoc';
 
 const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
 
 // Logo circular de Brokergy del co-branding de la portada — el mismo que usan el
 // resto de documentos generados (res080Doc.js, CertificadoRes080Modal.jsx).
 const BROKERGY_LOGO_PATH = '/logo-brokergy-circular.png';
+
+// ─── La tipografía de la propuesta se sirve DESDE LA PROPIA APP ──────────────
+//
+// Iba con un <link> a fonts.googleapis.com. El PDF lo rasteriza Puppeteer en el
+// servidor, abriendo y cerrando un Chrome en CADA documento (sin caché entre
+// uno y otro), así que cada propuesta volvía a descargar Inter de Google y el
+// documento dependía de que esa descarga llegase a tiempo.
+//
+// Cuando no llegaba, el resultado no era "parecido": el contenedor solo tiene
+// fonts-liberation, y ahí `fc-match sans-serif` devuelve **Liberation MONO** —
+// ninguna de las familias del respaldo (Arial, Roboto, Noto Sans…) está
+// instalada. La propuesta salía ENTERA en Courier. Reproducido el 15/09/2026
+// quitando el <link>: idéntico al PDF que recibió el cliente.
+//
+// Se auto-alojan, exactamente como ya hacía el CIFO (misma función, mismos
+// nombres de fichero en /public/fonts): el contenedor las pide a
+// `https://app.brokergy.es/fonts/…`, que es su propio nginx — 93 ms medidos y
+// sin depender de Google.
+const FUENTES_PROPUESTA = `<style>${buildFontFaces(APP_URL, [['Inter', 'Inter', [400, 500, 600, 700, 800, 900]]])}</style>`;
 
 const baseCss = `
         .prop-wrapper {
@@ -1530,7 +1552,7 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                 <html>
                 <head>
                     <meta charset="UTF-8">
-                    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+                    ${FUENTES_PROPUESTA}
                     <style>
                         ${baseCss}
                         body { margin: 0; padding: 0; background: white; }
@@ -1926,7 +1948,7 @@ info@brokergy.es · 623 926 179`;
             while (!proposalRef.current && retries < 10) { await new Promise(r => setTimeout(r, 200)); retries++; }
             const el = proposalRef.current;
             if (!el) throw new Error('No se puede acceder al contenido de la propuesta.');
-            const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"><style>${baseCss} body{margin:0;padding:0;background:white}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}</style></head><body><div class="prop-wrapper-inner">${el.innerHTML}</div></body></html>`;
+            const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8">${FUENTES_PROPUESTA}<style>${baseCss} body{margin:0;padding:0;background:white}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}</style></head><body><div class="prop-wrapper-inner">${el.innerHTML}</div></body></html>`;
             const r = await axios.post('/api/pdf/generate', { html: fullHtml }, { timeout: 90000 });
             pdfBase64 = r.data?.pdf;
             if (!pdfBase64) throw new Error(r.data?.message || 'No se pudo generar el PDF');
@@ -2047,12 +2069,12 @@ info@brokergy.es · 623 926 179`;
     const getProposalPdfHtml = () => {
         const el = proposalRef.current;
         if (!el) return '';
-        return `<!DOCTYPE html><html><head><meta charset="UTF-8"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"><style>${baseCss} body{margin:0;padding:0;background:white}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}</style></head><body><div class="prop-wrapper-inner">${el.innerHTML}</div></body></html>`;
+        return `<!DOCTYPE html><html><head><meta charset="UTF-8">${FUENTES_PROPUESTA}<style>${baseCss} body{margin:0;padding:0;background:white}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}</style></head><body><div class="prop-wrapper-inner">${el.innerHTML}</div></body></html>`;
     };
     const getProposalEmailHtml = () => {
         const el = proposalRef.current;
         if (!el) return '';
-        return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"><style>${baseCss} body{margin:0;padding:0;background:#e5e7eb;display:flex;justify-content:center;align-items:flex-start;min-height:100vh;font-family:'Inter',sans-serif;}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}.web-document-container{width:100%;min-height:1123px;background:white;margin:0;}@media screen{.web-document-container{max-width:794px;margin:40px auto;box-shadow:0 20px 25px -5px rgba(0,0,0,.1);border-radius:8px;overflow:hidden;}}@media print{body{background:white;display:block;}.web-document-container{margin:0;max-width:100%;width:100%;border-radius:0;}}</style></head><body><div class="web-document-container"><div class="prop-wrapper-inner">${el.innerHTML}</div></div></body></html>`;
+        return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${FUENTES_PROPUESTA}<style>${baseCss} body{margin:0;padding:0;background:#e5e7eb;display:flex;justify-content:center;align-items:flex-start;min-height:100vh;font-family:'Inter',sans-serif;}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}.web-document-container{width:100%;min-height:1123px;background:white;margin:0;}@media screen{.web-document-container{max-width:794px;margin:40px auto;box-shadow:0 20px 25px -5px rgba(0,0,0,.1);border-radius:8px;overflow:hidden;}}@media print{body{background:white;display:block;}.web-document-container{margin:0;max-width:100%;width:100%;border-radius:0;}}</style></head><body><div class="web-document-container"><div class="prop-wrapper-inner">${el.innerHTML}</div></div></body></html>`;
     };
     const buildPropSummaryData = (mode) => {
         const f = result || {};
@@ -2093,7 +2115,7 @@ info@brokergy.es · 623 926 179`;
                 <html>
                 <head>
                     <meta charset="UTF-8">
-                    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+                    ${FUENTES_PROPUESTA}
                     <style>
                         ${baseCss}
                         body { margin: 0; padding: 0; background: white; }
@@ -2368,7 +2390,7 @@ info@brokergy.es · 623 926 179`;
         // 3. Generar HTML de la propuesta (una vez)
         const element = proposalRef.current;
         if (!element) { setConfirmConfig({ title: 'Error', message: '❌ No se puede acceder al contenido de la propuesta.', confirmText: 'Aceptar', onConfirm: () => { setConfirmConfig(null); setSendingEmail(false); } }); return; }
-        const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"><style>${baseCss} body{margin:0;padding:0;background:#e5e7eb;display:flex;justify-content:center;align-items:flex-start;min-height:100vh;font-family:'Inter',sans-serif;}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}.web-document-container{width:100%;min-height:1123px;background:white;margin:0;}@media screen{.web-document-container{max-width:794px;margin:40px auto;box-shadow:0 20px 25px -5px rgba(0,0,0,.1);border-radius:8px;overflow:hidden;}}@media print{body{background:white;display:block;}.web-document-container{margin:0;max-width:100%;width:100%;border-radius:0;}}</style></head><body><div class="web-document-container"><div class="prop-wrapper-inner">${element.innerHTML}</div></div></body></html>`;
+        const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${FUENTES_PROPUESTA}<style>${baseCss} body{margin:0;padding:0;background:#e5e7eb;display:flex;justify-content:center;align-items:flex-start;min-height:100vh;font-family:'Inter',sans-serif;}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}.web-document-container{width:100%;min-height:1123px;background:white;margin:0;}@media screen{.web-document-container{max-width:794px;margin:40px auto;box-shadow:0 20px 25px -5px rgba(0,0,0,.1);border-radius:8px;overflow:hidden;}}@media print{body{background:white;display:block;}.web-document-container{margin:0;max-width:100%;width:100%;border-radius:0;}}</style></head><body><div class="web-document-container"><div class="prop-wrapper-inner">${element.innerHTML}</div></div></body></html>`;
 
         const f = result || {};
         const fAero = f.financials || {};
@@ -2539,7 +2561,7 @@ info@brokergy.es · 623 926 179`;
                 <html>
                 <head>
                     <meta charset="UTF-8">
-                    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+                    ${FUENTES_PROPUESTA}
                     <style>
                         ${baseCss}
                         body { margin: 0; padding: 0; background: white; }

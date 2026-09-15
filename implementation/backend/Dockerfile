@@ -20,6 +20,20 @@ RUN apt-get update && apt-get install -y \
     && rm -f /tmp/chrome.deb \
     && rm -rf /var/lib/apt/lists/*
 
+# ─── Que un fallo de fuente NUNCA acabe en Courier ───────────────────────────
+#
+# Los documentos declaran su familia y detrás un respaldo (Arial, Roboto, Noto
+# Sans… y `sans-serif` al final). De esas familias aquí no hay NINGUNA, y
+# fontconfig resolvía `sans-serif` → **Liberation Mono**: medido el 15/09/2026,
+# `fc-match sans-serif` devolvía LiberationMono-Regular. Una propuesta cuya
+# tipografía no cargó no salía "parecida": salía ENTERA en monoespaciada, y así
+# la recibió un cliente.
+#
+# Esto no cambia ningún documento cuya fuente sí carga — solo decide en qué cae
+# cuando algo falla. `fc-cache -f` deja el índice hecho en la imagen.
+COPY backend/fontconfig-local.conf /etc/fonts/local.conf
+RUN fc-cache -f >/dev/null 2>&1 || true
+
 WORKDIR /app
 
 # OJO: el contexto de build es `./implementation` (NO `./implementation/backend`),
