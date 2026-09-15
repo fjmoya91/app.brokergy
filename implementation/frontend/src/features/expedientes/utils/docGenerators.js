@@ -6,11 +6,22 @@
 
 import { formatSeries, countUnidades, esAcumuladorAcs, datosAcumulador } from '../logic/aerotermiaUnits.js';
 import { anexoIStates, BONO_SOCIAL_LABELS } from '../logic/subvenciones.js';
+// Las @font-face auto-alojadas: la misma función que el CIFO y la propuesta.
+import { buildFontFaces, FUENTE_INTER } from '../logic/fuentesDoc.js';
 
 // Node-safe: este módulo también se importa server-side (cifoService vía cifoDoc).
 // En Node no existen import.meta.env ni window, así que se accede con guardas.
+//
+// ⚠️ En Node quedaba en CADENA VACÍA, y de este origen cuelgan el logo, la firma
+// de Brokergy y —desde que la tipografía se auto-aloja— las @font-face del
+// Convenio: en relativo y con `setContent` no hay base que resolver, así que no
+// cargan. Mismo respaldo que `ASSET_URL` de cifoService, que es de donde salen
+// esos mismos ficheros.
 const APP_URL = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_APP_URL)
-    || (typeof window !== 'undefined' ? window.location.origin : '');
+    || (typeof window !== 'undefined' && window.location ? window.location.origin : '')
+    || (typeof process !== 'undefined' && process.env
+        ? (process.env.CIFO_ASSET_URL || process.env.VITE_APP_URL || process.env.FRONTEND_URL || 'https://app.brokergy.es')
+        : 'https://app.brokergy.es');
 
 // Mapa código de provincia (2 díg.) → nombre. Permite mostrar la provincia
 // cuando solo tenemos el código (p.ej. oportunidades migradas) o el CP.
@@ -348,8 +359,14 @@ export const ANEXO_I_CSS = `
     .doc-editable:hover { background-color: #f8f9fa; border-bottom: 1px dashed #ced4da; }
 `;
 
+// ⚠️ La tipografía va AUTO-ALOJADA, no con un @import a Google Fonts (regla
+// 25.b). Aquí no es solo estética: `.conv-page` es una caja fija con
+// `overflow:hidden` y el documento está medido para caber en DOS páginas — con
+// otra fuente cambian las métricas y **lo que no cabe DESAPARECE**, en un
+// documento que el cliente firma. Antes dependía de que Google respondiera
+// dentro del render: si no, caía a la única sans del contenedor.
 export const ANEXO_CESION_CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+${buildFontFaces(APP_URL, FUENTE_INTER)}
 * { margin: 0; padding: 0; box-sizing: border-box; }
 .conv-wrap { font-family: 'Inter', Arial, sans-serif; width: ${DOC_WIDTH}; margin: 0 auto; -webkit-font-smoothing: antialiased; }
 .conv-page {

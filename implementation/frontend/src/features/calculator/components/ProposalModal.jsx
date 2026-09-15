@@ -18,7 +18,7 @@ import { tipoEmpresaLabel } from '../../../utils/tiposEmpresa';
 import { instaladorContacts, defaultContactIds } from '../../expedientes/utils/docContacts';
 // Las @font-face auto-alojadas: la MISMA función que usa el CIFO, para que los
 // dos documentos carguen sus tipografías por el mismo camino.
-import { buildFontFaces } from '../../expedientes/logic/cifoDoc';
+import { buildFontFaces, FUENTE_INTER } from '../../expedientes/logic/fuentesDoc';
 
 const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
 
@@ -43,7 +43,7 @@ const BROKERGY_LOGO_PATH = '/logo-brokergy-circular.png';
 // nombres de fichero en /public/fonts): el contenedor las pide a
 // `https://app.brokergy.es/fonts/…`, que es su propio nginx — 93 ms medidos y
 // sin depender de Google.
-const FUENTES_PROPUESTA = `<style>${buildFontFaces(APP_URL, [['Inter', 'Inter', [400, 500, 600, 700, 800, 900]]])}</style>`;
+const FUENTES_PROPUESTA = `<style>${buildFontFaces(APP_URL, FUENTE_INTER)}</style>`;
 
 const baseCss = `
         .prop-wrapper {

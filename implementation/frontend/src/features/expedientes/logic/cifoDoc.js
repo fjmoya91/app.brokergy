@@ -34,6 +34,7 @@ import {
 // Quién firma el CIFO. FUENTE ÚNICA con los popups de envío: si la regla se
 // duplicara, el popup anunciaría un firmante y el documento saldría con otro.
 import { firmanteCifo } from './instaladorPendientes.js';
+import { buildFontFaces } from './fuentesDoc.js';
 
 // Unidades terminales. Las tres primeras son de AGUA: la temperatura de impulsión
 // es la que decide qué SCOP de la ficha se aplica (35/45/55 °C).
@@ -82,30 +83,8 @@ export function formatDateSpanish(isoStr) {
     } catch { return '—'; }
 }
 
-// ─── Fuente del diseño (Instrument Sans), auto-alojada en /public/fonts.
-// TODO el CIFO va en la MISMA familia: el documento no mezcla tipografías,
-// la jerarquía la marcan el peso, el tamaño y el color.
-const FONT_LATIN = 'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD';
-const FONT_LATINEXT = 'U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF';
-
-// `fams` por defecto es la del CIFO. Se parametriza porque la PROPUESTA necesita
-// exactamente lo mismo con OTRA familia (Inter): dependía de un <link> a Google
-// Fonts y, el día que esa descarga no llegaba a tiempo, el documento salía en la
-// única fuente del contenedor que responde a `sans-serif` — Liberation MONO. Un
-// documento de cliente en Courier. Auto-alojarla lo hace determinista.
-export function buildFontFaces(appUrl, fams = [
-    ['Instrument Sans', 'InstrumentSans', [400, 500, 600, 700]],
-]) {
-    let out = '';
-    for (const [name, slug, weights] of fams) {
-        for (const w of weights) {
-            for (const [sub, range] of [['latin', FONT_LATIN], ['latinext', FONT_LATINEXT]]) {
-                out += `@font-face{font-family:'${name}';font-style:normal;font-weight:${w};font-display:swap;src:url('${appUrl}/fonts/${slug}-${w}-${sub}.woff2') format('woff2');unicode-range:${range};}`;
-            }
-        }
-    }
-    return out;
-}
+// La tipografía del documento vive en su propio módulo: la comparten el CIFO,
+// el Convenio de Cesión y la propuesta (ver fuentesDoc.js).
 
 const DESIGN_SHARED = `
     * { box-sizing: border-box; }
