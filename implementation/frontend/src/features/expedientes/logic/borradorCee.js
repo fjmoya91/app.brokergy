@@ -327,11 +327,16 @@ export function buildBorradorCee(ctx = {}, { fase = 'inicial', hoy = null } = {}
     // contra ella contra la que el Registro compara. Solo si el certificado no la
     // trae se cae al expediente y, después, a la simulación.
     const ident = certificado.identificacion || {};
+    // ⚠️ Un CEE DIRECTO guarda la dirección en COLUMNAS PROPIAS de `cee_directos`
+    // (`direccion`, `municipio`, `provincia`, `codigo_postal`): esa tabla no tiene
+    // `instalacion` ni oportunidad detrás. Sin este escalón el apartado 05 salía
+    // ENTERO en blanco en los CEE sueltos — medido sobre la forma de 2026CEE_54.
     const edificio = {
-        direccion: limpio(ident.direccion) || limpio(inst.direccion) || limpio(inputs.direccion) || limpio(inputs.address),
-        municipio: limpio(ident.municipio) || limpio(inst.municipio) || limpio(inputs.municipio),
-        provincia: limpio(ident.provincia) || limpio(inst.provincia) || limpio(inputs.provincia),
-        codigo_postal: limpio(inst.codigo_postal) || limpio(inputs.cp),
+        direccion: limpio(ident.direccion) || limpio(inst.direccion) || limpio(exp.direccion)
+            || limpio(inputs.direccion) || limpio(inputs.address),
+        municipio: limpio(ident.municipio) || limpio(inst.municipio) || limpio(exp.municipio) || limpio(inputs.municipio),
+        provincia: limpio(ident.provincia) || limpio(inst.provincia) || limpio(exp.provincia) || limpio(inputs.provincia),
+        codigo_postal: limpio(inst.codigo_postal) || limpio(exp.codigo_postal) || limpio(inputs.cp),
         ref_catastral: limpio(ident.refCatastral) || limpio(op?.ref_catastral) || limpio(inst.ref_catastral)
             || limpio(exp.ref_catastral) || limpio(inputs.rc) || limpio(inputs.referencia_catastral),
     };

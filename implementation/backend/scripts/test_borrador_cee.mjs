@@ -388,6 +388,38 @@ test('El trámite se abre desde el propio borrador', () => {
     eq('sin borrador no hay sede', buildBorradorCee(fuera, { fase: 'inicial' }).sede, undefined);
 });
 
+// ─── 8.b Un CEE DIRECTO ──────────────────────────────────────────────────────
+// Esa tabla no tiene `instalacion` ni oportunidad detrás: la dirección vive en
+// COLUMNAS PROPIAS (`direccion`, `municipio`, `provincia`, `codigo_postal`). Sin
+// leerlas, el apartado 05 salía entero en blanco en los CEE sueltos.
+test('CEE directo: la dirección sale de sus columnas propias', () => {
+    const directo = {
+        numero_expediente: '2026CEE_60',
+        direccion: 'CL CALVARIO 20', municipio: 'TOMELLOSO',
+        provincia: 'CIUDAD REAL', codigo_postal: '13700',
+        ref_catastral: '7642502XJ6474D0001WP',
+        cee: {
+            fecha_firma_cee_inicial: '2026-09-10',
+            fecha_visita_cee_inicial: '2026-09-09',
+            cee_inicial: { epnrLetra: 'D', emisionesLetra: 'D', tipoEdificio: 'ViviendaIndividualEnBloque' },
+        },
+    };
+    const b = buildBorradorCee(
+        { expediente: directo, cliente: { nombre_razon_social: 'ANA', apellidos: 'GIL SANZ', dni: '11111111H' } },
+        { fase: 'inicial', hoy: '2026-09-15' });
+    eq('se genera y sitúa la comunidad', [b.aplica, b.ccaa], [true, 'CASTILLA-LA MANCHA']);
+    eq('vía troceada de la columna propia',
+        [campo(b, '05', 'Tipo vía'), campo(b, '05', 'Nombre de la vía'), campo(b, '05', 'N.º Calle')],
+        ['Calle', 'CALVARIO', '20']);
+    eq('población y CP de sus columnas',
+        [campo(b, '05', 'Población'), campo(b, '05', 'Código Postal')], ['TOMELLOSO', '13700']);
+    eq('referencia catastral de su columna',
+        campo(b, '05', 'Referencia catastral'), '7642502XJ6474D0001WP');
+    // Un CEE suelto de alcance ÚNICO no tiene fase final: sus ficheros son los del
+    // inicial y su nombre canónico, con el NIF del titular delante.
+    eq('ficheros del CEE suelto', b.ficheros[0].nombreRegistro, '11111111H_2026CEE_60 – CEE INICIAL_fdo.pdf');
+});
+
 // ─── 9. Las dos letras, leídas del .xml SIN DOM ──────────────────────────────
 // El backend no tiene DOMParser, así que los certificados ya subidos —que no
 // guardan `emisionesLetra`— se releen del XML crudo con el lector de texto. El
