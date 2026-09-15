@@ -32,6 +32,7 @@ import { resolveDacs } from '../logic/demandaAcs';
 import { deriveTerciarioVars, TERCIARIO_PRECIOS } from '../logic/terciario';
 import { CAE_PRECIO_CLIENTE_ANTERIOR } from '../../calculator/logic/calculation';
 import { propuestaGuardada } from '../logic/propuestaGuardada';
+import { driveFolderLink } from '../../../utils/driveFolder';
 import { SeguimientoModule } from '../components/SeguimientoModule';
 import { ComunicacionesCertificador } from '../components/ComunicacionesCertificador';
 import { HistorialModal } from '../../../components/HistorialModal';
@@ -993,7 +994,11 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
     
     const opInputs = op.datos_calculo?.inputs || {};
     const opCalcResult = op.datos_calculo?.result || {};
-    const driveLink = op.datos_calculo?.drive_folder_link;
+    // La carpeta ha vivido en cuatro claves distintas de datos_calculo según la época:
+    // se resuelven todas y el enlace se compone del id cuando no está guardado
+    // (utils/driveFolder.js). Gatear solo por `datos_calculo.drive_folder_link` dejaba
+    // sin botones "Drive" y "Carpeta Local" a expedientes cuya carpeta sí existe.
+    const driveLink = driveFolderLink(op);
 
     // Propuesta económica original que se presentó al cliente en la oportunidad.
     // Estructura canónica: result.savings.* + result.financials.* (con fallback a campos planos),

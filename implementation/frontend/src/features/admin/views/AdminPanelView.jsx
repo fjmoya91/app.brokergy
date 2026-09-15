@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { getRoleFlags, DELETE_FORBIDDEN_MSG } from '../../../utils/roleFlags';
+import { driveFolderLink } from '../../../utils/driveFolder';
 import { PrescriptoresList } from './PrescriptoresList';
 import { ClienteFormModal } from '../../clientes/components/ClienteFormModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
@@ -1543,7 +1544,7 @@ export function AdminPanelView({
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                                         </svg>
                                                     </button>
-                                                    {op.datos_calculo?.drive_folder_link && user?.rol === 'ADMIN' && (
+                                                    {driveFolderLink(op) && user?.rol === 'ADMIN' && (
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); handleOpenLocalFolder(op); }}
                                                             disabled={localPathLoadingId === op.id_oportunidad}
@@ -1767,7 +1768,7 @@ export function AdminPanelView({
                                             </button>
                                         )
                                     )}
-                                    {op.datos_calculo?.drive_folder_link && user?.rol === 'ADMIN' && (
+                                    {driveFolderLink(op) && user?.rol === 'ADMIN' && (
                                         <button
                                             onClick={(e) => { e.stopPropagation(); handleOpenLocalFolder(op); }}
                                             disabled={localPathLoadingId === op.id_oportunidad}

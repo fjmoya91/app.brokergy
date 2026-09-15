@@ -579,8 +579,10 @@ router.get('/', enforceAuth, async (req, res) => {
         // v3 (2026-07-22) además NO trae el XML crudo del CEE ni los blobs anidados de
         // `datos_calculo.inputs`, y ya devuelve agregados los contadores de incidencias:
         // el payload bajó de 21 MB a 1,7 MB y se eliminó un segundo query que recorría
-        // toda la tabla. Ver scripts/get_expedientes_list_v3.sql.
-        const { data: rpcData, error: rpcErr } = await supabase.rpc('get_expedientes_list_v3');
+        // toda la tabla. v4 (2026-09-15) añade lo que piden las columnas elegibles del
+        // listado (lote, instalador y las fases del CEE, esto último podado); ver
+        // scripts/get_expedientes_list_v4.sql.
+        const { data: rpcData, error: rpcErr } = await supabase.rpc('get_expedientes_list_v4');
         if (rpcErr) throw rpcErr;
 
         let data = rpcData || [];
@@ -589,6 +591,18 @@ router.get('/', enforceAuth, async (req, res) => {
         if (isCertificador) {
             if (!req.user.prescriptor_id) return res.json([]);
             data = data.filter(r => String(r.cee?.certificador_id) === String(req.user.prescriptor_id));
+            // Quién ejecuta la obra es dato COMERCIAL y no le corresponde (regla 48.d:
+            // "lo que el certificador no tiene que ver ni tocar"). La columna Instalador
+            // ya no se le pinta; esto es la segunda capa, para que tampoco viaje.
+            data = data.map(({ instalador_asociado_id, ...r }) => ({
+                ...r,
+                instalacion: r.instalacion
+                    ? (({ instalador_id, ...inst }) => inst)(r.instalacion)
+                    : r.instalacion,
+                oportunidades: r.oportunidades
+                    ? (({ prescriptor_id, instalador_asociado_id: _i, ...o }) => o)(r.oportunidades)
+                    : r.oportunidades,
+            }));
         }
 
         // Capado de cifras por rol: ADMIN completo; TRABAJADOR sin margen

@@ -7579,6 +7579,117 @@ las dos calificaciones coinciden con lo que el técnico tecleó en la sede.
 
 ---
 
+## El listado de expedientes: las columnas se ELIGEN (2026-09-15)
+
+La tabla tenía SIETE columnas fijas y escritas a mano en tres sitios distintos
+—cabecera, fila de filtros y celdas—, alineados por POSICIÓN: para añadir una
+había que tocar los tres y acertar con el orden, y el `hidden lg:table-cell` de
+una celda tenía que coincidir con el de su cabecera o la tabla se descuadraba
+entera. Por eso no había forma de filtrar por **instalador**, que es la pregunta
+que más se hace de una cartera ("¿qué tengo de INSTOTERMA?").
+
+Ahora hay un botón **▦ Columnas · N** que dice cuáles se ven y deja encender o
+apagar las que hagan falta, cada una con su propio filtro.
+
+| Qué | Dónde |
+|---|---|
+| EL REGISTRO — rótulo, ancho, filtro, valor y pintado de cada columna | [logic/expedientesColumnas.jsx](implementation/frontend/src/features/expedientes/logic/expedientesColumnas.jsx) |
+| El panel de selección y las vistas de fábrica | [components/ColumnasPicker.jsx](implementation/frontend/src/features/expedientes/components/ColumnasPicker.jsx) |
+| Los datos que piden las columnas nuevas | `get_expedientes_list_v4` (`scripts/get_expedientes_list_v4.sql`) |
+
+**REGLA — las columnas son una LISTA DECLARATIVA, no N bloques de JSX copiados.**
+Cada una se declara UNA vez y de ahí salen la cabecera, la fila de filtros, las
+celdas, el orden y el CSV. Es el mismo criterio que el menú lateral: cuando eran
+copias había que tocarlas de una en una y la última nacía ya distinta de sus
+hermanas.
+
+**REGLA — `valor()` es lo que la columna DICE y `render()` cómo lo enseña.** El
+orden y la exportación usan `valor`, así que una columna que solo defina el
+pintado se puede ver pero no ordenar ni exportar: las dos cosas van juntas.
+
+**REGLA — quién puede ver una columna se declara en `roles`, y el backend lo
+repite.** La lista es una comodidad de pantalla, nunca el control de acceso — una
+key guardada en el navegador sobrevive a un cambio de rol. El **INSTALADOR no se
+le enseña al CERTIFICADOR** (regla 48.d: es dato comercial) y la ruta se lo capa
+de la respuesta; el **margen** sigue siendo solo de ADMIN, como ya hacía
+`stripBrokergyMargin`.
+
+**REGLA — el ORDEN de las columnas lo fija el registro, no el orden en que se
+marcan.** Si cada usuario pudiera reordenarlas, "mira la tercera columna" dejaría
+de significar lo mismo por teléfono, y el nº de expediente podría acabar el
+último, que es donde no sirve para nada. Los ANCHOS sí son de cada uno (el
+redimensionado de siempre, con su "Reset columnas").
+
+**REGLA — un filtro activo NO puede esconderse al ocultar su columna.** Al
+apagarla se limpia su filtro. Una lista recortada por algo que no se ve en
+ninguna parte es la peor forma de quedarse a cero resultados — el mismo problema
+que ya resolvía el aviso de "hay N filtros más activos" cuando la tabla
+desaparecía.
+
+**REGLA — el filtrado recorre TODAS las columnas, no solo las visibles.** El
+panel de filtros del MÓVIL enseña los mismos selectores sin que haya tabla
+detrás; que no quede ninguno activo sobre una columna oculta lo garantiza la
+regla de arriba.
+
+**REGLA — la CABECERA ordena, y sin ordenación elegida manda la PRIORIDAD.** La
+lista es una cola de trabajo antes que una hoja de cálculo, así que el tercer
+clic vuelve al orden de siempre. Lo vacío va SIEMPRE al final, se ordene como se
+ordene: un bloque de guiones arriba esconde justo lo que se ha pedido ver.
+
+**REGLA — "Exportar" saca lo que SE ESTÁ VIENDO**: las columnas visibles y las
+filas filtradas, con `;` y BOM (mismo criterio que el CSV de venta cruzada). Un
+botón que exporta "todo" mientras la pantalla enseña otra cosa es la forma más
+fácil de mandar el fichero equivocado.
+
+### Las vistas de fábrica
+
+Un preset es solo una lista de keys, así que no hay nada que mantener aparte. La
+primera reproduce EXACTAMENTE la tabla de siempre: nadie debe encontrarse la
+pantalla cambiada sin haberla cambiado. La elección se guarda en ESE navegador
+(es una preferencia de pantalla, no un dato del negocio).
+
+| Vista | Para qué |
+|---|---|
+| **Operativa** | La de siempre — expediente · CCAA · estado · ficha · certificador · ⚡€▲ · año |
+| **Seguimiento CEE** | En qué fase está cada certificado y desde cuándo |
+| **Económica** | Ahorro, bono y margen POR SEPARADO (ordenables), con su lote |
+| **Cartera** | Quién trae la obra y a quién llamar: cliente · teléfono · instalador · municipio |
+
+### La columna INSTALADOR y su cascada
+
+**REGLA — UNA cascada, y la del listado coincide con la de la FICHA.** El primer
+escalón es `instalacion.instalador_id`, que es el campo que se edita en
+Instalación y lo que se ve al abrir el expediente; si la columna dijera otra cosa
+que la ficha sería peor que no tener columna. Detrás van
+`expedientes.instalador_asociado_id` y el `prescriptor_id` de su oportunidad,
+porque con el primero solo **98 de 267 expedientes saldrían vacíos teniéndolo**
+(80 lo declaran solo en la columna —los migrados— y otros tantos lo heredan).
+
+**REGLA — lo HEREDADO se marca.** Sale atenuado y en cursiva, con "heredado de la
+oportunidad — la ficha de Instalación no lo declara": es el instalador que
+consta, y a la vez lo que hay que corregir en la ficha.
+
+⚠️ En el backend conviven SEIS cascadas distintas para "quién es el instalador"
+(`routes/expedientes.js` 302, 1409, 4286, 5452; `routes/lotes.js` 361;
+`routes/oportunidades.js` 1656) y **no se han unificado**: de ellas cuelgan
+documentos ya emitidos. Esta es la del listado y está declarada en un solo sitio.
+
+### Lo que hacía falta traer — `get_expedientes_list_v4`
+
+Añade sobre v3 **solo lo que alguna columna pinta**, y siempre escalares o JSONB
+podados (la regla 22 sigue en pie): `lote_id` + `lote` {codigo, estado, año},
+`instalador_asociado_id` + el `prescriptor_id` de la oportunidad, y `seguimiento`
+**recortado a las cuatro claves de fase** (el objeto entero pesa 279 kB y trae
+tokens de aviso y sellos de migración que el listado no enseña). El payload sube
+~40 kB sobre los 1,7 MB de v3.
+
+⚠️ De paso ARREGLA un fallo real: `isLoteable` ya filtraba por `!exp.lote_id` y
+ese campo **nunca llegaba**, así que los 45 expedientes ya loteados se ofrecían
+como seleccionables y el error solo aparecía al crear el lote (el backend sí lo
+rechaza: `loteService.evaluarElegibilidadBase`).
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -7852,6 +7963,8 @@ WA_SYNC_ETIQUETA_INSTALADORES=INSTALADORES
 WA_SYNC_PAUSA_MS=1500              ← pausa entre chats (no hacerle ráfagas a ese Chrome)
 WA_SYNC_FALLOS_MAX=3               ← tiempos de espera seguidos tras los que se corta el repaso
 ```
+
+53. **Las COLUMNAS del listado de expedientes se ELIGEN, y son una lista declarativa**: botón **▦ Columnas · N** con vistas de fábrica (Operativa · Seguimiento CEE · Económica · Cartera). Cada columna se declara UNA vez en [logic/expedientesColumnas.jsx](implementation/frontend/src/features/expedientes/logic/expedientesColumnas.jsx) —rótulo, ancho, filtro, `valor()` y `render()`— y de ahí salen la cabecera, la fila de filtros, las celdas, el ORDEN (clic en la cabecera; el tercer clic vuelve al orden por PRIORIDAD, que es el de siempre) y el CSV, que exporta **lo que se está viendo**. Antes eran siete columnas escritas a mano en tres sitios alineados por posición, y por eso no se podía filtrar por **instalador**. **Un filtro activo NO puede esconderse**: al apagar su columna se limpia. **El orden de las columnas lo fija el registro**, no el usuario (los anchos sí son suyos); y **`roles` es una comodidad de pantalla, nunca el control de acceso** — el instalador se le capa al CERTIFICADOR también en la ruta (regla 48.d) y el margen sigue siendo de ADMIN. La columna INSTALADOR resuelve `instalacion.instalador_id → expedientes.instalador_asociado_id → oportunidad`, la misma primera fuente que la FICHA, y **marca lo heredado** (con la primera sola, 98 de 267 saldrían vacíos teniéndolo). Los datos los trae `get_expedientes_list_v4` (lote, instalador y `seguimiento` podado a sus cuatro claves de fase), que de paso arregla que `lote_id` **nunca llegara** al listado y los 45 expedientes ya loteados se ofrecieran para lotear. Ver "El listado de expedientes: las columnas se ELIGEN".
 
 ---
 

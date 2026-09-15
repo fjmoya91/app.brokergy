@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
+import { driveFolderLink } from '../../../utils/driveFolder';
 import html2canvas from 'html2canvas';
 import { SectionCard, Divider, Input, Label } from './UIComponents';
 import { SummaryTable } from './SummaryTable';
@@ -656,7 +657,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                             )}
                         </div>
                         <div className="flex items-center gap-1">
-                            {inputs?.drive_folder_link && user?.rol?.toUpperCase() === 'ADMIN' && (
+                            {driveFolderLink(inputs) && user?.rol?.toUpperCase() === 'ADMIN' && (
                                 <button
                                     type="button"
                                     onClick={handleOpenLocalFolder}
@@ -671,9 +672,9 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                                 </button>
                             )}
 
-                            {inputs?.drive_folder_link && user?.rol?.toUpperCase() === 'ADMIN' && (
+                            {driveFolderLink(inputs) && user?.rol?.toUpperCase() === 'ADMIN' && (
                                 <a
-                                    href={inputs.drive_folder_link}
+                                    href={driveFolderLink(inputs)}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="p-2 mr-1 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 transition-all hover:scale-110 active:scale-90"
@@ -1460,13 +1461,13 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                         setTimeout(() => runAction(action), 300);
                     }
                 }}
-                onSaveSuccess={(ref, id, driveId, prescriptorId, instaladorId, codInterno, driveFolderLink) => {
+                onSaveSuccess={(ref, id, driveId, prescriptorId, instaladorId, codInterno, nuevoDriveLink) => {
                     const newInputs = {
                         ...inputs,
                         referenciaCliente: ref,
                         id_oportunidad: id,
                         drive_folder_id: driveId,
-                        drive_folder_link: driveFolderLink || inputs.drive_folder_link,
+                        drive_folder_link: nuevoDriveLink || inputs.drive_folder_link,
                         prescriptor_id: prescriptorId,
                         instalador_asociado_id: instaladorId,
                         cod_cliente_interno: codInterno

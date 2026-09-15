@@ -21,8 +21,13 @@ import {
     CAE_PRECIO_CLIENTE_ANTERIOR,
 } from '../../calculator/logic/calculation';
 import { computeExpedienteFinancials } from '../logic/expedienteFinancials';
-import { CCAA_MAP, pad2, getFicha, getCifoYear, getCCAA, FICHAS, fichaColor } from '../logic/expedienteTaxonomia';
+import { CCAA_MAP, pad2, getCifoYear, getCCAA, FICHAS, fichaColor } from '../logic/expedienteTaxonomia';
 import { resolveDacs } from '../logic/demandaAcs';
+import {
+    COLUMNAS, COLUMNAS_POR_KEY, COLUMNA_ACCIONES, COLUMNAS_POR_DEFECTO,
+    puedeVer, instaladorDe, valorTexto,
+} from '../logic/expedientesColumnas';
+import { ColumnasPicker } from '../components/ColumnasPicker';
 
 // ─── Dropzone de XML (migración de expedientes desde CE3X) ────────────────────
 function XmlDrop({ label, slot, error, onFile }) {
@@ -888,11 +893,21 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
     });
     const [certificadorFilter, setCertificadorFilter] = useState('ALL');
     const [ccaaFilter, setCcaaFilter] = useState('ALL');
+    // Filtros de las columnas que se pueden ENCENDER (ver expedientesColumnas.jsx).
+    // Cada uno vive aquí y no dentro del registro porque el panel de filtros del
+    // MÓVIL —donde no hay tabla— comparte estos mismos setters.
+    const [instaladorFilter, setInstaladorFilter] = useState('ALL');
+    const [loteFilter, setLoteFilter] = useState('ALL');
+    const [municipioFilter, setMunicipioFilter] = useState('ALL');
+    const [faseIniFilter, setFaseIniFilter] = useState('ALL');
+    const [faseFinFilter, setFaseFinFilter] = useState('ALL');
+    const [incidenciasFilter, setIncidenciasFilter] = useState('ALL');
     // 'ALL' salvo que se llegue con ?prioridad= desde el cuadro de mando.
     const [prioridadFilter, setPrioridadFilter] = useState(initialPrioridad || 'ALL');
     const [yearFilter, setYearFilter] = useState('ALL');
     const [fichaFilter, setFichaFilter] = useState('ALL');
     const [certificadores, setCertificadores] = useState([]);
+    const [prescriptores, setPrescriptores] = useState([]);   // todos, para resolver nombres
     const [showStats, setShowStats] = useState(true);
     const [showMobileFilters, setShowMobileFilters] = useState(false); // Panel de filtros en móvil
 
@@ -903,12 +918,36 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
     const [showCrearLote, setShowCrearLote] = useState(false);
     const [creatingLote, setCreatingLote] = useState(false);
 
-    // ─── Columnas redimensionables (Excel-style) ──────────────────────────────
-    const EXP_COL_DEFAULTS = {
-        expediente: 360, ccaa: 140, estado: 156,
-        ficha: 80, certificador: 140, metricas: 116, anio: 80, acciones: 88,
-    };
+    // ─── Columnas ELEGIBLES (qué se ve) + redimensionables (Excel-style) ──────
+    // El ancho por defecto de cada una lo declara el REGISTRO, no una tabla suelta
+    // aquí: una columna nueva nacía sin ancho y la tabla se descuadraba entera.
+    const EXP_COL_DEFAULTS = useMemo(() => Object.fromEntries(
+        [...COLUMNAS, COLUMNA_ACCIONES].map(c => [c.key, c.ancho])
+    ), []);
     const EXP_STORAGE_KEY = 'exp_panel_col_widths_v1';
+    const COLS_STORAGE_KEY = 'exp_panel_cols_v1';
+
+    // Qué columnas están encendidas. Se guarda en ESTE navegador (es una
+    // preferencia de pantalla, no un dato del negocio) y arranca en la vista de
+    // siempre: nadie debe encontrarse la tabla cambiada sin haberla cambiado.
+    const [colKeys, setColKeys] = useState(() => {
+        try {
+            const saved = JSON.parse(localStorage.getItem(COLS_STORAGE_KEY) || 'null');
+            if (Array.isArray(saved) && saved.length) {
+                // Una key que ya no exista en el registro se descarta en silencio:
+                // el localStorage sobrevive a los despliegues.
+                const validas = saved.filter(k => COLUMNAS_POR_KEY[k]);
+                if (validas.length) return validas;
+            }
+        } catch { /* localStorage capado o JSON roto */ }
+        return [...COLUMNAS_POR_DEFECTO];
+    });
+    useEffect(() => {
+        try { localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify(colKeys)); } catch { /* ignore */ }
+    }, [colKeys]);
+
+    // Ordenación por cabecera. `null` = el orden de siempre (prioridad primero).
+    const [sortBy, setSortBy] = useState(null);   // { key, dir: 'asc'|'desc' }
     const loadExpColWidths = () => {
         try {
             const saved = localStorage.getItem(EXP_STORAGE_KEY);
@@ -984,6 +1023,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
         axios.get('/api/prescriptores')
             .then(res => {
                 const all = res.data || [];
+                setPrescriptores(all);
                 setCertificadores(all.filter(p => p.tipo_empresa === 'CERTIFICADOR' || p.tipo_empresa === 'OTRO'));
                 setSoList(all.filter(p => p.tipo_empresa === 'SUJETO_OBLIGADO'));
             })
@@ -1151,7 +1191,49 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
         const set = new Set(expedientes.map(e => getCifoYear(e)).filter(Boolean));
         return Array.from(set).sort((a, b) => b - a);
     }, [expedientes]);
-    
+
+    // ─── Listas de los desplegables de las columnas nuevas ────────────────────
+    // Solo lo que EXISTE en la cartera: un desplegable con los 70 instaladores
+    // de la BBDD, de los que 50 no tienen ni un expediente, obliga a buscar el
+    // que sí trabaja entre los que no.
+    const availableInstaladores = useMemo(() => {
+        const ids = new Set(expedientes.map(e => instaladorDe(e).id).filter(Boolean));
+        return prescriptores
+            .filter(p => ids.has(String(p.id_empresa)))
+            .sort((a, b) => (a.acronimo || a.razon_social || '').localeCompare(b.acronimo || b.razon_social || ''));
+    }, [expedientes, prescriptores]);
+
+    const availableLotes = useMemo(() => {
+        const set = new Set(expedientes.map(e => e.lote?.codigo).filter(Boolean));
+        return Array.from(set).sort().reverse();
+    }, [expedientes]);
+
+    const availableMunicipios = useMemo(() => {
+        const set = new Set(expedientes.map(e => {
+            const inputs = e.oportunidades?.datos_calculo?.inputs || {};
+            return inputs.municipio || e.clientes?.municipio || '';
+        }).filter(Boolean));
+        return Array.from(set).sort();
+    }, [expedientes]);
+
+    // Prescriptor por id — lo usan las columnas Certificador e Instalador. Un
+    // `find()` por celda son 267 × 2 recorridos de la lista en cada render.
+    const prescriptorPorId = useMemo(() => {
+        const m = new Map();
+        prescriptores.forEach(p => m.set(String(p.id_empresa), p));
+        return m;
+    }, [prescriptores]);
+
+    // Economía de cada fila, calculada UNA vez por expediente (el CIFO, la ficha
+    // y el ahorro salen del mismo cómputo y hay columnas que piden solo una).
+    const finCacheRef = useRef(new WeakMap());
+    useEffect(() => { finCacheRef.current = new WeakMap(); }, [expedientes]);
+    const finDe = useCallback((exp) => {
+        const cache = finCacheRef.current;
+        if (!cache.has(exp)) cache.set(exp, computeExpedienteFinancials(exp));
+        return cache.get(exp);
+    }, []);
+
     // Si hay un expediente seleccionado, mostrar el detalle
     if (selectedExpediente) {
         return (
@@ -1198,6 +1280,53 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
         );
     }
 
+    // ─── Contexto que reciben las columnas ────────────────────────────────────
+    // Todo lo que una columna necesita para filtrar, pintar y ordenar. Va en un
+    // solo objeto para que añadir una columna no obligue a pasar tres props más
+    // por la cabecera, la fila de filtros y la celda.
+    const colCtx = {
+        rol: userRole,
+        estados: EXPEDIENTE_ESTADOS,
+        statusSel, setStatusSel,
+        fin: finDe,
+        porId: (id) => (id ? prescriptorPorId.get(String(id)) || null : null),
+        listas: {
+            ccaa: availableCcaa,
+            anios: availableYears,
+            certificadores,
+            instaladores: availableInstaladores,
+            lotes: availableLotes,
+            municipios: availableMunicipios,
+        },
+        filtros: {
+            prioridad: prioridadFilter,
+            ccaa: ccaaFilter,
+            ficha: fichaFilter,
+            certificador: certificadorFilter,
+            anio: yearFilter,
+            instalador: instaladorFilter,
+            lote: loteFilter,
+            municipio: municipioFilter,
+            fase_inicial: faseIniFilter,
+            fase_final: faseFinFilter,
+            incidencias: incidenciasFilter,
+        },
+        setFiltro: (key, val) => ({
+            prioridad: setPrioridadFilter, ccaa: setCcaaFilter, ficha: setFichaFilter,
+            certificador: setCertificadorFilter, anio: setYearFilter,
+            instalador: setInstaladorFilter, lote: setLoteFilter, municipio: setMunicipioFilter,
+            fase_inicial: setFaseIniFilter, fase_final: setFaseFinFilter, incidencias: setIncidenciasFilter,
+        }[key]?.(val)),
+        onStatusChange: (id, val, e) => handleStatusChange(id, val, e),
+    };
+
+    // Columnas que este usuario tiene encendidas Y puede ver. El rol se comprueba
+    // aquí además de en el picker: una key guardada en el navegador sobrevive a un
+    // cambio de rol, y no puede devolver una columna que ya no le toca.
+    const colsVisibles = colKeys
+        .map(k => COLUMNAS_POR_KEY[k])
+        .filter(c => c && puedeVer(c, userRole));
+
     const filtered = expedientes.filter(e => {
         const q = norm(search);
         // Dirección/ubicación de la oportunidad (datos_calculo.inputs). En los
@@ -1235,13 +1364,15 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
         const matchesStatus = statusSel.size === 0 ? true
             : (statusSel.has('CON_INCIDENCIAS') && e.incidencias_abiertas > 0)
               || statusSel.has(e.estado || 'PTE. CEE INICIAL');
-        const matchesCert = certificadorFilter === 'ALL'
-            || (certificadorFilter === 'NONE' ? !e.cee?.certificador_id : String(e.cee?.certificador_id) === String(certificadorFilter));
-        const matchesCCAA = ccaaFilter === 'ALL' || getCCAA(e) === ccaaFilter;
-        const matchesPrioridad = prioridadFilter === 'ALL' || (e.prioridad || 'NORMAL') === prioridadFilter;
-        const matchesYear = yearFilter === 'ALL' || getCifoYear(e) === parseInt(yearFilter);
-        const matchesFicha = fichaFilter === 'ALL' || getFicha(e) === fichaFilter;
-        return matchesSearch && matchesStatus && matchesCert && matchesCCAA && matchesPrioridad && matchesYear && matchesFicha;
+
+        // Los filtros de columna los aplica CADA COLUMNA (su `match`), y se
+        // recorren TODAS, no solo las visibles: el panel de filtros del móvil
+        // enseña los mismos selectores sin que haya tabla detrás. Que no quede
+        // ninguno activo sobre una columna oculta lo garantiza el picker, que al
+        // apagarla limpia su filtro.
+        const matchesColumnas = COLUMNAS.every(col => !col.match || col.match(e, colCtx));
+
+        return matchesSearch && matchesStatus && matchesColumnas;
     });
 
     // ── "0 resultados" con un pill de estado en 14 no es un fallo del pill ──────
@@ -1251,29 +1382,74 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
     // vacía (regla: el bloque "Tabla" solo se pinta si `filtered.length > 0`). Sin
     // esto, un filtro que quedó puesto de una búsqueda anterior deja la lista en
     // 0 sin ninguna pista de por qué, ni forma de quitarlo desde el desktop.
-    const activeExtraFilters = [
-        prioridadFilter !== 'ALL' && { label: 'Prioridad', value: prioridadFilter },
-        fichaFilter !== 'ALL' && { label: 'Ficha', value: fichaFilter },
-        ccaaFilter !== 'ALL' && { label: 'CCAA', value: ccaaFilter },
-        yearFilter !== 'ALL' && { label: 'Año', value: yearFilter },
-        certificadorFilter !== 'ALL' && {
-            label: 'Certificador',
-            value: certificadorFilter === 'NONE'
-                ? 'Sin asignar'
-                : (certificadores.find(c => String(c.id_empresa) === String(certificadorFilter))?.razon_social
-                    || certificadores.find(c => String(c.id_empresa) === String(certificadorFilter))?.acronimo
-                    || certificadorFilter),
-        },
-    ].filter(Boolean);
-    const limpiarOtrosFiltros = () => {
-        setPrioridadFilter('ALL'); setFichaFilter('ALL'); setCcaaFilter('ALL');
-        setCertificadorFilter('ALL'); setYearFilter('ALL');
-    };
+    // Sale del registro, así que una columna nueva con filtro aparece aquí sola.
+    const activeExtraFilters = COLUMNAS
+        .map(col => (col.filtroActivo ? col.filtroActivo(colCtx) : null))
+        .filter(Boolean);
+    const limpiarOtrosFiltros = () => COLUMNAS.forEach(col => col.limpiar?.(colCtx));
 
     const PRIORITY_ORDER = { URGENTE: 0, ALTA: 1, NORMAL: 2 };
-    const sortedFiltered = [...filtered].sort((a, b) =>
-        (PRIORITY_ORDER[a.prioridad || 'NORMAL'] ?? 2) - (PRIORITY_ORDER[b.prioridad || 'NORMAL'] ?? 2)
+    // Sin ordenación elegida manda la PRIORIDAD, como siempre: la lista es una
+    // cola de trabajo antes que una hoja de cálculo.
+    const sortedFiltered = [...filtered].sort((a, b) => {
+        if (sortBy) {
+            const col = COLUMNAS_POR_KEY[sortBy.key];
+            const va = col?.valor?.(a, colCtx);
+            const vb = col?.valor?.(b, colCtx);
+            // Lo vacío va SIEMPRE al final, se ordene como se ordene: un bloque de
+            // guiones arriba esconde justo lo que se ha pedido ver.
+            const na = va == null || va === '';
+            const nb = vb == null || vb === '';
+            if (na && nb) return 0;
+            if (na) return 1;
+            if (nb) return -1;
+            const cmp = (typeof va === 'number' && typeof vb === 'number')
+                ? va - vb
+                : String(va).localeCompare(String(vb), 'es', { numeric: true });
+            return sortBy.dir === 'desc' ? -cmp : cmp;
+        }
+        return (PRIORITY_ORDER[a.prioridad || 'NORMAL'] ?? 2) - (PRIORITY_ORDER[b.prioridad || 'NORMAL'] ?? 2);
+    });
+
+    // Al apagar una columna se LIMPIA su filtro (ver ColumnasPicker): un filtro
+    // activo que ya no se ve en ninguna parte deja la lista corta sin explicación.
+    const cambiarColumnas = (nuevas) => {
+        const antes = new Set(colKeys);
+        const ahora = new Set(nuevas);
+        COLUMNAS.forEach(col => {
+            if (antes.has(col.key) && !ahora.has(col.key)) col.limpiar?.(colCtx);
+        });
+        if (sortBy && !ahora.has(sortBy.key)) setSortBy(null);
+        setColKeys(nuevas);
+    };
+
+    const alternarOrden = (key) => setSortBy(prev =>
+        !prev || prev.key !== key ? { key, dir: 'asc' }
+        : prev.dir === 'asc' ? { key, dir: 'desc' }
+        : null     // tercer clic: vuelve al orden por prioridad
     );
+
+    // ─── Exportar lo que SE ESTÁ VIENDO ───────────────────────────────────────
+    // Las columnas visibles y las filas filtradas, ni una más. Un botón que
+    // exporta "todo" mientras la pantalla enseña otra cosa es la forma más fácil
+    // de mandar el fichero equivocado. Separador `;` y BOM, o Excel en español
+    // abre una sola columna y se come los acentos.
+    const exportarCsv = () => {
+        const cols = colsVisibles;
+        const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+        const lineas = [cols.map(c => esc(c.label)).join(';')];
+        sortedFiltered.forEach(exp => {
+            // `valorTexto` es del registro, no de aquí: lo que exporta una columna
+            // tiene que ser lo mismo por lo que se ordena.
+            lineas.push(cols.map(c => esc(valorTexto(c, exp, colCtx))).join(';'));
+        });
+        const blob = new Blob(['﻿' + lineas.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `expedientes_${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+    };
 
     // ─── Selección de expedientes para lote (mismo criterio que la pestaña Lotes) ─
     // Elegible: DOC. COMPLETA, sin lote asignado y con año (CIFO) + CCAA resolubles.
@@ -1782,7 +1958,18 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                 </div>
             ) : (
                 <>
-                <div className="hidden md:flex justify-end mb-1.5">
+                <div className="hidden md:flex justify-end items-center gap-1 mb-1.5">
+                    <ColumnasPicker visibles={colKeys} onChange={cambiarColumnas} rol={userRole} />
+                    <button
+                        onClick={exportarCsv}
+                        title="Descargar en CSV lo que estás viendo (columnas visibles y filas filtradas)"
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest text-white/25 hover:text-white/60 hover:bg-white/5 transition-all border border-transparent hover:border-white/10"
+                    >
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                        </svg>
+                        Exportar
+                    </button>
                     <button
                         onClick={resetExpColWidths}
                         title="Restaurar anchos de columna por defecto"
@@ -1811,144 +1998,47 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                             />
                                         </th>
                                     )}
-                                    <th className="px-5 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: expColW.expediente }}>
-                                        Número Expediente<ExpRH colKey="expediente" />
-                                    </th>
-                                    <th className="px-5 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: expColW.ccaa }}>
-                                        Comunidad Autónoma<ExpRH colKey="ccaa" />
-                                    </th>
-                                    <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: expColW.estado }}>
-                                        Estado<ExpRH colKey="estado" />
-                                    </th>
-                                    <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: expColW.ficha }}>
-                                        Ficha<ExpRH colKey="ficha" />
-                                    </th>
-                                    {user?.rol?.toUpperCase() === 'ADMIN' && (
-                                        <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: expColW.certificador }}>
-                                            Certificador<ExpRH colKey="certificador" />
-                                        </th>
-                                    )}
-                                    {user?.rol?.toUpperCase() !== 'CERTIFICADOR' && (
-                                        <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: expColW.metricas }}>
-                                            <div className="flex items-center gap-1.5">
-                                                <span className="text-blue-400/60">⚡</span>
-                                                <span className="text-emerald-400/60">€</span>
-                                                <span className="text-cyan-400/60">▲</span>
-                                            </div>
-                                            <ExpRH colKey="metricas" />
-                                        </th>
-                                    )}
-                                    <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: expColW.anio }}>
-                                        Año Act.<ExpRH colKey="anio" />
-                                    </th>
+                                    {colsVisibles.map(col => {
+                                        const orden = sortBy?.key === col.key ? sortBy.dir : null;
+                                        return (
+                                            <th
+                                                key={col.key}
+                                                className={`${col.pad || 'px-4'} py-4 text-[10px] font-black uppercase tracking-[0.15em] border-b border-white/[0.06] relative overflow-visible ${orden ? 'text-brand' : 'text-white/25'}`}
+                                                style={{ width: expColW[col.key] ?? col.ancho }}
+                                            >
+                                                {/* La cabecera ORDENA. Tercer clic: vuelve al orden por
+                                                    prioridad, que es el que la lista tiene por defecto. */}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => col.valor && alternarOrden(col.key)}
+                                                    disabled={!col.valor}
+                                                    title={col.valor ? 'Ordenar por esta columna' : ''}
+                                                    className={`flex items-center gap-1 uppercase tracking-[0.15em] ${col.valor ? 'hover:text-white/70 transition-colors' : 'cursor-default'}`}
+                                                >
+                                                    {col.cabecera ? col.cabecera() : col.label}
+                                                    {orden && <span className="text-[8px]">{orden === 'asc' ? '▲' : '▼'}</span>}
+                                                </button>
+                                                <ExpRH colKey={col.key} />
+                                            </th>
+                                        );
+                                    })}
                                     <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] text-right whitespace-nowrap relative overflow-visible" style={{ width: expColW.acciones }}>
                                         Acciones
                                     </th>
                                 </tr>
-                                {/* Fila de Filtros */}
+                                {/* Fila de Filtros — la declara cada columna, no esta vista */}
                                 <tr className="bg-white/[0.01]">
                                     {selectMode && <td className="px-3 py-3 border-b border-white/[0.04]"></td>}
-                                    <td className="px-5 py-3 border-b border-white/[0.04]">
-                                        <select
-                                            value={prioridadFilter}
-                                            onChange={(e) => setPrioridadFilter(e.target.value)}
-                                            className={`bg-transparent text-[10px] font-black uppercase tracking-wider focus:outline-none transition-colors cursor-pointer w-full p-0 appearance-none ${
-                                                prioridadFilter === 'URGENTE' ? 'text-red-400' :
-                                                prioridadFilter === 'ALTA' ? 'text-amber-400' :
-                                                'text-white/40 hover:text-brand'
-                                            }`}
-                                        >
-                                            <option value="ALL" className="bg-bkg-deep text-white">PRIORIDAD</option>
-                                            <option value="URGENTE" className="bg-bkg-deep text-white">URGENTE</option>
-                                            <option value="ALTA" className="bg-bkg-deep text-white">ALTA</option>
-                                            <option value="NORMAL" className="bg-bkg-deep text-white">NORMAL</option>
-                                        </select>
-                                    </td>
-                                    <td className="px-5 py-3 border-b border-white/[0.04] hidden md:table-cell">
-                                        <select
-                                            value={ccaaFilter}
-                                            onChange={(e) => setCcaaFilter(e.target.value)}
-                                            className="bg-transparent text-[10px] font-black text-white/40 uppercase tracking-wider focus:outline-none focus:text-brand transition-colors cursor-pointer w-full p-0 appearance-none"
-                                        >
-                                            <option value="ALL" className="bg-bkg-deep text-white">TODAS LAS CCAA</option>
-                                            {availableCcaa.map(c => (
-                                                <option key={c} value={c} className="bg-bkg-deep text-white">{c}</option>
-                                            ))}
-                                        </select>
-                                    </td>
-                                    <td className="px-4 py-3 border-b border-white/[0.04]">
-                                        <div className="relative group">
-                                            <select
-                                                // Con multi-selección, el desplegable actúa como atajo a UN estado
-                                                // (o a ninguno). Para sumar varios se usan los chips de arriba.
-                                                value={statusSel.size === 1 ? [...statusSel][0] : 'ALL'}
-                                                onChange={(e) => setStatusSel(e.target.value === 'ALL' ? new Set() : new Set([e.target.value]))}
-                                                className="bg-transparent text-[10px] font-black text-brand uppercase tracking-wider focus:outline-none transition-colors cursor-pointer w-full p-0 pr-4 appearance-none"
-                                            >
-                                                <option value="ALL" className="bg-bkg-deep text-white">
-                                                    {statusSel.size > 1 ? `${statusSel.size} ESTADOS (CHIPS)` : 'TODOS LOS ESTADOS'}
-                                                </option>
-                                                {EXPEDIENTE_ESTADOS.map(st => (
-                                                    <option key={st} value={st} className="bg-bkg-deep text-white">{st}</option>
-                                                ))}
-                                            </select>
-                                            <div className="absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none opacity-40 group-hover:opacity-100 transition-opacity">
-                                                <svg className="w-3 h-3 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
-                                                </svg>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td className="px-4 py-3 border-b border-white/[0.04]">
-                                        <select
-                                            value={fichaFilter}
-                                            onChange={(e) => setFichaFilter(e.target.value)}
-                                            className={`bg-transparent text-[10px] font-black uppercase tracking-wider focus:outline-none transition-colors cursor-pointer w-full p-0 appearance-none ${
-                                                FICHAS.includes(fichaFilter) ? fichaColor(fichaFilter).texto : 'text-white/40 hover:text-brand'
-                                            }`}
-                                        >
-                                            <option value="ALL" className="bg-bkg-deep text-white">TODAS</option>
-                                            {FICHAS.map(f => <option key={f} value={f} className="bg-bkg-deep text-white">{f}</option>)}
-                                        </select>
-                                    </td>
-                                    {user?.rol?.toUpperCase() === 'ADMIN' && (
-                                        <td className="px-4 py-3 border-b border-white/[0.04] hidden lg:table-cell">
-                                            <select
-                                                value={certificadorFilter}
-                                                onChange={(e) => setCertificadorFilter(e.target.value)}
-                                                className="bg-transparent text-[10px] font-black text-white/40 uppercase tracking-wider focus:outline-none focus:text-brand transition-colors cursor-pointer w-full p-0 appearance-none"
-                                            >
-                                                <option value="ALL" className="bg-bkg-deep text-white">TODOS LOS TÉCNICOS</option>
-                                                <option value="NONE" className="bg-bkg-deep text-white">SIN ASIGNAR</option>
-                                                {certificadores.map(c => (
-                                                    <option key={c.id_empresa} value={c.id_empresa} className="bg-bkg-deep text-white">
-                                                        {c.razon_social || c.acronimo}
-                                                    </option>
-                                                ))}
-                                            </select>
+                                    {colsVisibles.map(col => (
+                                        <td key={col.key} className={`${col.pad || 'px-4'} py-3 border-b border-white/[0.04]`}>
+                                            {col.filtro ? col.filtro(colCtx) : null}
                                         </td>
-                                    )}
-                                    {user?.rol?.toUpperCase() !== 'CERTIFICADOR' && (
-                                        <td className="px-4 py-2 border-b border-white/[0.04] hidden xl:table-cell"></td>
-                                    )}
-                                    <td className="px-4 py-3 border-b border-white/[0.04] hidden lg:table-cell">
-                                        <select
-                                            value={yearFilter}
-                                            onChange={(e) => setYearFilter(e.target.value)}
-                                            className="bg-transparent text-[10px] font-black text-white/40 uppercase tracking-wider focus:outline-none focus:text-brand transition-colors cursor-pointer w-full p-0 appearance-none"
-                                        >
-                                            <option value="ALL" className="bg-bkg-deep text-white">TODOS LOS AÑOS</option>
-                                            {availableYears.map(y => (
-                                                <option key={y} value={y} className="bg-bkg-deep text-white">{y}</option>
-                                            ))}
-                                        </select>
-                                    </td>
+                                    ))}
                                     <td className="px-4 py-2 border-b border-white/[0.04]"></td>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-white/[0.04]">
                                 {sortedFiltered.map((exp) => {
-                                    const fin = getExpedienteFinancials(exp);
                                     const isSel = selectedIds.has(exp.id);
                                     const selectable = canSelect(exp);
                                     const rowAccent =
@@ -1979,135 +2069,12 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                                 />
                                             </td>
                                         )}
-                                        {/* Número Expediente */}
-                                        <td className="px-5 py-3">
-                                            <div className="flex flex-col">
-                                                {exp.prioridad && exp.prioridad !== 'NORMAL' && (
-                                                    <span className={`self-start inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border mb-1 ${
-                                                        exp.prioridad === 'URGENTE' ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-                                                    }`}>
-                                                        {exp.prioridad === 'URGENTE' ? '⚠ ' : '● '}{exp.prioridad}
-                                                    </span>
-                                                )}
-                                                <span className="font-mono text-brand text-xs font-bold">
-                                                    {exp.numero_expediente || exp.id_oportunidad_ref || exp.oportunidades?.id_oportunidad || '—'}
-                                                    {exp.clientes && ` - ${exp.clientes.nombre_razon_social} ${exp.clientes.apellidos || ''}`.toUpperCase()}
-                                                </span>
-                                                {exp.oportunidades?.referencia_cliente && (
-                                                    <div className="text-white/40 text-[10px] mt-0.5 truncate max-w-[220px] font-medium uppercase tracking-wider">
-                                                        {exp.oportunidades.referencia_cliente}
-                                                    </div>
-                                                )}
-                                                {(() => {
-                                                    const inputs = exp.oportunidades?.datos_calculo?.inputs || {};
-                                                    const dir = inputs.direccion || inputs.address || exp.clientes?.direccion || '';
-                                                    const mun = inputs.municipio || exp.clientes?.municipio || '';
-                                                    const text = [dir, mun].filter(Boolean).join(', ');
-                                                    return text ? (
-                                                        <div className="text-white/25 text-[10px] mt-0.5 truncate max-w-[260px] font-medium uppercase tracking-wider">{text}</div>
-                                                    ) : null;
-                                                })()}
-                                            </div>
-                                        </td>
-
-                                        {/* CCAA */}
-                                        <td className="px-5 py-3 hidden md:table-cell text-white/50 text-xs font-medium uppercase tracking-wider">
-                                            {getCCAA(exp)}
-                                        </td>
-
-                                        {/* Estado — select compacto sin min-width fijo */}
-                                        <td className="px-4 py-3">
-                                            <select
-                                                value={exp.estado || 'PTE. CEE INICIAL'}
-                                                onClick={e => e.stopPropagation()}
-                                                onChange={e => handleStatusChange(exp.id, e.target.value, e)}
-                                                className={`text-[9px] font-black uppercase tracking-wider border cursor-pointer focus:outline-none transition-colors appearance-none text-center w-full max-w-[170px] rounded-lg px-2 py-1 leading-tight ${
-                                                    exp.estado === 'FINALIZADO' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                                                    exp.estado?.includes('REQUERIMIENTO') ? 'bg-red-500/10 text-red-400 border-red-500/20' :
-                                                    exp.estado?.startsWith('ENVIADO') ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
-                                                    'bg-white/5 text-white/50 border-white/10'
-                                                }`}
-                                            >
-                                                {/* Estado no listado: lo pintamos igual, para que el
-                                                    <select> no caiga a su primera opción y muestre
-                                                    'PTE. CEE INICIAL' en un expediente avanzado. */}
-                                                {exp.estado && !EXPEDIENTE_ESTADOS.includes(exp.estado) && (
-                                                    <option value={exp.estado} className="bg-bkg-deep text-white">{exp.estado}</option>
-                                                )}
-                                                {EXPEDIENTE_ESTADOS.map(st => (
-                                                    <option key={st} value={st} className="bg-bkg-deep text-white">{st}</option>
-                                                ))}
-                                            </select>
-                                        </td>
-
-                                        {/* Ficha — badge con color */}
-                                        <td className="px-4 py-3">
-                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border ${fichaColor(fin.ficha).badge}`}>
-                                                {fin.ficha}
-                                            </span>
-                                        </td>
-
-                                        {/* Certificador — solo ADMIN */}
-                                        {user?.rol?.toUpperCase() === 'ADMIN' && (
-                                            <td className="px-4 py-3 hidden lg:table-cell">
-                                                {(() => {
-                                                    const cert = certificadores.find(c => String(c.id_empresa) === String(exp.cee?.certificador_id));
-                                                    if (!cert) return <span className="text-white/20 text-xs">—</span>;
-                                                    const initials = (cert.acronimo || cert.razon_social || '?').substring(0, 2).toUpperCase();
-                                                    return (
-                                                        <div className="flex items-center gap-2">
-                                                            <div className={`w-6 h-6 rounded-md flex items-center justify-center text-[9px] font-black shrink-0 ${fichaColor(fin.ficha).chip}`}>{initials}</div>
-                                                            <span className="text-[10px] font-medium text-white/60 truncate max-w-[110px] leading-tight">
-                                                                {cert.razon_social || cert.acronimo}
-                                                            </span>
-                                                        </div>
-                                                    );
-                                                })()}
+                                        {/* Celdas — cada columna se pinta a sí misma (expedientesColumnas.jsx) */}
+                                        {colsVisibles.map(col => (
+                                            <td key={col.key} className={`${col.pad || 'px-4'} py-3`}>
+                                                {col.render ? col.render(exp, colCtx) : (col.valor?.(exp, colCtx) ?? '—')}
                                             </td>
-                                        )}
-
-                                        {/* Columna financiera combinada */}
-                                        {user?.rol?.toUpperCase() !== 'CERTIFICADOR' && (
-                                            <td className="px-4 py-3 hidden xl:table-cell">
-                                                {fin.savingsKwh === null && fin.cae === null && fin.profit === null ? (
-                                                    <span className="text-white/20 text-xs">—</span>
-                                                ) : (
-                                                    <div className="flex flex-col gap-0.5">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-[8px] text-blue-400/50 w-3 text-center shrink-0">⚡</span>
-                                                            <span className="text-[11px] font-black text-blue-400 font-mono tabular-nums">
-                                                                {fin.savingsKwh !== null ? `${(fin.savingsKwh / 1000).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} MWh` : '—'}
-                                                            </span>
-                                                        </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-[8px] text-emerald-400/50 w-3 text-center shrink-0">€</span>
-                                                            <span className="text-[11px] font-black text-emerald-400 font-mono tabular-nums">
-                                                                {fin.cae !== null ? fin.cae.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }) : '—'}
-                                                            </span>
-                                                        </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-[8px] text-cyan-400/50 w-3 text-center shrink-0">▲</span>
-                                                            <span className="text-[11px] font-black text-cyan-400 font-mono tabular-nums">
-                                                                {fin.profit !== null ? fin.profit.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }) : '—'}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </td>
-                                        )}
-
-                                        {/* Año actuación */}
-                                        <td className="px-4 py-3 hidden lg:table-cell">
-                                            {getCifoYear(exp) ? (
-                                                <div className="flex flex-col gap-0.5">
-                                                    <span className="text-white/70 text-xs font-black">{getCifoYear(exp)}</span>
-                                                    <span className="text-white/25 text-[9px]">{new Date(exp.fecha_fin_cifo).toLocaleDateString('es-ES')}</span>
-                                                </div>
-                                            ) : (
-                                                <span className="text-white/20 text-xs">—</span>
-                                            )}
-                                        </td>
-
+                                        ))}
                                         {/* Acciones */}
                                         <td className="px-4 py-3 whitespace-nowrap">
                                             <div className="flex items-center gap-2 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
