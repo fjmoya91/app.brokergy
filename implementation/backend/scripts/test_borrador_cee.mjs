@@ -5,7 +5,7 @@
 //
 //   node implementation/backend/scripts/test_borrador_cee.mjs
 
-import { buildBorradorCee, buildBorradorCeeHtml, trocearVia, usoEdificio, ccaaDe }
+import { buildBorradorCee, buildBorradorCeeHtml, trocearVia, usoEdificio, ccaaDe, partirApellidos }
     from '../../frontend/src/features/expedientes/logic/borradorCee.js';
 import { leerCalificacionesDeTexto } from '../../frontend/src/features/calculator/logic/xmlCeeParser.js';
 
@@ -58,6 +58,35 @@ test('trocearVia — direcciones reales de la base de datos', () => {
 
     // Una sigla que no está en la tabla no se traduce: se deja en el nombre.
     eq('sigla desconocida no inventa un tipo', trocearVia('XX ALGUNA COSA 3').tipo, '');
+});
+
+// ─── 1.b Apellido 1 y Apellido 2 ─────────────────────────────────────────────
+// El formulario los pide por separado y la app los guarda juntos.
+test('partirApellidos — como los pide el formulario', () => {
+    // El caso del formulario REAL de 26RES060_187.
+    const r = partirApellidos('RAMOS FERNANDEZ MARCOTE');
+    eq('"RAMOS FERNANDEZ MARCOTE"', [r.ap1, r.ap2], ['RAMOS', 'FERNANDEZ MARCOTE']);
+    eq('y se marca como conjetura, porque podría ser al revés', r.dudoso, true);
+
+    const dos = partirApellidos('MOYA LÓPEZ');
+    eq('"MOYA LÓPEZ" (el certificador)', [dos.ap1, dos.ap2], ['MOYA', 'LÓPEZ']);
+    eq('con dos palabras no hay duda', dos.dudoso, false);
+
+    // Las partículas van PEGADAS a la palabra que siguen: "DE LA FUENTE" es UN
+    // apellido, no tres.
+    const p = partirApellidos('DE LA FUENTE GARCIA');
+    eq('"DE LA FUENTE GARCIA"', [p.ap1, p.ap2], ['DE LA FUENTE', 'GARCIA']);
+    eq('ahí la partícula marca el corte, no es conjetura', p.dudoso, false);
+
+    // Y una partícula DESPUÉS de la primera palabra abre el SEGUNDO apellido.
+    const q = partirApellidos('GARCIA DE LA TORRE');
+    eq('"GARCIA DE LA TORRE"', [q.ap1, q.ap2], ['GARCIA', 'DE LA TORRE']);
+    eq('tampoco es conjetura', q.dudoso, false);
+
+    eq('un solo apellido no inventa el segundo',
+        [partirApellidos('PLIEGO').ap1, partirApellidos('PLIEGO').ap2], ['PLIEGO', '']);
+    eq('sin apellidos no revienta',
+        [partirApellidos(null).ap1, partirApellidos('').ap2], ['', '']);
 });
 
 // ─── 2. Casillas VIVIENDA / TERCIARIO ────────────────────────────────────────
@@ -124,7 +153,9 @@ test('26RES060_186 — 01 Solicitante (lo que dice el acuse)', () => {
     const b = buildBorradorCee(CTX, { fase: 'inicial', hoy: '2026-09-14' });
     eq('se genera (es de Castilla-La Mancha)', [b.aplica, b.ccaa], [true, 'CASTILLA-LA MANCHA']);
     eq('NIF', campo(b, '01', 'NIF'), '06226790T');
-    eq('Nombre y apellidos', campo(b, '01', 'Nombre y apellidos'), 'ISAAC PLIEGO RODRIGUEZ');
+    eq('Nombre', campo(b, '01', 'Nombre'), 'ISAAC');
+    eq('Apellido 1', campo(b, '01', 'Apellido 1'), 'PLIEGO');
+    eq('Apellido 2', campo(b, '01', 'Apellido 2'), 'RODRIGUEZ');
     eq('Sexo', campo(b, '01', 'Sexo'), 'Hombre');
     eq('Tipo vía', campo(b, '01', 'Tipo vía'), 'Calle');
     eq('Nombre de la vía', campo(b, '01', 'Nombre de la vía'), 'MEJICO');
@@ -140,7 +171,9 @@ test('26RES060_186 — 01 Solicitante (lo que dice el acuse)', () => {
 test('26RES060_186 — 02 Representante (el certificador asignado)', () => {
     const b = buildBorradorCee(CTX, { fase: 'inicial', hoy: '2026-09-14' });
     eq('NIF', campo(b, '02', 'NIF'), '06282551D');
-    eq('Nombre y apellidos', campo(b, '02', 'Nombre y apellidos'), 'FRANCISCO JAVIER MOYA LÓPEZ');
+    eq('Nombre', campo(b, '02', 'Nombre'), 'FRANCISCO JAVIER');
+    eq('Apellido 1', campo(b, '02', 'Apellido 1'), 'MOYA');
+    eq('Apellido 2', campo(b, '02', 'Apellido 2'), 'LÓPEZ');
     eq('Nombre de la vía', campo(b, '02', 'Nombre de la vía'), 'DON SERGIO');
     eq('N.º Calle', campo(b, '02', 'N.º Calle'), '12');
     eq('Planta', campo(b, '02', 'Planta'), '1');
@@ -156,8 +189,11 @@ test('26RES060_186 — 05 Edificio y 06 Certificado', () => {
     eq('Uso del Edificio', campo(b, '05', 'Uso del Edificio'), 'VIVIENDA UNIFAMILIAR');
     eq('Nombre de la vía', campo(b, '05', 'Nombre de la vía'), 'MEJICO');
     eq('Referencia catastral', campo(b, '05', 'Referencia catastral'), '4410205WJ0641S0001JH');
-    eq('casillas a marcar', b.apartados.find(a => a.id === '05').instrucciones,
-        ['Marca **Vivienda** + **Unifamiliar** en el bloque de casillas de encima.']);
+    // El recuadro VIVIENDA/TERCIARIO va DESPUÉS de los campos, que es donde lo
+    // pone el formulario (detrás de la referencia catastral).
+    const ap05 = b.apartados.find(a => a.id === '05');
+    eq('el tipo de vivienda sale del .xml', /Vivienda\*\* \+ \*\*Unifamiliar/.test(ap05.instruccionesFinal[0]), true);
+    eq('y va al FINAL del apartado, no al principio', ap05.instrucciones, undefined);
 
     eq('Fecha de emisión', campo(b, '06', 'Fecha de emisión del certificado'), '14/09/2026');
     eq('Fecha visita', campo(b, '06', 'Fecha visita técnico certificador'), '14/09/2026');
@@ -282,7 +318,8 @@ test('Cliente persona jurídica: comparece su representante legal', () => {
     };
     const b = buildBorradorCee(emp, { fase: 'inicial', hoy: '2026-09-14' });
     eq('NIF es el del representante', campo(b, '01', 'NIF'), '11111111H');
-    eq('Nombre es el del representante', campo(b, '01', 'Nombre y apellidos'), 'ANA GARCIA LOPEZ');
+    eq('Nombre es el del representante', campo(b, '01', 'Nombre'), 'ANA');
+    eq('y sus apellidos, partidos', [campo(b, '01', 'Apellido 1'), campo(b, '01', 'Apellido 2')], ['GARCIA', 'LOPEZ']);
     eq('la entidad se dice en la nota', /HOTELES DEL SUR, SL/.test(b.apartados[0].nota), true);
 });
 
@@ -313,6 +350,42 @@ test('El PDF se compone y dice lo que tiene que decir', () => {
     eq('no quedan asteriscos sin traducir', /\*\*/.test(html), false);
     eq('el hueco de la tasa se dibuja', /class="hueco"/.test(html), true);
     eq('avisa de que no es el impreso', /NO es el impreso/.test(html), true);
+    // El recuadro de VIVIENDA va detrás de la tabla del apartado 05, como en el
+    // formulario. Si saliera antes, quien lo recorre de arriba abajo no lo
+    // encontraría donde lo tiene delante.
+    const ap05 = html.indexOf('05 Datos Identificativos');
+    const tabla05 = html.indexOf('Referencia catastral', ap05);
+    const recuadro = html.indexOf('En el recuadro de abajo', ap05);
+    eq('el recuadro VIVIENDA va DESPUÉS de la referencia catastral',
+        recuadro > tabla05 && tabla05 > ap05, true);
+});
+
+// ─── 10. El enlace a la sede ─────────────────────────────────────────────────
+// Es el destino de todo el borrador: lo que se copia se pega ahí. Va en el
+// popup como botón y DENTRO del PDF como hipervínculo — un borrador impreso o
+// reenviado por correo tiene que llevar consigo a dónde se lleva.
+test('El trámite se abre desde el propio borrador', () => {
+    const b = buildBorradorCee(CTX, { fase: 'inicial', hoy: '2026-09-14' });
+    eq('la sede viaja en el borrador (no la cablea la pantalla)',
+        b.sede, 'https://www.jccm.es/sede/tramite/JM3');
+
+    const html = buildBorradorCeeHtml(b);
+    eq('en el PDF es un <a> de verdad, no texto suelto',
+        /<a href="https:\/\/www\.jccm\.es\/sede\/tramite\/JM3">/.test(html), true);
+    eq('y se dice qué es', /Sede electrónica de la JCCM/.test(html), true);
+    // La ficha del procedimiento es OTRO enlace y sigue en el pie: es donde están
+    // los requisitos y los modelos, no donde se presenta.
+    eq('la ficha del procedimiento también es enlace',
+        /<a href="https:\/\/www\.jccm\.es\/tramites\/1002560">/.test(html), true);
+    eq('y no se confunde con la sede', /Requisitos y modelos/.test(html), true);
+
+    // Fuera de CLM no hay borrador, así que tampoco botón que lleve a la sede de
+    // otra comunidad.
+    const fuera = JSON.parse(JSON.stringify(CTX));
+    fuera.expediente.cee.cee_inicial.identificacion.provincia = 'VALENCIA';
+    fuera.cliente.provincia = 'VALENCIA';
+    fuera.cliente.codigo_postal = '46001';
+    eq('sin borrador no hay sede', buildBorradorCee(fuera, { fase: 'inicial' }).sede, undefined);
 });
 
 // ─── 9. Las dos letras, leídas del .xml SIN DOM ──────────────────────────────

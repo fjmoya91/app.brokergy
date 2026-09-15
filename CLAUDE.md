@@ -7471,6 +7471,26 @@ comparte con la ficha del `.cex` (regla 48.c): vivía dentro de `fichaCe3x.js` y
 necesitarla la segunda pantalla, porque con dos copias el mismo cliente aparecería
 localizable en una y sin datos en la otra.
 
+**REGLA — el borrador LLEVA al trámite, y el PDF también.** Botón «Presentar en la Sede»
+en la cabecera del popup (`https://www.jccm.es/sede/tramite/JM3`, otra pestaña) y el mismo
+enlace como HIPERVÍNCULO REAL dentro del PDF: un borrador impreso o reenviado por correo
+tiene que llevar consigo a dónde se lleva. La sede viaja DENTRO del borrador (`b.sede`) y
+no la cablea la pantalla — el día que haya otra comunidad, su botón irá a su propia sede.
+En el pie va, aparte, la ficha del procedimiento (requisitos y modelos), que no es donde
+se presenta.
+
+**REGLA — el NOMBRE se parte en tres casillas: Nombre · Apellido 1 · Apellido 2.** Es como
+las pide el formulario y la app los guarda juntos. `partirApellidos` pega las partículas a
+la palabra que siguen («DE LA FUENTE GARCIA» → «DE LA FUENTE» + «GARCIA») y, cuando el
+reparto es una conjetura —tres o más palabras sin partícula que marque el corte—, propone
+el más frecuente y **lo dice en el propio campo**. Verificado contra el formulario real de
+26RES060_187: «RAMOS» + «FERNANDEZ MARCOTE».
+
+**REGLA — lo que se marca DESPUÉS de los campos va después** (`instruccionesFinal`). En el
+apartado 05 el recuadro VIVIENDA / TERCIARIO está detrás de la referencia catastral: puesto
+al principio, quien recorre el apartado de arriba abajo llega al final buscando qué marcar
+y no encuentra nada. Qué casillas son lo dice el `<TipoDeEdificio>` del `.xml`.
+
 **REGLA — el borrador es del equipo interno; al certificador le llega ADJUNTO.** La ruta
 es `staffOnly` y el botón no se le pinta (`permiteBorrador`): el visto bueno es el momento
 en que puede presentar, y mandárselo antes sería pedirle que presente un certificado que

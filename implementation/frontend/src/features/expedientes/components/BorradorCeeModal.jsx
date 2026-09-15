@@ -115,6 +115,7 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
 
     if (!isOpen) return null;
     const b = datos?.borrador;
+    const sede = b?.sede;
 
     return (
         // En móvil, hoja inferior: el mismo criterio que Ayudas CE3X.
@@ -132,12 +133,31 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
                             {b?.numeroExpediente ? ` · ${b.numeroExpediente}` : ''}
                         </p>
                     </div>
-                    <button type="button" onClick={onClose}
-                            className="shrink-0 w-9 h-9 flex items-center justify-center rounded-xl border border-transparent hover:border-white/10 hover:bg-white/5 transition-colors">
-                        <svg className="w-5 h-5 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    </button>
+                    <div className="shrink-0 flex items-center gap-2">
+                        {/* El destino de todo esto: la sede donde se pega lo que se
+                            copia. Va en la CABECERA y no al pie con el PDF porque se
+                            abre al PRINCIPIO —primero el formulario, luego se rellena—,
+                            y en otra pestaña para no perder el borrador que se está
+                            copiando. Solo se ofrece si el borrador aplica: fuera de
+                            Castilla-La Mancha llevaría al trámite de otra comunidad. */}
+                        {b?.aplica && sede && (
+                            <a href={sede} target="_blank" rel="noopener noreferrer"
+                               title="Abrir el trámite en la Sede electrónica de la JCCM (otra pestaña)"
+                               className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-brand/40 bg-brand/10 text-[9px] font-black uppercase tracking-widest text-brand hover:bg-brand hover:text-black transition-colors max-md:px-2.5">
+                                <span>Presentar en la Sede</span>
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                          d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                </svg>
+                            </a>
+                        )}
+                        <button type="button" onClick={onClose}
+                                className="w-9 h-9 flex items-center justify-center rounded-xl border border-transparent hover:border-white/10 hover:bg-white/5 transition-colors">
+                            <svg className="w-5 h-5 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
                 </div>
 
                 {/* Fase: qué certificado se va a presentar */}
@@ -386,8 +406,19 @@ function Apartado({ ap, copiado, copiar }) {
                 </div>
             )}
 
+            {/* Lo que se marca DESPUÉS de los campos: en el apartado 05, el recuadro
+                VIVIENDA / TERCIARIO va detrás de la referencia catastral, que es
+                donde lo pone el formulario. */}
+            {(ap.instruccionesFinal || []).length > 0 && (
+                <div className="px-4 py-2.5 bg-brand/[0.04] border-t border-white/[0.06] space-y-1">
+                    {ap.instruccionesFinal.map((i, k) => (
+                        <p key={k} className="text-[11px] text-white/55 normal-case leading-snug">→ {conNegrita(i)}</p>
+                    ))}
+                </div>
+            )}
+
             {ap.original && conDatos && (
-                <p className="px-4 pb-3 text-[10px] text-white/30 normal-case leading-snug">
+                <p className="px-4 pt-2 pb-3 text-[10px] text-white/30 normal-case leading-snug">
                     Dirección guardada: <span className="text-white/45">{ap.original}</span>
                 </p>
             )}

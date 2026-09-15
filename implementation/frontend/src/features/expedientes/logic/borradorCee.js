@@ -41,6 +41,13 @@ export const TRAMITE = {
     titulo: 'Inscripción en la sección primera del Registro Autonómico de Certificados '
         + 'de Eficiencia Energética de Edificios de Castilla-La Mancha',
     tramite: 'Inscripción de certificado de eficiencia energética de edificio existente',
+    // Dónde se presenta: la sede electrónica de la JCCM. Es el destino del
+    // borrador —lo que se copia se pega ahí— así que va a la vista y también
+    // dentro del PDF, como enlace: un borrador impreso o reenviado por correo
+    // tiene que llevar consigo a dónde se lleva.
+    sede: 'https://www.jccm.es/sede/tramite/JM3',
+    // La ficha del procedimiento: los requisitos y los modelos (entre ellos el
+    // Anexo V de representación). No es donde se presenta.
     url: 'https://www.jccm.es/tramites/1002560',
     organismo: 'Servicio Instalaciones y Tecnologías Energéticas de la Dirección General de Transición Energética',
     dir3: 'A08027234',
@@ -147,6 +154,46 @@ export function trocearVia(direccion) {
     return out;
 }
 
+// ─── Nombre, Apellido 1 y Apellido 2 ────────────────────────────────────────
+// El formulario pide los DOS apellidos por separado, y la app los guarda juntos
+// en un solo campo ("RAMOS FERNANDEZ MARCOTE"). Sin partirlos hay que hacerlo a
+// mano en cada presentación, que es justo lo que este borrador viene a evitar.
+//
+// Partículas que NO son un apellido por sí solas: van pegadas a la palabra que
+// las sigue ("DE LA FUENTE" es UN apellido, no tres).
+const PARTICULAS = new Set([
+    'DE', 'DEL', 'LA', 'LAS', 'LO', 'LOS', 'Y', 'E', 'DA', 'DAS', 'DO', 'DOS',
+    'VAN', 'VON', 'DI', 'SAN', 'SANTA', 'SANTO', 'MC', 'MAC', 'LE',
+]);
+
+/**
+ * Parte «RAMOS FERNANDEZ MARCOTE» en `{ ap1: 'RAMOS', ap2: 'FERNANDEZ MARCOTE' }`.
+ *
+ * REGLA — se PROPONE, y cuando es una conjetura SE DICE. Con dos palabras el
+ * reparto es evidente, y con partículas también ("DE LA FUENTE GARCIA" → "DE LA
+ * FUENTE" + "GARCIA"). Con tres o más palabras sueltas no hay forma de saber si
+ * el compuesto es el primero o el segundo, así que se propone el corte más
+ * frecuente —la primera palabra es el apellido 1— y el campo sale con su nota
+ * para que lo mire quien lo está tecleando. Verificado contra el formulario real
+ * de 26RES060_187: Apellido 1 «RAMOS», Apellido 2 «FERNANDEZ MARCOTE».
+ */
+export function partirApellidos(apellidos) {
+    const t = limpio(apellidos).split(/\s+/).filter(Boolean);
+    if (!t.length) return { ap1: '', ap2: '', dudoso: false };
+    if (t.length === 1) return { ap1: t[0], ap2: '', dudoso: false };
+
+    // El apellido 1 se lleva las partículas iniciales y la primera palabra real.
+    let i = 0;
+    while (i < t.length - 1 && PARTICULAS.has(t[i].toUpperCase())) i++;
+    // Una partícula DESPUÉS de esa palabra abre el SEGUNDO apellido ("GARCIA DE
+    // LA TORRE" → "GARCIA" + "DE LA TORRE"), así que el corte se queda donde está.
+    const ap1 = t.slice(0, i + 1).join(' ');
+    const ap2 = t.slice(i + 1).join(' ');
+    // Solo es conjetura cuando sobran palabras y ninguna partícula marcó el corte.
+    const dudoso = t.length > 2 && i === 0 && !PARTICULAS.has((t[1] || '').toUpperCase());
+    return { ap1, ap2, dudoso };
+}
+
 // ─── Qué casillas se marcan en el bloque VIVIENDA / TERCIARIO ────────────────
 // El impreso tiene ocho casillas y el certificado trae `<TipoDeEdificio>`, así
 // que no hay que preguntarlo. No se reutiliza `clasificarTipoEdificio` de la
@@ -205,6 +252,20 @@ const dato = (campo, valor, extra = {}) => ({
     valor: limpio(valor) || null,
     ...extra,
 });
+
+// Nombre, Apellido 1 y Apellido 2 como tres casillas, que es como las pide el
+// formulario. Van en el mismo `grupo` para que el PDF las junte en una fila.
+function camposNombre(nombre, apellidos) {
+    const { ap1, ap2, dudoso } = partirApellidos(apellidos);
+    return [
+        dato('Nombre', nombre, { grupo: 'nombre' }),
+        dato('Apellido 1', ap1, {
+            grupo: 'nombre',
+            ...(dudoso ? { nota: `Los apellidos constan juntos («${limpio(apellidos)}»): comprueba el reparto.` } : {}),
+        }),
+        dato('Apellido 2', ap2, { grupo: 'nombre' }),
+    ];
+}
 
 // Los campos de dirección del formulario, en su orden y con sus rótulos.
 //
@@ -308,9 +369,9 @@ export function buildBorradorCee(ctx = {}, { fase = 'inicial', hoy = null } = {}
     // que en el Anexo I y en el Convenio de Cesión: una sociedad no es "mayor de
     // edad con documento de identificación B…".
     const esEmpresa = cli?.es_empresa === true;
-    const solicitanteNombre = esEmpresa
-        ? [limpio(cli?.representante_nombre), limpio(cli?.representante_apellidos)].filter(Boolean).join(' ')
-        : [limpio(cli?.nombre_razon_social), limpio(cli?.apellidos)].filter(Boolean).join(' ');
+    const solNombre = esEmpresa ? limpio(cli?.representante_nombre) : limpio(cli?.nombre_razon_social);
+    const solApellidos = esEmpresa ? limpio(cli?.representante_apellidos) : limpio(cli?.apellidos);
+    const solicitanteNombre = [solNombre, solApellidos].filter(Boolean).join(' ');
     const solicitanteNif = esEmpresa ? limpio(cli?.representante_dni) : limpio(cli?.dni);
     const viaCliente = trocearVia(cli?.direccion);
     const sexo = limpio(cli?.sexo);
@@ -330,9 +391,10 @@ export function buildBorradorCee(ctx = {}, { fase = 'inicial', hoy = null } = {}
         nota: esEmpresa
             ? `El titular es la entidad ${limpio(cli?.nombre_razon_social)} (${limpio(cli?.dni)}); quien comparece es su representante legal.`
             : 'Los datos del titular, tal y como constan en su ficha de cliente.',
+        instrucciones: ['Marca **Persona física** y, en Tipo de Documento, **Nº NIF**.'],
         campos: [
             dato('NIF', solicitanteNif),
-            dato('Nombre y apellidos', solicitanteNombre),
+            ...camposNombre(solNombre, solApellidos),
             dato('Sexo', sexo ? (sexo === 'MUJER' ? 'Mujer' : 'Hombre') : null),
             ...camposDireccion(viaCliente, cli || {}),
             dato('Teléfono móvil', kc.telefono,
@@ -362,7 +424,7 @@ export function buildBorradorCee(ctx = {}, { fase = 'inicial', hoy = null } = {}
         nota: 'El técnico certificador asignado al expediente.',
         campos: [
             dato('NIF', certNif),
-            dato('Nombre y apellidos', certPersona),
+            ...camposNombre(limpio(cert?.nombre_responsable), limpio(cert?.apellidos_responsable)),
             ...camposDireccion(viaCert, cert || {}),
             dato('Teléfono móvil', cert?.tlf_responsable || cert?.tlf),
             dato('e-mail', cert?.email_responsable || cert?.email),
@@ -394,15 +456,21 @@ export function buildBorradorCee(ctx = {}, { fase = 'inicial', hoy = null } = {}
         id: '05',
         titulo: '05 Datos Identificativos del Edificio',
         nota: 'Dónde está la vivienda que se certifica. Si el certificado la identifica, manda lo que él diga.',
-        instrucciones: casillas.length
-            ? [`Marca **${casillas.join('** + **')}** en el bloque de casillas de encima.`]
-            : ['El certificado no declara el tipo de edificio: marca a mano las casillas que correspondan '
-                + '(Vivienda / Unifamiliar / Bloque… o Terciario).'],
         campos: [
             dato('Uso del Edificio', uso),
             ...camposDireccion(viaEdificio, edificio),
             dato('Referencia catastral', edificio.ref_catastral),
         ],
+        // El bloque VIVIENDA / TERCIARIO va DESPUÉS de la referencia catastral,
+        // que es donde lo pone el formulario. Puesto al principio del apartado,
+        // quien llega al final buscando qué marcar no encuentra nada y tiene que
+        // volver arriba — y este borrador existe para recorrerse en el mismo
+        // orden que el impreso.
+        instruccionesFinal: casillas.length
+            ? [`En el recuadro de abajo marca **${casillas.join('** + **')}**. `
+                + 'Lo dice el propio certificado.']
+            : ['El certificado no declara el tipo de edificio: marca a mano el recuadro de abajo '
+                + '(Vivienda / Unifamiliar / Bloque… o Terciario).'],
         original: viaEdificio.original || null,
     };
     if (!edificio.ref_catastral) {
@@ -506,6 +574,10 @@ export function buildBorradorCee(ctx = {}, { fase = 'inicial', hoy = null } = {}
         titular: solicitanteNombre || null,
         // Para componer el nombre con el que se sube cada fichero al Registro.
         nif: solicitanteNif || null,
+        // Dónde se presenta. Viaja DENTRO del borrador y no lo cablea la pantalla:
+        // el día que haya otra comunidad, su botón llevará a su propia sede sin
+        // que el popup tenga que saber de qué comunidad es este expediente.
+        sede: TRAMITE.sede,
         apartados: [
             apSolicitante, apRepresentante, apAmbito, apEdificio,
             apCertificado, apDeclaraciones, apAutorizacion, apDocumentacion, apTasas,
@@ -526,6 +598,7 @@ const negrita = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
 
 // Rótulos de las filas agrupadas del PDF. Dicen lo mismo que el impreso.
 const ROTULO_GRUPO = {
+    nombre: 'Nombre y apellidos',
     via: 'Tipo y nombre de la vía',
     num: 'N.º, portal, escalera, planta y puerta',
     loc: 'Provincia, población y código postal',
@@ -570,8 +643,10 @@ export function buildBorradorCeeHtml(borrador) {
       </div>` : '';
 
     const apartados = (b.apartados || []).map(ap => {
-        const instrucciones = (ap.instrucciones || []).length
-            ? `<ul class="instr">${ap.instrucciones.map(i => `<li>${negrita(i)}</li>`).join('')}</ul>` : '';
+        const lista = (arr) => (arr || []).length
+            ? `<ul class="instr">${arr.map(i => `<li>${negrita(i)}</li>`).join('')}</ul>` : '';
+        const instrucciones = lista(ap.instrucciones);
+        const instruccionesFinal = lista(ap.instruccionesFinal);
         const tabla = (ap.campos || []).length ? `<table>${filasDe(ap.campos)}</table>` : '';
         const original = ap.original ? `<div class="orig">Dirección guardada: ${esc(ap.original)}</div>` : '';
         return `
@@ -580,6 +655,7 @@ export function buildBorradorCeeHtml(borrador) {
             ${ap.nota ? `<p class="sub">${esc(ap.nota)}</p>` : ''}
             ${instrucciones}
             ${tabla}
+            ${instruccionesFinal}
             ${original}
           </section>`;
     }).join('');
@@ -624,11 +700,18 @@ export function buildBorradorCeeHtml(borrador) {
       .aviso { font-size: 8.5pt; margin-bottom: 2px; }
       .files { margin: 4px 0 0 15px; padding: 0; font-size: 8.5pt; font-family: 'Courier New', monospace; }
       .files .falta { font-family: Arial, Helvetica, sans-serif; font-size: 7.5pt; color: #666; }
+      /* El enlace va SUBRAYADO y en negro: el PDF se imprime tanto como se lee en
+         pantalla, y en papel un azul claro se pierde. Puppeteer conserva el <a>
+         como hipervínculo real, así que abierto sigue siendo pulsable. */
+      .sede { font-size: 8.5pt; margin: 0 0 6px; }
+      .sede a, .pie a { color: #000; text-decoration: underline; }
       .pie { margin-top: 12px; padding-top: 5px; border-top: 1px solid #ccc; font-size: 7.5pt; color: #555; }
     </style></head><body>
       <h1>Borrador para presentar el ${esc(b.faseLabel || 'CEE')}</h1>
       <p class="tramite">${esc(TRAMITE.titulo)}<br>
          Procedimiento ${esc(TRAMITE.procedimiento)} · Código SIACI ${esc(TRAMITE.siaci)} · ${esc(TRAMITE.tramite)}</p>
+      <p class="sede">Se presenta en la Sede electrónica de la JCCM:
+         <a href="${esc(TRAMITE.sede)}">${esc(TRAMITE.sede)}</a></p>
       ${cabecera ? `<p class="exp">${esc(cabecera)}</p>` : ''}
       <p class="intro">Esto NO es el impreso: el trámite se rellena en la sede electrónica.
          Es la guía de qué va en cada casilla, en el orden en que el formulario las pide.
@@ -637,6 +720,7 @@ export function buildBorradorCeeHtml(borrador) {
       ${avisos}
       ${apartados}
       ${ficheros}
-      <div class="pie">${esc(TRAMITE.organismo)} · Código DIR 3: ${esc(TRAMITE.dir3)}<br>${esc(TRAMITE.url)}</div>
+      <div class="pie">${esc(TRAMITE.organismo)} · Código DIR 3: ${esc(TRAMITE.dir3)}<br>
+        Requisitos y modelos del procedimiento: <a href="${esc(TRAMITE.url)}">${esc(TRAMITE.url)}</a></div>
     </body></html>`;
 }
