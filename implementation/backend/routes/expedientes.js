@@ -7568,7 +7568,28 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
                 console.warn('[approve-cee] no se pudo adjuntar el borrador de presentación:', bErr.message);
             }
         }
-        const ceeLinksBlock = `${presentFolderLink ? `\n\n📥 Descarga los archivos del ${phaseLabel} para presentarlos:\n${presentFolderLink}` : ''}${ceeUploadLink ? `\n\n📤 Una vez presentado, sube aquí el ${phaseLabel} registrado (etiqueta + justificante):\n${ceeUploadLink}` : ''}`;
+        // El enlace a los DOS PASOS que le quedan: firmar y presentar. Va PRIMERO
+        // porque es lo que hay que hacer; los otros dos son de apoyo (descargar
+        // sueltos, subir el registro) y siguen ahí para quien ya tenga la costumbre.
+        // Mismo token que /subir-cee: mismo técnico, expediente y fase.
+        const presentarLink = ceeUploadLink ? ceeUploadLink.replace('/subir-cee/', '/presentar-cee/') : null;
+        // Con qué fecha hay que firmar. Autofirma sella con el reloj del ordenador de
+        // quien firma, así que la app no puede imponerla: decírsela ANTES es la mitad
+        // del arreglo — la otra es comprobarla al recibir el documento.
+        const fechaFirmaPedida = (req.body?.fechaFirma || '').trim()
+            || require('../services/ceeFirmaService').fechaDelCertificado(exp, normPhase);
+        const fechaFirmaEs = /^[0-9]{4}-[0-9]{2}-[0-9]{2}/.test(String(fechaFirmaPedida || ''))
+            ? String(fechaFirmaPedida).slice(0, 10).split('-').reverse().join('/') : null;
+        const bloquePresentar = presentarLink
+            ? `
+
+🖊️ Fírmalo y preséntalo desde aquí (te lleva paso a paso):
+${presentarLink}` : '';
+        const bloqueFecha = fechaFirmaEs
+            ? `
+
+📅 Fírmalo con fecha *${fechaFirmaEs}*, la misma con la que se emitió el certificado.` : '';
+        const ceeLinksBlock = `${bloquePresentar}${bloqueFecha}${presentFolderLink ? `\n\n📥 Descarga los archivos del ${phaseLabel} para presentarlos:\n${presentFolderLink}` : ''}${ceeUploadLink ? `\n\n📤 Una vez presentado, sube aquí el ${phaseLabel} registrado (etiqueta + justificante):\n${ceeUploadLink}` : ''}`;
 
         // EMAIL
         if (sendEmail && certEmail) {
@@ -7583,7 +7604,7 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
                 await emailService.sendCertificadorApproveNotification(
                     certEmail, certName, exp.numero_expediente, phaseLabel, portalLink,
                     (cee.cee_folder_link || null), adminMessage, bodyMsg,
-                    { presentFolderLink, ceeUploadLink, attachments, clienteData: clienteDataAp, urgent: isUrgent }
+                    { presentFolderLink, ceeUploadLink, presentarLink, fechaFirma: fechaFirmaEs, attachments, clienteData: clienteDataAp, urgent: isUrgent }
                 );
                 emailSent = true;
             } catch (mailErr) {

@@ -97,6 +97,29 @@ export const SIGN_BOXES = {
     solicitud_verificacion: { page: 12, llx: 145.46, lly: 450.00, urx: 348.72, ury: 528.20 },
 };
 
+// ─── El CEE que emite CE3X ───────────────────────────────────────────────────
+//
+// ⚠️ AQUÍ NO VALE UNA CAJA FIJA, y no es una opinión: está medido. El PDF lo
+// genera CE3X (ReportLab, 7 páginas) y su rótulo «Firma del técnico certificador»
+// SE MUEVE según cuántas líneas ocupe el párrafo de encima —que depende del
+// nombre y la dirección—. Medido sobre dos certificados reales:
+//
+//   26RES060_186 · rótulo lly=155 ury=165 · firma puesta a mano (212,165)-(382,230)
+//   26RES060_187 · rótulo lly=165 ury=175 · firma puesta a mano (212,178)-(379,236)
+//
+// Diez puntos de diferencia. Una caja fija dejaría la rúbrica pisando el rótulo en
+// unos certificados y flotando en otros, y nadie se enteraría.
+//
+// Por eso se ancla AL TEXTO, con `^above` (el recuadro va ENCIMA del rótulo, que
+// es donde lo pone hoy el certificador a mano). La caja medida se apoya sobre el
+// borde superior del rótulo y va centrada sobre él: ~170 pt de ancho por ~65 de
+// alto, con el rótulo en x 234-362 (centro 298) en los dos certificados.
+export const CEE_SIGN_ANCHOR = ['firma del tecnico certificador^above'];
+
+// Lo medido en las firmas que ya existen, para poder centrar la caja sobre el
+// rótulo en vez de dejarla colgando a su derecha.
+export const CEE_SIGN_CAJA = { ancho: 170, alto: 65 };
+
 /**
  * La caja de una ficha ('RES060'|'RES080'|'RES093'|'TER100'|'TER173').
  *

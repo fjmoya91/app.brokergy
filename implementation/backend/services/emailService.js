@@ -1507,6 +1507,31 @@ const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLa
         ? emailBox(emailP('🚨 REGISTRO URGENTE — Por favor, prioriza este expediente', { size: 14, bold: true, color: '#B42318', center: true, mb: 0 }), { bg: '#FDECEC', border: '#F0B4B4', pad: '14px 18px' })
         : '';
 
+    // ── LOS DOS PASOS QUE LE QUEDAN ──────────────────────────────────────────
+    // Firmar y presentar. Iban sueltos como "descarga" y "sube", y entre medias
+    // quedaban fuera de la app las dos cosas que se torcían: la FECHA con la que
+    // firma (Autofirma sella con el reloj de su ordenador) y el SITIO del recuadro
+    // de la firma, que colocaba a ojo. `presentarLink` le lleva a los dos pasos
+    // guiados; los enlaces sueltos de abajo siguen para quien ya tenga su rutina.
+    const presentarLink = extra.presentarLink || null;
+    const fechaFirma = extra.fechaFirma || null;   // dd/mm/aaaa
+
+    const pasosBox = presentarLink ? emailBox(
+        `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr><td align="center" style="padding-bottom:10px;">
+              ${emailP('Paso 1 · Firma el certificado', { size: 15, bold: true, center: true, mb: 8 })}
+              ${emailP('Se te abre el documento con el recuadro de la firma ya colocado: solo tienes que firmar con tu certificado.', { size: 13, color: BRAND.muted, center: true, mb: fechaFirma ? 10 : 14 })}
+              ${fechaFirma ? emailP(`Fírmalo con fecha <strong>${fechaFirma}</strong>, la misma con la que se emitió el certificado.`, { size: 13, center: true, mb: 14 }) : ''}
+            </td></tr>
+            <tr><td align="center" style="padding-bottom:22px;">
+              ${emailP('Paso 2 · Preséntalo en el Registro', { size: 15, bold: true, center: true, mb: 8 })}
+              ${emailP('Te lleva al borrador con lo que va en cada casilla del formulario y los documentos listos para anexar.', { size: 13, color: BRAND.muted, center: true, mb: 14 })}
+              ${certButton(presentarLink, '🖊️ Firmar y presentar', GREEN)}
+            </td></tr>
+          </table>`,
+        { pad: '24px 22px 2px 22px' }
+    ) : '';
+
     const stepsBox = (presentFolderLink || ceeUploadLink) ? emailBox(
         `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
             ${presentFolderLink ? `<tr><td align="center" style="padding-bottom:22px;">
@@ -1543,7 +1568,7 @@ const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLa
         pillText: isUrgent ? 'Visto Bueno · Urgente' : 'Visto Bueno',
         pillBg: isUrgent ? '#FDECEC' : '#EEF6E1',
         pillColor: isUrgent ? '#B42318' : '#5C9A1B',
-        contentHtml: urgentBanner + bodyParagraphs + clienteBox + stepsBox + attachNote,
+        contentHtml: urgentBanner + bodyParagraphs + clienteBox + pasosBox + stepsBox + attachNote,
         portalLink,
     });
 

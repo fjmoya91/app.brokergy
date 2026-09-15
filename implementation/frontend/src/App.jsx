@@ -31,6 +31,7 @@ import { AceptarPropuestaView } from './features/public/views/AceptarPropuestaVi
 import { CertAckView } from './features/public/views/CertAckView';
 import { CeeAckView } from './features/public/views/CeeAckView';
 import { SubirCifoView } from './features/public/views/SubirCifoView';
+import { PresentarCeeView } from './features/public/views/PresentarCeeView';
 import { SubirRiteView } from './features/public/views/SubirRiteView';
 import { SubirInstaladorView } from './features/public/views/SubirInstaladorView';
 import { SubirCeeView } from './features/public/views/SubirCeeView';
@@ -217,6 +218,20 @@ function App() {
   });
 
   // Subida pública del CEE registrado por el certificador: /subir-cee/:expedienteId?token=&phase=
+  // Presentar el CEE: /presentar-cee/:expedienteId?token=&phase=
+  // Los dos pasos que le quedan al certificador tras el visto bueno — firmar y
+  // presentar. Comparte token con /subir-cee: mismo técnico, mismo expediente,
+  // misma fase.
+  const [presentarCeeData] = useState(() => {
+    const path = window.location.pathname;
+    if (!path.startsWith('/presentar-cee/')) return null;
+    const expedienteId = path.split('/presentar-cee/')[1]?.split('/')[0] || null;
+    const sp = new URLSearchParams(window.location.search);
+    const token = sp.get('token');
+    const phase = sp.get('phase') === 'final' ? 'final' : 'inicial';
+    return (expedienteId && token) ? { expedienteId, token, phase } : null;
+  });
+
   const [ceeUploadData] = useState(() => {
     const path = window.location.pathname;
     if (path.startsWith('/subir-cee/')) {
@@ -1043,8 +1058,8 @@ function App() {
 
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
-  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cobroData || cifoUploadId || riteUploadId || instaladorId || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || firmarLoteId || portalRoute);
-  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cobroData && !cifoUploadId && !riteUploadId && !instaladorId && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
+  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cobroData || cifoUploadId || riteUploadId || instaladorId || presentarCeeData || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || firmarLoteId || portalRoute);
+  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cobroData && !cifoUploadId && !riteUploadId && !instaladorId && !presentarCeeData && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
   const wrapperPadding = (isLoggedDashboard || isPublicRoute || (user && envolventeId)) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
@@ -1086,6 +1101,9 @@ function App() {
           <SubirCifoView expedienteId={cifoUploadId} />
         ) : riteUploadId ? (
           <SubirRiteView expedienteId={riteUploadId} />
+        ) : presentarCeeData ? (
+          <PresentarCeeView expedienteId={presentarCeeData.expedienteId}
+                            token={presentarCeeData.token} fase={presentarCeeData.phase} />
         ) : ceeUploadData ? (
           <SubirCeeView expedienteId={ceeUploadData.expedienteId} token={ceeUploadData.token} phase={ceeUploadData.phase} />
         ) : ceeAckData ? (

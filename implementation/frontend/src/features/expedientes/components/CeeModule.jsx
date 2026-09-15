@@ -249,6 +249,10 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
     // justo el momento en que el certificador puede presentar, y esa hoja es lo
     // que evita que teclee a mano el NIF o la referencia catastral.
     const [approveBorrador, setApproveBorrador] = useState(true);
+    // La fecha con la que se le pide firmar. Sale del propio certificado (la de
+    // emisión del .xml) porque es la que el Registro espera ver en la firma.
+    // Editable: hay expedientes donde se pacta otra.
+    const [approveFechaFirma, setApproveFechaFirma] = useState('');
     // Prioridad del visto bueno: 'normal' | 'urgent'. En urgente el mensaje lleva 🚨
     // y el email sale marcado como urgente (mismo criterio que el popup de notificar).
     const [approvePriority, setApprovePriority] = useState('normal');
@@ -652,6 +656,14 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
         setApproveAttachFiles(false);
         setApproveNota('');
         setApprovePriority('normal');
+        // La fecha con la que se le pide firmar: la de emisión del propio
+        // certificado, que es la que el Registro espera ver en la firma. Sale del
+        // .xml y se puede cambiar antes de enviar.
+        setApproveFechaFirma(
+            local?.[`fecha_firma_cee_${section}`]
+            || local?.[`cee_${section}`]?.fechaFirma
+            || ''
+        );
         setApproveMessage(buildCertApproveMessage(section, selectedCertName, clienteNombre, numExp, ceeFolderLink, expedienteId, 'normal'));
         setApproveResult(null);
         setApproveLinks(null);
@@ -708,6 +720,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 notaAdicional: approveNota.trim() || null,
                 attachFiles: approveAttachFiles && approveChannels.includes('email'),
                 adjuntarBorrador: approveBorrador,
+                fechaFirma: approveFechaFirma || null,
                 priority: approvePriority
             });
             const phaseLabel = approvePendingPhase === 'final' ? 'CEE Final' : 'CEE Inicial';
@@ -1338,6 +1351,31 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                                     pegados al botón de validar. Eran lo primero del cuerpo y
                                     el botón lo último, así que había que recorrer el popup
                                     entero —mensaje incluido— para ver con qué se enviaba. */}
+
+                                {/* Con qué fecha tiene que firmar. Va ARRIBA, antes de los
+                                    adjuntos y del mensaje: es el dato que se equivoca y el
+                                    que hay que mirar antes de mandar nada. Autofirma sella
+                                    con el reloj del ordenador de quien firma, así que la app
+                                    no puede imponerla — solo pedirla aquí y comprobarla
+                                    cuando el documento vuelva. */}
+                                <div className="mb-5 px-3 py-3 rounded-xl bg-white/[0.03] border border-white/10">
+                                    <label className="block text-[9px] font-black text-white/30 uppercase tracking-widest mb-1.5">
+                                        Fecha con la que debe firmar
+                                    </label>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <input
+                                            type="date"
+                                            value={approveFechaFirma || ''}
+                                            onChange={e => setApproveFechaFirma(e.target.value)}
+                                            disabled={approveLoading}
+                                            className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-[13px] focus:border-brand/50 outline-none"
+                                        />
+                                        <span className="text-[10px] text-white/35 normal-case leading-snug flex-1 min-w-[200px]">
+                                            Sale del propio certificado. Va en el aviso, y cuando nos devuelva
+                                            el PDF firmado se comprueba que la firma lleve esta fecha.
+                                        </span>
+                                    </div>
+                                </div>
 
                                 {/* Adjuntar los archivos del CEE al email (opcional) */}
                                 {approveChannels.includes('email') && (

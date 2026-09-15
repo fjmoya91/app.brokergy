@@ -47,7 +47,11 @@ const DEVUELTOS = [
 ];
 
 export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/api/expedientes',
-                                   fases = ['inicial', 'final'], gridRef = null }) {
+                                   fases = ['inicial', 'final'], gridRef = null,
+                                   // Lo que hay que añadir a la query en la vía PÚBLICA: el token
+                                   // del enlace. Con esto el MISMO popup sirve al equipo interno y
+                                   // al certificador, que es quien de verdad presenta.
+                                   paramsExtra = null, soloLectura = false }) {
     const [fase, setFase] = useState('inicial');
     const [datos, setDatos] = useState(null);
     const [cargando, setCargando] = useState(false);
@@ -73,7 +77,7 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
         setError(null);
         (async () => {
             try {
-                const { data } = await axios.get(`${apiBase}/${expedienteId}/borrador-cee`, { params: { fase } });
+                const { data } = await axios.get(`${apiBase}/${expedienteId}/borrador-cee`, { params: { fase, ...(paramsExtra || {}) } });
                 if (!cancelado) setDatos(data);
             } catch (e) {
                 if (!cancelado) setError(e.response?.data?.error || 'No se pudo componer el borrador');
@@ -82,7 +86,7 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
             }
         })();
         return () => { cancelado = true; };
-    }, [isOpen, expedienteId, apiBase, fase]);
+    }, [isOpen, expedienteId, apiBase, fase, JSON.stringify(paramsExtra || {})]);
 
     const copiar = useCallback(async (texto, clave) => {
         try {
@@ -114,7 +118,7 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
         setDescargando(f.clave);
         try {
             const resp = await axios.get(`${apiBase}/${expedienteId}/borrador-cee/fichero`,
-                { params: { fase, doc: f.clave }, responseType: 'blob', timeout: 60000 });
+                { params: { fase, doc: f.clave, ...(paramsExtra || {}) }, responseType: 'blob', timeout: 60000 });
             guardar(resp.data, f.nombreRegistro || f.nombreDrive || 'documento');
         } catch (e) {
             // El cuerpo del error viene como Blob por el responseType: hay que leerlo.
@@ -142,7 +146,7 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
             // justificante, así que se vuelve a pedir el borrador. Es una lectura,
             // no rehace nada.
             try {
-                const { data } = await axios.get(`${apiBase}/${expedienteId}/borrador-cee`, { params: { fase } });
+                const { data } = await axios.get(`${apiBase}/${expedienteId}/borrador-cee`, { params: { fase, ...(paramsExtra || {}) } });
                 setDatos(data);
             } catch { /* el fichero ya está subido: no se avisa por no poder refrescar */ }
         } catch (e) {

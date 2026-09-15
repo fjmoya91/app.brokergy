@@ -1164,6 +1164,112 @@ router.post('/cee-upload/:expedienteId/:slot', uploadDocsSingle, async (req, res
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// PRESENTAR EL CEE — la página del certificador (/presentar-cee/:id)
+// ---------------------------------------------------------------------------
+// Lo que le queda al técnico cuando Brokergy le da el visto bueno: FIRMAR el
+// certificado y PRESENTARLO en el Registro. Las dos cosas se hacían fuera de la
+// app, y de ahí salían los dos fallos que esto corrige — la fecha de firma
+// equivocada y el recuadro puesto a ojo. Ver `services/ceeFirmaService.js`.
+//
+// Usan el MISMO token que /subir-cee (`ceeUploadSignature`): es el mismo técnico,
+// el mismo expediente y la misma fase, y así el enlace del visto bueno vale para
+// todo sin repartir dos secretos distintos.
+// ═══════════════════════════════════════════════════════════════════════════
+
+function tokenCeeValido(req, res) {
+    const { expedienteId } = req.params;
+    const ph = req.query.phase === 'final' ? 'final' : 'inicial';
+    if (!ceeUploadService.ceeUploadSignatureValid(expedienteId, ph, req.query.token)) {
+        res.status(403).json({ error: 'Enlace inválido o caducado.' });
+        return null;
+    }
+    return ph;
+}
+
+// GET /api/public/cee-firma/:expedienteId?token=&phase= → qué le queda por hacer
+router.get('/cee-firma/:expedienteId', async (req, res) => {
+    const ph = tokenCeeValido(req, res);
+    if (!ph) return;
+    try {
+        const ceeFirmaService = require('../services/ceeFirmaService');
+        res.json(await ceeFirmaService.estadoFirma(req.params.expedienteId, ph));
+    } catch (e) {
+        console.error('[cee-firma GET]', e.message);
+        res.status(e.status || 500).json({ error: e.message || 'Error interno' });
+    }
+});
+
+// GET /api/public/cee-firma/:expedienteId/pdf?token=&phase= → el PDF a firmar
+router.get('/cee-firma/:expedienteId/pdf', async (req, res) => {
+    const ph = tokenCeeValido(req, res);
+    if (!ph) return;
+    try {
+        const ceeFirmaService = require('../services/ceeFirmaService');
+        const { pdf } = await ceeFirmaService.pdfParaFirmar(req.params.expedienteId, ph);
+        res.json({ pdf });
+    } catch (e) {
+        console.error('[cee-firma/pdf]', e.message);
+        res.status(e.status || 500).json({ error: e.message || 'Error interno' });
+    }
+});
+
+// POST /api/public/cee-firma/:expedienteId?token=&phase= → guarda el certificado
+// (venga firmado desde aquí o subido ya firmado desde su propio Autofirma) y
+// devuelve lo que declara su firma.
+router.post('/cee-firma/:expedienteId', uploadDocsSingle, async (req, res) => {
+    const ph = tokenCeeValido(req, res);
+    if (!ph) return;
+    try {
+        if (!req.file?.buffer?.length) return res.status(400).json({ error: 'No llegó ningún fichero.' });
+        const ceeFirmaService = require('../services/ceeFirmaService');
+        const out = await ceeFirmaService.guardarCertificado(
+            req.params.expedienteId, ph, req.file.buffer,
+            { mimeType: req.file.mimetype || 'application/pdf' }
+        );
+        res.json(out);
+    } catch (e) {
+        console.error('[cee-firma POST]', e.message);
+        res.status(e.status || 500).json({ error: e.message || 'Error interno' });
+    }
+});
+
+// GET /api/public/cee-firma/:expedienteId/borrador?token=&phase= → el Paso 2.
+// El MISMO borrador que ve el equipo interno: no expone nada nuevo —el NIF, el
+// teléfono y la dirección del cliente ya viajan en el encargo— y es quien
+// presenta el que necesita tenerlo delante.
+router.get('/cee-firma/:expedienteId/borrador-cee', async (req, res) => {
+    const ph = tokenCeeValido(req, res);
+    if (!ph) return;
+    try {
+        const borradorCeeService = require('../services/borradorCeeService');
+        res.json(await borradorCeeService.componer('expediente', req.params.expedienteId, ph));
+    } catch (e) {
+        console.error('[cee-firma/borrador]', e.message);
+        res.status(e.status || 500).json({ error: e.message || 'Error interno' });
+    }
+});
+
+// GET /api/public/cee-firma/:expedienteId/fichero?token=&phase=&doc= → uno de los
+// cuatro documentos que se anexan, ya renombrado con el NIF del titular delante.
+router.get('/cee-firma/:expedienteId/borrador-cee/fichero', async (req, res) => {
+    const ph = tokenCeeValido(req, res);
+    if (!ph) return;
+    try {
+        const borradorCeeService = require('../services/borradorCeeService');
+        const { buffer, filename, mimeType } =
+            await borradorCeeService.fichero('expediente', req.params.expedienteId, ph, req.query.doc);
+        res.setHeader('Content-Type', mimeType || 'application/octet-stream');
+        res.setHeader('Content-Disposition',
+            `attachment; filename="${filename.replace(/[^\x20-\x7E]/g, '_')}"; `
+            + `filename*=UTF-8''${encodeURIComponent(filename)}`);
+        res.send(buffer);
+    } catch (e) {
+        console.error('[cee-firma/fichero]', e.message);
+        res.status(e.status || 500).json({ error: e.message || 'Error descargando el fichero' });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ACUSE DEL ENCARGO — CEE contratados sueltos
 // ---------------------------------------------------------------------------
 // El técnico contesta desde el email o el WhatsApp: lo cojo / no puedo. Sin esto
