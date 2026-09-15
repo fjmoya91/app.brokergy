@@ -323,6 +323,26 @@ async function loadNotificationContext(expediente) {
 // (POST resend-cee-notifications con preview:true) → única fuente de verdad.
 // Nota: el email del cliente/staff se envía con su plantilla HTML; estos textos son
 // los del canal WhatsApp (y los que se muestran en el preview).
+/**
+ * A quién se SALUDA en un mensaje al cliente.
+ *
+ * REGLA — se saluda a QUIEN LO RECIBE. Cuando el cliente tiene el desvío activo,
+ * el mensaje sale al teléfono de su PERSONA DE CONTACTO —quien lleva la obra: un
+ * hijo, la pareja, el instalador— y saludar al titular delata que el texto está
+ * hecho con una plantilla. Medido en 26RES060_187: el aviso de CEE presentado
+ * llegaba al WhatsApp de JUAN ANTONIO empezando por «¡Hola MARIA TERESA!».
+ *
+ * Es solo el SALUDO: en los mensajes a staff y al partner el cliente sigue siendo
+ * el titular («Obra: …»), que es de quien hablan.
+ */
+function nombreParaSaludo(cli) {
+    const desvio = cli?.notificaciones_contacto_activas === true
+        || cli?.notificaciones_contacto_activas === 'true';
+    const contacto = (cli?.persona_contacto_nombre || '').trim();
+    if (desvio && contacto) return contacto;
+    return (cli?.nombre_razon_social || 'Cliente').trim();
+}
+
 function buildCeeRegistradoMessages(phase, { numExp, clienteName, clienteFull, portalLink, expedienteLink }) {
     if (phase === 'final') {
         const clientMsg = `¡Hola *${clienteName}*!\n\nTe comunicamos que ya ha sido presentado el *Certificado de Eficiencia Energética FINAL* de tu expediente *${numExp}*.\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
@@ -353,7 +373,8 @@ async function notifyCeeInicialRegistrado(expediente, filters = {}) {
         }
 
         const numExp = expediente.numero_expediente || op?.id_oportunidad || expediente.id;
-        const clienteName = (cli.nombre_razon_social || 'Cliente').trim();
+        // Se saluda a quien RECIBE el mensaje, no siempre al titular.
+        const clienteName = nombreParaSaludo(cli);
         const clienteFull = `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim();
         const ubicacion = `${cli.direccion || ''} - ${cli.codigo_postal || ''} ${cli.municipio || ''} (${cli.provincia || ''})`;
         // Enlace UNIFICADO de subida de fotos/docs (/subir-docs/:uuid?token=)
@@ -445,7 +466,8 @@ async function notifyCeeFinalRegistrado(expediente, filters = {}) {
         }
 
         const numExp = expediente.numero_expediente || op?.id_oportunidad || expediente.id;
-        const clienteName = (cli.nombre_razon_social || 'Cliente').trim();
+        // Se saluda a quien RECIBE el mensaje, no siempre al titular.
+        const clienteName = nombreParaSaludo(cli);
         const clienteFull = `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim();
         const ubicacion = `${cli.direccion || ''} - ${cli.codigo_postal || ''} ${cli.municipio || ''} (${cli.provincia || ''})`;
         const expedienteLink = `https://app.brokergy.es/?exp=${expediente.id}`;
@@ -2675,7 +2697,8 @@ router.post('/:id/notify-registration', enforceAuth, async (req, res) => {
         if (!cli || !op) return res.status(404).json({ error: 'Datos de cliente u oportunidad no encontrados' });
 
         const numExp = (exp.numero_expediente || op.id_oportunidad || '—').trim();
-        const clienteName = (cli.nombre_razon_social || 'Cliente').trim();
+        // Se saluda a quien RECIBE el mensaje, no siempre al titular.
+        const clienteName = nombreParaSaludo(cli);
         const clienteFull = `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim();
         const ubicacion = `${cli.direccion || ''} - ${cli.codigo_postal || ''} ${cli.municipio || ''} (${cli.provincia || ''})`.trim();
         // Enlace UNIFICADO de subida de fotos/docs (/subir-docs/:uuid?token=)

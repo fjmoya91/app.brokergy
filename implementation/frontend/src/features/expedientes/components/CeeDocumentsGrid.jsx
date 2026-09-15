@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
@@ -237,7 +237,7 @@ function UploadItem({
     );
 }
 
-export function CeeDocumentsGrid({
+export const CeeDocumentsGrid = forwardRef(function CeeDocumentsGrid({
     // Ver la nota de `apiBase` en CeeModule: por defecto, el expediente CAE.
     apiBase = '/api/expedientes',
     // Fases que se pintan. Un expediente CAE tiene siempre las dos (aunque la
@@ -264,7 +264,7 @@ export function CeeDocumentsGrid({
     onApproveSend,
     onSaveInstalacion,
     onEditCliente
-}) {
+}, ref) {
     const { showAlert, showConfirm } = useModal();
     const { user } = useAuth();
     // Demanda de calefacción simulada en la oportunidad (null en un CEE directo,
@@ -1155,6 +1155,36 @@ Según el documento:
             }
         }
     };
+
+    // ─── Subir desde FUERA de la rejilla ─────────────────────────────────────
+    // El borrador para presentar el CEE termina donde empieza el papeleo de
+    // vuelta: el justificante de registro y el recibo de la tasa. Se suben desde
+    // ahí porque es donde se está cuando llegan, pero tienen que hacer
+    // EXACTAMENTE lo mismo que si se soltaran en su casilla de esta rejilla —
+    // sellar la fecha leída del justificante, marcar la fase REGISTRADO, avanzar
+    // el estado y ofrecer el aviso al cliente. Por eso se expone `handleUpload`
+    // y no se reimplementa nada: son la MISMA función.
+    useImperativeHandle(ref, () => ({
+        /**
+         * @param {'inicial'|'final'} section
+         * @param {string} slotId  uno de DOCUMENT_SLOTS
+         * @param {File} file
+         * @param {{nombre?:string}} opts `nombre` renombra el fichero antes de
+         *        subirlo; solo tiene efecto en un slot múltiple (OTROS), donde el
+         *        nombre sale del propio fichero. En los demás manda el canónico.
+         */
+        subirASlot(section, slotId, file, opts = {}) {
+            const slot = DOCUMENT_SLOTS.find(s => s.id === slotId);
+            if (!slot || !file) return Promise.resolve();
+            let f = file;
+            if (opts.nombre && slot.isMultiple) {
+                const punto = file.name.lastIndexOf('.');
+                const ext = punto > 0 ? file.name.substring(punto) : '';
+                f = new File([file], `${opts.nombre}${ext}`, { type: file.type });
+            }
+            return handleUpload(section, slot, f);
+        },
+    }));
 
     const handleDelete = async (section, slot, linkOverride = null) => {
         // 1. Recoger los links a borrar (puede ser uno o varios para slot OTROS)
@@ -2929,4 +2959,4 @@ Según el documento:
             />
         </div>
     );
-}
+});

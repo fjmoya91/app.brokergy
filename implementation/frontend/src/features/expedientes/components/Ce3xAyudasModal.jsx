@@ -20,7 +20,7 @@ import { BorradorCeeModal } from './BorradorCeeModal';
 // ('inicial' y/o 'final'); no confundir con las `secciones` de más abajo, que son
 // las chuletas de esta caja de herramientas.
 export function Ce3xAyudasModal({ isOpen, onClose, expediente, apiBase = '/api/expedientes',
-                                  fasesCee = ['inicial', 'final'], permiteBorrador = true }) {
+                                  fasesCee = ['inicial', 'final'], permiteBorrador = true, gridRef = null }) {
     const [abierta, setAbierta] = useState(null);
     const [copiado, setCopiado] = useState(null);
     const [modelos, setModelos] = useState({});
@@ -235,6 +235,7 @@ export function Ce3xAyudasModal({ isOpen, onClose, expediente, apiBase = '/api/e
                     expedienteId={expediente?.id}
                     apiBase={apiBase}
                     fases={fasesCee}
+                    gridRef={gridRef}
                 />
             </div>
         </div>

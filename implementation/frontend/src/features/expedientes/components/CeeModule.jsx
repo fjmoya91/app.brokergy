@@ -189,6 +189,11 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
     const [ceeLoadTarget, setCeeLoadTarget] = useState(null);
     // Caja de herramientas del certificador (textos fijos de CE3X).
     const [ayudasCe3x, setAyudasCe3x] = useState(false);
+    // La rejilla del CEE, para que el borrador de presentación pueda subir por
+    // ella el justificante de registro y el recibo de la tasa: tienen que hacer
+    // lo MISMO que si se soltaran en su casilla. Solo se monta una de las dos
+    // rejillas a la vez (RES080 o el resto), así que comparten la misma ref.
+    const gridRef = useRef(null);
     /**
      * La envolvente se abre en una VENTANA PROPIA, no en un modal: sobre el
      * plano se pasa un rato largo y a mitad hace falta mirar otra cosa del
@@ -925,6 +930,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
     const renderRes060 = () => (
         <div className="space-y-8">
             <CeeDocumentsGrid
+                ref={gridRef}
                 apiBase={apiBase}
                 secciones={secciones}
                 expediente={expediente}
@@ -1050,6 +1056,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
     const renderRes080 = () => (
         <div className="space-y-8">
             <CeeDocumentsGrid
+                ref={gridRef}
                 apiBase={apiBase}
                 secciones={secciones}
                 expediente={expediente}
@@ -1890,6 +1897,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 expediente={instalacionViva ? { ...expediente, instalacion: instalacionViva } : expediente}
                 apiBase={apiBase}
                 fasesCee={secciones}
+                gridRef={gridRef}
                 // El borrador de presentación es del equipo interno: al certificador
                 // le llega en PDF con el visto bueno, que es el momento en el que
                 // puede presentar. Su ruta es staffOnly y aquí solo daría un 403.

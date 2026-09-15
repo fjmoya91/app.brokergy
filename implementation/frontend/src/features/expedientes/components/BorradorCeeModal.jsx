@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 
 // ─── Borrador para presentar el CEE ──────────────────────────────────────────
@@ -15,7 +15,39 @@ import axios from 'axios';
 // dicen qué X marcar y cuál dejar sin marcar, y esa es justamente la mitad del
 // valor de esta hoja: son las casillas en las que uno se equivoca.
 
-export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/api/expedientes', fases = ['inicial', 'final'] }) {
+// ─── Lo que vuelve de la sede ────────────────────────────────────────────────
+// Presentar no termina al darle a enviar: el Registro devuelve el justificante y
+// la pasarela, el recibo de la tasa. Se suben desde AQUÍ porque es donde se está
+// cuando llegan — el borrador se tiene abierto con el formulario al lado.
+//
+// REGLA — no se sube por un camino nuevo: se llama a la MISMA función de la
+// rejilla del CEE (`gridRef.subirASlot`). El justificante de registro dispara la
+// lectura de su fecha, marca la fase REGISTRADO, avanza el estado y ofrece el
+// aviso al cliente; reimplementarlo aquí sería tener dos versiones de eso y que
+// una se quedara atrás.
+const DEVUELTOS = [
+    {
+        clave: 'registro',
+        slot: 'registro',
+        titulo: 'Justificante de registro',
+        ayuda: 'Va a la casilla REGISTRO del CEE. Se le lee la fecha y la fase queda registrada.',
+        accept: '.pdf',
+    },
+    {
+        clave: 'tasa',
+        // No tiene casilla propia: el recibo de la tasa va al cajón OTROS, que es
+        // donde vive lo que no es el certificado. El nombre lo fija el borrador
+        // («{nº} – TASA») para poder reconocerlo entre los demás.
+        slot: 'otros',
+        nombre: 'TASA',
+        titulo: 'Justificante del pago de la tasa',
+        ayuda: 'Va al cajón OTROS del CEE, como «… – TASA».',
+        accept: '.pdf,image/*',
+    },
+];
+
+export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/api/expedientes',
+                                   fases = ['inicial', 'final'], gridRef = null }) {
     const [fase, setFase] = useState('inicial');
     const [datos, setDatos] = useState(null);
     const [cargando, setCargando] = useState(false);
@@ -23,6 +55,8 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
     const [copiado, setCopiado] = useState(null);
     const [generando, setGenerando] = useState(false);
     const [descargando, setDescargando] = useState(null);
+    const [subiendo, setSubiendo] = useState(null);
+    const [subido, setSubido] = useState({});
 
     // En un CEE directo de alcance ÚNICO no hay fase final: no se ofrece.
     const disponibles = ['inicial', 'final'].filter(f => fases.includes(f));
@@ -89,6 +123,32 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
             setError(msg);
         } finally {
             setDescargando(null);
+        }
+    };
+
+    // Lo que vuelve de la sede, por la MISMA vía que la rejilla del CEE.
+    const subirDevuelto = async (doc, file) => {
+        if (!file || subiendo) return;
+        if (!gridRef?.current?.subirASlot) {
+            setError('No se puede subir desde aquí: abre el popup desde el módulo CEE del expediente.');
+            return;
+        }
+        setSubiendo(doc.clave);
+        setError(null);
+        try {
+            await gridRef.current.subirASlot(fase, doc.slot, file, { nombre: doc.nombre });
+            setSubido(s => ({ ...s, [doc.clave]: file.name }));
+            // El estado en Drive del apartado de documentos cambia al subir el
+            // justificante, así que se vuelve a pedir el borrador. Es una lectura,
+            // no rehace nada.
+            try {
+                const { data } = await axios.get(`${apiBase}/${expedienteId}/borrador-cee`, { params: { fase } });
+                setDatos(data);
+            } catch { /* el fichero ya está subido: no se avisa por no poder refrescar */ }
+        } catch (e) {
+            setError(e.response?.data?.error || e.message || 'No se pudo subir el fichero');
+        } finally {
+            setSubiendo(null);
         }
     };
 
@@ -227,6 +287,28 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
                                     </div>
                                 </div>
                             )}
+
+                            {/* Lo que VUELVE de la sede. Va al final porque es el
+                                último paso: primero se rellena y se presenta, y
+                                después llegan el justificante y el recibo. */}
+                            {gridRef && (
+                                <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-4 py-3.5">
+                                    <div className="text-[10px] font-black text-white uppercase tracking-widest">
+                                        Una vez presentado
+                                    </div>
+                                    <p className="text-[10px] text-white/40 normal-case mt-0.5 leading-snug">
+                                        Sube aquí lo que devuelve la sede. Va a su casilla del CEE
+                                        {fase === 'final' ? ' final' : ' inicial'}, igual que si lo soltaras en la rejilla.
+                                    </p>
+                                    <div className="mt-2 space-y-1">
+                                        {DEVUELTOS.map(d => (
+                                            <Devuelto key={d.clave} d={d}
+                                                      subiendo={subiendo} subido={subido[d.clave]}
+                                                      onFile={(f) => subirDevuelto(d, f)} />
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </>
                     )}
                 </div>
@@ -281,6 +363,49 @@ function Fichero({ f, descargando, onDescargar }) {
                     {yendo ? '…' : '⬇ Descargar'}
                 </button>
             )}
+        </div>
+    );
+}
+
+// Una de las cosas que devuelve la sede. La tarjeta ENTERA es zona de suelta —
+// se llega aquí arrastrando desde la carpeta de descargas, y apuntar a un botón
+// pequeño con un fichero en la mano es la forma de acabar soltándolo en el
+// escritorio (mismo criterio que los firmados del S.O.).
+function Devuelto({ d, subiendo, subido, onFile }) {
+    const [encima, setEncima] = useState(false);
+    const input = useRef(null);
+    const yendo = subiendo === d.clave;
+
+    const soltar = (e) => {
+        e.preventDefault();
+        setEncima(false);
+        const f = e.dataTransfer?.files?.[0];
+        if (f) onFile(f);
+    };
+
+    return (
+        <div onDragOver={e => { e.preventDefault(); setEncima(true); }}
+             onDragLeave={() => setEncima(false)}
+             onDrop={soltar}
+             className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border transition-colors ${
+                 encima ? 'border-brand/60 bg-brand/10'
+                     : subido ? 'border-emerald-500/30 bg-emerald-500/[0.05]'
+                     : 'border-dashed border-white/[0.14] bg-white/[0.02]'
+             }`}>
+            <div className="min-w-0 flex-1">
+                <div className="text-[10px] font-bold text-white normal-case">{d.titulo}</div>
+                <div className={`text-[10px] normal-case leading-snug mt-0.5 ${
+                    subido ? 'text-emerald-400/80' : 'text-white/35'
+                }`}>
+                    {subido ? `✓ Subido: ${subido}` : d.ayuda}
+                </div>
+            </div>
+            <input ref={input} type="file" accept={d.accept} className="hidden"
+                   onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ''; }} />
+            <button type="button" onClick={() => input.current?.click()} disabled={!!subiendo}
+                    className="shrink-0 px-2.5 py-1.5 max-md:px-3 max-md:py-2 rounded-md text-[9px] font-black uppercase tracking-widest bg-white/5 text-white/45 hover:bg-brand/20 hover:text-brand transition-colors disabled:opacity-40">
+                {yendo ? 'Subiendo…' : (subido ? 'Sustituir' : '⬆ Subir')}
+            </button>
         </div>
     );
 }
