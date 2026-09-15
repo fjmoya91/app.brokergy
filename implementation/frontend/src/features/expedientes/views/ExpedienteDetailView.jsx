@@ -6,6 +6,7 @@ import { CeeModule } from '../components/CeeModule';
 
 import { InstalacionModule } from '../components/InstalacionModule';
 import { EquipoInfoModal } from '../components/EquipoInfoModal';
+import { LeerPlacasModal } from '../components/LeerPlacasModal';
 import { EnvolventeModule } from '../components/EnvolventeModule';
 import { SubvencionesModule } from '../components/SubvencionesModule';
 import { leerSubvenciones } from '../logic/subvenciones';
@@ -267,6 +268,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
     const [liveCee, setLiveCee] = useState(null);
     const [liveInst, setLiveInst] = useState(null);
     const [infoEquipo, setInfoEquipo] = useState(false);
+    const [leerPlacas, setLeerPlacas] = useState(false);
     const [liveDoc, setLiveDoc] = useState(null);
     const [liveSeguimiento, setLiveSeguimiento] = useState(null);
     const [showQuickNote, setShowQuickNote] = useState(false);
@@ -1614,6 +1616,25 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                     onToggle={setActiveSection}
                     headerAction={
                         <div className="flex items-center gap-2">
+                            {/* Leer las placas de las fotos. Va el PRIMERO porque es lo que se
+                                hace al ABRIR un expediente con la obra ya ejecutada —rellenar
+                                marca, modelo y sobre todo el nº de serie de la unidad exterior,
+                                que va impreso en el CIFO y sin el que no se tramita la ayuda—,
+                                mientras que «Info equipo» se consulta al final, ya con los datos
+                                dentro. Oculto al certificador: la ruta es staffOnly. */}
+                            {!isCertificador && (
+                                <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setLeerPlacas(true); }}
+                                    title="Leer con IA las placas de la caldera y de la bomba de calor desde las fotos del expediente"
+                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border bg-violet-500/10 text-violet-300 border-violet-400/30 hover:bg-violet-500/20 transition-colors"
+                                >
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                                    </svg>
+                                    <span className="hidden sm:inline">Leer placas</span>
+                                </button>
+                            )}
                             {/* El CEE se teclea a mano en CE3X mirando esta pantalla, y sus
                                 datos están repartidos por todo el expediente (el SEER ni
                                 siquiera está aquí: vive en el catálogo del modelo). El popup
@@ -1633,7 +1654,17 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                         </div>
                     }
                 >
+                    {/* La `key` es el sello del lector de placas. `InstalacionModule`
+                        guarda su propia copia del expediente y solo la resiembra
+                        cuando cambia el ID (`useEffect([expediente?.id])`), así que
+                        tras escribir desde fuera —el botón de las placas— recargar el
+                        expediente NO bastaba: la pantalla seguía enseñando los huecos
+                        recién rellenados y había que refrescar el navegador a mano.
+                        Al cambiar el sello, React remonta el módulo con los datos
+                        nuevos. Solo cambia cuando se aplica una lectura, así que no
+                        interrumpe mientras se escribe. */}
                     <InstalacionModule
+                        key={expediente?.instalacion?.placas_ocr?.at || 'instalacion'}
                         expediente={expediente}
                         onSave={handleSave}
                         onLiveUpdate={setLiveInst}
@@ -1836,6 +1867,17 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                 isOpen={infoEquipo}
                 onClose={() => setInfoEquipo(false)}
                 expediente={{ ...expediente, instalacion: liveInst || expediente.instalacion }}
+            />
+
+            {/* Escribe en Supabase por su propia ruta, así que al terminar hay que
+                RECARGAR: el módulo de Instalación tiene su copia del expediente en
+                estado y seguiría enseñando los huecos que se acaban de rellenar. */}
+            <LeerPlacasModal
+                isOpen={leerPlacas}
+                onClose={() => setLeerPlacas(false)}
+                expedienteId={expediente.id}
+                numeroExpediente={expediente.numero_expediente}
+                onAplicado={() => fetchExpediente(true)}
             />
         </div>
     );

@@ -263,7 +263,16 @@ const limpia = (v) => { const s = String(v ?? '').trim(); return s && !/^[-—.]
 
 // ── Gemini ───────────────────────────────────────────────────────────────────
 
-async function llamarGemini(imagenes) {
+/**
+ * Una lectura de fotos contra Gemini.
+ *
+ * El PROMPT y el ESQUEMA son parámetros porque de aquí tira también
+ * `placaEquipoOcrService` (las placas de la bomba de calor NUEVA): lo que cambia
+ * entre los dos lectores es QUÉ se lee, no CÓMO se pide —el plazo, los
+ * reintentos ante 429/500/503 y la traza del gasto son los mismos—. Tenerlo dos
+ * veces es tenerlo mal el día que se corrija uno solo.
+ */
+async function llamarGemini(imagenes, { prompt = PROMPT, schema = SCHEMA, etiqueta = 'placaOcr' } = {}) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('Falta GEMINI_API_KEY en el entorno.');
 
@@ -272,7 +281,7 @@ async function llamarGemini(imagenes) {
         contents: [{
             role: 'user',
             parts: [
-                { text: PROMPT },
+                { text: prompt },
                 ...imagenes.map((i) => ({
                     inline_data: { mime_type: i.mimeType, data: i.buffer.toString('base64') },
                 })),
@@ -280,7 +289,7 @@ async function llamarGemini(imagenes) {
         }],
         generationConfig: {
             responseMimeType: 'application/json',
-            responseSchema: SCHEMA,
+            responseSchema: schema,
             temperature: 0,
             thinkingConfig: { thinkingBudget: 0 },
         },
@@ -311,7 +320,7 @@ async function llamarGemini(imagenes) {
         if (!RETRYABLE_STATUS.has(res.status) || intento === MAX_RETRIES) break;
         const espera = Math.round(800 * 2 ** intento + Math.random() * 300);
         if (Date.now() + espera >= finPlazo) break;
-        console.warn(`[placaOcr] Gemini ${res.status} (intento ${intento + 1}), reintentando en ${espera}ms…`);
+        console.warn(`[${etiqueta}] Gemini ${res.status} (intento ${intento + 1}), reintentando en ${espera}ms…`);
         await sleep(espera);
     }
 
@@ -326,7 +335,7 @@ async function llamarGemini(imagenes) {
     let data;
     try { data = JSON.parse(text); } catch { throw new Error('Respuesta de Gemini no es JSON.'); }
     const uso = data?.usageMetadata || {};
-    console.log(`[placaOcr] Gemini ${GEMINI_MODEL} ${((Date.now() - t0) / 1000).toFixed(1)}s · `
+    console.log(`[${etiqueta}] Gemini ${GEMINI_MODEL} ${((Date.now() - t0) / 1000).toFixed(1)}s · `
         + `${imagenes.length} foto(s) · in=${uso.promptTokenCount ?? '?'} out=${uso.candidatesTokenCount ?? '?'}`);
     const out = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!out) throw new Error('Gemini no devolvió contenido.');
@@ -474,4 +483,6 @@ function combustibleDeclarado(instalacion = {}, inputs = {}) {
 module.exports = {
     PROVIDER, leerPlacaCaldera, fotosDeLaCaldera, potenciaDesdeTexto, elegirPotencia,
     combustibleDeclarado, SLOT_PLACA, SLOT_CALDERA,
+    // Para `placaEquipoOcrService`, que lee otras placas con el mismo cliente.
+    llamarGemini, SUBCARPETA_DOCS, GEMINI_MODEL, limpia,
 };

@@ -240,6 +240,10 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
     const [approvePendingPhase, setApprovePendingPhase] = useState(null);
     const [approveChannels, setApproveChannels] = useState(['email']);
     const [approveAttachFiles, setApproveAttachFiles] = useState(false);
+    // El borrador de presentación viaja MARCADO por defecto: el visto bueno es
+    // justo el momento en que el certificador puede presentar, y esa hoja es lo
+    // que evita que teclee a mano el NIF o la referencia catastral.
+    const [approveBorrador, setApproveBorrador] = useState(true);
     // Prioridad del visto bueno: 'normal' | 'urgent'. En urgente el mensaje lleva 🚨
     // y el email sale marcado como urgente (mismo criterio que el popup de notificar).
     const [approvePriority, setApprovePriority] = useState('normal');
@@ -698,6 +702,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 customMessage: approveMessage.trim() || null,
                 notaAdicional: approveNota.trim() || null,
                 attachFiles: approveAttachFiles && approveChannels.includes('email'),
+                adjuntarBorrador: approveBorrador,
                 priority: approvePriority
             });
             const phaseLabel = approvePendingPhase === 'final' ? 'CEE Final' : 'CEE Inicial';
@@ -1329,18 +1334,36 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
 
                                 {/* Adjuntar los archivos del CEE al email (opcional) */}
                                 {approveChannels.includes('email') && (
-                                    <label className="flex items-start gap-2.5 mb-5 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 cursor-pointer hover:border-emerald-500/30 transition-colors">
-                                        <input
-                                            type="checkbox"
-                                            checked={approveAttachFiles}
-                                            onChange={e => setApproveAttachFiles(e.target.checked)}
-                                            disabled={approveLoading}
-                                            className="mt-0.5 w-4 h-4 accent-emerald-500 shrink-0"
-                                        />
-                                        <span className="text-[10px] text-white/60 leading-snug normal-case">
-                                            <b className="text-white/80">Adjuntar los archivos del CEE al email</b> (además del enlace de descarga).
-                                        </span>
-                                    </label>
+                                    <div className="space-y-2 mb-5">
+                                        <label className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 cursor-pointer hover:border-emerald-500/30 transition-colors">
+                                            <input
+                                                type="checkbox"
+                                                checked={approveAttachFiles}
+                                                onChange={e => setApproveAttachFiles(e.target.checked)}
+                                                disabled={approveLoading}
+                                                className="mt-0.5 w-4 h-4 accent-emerald-500 shrink-0"
+                                            />
+                                            <span className="text-[10px] text-white/60 leading-snug normal-case">
+                                                <b className="text-white/80">Adjuntar los archivos del CEE al email</b> (además del enlace de descarga).
+                                            </span>
+                                        </label>
+                                        {/* Va aquí porque es el momento en que el certificador puede
+                                            presentar. Fuera de Castilla-La Mancha no hay borrador y el
+                                            correo sale igual, sin adjunto y sin fallar. */}
+                                        <label className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 cursor-pointer hover:border-emerald-500/30 transition-colors">
+                                            <input
+                                                type="checkbox"
+                                                checked={approveBorrador}
+                                                onChange={e => setApproveBorrador(e.target.checked)}
+                                                disabled={approveLoading}
+                                                className="mt-0.5 w-4 h-4 accent-emerald-500 shrink-0"
+                                            />
+                                            <span className="text-[10px] text-white/60 leading-snug normal-case">
+                                                <b className="text-white/80">Adjuntar el borrador de presentación</b> — qué va en cada
+                                                casilla del formulario del Registro. Solo para Castilla-La Mancha.
+                                            </span>
+                                        </label>
+                                    </div>
                                 )}
 
                                 {/* Mensaje editable (homogéneo con el popup de notificar) */}
@@ -1865,6 +1888,12 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 isOpen={ayudasCe3x}
                 onClose={() => setAyudasCe3x(false)}
                 expediente={instalacionViva ? { ...expediente, instalacion: instalacionViva } : expediente}
+                apiBase={apiBase}
+                fasesCee={secciones}
+                // El borrador de presentación es del equipo interno: al certificador
+                // le llega en PDF con el visto bueno, que es el momento en el que
+                // puede presentar. Su ruta es staffOnly y aquí solo daría un 403.
+                permiteBorrador={!isCertificador}
             />
 
             {/* Modal de carga de CEE (XML exacto u OCR IA) — compartido entre RES060/RES093 y

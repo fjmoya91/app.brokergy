@@ -17,7 +17,14 @@
 // entera de la envolvente. Lo escribe una RPC que NO normaliza, pero el detalle
 // del expediente reenvía `cee` completa al autoguardar y se lo llevaba por
 // delante. Medido en 26RES060_186.
-const BLACKLIST = ['id', 'id_oportunidad', 'id_cliente', 'password', 'token', 'reformaType', 'method', 'type', 'icon', 'link', 'url', 'ficha', 'tipo_emisor', 'tipo_equipo_nuevo', 'metodo_scop', 'hibridacion_metodo', 'rendimiento_id', 'comb_', 'datos_calculo', 'fotovoltaica', 'envolvente'];
+//
+// `placa_ocr` / `placas_ocr` son la HUELLA de lo que leyó el lector de placas:
+// qué se transcribió, de qué fotos y qué campos se escribieron. Sus claves son
+// técnicas (`caldera.marca`) y el popup las traduce a un rótulo buscándolas en
+// un mapa, así que en MAYÚSCULAS (`CALDERA.MARCA`) dejaba de encontrarlas — y de
+// paso convertía la línea literal de la placa, que es la EVIDENCIA, en algo que
+// ya no es lo que pone la etiqueta. Medido en 26RES060_167.
+const BLACKLIST = ['id', 'id_oportunidad', 'id_cliente', 'password', 'token', 'reformaType', 'method', 'type', 'icon', 'link', 'url', 'ficha', 'tipo_emisor', 'tipo_equipo_nuevo', 'metodo_scop', 'hibridacion_metodo', 'rendimiento_id', 'comb_', 'datos_calculo', 'fotovoltaica', 'envolvente', 'placa_ocr', 'placas_ocr'];
 
 function normalizeData(obj) {
     if (!obj || typeof obj !== 'object') return obj;

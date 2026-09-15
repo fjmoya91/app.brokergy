@@ -108,6 +108,12 @@ export function parseCeeXml(xmlString) {
         epnrConsumo: null,      // kWh/m²·año — <Consumo><EnergiaPrimariaNoRenovable><Global>
         epnrLetra: null,        // 'A'…'G'    — <Calificacion><EnergiaPrimariaNoRenovable><Global>
         epnrEscala: null,       // { A: 54.20, B: 87.80, … } — umbrales de ESTE edificio
+        // ── CALIFICACIÓN EN EMISIONES DE CO2 ────────────────────────────────────
+        // La OTRA letra del certificado. El Registro Autonómico las pide las dos y no
+        // tienen por qué coincidir (medido en 25RES060_71: B en emisiones, C en consumo).
+        // Ver features/expedientes/logic/borradorCee.js.
+        emisionesLetra: null,   // 'A'…'G'    — <Calificacion><EmisionesCO2><Global>
+        emisionesEscala: null,  // { A: 12.20, B: 19.90, … }
     };
 
     // Intentar extraer datos de <Demanda><EdificioObjeto>
@@ -424,55 +430,82 @@ function getValidNumber(parentNode, tagName) {
 // `cee.xml_inicial`/`xml_final` pasa por el `normalizeData` del backend, que lo
 // deja entero en mayúsculas (`<CONSUMO>`), y ese es justamente el que hay que
 // poder releer en los expedientes antiguos.
-function leerEpnr(xmlDoc) {
-    const out = { epnrConsumo: null, epnrLetra: null, epnrEscala: null };
-    const buscar = (parent, tag) => {
-        if (!parent) return null;
-        const exact = parent.getElementsByTagName(tag);
-        if (exact.length > 0) return exact[0];
-        const all = parent.getElementsByTagName('*');
-        const s = tag.toLowerCase();
-        for (let i = 0; i < all.length; i++) if (all[i].localName.toLowerCase() === s) return all[i];
-        return null;
-    };
-    const epnrDe = (padreTag) => {
-        const padre = buscar(xmlDoc, padreTag);
-        return padre ? buscar(padre, 'EnergiaPrimariaNoRenovable') : null;
-    };
-    const hijosDirectos = (nodo, nombre) => Array.from(nodo?.childNodes || [])
-        .filter(h => h.nodeType === 1 && String(h.localName || '').toLowerCase() === nombre);
+const buscarTag = (parent, tag) => {
+    if (!parent) return null;
+    const exact = parent.getElementsByTagName(tag);
+    if (exact.length > 0) return exact[0];
+    const all = parent.getElementsByTagName('*');
+    const s = tag.toLowerCase();
+    for (let i = 0; i < all.length; i++) if (all[i].localName.toLowerCase() === s) return all[i];
+    return null;
+};
 
-    const consumo = epnrDe('Consumo');
+const hijosDirectos = (nodo, nombre) => Array.from(nodo?.childNodes || [])
+    .filter(h => h.nodeType === 1 && String(h.localName || '').toLowerCase() === nombre);
+
+/**
+ * La LETRA global y su escala de UN indicador dentro de `<Calificacion>`.
+ *
+ * Sirve para los dos indicadores que el certificado califica y que el Registro
+ * pide por separado: `EnergiaPrimariaNoRenovable` (consumo) y `EmisionesCO2`. No
+ * son la misma letra: medido en 25RES060_71, B en emisiones y C en consumo.
+ *
+ * ⚠️ Los DOS nombres aparecen también FUERA de `<Calificacion>` y allí significan
+ * un número: `<EmisionesCO2><Global>462.85</Global>` son kgCO2/año. Por eso se
+ * acota siempre por el padre y se exige que el texto sea una letra A-G.
+ */
+function leerCalificacion(xmlDoc, indicador) {
+    const out = { letra: null, escala: null };
+    const calif = buscarTag(xmlDoc, 'Calificacion');
+    const nodo = calif ? buscarTag(calif, indicador) : null;
+    if (!nodo) return out;
+
+    // La letra es hija DIRECTA (`<Global>E</Global>`). Con getElementsByTagName
+    // se cogería también el <Global> de dentro de <EscalaGlobal>, que es un
+    // número — de ahí que se recorran solo los hijos directos.
+    for (const h of hijosDirectos(nodo, 'global')) {
+        const txt = (h.textContent || '').trim().toUpperCase();
+        if (/^[A-G]$/.test(txt)) { out.letra = txt; break; }
+    }
+    const escalaNode = buscarTag(nodo, 'EscalaGlobal');
+    if (escalaNode) {
+        const escala = {};
+        for (const h of Array.from(escalaNode.childNodes)) {
+            if (h.nodeType !== 1) continue;
+            const letra = String(h.localName || '').trim().toUpperCase();
+            if (!/^[A-G]$/.test(letra)) continue;
+            const val = parseFloat((h.textContent || '').replace(',', '.'));
+            if (!isNaN(val)) escala[letra] = val;
+        }
+        if (Object.keys(escala).length) out.escala = escala;
+    }
+    return out;
+}
+
+function leerEpnr(xmlDoc) {
+    const out = {
+        epnrConsumo: null, epnrLetra: null, epnrEscala: null,
+        emisionesLetra: null, emisionesEscala: null,
+    };
+
+    const consumoRaiz = buscarTag(xmlDoc, 'Consumo');
+    const consumo = consumoRaiz ? buscarTag(consumoRaiz, 'EnergiaPrimariaNoRenovable') : null;
     if (consumo) {
         // Hijo DIRECTO: dentro de <Consumo> no hay <EscalaGlobal>, pero se usa el
         // mismo criterio que abajo para no depender de esa suerte.
-        const g = hijosDirectos(consumo, 'global')[0] || buscar(consumo, 'Global');
+        const g = hijosDirectos(consumo, 'global')[0] || buscarTag(consumo, 'Global');
         const val = parseFloat((g?.textContent || '').replace(',', '.'));
         if (!isNaN(val) && val > 0) out.epnrConsumo = val;
     }
 
-    const calif = epnrDe('Calificacion');
-    if (calif) {
-        // La letra es hija DIRECTA (`<Global>E</Global>`). Con getElementsByTagName
-        // se cogería también el <Global> de dentro de <EscalaGlobal>, que es un
-        // número — de ahí que se recorran solo los hijos directos.
-        for (const h of hijosDirectos(calif, 'global')) {
-            const txt = (h.textContent || '').trim().toUpperCase();
-            if (/^[A-G]$/.test(txt)) { out.epnrLetra = txt; break; }
-        }
-        const escalaNode = buscar(calif, 'EscalaGlobal');
-        if (escalaNode) {
-            const escala = {};
-            for (const h of Array.from(escalaNode.childNodes)) {
-                if (h.nodeType !== 1) continue;
-                const letra = String(h.localName || '').trim().toUpperCase();
-                if (!/^[A-G]$/.test(letra)) continue;
-                const val = parseFloat((h.textContent || '').replace(',', '.'));
-                if (!isNaN(val)) escala[letra] = val;
-            }
-            if (Object.keys(escala).length) out.epnrEscala = escala;
-        }
-    }
+    const epnr = leerCalificacion(xmlDoc, 'EnergiaPrimariaNoRenovable');
+    out.epnrLetra = epnr.letra;
+    out.epnrEscala = epnr.escala;
+
+    const co2 = leerCalificacion(xmlDoc, 'EmisionesCO2');
+    out.emisionesLetra = co2.letra;
+    out.emisionesEscala = co2.escala;
+
     return out;
 }
 
@@ -538,8 +571,58 @@ export function parseEmisionesTotalesFromXml(xmlString) {
     };
 }
 
+/**
+ * Las dos LETRAS del certificado leídas del texto del .xml, SIN DOM.
+ *
+ * Existe porque `DOMParser` es del navegador y **en Node no está**: llamar allí a
+ * `parseEpnrFromXml` no da error, devuelve vacío en silencio (su try/catch se lo
+ * come), y el borrador de presentación —que compone el backend— saldría con las
+ * dos casillas del apartado 06 en blanco sin que nada lo delatara.
+ *
+ * Se limita a las dos letras a propósito: es lo único que el backend necesita
+ * releer de un certificado antiguo, y un recorrido de texto es defendible sobre
+ * un tramo tan acotado como `<Calificacion>` (ninguna de sus etiquetas se anida
+ * consigo misma). Todo lo demás sigue leyéndose con DOM.
+ *
+ * Case-insensitive: el XML guardado en BD pasa por el `normalizeData` del backend
+ * y llega entero en MAYÚSCULAS.
+ *
+ * `test_borrador_cee.mjs` comprueba que da exactamente lo mismo que la vía con DOM.
+ */
+export function leerCalificacionesDeTexto(xmlString) {
+    const vacio = { epnrLetra: null, emisionesLetra: null };
+    if (!xmlString || typeof xmlString !== 'string') return vacio;
+
+    // El bloque <Calificacion>: el PRIMERO, que es el del edificio objeto (las
+    // medidas de mejora traen los suyos detrás). Mismo criterio que la vía con
+    // DOM, donde getElementsByTagName devuelve en orden de documento.
+    const abre = xmlString.search(/<Calificacion[\s>]/i);
+    if (abre < 0) return vacio;
+    const cierra = xmlString.toLowerCase().indexOf('</calificacion>', abre);
+    const bloque = xmlString.slice(abre, cierra < 0 ? undefined : cierra);
+
+    const letraDe = (indicador) => {
+        const re = new RegExp(`<${indicador}[\\s>]([\\s\\S]*?)</${indicador}>`, 'i');
+        const m = bloque.match(re);
+        if (!m) return null;
+        // ⚠️ Solo <Global> DIRECTO: dentro de <EscalaGlobal> hay otro <Global> que
+        // es un número. Se exige por eso que el contenido sea una letra A-G.
+        const g = m[1].match(/<Global>\s*([A-G])\s*<\/Global>/i);
+        return g ? g[1].toUpperCase() : null;
+    };
+
+    return {
+        epnrLetra: letraDe('EnergiaPrimariaNoRenovable'),
+        emisionesLetra: letraDe('EmisionesCO2'),
+    };
+}
+
+/** ⚠️ Necesita `DOMParser`: en Node devuelve vacío. Ver `leerCalificacionesDeTexto`. */
 export function parseEpnrFromXml(xmlString) {
-    const vacio = { epnrConsumo: null, epnrLetra: null, epnrEscala: null, superficieHabitable: null };
+    const vacio = {
+        epnrConsumo: null, epnrLetra: null, epnrEscala: null,
+        emisionesLetra: null, emisionesEscala: null, superficieHabitable: null,
+    };
     try {
         const doc = parseTolerante(xmlString);
         if (!doc) return vacio;

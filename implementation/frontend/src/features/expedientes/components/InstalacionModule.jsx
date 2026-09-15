@@ -605,6 +605,11 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
     const acsPorConjunto = isAcs && !esTermo && !esAcumulador
         && esConjuntoAcs(calModel) && mismaMaquina(data, calData);
     const acsMetodoConjunto = acsPorConjunto ? metodoAcsDelModelo(calModel, zonaCE) : null;
+    // ¿El conjunto es un BIBLOC (dos aparatos, dos placas, dos nºs de serie) o un
+    // MONOBLOC (uno solo)? Lo dice que el equipo declare unidad interior. De ahí
+    // depende cómo se rotula su nº de serie: en un monobloc no hay «ud. interior»
+    // que nombrar, y el dato es el mismo de la exterior.
+    const esBibloc = !!(calData?.modelo_ud_interior || calModel?.modelo_ud_interior);
 
     // Deshacer el conjunto: el ACS lo hace OTRO equipo. Se vacía el nodo para
     // poder elegirlo — nunca se deja el del conjunto a medias, que sería declarar
@@ -953,12 +958,47 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                     <p className="text-[11px] text-white/60 leading-snug">
                         Lo calienta el mismo equipo de calefacción
                         (<span className="text-white/85 font-semibold">{[data?.marca, data?.modelo].filter(Boolean).join(' ') || 'sin identificar'}</span>),
-                        que trae el acumulador dentro. No hay un segundo equipo que declarar: el CIFO y el
-                        Anexo I lo imprimen una sola vez, con su mismo nº de serie.
+                        que trae el acumulador dentro. No hay un segundo modelo que elegir
+                        {esBibloc
+                            ? <>, pero sí un segundo APARATO: la unidad de dentro va atornillada en otro
+                                sitio y tiene su propia placa, así que el CIFO y el Anexo I declaran su
+                                nº de serie aparte del de la unidad exterior.</>
+                            : <> ni un segundo aparato: es un monobloc, así que su nº de serie es el
+                                mismo de la unidad exterior.</>}
                     </p>
                     <p className="text-[10px] text-white/40 leading-snug">
                         {acsMetodoConjunto?.motivo}
                     </p>
+                    {/* El nº de serie del aparato que de verdad calienta y acumula el
+                        agua. Estaba oculto —se daba por hecho que era el mismo que el
+                        de calefacción— y por eso el CIFO imprimía «—» justo en la
+                        fila que lo pide. Lo rellena el lector de placas desde
+                        `FOTO_UNIDAD_INTERIOR_PLACA`, que se pide precisamente para
+                        esto. */}
+                    <div>
+                        {/* ⚠️ El rótulo depende de si el equipo TIENE unidad interior.
+                            Medido sobre producción: de los 43 conjuntos con las dos
+                            series puestas, 16 de 18 biblocs las tienen DISTINTAS (dos
+                            aparatos, dos placas) y 18 de 25 monoblocs la MISMA (un solo
+                            aparato). Llamar «ud. interior» a la serie de un monobloc
+                            sería inventarle un aparato que no existe. */}
+                        <label className="block text-[10px] text-emerald-300/70 uppercase tracking-wider mb-1 font-bold">
+                            {esBibloc ? 'Nº de serie ud. interior' : 'Nº de serie del equipo'}
+                            <span className="text-white/25 normal-case tracking-normal">
+                                {esBibloc ? ' · la que hace el ACS, de su propia placa' : ' · monobloc: el mismo de la unidad exterior'}
+                            </span>
+                        </label>
+                        <input
+                            type="text"
+                            value={data?.numero_serie ?? ''}
+                            onChange={e => emit({ ...data, numero_serie: e.target.value.toUpperCase() })}
+                            readOnly={readOnly}
+                            placeholder="El de la pegatina del aparato de dentro"
+                            className={`w-full bg-bkg-elevated border rounded-lg px-3 py-2 text-white text-sm font-mono tracking-wide focus:outline-none ${
+                                readOnly ? 'border-white/5 text-white/60 cursor-not-allowed' : 'border-emerald-500/25 focus:border-emerald-500/50'
+                            }`}
+                        />
+                    </div>
                     {!readOnly && (
                         <button type="button"
                                 onClick={handleAcsOtroEquipo}
@@ -1091,6 +1131,11 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                             </div>
                         )}
                     </div>
+                    {/* ⚠️ El nº de serie de la UNIDAD INTERIOR no se pide aquí: su
+                        sitio es el bloque de ACS, porque en un conjunto ese aparato
+                        ES el que calienta y acumula el agua, y es el que el CIFO
+                        declara en «Nº serie equipo ACS». Aquí va el de la unidad
+                        EXTERIOR, que es el de la fila de calefacción. */}
                     {!data?.modelo_ud_exterior && (
                         <p className="text-[10px] text-amber-400/90 font-semibold">⚠ Este modelo no tiene referencia de unidad exterior en el catálogo. Escríbela a mano para que aparezca en el CIFO.</p>
                     )}

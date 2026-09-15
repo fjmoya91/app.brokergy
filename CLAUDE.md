@@ -3135,6 +3135,237 @@ caldera existente que en un RES093 se teclea para la base del Cb. Es el MISMO n�
 así que `instalacionExistente()` lo mira también — antes un expediente que ya lo tenía
 escrito volvía a pedirlo.
 
+
+---
+
+## Las TRES placas de la obra, de un botón (2026-09-15)
+
+Botón **✨ Leer placas** en la cabecera del módulo **Instalación**. Lee de una vez la
+placa de la **caldera que se retira** y las de la bomba de calor que se pone —**unidad
+exterior** y **unidad interior**— y rellena con ellas marca, modelo, nº de serie y
+potencia. Es el hermano mayor del lector de la placa de caldera (regla 27.d), que solo
+vive en la ventana de la envolvente y solo mira la caldera.
+
+Todo eso lleva meses en Drive: el instalador sube cada etiqueta a su slot y los tres
+están en `FULL_RES_SLOTS` **precisamente para que esos caracteres se lean**. El que más
+duele es el **nº de serie de la unidad exterior**, que va impreso en el CIFO, en el Anexo I
+y en la memoria RITE, y sin el cual no se tramita la ayuda. Medido el 15/09/2026 sobre
+producción: **56** expedientes tienen esa foto y **69** la de la caldera; de estos últimos,
+**29 no tienen ni la marca escrita**.
+
+| Qué | Dónde |
+|---|---|
+| Lectura de las placas del equipo nuevo + cruce con el catálogo | [placaEquipoOcrService.js](implementation/backend/services/placaEquipoOcrService.js) |
+| Lectura de la caldera (reutilizada tal cual) | [placaOcrService.js](implementation/backend/services/placaOcrService.js) |
+| Ruta | `POST /api/expedientes/:id/placas/ocr`, **staffOnly** |
+| Superficie | `LeerPlacasModal` + botón en el `headerAction` de Instalación |
+| Prueba de lo determinista | `node implementation/backend/scripts/test_placa_equipo.js` |
+| Contra un expediente real, sin escribir | `node implementation/backend/scripts/probar_placas.js 26RES080_66` |
+| Qué modelo leería mejor, y por cuánto | `node implementation/backend/scripts/comparar_modelos_ocr.js` |
+
+**REGLA — LA PLACA SE LEE SOLA.** Nada de fotos «de contexto» junto a la etiqueta.
+Medido sobre dos placas reales, tres vueltas por combinación y `temperature: 0`:
+
+|  | solo la placa | placa + foto del aparato |
+|---|---|---|
+| 26RES080_66 (DAIKIN, etiqueta nítida) | **3/3 ✓** | 0/3 ✗ — lee `1802773` |
+| 26RES080_64 (PANASONIC, en diagonal) | **3/3 ✓** | 0/3 ✗ — lee `5621802034` |
+
+Doce de doce con la placa sola; **cero de seis** en cuanto entra una segunda foto. Y
+falla en **UN DÍGITO en medio del número**, que es la peor forma de fallar: el resultado
+parece bueno y nadie lo contrasta. Tampoco es azar que se corrija repitiendo —sale igual
+las tres veces—, así que no vale leer dos veces y comparar. La foto del aparato entero
+solo se manda cuando NO hay foto de la placa, que es el único caso en que aporta algo
+(la marca).
+⚠️ Es de esperar el mismo efecto en `placaOcrService`, que sí manda hasta dos fotos de
+contexto **a propósito** (en una caldera antigua la marca suele estar solo en el frontal).
+Ahí el equilibrio es otro y no se ha tocado; lo que de aquel servicio se usa en este botón
+es sobre todo la POTENCIA, que va en la línea literal y sí sobrevive al contexto.
+
+**REGLA — UNA LECTURA POR UNIDAD.** La exterior y la interior son dos aparatos con dos
+placas y dos nºs de serie que se parecen mucho. Mandarlas juntas es pedirle al modelo que
+decida cuál es cuál, y confundirlas escribe en el CIFO el nº de serie del aparato que no
+es. No hace falta que lo decida: el SLOT del que sale cada foto ya lo dice. Una unidad sin
+fotos no se manda a leer.
+
+**REGLA — el nº de serie sale de su LÍNEA LITERAL, no del número aislado.** Es la misma
+regla que la potencia de la caldera: se le pide la línea entera con su rótulo
+(`serie_texto`) y el valor lo saca `serieDesdeTexto()`, determinista. Esa línea es además
+la EVIDENCIA que se enseña en el popup, para contrastar el número sin abrir la foto. Si
+las dos lecturas no concuerdan **se avisa y no se traga**.
+⚠️ **NO se corta por el primer espacio**: un nº de serie puede venir escrito por bloques y
+los espacios son suyos — la placa de 26RES080_79 pone `S/N:1KK018 038JAP D8D5BJF 0134`, y
+quedarse con `1KK018` deja el número a un cuarto. Ahí el código determinista era PEOR que
+el modelo, y por eso el criterio es *«¿está lo aislado dentro de la línea?»*, no
+*«¿es igual al primer bloque?»*.
+
+**REGLA — el EQUIPO lo decide el catálogo, no el modelo.** `casarConCatalogo()` compara
+códigos normalizados (solo letras y cifras) contra `modelo_ud_exterior`,
+`modelo_ud_interior`, `modelo_conjunto` y `modelo_comercial`. Casa exacto, y por prefijo
+solo cuando uno es el otro más un sufijo de ≤2 caracteres —el catálogo guarda la
+Panasonic como `WH-MDC07J3E5` y su placa dice `WH-MDC07J3E5-1`—.
+⚠️ Un código **puramente numérico no casa nunca por prefijo**: THERMOR referencia sus
+unidades exteriores con seis cifras (`526672`, `527038`), y ahí un prefijo emparejaría dos
+equipos distintos y podría morder un trozo de nº de serie.
+
+**REGLA — con VARIOS candidatos no se elige ninguno, pero se PREGUNTA.** Una misma unidad
+exterior se vende con varias interiores: medido, el DAIKIN `ERLA16DAV37` casa con **cinco**
+filas del catálogo. Primero se desempata con la OTRA unidad, que es justo lo que las
+distingue y lo tenemos leído de su propia placa (así se resolvió 26RES080_66, id 249); si
+aun así quedan varias, el popup los lista y se elige de un clic. Elegir por el usuario
+sería declarar el SCOP y adjuntar la ficha técnica de otra máquina; no ofrecerlos sería un
+callejón sin salida.
+
+**REGLA — el SCOP no se calcula aquí.** El servicio devuelve el `aerotermia_db_id` y el
+SCOP lo resuelven `getScopFromModel` / `getScopSeason` de `calculation.js`, importadas por
+ESM como ya hace `cifoService`. Son las MISMAS del desplegable, así que un equipo rellenado
+por la placa y otro elegido a mano no pueden dar números distintos. Solo se escribe si se
+ha podido resolver: un equipo con el id del catálogo y el SCOP del anterior es peor que uno
+sin id.
+
+**REGLA — se PROPONE, y al aplicar solo se rellenan HUECOS.** Lo escrito lo puso una
+persona con el aparato delante. Lo que difiere sale como CONFLICTO, con las dos versiones a
+la vista, y **no se toca**. Sustituir un equipo del catálogo ya elegido no es rellenar: esa
+casilla nace desmarcada y dice a quién sustituye.
+
+**REGLA — al aplicar se escribe lo REVISADO, no una lectura nueva.** El popup devuelve la
+lectura que el usuario ha tenido delante (`lectura` en el body). Releer costaría una segunda
+llamada y —lo grave— podría dar otro resultado, así que se escribiría algo que nadie ha
+visto. Mismo criterio que `overrides.cesion` en el Anexo I.
+
+**REGLA — ELEGIR UN CANDIDATO ES APLICARLO.** La casilla del equipo nace apagada justo
+cuando hay varios candidatos —porque entonces no hay ningún equipo propuesto que marcar—,
+así que la elección del usuario llegaba al servidor y se descartaba con ella. Medido en
+26RES060_167: eligió el id 238 y el expediente se guardó sin equipo. Un `equipo_id` que
+casa con uno de los candidatos ES la autorización; `aplicar_equipo` solo manda cuando no
+ha habido elección.
+
+**REGLA — UN CONJUNTO RESUELVE SU BLOQUE DE ACS ENTERO (regla 49), no a medias.** Si el
+equipo del catálogo trae el depósito dentro y el ACS entra en el alcance, se escribe el
+nodo con `nodoAcsDesdeConjunto()` —la MISMA función del desplegable de Instalación—: mismo
+modelo, mismo `aerotermia_db_id`, mismas referencias de placa, y **propio solo el SCOP_dhw**,
+que la misma bomba rinde mucho menos calentando agua a 55-60°.
+⚠️ **Y se propone aunque el equipo de calefacción YA conste**: ahí no hay nada que casar,
+pero el bloque de ACS puede seguir vacío —es como llega un expediente cuyo equipo se eligió
+a mano en su desplegable (26RES060_167)—, y «el equipo ya es ese» apagaba también el ACS.
+Por eso el equipo vigente es `catalogo.modelo?.id ?? aero.aerotermia_db_id`, y si el que
+consta está entre los candidatos la placa lo CONFIRMA: el aviso de «elige cuál es» se calla,
+porque un aviso que no se puede atender enseña a no leer los avisos.
+⚠️ **Rellenar no puede BORRAR**: `nodoAcsDesdeConjunto` copia el nodo de calefacción, así
+que sus huecos (aquí, el nº de serie que falta por no haber foto de la ud. exterior) no
+pueden vaciar lo que el nodo de ACS ya tuviera escrito.
+
+**REGLA — UN BIBLOC SON DOS APARATOS, y el de dentro tiene su propia serie.** Que el
+catálogo venda el conjunto como UNA fila no lo convierte en una sola máquina: la unidad
+exterior y la interior van atornilladas en sitios distintos, cada una con su placa y su nº
+de serie — por eso se piden las dos fotos. El de la interior va al **nodo de ACS**, y no
+por convención: en un conjunto ese aparato ES el que calienta y acumula el agua, y es el
+que el CIFO declara en **«Nº serie equipo ACS»** (`acsNuSerieEx`), una fila APARTE de «Nº
+serie unidad exterior». Medido en 26RES060_167: esa fila del CIFO salía **«—»** teniendo
+el dato leído en Drive, porque `nodoAcsDesdeConjunto` copia el nodo de calefacción —cuya
+serie es la de la exterior— y el campo estaba además OCULTO en pantalla bajo un texto que
+afirmaba «lo imprimen una sola vez, con su mismo nº de serie». En un bibloc eso es falso.
+✅ **VERIFICADO sobre los documentos**, no sobre el JSON: con la serie puesta, el CIFO
+imprime `Nº serie unidad exterior: EXT-111` y `Nº serie equipo ACS: 5601076`, y el Anexo I
+`Ud. exterior: EXT-111 | Ud. interior: 5601076`. Sin ella, el Anexo I ya pintaba ahí la
+raya de guiones bajos —o sea que el hueco se veía en el documento— y el CIFO, «—».
+⚠️ **En un MONOBLOC no se escribe**: hay un solo aparato y su serie es la de la unidad
+exterior. Medido sobre producción: de los 43 conjuntos con las dos series puestas, **16 de
+18 biblocs las tienen distintas** y **18 de 25 monoblocs la misma**, así que el patrón real
+ya era éste. El rótulo del campo también cambia según el caso (`esBibloc`).
+⚠️ **Series distintas en los dos nodos NO los convierten en dos máquinas**: `mismaMaquina()`
+compara por `aerotermia_db_id`, no por serie. Con el ACS fuera de alcance ese nodo no
+describe nada de la obra, y entonces sí se guarda como registro en
+`aerotermia_cal.numero_serie_ud_interior` (el nombre no es nuevo: una skill ya lo había
+escrito así en 3 expedientes, y no lo leía nadie).
+⚠️ **De quién es la placa lo dice el MODELO leído, no el slot**: si casa con la ud.
+interior del equipo, es la del conjunto y su serie va ahí; si es otro aparato —en
+26RES080_64 ese slot traía un termo ARISTON «NUOS PRIMO 200 HC A+»—, es el equipo de ACS y
+su serie es suya.
+
+⚠️ **PENDIENTE, preexistente y NO tocado**: en un MONOBLOC con la misma serie en los dos
+nodos (18 expedientes), el Anexo I imprime igualmente la línea `Ud. interior: <la misma>`.
+El propio código dice que repetirla ahí «le dice al verificador que hay dos equipos donde
+solo hay uno», pero solo lo evita para acumuladores (`acsEsAcumulador`), no para monoblocs.
+Cambiarlo altera un documento oficial ya emitido en esos expedientes, así que se deja
+anotado —y vigilado por `test_placa_acs_conjunto.mjs`— para decidirlo aparte.
+
+**REGLA — esa placa puede ser de OTRO aparato, y se distingue por el MODELO.**
+`aerotermia_cal.numero_serie` es el de la unidad EXTERIOR y solo ése: es lo que el CIFO y
+el Anexo I imprimen como «nº de serie ud. exterior», y meter ahí el del aparato de dentro
+sería declarar una máquina por otra. Pero el de la interior tampoco puede tirarse —medido
+en 26RES060_167: la placa estaba, se leyó «MFG.NO. : 5601076» y el dato se perdía—, y su
+sitio es el nodo de ACS, que describe el aparato de dentro cuando la actuación toca el
+agua caliente. Solo si el ACS está en alcance, el expediente YA lo declara aparte
+(`misma_aerotermia_acs === false`) y el equipo NO es un conjunto: con el flag activo ese
+nodo es un CLON que mantiene la app, y con un conjunto el nodo lo escribe entero la regla
+de arriba —escribir además campos sueltos lo dejaría con nº de serie y sin equipo, y un
+nodo sin firma hace que `mismaMaquina()` lea DOS máquinas donde hay una—.
+⚠️ **Se escribe el nº de serie y `modelo_ud_interior`, NUNCA la marca ni `modelo`.** Esos
+dos entran en la firma con la que `mismaMaquina()` decide si el ACS es una SEGUNDA
+máquina, y de ese veredicto cuelgan qué SCOP_dhw se declara y qué equipos imprime el CIFO.
+Rellenar un hueco no puede cambiar de paso lo que el expediente dice que hay instalado.
+
+**REGLA — si falta la placa de la UD. EXTERIOR se dice al leer, no al generar.** Es el dato
+que imprimen el CIFO, el Anexo I y la memoria RITE, así que su hueco necesita explicación
+ahí mismo: es donde se puede hacer algo —pedírsela al instalador—. Lo demás se rellena
+igual; que falte una placa no puede dejar sin rellenar las otras dos. Al generar el
+documento, `validateExpediente` ya lo reclama por su nombre («Número de Serie Ud.
+Exterior»), que es la red de abajo.
+
+⚠️ **La pantalla no se refresca sola si no se la obliga.** `InstalacionModule` guarda su
+propia copia del expediente y solo la resiembra cuando cambia el ID
+(`useEffect([expediente?.id])`), así que recargar el expediente tras escribir desde fuera
+NO bastaba: los huecos recién rellenados seguían en blanco y había que refrescar el
+navegador a mano. Se resuelve con `key={expediente?.instalacion?.placas_ocr?.at}` en el
+módulo — el sello solo cambia al aplicar una lectura, así que no interrumpe mientras se
+escribe.
+
+⚠️ **`placa_ocr` y `placas_ocr` están en la BLACKLIST de `normalizeData`.** Sus claves son
+técnicas (`caldera.marca`) y el popup las traduce buscándolas en un mapa: en MAYÚSCULAS
+(`CALDERA.MARCA`) dejaba de encontrarlas, y de paso convertía la línea literal de la placa
+—que es la EVIDENCIA— en algo que ya no es lo que pone la etiqueta. Mismo gotcha que
+`fotovoltaica` y `envolvente`.
+
+La huella queda en `instalacion.placas_ocr` —qué se leyó, de qué fotos, quién y cuándo
+(solo metadatos, regla 21)—, y ahí es además donde se guarda el **nº de serie de la unidad
+INTERIOR**: se lee, pero el expediente no tiene campo propio para él y no se inventa uno
+que ningún documento leería.
+
+### Lo que cuesta, medido (15/09/2026)
+
+Con `gemini-2.5-flash`, que es el que usan todos los lectores de la app:
+
+| | tokens entrada | salida | coste |
+|---|---|---|---|
+| Una placa | ~1.030 | ~120 | **0,0006 €** |
+| Un expediente entero (las tres placas) | ~3.560 | ~360 | **~0,002 €** · 5-7 s |
+
+**El cruce con el catálogo NO gasta ni un token**: es una consulta a Supabase y una
+comparación de cadenas. La parte «inteligente» que se temía cara es la barata.
+
+⚠️ **Lo que se compara entre modelos es el COSTE POR LECTURA, no el precio por token.**
+Medido sobre la misma foto: 445 tokens de entrada en 2.5-flash frente a **1.251** en
+todos los 3.x. Los modelos nuevos tokenizan la imagen con casi el triple de detalle, así
+que uno con precio unitario más bajo puede salir más caro leyendo placas — y en estas
+placas **aciertan todos**, así que hoy no hay ninguna razón para cambiar.
+
+| modelo | €/lectura | ¿acierta? |
+|---|---|---|
+| **gemini-2.5-flash** (el que se usa) | **0,00028** | ✓ |
+| gemini-3.1-flash-lite | 0,00040 | ✓ |
+| gemini-3.5-flash-lite | 0,00053 | ✓ |
+| gemini-3.6-flash | 0,00111 | ✓ |
+| gemini-3.8-flash | 0,00116 | ✓ |
+
+⚠️ **`gemini-2.5-flash-lite` ya responde 404** («no longer available to new users»,
+remitiendo a `gemini-3.5-flash-lite`), aunque la página oficial de deprecaciones siga
+diciendo que 2.5 no tiene fecha de retirada anunciada. El día que le toque a
+`gemini-2.5-flash` **solo hay que cambiar `GEMINI_MODEL`** —la variable ya existe y la leen
+los seis lectores—, y el relevo se decide con `comparar_modelos_ocr.js`, no de oídas.
+⚠️ `gemini-3.5-flash-lite` **no admite `thinkingBudget: 0`** (responde 400): si algún día
+se migra a él, hay que quitar ese `thinkingConfig`.
+
 ---
 
 ## Quién EJECUTA la obra y quién FIRMA ante Industria (2026-08-26)
@@ -7155,6 +7386,119 @@ cuanto el popup rellene el η_wh de alguno de los 27, que es justo para lo que e
 
 ---
 
+## PRESENTAR el CEE en el Registro — el borrador (2026-09-15)
+
+Inscribir un certificado es rellenar un formulario telemático con datos que la app YA
+tiene: el titular, la vivienda, el técnico y las dos calificaciones del propio
+certificado. Se tecleaban a mano mirando tres pantallas, y una errata en la referencia
+catastral o en el NIF no se descubre hasta que el Registro devuelve el expediente.
+
+Botón **📄 Presentar el CEE**, dentro de **Ayudas CE3X**: un popup con cada casilla lista
+para copiar, y un PDF descargable que además **viaja adjunto en el visto bueno** que le
+dice al certificador que ya puede presentar.
+
+| Qué | Dónde |
+|---|---|
+| Qué va en cada casilla, las X y los avisos | [logic/borradorCee.js](implementation/frontend/src/features/expedientes/logic/borradorCee.js) |
+| Reunir cliente + técnico + certificado, y el PDF | [borradorCeeService.js](implementation/backend/services/borradorCeeService.js) |
+| Ruta | `GET /:id/borrador-cee?fase=` (**staffOnly**), en las DOS rutas del módulo CEE |
+| Popup | `BorradorCeeModal.jsx`, abierto desde `Ce3xAyudasModal` |
+| Adjunto | `POST /:id/approve-cee` con `adjuntarBorrador` (por defecto **sí**), en CAE y en CEE directos |
+| Prueba | `node implementation/backend/scripts/test_borrador_cee.mjs` |
+
+**REGLA — NO es una réplica del impreso: es una GUÍA DE RELLENO.** El trámite es
+telemático y no hay PDF que rellenar (a diferencia de las fichas RES, regla 41). Lo que
+se genera dice qué va en cada casilla, en el orden en que el formulario las pide, **qué X
+hay que marcar y cuál dejar sin marcar** — que es justo donde uno se equivoca. Los
+apartados 03 (medio de notificación) y el de protección de datos no salen: los
+cumplimenta la propia sede.
+
+**REGLA — solo CASTILLA-LA MANCHA.** El formulario replicado es el procedimiento
+**020264 (SIACI SJM3)** de la JCCM, y cada comunidad tiene el suyo, con otros apartados y
+otras casillas. Fuera de CLM **no se genera**: se dice de qué comunidad es el expediente
+y que no hay plantilla para ese registro. Un borrador con los apartados de CLM en un
+expediente de Valencia manda a rellenar un formulario que no es el suyo. La comunidad
+sale de la provincia del edificio, con el **código postal** como respaldo.
+
+**REGLA — en el apartado 05 manda lo que dice el PROPIO CERTIFICADO.**
+`cee_{fase}.identificacion` trae la dirección del edificio tal y como se va a inscribir,
+y es contra ella contra la que el Registro compara; solo si el certificado no la trae se
+cae al expediente y después a la simulación. Medido en 26RES060_186: `instalacion` está
+VACÍA y la dirección buena solo estaba en el `.xml`.
+
+**REGLA — el troceo de la vía se PROPONE, y el original va al lado.** El formulario pide
+el tipo de vía, el nombre, el número, el portal, la escalera, la planta y la puerta por
+separado, y la app guarda una cadena ("C/ DON SERGIO, 12 - 1ºE"). `trocearVia` solo
+traduce una sigla que esté en su tabla, y **lo que no puede repartir con seguridad —un
+"5-B-3"— lo deja entero con su aviso** en vez de adivinar planta y puerta. La dirección
+guardada se imprime siempre debajo, para poder comprobarlo.
+
+**REGLA — el plazo de UN MES se avisa.** Es lo único de esta hoja que cuesta dinero:
+pasado el mes desde la emisión hay que volver a emitir el certificado, con su visita y su
+tasa. Se avisa al pasarse y cuando quedan 7 días o menos; dentro de plazo no se dice nada.
+
+**REGLA — la casilla vacía no desaparece, pero tampoco ocupa una fila.** En el formulario
+portal, escalera, planta y puerta EXISTEN y saber que van en blanco es lo que se
+comprueba; cuatro tarjetas diciendo "no consta" son cuatro pantallazos de scroll entre el
+número de la calle y la provincia. Se colapsan en una línea ("En blanco: Portal ·
+Escalera · Planta · Puerta") y en el PDF van en una fila, como en el impreso. Solo se
+colapsa ESE grupo: un tipo de vía o una provincia en blanco sí son algo que falta —hay que
+elegirlos en el desplegable— y esconderlos en gris sería cambiar espacio por despistes.
+El popup va además a **DOS COLUMNAS** (una en móvil), y lo que no cabe en media fila —un
+párrafo, o un campo con nota— ocupa la fila entera.
+
+**REGLA — los documentos anexados NO se copian: se DESCARGAN.** Un botón de copiar sobre
+el nombre de un fichero invita a pegarlo en algún sitio, y lo que hace falta es el
+fichero. Si está en la carpeta del CEE se baja de un clic **ya renombrado** con el NIF
+delante (`GET /:id/borrador-cee/fichero?fase=&doc=`, que se pide por CLAVE de documento y
+nunca por driveId, así que no sirve para bajar el fichero de otro expediente). Lo que no
+está se dice en ámbar: es lo que hay que resolver antes de entrar en la sede.
+
+**REGLA — el nombre de descarga es el del fichero que HAY en Drive con el NIF delante,
+no uno compuesto.** Medido en 26RES060_187: sus ficheros se llaman
+`26RES060_187 - CEE INICIAL_REVISADO.xml` —con `_REVISADO` y con guion normal, no el
+largo del nombre canónico—, así que un nombre compuesto por nosotros no habría coincidido
+con ninguno. Solo cuando el fichero no está se enseña el esperado, como referencia.
+
+**REGLA — el teléfono y el correo del solicitante caen a su PERSONA DE CONTACTO.** El
+formulario los EXIGE y muchos titulares no dan los suyos: quien lleva la obra es un hijo,
+la pareja o el instalador, y es SU número el que consta (medido en 26RES060_187: la
+titular los tiene los dos en blanco y JUAN ANTONIO, su contacto, los dos rellenos). Sale
+dicho con su nombre —no es lo mismo el correo de quien firma que el de quien lleva la
+obra— y si no hay ninguno de los dos, se avisa. La cascada es fuente única en
+[utils/contactoCliente.js](implementation/frontend/src/utils/contactoCliente.js), que
+comparte con la ficha del `.cex` (regla 48.c): vivía dentro de `fichaCe3x.js` y se sacó al
+necesitarla la segunda pantalla, porque con dos copias el mismo cliente aparecería
+localizable en una y sin datos en la otra.
+
+**REGLA — el borrador es del equipo interno; al certificador le llega ADJUNTO.** La ruta
+es `staffOnly` y el botón no se le pinta (`permiteBorrador`): el visto bueno es el momento
+en que puede presentar, y mandárselo antes sería pedirle que presente un certificado que
+todavía no hemos revisado. Un fallo del adjunto **nunca tumba el visto bueno**.
+
+### La calificación de EMISIONES no se guardaba
+
+El apartado 06 pide las DOS letras del certificado y `parseCeeXml` solo leía la del
+consumo de energía primaria (`epnrLetra`). Ahora lee también `emisionesLetra`
+(`<Calificacion><EmisionesCO2><Global>`), con el mismo cuidado que aquella: **ese nombre
+aparece también FUERA de `<Calificacion>`**, donde `<Global>462.85</Global>` son
+kgCO2/año, así que se acota por el padre y se exige que el texto sea una letra A-G.
+
+⚠️ Los certificados subidos ANTES de hoy no la tienen en su objeto parseado, pero su
+`.xml` crudo sigue en `cee.xml_*`. `borradorCeeService` la relee de ahí con
+**`leerCalificacionesDeTexto`**, un lector SIN DOM: `DOMParser` es del navegador y **en
+Node no existe**, así que `parseEpnrFromXml` allí devuelve vacío en silencio (su
+try/catch se lo come) y el apartado 06 habría salido en blanco en todos los expedientes
+sin que nada lo delatara. Comprobado sobre el `.xml` real de 26RES060_186: las dos vías
+dan lo mismo.
+
+**Verificado campo a campo contra el acuse REAL** de 26RES060_186
+(`plantillas/BORRADOR PRESENTAR CEE.pdf`): NIF, nombre, sexo, vía troceada, provincia,
+población, CP, teléfono, e-mail, uso del edificio, referencia catastral, las dos fechas y
+las dos calificaciones coinciden con lo que el técnico tecleó en la sede.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -7214,6 +7558,8 @@ cuanto el popup rellene el η_wh de alguno de los 27, que es justo para lo que e
 27.c **La FECHA DE REGISTRO del CEE se LEE del justificante, no es el día de la subida**: la trae impresa en su primera página («…número de registro 3014080/2025 solicitado el 19/07/2025…») y de ella cuelgan el plazo de la obra, el devengo del certificador y el cruce con las facturas. La leen las CUATRO superficies que la sellan (rejilla y enlace público, en CAE y en CEE directos) y se puede releer la de un justificante ya subido con el botón ⟳ (`POST /:id/cee/fecha-registro/leer`, declarada en las dos rutas del módulo CEE). El modelo solo LEE: se le pide la FRASE literal y el código reextrae de ella la fecha (`fechaDesdeFrase`), que es además la evidencia que se le enseña al usuario. Una lectura fallida no tira la subida: se cae a la fecha de hoy **y se dice**. Fuente única: [registroCeeOcrService.js](implementation/backend/services/registroCeeOcrService.js). Lo ya sellado mal se corrige con `scripts/releer_fechas_registro_cee.js`. Ver "La FECHA DE REGISTRO del CEE se LEE del justificante".
 
 27.d **La PLACA de la caldera se LEE con IA, y una placa POLICOMBUSTIBLE no tiene UNA potencia**: de ella salen marca, modelo, nº de serie y la POTENCIA, que no está en ningún campo del expediente y sin la cual la instalación existente no se escribe en el `.cex`. Las fotos van como FOTOS (no por `normalizeToPdf`): una placa es un primer plano y el número vive en unos pocos píxeles — es la razón de que su slot esté en `FULL_RES_SLOTS`. Se leen también un par de la caldera entera, porque la MARCA está en el frontal y no en la etiqueta. El modelo TRANSCRIBE todas las potencias con su rótulo y la línea literal; cuál vale lo decide `elegirPotencia()`: útil (`Pn`) sobre consumo (`Qn`), de un rango el máximo, y en una placa policombustible **la del combustible que declara el expediente** — la ROCA P-30-4 de 26RES060_186 pone «Sólido 15,3 · Líquido 23,3 · Gas 23,3» y coger la mayor declara una caldera un 52 % más potente que la real. Sin combustible declarado no se elige ninguna. Se PROPONE y solo se rellenan HUECOS (el `0` de `potencia_caldera` no es un valor puesto); el COMBUSTIBLE leído nunca se escribe, porque de él cuelga la propuesta ya firmada. Fuente única: [placaOcrService.js](implementation/backend/services/placaOcrService.js). Tras tocarlo: `node implementation/backend/scripts/test_placa_ocr.js`. Ver "La PLACA de la caldera se lee con IA".
+
+27.e **Las TRES placas de la obra se leen de un botón, y la placa se lee SOLA**: el botón **Leer placas** de la cabecera de Instalación lee la de la caldera que se retira y las de la bomba de calor (ud. exterior y ud. interior) y rellena marca, modelo, nº de serie y potencia — el nº de serie de la ud. exterior va impreso en el CIFO, en el Anexo I y en la memoria RITE. **NADA de fotos de contexto junto a la etiqueta**: medido sobre dos placas reales (3 vueltas, `temperature: 0`), con la placa sola **12/12 aciertos** y con una segunda foto al lado **0/6**, fallando en UN DÍGITO en medio del número y siempre el mismo — así que ni se nota ni se corrige repitiendo. **Una lectura POR UNIDAD** (el slot ya dice de qué aparato es cada foto: mezclarlas escribe en el CIFO el nº de serie del otro aparato), y el nº de serie sale de su **LÍNEA LITERAL** como la potencia — ⚠️ sin cortar por el primer espacio, que los hay escritos por bloques (`S/N:1KK018 038JAP D8D5BJF 0134`). El **EQUIPO lo decide el catálogo** (`casarConCatalogo`, códigos normalizados; un código numérico como los de THERMOR nunca casa por prefijo), con **varios candidatos se desempata por la OTRA unidad** y, si aun así quedan varios, **se pregunta**: elegir por el usuario es declarar el SCOP de otra máquina. El **SCOP no se calcula aquí** — lo resuelven `getScopFromModel`/`getScopSeason` por ESM, las mismas del desplegable. Se PROPONE, solo se rellenan huecos, y al aplicar se escribe **lo revisado**, no una lectura nueva. Coste medido: **~0,002 € por expediente** (las tres placas), y el cruce con el catálogo **no gasta ni un token**. Fuente única: [placaEquipoOcrService.js](implementation/backend/services/placaEquipoOcrService.js). Tras tocarlo: `node implementation/backend/scripts/test_placa_equipo.js` y `test_placa_acs_conjunto.mjs` (que comprueba qué acaba imprimiendo el CIFO). Ver "Las TRES placas de la obra, de un botón".
 
 27. **Al instalador se le pide TODO de una vez, y un CIFO firmado NO cierra la tarea para siempre**: al enviar el CIFO o la documentación RITE, la app comprueba si el otro también falta y ofrece mandarlo en el MISMO mensaje, con UN enlace (`/instalador/:id`). Reenviarle el CIFO teniendo ya uno firmado (requerimiento) **anula esa firma** (`cert_cifo_refirma_at`), o el enlace de ese mismo correo le dice "todo recibido" y no le deja firmar; la cierran la subida pública y `mergeDocumentacion`, que además sella `cert_cifo_signed_at` y **no deja retroceder `_drive_at`**. Fuente única de qué falta y de los textos: [logic/instaladorPendientes.js](implementation/frontend/src/features/expedientes/logic/instaladorPendientes.js); del envío, `POST /api/expedientes/:id/instalador/enviar`. `cert_rite_drive_link` significa CERTIFICADO RITE aportado — la Memoria que generamos nosotros vive en `memoria_rite_docx_link`. Ver "Al instalador se le pide TODO de una vez".
 
@@ -7290,6 +7636,8 @@ cuanto el popup rellene el η_wh de alguno de los 27, que es justo para lo que e
 49. **Un CONJUNTO (equipo con el depósito de ACS dentro) rellena el bloque de ACS solo, y hereda el equipo pero NUNCA el SCOP**: `deposito_acs_incluido` dice "lleva depósito" y los datos (`scop_dhw_*`, `eta_acs_*`, `cop_a7_55`) dicen "produce ACS" — no son lo mismo (79 equipos dan ACS sin depósito integrado; 27 llevan depósito sin ningún dato). El SCOP_dhw sale de la FICHA si la trae y si no del Anexo IV; el **Anexo VI solo aplica a depósitos NO suministrados en conjunto**. Con `misma_aerotermia_acs` en true el nodo de ACS es un CLON y se declaraba el SCOP de CALEFACCIÓN como SCOP_dhw: el autorrelleno deja los dos nodos con el mismo modelo y la misma serie, el flag en **false** y el SCOP propio. Por eso **dos nodos no son dos máquinas** y las validaciones de serie preguntan por `acsEsOtraMaquina`, no por el flag. El desplegable de ACS solo ofrece lo que puede justificar un SCOP_dhw —sin ese filtro `getScopAcsFromModel` cae a un **3,0 inventado**— pero **lo ya guardado no se esconde nunca**. Lo que falte se arregla en el CATÁLOGO con el popup del η_wh del EPREL, que además **anexa su PDF a la ficha técnica del modelo**. Fuente única: [logic/acsCatalogo.js](implementation/frontend/src/features/expedientes/logic/acsCatalogo.js). Tras tocarlo: `node implementation/backend/scripts/test_acs_conjunto.mjs`. Ver "Un CONJUNTO resuelve el ACS solo".
 
 51. **Las TARIFAS del verificador viven en SU ficha, y son ORIENTATIVAS**: una tabla por tramos (nº de actuaciones → importe) con escalón, en `app_settings` como `tarifas_verificacion:{id}` (mismo patrón que las del certificador), editable desde el bloque **Tarifas de verificación** de la ficha del VERIFICADOR — en la VISTA, porque es un dato que se consulta antes de mandar un lote, y **adminOnly** en las dos capas. No contabiliza nada: lo que se paga sigue siendo `lotes.coste_verificacion` (de su factura, regla 28) y lo que se repercute al S.O., `inputs.costeVerificacion` (regla 46). **La columna que se compara es el €/ACTUACIÓN**: un total no dice nada sin saber cuántas cubre, y el escalón es por ENVÍO (un lote son 5 como máximo, pero se mandan varios juntos). Entre tramos se INTERPOLA; por encima del último se prolonga con el precio **marginal** del último intervalo —nunca con su media— y sale marcado `fueraDeTabla` con su aviso, porque es una conjetura nuestra. **Con varias tarifas no se adivina cuál aplica, y la cobertura por ficha se comprueba también con UNA sola**: una tarifa que declara las cuatro fichas de lote está diciendo que no cubre un TER173. Fuente única: [logic/tarifasVerificacion.js](implementation/frontend/src/features/lotes/logic/tarifasVerificacion.js). Tras tocarlo: `node implementation/backend/scripts/test_tarifas_verificacion.mjs`. Ver "Las TARIFAS del verificador, en su ficha".
+
+52. **El BORRADOR para presentar el CEE en el Registro**: botón **📄 Presentar el CEE** dentro de Ayudas CE3X — un popup con cada casilla del formulario telemático lista para copiar, más un PDF descargable que **viaja adjunto en el visto bueno** al certificador (`adjuntarBorrador`, por defecto sí, en el CAE y en los CEE directos). **NO es una réplica del impreso**: el trámite se rellena en la sede y no hay PDF que rellenar (a diferencia de las fichas RES, regla 41), así que lo que se genera es una GUÍA de qué va en cada casilla, en su orden, y **qué X marcar y cuál dejar sin marcar**. **Solo CASTILLA-LA MANCHA** (procedimiento 020264 · SIACI SJM3): fuera de ahí no se genera y se dice de qué comunidad es — cada una tiene su trámite y sus casillas. En el apartado 05 manda **lo que dice el propio certificado** (`cee_{fase}.identificacion`), que es contra lo que compara el Registro; el troceo de la vía se PROPONE con el original al lado y **lo ambiguo no se reparte a ojo**; y se avisa del **plazo de UN MES** desde la emisión, que es lo único que cuesta dinero. Los documentos anexados NO se copian: se DESCARGAN ya renombrados (`GET /:id/borrador-cee/fichero`), con el nombre REAL que tienen en Drive y el NIF delante — uno compuesto no coincidiría (medido en 26RES060_187: sus ficheros llevan `_REVISADO`). El teléfono y el correo del solicitante caen a su **persona de contacto** si el titular no los tiene, diciéndolo con su nombre ([utils/contactoCliente.js](implementation/frontend/src/utils/contactoCliente.js), compartido con la ficha del `.cex`). Es `staffOnly`: al técnico le llega adjunto, que es cuando puede presentar. ⚠️ `parseCeeXml` no leía la calificación de **EMISIONES** (solo la de energía primaria) y los certificados ya subidos no la tienen: se relee del `.xml` crudo con **`leerCalificacionesDeTexto`**, un lector SIN DOM — `DOMParser` no existe en Node y `parseEpnrFromXml` allí devuelve vacío **en silencio**. Fuente única: [logic/borradorCee.js](implementation/frontend/src/features/expedientes/logic/borradorCee.js). Tras tocarlo: `node implementation/backend/scripts/test_borrador_cee.mjs`. Ver "PRESENTAR el CEE en el Registro".
 
 ---
 

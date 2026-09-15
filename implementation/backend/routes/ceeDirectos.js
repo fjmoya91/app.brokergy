@@ -916,9 +916,25 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
             + `${carpetaLink ? `📁 Descargar los archivos:\n${carpetaLink}\n\n` : ''}`
             + `⬆️ Subir el CEE registrado (etiqueta + justificante):\n${subirLink}`;
 
-        const attachments = req.body?.attachFiles === true
+        let attachments = req.body?.attachFiles === true
             ? await uploads.getSectionAttachments(row, phase)
             : undefined;
+
+        // El borrador de presentación, igual que en el CAE: el visto bueno es el
+        // momento en que el técnico puede presentar. No depende de `attachFiles`
+        // (no sale de Drive) y un fallo suyo NUNCA tumba el aviso.
+        if (req.body?.adjuntarBorrador !== false && canales.includes('email')) {
+            try {
+                const borradorCeeService = require('../services/borradorCeeService');
+                const doc = await borradorCeeService.pdf('cee_directo', row.id, phase);
+                if (doc) {
+                    attachments = [...(attachments || []),
+                        { filename: doc.filename, content: doc.buffer, contentType: 'application/pdf' }];
+                }
+            } catch (bErr) {
+                console.warn('[cee-directos approve-cee] sin borrador de presentación:', bErr.message);
+            }
+        }
 
         const { enviados, errores } = await enviar({
             canales, email: cert.email, telefono: telefonoDe(cert),
@@ -1097,6 +1113,40 @@ router.post('/:id/notify-registration', internalOnly, async (req, res) => {
 // ════════════════════════════════════════════════════════════════════════════
 // DOCUMENTOS
 // ════════════════════════════════════════════════════════════════════════════
+
+// ─── GET /:id/borrador-cee ──────────────────────────────────────────────────
+// Gemela de la del CAE (misma regla: el módulo CEE es el MISMO componente). Un
+// CEE directo también se inscribe en el Registro, y con el mismo formulario.
+router.get('/:id/borrador-cee', staffOnly, async (req, res) => {
+    try {
+        const borradorCeeService = require('../services/borradorCeeService');
+        const fase = req.query.fase === 'final' ? 'final' : 'inicial';
+        const out = await borradorCeeService.componer('cee_directo', req.params.id, fase);
+        res.json(out);
+    } catch (err) {
+        console.error('[borrador-cee]', err.message);
+        res.status(err.status || 500).json({ error: err.status === 404 ? err.message : 'Error componiendo el borrador' });
+    }
+});
+
+// ─── GET /:id/borrador-cee/fichero ──────────────────────────────────────────
+// Gemela de la del CAE. Ver allí el porqué de pedir por CLAVE de documento.
+router.get('/:id/borrador-cee/fichero', staffOnly, async (req, res) => {
+    try {
+        const borradorCeeService = require('../services/borradorCeeService');
+        const fase = req.query.fase === 'final' ? 'final' : 'inicial';
+        const { buffer, filename, mimeType } =
+            await borradorCeeService.fichero('cee_directo', req.params.id, fase, req.query.doc);
+        res.setHeader('Content-Type', mimeType || 'application/octet-stream');
+        res.setHeader('Content-Disposition',
+            `attachment; filename="${filename.replace(/[^\x20-\x7E]/g, '_')}"; `
+            + `filename*=UTF-8''${encodeURIComponent(filename)}`);
+        res.send(buffer);
+    } catch (err) {
+        console.error('[borrador-cee/fichero]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'Error descargando el fichero' });
+    }
+});
 
 // ─── POST /:id/cee/fecha-registro/leer ──────────────────────────────────────
 // Gemela de la del CAE: el módulo CEE es el MISMO componente y llama a

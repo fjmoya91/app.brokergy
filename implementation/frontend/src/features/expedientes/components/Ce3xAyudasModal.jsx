@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { buildCe3xTextos } from '../logic/ce3xTextos';
 import { getUnidades } from '../logic/aerotermiaUnits';
+import { BorradorCeeModal } from './BorradorCeeModal';
 
 // ─── Ayudas CE3X ─────────────────────────────────────────────────────────────
 // La caja de herramientas del certificador: lo que hay que teclear a mano en
@@ -15,11 +16,16 @@ import { getUnidades } from '../logic/aerotermiaUnits';
 //
 // REGLA — con VARIAS casillas no hay "copiar todo". En CE3X son cuadros
 // distintos y un bloque único habría que recortarlo a mano una vez por casilla.
-export function Ce3xAyudasModal({ isOpen, onClose, expediente }) {
+// `fasesCee` son las fases del certificado que existen en este expediente
+// ('inicial' y/o 'final'); no confundir con las `secciones` de más abajo, que son
+// las chuletas de esta caja de herramientas.
+export function Ce3xAyudasModal({ isOpen, onClose, expediente, apiBase = '/api/expedientes',
+                                  fasesCee = ['inicial', 'final'], permiteBorrador = true }) {
     const [abierta, setAbierta] = useState(null);
     const [copiado, setCopiado] = useState(null);
     const [modelos, setModelos] = useState({});
     const [cargando, setCargando] = useState(false);
+    const [borrador, setBorrador] = useState(false);
 
     // El SEER y las potencias del equipo están en el CATÁLOGO, no en el
     // expediente: se traen al abrir (y solo al abrir), igual que en el popup
@@ -89,6 +95,30 @@ export function Ce3xAyudasModal({ isOpen, onClose, expediente }) {
 
                 {/* Herramientas */}
                 <div className="flex-1 overflow-y-auto p-4 max-md:pb-[max(1rem,env(safe-area-inset-bottom))] space-y-2.5">
+                    {/* Presentar el certificado en el Registro. Va PRIMERO y como
+                        acción, no como una sección plegable más: no es un texto
+                        que copiar en CE3X, es el paso siguiente al certificado ya
+                        hecho, y quien entra a presentarlo no puede tener que
+                        recorrer seis chuletas para encontrarlo. */}
+                    {permiteBorrador && (
+                        <button
+                            type="button"
+                            onClick={() => setBorrador(true)}
+                            className="w-full flex items-center gap-3 px-4 py-3 max-md:py-3.5 rounded-xl border border-brand/30 bg-brand/[0.06] hover:bg-brand/[0.12] hover:border-brand/60 transition-colors text-left"
+                        >
+                            <span className="text-base shrink-0">📄</span>
+                            <span className="min-w-0 flex-1">
+                                <span className="block text-[11px] font-black text-brand uppercase tracking-widest">Presentar el CEE</span>
+                                <span className="block text-[10px] text-white/40 normal-case mt-0.5 leading-snug">
+                                    Borrador con lo que va en cada casilla del formulario del Registro. Se copia y se descarga en PDF.
+                                </span>
+                            </span>
+                            <svg className="w-4 h-4 text-white/25 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                        </button>
+                    )}
+
                     {cargando && (
                         <p className="text-[10px] text-white/40 normal-case">Cargando las fichas del catálogo (SCOP, SEER)…</p>
                     )}
@@ -192,6 +222,20 @@ export function Ce3xAyudasModal({ isOpen, onClose, expediente }) {
                         );
                     })}
                 </div>
+            </div>
+
+            {/* Hermano, no hijo: su velo es `fixed` y montado dentro de esta
+                tarjeta se anclaría a ella por el backdrop-filter del fondo
+                (mismo motivo que SendActionOverlay). Y el onClick se detiene
+                aquí para que cerrarlo no cierre además Ayudas CE3X. */}
+            <div onClick={e => e.stopPropagation()}>
+                <BorradorCeeModal
+                    isOpen={borrador}
+                    onClose={() => setBorrador(false)}
+                    expedienteId={expediente?.id}
+                    apiBase={apiBase}
+                    fases={fasesCee}
+                />
             </div>
         </div>
     );

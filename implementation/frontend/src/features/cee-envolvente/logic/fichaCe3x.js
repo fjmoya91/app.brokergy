@@ -6,6 +6,7 @@ import { PRUEBAS_CERTIFICADOR, OTROS_DATOS_MEDIDA, MEDIDA_AUTOCONSUMO,
 import { normalizarFotovoltaica } from '../../expedientes/logic/fotovoltaica.js';
 import { EQUIPO_NUEVO, RENDIMIENTO_JOULE }
     from '../../expedientes/logic/aerotermiaUnits.js';
+import { contactoCliente, deQuienEs } from '../../../utils/contactoCliente.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // La ficha del certificador: lo que el `.cex` necesita ALREDEDOR de la
@@ -1405,28 +1406,19 @@ function refCatastral(geo, expediente) {
 }
 
 /**
- * El teléfono y el correo del titular, con su PERSONA DE CONTACTO de respaldo.
+ * El teléfono y el correo del titular, con su PERSONA DE CONTACTO de respaldo,
+ * envueltos en la procedencia que esta ficha enseña.
  *
- * Muchos titulares no dan los suyos: quien lleva la obra es un hijo, la pareja
- * o el instalador, y es SU número el que está en la ficha —marcado «Notif.
- * aquí»— y por el que de verdad se le localiza. Preguntando solo por `tlf` y
- * `email`, la ficha decía «no consta» de un cliente que tenía los dos datos
- * escritos dos líneas más abajo (medido en 26RES060_187: los de JUAN ANTONIO).
- *
- * El del TITULAR manda cuando existe —en el certificado el cliente es él— y
- * cuando sale del contacto SE DICE con su nombre: no es lo mismo el correo de
- * quien firma que el de quien lleva la obra, y esa distinción es justo lo que
- * el certificador está comprobando en esta pantalla.
+ * La cascada vive en `utils/contactoCliente.js`: la comparte con el borrador
+ * para presentar el CEE, y con dos copias el mismo cliente aparecería
+ * localizable en una pantalla y sin datos en la otra.
  */
 function contactoDelCliente(c) {
-    const quien = (c?.persona_contacto_nombre || '').trim();
-    const de = `persona de contacto${quien ? ` (${quien})` : ''} de la ficha del cliente`;
-    const cae = (propio, respaldo) => (propio || !respaldo
-        ? dato(propio || null, 'ficha del cliente')
-        : dato(respaldo, de));
+    const k = contactoCliente(c);
+    const de = deQuienEs(k.nombreContacto);
     return {
-        telefono: cae(c?.tlf, c?.persona_contacto_tlf),
-        email: cae(c?.email, c?.persona_contacto_email),
+        telefono: dato(k.telefono, k.telefonoDeContacto ? de : 'ficha del cliente'),
+        email: dato(k.email, k.emailDeContacto ? de : 'ficha del cliente'),
     };
 }
 
