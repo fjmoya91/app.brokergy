@@ -5,6 +5,7 @@ import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { CertificadorResumenModal } from './CertificadorResumenModal';
 import TarifasVerificacionPanel from './TarifasVerificacionPanel';
+import { nombrePartner } from '../../../utils/tiposEmpresa';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 // Iniciales para el avatar cuando la empresa no tiene logo. Dos letras (las de
@@ -715,6 +716,12 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
         colegio_profesional: '',
         numero_colegiado: '',
         registro_tecnico_competente: '',
+        // La EMPRESA en la que ejerce, cuando ejerce en una. En un certificador
+        // `razon_social` es el nombre de QUIEN FIRMA (así están 6 de los 7), y
+        // un mismo campo no puede significar dos cosas: el .cex pide las dos a
+        // la vez —«Nombre y Apellidos» + NIF, y «Razón social» + CIF—.
+        empresa_razon_social: '',
+        empresa_cif: '',
         // Landing white-label de captación de leads (/p/<slug>)
         landing_slug: '',
         landing_activa: false,
@@ -931,6 +938,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 colegio_profesional:          p.colegio_profesional || '',
                 numero_colegiado:             p.numero_colegiado || '',
                 registro_tecnico_competente:  p.registro_tecnico_competente || '',
+                empresa_razon_social:         p.empresa_razon_social || '',
+                empresa_cif:                  p.empresa_cif || '',
                 instalador_rite_id:           p.instalador_rite_id || '',
                 landing_slug:                 p.landing_slug || '',
                 landing_activa:               p.landing_activa || false,
@@ -1156,6 +1165,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 colegio_profesional:         form.colegio_profesional.trim() || null,
                 numero_colegiado:            form.numero_colegiado.trim() || null,
                 registro_tecnico_competente: form.registro_tecnico_competente.trim() || null,
+                empresa_razon_social:        form.empresa_razon_social.trim() || null,
+                empresa_cif:                 form.empresa_cif.trim().toUpperCase() || null,
 
                 // Landing white-label — branding editable por el propio partner.
                 landing_color_primary:        form.landing_color_primary.trim() || null,
@@ -1276,7 +1287,9 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
     if (!isOpen) return null;
     if (!isCreating && !p) return null;
 
-    const displayName = isCreating ? 'NUEVO PARTNER' : (p.acronimo || p.razon_social || '?');
+    //: Cómo se le llama en la cabecera: a un certificador, por su NOMBRE — es
+    //: quien firma, y es como se le busca en la lista (fuente única).
+    const displayName = isCreating ? 'NUEVO PARTNER' : (nombrePartner(p).titulo || '?');
     const contactName = isCreating ? null : ([p.nombre_responsable || p.usuarios?.nombre, p.apellidos_responsable || p.usuarios?.apellidos]
         .filter(Boolean).join(' ') || null);
 
@@ -1512,7 +1525,11 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                         <div className="space-y-4">
                             <Section title="Datos de la Empresa" iconPath="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
-                                    <FV label="Razón Social" value={p.razon_social} />
+                                    {/* En un certificador, `razon_social` es el nombre de
+                                        quien firma y el `cif` su NIF (si es autónomo): se
+                                        rotulan por lo que son, o se lee como si la ficha
+                                        fuera de una sociedad que no existe. */}
+                                    <FV label={esCertificador && !p.empresa_razon_social ? 'Nombre' : 'Razón Social'} value={p.razon_social} />
                                     <FV label="Acrónimo" value={p.acronimo} />
                                     <FV label="CIF / NIF" value={p.cif} mono />
                                     <FV label="Tipo" value={p.tipo_empresa} />
@@ -1627,6 +1644,13 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                             {p.tipo_empresa === 'CERTIFICADOR' && (
                                 <Section title="Técnico Competente" iconPath="M12 14l9-5-9-5-9 5 9 5zm0 0l6.16-3.42A12 12 0 0112 21a12 12 0 01-6.16-10.42L12 14z">
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+                                        {/* Quien firma es la PERSONA; la empresa es dónde
+                                            ejerce. Las dos van al .cex, cada una en su
+                                            casilla, y por eso se ven juntas. */}
+                                        <FV label="Firma" value={[p.nombre_responsable, p.apellidos_responsable].filter(Boolean).join(' ') || null} />
+                                        <FV label="NIF de quien firma" value={p.nif_responsable || (p.es_autonomo !== false ? p.cif : null)} mono />
+                                        <FV label="Empresa" value={p.empresa_razon_social || (p.es_autonomo !== false ? 'Ejerce por su cuenta' : null)} />
+                                        <FV label="CIF de la empresa" value={p.empresa_cif} mono />
                                         <FV label="Titulación" value={p.titulacion} />
                                         <FV label="Colegio Profesional" value={p.colegio_profesional} />
                                         <FV label="N.º de Colegiado" value={p.numero_colegiado} mono />
@@ -2382,6 +2406,25 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                     {isAdmin && p?.id_empresa && (
                                         <ContratoCertificador presId={p.id_empresa} inicial={p} />
                                     )}
+                                    {/* La EMPRESA en la que ejerce. No sustituye a su
+                                        nombre: el título y el nº de colegiado son de la
+                                        persona, y el .cex pide las dos casillas. */}
+                                    <div className="sm:col-span-2">
+                                        <FI label="Empresa en la que ejerce (razón social)">
+                                            <Inp value={form.empresa_razon_social} uppercase
+                                                onChange={e => upd({ empresa_razon_social: e.target.value })}
+                                                placeholder="Déjalo vacío si firma por su cuenta" />
+                                        </FI>
+                                        <p className="text-[10px] text-white/25 mt-1.5">
+                                            Va a la casilla «Razón social» del .cex. Vacío, la ocupa su
+                                            propio nombre — que es lo correcto en un autónomo.
+                                        </p>
+                                    </div>
+                                    <FI label="CIF de la empresa">
+                                        <Inp value={form.empresa_cif} uppercase
+                                            onChange={e => upd({ empresa_cif: e.target.value })}
+                                            placeholder="B12345678" />
+                                    </FI>
                                     <div className="sm:col-span-2">
                                         <FI label="Titulación">
                                             <Inp value={form.titulacion} uppercase

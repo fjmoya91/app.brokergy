@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { PrescriptorDetailModal } from './PrescriptorDetailModal';
+import { nombrePartner } from '../../../utils/tiposEmpresa';
 
 // Estilo/etiqueta por tipo de partner — clases literales para que Tailwind las incluya.
 const TIPO_META = {
@@ -116,9 +117,14 @@ export function PrescriptoresList({ onNavigate }) {
 
     const filteredPrescriptores = visiblePrescriptores.filter(p => {
         const q = norm(searchTerm);
+        //: Un certificador se busca por su NOMBRE y también por la empresa en
+        //: la que ejerce: quien escribe "fessa" está buscando a Félix.
+        const nom = nombrePartner(p);
         const matchesSearch = !q
             || norm(p.acronimo || p.razon_social).includes(q)
             || norm(p.razon_social).includes(q)
+            || norm(nom.titulo).includes(q)
+            || norm(nom.sub).includes(q)
             || norm(p.cif).includes(q);
         const matchesTipo = filterTipo === 'TODO' || p.tipo_empresa === filterTipo;
         return matchesSearch && matchesTipo;
@@ -280,7 +286,10 @@ export function PrescriptoresList({ onNavigate }) {
                     {filteredPrescriptores.map(p => {
                         const meta = metaOf(p.tipo_empresa);
                         const tipoLabel = p.tipo_empresa === 'CLIENTE' ? 'Cliente Particular' : (p.tipo_empresa || '—').replace(/_/g, ' ');
-                        const initials = (p.acronimo || p.razon_social || '?').trim().substring(0, 2).toUpperCase();
+                        //: Cómo se le llama en la tarjeta: a un certificador, por su
+                        //: nombre; a los demás, por su acrónimo o razón social.
+                        const nom = nombrePartner(p);
+                        const initials = (nom.titulo || '?').trim().substring(0, 2).toUpperCase();
                         return (
                             <div
                                 key={p.id_empresa}
@@ -298,7 +307,7 @@ export function PrescriptoresList({ onNavigate }) {
                                         <div className="h-16 flex items-center max-w-[80%] origin-left group-hover:scale-105 transition-transform">
                                             <img
                                                 src={p.logo_empresa}
-                                                alt={p.acronimo || p.razon_social || ''}
+                                                alt={nom.titulo}
                                                 className="max-h-16 w-auto max-w-full object-contain object-left drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)]"
                                             />
                                         </div>
@@ -324,10 +333,10 @@ export function PrescriptoresList({ onNavigate }) {
                                 {/* Nombre + CIF */}
                                 <div className="relative mt-3">
                                     <h3 className="font-black text-white uppercase tracking-tight text-sm leading-tight line-clamp-2 group-hover:text-brand transition-colors">
-                                        {p.acronimo || p.razon_social || '—'}
+                                        {nom.titulo}
                                     </h3>
-                                    {p.acronimo && p.razon_social && (
-                                        <p className="text-white/30 text-[11px] truncate mt-0.5 normal-case font-medium">{p.razon_social}</p>
+                                    {nom.sub && (
+                                        <p className="text-white/30 text-[11px] truncate mt-0.5 normal-case font-medium">{nom.sub}</p>
                                     )}
                                     <p className="font-mono text-cyan-400 text-[11px] mt-1.5">{p.cif || '—'}</p>
                                 </div>

@@ -770,6 +770,10 @@ router.post('/avanzado', enforceAuth, async (req, res) => {
             tecnico_firmante_carnet_rite: payload.tecnico_firmante_carnet_rite,
             // Técnico competente (CERTIFICADOR): lo que le acredita para suscribir
             // un CEE. El carnet RITE es de instaladores y aquí no dice nada.
+            // La EMPRESA en la que ejerce, si ejerce en una: `razon_social` es
+            // el nombre de quien FIRMA y no se le puede dar dos significados.
+            empresa_razon_social: payload.empresa_razon_social,
+            empresa_cif: payload.empresa_cif,
             titulacion: payload.titulacion,
             colegio_profesional: payload.colegio_profesional,
             numero_colegiado: payload.numero_colegiado,
@@ -995,6 +999,10 @@ router.patch('/:id', enforceAuth, async (req, res) => {
             // Técnico competente (CERTIFICADOR) — ver POST /avanzado. No se limpian
             // al cambiar de tipo: reclasificar una ficha no puede borrar en silencio
             // la titulación de nadie.
+            // La EMPRESA en la que ejerce, si ejerce en una: `razon_social` es
+            // el nombre de quien FIRMA y no se le puede dar dos significados.
+            empresa_razon_social: payload.empresa_razon_social,
+            empresa_cif: payload.empresa_cif,
             titulacion: payload.titulacion,
             colegio_profesional: payload.colegio_profesional,
             numero_colegiado: payload.numero_colegiado,

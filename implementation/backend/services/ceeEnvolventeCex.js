@@ -105,7 +105,8 @@ async function cargarExpediente(clave) {
     if (certId) {
         const { data } = await supabase.from('prescriptores')
             .select('razon_social, cif, es_autonomo, nombre_responsable, apellidos_responsable, '
-                    + 'nif_responsable, direccion, municipio, provincia, codigo_postal, '
+                    + 'nif_responsable, empresa_razon_social, empresa_cif, '
+                    + 'direccion, municipio, provincia, codigo_postal, '
                     + 'email, tlf, email_responsable, tlf_responsable, '
                     + 'titulacion, colegio_profesional, numero_colegiado')
             .eq('id_empresa', certId).maybeSingle();
@@ -263,8 +264,12 @@ const CAMPOS_CLIENTE = ['nombre_razon_social', 'apellidos', 'direccion', 'munici
 //: en `*_responsable` y no en `tlf`/`email` a propósito: aquéllos son los de la
 //: PERSONA que firma —que es lo que CE3X pide— y éstos, los generales de la
 //: empresa, por los que además le escribe media app.
+//: La EMPRESA va aparte de la razón social: en un certificador `razon_social` es
+//: el nombre de la persona (así están 6 de los 7) y la sociedad en la que ejerce
+//: ocupa su propia casilla del .cex.
 const CAMPOS_TECNICO = ['nombre_responsable', 'apellidos_responsable', 'nif_responsable',
-                        'razon_social', 'cif', 'direccion', 'municipio', 'provincia',
+                        'razon_social', 'cif', 'empresa_razon_social', 'empresa_cif',
+                        'direccion', 'municipio', 'provincia',
                         'codigo_postal', 'tlf_responsable', 'email_responsable',
                         'titulacion', 'colegio_profesional', 'numero_colegiado'];
 

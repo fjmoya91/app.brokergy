@@ -735,10 +735,25 @@ function equipoDeAcs(d, superficie) {
  * el que ya se han emitido: si aquí saliera de otra forma, un mismo técnico
  * tendría dos redacciones según quién le preparase el .cex.
  *
+ * REGLA — quien FIRMA es la PERSONA; la EMPRESA solo ocupa su casilla. El
+ * título habilitante y el nº de colegiado son de quien firma, así que el
+ * nombre nunca se sustituye por el de la sociedad. Si el técnico ejerce dentro
+ * de una, se declara en su ficha (`empresa_razon_social` / `empresa_cif`) y va
+ * a «Razón social» y «CIF»; si no la declara, manda el comportamiento de
+ * siempre.
+ *
  * REGLA — en un AUTÓNOMO, la razón social y el NIF son los suyos. Así lo tienen
  * los tres: «Nombre y Apellidos: LUIS ALBERTO LANUZA PELAYO / Razón social:
  * LUIS ALBERTO LANUZA PELAYO / NIF 70590504P» — no se deja el hueco de empresa
  * vacío, que en CE3X es un campo que se rellena igual.
+ *
+ * ⚠️ De quién es el `cif` de la ficha lo dice `es_autonomo`, y no la empresa:
+ * en un autónomo es su NIF personal (lo sigue siendo aunque ejerza dentro de
+ * una sociedad, como Francisco Javier) y en una empresa es el de ella —la ficha
+ * de Félix lleva ahí el B01799436 de FESSA—. Por eso el NIF de quien firma solo
+ * cae al `cif` en un autónomo: en los demás, sin `nif_responsable` la casilla
+ * sale vacía y se avisa, antes que escribir el CIF de una sociedad donde CE3X
+ * pide el documento de una persona.
  */
 export function tecnicoCe3x(certificador) {
     const c = certificador;
@@ -748,13 +763,14 @@ export function tecnicoCe3x(certificador) {
         .filter(Boolean).join(' ').trim();
     const autonomo = c.es_autonomo !== false;
     const nombre = persona || c.razon_social || null;
+    const empresa = (c.empresa_razon_social || '').trim() || null;
 
     const tecnico = {
         nombre,
-        empresa: c.razon_social || (autonomo ? nombre : null),
+        empresa: empresa || c.razon_social || (autonomo ? nombre : null),
         // En un autónomo, el `cif` de la ficha ES su NIF.
         nif: c.nif_responsable || (autonomo ? c.cif : null),
-        cif_empresa: autonomo ? c.cif : (c.cif || null),
+        cif_empresa: (empresa ? c.empresa_cif : c.cif) || null,
         telefono: c.tlf_responsable || c.tlf || null,
         email: c.email_responsable || c.email || null,
         direccion: c.direccion || null,
@@ -1217,9 +1233,23 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
     if (!ficha.tecnico) {
         avisos.push('El expediente no tiene certificador asignado: el .cex sale sin '
                     + 'los datos del técnico (se ponen en CE3X).');
-    } else if (!ficha.tecnico.titulacion) {
-        avisos.push(`${ficha.tecnico.nombre}: no consta su titulación habilitante en su `
-                    + 'ficha, y CE3X la pide. Ponla en Prescriptores.');
+    } else {
+        if (!ficha.tecnico.titulacion) {
+            avisos.push(`${ficha.tecnico.nombre}: no consta su titulación habilitante en su `
+                        + 'ficha, y CE3X la pide. Ponla en Prescriptores.');
+        }
+        //: El NIF es de quien FIRMA. Sin él, la casilla sale vacía y el
+        //: certificado no identifica al técnico — que es de lo poco que CE3X
+        //: no deja arreglar después sin volver a abrir el fichero.
+        if (!ficha.tecnico.nif) {
+            avisos.push(`${ficha.tecnico.nombre}: no consta su NIF (el de la PERSONA que `
+                        + 'firma, no el CIF de la empresa). Ponlo en Prescriptores.');
+        }
+        if (ficha.tecnico.empresa && ficha.tecnico.empresa !== ficha.tecnico.nombre
+            && !ficha.tecnico.cif_empresa) {
+            avisos.push(`${ficha.tecnico.empresa}: no consta su CIF, y el .cex lo pide `
+                        + 'junto a la razón social. Ponlo en Prescriptores.');
+        }
     }
     if (!ficha.envolvente.incluir_plantas.length) {
         avisos.push('Catastro no declara ninguna planta habitable en esta parcela: '

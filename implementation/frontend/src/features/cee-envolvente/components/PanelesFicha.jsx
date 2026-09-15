@@ -69,15 +69,22 @@ const CLIENTE = [
     { k: 'email', etiqueta: 'E-mail', ancho: true, minusculas: true },
 ];
 
-//: Y los once del TÉCNICO, que son los de su ficha de Prescriptores. El
-//: teléfono y el correo se escriben en `*_responsable`: son los de la PERSONA
-//: que firma —lo que CE3X pide—, no los generales de la empresa.
+//: Y los del TÉCNICO, que son los de su ficha de Prescriptores. El teléfono y
+//: el correo se escriben en `*_responsable`: son los de la PERSONA que firma
+//: —lo que CE3X pide—, no los generales de la empresa.
+//:
+//: Quien firma y la empresa en la que ejerce son DOS cosas y cada una tiene su
+//: casilla en el .cex. `razon_social` es la identidad de la FICHA (con la que
+//: sale en la app y en la facturación) y solo ocupa la casilla de la empresa
+//: cuando no consta ninguna, que es lo correcto en un autónomo.
 const TECNICO = [
     { k: 'nombre_responsable', etiqueta: 'Nombre' },
     { k: 'apellidos_responsable', etiqueta: 'Apellidos' },
     { k: 'nif_responsable', etiqueta: 'NIF' },
-    { k: 'razon_social', etiqueta: 'Razón social' },
-    { k: 'cif', etiqueta: 'CIF' },
+    { k: 'empresa_razon_social', etiqueta: 'Razón social (empresa)', ancho: true },
+    { k: 'empresa_cif', etiqueta: 'CIF de la empresa' },
+    { k: 'razon_social', etiqueta: 'Nombre de su ficha' },
+    { k: 'cif', etiqueta: 'NIF/CIF de la ficha' },
     { k: 'direccion', etiqueta: 'Dirección', ancho: true },
     { k: 'provincia', etiqueta: 'Provincia' },
     { k: 'municipio', etiqueta: 'Localidad' },
@@ -145,7 +152,9 @@ export function PanelAdministrativos({ datos, fuente, puedeCliente = false,
                         valores={fuente?.tecnico} puede={puedeTecnico && !!t}
                         onGuardar={onGuardarTecnico}
                         pie="Se escribe en su ficha de Prescriptores: vale para todos los
-                             certificados que firme, no solo para éste.">
+                             certificados que firme, no solo para éste. Sin empresa declarada,
+                             la casilla «Razón social» la ocupa el nombre de su ficha — que es
+                             lo correcto en un autónomo.">
                 {t ? (
                     <>
                         <Fila rotulo="Nombre y apellidos" v={t.nombre} />

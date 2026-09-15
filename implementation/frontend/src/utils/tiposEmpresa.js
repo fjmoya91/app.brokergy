@@ -39,4 +39,38 @@ export function tipoEmpresaLabel(tipo, fallback = 'Partner') {
     return ETIQUETAS[t] || t.replace(/_/g, ' ');
 }
 
+/**
+ * Con qué NOMBRE se reconoce a un partner, y qué va debajo.
+ *
+ * REGLA — a un CERTIFICADOR se le conoce por su NOMBRE, no por una razón
+ * social. Es una profesión que se ejerce en persona: firma él, su titulación y
+ * su nº de colegiado son suyos y el encargo se le hace a él —que es además como
+ * están dados de alta 6 de los 7, con `razon_social` = su nombre y apellidos—.
+ * La empresa en la que ejerce, cuando ejerce en una, va debajo: es el dato que
+ * sitúa a la persona, no lo que la identifica. Con un INSTALADOR es al revés,
+ * y por eso conserva su acrónimo y su razón social de siempre.
+ *
+ * Una empresa certificadora sin técnico declarado (CERTICALIA) sigue saliendo
+ * por su nombre comercial: no hay una persona a la que nombrar, y la regla no
+ * puede dejar una tarjeta sin título.
+ *
+ * @returns {{titulo: string, sub: string|null}}
+ */
+export function nombrePartner(p) {
+    const empresa = (p?.acronimo || p?.razon_social || '').trim() || null;
+    if (String(p?.tipo_empresa || '').toUpperCase() === 'CERTIFICADOR') {
+        const persona = [p?.nombre_responsable, p?.apellidos_responsable]
+            .filter(Boolean).join(' ').trim();
+        const suya = (p?.empresa_razon_social || '').trim() || null;
+        if (persona) return { titulo: persona, sub: suya };
+        //: Sin persona declarada manda la ficha; si además tiene empresa, se
+        //: dice, porque entonces el título ES un nombre de sociedad.
+        return { titulo: empresa || '—', sub: suya && suya !== empresa ? suya : null };
+    }
+    return {
+        titulo: empresa || '—',
+        sub: (p?.acronimo && p?.razon_social) ? p.razon_social : null,
+    };
+}
+
 export { ETIQUETAS as TIPO_EMPRESA_ETIQUETAS };

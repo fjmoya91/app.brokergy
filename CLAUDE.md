@@ -6962,6 +6962,63 @@ de Clientes. Si no, el mismo dato quedaría en MAYÚSCULAS escrito desde una
 pantalla y capitalizado desde la otra, y `provinciaCe3x` —que casa contra un
 desplegable de CE3X— dejaría de encontrarlo.
 
+## Un certificador FIRMA como persona, y puede ejercer en una empresa (2026-09-15)
+
+CE3X pide las dos cosas a la vez en «Datos del técnico certificador»: **Nombre y
+Apellidos + NIF** de quien firma, y **Razón social + CIF** de la empresa. La
+ficha de Prescriptores no tenía dónde declarar la segunda, así que se colaba en
+los campos de al lado: la de **FÉLIX PÉREZ SOBRINO** llevaba `razon_social` = su
+nombre y `cif` = **B01799436**, que es el CIF de `FESSA SOLAR, SL`. Dos campos
+diciendo cada uno algo distinto de lo que su nombre promete.
+
+| Qué | Dónde |
+|---|---|
+| Columnas | `empresa_razon_social` · `empresa_cif` (`scripts/prescriptores_empresa_certificador.sql`) |
+| Quién ocupa cada casilla del `.cex` | `tecnicoCe3x()` en [fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js) |
+| Cómo se le llama en pantalla | `nombrePartner()` en [utils/tiposEmpresa.js](implementation/frontend/src/utils/tiposEmpresa.js) |
+| Dónde se rellena | Bloque **Técnico Competente** de la ficha, y la pestaña de administrativos de `/envolvente/:id` |
+| Prueba | `node implementation/backend/scripts/test_tecnico_ce3x.mjs` |
+
+**REGLA — el nombre de una SOCIEDAD nunca desplaza al de quien firma.** La
+titulación habilitante y el nº de colegiado son de la PERSONA: un certificado
+suscrito por una razón social no identifica a nadie. La empresa ocupa su propia
+casilla y, cuando no consta ninguna, la ocupa el nombre del técnico — que es lo
+correcto en un autónomo y como se emitieron los certificados de Luis Alberto y
+Raquel («Nombre y Apellidos: LUIS ALBERTO LANUZA PELAYO / Razón social: LUIS
+ALBERTO LANUZA PELAYO / NIF 70590504P»).
+
+**REGLA — `razon_social` sigue siendo la IDENTIDAD de la ficha.** De ella
+cuelgan el listado, los lotes, la facturación del certificador y el histórico, y
+en un certificador es el nombre de la persona (así están **6 de los 7**). La
+empresa va APARTE en vez de mudarse ahí: cambiarle el significado a esa columna
+movería a la vez cuatro sitios que no se han medido.
+
+**REGLA — de quién es el `cif` lo dice `es_autonomo`, no la empresa.** En un
+autónomo es su NIF personal —lo sigue siendo aunque ejerza dentro de una
+sociedad— y en una empresa es el de ella. Por eso el NIF de quien firma solo cae
+al `cif` en un autónomo: en los demás, sin `nif_responsable` la casilla sale
+vacía **y se avisa**, antes que escribir el CIF de una sociedad donde CE3X pide
+el documento de una persona.
+
+**REGLA — es TEXTO, no un enlace a otra ficha.** La empresa de un certificador
+no tiene por qué estar dada de alta como prescriptor —que FESSA SOLAR y
+Soluciones Sostenibles lo estén como INSTALADOR es circunstancial—, y el `.cex`
+no puede depender de una ficha ajena que alguien puede borrar o reclasificar.
+
+**REGLA — a un CERTIFICADOR se le busca y se le nombra por su NOMBRE**
+(`nombrePartner`), con la empresa debajo; a un INSTALADOR, por su acrónimo y su
+razón social, como siempre. Es una profesión que se ejerce en persona: firma él
+y el encargo se le hace a él. Una empresa certificadora **sin técnico
+declarado** (CERTICALIA) sigue saliendo por su nombre comercial — la regla no
+puede dejar una tarjeta sin título. El buscador mira las dos cosas: quien
+escribe «fessa» está buscando a Félix.
+
+⚠️ La TITULACIÓN se compone como en los certificados ya emitidos
+(`GRADUADO EN INGENIERÍA INDUSTRIAL. COLEGIADO COGITI ALBACETE Nº 1779`) y esa
+redacción **no se toca** (decisión de 2026-09-15): un mismo técnico no puede
+tener dos según quién le prepare el `.cex`. Sin colegio o sin número se escribe
+la titulación tal cual, sin inventar el resto.
+
 ## Lo que el CERTIFICADOR no tiene que ver ni tocar (2026-09-14)
 
 El expediente es interno y él entra a lo suyo: medir, emitir y subir el
@@ -7221,6 +7278,8 @@ cuanto el popup rellene el η_wh de alguno de los 27, que es justo para lo que e
 48.e **Cuando el ACS lo hace OTRA máquina, se escriben DOS equipos**: CE3X no calcula nada si la demanda de ACS no está cubierta al 100 % («La instalación de ACS no está bien definida»), y hasta ahora el segundo aparato solo salía como un aviso pidiendo añadirlo a mano. `instalacionNueva` devuelve `extras`, que entran en la instalación del CEE final Y en la medida de mejora —la medida es TODO lo que se instala—. En el slot ACS la casilla [6] manda sobre la FORMA del [7]: con **CONOCIDO** es el mismo trío que el [2], sin interruptores ni cola (medido: 205 de los 544 equipos del slot ACS del corpus, 204 de ellos con [2] == [7]); un TERMO va por `Efecto Joule` estimado al 100 %. **Sin SCOP_dhw no se escribe**, y el DEPÓSITO cuelga de la máquina que calienta el agua. ⚠️ Tirando de ese hilo salió que **el CEE FINAL se generaba SIN NINGUNA instalación y en silencio**: `equipoConAjustes` exigía la POTENCIA —que es de la cola con la que CE3X *estima* una caldera— para escribir también una bomba de calor, cuyo rendimiento va ENSAYADO y no tiene esa cola. Tras tocarlo: `node implementation/backend/scripts/test_cex_final.mjs` y `pytest implementation/cee-engine/tests/test_equipos.py`. Ver "El ACS que hace OTRA máquina también se escribe".
 
 48.c **Los ADMINISTRATIVOS del `.cex` se corrigen desde la ventana, escribiendo en SU FUENTE**: el botón de editar de «Datos del cliente» y de «Datos del técnico» escribe en `clientes` y en `prescriptores` (`PUT /:id/cliente`, **staffOnly**; `PUT /:id/tecnico`, equipo interno **o el propio técnico asignado**), nunca en una copia dentro del trabajo. En lectura se enseña el valor COMPUESTO —lo que va al `.cex`— y en edición las COLUMNAS, que es lo único sobre lo que se puede escribir; la `fuente` en crudo viaja FUERA de `ficha`. Y el **teléfono y el correo del titular caen a su PERSONA DE CONTACTO** cuando él no dio los suyos —el número marcado «Notif. aquí» es a menudo el único que tenemos—, campo a campo y **diciendo de quién es**: medido en 26RES060_187, la ficha decía «no consta» de dos datos escritos dos líneas más abajo. Tras tocarlo: `node implementation/backend/scripts/test_contacto_cliente_ce3x.mjs`. Ver "Los administrativos se CORRIGEN desde la ventana".
+
+48.f **Un certificador FIRMA como persona y puede ejercer en una EMPRESA**: CE3X pide las dos casillas —Nombre y Apellidos + NIF de quien firma, Razón social + CIF de la sociedad— y la ficha no tenía dónde declarar la segunda, así que se colaba en los campos de al lado (la de FÉLIX PÉREZ SOBRINO llevaba `cif` = B01799436, que es el de FESSA SOLAR, SL). Se declara en `empresa_razon_social` / `empresa_cif`, que es **texto** y no un enlace a otra ficha: la empresa de un certificador no tiene por qué estar dada de alta, y el `.cex` no puede depender de una ficha ajena. **El nombre de una sociedad nunca desplaza al de quien firma** —la titulación y el nº de colegiado son suyos— y sin empresa declarada la casilla «Razón social» la ocupa su propio nombre, que es como se emitieron los de Luis Alberto y Raquel. **De quién es el `cif` lo dice `es_autonomo`**, no la empresa: en los demás, sin `nif_responsable` la casilla del NIF sale vacía y se avisa, antes que escribir ahí el CIF de una sociedad. Y a un CERTIFICADOR se le nombra y se le busca por su NOMBRE (`nombrePartner`), con la empresa debajo; a un INSTALADOR, por su acrónimo, como siempre. Tras tocarlo: `node implementation/backend/scripts/test_tecnico_ce3x.mjs`. Ver "Un certificador FIRMA como persona".
 
 48.d **Al CERTIFICADOR no se le enseña lo que no es suyo**: la EMPRESA INSTALADORA asignada (dato comercial, y el desplegable le abría la cartera entera), el conmutador `Auto XML · Manual` y el método del ahorro RES080, y los botones del método de la D_ACS —**el valor se queda**, que es lo que teclea en CE3X—. Y **no puede dejarse «sin asignar»**: eso devuelve el expediente a la cola, le retira su propio acceso y nadie se entera, porque en la ficha sigue pareciendo que está en marcha. `TecnicoPicker` deja de ofrecerlo (`permiteVaciar`) y el `PUT /api/expedientes/:id` lo repite, como con `cee.estado`. Ver "Lo que el CERTIFICADOR no tiene que ver ni tocar".
 
