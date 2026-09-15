@@ -12,6 +12,10 @@
 // PDF (Puppeteer) y lo guarda en la carpeta del lote.
 // ============================================================
 import { BROKERGY_MARK_DATAURI, BROKERGY_CIRCULAR_DATAURI } from './facturaLogo';
+// ⚠️ Las tipografías van AUTO-ALOJADAS, no con un <link> a Google Fonts (regla
+// 25.b): la factura la rasteriza Puppeteer en el servidor, y una descarga que no
+// llega a tiempo dejaba el PDF con la fuente de respaldo del contenedor.
+import { buildFontFaces, FUENTE_FACTURA_SO } from '../../expedientes/logic/fuentesDoc';
 
 // Datos fiscales del EMISOR (Brokergy). Constantes — de la factura oficial.
 export const BROKERGY_EMISOR = {
@@ -70,9 +74,7 @@ export function buildFacturaSoHtml(lote, fields) {
 
     return `<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Archivo:wght@600;700;800&display=swap" rel="stylesheet">
+<style>${buildFontFaces(undefined, FUENTE_FACTURA_SO)}</style>
 <style>
   @page { size: A4; margin: 0; }
   * { box-sizing: border-box; }

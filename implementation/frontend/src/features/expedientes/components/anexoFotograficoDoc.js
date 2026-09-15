@@ -1,12 +1,14 @@
 /**
  * Generador del ANEXO FOTOGRÁFICO (Reportaje fotográfico de las actuaciones).
  *
- * Módulo JS PURO (sin React ni imports) para que el mismo builder sirva tanto
- * al modal del frontend (preview + PDF vía /api/pdf/*) como a un posible
- * consumo server-side por dynamic import() desde el backend.
+ * Módulo JS PURO (sin React) para que el mismo builder sirva tanto al modal del
+ * frontend (preview + PDF vía /api/pdf/*) como a un consumo server-side por
+ * dynamic import() desde el backend. Su única dependencia es `fuentesDoc.js`,
+ * que también es puro y Node-safe.
  *
  * Diseño: handoff de Claude Design "Mejora de anexo fotográfico" (2026-07).
- * A4, tipografías Space Grotesk + Manrope (Google Fonts, con fallback Arial),
+ * A4, tipografías Space Grotesk + Manrope AUTO-ALOJADAS (regla 25.b: un
+ * documento no pide su fuente a Google), con respaldo Arial,
  * gradiente de marca #F39200 → #F4B81C → #A6CE39.
  *
  * Estructura del documento:
@@ -20,6 +22,8 @@
  *      la etiqueta "ACT. NN". Rejilla de 2 columnas hasta 4 fotos por página
  *      y de 3 columnas (máx. 9) a partir de 5.
  */
+
+import { buildFontFaces, FUENTE_ANEXO_FOTO } from '../logic/fuentesDoc.js';
 
 // ── Mapa slot → actuación ────────────────────────────────────────────────────
 // Las claves son los slots canónicos de buildDocChecklist (backend). Un slot
@@ -172,8 +176,11 @@ const GRAD135 = 'linear-gradient(135deg,#F39200,#A6CE39)';
 // CSS común del documento (portada + páginas). El texto en degradado lleva
 // color sólido de respaldo por si el motor de impresión no soporta
 // background-clip:text.
+// ⚠️ Las tipografías van AUTO-ALOJADAS, no con un @import a Google Fonts (regla
+// 25.b): este documento lo rasteriza Puppeteer en el servidor, y una descarga
+// que no llega a tiempo dejaba el PDF con la fuente de respaldo del contenedor.
 export const ANEXO_BASE_CSS = `
-    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
+    ${buildFontFaces(undefined, FUENTE_ANEXO_FOTO)}
     .doc-page {
         font-family: 'Manrope', Arial, Helvetica, sans-serif;
         color: #15160E;
