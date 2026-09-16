@@ -568,7 +568,8 @@ const positivo = v => (Number(v) > 0 ? Number(v) : null);
  * 1.506 `.cex` de producción, 132 de los 138 equipos mixtos con bomba de calor
  * lo declaran así.
  */
-export function instalacionNueva({ expediente, superficie, modelos = {} } = {}) {
+export function instalacionNueva({ expediente, superficie, modelos = {},
+                                   existentes = null } = {}) {
     const avisos = [];
     // ⚠️ CON el catálogo. Iba `{}`, y entonces todo lo que vive en el modelo y
     // no se sella en el expediente —el SEER— salía como si faltara.
@@ -579,14 +580,23 @@ export function instalacionNueva({ expediente, superficie, modelos = {} } = {}) 
                           + 'final sale sin instalación. Rellénala en Instalación.'] };
     }
 
-    // La HIBRIDACIÓN no se escribe: la caldera NO se retira, así que en CE3X son
-    // DOS generadores repartiéndose la demanda. Escribir solo la bomba declararía
-    // un edificio que no existe y con el 100 % de la cobertura.
-    if (d.hibridacion) {
+    // En una HIBRIDACIÓN la caldera NO se retira: en CE3X son DOS generadores
+    // repartiéndose la demanda, y escribir solo la bomba declararía un edificio
+    // que no existe y con el 100 % de la cobertura. Hace falta la caldera tal y
+    // como se escribe en esta misma fase y el reparto calculado; sin una de las
+    // dos cosas no se compone y se dice cuál falta.
+    if (d.hibridacion && !existentes?.length) {
         return { equipo: null, falta: 'hibridación: se monta a mano',
                  avisos: ['Es una HIBRIDACIÓN: la caldera se queda y son dos generadores '
-                          + 'en CE3X. El .cex final hay que montarlo a mano — aquí solo se '
-                          + 'sabe escribir la sustitución completa.'] };
+                          + 'en CE3X. Aquí no consta cuál es la que sigue dando servicio, '
+                          + 'así que no se compone — móntalo a mano.'] };
+    }
+    if (d.hibridacion && !d.repartoValido) {
+        return { equipo: null, falta: 'hibridación: falta el reparto',
+                 avisos: ['Es una HIBRIDACIÓN y el reparto de demanda entre la bomba y la '
+                          + 'caldera no se ha podido calcular: falta la potencia de la '
+                          + 'bomba (o la de la caldera, según la base). Sin él, escribir '
+                          + 'la bomba al 100 % declararía una sustitución que no es.'] };
     }
 
     const rendCal = Math.round((d.scopCal || 0) * 100);
@@ -629,28 +639,78 @@ export function instalacionNueva({ expediente, superficie, modelos = {} } = {}) 
         + `${acumulacion ? `, con depósito de ${d.litros} l` : ''}. `
         + 'Sale de la aerotermia del expediente: compruébalo con su ficha técnica.');
 
+    // En una sustitución la bomba cubre toda la demanda. En una HIBRIDACIÓN se
+    // reparte con la caldera según el C_b, y el reparto es el MISMO en
+    // calefacción y en ACS — es lo que hizo el certificador en el `.cex` de
+    // 26RES093_8, del que sale esta regla.
+    const pct = d.hibridacion ? (d.pctCal ?? 100) : 100;
+    const sup = reparteSuperficie(superficie, pct);
+
+    const bomba = {
+        slot: mixto ? 'mixto2' : 'calefaccion',
+        nombre: d.nombre,
+        generador: d.generadorBdc,
+        //: 138 de 138 en el corpus. Una bomba de calor va con electricidad.
+        combustible: 'Electricidad',
+        rendimiento: 'conocido',
+        rend_calefaccion: String(rendCal),
+        ...(mixto ? { rend_acs: String(rendAcs) } : {}),
+        superficie_calefaccion: sup,
+        ...(mixto ? { superficie_acs: sup, pct_acs: String(pct) } : {}),
+        pct_calefaccion: String(pct),
+        ...(acumulacion ? { acumulacion } : {}),
+        de: 'de la aerotermia declarada en el expediente (la misma que el '
+            + 'popup «Datos del equipo» y el encargo al certificador).',
+    };
+
+    const caldera = d.hibridacion
+        ? calderaHibrida(existentes, superficie, 100 - pct, avisos) : null;
+
     return {
-        extras: acs.equipo ? [acs.equipo] : [],
-        equipo: {
-            slot: mixto ? 'mixto2' : 'calefaccion',
-            nombre: d.nombre,
-            generador: d.generadorBdc,
-            //: 138 de 138 en el corpus. Una bomba de calor va con electricidad.
-            combustible: 'Electricidad',
-            rendimiento: 'conocido',
-            rend_calefaccion: String(rendCal),
-            ...(mixto ? { rend_acs: String(rendAcs) } : {}),
-            superficie_calefaccion: superficie,
-            ...(mixto ? { superficie_acs: superficie } : {}),
-            //: En una sustitución la bomba cubre toda la demanda. `pctCal` solo
-            //: baja del 100 en hibridación, que aquí no se escribe.
-            pct_calefaccion: String(d.pctCal ?? 100),
-            ...(acumulacion ? { acumulacion } : {}),
-            de: 'de la aerotermia declarada en el expediente (la misma que el '
-                + 'popup «Datos del equipo» y el encargo al certificador).',
-        },
+        extras: [...(acs.equipo ? [acs.equipo] : []), ...(caldera ? [caldera] : [])],
+        equipo: bomba,
         avisos,
     };
+}
+
+//: La superficie servida se reparte con el MISMO porcentaje, y con el REDONDEADO:
+//: así los dos trozos suman exactamente el total. Medido en el `.cex` de
+//: 26RES093_8: 123 m² → 25,83 (21 %) + 97,17 (79 %).
+function reparteSuperficie(superficie, pct) {
+    const total = Number(superficie) || 0;
+    if (!total || pct >= 100) return total;
+    return Math.round(total * pct) / 100;
+}
+
+/**
+ * La CALDERA que se queda, para la medida de mejora de una hibridación.
+ *
+ * REGLA — no se vuelve a componer: se COPIA la que se escribe en esta misma
+ * fase, tal y como la deja la pestaña de Instalaciones. Rehacerla desde el
+ * expediente dejaría fuera lo que el certificador haya corregido ahí —la
+ * potencia, el aislamiento, los litros del depósito— y el mismo aparato saldría
+ * declarado de dos maneras distintas dentro del mismo `.cex`.
+ *
+ * Lo único que cambia es su parte de la demanda: 100 − C_b.
+ */
+function calderaHibrida(existentes, superficie, pct, avisos) {
+    //: El GENERADOR, no un equipo de apoyo: el de ACS que va aparte —si lo hay—
+    //: no se reparte nada, lo cubre entero él.
+    const base = (existentes || []).find(
+        e => e && (e.slot === 'mixto2' || e.slot === 'calefaccion'));
+    if (!base) return null;
+    const sup = reparteSuperficie(superficie, pct);
+    const copia = {
+        ...base,
+        superficie_calefaccion: sup,
+        pct_calefaccion: String(pct),
+        ...(base.slot === 'mixto2' ? { superficie_acs: sup, pct_acs: String(pct) } : {}),
+        de: 'la caldera que NO se retira, tal y como se escribe en el CEE de esta fase.',
+    };
+    avisos.push(`HIBRIDACIÓN: la medida lleva los DOS generadores — la bomba con el `
+        + `${100 - pct} % de la demanda y «${base.nombre}» con el ${pct} % restante. `
+        + 'El reparto es el coeficiente de bivalencia C_b del expediente.');
+    return copia;
 }
 
 /**
@@ -829,24 +889,31 @@ export const AUTOCONSUMO_DECLARABLE = 0.9;
  * calcular, y el certificador solo pulsa «Actualizar».
  */
 export function medidasCe3x({ expediente, superficie, fase = 'inicial',
-                              elegidas = null, textos = null, modelos = {} } = {}) {
+                              elegidas = null, textos = null, modelos = {},
+                              existentes = null } = {}) {
     const esFinal = fase === 'final';
     const catalogo = [];
     const avisos = [];
 
     // ── 1. La AEROTERMIA: la actuación de este expediente ────────────────────
     const { equipo, extras = [], avisos: avEquipo } =
-        instalacionNueva({ expediente, superficie, modelos });
+        instalacionNueva({ expediente, superficie, modelos, existentes });
     const texto = equipo ? (buildMedidaMejora(expediente, { modelos }) || {}) : {};
     const invers = inversionDeLaObra(expediente);
+    //: En una hibridación NO se sustituye nada: la caldera se queda y la bomba
+    //: entra en apoyo. Llamarlo «sustitución» en la pestaña diría lo contrario
+    //: de lo que dice el texto de la propia medida, dos líneas más abajo.
+    const esHibrida = !!resolverCe3x(expediente, { modelos })?.hibridacion;
     const aero = {
         id: 'aerotermia',
-        titulo: 'Sustitución por aerotermia',
+        titulo: esHibrida ? 'Hibridación con aerotermia' : 'Sustitución por aerotermia',
         resumen: nombreDelConjunto(expediente, equipo, modelos),
         porDefecto: !esFinal,
         disponible: !!equipo && !esFinal,
         motivo: esFinal
-            ? 'En el CEE final la aerotermia ya está instalada: no es una mejora que proponer.'
+            ? (esHibrida
+                ? 'En el CEE final la bomba de calor ya está instalada: no es una mejora que proponer.'
+                : 'En el CEE final la aerotermia ya está instalada: no es una mejora que proponer.')
             : (equipo ? null : (avEquipo[0] || 'El expediente no declara equipo nuevo.')),
         nota: null,
         datos: equipo ? {
@@ -1010,11 +1077,18 @@ function inversionDeLaObra(expediente) {
  * La zona climática HE4 NO está aquí: CE3X la propone sola al elegir la
  * provincia, y la app la trae medida para las provincias comprobadas.
  */
-export function faltaPorPreguntar(cfg = {}, { fase = 'inicial' } = {}) {
+export function faltaPorPreguntar(cfg = {}, { fase = 'inicial', expediente = null } = {}) {
     const preguntas = [];
     if (fase === 'final') return preguntas;   // el final lo hereda del inicial
 
-    if (cfg.acumulacion_litros === undefined || cfg.acumulacion_litros === null) {
+    // REGLA — «contestado» NO es solo «contestado EN ESTE POPUP». El mismo dato
+    // se teclea en la pestaña de INSTALACIONES («Con acumulación» + los litros),
+    // que es además la que MANDA (`equipoConAjustes` pisa lo derivado). Mirando
+    // solo su propia clave, el popup volvía a preguntar por un depósito que ya
+    // estaba puesto — y un popup que pregunta lo que ya has contestado se
+    // responde sin leer, que es justo lo que no puede pasar con los otros.
+    if (!acumulacionYaDicha(cfg) && (cfg.acumulacion_litros === undefined
+                                     || cfg.acumulacion_litros === null)) {
         preguntas.push({
             clave: 'acumulacion_litros',
             titulo: '¿La caldera actual tiene depósito de acumulación de ACS?',
@@ -1027,7 +1101,10 @@ export function faltaPorPreguntar(cfg = {}, { fase = 'inicial' } = {}) {
             siNo: 'El equipo sale SIN acumulación, como hasta ahora.',
         });
     }
-    if (cfg.demanda_acs === undefined || cfg.demanda_acs === null) {
+    // Y la demanda de ACS puede venir dicha del propio CERTIFICADO: es el toggle
+    // L/D de la rejilla del CEE, los mismos litros/día y con el mismo sentido.
+    if (!litrosDiaDelCee(expediente)
+        && (cfg.demanda_acs === undefined || cfg.demanda_acs === null)) {
         preguntas.push({
             clave: 'demanda_acs',
             titulo: 'Demanda de ACS',
@@ -1041,6 +1118,25 @@ export function faltaPorPreguntar(cfg = {}, { fase = 'inicial' } = {}) {
     return preguntas;
 }
 
+
+/**
+ * ¿Consta ya si la caldera actual tiene depósito?
+ *
+ * Vale tanto el SÍ (con sus litros: sin ellos el equipo sale igualmente sin
+ * acumulación, así que sigue faltando el dato) como el NO — decir que no lo
+ * tiene es una respuesta, no un hueco.
+ */
+function acumulacionYaDicha(cfg) {
+    const i = cfg?.instalacion;
+    if (!i) return false;
+    if (i.acumulacion === false) return true;
+    return i.acumulacion === true && Number(i.litros_acumulacion) > 0;
+}
+
+/** Los litros/día que el propio certificado declara (el toggle L/D del CEE). */
+function litrosDiaDelCee(expediente) {
+    return Number(expediente?.cee?.dacs_litros_dia) > 0;
+}
 
 /** El nombre del conjunto de medidas, con el equipo de ACS si va aparte. */
 function nombreDelConjunto(expediente, equipo, modelos) {
@@ -1136,7 +1232,14 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
     // Las MEDIDAS DE MEJORA que el certificador haya marcado en su pestaña. Sin
     // elección manda lo que describe la fase (ver `medidasCe3x`).
     const mejora = medidasCe3x({ expediente, superficie, fase, elegidas: medidas, modelos,
-                                 textos: cfg.medidas_texto });
+                                 textos: cfg.medidas_texto,
+                                 // Los equipos de ESTA fase, para que una medida
+                                 // de hibridación copie la caldera tal y como se
+                                 // escribe aquí. Solo en el INICIAL: en el final
+                                 // estos equipos son ya la aerotermia, y
+                                 // copiarla como «la caldera que se queda» la
+                                 // declararía dos veces.
+                                 existentes: esFinal ? null : instalacion.equipos });
     if (!he4.valor) {
         avisos.push(`Zona climática HE4 sin determinar para ${dir.provincia || 'esta provincia'}: `
                     + 'es la de radiación solar (ACS) y hay que ponerla a mano.');
@@ -1185,7 +1288,16 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
                                         'la altura con la que se midió la envolvente'),
             n_plantas_habitables: puesto('n_plantas_habitables', habitables.length || 1,
                                          deQuienSaleLoQueCuenta(g, 'plantas')),
-            demanda_acs: dato(cfg.demanda_acs, 'DECISIÓN del certificador (valor por defecto)'),
+            // Los litros/día que CE3X pide en Datos generales. Si el propio
+            // CERTIFICADO los declara (el toggle L/D de la rejilla del CEE) son
+            // ESOS: es un dato del certificado, no una estimación nuestra. Lo
+            // tecleado a mano en el popup manda sobre él, que para eso se teclea.
+            demanda_acs: ajustes?.demanda_acs > 0
+                ? dato(Number(ajustes.demanda_acs), 'DECISIÓN del certificador')
+                : (Number(expediente?.cee?.dacs_litros_dia) > 0
+                    ? dato(Number(expediente.cee.dacs_litros_dia),
+                           'los litros/día que declara el Certificado de Eficiencia Energética')
+                    : dato(cfg.demanda_acs, 'DECISIÓN del certificador (valor por defecto)')),
             masa_particiones: dato(cfg.masa_particiones, 'DECISIÓN del certificador (valor por defecto)'),
             ventilacion: puesto('ventilacion', anio ? getVentanaYACHByYear(anio, zona).ach : null,
                                 'la MISMA renovación/hora que usó la simulación'),
@@ -1268,7 +1380,7 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
              // Con los ajustes EN CRUDO, no con `cfg`: ahí los valores por
              // defecto ya están fusionados y `demanda_acs` nunca estaría sin
              // contestar — el popup no preguntaría lo que existe para preguntar.
-             faltan: faltaPorPreguntar(ajustes || {}, { fase }) };
+             faltan: faltaPorPreguntar(ajustes || {}, { fase, expediente }) };
 }
 
 //: Los que el motor exige con valor; el resto puede ir vacío.

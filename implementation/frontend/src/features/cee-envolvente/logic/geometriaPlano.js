@@ -242,7 +242,58 @@ export function reparto(huecos) {
     }));
 }
 
+// ─── Hacia dónde MIRA una pared ──────────────────────────────────────────────
+
+//: Las ocho orientaciones que admite CE3X, en el orden del sector: 0° es el
+//: Norte y se gira en sentido horario.
+//:
+//: ⚠️ Es la MISMA lista y el MISMO reparto que `src/gis/orientation.py` en el
+//: motor. Tiene que serlo: el rumbo que se elige aquí es el que allí se traduce
+//: a «Norte», «SE»… y se escribe en el `.cex`. Un código que el motor no
+//: reconozca deja la fachada sin orientación.
+export const RUMBOS = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+
+/** Azimut en grados (0 = Norte, horario) → el rumbo de su sector. */
+export function rumboDelAzimut(az) {
+    const g = (((Number(az) || 0) % 360) + 360) % 360;
+    return RUMBOS[Math.floor((g + 22.5) / 45) % 8];
+}
+
+/**
+ * Los DOS rumbos a los que puede dar una pared, sacados de su propio trazo.
+ *
+ * Una pared mira PERPENDICULAR a sí misma, así que no hay ocho respuestas
+ * posibles: hay dos, una por cada lado. Ofrecer las ocho sería invitar a
+ * elegir una que la geometría descarta.
+ *
+ * Cuál de las dos es la buena NO se puede deducir aquí —haría falta saber de
+ * qué lado queda el interior, y una pared dibujada parte el edificio por la
+ * mitad—, así que lo dice quien tiene el plano delante. Eso es una decisión
+ * suya y queda escrita como tal.
+ *
+ * Las coordenadas son las del LIENZO, y eso basta para orientar: el lienzo es
+ * el mundo trasladado con la Y del revés (`plano_svg.plantas`), y una
+ * traslación no cambia las direcciones — solo hay que deshacer el espejo.
+ */
+export function rumbosDeLaPared(pts) {
+    const p = pts || [];
+    if (p.length < 2) return [];
+    const [ax, ay] = p[0];
+    const [bx, by] = p[p.length - 1];
+    const dx = Number(bx) - Number(ax);
+    const dy = -(Number(by) - Number(ay));       // deshecho el espejo: +y es el norte
+    if (!dx && !dy) return [];
+    // Las dos normales de la recta. El azimut se mide desde el Norte y en
+    // sentido horario, que es `atan2(x, y)` y no el `atan2(y, x)` de siempre.
+    const az = (nx, ny) => ((Math.atan2(nx, ny) * 180) / Math.PI + 360) % 360;
+    const dos = [rumboDelAzimut(az(dy, -dx)), rumboDelAzimut(az(-dy, dx))];
+    // Ordenados por el sector, para que la misma pared ofrezca siempre los dos
+    // botones en el mismo sitio: con el orden bailando se pulsa el que no es.
+    return dos.sort((a, b) => RUMBOS.indexOf(a) - RUMBOS.indexOf(b));
+}
+
 export const fmt = n => (Number(n) || 0).toFixed(2).replace('.', ',');
 
 export default { largo, at, centro, centroide, cota, iso, proyector, CAMARA_ISO, ESCALA_AXO,
-                 TOPE_ALT, caja, recorrido, reparto, fmt, puntoMasCercano, pegarAPared };
+                 TOPE_ALT, caja, recorrido, reparto, fmt, puntoMasCercano, pegarAPared,
+                 RUMBOS, rumboDelAzimut, rumbosDeLaPared };

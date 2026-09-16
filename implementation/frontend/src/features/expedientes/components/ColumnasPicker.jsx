@@ -1,16 +1,15 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { COLUMNAS, GRUPOS, PRESETS, COLUMNAS_POR_DEFECTO, puedeVer } from '../logic/expedientesColumnas';
+import { COLUMNAS, GRUPOS, PRESETS, COLUMNAS_POR_DEFECTO, puedeVer, ordenCanonico } from '../logic/expedientesColumnas';
 
 // ─── QUÉ COLUMNAS SE VEN ──────────────────────────────────────────────────────
 // Un botón con el CONTADOR a la vista ("Columnas · 7"), no un icono mudo: es lo
 // que explica por qué esta tabla no se parece a la que recuerda quien la dejó
 // con otras columnas.
 //
-// REGLA — el orden de las columnas lo fija el REGISTRO, no el orden en que se
-// marcan. Si cada usuario pudiera reordenarlas, la misma pantalla contada por
-// teléfono ("mira la tercera columna") dejaría de significar lo mismo; y el nº
-// de expediente podría acabar el último, que es donde no sirve para nada.
+// El ORDEN se cambia arrastrando la cabecera en la tabla, no aquí: se coloca una
+// columna mirando las que tiene al lado, y en este panel no se ven los datos. Lo
+// que sí vive aquí es la salida — "↺ Orden" devuelve el de la app.
 //
 // REGLA — un filtro activo NO puede esconderse al ocultar su columna. Al
 // quitarla se limpia su filtro: una lista recortada por algo que no se ve en
@@ -188,14 +187,23 @@ export function ColumnasPicker({ visibles, onChange, rol }) {
 
                     <div className="px-4 py-2 border-t border-white/[0.06] flex items-center justify-between">
                         <span className="text-[10px] text-white/30">
-                            Se guarda en este navegador · el orden lo fija la app
+                            Se guarda en este navegador · arrastra las cabeceras para moverlas
                         </span>
-                        <button
-                            onClick={() => onChange([...COLUMNAS_POR_DEFECTO])}
-                            className="text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-brand transition-colors"
-                        >
-                            Restaurar
-                        </button>
+                        <span className="flex items-center gap-3 shrink-0">
+                            <button
+                                onClick={() => onChange(ordenCanonico(visibles))}
+                                title="Devolver las columnas al orden de la app, sin quitar ninguna"
+                                className="text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-brand transition-colors"
+                            >
+                                ↺ Orden
+                            </button>
+                            <button
+                                onClick={() => onChange([...COLUMNAS_POR_DEFECTO])}
+                                className="text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-brand transition-colors"
+                            >
+                                Restaurar
+                            </button>
+                        </span>
                     </div>
                 </div>,
                 document.body

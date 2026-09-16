@@ -18,6 +18,7 @@
 // ============================================================================
 
 import React from 'react';
+import { LogoEmpresa } from '../../../components/LogoEmpresa';
 import { getCCAA, getCifoYear, fichaColor, FICHAS } from './expedienteTaxonomia';
 import { SUBESTADO_LABELS, daysSince, fmtDate } from './seguimientoTime';
 
@@ -434,7 +435,11 @@ export const COLUMNAS = [
             const initials = (cert.acronimo || cert.razon_social || '?').substring(0, 2).toUpperCase();
             return (
                 <div className="flex items-center gap-2">
-                    <div className={`w-6 h-6 rounded-md flex items-center justify-center text-[9px] font-black shrink-0 ${fichaColor(ctx.fin(exp).ficha).chip}`}>{initials}</div>
+                    {/* Con logo, el logo; sin él, las iniciales sobre el color de su
+                        FICHA, que es como se ha leído siempre esta columna. */}
+                    {cert.logo_empresa
+                        ? <LogoEmpresa p={cert} size={24} />
+                        : <div className={`w-6 h-6 rounded-md flex items-center justify-center text-[9px] font-black shrink-0 ${fichaColor(ctx.fin(exp).ficha).chip}`}>{initials}</div>}
                     <span className="text-[10px] font-medium text-white/60 truncate max-w-[110px] leading-tight">
                         {cert.razon_social || cert.acronimo}
                     </span>
@@ -468,7 +473,7 @@ export const COLUMNAS = [
         key: 'instalador',
         label: 'Instalador',
         grupo: 'Gente',
-        ancho: 160,
+        ancho: 190,
         // Quién ejecuta la obra es dato COMERCIAL: el certificador no lo ve
         // (regla 48.d). El backend lo repite capándolo de la respuesta.
         roles: ['ADMIN', 'TRABAJADOR'],
@@ -479,17 +484,24 @@ export const COLUMNAS = [
             if (!p) return <Vacio />;
             return (
                 <div
-                    className="flex flex-col leading-tight"
+                    className="flex items-center gap-2 min-w-0"
                     title={heredado
                         ? 'Heredado de la oportunidad — la ficha de Instalación no lo declara'
                         : (p.razon_social || '')}
                 >
-                    <span className={`text-[11px] font-bold uppercase tracking-wide truncate ${heredado ? 'text-white/35 italic' : 'text-white/70'}`}>
-                        {p.acronimo || p.razon_social}
-                    </span>
-                    {p.acronimo && p.razon_social && (
-                        <span className="text-white/25 text-[9px] uppercase tracking-wide truncate">{p.razon_social}</span>
-                    )}
+                    {/* El LOGO es el ancla: en una lista de 267 filas se reconoce a
+                        quién trae la obra antes de leer la razón social. Lo heredado
+                        se atenúa también aquí, o el logo lo haría pasar por
+                        declarado. */}
+                    <LogoEmpresa p={p} size={24} className={heredado ? 'opacity-40' : ''} />
+                    <div className="flex flex-col leading-tight min-w-0">
+                        <span className={`text-[11px] font-bold uppercase tracking-wide truncate ${heredado ? 'text-white/35 italic' : 'text-white/70'}`}>
+                            {p.acronimo || p.razon_social}
+                        </span>
+                        {p.acronimo && p.razon_social && (
+                            <span className="text-white/25 text-[9px] uppercase tracking-wide truncate">{p.razon_social}</span>
+                        )}
+                    </div>
                 </div>
             );
         },
@@ -655,6 +667,30 @@ export const COLUMNAS_POR_KEY = Object.fromEntries(COLUMNAS.map(c => [c.key, c])
 
 /** ¿Puede este usuario ver esta columna? `roles` ausente = todos. */
 export const puedeVer = (col, rol) => !col.roles || col.roles.includes(rol);
+
+// ─── Reordenar arrastrando la cabecera ───────────────────────────────────────
+// REGLA — el nº de expediente se queda SIEMPRE el primero. Es lo que identifica
+// la fila: con el identificador en medio de la tabla, las celdas de la izquierda
+// no se sabe de quién son. Lo demás se coloca como cada uno quiera.
+export const FIJA_PRIMERA = 'expediente';
+
+/**
+ * Mueve `origen` justo antes o después de `destino`. Devuelve un array NUEVO
+ * (nunca muta el que recibe) y con la columna fija siempre delante, así que un
+ * arrastre no puede dejar la tabla sin identificador a la izquierda.
+ */
+export function moverColumna(keys, origen, destino, antes) {
+    if (!origen || origen === destino || origen === FIJA_PRIMERA) return keys;
+    const sinOrigen = keys.filter(k => k !== origen);
+    const i = sinOrigen.indexOf(destino);
+    if (i < 0) return keys;
+    const pos = Math.max(antes ? i : i + 1, sinOrigen[0] === FIJA_PRIMERA ? 1 : 0);
+    return [...sinOrigen.slice(0, pos), origen, ...sinOrigen.slice(pos)];
+}
+
+/** Devuelve las mismas columnas en el orden CANÓNICO del registro. */
+export const ordenCanonico = (keys) =>
+    COLUMNAS.map(c => c.key).filter(k => keys.includes(k));
 
 // ─── Vistas de fábrica ───────────────────────────────────────────────────────
 // Un preset es solo una lista de keys: no hay nada que mantener aparte. El

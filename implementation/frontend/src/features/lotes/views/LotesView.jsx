@@ -4,7 +4,7 @@ import { useModal } from '../../../context/ModalContext';
 import { useAuth } from '../../../context/AuthContext';
 import { getRoleFlags } from '../../../utils/roleFlags';
 import { LoteDetailModal } from '../components/LoteDetailModal';
-import { LogoEmpresa } from '../components/LogoEmpresa';
+import { LogoEmpresa } from '../../../components/LogoEmpresa';
 import { LotesResumen } from '../components/LotesResumen';
 import { PedirAlSoModal } from '../components/PedirAlSoModal';
 import { BotonCarpetaLocal } from '../components/BotonCarpetaLocal';

@@ -634,7 +634,8 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                         ))}
                     </div>
                 </div>
-                    <PanelPared plano={plano} transmitancias={ficha?.ficha?.termicas} />
+                    <PanelPared plano={plano} transmitancias={ficha?.ficha?.termicas}
+                                expedienteId={id} />
                 </div>
             </div>
 
@@ -1318,7 +1319,13 @@ function construirPestanas({ ficha, resumen, entrada, medidas }) {
         : nGenerales ? { estado: `${nGenerales} sin rellenar`, tono: 'aviso' }
         : { estado: '✓ completo', tono: 'ok' };
 
+    // Una fachada sin rumbo PARA el `.cex`, así que va por delante de lo que
+    // solo está por confirmar. Sin esto solo se veía pulsando esa pared.
     const envolvente = !entrada ? { estado: '! falta la entrada', tono: 'aviso' }
+        : resumen.sinRumbo
+            ? { estado: resumen.sinRumbo === 1 ? '! una fachada sin rumbo'
+                                               : `! ${resumen.sinRumbo} fachadas sin rumbo`,
+                tono: 'aviso' }
         : resumen.dudosos ? { estado: `${resumen.dudosos} por confirmar`, tono: 'aviso' }
         : resumen.sinTocar ? { estado: `${resumen.sinTocar} sin mirar`, tono: 'aviso' }
         : { estado: '✓ completo', tono: 'ok' };

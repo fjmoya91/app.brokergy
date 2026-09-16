@@ -460,6 +460,199 @@ router.post('/leer', internalOnly, upload.single('file'), async (req, res) => {
     }
 });
 
+// ─── La FOTO REAL de cada cerramiento ───────────────────────────────────────
+//
+// El plano dice que FBS3 da a la calle y mide 10,94 m; no dice QUÉ HAY en ella.
+// Eso se mira en una foto, y la foto casi siempre ya está en el expediente.
+//
+// La CLAVE del cerramiento (`FBS3`, o `FBS3/a1b2c3` para uno de sus huecos) va
+// en la query y no en la ruta: lleva una barra, y Express partiría el parámetro
+// por ella.
+//
+// ⚠️ El `upload` de arriba admite UN fichero de `.cex`. Aquí se sueltan varias
+// fotos de la misma fachada a la vez, así que va su propio multer.
+
+const uploadFotos = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 12 * 1024 * 1024, files: 6 },
+});
+
+const fotos = require('../services/paredFotoService');
+const paredOcr = require('../services/paredOcrService');
+
+const quienEs = (req) => req.user?.email || req.user?.nombre || null;
+
+/**
+ * GET /api/cee-envolvente/:expedienteId/fotos
+ *
+ * Lo que tiene cada cerramiento —reconciliado con Drive— y las CANDIDATAS: las
+ * fotos de fachada, patios y ventanas que el expediente ya tiene. Se ofrecen
+ * primero porque volver a pedirle al cliente una foto que mandó en junio es la
+ * peor forma de estrenar esto, y además la suya es la buena: es de antes de la
+ * obra.
+ */
+router.get('/:expedienteId/fotos', internalOnly, async (req, res) => {
+    try {
+        const ctx = await cex.cargarExpediente(req.params.expedienteId);
+        if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
+        const [puestas, cands] = await Promise.all([
+            fotos.estado(ctx.expediente),
+            fotos.candidatas(ctx.expediente),
+        ]);
+        res.json({ fotos: puestas, candidatas: cands.fotos, aviso: cands.aviso });
+    } catch (e) {
+        console.error('[ceeEnvolvente] fotos:', e.message);
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+/** POST /:expedienteId/fotos?clave=FBS3 — sube fotos nuevas a ese cerramiento. */
+router.post('/:expedienteId/fotos', internalOnly, uploadFotos.array('files', 6),
+    async (req, res) => {
+        try {
+            const ctx = await cex.cargarExpediente(req.params.expedienteId);
+            if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
+            const clave = fotos.validaClave(req.query.clave || req.body?.clave);
+            if (!req.files?.length) {
+                return res.status(400).json({ error: 'No se ha recibido ninguna foto.' });
+            }
+            // EN SERIE: cada subida lee el estado y lo reescribe, y en paralelo dos
+            // se pisarían — la segunda escribiría sobre lo que leyó antes de la
+            // primera. Mismo motivo que la subida secuencial de `subirDocsPendientes`.
+            // `subir` deja el estado puesto en `ctx.expediente`, así que la siguiente
+            // vuelta ya ve la anterior sin recargar nada.
+            const puestas = [];
+            for (const f of req.files) {
+                // eslint-disable-next-line no-await-in-loop
+                puestas.push(await fotos.subir(ctx.expediente, clave, f, quienEs(req)));
+            }
+            res.json({ ok: true, puestas });
+        } catch (e) {
+            console.error('[ceeEnvolvente] subir foto:', e.message);
+            res.status(e.status || 500).json({ error: e.message });
+        }
+    });
+
+/** POST /:expedienteId/fotos/adoptar — pega una que YA está en el expediente. */
+router.post('/:expedienteId/fotos/adoptar', internalOnly, async (req, res) => {
+    try {
+        const ctx = await cex.cargarExpediente(req.params.expedienteId);
+        if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
+        const { clave, drive_id: driveId } = req.body || {};
+        const puesta = await fotos.adoptar(ctx.expediente, clave, driveId, quienEs(req));
+        res.json({ ok: true, puesta });
+    } catch (e) {
+        console.error('[ceeEnvolvente] adoptar foto:', e.message);
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+/** DELETE /:expedienteId/fotos?clave=FBS3&drive_id=… — la despega. */
+router.delete('/:expedienteId/fotos', internalOnly, async (req, res) => {
+    try {
+        const ctx = await cex.cargarExpediente(req.params.expedienteId);
+        if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
+        await fotos.quitar(ctx.expediente, req.query.clave, req.query.drive_id);
+        res.json({ ok: true });
+    } catch (e) {
+        console.error('[ceeEnvolvente] quitar foto:', e.message);
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+/**
+ * PUT /:expedienteId/fotos/marcas
+ * Body: { clave, drive_id, marcas: [{ uid, box:{x,y,ancho,alto}, de }] }
+ *
+ * Dónde cae cada hueco DENTRO de esta foto. Se escribe al aplicar una lectura
+ * —el modelo ya ha mirado dónde está cada ventana— y al señalar una a mano.
+ */
+router.put('/:expedienteId/fotos/marcas', internalOnly, async (req, res) => {
+    try {
+        const ctx = await cex.cargarExpediente(req.params.expedienteId);
+        if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
+        const { clave, drive_id: driveId, marcas, fundir } = req.body || {};
+        const puestas = await fotos.guardarMarcas(
+            ctx.expediente, clave, driveId, marcas, { fundir: !!fundir });
+        res.json({ ok: true, marcas: puestas });
+    } catch (e) {
+        console.error('[ceeEnvolvente] marcas:', e.message);
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+/**
+ * GET /:expedienteId/fotos/:driveId/contenido
+ *
+ * Los bytes de una foto, para poder verla en la pantalla. `internalOnly` como
+ * todo lo demás: el navegador la pide con su sesión y la pinta desde un blob, en
+ * vez de abrir una ruta pública con el id de Drive en la URL.
+ *
+ * Solo sirve fotos de ESTE expediente —pegadas a un cerramiento o candidatas—:
+ * el driveId llega del navegador y esto no puede ser un proxy de la Drive API.
+ */
+router.get('/:expedienteId/fotos/:driveId/contenido', internalOnly, async (req, res) => {
+    try {
+        const ctx = await cex.cargarExpediente(req.params.expedienteId);
+        if (!ctx) return res.status(404).send('Expediente no encontrado');
+        const f = await fotos.bytesDe(ctx.expediente, req.params.driveId);
+        res.setHeader('Content-Type', f.mimeType);
+        res.setHeader('Cache-Control', 'private, max-age=3600');
+        res.send(f.buffer);
+    } catch (e) {
+        res.status(e.status || 500).send(e.message);
+    }
+});
+
+/**
+ * POST /:expedienteId/fotos/leer
+ * Body: { clave, drive_ids[], ambito: 'pared'|'hueco', pared?, hueco?, aspecto? }
+ *
+ * LEE y PROPONE. No escribe ni un hueco en el plano: lo que devuelve va a un
+ * popup donde se revisa y se aplica, porque de aquí sale una superficie de
+ * huecos que acaba en el certificado. Mismo gesto de dos tiempos que las placas.
+ *
+ * La PARED viaja desde el navegador —su largo, su alto y su orientación— y eso
+ * es deliberado: es la geometría que está en pantalla, la que el motor midió y
+ * la que el certificador puede haber corregido moviendo la pared. Con ella el
+ * código pone la escala; el modelo solo da proporciones.
+ */
+router.post('/:expedienteId/fotos/leer', internalOnly, async (req, res) => {
+    try {
+        const ctx = await cex.cargarExpediente(req.params.expedienteId);
+        if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
+
+        const { clave, drive_ids: driveIds, ambito, pared, hueco, aspecto } = req.body || {};
+        fotos.validaClave(clave);
+        const ids = (Array.isArray(driveIds) ? driveIds : []).slice(0, paredOcr.MAX_FOTOS);
+        if (!ids.length) {
+            return res.status(400).json({ error: 'Elige al menos una foto para leerla.' });
+        }
+
+        const cands = (await fotos.candidatas(ctx.expediente)).fotos;
+        const imagenes = [];
+        for (const id of ids) {
+            // eslint-disable-next-line no-await-in-loop
+            const f = await fotos.bytesDe(ctx.expediente, id, { cands });
+            imagenes.push({ name: f.nombre, buffer: f.buffer, mimeType: f.mimeType });
+        }
+
+        const lectura = ambito === 'hueco'
+            ? await paredOcr.leerHueco(imagenes, hueco || {})
+            : await paredOcr.leerFachada(imagenes, pared || {}, { aspecto });
+
+        // La huella queda en el expediente: una comprobación que se ve una vez y
+        // se pierde al cerrar el popup no sirve de nada.
+        try { await fotos.sellarLectura(ctx.expediente, clave, ids, lectura); }
+        catch (e) { console.warn('[ceeEnvolvente] sellar lectura:', e.message); }
+
+        res.json(lectura);
+    } catch (e) {
+        console.error('[ceeEnvolvente] leer foto:', e.message);
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
 /** GET /api/cee-envolvente/health — para el deploy y para el panel de admin. */
 router.get('/health', internalOnly, async (_req, res) => {
     try {

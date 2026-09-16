@@ -167,3 +167,88 @@ def test_el_reparto_calla_cuando_cuadra():
         {"slot": "mixto2", "pct_acs": "50", "pct_calefaccion": "100"},
         {"slot": "ACS", "pct_acs": "50"},
     ]) == []
+
+
+# ---------------------------------------------------------------------------
+# HIBRIDACION: la medida de mejora lleva los DOS generadores
+#
+# La caldera NO se retira, asi que el edificio mejorado tiene dos equipos
+# repartiendose la demanda. Las cifras salen del `.cex` que el certificador
+# monto a mano para 26RES093_8: caldera 21 % / 25,83 m2 y aerotermia 79 % /
+# 97,17 m2, sobre los 123 m2 del edificio.
+# ---------------------------------------------------------------------------
+
+def _base_con_caldera(sup="123.0", litros="100"):
+    """El pickle 4 del CEE inicial: una sola caldera con todo el edificio."""
+    base = [[] for _ in G.SLOTS]
+    base[G.SLOTS.index("mixto2")] = [[
+        "CALDERA DOMUSA", "mixto2", [43.9, 43.9, ""], "Caldera Estándar", "Gasóleo-C",
+        [[sup, "100"], [sup, "100"], ["", ""]], "Estimado según Instalación",
+        ["Sin aislamiento", "79", "0.2", "27.8", list(G._INTERRUPTORES),
+         list(G._COLA_PARAMETROS)],
+        [True, litros, "80", "60", "4.7", "Por defecto", "1"], ZONA,
+    ]]
+    return base
+
+
+def _equipos_hibridos():
+    return [
+        {"slot": "mixto2", "nombre": "AEROTERMIA PANASONIC", "generador":
+         "Bomba de Calor - Caudal Ref. Variable", "combustible": "Electricidad",
+         "rendimiento": "conocido", "rend_calefaccion": "434", "rend_acs": "359",
+         "superficie_calefaccion": 97.17, "superficie_acs": 97.17,
+         "pct_calefaccion": "79", "pct_acs": "79"},
+        {"slot": "mixto2", "nombre": "CALDERA DOMUSA", "generador": "Caldera Estándar",
+         "combustible": "Gasóleo-C", "aislamiento": "Sin aislamiento",
+         "rend_combustion": "79", "potencia": "27.8",
+         "superficie_calefaccion": 25.83, "superficie_acs": 25.83,
+         "pct_calefaccion": "21", "pct_acs": "21"},
+    ]
+
+
+def test_la_medida_de_una_hibridacion_escribe_los_dos_generadores():
+    equipos = _equipos_hibridos()
+    base = _base_con_caldera()
+    G.heredar_del_base(equipos, base)
+    slots, _ = G.construir_instalaciones(
+        {"instalaciones": equipos, "envolvente": {"espacio": ZONA}},
+        base, {ZONA}, retirar=G.slots_a_retirar(equipos))
+
+    mixtos = slots[G.SLOTS.index("mixto2")]
+    assert [m[0] for m in mixtos] == ["AEROTERMIA PANASONIC", "CALDERA DOMUSA"]
+    # [[sup_acs, pct_acs], [sup_cal, pct_cal], ["", ""]]
+    assert _plano(mixtos[0][5]) == [["97.17", "79"], ["97.17", "79"], ["", ""]]
+    assert _plano(mixtos[1][5]) == [["25.83", "21"], ["25.83", "21"], ["", ""]]
+    # Los dos trozos suman el edificio entero: ni un m2 de mas ni de menos.
+    assert float(mixtos[0][5][1][0]) + float(mixtos[1][5][1][0]) == 123.0
+
+
+def test_el_reparto_NO_lo_deshace_la_superficie_heredada():
+    """`_heredar_superficies` daba a cada equipo la superficie del fichero (123),
+    o sea el edificio entero a los dos. Ahora hereda el TOTAL y le vuelve a
+    aplicar su porcentaje: si el certificador la corrigio en CE3X, manda la
+    suya — repartida."""
+    equipos = _equipos_hibridos()
+    avisos = G.heredar_del_base(equipos, _base_con_caldera(sup="110.0"))
+    assert equipos[0]["superficie_calefaccion"] == 86.9    # 110 x 79 %
+    assert equipos[1]["superficie_calefaccion"] == 23.1    # 110 x 21 %
+    assert any("le tocan" in a for a in avisos)
+
+
+def test_los_dos_heredan_el_deposito_del_edificio():
+    """El deposito es del EDIFICIO, no de la caldera: en el .cex de referencia
+    los dos equipos de la medida lo llevan."""
+    equipos = _equipos_hibridos()
+    G.heredar_del_base(equipos, _base_con_caldera(litros="100"))
+    assert all(e["acumulacion_cruda"][1] == "100" for e in equipos)
+
+
+def test_una_SUSTITUCION_sigue_heredando_la_superficie_entera():
+    """Sin reparto (100 %), nada cambia: se reescribe TAL CUAL la del fichero."""
+    solo = [{"slot": "mixto2", "nombre": "AEROTERMIA", "generador":
+             "Bomba de Calor - Caudal Ref. Variable", "combustible": "Electricidad",
+             "rendimiento": "conocido", "rend_calefaccion": "434", "rend_acs": "359",
+             "superficie_calefaccion": 120, "superficie_acs": 120}]
+    G.heredar_del_base(solo, _base_con_caldera())
+    assert solo[0]["superficie_calefaccion"] == "123.0"
+    assert solo[0]["superficie_calefaccion_cruda"] == "123.0"

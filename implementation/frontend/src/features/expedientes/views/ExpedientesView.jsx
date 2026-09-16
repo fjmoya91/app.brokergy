@@ -25,9 +25,10 @@ import { CCAA_MAP, pad2, getCifoYear, getCCAA, FICHAS, fichaColor } from '../log
 import { resolveDacs } from '../logic/demandaAcs';
 import {
     COLUMNAS, COLUMNAS_POR_KEY, COLUMNA_ACCIONES, COLUMNAS_POR_DEFECTO,
-    puedeVer, instaladorDe, valorTexto,
+    puedeVer, instaladorDe, valorTexto, moverColumna,
 } from '../logic/expedientesColumnas';
 import { ColumnasPicker } from '../components/ColumnasPicker';
+import { TablaExpedientesHead } from '../components/TablaExpedientesHead';
 
 // ─── Dropzone de XML (migración de expedientes desde CE3X) ────────────────────
 function XmlDrop({ label, slot, error, onFile }) {
@@ -986,16 +987,6 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
         setExpColW({ ...EXP_COL_DEFAULTS });
     };
 
-    // Handle visual resize
-    const ExpRH = ({ colKey }) => (
-        <div
-            onMouseDown={e => startExpResize(colKey, e)}
-            className="absolute top-0 right-0 h-full w-3 flex items-center justify-center cursor-col-resize group/rh select-none z-10"
-            title="Arrastra para redimensionar"
-        >
-            <div className="w-px h-4 bg-white/10 group-hover/rh:bg-brand/60 group-hover/rh:h-full transition-all" />
-        </div>
-    );
     // ─────────────────────────────────────────────────────────────────────────
 
     const fetchExpedientes = useCallback(async () => {
@@ -1422,6 +1413,10 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
         if (sortBy && !ahora.has(sortBy.key)) setSortBy(null);
         setColKeys(nuevas);
     };
+
+    // Reordenar arrastrando: el orden ES el array `colKeys`, que ya se guardaba
+    // en el navegador, así que mover una columna no necesita estado nuevo que
+    // persistir. El gesto vive en TablaExpedientesHead.
 
     const alternarOrden = (key) => setSortBy(prev =>
         !prev || prev.key !== key ? { key, dir: 'asc' }
@@ -1984,59 +1979,28 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                 <div className="hidden md:block rounded-2xl border border-white/[0.06] overflow-hidden shadow-2xl bg-bkg-surface/60">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse table-fixed" style={{ minWidth: 680 }}>
-                            <thead>
-                                <tr className="bg-bkg-elevated/80">
-                                    {selectMode && (
-                                        <th className="px-3 py-4 border-b border-white/[0.06] text-center" style={{ width: 44 }}>
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedCount > 0}
-                                                ref={el => { if (el) el.indeterminate = selectedCount > 0 && selectedCount < MAX_LOTE; }}
-                                                onChange={toggleSelectAll}
-                                                title={selectedCount > 0 ? 'Vaciar selección' : 'Seleccionar el primer grupo elegible (hasta 5)'}
-                                                className="w-4 h-4 accent-brand cursor-pointer align-middle"
-                                            />
-                                        </th>
-                                    )}
-                                    {colsVisibles.map(col => {
-                                        const orden = sortBy?.key === col.key ? sortBy.dir : null;
-                                        return (
-                                            <th
-                                                key={col.key}
-                                                className={`${col.pad || 'px-4'} py-4 text-[10px] font-black uppercase tracking-[0.15em] border-b border-white/[0.06] relative overflow-visible ${orden ? 'text-brand' : 'text-white/25'}`}
-                                                style={{ width: expColW[col.key] ?? col.ancho }}
-                                            >
-                                                {/* La cabecera ORDENA. Tercer clic: vuelve al orden por
-                                                    prioridad, que es el que la lista tiene por defecto. */}
-                                                <button
-                                                    type="button"
-                                                    onClick={() => col.valor && alternarOrden(col.key)}
-                                                    disabled={!col.valor}
-                                                    title={col.valor ? 'Ordenar por esta columna' : ''}
-                                                    className={`flex items-center gap-1 uppercase tracking-[0.15em] ${col.valor ? 'hover:text-white/70 transition-colors' : 'cursor-default'}`}
-                                                >
-                                                    {col.cabecera ? col.cabecera() : col.label}
-                                                    {orden && <span className="text-[8px]">{orden === 'asc' ? '▲' : '▼'}</span>}
-                                                </button>
-                                                <ExpRH colKey={col.key} />
-                                            </th>
-                                        );
-                                    })}
-                                    <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] text-right whitespace-nowrap relative overflow-visible" style={{ width: expColW.acciones }}>
-                                        Acciones
-                                    </th>
-                                </tr>
-                                {/* Fila de Filtros — la declara cada columna, no esta vista */}
-                                <tr className="bg-white/[0.01]">
-                                    {selectMode && <td className="px-3 py-3 border-b border-white/[0.04]"></td>}
-                                    {colsVisibles.map(col => (
-                                        <td key={col.key} className={`${col.pad || 'px-4'} py-3 border-b border-white/[0.04]`}>
-                                            {col.filtro ? col.filtro(colCtx) : null}
-                                        </td>
-                                    ))}
-                                    <td className="px-4 py-2 border-b border-white/[0.04]"></td>
-                                </tr>
-                            </thead>
+                            <TablaExpedientesHead
+                                cols={colsVisibles}
+                                ctx={colCtx}
+                                anchos={expColW}
+                                sortBy={sortBy}
+                                onOrdenar={alternarOrden}
+                                onReordenar={(origen, destino, antes) =>
+                                    setColKeys(prev => moverColumna(prev, origen, destino, antes))}
+                                onResizeStart={startExpResize}
+                                selectMode={selectMode}
+                                anchoAcciones={expColW.acciones}
+                                cabeceraSeleccion={
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedCount > 0}
+                                        ref={el => { if (el) el.indeterminate = selectedCount > 0 && selectedCount < MAX_LOTE; }}
+                                        onChange={toggleSelectAll}
+                                        title={selectedCount > 0 ? 'Vaciar selección' : 'Seleccionar el primer grupo elegible (hasta 5)'}
+                                        className="w-4 h-4 accent-brand cursor-pointer align-middle"
+                                    />
+                                }
+                            />
                             <tbody className="divide-y divide-white/[0.04]">
                                 {sortedFiltered.map((exp) => {
                                     const isSel = selectedIds.has(exp.id);

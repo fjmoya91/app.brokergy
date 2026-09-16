@@ -1,4 +1,9 @@
-import { TIPOS_PARED } from '../logic/usePlanoEnvolvente';
+import { useState } from 'react';
+import axios from 'axios';
+import { TIPOS_PARED, nuevoUid } from '../logic/usePlanoEnvolvente';
+import { RUMBOS } from '../logic/geometriaPlano';
+import { FotosCerramiento } from './FotosCerramiento';
+import { LecturaFotoModal } from './LecturaFotoModal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // El panel de la pared seleccionada: cuántas ventanas, cuántas puertas, y qué
@@ -9,13 +14,52 @@ import { TIPOS_PARED } from '../logic/usePlanoEnvolvente';
 // en todo el edificio.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function PanelPared({ plano, transmitancias }) {
+export function PanelPared({ plano, transmitancias, expedienteId }) {
     const { muros, sel, entrada, esMedianera, esParticion, esFuera, esDibujada,
             tipoDe, nombreDe,
             ponHuecos, cambiaHueco, duplicaHueco, quitaHueco, marcaComoParticion,
             confirmaHueco, confirmaPared, muevePared, borraPared,
-            apartaDeLaEnvolvente, reclasifica, renombra, ponU } = plano;
+            apartaDeLaEnvolvente, reclasifica, renombra, ponU, orienta,
+            rumboDe, necesitaRumbo, rumbosDe,
+            aplicaHuecosLeidos, anotaLecturaHueco } = plano;
     const m = sel ? muros[sel] : null;
+
+    //: Lo leído de una foto, esperando a que lo revise una persona. Vive aquí y
+    //: no dentro de `FotosCerramiento` porque lo que se aplica lo escribe el
+    //: PLANO, y el popup tiene que saber qué huecos tiene ya la pared para no
+    //: proponer duplicarla.
+    const [propuesta, setPropuesta] = useState(null);
+
+    /**
+     * Aplica lo leído Y deja SEÑALADO en la foto dónde cae cada hueco.
+     *
+     * El modelo ya ha mirado dónde está cada ventana (`box`), así que atarlas a
+     * mano después sería repetir un trabajo hecho. Se fija el `uid` ANTES de
+     * crearlas —si naciera dentro del hook no habría forma de saber cuál le tocó
+     * a cada caja— y las marcas se escriben en la foto, no en el plano.
+     *
+     * Un fallo al guardar las marcas NO deshace los huecos: lo que se ha pedido
+     * es meterlos en la pared; la marca es la comodidad de encima.
+     */
+    async function aplicarLeidos(leidos, { reemplaza = false } = {}) {
+        const conUid = leidos.map(l => ({ ...l, uid: l.uid || nuevoUid() }));
+        aplicaHuecosLeidos(m.id, conUid, { de: `la foto de ${nombreDe(m)}`, reemplaza });
+
+        const driveId = propuesta?.driveId;
+        const marcas = conUid.filter(l => l.box).map(l => ({ uid: l.uid, box: l.box, de: 'lectura' }));
+        if (driveId && marcas.length && expedienteId) {
+            try {
+                await axios.put(`/api/cee-envolvente/${expedienteId}/fotos/marcas`, {
+                    clave: m.id, drive_id: driveId, marcas,
+                    // FUNDIR: esta lectura solo sabe de los huecos que acaba de
+                    // proponer. Las marcas que el certificador puso a mano en
+                    // otros huecos de la misma foto se conservan.
+                    fundir: true,
+                });
+            } catch { /* la marca es la comodidad; los huecos ya están puestos */ }
+        }
+        setPropuesta(null);
+    }
 
     if (!m) {
         return (
@@ -38,11 +82,17 @@ export function PanelPared({ plano, transmitancias }) {
                     enlaza sus puentes térmicos. Cambia solo al reclasificar
                     (FBE1 → PBE1) y se puede retocar. */}
                 <input
-                    value={nombreDe(m)}
+                    value={m.nombre_manual ?? m.id}
                     onChange={e => renombra(m.id, e.target.value)}
                     title="El nombre que verás en CE3X"
                     aria-label="nombre de la pared"
-                    className={`w-[78px] rounded-md border px-2 py-1.5 text-[13px] font-black
+                    maxLength={40}
+                    /* Crece con lo escrito. Fijo en 78px cabían 7 caracteres, y
+                       `FBX1 GARAJE ABIERTO` —que es lo que el motor mismo
+                       escribe en otras paredes— se veía cortado a la mitad
+                       mientras se teclea, que es justo cuando hay que leerlo. */
+                    style={{ width: `calc(${Math.max(6, (m.nombre_manual ?? m.id).length)}ch + 1.6rem)` }}
+                    className={`max-w-full rounded-md border px-2 py-1.5 text-[13px] font-black
                                 uppercase tabular-nums
                         ${m.id === entrada
                             ? 'border-brand bg-brand text-black'
@@ -58,7 +108,12 @@ export function PanelPared({ plano, transmitancias }) {
                     </button>
                 )}
                 <span className="text-[12px] tabular-nums text-white/40">
-                    {m.orientacion} · {fmt(m.largo)} m · {fmt(m.superficie)} m²
+                    {/* El rumbo EFECTIVO, no el de la geometría: si lo ha dicho
+                        el certificador, es el que se va a escribir. */}
+                    <span className={m.orientacion_manual ? 'text-brand' : undefined}>
+                        {rumboDe(m) || '—'}
+                    </span>
+                    {' · '}{fmt(m.largo)} m · {fmt(m.superficie)} m²
                 </span>
                 {/* Una pared que ha puesto o corregido una PERSONA no puede
                     parecer una medida de Catastro: de ella sale una superficie
@@ -77,6 +132,8 @@ export function PanelPared({ plano, transmitancias }) {
             ) : (
                 <Tipo m={m} tipo={tipoDe(m)} esEntrada={m.id === entrada}
                       huecos={(m.huecos || []).length}
+                      falta={necesitaRumbo(m)} rumbo={rumboDe(m)} rumbos={rumbosDe(m)}
+                      onRumbo={r => orienta(m.id, r)}
                       onCambio={t => reclasifica(m.id, t)}
                       onApartar={() => apartaDeLaEnvolvente(m.id, true)} />
             )}
@@ -103,7 +160,10 @@ export function PanelPared({ plano, transmitancias }) {
 
                     <div className="flex flex-col gap-1.5">
                         {(m.huecos || []).map((h, i) => (
-                            <Hueco key={i} h={h}
+                            <Hueco key={h.uid || i} h={h}
+                                   expedienteId={expedienteId} paredId={m.id}
+                                   cerramiento={nombreDe(m)} muro={m} nombreDe={nombreDe}
+                                   onLeido={l => setPropuesta({ ambito: 'hueco', l, hueco: h })}
                                    onCambio={(c, v) => cambiaHueco(m.id, i, c, v)}
                                    onDuplica={() => duplicaHueco(m.id, i)}
                                    onConfirma={() => confirmaHueco(m.id, i)}
@@ -125,6 +185,38 @@ export function PanelPared({ plano, transmitancias }) {
                     )}
                 </>
             )}
+
+            {/* La foto de la pared sale TAMBIÉN en medianeras y particiones, y
+                ahí es donde más vale: es la prueba de que al otro lado hay de
+                verdad un edificio y no un solar. Solo se calla en una pared
+                apartada de la envolvente, que ya no describe nada de la obra. */}
+            {!fuera && expedienteId && (
+                <FotosCerramiento
+                    expedienteId={expedienteId} clave={m.id}
+                    titulo={`Foto de ${nombreDe(m)}`}
+                    ambito="pared"
+                    contexto={{ nombre: nombreDe(m), orientacion: m.orientacion,
+                                largo: m.largo, alto: m.alto, tipo: tipoDe(m) }}
+                    muro={m} nombreDe={nombreDe}
+                    onLeido={(l, driveId) => setPropuesta({ ambito: 'pared', l, driveId })} />
+            )}
+
+            {propuesta && (
+                <LecturaFotoModal
+                    lectura={propuesta.l}
+                    pared={m}
+                    hueco={propuesta.hueco}
+                    onCerrar={() => setPropuesta(null)}
+                    onAplicar={(x) => {
+                        if (propuesta.ambito === 'hueco') {
+                            anotaLecturaHueco(m.id, propuesta.hueco?.uid, x);
+                            setPropuesta(null);
+                        } else {
+                            aplicarLeidos(x);
+                        }
+                    }}
+                    onReemplazar={(x) => aplicarLeidos(x, { reemplaza: true })} />
+            )}
         </Caja>
     );
 }
@@ -141,7 +233,8 @@ export function PanelPared({ plano, transmitancias }) {
  * un cobertizo sin dar de alta convierte una medianera en fachada. Con "ver el
  * entorno" el certificador lo comprueba, y aquí lo corrige.
  */
-function Tipo({ m, tipo, onCambio, onApartar, esEntrada, huecos }) {
+function Tipo({ m, tipo, onCambio, onApartar, esEntrada, huecos,
+               falta, rumbo, rumbos, onRumbo }) {
     const cambiado = !!m.tipo_manual && m.tipo_manual !== m.tipo;
     // Un hueco solo cabe en un cerramiento al exterior: el motor RECHAZA el
     // .cex si no. Se dice aquí, al hacerlo, y no al pulsar Generar — que es
@@ -168,6 +261,11 @@ function Tipo({ m, tipo, onCambio, onApartar, esEntrada, huecos }) {
                     </Opcion>
                 ))}
             </div>
+
+            {tipo === 'FACHADA' && (falta || !!m.orientacion_manual) && (
+                <Rumbo falta={falta} rumbo={rumbo} rumbos={rumbos}
+                       propio={!!m.orientacion_manual} onCambio={onRumbo} />
+            )}
 
             {chocaConHuecos && (
                 <Aviso>
@@ -205,6 +303,60 @@ function Tipo({ m, tipo, onCambio, onApartar, esEntrada, huecos }) {
                                decoration-dotted underline-offset-2 hover:text-amber-300">
                     ⊘ No es de la vivienda — apartarla de la envolvente
                 </button>
+            )}
+        </div>
+    );
+}
+
+/**
+ * Hacia dónde da esta fachada.
+ *
+ * Solo aparece cuando hace falta contestarlo: las fachadas que vienen de
+ * Catastro ya traen su rumbo y ahí no hay nada que preguntar. Las que no lo
+ * traen son las que el certificador ha PASADO a fachada —una partición
+ * vertical y una pared dibujada nacen sin él, porque no salen de ningún
+ * polígono del que sacar la normal exterior— y sin rumbo el `.cex` no se puede
+ * escribir: CE3X lo exige y de él cuelga la ganancia solar de sus huecos.
+ *
+ * REGLA — se ofrecen DOS, no ocho. Una pared mira perpendicular a sí misma, así
+ * que las otras seis las descarta su propio trazo; enseñarlas sería invitar a
+ * pulsar una que la geometría dice que no. Cuál de las dos es la buena no lo
+ * puede deducir la app —una pared dibujada parte el edificio por la mitad y los
+ * dos lados quedan dentro de la huella—, así que lo dice quien tiene el plano
+ * y la brújula delante, y queda escrito que lo dijo.
+ */
+function Rumbo({ falta, rumbo, rumbos, propio, onCambio }) {
+    const NOMBRE = { N: 'Norte', NE: 'Noreste', E: 'Este', SE: 'Sureste',
+                     S: 'Sur', SO: 'Suroeste', O: 'Oeste', NO: 'Noroeste' };
+    return (
+        <div className="flex flex-col gap-1.5">
+            <div className="flex items-baseline gap-2">
+                <span className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-white/40">
+                    Hacia dónde da
+                </span>
+                {propio && (
+                    <button onClick={() => onCambio(null)}
+                            className="text-[10px] text-brand hover:underline">
+                        lo has dicho tú · deshacer
+                    </button>
+                )}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+                {(rumbos.length ? rumbos : RUMBOS).map(r => (
+                    <Opcion key={r} activa={rumbo === r}
+                            title={`La pared mira al ${NOMBRE[r]}`}
+                            onClick={() => onCambio(rumbo === r ? null : r)}>
+                        {NOMBRE[r]}
+                    </Opcion>
+                ))}
+            </div>
+            {falta && (
+                <Aviso>
+                    Esta pared no tiene orientación —la trae de Catastro solo lo que ya
+                    era fachada— y una fachada sin rumbo <b>no se puede escribir</b>:
+                    el <code>.cex</code> fallará al generarlo. Dice a cuál de los dos
+                    lados da.
+                </Aviso>
             )}
         </div>
     );
@@ -358,7 +510,9 @@ function m2Hueco(huecos) {
     return total ? `${fmt(total)} m² de hueco` : null;
 }
 
-function Hueco({ h, onCambio, onDuplica, onQuita, onConfirma }) {
+function Hueco({ h, onCambio, onDuplica, onQuita, onConfirma,
+                expedienteId, paredId, cerramiento, muro, nombreDe, onLeido }) {
+    const [verFoto, setVerFoto] = useState(false);
     const borde = { medido: 'border-l-emerald-400', dudoso: 'border-l-amber-400' }[h.estado]
         || 'border-l-white/25';
     const tono = { medido: 'text-emerald-400', dudoso: 'text-amber-400' }[h.estado]
@@ -377,12 +531,26 @@ function Hueco({ h, onCambio, onDuplica, onQuita, onConfirma }) {
                     aria-label="nombre del hueco"
                     className="w-[66px] rounded-md border border-white/10 bg-white/[0.04]
                                px-1.5 py-1 text-[12.5px] font-bold tabular-nums" />
+                {/* Su FOTO. Va plegada tras un icono y no abierta: en una fachada
+                    con seis ventanas, seis bloques de fotos abiertos son un muro
+                    y esconden justo las medidas, que es a lo que se entra. El
+                    icono se enciende cuando el hueco ya tiene la suya. */}
+                {expedienteId && h.uid && (
+                    <button onClick={() => setVerFoto(v => !v)}
+                            title={verFoto ? 'Cerrar' : 'La foto de esta ventana'}
+                            aria-label="foto de este hueco"
+                            className={`ml-auto px-1 text-[13px] leading-none
+                                ${verFoto || h.lectura ? 'text-brand' : 'text-white/30'}
+                                hover:text-brand`}>
+                        📷
+                    </button>
+                )}
                 {/* Duplicar, al lado de la medida que se acaba de teclear: tres
                     ventanas iguales es el caso normal. */}
                 <button onClick={onDuplica} title="Otra igual, con estas medidas"
                         aria-label="duplicar este hueco"
-                        className="ml-auto px-1 text-[13px] leading-none text-white/30
-                                   hover:text-brand">⧉</button>
+                        className={`${expedienteId && h.uid ? '' : 'ml-auto '}px-1 text-[13px]
+                                   leading-none text-white/30 hover:text-brand`}>⧉</button>
                 <button onClick={onQuita} aria-label="quitar este hueco"
                         className="px-1 text-[17px] leading-none text-white/30
                                    hover:text-red-400">×</button>
@@ -411,6 +579,29 @@ function Hueco({ h, onCambio, onDuplica, onQuita, onConfirma }) {
             </div>
             {h.por_que && (
                 <span className="text-[10.5px] leading-snug text-white/35">{h.por_que}</span>
+            )}
+
+            {/* Lo que su foto dijo de él, en una línea. Es lo que hay que teclear
+                en CE3X, así que tiene que verse sin abrir nada. */}
+            {h.lectura && (
+                <span className="text-[10.5px] leading-snug text-brand/75">
+                    {[h.lectura.material_marco && `marco de ${h.lectura.material_marco}`,
+                      h.lectura.acristalamiento && (h.lectura.acristalamiento === 'monolitico'
+                          ? 'vidrio simple' : `vidrio ${h.lectura.acristalamiento}`),
+                      h.lectura.apertura,
+                      h.lectura.persiana === true && 'con persiana',
+                     ].filter(Boolean).join(' · ') || 'leído de su foto'}
+                </span>
+            )}
+
+            {verFoto && (
+                <FotosCerramiento
+                    expedienteId={expedienteId} clave={`${paredId}/${h.uid}`}
+                    titulo={`Foto de ${h.nombre || 'este hueco'}`}
+                    ambito="hueco" compacto
+                    contexto={{ nombre: h.nombre, cerramiento }}
+                    muro={muro} nombreDe={nombreDe} hueco={h}
+                    onLeido={onLeido} />
             )}
         </div>
     );

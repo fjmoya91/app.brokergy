@@ -272,7 +272,28 @@ const limpia = (v) => { const s = String(v ?? '').trim(); return s && !/^[-—.]
  * reintentos ante 429/500/503 y la traza del gasto son los mismos—. Tenerlo dos
  * veces es tenerlo mal el día que se corrija uno solo.
  */
-async function llamarGemini(imagenes, { prompt = PROMPT, schema = SCHEMA, etiqueta = 'placaOcr' } = {}) {
+/**
+ * @param {Object} opts
+ * @param {number} [opts.deadline]  cuánto se espera, en ms. Por defecto el de las
+ *   PLACAS, que es lo que este servicio lee. Quien lea otra cosa pone el suyo:
+ *   inventariar los huecos de una fachada no cuesta lo mismo que sacar tres
+ *   campos de una etiqueta, y un plazo pensado para lo segundo corta lo primero
+ *   justo cuando el modelo estaba a punto de contestar.
+ * @param {boolean} [opts.pensar]  dejar que el modelo RAZONE antes de contestar.
+ *
+ * ⚠️ `thinkingBudget: 0` es lo correcto para TRANSCRIBIR —una placa se lee, no se
+ * razona, y el presupuesto a cero ahorra tokens y tiempo—, pero con una tarea que
+ * SÍ exige razonar y un `responseSchema` grande la petición **NO responde nunca**:
+ * ni contesta ni falla. Medido sobre la foto de fachada de 26RES060_186, que
+ * aguantó 240 s colgada y con `pensar: true` contestó en 13,3 s (2.148 tokens de
+ * pensamiento). No es lentitud, es un bloqueo — y por eso no se arregla subiendo
+ * el plazo. Prompt largo con schema pequeño va, y schema grande con prompt corto
+ * también: es la combinación la que lo dispara.
+ */
+async function llamarGemini(imagenes, {
+    prompt = PROMPT, schema = SCHEMA, etiqueta = 'placaOcr', deadline = DEADLINE_MS,
+    pensar = false,
+} = {}) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('Falta GEMINI_API_KEY en el entorno.');
 
@@ -291,12 +312,14 @@ async function llamarGemini(imagenes, { prompt = PROMPT, schema = SCHEMA, etique
             responseMimeType: 'application/json',
             responseSchema: schema,
             temperature: 0,
-            thinkingConfig: { thinkingBudget: 0 },
+            // Ver el aviso de la cabecera: a cero es lo correcto para transcribir,
+            // y es un bloqueo seguro para lo que hay que razonar.
+            ...(pensar ? {} : { thinkingConfig: { thinkingBudget: 0 } }),
         },
     };
 
     const t0 = Date.now();
-    const finPlazo = t0 + DEADLINE_MS;
+    const finPlazo = t0 + (Number(deadline) > 0 ? Number(deadline) : DEADLINE_MS);
     let res, text;
     for (let intento = 0; intento <= MAX_RETRIES; intento++) {
         const restante = finPlazo - Date.now();
@@ -336,7 +359,8 @@ async function llamarGemini(imagenes, { prompt = PROMPT, schema = SCHEMA, etique
     try { data = JSON.parse(text); } catch { throw new Error('Respuesta de Gemini no es JSON.'); }
     const uso = data?.usageMetadata || {};
     console.log(`[${etiqueta}] Gemini ${GEMINI_MODEL} ${((Date.now() - t0) / 1000).toFixed(1)}s · `
-        + `${imagenes.length} foto(s) · in=${uso.promptTokenCount ?? '?'} out=${uso.candidatesTokenCount ?? '?'}`);
+        + `${imagenes.length} foto(s) · in=${uso.promptTokenCount ?? '?'} out=${uso.candidatesTokenCount ?? '?'}`
+        + (uso.thoughtsTokenCount ? ` think=${uso.thoughtsTokenCount}` : ''));
     const out = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!out) throw new Error('Gemini no devolvió contenido.');
     return JSON.parse(out);

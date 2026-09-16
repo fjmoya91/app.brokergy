@@ -6,6 +6,7 @@
 // ============================================================================
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { eur, energiaCorta } from '../logic/dashboardAgg';
+import { LogoEmpresa } from '../../../components/LogoEmpresa';
 
 // Comparación sin tildes ni mayúsculas: buscar "peseta" debe encontrar
 // "INSTALACIONES PESETA" y "andres" debe encontrar "ANDRÉS".
@@ -25,19 +26,11 @@ export const TONOS = {
 // ─── Avatar de partner ───────────────────────────────────────────────────────
 // Logo de la empresa si lo tiene; si no, sus iniciales. Da un ancla visual para
 // reconocer al instalador de un vistazo sin leer razones sociales larguísimas.
+// El dibujo es el COMPARTIDO (components/LogoEmpresa): era una segunda copia del
+// de los lotes, y al pedirlo el listado de expedientes habría sido la tercera.
+// Aquí conserva su piel: las iniciales, en el color de marca.
 export function AvatarPartner({ logo, nombre, size = 20 }) {
-    const iniciales = (nombre || '?').trim().split(/\s+/).slice(0, 2).map(p => p[0]).join('').toUpperCase();
-    const estilo = { width: size, height: size, fontSize: Math.round(size * 0.42) };
-    if (logo) {
-        return <img src={logo} alt="" style={estilo}
-            className="rounded object-contain bg-white/90 border border-white/10 shrink-0" />;
-    }
-    return (
-        <span style={estilo}
-            className="rounded bg-brand/15 text-brand border border-brand/20 flex items-center justify-center font-black shrink-0">
-            {iniciales}
-        </span>
-    );
+    return <LogoEmpresa logo={logo} nombre={nombre} size={size} variante="marca" />;
 }
 
 // ─── Filtro desplegable con buscador y selección múltiple ────────────────────

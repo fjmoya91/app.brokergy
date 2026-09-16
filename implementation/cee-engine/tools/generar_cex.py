@@ -107,11 +107,41 @@ def _num(x: Any) -> str:
     return f"{f:.2f}".rstrip("0").rstrip(".") if f != int(f) else str(int(f))
 
 
-def muro(nombre, superficie, orientacion, largo, alto, espacio, term) -> list:
+def _rumbo(orientacion, ident: str) -> str:
+    """El rumbo de una FACHADA, en el vocabulario de CE3X.
+
+    Una fachada SIN orientacion no se puede escribir: CE3X la exige y de ella
+    cuelga la ganancia solar de sus huecos. Y el hueco esta justo donde nadie
+    lo miraba — una PARTICION VERTICAL y una pared DIBUJADA nacen sin rumbo
+    (no salen de ningun poligono, asi que no hay normal exterior de la que
+    sacarlo) y al reclasificarlas a fachada nadie se lo preguntaba.
+
+    Era un `ORIENTACION[None]` a pelo, o sea un `KeyError(None)`, cuyo `str()`
+    es la cadena "None" — y eso es lo unico que llegaba a la pantalla: un
+    escueto «None» sobre un expediente que no decia ni que pared era. Medido en
+    26RES093_8, cuya pared dibujada PBX1 se paso a FACHADA.
+
+    Ahora es una RESPUESTA (422) que dice que pared es y como se arregla.
+    """
+    clave = str(orientacion or "").strip().upper()
+    if clave in ORIENTACION:
+        return ORIENTACION[clave]
+    if clave:
+        raise GeneracionError(
+            f"{ident}: '{orientacion}' no es una orientacion de CE3X "
+            f"(son {', '.join(ORIENTACION)})")
+    raise GeneracionError(
+        f"{ident} se escribe como FACHADA y no tiene orientacion. Las "
+        f"particiones y las paredes dibujadas nacen sin rumbo, porque no salen "
+        f"de ningun poligono: dile en el panel de la pared hacia donde da.")
+
+
+def muro(nombre, superficie, orientacion, largo, alto, espacio, term,
+         ident=None) -> list:
     """Fachada: 15 campos, acaba en 'aire'."""
     u, masa = term["u"], term["masa"]
     return [nombre, Cadena("Fachada"), _num(superficie), u, masa,
-            ORIENTACION[orientacion], "", SIN_PATRON,
+            _rumbo(orientacion, ident or nombre), "", SIN_PATRON,
             "Conocidas", [True, str(u), str(masa)],
             _num(largo), _num(alto), "1", espacio, Cadena("aire")]
 
@@ -726,14 +756,37 @@ def _heredar_superficies(equipos: list[dict], plantilla: list) -> list[str]:
                 servido.setdefault("calefaccion", str(cal[0]))
 
     for eq in equipos:
-        for servicio, clave in (("calefaccion", "superficie_calefaccion"),
-                                ("acs", "superficie_acs")):
+        for servicio, clave, pct_clave in (
+                ("calefaccion", "superficie_calefaccion", "pct_calefaccion"),
+                ("acs", "superficie_acs", "pct_acs")):
             if servicio not in SERVICIOS_DEL_SLOT.get(eq.get("slot", "mixto2"), set()):
                 continue
             heredada = servido.get(servicio)
             if not heredada:
                 continue
             propia = eq.get(clave)
+
+            # Un equipo que cubre PARTE de la demanda (una hibridacion: la bomba
+            # y la caldera se reparten el edificio) no sirve toda la superficie,
+            # sirve la SUYA. Heredar la del fichero a secas le daba el edificio
+            # entero a cada uno y deshacia el reparto sin decirlo.
+            #
+            # Lo que se hereda es el TOTAL, y el reparto se vuelve a aplicar
+            # sobre el: asi manda el .cex si el certificador corrigio la
+            # superficie en CE3X, y sigue mandando el C_b para repartirla.
+            pct = _numf(eq.get(pct_clave))
+            if pct is not None and 0 < pct < 100:
+                objetivo = round((_numf(heredada) or 0.0) * pct / 100.0, 2)
+                if propia not in (None, "") and _numf(propia) != objetivo:
+                    avisos.append(
+                        f"superficie de {servicio}: el .cex que se copia sirve {heredada} m2 "
+                        f"en total, asi que a este equipo le tocan {objetivo} m2 ({_num(pct)} %) "
+                        f"y la ficha decia {propia} m2. Manda la del .cex.")
+                eq[clave] = objetivo
+                # Sin `_cruda`: no es el numero del fichero, es su parte.
+                eq.pop(clave + "_cruda", None)
+                continue
+
             if propia not in (None, "") and _numf(propia) != _numf(heredada):
                 avisos.append(
                     f"superficie de {servicio}: el .cex que se copia dice {heredada} m2 y "
@@ -1005,11 +1058,14 @@ def aplicar_paredes(geo: dict, cfg: dict):
             "id": ident, "planta": planta, "nivel": nueva.get("nivel"),
             "tipo": tipo, "subtipo": "DIBUJADA",
             "contacto": "", "espacio_origen": "", "espacio_destino": "",
-            # Una PARTICION no lleva orientacion —la de una fachada es la de su
-            # normal exterior, y aqui no hay poligono del que sacarla—, asi que
-            # se deja vacia. Es ademas lo que hace `classifier` con las
-            # particiones que mide el motor.
-            "orientacion": nueva.get("orientacion") or None, "azimut": None,
+            # Una PARTICION no lleva orientacion —la de una fachada es la de
+            # su normal exterior, y aqui no hay poligono del que sacarla—, asi
+            # que nace vacia; es lo mismo que hace `classifier` con las
+            # particiones que mide el motor. Pero si el certificador la ha
+            # pasado a FACHADA, si trae la que el ha dicho — y sin ella no se
+            # puede escribir. En MAYUSCULAS: es la clave con la que se traduce.
+            "orientacion": str(nueva.get("orientacion") or "").strip().upper() or None,
+            "azimut": None,
             "largo": _a_mano(L, "dibujada por el certificador sobre el plano"),
             "alto": _a_mano(float(alto), "altura de planta de sus vecinas"),
             "superficie": _a_mano(L * float(alto), "largo x alto de la planta"),
@@ -1054,10 +1110,28 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
     # Los huecos ya vienen apuntando al nombre nuevo (lo traduce la vista).
     renombrado = {k: str(v).strip() for k, v in (cfg.get("renombrar") or {}).items()
                   if str(v or "").strip()}
+    # Cuales de esos nombres los ha ESCRITO una persona. Al cerramiento se le
+    # pega detras LO QUE ES ("FBN1 CALLE", "SUB1 SUELO EN TERRENO") porque el
+    # ident a secas es criptico en el arbol de CE3X — pero un nombre tecleado ya
+    # lo dice, y "FBX1 GARAJE ABIERTO CALLE" no se lee mejor por ser mas largo.
+    # El cambio de inicial al reclasificar (FBE1 -> PBE1) lo propone la app y NO
+    # cuenta: ahi el sufijo sigue haciendo falta.
+    propios = {str(k) for k in (cfg.get("nombres_propios") or [])}
     # La U de UNA pared concreta. La tabla de la epoca vale para el edificio,
     # pero una pared puede estar aislada y las demas no —una fachada rehecha, un
     # patio cerrado despues— y escribirlas todas iguales es declarar un edificio
     # que no existe. Lo que se ponga aqui manda sobre `termicas`.
+    # Hacia donde da una pared que el certificador ha pasado a FACHADA. Una
+    # particion vertical no trae rumbo —no sale de ningun poligono, asi que no
+    # hay normal exterior de la que sacarlo— y una fachada sin el no se puede
+    # escribir. Lo dice el, que tiene el plano y la brujula delante.
+    #
+    # El de una pared DIBUJADA no viene por aqui sino con ella
+    # (`paredes.nuevas[].orientacion`): su elemento nace con el nombre EFECTIVO,
+    # asi que una entrada aqui —que va por el id de Catastro— no casaria.
+    orientado = {k: str(v).strip().upper()
+                 for k, v in (cfg.get("orientaciones") or {}).items()
+                 if str(v or "").strip()}
     u_pared = {}
     for k, v in (cfg.get("u_por_cerramiento") or {}).items():
         try:
@@ -1101,6 +1175,13 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
         # la clave con la que se comprueba todo lo demas.
         nombre = renombrado.get(ident, ident)
 
+        # Una pared DIBUJADA tampoco lo lleva: su subtipo es literalmente
+        # "DIBUJADA", que dice como entro en el fichero y no que pared es.
+        suyo = ident in propios or el.get("subtipo") == "DIBUJADA"
+
+        def rotulo(sufijo):
+            return nombre if suyo else f"{nombre} {sufijo}"
+
         def conU(term_base):
             """El bloque termico de ESTA pared, con su U si se le ha puesto."""
             if ident not in u_pared:
@@ -1113,16 +1194,24 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
             return propia
 
         if tipo == "FACHADA":
+            rumbo = orientado.get(ident) or el.get("orientacion")
+            if ident in orientado and orientado[ident] != (el.get("orientacion") or ""):
+                avisos.append(
+                    f"{ident}: da al {orientado[ident]} porque lo ha dicho el "
+                    + (f"certificador; la geometria la orienta al {el['orientacion']}"
+                       if el.get("orientacion")
+                       else "certificador: esta pared no trae rumbo de la geometria"))
             cerramientos.append(muro(
-                f"{nombre} {el['subtipo']}", sup_medida, el["orientacion"],
-                medida(el, "largo"), medida(el, "alto"), zona, conU(term["fachada"])))
+                rotulo(el["subtipo"]), sup_medida, rumbo,
+                medida(el, "largo"), medida(el, "alto"), zona, conU(term["fachada"]),
+                ident=ident))
         elif tipo == "MEDIANERA":
             # Una medianera es adiabatica SOLO si al otro lado hay vivienda. Si
             # el certificador sabe que hay un garaje, deja de serlo y pasa a ser
             # una particion vertical con su U: por ahi si se pierde calor.
             if ident in como_particion:
                 cerramientos.append(particion(
-                    f"{nombre} PARTICION CON EL VECINO", sup_medida, "vertical",
+                    rotulo("PARTICION CON EL VECINO"), sup_medida, "vertical",
                     zona, conU(term["particion_vertical"]),
                     largo=medida(el, "largo"), alto=medida(el, "alto")))
                 avisos.append(
@@ -1131,7 +1220,7 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
                     f"habitable). Deja de ser adiabatico.")
             else:
                 cerramientos.append(medianera(
-                    f"{nombre} MEDIANERA", sup_medida,
+                    rotulo("MEDIANERA"), sup_medida,
                     medida(el, "largo"), medida(el, "alto"), zona, conU(term["medianera"])))
         elif tipo == "SUELO":
             sup = _superficie(cfg.get("suelo"), sup_medida)
@@ -1140,7 +1229,7 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
                     f"{ident}: se escribe {sup} m2 (decision del certificador) y la "
                     f"geometria mide {sup_medida} m2")
             cerramientos.append(suelo_terreno(
-                f"{nombre} SUELO EN TERRENO", sup, zona, conU(term["suelo_terreno"])))
+                rotulo("SUELO EN TERRENO"), sup, zona, conU(term["suelo_terreno"])))
         elif tipo == "CUBIERTA":
             sup = _superficie(cfg.get("cubierta"), sup_medida)
             if abs(sup - sup_medida) > 0.01:
@@ -1148,11 +1237,11 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
                     f"{ident}: se escribe {sup} m2 (derivado de la superficie de "
                     f"vivienda) y la geometria mide {sup_medida} m2")
             cerramientos.append(cubierta(
-                f"{nombre} CUBIERTA", sup, zona, conU(term["cubierta"])))
+                rotulo("CUBIERTA"), sup, zona, conU(term["cubierta"])))
         elif tipo == "PARTICION_INTERIOR_HORIZONTAL":
             sup = _superficie(cfg.get("particion_superior"), sup_medida)
             cerramientos.append(particion(
-                f"{nombre} PARTICION", sup, term["particion_superior"].get(
+                rotulo("PARTICION"), sup, term["particion_superior"].get(
                     "sentido", "horizontal superior"),
                 zona, conU(term["particion_superior"])))
         else:

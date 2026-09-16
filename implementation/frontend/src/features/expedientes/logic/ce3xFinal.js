@@ -276,7 +276,13 @@ export function resolverCe3x(exp, { modelos = {} } = {}) {
 
     // ── Hibridación (RES093): la caldera NO se retira, son DOS generadores ────
     const hib = !!inst.hibridacion;
+    // Dos números distintos y no hay que confundirlos: `coberturaBdc` es la
+    // cobertura de POTENCIA (P_bomba / P_referencia) y `cbPct` es el coeficiente
+    // de bivalencia del Anexo III, que es la parte de la DEMANDA ANUAL que cubre
+    // la bomba. Una bomba dimensionada al 48 % de la potencia de diseño cubre el
+    // 78,5 % de la energía del año, porque la punta se da unas pocas horas.
     let coberturaBdc = null;
+    let cbPct = null;
     if (hib) {
         const supHib = superficie || parseFloat(cee.cee_final?.superficieHabitable) || 0;
         const demandAnnual = (demandaCal * supHib) || parseFloat(opDatos.Q_net) || 0;
@@ -285,15 +291,24 @@ export function resolverCe3x(exp, { modelos = {} } = {}) {
             zone: opDatos.zona || 'D3',
             ...resolveHybridInputs(inst, opDatos),
         });
-        if (r?.coverage > 0) coberturaBdc = Math.round(r.coverage * 100);
+        if (r?.coverage > 0) {
+            coberturaBdc = Math.round(r.coverage * 100);
+            cbPct = Math.round((r.cb || 0) * 100);
+        }
     }
     // Un reparto solo se dicta si la app lo ha calculado Y deja algo a la caldera:
     // "caldera 0 %" en una hibridación es contradictorio —la caldera se queda
     // precisamente porque cubre parte de la demanda— y el certificador no sabría a
     // quién creer. Si no cuadra, se le dice que lo confirme en vez de darle un dato
     // que probablemente esté mal.
-    const repartoValido = hib && coberturaBdc != null && coberturaBdc > 0 && coberturaBdc < 100;
-    const pctCal = repartoValido ? coberturaBdc : 100;
+    //
+    // ⚠️ REGLA — lo que CE3X pide es la DEMANDA cubierta, así que el reparto es el
+    // C_b, NO la cobertura de potencia. Iba con la cobertura, y en 26RES093_8 eso
+    // le decía al certificador «bomba 48 %» mientras su .cex —hecho a mano y
+    // calculado por CE3X— llevaba 79 %, que es el C_b. Y es lo único coherente:
+    // a más potencia de bomba, más C_b y más demanda suya.
+    const repartoValido = hib && cbPct != null && cbPct > 0 && cbPct < 100;
+    const pctCal = repartoValido ? cbPct : 100;
 
     return {
         faltantes, hibridacion: hib,
@@ -301,7 +316,7 @@ export function resolverCe3x(exp, { modelos = {} } = {}) {
         hayAcs, acsEnMismoEquipo, acsAparte, acsTipo, acsNode, acsFlagContradice,
         scopCal, scopAcs, seer, litros,
         superficie, demandaCal,
-        coberturaBdc, repartoValido, pctCal,
+        coberturaBdc, cbPct, repartoValido, pctCal,
         tipoEquipo: tipoEquipoCe3x({ conAcs: acsEnMismoEquipo, conFrio }),
         nombre: nombreEquipo(cal, prefijoNombre),
         // El nombre del CONJUNTO de medidas de mejora, que NO es el del equipo:
@@ -342,7 +357,7 @@ export function buildCe3xFinal(exp, { modelos = {} } = {}) {
     const {
         faltantes, conFrio, generadorBdc, prefijoNombre,
         acsEnMismoEquipo, acsAparte, acsTipo, scopCal, scopAcs, seer, litros,
-        superficie, demandaCal, repartoValido, pctCal, hibridacion: hib,
+        superficie, demandaCal, repartoValido, pctCal, coberturaBdc, hibridacion: hib,
     } = d;
 
     // ── Montaje del texto ────────────────────────────────────────────────────
@@ -465,7 +480,7 @@ export function buildCe3xFinal(exp, { modelos = {} } = {}) {
         }
         if (repartoValido) {
             L.push(`   · Demanda de calefacción cubierta: *${100 - pctCal} %*`);
-            L.push('   _El reparto sale de la cobertura de potencia de la bomba (Anexo III), que es la que se declaró en el expediente CAE._');
+            L.push(`   _El reparto es el coeficiente de bivalencia Cb del Anexo III: la bomba cubre el ${coberturaBdc} % de la potencia de diseño, que equivale al ${pctCal} % de la demanda del año. Es el mismo Cb que se declaró en el expediente CAE._`);
         } else {
             L.push('⚠️ El reparto de demanda entre los dos generadores NO se ha podido calcular en la app: mantén el mismo que llevaba el CEE inicial y avísanos si no cuadra.');
         }

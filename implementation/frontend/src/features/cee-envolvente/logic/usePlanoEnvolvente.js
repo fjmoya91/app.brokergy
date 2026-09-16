@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { largo as largoDe } from './geometriaPlano';
+import { largo as largoDe, rumbosDeLaPared } from './geometriaPlano';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // El estado del plano: qué paredes hay, qué huecos les ha puesto el
@@ -66,6 +66,9 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                 for (const [k, u] of Object.entries(g.us || {})) {
                     if (nuevo[k]) nuevo[k].u_manual = u;
                 }
+                for (const [k, o] of Object.entries(g.orientaciones || {})) {
+                    if (nuevo[k]) nuevo[k].orientacion_manual = o;
+                }
                 // Las paredes movidas y las dibujadas. Las dibujadas ENTRAN en
                 // el mapa de muros: para la vista son una pared más —se pulsan,
                 // llevan huecos y se reclasifican— y lo único que las separa es
@@ -109,6 +112,8 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
             .filter(m => m.nombre_manual).map(m => [m.id, m.nombre_manual])),
         us: Object.fromEntries(Object.values(muros)
             .filter(m => Number.isFinite(m.u_manual)).map(m => [m.id, m.u_manual])),
+        orientaciones: Object.fromEntries(Object.values(muros)
+            .filter(m => m.orientacion_manual).map(m => [m.id, m.orientacion_manual])),
         // La geometría corregida. Se guarda con el trabajo porque es TRABAJO:
         // volver a colocar un tabique y perderlo al recargar sería peor que no
         // poder moverlo.
@@ -132,6 +137,8 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                     .filter(m => m.nombre_manual).map(m => [m.id, m.nombre_manual])),
                 us: Object.fromEntries(Object.values(muros)
                     .filter(m => Number.isFinite(m.u_manual)).map(m => [m.id, m.u_manual])),
+                orientaciones: Object.fromEntries(Object.values(muros)
+                    .filter(m => m.orientacion_manual).map(m => [m.id, m.orientacion_manual])),
                 paredes: geometria,
             }));
         } catch { /* idem */ }
@@ -183,7 +190,11 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         const sinTocar = lista.filter(
             m => !esMedianera(m) && !(m.huecos || []).length).length;
         const fuera = Object.values(muros).filter(m => esFuera(m)).length;
-        return { medidos, dudosos, sinTocar, fuera,
+        // Una fachada SIN rumbo no se puede escribir, así que esto no es «algo
+        // por confirmar»: es lo que va a parar el `.cex`. Se cuenta aquí para
+        // que se vea en la barra de apartados sin tener que pulsar la pared.
+        const sinRumbo = lista.filter(necesitaRumbo).length;
+        return { medidos, dudosos, sinTocar, fuera, sinRumbo,
                  m2Hueco: m2.toFixed(1).replace('.', ',') };
     }, [muros]);
 
@@ -248,6 +259,10 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
             if (!h) return v;
             const copia = {
                 ...h,
+                // Identidad NUEVA: la copia es otro hueco. Con el `uid` del
+                // original compartirían la foto, y despegársela a uno se la
+                // quitaría al otro.
+                uid: nuevoUid(),
                 // El sitio NO se copia: la copia caería exactamente encima del
                 // original y parecería que el botón no ha hecho nada. Se coloca
                 // sola en su hueco del reparto y se arrastra a donde vaya.
@@ -320,6 +335,72 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         });
     }
 
+    /**
+     * Mete en la pared los huecos que se han leído de su FOTO.
+     *
+     * REGLA — lo leído NACE DUDOSO. Ni la mejor lectura de una foto en
+     * perspectiva es un metro: `dudoso` es el ámbar que la pantalla ya tiene, que
+     * el titular ya cuenta («6 con medida por confirmar») y que ya se cierra con
+     * un clic en «✓ OK». Entra por el estado que existe, no por uno nuevo.
+     *
+     * REGLA — no se PISA lo que ya hay. Los huecos que el certificador ya puso en
+     * esa pared se quedan exactamente como estaban: si los midió, los midió con
+     * el edificio delante. Lo leído se AÑADE detrás — y el popup, que es quien
+     * sabe cuántos había, decide cuántos ofrece.
+     *
+     * REGLA — lo que la foto dice del hueco viaja con él (`lectura`) pero NO al
+     * `.cex`: la carpintería y el acristalamiento no tienen hoy casilla en
+     * `loSenalado`, y escribir en un certificado un dato cuyo camino no se ha
+     * verificado es justo lo que la casa no hace. Se guarda, se enseña, y el día
+     * que haya casilla ya está el dato.
+     */
+    function aplicaHuecosLeidos(id, leidos, { de = 'la foto', reemplaza = false } = {}) {
+        setMuros(v => {
+            const m0 = v[id];
+            if (!m0 || !leidos?.length) return v;
+            // Reemplazar es una decisión EXPLÍCITA de quien mira: la toma en el
+            // popup, con las dos cifras delante («quitar los 2 y poner estos 5»).
+            // Nunca es lo que pasa por defecto.
+            const m = reemplaza ? { ...m0, huecos: [] } : m0;
+            const copia = { ...v, [id]: m };
+            const nuevos = [];
+            for (const l of leidos) {
+                const tipo = l.tipo === 'puerta' ? 'puerta' : 'ventana';
+                const base = nuevoHueco(tipo, { ...copia, [id]: { ...m, huecos: [...(m.huecos || []), ...nuevos] } });
+                const conMedida = Number(l.ancho) > 0 && Number(l.alto) > 0;
+                nuevos.push({
+                    ...base,
+                    // Quien llama puede FIJAR el uid: lo necesita para atar la
+                    // marca de la foto al hueco que se acaba de crear, y eso no
+                    // se puede saber desde fuera si el uid nace aquí dentro.
+                    ...(l.uid ? { uid: l.uid } : {}),
+                    ...(conMedida ? { ancho: Number(l.ancho), alto: Number(l.alto) } : {}),
+                    estado: 'dudoso',
+                    por_que: conMedida
+                        ? `estimado de ${de} (${fmt(l.ancho)} × ${fmt(l.alto)} m): mídelo o confírmalo`
+                        : `contado en ${de}; la medida es la de por defecto: confírmala`,
+                    // Lo que la foto dice de ESTE hueco. Metadatos, no cálculo.
+                    lectura: recorta({
+                        material_marco: l.material_marco, acristalamiento: l.acristalamiento,
+                        persiana: l.persiana, descripcion: l.descripcion, planta: l.planta,
+                    }),
+                });
+            }
+            copia[id] = { ...m, huecos: [...(m.huecos || []), ...nuevos] };
+            return copia;
+        });
+    }
+
+    /** Lo que la foto de un PRIMER PLANO dice de un hueco concreto. */
+    function anotaLecturaHueco(id, uid, lectura) {
+        setMuros(v => {
+            const m = v[id];
+            if (!m) return v;
+            return { ...v, [id]: { ...m, huecos: (m.huecos || []).map(h =>
+                h.uid === uid ? { ...h, lectura: recorta(lectura) } : h) } };
+        });
+    }
+
     /** Una medianera lo es por lo que hay AL OTRO LADO, no por tocar. */
     function marcaComoParticion(id, si) {
         setMuros(v => ({ ...v, [id]: { ...v[id], como_particion: si } }));
@@ -366,6 +447,19 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
             return { ...v, [id]: { ...m, tipo_manual: tipo || null,
                 nombre_manual: suyo ? m.nombre_manual : (auto === m.id ? null : auto) } };
         });
+    }
+
+    /**
+     * Hacia dónde da esta pared. `null` la devuelve a lo que diga la geometría.
+     *
+     * Solo hace falta preguntarlo en las paredes que no traen rumbo: una
+     * partición vertical y una pared dibujada nacen sin él —no salen de ningún
+     * polígono, así que no hay normal exterior de la que sacarlo— y al pasarlas
+     * a FACHADA nadie se lo preguntaba. Con el rumbo vacío, el motor moría en
+     * un `KeyError(None)` que llegaba a la pantalla como un escueto «None».
+     */
+    function orienta(id, rumbo) {
+        setMuros(v => ({ ...v, [id]: { ...v[id], orientacion_manual: rumbo || null } }));
     }
 
     /**
@@ -459,8 +553,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
 
     /** El nombre que se escribe en el .cex. `null` devuelve el de Catastro. */
     function renombra(id, nombre) {
-        const limpio = String(nombre || '').toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 12);
-        setMuros(v => ({ ...v, [id]: { ...v[id], nombre_manual: limpio || null } }));
+        setMuros(v => ({ ...v, [id]: { ...v[id], nombre_manual: limpiaNombre(nombre) || null } }));
     }
 
     /**
@@ -508,10 +601,26 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         const reclasificar = {};
         const renombrar = {};
         const u_por_cerramiento = {};
+        const orientaciones = {};
+        const nombres_propios = [];
         for (const m of Object.values(muros)) {
             if (m.tipo_manual && m.tipo_manual !== m.tipo) reclasificar[m.id] = m.tipo_manual;
-            if (m.nombre_manual && m.nombre_manual !== m.id) renombrar[m.id] = m.nombre_manual;
+            if (nombreDe(m) !== m.id) {
+                renombrar[m.id] = nombreDe(m);
+                // Y si lo ha ESCRITO una persona, el motor no le pega detrás lo
+                // que es la pared («FBN1 CALLE»): ya lo ha dicho él. El cambio
+                // de inicial al reclasificar (FBE1 → PBE1) lo propone la app, no
+                // es un nombre suyo, y ahí el sufijo sigue haciendo falta.
+                if (esNombrePropio(m)) nombres_propios.push(m.id);
+            }
             if (Number.isFinite(m.u_manual)) u_por_cerramiento[m.id] = m.u_manual;
+            // El rumbo de una pared DIBUJADA viaja con ella, unas líneas más
+            // abajo: en el motor su elemento nace con el nombre EFECTIVO, así
+            // que una entrada aquí —que va por el id de Catastro— no casaría
+            // con nada. Es el mismo reparto que ya hacen `tipo` y `planta`.
+            if (m.orientacion_manual && !esDibujada(m)) {
+                orientaciones[m.id] = m.orientacion_manual;
+            }
         }
         // Las paredes movidas y las dibujadas, con sus dos extremos TAL CUAL se
         // han soltado sobre el plano. Aquí NO se manda ni un largo ni una
@@ -528,6 +637,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                 .map(d => ({
                     id: nombreDe(muros[d.id]), planta: d.planta, nivel: d.nivel,
                     tipo: tipoDe(muros[d.id]), lienzo: d.svg,
+                    orientacion: rumboDe(muros[d.id]),
                 })),
         };
         return {
@@ -542,7 +652,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                 ids: Object.values(muros).filter(m => esFuera(m)).map(m => m.id),
                 de: 'APARTADAS POR EL CERTIFICADOR: no son del espacio habitable',
             },
-            reclasificar, renombrar, u_por_cerramiento,
+            reclasificar, renombrar, nombres_propios, u_por_cerramiento, orientaciones,
         };
     }
 
@@ -551,11 +661,13 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         setEntrada, setSel,
         elegir, ponHuecos, cambiaHueco, duplicaHueco, quitaHueco, mueveHueco,
         confirmaHueco, confirmaPared,
+        aplicaHuecosLeidos, anotaLecturaHueco,
         muevePared, dibujaPared, borraPared, esDibujada,
         marcaComoParticion,
-        apartaDeLaEnvolvente, reclasifica, renombra, ponU,
+        apartaDeLaEnvolvente, reclasifica, renombra, ponU, orienta,
         loSenalado,
         esCandidata, esMedianera, esParticion, esFuera, tipoDe, nombreDe, estadoDe,
+        rumboDe, necesitaRumbo, rumbosDe,
     };
 }
 
@@ -580,8 +692,67 @@ export const TIPOS_PARED = [
 /** El tipo con el que se va a escribir: manda el certificador sobre Catastro. */
 export function tipoDe(m) { return m?.tipo_manual || m?.tipo; }
 
+//: Lo que cabe en el nombre de un cerramiento de CE3X.
+//:
+//: **Los ESPACIOS valen**, y no es un detalle: los nombres que escribe el propio
+//: motor los llevan (`FBS1 ESPACIO_LIBRE_PARCELA`, `SUB1 SUELO EN TERRENO`), así
+//: que prohibirlos impedía escribir a mano lo mismo que la app escribe sola.
+//: Medido en 26RES093_8, donde el certificador quería `FBX1 GARAJE ABIERTO` y la
+//: casilla se lo dejaba en `FBX1GARAJEABIERTO`.
+//:
+//: El tope son 40: el más largo que compone la app son 26 caracteres, y un
+//: nombre que no cabe en el árbol de CE3X no se lee mejor por ser más largo.
+const NOMBRE_VALIDO = /[^A-ZÁÉÍÓÚÜÑ0-9 ._-]/g;
+const NOMBRE_MAX = 40;
+
+/** Deja el nombre como CE3X lo admite. NO recorta los extremos: con el espacio
+ *  final comido no se puede teclear la segunda palabra. */
+export function limpiaNombre(nombre) {
+    return String(nombre || '').toUpperCase().replace(NOMBRE_VALIDO, '').slice(0, NOMBRE_MAX);
+}
+
 /** Cómo se va a llamar en CE3X. */
-export function nombreDe(m) { return m?.nombre_manual || m?.id; }
+export function nombreDe(m) { return (m?.nombre_manual || m?.id || '').trim(); }
+
+/**
+ * ¿Lo ha ESCRITO una persona, o lo ha propuesto la app?
+ *
+ * Al reclasificar, la app propone el mismo id con otra inicial (`FBE1` → `PBE1`)
+ * y eso sigue siendo su nombre automático: el motor le pega detrás lo que es la
+ * pared («PBE1 PARTICION CON EL VECINO»), que es lo que se lee en el árbol de
+ * CE3X. Un nombre tecleado ya dice lo que es, y ahí el sufijo sobra.
+ */
+export function esNombrePropio(m) {
+    const suyo = nombreDe(m);
+    return !!m?.nombre_manual && suyo !== m.id && suyo !== inicialDe(m.id, tipoDe(m));
+}
+
+//: Lo que el motor escribe cuando una pared no tiene rumbo (`plano_svg` lo
+//: pinta así). No es un valor: es el hueco.
+const SIN_RUMBO = '—';
+
+/** Hacia dónde da: manda el certificador sobre la geometría. */
+export function rumboDe(m) {
+    const suyo = m?.orientacion_manual;
+    if (suyo) return suyo;
+    const geo = m?.orientacion;
+    return geo && geo !== SIN_RUMBO ? geo : null;
+}
+
+/**
+ * ¿Hay que preguntarle a dónde da?
+ *
+ * Solo una FACHADA necesita rumbo: de él cuelga la ganancia solar de sus
+ * huecos, y CE3X lo exige. Una medianera es adiabática y una partición da a un
+ * local, así que ninguna de las dos lo lleva —y por eso nacen sin él, que es
+ * justo lo que hacía reventar al reclasificarlas—.
+ */
+export function necesitaRumbo(m) {
+    return !esFuera(m) && tipoDe(m) === 'FACHADA' && !rumboDe(m);
+}
+
+/** Los dos rumbos posibles de una pared, de su propio trazo sobre el plano. */
+export function rumbosDe(m) { return rumbosDeLaPared(m?.svg); }
 
 //: La inicial que le corresponde a cada tipo. La nomenclatura del motor ya la
 //: usa: `F` fachada, `M` medianera; `P` es la de las particiones del .cex real
@@ -666,9 +837,20 @@ function medidaDelLienzo(geo, plantas) {
  * en el backend, pero lo que se guardó así sigue en la BD y tiene que poder
  * abrirse: esto lo rescata al leer, sin tocar nada más.
  */
+/**
+ * Un identificador que NO cambia en toda la vida del hueco.
+ *
+ * El `nombre` (V1, PE) es editable y además se recoloca solo al añadir y quitar
+ * huecos, y el ÍNDICE se mueve con cada `splice`. Ninguno de los dos sirve para
+ * colgar de un hueco algo que tiene que seguirle: su FOTO. `uid` sí.
+ */
+export const nuevoUid = () => Math.random().toString(36).slice(2, 10);
+
 function rescatarHueco(h) {
     const baja = (x) => (typeof x === 'string' ? x.toLowerCase() : x);
-    return { ...h, tipo: baja(h?.tipo), estado: baja(h?.estado) };
+    // Los huecos guardados antes de que existiera el `uid` estrenan el suyo al
+    // abrirlos; el autoguardado lo sella un segundo después.
+    return { ...h, uid: h?.uid || nuevoUid(), tipo: baja(h?.tipo), estado: baja(h?.estado) };
 }
 
 /** Menos de esto no es una pared: es un resbalón del ratón. */
@@ -729,9 +911,26 @@ function nuevoHueco(tipo, muros) {
     // que es el caso común, y la medida se confirma como cualquier otra.
     const [a, b] = POR_DEFECTO[tipo] || POR_DEFECTO.ventana;
     return {
+        uid: nuevoUid(),
         nombre: letra + n, tipo, ancho: a, alto: b, estado: 'dudoso',
         por_que: `medida por defecto (${fmt(a)} × ${fmt(b)} m): confírmala`,
     };
 }
 
-const fmt = n => n.toFixed(2).replace('.', ',');
+const fmt = n => Number(n).toFixed(2).replace('.', ',');
+
+/**
+ * Quita lo que está en blanco.
+ *
+ * El trabajo del plano se GUARDA en `expedientes.cee.envolvente` y son ~2 KB de
+ * metadatos a propósito. Media docena de claves a `null` por hueco, en una casa
+ * con veinte, es engordar la columna con nada — y esa columna ya tiene su
+ * historia (regla 21). Un objeto que se queda vacío no se guarda.
+ */
+function recorta(o) {
+    const out = {};
+    for (const [k, v] of Object.entries(o || {})) {
+        if (v !== null && v !== undefined && v !== '') out[k] = v;
+    }
+    return Object.keys(out).length ? out : undefined;
+}

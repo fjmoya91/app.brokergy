@@ -244,6 +244,115 @@ def test_una_pared_APARTADA_no_se_escribe_aunque_se_haya_dibujado():
 
 
 
+# ---------------------------------------------------------------------------
+# Hacia donde da: una pared que pasa a FACHADA necesita rumbo
+#
+# Medido en 26RES093_8. El certificador dibujo PBX1 —que nace PARTICION, porque
+# no sale de ningun poligono y no hay normal exterior de la que sacarle el
+# rumbo— y la paso a FACHADA. Generar el .cex moria en un `ORIENTACION[None]`,
+# o sea un `KeyError(None)`, cuyo `str()` es la cadena "None": eso era todo lo
+# que llegaba a la pantalla.
+# ---------------------------------------------------------------------------
+
+def _dibujada(**extra):
+    return {"id": "PBX1", "planta": "PB", "nivel": 0, "tipo": "FACHADA",
+            "lienzo": [[0, 0], [0, 6]], **extra}
+
+
+def test_una_pared_dibujada_pasada_a_fachada_SIN_rumbo_lo_dice():
+    """Una respuesta (422) con el nombre de la pared, no una caida con 'None'."""
+    with pytest.raises(G.GeneracionError) as e:
+        G.construir_envolvente(_geo(), _datos({"nuevas": [_dibujada()]}))
+    assert "PBX1" in str(e.value)
+    assert "orientacion" in str(e.value)
+    assert str(e.value) != "None"
+
+
+def test_una_pared_dibujada_pasada_a_fachada_se_escribe_con_SU_rumbo():
+    """El rumbo viaja CON la pared: en el motor su elemento nace con el nombre
+    efectivo, asi que una entrada en `orientaciones` —que va por el id de
+    Catastro— no casaria con nada."""
+    env, _ = G.construir_envolvente(
+        _geo(), _datos({"nuevas": [_dibujada(orientacion="e")]}))
+    assert _opacos(env)["PBX1"][5] == "Este"
+
+
+def test_una_particion_de_catastro_pasada_a_fachada_tambien_pide_rumbo():
+    """El otro camino al mismo agujero: `classifier` deja sin orientacion a las
+    particiones verticales, asi que reclasificar una tambien moria."""
+    datos = _datos({})
+    datos["envolvente"]["reclasificar"] = {"PBE1": "FACHADA"}
+    _geo_sin = _geo()
+    _por_id(_geo_sin["elementos"])["PBE1"]["orientacion"] = None
+    with pytest.raises(G.GeneracionError) as e:
+        G.construir_envolvente(_geo_sin, datos)
+    assert "PBE1" in str(e.value)
+
+    datos["envolvente"]["orientaciones"] = {"PBE1": "SO"}
+    env, avisos = G.construir_envolvente(_geo_sin, datos)
+    assert _opacos(env)["PBE1"][5] == "SO"
+    # Un dato que pone una persona SIEMPRE se dice: de el cuelga la ganancia
+    # solar de los huecos de esa pared.
+    assert any("PBE1" in a and "certificador" in a for a in avisos)
+
+
+def test_el_rumbo_de_catastro_manda_si_nadie_lo_ha_cambiado():
+    env, avisos = G.construir_envolvente(_geo(), _datos({}))
+    assert _opacos(env)["FBN1"][5] == "Norte"
+    assert not any("FBN1" in a and "da al" in a for a in avisos)
+
+
+def test_un_rumbo_que_CE3X_no_conoce_no_se_escribe():
+    """Se para y se dice cual es: escribirlo dejaria la fachada sin orientacion
+    dentro del .cex, y eso no se ve hasta abrirlo en CE3X."""
+    with pytest.raises(G.GeneracionError) as e:
+        G.construir_envolvente(
+            _geo(), _datos({"nuevas": [_dibujada(orientacion="NORTE")]}))
+    assert "NORTE" in str(e.value)
+
+
+# ---------------------------------------------------------------------------
+# El NOMBRE que escribe una persona se respeta tal cual
+#
+# Al cerramiento se le pega detras lo que ES ("FBN1 CALLE") porque el ident a
+# secas es criptico en el arbol de CE3X. Pero un nombre tecleado ya lo dice, y
+# el .cex que el certificador guardo a mano para 26RES093_8 lo demuestra: su
+# pared dibujada se llama, literalmente, "FBX1 GARAJE ABIERTO".
+# ---------------------------------------------------------------------------
+
+def test_una_pared_DIBUJADA_no_lleva_DIBUJADA_en_el_nombre():
+    env, _ = G.construir_envolvente(_geo(), _datos({"nuevas": [
+        {"id": "PBX1", "planta": "PB", "tipo": "PARTICION_VERTICAL",
+         "lienzo": [[0, 0], [0, 6]]}]}))
+    assert _opacos(env)["PBX1"][0] == "PBX1"
+
+
+def test_un_nombre_escrito_a_mano_se_escribe_TAL_CUAL():
+    datos = _datos({"nuevas": [
+        {"id": "FBX1 GARAJE ABIERTO", "planta": "PB", "tipo": "FACHADA",
+         "orientacion": "E", "lienzo": [[0, 0], [0, 6]]}]})
+    env, _ = G.construir_envolvente(_geo(), datos)
+    assert [c[0] for c in env[0] if c[0].startswith("FBX1")] == ["FBX1 GARAJE ABIERTO"]
+
+
+def test_un_nombre_propio_de_una_pared_de_catastro_tampoco_lleva_sufijo():
+    datos = _datos({})
+    datos["envolvente"]["renombrar"] = {"FBN1": "FBN1 FACHADA PRINCIPAL"}
+    datos["envolvente"]["nombres_propios"] = ["FBN1"]
+    env, _ = G.construir_envolvente(_geo(), datos)
+    assert _opacos(env)["FBN1"][0] == "FBN1 FACHADA PRINCIPAL"
+
+
+def test_el_cambio_de_INICIAL_al_reclasificar_SI_lleva_sufijo():
+    """`FBE1` -> `PBE1` lo propone la app, no es un nombre de nadie: sin el
+    sufijo, el arbol de CE3X se queda con cuatro letras que no dicen nada."""
+    datos = _datos({})
+    datos["envolvente"]["reclasificar"] = {"FBN1": "MEDIANERA"}
+    datos["envolvente"]["renombrar"] = {"FBN1": "MBN1"}
+    env, _ = G.construir_envolvente(_geo(), datos)
+    assert _opacos(env)["MBN1"][0] == "MBN1 MEDIANERA"
+
+
 def test_una_pared_que_solo_cambia_de_sitio_no_repite_la_cifra():
     """Deslizada en paralelo mide lo mismo, y decir "6,53 m donde Catastro la
     mide 6,53 m" se lee como un fallo. Lo que ha cambiado —contra que da— sigue

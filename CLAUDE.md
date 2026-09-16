@@ -4422,6 +4422,7 @@ fichas RES060 y RES093 (y sus dos modales, que duplican el HTML) leían
 `cee.cee_final` a secas: un expediente con la obra sin terminar —el caso normal—
 imprimía **D_CAL = 0,00 y D_ACS = 0,00** mientras el CIFO del MISMO expediente
 salía con los del inicial. Dos documentos del mismo expediente contradiciéndose.
+
 **Y en el panel de HIBRIDACIÓN tampoco estaba** (2026-09-16). `InstalacionModule`
 leía `cee.cee_final` a pelo, así que con solo el CEE inicial cargado —lo normal
 mientras la obra no termina— caía a la oportunidad y, si aquella no traía `Q_net`
@@ -4433,7 +4434,6 @@ con el inicial (86,40 kWh/m²·año × 120 m²) la demanda pasa de 0 a 10.368 kW
 C_b de 100 % a lo que toque. La chapa dice además **de qué certificado** sale
 ("Certificado CEE inicial" · "… final"): no es lo mismo la demanda de antes de la
 obra que la de después, y con la del inicial el C_b es provisional.
-
 
 ### Retirar un CEE lo retira DE VERDAD
 
@@ -6218,6 +6218,75 @@ reclasifica con el mismo control que las demás. Se llama `PBX1`, `P1X1`…: la
 misma forma que las del motor con una **X** donde iría la orientación, que además
 no puede chocar con ninguna de Catastro (llevan siempre una de las ocho).
 
+**REGLA — al pasar una pared a FACHADA se le PREGUNTA hacia dónde da.** Es la
+otra mitad de la regla de arriba, y faltaba: una partición vertical y una pared
+dibujada nacen **sin rumbo**, así que al reclasificarlas a fachada quedaban con
+la orientación vacía — y una fachada sin orientación **no se puede escribir**
+(CE3X la exige y de ella cuelga la ganancia solar de sus huecos). El motor moría
+en un `ORIENTACION[None]`, o sea un `KeyError(None)`, cuyo `str()` es la cadena
+`"None"`: eso era **todo** lo que llegaba a la pantalla — un escueto «None» que
+no decía ni qué pared era. Medido en 26RES093_8, cuya `PBX1` dibujada se pasó a
+fachada.
+
+**REGLA — se ofrecen DOS rumbos, no ocho.** Una pared mira perpendicular a sí
+misma, así que las otras seis las descarta su propio trazo y enseñarlas sería
+invitar a pulsar una que la geometría dice que no. Los calcula
+`rumbosDeLaPared` ([geometriaPlano.js](implementation/frontend/src/features/cee-envolvente/logic/geometriaPlano.js))
+del trazo del lienzo, que es el mundo trasladado con la Y del revés: una
+traslación no cambia las direcciones, solo hay que deshacer el espejo. ⚠️ `RUMBOS`
+y su reparto por sectores son **los mismos** que `src/gis/orientation.py` en el
+motor; un código que allí no se reconozca deja la fachada sin orientación.
+**Cuál de los dos lados es el bueno NO se deduce** —una pared dibujada parte el
+edificio y los dos lados quedan dentro de la huella—: lo dice quien tiene el
+plano y la brújula delante, viaja como `orientacion_manual`, se guarda con el
+trabajo y **sale avisado** en el `.cex`, como cualquier dato que pone una persona.
+
+⚠️ El rumbo de una pared **dibujada** viaja CON ella (`paredes.nuevas[].orientacion`)
+y no en el mapa `orientaciones`: en el motor su elemento nace con el nombre
+EFECTIVO (`FBX1`), así que una entrada por el id de Catastro (`PBX1`) no casaría
+con nada — es el mismo reparto que ya hacen su `tipo` y su `planta`.
+
+**REGLA — lo que impide generar se CUENTA en la barra de apartados.** El panel lo
+avisa al reclasificar, pero si se hizo ayer no lo ve nadie hasta pulsar Generar:
+`resumen.sinRumbo` pone «! una fachada sin rumbo» en *Envolvente térmica*, por
+delante de lo que solo está por confirmar. Y el motor, cuando aun así llega sin
+rumbo, contesta **422 con el nombre de la pared y cómo se arregla**, nunca un 500.
+
+```bash
+python -m pytest implementation/cee-engine/tests/test_paredes.py
+```
+
+**REGLA — el nombre del cerramiento admite ESPACIOS, y el que escribe una
+persona se escribe TAL CUAL.** La casilla filtraba todo lo que no fuera
+`A-Z0-9_-` y cortaba a 12 caracteres, así que no dejaba teclear lo que el propio
+motor escribe en las paredes de al lado (`FBS1 ESPACIO_LIBRE_PARCELA`,
+`SUB1 SUELO EN TERRENO`): `FBX1 GARAJE ABIERTO` se quedaba en
+`FBX1GARAJEABIERTO`. Ahora entran letras (con tildes y Ñ), cifras, espacio, `.`,
+`_` y `-`, hasta 40 — el más largo que compone la app son 26—, la casilla CRECE
+con lo escrito (fija en 78 px cabían siete caracteres) y el rótulo del plano
+ajusta su papel al texto en vez de a un ancho fijo de cuatro caracteres, que era
+lo que lo hacía montarse sobre el vecino.
+
+Y al nombre tecleado el motor **no le pega detrás lo que es la pared**: «FBX1
+GARAJE ABIERTO CALLE» no se lee mejor por ser más largo. Lo decide
+`nombres_propios`, que manda el frontend (`esNombrePropio`), **no una
+heurística**: el cambio de inicial al reclasificar (`FBE1` → `PBE1`) lo propone
+la app y ahí el sufijo sigue haciendo falta, porque cuatro letras en el árbol de
+CE3X no dicen nada. Una pared **DIBUJADA** tampoco lo lleva nunca: su subtipo es
+literalmente «DIBUJADA», que dice cómo entró en el fichero y no qué pared es.
+
+**REGLA — el popup de «antes de generar» no pregunta lo que YA está contestado en
+otra pantalla.** `faltaPorPreguntar` miraba solo su propia clave
+(`ajustes.acumulacion_litros`) y volvía a preguntar por un depósito que estaba
+puesto —y marcado— en la pestaña de **Instalaciones**, que además es la que MANDA
+(`equipoConAjustes` pisa lo derivado). Un popup que pregunta lo que acabas de
+contestar se responde sin leer, y entonces deja de servir para las otras
+preguntas. Ahora cuenta como contestado tanto el SÍ con sus litros como el NO. Lo
+mismo con la **demanda de ACS**: si el propio certificado declara los litros/día
+(el toggle **L/D** de la rejilla del CEE, regla 12.d) son ésos y no se pregunta —
+y se escriben, que si no sería silenciar la pregunta y seguir poniendo los 140 de
+por defecto.
+
 **REGLA — dibujar es un MODO, no un gesto suelto.** Arrastrar sobre el plano ya
 significa moverlo, y no puede significar dos cosas según dónde se empiece. Solo
 en planta: una pared se coloca sobre la cartografía, que es lo que dice dónde
@@ -6872,6 +6941,74 @@ corpus de 1.188 `.cex`: normativa `Anterior` · `NBE-CT-79` · `C.T.E.` ·
 CTE 2013 aunque su U sea la de nZEB), municipio `Otro` + el nombre en texto, y
 la provincia capitalizada ("Ciudad Real", no "CIUDAD REAL") o CE3X la deja
 vacía.
+
+## La medida de mejora de una HIBRIDACIÓN (2026-09-16)
+
+En una hibridación la caldera **no se retira**: se queda dando servicio junto a
+la bomba. Así que el «edificio con las medidas incorporadas» de CE3X tiene DOS
+equipos mixtos repartiéndose la demanda, y la app se negaba a componerlo — la
+casilla salía en gris con un «el .cex final hay que montarlo a mano». Era el
+único camino sin salida de la pestaña de Medidas.
+
+| Qué | Dónde |
+|---|---|
+| Los dos equipos y su reparto | `instalacionNueva` / `calderaHibrida` en [fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js) |
+| El C_b y el texto del encargo | `resolverCe3x` / `buildCe3xFinal` en [ce3xFinal.js](implementation/frontend/src/features/expedientes/logic/ce3xFinal.js) |
+| La superficie heredada del fichero | `_heredar_superficies` en [generar_cex.py](implementation/cee-engine/tools/generar_cex.py) |
+| Pruebas | `node implementation/backend/scripts/test_hibridacion_medida.mjs` · `pytest implementation/cee-engine/tests/test_equipos.py` |
+
+**REGLA — el reparto es el C_b, NO la cobertura de potencia.** Son dos números y
+confundirlos declara un edificio que no es. La **cobertura** es
+`P_bomba / P_referencia` —cuánta POTENCIA pone la bomba frente a la de diseño— y
+el **C_b** del Anexo III es la parte de la DEMANDA ANUAL que cubre. Una bomba
+dimensionada al 48 % de la punta cubre el **78,5 %** de la energía del año,
+porque esa punta se da unas pocas horas. CE3X pide demanda.
+
+Medido contra el `.cex` que el certificador montó a mano para **26RES093_8**, que
+es la referencia de esta regla:
+
+| | % calefacción | % ACS | superficie |
+|---|---|---|---|
+| CALDERA DOMUSA CLIMA MIX 20 GE | 21 | 21 | 25,83 m² |
+| AEROTERMIA PANASONIC AQUAREA T-CAP R290 | **79** | 79 | 97,17 m² |
+
+79 es su C_b (78,54 %) y 21 el resto; las superficies llevan el mismo reparto y
+suman exactamente los 123 m² del edificio. **La app le decía 48 %** en el encargo
+por WhatsApp, que es la cobertura de potencia — ese texto también queda
+corregido, y ahora explica las dos cifras.
+
+⚠️ El C_b depende de la **base de la cobertura** que declare el expediente: con
+base DEMANDA sale 78,54 % y con base P. CALDERA, 73,49 % (12 kW ÷ 27,8). No se
+elige aquí: se usa el que ya tiene el expediente CAE, que es el que se declaró.
+
+**REGLA — la caldera de la medida se COPIA de la que escribe el CEE de esa
+fase**, nunca se vuelve a componer desde el expediente. Viaja como `existentes`
+desde `componerFicha`. Recomponerla dejaría fuera lo que el certificador haya
+corregido en la pestaña de Instalaciones —la potencia, el aislamiento, los
+litros del depósito— y el mismo aparato saldría declarado de dos maneras dentro
+del mismo `.cex`. Solo se le cambia su parte: `100 − C_b`.
+
+⚠️ Solo se le pasan los equipos en el **CEE INICIAL**. En el final esos equipos
+ya son la aerotermia, y copiarla como «la caldera que se queda» la declararía
+dos veces.
+
+⚠️ **`_heredar_superficies` deshacía el reparto.** Le daba a cada equipo la
+superficie del fichero que se copia —los 123 m² enteros a los dos—, que es lo
+correcto en una SUSTITUCIÓN y lo contrario de lo que hace falta aquí. Ahora
+hereda el TOTAL y le vuelve a aplicar su porcentaje: sigue mandando el `.cex` si
+el certificador corrigió la superficie en CE3X, y sigue mandando el C_b para
+repartirla.
+
+**REGLA — sin reparto calculable NO se compone.** Sin la potencia de la bomba (o
+la de la caldera, según la base) el C_b no sale, y escribir la bomba al 100 %
+declararía una sustitución que no es. Se dice qué falta, con esas palabras.
+
+De paso, la medida deja de llamarse «Sustitución por aerotermia» cuando es una
+hibridación: ahí no se sustituye nada, y el propio texto de la medida ya decía lo
+contrario que su título («en apoyo a la caldera, que se mantiene en servicio»).
+
+⚠️ En el mensaje de WhatsApp se escribe **«Cb»** sin guion bajo: `_texto_` es la
+cursiva de WhatsApp, y un `C_b` dentro la cierra a media frase.
 
 ### El CEE FINAL se hace COPIANDO el inicial (2026-09-13)
 
@@ -7667,6 +7804,7 @@ apagar las que hagan falta, cada una con su propio filtro.
 | EL REGISTRO — rótulo, ancho, filtro, valor y pintado de cada columna | [logic/expedientesColumnas.jsx](implementation/frontend/src/features/expedientes/logic/expedientesColumnas.jsx) |
 | El panel de selección y las vistas de fábrica | [components/ColumnasPicker.jsx](implementation/frontend/src/features/expedientes/components/ColumnasPicker.jsx) |
 | La cabecera: ordenar, redimensionar y REORDENAR arrastrando | [components/TablaExpedientesHead.jsx](implementation/frontend/src/features/expedientes/components/TablaExpedientesHead.jsx) |
+| El logo de una empresa (o sus iniciales) — compartido con lotes y cuadro de mando | [components/LogoEmpresa.jsx](implementation/frontend/src/components/LogoEmpresa.jsx) |
 | Los datos que piden las columnas nuevas | `get_expedientes_list_v4` (`scripts/get_expedientes_list_v4.sql`) |
 
 **REGLA — las columnas son una LISTA DECLARATIVA, no N bloques de JSX copiados.**
@@ -7753,6 +7891,33 @@ pantalla cambiada sin haberla cambiado. La elección se guarda en ESE navegador
 | **Económica** | Ahorro, bono y margen POR SEPARADO (ordenables), con su lote |
 | **Cartera** | Quién trae la obra y a quién llamar: cliente · teléfono · instalador · municipio |
 
+### El LOGO de la empresa, y una sola pieza para pintarlo
+
+Las columnas **Instalador** y **Certificador** llevan el logotipo de la empresa
+(`prescriptores.logo_empresa`, que ya viaja en `/api/prescriptores`): en una lista
+de 267 filas se reconoce quién trae la obra antes de leer la razón social. Sin
+logo —o si no carga— caen a las INICIALES, para que la fila no baile.
+
+**REGLA — el dibujo es UNO**: [components/LogoEmpresa.jsx](implementation/frontend/src/components/LogoEmpresa.jsx).
+Había DOS copias con el mismo dibujo (`LogoEmpresa` en los lotes y
+`AvatarPartner` en el cuadro de mando) y este era el tercer sitio que lo pedía:
+o se escribía la tercera copia o se juntaban. Se juntaron, y las dos PIELES se
+conservan en `variante` —el cuadro de mando pinta sus iniciales en el color de
+marca y los lotes en gris—, que eso no es algo que unificar a ojo desde aquí.
+
+**En el CERTIFICADOR, el logo solo sustituye a las iniciales cuando existe**: sin
+él se conserva el chip con el color de su FICHA, que es como se ha leído siempre
+esa columna. Y el logo de un instalador HEREDADO sale atenuado igual que su
+nombre, o el logo lo haría pasar por declarado.
+
+⚠️ **Los logos pesan 8 MB y se descargan enteros en cada carga.** Están guardados
+como data URL a tamaño de papel (el mayor, **1,97 MB**) porque se imprimen en las
+propuestas, y `GET /api/prescriptores` hace `select('*')`: 60 logos × su tamaño
+completo para pintarlos a 24 px. Ya era así antes de esto —la vista de
+expedientes se los tragaba sin pintar ni uno—, así que pintarlos no cuesta una
+petición más; pero la cuenta pendiente es guardar una MINIATURA aparte y que el
+listado lea esa.
+
 ### La columna INSTALADOR y su cascada
 
 **REGLA — UNA cascada, y la del listado coincide con la de la FICHA.** El primer
@@ -7785,6 +7950,184 @@ tokens de aviso y sellos de migración que el listado no enseña). El payload su
 ese campo **nunca llegaba**, así que los 45 expedientes ya loteados se ofrecían
 como seleccionables y el error solo aparecía al crear el lote (el backend sí lo
 rechaza: `loteService.evaluarElegibilidadBase`).
+
+---
+
+## La FOTO REAL de cada cerramiento (2026-09-15)
+
+El plano dice que FBS3 da a la calle y mide 10,94 m. **No dice qué hay en ella.**
+Eso se mira en una foto — y la foto casi siempre ya está en el expediente: el
+cliente subió «tu casa vista desde la calle» y «las paredes que dan a un patio»
+al hacer la simulación. Medido en 26RES060_186: **6 fotos de la envolvente** (2
+de fachada, 4 de patios) llevando meses en Drive, mientras el certificador
+contaba las ventanas a ojo y dejaba el `1,30 × 1,30` de por defecto.
+
+Ahora se pulsa una pared —o un hueco— y se le pega la suya.
+
+| Qué | Dónde |
+|---|---|
+| La foto ↔ el cerramiento (Drive + estado) | [paredFotoService.js](implementation/backend/services/paredFotoService.js) |
+| La lectura (prompts, cajas, escala) | [paredOcrService.js](implementation/backend/services/paredOcrService.js) |
+| Rutas | `GET|POST|DELETE /api/cee-envolvente/:id/fotos` · `/fotos/adoptar` · `/fotos/:driveId/contenido` · `POST /fotos/leer` — **internalOnly** |
+| Superficie | `FotosCerramiento` en el panel de la pared y dentro de cada hueco; `LecturaFotoModal` para revisar |
+| Aplicar al plano | `aplicaHuecosLeidos` / `anotaLecturaHueco` en `usePlanoEnvolvente` |
+| Prueba de lo determinista | `node implementation/backend/scripts/test_pared_ocr.mjs` |
+| Contra un expediente real, sin escribir | `node implementation/backend/scripts/probar_pared_ocr.js 26RES060_186 --pared=FBS3 --largo=10.94` |
+
+**REGLA — primero lo que YA HAY, y después subir.** El botón abre la lista de
+fotos del expediente (`FOTO_FACHADA_PRINCIPAL`, `FOTO_PATIOS_INTERIORES`,
+`FOTO_VENTANAS_ANTES`…) ANTES que el selector de ficheros. Volver a pedirle al
+cliente una foto que mandó en junio es la peor forma de estrenar esto, y además
+la suya es la buena: es de antes de la obra. Una foto del expediente se
+**REFERENCIA, no se copia** —ya está en su carpeta y ya la ve el gestor de
+documentación—, y si el original desaparece se dice (`roto`), nunca se enseña un
+hueco negro.
+
+**REGLA — la foto vale AUNQUE NO SE LEA.** Que FBS3 tenga la suya es la prueba de
+por qué ese cerramiento se clasificó como fachada y por qué tiene dos ventanas.
+Por eso el bloque sale también en MEDIANERAS y particiones, donde más vale: es lo
+que acredita que al otro lado hay un edificio y no un solar.
+
+**REGLA — el modelo NO da metros; los pone el código.** Se le piden CAJAS
+(`box_2d`, el formato de detección en el que está calibrado) y `aMetros()` las
+convierte. Un metraje inventado por un modelo acaba siendo una superficie de
+huecos dentro de un certificado sin que nadie sepa de dónde salió.
+
+**REGLA — la escala es la PUERTA DE ENTRADA, no el ancho de la pared.** Es lo
+contrario de lo que parece, y está medido sobre la fachada de 26RES060_186:
+
+1. **La fachada nunca ocupa el encuadre exacto** (hay cielo, acera, la casa del
+   vecino), así que tomar el ancho de la foto por el ancho de la pared mete un
+   error que nadie puede acotar — daba la ventana a **2,4 m**.
+2. **El modelo sobreestima las cajas ~1,5×** de forma sistemática (dio la puerta
+   a 0,117 × 0,371 cuando en la imagen es 0,082 × 0,223) pero CONSISTENTE, así
+   que las proporciones ENTRE huecos sí son buenas — y una referencia dentro de
+   la misma foto cancela el sesgo entero.
+
+Con la puerta (2,05 m de alto, que casi no varía; el ancho va de 0,80 a 1,40) la
+ventana sale a **1,71 × 1,73 m** y la puerta de garaje a 1,02 m, que es lo que se
+ve. **El largo de la pared VALIDA, no escala**: si los huecos suman más que la
+pared, o si el ancho de fachada que sale de la escala no se parece al que midió
+el motor, se dice y no se proponen medidas. Sin puerta a la vista **no hay
+medidas, solo recuento** — que es lo que más falta hacía.
+
+**REGLA — lo leído NACE DUDOSO.** Ni la mejor lectura de una foto en perspectiva
+es un metro. Entra por el ámbar que la pantalla YA tiene, lo cuenta el titular
+(«6 con medida por confirmar») y se cierra con el «✓ OK» que ya existe. No hace
+falta un estado nuevo.
+
+**REGLA — no se PISA lo que ya hay.** Con la pared vacía, lo leído se ofrece
+marcado; con huecos ya puestos, las casillas nacen DESMARCADAS y se dice cuántos
+hay. Reemplazarlos es un botón aparte que se lee como lo que es («Quitar los 4 y
+poner estos 4»). ⚠️ Importa porque señalar la entrada YA coloca una puerta y una
+ventana de relleno: sin ese botón, leer una fachada duplicaría siempre.
+
+**REGLA — la carpintería y el vidrio se GUARDAN y se enseñan, pero NO van al
+`.cex`.** `loSenalado` no tiene hoy casilla para ellos, y escribir en un
+certificado un dato cuyo camino no se ha verificado es justo lo que la casa no
+hace. El popup lo dice en pantalla. El día que haya casilla, el dato ya está.
+
+⚠️ **`thinkingBudget: 0` CUELGA esta lectura.** Los demás lectores de la casa
+transcriben —una placa se lee, no se razona— y por eso van con el presupuesto a
+cero. Inventariar una fachada exige razonar, y ahí el resultado no es «peor»: la
+petición **NO RESPONDE NUNCA**. Medido: 240 s colgada, y 13,3 s con `pensar`. No
+es lentitud, así que **no se arregla subiendo el plazo**; y engaña, porque el
+prompt largo con schema pequeño va, y el schema grande con prompt corto también
+— es la combinación la que lo dispara. `llamarGemini` acepta `pensar` y
+`deadline` para esto (por defecto sigue siendo lo de las placas, que no cambia).
+
+**Coste medido**: entrada 1.099 · salida 516 · **pensamiento 2.148** tokens ≈
+**0,006 €** por fachada, 12-17 s. Es diez veces una placa —el pensamiento se
+factura como salida— y sigue siendo medio céntimo.
+
+**Dónde vive**: los ficheros en Drive, en `1. CEE / CEE INICIAL / FOTOS
+ENVOLVENTE` (cuelga de la carpeta que ya se comparte con el certificador, y en su
+propia subcarpeta para no esconder los `.cex` entre quince fotos). En la BD, solo
+metadatos en **`cee.envolvente_fotos`** — clave APARTE del trabajo, porque
+`cee.envolvente` lo reemplaza entero el navegador cada 1,2 s y una foto subida
+entre dos guardados se perdería (mismo motivo que `cee.envolvente_imagenes`).
+
+**REGLA — se indexa por el ID DE CATASTRO, no por el nombre.** El nombre de una
+pared es editable (FBE1 → PBE1 al reclasificarla), así que indexar por él haría
+que renombrar una pared perdiera sus fotos. Y un hueco, por `id/uid`: su `uid` es
+nuevo y estable, porque ni el nombre (V1) ni el índice lo son — el índice se
+mueve con cada `splice` y el nombre se recoloca solo. `duplicaHueco` estrena uid:
+con el del original, despegarle la foto a uno se la quitaría al otro.
+
+⚠️ Al abrir una foto no sale un lightbox: sale el **panel de la pared y cada hueco
+señalado sobre la imagen** — ver la sección de abajo.
+
+⚠️ La miniatura se pide con **axios a un blob**, no con un `<img src>`: la ruta es
+`internalOnly` y un `src` no puede llevar la cabecera de sesión. Así no hace falta
+abrir una ruta pública con el id de Drive en la URL (a diferencia de
+`reforma-thumb`, que sí la necesita porque la abre el cliente).
+
+### La foto ABIERTA es una pantalla de trabajo, no un lightbox
+
+Al pulsar una foto se abre con **el panel de la pared al lado** —qué es, cuánto mide,
+su U, y la lista de sus huecos con sus medidas— y **cada hueco SEÑALADO sobre la
+imagen** con su nombre: V1 es esa ventana, PE es esa puerta. Era el nombre del
+fichero y nada más, y la foto se abre justo para contestar «¿cuál de estas es V1?».
+
+| Qué | Dónde |
+|---|---|
+| El dibujo, las marcas y el gesto de señalar | [VisorCerramiento.jsx](implementation/frontend/src/features/cee-envolvente/components/VisorCerramiento.jsx) |
+| Bajar los bytes y guardar (lo que toca la red) | `VisorAbierto` en `FotosCerramiento.jsx` |
+| Normalizar y escribir la marca | `normalizarMarcas` / `guardarMarcas` en [paredFotoService.js](implementation/backend/services/paredFotoService.js) |
+| Ruta | `PUT /api/cee-envolvente/:id/fotos/marcas` — **internalOnly** |
+
+**REGLA — las marcas salen SOLAS de la lectura.** El modelo ya devuelve la caja de
+cada hueco (`box_2d`), así que `aMetros` la conserva en fracciones del encuadre y
+al aplicar la propuesta se escriben las marcas de una vez. Tirarla —como se hacía—
+obligaba a atar las ventanas a mano una por una habiendo mirado ya dónde están.
+
+**REGLA — el `uid` se fija ANTES de crear los huecos.** Si naciera dentro del hook
+no habría forma de saber qué uid le tocó a cada caja, y la marca acabaría en otra
+ventana. Por eso `aplicaHuecosLeidos` respeta un `uid` que venga puesto.
+
+**REGLA — la marca vive con la FOTO, no con el hueco.** Es «dónde está esto EN ESTA
+IMAGEN», y la misma ventana tiene otra caja en otra toma. Además `cee.envolvente` lo
+reemplaza entero el navegador cada 1,2 s y son ~2 KB a propósito: cuatro números por
+hueco lo engordarían sin que nadie lo pidiera.
+
+**REGLA — se guarda el `uid`, jamás el NOMBRE.** V1 se renombra, y se recoloca solo
+al quitar un hueco de en medio: con el nombre, la marca señalaría a la ventana de al
+lado. Una marca cuyo hueco ya no existe **no se pinta y no se borra**: el hueco puede
+volver de un «deshacer».
+
+**REGLA — al aplicar una lectura se FUNDE; desde el visor, NO.** La lectura solo sabe
+de los huecos que acaba de proponer, así que una lista completa se llevaría por
+delante lo que el certificador señaló a mano en esa misma foto. En el visor la lista
+SÍ es la verdad — quitar una marca es mandarla sin ella.
+
+**REGLA — las marcas se escriben AL MOMENTO, no al cerrar.** Quien señala tres
+ventanas y cierra la pestaña no puede perderlas, y no hay ningún botón de guardar que
+le diga que hacía falta. Si la escritura falla, la marca **se retira de la pantalla**:
+dejarla pintada haría dar por señalado un hueco que al volver no lo está.
+
+**REGLA — el COLOR es el del PLANO** (`COLOR_HUECO`, importado de `PlanoPlanta`):
+ventana azul (el del vidrio) y puerta marrón. Dos lenguajes de color para lo mismo
+obligan a traducir entre las dos pantallas.
+
+⚠️ **`var(--brand)` NO EXISTE — el token es `--brand-primary`.** Y en un atributo SVG
+eso no falla de forma visible: se resuelve a **NEGRO**, así que el rótulo de cada
+ventana salía como un rectángulo negro sobre la fachada sin que nada lo delatara. Las
+clases de Tailwind (`text-brand`, `bg-brand`) sí funcionan — son un color de su
+config, no esa variable.
+
+⚠️ **Arrastrar sobre una `<img>` la SELECCIONA y la tiñe del azul del sistema.** Las
+cajas se dibujaban bien debajo, pero la foto se volvía ilegible justo mientras se
+señalaba sobre ella. Hacen falta las tres: `draggable={false}`, `select-none` y
+`preventDefault()` en el `pointerdown`.
+
+⚠️ El contenedor de la foto lleva su **relación de aspecto** medida en el `onLoad`
+(`style={{aspectRatio}}`): con `object-contain` sobran bandas por dos lados y el SVG
+—que va al 100 % del contenedor— dejaría todas las cajas corridas.
+
+⚠️ La **relación de aspecto** de la foto viaja desde el navegador, que ya tiene el
+blob. Sin ella no se puede cruzar una escala vertical con una horizontal, y una
+foto muy escorzada daría medidas tranquilas. Pedírsela al backend obligaría a
+meter una librería de imagen en el contenedor para leer dos números.
 
 ---
 
@@ -7918,11 +8261,13 @@ rechaza: `loteService.evaluarElegibilidadBase`).
 
 47. **El mismo vecino volviendo al funnel NO estrena oportunidad**: el duplicado no nacía en la comprobación de la oportunidad sino en el CLIENTE — `upsertClienteFromLanding` solo reconoce por email o DNI y **85 de 376 clientes no tienen ninguno de los dos**, así que estrenaba ficha y la idempotencia (que exigía `ref_catastral` **Y** `cliente_id`) ya no podía casar nada. La comprobación sube ANTES del upsert (`buscarLeadPrevio` en [leadService.js](implementation/backend/services/leadService.js)), reutiliza SU cliente y solo le rellena huecos. **El TELÉFONO desempata solo DENTRO de la misma vivienda, jamás a secas**: el móvil 695615330 figura en CINCO fichas de personas distintas (son móviles de instalador/comercial) y deduplicar clientes por teléfono fusionaría expedientes de gente distinta; se compara por los 9 últimos dígitos, porque la misma persona llega con y sin `+34`. **Solo se reutiliza un LEAD** — una ENVIADA tiene propuesta, carpeta movida y quizá expediente. **Al visitante se le avisa, no se le bloquea** (`check-rc`, que ya existía): hay segundas altas legítimas. **Pero un alta sobre una vivienda que ya tiene oportunidad se ANOTA en el historial** con cuáles son y en qué estado, o nadie se entera — la OP179 se trabajó cuatro meses sin saber de la OP113. En modo interno NO hay upsert, a propósito. Tras tocarlo: `node implementation/backend/scripts/test_lead_duplicado.js`. Ver "El mismo vecino volviendo al funnel".
 
-48. **El `.cex` de la envolvente se guarda SIEMPRE en `1. CEE / CEE INICIAL` como `{nº} - CEE INICIAL_REVISAR.cex`, y sus transmitancias son las de la oportunidad**: salen de `getUByYear` ([calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js)), que ya implementa la Guía de Transmitancias de BROKERGY valor a valor — no se copia ninguna U. La ficha la compone el BACKEND desde el expediente ([fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js) + [ceeEnvolventeCex.js](implementation/backend/services/ceeEnvolventeCex.js)), nunca el navegador. El `_REVISAR` del nombre es funcional: `matchSlot` reconoce el `.cex` del técnico **solo por la extensión**, así que sin la salida `_revisar.cex → null` la rejilla daría el certificado por presentado. La **foto de fachada y el croquis de parcela** van dentro, bajados del Catastro con las funciones que la app ya tiene (en serie, con pausa, mirando el monitor del WAF y cacheados por RC) — y solo al generar, no al previsualizar. Lo que no se puede derivar (demanda ACS, masa de particiones, zona HE4 fuera de las comprobadas) sale declarado con su `de:`, nunca inventado. Verificado contra el `.cex` que un certificador hizo a mano para 26RES060_186: **19 de 19 campos coinciden**. Tras tocarlo: `node implementation/backend/scripts/probar_cex_envolvente.js 26RES060_186`. Ver "El `.cex` de la envolvente".
+48. **El `.cex` de la envolvente se guarda SIEMPRE en `1. CEE / CEE INICIAL` como `{nº} - CEE INICIAL_REVISAR.cex`, y sus transmitancias son las de la oportunidad**: salen de `getUByYear` ([calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js)), que ya implementa la Guía de Transmitancias de BROKERGY valor a valor — no se copia ninguna U. La ficha la compone el BACKEND desde el expediente ([fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js) + [ceeEnvolventeCex.js](implementation/backend/services/ceeEnvolventeCex.js)), nunca el navegador. El `_REVISAR` del nombre es funcional: `matchSlot` reconoce el `.cex` del técnico **solo por la extensión**, así que sin la salida `_revisar.cex → null` la rejilla daría el certificado por presentado. La **foto de fachada y el croquis de parcela** van dentro, bajados del Catastro con las funciones que la app ya tiene (en serie, con pausa, mirando el monitor del WAF y cacheados por RC) — y solo al generar, no al previsualizar. Lo que no se puede derivar (demanda ACS, masa de particiones, zona HE4 fuera de las comprobadas) sale declarado con su `de:`, nunca inventado. Verificado contra el `.cex` que un certificador hizo a mano para 26RES060_186: **19 de 19 campos coinciden**. ⚠️ Una pared que se pasa a FACHADA **necesita rumbo**: las particiones y las dibujadas nacen sin él y el motor moría en un `KeyError(None)` que llegaba a la pantalla como un escueto «None» (26RES093_8). Se PREGUNTA en el panel, con las DOS perpendiculares que salen de su trazo, y sin él el motor contesta 422 diciendo qué pared es. Tras tocarlo: `node implementation/backend/scripts/probar_cex_envolvente.js 26RES060_186`. Ver "El `.cex` de la envolvente".
 
-48.b **El CEE FINAL se hace COPIANDO el inicial, no regenerándolo**: se coge `{nº} - CEE INICIAL_REVISAR.cex` de la carpeta, se le cambia SOLO el pickle de instalaciones y se guarda como `{nº} - CEE FINAL_REVISAR.cex` en `1. CEE / CEE FINAL`. Es como se hace a mano y está comprobado pickle a pickle contra el `.cex` que guardó el certificador desde CE3X en 26RES060_186: de los 15 pickles solo cambia el 4, y sus **10 campos salen idénticos**. Sin inicial en la carpeta → **409**: el final es el inicial con un cambio. El generador viejo se **RETIRA** (es la actuación, no un añadido) y se dice con su nombre; qué slots se vacían lo deduce `SERVICIOS_DEL_SLOT`, así que lo que la obra no toca —placas solares, iluminación, bombas— se queda. **Lo que ya dice el fichero manda**: la superficie servida y el DEPÓSITO de ACS se heredan de él (el depósito es del edificio, no de la caldera). El rendimiento de una bomba de calor va como **CONOCIDO**, que cambia la casilla `[6]` y con ella la FORMA del bloque `[7]` — medido sobre los 1.506 `.cex` de producción (138 mixtos con BdC: 132 conocidos, 138 con `Electricidad`, 123 sin acumulación). La **hibridación no se escribe**: ahí la caldera se queda y son dos generadores. Fuentes únicas: `instalacionNueva()` en [fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js) (qué equipo) y `sustituir_pickle` / `slots_a_retirar` / `heredar_del_base` en el motor (cómo se escribe). Tras tocarlo: `node implementation/backend/scripts/test_cex_final.mjs`. ⚠️ Un equipo de ACS con el MISMO modelo que el de calefacción es UNA máquina (41 expedientes declaraban dos), y el SCOP_dhw sale del nodo de ACS cuando lo declara. ⚠️ La altura de planta por defecto pasa a **2,80 m** en los cuatro sitios: las envolventes traídas antes dan otra superficie de fachada. Ver "El CEE FINAL se hace COPIANDO el inicial".
+48.b **El CEE FINAL se hace COPIANDO el inicial, no regenerándolo**: se coge `{nº} - CEE INICIAL_REVISAR.cex` de la carpeta, se le cambia SOLO el pickle de instalaciones y se guarda como `{nº} - CEE FINAL_REVISAR.cex` en `1. CEE / CEE FINAL`. Es como se hace a mano y está comprobado pickle a pickle contra el `.cex` que guardó el certificador desde CE3X en 26RES060_186: de los 15 pickles solo cambia el 4, y sus **10 campos salen idénticos**. Sin inicial en la carpeta → **409**: el final es el inicial con un cambio. El generador viejo se **RETIRA** (es la actuación, no un añadido) y se dice con su nombre; qué slots se vacían lo deduce `SERVICIOS_DEL_SLOT`, así que lo que la obra no toca —placas solares, iluminación, bombas— se queda. **Lo que ya dice el fichero manda**: la superficie servida y el DEPÓSITO de ACS se heredan de él (el depósito es del edificio, no de la caldera). El rendimiento de una bomba de calor va como **CONOCIDO**, que cambia la casilla `[6]` y con ella la FORMA del bloque `[7]` — medido sobre los 1.506 `.cex` de producción (138 mixtos con BdC: 132 conocidos, 138 con `Electricidad`, 123 sin acumulación). En el CEE FINAL la **hibridación sigue sin escribirse**: ahí la caldera se queda y son dos generadores (su MEDIDA DE MEJORA sí — ver 48.g). Fuentes únicas: `instalacionNueva()` en [fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js) (qué equipo) y `sustituir_pickle` / `slots_a_retirar` / `heredar_del_base` en el motor (cómo se escribe). Tras tocarlo: `node implementation/backend/scripts/test_cex_final.mjs`. ⚠️ Un equipo de ACS con el MISMO modelo que el de calefacción es UNA máquina (41 expedientes declaraban dos), y el SCOP_dhw sale del nodo de ACS cuando lo declara. ⚠️ La altura de planta por defecto pasa a **2,80 m** en los cuatro sitios: las envolventes traídas antes dan otra superficie de fachada. Ver "El CEE FINAL se hace COPIANDO el inicial".
 
 48.e **Cuando el ACS lo hace OTRA máquina, se escriben DOS equipos**: CE3X no calcula nada si la demanda de ACS no está cubierta al 100 % («La instalación de ACS no está bien definida»), y hasta ahora el segundo aparato solo salía como un aviso pidiendo añadirlo a mano. `instalacionNueva` devuelve `extras`, que entran en la instalación del CEE final Y en la medida de mejora —la medida es TODO lo que se instala—. En el slot ACS la casilla [6] manda sobre la FORMA del [7]: con **CONOCIDO** es el mismo trío que el [2], sin interruptores ni cola (medido: 205 de los 544 equipos del slot ACS del corpus, 204 de ellos con [2] == [7]); un TERMO va por `Efecto Joule` estimado al 100 %. **Sin SCOP_dhw no se escribe**, y el DEPÓSITO cuelga de la máquina que calienta el agua. ⚠️ Tirando de ese hilo salió que **el CEE FINAL se generaba SIN NINGUNA instalación y en silencio**: `equipoConAjustes` exigía la POTENCIA —que es de la cola con la que CE3X *estima* una caldera— para escribir también una bomba de calor, cuyo rendimiento va ENSAYADO y no tiene esa cola. Tras tocarlo: `node implementation/backend/scripts/test_cex_final.mjs` y `pytest implementation/cee-engine/tests/test_equipos.py`. Ver "El ACS que hace OTRA máquina también se escribe".
+
+48.g **La MEDIDA DE MEJORA de una hibridación lleva los DOS generadores, repartidos por el C_b**: la caldera NO se retira, así que el edificio mejorado de CE3X tiene la bomba y la caldera cubriendo cada una su parte de la demanda. La app se negaba a componerla («hay que montarlo a mano») y era el único camino sin salida de la pestaña de Medidas. **REGLA — el reparto es el C_b, NO la cobertura de potencia**: lo que CE3X pide es la parte de la DEMANDA, y una bomba dimensionada al 48 % de la potencia de diseño cubre el 78,5 % de la energía del año. Medido contra el `.cex` que el certificador montó a mano para 26RES093_8: aerotermia **79 %** (= C_b 78,54) y caldera **21 %**, con las superficies repartidas igual (97,17 + 25,83 = 123 m²) y las dos con el mismo depósito. La app le decía **48 %** por WhatsApp (`ce3xFinal`), que es la cobertura de potencia — ese mensaje también queda corregido. **REGLA — la caldera de la medida se COPIA de la que escribe el CEE de esa fase** (`existentes`), nunca se recompone: si no, lo que el certificador corrija en Instalaciones —la potencia, el aislamiento, los litros— no llegaría a la medida y el mismo aparato saldría declarado de dos maneras en el mismo `.cex`. ⚠️ `_heredar_superficies` daba a cada equipo la superficie entera del fichero y deshacía el reparto: ahora hereda el TOTAL y le vuelve a aplicar su porcentaje. Sin reparto calculable no se compone y se dice qué falta. Tras tocarlo: `node implementation/backend/scripts/test_hibridacion_medida.mjs` y `pytest implementation/cee-engine/tests/test_equipos.py`. Ver "La medida de mejora de una HIBRIDACIÓN".
 
 48.c **Los ADMINISTRATIVOS del `.cex` se corrigen desde la ventana, escribiendo en SU FUENTE**: el botón de editar de «Datos del cliente» y de «Datos del técnico» escribe en `clientes` y en `prescriptores` (`PUT /:id/cliente`, **staffOnly**; `PUT /:id/tecnico`, equipo interno **o el propio técnico asignado**), nunca en una copia dentro del trabajo. En lectura se enseña el valor COMPUESTO —lo que va al `.cex`— y en edición las COLUMNAS, que es lo único sobre lo que se puede escribir; la `fuente` en crudo viaja FUERA de `ficha`. Y el **teléfono y el correo del titular caen a su PERSONA DE CONTACTO** cuando él no dio los suyos —el número marcado «Notif. aquí» es a menudo el único que tenemos—, campo a campo y **diciendo de quién es**: medido en 26RES060_187, la ficha decía «no consta» de dos datos escritos dos líneas más abajo. Tras tocarlo: `node implementation/backend/scripts/test_contacto_cliente_ce3x.mjs`. Ver "Los administrativos se CORRIGEN desde la ventana".
 
@@ -8074,7 +8419,9 @@ WA_SYNC_PAUSA_MS=1500              ← pausa entre chats (no hacerle ráfagas a 
 WA_SYNC_FALLOS_MAX=3               ← tiempos de espera seguidos tras los que se corta el repaso
 ```
 
-53. **Las COLUMNAS del listado de expedientes se ELIGEN, y son una lista declarativa**: botón **▦ Columnas · N** con vistas de fábrica (Operativa · Seguimiento CEE · Económica · Cartera). Cada columna se declara UNA vez en [logic/expedientesColumnas.jsx](implementation/frontend/src/features/expedientes/logic/expedientesColumnas.jsx) —rótulo, ancho, filtro, `valor()` y `render()`— y de ahí salen la cabecera, la fila de filtros, las celdas, el ORDEN (clic en la cabecera; el tercer clic vuelve al orden por PRIORIDAD, que es el de siempre) y el CSV, que exporta **lo que se está viendo**. Antes eran siete columnas escritas a mano en tres sitios alineados por posición, y por eso no se podía filtrar por **instalador**. **Un filtro activo NO puede esconderse**: al apagar su columna se limpia. Las columnas se **REORDENAN arrastrando su cabecera** (con eventos de PUNTERO y no con el drag&drop de HTML5, que no se puede disparar con eventos sintéticos y por tanto no se puede verificar; y con `setInterval` y no `requestAnimationFrame`, que el navegador congela con la ventana oculta): la tabla se desplaza sola al llegar al borde, soltar sobre "Acciones" la deja la última y sobre el nº de expediente —que no se mueve nunca, identifica la fila— justo detrás. El orden se guarda como los anchos, y **`roles` es una comodidad de pantalla, nunca el control de acceso** — el instalador se le capa al CERTIFICADOR también en la ruta (regla 48.d) y el margen sigue siendo de ADMIN. La columna INSTALADOR resuelve `instalacion.instalador_id → expedientes.instalador_asociado_id → oportunidad`, la misma primera fuente que la FICHA, y **marca lo heredado** (con la primera sola, 98 de 267 saldrían vacíos teniéndolo). Los datos los trae `get_expedientes_list_v4` (lote, instalador y `seguimiento` podado a sus cuatro claves de fase), que de paso arregla que `lote_id` **nunca llegara** al listado y los 45 expedientes ya loteados se ofrecieran para lotear. Ver "El listado de expedientes: las columnas se ELIGEN".
+54. **Cada cerramiento del plano puede llevar su FOTO REAL, y de ella se cuentan sus huecos**: se pulsa la pared —o el hueco— y se le pega la suya, ofreciendo PRIMERO las que el expediente ya tiene (medido en 26RES060_186: 6 fotos de la envolvente llevaban meses en Drive mientras las ventanas se contaban a ojo). La foto vale **aunque no se lea**: es la prueba de por qué el cerramiento se clasificó como está, y por eso sale también en medianeras. **El modelo NO da metros**: da CAJAS (`box_2d`), y la escala la pone el código desde la **PUERTA DE ENTRADA** (2,05 m) — nunca desde el ancho de la pared, porque la fachada no ocupa el encuadre exacto **y** porque el modelo agranda todas las cajas ~1,5× de forma consistente, sesgo que una referencia dentro de la misma foto cancela (con el ancho de la pared la ventana salía a 2,4 m; con la puerta, a 1,71, que es lo que se ve). El largo que midió el motor **VALIDA, no escala**; sin puerta a la vista hay recuento pero no medidas. Lo leído **nace DUDOSO** (el ámbar que ya existe) y **no pisa** lo que hay: con huecos ya puestos las casillas nacen desmarcadas y reemplazar es un botón aparte — importa, porque señalar la entrada ya coloca una puerta y una ventana de relleno. La carpintería y el vidrio se guardan y se enseñan pero **no van al `.cex`** (no hay casilla en `loSenalado`). **Al abrir una foto sale el PANEL de la pared y cada hueco SEÑALADO sobre la imagen** con su nombre: las marcas salen solas de la lectura (el modelo ya da la caja de cada hueco) y se corrigen arrastrando. Se guardan con la FOTO y por `uid`, nunca por nombre —V1 se renombra y se recoloca— y **al momento**, no al cerrar. ⚠️ `var(--brand)` NO existe (es `--brand-primary`) y en un SVG eso sale NEGRO sin avisar; y arrastrar sobre una `<img>` la tiñe de azul salvo con `draggable={false}` + `select-none` + `preventDefault`. ⚠️ **`thinkingBudget: 0` cuelga esta lectura para siempre** —240 s frente a 13,3 s con `pensar`—, y no se arregla subiendo el plazo; `llamarGemini` acepta ya `pensar` y `deadline`. Coste: **0,006 €** por fachada. Fuentes únicas: [paredOcrService.js](implementation/backend/services/paredOcrService.js) (leer) y [paredFotoService.js](implementation/backend/services/paredFotoService.js) (Drive + estado, en `cee.envolvente_fotos`, clave APARTE del trabajo). Tras tocarlo: `node implementation/backend/scripts/test_pared_ocr.mjs`. Ver "La FOTO REAL de cada cerramiento".
+
+53. **Las COLUMNAS del listado de expedientes se ELIGEN, y son una lista declarativa**: botón **▦ Columnas · N** con vistas de fábrica (Operativa · Seguimiento CEE · Económica · Cartera). Cada columna se declara UNA vez en [logic/expedientesColumnas.jsx](implementation/frontend/src/features/expedientes/logic/expedientesColumnas.jsx) —rótulo, ancho, filtro, `valor()` y `render()`— y de ahí salen la cabecera, la fila de filtros, las celdas, el ORDEN (clic en la cabecera; el tercer clic vuelve al orden por PRIORIDAD, que es el de siempre) y el CSV, que exporta **lo que se está viendo**. Antes eran siete columnas escritas a mano en tres sitios alineados por posición, y por eso no se podía filtrar por **instalador**. **Un filtro activo NO puede esconderse**: al apagar su columna se limpia. Las columnas se **REORDENAN arrastrando su cabecera** (con eventos de PUNTERO y no con el drag&drop de HTML5, que no se puede disparar con eventos sintéticos y por tanto no se puede verificar; y con `setInterval` y no `requestAnimationFrame`, que el navegador congela con la ventana oculta): la tabla se desplaza sola al llegar al borde, soltar sobre "Acciones" la deja la última y sobre el nº de expediente —que no se mueve nunca, identifica la fila— justo detrás. El orden se guarda como los anchos, y **`roles` es una comodidad de pantalla, nunca el control de acceso** — el instalador se le capa al CERTIFICADOR también en la ruta (regla 48.d) y el margen sigue siendo de ADMIN. Instalador y Certificador pintan el **LOGO** de la empresa con [components/LogoEmpresa.jsx](implementation/frontend/src/components/LogoEmpresa.jsx), que es ahora la ÚNICA pieza que lo dibuja (eran dos copias: lotes y cuadro de mando) — sin logo, iniciales; en el certificador el chip de color de su ficha se conserva. ⚠️ Los logos son data URL a tamaño de papel: **8 MB en cada `GET /api/prescriptores`** (el mayor, 1,97 MB), y ya era así antes; la cuenta pendiente es una miniatura. La columna INSTALADOR resuelve `instalacion.instalador_id → expedientes.instalador_asociado_id → oportunidad`, la misma primera fuente que la FICHA, y **marca lo heredado** (con la primera sola, 98 de 267 saldrían vacíos teniéndolo). Los datos los trae `get_expedientes_list_v4` (lote, instalador y `seguimiento` podado a sus cuatro claves de fase), que de paso arregla que `lote_id` **nunca llegara** al listado y los 45 expedientes ya loteados se ofrecieran para lotear. Ver "El listado de expedientes: las columnas se ELIGEN".
 
 ---
 

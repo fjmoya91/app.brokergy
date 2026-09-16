@@ -12,7 +12,7 @@ import { AnexoListadoModal } from './AnexoListadoModal';
 import { SolicitudVerificacionModal } from './SolicitudVerificacionModal';
 import { FacturaSoModal } from './FacturaSoModal';
 import { LoteProcesoFases } from './LoteProcesoFases';
-import { LogoEmpresa } from './LogoEmpresa';
+import { LogoEmpresa } from '../../../components/LogoEmpresa';
 import { RequerimientoModal } from './RequerimientoModal';
 import { JustificanteMitecoModal } from './JustificanteMitecoModal';
 

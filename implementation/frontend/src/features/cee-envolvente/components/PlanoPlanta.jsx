@@ -65,7 +65,10 @@ const COLOR_TIPO = {
 //: mano en los dos temas (no es texto: el listón son 3:1).
 //:
 //: La ventana se queda en el azul, que es el del vidrio.
-const COLOR_HUECO = { puerta: '#b5763a', ventana: 'var(--info)' };
+//: EXPORTADO: el visor de la foto pinta la marca de cada hueco con el MISMO
+//: color con el que aparece en el plano. Dos lenguajes de color para lo mismo
+//: obligarian a traducir mentalmente entre las dos pantallas.
+export const COLOR_HUECO = { puerta: '#b5763a', ventana: 'var(--info)' };
 const colorHueco = h => COLOR_HUECO[h?.tipo === 'puerta' ? 'puerta' : 'ventana'];
 
 //: Lo que mide el asa de un hueco, en metros: lo que hay que poder agarrar con
@@ -651,8 +654,12 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
 
                             {rotulos.map(r => (
                                 <g key={r.id} style={{ pointerEvents: 'none' }}>
-                                    <rect x={r.x - tam * 1.7} y={r.y - tam * 0.96}
-                                          width={tam * 3.4} height={tam * 1.25}
+                                    {/* El papel se ajusta al TEXTO. Era ancho fijo
+                                        (3,4 em, o sea cuatro caracteres) y un
+                                        nombre puesto a mano se salía por los dos
+                                        lados y se montaba sobre el de al lado. */}
+                                    <rect x={r.x - r.ancho / 2} y={r.y - tam * 0.96}
+                                          width={r.ancho} height={tam * 1.25}
                                           rx={tam * 0.18} fill={PAPEL} opacity={0.82} />
                                     <text x={r.x} y={r.y} fontSize={tam} fontWeight={800}
                                           textAnchor="middle"
@@ -1418,15 +1425,29 @@ function colocarRotulos(lista, { sel, entrada, tam, entorno, nombreDe }) {
         const c = centro(m.svg);
         const x = c[0];
         const y = c[1] + tam * 0.35;
+        const texto = nombreDe ? nombreDe(m) : m.id;
+        const ancho = anchoRotulo(texto, tam);
         const forzado = m.id === sel || m.id === entrada;
         if (entorno && !forzado) continue;
+        // Chocan si se solapan SUS RECUADROS. Con un umbral fijo, un nombre
+        // puesto a mano se pintaba encima del vecino en vez de esconderlo.
         const choca = puestos.some(p =>
-            Math.abs(p.x - x) < tam * 2.6 && Math.abs(p.y - y) < tam * 1.1);
+            Math.abs(p.x - x) < (p.ancho + ancho) / 2 * 0.78
+            && Math.abs(p.y - y) < tam * 1.1);
         if (choca && !forzado) continue;
-        puestos.push({ x, y });
-        salida.push({ id: m.id, texto: nombreDe ? nombreDe(m) : m.id, x, y, destacado: forzado });
+        puestos.push({ x, y, ancho });
+        salida.push({ id: m.id, texto, x, y, ancho, destacado: forzado });
     }
     return salida;
+}
+
+//: Lo que ocupa un rótulo, en unidades del plano (metros).
+//:
+//: En un SVG no se puede medir el texto sin pintarlo, así que se estima por
+//: caracteres: ~0,62 em en mayúsculas y peso 800. El SUELO de 3,4 em es el ancho
+//: fijo que tenía antes, para que un `FBN1` de siempre se siga viendo igual.
+function anchoRotulo(texto, tam) {
+    return Math.max(tam * 3.4, tam * (0.62 * String(texto || '').length + 0.7));
 }
 
 /** Un muro sin encuadre no se puede dibujar, y eso SE DICE: un hueco en
