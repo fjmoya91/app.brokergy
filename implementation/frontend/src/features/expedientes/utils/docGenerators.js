@@ -495,8 +495,16 @@ export const deriveAnexoI = (expediente, results, states = {}, opts = {}) => {
                     ? 'Sustitución de caldera de combustión por bomba de calor de accionamiento eléctrico (sector terciario)'
                     : ANEXO_I_TEXTS.NOMBRE_ACTUACION_FIXED;
 
+    // El nombre de la ficha es el que publica el Ministerio, no una descripción
+    // nuestra de lo que se hace. La RES080 se llama "Rehabilitación profunda de
+    // edificios de viviendas": así la rotula su propio impreso (fichaRes080Html),
+    // así la nombra el certificado RES080 y así se elige en el desplegable del
+    // anexo del MITECO (FICHA_CATALOGO en anexoActuacionService). Aquí ponía
+    // "Mejora de la eficiencia energética de instalaciones térmicas", que no es el
+    // nombre de ninguna ficha — y el verificador compara esta casilla con la ficha
+    // y con el anexo de la actuación, que sí la nombran bien.
     const codigoFicha = fichaType === 'RES080'
-        ? 'RES080: Mejora de la eficiencia energética de instalaciones térmicas'
+        ? 'RES080: Rehabilitación profunda de edificios de viviendas'
         : fichaType === 'RES093'
             ? 'RES093: Hibridación en modo paralelo de caldera/s de combustión con bomba de calor de accionamiento eléctrico en edificios residenciales ubicados en la zona climática D1, D2 o D3'
             : fichaType === 'TER173'

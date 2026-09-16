@@ -224,5 +224,33 @@ console.log('\n11. Solo se rellenan las plantillas conocidas');
     check(lanzo, 'una plantilla desconocida se rechaza');
 }
 
+// ── 12. Cada ficha se nombra en el Anexo I como la nombra el Ministerio ────
+// Esta casilla es lo primero que el verificador cruza con la ficha del catálogo y
+// con el anexo de la actuación. Un nombre inventado no da error: sale impreso, lo
+// firma el cliente y el requerimiento llega después. La RES080 llevaba "Mejora de
+// la eficiencia energética de instalaciones térmicas", que no es el nombre de
+// ninguna ficha.
+console.log('\n12. El nombre de la ficha del Anexo I es el oficial de cada tipología');
+{
+    const NOMBRES = {
+        RES060: 'RES060: Sustitución de caldera de combustión por una bomba de calor tipo aire-aire, aire-agua, agua-agua o combinadas',
+        RES080: 'RES080: Rehabilitación profunda de edificios de viviendas',
+        RES093: 'RES093: Hibridación en modo paralelo de caldera/s de combustión con bomba de calor de accionamiento eléctrico en edificios residenciales ubicados en la zona climática D1, D2 o D3',
+        TER100: 'TER100: Sustitución de caldera de combustión existente por bomba de calor de accionamiento eléctrico',
+        TER173: 'TER173: Hibridación en modo paralelo de caldera/s de combustión con bomba de calor de accionamiento eléctrico en edificios no residenciales ubicados en la zona climática D1, D2 o D3',
+    };
+    for (const [ficha, esperado] of Object.entries(NOMBRES)) {
+        const exp = con({ numero_expediente: `26${ficha}_999` });
+        const { escritos } = await generar(anexoIFormulario(exp, {}, {}));
+        check(escritos['Código y nombre de la ficha'] === esperado,
+            `${ficha}: "${esperado.slice(0, 48)}…"`, escritos['Código y nombre de la ficha']);
+    }
+    // Y en la RES080 el nombre de la ACTUACIÓN es el mismo sin el código: la
+    // actuación de esa ficha es literalmente la rehabilitación profunda.
+    const { escritos } = await generar(anexoIFormulario(con({ numero_expediente: '26RES080_999' }), {}, {}));
+    check(escritos['Nombre de la actuación'] === 'Rehabilitación profunda de edificios de viviendas',
+        'RES080: el nombre de la actuación es la rehabilitación profunda', escritos['Nombre de la actuación']);
+}
+
 console.log(`\n═══ ${ok} bien · ${ko} mal ═══`);
 process.exit(ko ? 1 : 0);
