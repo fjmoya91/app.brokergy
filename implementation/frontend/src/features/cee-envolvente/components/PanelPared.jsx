@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { api } from '../logic/apiEnvolvente';
 import axios from 'axios';
 import { TIPOS_PARED, nuevoUid } from '../logic/usePlanoEnvolvente';
 import { RUMBOS } from '../logic/geometriaPlano';
@@ -49,7 +50,7 @@ export function PanelPared({ plano, transmitancias, expedienteId }) {
         const marcas = conUid.filter(l => l.box).map(l => ({ uid: l.uid, box: l.box, de: 'lectura' }));
         if (driveId && marcas.length && expedienteId) {
             try {
-                await axios.put(`/api/cee-envolvente/${expedienteId}/fotos/marcas`, {
+                await axios.put(api(expedienteId, 'fotos/marcas'), {
                     clave: m.id, drive_id: driveId, marcas,
                     // FUNDIR: esta lectura solo sabe de los huecos que acaba de
                     // proponer. Las marcas que el certificador puso a mano en

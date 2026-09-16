@@ -20,7 +20,7 @@ import { VisorCerramiento } from './VisorCerramiento';
 // ventanas. Leerla es lo segundo; tenerla, lo primero.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const API = '/api/cee-envolvente';
+import { api } from '../logic/apiEnvolvente';
 
 //: Los bytes ya bajados, por id de Drive. Un `<img src>` no puede llevar la
 //: cabecera de sesión, así que la foto se pide con axios y se pinta desde un
@@ -34,7 +34,7 @@ function useFoto(expedienteId, driveId) {
         if (!driveId || !expedienteId) return undefined;
         if (_blobs.has(driveId)) { setUrl(_blobs.get(driveId)); return undefined; }
         let vivo = true;
-        axios.get(`${API}/${expedienteId}/fotos/${driveId}/contenido`, { responseType: 'blob' })
+        axios.get(api(expedienteId, `fotos/${driveId}/contenido`), { responseType: 'blob' })
             .then(({ data }) => {
                 const u = URL.createObjectURL(data);
                 _blobs.set(driveId, u);
@@ -79,7 +79,7 @@ export function FotosCerramiento({
         if (!expedienteId) return;
         setOcupado('cargando');
         try {
-            const { data } = await axios.get(`${API}/${expedienteId}/fotos`);
+            const { data } = await axios.get(api(expedienteId, 'fotos'));
             setFotos(data.fotos?.[clave] || []);
             setCands(data.candidatas || []);
             setAviso(data.aviso || null);
@@ -97,7 +97,7 @@ export function FotosCerramiento({
         try {
             const fd = new FormData();
             for (const f of lista) fd.append('files', f);
-            await axios.post(`${API}/${expedienteId}/fotos?clave=${encodeURIComponent(clave)}`, fd);
+            await axios.post(api(expedienteId, 'fotos', { clave }), fd);
             setAbierto(false);
             await refrescar();
         } catch (e) {
@@ -108,7 +108,7 @@ export function FotosCerramiento({
     async function adoptar(driveId) {
         setOcupado('subiendo'); setError(null);
         try {
-            await axios.post(`${API}/${expedienteId}/fotos/adoptar`, { clave, drive_id: driveId });
+            await axios.post(api(expedienteId, 'fotos/adoptar'), { clave, drive_id: driveId });
             setAbierto(false);
             await refrescar();
         } catch (e) {
@@ -119,7 +119,7 @@ export function FotosCerramiento({
     async function quitar(driveId) {
         setError(null);
         try {
-            await axios.delete(`${API}/${expedienteId}/fotos`, {
+            await axios.delete(api(expedienteId, 'fotos'), {
                 params: { clave, drive_id: driveId },
             });
             await refrescar();
@@ -142,7 +142,7 @@ export function FotosCerramiento({
         try {
             const aspecto = await aspectoDe(expedienteId, fotos[0].drive_id);
             const ids = fotos.filter(f => !f.roto).map(f => f.drive_id);
-            const { data } = await axios.post(`${API}/${expedienteId}/fotos/leer`, {
+            const { data } = await axios.post(api(expedienteId, 'fotos/leer'), {
                 clave, drive_ids: ids, ambito, aspecto,
                 ...(ambito === 'hueco' ? { hueco: contexto } : { pared: contexto }),
             });
@@ -335,7 +335,7 @@ function VisorAbierto({ expedienteId, clave, foto, muro, nombreDe, ambito, hueco
         const antes = marcas;
         setMarcas(nuevas);                 // la marca aparece al soltar el ratón
         try {
-            await axios.put(`${API}/${expedienteId}/fotos/marcas`, {
+            await axios.put(api(expedienteId, 'fotos/marcas'), {
                 clave, drive_id: foto.drive_id, marcas: nuevas,
             });
             onGuardadas?.();
@@ -366,7 +366,7 @@ async function aspectoDe(expedienteId, driveId) {
     try {
         const url = _blobs.get(driveId)
             || URL.createObjectURL((await axios.get(
-                `${API}/${expedienteId}/fotos/${driveId}/contenido`, { responseType: 'blob' })).data);
+                api(expedienteId, `fotos/${driveId}/contenido`), { responseType: 'blob' })).data);
         if (!_blobs.has(driveId)) _blobs.set(driveId, url);
         return await new Promise((resolve) => {
             const img = new Image();

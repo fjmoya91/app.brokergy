@@ -17,6 +17,8 @@ const { pathToFileURL } = require('url');
 const supabase = require('./supabaseClient');
 const driveService = require('./driveService');
 const ceeUploadService = require('./ceeUploadService');
+const ceeDirectoService = require('./ceeDirectoService');
+const ceeDirectoUploadService = require('./ceeDirectoUploadService');
 const { getUnidades } = require('../utils/aerotermiaUnits');
 const { normalizeData } = require('../utils/normalization');
 const catastroService = require('./catastroService');
@@ -47,6 +49,60 @@ function faseDe(fase) {
     return f;
 }
 
+// ─── De qué NEGOCIO es este expediente ──────────────────────────────────────
+//
+// La envolvente vale para los dos: el expediente CAE y el CEE contratado suelto
+// (`cee_directos`). Lo que cambia entre ellos no es la geometría ni la ficha
+// —eso es el mismo edificio— sino DÓNDE se escribe el trabajo y EN QUÉ carpeta
+// acaba el `.cex`. Se decide aquí, en cuatro funciones, y no con un `if`
+// repartido por el fichero.
+//
+// La marca la pone `ceeDirectoComoExpediente` al cargar: no se deduce de que
+// falte `oportunidad_id`, porque de esto depende en qué TABLA se escribe.
+const esCeeDirecto = (e) => !!e?.es_cee_directo;
+
+/** Escribe UNA clave de `cee` en la tabla que toque. Reemplaza, no funde. */
+async function setCeeField(expediente, campo, valor) {
+    const { error } = esCeeDirecto(expediente)
+        ? await supabase.rpc('set_cee_directo_cee_field', {
+            p_cee_directo_id: expediente.id, p_field: campo, p_value: valor })
+        : await supabase.rpc('set_expediente_cee_field', {
+            p_expediente_id: expediente.id, p_field: campo, p_value: valor });
+    if (error) throw new Error(error.message);
+}
+
+/**
+ * La carpeta de Drive de esta fase, creada si hace falta y compartida.
+ *
+ * En el CAE es `1. CEE / CEE INICIAL`; en un CEE directo la sección cuelga
+ * DIRECTAMENTE de la raíz y en un encargo de un solo certificado se llama
+ * `1. CEE` a secas. Lo resuelve cada servicio de subida: aquí no se escribe
+ * ninguna ruta a mano, que es justo lo que dejó 18 ficheros donde nadie mira.
+ */
+async function carpetaFase(ctx, fase) {
+    const f = faseDe(fase);
+    if (esCeeDirecto(ctx.expediente)) {
+        return ceeDirectoUploadService.ensureSectionFolder(ctx.expediente, f.seccion);
+    }
+    const { id, link } = await ceeUploadService.ensureCeeSectionFolder(ctx.driveFolderId, f.seccion);
+    return { id, link };
+}
+
+/**
+ * Cómo se llama el `.cex` de esta fase.
+ *
+ * En un encargo de UN solo certificado el fichero NO se llama «CEE INICIAL»:
+ * ahí no hay un después, y esa palabra manda a buscar un certificado que nunca
+ * va a llegar. Es la misma decisión que ya toma `ceeDirectoUploadService` para
+ * los ficheros del técnico, importada y no copiada.
+ */
+function sufijoCex(expediente, fase) {
+    if (esCeeDirecto(expediente)) {
+        return `${ceeDirectoUploadService.sectionLabel(expediente, faseDe(fase).seccion)}_REVISAR`;
+    }
+    return faseDe(fase).sufijo;
+}
+
 const FICHA_JS = path.join(
     __dirname, '../../frontend/src/features/cee-envolvente/logic/fichaCe3x.js');
 let _ficha = { sello: null, promesa: null };
@@ -65,24 +121,47 @@ let _ficha = { sello: null, promesa: null };
  * En producción el fichero no cambia entre despliegues, así que el coste es un
  * `stat` por llamada — y el proceso se recrea en cada deploy de todos modos.
  */
-function loadFichaCe3x() {
+function loadEsm(fichero, cache) {
     let sello;
     try {
-        sello = String(fs.statSync(FICHA_JS).mtimeMs);
+        sello = String(fs.statSync(fichero).mtimeMs);
     } catch {
-        sello = _ficha.sello || 'x';     // si no se puede mirar, vale lo cargado
+        sello = cache.sello || 'x';      // si no se puede mirar, vale lo cargado
     }
-    if (_ficha.sello !== sello || !_ficha.promesa) {
-        _ficha = { sello, promesa: import(`${pathToFileURL(FICHA_JS).href}?v=${sello}`) };
+    if (cache.sello !== sello || !cache.promesa) {
+        cache.sello = sello;
+        cache.promesa = import(`${pathToFileURL(fichero).href}?v=${sello}`);
     }
-    return _ficha.promesa;
+    return cache.promesa;
+}
+
+function loadFichaCe3x() {
+    return loadEsm(FICHA_JS, _ficha);
+}
+
+//: Un CEE directo leído como expediente. Fuente única con la VENTANA, que pinta
+//: la misma fila: con dos adaptadores, la dirección que se enseña y la que se
+//: escribe en el `.cex` acabarían saliendo de sitios distintos.
+const CEE_DIRECTO_JS = path.join(
+    __dirname, '../../frontend/src/features/cee-envolvente/logic/ceeDirecto.js');
+const _ceeDirecto = { sello: null, promesa: null };
+
+function loadCeeDirecto() {
+    return loadEsm(CEE_DIRECTO_JS, _ceeDirecto);
 }
 
 /**
  * Expediente + cliente + carpeta de Drive: lo que la ficha necesita.
  * `clave` es el id o el número de expediente.
+ *
+ * `origen` dice de qué NEGOCIO es: el expediente CAE de siempre o un CEE
+ * contratado suelto. Viaja explícito desde el navegador (`?origen=cee`) y no se
+ * busca «a ver en qué tabla está»: son dos tablas y el mismo UUID no vale en las
+ * dos, así que una búsqueda a ciegas es la forma de escribir en el negocio
+ * equivocado. Mismo criterio que `?cee=` frente a `?exp=` en los enlaces.
  */
-async function cargarExpediente(clave) {
+async function cargarExpediente(clave, origen = 'cae') {
+    if (String(origen).toLowerCase() === 'cee') return cargarCeeDirecto(clave);
     const esUuid = /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(String(clave));
     // Con la oportunidad: de ella salen la zona climática y el año con los que
     // se simuló, que son los que fijaron las transmitancias de la propuesta.
@@ -118,6 +197,35 @@ async function cargarExpediente(clave) {
     const driveFolderId = await ceeUploadService.resolveDriveFolderId(expediente);
     const modelos = await modelosDeAerotermia(expediente);
     return { expediente, cliente, certificador, driveFolderId, modelos };
+}
+
+/**
+ * Lo mismo para un CEE contratado SUELTO.
+ *
+ * Aquí no hay oportunidad detrás —ese es justo el motivo de que `cee_directos`
+ * sea otra tabla—, así que el año y la zona climática no salen de una
+ * simulación: el año lo da Catastro con la geometría y la zona la deriva
+ * `ceeDirectoService` del municipio cada vez que se toca la dirección.
+ *
+ * Tampoco hay `instalacion`: la caldera que hay y el equipo que se pone los
+ * teclea el certificador en la pestaña de Instalaciones, que es donde ya se
+ * podían teclear (`equipoConAjustes`). La ficha lo dice en vez de callárselo.
+ */
+async function cargarCeeDirecto(clave) {
+    const fila = await ceeDirectoService.cargar(clave);
+    if (!fila) return null;
+    const { ceeDirectoComoExpediente } = await loadCeeDirecto();
+    const expediente = ceeDirectoComoExpediente(fila);
+    return {
+        expediente,
+        cliente: fila.cliente || null,
+        certificador: fila.certificador || null,
+        driveFolderId: fila.drive_folder_id || null,
+        // El catálogo de aerotermia se consulta por el `aerotermia_db_id` que
+        // sella la instalación del expediente, y aquí no hay instalación: el
+        // equipo, si lo hay, se teclea. Sin ids que buscar, nada que traer.
+        modelos: {},
+    };
 }
 
 /**
@@ -161,8 +269,18 @@ async function modelosDeAerotermia(expediente) {
  * es «todas las de uso VIVIENDA», que es exactamente lo mismo: una oportunidad
  * que nunca pasó por ahí no puede empezar a medir distinto.
  */
-async function construccionesElegidas(clave) {
+async function construccionesElegidas(clave, origen = 'cae') {
     const esUuid = /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(String(clave));
+    // En un CEE directo no hay oportunidad —no hay ficha técnica que marcar—,
+    // así que lo elegido vive en el propio encargo. Es la misma lista y la mira
+    // el mismo motor; lo único que cambia es dónde está escrita.
+    if (String(origen).toLowerCase() === 'cee') {
+        const { data } = await supabase.from('cee_directos')
+            .select('cee')
+            .eq(esUuid ? 'id' : 'numero_expediente', clave).maybeSingle();
+        const lista = data?.cee?.[CAMPO_CONSTRUCCIONES];
+        return Array.isArray(lista) && lista.length ? lista : null;
+    }
     const { data } = await supabase
         .from('expedientes').select('oportunidades(datos_calculo)')
         .eq(esUuid ? 'id' : 'numero_expediente', clave).maybeSingle();
@@ -189,8 +307,39 @@ async function construccionesElegidas(clave) {
  * avisar a nadie, cambiaria el bono de un expediente en marcha. Lo que cambia
  * es lo que MIDE el certificado, y la diferencia se dice en pantalla.
  */
-async function guardarConstrucciones(clave, elegidas, desglose) {
+async function guardarConstrucciones(clave, elegidas, desglose, origen = 'cae') {
     const esUuid = /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(String(clave));
+    const codigosDe = (l) => [...new Set((l || []).map(c => String(c).trim()).filter(Boolean))];
+    const listaDe = (d, codigos) => (d || []).map(c => ({
+        codigo: c.codigo, uso: c.uso ?? null, planta: c.planta ?? null,
+        superficie: Number(c.superficie) || 0,
+        cuenta: codigos.includes(c.codigo),
+    }));
+
+    // En un CEE directo lo elegido se escribe en el propio encargo: no hay
+    // oportunidad, y por tanto tampoco las cifras de una propuesta firmada a las
+    // que esto no puede tocar. Queda anotado en su historial por el mismo
+    // motivo: cambia la superficie que mide el certificado.
+    if (String(origen).toLowerCase() === 'cee') {
+        const fila = await ceeDirectoService.cargar(clave, { conRelaciones: false });
+        if (!fila) throw alto('Ese encargo de CEE no existe.', 404);
+        const codigos = codigosDe(elegidas);
+        const lista = listaDe(desglose, codigos);
+        await setCeeField({ id: fila.id, es_cee_directo: true },
+                          CAMPO_CONSTRUCCIONES, codigos);
+        await setCeeField({ id: fila.id, es_cee_directo: true },
+                          `${CAMPO_CONSTRUCCIONES}_detalle`, lista);
+        const cuentan = lista.filter(c => c.cuenta);
+        try {
+            await ceeDirectoService.anotarHistorial(fila.id, {
+                usuario: 'Sistema', accion: 'CONSTRUCCIONES QUE CUENTAN',
+                detalle: `Cuentan ${cuentan.length} de ${lista.length} construcciones `
+                       + `(${Math.round(cuentan.reduce((s, c) => s + c.superficie, 0))} m²).`,
+            });
+        } catch (e) { console.warn('[ceeEnvolvente] historial construcciones:', e.message); }
+        return { elegidas: codigos, construcciones: lista };
+    }
+
     // ⚠ `oportunidades` NO tiene columna `historial`: vive DENTRO de
     // `datos_calculo`. Pedirla aquí hacía fallar la consulta ENTERA y la app
     // decía «este expediente no tiene oportunidad detrás» de uno que sí la
@@ -206,12 +355,8 @@ async function guardarConstrucciones(clave, elegidas, desglose) {
                       + 'guardar que construcciones cuentan.'), { status: 409 });
     }
 
-    const codigos = [...new Set((elegidas || []).map(c => String(c).trim()).filter(Boolean))];
-    const lista = (desglose || []).map(c => ({
-        codigo: c.codigo, uso: c.uso ?? null, planta: c.planta ?? null,
-        superficie: Number(c.superficie) || 0,
-        cuenta: codigos.includes(c.codigo),
-    }));
+    const codigos = codigosDe(elegidas);
+    const lista = listaDe(desglose, codigos);
 
     // El rastro va en la MISMA sentencia: cambia la superficie que mide el
     // certificado, y una selección sin rastro —o un rastro sin la selección—
@@ -296,9 +441,10 @@ function fuenteEditable(ctx) {
 
 //: `cee` lleva dentro el XML del certificado (megas): de ahí solo se pide el id
 //: del certificador (regla 22). El resto es una fila corta y da igual.
-async function expedienteBasico(clave, columnas) {
+async function expedienteBasico(clave, columnas, origen = 'cae') {
     const esUuid = /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(String(clave));
-    const { data, error } = await supabase.from('expedientes').select(columnas)
+    const tabla = String(origen).toLowerCase() === 'cee' ? 'cee_directos' : 'expedientes';
+    const { data, error } = await supabase.from(tabla).select(columnas)
         .eq(esUuid ? 'id' : 'numero_expediente', clave).maybeSingle();
     if (error) throw new Error(error.message);
     return data || null;
@@ -313,8 +459,8 @@ const alto = (msg, status) => Object.assign(new Error(msg), { status });
  * dato quedaría en MAYÚSCULAS escrito desde una pantalla y en minúsculas desde
  * la otra, y `provinciaCe3x` —que es un desplegable de CE3X— dejaría de casar.
  */
-async function guardarCliente(clave, campos) {
-    const exp = await expedienteBasico(clave, 'id, numero_expediente, cliente_id');
+async function guardarCliente(clave, campos, origen = 'cae') {
+    const exp = await expedienteBasico(clave, 'id, numero_expediente, cliente_id', origen);
     if (!exp) throw alto('Expediente no encontrado.', 404);
     if (!exp.cliente_id) {
         throw alto('Este expediente no tiene cliente vinculado: no hay ficha donde '
@@ -338,9 +484,9 @@ async function guardarCliente(clave, campos) {
  * contra el certificador ASIGNADO al expediente, que es el único cuyo nombre va
  * a salir en este `.cex`.
  */
-async function guardarTecnico(clave, campos, { soloSuyo = null } = {}) {
+async function guardarTecnico(clave, campos, { soloSuyo = null, origen = 'cae' } = {}) {
     const exp = await expedienteBasico(
-        clave, 'id, numero_expediente, certificador_id:cee->>certificador_id');
+        clave, 'id, numero_expediente, certificador_id:cee->>certificador_id', origen);
     if (!exp) throw alto('Expediente no encontrado.', 404);
     const certId = exp.certificador_id || null;
     if (!certId) {
@@ -480,7 +626,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function nombreDelCex(expediente, fase = 'inicial') {
     const num = expediente?.numero_expediente || 'EXPEDIENTE';
-    return `${num} - ${faseDe(fase).sufijo}.cex`;
+    return `${num} - ${sufijoCex(expediente, fase)}.cex`;
 }
 
 /**
@@ -492,12 +638,15 @@ async function guardarEnDrive(ctx, buffer, fase = 'inicial') {
     const { expediente, driveFolderId } = ctx;
     if (!driveFolderId) return { ok: false, error: 'el expediente no tiene carpeta de Drive' };
     const f = faseDe(fase);
+    const dondeCae = esCeeDirecto(expediente)
+        ? ceeDirectoUploadService.sectionLabel(expediente, f.seccion)
+        : f.carpeta;
     try {
         // El enlace de la CARPETA, no solo el del fichero: es el que se le
         // comparte al certificador al encargarle el CEE, y es donde va a
         // buscarlo. `ensureCeeSectionFolder` ya la deja pública de lectura.
-        const { id: carpeta, link: carpetaLink } =
-            await ceeUploadService.ensureCeeSectionFolder(driveFolderId, f.seccion);
+        const { id: carpeta, link: carpetaLink } = await carpetaFase(ctx, fase);
+        if (!carpeta) throw new Error('no se ha podido resolver la carpeta de la fase');
         const nombre = nombreDelCex(expediente, fase);
 
         const previo = await driveService.findFileByName(carpeta, nombre);
@@ -509,7 +658,7 @@ async function guardarEnDrive(ctx, buffer, fase = 'inicial') {
         if (!guardado?.id) throw new Error('Drive no ha devuelto el fichero');
 
         return { ok: true, nombre, link: guardado.link, driveId: guardado.id,
-                 carpeta: f.carpeta,
+                 carpeta: dondeCae,
                  carpeta_link: carpetaLink
                      || `https://drive.google.com/drive/folders/${carpeta}`,
                  archivado, bytes: buffer.length };
@@ -530,8 +679,8 @@ async function guardarEnDrive(ctx, buffer, fase = 'inicial') {
 async function leerCexDeFase(ctx, fase = 'inicial') {
     const { expediente, driveFolderId } = ctx;
     if (!driveFolderId) return null;
-    const f = faseDe(fase);
-    const carpeta = await ceeUploadService.ensureCeeSectionFolder(driveFolderId, f.seccion);
+    const carpeta = await carpetaFase(ctx, fase);
+    if (!carpeta?.id) return null;
     const nombre = nombreDelCex(expediente, fase);
     const id = await driveService.findFileByName(carpeta.id, nombre);
     if (!id) return null;
@@ -552,9 +701,16 @@ const CAMPO_TRABAJO = 'envolvente';
 //: autoguardado, y una imagen subida entre dos guardados se perdería.
 const CAMPO_IMAGENES = 'envolvente_imagenes';
 
+//: Qué construcciones del Catastro cuentan, en un CEE DIRECTO. En el CAE eso
+//: vive en la oportunidad —es donde una persona lo marcó en la ficha técnica y
+//: de donde salió la superficie que se presupuestó—; aquí no hay oportunidad,
+//: así que lo elegido es del propio encargo.
+const CAMPO_CONSTRUCCIONES = 'construcciones_elegidas';
+
 /** Lo guardado, o `null` si este expediente no tiene nada todavía. */
-async function leerTrabajo(id) {
-    const { data } = await supabase.from('expedientes')
+async function leerTrabajo(id, origen = 'cae') {
+    const tabla = String(origen).toLowerCase() === 'cee' ? 'cee_directos' : 'expedientes';
+    const { data } = await supabase.from(tabla)
         .select('cee').eq('id', id).maybeSingle();
     return data?.cee?.[CAMPO_TRABAJO] || null;
 }
@@ -564,13 +720,10 @@ async function leerTrabajo(id) {
  * quita un hueco, un merge lo dejaría puesto. Escribe solo esa clave, así que
  * no puede pisar `cee.cee_inicial` ni el seguimiento.
  */
-async function guardarTrabajo(id, trabajo) {
-    const { error } = await supabase.rpc('set_expediente_cee_field', {
-        p_expediente_id: id,
-        p_field: CAMPO_TRABAJO,
-        p_value: { ...trabajo, guardado_at: new Date().toISOString() },
-    });
-    if (error) throw new Error(error.message);
+async function guardarTrabajo(id, trabajo, origen = 'cae') {
+    await setCeeField({ id, es_cee_directo: String(origen).toLowerCase() === 'cee' },
+                      CAMPO_TRABAJO,
+                      { ...trabajo, guardado_at: new Date().toISOString() });
     return true;
 }
 
@@ -699,7 +852,10 @@ async function sustituirImagen(ctx, cual, fichero) {
                             { status: 400 });
     }
 
-    const carpeta = await ceeUploadService.ensureCeeSectionFolder(ctx.expediente, 'inicial');
+    //: ⚠ Aquí se le pasaba el EXPEDIENTE a `ensureCeeSectionFolder`, que espera
+    //: el id de la carpeta de Drive: la imagen acababa en cualquier sitio o no
+    //: se subía. Va por `carpetaFase`, que además resuelve la del CEE directo.
+    const { id: carpeta } = await carpetaFase(ctx, 'inicial');
     if (!carpeta) {
         throw Object.assign(new Error('El expediente no tiene carpeta de CEE en Drive.'),
                             { status: 502 });
@@ -723,7 +879,7 @@ async function sustituirImagen(ctx, cual, fichero) {
         drive_id: subido.id, link: subido.webViewLink || null, nombre,
         subida_at: new Date().toISOString(),
     };
-    await escribirImagenes(ctx.expediente.id, puestas);
+    await escribirImagenes(ctx.expediente, puestas);
     return puestas[cual];
 }
 
@@ -734,18 +890,19 @@ async function quitarImagen(ctx, cual) {
     }
     const puestas = { ...(ctx.expediente.cee?.[CAMPO_IMAGENES] || {}) };
     delete puestas[cual];
-    await escribirImagenes(ctx.expediente.id, puestas);
+    await escribirImagenes(ctx.expediente, puestas);
     return true;
 }
 
-async function escribirImagenes(id, puestas) {
-    const { error } = await supabase.rpc('set_expediente_cee_field', {
-        p_expediente_id: id, p_field: CAMPO_IMAGENES, p_value: puestas,
-    });
-    if (error) throw new Error(error.message);
+async function escribirImagenes(expediente, puestas) {
+    await setCeeField(expediente, CAMPO_IMAGENES, puestas);
 }
 
 module.exports = {
+    esCeeDirecto,
+    setCeeField,
+    carpetaFase,
+    sufijoCex,
     imagenesDelCex,
     sustituirImagen,
     quitarImagen,

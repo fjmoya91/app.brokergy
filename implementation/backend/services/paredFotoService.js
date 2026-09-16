@@ -40,7 +40,13 @@
 const driveService = require('./driveService');
 const reformaUploadService = require('./reformaUploadService');
 const ceeUploadService = require('./ceeUploadService');
+const ceeDirectoUploadService = require('./ceeDirectoUploadService');
 const supabase = require('./supabaseClient');
+
+//: De que NEGOCIO es. La marca la pone `ceeDirectoComoExpediente` al cargar: un
+//: CEE contratado suelto tiene la misma forma que un expediente, pero su `cee`
+//: vive en otra tabla y sus carpetas cuelgan de otro sitio.
+const esCeeDirecto = (e) => !!e?.es_cee_directo;
 
 //: Donde se anota. Clave APARTE del trabajo del plano, por lo dicho arriba.
 const CAMPO = 'envolvente_fotos';
@@ -65,6 +71,12 @@ const SLOTS_CANDIDATOS = [
 
 const SUBCARPETA_DOCS = '12. DOCUMENTOS PARA CEE';
 
+//: La misma carpeta en un CEE directo. Ahi no hay checklist documental ni slots
+//: `FOTO_*` —no hay obra que documentar—: lo que haya lo ha subido alguien a
+//: mano, asi que se ofrece TODA imagen que este dentro. Quien mira el plano
+//: decide cual es la de FBS3, que es el mismo juicio de siempre.
+const SUBCARPETA_DOCS_CEE = '4. DOCUMENTACIÓN PARA CEE';
+
 //: Una clave es `FBS3` (la pared) o `FBS3/a1b2c3` (uno de sus huecos). Se valida
 //: porque viaja en la URL y acaba siendo parte de un nombre de fichero.
 const RE_CLAVE = /^[A-Za-z0-9_-]{1,40}(\/[A-Za-z0-9_-]{1,40})?$/;
@@ -88,10 +100,12 @@ function fotosDe(expediente) {
     return v && typeof v === 'object' ? v : {};
 }
 
-async function escribir(id, todas) {
-    const { error } = await supabase.rpc('set_expediente_cee_field', {
-        p_expediente_id: id, p_field: CAMPO, p_value: todas,
-    });
+async function escribir(expediente, todas) {
+    const { error } = esCeeDirecto(expediente)
+        ? await supabase.rpc('set_cee_directo_cee_field', {
+            p_cee_directo_id: expediente.id, p_field: CAMPO, p_value: todas })
+        : await supabase.rpc('set_expediente_cee_field', {
+            p_expediente_id: expediente.id, p_field: CAMPO, p_value: todas });
     if (error) throw new Error(error.message);
 }
 
@@ -144,38 +158,63 @@ async function estado(expediente) {
  */
 async function candidatas(expediente) {
     const dc = expediente?.oportunidades?.datos_calculo || {};
-    const raiz = dc.drive_folder_id || dc.inputs?.drive_folder_id
-        || expediente?.drive_folder_id || null;
+    const raiz = esCeeDirecto(expediente)
+        ? (expediente.drive_folder_id || null)
+        : (dc.drive_folder_id || dc.inputs?.drive_folder_id
+            || expediente?.drive_folder_id || null);
     if (!raiz) return { fotos: [], aviso: 'El expediente no tiene carpeta de Drive.' };
 
-    const sub = await driveService.findSubfolderByName(raiz, SUBCARPETA_DOCS);
-    if (!sub) return { fotos: [], aviso: `No existe la carpeta «${SUBCARPETA_DOCS}».` };
+    const cual = esCeeDirecto(expediente) ? SUBCARPETA_DOCS_CEE : SUBCARPETA_DOCS;
+    const sub = await driveService.findSubfolderByName(raiz, cual);
+    if (!sub) return { fotos: [], aviso: `No existe la carpeta «${cual}».` };
 
     const ficheros = (await driveService.listFiles(sub) || []).filter(esImagen);
     const fotos = [];
-    for (const [slot, rotulo] of SLOTS_CANDIDATOS) {
+    if (esCeeDirecto(expediente)) {
+        // Sin slots que casar: vale cualquier imagen de la carpeta, con su
+        // propio nombre por rotulo — es lo unico que dice que ensena.
         for (const f of ficheros) {
-            if (!reformaUploadService.fileBelongsToSlot(f.name, slot)) continue;
-            fotos.push({ drive_id: f.id, nombre: f.name, slot, rotulo });
+            fotos.push({ drive_id: f.id, nombre: f.name, slot: null,
+                         rotulo: SUBCARPETA_DOCS_CEE });
+        }
+    } else {
+        for (const [slot, rotulo] of SLOTS_CANDIDATOS) {
+            for (const f of ficheros) {
+                if (!reformaUploadService.fileBelongsToSlot(f.name, slot)) continue;
+                fotos.push({ drive_id: f.id, nombre: f.name, slot, rotulo });
+            }
         }
     }
     fotos.sort((a, b) => String(a.nombre).localeCompare(String(b.nombre), 'es', { numeric: true }));
     return {
         fotos,
         aviso: fotos.length ? null
-            : 'El expediente no tiene ninguna foto de fachada, patios ni ventanas.',
+            : (esCeeDirecto(expediente)
+                ? `No hay ninguna imagen en «${SUBCARPETA_DOCS_CEE}».`
+                : 'El expediente no tiene ninguna foto de fachada, patios ni ventanas.'),
     };
 }
 
 // ── Poner y quitar ──────────────────────────────────────────────────────────
 
+/**
+ * La subcarpeta donde caen las fotos que se suben desde aqui.
+ *
+ * ⚠ `ensureCeeSectionFolder` espera el ID DE LA CARPETA de Drive y devuelve
+ * `{ id, link }`. Se le pasaba el EXPEDIENTE entero y luego el objeto devuelto
+ * hacia de padre: las dos llamadas a Drive iban con `[object Object]`, asi que
+ * subir una foto a un cerramiento no funcionaba nunca.
+ */
 async function carpeta(expediente) {
-    const seccion = await ceeUploadService.ensureCeeSectionFolder(expediente, 'inicial');
-    if (!seccion) {
+    const seccion = esCeeDirecto(expediente)
+        ? await ceeDirectoUploadService.ensureSectionFolder(expediente, 'inicial')
+        : await ceeUploadService.ensureCeeSectionFolder(
+            await ceeUploadService.resolveDriveFolderId(expediente), 'inicial');
+    if (!seccion?.id) {
         throw Object.assign(new Error('El expediente no tiene carpeta de CEE en Drive.'),
                             { status: 502 });
     }
-    return driveService.getOrCreateSubfolder(seccion, SUBCARPETA);
+    return driveService.getOrCreateSubfolder(seccion.id, SUBCARPETA);
 }
 
 /** Sube una foto nueva y la pega a ese cerramiento. */
@@ -215,7 +254,7 @@ async function subir(expediente, clave, fichero, quien) {
         por: quien || null,
     });
     todas[clave] = lista;
-    await escribir(expediente.id, todas);
+    await escribir(expediente, todas);
     // Se deja puesto en el objeto que tiene el que llama: varias fotos se suben
     // EN SERIE, y sin esto la segunda leería el estado de antes de la primera y
     // la borraría. Recargar el expediente entre una y otra costaría cuatro
@@ -257,7 +296,7 @@ async function adoptar(expediente, clave, driveId, quien) {
         por: quien || null,
     });
     todas[clave] = lista;
-    await escribir(expediente.id, todas);
+    await escribir(expediente, todas);
     return lista[lista.length - 1];
 }
 
@@ -278,7 +317,7 @@ async function quitar(expediente, clave, driveId) {
 
     const resto = lista.filter((x) => x.drive_id !== driveId);
     if (resto.length) todas[clave] = resto; else delete todas[clave];
-    await escribir(expediente.id, todas);
+    await escribir(expediente, todas);
 
     if (f.origen === 'subida') {
         // Si el borrado falla, el estado ya esta escrito: la foto deja de estar
@@ -339,7 +378,7 @@ async function sellarLectura(expediente, clave, driveIds, lectura) {
     };
     const ids = new Set(driveIds || []);
     todas[clave] = lista.map((f) => (ids.has(f.drive_id) ? { ...f, lectura: marca } : f));
-    await escribir(expediente.id, todas);
+    await escribir(expediente, todas);
     return true;
 }
 
@@ -414,7 +453,7 @@ async function guardarMarcas(expediente, clave, driveId, marcas, { fundir = fals
     todas[clave] = lista.map((f) => (f.drive_id === driveId
         ? { ...f, marcas: finales.length ? finales : undefined }
         : f));
-    await escribir(expediente.id, todas);
+    await escribir(expediente, todas);
     if (expediente.cee) expediente.cee[CAMPO] = todas;
     return finales;
 }

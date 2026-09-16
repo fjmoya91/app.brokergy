@@ -204,7 +204,13 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
      */
     const abrirEnvolvente = (id) => {
         if (!id) return;
-        window.open(`/envolvente/${id}`, `envolvente-${id}`, 'noopener');
+        // De qué NEGOCIO es lo dice el `apiBase`, que ya lo sabe: el módulo CEE
+        // se monta igual sobre el expediente CAE y sobre un CEE contratado
+        // suelto. Viaja en la URL porque son dos tablas y el mismo UUID no vale
+        // en las dos — sin esto la ventana pedía el encargo a `/api/expedientes`
+        // y contestaba «ese expediente no existe».
+        const cee = String(apiBase || '').includes('cee-directos') ? '?origen=cee' : '';
+        window.open(`/envolvente/${id}${cee}`, `envolvente-${id}`, 'noopener');
     };
     const [isDragging, setIsDragging] = useState(false);
     const [isDraggingFinal, setIsDraggingFinal] = useState(false);

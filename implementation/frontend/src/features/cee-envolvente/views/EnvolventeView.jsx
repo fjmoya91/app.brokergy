@@ -691,8 +691,13 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                     extras={ajustes.equipos_extra || []}
                                     onExtra={cambiarEquipoExtra}
                                     onAnadir={anadirEquipo} onBorrar={borrarEquipo}>
+                    {/* `puedeLeerPlaca`: en un CEE directo no hay `instalacion`
+                        donde escribir lo leído —ese es justo el motivo de que sea
+                        otra tabla—, así que el equipo se teclea. Un botón que da
+                        404 es peor que no tenerlo. */}
                     <Instalacion equipo={ficha?.ficha?.instalaciones?.[0]} placa={placa}
-                                 fase={fichaFase} leyendo={leyendoPlaca} onLeer={leerPlaca} />
+                                 fase={fichaFase} leyendo={leyendoPlaca} onLeer={leerPlaca}
+                                 puedeLeerPlaca={!enCeeDirecto} />
                 </PanelInstalaciones>)}
 
             {activa === 'medidas' && (
@@ -1128,7 +1133,8 @@ function Opcion({ puesta, onClick, children }) {
 // oportunidad, y contrastarlos con la etiqueta es justo lo que se hace en la
 // visita. Lo que cambia es el tono — con el equipo resuelto no urge.
 // ─────────────────────────────────────────────────────────────────────────────
-function Instalacion({ equipo, placa, leyendo, onLeer, fase = 'inicial' }) {
+function Instalacion({ equipo, placa, leyendo, onLeer, fase = 'inicial',
+                       puedeLeerPlaca = true }) {
     const l = placa?.leido;
     //: En el CEE FINAL el generador es la AEROTERMIA, y la placa que se lee con
     //: IA es la de la caldera VIEJA: ahí ese botón no pinta nada — el equipo
@@ -1153,7 +1159,7 @@ function Instalacion({ equipo, placa, leyendo, onLeer, fase = 'inicial' }) {
                     </span>
                 )}
 
-                {!esFinal && (
+                {!esFinal && puedeLeerPlaca && (
                     <button
                         onClick={() => onLeer?.(false)}
                         disabled={leyendo}
@@ -1166,6 +1172,13 @@ function Instalacion({ equipo, placa, leyendo, onLeer, fase = 'inicial' }) {
                     </button>
                 )}
             </div>
+
+            {!esFinal && !puedeLeerPlaca && !equipo && (
+                <p className="mt-2 text-[11.5px] text-white/45">
+                    Teclea marca, modelo, combustible, rendimiento y potencia aquí debajo:
+                    en un CEE suelto no hay expediente de obra del que sacarlos.
+                </p>
+            )}
 
             {!esFinal && placa?.error && (
                 <p className="mt-2 text-[11.5px] text-red-300">{placa.error}</p>

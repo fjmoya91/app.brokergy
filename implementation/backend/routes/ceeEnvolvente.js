@@ -21,6 +21,20 @@ const cex = require('../services/ceeEnvolventeCex');
 
 const MOTOR = process.env.CEE_ENGINE_URL || 'http://cee-engine:8080';
 
+/**
+ * De qué NEGOCIO es el id que llega: el expediente CAE de siempre o un CEE
+ * contratado suelto (`cee_directos`).
+ *
+ * REGLA — viaja EXPLÍCITO desde el navegador (`?origen=cee`), nunca se busca «a
+ * ver en qué tabla está ese UUID». Son dos tablas y el mismo id no vale en las
+ * dos: una búsqueda a ciegas es la forma de escribir el trabajo del certificador
+ * en el negocio equivocado. Es el mismo criterio que `?cee=` frente a `?exp=` en
+ * los enlaces que ya viajan en los mensajes.
+ */
+const origenDe = (req) => (
+    String(req.query?.origen || req.body?.origen || 'cae').toLowerCase() === 'cee'
+        ? 'cee' : 'cae');
+
 // La envolvente de una parcela tarda: son varias peticiones a Catastro EN
 // SERIE —nunca en ráfaga, porque al otro lado está el mismo WAF del que
 // depende el buscador— más el análisis geométrico.
@@ -97,7 +111,8 @@ router.post('/:expedienteId/geometria', internalOnly, async (req, res) => {
         // oportunidad; sin selección guardada, el motor sigue con el uso de
         // Catastro. Se lee AQUÍ y no se acepta del navegador: de esto depende
         // la superficie que acaba en el certificado.
-        const construcciones = await cex.construccionesElegidas(req.params.expedienteId);
+        const construcciones = await cex.construccionesElegidas(
+            req.params.expedienteId, origenDe(req));
 
         const r = await alMotor('/envolvente', {
             referencia_catastral: rc,
@@ -131,7 +146,7 @@ router.post('/:expedienteId/geometria', internalOnly, async (req, res) => {
  */
 router.get('/:expedienteId/trabajo', internalOnly, async (req, res) => {
     try {
-        res.json({ trabajo: await cex.leerTrabajo(req.params.expedienteId) });
+        res.json({ trabajo: await cex.leerTrabajo(req.params.expedienteId, origenDe(req)) });
     } catch (e) {
         console.error('[ceeEnvolvente] leer trabajo:', e.message);
         res.status(500).json({ error: e.message });
@@ -144,7 +159,7 @@ router.put('/:expedienteId/trabajo', internalOnly, async (req, res) => {
         if (!t || typeof t !== 'object') {
             return res.status(400).json({ error: 'Falta `trabajo`.' });
         }
-        await cex.guardarTrabajo(req.params.expedienteId, t);
+        await cex.guardarTrabajo(req.params.expedienteId, t, origenDe(req));
         res.json({ ok: true, guardado_at: new Date().toISOString() });
     } catch (e) {
         console.error('[ceeEnvolvente] guardar trabajo:', e.message);
@@ -164,7 +179,7 @@ router.post('/:expedienteId/ficha', internalOnly, async (req, res) => {
     try {
         const { geometria } = req.body || {};
         if (!geometria) return res.status(400).json({ error: 'Falta `geometria`.' });
-        const ctx = await cex.cargarExpediente(req.params.expedienteId);
+        const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
 
         const fase = req.body?.fase || 'inicial';
@@ -200,7 +215,7 @@ router.post('/:expedienteId/ficha', internalOnly, async (req, res) => {
  */
 router.post('/:expedienteId/imagenes', internalOnly, async (req, res) => {
     try {
-        const ctx = await cex.cargarExpediente(req.params.expedienteId);
+        const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
         const img = await cex.imagenesDelCex(ctx, req.body?.geometria);
         // Esta ruta es para MIRAR: va la versión ligera de la fachada (la misma
@@ -248,7 +263,8 @@ router.post('/:expedienteId/cartografia', internalOnly, async (req, res) => {
 router.put('/:expedienteId/construcciones', internalOnly, async (req, res) => {
     try {
         const r = await cex.guardarConstrucciones(
-            req.params.expedienteId, req.body?.elegidas, req.body?.construcciones);
+            req.params.expedienteId, req.body?.elegidas, req.body?.construcciones,
+            origenDe(req));
         res.json({ ok: true, ...r });
     } catch (e) {
         console.error('[ceeEnvolvente] construcciones:', e.message);
@@ -270,7 +286,8 @@ router.put('/:expedienteId/construcciones', internalOnly, async (req, res) => {
  */
 router.put('/:expedienteId/cliente', staffOnly, async (req, res) => {
     try {
-        const r = await cex.guardarCliente(req.params.expedienteId, req.body?.campos);
+        const r = await cex.guardarCliente(
+            req.params.expedienteId, req.body?.campos, origenDe(req));
         res.json({ ok: true, ...r });
     } catch (e) {
         console.error('[ceeEnvolvente] guardar cliente:', e.message);
@@ -294,7 +311,7 @@ router.put('/:expedienteId/tecnico', internalOnly, async (req, res) => {
         // sin empresa queda en 0, que no casa con ningún id: 403.
         const soloSuyo = isStaff(req) ? null : (req.user?.prescriptor_id || 0);
         const r = await cex.guardarTecnico(
-            req.params.expedienteId, req.body?.campos, { soloSuyo });
+            req.params.expedienteId, req.body?.campos, { soloSuyo, origen: origenDe(req) });
         res.json({ ok: true, ...r });
     } catch (e) {
         console.error('[ceeEnvolvente] guardar tecnico:', e.message);
@@ -316,7 +333,7 @@ router.put('/:expedienteId/tecnico', internalOnly, async (req, res) => {
 router.post('/:expedienteId/imagenes/:cual', internalOnly, upload.single('file'),
     async (req, res) => {
         try {
-            const ctx = await cex.cargarExpediente(req.params.expedienteId);
+            const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
             if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
             const puesta = await cex.sustituirImagen(ctx, req.params.cual, req.file);
             res.json({ ok: true, imagen: puesta });
@@ -328,7 +345,7 @@ router.post('/:expedienteId/imagenes/:cual', internalOnly, upload.single('file')
 
 router.delete('/:expedienteId/imagenes/:cual', internalOnly, async (req, res) => {
     try {
-        const ctx = await cex.cargarExpediente(req.params.expedienteId);
+        const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
         await cex.quitarImagen(ctx, req.params.cual);
         res.json({ ok: true });
@@ -362,7 +379,7 @@ router.post('/:expedienteId/cex', internalOnly, async (req, res) => {
         const { geometria } = req.body || {};
         if (!geometria) return res.status(400).json({ error: 'Falta `geometria`.' });
 
-        const ctx = await cex.cargarExpediente(req.params.expedienteId);
+        const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
 
         const fase = req.body?.fase || 'inicial';
@@ -493,7 +510,7 @@ const quienEs = (req) => req.user?.email || req.user?.nombre || null;
  */
 router.get('/:expedienteId/fotos', internalOnly, async (req, res) => {
     try {
-        const ctx = await cex.cargarExpediente(req.params.expedienteId);
+        const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
         const [puestas, cands] = await Promise.all([
             fotos.estado(ctx.expediente),
@@ -510,7 +527,7 @@ router.get('/:expedienteId/fotos', internalOnly, async (req, res) => {
 router.post('/:expedienteId/fotos', internalOnly, uploadFotos.array('files', 6),
     async (req, res) => {
         try {
-            const ctx = await cex.cargarExpediente(req.params.expedienteId);
+            const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
             if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
             const clave = fotos.validaClave(req.query.clave || req.body?.clave);
             if (!req.files?.length) {
@@ -536,7 +553,7 @@ router.post('/:expedienteId/fotos', internalOnly, uploadFotos.array('files', 6),
 /** POST /:expedienteId/fotos/adoptar — pega una que YA está en el expediente. */
 router.post('/:expedienteId/fotos/adoptar', internalOnly, async (req, res) => {
     try {
-        const ctx = await cex.cargarExpediente(req.params.expedienteId);
+        const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
         const { clave, drive_id: driveId } = req.body || {};
         const puesta = await fotos.adoptar(ctx.expediente, clave, driveId, quienEs(req));
@@ -550,7 +567,7 @@ router.post('/:expedienteId/fotos/adoptar', internalOnly, async (req, res) => {
 /** DELETE /:expedienteId/fotos?clave=FBS3&drive_id=… — la despega. */
 router.delete('/:expedienteId/fotos', internalOnly, async (req, res) => {
     try {
-        const ctx = await cex.cargarExpediente(req.params.expedienteId);
+        const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
         await fotos.quitar(ctx.expediente, req.query.clave, req.query.drive_id);
         res.json({ ok: true });
@@ -569,7 +586,7 @@ router.delete('/:expedienteId/fotos', internalOnly, async (req, res) => {
  */
 router.put('/:expedienteId/fotos/marcas', internalOnly, async (req, res) => {
     try {
-        const ctx = await cex.cargarExpediente(req.params.expedienteId);
+        const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
         const { clave, drive_id: driveId, marcas, fundir } = req.body || {};
         const puestas = await fotos.guardarMarcas(
@@ -593,7 +610,7 @@ router.put('/:expedienteId/fotos/marcas', internalOnly, async (req, res) => {
  */
 router.get('/:expedienteId/fotos/:driveId/contenido', internalOnly, async (req, res) => {
     try {
-        const ctx = await cex.cargarExpediente(req.params.expedienteId);
+        const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).send('Expediente no encontrado');
         const f = await fotos.bytesDe(ctx.expediente, req.params.driveId);
         res.setHeader('Content-Type', f.mimeType);
@@ -619,7 +636,7 @@ router.get('/:expedienteId/fotos/:driveId/contenido', internalOnly, async (req, 
  */
 router.post('/:expedienteId/fotos/leer', internalOnly, async (req, res) => {
     try {
-        const ctx = await cex.cargarExpediente(req.params.expedienteId);
+        const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
 
         const { clave, drive_ids: driveIds, ambito, pared, hueco, aspecto } = req.body || {};

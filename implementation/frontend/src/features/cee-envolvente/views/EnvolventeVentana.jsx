@@ -5,6 +5,8 @@ import { EnvolventeView } from './EnvolventeView';
 import { PestanasCe3x } from '../components/PestanasCe3x';
 import { buildInstalacionAddress } from '../../expedientes/utils/docGenerators';
 import { EnlacesInmueble } from '../../../components/EnlacesInmueble';
+import { esCeeDirecto } from '../logic/apiEnvolvente';
+import { ceeDirectoComoExpediente } from '../logic/ceeDirecto';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // La envolvente en su PROPIA VENTANA (`/envolvente/:expedienteId`).
@@ -28,13 +30,28 @@ export function EnvolventeVentana({ expedienteId }) {
     // dentro de la vista: son la ficha y el plano.
     const [barra, setBarra] = useState(null);
 
+    // De qué NEGOCIO es lo dice la dirección de esta ventana (`?cee=1`), no una
+    // suposición sobre la fila: son dos tablas y el mismo UUID no vale en las
+    // dos, así que un id de CEE directo pedido a `/api/expedientes` es un 404 —
+    // que es literalmente lo que se veía aquí.
+    //
+    // La fila del CEE directo se ADAPTA a la forma del expediente con la MISMA
+    // función que usa el backend para componer la ficha del `.cex`: con dos
+    // adaptadores, la dirección que se enseña y la que se escribe en el fichero
+    // saldrían de sitios distintos.
     useEffect(() => {
         let vivo = true;
-        axios.get(`/api/expedientes/${expedienteId}`)
-            .then(({ data }) => { if (vivo) setExpediente(data); })
+        axios.get(esCeeDirecto
+                    ? `/api/cee-directos/${expedienteId}`
+                    : `/api/expedientes/${expedienteId}`)
+            .then(({ data }) => {
+                if (!vivo) return;
+                setExpediente(esCeeDirecto ? ceeDirectoComoExpediente(data) : data);
+            })
             .catch(e => {
                 if (vivo) setError(e.response?.status === 404
-                    ? 'Ese expediente no existe.'
+                    ? (esCeeDirecto ? 'Ese encargo de CEE no existe.'
+                                    : 'Ese expediente no existe.')
                     : (e.response?.data?.error || 'No se ha podido abrir el expediente.'));
             });
         return () => { vivo = false; };
@@ -145,11 +162,17 @@ export function EnvolventeVentana({ expedienteId }) {
                         justo aquí donde se mira el contraste, con el plano
                         delante. */}
                     <ThemeToggle collapsed className="!h-9 !w-9" />
-                    <a href={`/?tab=expedientes&exp=${expedienteId}`}
+                    {/* ⚠ El deep-link de un CEE directo es `?cee=`, no `?exp=`:
+                        son dos tablas y el mismo UUID no vale en las dos, así
+                        que el enlace equivocado no lleva a otro expediente —
+                        no lleva a ninguno. */}
+                    <a href={esCeeDirecto
+                                ? `/?tab=cee-directos&cee=${expedienteId}`
+                                : `/?tab=expedientes&exp=${expedienteId}`}
                        className="shrink-0 rounded-lg border border-white/10
                                   px-3 py-2 text-[10px] font-black uppercase tracking-widest
                                   text-white/45 hover:border-white/30 hover:text-white">
-                        Ver el expediente ↗
+                        {esCeeDirecto ? 'Ver el encargo ↗' : 'Ver el expediente ↗'}
                     </a>
                 </header>
                 <PestanasCe3x {...(barra || {})} />
