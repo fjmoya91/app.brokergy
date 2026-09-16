@@ -24,16 +24,19 @@ const supabase = require('./supabaseClient');
 const driveService = require('./driveService');
 const ceeUploadService = require('./ceeUploadService');
 const { leerFirmasPdf, firmanteCoincide } = require('../utils/firmasPdf');
+const { fechaFirmaCee } = require('../utils/ceeFechas');
 
 const normPhase = (p) => (p === 'final' || p === 'FINAL' ? 'final' : 'inicial');
 const faseLabel = (p) => (normPhase(p) === 'final' ? 'CEE FINAL' : 'CEE INICIAL');
 
-/** La fecha con la que el certificado dice haber sido emitido (la del .xml). */
+/**
+ * La fecha con la que el certificado dice haber sido emitido (la del .xml).
+ * La cascada es fuente unica en `utils/ceeFechas.js`: el mismo dato vive en la
+ * rejilla del CEE y espejado en `documentacion`, y mirar solo uno de los dos
+ * responde "no consta" de una fecha que si esta guardada.
+ */
 function fechaDelCertificado(exp, phase) {
-    const fase = normPhase(phase);
-    const cee = exp?.cee || {};
-    const iso = cee[`fecha_firma_cee_${fase}`] || cee[`cee_${fase}`]?.fechaFirma || null;
-    return /^\d{4}-\d{2}-\d{2}/.test(String(iso || '')) ? String(iso).slice(0, 10) : null;
+    return fechaFirmaCee(exp, normPhase(phase));
 }
 
 const aEs = (iso) => {

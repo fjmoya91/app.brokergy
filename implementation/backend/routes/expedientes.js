@@ -4279,11 +4279,16 @@ router.post('/:id/facturas/ocr', adminOnly, (req, res, next) => {
         const { CEE_ECO_SELECT, rebuildCee } = require('../utils/ceeEcoFields');
         const { data: expRaw, error: expErr } = await supabase
             .from('expedientes')
-            .select(`id, numero_expediente, documentacion, instalacion, oportunidad_id, instalador_asociado_id, ${CEE_ECO_SELECT}`)
+            // La FIRMA del CEE inicial decide si la factura es anterior al certificado
+            // de partida (facturaIncidencias): va aparte porque `CEE_ECO_SELECT` es el
+            // contrato de los LISTADOS y esto solo hace falta aquí.
+            .select(`id, numero_expediente, documentacion, instalacion, oportunidad_id, instalador_asociado_id, ceef_firma_ini:cee->fecha_firma_cee_inicial, ${CEE_ECO_SELECT}`)
             .eq('id', req.params.id)
             .maybeSingle();
         if (expErr || !expRaw) return res.status(404).json({ error: 'Expediente no encontrado' });
         const exp = rebuildCee(expRaw);   // nunca traemos cee.xml_* (regla 22)
+        if (exp.ceef_firma_ini) exp.cee = { ...(exp.cee || {}), fecha_firma_cee_inicial: exp.ceef_firma_ini };
+        delete exp.ceef_firma_ini;
 
         const { data: op } = await supabase
             .from('oportunidades')

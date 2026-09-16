@@ -19,6 +19,7 @@
  */
 
 const { detectPrograma, esSustitucionCaldera } = require('../utils/fichas');
+const { fechaFirmaCee, fechaRegistroCee } = require('../utils/ceeFechas');
 
 // ─── Normalizadores de comparación ───────────────────────────────────────────
 const clean = (v) => (v === null || v === undefined ? '' : String(v).trim());
@@ -323,15 +324,27 @@ function detectarIncidenciasFactura({ ocr, exp, op, cliente, instalador, factura
     }
 
     // ── GRAVE · EMISOR ───────────────────────────────────────────────────────
-    // Quien factura la obra es quien firma el CIFO. Si no coinciden, o falta el
-    // instalador en el expediente, el certificado de instalación no se sostiene.
+    // Quien factura la INSTALACIÓN TÉRMICA es quien firma el CIFO y la memoria RITE.
+    // Si no coinciden, el certificado de instalación no se sostiene.
+    //
+    // REGLA — en un RES080 esto solo se mira en la factura de la TÉRMICA. Una
+    // rehabilitación la ejecutan VARIOS gremios: la bomba de calor la pone el
+    // instalador, las ventanas el carpintero, la cubierta el albañil, la fachada el
+    // aplicador del SATE. Que esas facturas las emita otra empresa **es lo normal**,
+    // no una incidencia: marcarlas en GRAVE saca un aviso rojo en casi todas las
+    // facturas de envolvente de todos los RES080, y un aviso que sale siempre y nunca
+    // hay que atender es el que enseña a ignorar la lista entera. En las fichas de
+    // sustitución de caldera no hay tal reparto: la actuación ES la bomba de calor,
+    // así que ahí cualquier factura del expediente tiene que ser suya.
+    const hayTermica = lineas.some(l => l.partida === 'AEROTERMIA' || l.partida === 'ACS');
+    const emisorDebeSerInstalador = esSustitucionCaldera(ficha) || hayTermica;
     const insNifExp = normNif(instalador?.cif);
     const insNifFac = normNif(ocr.emisor?.nif);
-    if (insNifExp && insNifFac && insNifExp !== insNifFac) {
+    if (emisorDebeSerInstalador && insNifExp && insNifFac && insNifExp !== insNifFac) {
         add(
             'EMISOR', 'GRAVE',
             'La factura la emite otra empresa, no el instalador del expediente',
-            `Emite ${clean(ocr.emisor?.nombre) || '(sin nombre)'} con NIF ${clean(ocr.emisor?.nif)}, y el instalador asociado a ${numExp} es ${clean(instalador?.razon_social) || '(sin nombre)'} con NIF ${clean(instalador?.cif)}. El CIFO lo firma quien ejecuta y factura la obra: o la factura no es de este expediente, o el instalador asociado está mal.`,
+            `Emite ${clean(ocr.emisor?.nombre) || '(sin nombre)'} con NIF ${clean(ocr.emisor?.nif)}, y el instalador asociado a ${numExp} es ${clean(instalador?.razon_social) || '(sin nombre)'} con NIF ${clean(instalador?.cif)}. Esta factura incluye la instalación térmica, y el certificado lo firma quien la ejecuta y la factura: o la factura no es de este expediente, o el instalador asociado está mal.`,
             `Emisor: ${clean(ocr.emisor?.nombre) || '—'} (${clean(ocr.emisor?.nif)})`
         );
     }
@@ -411,7 +424,7 @@ function detectarIncidenciasFactura({ ocr, exp, op, cliente, instalador, factura
     chequeaSerie('AEROTERMIA', inst.aerotermia_cal, 'equipo de calefacción');
     if (inst.cambio_acs !== false) chequeaSerie('ACS', inst.aerotermia_acs, 'equipo de ACS');
 
-    // ── GRAVE · FECHA ────────────────────────────────────────────────────────
+    // ── FECHA ────────────────────────────────────────────────────────────────
     const fFactura = parseFecha(ocr.fecha_factura);
     if (!fFactura) {
         add('SIN_FECHA', 'LEVE', 'La factura no trae fecha legible',
@@ -423,11 +436,36 @@ function detectarIncidenciasFactura({ ocr, exp, op, cliente, instalador, factura
                 `La fecha leída es ${fmtFecha(ocr.fecha_factura)}, posterior a hoy. Revisa si el OCR ha leído mal o si la factura está mal emitida.`,
                 fmtFecha(ocr.fecha_factura));
         }
-        const fCeeIni = parseFecha(doc.fecha_registro_cee_inicial);
-        if (fCeeIni && fFactura.getTime() < fCeeIni.getTime()) {
-            add('FECHA', 'GRAVE', 'La factura es anterior al CEE inicial',
-                `La factura es del ${fmtFecha(ocr.fecha_factura)} y el CEE inicial de ${numExp} se registró el ${fmtFecha(doc.fecha_registro_cee_inicial)}. La actuación tiene que ser posterior al certificado de partida: una factura anterior implica que la obra se hizo antes de existir la situación de referencia.`,
-                `Factura ${fmtFecha(ocr.fecha_factura)} < CEE inicial ${fmtFecha(doc.fecha_registro_cee_inicial)}`);
+        // ── LEVE · La factura es anterior al CEE de partida ──────────────────
+        // REGLA — lo que decide es la FIRMA del CEE inicial, NO su REGISTRO. El
+        // certificado de partida existe desde que lo firma el técnico; inscribirlo
+        // en el Registro es un trámite posterior, del certificador y de la
+        // administración, que se toma sus semanas. Comparando contra el registro se
+        // marcaba como GRAVE una factura emitida con el certificado ya en la mano
+        // (medido en 26RES080_59: factura del 09/07/2026 contra un registro del
+        // 31/07). Es la misma regla que ya aplica `logic/cifoFechas.js`.
+        //
+        // REGLA — y es LEVE, no GRAVE. La fecha de una factura NO es la fecha en que
+        // se ejecutó la obra: se factura un anticipo, o el material por delante, o se
+        // emite con el número que toca al cerrar el mes. Lo que el verificador compara
+        // es el INICIO DE ACTUACIÓN que declara el CIFO, y esa comprobación sigue
+        // siendo dura donde le corresponde (`cifoFechas`). Aquí es un aviso para que
+        // alguien lo mire, no un bloqueo.
+        const firmaIni = fechaFirmaCee(exp, 'inicial');
+        const registroIni = fechaRegistroCee(exp, 'inicial');
+        // Sin firma no hay otra referencia que el registro: se avisa igual, pero se
+        // dice contra qué se está comparando — el registro es posterior a la firma,
+        // así que el desfase puede ser solo eso.
+        const refIni = firmaIni || registroIni;
+        const fRefIni = parseFecha(refIni);
+        if (fRefIni && fFactura.getTime() < fRefIni.getTime()) {
+            add('FECHA', 'LEVE', 'La factura es anterior al CEE inicial',
+                firmaIni
+                    ? `La factura es del ${fmtFecha(ocr.fecha_factura)} y el CEE inicial de ${numExp} está firmado el ${fmtFecha(firmaIni)}. La actuación tiene que ser posterior al certificado de partida: comprueba si la obra se ejecutó de verdad antes de existir la situación de referencia, o si es solo que la factura se emitió antes (un anticipo, el material). Lo que declara la fecha de obra es el CIFO.`
+                    : `La factura es del ${fmtFecha(ocr.fecha_factura)} y el CEE inicial de ${numExp} se registró el ${fmtFecha(registroIni)}. No consta la fecha de FIRMA del certificado, que es la que decide: el registro es un trámite posterior y puede ir semanas por detrás, así que el desfase puede ser solo eso. Rellena la fecha de firma en la rejilla del CEE para poder afirmarlo.`,
+                firmaIni
+                    ? `Factura ${fmtFecha(ocr.fecha_factura)} < firma CEE inicial ${fmtFecha(firmaIni)}`
+                    : `Factura ${fmtFecha(ocr.fecha_factura)} < registro CEE inicial ${fmtFecha(registroIni)} (sin fecha de firma)`);
         }
     }
 
