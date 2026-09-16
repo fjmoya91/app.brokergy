@@ -585,12 +585,9 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     const aeKwh = Math.round(results?.savingsKwh || 0).toLocaleString('es-ES');
     const beneficioStr = Math.round((results?.savingsKwh || 0) * (results?.price_kwh || 0.10)).toLocaleString('es-ES');
 
-    // CEE Final
-    const ceeFinal = cee.cee_final || {};
-    const dcalRaw = parseFloat(ceeFinal.demandaCalefaccion) || 0;
-    const dcal = dcalRaw.toFixed(2).replace('.', ',');
-    const sRaw = parseFloat(ceeFinal.superficieHabitable) || 0;
-    const sStr = sRaw.toFixed(2).replace('.', ',');
+    // La demanda y la superficie NO se resuelven aquí: las decide ceeBaseDocumento
+    // dentro de deriveCifoData (cifoDoc.js), que es lo que este modal renderiza.
+    // Había una copia que leía `cee.cee_final` a pelo y que ya no la leía nadie.
 
     // La D_ACS no se calcula aquí: la resuelve deriveCifoData (cifoDoc.js), que es
     // lo que este modal renderiza. Había una copia de la fórmula que solo entendía

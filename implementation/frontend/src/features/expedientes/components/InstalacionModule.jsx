@@ -7,6 +7,7 @@ import { esConjuntoAcs, produceAcs, metodoAcsDelModelo, litrosAcsCatalogo, nodoA
 import { EMITTER_OPTIONS, getEmitterTemp } from '../logic/cifoDoc';
 import { emisorFinalOptions, emisorInicialOptions, esRes080, EMISOR_NINGUNO } from '../logic/emisores';
 import { esTer173, esTerciario } from '../logic/terciario';
+import { ceeBaseDocumento } from '../logic/ceeFases';
 import { FV, FV_OPCIONES, normalizarFotovoltaica, potenciaTexto } from '../logic/fotovoltaica';
 import { useAuth } from '../../../context/AuthContext';
 import { getRoleFlags } from '../../../utils/roleFlags';
@@ -2034,10 +2035,15 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
     // objeto que la Red de Prescriptores le pasa al modal de ficha.
     const instaladorSel = prescriptores.find(i => i.id_empresa === local.instalador_id) || null;
 
-    // 1. Extraer demanda con precisión técnica (Prioridad CEE Final > Oportunidad)
-    const ceeFinal = expediente?.cee?.cee_final || {};
-    const superficie = parseFloat(ceeFinal.superficieHabitable) || parseFloat(opDatos.surface) || 0;
-    const demandAnnual = (parseFloat(ceeFinal.demandaCalefaccion) || 0) * superficie || parseFloat(opDatos.Q_net) || 0;
+    // 1. Extraer demanda — REGLA 32: manda el CEE FINAL si está cargado y, si no,
+    //    el INICIAL. Esto leía `cee.cee_final` a pelo, así que un expediente con
+    //    solo el certificado inicial —lo NORMAL hasta que la obra termina— caía a
+    //    la oportunidad y, si aquella no traía `Q_net`, enseñaba DEMANDA ANUAL =
+    //    0 kWh; con ella la cobertura sale 0 % y el Cb 100 %, que es el ahorro SIN
+    //    ponderar. Fuente única en ceeFases.js, la misma que el CIFO y las fichas.
+    const { base: ceeBase, fase: ceeFase } = ceeBaseDocumento(expediente?.cee);
+    const superficie = parseFloat(ceeBase.superficieHabitable) || parseFloat(opDatos.surface) || 0;
+    const demandAnnual = (parseFloat(ceeBase.demandaCalefaccion) || 0) * superficie || parseFloat(opDatos.Q_net) || 0;
 
     // Misma cadena de fallback (expediente → oportunidad) que usan el CIFO y las
     // fichas, para que lo que se ve aquí sea lo que sale en los documentos.
@@ -2608,7 +2614,10 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                                         <div className="flex items-center gap-1.5 mt-2 px-1.5 py-0.5 rounded-full bg-brand/5 border border-brand/10 w-fit">
                                             <div className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />
                                             <span className="text-[7px] font-black text-brand uppercase tracking-widest">
-                                                {ceeFinal.demandaCalefaccion ? 'Certificado CEE' : 'Oportunidad'}
+                                                {/* De qué sale la cifra. Con los dos certificados manda el
+                                                    FINAL; con uno solo, ese. Se dice CUÁL: no es lo mismo la
+                                                    demanda de antes de la obra que la de después. */}
+                                                {ceeFase ? `Certificado CEE ${ceeFase}` : 'Oportunidad'}
                                             </span>
                                         </div>
                                     </div>

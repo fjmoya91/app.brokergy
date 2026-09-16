@@ -4422,6 +4422,18 @@ fichas RES060 y RES093 (y sus dos modales, que duplican el HTML) leían
 `cee.cee_final` a secas: un expediente con la obra sin terminar —el caso normal—
 imprimía **D_CAL = 0,00 y D_ACS = 0,00** mientras el CIFO del MISMO expediente
 salía con los del inicial. Dos documentos del mismo expediente contradiciéndose.
+**Y en el panel de HIBRIDACIÓN tampoco estaba** (2026-09-16). `InstalacionModule`
+leía `cee.cee_final` a pelo, así que con solo el CEE inicial cargado —lo normal
+mientras la obra no termina— caía a la oportunidad y, si aquella no traía `Q_net`
+(las que se guardaron sin CEE, o las migradas), enseñaba **DEMANDA ANUAL = 0 kWh**.
+Y esa cifra no es decorativa: de ella sale la cobertura de la bomba, y con demanda
+cero la cobertura es 0 % y **el C_b sale 100 %**, o sea el ahorro SIN ponderar — más
+alto que el real, en la ficha que define la actuación de un RES093/TER173. Medido:
+con el inicial (86,40 kWh/m²·año × 120 m²) la demanda pasa de 0 a 10.368 kWh y el
+C_b de 100 % a lo que toque. La chapa dice además **de qué certificado** sale
+("Certificado CEE inicial" · "… final"): no es lo mismo la demanda de antes de la
+obra que la de después, y con la del inicial el C_b es provisional.
+
 
 ### Retirar un CEE lo retira DE VERDAD
 
