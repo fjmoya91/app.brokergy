@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { firmarConAutofirma, explicarError, registrarFalloAutofirma, DESCARGA_URL } from '../../firma/autofirma';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -11,7 +12,9 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 //   1. Recibe el PDF ya generado (base64 sin prefijo data:).
 //   2. Lo pinta con pdf.js y el usuario ARRASTRA el recuadro donde quiere firmar.
 //   3. Convierte el recuadro a coordenadas PDF (puntos, origen abajo-izquierda).
-//   4. Invoca Autofirma (autoscript.js) con formato PAdES + rúbrica (logo) + posición.
+//   4. Invoca Autofirma con formato PAdES + rúbrica (logo) + posición. QUÉ camino de
+//      conexión se usa y cómo se cae al siguiente cuando no responde vive en
+//      features/firma/autofirma.js — aquí no se llama a AutoScript directamente.
 //   5. Autofirma abre → el usuario elige su certificado → devuelve el PDF firmado.
 //   6. onSigned(signedPdfBase64) para que el padre lo suba a Drive / marque firmado.
 //
@@ -20,7 +23,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 // /public/autofirma/autoscript.js y se carga como script clásico (global AutoScript).
 // ─────────────────────────────────────────────────────────────────────────────
 
-const AUTOSCRIPT_SRC = '/autofirma/autoscript.js';
 // Trazo de firma para la animación "Firmando…" (el ✍️ recorre esta misma ruta).
 const SIG_PATH = 'M18,58 C34,22 48,74 64,48 C78,26 92,72 108,48 C122,28 138,70 156,44 C168,30 180,52 186,42';
 // Sello de Brokergy para los documentos que firma la propia Brokergy: SOLO el logo (el
@@ -32,27 +34,6 @@ const SIG_PATH = 'M18,58 C34,22 48,74 64,48 C78,26 92,72 108,48 C122,28 138,70 1
 // (acaba en el PDF como /DCTDecode sin /SMask), así que el recuadro siempre es opaco
 // y no hay forma de que se vea la firma impresa de la plantilla a través de él.
 const DEFAULT_RUBRIC_IMAGE_URL = '/logo-brokergy-circular-transparent.png';
-const INSTALL_URL = 'https://firmaelectronica.gob.es/Home/Descargas.html';
-
-// Carga autoscript.js una sola vez y resuelve cuando window.AutoScript existe.
-let _autoscriptPromise = null;
-function loadAutoScript() {
-    if (window.AutoScript) return Promise.resolve(window.AutoScript);
-    if (_autoscriptPromise) return _autoscriptPromise;
-    _autoscriptPromise = new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = AUTOSCRIPT_SRC;
-        s.async = true;
-        s.onload = () => {
-            if (window.AutoScript) resolve(window.AutoScript);
-            else reject(new Error('autoscript.js cargó pero AutoScript no está definido'));
-        };
-        s.onerror = () => reject(new Error('No se pudo cargar autoscript.js'));
-        document.head.appendChild(s);
-    });
-    return _autoscriptPromise;
-}
-
 // Normaliza para comparar sin tildes ni mayúsculas. \p{Diacritic} (ASCII en el
 // fuente) evita que las marcas combinantes literales se corrompan al bundlear.
 const norm = (s) => String(s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
@@ -184,7 +165,8 @@ export default function FirmarConCertificadoModal({
     const [signing, setSigning] = useState(false);
     const [signedOk, setSignedOk] = useState(false);   // firma completada: overlay "✓ Firmado"
     const [error, setError] = useState(null);
-    const [needsInstall, setNeedsInstall] = useState(false);
+    const [fallo, setFallo] = useState(null);         // { titulo, detalle, instalar, codigo } del último intento
+    const [camino, setCamino] = useState(null);       // { etiqueta, intento, total } mientras se reintenta por otra vía
 
     // ── Cargar el PDF y la rúbrica ────────────────────────────────────────────
     useEffect(() => {
@@ -393,9 +375,9 @@ export default function FirmarConCertificadoModal({
         return lines.join('\n');
     };
 
-    const handleSign = async () => {
+    const handleSign = async ({ compat = false } = {}) => {
         setError(null);
-        setNeedsInstall(false);
+        setFallo(null);
         // Coordenadas: las del arrastre/caja fija; si faltasen, respaldo desde el ancla detectada.
         let coords = pdfCoordsRef.current;
         if (!coords && anchorRef.current) {
@@ -404,45 +386,31 @@ export default function FirmarConCertificadoModal({
         }
         if (!coords) { setError('Marca en la página el recuadro donde quieres que aparezca tu firma (arrástralo).'); return; }
         setSigning(true);
+        setCamino(null);
         try {
-            const AutoScript = await loadAutoScript();
-            AutoScript.cargarAppAfirma();
-            // Configura el servidor intermedio (mismo origen) para ficheros GRANDES.
-            // Sin esto, un resultado grande (p. ej. Anexo Fotográfico) no cabe por el
-            // WebSocket y no vuelve al navegador ("se firma pero vuelve atrás").
-            try {
-                const origin = window.location.origin;
-                AutoScript.setServlets(
-                    origin + '/api/afirma-signature-storage/StorageService',
-                    origin + '/api/afirma-signature-retriever/RetrieveService'
-                );
-            } catch (e) { console.debug('setServlets no disponible, modo WS:', e); }
-            const extraParams = buildExtraParams(coords);
-            AutoScript.sign(
+            const { firmado } = await firmarConAutofirma({
                 pdfBase64,
-                'SHA512withRSA',
-                'PAdES',
-                extraParams,
-                (signedB64 /*, certB64 */) => {
-                    setSigning(false);
-                    setSignedOk(true);
-                    // Breve "✓ Firmado" antes de continuar (subir/avanzar).
-                    setTimeout(() => onSigned?.(signedB64), 1100);
-                },
-                (errType, errMsg) => {
-                    setSigning(false);
-                    const msg = errMsg || errType || 'Error desconocido';
-                    // Autofirma no instalado / no accesible.
-                    if (/no.*instal|not.*install|conect|socket|ENOENT|no se ha podido/i.test(String(msg))) {
-                        setNeedsInstall(true);
-                    }
-                    setError('Autofirma: ' + msg);
-                }
-            );
+                extraParams: buildExtraParams(coords),
+                forzarCompat: compat,
+                // Solo se anuncia el cambio de camino a partir del segundo intento: el
+                // primero es el normal y contarlo solo mete ruido en la espera.
+                onCamino: (_c, etiqueta, intento, total) =>
+                    setCamino(intento > 1 ? { etiqueta, intento, total } : null),
+            });
+            setSigning(false);
+            setCamino(null);
+            setSignedOk(true);
+            // Breve "✓ Firmado" antes de continuar (subir/avanzar).
+            setTimeout(() => onSigned?.(firmado), 1100);
         } catch (e) {
             setSigning(false);
-            setNeedsInstall(true);
-            setError(e.message || 'No se pudo iniciar Autofirma');
+            setCamino(null);
+            const info = e?.afirma || { mensaje: e?.message };
+            const exp = explicarError(info);
+            setFallo({ ...exp, codigo: info.codigo || null });
+            // Un fallo de firma solo se puede arreglar sabiendo dónde y con qué código
+            // ha fallado; por teléfono llega "no me funciona el enlace".
+            registrarFalloAutofirma({ ...info, clase: exp.clase, documento: title });
         }
     };
 
@@ -484,7 +452,15 @@ export default function FirmarConCertificadoModal({
                                 </div>
                                 <div>
                                     <div style={{ fontSize: 18, fontWeight: 900, color: C.brand, letterSpacing: '.3px' }}>Firmando documento…</div>
-                                    <div style={{ fontSize: 13, color: C.textSoft, marginTop: 6, maxWidth: 320, lineHeight: 1.5 }}>Confirma la firma en <b>Autofirma</b> y elige tu certificado. Esto puede tardar unos segundos — <b>no cierres esta ventana</b>.</div>
+                                    <div style={{ fontSize: 13, color: C.textSoft, marginTop: 6, maxWidth: 340, lineHeight: 1.5 }}>Confirma la firma en <b>Autofirma</b> y elige tu certificado. Esto puede tardar unos segundos — <b>no cierres esta ventana</b>.</div>
+                                    {/* Si el primer camino no responde se prueba otro (ver
+                                        features/firma/autofirma.js). Sin decirlo, la espera se
+                                        alarga sin explicación y la ventana se cierra. */}
+                                    {camino && (
+                                        <div style={{ fontSize: 12, color: C.brand, marginTop: 10, maxWidth: 340, fontWeight: 700 }}>
+                                            Autofirma no ha respondido por la vía habitual. Probando por {camino.etiqueta} ({camino.intento} de {camino.total})…
+                                        </div>
+                                    )}
                                 </div>
                             </>
                         )}
@@ -542,14 +518,36 @@ export default function FirmarConCertificadoModal({
                     </div>
                 )}
 
-                {error && (
-                    <div style={{ margin: '0 16px 8px', padding: '10px 12px', background: 'rgba(239,68,68,.12)', border: '1px solid rgba(239,68,68,.4)', borderRadius: 8, color: '#fca5a5', fontSize: 13 }}>
-                        {error}
-                        {needsInstall && (
-                            <div style={{ marginTop: 6 }}>
-                                ¿No tienes Autofirma? <a href={INSTALL_URL} target="_blank" rel="noreferrer" style={{ color: '#fcd34d', fontWeight: 700 }}>Descárgalo aquí</a> e inténtalo de nuevo.
-                            </div>
-                        )}
+                {(error || fallo) && (
+                    <div style={{ margin: '0 16px 8px', padding: '12px 14px', background: 'rgba(239,68,68,.12)', border: '1px solid rgba(239,68,68,.4)', borderRadius: 10, color: '#fecaca', fontSize: 13, lineHeight: 1.55 }}>
+                        {fallo ? (
+                            <>
+                                <div style={{ fontWeight: 800, color: '#fca5a5', fontSize: 14 }}>{fallo.titulo}</div>
+                                <div style={{ marginTop: 4 }}>{fallo.detalle}</div>
+                                {fallo.instalar && (
+                                    <div style={{ marginTop: 8 }}>
+                                        <a href={DESCARGA_URL} target="_blank" rel="noreferrer" style={{ color: '#fcd34d', fontWeight: 800 }}>Descargar la última Autofirma</a>
+                                        <span style={{ color: C.textMuted }}> · ábrela una vez y vuelve a pulsar Firmar.</span>
+                                    </div>
+                                )}
+                                {/* El código se enseña para poder decirlo por teléfono: es lo único
+                                    que distingue "no lo tengo instalado" de "no me deja el certificado". */}
+                                {/* Tercer camino: protocolo antiguo. No va automático detrás de
+                                    los otros dos porque suma otro minuto de espera a TODOS para
+                                    resolver un caso raro; aquí lo pide quien sabe que su
+                                    Autofirma es vieja. */}
+                                {fallo.compat && (
+                                    <div style={{ marginTop: 10 }}>
+                                        <button onClick={() => handleSign({ compat: true })} disabled={signing} style={{ ...ghostBtn, padding: '8px 12px', fontSize: 12, borderColor: 'rgba(252,211,77,.5)', color: '#fcd34d' }}>
+                                            Mi Autofirma es antigua · probar en modo compatible
+                                        </button>
+                                    </div>
+                                )}
+                                {fallo.codigo && (
+                                    <div style={{ marginTop: 8, fontSize: 11, color: C.textMuted }}>Código: {fallo.codigo}</div>
+                                )}
+                            </>
+                        ) : error}
                     </div>
                 )}
 
@@ -559,7 +557,7 @@ export default function FirmarConCertificadoModal({
                     </span>
                     <div style={{ display: 'flex', gap: 8 }}>
                         <button onClick={handleClose} style={ghostBtn}>Cancelar</button>
-                        <button onClick={handleSign} disabled={signing || !signReady} style={{ ...primaryBtn, opacity: (signing || !signReady) ? 0.5 : 1 }}>
+                        <button onClick={() => handleSign()} disabled={signing || !signReady} style={{ ...primaryBtn, opacity: (signing || !signReady) ? 0.5 : 1 }}>
                             {signing ? 'Firmando…' : '🖊️ Firmar con Autofirma'}
                         </button>
                     </div>

@@ -8169,6 +8169,122 @@ meter una librería de imagen en el contenedor para leer dos números.
 
 ---
 
+## Autofirma no falla igual en todos los ordenadores (2026-09-16)
+
+Varios clientes reportaron que el enlace de firma "no les funciona": abren el Anexo o
+el CIFO, pulsan **Firmar con Autofirma** y no pasa nada, o les sale un aviso del
+Gobierno diciendo que no tienen Autofirma instalado — teniéndola.
+
+La causa está en cómo elige camino `autoscript.js`: en cualquier PC de escritorio usa
+SIEMPRE un **WebSocket seguro contra `wss://127.0.0.1:<puerto>`**, y ese camino exige
+tres cosas a la vez que en la máquina del firmante no controlamos:
+
+1. **Autofirma ≥ 1.7** — las anteriores no tienen modo WebSocket.
+2. Su **certificado SSL local** ("AutoFirma ROOT") instalado y **VIGENTE** en el
+   almacén del navegador. Caduca; y un perfil de Firefox creado después de instalar
+   Autofirma no lo tiene, porque Firefox lleva su propio almacén.
+3. Que ningún antivirus ni proxy corte `127.0.0.1`.
+
+Si falla cualquiera de las tres, el síntoma es el mismo y no distingue una cosa de la
+otra. Y la petición se hace con **versión de protocolo 4**, que una Autofirma vieja
+rechaza de plano.
+
+| Qué | Dónde |
+|---|---|
+| Elegir camino, caer al siguiente y traducir el error | [features/firma/autofirma.js](implementation/frontend/src/features/firma/autofirma.js) |
+| Servidor intermedio (los dos servlets) + diagnóstico | [routes/afirmaStorage.js](implementation/backend/routes/afirmaStorage.js) |
+| Superficie (una sola, la comparten las 9 pantallas que firman) | `FirmarConCertificadoModal.jsx` |
+| Prueba | `node implementation/backend/scripts/test_autofirma_caminos.mjs` |
+
+### Tres caminos, y solo se cae al siguiente si NO se llegó a Autofirma
+
+| Camino | Cómo habla | Qué versiones cubre |
+|---|---|---|
+| `websocket` | `wss://127.0.0.1:<puerto>` | Autofirma ≥ 1.7 con su certificado local vigente |
+| `servidor` | `afirma://sign?…&stservlet=<nuestro origen>/api/…` | **cualquiera desde la 1.5**: ni puertos ni certificados locales, solo que el SO sepa abrir `afirma://` |
+| `servidor-compat` | lo mismo con **`ver=1`** | instalaciones antiguas que rechazan la versión 4 del protocolo |
+
+**REGLA — automáticos van DOS, no tres.** Medido en un navegador real sin Autofirma
+instalada: el WebSocket tarda **~15 s** en rendirse y el servidor intermedio **~45 s**,
+así que encadenar además el modo compatible deja al firmante más de minuto y medio
+delante de una pantalla quieta para acabar leyendo un error. Y no lo arregla: si no
+responde NADA, repetir lo mismo con otra versión de protocolo tampoco va a responder.
+El tercero vive **a un clic** en el propio mensaje de error ("Mi Autofirma es antigua ·
+probar en modo compatible"), para la instalación vieja de verdad — que es rara — sin
+que lo paguen todos los demás en espera.
+
+**REGLA — un intento nuevo solo se lanza si el anterior NO llegó a Autofirma.** Si el
+firmante llegó a ver la ventana y canceló, o su certificado no sirve, reintentar
+abriría Autofirma otra vez encima de él. Se clasifica **por el CÓDIGO** (`AS6200xx` es
+un enum cerrado de `autoscript.js`) y solo se cae al texto cuando no lo hay: el mensaje
+se traduce y se reescribe entre versiones, y un `includes` sobre él envejece sin que
+nadie lo note.
+
+**REGLA — los diálogos propios de `autoscript.js` van APAGADOS**
+(`SupportDialog.enableSupportDialog(false)`). No es estética: mientras su diálogo de
+error está abierto, **el fallo NO llega a nuestro callback** —autoscript solo llama al
+`errorCB` si el diálogo está deshabilitado o el usuario pulsa cancelar—, así que con
+ellos activos el fallback automático no llegaría a dispararse nunca. Además se quedan
+encima del modal, y lo que anuncian ("no tiene Autofirma instalado") es justo lo que
+todavía no se sabe.
+
+**REGLA — un documento GRANDE se salta el WebSocket** (>3 MB). Ahí Autofirma responde
+`AS620018` ("excede de la memoria disponible") y el firmado no vuelve nunca al
+navegador: es el "se firma pero vuelve a la pantalla anterior" del Anexo Fotográfico.
+Probarlo primero solo gasta medio minuto de espera antes del camino que sí funciona.
+
+⚠️ **El `setServlets` que había en el modal NO hacía nada.** `AppAfirmaWebSocketClient`
+no expone ese método, y el servidor intermedio solo entra en juego si
+`setForceWSMode(true)` — que, pese al nombre, significa *"forzar modo WebService"*, no
+*"forzar WebSocket"*. O sea: la protección que el comentario decía tener para los
+ficheros grandes llevaba desde el principio sin estar activa.
+
+### El parche de `autoscript.js`
+
+Tres líneas idénticas (una por cada cliente de conexión) que leen la versión del
+protocolo de un global en vez de tenerla cableada:
+
+```js
+var PROTOCOL_VERSION = (typeof window !== 'undefined' && window.AFIRMA_PROTOCOL_VERSION) || 4;
+```
+
+Sin el global se comporta **exactamente** como el original (4). Una Autofirma vieja
+rechaza un `ver` mayor del que conoce y una nueva acepta los menores, así que rebajarlo
+es lo único que permite hablar con las dos. Es un fichero VENDORIZADO de 6.000 líneas: el
+test comprueba que las tres siguen parcheadas, para que una actualización de la
+librería no se las lleve por delante en silencio.
+
+### Lo que ve el firmante
+
+Antes, cualquier fallo salía como `Autofirma: es.gob.afirma.standalone.ApplicationNotFoundException`.
+Ahora cada caso dice **qué ha pasado y qué hacer**, en ese orden, y el **código** queda
+a la vista para poder decirlo por teléfono — es lo único que distingue "no la tengo
+instalada" de "no me deja usar el certificado". Mientras se reintenta por otra vía se
+anuncia ("Autofirma no ha respondido por la vía habitual. Probando por…"): sin eso la
+espera se alarga sin explicación y la ventana se cierra.
+
+**REGLA — nadie se queda sin salida.** En el CIFO y en los anexos, la misma pantalla
+ofrece **subir el documento ya firmado** con otra herramienta, y al cliente además la
+**firma a mano con el móvil** (regla 34), que no depende de Autofirma para nada.
+
+### Por qué hay diagnóstico
+
+Lo que llega por teléfono es *"no me funciona el enlace"*, y con eso no se arregla
+nada: el mismo síntoma lo dan una Autofirma antigua, un certificado local caducado y un
+antivirus. `POST /api/afirma-diagnostico` deja en el log del backend en qué máquina y
+con qué código ha fallado. **Ahí NO entra el documento ni ningún dato del firmante**:
+navegador, caminos probados y código. Es pública porque los enlaces de firma del
+cliente y del instalador lo son, así que el cuerpo va limitado y no se guarda en BD.
+Para leerlo: `docker logs brokergy-backend | grep autofirma`.
+
+⚠️ **Lo que aquí NO se puede afirmar**: nada de esto se ha probado contra una Autofirma
+real de cada versión — no hay forma de tener instaladas la 1.6, la 1.7 y la 1.9 a la
+vez. Lo verificado es la negociación (con un Autofirma simulado, las 10 pruebas del
+script) y que el fichero parcheado es el que se sirve. Si un cliente vuelve a fallar,
+**lo primero es su línea del log**, no volver a suponer.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -8458,6 +8574,8 @@ WA_SYNC_FALLOS_MAX=3               ← tiempos de espera seguidos tras los que s
 ```
 
 54. **Cada cerramiento del plano puede llevar su FOTO REAL, y de ella se cuentan sus huecos**: se pulsa la pared —o el hueco— y se le pega la suya, ofreciendo PRIMERO las que el expediente ya tiene (medido en 26RES060_186: 6 fotos de la envolvente llevaban meses en Drive mientras las ventanas se contaban a ojo). La foto vale **aunque no se lea**: es la prueba de por qué el cerramiento se clasificó como está, y por eso sale también en medianeras. **El modelo NO da metros**: da CAJAS (`box_2d`), y la escala la pone el código desde la **PUERTA DE ENTRADA** (2,05 m) — nunca desde el ancho de la pared, porque la fachada no ocupa el encuadre exacto **y** porque el modelo agranda todas las cajas ~1,5× de forma consistente, sesgo que una referencia dentro de la misma foto cancela (con el ancho de la pared la ventana salía a 2,4 m; con la puerta, a 1,71, que es lo que se ve). El largo que midió el motor **VALIDA, no escala**; sin puerta a la vista hay recuento pero no medidas. Lo leído **nace DUDOSO** (el ámbar que ya existe) y **no pisa** lo que hay: con huecos ya puestos las casillas nacen desmarcadas y reemplazar es un botón aparte — importa, porque señalar la entrada ya coloca una puerta y una ventana de relleno. La carpintería y el vidrio se guardan y se enseñan pero **no van al `.cex`** (no hay casilla en `loSenalado`). **Al abrir una foto sale el PANEL de la pared y cada hueco SEÑALADO sobre la imagen** con su nombre: las marcas salen solas de la lectura (el modelo ya da la caja de cada hueco) y se corrigen arrastrando. Se guardan con la FOTO y por `uid`, nunca por nombre —V1 se renombra y se recoloca— y **al momento**, no al cerrar. ⚠️ `var(--brand)` NO existe (es `--brand-primary`) y en un SVG eso sale NEGRO sin avisar; y arrastrar sobre una `<img>` la tiñe de azul salvo con `draggable={false}` + `select-none` + `preventDefault`. ⚠️ **`thinkingBudget: 0` cuelga esta lectura para siempre** —240 s frente a 13,3 s con `pensar`—, y no se arregla subiendo el plazo; `llamarGemini` acepta ya `pensar` y `deadline`. Coste: **0,006 €** por fachada. Fuentes únicas: [paredOcrService.js](implementation/backend/services/paredOcrService.js) (leer) y [paredFotoService.js](implementation/backend/services/paredFotoService.js) (Drive + estado, en `cee.envolvente_fotos`, clave APARTE del trabajo). Tras tocarlo: `node implementation/backend/scripts/test_pared_ocr.mjs`. Ver "La FOTO REAL de cada cerramiento".
+
+55. **Autofirma no falla igual en todos los ordenadores, y la app prueba DOS caminos**: `autoscript.js` elige siempre `wss://127.0.0.1:<puerto>`, que exige a la vez Autofirma ≥1.7, su **certificado SSL local vigente** en el almacén del navegador (caduca; y un perfil de Firefox creado después no lo tiene) y que nada corte 127.0.0.1 — si falla cualquiera, el firmante ve un aviso del Gobierno diciendo que no la tiene instalada, teniéndola. Ahora se cae al **servidor intermedio** (`afirma://sign?…&stservlet=<origen>/api/…`), que no usa ni puertos ni certificados locales y funciona con **cualquier Autofirma desde la 1.5**; y a un clic queda el **modo compatible** con `ver=1` para las que rechazan la versión 4 del protocolo (automáticos van DOS, no tres: el tercero suma otro minuto de espera a todos y no arregla un "no responde nada"). **REGLA — un intento nuevo solo se lanza si el anterior NO llegó a Autofirma**: si el firmante canceló o su certificado no sirve, reintentar le abre Autofirma encima; se clasifica por el **CÓDIGO** (`AS6200xx`, enum cerrado) y solo por el texto cuando no lo hay. **REGLA — los diálogos propios de autoscript van APAGADOS**, o el error no llega al callback y el fallback no se dispara nunca. Un documento >3 MB **se salta el WebSocket** (`AS620018`: se firma y no vuelve). ⚠️ El `setServlets` que había en el modal **no hacía nada** — `AppAfirmaWebSocketClient` no expone ese método y el servidor intermedio solo entra con `setForceWSMode(true)`, que significa *forzar modo WebService*, no *WebSocket*. Fuente única: [features/firma/autofirma.js](implementation/frontend/src/features/firma/autofirma.js), que usan las 9 pantallas que firman a través de `FirmarConCertificadoModal`. `POST /api/afirma-diagnostico` deja en el log en qué máquina y con qué código ha fallado (navegador y código, **nunca el documento ni datos del firmante**): sin eso, el mismo síntoma lo dan tres causas distintas. Tras tocarlo: `node implementation/backend/scripts/test_autofirma_caminos.mjs`. Ver "Autofirma no falla igual en todos los ordenadores".
 
 53. **Las COLUMNAS del listado de expedientes se ELIGEN, y son una lista declarativa**: botón **▦ Columnas · N** con vistas de fábrica (Operativa · Seguimiento CEE · Económica · Cartera). Cada columna se declara UNA vez en [logic/expedientesColumnas.jsx](implementation/frontend/src/features/expedientes/logic/expedientesColumnas.jsx) —rótulo, ancho, filtro, `valor()` y `render()`— y de ahí salen la cabecera, la fila de filtros, las celdas, el ORDEN (clic en la cabecera; el tercer clic vuelve al orden por PRIORIDAD, que es el de siempre) y el CSV, que exporta **lo que se está viendo**. Antes eran siete columnas escritas a mano en tres sitios alineados por posición, y por eso no se podía filtrar por **instalador**. **Un filtro activo NO puede esconderse**: al apagar su columna se limpia. Las columnas se **REORDENAN arrastrando su cabecera** (con eventos de PUNTERO y no con el drag&drop de HTML5, que no se puede disparar con eventos sintéticos y por tanto no se puede verificar; y con `setInterval` y no `requestAnimationFrame`, que el navegador congela con la ventana oculta): la tabla se desplaza sola al llegar al borde, soltar sobre "Acciones" la deja la última y sobre el nº de expediente —que no se mueve nunca, identifica la fila— justo detrás. El orden se guarda como los anchos, y **`roles` es una comodidad de pantalla, nunca el control de acceso** — el instalador se le capa al CERTIFICADOR también en la ruta (regla 48.d) y el margen sigue siendo de ADMIN. Instalador y Certificador pintan el **LOGO** de la empresa con [components/LogoEmpresa.jsx](implementation/frontend/src/components/LogoEmpresa.jsx), que es ahora la ÚNICA pieza que lo dibuja (eran dos copias: lotes y cuadro de mando) — sin logo, iniciales; en el certificador el chip de color de su ficha se conserva. ⚠️ Los logos son data URL a tamaño de papel: **8 MB en cada `GET /api/prescriptores`** (el mayor, 1,97 MB), y ya era así antes; la cuenta pendiente es una miniatura. La columna INSTALADOR resuelve `instalacion.instalador_id → expedientes.instalador_asociado_id → oportunidad`, la misma primera fuente que la FICHA, y **marca lo heredado** (con la primera sola, 98 de 267 saldrían vacíos teniéndolo). Los datos los trae `get_expedientes_list_v4` (lote, instalador y `seguimiento` podado a sus cuatro claves de fase), que de paso arregla que `lote_id` **nunca llegara** al listado y los 45 expedientes ya loteados se ofrecieran para lotear. Ver "El listado de expedientes: las columnas se ELIGEN".
 

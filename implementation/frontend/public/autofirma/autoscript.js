@@ -2046,7 +2046,12 @@ var AutoScript = ( function ( window, undefined ) {
 		 */
 		var AppAfirmaWebSocketClient = ( function (window, undefined) {
 			
-			var PROTOCOL_VERSION = 4;
+			// BROKERGY: la version del protocolo se puede REBAJAR desde fuera (global
+			// AFIRMA_PROTOCOL_VERSION, ver features/firma/autofirma.js) para hablar con
+			// instalaciones ANTIGUAS de Autofirma: una version vieja rechaza un `ver`
+			// mayor del que conoce, y una nueva acepta los menores. Sin el global se
+			// comporta exactamente igual que el original (4).
+			var PROTOCOL_VERSION = (typeof window !== 'undefined' && window.AFIRMA_PROTOCOL_VERSION) || 4;
 			
 			var SERVER_HOST = "127.0.0.1";
 
@@ -2986,7 +2991,12 @@ var AutoScript = ( function ( window, undefined ) {
 		 */
 		var AppAfirmaJSSocket = ( function (clientAddress, window, undefined) {
 
-			var PROTOCOL_VERSION = 4;
+			// BROKERGY: la version del protocolo se puede REBAJAR desde fuera (global
+			// AFIRMA_PROTOCOL_VERSION, ver features/firma/autofirma.js) para hablar con
+			// instalaciones ANTIGUAS de Autofirma: una version vieja rechaza un `ver`
+			// mayor del que conoce, y una nueva acepta los menores. Sin el global se
+			// comporta exactamente igual que el original (4).
+			var PROTOCOL_VERSION = (typeof window !== 'undefined' && window.AFIRMA_PROTOCOL_VERSION) || 4;
 			
 			/**
 			 *  Atributos para la configuracion del objeto sustituto del applet Java de firma
@@ -4188,7 +4198,12 @@ var AutoScript = ( function ( window, undefined ) {
 		 */
 		var AppAfirmaJSWebService = ( function (clientAddress, window, undefined) {
 
-			var PROTOCOL_VERSION = 4;
+			// BROKERGY: la version del protocolo se puede REBAJAR desde fuera (global
+			// AFIRMA_PROTOCOL_VERSION, ver features/firma/autofirma.js) para hablar con
+			// instalaciones ANTIGUAS de Autofirma: una version vieja rechaza un `ver`
+			// mayor del que conoce, y una nueva acepta los menores. Sin el global se
+			// comporta exactamente igual que el original (4).
+			var PROTOCOL_VERSION = (typeof window !== 'undefined' && window.AFIRMA_PROTOCOL_VERSION) || 4;
 			
 			/* Longitud maxima que generalmente se permite a una URL. */
 			var MAX_LONG_GENERAL_URL = 2000;
