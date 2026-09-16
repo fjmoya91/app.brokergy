@@ -8506,6 +8506,182 @@ estado sí viaja en `overrides.anexo1`.
 
 ---
 
+## La envolvente vale también para los CEE DIRECTOS (2026-09-16)
+
+El botón **CE3X** está en el módulo CEE, y el módulo CEE se monta igual sobre el
+expediente CAE y sobre un CEE contratado suelto. Pero la ventana pedía el
+encargo a `/api/expedientes/:id` y contestaba **«Ese expediente no existe»**: son
+dos tablas y el mismo UUID no vale en las dos. Para levantar el `.cex` de un CEE
+suelto había que hacerlo entero a mano en CE3X.
+
+| Qué | Dónde |
+|---|---|
+| Un CEE directo con la FORMA de un expediente | [logic/ceeDirecto.js](implementation/frontend/src/features/cee-envolvente/logic/ceeDirecto.js) — `ceeDirectoComoExpediente` |
+| De qué negocio es esta ventana, y cómo se compone cada URL | [logic/apiEnvolvente.js](implementation/frontend/src/features/cee-envolvente/logic/apiEnvolvente.js) |
+| Dónde se escribe y en qué carpeta cae el `.cex` | `esCeeDirecto` · `setCeeField` · `carpetaFase` · `sufijoCex` en [ceeEnvolventeCex.js](implementation/backend/services/ceeEnvolventeCex.js) |
+| RPC | `set_cee_directo_cee_field` (`scripts/cee_envolvente_cee_directos.sql`) |
+| Probarlo de punta a punta, sin escribir en Drive | `node implementation/backend/scripts/probar_cex_envolvente.js 2026CEE_55 --cee` |
+
+**REGLA — se ADAPTA la fila, no se bifurca la lógica.** La ficha, el plano y la
+dirección de instalación están escritos contra `instalacion.ref_catastral`,
+`instalacion.municipio`, `instalacion.zona_climatica`… y en `cee_directos` eso
+son COLUMNAS sueltas, porque allí no hay una instalación que describir.
+`ceeDirectoComoExpediente` las compone en un `instalacion` sintético y todo lo
+demás —`fichaCe3x`, `buildInstalacionAddress`, el subtítulo— funciona sin
+enterarse. Es el mismo criterio con el que el módulo CEE se monta sobre las dos
+tablas: un `if (esCeeDirecto)` dentro de `fichaCe3x` habría que mantenerlo dos
+veces y una de las dos se queda atrás sin que nada lo diga.
+
+**REGLA — el ADAPTADOR es fuente única con la ventana.** La pantalla pinta la
+misma fila que el backend usa para componer el `.cex`, así que vive en el
+frontend y el backend lo carga por `import()` ESM (mismo patrón que `fichaCe3x`).
+Con dos adaptadores, la dirección que se enseña y la que se escribe en el fichero
+saldrían de sitios distintos.
+
+**REGLA — el ORIGEN viaja explícito (`?origen=cee`), nunca se busca en qué tabla
+está ese UUID.** Una búsqueda a ciegas es la forma de escribir el trabajo del
+certificador en el negocio equivocado. Lo pone `CeeModule.abrirEnvolvente` desde
+su `apiBase` —que ya sabe de qué negocio es— y lo lee `apiEnvolvente.js` de la
+dirección de la ventana; de ahí sale en todas las llamadas. No se usa `?cee=`:
+ese parámetro ya significa «abre este CEE directo» en el dashboard y lleva un id
+dentro, y dos cosas distintas con el mismo nombre acaban leyéndose la una por la
+otra.
+
+**REGLA — la ZONA CLIMÁTICA y el AÑO no vienen de ninguna oportunidad.** La zona
+la deriva `ceeDirectoService` del municipio cada vez que se toca la dirección
+(`zona_climatica`, columna de la tabla) y el año lo da Catastro con la
+geometría. Las transmitancias siguen saliendo de `getUByYear`, la MISMA función
+que estudia las oportunidades: la Guía de Transmitancias no cambia porque el
+encargo sea de otro negocio.
+
+**REGLA — lo que no hay, se TECLEA y se dice.** En un CEE suelto no hay
+`instalacion`: la caldera que hay y el equipo que se pone los escribe el
+certificador en la pestaña de Instalaciones, que ya sabía recogerlos
+(`equipoConAjustes`). Por eso ahí **no se pinta el botón de leer la placa** —esa
+ruta escribe en la instalación de un expediente CAE, y un botón que da 404 es
+peor que no tenerlo— y se dice en su sitio qué hay que teclear.
+
+**REGLA — un encargo de ALCANCE ÚNICO no tiene fase FINAL.** Su fichero se llama
+`{nº} - CEE_REVISAR.cex` y vive en `1. CEE`: un «final» saldría con el MISMO
+nombre en la MISMA carpeta y archivaría en OLD el que se acaba de generar. La
+pantalla no ofrece el botón (`dosFases`) y la ruta responde **409** —un navegador
+sin refrescar lo seguiría mandando—. En un encargo DOBLE son `1. CEE INICIAL` y
+`2. CEE FINAL`, y el final se hace copiando el inicial, como en el CAE.
+
+**REGLA — qué CONSTRUCCIONES cuentan se guarda en el propio encargo.** En el CAE
+eso vive en la oportunidad, que es donde una persona lo marcó en la ficha técnica
+y de donde salió la superficie que se presupuestó (regla 50); aquí no hay
+oportunidad, así que va a `cee.construcciones_elegidas` y queda anotado en su
+historial — cambia la superficie que mide el certificado.
+
+Las **fotos de cada cerramiento** (regla 54) funcionan igual: se suben a
+`1. CEE/FOTOS ENVOLVENTE` y las CANDIDATAS salen de `4. DOCUMENTACIÓN PARA CEE`,
+donde no hay slots `FOTO_*` que casar —no hay obra que documentar—, así que se
+ofrece toda imagen que esté dentro.
+
+⚠️ De paso se arreglaron dos cosas del camino de las fotos que estaban ROTAS en
+los DOS negocios: `paredFotoService.carpeta` y `ceeEnvolventeCex.sustituirImagen`
+le pasaban el EXPEDIENTE entero a `ensureCeeSectionFolder`, que espera el id de
+la carpeta de Drive y devuelve `{ id, link }` — las llamadas a Drive iban con
+`[object Object]`, así que subir una foto a un cerramiento o sustituir la foto de
+fachada del `.cex` no funcionaba nunca.
+
+⚠️ **Una planta puede llegar como MULTIPOLÍGONO y el motor moría.** Catastro
+dibuja algunas viviendas en dos cuerpos que no se tocan (la casa y su anejo al
+fondo del patio), y entonces la huella de esa planta es un `MultiPolygon`:
+`segmentar()` hacía `poly.exterior` y lo que llegaba a la pantalla era un
+`'MultiPolygon' object has no attribute 'exterior'`. Medido en la parcela
+9412508VJ8691S (la del 2026CEE_55), que ahora sale con 28 elementos. Cada trozo
+tiene sus propias paredes y todas cuentan, así que se segmentan todos con la
+numeración corrida; para un polígono suelto la salida es **idéntica** a la de
+siempre —de ella cuelgan las superficies de fachada de todo lo ya medido— y eso
+está vigilado en `tests/test_orientation.py`.
+
+---
+
+## Una EDIFICACIÓN entera se quita de un clic (2026-09-16)
+
+En el plano se pulsa un cuerpo del edificio —el garaje adosado, el porche, el
+trastero del fondo— y se le dice **que no cuenta**. Se sombrea al pasar por
+encima, y al pulsarlo se puede quitar o volver a meter.
+
+POR QUÉ HACÍA FALTA: la envolvente de un certificado es la de la **VIVIENDA**.
+Catastro dibuja el edificio en PARTES y dice de qué es cada una, pero el plano se
+arma por **NIVEL** —la planta baja tiene vivienda, luego se dibuja entera—, así
+que las paredes del aparcamiento entraban igual y había que apartarlas una a una
+acertando con cuáles eran las suyas. Medido en 9412508VJ8691S: 71 m² de garaje y
+**98 m² de cerramiento vertical** que no son de la vivienda.
+
+| Qué | Dónde |
+|---|---|
+| Qué cuerpos hay, con qué construcción casa cada uno y de quién es cada pared | [gis/cuerpos.py](implementation/cee-engine/src/gis/cuerpos.py) |
+| Quitar uno y volver a medir | `excluir_cuerpos()` en [pipeline.py](implementation/cee-engine/src/pipeline.py) |
+| Proyectarlos al lienzo del plano | `_cuerpos()` en [viz/plano_svg.py](implementation/cee-engine/src/viz/plano_svg.py) |
+| API | `POST /envolvente` con `cuerpos_excluidos`, y `cuerpos` en la respuesta |
+| El gesto | `Cuerpos` en [PlanoPlanta.jsx](implementation/frontend/src/features/cee-envolvente/components/PlanoPlanta.jsx) + `CuerpoModal`/`AvisoCuerpos` en `EnvolventeView` |
+| Dónde se guarda | `cee.envolvente.cuerpos_fuera`, con el resto del trabajo |
+| Pruebas | `python -m pytest implementation/cee-engine/tests/test_cuerpos.py` |
+
+**REGLA — «no cuenta» es VOLVER A MEDIR, no tachar paredes.** La pared que
+separaba el garaje de la casa NO existe en el modelo: Catastro une los dos
+cuerpos y esa línea queda dentro. Quitando la parte y midiendo otra vez, esa
+pared aparece como lo que es —fachada o medianera de la vivienda— y con el cuerpo
+se van además **su cubierta y su suelo**. Tachando sus paredes, la casa se queda
+abierta por ahí y con una cubierta que ya no cubre nada. La segunda salida
+(**«solo apartar sus paredes»**, instantánea y sin medir) se ofrece igual en el
+popup, diciendo esto mismo: hay veces que no se quiere que se remida.
+
+**REGLA — se recorta también la huella GLOBAL** (`buildings`), no solo las
+partes. De ella sale el «edificio propio» con el que se clasifica cada tramo: sin
+recortarla, la pared que daba al garaje saldría como partición interior contra un
+edificio que ya no está.
+
+**REGLA — casar un cuerpo con su construcción es una CONJETURA, y se dice.**
+Catastro **no publica el polígono de cada unidad constructiva** (sus `spaces`
+llevan literalmente `"geometria": "NO DISPONIBLE"`), así que lo único que las une
+es la SUPERFICIE. Se empareja greedy y 1:1, solo dentro de los niveles del cuerpo
+y con un parecido ≥ 92 %; lo que no casa sale como **«Catastro no dice qué hay
+aquí»**, que no es lo mismo que «no es vivienda». Medido en esa parcela: el
+aparcamiento casa al 99,9 % y la vivienda al 96,6 % (la huella incluye el grosor
+de los muros y la superficie construida no siempre).
+
+**REGLA — lo que Catastro no cuenta como vivienda se AVISA, no se quita solo.**
+Sale una franja con el botón al lado («Quitar APARCAMIENTO · 71 m²»): hay garajes
+que forman parte de la vivienda y porches cerrados que son un estar, y quien lo
+sabe es quien ha estado delante del edificio. En el plano, ese cuerpo va marcado
+a trazos en ámbar sin tener que pulsar nada.
+
+**REGLA — el cuerpo que está FUERA se sigue viendo.** Se dibuja atenuado, con su
+rótulo «NO CUENTA», y pulsándolo se devuelve. Un cuerpo que desaparece del plano
+no se puede volver a meter, y esa es la mitad de la función.
+
+**REGLA — al volver a MEDIR se resiembra el trabajo ACTUAL, no el de cuando se
+abrió la ventana.** El plano se siembra desde lo que se leyó al abrir; sin esto,
+quitar un cuerpo (o cambiar las construcciones, que ya tenía el mismo fallo
+latente) borraba los huecos puestos desde entonces. Lo que sí se pierde es lo que
+ya no existe: los huecos de una pared que se va con su cuerpo se van con ella, y
+eso es lo correcto.
+
+⚠️ La capa de cuerpos se pinta **DEBAJO de los muros** y solo recoge lo que pasa
+por DENTRO del cuerpo: en un SVG manda el último pintado, y las paredes tienen
+que seguir siendo lo que se pulsa. En 3D no se pinta —allí el volumen ya son las
+caras— y con el modo DIBUJAR activo tampoco, o se comería el arrastre.
+
+### El botón de CARPETA LOCAL, también aquí
+
+En la cabecera de la ventana, junto al tema: es de donde se arrastra el `.cex` a
+CE3X y donde se sueltan las fotos, y salir al expediente a buscarla pierde el
+sitio del plano. Funciona en los **dos negocios** —cada uno tiene su propia ruta
+(`/api/expedientes/:id/local-path` o `/api/cee-directos/:id/local-path`)— y solo
+se pinta para el STAFF: las dos rutas son `staffOnly` y al certificador no le
+toca (él trabaja contra la carpeta que se le comparte).
+
+El gesto del protocolo `brokergylocal:` estaba copiado en seis pantallas; ahora
+hay una pieza, [utils/carpetaLocal.js](implementation/frontend/src/utils/carpetaLocal.js),
+y las copias antiguas se quedan hasta que haya que tocarlas.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -8650,6 +8826,10 @@ estado sí viaja en `overrides.anexo1`.
 48.c **Los ADMINISTRATIVOS del `.cex` se corrigen desde la ventana, escribiendo en SU FUENTE**: el botón de editar de «Datos del cliente» y de «Datos del técnico» escribe en `clientes` y en `prescriptores` (`PUT /:id/cliente`, **staffOnly**; `PUT /:id/tecnico`, equipo interno **o el propio técnico asignado**), nunca en una copia dentro del trabajo. En lectura se enseña el valor COMPUESTO —lo que va al `.cex`— y en edición las COLUMNAS, que es lo único sobre lo que se puede escribir; la `fuente` en crudo viaja FUERA de `ficha`. Y el **teléfono y el correo del titular caen a su PERSONA DE CONTACTO** cuando él no dio los suyos —el número marcado «Notif. aquí» es a menudo el único que tenemos—, campo a campo y **diciendo de quién es**: medido en 26RES060_187, la ficha decía «no consta» de dos datos escritos dos líneas más abajo. Tras tocarlo: `node implementation/backend/scripts/test_contacto_cliente_ce3x.mjs`. Ver "Los administrativos se CORRIGEN desde la ventana".
 
 48.f **Un certificador FIRMA como persona y puede ejercer en una EMPRESA**: CE3X pide las dos casillas —Nombre y Apellidos + NIF de quien firma, Razón social + CIF de la sociedad— y la ficha no tenía dónde declarar la segunda, así que se colaba en los campos de al lado (la de FÉLIX PÉREZ SOBRINO llevaba `cif` = B01799436, que es el de FESSA SOLAR, SL). Se declara en `empresa_razon_social` / `empresa_cif`, que es **texto** y no un enlace a otra ficha: la empresa de un certificador no tiene por qué estar dada de alta, y el `.cex` no puede depender de una ficha ajena. **El nombre de una sociedad nunca desplaza al de quien firma** —la titulación y el nº de colegiado son suyos— y sin empresa declarada la casilla «Razón social» la ocupa su propio nombre, que es como se emitieron los de Luis Alberto y Raquel. **De quién es el `cif` lo dice `es_autonomo`**, no la empresa: en los demás, sin `nif_responsable` la casilla del NIF sale vacía y se avisa, antes que escribir ahí el CIF de una sociedad. Y a un CERTIFICADOR se le nombra y se le busca por su NOMBRE (`nombrePartner`), con la empresa debajo; a un INSTALADOR, por su acrónimo, como siempre. Tras tocarlo: `node implementation/backend/scripts/test_tecnico_ce3x.mjs`. Ver "Un certificador FIRMA como persona".
+
+48.j **Una EDIFICACIÓN entera se quita del plano de un clic, y eso VUELVE A MEDIR**: la envolvente de un certificado es la de la VIVIENDA, pero el plano se arma por NIVEL —la planta baja tiene vivienda, luego se dibuja entera— así que las paredes del aparcamiento adosado entraban igual (medido en 9412508VJ8691S: 71 m² de garaje y **98 m² de cerramiento vertical** ajenos a la vivienda). Se pulsa el cuerpo y el motor mide otra vez sin él (`cuerpos_excluidos` → `excluir_cuerpos`), con lo que la pared que lo separaba de la casa aparece como lo que es y se van también su cubierta y su suelo; tachar sus paredes deja la casa abierta por ahí, y por eso «solo apartar sus paredes» es la segunda opción del popup, no la primera. **Se recorta también la huella GLOBAL** (`buildings`), o ese tramo saldría como partición contra un edificio que ya no está. **Casar cuerpo con construcción es una CONJETURA** —Catastro NO publica el polígono de cada `lcons`— así que se empareja por SUPERFICIE (1:1, mismo nivel, parecido ≥ 92 %) y lo que no casa se dice. **Lo que Catastro no cuenta como vivienda se AVISA con su botón, nunca se quita solo**, y el cuerpo que está fuera se sigue viendo para poder devolverlo. ⚠️ Al volver a medir se resiembra el trabajo ACTUAL y no el de cuando se abrió la ventana (`volverAMedir`), o los huecos puestos desde entonces se pierden — el mismo fallo que tenía latente el cambio de construcciones. Fuente única: [gis/cuerpos.py](implementation/cee-engine/src/gis/cuerpos.py). Tras tocarlo: `python -m pytest implementation/cee-engine/tests/test_cuerpos.py`. Ver "Una EDIFICACIÓN entera se quita de un clic".
+
+48.i **La envolvente vale también para los CEE DIRECTOS** (`/envolvente/:id?origen=cee`): el botón CE3X del módulo CEE abría la ventana pidiendo el encargo a `/api/expedientes/:id` y contestaba «Ese expediente no existe» — son dos tablas y el mismo UUID no vale en las dos. **Se ADAPTA la fila, no se bifurca la lógica**: [ceeDirectoComoExpediente](implementation/frontend/src/features/cee-envolvente/logic/ceeDirecto.js) compone el `instalacion` sintético (RC, dirección y **zona climática**, que en `cee_directos` son columnas) y `fichaCe3x`, `buildInstalacionAddress` y el plano funcionan sin enterarse; es fuente única con la ventana, cargada por `import()` ESM. **El ORIGEN viaja explícito** (`?origen=cee`, que lo pone `CeeModule` desde su `apiBase` y lo lee [apiEnvolvente.js](implementation/frontend/src/features/cee-envolvente/logic/apiEnvolvente.js)): nunca se busca en qué tabla está un UUID. Dónde se escribe y dónde cae el `.cex` lo deciden `esCeeDirecto`/`setCeeField`/`carpetaFase`/`sufijoCex` (RPC nueva `set_cee_directo_cee_field`). Un encargo de **alcance ÚNICO no tiene fase FINAL** —su fichero se llama `CEE_REVISAR.cex` y saldría con el mismo nombre en la misma carpeta—: no se ofrece el botón y la ruta responde 409. Sin `instalacion` que leer, el equipo **se teclea** y el botón de leer la placa no se pinta. Las construcciones que cuentan van a `cee.construcciones_elegidas` del propio encargo. ⚠️ De paso se arregló que `paredFotoService.carpeta` y `sustituirImagen` le pasaban el EXPEDIENTE a `ensureCeeSectionFolder` (que espera el id de la carpeta): subir una foto de cerramiento o sustituir la de fachada no funcionaba **en ninguno de los dos negocios**. ⚠️ Y que una planta en DOS cuerpos (`MultiPolygon`) mataba al motor en `segmentar()`; para un polígono suelto la salida es idéntica (`tests/test_orientation.py`). Tras tocarlo: `node implementation/backend/scripts/probar_cex_envolvente.js 2026CEE_55 --cee`. Ver "La envolvente vale también para los CEE DIRECTOS".
 
 48.d **Al CERTIFICADOR no se le enseña lo que no es suyo**: la EMPRESA INSTALADORA asignada (dato comercial, y el desplegable le abría la cartera entera), el conmutador `Auto XML · Manual` y el método del ahorro RES080, y los botones del método de la D_ACS —**el valor se queda**, que es lo que teclea en CE3X—. Y **no puede dejarse «sin asignar»**: eso devuelve el expediente a la cola, le retira su propio acceso y nadie se entera, porque en la ficha sigue pareciendo que está en marcha. `TecnicoPicker` deja de ofrecerlo (`permiteVaciar`) y el `PUT /api/expedientes/:id` lo repite, como con `cee.estado`. Ver "Lo que el CERTIFICADOR no tiene que ver ni tocar".
 
@@ -8805,6 +8985,14 @@ WA_SYNC_FALLOS_MAX=3               ← tiempos de espera seguidos tras los que s
 
 57. **Un equipo del catálogo se elige por la REFERENCIA DE SU PLACA, no por su nombre comercial.** Es la misma regla con la que `casarConCatalogo` empareja lo que el OCR lee de una etiqueta (regla 27.e), pero el DESPLEGABLE no la aplicaba: la calculadora pintaba `{modelo_comercial} ({kW})` en un `<select>` nativo, así que PANASONIC salía con 34 opciones de las que **seis decían literalmente lo mismo**. Medido sobre los 490 equipos (16/09/2026): **11 grupos y 35 filas** son indistinguibles con esa etiqueta, y en 4 de esos grupos sus filas declaran SCOP distintos — el peor, «Serie M R290 All in One · 16 kW», son seis opciones iguales cuyo SCOP va de **2,85 a 4,34 (un 52 %)**. De ahí salen el ahorro, el bono que se le promete al cliente y el CIFO: elegir a ciegas ahí no es una molestia, es firmar otro ahorro. Ahora las opciones llevan **dos renglones** —nombre + potencia arriba, `Ud. ext: WH-WDG12ME5 · int: … · Conjunto con ACS · 120 L` debajo— y **se buscan por esa segunda línea**, que es lo que se tiene delante leído del aparato: escribiendo `WDG12ME5` la lista pasa de 34 a los 5 que llevan esa unidad exterior. Fuentes únicas: [aerotermiaOpciones.js](implementation/frontend/src/features/expedientes/logic/aerotermiaOpciones.js) (`opcionDeEquipo`, `BUSCAR_EQUIPO`) y [components/SearchableSelect.jsx](implementation/frontend/src/components/SearchableSelect.jsx), que vivía dentro de `InstalacionModule` y se sacó al necesitarlo la calculadora — con dos copias, el mismo equipo se leería de una forma en la oportunidad y de otra en el expediente, que es justo lo que hace elegirlo mal. Lo comparten las **cuatro** superficies: los dos desplegables de la calculadora (calefacción y ACS) y los del expediente (equipo principal y unidades en cascada, cuya copia de la etiqueta ya había divergido — no decía si el equipo trae el depósito dentro). En ACS **lo ya guardado no se esconde nunca** aunque el filtro de `produceAcs` lo deje fuera (mismo criterio que el expediente): el desplegable se quedaría en blanco y el siguiente guardado borraría un equipo que alguien eligió.
     ⚠️ **PENDIENTE, y NO tocado**: 10 filas del catálogo —todas PANASONIC, las variantes de 185 y 260 L de la Serie M All in One— tienen el SCOP de **ACS copiado en las casillas de CALEFACCIÓN** (`scop_cal_calido_35 == scop_dhw_calido` y `_55 == scop_dhw_medio`, byte a byte; sus hermanas de 120 L declaran 6,2/4,34 y éstas 3,35/3,0). Un expediente que eligiera una de ellas declararía un SCOP ~30 % bajo, y hasta ahora se elegían al azar porque en pantalla eran la misma línea. Medido: **ningún expediente las usa hoy** (0 de los que hay en producción), así que es un riesgo latente y no un daño hecho — corregirlo exige la ficha del fabricante delante, modelo a modelo. Es el mismo patrón que el `η_55 = ACS` de [[project_aerotermia_eprel]].
+
+58. **La PLACA se lee también desde la CALCULADORA, sin expediente detrás.** El lector de placas solo existía en el expediente (regla 27.e) porque su ruta cuelga de una carpeta de Drive — y el equipo se elige al SIMULAR, meses antes de que esa carpeta exista. Con la foto de la etiqueta delante, reconocer el equipo entre los 490 del catálogo a ojo es imposible; por su código, inmediato. Botón **✨ Leer la placa** junto al desplegable de modelo (`showBrokergy`), popup [LeerPlacaModal.jsx](implementation/frontend/src/features/calculator/components/LeerPlacaModal.jsx) y ruta `POST /api/aerotermia/leer-placa` (**staffOnly**, multipart `exterior[]`/`interior[]`), declarada **antes** que `GET /:id` o Express la tomaría por un id.
+    **REGLA — es la MISMA lectura que la del expediente.** Lo único que cambia es de dónde salen las fotos: allí de Drive, aquí de un formulario. El núcleo (`leerUnidad`) se extrajo para que lo compartan las dos entradas — si cada una llamara al modelo por su cuenta, la misma placa podría leerse distinto según por dónde se entre, y de ahí sale el nº de serie que acaba impreso en el CIFO. Siguen valiendo sus reglas: **la placa se lee SOLA** (nada de fotos de contexto), **una lectura por UNIDAD** (aquí lo dice el campo del formulario en vez del slot), el nº de serie sale de su **línea literal**, y **con varios candidatos no se elige ninguno** — se ofrecen para que decida una persona.
+    **REGLA — aquí no se escribe nada y el SCOP no se calcula.** Las fotos se leen y se tiran: no van a Drive ni a la oportunidad. La ruta devuelve el `aerotermia_db_id` y la calculadora **selecciona ese modelo en su propio desplegable**, o sea por el mismo camino que elegirlo a mano (`getScopFromModel` / `getScopSeason`): un equipo entrado por la placa y otro elegido a dedo no pueden dar números distintos. Lo leído se guarda en `inputs.placa_ocr` (solo metadatos, regla 21) y `expedienteService` lo hereda al aceptar, **solo para rellenar huecos**, junto al bloque que ya hacía lo mismo con lo leído de la factura: así el expediente nace con el nº de serie de la unidad exterior en vez de tecleárselo mirando la foto. Medido: **1,6 s y ~1.030 tokens (~0,0006 €) por placa**, verificado contra placas reales de Drive (PANASONIC `WH-WDG09LE5` y DAIKIN `ERLA16DAV37`, con sus dos nºs de serie correctos).
+
+58.b **En el catálogo, un ACCESORIO no es una UNIDAD INTERIOR — y el SCOP de calefacción no es el COP de ACS.** Los dos fallos salieron de repasar la gama PANASONIC R290 contra su ficha técnica, y los corrige [revisar_panasonic_r290.js](implementation/backend/scripts/revisar_panasonic_r290.js) (en seco sin `--execute`). **Siete filas** declaraban `CZ-RTW2TAW1C` como unidad interior; la ficha lo lista en **Accesorios**: *«Mando de pared con adaptador Wi-Fi (necesario para unidades exteriores independientes)»*. Es decir, el mando que se pone cuando la unidad exterior se monta **SOLA**, que es el montaje normal de esta gama —el hidráulico va dentro de la propia unidad exterior— y no hay ningún aparato en la vivienda. Eso no es cosmético: ese campo se COPIA al expediente al elegir el modelo y de ahí lo imprimen el Anexo I («Ud. interior: …») y el CIFO — **7 expedientes** lo llevaban escrito, uno ya enviado a verificador. Las unidades interiores reales de la gama son otras y ya están en el catálogo (el hidrokit `WH-SDC0916M3E5` y los All in One `WH-ADC…`). Y **diez filas** All in One (las de 185 y 260 l) tenían en las casillas de calefacción los valores de la fila «ERP del depósito ACS» de la ficha: se ve porque coinciden byte a byte con su propio `scop_dhw_*` y porque sus hermanas de 120 l —misma unidad exterior— declaran 6,20/4,34 frente a 3,35/3,00. El SCOP de calefacción **depende solo de la unidad exterior**, así que la tabla del script va indexada por ella y nada más.
+    **REGLA — solo se ESCRIBE lo demostrado.** Que un valor sea exactamente el COP de ACS de su propia fila no admite otra lectura, y una fila sin unidad interior ES la propia unidad exterior de la tabla: esas se corrigen. Una diferencia suelta en una COMBINACIÓN (exterior + hidrokit) puede ser su SCOP declarado como sistema, que la ficha de la unidad exterior no publica — ahí el script **avisa y no toca** (hoy, la id 523, que además está en uso). Corregir el catálogo **no reescribe lo ya guardado**: al elegir un modelo el expediente se queda con su propia copia, así que ningún documento emitido cambia; por eso el script dice, fila a fila, **quién la usa** y a quién habrá que repasar.
+    ⚠️ La ficha adjunta a esas filas es la de la **WDG16ME5** y cubre toda la gama (12/16 ME5 y 09/12/16 ME8), así que sirve para las cinco unidades exteriores. Se conservan los `scop_dhw_*` y los `eta_acs_*`, que ya eran los de la ficha y son los que distinguen un depósito de 120 l de uno de 260.
 
 53. **Las COLUMNAS del listado de expedientes se ELIGEN, y son una lista declarativa**: botón **▦ Columnas · N** con vistas de fábrica (Operativa · Seguimiento CEE · Económica · Cartera). Cada columna se declara UNA vez en [logic/expedientesColumnas.jsx](implementation/frontend/src/features/expedientes/logic/expedientesColumnas.jsx) —rótulo, ancho, filtro, `valor()` y `render()`— y de ahí salen la cabecera, la fila de filtros, las celdas, el ORDEN (clic en la cabecera; el tercer clic vuelve al orden por PRIORIDAD, que es el de siempre) y el CSV, que exporta **lo que se está viendo**. Antes eran siete columnas escritas a mano en tres sitios alineados por posición, y por eso no se podía filtrar por **instalador**. **Un filtro activo NO puede esconderse**: al apagar su columna se limpia. Las columnas se **REORDENAN arrastrando su cabecera** (con eventos de PUNTERO y no con el drag&drop de HTML5, que no se puede disparar con eventos sintéticos y por tanto no se puede verificar; y con `setInterval` y no `requestAnimationFrame`, que el navegador congela con la ventana oculta): la tabla se desplaza sola al llegar al borde, soltar sobre "Acciones" la deja la última y sobre el nº de expediente —que no se mueve nunca, identifica la fila— justo detrás. El orden se guarda como los anchos, y **`roles` es una comodidad de pantalla, nunca el control de acceso** — el instalador se le capa al CERTIFICADOR también en la ruta (regla 48.d) y el margen sigue siendo de ADMIN. Instalador y Certificador pintan el **LOGO** de la empresa con [components/LogoEmpresa.jsx](implementation/frontend/src/components/LogoEmpresa.jsx), que es ahora la ÚNICA pieza que lo dibuja (eran dos copias: lotes y cuadro de mando) — sin logo, iniciales; en el certificador el chip de color de su ficha se conserva. ⚠️ Los logos son data URL a tamaño de papel: **8 MB en cada `GET /api/prescriptores`** (el mayor, 1,97 MB), y ya era así antes; la cuenta pendiente es una miniatura. La columna INSTALADOR resuelve `instalacion.instalador_id → expedientes.instalador_asociado_id → oportunidad`, la misma primera fuente que la FICHA, y **marca lo heredado** (con la primera sola, 98 de 267 saldrían vacíos teniéndolo). Los datos los trae `get_expedientes_list_v4` (lote, instalador y `seguimiento` podado a sus cuatro claves de fase), que de paso arregla que `lote_id` **nunca llegara** al listado y los 45 expedientes ya loteados se ofrecieran para lotear. Ver "El listado de expedientes: las columnas se ELIGEN".
 
