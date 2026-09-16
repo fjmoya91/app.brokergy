@@ -490,12 +490,19 @@ async def cex_instalaciones(fichero: UploadFile = File(...),
             raise HTTPException(422, "no hay ningún equipo nuevo que escribir")
         previas = L.leer(base, G.INSTALACIONES)
         av_sup = G.heredar_del_base(equipos, previas)
+        # En una HIBRIDACIÓN la caldera NO sale: se queda dando servicio junto a
+        # la bomba con `100 - C_b` de la demanda. Lo declara la ficha, que es la
+        # única que sabe cuánto; cuál es la caldera lo sabe el fichero.
+        hib = ficha.get("hibridacion") or {}
+        conservar = hib.get("pct_generador_previo")
+        conservar = float(conservar) if conservar not in (None, "") else None
         slots, avisos = G.construir_instalaciones(
             {"instalaciones": equipos,
              "envolvente": {"espacio": (ficha.get("envolvente") or {}).get("espacio", "auto")}},
             previas, zonas,
             # El generador viejo SALE: es la actuación, no un añadido.
-            retirar=G.slots_a_retirar(equipos))
+            retirar=G.slots_a_retirar(equipos),
+            conservar=conservar)
         avisos = av_sup + avisos
 
         cambios = {G.INSTALACIONES: slots}

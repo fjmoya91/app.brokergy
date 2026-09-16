@@ -5,6 +5,7 @@ import { getRoleFlags } from '../../../utils/roleFlags';
 import { PlanoPlanta } from '../components/PlanoPlanta';
 import { PanelPared } from '../components/PanelPared';
 import { usePlanoEnvolvente } from '../logic/usePlanoEnvolvente';
+import { claveInstalacion } from '../logic/fichaCe3x';
 import { MidiendoElEdificio } from '../components/MidiendoElEdificio';
 import { EscribiendoElCex, CexGenerado } from '../components/EscribiendoElCex';
 import { PanelAdministrativos, PanelEconomico, PanelGenerales, PanelInstalaciones,
@@ -547,11 +548,15 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
 
     //: Lo que se teclea en Instalaciones. Manda sobre lo derivado y viaja con los
     //: ajustes, así que se guarda con el trabajo y el .cex lo escribe.
+    //: POR FASE: la pestaña tiene dos caras («CEE inicial · caldera» y «CEE final
+    //: · aerotermia») y lo tecleado para una no puede escribirse encima de la
+    //: otra — el final salía con el generador llamado como la caldera.
     const cambiarInstalacion = (campo, valor) => setAjustes(a => {
-        const inst = { ...(a.instalacion || {}) };
+        const clave = claveInstalacion(fichaFase);
+        const inst = { ...(a[clave] || {}) };
         if (valor === null || valor === '') delete inst[campo]; else inst[campo] = valor;
-        const n = { ...a, instalacion: inst };
-        if (!Object.keys(inst).length) delete n.instalacion;
+        const n = { ...a, [clave]: inst };
+        if (!Object.keys(inst).length) delete n[clave];
         return n;
     });
 
@@ -667,7 +672,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             {activa === 'instalaciones' && (
                 <PanelInstalaciones {...fase} equipo={ficha?.ficha?.instalaciones?.[0]}
                                     superficie={superficieDelEdificio}
-                                    ajustes={ajustes.instalacion || {}}
+                                    ajustes={ajustes[claveInstalacion(fichaFase)] || {}}
                                     onAjuste={cambiarInstalacion}
                                     extras={ajustes.equipos_extra || []}
                                     onExtra={cambiarEquipoExtra}

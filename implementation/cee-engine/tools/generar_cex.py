@@ -800,15 +800,58 @@ def _heredar_superficies(equipos: list[dict], plantilla: list) -> list[str]:
     return avisos
 
 
+def _con_reparto(registro: list, pct: float) -> tuple[list, list[str]]:
+    """El MISMO registro del .cex, con SU PARTE de la demanda.
+
+    En una HIBRIDACION la caldera no se retira: sigue dando servicio junto a la
+    bomba, con `100 - C_b` de la demanda. Se reescribe TAL CUAL —sus
+    rendimientos, su aislamiento, su potencia y su deposito, como los dejo
+    CE3X— y solo se le cambia el bloque [5], que es donde van la superficie
+    servida y el porcentaje de cada servicio.
+
+    Es la regla de copiar el inicial llevada hasta el final: recomponer la
+    caldera desde el expediente desharia lo que el certificador haya corregido
+    en CE3X, que es justo lo que no puede pasar al copiar un fichero suyo.
+
+    El porcentaje se escala sobre el que YA tenia, no se sustituye: con el 100 %
+    de siempre queda en `pct` exacto, y si ese generador ya compartia servicio
+    con otro (una caldera al 50 % del ACS y un termo al otro 50 %) los dos se
+    reparten proporcionalmente lo que la bomba les deja. Asi la suma sigue
+    dando 100.
+    """
+    if len(registro) < 6 or not isinstance(registro[5], list):
+        return registro, [
+            f"{str(registro[0])!r}: no se le puede cambiar el reparto de demanda "
+            f"(su registro no tiene la forma esperada); se conserva como estaba."]
+    nuevo = list(registro)
+    bloque = []
+    for par in registro[5]:
+        if not (isinstance(par, list) and len(par) == 2) or par[0] in (None, ""):
+            bloque.append(list(par) if isinstance(par, list) else par)
+            continue
+        sup = _numf(par[0]) or 0.0
+        antes = _numf(par[1])
+        antes = 100.0 if antes is None else antes
+        bloque.append([_num(round(sup * pct / 100.0, 2)),
+                       _num(round(antes * pct / 100.0, 2))])
+    nuevo[5] = bloque
+    return nuevo, []
+
+
 def construir_instalaciones(datos: dict, plantilla: list,
                             zonas: set[str] | None = None,
-                            retirar: set[str] | None = None) -> tuple[list, list[str]]:
+                            retirar: set[str] | None = None,
+                            conservar: float | None = None) -> tuple[list, list[str]]:
     """Los 12 slots del pickle 4. Lo que no se sepa se queda vacio.
 
     `retirar` vacia esos slots ANTES de escribir, y es lo que convierte "añadir
     un equipo" en "SUSTITUIR el generador". Sin el, el CEE final saldria con la
     caldera y la bomba de calor conviviendo — declarando un edificio con el
     doble de generadores de los que tiene.
+
+    `conservar` es el caso contrario, y es el de la HIBRIDACION: ahi la caldera
+    y la bomba conviven DE VERDAD, asi que lo que habria que retirar se queda
+    con ese porcentaje de la demanda en vez de desaparecer.
 
     OJO con la zona del equipo: es el mismo campo traicionero que en los
     cerramientos. Si apunta a una zona que no existe, **CE3X abre el fichero y
@@ -824,6 +867,18 @@ def construir_instalaciones(datos: dict, plantilla: list,
     # no puede ser un efecto silencioso: es la actuacion entera.
     for nombre_slot in sorted(retirar or ()):
         i = SLOTS.index(nombre_slot)
+        if conservar is not None:
+            quedan = []
+            for viejo in slots[i]:
+                reg, av = _con_reparto(viejo, conservar)
+                quedan.append(reg)
+                avisos.append(
+                    f"NO se retira {str(viejo[0])!r}: es una HIBRIDACION y sigue dando "
+                    f"servicio. Se conserva tal cual venia en el .cex y solo se le cambia "
+                    f"su parte de la demanda.")
+                avisos.extend(av)
+            slots[i] = quedan
+            continue
         for viejo in slots[i]:
             avisos.append(
                 f"se RETIRA del CEE {str(viejo[0])!r} "

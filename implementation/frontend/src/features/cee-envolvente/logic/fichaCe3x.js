@@ -569,7 +569,7 @@ const positivo = v => (Number(v) > 0 ? Number(v) : null);
  * lo declaran así.
  */
 export function instalacionNueva({ expediente, superficie, modelos = {},
-                                   existentes = null } = {}) {
+                                   existentes = null, delFichero = false } = {}) {
     const avisos = [];
     // ⚠️ CON el catálogo. Iba `{}`, y entonces todo lo que vive en el modelo y
     // no se sella en el expediente —el SEER— salía como si faltara.
@@ -585,7 +585,12 @@ export function instalacionNueva({ expediente, superficie, modelos = {},
     // que no existe y con el 100 % de la cobertura. Hace falta la caldera tal y
     // como se escribe en esta misma fase y el reparto calculado; sin una de las
     // dos cosas no se compone y se dice cuál falta.
-    if (d.hibridacion && !existentes?.length) {
+    // En el CEE FINAL la caldera que se queda es la del FICHERO que se copia, y
+    // ahí no hace falta saber cuál es: se conserva su registro tal cual —con sus
+    // rendimientos, su aislamiento y su depósito, como los dejó CE3X— y solo se
+    // le cambia su parte de la demanda. Lo hace el motor (`conservar`), que es
+    // quien tiene el `.cex` delante.
+    if (d.hibridacion && !delFichero && !existentes?.length) {
         return { equipo: null, falta: 'hibridación: se monta a mano',
                  avisos: ['Es una HIBRIDACIÓN: la caldera se queda y son dos generadores '
                           + 'en CE3X. Aquí no consta cuál es la que sigue dando servicio, '
@@ -663,12 +668,24 @@ export function instalacionNueva({ expediente, superficie, modelos = {},
             + 'popup «Datos del equipo» y el encargo al certificador).',
     };
 
-    const caldera = d.hibridacion
+    // La caldera que se queda. En una MEDIDA DE MEJORA se copia la que escribe
+    // el CEE de esa fase; en el CEE FINAL no viaja aquí — la conserva el motor
+    // del propio fichero que se está copiando.
+    const caldera = (d.hibridacion && !delFichero)
         ? calderaHibrida(existentes, superficie, 100 - pct, avisos) : null;
+    if (d.hibridacion && delFichero) {
+        avisos.push(`HIBRIDACIÓN: la caldera NO se retira del CEE final. Se conserva la `
+            + `del .cex que se copia —tal y como la dejó CE3X— cubriendo el ${100 - pct} % `
+            + `de la demanda, y la bomba el ${pct} % (coeficiente de bivalencia C_b).`);
+    }
 
     return {
         extras: [...(acs.equipo ? [acs.equipo] : []), ...(caldera ? [caldera] : [])],
         equipo: bomba,
+        //: Lo que el motor necesita para NO retirar el generador del fichero.
+        //: Va en estructura, no dentro de un aviso.
+        ...(d.hibridacion && delFichero
+            ? { hibridacion: { pct_generador_previo: 100 - pct } } : {}),
         avisos,
     };
 }
@@ -1138,6 +1155,13 @@ function litrosDiaDelCee(expediente) {
     return Number(expediente?.cee?.dacs_litros_dia) > 0;
 }
 
+//: Dónde vive lo tecleado en Instalaciones para cada fase. El INICIAL conserva
+//: la clave de siempre, para no perder lo ya guardado en los expedientes.
+export const claveInstalacion = (fase) =>
+    (fase === 'final' ? 'instalacion_final' : 'instalacion');
+
+const ajustesDeFase = (cfg, fase) => cfg?.[claveInstalacion(fase)];
+
 /** El nombre del conjunto de medidas, con el equipo de ACS si va aparte. */
 function nombreDelConjunto(expediente, equipo, modelos) {
     const d = resolverCe3x(expediente, { modelos });
@@ -1206,13 +1230,23 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
     // los dos `.cex` de 26RES060_186: solo cambia el de instalaciones.
     const esFinal = fase === 'final';
     const derivada = esFinal
-        ? instalacionNueva({ expediente, superficie, modelos })
+        ? instalacionNueva({ expediente, superficie, modelos, delFichero: true })
         : instalacionExistente({ expediente, superficie,
                                 litros: positivo(cfg.acumulacion_litros) });
     // Lo que el certificador haya tecleado en la pestaña de Instalaciones manda
     // sobre lo derivado, y con ello puede RESCATAR un equipo que no se escribía
     // (el caso típico: falta la potencia de la caldera y la teclea él).
-    const conMano = equipoConAjustes(derivada.equipo, cfg.instalacion, { superficie });
+    //
+    // ⚠️ POR FASE. Era un único `cfg.instalacion` para las dos, y la pestaña de
+    // Instalaciones tiene dos caras: «CEE inicial · caldera» y «CEE final ·
+    // aerotermia». Lo tecleado para la caldera se aplicaba encima de la
+    // aerotermia y el CEE FINAL salía con el generador llamado «CALDERA DOMUSA
+    // CLIMA MIX 20 GE» —con su potencia y su rendimiento de combustión—, o sea
+    // declarando que la obra instaló otra caldera. El depósito no se pierde por
+    // separarlos: al final le llega del propio `.cex` que copia
+    // (`_heredar_acumulacion`), que es una fuente mejor.
+    const conMano = equipoConAjustes(derivada.equipo, ajustesDeFase(cfg, fase),
+                                     { superficie });
     // Y los que se hayan AÑADIDO: un termo para el ACS, un aire acondicionado.
     // En CE3X son equipos aparte, cada uno con el % de demanda que cubre.
     const anadidos = (cfg.equipos_extra || []).map(x => equipoAnadido(x, { superficie }));
@@ -1318,6 +1352,10 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
         }),
         ...(tecnicoCe3x(certificador) ? { tecnico: tecnicoCe3x(certificador) } : {}),
         ...(instalacion.equipos.length ? { instalaciones: instalacion.equipos } : {}),
+        //: HIBRIDACIÓN en el CEE final: el generador del fichero que se copia NO
+        //: se retira, se queda con su parte de la demanda. Es lo único que el
+        //: motor no puede deducir del `.cex` que tiene delante.
+        ...(derivada.hibridacion ? { hibridacion: derivada.hibridacion } : {}),
         //: QUÉ falta, en ESTRUCTURA y no dentro de la frase de un aviso: lo lee
         //: la pestaña de Instalaciones para decirlo en una línea, y leer eso de
         //: un texto en castellano se rompe la primera vez que alguien mejore la

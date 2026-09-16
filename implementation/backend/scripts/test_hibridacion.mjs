@@ -1,5 +1,5 @@
 /**
- * La MEDIDA DE MEJORA de una hibridación lleva los DOS generadores.
+ * La HIBRIDACIÓN en CE3X: la caldera NO se retira, son DOS generadores.
  *
  * En una hibridación la caldera NO se retira: en CE3X el edificio mejorado tiene
  * dos equipos repartiéndose la demanda, y la app se negaba a componer la medida
@@ -14,9 +14,13 @@
  * bomba dimensionada al 48 % de la potencia de diseño cubre el 78,5 % de la
  * energía del año. La app le decía 48 % al certificador.
  *
- *   node implementation/backend/scripts/test_hibridacion_medida.mjs
+ * Y lo mismo vale para el CEE FINAL: allí la caldera que se queda es la del
+ * propio fichero que se copia, así que la ficha solo declara CUÁNTO se queda
+ * y el motor conserva su registro tal cual.
+ *
+ *   node implementation/backend/scripts/test_hibridacion.mjs
  */
-import { medidasCe3x, instalacionNueva }
+import { medidasCe3x, instalacionNueva, equipoConAjustes, fichaCe3x, claveInstalacion }
     from '../../frontend/src/features/cee-envolvente/logic/fichaCe3x.js';
 import { resolverCe3x } from '../../frontend/src/features/expedientes/logic/ce3xFinal.js';
 
@@ -43,7 +47,7 @@ function expediente(extra = {}) {
             misma_aerotermia_acs: true,
             caldera_antigua_cal: {
                 marca: 'DOMUSA', modelo: 'CLIMA MIX 20 GE',
-                rendimiento_id: 'gasoleo_estandar_pre1990',
+                rendimiento_id: 'oil_pre85',
             },
             aerotermia_cal: {
                 marca: 'PANASONIC', modelo: 'AQUAREA T-CAP R290 (WH-WXG12ME5)',
@@ -146,6 +150,60 @@ console.log('\n5. Una sustitución normal sigue igual');
     ok(equipo.pct_calefaccion === '100', 'la bomba cubre el 100 %');
     ok(equipo.superficie_calefaccion === SUPERFICIE, 'y sirve toda la superficie');
     ok(!extras.some(e => /CALDERA/.test(e.nombre)), 'la caldera NO entra: se ha retirado');
+}
+
+//: Lo mínimo que `fichaCe3x` necesita para componer: la envolvente no pinta
+//: nada aquí, lo que se mira es el bloque de instalaciones.
+const GEO = {
+    parametros: { floor_height_m: 2.8 }, elementos: [],
+    inmueble: { direccion: 'CL X 1, PEDRO MUNOZ, CIUDAD REAL', antiguedad: 1994,
+                referencia_catastral: '1234567VK0000S0001AA' },
+};
+const ficha = (fase, ajustes = {}) => fichaCe3x({
+    expediente: expediente(), cliente: {}, geo: GEO, envolvente: {}, ajustes, fase,
+}).ficha;
+
+// -- 6. El CEE FINAL: la caldera se queda, y la conserva el motor ------------
+console.log('\n6. El CEE FINAL de una hibridacion');
+{
+    // Sin `existentes`: en el final la caldera es la del .cex que se copia, y
+    // aqui no se sabe cual es. Lo que viaja es CUANTO se queda.
+    const r = instalacionNueva({ expediente: expediente(), superficie: SUPERFICIE,
+                                 delFichero: true });
+    ok(!!r.equipo, 'el CEE final YA se puede generar en una hibridacion');
+    ok(r.equipo?.pct_calefaccion === '79', 'la bomba entra con el 79 %');
+    ok(r.hibridacion?.pct_generador_previo === 21,
+       `y se declara que la caldera se queda con el 21 % (sale ${r.hibridacion?.pct_generador_previo})`);
+    ok(!(r.extras || []).some(e => /CALDERA/.test(e.nombre)),
+       'la caldera NO viaja recompuesta: la conserva el motor de su propio fichero');
+
+    const f = ficha('final');
+    ok(f.hibridacion?.pct_generador_previo === 21, 'y llega hasta la ficha que va al motor');
+    ok((f.instalaciones || []).length === 1, 'con UN solo equipo declarado: la bomba');
+}
+
+// -- 7. Lo tecleado para la caldera NO se escribe encima de la aerotermia ----
+console.log('\n7. Los ajustes de Instalaciones no se filtran entre fases');
+{
+    ok(claveInstalacion('inicial') !== claveInstalacion('final'),
+       'cada fase guarda lo suyo en su propia clave');
+
+    // El peligro que lo justifica, por si alguien las vuelve a juntar:
+    const aero = { slot: 'mixto2', nombre: 'AEROTERMIA PANASONIC', generador: 'Bomba de Calor',
+                   combustible: 'Electricidad', rendimiento: 'conocido',
+                   rend_calefaccion: '434', superficie_calefaccion: SUPERFICIE };
+    const pisada = equipoConAjustes(aero, { nombre: 'CALDERA DOMUSA' },
+                                    { superficie: SUPERFICIE }).equipo;
+    ok(pisada.nombre === 'CALDERA DOMUSA',
+       'lo tecleado MANDA sobre lo derivado — por eso no puede compartirse');
+
+    const tecleado = { instalacion: { nombre: 'CALDERA DOMUSA CLIMA MIX 20 GE' } };
+    const fin = ficha('final', tecleado);
+    ok(fin.instalaciones?.[0]?.nombre !== 'CALDERA DOMUSA CLIMA MIX 20 GE',
+       `el generador del CEE final NO se llama como la caldera (sale «${fin.instalaciones?.[0]?.nombre}»)`);
+    const ini = ficha('inicial', tecleado);
+    ok(ini.instalaciones?.[0]?.nombre === 'CALDERA DOMUSA CLIMA MIX 20 GE',
+       'y en el inicial sigue mandando lo tecleado, como siempre');
 }
 
 console.log(fallos ? `\n✗ ${fallos} fallo(s)\n` : '\n✓ Todo correcto\n');
