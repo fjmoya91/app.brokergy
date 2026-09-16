@@ -325,6 +325,78 @@ async function casarConCatalogo(ext, int) {
     };
 }
 
+/**
+ * Lee la placa de UNA unidad a partir de sus imágenes, vengan de donde vengan.
+ *
+ * Es el núcleo que comparten las dos entradas: la del EXPEDIENTE, que saca las
+ * fotos de Drive, y la de la CALCULADORA, donde las aporta quien está simulando
+ * y todavía no hay ni expediente ni carpeta. Si cada una llamara al modelo por su
+ * cuenta, la misma placa podría leerse distinto según por dónde se entre —y de
+ * ahí sale el nº de serie que acaba impreso en el CIFO—.
+ *
+ * @param {object} u     una de las UNIDADES (exterior / interior)
+ * @param {object[]} imgs  [{ name, buffer, mimeType }]
+ */
+async function leerUnidad(u, imgs) {
+    const bruto = await llamarGemini(imgs, {
+        prompt: promptDe(u), schema: SCHEMA, etiqueta: `placaEquipo:${u.id}`,
+    });
+
+    // El nº de serie sale de la LÍNEA literal, no del número que el modelo
+    // aisló: medido, con la foto de contexto delante se equivoca 3 de 3 veces
+    // aislándolo y acierta 3 de 3 copiando la línea entera (ver arriba).
+    const serie = serieDesdeTexto(bruto?.serie_texto, bruto?.numero_serie);
+
+    return {
+        aviso: serie.aviso,
+        datos: {
+            marca: limpia(bruto?.marca)?.toUpperCase() || null,
+            modelo: limpia(bruto?.modelo)?.toUpperCase() || null,
+            numero_serie: serie.serie || null,
+            serie_texto: serie.texto,
+            potencia_kw: Number(bruto?.potencia_kw) > 0 ? Number(bruto.potencia_kw) : null,
+            refrigerante: limpia(bruto?.refrigerante)?.toUpperCase() || null,
+            anio: Number(bruto?.anio) > 2000 && Number(bruto?.anio) <= new Date().getFullYear() + 1
+                ? Number(bruto.anio) : null,
+        },
+    };
+}
+
+/**
+ * Lee placas a partir de ficheros SUELTOS, sin expediente ni Drive detrás.
+ *
+ * Es la entrada de la CALCULADORA: ahí el equipo se elige antes de que exista
+ * ninguna carpeta, y las fotos las aporta quien simula. Todo lo demás —el prompt,
+ * el nº de serie por su línea literal, el cruce con el catálogo— es exactamente lo
+ * mismo que en el expediente.
+ *
+ * REGLA — se lee UNA UNIDAD POR PETICIÓN al modelo, como en el expediente: la
+ * placa de fuera y la de dentro se parecen mucho, y mezclarlas es pedirle que
+ * decida cuál es cuál. Aquí quien lo dice no es el slot de Drive sino el campo
+ * del formulario por el que ha llegado cada foto.
+ *
+ * @param {{exterior?:object[], interior?:object[]}} porUnidad
+ */
+async function leerPlacasDeImagenes(porUnidad) {
+    const avisos = [];
+    const unidades = {};
+
+    for (const u of UNIDADES) {
+        const imgs = (porUnidad?.[u.id] || []).slice(0, MAX_PLACAS);
+        if (!imgs.length) continue;
+        // eslint-disable-next-line no-await-in-loop
+        const { datos, aviso } = await leerUnidad(u, imgs);
+        if (aviso) avisos.push(`${u.etiqueta}: ${aviso}`);
+        unidades[u.id] = datos;
+        if (!datos.numero_serie) {
+            avisos.push(`En las fotos de la ${u.etiqueta} no se lee el nº de serie. `
+                + 'Es el dato que va al CIFO y al Anexo I: compruébalo a mano.');
+        }
+    }
+
+    return { unidades, avisos, sin_fotos: !Object.keys(unidades).length };
+}
+
 // ── Las fotos, desde Drive ───────────────────────────────────────────────────
 
 const IMG_EXT = /\.(jpe?g|png|webp|heic|heif|bmp|tiff?)$/i;
@@ -410,26 +482,9 @@ async function leerPlacasAerotermia(driveFolderId) {
         }
 
         // eslint-disable-next-line no-await-in-loop
-        const bruto = await llamarGemini(imgs, {
-            prompt: promptDe(u), schema: SCHEMA, etiqueta: `placaEquipo:${u.id}`,
-        });
-
-        // El nº de serie sale de la LÍNEA literal, no del número que el modelo
-        // aisló: medido, con la foto de contexto delante se equivoca 3 de 3 veces
-        // aislándolo y acierta 3 de 3 copiando la línea entera (ver arriba).
-        const serie = serieDesdeTexto(bruto?.serie_texto, bruto?.numero_serie);
-        if (serie.aviso) avisos.push(`${u.etiqueta}: ${serie.aviso}`);
-
-        unidades[u.id] = {
-            marca: limpia(bruto?.marca)?.toUpperCase() || null,
-            modelo: limpia(bruto?.modelo)?.toUpperCase() || null,
-            numero_serie: serie.serie || null,
-            serie_texto: serie.texto,
-            potencia_kw: Number(bruto?.potencia_kw) > 0 ? Number(bruto.potencia_kw) : null,
-            refrigerante: limpia(bruto?.refrigerante)?.toUpperCase() || null,
-            anio: Number(bruto?.anio) > 2000 && Number(bruto?.anio) <= new Date().getFullYear() + 1
-                ? Number(bruto.anio) : null,
-        };
+        const { datos, aviso } = await leerUnidad(u, imgs);
+        if (aviso) avisos.push(`${u.etiqueta}: ${aviso}`);
+        unidades[u.id] = datos;
         fotos.push(...imgs.map((i) => ({ name: i.name, unidad: u.id })));
 
         if (!unidades[u.id].numero_serie) {
@@ -442,5 +497,6 @@ async function leerPlacasAerotermia(driveFolderId) {
 }
 
 module.exports = {
-    leerPlacasAerotermia, casarConCatalogo, casan, norm, serieDesdeTexto, UNIDADES,
+    leerPlacasAerotermia, leerPlacasDeImagenes, leerUnidad,
+    casarConCatalogo, casan, norm, serieDesdeTexto, UNIDADES,
 };

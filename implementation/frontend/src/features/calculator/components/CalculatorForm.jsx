@@ -28,6 +28,7 @@ import { FV, FV_OPCIONES, normalizarFotovoltaica, potenciaTexto, etiquetaFotovol
 import { produceAcs, litrosAcsCatalogo, esConjuntoAcs } from '../../expedientes/logic/acsCatalogo';
 import { opcionDeEquipo, BUSCAR_EQUIPO } from '../../expedientes/logic/aerotermiaOpciones';
 import SearchableSelect from '../../../components/SearchableSelect';
+import LeerPlacaModal from './LeerPlacaModal';
 import { useAuth } from '../../../context/AuthContext';
 import { parseCeeXml } from '../logic/xmlCeeParser';
 import CeeUploadModal from '../../cee/CeeUploadModal';
@@ -378,6 +379,54 @@ export function CalculatorForm({
 
     const activeBrandLogo = marcasDisponibles.find(m => m.nombre === selectedMarca)?.logo;
     const activeBrandAcsLogo = marcasAcsDisponibles.find(m => m.nombre === selectedMarcaAcs)?.logo;
+
+    // ── Leer la placa del equipo ya instalado ────────────────────────────────
+    // Con la etiqueta delante, reconocer el equipo entre los 490 del catálogo es
+    // inmediato; a ojo es imposible. Solo lo ve el STAFF: detrás hay una llamada
+    // de pago a un LLM, y la ruta lo repite (`staffOnly`).
+    const [leyendoPlaca, setLeyendoPlaca] = useState(false);
+
+    /**
+     * Aplica el equipo que dice la placa.
+     *
+     * REGLA — se aplica por el MISMO camino que elegirlo a mano: se fija la marca
+     * y se selecciona el modelo, y de ahí el SCOP sale de `getScopFromModel` como
+     * en el desplegable. Si esto calculara su propio SCOP, un equipo entrado por
+     * la placa y otro elegido a dedo darían números distintos.
+     */
+    const aplicarModeloLeido = (modelo, unidades) => {
+        if (!modelo?.id) return;
+        setSelectedMarca(modelo.marca || '');
+
+        const emisor = inputs.emitterType || 'radiadores_convencionales';
+        const temp = emisor === 'radiadores_convencionales' ? 55 : (emisor === 'radiadores_baja_temp' ? 45 : 35);
+        const enCatalogo = dbModels.find(m => String(m.id) === String(modelo.id)) || modelo;
+
+        setDirtyScopHeating(false);
+        setDirtyScopAcs(false);
+        setDirtyPotenciaBomba(false);
+        setShowScopPopup(false);
+
+        onInputChange(prev => ({
+            ...prev,
+            aerothermiaModel: String(modelo.id),
+            customModelName: '',
+            scopHeating: getScopFromModel(enCatalogo, prev.zona, temp),
+            scopTemporada: getScopSeason(enCatalogo, prev.zona, temp),
+            scopAcs: getScopAcsFromModel(enCatalogo, prev.zona),
+            potenciaBomba: enCatalogo.potencia_calefaccion || prev.potenciaBomba || 0,
+            // La lectura se guarda con la oportunidad para que el EXPEDIENTE nazca
+            // con el nº de serie —el dato que imprimen el CIFO, el Anexo I y la
+            // memoria RITE, y que hoy se teclea a mano mirando la foto—. Solo
+            // metadatos: la foto no se guarda en ninguna parte (regla 21).
+            placa_ocr: {
+                at: new Date().toISOString(),
+                exterior: unidades?.exterior || null,
+                interior: unidades?.interior || null,
+            },
+        }));
+        setLeyendoPlaca(false);
+    };
 
     // ── Los equipos que se OFRECEN, con la referencia de su placa a la vista ──
     // Cómo se nombra cada uno es fuente única (logic/aerotermiaOpciones.js): el
@@ -2034,6 +2083,19 @@ export function CalculatorForm({
                                         </div>
 
                                         <div className="space-y-1.5">
+                                            {/* El botón va junto al rótulo del desplegable: es donde
+                                                se está cuando no se sabe cuál de los seis modelos
+                                                iguales es el tuyo. */}
+                                            {showBrokergy && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setLeyendoPlaca(true)}
+                                                    className="float-right text-[11px] font-bold text-brand hover:text-brand/80 mr-1"
+                                                    title="Sube la foto de la etiqueta del aparato y la app dice qué equipo es"
+                                                >
+                                                    ✨ Leer la placa
+                                                </button>
+                                            )}
                                             <Label htmlFor="aerothermiaModel" className="text-xs font-semibold text-slate-400 uppercase tracking-wider ml-1">
                                                 {selectedMarca === CUSTOM_MARCA ? 'Marca / Modelo' : 'Modelo seleccionado'}
                                             </Label>
@@ -3679,6 +3741,13 @@ export function CalculatorForm({
                     </div>
                 </div>
             </div>
+        )}
+
+        {leyendoPlaca && (
+            <LeerPlacaModal
+                onClose={() => setLeyendoPlaca(false)}
+                onElegir={aplicarModeloLeido}
+            />
         )}
         </>
     );

@@ -153,6 +153,84 @@ router.delete('/marcas/:nombre', enforceAuth, requireAdmin, async (req, res) => 
     }
 });
 
+// POST /api/aerotermia/leer-placa — QUÉ EQUIPO es el de esta foto.
+//
+// El hermano de `POST /api/expedientes/:id/placas/ocr` para cuando TODAVÍA NO HAY
+// EXPEDIENTE: en la calculadora el equipo se elige al simular, meses antes de que
+// exista ninguna carpeta de Drive, y hasta ahora había que reconocerlo a ojo entre
+// los 490 del catálogo. Con la foto de la placa delante eso es absurdo: la app ya
+// sabe casar un código con el catálogo (`casarConCatalogo`), solo le faltaba una
+// puerta por la que entrar sin expediente.
+//
+// Las fotos llegan como FICHEROS de un formulario, no de Drive, y NO SE GUARDAN en
+// ningún sitio: se leen y se tiran. Lo único que se devuelve es qué pone la placa y
+// con qué fila del catálogo casa.
+//
+// REGLA — aquí no se escribe nada. La ruta ni siquiera toca la oportunidad: quien
+// aplica es la calculadora, seleccionando ese modelo en su desplegable, o sea por
+// el MISMO camino que elegirlo a mano. Así un equipo que entra por la placa y otro
+// elegido a dedo no pueden acabar con SCOP distintos.
+//
+// `staffOnly`: detrás hay una llamada de pago a un LLM. Mismo criterio que el
+// lector de la referencia catastral y que el de placas del expediente.
+const placaUpload = multer({
+    storage: multer.memoryStorage(),
+    // Una placa por foto y tres perspectivas como mucho de cada unidad: es el tope
+    // que ya aplica el expediente (`MAX_PLACAS`), porque con tres se ha visto todo
+    // lo que hay en una etiqueta y cada imagen se paga.
+    limits: { fileSize: 15 * 1024 * 1024, files: 6 },
+});
+router.post('/leer-placa', staffOnly, (req, res, next) => {
+    placaUpload.fields([{ name: 'exterior', maxCount: 3 }, { name: 'interior', maxCount: 3 }])(req, res, (err) => {
+        if (err) {
+            console.error('[aerotermia/leer-placa] multer:', err.message);
+            return res.status(400).json({ error: `No se pudo leer la foto: ${err.message}` });
+        }
+        next();
+    });
+}, async (req, res) => {
+    try {
+        const { leerPlacasDeImagenes, casarConCatalogo } = require('../services/placaEquipoOcrService');
+
+        // El nombre llega de un formulario: en Windows puede traer la ruta entera y
+        // algunos navegadores lo codifican en latin1 (mismo cuidado que los firmados
+        // del S.O.). Solo se usa para decir de qué foto salió cada cosa.
+        const aImg = (f) => ({
+            name: Buffer.from(f.originalname || 'placa', 'latin1').toString('utf8').split(/[\\/]/).pop(),
+            buffer: f.buffer,
+            mimeType: (f.mimetype || '').startsWith('image/') ? f.mimetype : 'image/jpeg',
+        });
+
+        const porUnidad = {
+            exterior: (req.files?.exterior || []).map(aImg),
+            interior: (req.files?.interior || []).map(aImg),
+        };
+        if (!porUnidad.exterior.length && !porUnidad.interior.length) {
+            return res.status(400).json({ error: 'Adjunta al menos una foto de la placa.' });
+        }
+
+        // ⚠️ Las fotos van como FOTOS, nunca convertidas a PDF: una placa es un
+        // primer plano y lo que se busca vive en unos pocos píxeles (ver la regla
+        // «la placa se lee SOLA» en placaEquipoOcrService).
+        const { unidades, avisos } = await leerPlacasDeImagenes(porUnidad);
+        const catalogo = await casarConCatalogo(unidades.exterior, unidades.interior);
+
+        res.json({
+            unidades,
+            // Qué equipo del catálogo es, por qué se ha decidido así, y —cuando hay
+            // más de uno posible— la lista para que elija una persona: con dos
+            // candidatos no se elige, que sería declarar el SCOP de otra máquina.
+            modelo: catalogo.modelo || null,
+            por: catalogo.por || null,
+            candidatos: catalogo.candidatos || [],
+            avisos: [...avisos, ...(catalogo.aviso ? [catalogo.aviso] : [])],
+        });
+    } catch (err) {
+        console.error('Error POST aerotermia/leer-placa:', err);
+        res.status(500).json({ error: 'No se pudo leer la placa', details: err.message });
+    }
+});
+
 // GET /api/aerotermia/:id — Detalle de un equipo
 router.get('/:id', enforceAuth, async (req, res) => {
     try {

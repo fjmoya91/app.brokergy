@@ -558,9 +558,9 @@ const sendProposalEmail = async ({ to, cc = null, userName, pdfBuffer, tableImag
     });
 
     // Versión texto plano: si hay mensaje personalizado, ese mismo texto (sin los
-    // asteriscos de WhatsApp) para que ambas versiones digan lo mismo.
+    // asteriscos ni guiones bajos de WhatsApp) para que ambas versiones digan lo mismo.
     const text = customMessage
-        ? String(customMessage).replace(/\*([^*\n]+)\*/g, '$1')
+        ? String(customMessage).replace(/\*([^*\n]+)\*/g, '$1').replace(/_([^_\n]+)_/g, '$1')
         : isB2B
         ? `¡Hola, ${userName}!\n\nAdjuntamos la propuesta para vuestro cliente ${summaryData.clienteName || ''} (Exp. ${summaryData.id}).\n\nEnlace de firma para el cliente: ${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${summaryData.urlId || summaryData.id}\n\nBROKERGY · Ingeniería Energética`
         : `¡Hola, ${userName}!\n\nYa hemos calculado las ayudas para tu instalación de aerotermia.\n\n🔹 Bono Energético CAE: ${summaryData.caeBonus}\n🔹 Deducciones IRPF: ${summaryData.irpfDeduction}\n\nResumen total ayudas: Hasta ${summaryData.totalAyuda}\n\nPasos a seguir:\n1. Aceptar presupuesto al instalador.\n2. Aceptar propuesta adjunta.\n\n📄 Ver propuesta online:\n${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/api/public/propuesta/${summaryData.urlId || summaryData.id}\n\nPuedes firmar directamente aquí: ${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${summaryData.urlId || summaryData.id}\n\nQuedo a tu disposición.\n\nBROKERGY · Ingeniería Energética`;
@@ -584,7 +584,13 @@ const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente,
             emailP(`¡Hola, ${escapeHtml(userName || 'cliente')}!`, { size: 20, bold: true, mb: 20 }) +
             emailP('Hemos recibido correctamente la aceptación de tu propuesta. <strong>Muchas gracias por confiar en Brokergy.</strong>', { color: BRAND.muted, mb: 15 }) +
             (numeroExpediente ? emailBox(emailP(`Tu número de expediente asignado es: <strong style="color:${BRAND.orangeDark};">${escapeHtml(numeroExpediente)}</strong>`, { mb: 0 }), { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }) : '') +
-            emailP('A partir de este momento, uno de nuestros certificadores comenzará a preparar el <strong>Certificado de Eficiencia Energética inicial</strong>. Es muy importante que este certificado quede emitido y registrado <strong>antes de la última factura de la obra</strong>, ya que, de lo contrario, podrían surgir problemas para aplicar las deducciones fiscales. Además, este documento es necesario para tramitar correctamente tu expediente CAE.', { color: BRAND.muted, mb: 22 }) +
+            emailP('A partir de este momento nos ponemos con el <strong>Certificado de Eficiencia Energética (CEE)</strong>: de prepararlo y presentarlo nos encargamos nosotros. Para poder hacerlo cuanto antes necesitamos la documentación de abajo — en cuanto la tengamos, nos ponemos manos a la obra.', { color: BRAND.muted, mb: 15 }) +
+            emailBox(
+                emailP('⚠️ Muy importante antes de empezar la obra', { size: 14, bold: true, color: BRAND.orangeDark, mb: 10 }) +
+                emailP('No dejes que te presenten ninguna factura de la obra hasta que te avisemos con un <strong>nuevo mensaje confirmando que el CEE ya está presentado</strong> — es la condición para no perder la ayuda.', { size: 14, color: BRAND.text, mb: 10 }) +
+                emailP('Si pasan unos días sin noticias nuestras, o si tenéis prisa por facturar, escríbenos sin problema: hablando se entiende la gente, y preferimos que preguntes antes de que se cuele una factura.', { size: 13, color: BRAND.muted, mb: 0 }),
+                { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
+            ) +
             emailBox(
                 emailP('📁 Documentación previa necesaria', { size: 14, bold: true, color: BRAND.orangeDark, mb: 12 }) +
                 emailList([
@@ -618,7 +624,7 @@ const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente,
         footerNote: `Un saludo, Equipo BROKERGY · <a href="https://brokergy.es" style="color:${BRAND.greenDark};text-decoration:none;">brokergy.es</a>`,
     });
 
-    const text = `¡Hola, ${userName}!\n\nHemos recibido correctamente la aceptación de tu propuesta. Muchas gracias.\n\n${numeroExpediente ? `Tu número de expediente es: ${numeroExpediente}\n\n` : ''}A partir de ahora, comenzaremos a preparar el Certificado de Eficiencia Energética inicial.\n\nNecesitamos que nos envíes la siguiente documentación:\n- Planos o croquis.\n- Fotos de la caldera y su placa.\n- Fotos de radiadores/colector.\n- Vídeo corto de la vivienda.\n- Fotos de fachadas y ventanas.\n\n${uploadLink ? `Puedes subir tu documentación directamente aquí:\n${uploadLink}\n\nO también p` : `P`}uedes enviarlo por:\nEmail: info@brokergy.es\nWhatsApp: 623 926 179\n\nUn saludo,\nEquipo BROKERGY`;
+    const text = `¡Hola, ${userName}!\n\nHemos recibido correctamente la aceptación de tu propuesta. Muchas gracias.\n\n${numeroExpediente ? `Tu número de expediente es: ${numeroExpediente}\n\n` : ''}A partir de ahora nos ponemos con el Certificado de Eficiencia Energética (CEE): de prepararlo y presentarlo nos encargamos nosotros. Para poder hacerlo cuanto antes necesitamos la documentación de abajo.\n\nMUY IMPORTANTE ANTES DE EMPEZAR LA OBRA: no dejes que te presenten ninguna factura hasta que te avisemos con un nuevo mensaje confirmando que el CEE ya está presentado — es la condición para no perder la ayuda. Si pasan unos días sin noticias nuestras, o si tenéis prisa por facturar, escríbenos sin problema: preferimos que preguntes antes de que se cuele una factura.\n\nNecesitamos que nos envíes la siguiente documentación:\n- Planos o croquis.\n- Fotos de la caldera y su placa.\n- Fotos de radiadores/colector.\n- Vídeo corto de la vivienda.\n- Fotos de fachadas y ventanas.\n\n${uploadLink ? `Puedes subir tu documentación directamente aquí:\n${uploadLink}\n\nO también p` : `P`}uedes enviarlo por:\nEmail: info@brokergy.es\nWhatsApp: 623 926 179\n\nUn saludo,\nEquipo BROKERGY`;
 
     return sendMail({ to, subject, html, text });
 };
@@ -1340,6 +1346,7 @@ function emailList(items, opts = {}) {
 function waInlineToHtml(txt) {
     return escapeHtml(txt)
         .replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')
+        .replace(/_([^_\n]+)_/g, '<em>$1</em>')
         .replace(/(https?:\/\/[^\s<]+)/g, u =>
             `<a href="${u}" style="color:${BRAND.greenDark};text-decoration:underline;word-break:break-all;">${u}</a>`);
 }

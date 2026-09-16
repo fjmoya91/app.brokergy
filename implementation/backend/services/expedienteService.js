@@ -264,6 +264,25 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             if (aero || (acs && cambioAcs)) {
                 console.log('[ExpedienteService] Nº de serie heredado de la factura leída en la simulación.');
             }
+
+            // ── …y de la PLACA leída en la calculadora ─────────────────────────
+            // Si al simular se leyó la etiqueta del aparato («Leer la placa»), ese
+            // nº de serie es incluso mejor que el de la factura: sale de la máquina
+            // instalada, no de un papel. Mismo criterio que arriba —solo rellena
+            // HUECOS— y el mismo destino: `numero_serie` es SIEMPRE el de la unidad
+            // EXTERIOR, que es lo que imprimen el CIFO y el Anexo I.
+            const placa = op.datos_calculo?.inputs?.placa_ocr;
+            if (placa?.exterior?.numero_serie && !instalacion.aerotermia_cal.numero_serie) {
+                instalacion.aerotermia_cal.numero_serie = placa.exterior.numero_serie;
+                console.log('[ExpedienteService] Nº de serie de la ud. exterior heredado de la placa leída al simular.');
+            }
+            // El de la unidad INTERIOR se guarda como registro. Dónde acaba
+            // imprimiéndose —si al nodo de ACS por ser un conjunto bibloc, o aquí—
+            // lo decide el lector de placas del expediente con el alcance delante
+            // (regla 27.e); esto solo evita perder un dato ya leído.
+            if (placa?.interior?.numero_serie && !instalacion.aerotermia_cal.numero_serie_ud_interior) {
+                instalacion.aerotermia_cal.numero_serie_ud_interior = placa.interior.numero_serie;
+            }
         } catch (e) {
             console.warn('[ExpedienteService] equipos desde docs_ocr:', e.message);
         }
