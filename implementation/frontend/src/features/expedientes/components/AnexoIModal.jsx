@@ -411,7 +411,7 @@ export function AnexoIModal({ isOpen, onClose, expediente, results, onSaveDrive,
                     {formato === 'oficial' && (
                         <div className="flex-1 min-h-0">
                             <DocumentoOficialPreview formulario={formularioOficial()} titulo="Anexo I"
-                                nota="Lo declarado sale de la pestaña Subvenciones. Para marcarlo aquí mismo, cambia a «Clásico»."
+                                nota="Este PDF es una VISTA: lo que se escriba con las herramientas del visor (texto, lápiz) no se guarda ni se envía. Lo declarado sale de la pestaña Subvenciones; para marcarlo aquí mismo, cambia a «Clásico»."
                                 onFallback={() => setFormato('clasico')} />
                         </div>
                     )}

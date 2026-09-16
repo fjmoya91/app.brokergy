@@ -68,6 +68,12 @@ export function DocumentoOficialPreview({ formulario, titulo = 'documento', onFa
 
     return (
         <div className="h-full w-full relative bg-[#16181D] flex flex-col">
+            {/* ⚠️ El visor de PDF del navegador trae sus propias herramientas de
+                anotación (texto, lápiz, resaltado) y lo que se escriba con ellas
+                vive SOLO en esa pestaña: no está en el fichero, no se guarda en
+                Drive y no viaja en el envío. Se dice aquí, en la propia barra del
+                visor, porque es donde se comete el error — y desde el otro lado no
+                hay forma de notarlo: el PDF que recibe el cliente sale limpio. */}
             {nota && (
                 <div className="shrink-0 px-4 py-2 text-[11px] text-white/40 border-b border-white/[0.06] text-center">{nota}</div>
             )}

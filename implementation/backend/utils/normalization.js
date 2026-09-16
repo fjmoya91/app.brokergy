@@ -18,13 +18,22 @@
 // del expediente reenvía `cee` completa al autoguardar y se lo llevaba por
 // delante. Medido en 26RES060_186.
 //
+// `subvenciones` (documentacion.subvenciones) va aquí por lo MISMO, y costaba un
+// dato que el titular firma: los ids del bono social son enums en minúscula
+// ('electrico_vulnerable') y `leerSubvenciones` descarta lo que no case EXACTO,
+// así que se marcaba el bono, se guardaba como 'ELECTRICO_VULNERABLE' y al releer
+// desaparecía — el Anexo I imprimía «Ninguno de los anteriores». Medido en
+// 26RES060_165, que lo tenía guardado en MAYÚSCULAS. Lo mismo con
+// `fondo_nacional`, que se compara con === 'si' y viaja al verificador en la
+// solicitud (`SE_fondo_nacional`): en MAYÚSCULAS se le declaraba 'no'.
+//
 // `placa_ocr` / `placas_ocr` son la HUELLA de lo que leyó el lector de placas:
 // qué se transcribió, de qué fotos y qué campos se escribieron. Sus claves son
 // técnicas (`caldera.marca`) y el popup las traduce a un rótulo buscándolas en
 // un mapa, así que en MAYÚSCULAS (`CALDERA.MARCA`) dejaba de encontrarlas — y de
 // paso convertía la línea literal de la placa, que es la EVIDENCIA, en algo que
 // ya no es lo que pone la etiqueta. Medido en 26RES060_167.
-const BLACKLIST = ['id', 'id_oportunidad', 'id_cliente', 'password', 'token', 'reformaType', 'method', 'type', 'icon', 'link', 'url', 'ficha', 'tipo_emisor', 'tipo_equipo_nuevo', 'metodo_scop', 'hibridacion_metodo', 'rendimiento_id', 'comb_', 'datos_calculo', 'fotovoltaica', 'envolvente', 'placa_ocr', 'placas_ocr'];
+const BLACKLIST = ['id', 'id_oportunidad', 'id_cliente', 'password', 'token', 'reformaType', 'method', 'type', 'icon', 'link', 'url', 'ficha', 'tipo_emisor', 'tipo_equipo_nuevo', 'metodo_scop', 'hibridacion_metodo', 'rendimiento_id', 'comb_', 'datos_calculo', 'fotovoltaica', 'envolvente', 'placa_ocr', 'placas_ocr', 'subvenciones'];
 
 function normalizeData(obj) {
     if (!obj || typeof obj !== 'object') return obj;

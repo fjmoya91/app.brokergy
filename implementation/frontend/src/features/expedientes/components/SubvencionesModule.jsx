@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     BONO_SOCIAL_OPCIONES, BONO_NINGUNO,
     CATALOGO_SUBVENCIONES, SUBVENCION_OTRA, subvencionDelCatalogo,
@@ -14,6 +14,12 @@ import {
 // Anexo I que firma el cliente, la solicitud de verificación que se manda al
 // verificador y el control de sobrefinanciación. Antes vivía en el estado local
 // del popup del Anexo I y no sobrevivía a cerrarlo.
+//
+// REGLA — SE AUTOGUARDA, como el resto de la ficha. Era el ÚNICO módulo del
+// expediente con un botón manual, y ese botón vive al final de una pantalla
+// larga: se marcaba el bono social, se cambiaba de pestaña y el módulo se
+// desmontaba con lo marcado dentro — sin guardar y sin decirlo. Medido en
+// 26RES060_165, cuyo bono social no llegaba nunca al Anexo I.
 //
 // REGLA — el ÓRGANO GESTOR, la DISPOSICIÓN REGULADORA y el AÑO no se teclean:
 // salen del programa elegido. Son propiedades del Real Decreto que lo regula, no
@@ -56,6 +62,10 @@ function Field({ label, children, hint }) {
     );
 }
 
+// El mismo freno que usa Instalación: recoge una ráfaga de clics sin escribir
+// una vez por casilla.
+const AUTOSAVE_MS = 900;
+
 const INPUT = 'w-full bg-bkg-elevated border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:border-brand focus:outline-none transition-colors disabled:opacity-50';
 // Los campos que vuelca el catálogo se enseñan pero no se editan: el expediente
 // no puede contradecir al Real Decreto que regula el programa.
@@ -83,6 +93,38 @@ export function SubvencionesModule({ expediente, onSave, onLiveUpdate, saving, r
         if (onLiveUpdate) onLiveUpdate({ ...expediente?.documentacion, subvenciones: local });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [local]);
+
+    // ── Autoguardado ─────────────────────────────────────────────────────────
+    // Mismo modelo que Instalación: debounce corto y una referencia de lo último
+    // persistido, para no reescribir en cada apertura. La PRIMERA emisión es la
+    // línea base (`leerSubvenciones` normaliza y rellena los valores por defecto,
+    // así que casi nunca es byte-idéntica al JSON crudo): fijarla y no guardarla.
+    const guardadoRef = useRef(null);
+    const timerRef = useRef(null);
+    useEffect(() => {
+        guardadoRef.current = null;          // expediente nuevo → línea base nueva
+        clearTimeout(timerRef.current);
+    }, [expediente?.id]);
+
+    useEffect(() => {
+        if (readOnly || !onSave) return undefined;
+        const snapshot = JSON.stringify(local);
+        if (guardadoRef.current === null) { guardadoRef.current = snapshot; return undefined; }
+        if (snapshot === guardadoRef.current) return undefined;
+        clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => {
+            guardadoRef.current = snapshot;
+            // Solo la clave propia: `mergeDocumentacion` funde en el backend, así
+            // que no hace falta reenviar `documentacion` entera — y reenviarla
+            // desde una copia hidratada es justo lo que pisa lo que hayan escrito
+            // otros endpoints entretanto.
+            onSave({ documentacion: { subvenciones: local } }, { silentOk: true });
+        }, AUTOSAVE_MS);
+        return () => clearTimeout(timerRef.current);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [local, readOnly]);
+
+    useEffect(() => () => clearTimeout(timerRef.current), []);
 
     const set = (patch) => setLocal(prev => ({ ...prev, ...patch }));
     const setAyuda = (patch) => setLocal(prev => ({ ...prev, ayuda: { ...prev.ayuda, ...patch } }));
@@ -293,15 +335,16 @@ export function SubvencionesModule({ expediente, onSave, onLiveUpdate, saving, r
                 )}
             </div>
 
-            {!readOnly && dirty && (
+            {/* Sin botón de guardar: se guarda solo. Pero un autoguardado MUDO no se
+                distingue de no guardar, así que se acusa — es lo único que dice que
+                lo marcado ha llegado. */}
+            {!readOnly && (
                 <div className="flex justify-end pt-2">
-                    <button
-                        onClick={() => onSave({ documentacion: { ...expediente?.documentacion, subvenciones: local } })}
-                        disabled={saving}
-                        className="px-6 py-3 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 disabled:opacity-40 transition-all"
-                    >
-                        {saving ? 'Guardando…' : 'Guardar subvenciones'}
-                    </button>
+                    <span className={`flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest ${
+                        saving ? 'text-orange-400' : dirty ? 'text-white/30' : 'text-white/25'
+                    }`}>
+                        {saving ? 'Guardando…' : dirty ? 'Sin guardar…' : '✓ Guardado'}
+                    </span>
                 </div>
             )}
         </div>

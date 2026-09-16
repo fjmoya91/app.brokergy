@@ -129,6 +129,16 @@ export function subvencionesVacio() {
     };
 }
 
+// Compara enums sin que una normalización a MAYÚSCULAS los rompa. Ver la nota
+// de `leerSubvenciones`.
+const canon = (v) => String(v == null ? '' : v).trim().toLowerCase();
+const CATALOGO_IDS = [...CATALOGO_SUBVENCIONES.map(s => s.id), SUBVENCION_OTRA];
+const canonId = (valor, ids, porDefecto = '') => {
+    const c = canon(valor);
+    if (!c) return porDefecto;
+    return ids.find(id => canon(id) === c) || porDefecto;
+};
+
 /**
  * Lee lo guardado y lo devuelve SIEMPRE completo y normalizado. Un expediente
  * anterior a esta pestaña no tiene el campo: eso NO es "no ha solicitado nada",
@@ -141,14 +151,35 @@ export function leerSubvenciones(expediente) {
     if (!raw || typeof raw !== 'object') return base;
 
     const bono = raw.bono_social || {};
+    // ⚠️ Lo guardado puede venir en MAYÚSCULAS. `normalizeData` normalizaba
+    // `documentacion` entera y estos ids son enums en minúscula: el bono se
+    // marcaba, se guardaba como 'ELECTRICO_VULNERABLE' y aquí se DESCARTABA por
+    // no casar exacto — se volvía a la pestaña y no había nada marcado, y el
+    // Anexo I imprimía «Ninguno de los anteriores». Medido en 26RES060_165.
+    // La clave ya está en la BLACKLIST, pero lo escrito hasta hoy sigue ahí y
+    // tiene que poder abrirse: se casa SIN distinguir mayúsculas y se devuelve
+    // el id canónico. Mismo rescate que `rescatarHueco` en la envolvente.
     const tipos = Array.isArray(bono.tipos)
-        ? bono.tipos.filter(t => BONO_SOCIAL_OPCIONES.some(o => o.id === t) && t !== BONO_NINGUNO)
+        ? [...new Set(bono.tipos
+            .map(t => (BONO_SOCIAL_OPCIONES.find(o => canon(o.id) === canon(t)) || {}).id)
+            .filter(id => id && id !== BONO_NINGUNO))]
         : [];
 
+    const ayudaRaw = raw.ayuda || {};
     return {
         bono_social: { percibe: !!bono.percibe && tipos.length > 0, tipos },
         solicitada: !!raw.solicitada,
-        ayuda: { ...base.ayuda, ...(raw.ayuda || {}) },
+        ayuda: {
+            ...base.ayuda,
+            ...ayudaRaw,
+            // Los otros tres enums del bloque, por el mismo motivo. El de
+            // `fondo_nacional` no es cosmético: se compara con === 'si' y viaja
+            // al verificador en `SE_fondo_nacional`, así que en MAYÚSCULAS se le
+            // declaraba lo contrario de lo que consta en el expediente.
+            catalogo_id: canonId(ayudaRaw.catalogo_id, CATALOGO_IDS, base.ayuda.catalogo_id),
+            estado: canonId(ayudaRaw.estado, ESTADOS_CONCESION.map(e => e.id), base.ayuda.estado),
+            fondo_nacional: canon(ayudaRaw.fondo_nacional) === 'si' ? 'si' : 'no',
+        },
     };
 }
 
