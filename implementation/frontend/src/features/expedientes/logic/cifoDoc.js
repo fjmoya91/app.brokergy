@@ -23,7 +23,7 @@ import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs, HYBRI
 import { buildInstalacionAddress, empresaInstaladora, empresasActuacion,
     notaDelegacionRite } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
-import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevo, tipoEquipoNuevoLabel, esTermoElectrico, datosAcumulador, EQUIPO_NUEVO } from './aerotermiaUnits.js';
+import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevo, tipoEquipoNuevoLabel, esTermoElectrico, datosAcumulador, acsSerieDeclarada, EQUIPO_NUEVO } from './aerotermiaUnits.js';
 import { resolveDacs, ACS_METHOD } from './demandaAcs.js';
 import { ceeBaseDocumento, acsEnAlcance } from './ceeFases.js';
 import {
@@ -313,8 +313,16 @@ export function deriveCifoData({ expediente, results }) {
         : tieneAcs ? (inst.misma_aerotermia_acs ? calNuMarca : formatMarcas(inst.aerotermia_acs)) : '—';
     const acsNuMod = acum ? (acum.modelo || '—')
         : tieneAcs ? (inst.misma_aerotermia_acs ? calNuMod : formatModelos(inst.aerotermia_acs)) : '—';
+    // ⚠️ La SERIE no la decide el flag: la decide el dato. Un conjunto BIBLOC es
+    // UNA máquina del catálogo y DOS aparatos —la unidad exterior y la de dentro,
+    // que es la que calienta el agua—, cada uno con su placa. Con
+    // `misma_aerotermia_acs` en true esta fila imprimía la serie de la EXTERIOR
+    // teniendo la buena guardada en el nodo de ACS (8 expedientes medidos; visto
+    // en 26RES080_34). Ver `acsSerieDeclarada` en aerotermiaUnits.js.
     const acsNuSerieEx = acum ? (acum.serie || 'No aplica')
-        : tieneAcs ? (inst.misma_aerotermia_acs ? calNuSerieEx : formatSeries(inst.aerotermia_acs)) : '—';
+        : tieneAcs ? ((inst.misma_aerotermia_acs && !acsSerieDeclarada(inst))
+            ? calNuSerieEx
+            : formatSeries(inst.aerotermia_acs)) : '—';
     const acsNuUds = acum ? 1
         : tieneAcs ? (inst.misma_aerotermia_acs ? calNuUds : countUnidades(inst.aerotermia_acs)) : 0;
     const scopAcsRaw = tieneAcs ? parseFloat(inst.misma_aerotermia_acs ? inst.aerotermia_cal?.scop : inst.aerotermia_acs?.scop || 0) : 0;

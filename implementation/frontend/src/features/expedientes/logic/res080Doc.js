@@ -23,7 +23,7 @@ import { buildInstalacionAddress, empresaInstaladora, empresasActuacion,
 import { calcCifo } from './calcCifo.js';
 import { EMITTER_OPTIONS, emitterScopContext } from './cifoDoc.js';
 import { emisorLabelDocumento } from './emisores.js';
-import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevoLabel, esTermoElectrico, esAcumuladorAcs, datosAcumulador } from './aerotermiaUnits.js';
+import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevoLabel, esTermoElectrico, esAcumuladorAcs, datosAcumulador, acsSerieDeclarada } from './aerotermiaUnits.js';
 
 const DOC_WIDTH = '794px';
 
@@ -318,9 +318,13 @@ export function deriveRes080Data({ expediente, results, parseHuecosFromXml }) {
     const acsNuBrand = acumAcs ? (acumAcs.marca || '—') : sameAero ? calNuBrand : formatMarcas(inst.aerotermia_acs);
     const acsNuMod = acumAcs ? (acumAcs.modelo || '—') : sameAero ? calNuMod : formatModelos(inst.aerotermia_acs);
     const acsNuScop = sameAero ? calNuScop : (inst.aerotermia_acs?.scop || '—');
+    // «Misma unidad» solo vale cuando de verdad hay UN aparato. En un conjunto
+    // BIBLOC el de dentro tiene su propia placa y su propia serie: si el nodo de
+    // ACS la declara, se imprime, aunque el flag diga que es el mismo equipo.
+    // Ver `acsSerieDeclarada` en aerotermiaUnits.js.
     const acsNuSerie = acumAcs
         ? (acumAcs.serie || 'No aplica')
-        : sameAero
+        : (sameAero && !acsSerieDeclarada(inst))
             ? (calNuUds > 1 ? 'Mismas unidades' : 'Misma unidad')
             : formatSeries(inst.aerotermia_acs);
     const acsNuUds = acumAcs ? 1 : sameAero ? calNuUds : countUnidades(inst.aerotermia_acs);

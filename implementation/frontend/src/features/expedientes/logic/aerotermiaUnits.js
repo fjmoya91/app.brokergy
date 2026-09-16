@@ -319,6 +319,36 @@ export function mismaMaquina(a, b) {
 }
 
 /**
+ * ¿El nodo de ACS declara su PROPIO nº de serie?
+ *
+ * REGLA — el flag tampoco puede esconder una SERIE declarada. Un CONJUNTO
+ * BIBLOC es UNA máquina del catálogo (mismo `aerotermia_db_id` en los dos
+ * nodos) pero DOS aparatos atornillados en sitios distintos, cada uno con su
+ * placa: la unidad exterior y la de dentro, que es la que calienta y acumula el
+ * agua. El CIFO las declara en dos filas («Nº serie unidad exterior» y «Nº serie
+ * equipo ACS») y el Anexo I en dos líneas («Ud. exterior» / «Ud. interior»).
+ *
+ * Con `misma_aerotermia_acs` en true esos documentos leían la serie del nodo de
+ * CALEFACCIÓN, así que imprimían la de la unidad exterior en la fila de la
+ * interior — teniendo la buena escrita en el expediente. Medido el 16/09/2026:
+ * **8 expedientes** en producción, todos con SCOP_dhw propio (o sea, con el
+ * bloque de ACS rellenado a conciencia). Visto en 26RES080_34, que declaraba
+ * `075076300000022` en las dos líneas teniendo `002425200000056` guardada.
+ *
+ * Es la misma regla de `acsMismoEquipo` aplicada a la serie: entre un booleano
+ * que nadie ha tocado y un dato escrito a mano, manda el dato. NO toca el
+ * equipo, el SCOP ni el ahorro — solo qué nº de serie se imprime.
+ *
+ * Si el nodo de ACS no declara serie (el caso normal de un monobloc, donde hay
+ * un solo aparato) devuelve false y el documento sigue cayendo a la de
+ * calefacción, que es lo correcto.
+ */
+export function acsSerieDeclarada(inst) {
+    return getUnidades(inst?.aerotermia_acs)
+        .some(u => !!String(u?.numero_serie || u?.n_serie_ext || '').trim());
+}
+
+/**
  * ¿El nodo de ACS es una SEGUNDA máquina, que hay que identificar por separado?
  *
  * No basta con `!misma_aerotermia_acs`. Desde que un CONJUNTO (equipo con el

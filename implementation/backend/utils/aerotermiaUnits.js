@@ -116,4 +116,16 @@ function acsEsOtraMaquina(inst) {
     return !mismaMaquina(inst.aerotermia_acs, inst.aerotermia_cal);
 }
 
-module.exports = { getUnidades, countUnidades, unidadesSinSerie, seriesPlanas, tipoEquipoNuevo, esTermoElectrico, esAcumuladorAcs, justificaScop, acsComputaAhorro, mismaMaquina, acsEsOtraMaquina };
+/**
+ * ¿El nodo de ACS declara su PROPIO nº de serie? Espejo de `acsSerieDeclarada`
+ * en la fuente ESM: un conjunto BIBLOC es una sola máquina del catálogo pero dos
+ * aparatos con dos placas, y el flag `misma_aerotermia_acs` hacía que el CIFO y
+ * el Anexo I imprimieran la serie de la unidad exterior en la fila de la
+ * interior. Entre el booleano y el dato escrito, manda el dato.
+ */
+function acsSerieDeclarada(inst) {
+    return getUnidades(inst && inst.aerotermia_acs)
+        .some(u => !!String((u && (u.numero_serie || u.n_serie_ext)) || '').trim());
+}
+
+module.exports = { getUnidades, countUnidades, unidadesSinSerie, seriesPlanas, tipoEquipoNuevo, esTermoElectrico, esAcumuladorAcs, justificaScop, acsComputaAhorro, mismaMaquina, acsEsOtraMaquina, acsSerieDeclarada };

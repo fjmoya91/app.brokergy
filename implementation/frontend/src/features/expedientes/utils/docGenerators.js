@@ -4,7 +4,7 @@
  * Generadores compartidos para Anexo I y Anexo de Cesión.
  */
 
-import { formatSeries, countUnidades, esAcumuladorAcs, datosAcumulador } from '../logic/aerotermiaUnits.js';
+import { formatSeries, countUnidades, esAcumuladorAcs, datosAcumulador, acsSerieDeclarada } from '../logic/aerotermiaUnits.js';
 import { anexoIStates, BONO_SOCIAL_LABELS } from '../logic/subvenciones.js';
 // Las @font-face auto-alojadas: la misma función que el CIFO y la propuesta.
 import { buildFontFaces, FUENTE_INTER } from '../logic/fuentesDoc.js';
@@ -535,9 +535,15 @@ export const deriveAnexoI = (expediente, results, states = {}, opts = {}) => {
     const acsAero = inst.misma_aerotermia_acs ? inst.aerotermia_cal : inst.aerotermia_acs;
     const acsEsAcumulador = esAcumuladorAcs(acsAero);
     const snAcum = acsEsAcumulador ? datosAcumulador(acsAero).serie : '';
+    // ⚠️ La SERIE de la ud. interior la decide el DATO, no el flag: un conjunto
+    // bibloc son dos aparatos con dos placas, y con `misma_aerotermia_acs` en
+    // true esta línea repetía la de la unidad exterior teniendo la de dentro
+    // guardada en el nodo de ACS. Ver `acsSerieDeclarada` en aerotermiaUnits.js.
     const snInt = acsEsAcumulador
         ? snAcum
-        : (inst.misma_aerotermia_acs ? snExt : formatSeries(inst.aerotermia_acs, { dash, sep, prefijo: '' }));
+        : ((inst.misma_aerotermia_acs && !acsSerieDeclarada(inst))
+            ? snExt
+            : formatSeries(inst.aerotermia_acs, { dash, sep, prefijo: '' }));
     const mostrarInt = hasAcs && (!acsEsAcumulador || !!snAcum);
     const refCatastral = instAddr.refCatastral || dash;
     // Con una sola unidad la línea queda igual que siempre ("Ud. exterior: XXX").
