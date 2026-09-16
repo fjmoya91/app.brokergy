@@ -5,6 +5,11 @@
 //   node implementation/backend/scripts/probar_cex_envolvente.js <expedienteId|nºexpte>
 //   node implementation/backend/scripts/probar_cex_envolvente.js 26RES060_186 --escribir
 //   node implementation/backend/scripts/probar_cex_envolvente.js 26RES060_186 --final
+//   node implementation/backend/scripts/probar_cex_envolvente.js 2026CEE_55 --cee
+//
+// `--cee` es un CEE contratado SUELTO (`cee_directos`). Es el mismo camino con
+// otra tabla detrás y otra carpeta de Drive: si esto falla ahí y no en el CAE,
+// el problema está en el adaptador (`logic/ceeDirecto.js`), no en el motor.
 //
 // EN SECO por defecto: lee, compone, genera el .cex y lo relee, pero NO toca
 // Drive. Con `--escribir` lo deja en su carpeta como haría el botón.
@@ -23,6 +28,11 @@ const ceeUploadService = require('../services/ceeUploadService');
 const MOTOR = process.env.CEE_ENGINE_URL || 'http://127.0.0.1:8090';
 const ESCRIBIR = process.argv.includes('--escribir');
 const FASE = process.argv.includes('--final') ? 'final' : 'inicial';
+const ORIGEN = process.argv.includes('--cee') ? 'cee' : 'cae';
+// `offline` evita tocar Catastro si la RC ya está en la caché del motor. Con
+// `--online` se le deja preguntar: hace falta la primera vez que se prueba un
+// inmueble, y es UNA petición, la misma que hace el botón.
+const OFFLINE = !process.argv.includes('--online');
 const CLAVE = process.argv[2];
 
 async function main() {
@@ -41,7 +51,7 @@ async function main() {
 
     // El MISMO cargador que usa la ruta: si aquí se cargara a mano, el script
     // podría dar por buena una ficha que el botón no puede componer.
-    const ctx = await cex.cargarExpediente(CLAVE);
+    const ctx = await cex.cargarExpediente(CLAVE, ORIGEN);
     if (!ctx) throw new Error(`No encuentro el expediente ${CLAVE}`);
     const { expediente, cliente, driveFolderId } = ctx;
 
@@ -50,7 +60,7 @@ async function main() {
 
     const rc = expediente.instalacion?.ref_catastral;
     if (!rc) throw new Error('El expediente no tiene referencia catastral.');
-    const geo = await alMotor('/envolvente', { referencia_catastral: rc, offline: true });
+    const geo = await alMotor('/envolvente', { referencia_catastral: rc, offline: OFFLINE });
     console.log(`\n2. envolvente de ${rc}`);
     console.log(`   ${geo.plantas.length} planta(s) dibujable(s) · ${geo.geometria.elementos.length} elementos`
                 + ` · lienzo ${geo.ancho} × ${geo.alto} m`);

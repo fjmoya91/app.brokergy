@@ -119,6 +119,14 @@ router.post('/:expedienteId/geometria', internalOnly, async (req, res) => {
             altura_planta: req.body?.altura_planta ?? null,
             offline: req.body?.offline === true,
             construcciones,
+            // Los CUERPOS del edificio que el certificador deja fuera (el
+            // aparcamiento adosado, el porche). Vienen del navegador como el
+            // resto de lo que señala en el plano —las paredes apartadas, los
+            // huecos— y se guardan con su trabajo; las CONSTRUCCIONES, en
+            // cambio, se leen aquí porque son de la oportunidad.
+            cuerpos_excluidos: Array.isArray(req.body?.cuerpos_excluidos)
+                ? req.body.cuerpos_excluidos.filter(x => typeof x === 'string').slice(0, 50)
+                : null,
         }, ESPERA_ENVOLVENTE_MS);
 
         const datos = await r.json();
@@ -384,6 +392,19 @@ router.post('/:expedienteId/cex', internalOnly, async (req, res) => {
 
         const fase = req.body?.fase || 'inicial';
         const esFinal = fase === 'final';
+
+        // Un CEE contratado de ALCANCE ÚNICO no tiene fase final: su fichero se
+        // llama «CEE» a secas y vive en «1. CEE», así que un «final» saldría con
+        // el MISMO nombre en la MISMA carpeta y archivaría en OLD el que se
+        // acaba de generar. La pantalla ya no ofrece el botón; esto es la red de
+        // abajo (un navegador sin refrescar lo seguiría mandando).
+        if (esFinal && cex.esCeeDirecto(ctx.expediente)
+            && String(ctx.expediente.alcance || 'UNICO').toUpperCase() !== 'DOBLE') {
+            return res.status(409).json({
+                error: 'Este encargo es de UN solo certificado: no tiene CEE final. '
+                     + 'Si la obra lo necesita, amplía el alcance a doble desde su ficha.',
+            });
+        }
 
         // El CEE FINAL no se levanta de cero: se COPIA el inicial y se le cambia
         // el generador. Es como se hace a mano, y por dos motivos que no son de

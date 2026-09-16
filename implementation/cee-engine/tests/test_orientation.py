@@ -47,3 +47,34 @@ def test_en_un_patio_la_normal_mira_hacia_el_patio():
     # el muro del lado OESTE del patio mira al Este
     oeste = next(s for s in interiores if abs(s.x1 - 4) < 1e-6 and abs(s.x2 - 4) < 1e-6)
     assert oeste.orientation == "E"
+
+
+# ── Una planta en DOS cuerpos (§ MultiPolygon) ──────────────────────────────
+#
+# Catastro dibuja algunas viviendas en dos trozos que no se tocan (la casa y su
+# anejo al fondo del patio), y entonces la huella de esa planta es un
+# `MultiPolygon`. `segmentar` moria ahi con un `'MultiPolygon' object has no
+# attribute 'exterior'` que llegaba tal cual a la pantalla del certificador
+# (medido en la parcela 9412508VJ8691S). Las paredes de los dos cuerpos son
+# paredes del edificio y todas cuentan.
+
+def test_una_planta_en_dos_cuerpos_se_segmenta_entera():
+    from shapely.geometry import MultiPolygon
+    otro = Polygon([(20, 0), (26, 0), (26, 6), (20, 6)])
+    solos = segmentar(CUADRADO) + segmentar(otro)
+    juntos = segmentar(MultiPolygon([CUADRADO, otro]))
+
+    assert len(juntos) == len(solos) == 8
+    # La numeracion sigue corrida: dos segmentos con el mismo id son dos
+    # cerramientos indistinguibles en el .cex.
+    assert [s.id for s in juntos] == [f"S{n:03d}" for n in range(1, 9)]
+    assert sorted(round(s.length_m, 2) for s in juntos) == sorted(
+        round(s.length_m, 2) for s in solos)
+
+
+def test_un_poligono_suelto_se_segmenta_igual_que_siempre():
+    """La salida NO cambia para lo de siempre: de esto cuelgan las superficies
+    de fachada de todos los expedientes ya medidos."""
+    segs = segmentar(CUADRADO)
+    assert [s.id for s in segs] == ["S001", "S002", "S003", "S004"]
+    assert all(s.length_m == 10.0 for s in segs)

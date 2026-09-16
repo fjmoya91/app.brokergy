@@ -604,7 +604,7 @@ function Foto({ titulo, cual, b64, puesta, cargando, onSustituir, onQuitar }) {
 // ─────────────────────────────────────────────────────────────────────────────
 export function PanelInstalaciones({ fase = 'inicial', onFase, equipo, superficie,
                                      ajustes = {}, onAjuste, extras = [], onExtra,
-                                     onAnadir, onBorrar, children }) {
+                                     onAnadir, onBorrar, dosFases = true, children }) {
     const esFinal = fase === 'final';
     const [abierta, setAbierta] = useState('principal');
 
@@ -614,7 +614,7 @@ export function PanelInstalaciones({ fase = 'inicial', onFase, equipo, superfici
 
     return (
         <Ventana titulo="Instalaciones">
-            <SelectorFase fase={fase} onFase={onFase} />
+            <SelectorFase fase={fase} onFase={onFase} dosFases={dosFases} />
             {children}
 
             {esFinal ? (
@@ -996,7 +996,7 @@ function Editable({ rotulo, unidad, suyo, onDeshacer, ancho, children }) {
 // con sus palabras sin abrir el .cex para corregirlo después.
 // ─────────────────────────────────────────────────────────────────────────────
 export function PanelMedidas({ catalogo, elegidas, onElegir, fase = 'inicial', onFase,
-                               textos = {}, onTexto }) {
+                               textos = {}, onTexto, dosFases = true }) {
     const [abierta, setAbierta] = useState(null);
     // Sin elección a mano manda lo que trae marcado la fase.
     const marcadas = elegidas || (catalogo || []).filter(m => m.porDefecto).map(m => m.id);
@@ -1008,7 +1008,7 @@ export function PanelMedidas({ catalogo, elegidas, onElegir, fase = 'inicial', o
 
     return (
         <Ventana titulo="Medidas de mejora">
-            <SelectorFase fase={fase} onFase={onFase} />
+            <SelectorFase fase={fase} onFase={onFase} dosFases={dosFases} />
 
             <div>
                 <div className="flex items-baseline justify-between gap-3">
@@ -1271,8 +1271,13 @@ function Campo({ c, v, puesto, onCambiar }) {
  *
  * La envolvente es la misma en las dos —la obra no la toca—: lo único que
  * cambia es el generador que se escribe, así que solo aparece donde eso se ve.
+ *
+ * `dosFases` a false lo quita entero: en un CEE contratado de ALCANCE ÚNICO no
+ * hay un después, y su fichero se llamaría igual que el de la fase inicial —el
+ * «final» archivaría al otro en OLD sin que nadie lo pidiera.
  */
-export function SelectorFase({ fase = 'inicial', onFase }) {
+export function SelectorFase({ fase = 'inicial', onFase, dosFases = true }) {
+    if (!dosFases) return null;
     return (
         <div className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest">
             {[['inicial', 'CEE inicial · caldera'],

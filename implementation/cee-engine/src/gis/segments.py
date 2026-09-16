@@ -85,7 +85,25 @@ def segmentar(poly: Polygon, *, owner_id: str | None = None, floor: int | None =
 
     Los segmentos mas cortos que `min_length_m` se descartan: son artefactos de
     digitalizacion de la cartografia, no cerramientos.
+
+    Una planta puede llegar como MULTIPOLIGONO: Catastro dibuja algunas
+    viviendas en dos cuerpos que no se tocan (la casa y su anejo al fondo del
+    patio), y la huella de esa planta es entonces un `MultiPolygon`. Sin esta
+    salida el motor moria con un `'MultiPolygon' object has no attribute
+    'exterior'` que llegaba a la pantalla tal cual — medido en la parcela
+    9412508VJ8691S. Cada trozo tiene sus propias paredes y todas cuentan, asi
+    que se segmentan todos y la numeracion sigue corrida.
     """
+    if getattr(poly, "geom_type", "") == "MultiPolygon":
+        salida: list[Segment] = []
+        n = start
+        for parte in poly.geoms:
+            trozo = segmentar(parte, owner_id=owner_id, floor=floor, prefijo=prefijo,
+                              min_length_m=min_length_m, start=n)
+            salida.extend(trozo)
+            n += len(trozo)
+        return salida
+
     poly = orient(poly, sign=1.0)          # exterior CCW, huecos CW
     salida: list[Segment] = []
     n = start
