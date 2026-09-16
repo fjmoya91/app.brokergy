@@ -26,6 +26,7 @@ import { priorizarPorRol, avisoReparto } from '../../expedientes/utils/docContac
 // ─────────────────────────────────────────────────────────────────────────────
 
 const phoneValid = (ph) => (ph || '').replace(/[^0-9]/g, '').length >= 9;
+const eur = (n) => `${new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0, useGrouping: true }).format(Math.round(Number(n) || 0))} €`;
 const MODE_ORDER = ['CLIENTE', 'PARTNER', 'INSTALADOR', 'OTRO'];
 // La propuesta es asunto COMERCIAL: dentro de un partner la recibe quien lleva la
 // obra con el cliente, no quien firma los certificados (regla del reparto).
@@ -89,6 +90,10 @@ export function EnviarPropuestaModal({
     ceeComparisonAvailable = false, // el cliente aportó CEE → ofrecer la variante comparativa
     includeCee = false,             // controlado por el padre (ProposalModal): toggle comparativa CEE
     onIncludeCeeChange,             // (bool) => void — sincroniza el toggle con el PDF
+    fcVisible = false,              // quien envía es STAFF → se le enseña el bloque del FC
+    fcEstado = null,                // { procede, motivo, actual, fc, extra } — ver logic/avisoFc.js
+    includeFc = false,              // controlado por el padre; apagado por defecto
+    onIncludeFcChange,              // (bool) => void
     onContactoActualizado,          // () => void — el padre relee los contactos tras editarlos
 }) {
     const [selectedModes, setSelectedModes] = useState([]);
@@ -211,12 +216,24 @@ export function EnviarPropuestaModal({
     const principalDe = (mode, estado = personasSel) =>
         priorizarPorRol(resolveContacts(mode, estado), ROL_PROPUESTA)[0] || null;
 
-    const applyDefaultMessage = (modes, ceeFlag = includeCee, estado = personasSel) => {
+    const applyDefaultMessage = (modes, ceeFlag = includeCee, estado = personasSel, fcFlag = includeFc) => {
         if (userEditedRef.current) return;
         const pm = MODE_ORDER.find(m => modes.includes(m)) || (candidates[0]?.mode || 'CLIENTE');
         const c = principalDe(pm, estado);
-        let base = buildDefaultMessage ? buildDefaultMessage(pm, saludoDe(c), { cee: ceeFlag }) : '';
+        let base = buildDefaultMessage ? buildDefaultMessage(pm, saludoDe(c), { cee: ceeFlag, fc: fcFlag }) : '';
         if (noteInMessage && extraNote.trim()) base = composeNote(base, extraNote);
+        setMessage(base);
+    };
+
+    // Rehacer el borrador con los dos interruptores de contenido (comparativa CEE
+    // y aviso del factor de corrección). Al pulsarlos se descarta la marca de
+    // "editado a mano": lo que se acaba de pedir es OTRO mensaje, no un retoque.
+    const rehacerMensaje = (ceeFlag, fcFlag) => {
+        const pm = MODE_ORDER.find(m => selectedModes.includes(m)) || (candidates[0]?.mode || 'CLIENTE');
+        const c = principalDe(pm);
+        let base = buildDefaultMessage ? buildDefaultMessage(pm, saludoDe(c), { cee: ceeFlag, fc: fcFlag }) : '';
+        if (noteInMessage && extraNote.trim()) base = composeNote(base, extraNote);
+        userEditedRef.current = false;
         setMessage(base);
     };
 
@@ -224,12 +241,16 @@ export function EnviarPropuestaModal({
     const toggleIncludeCee = () => {
         const next = !includeCee;
         if (onIncludeCeeChange) onIncludeCeeChange(next);
-        const pm = MODE_ORDER.find(m => selectedModes.includes(m)) || (candidates[0]?.mode || 'CLIENTE');
-        const c = principalDe(pm);
-        let base = buildDefaultMessage ? buildDefaultMessage(pm, saludoDe(c), { cee: next }) : '';
-        if (noteInMessage && extraNote.trim()) base = composeNote(base, extraNote);
-        userEditedRef.current = false;
-        setMessage(base);
+        rehacerMensaje(next, includeFc);
+    };
+
+    // Toggle "Incluir el factor de corrección": solo toca el MENSAJE. El PDF de la
+    // propuesta no lo lleva a propósito — es un documento con cifras que se firma,
+    // y la del FC no es firme (borrador en consulta pública).
+    const toggleIncludeFc = () => {
+        const next = !includeFc;
+        if (onIncludeFcChange) onIncludeFcChange(next);
+        rehacerMensaje(includeCee, next);
     };
 
     // Nota adicional: refleja en la previsualización (mensaje del destinatario
@@ -264,7 +285,8 @@ export function EnviarPropuestaModal({
         const pc = principalDe(pm, {});
         // includeCee lo controla el padre (ProposalModal); usamos su valor para el mensaje inicial.
         const initCee = !!ceeComparisonAvailable && !!includeCee;
-        setMessage(buildDefaultMessage ? buildDefaultMessage(pm, saludoDe(pc), { cee: initCee }) : '');
+        const initFc = !!fcEstado?.procede && !!includeFc;
+        setMessage(buildDefaultMessage ? buildDefaultMessage(pm, saludoDe(pc), { cee: initCee, fc: initFc }) : '');
         setStatus(null);
         setSendPhase(null);
         setSendResults([]);
@@ -765,6 +787,42 @@ export function EnviarPropuestaModal({
                                 {includeCee ? 'Incluida' : 'Añadir'}
                             </span>
                         </button>
+                    )}
+
+                    {/* Bloque del FACTOR DE CORRECCIÓN (ficha RES060FC, en consulta pública).
+                        Solo lo ve el STAFF, y NUNCA desaparece en silencio: si no se puede
+                        ofrecer, en su sitio queda la razón. Un control que unas veces está y
+                        otras no, sin decir por qué, se lee como que la app está rota.
+                        Violeta, el mismo color con el que el FC ya se lee en la calculadora. */}
+                    {fcVisible && fcEstado?.procede && (
+                        <button type="button" onClick={toggleIncludeFc}
+                            className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border transition-colors ${includeFc ? 'bg-violet-500/10 border-violet-500/30' : 'bg-bkg-elevated border-white/5 hover:border-white/15'}`}>
+                            <span className="flex items-center gap-2 text-left">
+                                <svg className="w-4 h-4 text-violet-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3M3 11h18M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                <span className="text-[11px] font-bold text-white/80">
+                                    Incluir el factor de corrección (FC)
+                                    <span className="text-white/35 font-normal"> — con la ficha nueva el bono subiría a {eur(fcEstado.fc)} (+{eur(fcEstado.extra)})</span>
+                                </span>
+                            </span>
+                            <span className={`flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest shrink-0 ${includeFc ? 'text-brand' : 'text-white/30'}`}>
+                                <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center ${includeFc ? 'border-brand bg-brand' : 'border-white/20'}`}>
+                                    {includeFc && <svg className="w-2.5 h-2.5 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                </span>
+                                {includeFc ? 'Incluido' : 'Añadir'}
+                            </span>
+                        </button>
+                    )}
+                    {fcVisible && fcEstado?.procede && includeFc && (
+                        <p className="-mt-2 text-[9px] text-white/30 leading-relaxed">
+                            Va solo en el mensaje, no en el PDF: la ficha está en consulta pública y esa cifra
+                            no es firme. El texto lo dice y repite el importe de la propuesta.
+                        </p>
+                    )}
+                    {fcVisible && fcEstado && !fcEstado.procede && (
+                        <p className="text-[9px] text-white/25 leading-relaxed px-1">
+                            <span className="text-white/40 font-bold">Factor de corrección (FC):</span> no se puede ofrecer en esta
+                            propuesta — {fcEstado.motivo}.
+                        </p>
                     )}
 
                     {/* Mensaje (previsualización editable) */}

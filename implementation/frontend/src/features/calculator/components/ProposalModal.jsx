@@ -6,6 +6,10 @@ import AppConfirm from '../../../components/AppConfirm';
 import { EnviarPropuestaModal } from './EnviarPropuestaModal';
 import { computeCeeComparison } from '../logic/ceeComparison';
 import { esPresupuestoEstimado, avisoPresupuestoEstimado, lineaPresupuestoEstimado } from '../logic/presupuestoEstimado';
+// Aviso del factor de corrección (ficha RES060FC en consulta pública): decide si
+// procede ofrecerlo y redacta el párrafo. Fuente única — ver `logic/avisoFc.js`.
+import { estadoFc, lineaFactorCorreccion } from '../logic/avisoFc';
+import { getRoleFlags } from '../../../utils/roleFlags';
 import { postEmail } from '../../../utils/emailFallback';
 // Los nombres se guardan en MAYÚSCULAS (el formulario las fuerza): en el saludo
 // se escriben bien. FUENTE ÚNICA con el resto de mensajes de la app.
@@ -635,6 +639,10 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     const [emailChoice, setEmailChoice] = useState(false);
     const [enviarOpen, setEnviarOpen] = useState(false); // popup unificado de envío (homogéneo con anexos)
     const [includeCeeComp, setIncludeCeeComp] = useState(true); // incluir la comparativa CEE en PDF + mensaje
+    // Aviso del FACTOR DE CORRECCIÓN: apagado por defecto. No es una cifra firme
+    // (borrador en consulta pública) y a unos clientes les compensa esperar a
+    // enero y a otros no: lo decide quien envía, propuesta a propuesta.
+    const [includeFc, setIncludeFc] = useState(false);
     const [emailSelections, setEmailSelections] = useState(new Set());
     const [manualContact, setManualContact] = useState({ name: '', phone: '', email: '' });
 
@@ -1779,6 +1787,20 @@ info@brokergy.es · 623 926 179`;
         };
     }, [inputs, result]);
 
+    /**
+     * ¿Esta propuesta mejoraría con la ficha revisada (factor de corrección)?
+     *
+     * Trae las dos cifras y cuánto sube, o el MOTIVO por el que no se puede
+     * ofrecer. El motivo viaja hasta el popup a propósito: un control que
+     * desaparece sin decir nada no se distingue de uno roto.
+     *
+     * `fcVisible` gatea a STAFF el bloque entero: es normativa en consulta
+     * pública y un partner no puede anunciar importes de una ficha que no existe.
+     */
+    const fcEstado = useMemo(() => estadoFc(result, inputs), [result, inputs]);
+    const fcVisible = getRoleFlags(user).isStaff;
+    const fcInfo = fcEstado.procede ? fcEstado : null;
+
     const buildCaptionBase = useCallback((mode, targetName, opts = {}) => {
         const f = result || {};
         const fAero = f.financials || {};
@@ -1845,17 +1867,33 @@ info@brokergy.es · 623 926 179`;
      *
      * Sigue siendo editable en el popup de envío: `buildCaption` solo compone el
      * borrador, y el texto que de verdad sale es el que quede en la caja.
+     *
+     * Lo mismo con el aviso del FACTOR DE CORRECCIÓN (`opts.fc`, que enciende el
+     * toggle del popup de envío): un párrafo, al final, fuera de las quince ramas.
+     * Va DESPUÉS del de presupuesto estimado a propósito — aquél matiza la cifra
+     * que se ofrece y éste habla de una cifra futura que todavía no existe.
      */
     const buildCaption = useCallback((mode, targetName, opts = {}) => {
-        const txt = buildCaptionBase(mode, targetName, opts) || '';
-        if (!txt || !presInfo.estimado) return txt;
-        const nota = lineaPresupuestoEstimado({
-            conIrpf: presInfo.conIrpf,
-            tuteo: true,
-            importe: presInfo.importe,
-        });
-        return `${txt}\n\n⚠️ *Importante — el presupuesto de la obra es estimado.* ${nota}`;
-    }, [buildCaptionBase, presInfo]);
+        let txt = buildCaptionBase(mode, targetName, opts) || '';
+        if (!txt) return txt;
+        if (presInfo.estimado) {
+            const nota = lineaPresupuestoEstimado({
+                conIrpf: presInfo.conIrpf,
+                tuteo: true,
+                importe: presInfo.importe,
+            });
+            txt = `${txt}\n\n⚠️ *Importante — el presupuesto de la obra es estimado.* ${nota}`;
+        }
+        if (opts.fc && fcInfo) {
+            txt = `${txt}\n\n${lineaFactorCorreccion({
+                actual: fcInfo.actual,
+                fc: fcInfo.fc,
+                dosOpciones: fcInfo.dosOpciones,
+                tuteo: mode !== 'PARTNER' && mode !== 'INSTALADOR',
+            })}`;
+        }
+        return txt;
+    }, [buildCaptionBase, presInfo, fcInfo]);
 
     const sendToMultiple = useCallback(async (selectedModes, customMessages = {}) => {
         setRecipientChoice(false);
@@ -3665,6 +3703,10 @@ info@brokergy.es · 623 926 179`;
                 ceeComparisonAvailable={!!ceeComparison}
                 includeCee={includeCeeComp}
                 onIncludeCeeChange={setIncludeCeeComp}
+                fcVisible={fcVisible}
+                fcEstado={fcEstado}
+                includeFc={includeFc}
+                onIncludeFcChange={setIncludeFc}
             />
         </div>
     );
