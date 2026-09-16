@@ -31,6 +31,17 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
     //: plano a su zoom de partida a media faena.
     const [geometria, setGeometria] = useState({ movidas: {}, dibujadas: [] });
 
+    //: Los CUERPOS del edificio que el certificador deja FUERA: el aparcamiento
+    //: adosado, el porche, el trastero del fondo. En un certificado la
+    //: envolvente es la de la VIVIENDA, y Catastro dibuja el edificio en partes
+    //: —la casa es una y el garaje otra— pero el plano se arma por NIVEL, así
+    //: que sus paredes entraban igual.
+    //:
+    //: Va en su PROPIO estado, no derivado de `muros`: al quitar un cuerpo el
+    //: edificio se vuelve a medir y sus paredes dejan de existir, así que no hay
+    //: ningún muro del que leerlo después.
+    const [cuerposFuera, setCuerposFuera] = useState([]);
+
     /**
      * Monta el estado del plano desde la geometría y le pone encima un TRABAJO.
      *
@@ -99,6 +110,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                     }, medirPared(pts, nuevo[k].alto));
                 }
                 setGeometria(geoGuardada);
+                setCuerposFuera(Array.isArray(g.cuerpos_fuera) ? g.cuerpos_fuera : []);
             }
         } catch { /* almacenamiento bloqueado: se empieza limpio */ }
         setMuros(nuevo);
@@ -134,7 +146,11 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         // volver a colocar un tabique y perderlo al recargar sería peor que no
         // poder moverlo.
         paredes: geometria,
-    } : null), [muros, entrada, sel, geometria]);
+        // Los cuerpos que se han dejado fuera. Se guardan porque hay que volver
+        // a PEDIR la geometría con ellos: si no, al recargar el aparcamiento
+        // volvería a la envolvente y nadie se enteraría.
+        cuerpos_fuera: cuerposFuera,
+    } : null), [muros, entrada, sel, geometria, cuerposFuera]);
 
     useEffect(() => {
         if (!Object.keys(muros).length) return;
@@ -442,6 +458,33 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
     }
 
     /**
+     * Deja FUERA de la envolvente un cuerpo entero del edificio, o lo devuelve.
+     *
+     * Es la decisión que antes costaba cuatro clics y acertar con qué paredes
+     * eran del garaje. Cambiarlo obliga a volver a MEDIR —lo hace la vista—:
+     * la pared que separaba el garaje de la casa aparece entonces como lo que
+     * es, y se van con él su cubierta y su suelo.
+     */
+    function sacaCuerpo(id, fuera = true) {
+        if (!id) return;
+        setCuerposFuera(v => (fuera ? [...new Set([...v, id])] : v.filter(x => x !== id)));
+    }
+
+    /**
+     * La otra salida: APARTAR sus paredes sin volver a medir.
+     *
+     * Es instantáneo y usa el mecanismo de siempre (`excluir_ids`), pero la
+     * pared que separaba el cuerpo del resto NO existe en el modelo —Catastro
+     * une los dos y esa línea queda dentro—, así que la casa se queda abierta
+     * por ahí y hay que dibujarla. Por eso no es lo que se ofrece primero.
+     */
+    function apartaParedesDe(cuerpo, si = true) {
+        if (!cuerpo) return;
+        setMuros(v => Object.fromEntries(Object.entries(v).map(([k, m]) => (
+            m.cuerpo === cuerpo ? [k, { ...m, excluida: !!si }] : [k, m]))));
+    }
+
+    /**
      * Reclasificar una pared: fachada · medianera · partición.
      *
      * Lo que Catastro dice de una pared es una deducción geométrica —hay
@@ -681,6 +724,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         muevePared, dibujaPared, borraPared, esDibujada,
         marcaComoParticion,
         apartaDeLaEnvolvente, reclasifica, renombra, ponU, orienta,
+        cuerposFuera, sacaCuerpo, apartaParedesDe,
         loSenalado, restaurar,
         esCandidata, esMedianera, esParticion, esFuera, tipoDe, nombreDe, estadoDe,
         rumboDe, necesitaRumbo, rumbosDe,

@@ -6,6 +6,9 @@ import { PestanasCe3x } from '../components/PestanasCe3x';
 import { buildInstalacionAddress } from '../../expedientes/utils/docGenerators';
 import { EnlacesInmueble } from '../../../components/EnlacesInmueble';
 import { esCeeDirecto } from '../logic/apiEnvolvente';
+import { abrirCarpetaLocal } from '../../../utils/carpetaLocal';
+import { useAuth } from '../../../context/AuthContext';
+import { getRoleFlags } from '../../../utils/roleFlags';
 import { ceeDirectoComoExpediente } from '../logic/ceeDirecto';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -29,6 +32,25 @@ export function EnvolventeVentana({ expedienteId }) {
     // la cabecera, como en CE3X— pero lo que dicen y lo que hacen solo se sabe
     // dentro de la vista: son la ficha y el plano.
     const [barra, setBarra] = useState(null);
+    const [abriendo, setAbriendo] = useState(false);
+    //: La carpeta LOCAL es del equipo interno: su ruta la sirve una ruta
+    //: `staffOnly` y al CERTIFICADOR no se le ofrece (le daria un 403 y ademas
+    //: no es su sitio — el trabaja contra la carpeta que se le comparte).
+    const { user } = useAuth();
+    const { isStaff: esStaff } = getRoleFlags(user);
+
+    // El Explorador de Windows, en la carpeta de ESTE expediente: es de donde se
+    // arrastra el `.cex` a CE3X y donde se sueltan las fotos. Salir de la ventana
+    // a buscarla en el expediente pierde el sitio del plano, que es justo lo que
+    // esta pantalla viene a evitar. Funciona en los dos negocios: cada uno tiene
+    // su propia ruta, que es la que sabe donde vive su carpeta.
+    const irALaCarpeta = async () => {
+        setAbriendo(true);
+        const base = esCeeDirecto ? '/api/cee-directos' : '/api/expedientes';
+        const r = await abrirCarpetaLocal(`${base}/${expedienteId}/local-path`);
+        if (!r.ok) setAviso(r.error);
+        setAbriendo(false);
+    };
 
     // De qué NEGOCIO es lo dice la dirección de esta ventana (`?cee=1`), no una
     // suposición sobre la fila: son dos tablas y el mismo UUID no vale en las
@@ -161,6 +183,16 @@ export function EnvolventeVentana({ expedienteId }) {
                         sidebar: para ver la app en claro había que salir. Y es
                         justo aquí donde se mira el contraste, con el plano
                         delante. */}
+                    {esStaff && (
+                        <button onClick={irALaCarpeta} disabled={abriendo}
+                                title="Abrir en el Explorador la carpeta de este expediente"
+                                className="shrink-0 rounded-lg border border-white/10 px-3 py-2
+                                           text-[10px] font-black uppercase tracking-widest
+                                           text-white/45 disabled:opacity-40
+                                           hover:border-white/30 hover:text-white">
+                            {abriendo ? 'Abriendo…' : '📁 Carpeta local'}
+                        </button>
+                    )}
                     <ThemeToggle collapsed className="!h-9 !w-9" />
                     {/* ⚠ El deep-link de un CEE directo es `?cee=`, no `?exp=`:
                         son dos tablas y el mismo UUID no vale en las dos, así

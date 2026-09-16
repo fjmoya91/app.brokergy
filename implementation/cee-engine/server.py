@@ -40,6 +40,7 @@ from src import pipeline                              # noqa: E402
 from src.catastro import refcat as refcat_mod         # noqa: E402
 from src.catastro.client import CatastroError         # noqa: E402
 from src.ce3x import export                           # noqa: E402
+from src.gis import cuerpos as cuerpos_mod            # noqa: E402
 from src.model import Modelo                          # noqa: E402
 from src.viz import plano_svg                         # noqa: E402
 
@@ -174,6 +175,16 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
         # cliente. Se aplica ANTES de clasificar: de `habitable` cuelgan que
         # plantas se miden, la superficie del .cex y el plan de fotos.
         pipeline.aplicar_seleccion(modelo, payload.get("construcciones"))
+        # Los CUERPOS del edificio, ANTES de quitar ninguno: la lista tiene que
+        # seguir enseñando el que se ha dejado fuera, o no habria forma de
+        # volver a meterlo — desapareceria del plano y del popup a la vez.
+        inventario = cuerpos_mod.inventario(
+            modelo, excluidos=payload.get("cuerpos_excluidos"))
+        # Un aparcamiento adosado no es la envolvente de la vivienda. Se quita
+        # el CUERPO y se vuelve a medir: la pared que lo separaba de la casa
+        # aparece entonces como lo que es, en vez de quedarse la casa abierta
+        # por ahi (que es lo que pasa tachando paredes una a una).
+        pipeline.excluir_cuerpos(modelo, payload.get("cuerpos_excluidos"))
         res = pipeline.analizar(o, modelo)
         pipeline.escribir_salidas(o, res, rc)
 
@@ -182,7 +193,11 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
         plan = _plan_de_fotos(o.output)
         # El plano ya colocado. Se calcula AQUI, donde esta la geometria: el
         # navegador recibe puntos y no calcula ni un metro.
-        dibujo = plano_svg.plantas(geometria)
+        dibujo = plano_svg.plantas(
+            geometria, cuerpos=inventario,
+            # De que cuerpo es cada pared. Se calcula sobre las partes que
+            # QUEDAN: las del cuerpo excluido ya no estan en el plano.
+            muro_cuerpo=cuerpos_mod.de_cada_muro(geometria["elementos"], modelo.partes))
 
         return JSONResponse({
             "referencia_catastral": rc.to_dict(),
@@ -207,6 +222,10 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
             # salen la superficie y las plantas del .cex, y un desglose que solo
             # vive en otra pantalla no se comprueba nunca.
             "construcciones": _construcciones(modelo),
+            # Los CUERPOS del edificio (los BuildingPart de Catastro) con la
+            # construccion que les corresponde. Es lo que permite decir «esta
+            # edificacion no cuenta» de una vez, en vez de pared por pared.
+            "cuerpos": dibujo["cuerpos"],
             "resumen": export.resumen(res.elementos),
             # Lo que NO se ha podido saber. Va al primer plano a propósito: es
             # lo que el certificador tiene que mirar.

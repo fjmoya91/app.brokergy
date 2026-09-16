@@ -165,7 +165,10 @@ const CLASE_TIPO = {
 export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEntorno,
                               modo = '2d', altura,
                               catastro, quiereCatastro, onCatastro,
-                              trayendoCatastro, falloCatastro }) {
+                              trayendoCatastro, falloCatastro,
+                              // Los CUERPOS del edificio (la casa, el garaje
+                              // adosado, el porche) y qué pasa al pulsar uno.
+                              cuerpos = [], onCuerpo = null }) {
     const { muros, entrada, sel, elegir, esCandidata, esMedianera, mueveHueco,
             muevePared, dibujaPared, estadoDe, nombreDe, tipoDe } = plano;
 
@@ -174,6 +177,9 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
     // pantalla, el navegador resuelve `url(#hatch-fachada)` al primero que
     // encuentre y la segunda sale pintada con la trama de la primera.
     const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
+    //: El cuerpo que tiene el ratón encima. Es estado de PANTALLA y por eso vive
+    //: aquí: no se guarda ni viaja a ninguna parte.
+    const [cuerpoSobre, setCuerpoSobre] = useState(null);
     const es3d = modo === '3d';
     const svgRef = useRef(null);
     const cajaRef = useRef(null);
@@ -508,6 +514,13 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
     const tam = Math.max(vista.ancho, vista.alto) / 38;
 
     const capa2d = es3d ? [] : murosDe(planta);
+
+    //: Los cuerpos que hay en ESTA planta. Un cuerpo de Catastro es un prisma:
+    //: su contorno es el mismo en todas sus plantas, y `niveles` dice en cuáles
+    //: está (el garaje de una planta no se pinta sobre la primera).
+    const cuerposAqui = useMemo(() => (es3d ? [] : (cuerpos || []).filter(
+        c => !Array.isArray(c.niveles) || c.niveles.includes(planta?.nivel))),
+        [cuerpos, planta?.nivel, es3d]);
     const rotulos = es3d ? [] : colocarRotulos(capa2d, { sel, entrada, tam, entorno, nombreDe });
     const caras = es3d
         ? construirCaras({ capas, murosDe, alturaPlanta, sel, colorDe, estadoDe, proy })
@@ -607,6 +620,20 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                           fill={`url(#grid-${uid})`} />
 
                     {!es3d && <Contexto contexto={plano.contexto} />}
+
+                    {/* Los CUERPOS del edificio, DEBAJO de los muros: se pinta
+                        primero porque en un SVG manda el último, y las paredes
+                        tienen que seguir siendo lo que se pulsa. Aquí solo se
+                        recoge lo que pasa POR DENTRO del cuerpo, que hoy no
+                        hacía nada.
+
+                        No en 3D: allí el volumen ya son las caras, y un relleno
+                        más encima solo taparía las paredes del fondo. */}
+                    {!es3d && !dibujando && (
+                        <Cuerpos cuerpos={cuerposAqui} sobre={cuerpoSobre} tam={tam}
+                                 onSobre={setCuerpoSobre}
+                                 onPulsar={(id) => { if (!arrastrado.current) onCuerpo?.(id); }} />
+                    )}
 
                     {es3d ? (
                         <>
@@ -984,6 +1011,71 @@ function Cotas({ muros, sel, hacia, tam, interior, entorno, fuera }) {
  * pulsar. Lo que se salga del lienzo lo recorta el SVG, igual que el visor de
  * Catastro recorta la manzana.
  */
+/**
+ * Los CUERPOS del edificio: la casa, el garaje adosado, el porche.
+ *
+ * POR QUÉ EXISTE: la envolvente de un certificado es la de la VIVIENDA. Catastro
+ * dibuja el edificio en partes y dice de qué es cada una, pero el plano se arma
+ * por NIVEL —la planta baja tiene vivienda, luego se dibuja entera—, así que las
+ * paredes del aparcamiento entraban igual y había que apartarlas una a una,
+ * acertando con cuáles eran las suyas.
+ *
+ * REGLA — el cuerpo se SOMBREA al pasar por encima y no antes. Un relleno
+ * permanente sobre un plano que ya lleva la cartografía del Catastro debajo,
+ * los colindantes y la trama de cada muro es una capa más de ruido justo donde
+ * hay que leer paredes. Lo que sí se marca siempre es lo EXCEPCIONAL: el cuerpo
+ * que ya está fuera (para poder volver a meterlo) y el que Catastro dice que no
+ * es vivienda (para poder sacarlo).
+ */
+//: El centro de la CAJA de un contorno, que es donde va su rótulo. `centro()`
+//: —el que ya está importado— es el punto medio del RECORRIDO de una polilínea,
+//: y en un contorno cerrado eso cae pegado a un lado.
+const medio = (pts) => {
+    const c = caja(pts, 0);
+    return { x: c.x + c.ancho / 2, y: c.y + c.alto / 2 };
+};
+
+function Cuerpos({ cuerpos, sobre, onSobre, onPulsar, tam }) {
+    return (
+        <g>
+            {cuerpos.map((c) => {
+                const activo = sobre === c.id;
+                //: Catastro dice que ahí no se vive: un aparcamiento, un porche,
+                //: un almacén. Se marca a trazos para que se vea sin pulsar
+                //: nada, que es lo que convierte esto en una propuesta.
+                const sospechoso = c.habitable === false && !c.fuera;
+                const color = c.fuera ? 'var(--text-secondary)'
+                    : sospechoso ? 'var(--warning)' : 'var(--brand-primary)';
+                return (
+                    <g key={c.id} className="cursor-pointer"
+                       onPointerEnter={() => onSobre?.(c.id)}
+                       onPointerLeave={() => onSobre?.(s => (s === c.id ? null : s))}
+                       onClick={() => onPulsar?.(c.id)}>
+                        {c.contornos.map((pts, i) => (
+                            <polygon key={i}
+                                     points={pts.map(p => p.join(',')).join(' ')}
+                                     fill={color}
+                                     fillOpacity={activo ? 0.16 : (c.fuera ? 0.07 : 0.001)}
+                                     stroke={(activo || c.fuera || sospechoso) ? color : 'none'}
+                                     strokeWidth={activo ? 0.14 : 0.09}
+                                     strokeDasharray={c.fuera || sospechoso ? '0.5 0.35' : undefined}
+                                     strokeLinejoin="round" />
+                        ))}
+                        {(c.fuera || activo) && (
+                            <text x={medio(c.contornos[0]).x} y={medio(c.contornos[0]).y}
+                                  fontSize={tam * 0.85} fontWeight={900} fill={color}
+                                  textAnchor="middle" style={{ pointerEvents: 'none' }}>
+                                {c.fuera ? 'NO CUENTA'
+                                    : `${c.construccion?.uso || 'CUERPO'} · ${fmt(c.superficie)} m²`}
+                            </text>
+                        )}
+                    </g>
+                );
+            })}
+        </g>
+    );
+}
+
 function Contexto({ contexto }) {
     if (!contexto) return null;
     const { vecinos = [], parcelas_vecinas: lindes = [], parcela = [],

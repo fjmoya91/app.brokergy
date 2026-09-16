@@ -400,6 +400,66 @@ def aplicar_seleccion(modelo: Modelo, incluidas) -> list[str]:
     return cambios
 
 
+def excluir_cuerpos(modelo: Modelo, ids) -> list[str]:
+    """Saca del edificio los CUERPOS que el certificador dice que no cuentan.
+
+    POR QUE EXISTE: Catastro dibuja el edificio en partes —la casa, el garaje
+    adosado, el porche— y aqui se unen por nivel para sacar la huella que se
+    segmenta en paredes. La envolvente de un certificado es la de la VIVIENDA,
+    asi que un aparcamiento adosado no va dentro; pero como el filtro es por
+    NIVEL —la planta baja tiene vivienda, luego se dibuja entera— sus paredes
+    entraban igual y habia que apartarlas una a una.
+
+    REGLA — se quita el cuerpo y se VUELVE A MEDIR, no se tachan sus paredes.
+    La pared que separaba el garaje de la casa no existe en el modelo (los dos
+    cuerpos se unen y esa linea queda dentro): quitando la parte y midiendo otra
+    vez, esa pared aparece como lo que es —fachada o medianera de la vivienda—.
+    Tachando paredes, la casa se queda abierta por ahi.
+
+    Se toca tambien `buildings`, que es de donde sale la huella GLOBAL: con ella
+    sin recortar, la pared nueva se clasificaria contra "edificio propio al otro
+    lado" y saldria como particion interior.
+    """
+    fuera = {str(i).strip() for i in (ids or []) if str(i).strip()}
+    if not fuera:
+        return []
+
+    quitadas = [p for p in modelo.partes if (p.original_id or "") in fuera]
+    if not quitadas:
+        # Un id que ya no existe es que la geometria de Catastro ha cambiado, o
+        # que lo guardado es de otra parcela. Se dice: callarlo seria medir de
+        # mas sin que nadie se entere.
+        modelo.diagnostics.add(
+            "CUERPOS_EXCLUIDOS",
+            "se pidio dejar fuera " + ", ".join(sorted(fuera))
+            + ", y ninguno esta entre los cuerpos que devuelve Catastro hoy")
+        return []
+
+    modelo.partes = [p for p in modelo.partes if (p.original_id or "") not in fuera]
+    if not modelo.partes:
+        raise CatastroError("no queda ningun cuerpo del edificio: no hay nada que medir")
+
+    recorte = unir([p.geometry for p in quitadas])
+    for b in modelo.buildings:
+        if b.geometry is not None:
+            b.geometry = b.geometry.difference(recorte)
+    modelo.buildings = [b for b in modelo.buildings
+                        if b.geometry is not None and not b.geometry.is_empty]
+
+    plantas = floors_mod.plantas_desde_partes(modelo.partes)
+    datos = modelo.catastro.get("_datos")
+    if datos is not None:
+        floors_mod.asignar_usos(plantas, datos.usos_por_planta())
+    modelo.floors = plantas
+
+    dichos = [f"{p.original_id} ({p.geometry.area:.0f} m2)" for p in quitadas]
+    modelo.diagnostics.add(
+        "CUERPOS_EXCLUIDOS",
+        "el certificador deja FUERA de la envolvente " + ", ".join(dichos)
+        + ": sus paredes no se miden y el edificio se ha vuelto a medir sin ellos")
+    return dichos
+
+
 # ------------------------------------------------------------- clasificacion
 def analizar(o: Opciones, modelo: Modelo) -> Resultado:
     huella = modelo.huella()

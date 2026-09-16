@@ -53,6 +53,10 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         || '').trim();
 
     const [geo, setGeo] = useState(null);
+    //: Con qué cuerpos fuera se pidió la geometría que hay en pantalla. Es un
+    //: `ref` y no estado porque solo sirve para no volver a pedir lo mismo: con
+    //: estado, cada medición dispararía un render que dispararía otra medición.
+    const cuerposPedidos = useRef([]);
     const [cargando, setCargando] = useState(false);
     const [error, setError] = useState(null);
     const [generando, setGenerando] = useState(false);
@@ -81,7 +85,9 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     useEffect(() => {
         if (!trabajoPrevio || geo || cargando || yaTraido.current || !rc) return;
         yaTraido.current = true;
-        traerGeometria();
+        // Con los cuerpos que ya se habían dejado fuera: si no, al recargar el
+        // aparcamiento volvería a la envolvente y nadie se enteraría.
+        traerGeometria(trabajoPrevio.cuerpos_fuera || []);
     }, [trabajoPrevio, geo, cargando, rc]);   // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
@@ -167,18 +173,42 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
 
     // Traer la geometría es CARO: son varias peticiones a Catastro en serie,
     // nunca en ráfaga. No se dispara sola al abrir la pestaña — la pide él.
-    async function traerGeometria() {
+    async function traerGeometria(cuerposFuera = null) {
         if (!rc) { setError('Este expediente no tiene referencia catastral.'); return; }
         setCargando(true); setError(null);
         try {
+            // Los CUERPOS que se dejan fuera viajan con la petición: el motor
+            // vuelve a MEDIR el edificio sin ellos —la pared que separaba el
+            // garaje de la casa aparece entonces como lo que es— en vez de
+            // tachar sus paredes y dejar la casa abierta por ahí.
+            const fuera = cuerposFuera ?? cuerposPedidos.current;
+            cuerposPedidos.current = fuera || [];
             const { data } = await axios.post(api(id, 'geometria'),
-                { referencia_catastral: rc });
+                { referencia_catastral: rc, cuerpos_excluidos: fuera || [] });
             setGeo(data);
         } catch (e) {
             setError(e.response?.data?.error || 'No se pudo construir la envolvente.');
         } finally {
             setCargando(false);
         }
+    }
+
+    /**
+     * Volver a MEDIR conservando lo que se lleva hecho.
+     *
+     * ⚠ El plano se siembra desde `trabajoPrevio` —lo que se leyó al ABRIR la
+     * ventana—, así que al llegar la geometría nueva se resembraba con aquello y
+     * los huecos puestos desde entonces desaparecían. Se le pasa el trabajo
+     * ACTUAL, que es lo que el certificador tiene delante.
+     *
+     * Lo que no se conserva es lo que ya no existe: si un cerramiento se va con
+     * el cuerpo que se acaba de quitar, sus huecos se van con él — y eso es lo
+     * correcto, porque esa pared ya no está en el edificio.
+     */
+    async function volverAMedir(cambios = {}) {
+        const actual = { ...(plano.trabajo || trabajoPrevio || {}), ...cambios };
+        setTrabajoPrevio(actual);
+        await traerGeometria(actual.cuerpos_fuera || []);
     }
 
     // ── La cartografía del Catastro DEBAJO del plano ─────────────────────────
@@ -271,7 +301,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         setGuardandoConstrucciones(false);
         // Y se vuelve a medir con lo marcado puesto. El popup de «midiendo el
         // edificio» sale solo, que es lo que dice que esto tarda.
-        await traerGeometria();
+        await volverAMedir();
     }
 
     // Se guarda SOLO, con un freno: cada ventana que se pone es un cambio de
@@ -605,7 +635,57 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         return { ...a, transmitancias: t };
     });
 
-    const fase = { fase: fichaFase, onFase: cambiarFicha };
+    // ── Los CUERPOS del edificio ─────────────────────────────────────────────
+    // La envolvente de un certificado es la de la VIVIENDA: un aparcamiento
+    // adosado no va dentro. Catastro dibuja el edificio en partes y dice de qué
+    // es cada una, pero el plano se arma por NIVEL —la planta baja tiene
+    // vivienda, luego se dibuja entera—, así que sus paredes entraban igual y
+    // había que apartarlas una a una acertando con cuáles eran las suyas.
+    const [cuerpoSel, setCuerpoSel] = useState(null);
+    const cuerpos = useMemo(() => (geo?.cuerpos || []).map(
+        c => ({ ...c, fuera: plano.cuerposFuera.includes(c.id) })),
+        [geo?.cuerpos, plano.cuerposFuera]);
+    const cuerpoAbierto = cuerpos.find(c => c.id === cuerpoSel) || null;
+
+    // Lo que Catastro dice que NO es vivienda y sigue dentro. Es lo que se
+    // propone quitar: no se toca nada sin que lo pulse una persona, porque hay
+    // garajes que forman parte de la vivienda y porches cerrados que son estar.
+    const cuerposSospechosos = cuerpos.filter(c => c.habitable === false && !c.fuera);
+
+    // Quitar o devolver un cuerpo obliga a volver a MEDIR: la pared que lo
+    // separaba del resto aparece entonces como lo que es, y se van con él su
+    // cubierta y su suelo. El trabajo del plano —los huecos, la entrada— se
+    // reconstruye solo sobre la geometría nueva.
+    async function cambiarCuerpo(id, fuera) {
+        setCuerpoSel(null);
+        plano.sacaCuerpo(id, fuera);
+        const siguiente = fuera
+            ? [...new Set([...plano.cuerposFuera, id])]
+            : plano.cuerposFuera.filter(x => x !== id);
+        await volverAMedir({ cuerpos_fuera: siguiente });
+        onAviso?.(fuera
+            ? 'Fuera de la envolvente: el edificio se ha vuelto a medir sin ese cuerpo.'
+            : 'Vuelve a contar: el edificio se ha medido otra vez con él.');
+    }
+
+    // La otra salida: apartar sus paredes sin volver a medir. Instantáneo, pero
+    // la pared que lo separaba del resto NO existe en el modelo, así que la casa
+    // se queda abierta por ahí y hay que dibujarla.
+    function apartarParedes(id) {
+        setCuerpoSel(null);
+        plano.apartaParedesDe(id, true);
+        onAviso?.('Apartadas sus paredes. Si el cuerpo estaba pegado a la casa, '
+                  + 'comprueba que no falte la pared que los separaba.');
+    }
+
+    // ¿Hay DOS fases que generar? En el CAE siempre: el CEE inicial lleva la
+    // caldera y el final la aerotermia. En un CEE contratado de alcance ÚNICO no
+    // hay un después —por eso su fichero se llama «CEE» a secas— y el «final»
+    // acabaría con el MISMO nombre en la MISMA carpeta, archivando en OLD el
+    // que se acaba de generar. Se comprueba también en el backend.
+    const dosFases = !enCeeDirecto
+        || String(expediente?.alcance || 'UNICO').toUpperCase() === 'DOBLE';
+    const fase = { fase: fichaFase, onFase: cambiarFicha, dosFases };
 
     return (
         <div className="flex flex-col gap-5">
@@ -622,6 +702,16 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                           estadoGuardado={estadoGuardado} />
 
                 {!entrada && <PasoEntrada />}
+
+                {/* Lo que Catastro dice que no es vivienda y sigue contando. Se
+                    PROPONE con el botón al lado: en un certificado la envolvente
+                    es la de la vivienda, pero quién decide es quien ha estado
+                    delante del edificio. */}
+                {!!cuerposSospechosos.length && (
+                    <AvisoCuerpos cuerpos={cuerposSospechosos}
+                                  onQuitar={(id) => cambiarCuerpo(id, true)}
+                                  ocupado={cargando} />
+                )}
 
                 <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-4 items-start">
                 <div className="flex flex-col gap-3">
@@ -643,6 +733,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                          modo="3d" altura={alturaPlanta} />
                         ) : aLaVez.map(p => (
                             <PlanoPlanta key={p.id || p.nombre} planta={p} plano={plano}
+                                         cuerpos={cuerpos} onCuerpo={setCuerpoSel}
                                          entorno={entorno} onEntorno={setEntorno}
                                          modo="2d" altura={alturaPlanta}
                                          catastro={quiereCatastro ? catastro : null}
@@ -657,6 +748,14 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                 expedienteId={id} />
                 </div>
             </div>
+
+            {cuerpoAbierto && (
+                <CuerpoModal cuerpo={cuerpoAbierto} ocupado={cargando}
+                             onCerrar={() => setCuerpoSel(null)}
+                             onQuitar={() => cambiarCuerpo(cuerpoAbierto.id, true)}
+                             onDevolver={() => cambiarCuerpo(cuerpoAbierto.id, false)}
+                             onApartarParedes={() => apartarParedes(cuerpoAbierto.id)} />
+            )}
 
             {activa === 'administrativos' && (
                 ficha
@@ -726,6 +825,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                 : guardado?.fase === 'inicial' ? '↻ Volver a generar el INICIAL'
                                 : '⚡ Generar el .cex INICIAL'}
                         </button>
+                        {dosFases && (
                         <button
                             onClick={() => pedirGenerar('final')}
                             disabled={!entrada || generando}
@@ -736,11 +836,16 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                 : guardado?.fase === 'final' ? '↻ Volver a generar el FINAL'
                                 : '⚡ Generar el .cex FINAL'}
                         </button>
+                        )}
                         <span className="max-w-[26rem] text-[11px] leading-snug text-white/40">
                             {!entrada ? 'Señala primero por dónde se entra.'
-                                : 'El INICIAL lleva la caldera que se sustituye y va a 1. CEE / CEE '
-                                  + 'INICIAL. El FINAL se hace SOBRE ÉL —se copia y se le cambia el '
-                                  + 'generador por la aerotermia— y va a CEE FINAL.'}
+                                : !dosFases
+                                    ? 'Este encargo es de UN solo certificado: el .cex va a su '
+                                      + 'carpeta «1. CEE» como «… - CEE_REVISAR.cex», para abrirlo '
+                                      + 'en CE3X y comprobarlo.'
+                                    : 'El INICIAL lleva la caldera que se sustituye y va a 1. CEE / CEE '
+                                      + 'INICIAL. El FINAL se hace SOBRE ÉL —se copia y se le cambia el '
+                                      + 'generador por la aerotermia— y va a CEE FINAL.'}
                         </span>
                     </div>
 
@@ -880,6 +985,162 @@ function Cabecera({ resumen, entrada, onCambiarEntrada, estadoGuardado }) {
         </div>
     );
 }
+
+/**
+ * Lo que Catastro dice que NO es vivienda y sigue contando en la envolvente.
+ *
+ * POR QUE EXISTE: la envolvente de un certificado es la de la VIVIENDA, y un
+ * aparcamiento adosado no va dentro. Catastro ya lo dice —su `lcons` lo declara
+ * APARCAMIENTO y no habitable— pero el plano se arma por NIVEL, asi que sus
+ * paredes entraban igual y no lo avisaba nadie.
+ *
+ * REGLA — se AVISA y se ofrece el boton; no se quita solo. Hay garajes que
+ * forman parte de la vivienda y porches cerrados que son un estar, y quien lo
+ * sabe es quien ha estado delante del edificio.
+ */
+function AvisoCuerpos({ cuerpos, onQuitar, ocupado }) {
+    return (
+        <Franja tono="amber">
+            <b>
+                {cuerpos.length === 1
+                    ? 'Hay un cuerpo que Catastro no cuenta como vivienda.'
+                    : `Hay ${cuerpos.length} cuerpos que Catastro no cuenta como vivienda.`}
+            </b>{' '}
+            En un certificado la envolvente es la de la vivienda: lo normal es dejarlos fuera.
+            <div className="mt-2 flex flex-wrap gap-2">
+                {cuerpos.map(c => (
+                    <button key={c.id} onClick={() => onQuitar(c.id)} disabled={ocupado}
+                            className="rounded-lg border border-amber-400/40 bg-amber-400/10
+                                       px-3 py-1.5 text-[11px] font-black uppercase
+                                       tracking-widest text-amber-200 disabled:opacity-40
+                                       hover:bg-amber-400/20">
+                        Quitar {c.construccion?.uso || 'el cuerpo'} · {fmtM2(c.superficie)}
+                    </button>
+                ))}
+            </div>
+            <span className="mt-1 block text-[11px] text-white/45">
+                Se vuelve a medir el edificio sin el, y con el se van su cubierta y su
+                suelo. Se puede devolver pulsandolo en el plano.
+            </span>
+        </Franja>
+    );
+}
+
+/**
+ * Un CUERPO del edificio, y que hacer con el.
+ *
+ * Las dos salidas no son lo mismo y por eso se dicen enteras:
+ *  · QUITARLO vuelve a medir el edificio sin el, y entonces la pared que lo
+ *    separaba de la casa aparece como lo que es (fachada o medianera).
+ *  · APARTAR SUS PAREDES es instantaneo y no mide nada, pero esa pared no
+ *    existe en el modelo —Catastro une los dos cuerpos y la linea queda
+ *    dentro—, asi que la casa se queda abierta por ahi.
+ */
+function CuerpoModal({ cuerpo, onCerrar, onQuitar, onDevolver, onApartarParedes, ocupado }) {
+    const c = cuerpo.construccion;
+    return (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4"
+             onClick={onCerrar}>
+            <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-bkg-surface p-5"
+                 onClick={e => e.stopPropagation()}>
+                <p className="text-[10px] font-black uppercase tracking-widest text-white/40">
+                    Cuerpo del edificio
+                </p>
+                <h3 className="mt-1 text-lg font-black">
+                    {c?.uso || 'Sin identificar'}
+                    <span className="ml-2 text-sm font-bold text-white/50">
+                        {fmtM2(cuerpo.superficie)}
+                    </span>
+                </h3>
+
+                <p className="mt-2 text-[12px] leading-relaxed text-white/60">
+                    {c ? (
+                        <>
+                            Catastro declara aqui <b className="text-white/85">{c.uso}</b> de{' '}
+                            {fmtM2(c.superficie)}
+                            {c.habitable === false
+                                ? <>, y <b className="text-amber-300">no lo cuenta como vivienda</b>.</>
+                                : <>, de uso habitable.</>}{' '}
+                            <span className="text-white/40">
+                                (se reconoce por la superficie: se parecen al{' '}
+                                {Math.round((c.parecido || 0) * 100)} %)
+                            </span>
+                        </>
+                    ) : (
+                        <>
+                            Catastro no dice que hay en este cuerpo: solo lo dibuja. Su
+                            superficie no casa con ninguna de las construcciones declaradas.
+                        </>
+                    )}
+                </p>
+
+                {cuerpo.fuera ? (
+                    <>
+                        <p className="mt-3 rounded-lg border border-white/10 bg-white/[0.03]
+                                      px-3 py-2 text-[11.5px] text-white/60">
+                            Ahora mismo esta FUERA de la envolvente: sus paredes no se miden
+                            ni se escriben en el .cex.
+                        </p>
+                        <div className="mt-4 flex flex-wrap items-center gap-2">
+                            <button onClick={onDevolver} disabled={ocupado}
+                                    className="rounded-xl bg-brand px-4 py-2.5 text-[11px]
+                                               font-black uppercase tracking-widest text-black
+                                               disabled:opacity-40 hover:brightness-110">
+                                {ocupado ? 'Midiendo…' : 'Volver a contarlo'}
+                            </button>
+                            <button onClick={onCerrar}
+                                    className="ml-auto text-[11px] font-bold uppercase
+                                               tracking-widest text-white/40 hover:text-white">
+                                Cerrar
+                            </button>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <div className="mt-4 flex flex-col gap-2">
+                            <button onClick={onQuitar} disabled={ocupado}
+                                    className="rounded-xl bg-brand px-4 py-3 text-left
+                                               disabled:opacity-40 hover:brightness-110">
+                                <span className="block text-[11px] font-black uppercase
+                                                 tracking-widest text-black">
+                                    {ocupado ? 'Midiendo…' : 'Quitarlo y volver a medir'}
+                                </span>
+                                <span className="mt-0.5 block text-[11px] leading-snug text-black/70">
+                                    El edificio se mide otra vez sin el: la pared que lo separaba
+                                    de la casa sale como lo que es, y se van con el su cubierta
+                                    y su suelo.
+                                </span>
+                            </button>
+                            <button onClick={onApartarParedes} disabled={ocupado}
+                                    className="rounded-xl border border-white/10 px-4 py-3
+                                               text-left disabled:opacity-40
+                                               hover:border-white/30">
+                                <span className="block text-[11px] font-black uppercase
+                                                 tracking-widest text-white/70">
+                                    Solo apartar sus paredes
+                                </span>
+                                <span className="mt-0.5 block text-[11px] leading-snug text-white/45">
+                                    Sin volver a medir. Si el cuerpo estaba pegado a la casa, la
+                                    pared que los separaba no existe en el modelo y habra que
+                                    dibujarla.
+                                </span>
+                            </button>
+                        </div>
+                        <button onClick={onCerrar}
+                                className="mt-3 text-[11px] font-bold uppercase tracking-widest
+                                           text-white/40 hover:text-white">
+                            Cancelar
+                        </button>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}
+
+//: Una superficie en metros cuadrados, redondeada: aqui nadie decide nada por
+//: dos decimales y el rotulo va dentro del plano.
+const fmtM2 = (v) => `${Math.round(Number(v) || 0).toLocaleString('es-ES')} m²`;
 
 function PasoEntrada() {
     return (

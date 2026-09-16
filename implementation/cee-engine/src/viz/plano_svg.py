@@ -75,8 +75,29 @@ def _orden(codigo: str) -> int:
     return 99
 
 
+def _cuerpos(inventario: list[dict] | None, al_lienzo) -> list[dict]:
+    """Los cuerpos del edificio sobre el MISMO lienzo que los muros.
+
+    Se proyecta aqui por la regla de siempre: el navegador recibe puntos y no
+    calcula ni un metro. El contorno es el mismo en todas las plantas del cuerpo
+    —una parte de Catastro es un prisma—, asi que va una vez y el front lo pinta
+    en las plantas que dice `niveles`.
+    """
+    salida = []
+    for c in inventario or []:
+        g = c.get("_geom")
+        if g is None:
+            continue
+        piezas = list(g.geoms) if g.geom_type == "MultiPolygon" else [g]
+        contornos = [al_lienzo(list(p.exterior.coords)) for p in piezas]
+        salida.append({k: v for k, v in c.items() if k != "_geom"}
+                      | {"contornos": contornos})
+    return salida
+
+
 def plantas(geo: dict, excluir: set[str] | None = None,
-            solo_habitables: bool = True) -> dict:
+            solo_habitables: bool = True, cuerpos: list[dict] | None = None,
+            muro_cuerpo: dict[str, str] | None = None) -> dict:
     """Las plantas con sus muros ya colocados sobre un lienzo comun.
 
     `excluir` son los ids que el certificador deja fuera de la envolvente: se
@@ -104,6 +125,11 @@ def plantas(geo: dict, excluir: set[str] | None = None,
             "alto": _valor(el.get("alto")),
             "superficie": _valor(el.get("superficie")),
             "fuera": el["id"] in excluir,
+            # De que CUERPO del edificio es esta pared. Catastro dibuja la casa,
+            # el garaje y el porche por separado y aqui se unen por nivel: sin
+            # esto, quitar el garaje de la envolvente son cuatro clics y hay que
+            # acertar con cuales son sus paredes.
+            "cuerpo": (muro_cuerpo or {}).get(el["id"]),
             "_pts": _coords(el["geometria_wkt"]),
         }
         todos.append(m)
@@ -131,6 +157,7 @@ def plantas(geo: dict, excluir: set[str] | None = None,
                 for x, y in pts]
 
     contexto = _contexto(geo, al_lienzo)
+    cuerpos_svg = _cuerpos(cuerpos, al_lienzo)
     superficies = _superficies(geo)
     ancho = round(maxx - minx + margen * 2, 2)
     alto = round(maxy - miny + margen * 2, 2)
@@ -151,6 +178,11 @@ def plantas(geo: dict, excluir: set[str] | None = None,
         # pared da a la calle, a un patio o al vecino — que es justo lo que la
         # vista le pregunta. Se proyecta AQUI, donde estan las coordenadas.
         "contexto": contexto,
+        # Los CUERPOS del edificio, ya colocados: es lo que se sombrea al pasar
+        # el raton y lo que se pulsa para decir «esta edificacion no cuenta».
+        # Van con su contorno y no con sus paredes porque lo que se senala es el
+        # volumen, no una linea.
+        "cuerpos": cuerpos_svg,
         # El encuadre AMPLIO, sobre las MISMAS coordenadas: para ver la manzana
         # hay que alejarse, y al alejarse la casa se queda del tamano de un
         # sello. Son dos tareas distintas —trabajar sobre las paredes y situar
@@ -164,6 +196,10 @@ def plantas(geo: dict, excluir: set[str] | None = None,
             {
                 "id": p,
                 "nombre": _nombre(p),
+                # El NIVEL, además del código: es lo que dice qué cuerpos del
+                # edificio se dibujan en esta planta, y derivarlo del nombre en
+                # el navegador seria inventar un parser de "PB"/"P1"/"S1".
+                "nivel": _nivel_de(ms),
                 "habitable": True,
                 "superficie": superficies.get(_nivel_de(ms)),
                 "muros": sorted(ms, key=lambda m: m["id"]),
