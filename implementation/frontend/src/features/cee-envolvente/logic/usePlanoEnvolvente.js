@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { largo as largoDe, rumbosDeLaPared } from './geometriaPlano';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -31,9 +31,15 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
     //: plano a su zoom de partida a media faena.
     const [geometria, setGeometria] = useState({ movidas: {}, dibujadas: [] });
 
-    // Al llegar la geometría se monta el estado, y encima se vuelve a poner lo
-    // que ya hubiera guardado: reabrir la pestaña no puede borrar su trabajo.
-    useEffect(() => {
+    /**
+     * Monta el estado del plano desde la geometría y le pone encima un TRABAJO.
+     *
+     * Vive aparte del efecto que la llama porque la usan dos: la siembra al
+     * abrir (con lo guardado en el expediente) y DESHACER, que es lo mismo con
+     * otro trabajo. Reconstruirlo desde `geo` en vez de guardar copias del mapa
+     * de muros mantiene una sola forma de leer un trabajo: la del fichero.
+     */
+    const sembrar = useCallback((guardadoAhora, { conLocal = true } = {}) => {
         if (!geo) return;
         const nuevo = {};
         for (const p of plantasDe(geo)) {
@@ -43,8 +49,8 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
             // Manda lo guardado en el EXPEDIENTE; el localStorage es el
             // respaldo de lo que aún no se ha llegado a guardar (o de un
             // guardado que falló).
-            const local = JSON.parse(localStorage.getItem(clave) || 'null');
-            const g = guardado || local;
+            const local = conLocal ? JSON.parse(localStorage.getItem(clave) || 'null') : null;
+            const g = guardadoAhora || local;
             if (g) {
                 setEntrada(g.entrada ?? null);
                 setSel(g.sel ?? null);
@@ -96,7 +102,17 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
             }
         } catch { /* almacenamiento bloqueado: se empieza limpio */ }
         setMuros(nuevo);
-    }, [geo, clave, guardado]);
+    }, [geo, clave]);
+
+    useEffect(() => { sembrar(guardado); }, [sembrar, guardado]);
+
+    /**
+     * Vuelve a un trabajo anterior. Lo usa DESHACER.
+     *
+     * Sin `localStorage`: ahí está lo ÚLTIMO, que es justo de lo que se quiere
+     * volver. Si se leyera, deshacer no haría nada.
+     */
+    const restaurar = useCallback((t) => sembrar(t, { conLocal: false }), [sembrar]);
 
     const trabajo = useMemo(() => (Object.keys(muros).length ? {
         entrada, sel,
@@ -665,7 +681,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         muevePared, dibujaPared, borraPared, esDibujada,
         marcaComoParticion,
         apartaDeLaEnvolvente, reclasifica, renombra, ponU, orienta,
-        loSenalado,
+        loSenalado, restaurar,
         esCandidata, esMedianera, esParticion, esFuera, tipoDe, nombreDe, estadoDe,
         rumboDe, necesitaRumbo, rumbosDe,
     };

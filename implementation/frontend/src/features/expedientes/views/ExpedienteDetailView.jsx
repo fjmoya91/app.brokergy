@@ -1626,20 +1626,20 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                                 marca, modelo y sobre todo el nº de serie de la unidad exterior,
                                 que va impreso en el CIFO y sin el que no se tramita la ayuda—,
                                 mientras que «Info equipo» se consulta al final, ya con los datos
-                                dentro. Oculto al certificador: la ruta es staffOnly. */}
-                            {!isCertificador && (
-                                <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); setLeerPlacas(true); }}
-                                    title="Leer con IA las placas de la caldera y de la bomba de calor desde las fotos del expediente"
-                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border bg-violet-500/10 text-violet-300 border-violet-400/30 hover:bg-violet-500/20 transition-colors"
-                                >
-                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                                    </svg>
-                                    <span className="hidden sm:inline">Leer placas</span>
-                                </button>
-                            )}
+                                dentro. Lo ve TAMBIÉN el certificador: es quien tiene el aparato
+                                delante, y su ruta se acota a los expedientes que tiene asignados
+                                (antes iba oculto porque ese endpoint era staffOnly). */}
+                            <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setLeerPlacas(true); }}
+                                title="Leer con IA las placas de la caldera y de la bomba de calor desde las fotos del expediente"
+                                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border bg-violet-500/10 text-violet-300 border-violet-400/30 hover:bg-violet-500/20 transition-colors"
+                            >
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                                </svg>
+                                <span className="hidden sm:inline">Leer placas</span>
+                            </button>
                             {/* El CEE se teclea a mano en CE3X mirando esta pantalla, y sus
                                 datos están repartidos por todo el expediente (el SEER ni
                                 siquiera está aquí: vive en el catálogo del modelo). El popup

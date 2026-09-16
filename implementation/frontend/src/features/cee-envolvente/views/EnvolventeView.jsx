@@ -6,6 +6,7 @@ import { PlanoPlanta } from '../components/PlanoPlanta';
 import { PanelPared } from '../components/PanelPared';
 import { usePlanoEnvolvente } from '../logic/usePlanoEnvolvente';
 import { claveInstalacion } from '../logic/fichaCe3x';
+import { useDeshacer } from '../logic/useDeshacer';
 import { MidiendoElEdificio } from '../components/MidiendoElEdificio';
 import { EscribiendoElCex, CexGenerado } from '../components/EscribiendoElCex';
 import { PanelAdministrativos, PanelEconomico, PanelGenerales, PanelInstalaciones,
@@ -24,7 +25,10 @@ import { PanelAdministrativos, PanelEconomico, PanelGenerales, PanelInstalacione
 // que el motor no puede saber. Ver `backend/routes/ceeEnvolvente.js`.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const API = '/api/cee-envolvente';
+//: A qué negocio pertenece este expediente —CAE o CEE directo— y cómo se
+//: compone cada URL con ello. Sale de la dirección de la ventana, no del
+//: expediente cargado (ver `apiEnvolvente.js`).
+import { api, esCeeDirecto as enCeeDirecto } from '../logic/apiEnvolvente';
 
 export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     const id = expediente?.id;
@@ -83,7 +87,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     useEffect(() => {
         if (!id) return;
         let vivo = true;
-        axios.get(`${API}/${id}/trabajo`)
+        axios.get(api(id, 'trabajo'))
             .then(({ data }) => {
                 if (!vivo) return;
                 setTrabajoPrevio(data?.trabajo || null);
@@ -167,7 +171,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         if (!rc) { setError('Este expediente no tiene referencia catastral.'); return; }
         setCargando(true); setError(null);
         try {
-            const { data } = await axios.post(`${API}/${id}/geometria`,
+            const { data } = await axios.post(api(id, 'geometria'),
                 { referencia_catastral: rc });
             setGeo(data);
         } catch (e) {
@@ -196,7 +200,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     const traerCatastro = useCallback(async (georef) => {
         setTrayendoCatastro(true);
         try {
-            const { data } = await axios.post(`${API}/${id}/cartografia`, { georef });
+            const { data } = await axios.post(api(id, 'cartografia'), { georef });
             if (data.aviso) { setFalloCatastro(data.aviso); return; }
             setCatastro({ ...data, en_el_lienzo: georef.en_el_lienzo });
             setFalloCatastro(null);
@@ -253,7 +257,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         setGeo(v => (v ? { ...v, construcciones: antes.map(
             c => ({ ...c, cuenta: elegidas.includes(c.codigo) })) } : v));
         try {
-            await axios.put(`${API}/${id}/construcciones`,
+            await axios.put(api(id, 'construcciones'),
                 { elegidas, construcciones: antes });
         } catch (e) {
             setError(e.response?.data?.error
@@ -281,12 +285,21 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         if (json === ultimo.current) return;
         const espera = setTimeout(() => {
             setEstadoGuardado('guardando');
-            axios.put(`${API}/${id}/trabajo`, { trabajo: t })
+            axios.put(api(id, 'trabajo'), { trabajo: t })
                 .then(() => { ultimo.current = json; setEstadoGuardado('guardado'); })
                 .catch(() => setEstadoGuardado('error'));
         }, 1200);
         return () => clearTimeout(espera);
     }, [plano.trabajo, ajustes, id]);
+
+    // La otra cara del autoguardado: un error también se guarda solo. `restaurar`
+    // vuelve a montar el plano desde la geometría con el trabajo de ese paso,
+    // que es la MISMA función con la que se siembra al abrir — así no hay dos
+    // formas de leer un trabajo.
+    const deshacerCex = useDeshacer({
+        trabajo: plano.trabajo, ajustes,
+        onRestaurar: (t, aj) => { plano.restaurar(t); setAjustes(aj || {}); },
+    });
 
     // Y si se cierra la pestaña con algo sin guardar, se avisa: es el único
     // momento en que el trabajo se puede perder de verdad.
@@ -335,7 +348,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         if (!geo?.geometria || !id) return;
         let vivo = true;
         const t = setTimeout(() => {
-            axios.post(`${API}/${id}/ficha`, { geometria: geo.geometria, ajustes,
+            axios.post(api(id, 'ficha'), { geometria: geo.geometria, ajustes,
                                               fase: fichaFase, medidas: medidasSel })
                 .then(({ data }) => { if (vivo) setFicha(data); })
                 .catch(() => { /* se verá al generar, que es quien manda */ });
@@ -354,7 +367,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     const traerImagenes = useCallback(async () => {
         setTrayendoImagenes(true);
         try {
-            const { data } = await axios.post(`${API}/${id}/imagenes`,
+            const { data } = await axios.post(api(id, 'imagenes'),
                 { geometria: geo?.geometria });
             setImagenes(data);
         } catch (e) {
@@ -378,7 +391,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         const fd = new FormData();
         fd.append('file', fichero);
         try {
-            await axios.post(`${API}/${id}/imagenes/${cual}`, fd);
+            await axios.post(api(id, `imagenes/${cual}`), fd);
             await traerImagenes();
         } catch (e) {
             setImagenes(v => ({ ...(v || {}), avisos: [
@@ -389,7 +402,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
 
     async function quitarImagen(cual) {
         try {
-            await axios.delete(`${API}/${id}/imagenes/${cual}`);
+            await axios.delete(api(id, `imagenes/${cual}`));
             await traerImagenes();
         } catch (e) {
             setImagenes(v => ({ ...(v || {}), avisos: [
@@ -439,7 +452,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     // para que lo enseñe el propio recuadro, junto al campo que se estaba
     // tecleando, y no en la barra de arriba.
     const guardarFuente = (que, aviso) => async (campos) => {
-        await axios.put(`${API}/${id}/${que}`, { campos });
+        await axios.put(api(id, que), { campos });
         setRefrescoFicha(n => n + 1);
         onAviso?.(aviso);
     };
@@ -472,7 +485,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         setGenerando(true); setGenerandoFase(fase);
         setError(null); setAvisos(null); setGuardado(null);
         try {
-            const { data } = await axios.post(`${API}/${id}/cex`, {
+            const { data } = await axios.post(api(id, 'cex'), {
                 geometria: geo.geometria,
                 envolvente: plano.loSenalado(),
                 // Lo marcado solo vale para la fase que se está previsualizando:
@@ -505,7 +518,8 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     const pestanas = useMemo(
         () => (geo ? construirPestanas({ ficha, resumen, entrada, medidas: medidasSel }) : []),
         [geo, ficha, resumen, entrada, medidasSel]);
-    const barra = useMemo(() => ({ pestanas, activa, onIr: ir }), [pestanas, activa, ir]);
+    const barra = useMemo(() => ({ pestanas, activa, onIr: ir, deshacer: deshacerCex }),
+                          [pestanas, activa, ir, deshacerCex]);
     useEffect(() => { onPestanas?.(barra); }, [barra, onPestanas]);
 
     //: La altura con la que se levantan los muros en la axonometría: la que

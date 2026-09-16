@@ -3,7 +3,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const axios = require('axios');
 const supabase = require('../services/supabaseClient');
-const { enforceAuth, adminOnly, staffOnly, internalOnly } = require('../middleware/auth');
+const { enforceAuth, adminOnly, staffOnly, internalOnly, isStaff } = require('../middleware/auth');
 const { stripDatosCalculoMargin } = require('../utils/financialScrub');
 const { getCoordinatesByRC } = require('../services/catastroService');
 const { normalizeData } = require('../utils/normalization');
@@ -118,6 +118,31 @@ router.use((req, res, next) => {
     // Resto del módulo: interno (ADMIN / CERTIFICADOR).
     return internalOnly(req, res, next);
 });
+
+// ─── Guard: interno, pero el CERTIFICADOR solo sobre SUS expedientes ─────────
+//
+// El módulo entero es `internalOnly`, y las rutas que además llevan importes se
+// aprietan a `staffOnly`. Pero hay trabajo que es del CERTIFICADOR —leer la placa
+// de la caldera, que es su herramienta— y que con `staffOnly` le devolvía un 403
+// sobre un botón que sí veía.
+//
+// Abrirlo no puede significar abrirlo a TODOS los expedientes: el criterio es el
+// mismo que ya aplica el detalle (`cee.certificador_id === prescriptor_id`), y se
+// comprueba aquí para no repetirlo dentro de cada handler.
+const suyoSiCertificador = (req, res, next) => {
+    if (isStaff(req)) return next();
+    supabase.from('expedientes').select('cee').eq('id', req.params.id).maybeSingle()
+        .then(({ data, error }) => {
+            if (error || !data) return res.status(404).json({ error: 'Expediente no encontrado' });
+            if (String(data.cee?.certificador_id || '') !== String(req.user?.prescriptor_id || '·')) {
+                console.warn(`[Expedientes] ${req.user?.rol_nombre} (${req.user?.prescriptor_id}) `
+                             + `sobre expediente ajeno ${req.params.id}`);
+                return res.status(403).json({ error: 'No autorizado sobre este expediente' });
+            }
+            next();
+        })
+        .catch(() => res.status(503).json({ error: 'No se ha podido comprobar el acceso.' }));
+};
 
 // ─── Guard mixto: sesión interna O clave interna del MCP ──────────────────────
 // Permite el acceso a una ruta tanto al equipo interno (sesión ADMIN/CERTIFICADOR/
@@ -4521,14 +4546,17 @@ router.post('/:id/rite/ocr', staffOnly, (req, res, next) => {
 // rendimiento de la tabla, el ahorro y la propuesta que el cliente ya firmó, así
 // que una discrepancia es un hallazgo que mira una persona, no una corrección.
 //
-// staffOnly: no hay importes, pero es documentación del expediente y la lectura
-// cuesta una llamada de pago a Gemini (~0,001 € y ~4 s).
+// ACCESO — la usa el CERTIFICADOR, que es quien tiene el edificio delante. Iba
+// `staffOnly` y en la ventana de la envolvente —que es SUYA (`internalOnly`)— el
+// botón «Leer la placa» le devolvía un 403. Se acota a SUS expedientes: la
+// lectura cuesta una llamada de pago a Gemini (~0,001 € y ~4 s) y escribe en la
+// instalación, así que no puede hacerse sobre el expediente de otro.
 const placaUpload = require('multer')({
     storage: require('multer').memoryStorage(),
     limits: { fileSize: 25 * 1024 * 1024, files: 6 },
 });
 
-router.post('/:id/placa-caldera/ocr', staffOnly, (req, res, next) => {
+router.post('/:id/placa-caldera/ocr', suyoSiCertificador, (req, res, next) => {
     placaUpload.array('files', 6)(req, res, (err) => {
         if (err) {
             if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'Alguna foto supera los 25 MB.' });
@@ -4694,9 +4722,10 @@ router.post('/:id/placa-caldera/ocr', staffOnly, (req, res, next) => {
 // puede pisarlo. Lo que difiere sale como CONFLICTO, con las dos versiones a la
 // vista, y lo mira una persona.
 //
-// staffOnly: no hay importes, pero es documentación del expediente y cada lectura
-// cuesta una llamada de pago a Gemini (~0,001 € por placa).
-router.post('/:id/placas/ocr', staffOnly, async (req, res) => {
+// ACCESO — igual que la de la caldera: la usa también el CERTIFICADOR y se acota
+// a SUS expedientes. Cada lectura cuesta una llamada de pago a Gemini (~0,001 €
+// por placa) y escribe en la instalación.
+router.post('/:id/placas/ocr', suyoSiCertificador, async (req, res) => {
     try {
         const aplicar = req.body?.aplicar === true || req.body?.aplicar === 'true';
 
