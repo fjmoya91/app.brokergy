@@ -1229,8 +1229,13 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
     if (selectedExpediente) {
         return (
             <ExpedienteDetailView
+                // `key`: saltar de un expediente a otro (p.ej. desde la lista de su
+                // lote) cambia TODO lo que hay en pantalla; sin remontar, el estado
+                // local de los módulos sería el del expediente anterior.
+                key={selectedExpediente.id}
                 expedienteId={selectedExpediente.id}
                 onBack={() => { setSelectedExpediente(null); fetchExpedientes(); }}
+                onOpenExpediente={(id) => setSelectedExpediente({ id })}
                 onNavigate={onNavigate}
                 initialFirmarDoc={initialFirmarDoc}
                 onClearInitialFirmarDoc={onClearInitialFirmarDoc}

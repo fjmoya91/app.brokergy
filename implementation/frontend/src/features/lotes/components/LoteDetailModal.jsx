@@ -12,6 +12,8 @@ import { AnexoListadoModal } from './AnexoListadoModal';
 import { SolicitudVerificacionModal } from './SolicitudVerificacionModal';
 import { FacturaSoModal } from './FacturaSoModal';
 import { LoteProcesoFases } from './LoteProcesoFases';
+import { BotonCarpetaLocal } from './BotonCarpetaLocal';
+import { driveFolderId } from '../../../utils/driveFolder';
 import { LogoEmpresa } from '../../../components/LogoEmpresa';
 import { RequerimientoModal } from './RequerimientoModal';
 import { JustificanteMitecoModal } from './JustificanteMitecoModal';
@@ -22,16 +24,33 @@ const mwh = (n) => `${((Number(n) || 0) / 1000).toLocaleString('es-ES', { maximu
 // Verificado en kWh (= CAEs): la factura al S.O. se emite medida en kWh.
 const kwh = (n) => `${Math.round(Number(n) || 0).toLocaleString('es-ES')} kWh`;
 
+// El nº de ACTUACIÓN dentro del envío (E1..En). No es un adorno: rotula el anexo
+// del MITECO de ese expediente y da nombre a todos los ficheros de su ZIP
+// (`E3-3-1 - …`), así que una vez asignado es como se le llama a ese expediente
+// durante el resto del trámite — y hasta ahora solo se veía abriéndolo.
+export const ordenActuacion = (exp) => Number(exp?.instalacion?.verificacion?.orden_actuacion) || null;
+
 // Tarjeta de expediente compartida (idéntica en la lista del lote y en el picker):
-// nº + estado, nombre del cliente, dirección y los 3 importes. `rightAction` = botón
-// (× quitar / + añadir). Si `onClick`, el bloque de texto navega al expediente.
-function ExpedienteCard({ exp, onClick, rightAction }) {
+// E{n} + nº + estado, nombre del cliente, dirección y los 3 importes.
+// `rightAction` = botón (× quitar / + añadir). Si `onClick`, el bloque de texto
+// navega al expediente.
+function ExpedienteCard({ exp, onClick, rightAction, carpetaLocal = false, onError }) {
     const { user } = useAuth();
     const { canSeeMargin } = getRoleFlags(user); // el ▲ beneficio Brokergy solo lo ve el ADMIN
     const f = computeExpedienteFinancials(exp);
+    const en = ordenActuacion(exp);
+    // El botón solo se pinta si el expediente TIENE carpeta: la clave vive en cuatro
+    // sitios distintos de `datos_calculo` según la época (ver utils/driveFolder.js).
+    const tieneCarpeta = carpetaLocal && !!driveFolderId(exp.oportunidades);
     const inner = (
         <>
             <span className="block truncate">
+                {en != null && (
+                    <span title={`Actuación E${en} del envío: rotula su anexo del MITECO y todos los ficheros de su ZIP (E${en}-…)`}
+                        className="inline-block align-middle mr-2 px-1.5 py-0.5 rounded-md bg-brand/15 border border-brand/30 text-brand text-[10px] font-black tabular-nums">
+                        E{en}
+                    </span>
+                )}
                 <span className="text-sm font-bold text-white group-hover:text-brand transition-colors">{exp.numero_expediente}</span>
                 {exp.estado && <span className="text-[11px] text-white/40 ml-2">{exp.estado}</span>}
             </span>
@@ -57,7 +76,10 @@ function ExpedienteCard({ exp, onClick, rightAction }) {
             {onClick
                 ? <button type="button" onClick={onClick} className="text-left min-w-0 flex-1 group">{inner}</button>
                 : <div className="min-w-0 flex-1">{inner}</div>}
-            {rightAction}
+            <div className="flex items-center gap-1.5 shrink-0">
+                {tieneCarpeta && <BotonCarpetaLocal expedienteId={exp.id} compacto onError={onError} />}
+                {rightAction}
+            </div>
         </div>
     );
 }
@@ -149,6 +171,21 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
         if (fSearch && !norm(`${e.numero_expediente} ${e.cliente_nombre || ''}`).includes(norm(fSearch))) return false;
         return true;
     }), [elegibles, effCcaa, effAnio, fSearch]); // eslint-disable-line
+
+    // Una vez asignados los E1..En, manda el ORDEN DEL ENVÍO: es el que tiene
+    // delante quien arma los ZIP o revisa el anexo del MITECO. Hoy no cambia nada
+    // —medido sobre los 8 lotes con orden asignado, los 40 expedientes lo tienen
+    // igual que su orden alfabético, porque así se selló—, pero ese orden lo fija
+    // el informe de verificación (o la solicitud por API) y no tiene por qué
+    // seguir coincidiendo. Sin números se conserva el orden que llega del backend.
+    const expedientesOrdenados = useMemo(() => {
+        const exps = [...(lote?.expedientes || [])];
+        if (!exps.some(ordenActuacion)) return exps;
+        return exps.sort((a, b) =>
+            // Lo que aún no tiene número va al final: es lo que falta por asignar.
+            ((ordenActuacion(a) ?? Infinity) - (ordenActuacion(b) ?? Infinity))
+            || String(a.numero_expediente || '').localeCompare(String(b.numero_expediente || ''), 'es'));
+    }, [lote?.expedientes]);
 
     // Resumen económico del lote (modelo del Excel del usuario).
     //   beneficioLote = ofertaLote(€/MWh) × ahorro(MWh) − pagoCliente(€)
@@ -579,11 +616,13 @@ export function LoteDetailModal({ loteId, soList: soListProp, verList: verListPr
                                         <p className="text-[12px] text-white/30 italic py-3">Sin expedientes. Añade el primero abajo; fijará el año y la CCAA del lote.</p>
                                     ) : (
                                         <div className="space-y-2">
-                                            {lote.expedientes.map(e => (
+                                            {expedientesOrdenados.map(e => (
                                                 <ExpedienteCard
                                                     key={e.id}
                                                     exp={e}
-                                                    onClick={() => onNavigateExpediente?.(e.id)}
+                                                    carpetaLocal
+                                                    onError={(msg) => showAlert(msg, 'Carpeta local', 'error')}
+                                                    onClick={onNavigateExpediente ? () => onNavigateExpediente(e.id) : undefined}
                                                     rightAction={isBorrador ? (
                                                         <button onClick={() => removeExpediente(e.id)} disabled={busy} title="Quitar del lote"
                                                             className="p-1.5 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-all shrink-0">

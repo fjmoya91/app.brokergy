@@ -270,7 +270,13 @@ function scrubExpedienteEco(e) {
     if (out.instalacion && typeof out.instalacion === 'object') {
         const inst = { ...out.instalacion };
         delete inst.economico_override;
+        // De `verificacion` se va el DINERO (ahorro e inversión verificados), pero el
+        // Nº DE ACTUACIÓN se queda: no es un importe, es como se llama ese expediente
+        // dentro del envío (rotula su anexo del MITECO y los ficheros de su ZIP) y el
+        // TRABAJADOR es justo quien arma esos paquetes.
+        const orden = Number(inst.verificacion?.orden_actuacion) || null;
         delete inst.verificacion;
+        if (orden) inst.verificacion = { orden_actuacion: orden };
         out.instalacion = inst;
     }
     if (out.oportunidades?.datos_calculo) {

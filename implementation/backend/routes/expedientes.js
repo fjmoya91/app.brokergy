@@ -6203,10 +6203,15 @@ router.get('/:id/local-path', staffOnly, async (req, res) => {
             try { normalizedDatos = JSON.parse(normalizedDatos); } catch (e) { normalizedDatos = {}; }
         }
         let driveFolderId = normalizedDatos?.drive_folder_id || normalizedDatos?.inputs?.drive_folder_id;
-        // Fallback robusto: si solo hay enlace, extraer el id de la carpeta del propio link.
-        if (!driveFolderId && normalizedDatos?.drive_folder_link) {
-            const m = String(normalizedDatos.drive_folder_link).match(/folders\/([A-Za-z0-9_-]+)/);
-            if (m) driveFolderId = m[1];
+        // Fallback robusto: si solo hay enlace, extraer el id de la carpeta del propio
+        // link. Se miran los DOS niveles (raíz e `inputs`), como hace el gate del
+        // frontend (`utils/driveFolder.js`): si uno de los dos resolviera y el otro no,
+        // el botón se pintaría en un expediente donde esta ruta devuelve 404.
+        if (!driveFolderId) {
+            for (const link of [normalizedDatos?.drive_folder_link, normalizedDatos?.inputs?.drive_folder_link]) {
+                const m = link && String(link).match(/folders\/([A-Za-z0-9_-]+)/);
+                if (m) { driveFolderId = m[1]; break; }
+            }
         }
         if (!driveFolderId) {
             return res.status(404).json({ error: 'El expediente no tiene carpeta de Drive asociada' });

@@ -242,7 +242,7 @@ function ModuleSection({ id, title, activeSection, onToggle, children, badge, he
 }
 
 // ─── Vista de Detalle ─────────────────────────────────────────────────────────
-export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initialFirmarDoc, onClearInitialFirmarDoc }) {
+export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenExpediente, initialFirmarDoc, onClearInitialFirmarDoc }) {
     const { showAlert, showConfirm } = useModal();
     const { user } = useAuth();
     const userRole = (user?.rol || '').toUpperCase();
@@ -1860,7 +1860,15 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, initial
                     verList={[]}
                     onClose={() => setOpenLoteId(null)}
                     onChanged={() => fetchExpediente(true)}
-                    onNavigateExpediente={() => setOpenLoteId(null)}
+                    // Pinchar un HERMANO de lote abre ESE expediente. Antes solo se
+                    // cerraba el modal y te quedabas en el de partida, que se lee como
+                    // un botón roto: el lote es justo desde donde se salta de uno a otro.
+                    onNavigateExpediente={(expId) => {
+                        setOpenLoteId(null);
+                        if (!expId || expId === expedienteId) return;
+                        if (onOpenExpediente) onOpenExpediente(expId);
+                        else onNavigate?.('expedientes', { expediente_id: expId });
+                    }}
                 />
             )}
 

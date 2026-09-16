@@ -2,8 +2,13 @@ import { useState } from 'react';
 import axios from 'axios';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Abre la carpeta del lote en el EXPLORADOR DE WINDOWS (el espejo local de Google
-// Drive para escritorio), igual que el botón del expediente y el del cliente.
+// Abre la carpeta del LOTE o la de un EXPEDIENTE en el EXPLORADOR DE WINDOWS (el
+// espejo local de Google Drive para escritorio).
+//
+// Es el MISMO gesto en los dos casos —pedir la ruta, copiarla y lanzar el
+// protocolo— y solo cambia a qué ruta se le pregunta, así que va en un único
+// componente: los detalles de abajo son fáciles de "simplificar" sin querer, y una
+// segunda copia acabaría rompiéndose sin que nadie lo notara.
 //
 // Los navegadores bloquean `file://` desde la web, así que se pide al backend la
 // ruta de Windows y se lanza por el protocolo propio `brokergylocal:`, que hay
@@ -17,17 +22,21 @@ import axios from 'axios';
 //     al menos se puede pegar en el Explorador.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function BotonCarpetaLocal({ loteId, disabled = false, onError, className = '', compacto = false }) {
+export function BotonCarpetaLocal({ loteId, expedienteId, disabled = false, onError, className = '', compacto = false }) {
+    const endpoint = expedienteId
+        ? `/api/expedientes/${expedienteId}/local-path`
+        : (loteId ? `/api/lotes/${loteId}/local-path` : null);
+    const que = expedienteId ? 'expediente' : 'lote';
     const [busy, setBusy] = useState(false);
 
     const abrir = async (e) => {
         // La tarjeta del lote es clicable entera: este botón no debe abrir el modal.
         e.stopPropagation();
         e.preventDefault();
-        if (!loteId || busy) return;
+        if (!endpoint || busy) return;
         setBusy(true);
         try {
-            const { data } = await axios.get(`/api/lotes/${loteId}/local-path`);
+            const { data } = await axios.get(endpoint);
             const path = data?.path;
             if (!path) throw new Error('No se pudo obtener la ruta local.');
             try { await navigator.clipboard.writeText(path); } catch (_) { /* contexto no seguro */ }
@@ -48,7 +57,7 @@ export function BotonCarpetaLocal({ loteId, disabled = false, onError, className
 
     return (
         <button type="button" onClick={abrir} disabled={disabled || busy}
-            title="Abrir la carpeta del lote en el Explorador de Windows (se copia también la ruta)"
+            title={`Abrir la carpeta del ${que} en el Explorador de Windows (se copia también la ruta)`}
             className={`shrink-0 rounded-lg border border-emerald-500/25 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-40 transition-all ${compacto ? 'p-1.5' : 'px-2.5 py-1.5'} ${className}`}>
             {busy ? (
                 <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
