@@ -254,13 +254,30 @@ router.get('/image/:rc', async (req, res) => {
             return res.status(404).json({ error: 'Image not found' });
         }
 
+        // La foto puede llegar ROTA de Catastro (ver `fachadaCompleta`): cabecera
+        // buena y datos de imagen cortados. Dentro suele quedar entera la
+        // miniatura del EXIF, que a 640×480 sobra para los recuadros en los que
+        // se enseña (300 px en la ficha catastral, 218 en la portada de la
+        // propuesta). Servir los bytes rotos es peor que no servir nada: el
+        // navegador dice que la imagen ha cargado, la pinta en negro y nadie se
+        // entera de que falta.
+        let cuerpo = imageData.data;
+        if (!catastroService.fachadaCompleta(cuerpo)) {
+            if (!imageData.miniatura) {
+                console.warn(`Facade Image [${rc}]: Catastro la sirve rota y sin miniatura; no hay foto que enseñar`);
+                return res.status(404).json({ error: 'Image not found' });
+            }
+            console.warn(`Facade Image [${rc}]: Catastro la sirve rota; se envía su miniatura EXIF (${imageData.miniatura.length} bytes)`);
+            cuerpo = imageData.miniatura;
+        }
+
         res.set('Access-Control-Allow-Origin', '*');
         res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
         res.set('Content-Type', imageData.contentType);
         // Remove attachment to treat as inline image for browser rendering/canvas
         // res.set('Content-Disposition', `attachment; filename="fachada_${rc}.jpg"`);
         res.set('Cache-Control', 'public, max-age=86400'); // Cache 24h
-        res.send(Buffer.from(imageData.data));
+        res.send(Buffer.from(cuerpo));
     } catch (error) {
         console.error('Image error:', error.message);
         res.status(500).json({ error: 'Failed to fetch image' });

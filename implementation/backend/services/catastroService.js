@@ -920,7 +920,7 @@ async function getDwellingsByParcel(rc14) {
  */
 function miniaturaExif(buf) {
     if (!buf || buf.length < 4 || buf[0] !== 0xFF || buf[1] !== 0xD8) return null;
-    // El APP1 con "Exif  " es donde vive; se localiza por marcadores y no
+    // El APP1 con "Exif" es donde vive; se localiza por marcadores y no
     // buscando a ojo, que en un binario encuentra cualquier cosa.
     let i = 2;
     while (i + 3 < buf.length && buf[i] === 0xFF) {
@@ -960,6 +960,42 @@ function _dimensiones(b) {
         i += 2 + largo;
     }
     return null;
+}
+
+/**
+ * ¿Se puede PINTAR esta foto de fachada?
+ *
+ * Catastro guarda fotos ROTAS: el fichero llega con su cabecera y su EXIF, pero
+ * los datos de la imagen se cortan a media línea y el fin de JPEG no llega nunca.
+ * Medido el 16/09/2026 sobre 20 viviendas reales, **6 llegan así** — idénticas
+ * byte a byte en tres descargas seguidas y también bajándolas de su servidor sin
+ * pasar por la app, o sea que están rotas en origen y no hay reintento que las
+ * arregle.
+ *
+ * Y no se nota hasta que se intenta pintar: un `<img>` dispara `load` y dice
+ * 1024×768, pero el lienzo sale NEGRO y en la página no se ve nada. Por eso la
+ * portada de una propuesta se quedaba sin su foto sin que nada lo delatara
+ * (26RES080_OP62).
+ *
+ * REGLA — el fin de JPEG cuenta solo si está DESPUÉS del inicio del scan. El
+ * `FFD9` de un fichero cortado es el de la miniatura del EXIF, que va en la
+ * cabecera y no dice nada de la imagen grande. Y no vale exigirlo al final del
+ * fichero: Catastro escribe relleno detrás —medido en 4410205WJ0641S0001JH:
+ * 330.687 bytes cuya imagen acaba en el 62.354— y ésa se ve perfectamente.
+ */
+function fachadaCompleta(buf) {
+    if (!buf || buf.length < 4 || buf[0] !== 0xFF || buf[1] !== 0xD8) return false;
+    let i = 2, sos = -1;
+    while (i + 3 < buf.length && buf[i] === 0xFF) {
+        const marca = buf[i + 1];
+        if (marca === 0xDA) { sos = i; break; }              // empiezan los datos
+        if (marca === 0xD8 || (marca >= 0xD0 && marca <= 0xD9)) { i += 2; continue; }
+        const largo = buf.readUInt16BE(i + 2);
+        if (largo < 2) return false;
+        i += 2 + largo;
+    }
+    if (sos < 0) return false;
+    return buf.lastIndexOf(Buffer.from([0xFF, 0xD9])) > sos;
 }
 
 async function getFacadeImage(rc) {
@@ -1071,4 +1107,4 @@ async function getParcelImage(rc) {
 
 async function getDetails(rc) { return await getByRC(rc); }
 
-module.exports = { getByRC, getRCByCoords, getDetails, getFacadeImage, getCoordinatesByRC, getParcelImage, getDwellingsByParcel, extraerInmuebles, resumirParcela, miniaturaExif, getWmsImage };
+module.exports = { getByRC, getRCByCoords, getDetails, getFacadeImage, getCoordinatesByRC, getParcelImage, getDwellingsByParcel, fachadaCompleta, extraerInmuebles, resumirParcela, miniaturaExif, getWmsImage };

@@ -880,6 +880,12 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                 const blob = await resp.blob();
                 if (!blob.type.startsWith('image/')) return;
                 const bitmap = await createImageBitmap(blob);
+                // Catastro sirve fotos ROTAS y de algunas solo se rescata la
+                // miniatura de su EXIF, que a veces son 160×120. En la ficha
+                // catastral basta para reconocer la casa; en la portada de una
+                // propuesta que lee el cliente, estirada a 218 px, se ve peor
+                // que el hueco que deja no ponerla.
+                if (bitmap.width < 400) return;
                 const MAX = 480;
                 const escala = Math.min(1, MAX / bitmap.width);
                 const canvas = document.createElement('canvas');

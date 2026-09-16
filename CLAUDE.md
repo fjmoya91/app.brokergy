@@ -173,6 +173,42 @@ fotos se unen en un PDF antes de leer). No se bifurcó aquel: leer 21 campos de 
 
 En `ClienteDetailModal.jsx`, el botón **"Usar Catastro"** junto al input de dirección parsea strings tipo `"CL DON SERGIO 15 13700 TOMELLOSO (CIUDAD REAL)"` y rellena CCAA/Provincia/Municipio/CP automáticamente (matching por sufijo o fallback por dígitos del CP). Función `parseCatastroAddressFull()`.
 
+#### La foto de fachada llega ROTA una de cada tres (2026-09-16)
+
+Catastro guarda fotos de fachada **cortadas**: cabecera y EXIF buenos, los datos
+de la imagen a medias y sin fin de JPEG. Medido sobre 20 viviendas reales, **6
+llegan así** — idénticas byte a byte en tres descargas seguidas y también
+bajándolas de su servidor sin pasar por la app, o sea que están rotas en origen
+y no hay reintento que las arregle.
+
+**Y el navegador no lo delata**: un `<img>` dispara `load` y declara 1024×768,
+pero no pinta un píxel; en un lienzo sale NEGRA, y `createImageBitmap` —que es
+por donde pasa la portada de la propuesta— lanza "The source image could not be
+decoded". Así que la portada de 26RES080_OP62 salió sin su foto sin que nada lo
+dijera, y parecía que se había cambiado algo.
+
+**REGLA — no se sirve una foto que no se puede pintar.** `fachadaCompleta(buf)`
+([catastroService.js](implementation/backend/services/catastroService.js))
+exige que el fin de JPEG esté **DESPUÉS del inicio del scan**: el `FFD9` de un
+fichero cortado es el de la miniatura del EXIF, que va en la cabecera. Y no vale
+exigirlo al final del fichero — Catastro escribe relleno detrás de imágenes que
+se ven perfectamente (medido en 4410205WJ0641S0001JH: 330.687 bytes cuya imagen
+acaba en el 62.354).
+
+**REGLA — de una foto rota se rescata su MINIATURA EXIF**, que suele estar
+entera (4 de las 6 medidas). `GET /api/catastro/image/:rc` la sirve en su lugar
+y, si tampoco la hay, responde **404**: el frontend ya lo trata como "sin foto
+registrada", que es la verdad.
+
+⚠️ Esas miniaturas son de **160×120**, no de 640×480 como las de una foto sana.
+Para la ficha catastral sobran (se mira para reconocer la casa); en la **portada
+de la propuesta** se descartan por debajo de 400 px de ancho — estirada a 218 px
+se ve peor que el hueco que deja no ponerla.
+
+```bash
+node implementation/backend/scripts/test_fachada_rota.mjs
+```
+
 #### Diagnóstico rápido si vuelve a fallar en VPS
 
 ```bash
