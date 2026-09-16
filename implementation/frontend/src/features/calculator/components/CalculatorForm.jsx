@@ -26,6 +26,8 @@ import { ACS_METHOD, resolveDacs } from '../../expedientes/logic/demandaAcs';
 import { esBloque, TIPO_INMUEBLE, clasificarTipoEdificio, etiquetaTipoEdificio, avisoTipoEdificio, IRPF_EDIFICIO_REQUISITO } from '../logic/tipoInmueble';
 import { FV, FV_OPCIONES, normalizarFotovoltaica, potenciaTexto, etiquetaFotovoltaica } from '../../expedientes/logic/fotovoltaica';
 import { produceAcs, litrosAcsCatalogo, esConjuntoAcs } from '../../expedientes/logic/acsCatalogo';
+import { opcionDeEquipo, BUSCAR_EQUIPO } from '../../expedientes/logic/aerotermiaOpciones';
+import SearchableSelect from '../../../components/SearchableSelect';
 import { useAuth } from '../../../context/AuthContext';
 import { parseCeeXml } from '../logic/xmlCeeParser';
 import CeeUploadModal from '../../cee/CeeUploadModal';
@@ -376,6 +378,30 @@ export function CalculatorForm({
 
     const activeBrandLogo = marcasDisponibles.find(m => m.nombre === selectedMarca)?.logo;
     const activeBrandAcsLogo = marcasAcsDisponibles.find(m => m.nombre === selectedMarcaAcs)?.logo;
+
+    // ── Los equipos que se OFRECEN, con la referencia de su placa a la vista ──
+    // Cómo se nombra cada uno es fuente única (logic/aerotermiaOpciones.js): el
+    // mismo equipo tiene que leerse igual aquí y en el expediente.
+    const modelOptionsCal = React.useMemo(
+        () => dbModels.filter(m => m.marca === selectedMarca).map(opcionDeEquipo),
+        [dbModels, selectedMarca]
+    );
+
+    // En ACS solo se ofrece lo que puede justificar un SCOP_dhw (`produceAcs`),
+    // pero lo YA guardado no se esconde nunca aunque el filtro lo dejara fuera:
+    // el desplegable se quedaría en blanco y el siguiente guardado borraría un
+    // equipo que alguien eligió. Mismo criterio que el expediente.
+    const modelOptionsAcs = React.useMemo(() => {
+        const ofrecidos = dbModels.filter(m => m.marca === selectedMarcaAcs && produceAcs(m, inputs.zona));
+        const elegido = inputs.aerothermiaModelAcs && inputs.aerothermiaModelAcs !== 'custom'
+            ? dbModels.find(m => String(m.id) === String(inputs.aerothermiaModelAcs))
+            : null;
+        const lista = (elegido && !ofrecidos.some(m => String(m.id) === String(elegido.id)))
+            ? [elegido, ...ofrecidos]
+            : ofrecidos;
+        return lista.map(opcionDeEquipo);
+    }, [dbModels, selectedMarcaAcs, inputs.zona, inputs.aerothermiaModelAcs]);
+
 
     useEffect(() => {
         if (!inputs.anio) return;
@@ -2030,11 +2056,19 @@ export function CalculatorForm({
                                                 </div>
                                             ) : (
                                                 <div className="space-y-2">
-                                                    <Select
+                                                    <SearchableSelect
                                                         id="aerothermiaModel"
-                                                        value={inputs.aerothermiaModel || 'custom'}
-                                                        onChange={e => {
-                                                            const modelId = e.target.value;
+                                                        showAvatar={false}
+                                                        triggerClassName="h-12 rounded-xl"
+                                                        searchPlaceholder={BUSCAR_EQUIPO}
+                                                        placeholder={selectedMarca ? '— Seleccionar modelo —' : '— Elige marca primero —'}
+                                                        disabled={!selectedMarca}
+                                                        value={inputs.aerothermiaModel && inputs.aerothermiaModel !== 'custom' ? String(inputs.aerothermiaModel) : ''}
+                                                        options={modelOptionsCal}
+                                                        onChange={v => {
+                                                            // Vaciar la seleccion vuelve a "introducir manualmente", que
+                                                            // es lo que hacia el <option value="custom"> de antes.
+                                                            const modelId = v || 'custom';
                                                             let selectedModel = dbModels.find(m => String(m.id) === String(modelId));
                                                             if (!selectedModel) selectedModel = AEROTHERMIA_MODELS.find(m => m.id === modelId);
 
@@ -2056,21 +2090,7 @@ export function CalculatorForm({
                                                             }
                                                             onInputChange(prev => ({ ...prev, ...updates }));
                                                         }}
-                                                        className="h-12 bg-slate-900/50 border-slate-700/50 rounded-xl"
-                                                    >
-                                                        <option value="custom">-- Seleccionar modelo --</option>
-                                                        <optgroup label={selectedMarca || 'Modelos disponibles'}>
-                                                            {dbModels
-                                                                .filter(m => m.marca === selectedMarca)
-                                                                .map(m => (
-                                                                    <option key={m.id} value={m.id}>
-                                                                        {m.modelo_comercial} ({m.potencia_calefaccion} kW)
-                                                                    </option>
-                                                                ))
-                                                            }
-                                                        </optgroup>
-                                                        <option value="custom">✏️ Introducir manualmente</option>
-                                                    </Select>
+                                                    />
                                                     {inputs.aerothermiaModel === 'custom' && (
                                                         <Input
                                                             type="text"
@@ -2501,11 +2521,17 @@ export function CalculatorForm({
                                                         </div>
                                                     ) : (
                                                         <div className="space-y-2">
-                                                            <Select
+                                                            <SearchableSelect
                                                                 id="aerothermiaModelAcs"
-                                                                value={inputs.aerothermiaModelAcs || 'custom'}
-                                                                onChange={e => {
-                                                                    const modelId = e.target.value;
+                                                                showAvatar={false}
+                                                                triggerClassName="h-12 rounded-xl"
+                                                                searchPlaceholder={BUSCAR_EQUIPO}
+                                                                placeholder={selectedMarcaAcs ? '— Seleccionar modelo ACS —' : '— Elige marca primero —'}
+                                                                disabled={!selectedMarcaAcs}
+                                                                value={inputs.aerothermiaModelAcs && inputs.aerothermiaModelAcs !== 'custom' ? String(inputs.aerothermiaModelAcs) : ''}
+                                                                options={modelOptionsAcs}
+                                                                onChange={v => {
+                                                                    const modelId = v || 'custom';
                                                                     let selectedModel = dbModels.find(m => String(m.id) === String(modelId));
                                                                     let updates = { aerothermiaModelAcs: modelId, customModelAcsName: '' };
                                                                     if (selectedModel && modelId !== 'custom') {
@@ -2517,28 +2543,7 @@ export function CalculatorForm({
                                                                     }
                                                                     onInputChange(prev => ({ ...prev, ...updates }));
                                                                 }}
-                                                                className="h-12 bg-slate-900/50 border-slate-700/50 rounded-xl"
-                                                            >
-                                                                <option value="custom">-- Seleccionar modelo ACS --</option>
-                                                                <optgroup label={selectedMarcaAcs || 'Modelos ACS'}>
-                                                                    {dbModels
-                                                                        .filter(m => m.marca === selectedMarcaAcs && produceAcs(m, inputs.zona))
-                                                                        .map(m => (
-                                                                            <option key={m.id} value={m.id}>
-                                                                                {/* Los litros salen de `litros_acs`. Antes se leían de
-                                                                                    `deposito_acs_incluido`, que hoy es un BOOLEANO: la
-                                                                                    condición `typeof === 'number'` no se cumplía nunca y
-                                                                                    la acumulación no se enseñaba jamás. */}
-                                                                                {m.modelo_comercial}{' '}
-                                                                                {m.modelo_conjunto
-                                                                                    ? `(${m.modelo_conjunto})`
-                                                                                    : (esConjuntoAcs(m) && litrosAcsCatalogo(m) ? `(${litrosAcsCatalogo(m)} L)` : '')}
-                                                                            </option>
-                                                                        ))
-                                                                    }
-                                                                </optgroup>
-                                                                <option value="custom">✏️ Introducir manualmente</option>
-                                                            </Select>
+                                                            />
                                                             {inputs.aerothermiaModelAcs === 'custom' && (
                                                                 <Input
                                                                     type="text"
