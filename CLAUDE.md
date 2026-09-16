@@ -1630,11 +1630,34 @@ evidencia literal citada, para que cualquiera pueda reproducir por qué saltó.
   impulsión y con ella el SCOP. RES080 exento (ahí sí cabe obra de emisores). ⚠️ Conectar o purgar
   los emisores YA EXISTENTES es `OBRA_CIVIL`, no `EMISORES` — probado: no da falso positivo.
 - **GRAVE**: `TITULAR` (NIF del cliente ≠ el del expediente) · `EMISOR` (no factura el instalador
-  asociado, que es quien firma el CIFO) · `ALCANCE` (partida fuera de la ficha) ·
+  asociado, que es quien firma el CIFO — ver abajo: en RES080 solo si la factura lleva la
+  TÉRMICA) · `ALCANCE` (partida fuera de la ficha) ·
   `ALCANCE_SIN_EQUIPO` (única factura sin la bomba de calor) · `DUPLICADA` · `SERIE_DISTINTA` ·
-  `FECHA` (anterior al registro del CEE inicial, o futura) · `SOBREFINANCIACION`.
+  `FECHA` (futura) · `SOBREFINANCIACION`.
 - **LEVE**: `SIN_EQUIPO` (falta marca / modelo / nº de serie — lo ideal es que la factura lo cite) ·
   `SIN_DESGLOSE` · `DIRECCION` · `SIN_CLIENTE` · `SIN_FECHA`.
+- **El `EMISOR` de un RES080 solo se exige en la factura de la TÉRMICA.** Una rehabilitación la
+  ejecutan VARIOS gremios: la bomba de calor la pone el instalador, las ventanas el carpintero, la
+  cubierta el albañil, la fachada el aplicador del SATE. Que esas facturas las emita otra empresa
+  **es lo normal**, y marcarlas en GRAVE sacaba un aviso rojo en casi todas las facturas de
+  envolvente de todos los RES080 — un aviso que sale siempre y nunca hay que atender es el que
+  enseña a ignorar la lista entera. Salta si la factura incluye `AEROTERMIA` o `ACS`, que es lo que
+  firma quien emite el certificado y la memoria RITE. En RES060/RES093/TER no hay tal reparto: la
+  actuación ES la bomba de calor, así que cualquier factura del expediente tiene que ser suya.
+- **LEVE `FECHA`** (anterior al CEE inicial) — y aquí manda la **FIRMA** del CEE inicial, **no su
+  REGISTRO**. El certificado de partida existe desde que lo firma el técnico; inscribirlo es un
+  trámite posterior, del certificador y de la administración, que se toma sus semanas: comparando
+  contra el registro se marcaba como GRAVE una factura emitida con el certificado ya en la mano
+  (medido en 26RES080_59 — factura del 09/07/2026 contra un registro del 31/07). Es LEVE porque la
+  fecha de una factura **no es la fecha en que se ejecutó la obra**: se factura un anticipo, o el
+  material por delante. Lo que el verificador compara es el INICIO DE ACTUACIÓN que declara el CIFO,
+  y esa comprobación sigue siendo dura en
+  [cifoFechas.js](implementation/frontend/src/features/expedientes/logic/cifoFechas.js), que además
+  distingue el tramo firma→registro (LEVE solo en RES080; en las fichas de sustitución la ficha
+  exige el CEE REGISTRADO antes de la actuación). Sin fecha de firma se compara con el registro
+  **diciéndolo** y se pide rellenarla. La cascada de dónde sale esa fecha —`cee.fecha_firma_cee_*`,
+  el `fechaFirma` del certificado parseado y el espejo en `documentacion`— es fuente única en
+  [utils/ceeFechas.js](implementation/backend/utils/ceeFechas.js).
 
 **Las incidencias se PROPONEN, no se registran solas.** El modal las lista con casilla, GRAVES
 primero; solo las marcadas se dan de alta vía `POST /:id/incidencias` con `procedencia: AGENTE_IA`.
@@ -4788,6 +4811,77 @@ El montaje final NO cambia: el Convenio se archiva con el DNI del cliente y el d
 representante de Brokergy anexados, por `buildCesionManuscrita` (regla 22.b), igual que un
 escaneo de papel. Y la contrafirma tampoco hace falta: el borrador ya lleva impresa la firma
 de Brokergy en la columna del Cesionario.
+
+## DESHACER en la envolvente, y quién puede leer la placa (2026-09-16)
+
+### La otra cara del autoguardado
+
+En la ventana de la envolvente no hay botón de guardar: se guarda solo con un
+freno de 1,2 s, y eso es lo correcto — que alguien se olvide de pulsar no puede
+costarle el trabajo. Pero **un error también se guarda solo**: apartar la pared
+equivocada, borrar una ventana que costó medir o pulsar «quitar» en el hueco de
+al lado se persistía antes de darte cuenta, y la única salida era rehacerlo a
+mano.
+
+| Qué | Dónde |
+|---|---|
+| La pila, el freno y el atajo | [useDeshacer.js](implementation/frontend/src/features/cee-envolvente/logic/useDeshacer.js) |
+| Volver a montar el plano con otro trabajo | `restaurar` / `sembrar` en [usePlanoEnvolvente.js](implementation/frontend/src/features/cee-envolvente/logic/usePlanoEnvolvente.js) |
+| Los botones | `Paso` en [PestanasCe3x.jsx](implementation/frontend/src/features/cee-envolvente/components/PestanasCe3x.jsx) |
+| Prueba de la mecánica | `node implementation/backend/scripts/test_deshacer.mjs` |
+
+**REGLA — se deshacen el PLANO y los AJUSTES a la vez.** Son una sola cosa: se
+guardan en el mismo documento (`cee.envolvente`) y se cargan juntos. Deshacer uno
+sin el otro dejaría el expediente diciendo dos cosas.
+
+**REGLA — restaurar es SEMBRAR con otro trabajo.** No se guardan copias del mapa
+de muros: se vuelve a montar desde la geometría y se le pone encima el trabajo de
+ese paso, con la MISMA función que siembra al abrir. Así solo hay una forma de
+leer un trabajo — la del fichero— y un campo nuevo no se queda fuera al deshacer.
+⚠️ Al restaurar NO se mira el `localStorage`: ahí está lo ÚLTIMO, que es justo de
+lo que se quiere volver, y leerlo dejaría el botón sin efecto.
+
+**REGLA — lo que evita el BUCLE es el dedupe, no una bandera.** Al restaurar, la
+vista cambia de estado y el efecto se vuelve a disparar con el estado restaurado;
+como su huella ya es la de `pila[pos]`, no se apunta nada. Sin eso, deshacer
+apuntaría un paso nuevo y no se podría salir. Vigilado: cien disparos con el
+mismo estado no mueven la pila.
+
+**REGLA — la SELECCIÓN no gasta un paso.** `sel` es dónde se está mirando, no
+trabajo: contándolo, pulsar una pared sería un paso y Ctrl+Z te devolvería la
+selección anterior en vez de deshacer lo que hiciste. Es el mismo criterio que
+`hayCambios` al cerrar la pestaña. Dentro de la foto sí viaja y se restaura: es
+dónde estabas cuando hiciste ese cambio.
+
+**REGLA — Ctrl+Z NO se intercepta dentro de un campo de texto.** Ahí es el del
+navegador y deshace lo que estás escribiendo, que es lo que uno espera.
+Robárselo para tirar del histórico de la app sería peor que no tener atajo — para
+eso está el botón, que además funciona desde cualquiera de las ventanas.
+
+El freno de **700 ms** es lo que convierte un cambio en un PASO: sin él, teclear
+«150» en los litros del depósito serían tres pasos y habría que pulsar deshacer
+tres veces para quitar un número. Y el histórico se corta en **60 pasos** (~2 KB
+cada uno, en memoria, nunca se escriben): esto resuelve el resbalón de hace un
+minuto, no un control de versiones.
+
+Los botones van en la **barra de apartados**, no en la cabecera del plano: el
+resbalón se comete en cualquiera de las ventanas —también tecleando en
+Instalaciones— y la cabecera solo se ve en la del plano. Salen **deshabilitados,
+no escondidos**: que estén ahí en gris es lo que dice que ya no queda nada que
+deshacer.
+
+### La PLACA la lee también el CERTIFICADOR
+
+`placa-caldera/ocr` y `placas/ocr` iban `staffOnly`, y en la ventana de la
+envolvente —que es SUYA (`internalOnly`)— el botón «Leer la placa» le devolvía un
+403 sobre algo que sí veía. En el expediente el botón estaba directamente oculto
+*porque* la ruta era staffOnly.
+
+**REGLA — abrirlo no es abrirlo a TODOS los expedientes.** `suyoSiCertificador`
+aplica el mismo criterio que ya usa el detalle (`cee.certificador_id ===
+prescriptor_id`): la lectura cuesta una llamada de pago a Gemini y **escribe en la
+instalación**, así que no puede hacerse sobre el expediente de otro. Se comprueba
+en el guard y no dentro de cada handler, que son dos.
 
 ### Y si se está en el ORDENADOR, la firma se pasa al MÓVIL con un QR
 
@@ -8321,6 +8415,97 @@ script) y que el fichero parcheado es el que se sirve. Si un cliente vuelve a fa
 
 ---
 
+## Lo que el FLAG esconde y lo que MAYÚSCULAS borra (2026-09-16)
+
+Dos fallos distintos, encontrados el mismo día y con la misma forma: el dato
+estaba escrito en el expediente y el documento no lo decía.
+
+### El nº de serie del equipo de ACS lo decide el DATO, no el flag
+
+En 26RES080_34 el Anexo I imprimía `Ud. interior: 075076300000022` —la serie de
+la unidad EXTERIOR— teniendo `002425200000056` guardada en el nodo de ACS.
+
+Es un **CONJUNTO BIBLOC**: UNA máquina del catálogo (`aerotermia_db_id` 94 en los
+dos nodos, así que `mismaMaquina()` los reconoce y el flag
+`misma_aerotermia_acs` sigue en true) pero **DOS aparatos**, la unidad exterior y
+la de dentro —que es la que calienta y acumula el agua—, cada uno con su placa y
+su serie. El CIFO las declara en dos filas («Nº serie unidad exterior» / «Nº
+serie equipo ACS») y el Anexo I en dos líneas.
+
+**REGLA — el flag no puede esconder una SERIE declarada.** `acsSerieDeclarada(inst)`
+en [aerotermiaUnits.js](implementation/frontend/src/features/expedientes/logic/aerotermiaUnits.js)
+(con su espejo CJS): si el nodo de ACS declara serie propia, ésa es la que se
+imprime; si no, se sigue cayendo a la de calefacción. Es la misma regla de
+`acsMismoEquipo` (regla 12.c) aplicada a la serie — entre un booleano que nadie
+ha tocado y un dato escrito a mano, manda el dato.
+
+Lo aplican los TRES documentos que la imprimen: `cifoDoc.js` (`acsNuSerieEx`),
+`docGenerators.js` (`snInt` del Anexo I) y `res080Doc.js`, donde además «Misma
+unidad» deja de ser cierto en cuanto hay dos aparatos.
+
+**REGLA — solo cambia la SERIE.** El equipo, el SCOP_dhw y el ahorro siguen
+colgando del flag a propósito: moverlos cambiaría cifras de expedientes ya
+emitidos (regla 12.c, que por eso los AVISA en vez de corregirlos).
+
+Medido sobre producción: **8 expedientes** con el flag en true, serie propia en
+el nodo de ACS y distinta de la de calefacción —25RES060_36 · _39 · _41,
+26RES060_102 · _107, 26RES080_34 · _59 · _66—, todos con SCOP_dhw propio (o sea,
+con el bloque de ACS rellenado a conciencia). Ninguno tiene cascada, y los 18
+monoblocs con la MISMA serie en los dos nodos no se mueven: el resultado es la
+misma cadena.
+
+```bash
+node implementation/backend/scripts/test_serie_acs_flag.mjs
+```
+
+### El BONO SOCIAL se guardaba y la lectura lo tiraba
+
+Se marcaba «Bono social eléctrico para consumidores vulnerables», se cambiaba de
+pestaña y volvía sin marcar; y el Anexo I imprimía «Ninguno de los anteriores».
+El dato ESTABA en la BD (26RES060_165: `tipos: ["ELECTRICO_VULNERABLE"]`).
+
+Dos causas encadenadas, y las dos están arregladas:
+
+1. **`normalizeData` subía el sub-árbol a MAYÚSCULAS.** Los ids del bono son
+   enums en minúscula (`electrico_vulnerable`) y `leerSubvenciones` **descarta lo
+   que no case EXACTO**, así que al releer desaparecía. Mismo gotcha que
+   `fotovoltaica` y `envolvente`: `subvenciones` va ya en la **BLACKLIST**.
+   ⚠️ Afectaba también a `ayuda.fondo_nacional`, que se compara con `=== 'si'` y
+   **viaja al verificador** en `SE_fondo_nacional`: en MAYÚSCULAS se le declaraba
+   «no» teniendo «SI» escrito en el expediente.
+2. **Lo ya guardado tiene que poder abrirse**: `leerSubvenciones` casa los enums
+   SIN distinguir mayúsculas y devuelve el id canónico (`canon` / `canonId`),
+   igual que `rescatarHueco` en la envolvente. Cubre `bono_social.tipos`,
+   `catalogo_id`, `estado` y `fondo_nacional`.
+
+**REGLA — Subvenciones se AUTOGUARDA, como el resto de la ficha.** Era el ÚNICO
+módulo del expediente con un botón manual, y ese botón vive al final de una
+pantalla larga: se marcaba el bono, se cambiaba de pestaña y el módulo se
+desmontaba con lo marcado dentro, sin guardar y sin decirlo. Mismo modelo que
+Instalación (freno de 900 ms + referencia de lo último persistido, con la primera
+emisión como línea base). Se manda **solo su clave** (`{ documentacion: {
+subvenciones } }`): `mergeDocumentacion` funde en el backend, y reenviar
+`documentacion` entera desde una copia hidratada es justo lo que pisa lo que
+hayan escrito otros endpoints. El botón se sustituye por el acuse
+«Guardando… / ✓ Guardado» — un autoguardado mudo no se distingue de no guardar.
+
+```bash
+node implementation/backend/scripts/test_subvenciones_bono.mjs
+```
+
+### Lo que se escribe ENCIMA del PDF en el visor no se envía
+
+El impreso oficial se previsualiza como PDF real en un iframe, y el visor del
+navegador trae sus propias herramientas de anotación (texto, lápiz, resaltado).
+Lo que se escriba con ellas vive **solo en esa pestaña**: no está en el fichero,
+no se guarda en Drive y no viaja en el envío — y desde el otro lado no hay forma
+de notarlo, porque el PDF que recibe el cliente sale limpio. Lo dice ahora la
+propia barra del visor (`DocumentoOficialPreview`), que es donde se comete el
+error. Para marcar casillas a mano sigue estando el formato **Clásico**, cuyo
+estado sí viaja en `overrides.anexo1`.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -8341,6 +8526,7 @@ script) y que el fichero parcheado es el que se sirve. Si un cliente vuelve a fa
 11. **XML Upload**: Parseo automático de demandas y también de `fechaFirma` y `fechaVisita`.
 12. **ACS en Anexo I**: Validar `inputs.changeAcs || inputs.incluir_acs`. Si es false, ocultar unidad interior.
 12.b **ACS fuera del alcance → "no aplica", nunca el valor ni 0**: en la tabla del apartado 4 (Ficha RES060/RES093/TER100 y Certificado CIFO), si el ACS no computa, **D<sub>ACS</sub> se imprime "no aplica"** igual que SCOP<sub>dhw</sub>. Dejar la demanda a la vista invita al verificador a multiplicarla y a obtener un AE<sub>ACS</sub> que no forma parte de la actuación; un 0 afirma una demanda nula, que es falso. Mismo criterio que D<sub>CAL</sub>/S cuando la calefacción queda fuera (TER100). El alcance se decide igual que en el CIFO: `cambio_acs !== false` **y** que el equipo nuevo no sea un termo eléctrico (efecto Joule, rendimiento 1). Son CINCO sitios y van a la vez: `logic/cifoDoc.js`, `logic/fichaRes060Html.js`, `logic/fichaRes093Html.js` y los modales `FichaRes060Modal.jsx` / `FichaRes093Modal.jsx` (que duplican el HTML **y** la vista previa React). La ficha TER100 ya lo resuelve en `logic/ter100.js` (`alcance`).
+12.e **El nº de serie del equipo de ACS lo decide el DATO, no el flag** (`acsSerieDeclarada` en [aerotermiaUnits.js](implementation/frontend/src/features/expedientes/logic/aerotermiaUnits.js)): un CONJUNTO BIBLOC es UNA máquina del catálogo —mismo `aerotermia_db_id`, así que `misma_aerotermia_acs` sigue en true— y **DOS aparatos** con dos placas, y el CIFO y el Anexo I los declaran en filas distintas. Con el flag en true imprimían la serie de la unidad EXTERIOR en la fila de la interior teniendo la buena guardada: medido, **8 expedientes** (26RES080_34 · _59 · _66, 26RES060_102 · _107, 25RES060_36 · _39 · _41), todos con SCOP_dhw propio. Lo aplican los TRES documentos (`cifoDoc.acsNuSerieEx`, `docGenerators.snInt`, `res080Doc` — donde «Misma unidad» deja de ser cierto). **Solo cambia la SERIE**: el equipo, el SCOP_dhw y el ahorro siguen colgando del flag a propósito (regla 12.c). Tras tocarlo: `node implementation/backend/scripts/test_serie_acs_flag.mjs`.
 12.d **La D_ACS admite los LITROS/DÍA que declara el certificado** (`acs_method: 'litros'` + `cee.dacs_litros_dia`, toggle **L/D** en la rejilla del CEE): misma fórmula del Anejo F pero **SIN el tramo de ocupación** —el dato del CEE ya es el consumo diario del edificio y multiplicarlo por N_P lo multiplicaría por cinco—, y el CIFO dice que sale del **Certificado de Eficiencia Energética aportado**, que es lo que lo separa de una estimación. Fuente única: [demandaAcs.js](implementation/frontend/src/features/expedientes/logic/demandaAcs.js), que ahora llaman TAMBIÉN las fichas RES060/RES093 y sus modales y el listado — tenían su propia copia que solo entendía 'xml' y 'cte', así que un TER100 en modo manual imprimía en la ficha una D_ACS distinta de la de su CIFO. `dacs_manual`/`dacs_litros_dia` entran en `CEE_ECO_FIELDS` (sin ellos el listado los resolvía a 0), y un modo tecleado **sin cifra bloquea el documento**. Tras tocarlo: `node implementation/backend/scripts/test_dacs_litros.mjs` y `check_cifo_paginas.mjs`. Ver "La D_ACS por LITROS/DÍA del certificado".
 12.c **`misma_aerotermia_acs` NO puede esconder un equipo de ACS DECLARADO**: ese flag no se edita en ninguna pantalla —se pone a `true` al activar "se actúa sobre el ACS" y solo baja a `false` al tocar el bloque *Aerotermia Nueva — ACS*—, así que cuando el equipo de ACS lo escribe una migración, un script o una skill de relleno, el flag se queda arriba y **la máquina real desaparece de los documentos**: se declara como SCOP<sub>dhw</sub> el de la bomba de CALEFACCIÓN, que no calienta esa agua (medido en 26RES080_54: 6,47 en vez de 3,69, y el equipo de ACS ni salía en el popup «Datos del equipo»). Entre un booleano que nadie ha tocado y una máquina con marca, modelo y nº de serie, **manda la máquina**. Fuente única: `acsEquipoPropio` / `acsMismoEquipo` en [aerotermiaUnits.js](implementation/frontend/src/features/expedientes/logic/aerotermiaUnits.js). ⚠️ La comparación es **por MODELO** (`aerotermia_db_id`, o marca+modelo si no está en catálogo), **nunca por nº de serie**: con el flag activo la app CLONA el nodo de calefacción y ese clon se queda atrás en cuanto se teclea una serie — medido, 11 expedientes difieren solo en la serie sin tener un segundo equipo. Hoy lo aplican las superficies **CE3X** (`resolverCe3x` → popup «Datos del equipo» y encargo al certificador); el CIFO, las fichas y el ahorro siguen leyendo el flag a propósito —cambiarlo movería cifras de expedientes ya emitidos—, así que la contradicción se **AVISA** en el popup y en Instalación, con un botón que corrige el dato y con él todo lo demás.
 
@@ -8458,6 +8644,8 @@ script) y que el fichero parcheado es el que se sirve. Si un cliente vuelve a fa
 48.e **Cuando el ACS lo hace OTRA máquina, se escriben DOS equipos**: CE3X no calcula nada si la demanda de ACS no está cubierta al 100 % («La instalación de ACS no está bien definida»), y hasta ahora el segundo aparato solo salía como un aviso pidiendo añadirlo a mano. `instalacionNueva` devuelve `extras`, que entran en la instalación del CEE final Y en la medida de mejora —la medida es TODO lo que se instala—. En el slot ACS la casilla [6] manda sobre la FORMA del [7]: con **CONOCIDO** es el mismo trío que el [2], sin interruptores ni cola (medido: 205 de los 544 equipos del slot ACS del corpus, 204 de ellos con [2] == [7]); un TERMO va por `Efecto Joule` estimado al 100 %. **Sin SCOP_dhw no se escribe**, y el DEPÓSITO cuelga de la máquina que calienta el agua. ⚠️ Tirando de ese hilo salió que **el CEE FINAL se generaba SIN NINGUNA instalación y en silencio**: `equipoConAjustes` exigía la POTENCIA —que es de la cola con la que CE3X *estima* una caldera— para escribir también una bomba de calor, cuyo rendimiento va ENSAYADO y no tiene esa cola. Tras tocarlo: `node implementation/backend/scripts/test_cex_final.mjs` y `pytest implementation/cee-engine/tests/test_equipos.py`. Ver "El ACS que hace OTRA máquina también se escribe".
 
 48.g **La MEDIDA DE MEJORA de una hibridación lleva los DOS generadores, repartidos por el C_b**: la caldera NO se retira, así que el edificio mejorado de CE3X tiene la bomba y la caldera cubriendo cada una su parte de la demanda. La app se negaba a componerla («hay que montarlo a mano») y era el único camino sin salida de la pestaña de Medidas. **REGLA — el reparto es el C_b, NO la cobertura de potencia**: lo que CE3X pide es la parte de la DEMANDA, y una bomba dimensionada al 48 % de la potencia de diseño cubre el 78,5 % de la energía del año. Medido contra el `.cex` que el certificador montó a mano para 26RES093_8: aerotermia **79 %** (= C_b 78,54) y caldera **21 %**, con las superficies repartidas igual (97,17 + 25,83 = 123 m²) y las dos con el mismo depósito. La app le decía **48 %** por WhatsApp (`ce3xFinal`), que es la cobertura de potencia — ese mensaje también queda corregido. **REGLA — la caldera de la medida se COPIA de la que escribe el CEE de esa fase** (`existentes`), nunca se recompone: si no, lo que el certificador corrija en Instalaciones —la potencia, el aislamiento, los litros— no llegaría a la medida y el mismo aparato saldría declarado de dos maneras en el mismo `.cex`. ⚠️ `_heredar_superficies` daba a cada equipo la superficie entera del fichero y deshacía el reparto: ahora hereda el TOTAL y le vuelve a aplicar su porcentaje. Sin reparto calculable no se compone y se dice qué falta. **Y el CEE FINAL, igual**, pero por otro camino: allí la caldera es la del FICHERO que se copia, así que la ficha solo declara cuánto se queda (`hibridacion.pct_generador_previo`) y el motor conserva su registro cambiándole solo el bloque `[5]` — verificado contra el `.cex` real de 26RES093_8: de sus diez campos solo cambia ése. ⚠️ Y lo tecleado en Instalaciones pasa a guardarse **POR FASE**: era compartido, y lo escrito para la caldera se aplicaba encima de la aerotermia, así que el CEE final salía con su generador llamado «CALDERA DOMUSA CLIMA MIX 20 GE». Tras tocarlo: `node implementation/backend/scripts/test_hibridacion.mjs` y `pytest implementation/cee-engine/tests/test_equipos.py`. Ver "La medida de mejora de una HIBRIDACIÓN".
+
+48.h **La envolvente se puede DESHACER (Ctrl+Z o su botón), y la PLACA la lee también el CERTIFICADOR**: ahí no hay botón de guardar —se guarda solo— y la otra cara de eso es que un error también se guarda solo. Se deshacen el PLANO y los AJUSTES **a la vez** (son un solo documento, `cee.envolvente`), y restaurar es SEMBRAR con otro trabajo: se vuelve a montar desde la geometría con la misma función que siembra al abrir, así no hay dos formas de leer un trabajo. Lo que evita el bucle es el **dedupe** contra la foto actual, no una bandera: al restaurar, el efecto se dispara con el estado restaurado y su huella ya es la de `pila[pos]`. La **selección no gasta un paso** (mismo criterio que `hayCambios`) y **Ctrl+Z no se intercepta dentro de un campo de texto**, donde es el del navegador. Freno de 700 ms y tope de 60 pasos en memoria. ⚠️ Las dos rutas de OCR de placa pasan de `staffOnly` a `suyoSiCertificador`: el certificador es quien tiene el aparato delante, pero acotado a los expedientes que tiene ASIGNADOS — la lectura cuesta dinero y escribe en la instalación. Tras tocarlo: `node implementation/backend/scripts/test_deshacer.mjs`. Ver "DESHACER en la envolvente".
 
 48.c **Los ADMINISTRATIVOS del `.cex` se corrigen desde la ventana, escribiendo en SU FUENTE**: el botón de editar de «Datos del cliente» y de «Datos del técnico» escribe en `clientes` y en `prescriptores` (`PUT /:id/cliente`, **staffOnly**; `PUT /:id/tecnico`, equipo interno **o el propio técnico asignado**), nunca en una copia dentro del trabajo. En lectura se enseña el valor COMPUESTO —lo que va al `.cex`— y en edición las COLUMNAS, que es lo único sobre lo que se puede escribir; la `fuente` en crudo viaja FUERA de `ficha`. Y el **teléfono y el correo del titular caen a su PERSONA DE CONTACTO** cuando él no dio los suyos —el número marcado «Notif. aquí» es a menudo el único que tenemos—, campo a campo y **diciendo de quién es**: medido en 26RES060_187, la ficha decía «no consta» de dos datos escritos dos líneas más abajo. Tras tocarlo: `node implementation/backend/scripts/test_contacto_cliente_ce3x.mjs`. Ver "Los administrativos se CORRIGEN desde la ventana".
 
@@ -8612,6 +8800,11 @@ WA_SYNC_FALLOS_MAX=3               ← tiempos de espera seguidos tras los que s
 54. **Cada cerramiento del plano puede llevar su FOTO REAL, y de ella se cuentan sus huecos**: se pulsa la pared —o el hueco— y se le pega la suya, ofreciendo PRIMERO las que el expediente ya tiene (medido en 26RES060_186: 6 fotos de la envolvente llevaban meses en Drive mientras las ventanas se contaban a ojo). La foto vale **aunque no se lea**: es la prueba de por qué el cerramiento se clasificó como está, y por eso sale también en medianeras. **El modelo NO da metros**: da CAJAS (`box_2d`), y la escala la pone el código desde la **PUERTA DE ENTRADA** (2,05 m) — nunca desde el ancho de la pared, porque la fachada no ocupa el encuadre exacto **y** porque el modelo agranda todas las cajas ~1,5× de forma consistente, sesgo que una referencia dentro de la misma foto cancela (con el ancho de la pared la ventana salía a 2,4 m; con la puerta, a 1,71, que es lo que se ve). El largo que midió el motor **VALIDA, no escala**; sin puerta a la vista hay recuento pero no medidas. Lo leído **nace DUDOSO** (el ámbar que ya existe) y **no pisa** lo que hay: con huecos ya puestos las casillas nacen desmarcadas y reemplazar es un botón aparte — importa, porque señalar la entrada ya coloca una puerta y una ventana de relleno. La carpintería y el vidrio se guardan y se enseñan pero **no van al `.cex`** (no hay casilla en `loSenalado`). **Al abrir una foto sale el PANEL de la pared y cada hueco SEÑALADO sobre la imagen** con su nombre: las marcas salen solas de la lectura (el modelo ya da la caja de cada hueco) y se corrigen arrastrando. Se guardan con la FOTO y por `uid`, nunca por nombre —V1 se renombra y se recoloca— y **al momento**, no al cerrar. ⚠️ `var(--brand)` NO existe (es `--brand-primary`) y en un SVG eso sale NEGRO sin avisar; y arrastrar sobre una `<img>` la tiñe de azul salvo con `draggable={false}` + `select-none` + `preventDefault`. ⚠️ **`thinkingBudget: 0` cuelga esta lectura para siempre** —240 s frente a 13,3 s con `pensar`—, y no se arregla subiendo el plazo; `llamarGemini` acepta ya `pensar` y `deadline`. Coste: **0,006 €** por fachada. Fuentes únicas: [paredOcrService.js](implementation/backend/services/paredOcrService.js) (leer) y [paredFotoService.js](implementation/backend/services/paredFotoService.js) (Drive + estado, en `cee.envolvente_fotos`, clave APARTE del trabajo). Tras tocarlo: `node implementation/backend/scripts/test_pared_ocr.mjs`. Ver "La FOTO REAL de cada cerramiento".
 
 55. **Autofirma no falla igual en todos los ordenadores, y la app prueba DOS caminos**: `autoscript.js` elige siempre `wss://127.0.0.1:<puerto>`, que exige a la vez Autofirma ≥1.7, su **certificado SSL local vigente** en el almacén del navegador (caduca; y un perfil de Firefox creado después no lo tiene) y que nada corte 127.0.0.1 — si falla cualquiera, el firmante ve un aviso del Gobierno diciendo que no la tiene instalada, teniéndola. Ahora se cae al **servidor intermedio** (`afirma://sign?…&stservlet=<origen>/api/…`), que no usa ni puertos ni certificados locales y funciona con **cualquier Autofirma desde la 1.5**; y a un clic queda el **modo compatible** con `ver=1` para las que rechazan la versión 4 del protocolo (automáticos van DOS, no tres: el tercero suma otro minuto de espera a todos y no arregla un "no responde nada"). **REGLA — un intento nuevo solo se lanza si el anterior NO llegó a Autofirma**: si el firmante canceló o su certificado no sirve, reintentar le abre Autofirma encima; se clasifica por el **CÓDIGO** (`AS6200xx`, enum cerrado) y solo por el texto cuando no lo hay. **REGLA — los diálogos propios de autoscript van APAGADOS**, o el error no llega al callback y el fallback no se dispara nunca. Un documento >3 MB **se salta el WebSocket** (`AS620018`: se firma y no vuelve). ⚠️ El `setServlets` que había en el modal **no hacía nada** — `AppAfirmaWebSocketClient` no expone ese método y el servidor intermedio solo entra con `setForceWSMode(true)`, que significa *forzar modo WebService*, no *WebSocket*. Fuente única: [features/firma/autofirma.js](implementation/frontend/src/features/firma/autofirma.js), que usan las 9 pantallas que firman a través de `FirmarConCertificadoModal`. `POST /api/afirma-diagnostico` deja en el log en qué máquina y con qué código ha fallado (navegador y código, **nunca el documento ni datos del firmante**): sin eso, el mismo síntoma lo dan tres causas distintas. Tras tocarlo: `node implementation/backend/scripts/test_autofirma_caminos.mjs`. Ver "Autofirma no falla igual en todos los ordenadores".
+
+56. **SUBVENCIONES se autoguarda, y sus enums NO pueden ir a MAYÚSCULAS**: era el único módulo de la ficha con botón manual —al final de una pantalla larga—, así que se marcaba el bono social, se cambiaba de pestaña y se perdía. Ahora autoguarda con el mismo modelo que Instalación (freno de 900 ms + referencia de lo último persistido) y manda **solo su clave** (`mergeDocumentacion` funde en el backend), con acuse en pantalla en vez de botón. Y la causa de fondo: `normalizeData` subía `documentacion.subvenciones` a MAYÚSCULAS, donde `leerSubvenciones` **descarta lo que no case EXACTO** con el enum en minúscula — el bono se guardaba como `ELECTRICO_VULNERABLE`, al releer desaparecía y el Anexo I imprimía «Ninguno de los anteriores» (medido en 26RES060_165). La clave va a la **BLACKLIST** y la lectura **rescata** lo ya escrito casando sin distinguir mayúsculas (`canon`/`canonId`, mismo criterio que `rescatarHueco` en la envolvente): cubre `bono_social.tipos`, `catalogo_id`, `estado` y `fondo_nacional` — este último se compara con `=== 'si'` y **viaja al verificador** en `SE_fondo_nacional`, así que en MAYÚSCULAS se le declaraba lo contrario. ⚠️ Y lo que se escriba con las herramientas de anotación del VISOR sobre el PDF de un impreso oficial no se guarda ni se envía: lo dice ya la barra de `DocumentoOficialPreview`; para marcar a mano está el formato Clásico, cuyo estado sí viaja en `overrides.anexo1`. Tras tocarlo: `node implementation/backend/scripts/test_subvenciones_bono.mjs`. Ver "Lo que el FLAG esconde y lo que MAYÚSCULAS borra".
+
+57. **Un equipo del catálogo se elige por la REFERENCIA DE SU PLACA, no por su nombre comercial.** Es la misma regla con la que `casarConCatalogo` empareja lo que el OCR lee de una etiqueta (regla 27.e), pero el DESPLEGABLE no la aplicaba: la calculadora pintaba `{modelo_comercial} ({kW})` en un `<select>` nativo, así que PANASONIC salía con 34 opciones de las que **seis decían literalmente lo mismo**. Medido sobre los 490 equipos (16/09/2026): **11 grupos y 35 filas** son indistinguibles con esa etiqueta, y en 4 de esos grupos sus filas declaran SCOP distintos — el peor, «Serie M R290 All in One · 16 kW», son seis opciones iguales cuyo SCOP va de **2,85 a 4,34 (un 52 %)**. De ahí salen el ahorro, el bono que se le promete al cliente y el CIFO: elegir a ciegas ahí no es una molestia, es firmar otro ahorro. Ahora las opciones llevan **dos renglones** —nombre + potencia arriba, `Ud. ext: WH-WDG12ME5 · int: … · Conjunto con ACS · 120 L` debajo— y **se buscan por esa segunda línea**, que es lo que se tiene delante leído del aparato: escribiendo `WDG12ME5` la lista pasa de 34 a los 5 que llevan esa unidad exterior. Fuentes únicas: [aerotermiaOpciones.js](implementation/frontend/src/features/expedientes/logic/aerotermiaOpciones.js) (`opcionDeEquipo`, `BUSCAR_EQUIPO`) y [components/SearchableSelect.jsx](implementation/frontend/src/components/SearchableSelect.jsx), que vivía dentro de `InstalacionModule` y se sacó al necesitarlo la calculadora — con dos copias, el mismo equipo se leería de una forma en la oportunidad y de otra en el expediente, que es justo lo que hace elegirlo mal. Lo comparten las **cuatro** superficies: los dos desplegables de la calculadora (calefacción y ACS) y los del expediente (equipo principal y unidades en cascada, cuya copia de la etiqueta ya había divergido — no decía si el equipo trae el depósito dentro). En ACS **lo ya guardado no se esconde nunca** aunque el filtro de `produceAcs` lo deje fuera (mismo criterio que el expediente): el desplegable se quedaría en blanco y el siguiente guardado borraría un equipo que alguien eligió.
+    ⚠️ **PENDIENTE, y NO tocado**: 10 filas del catálogo —todas PANASONIC, las variantes de 185 y 260 L de la Serie M All in One— tienen el SCOP de **ACS copiado en las casillas de CALEFACCIÓN** (`scop_cal_calido_35 == scop_dhw_calido` y `_55 == scop_dhw_medio`, byte a byte; sus hermanas de 120 L declaran 6,2/4,34 y éstas 3,35/3,0). Un expediente que eligiera una de ellas declararía un SCOP ~30 % bajo, y hasta ahora se elegían al azar porque en pantalla eran la misma línea. Medido: **ningún expediente las usa hoy** (0 de los que hay en producción), así que es un riesgo latente y no un daño hecho — corregirlo exige la ficha del fabricante delante, modelo a modelo. Es el mismo patrón que el `η_55 = ACS` de [[project_aerotermia_eprel]].
 
 53. **Las COLUMNAS del listado de expedientes se ELIGEN, y son una lista declarativa**: botón **▦ Columnas · N** con vistas de fábrica (Operativa · Seguimiento CEE · Económica · Cartera). Cada columna se declara UNA vez en [logic/expedientesColumnas.jsx](implementation/frontend/src/features/expedientes/logic/expedientesColumnas.jsx) —rótulo, ancho, filtro, `valor()` y `render()`— y de ahí salen la cabecera, la fila de filtros, las celdas, el ORDEN (clic en la cabecera; el tercer clic vuelve al orden por PRIORIDAD, que es el de siempre) y el CSV, que exporta **lo que se está viendo**. Antes eran siete columnas escritas a mano en tres sitios alineados por posición, y por eso no se podía filtrar por **instalador**. **Un filtro activo NO puede esconderse**: al apagar su columna se limpia. Las columnas se **REORDENAN arrastrando su cabecera** (con eventos de PUNTERO y no con el drag&drop de HTML5, que no se puede disparar con eventos sintéticos y por tanto no se puede verificar; y con `setInterval` y no `requestAnimationFrame`, que el navegador congela con la ventana oculta): la tabla se desplaza sola al llegar al borde, soltar sobre "Acciones" la deja la última y sobre el nº de expediente —que no se mueve nunca, identifica la fila— justo detrás. El orden se guarda como los anchos, y **`roles` es una comodidad de pantalla, nunca el control de acceso** — el instalador se le capa al CERTIFICADOR también en la ruta (regla 48.d) y el margen sigue siendo de ADMIN. Instalador y Certificador pintan el **LOGO** de la empresa con [components/LogoEmpresa.jsx](implementation/frontend/src/components/LogoEmpresa.jsx), que es ahora la ÚNICA pieza que lo dibuja (eran dos copias: lotes y cuadro de mando) — sin logo, iniciales; en el certificador el chip de color de su ficha se conserva. ⚠️ Los logos son data URL a tamaño de papel: **8 MB en cada `GET /api/prescriptores`** (el mayor, 1,97 MB), y ya era así antes; la cuenta pendiente es una miniatura. La columna INSTALADOR resuelve `instalacion.instalador_id → expedientes.instalador_asociado_id → oportunidad`, la misma primera fuente que la FICHA, y **marca lo heredado** (con la primera sola, 98 de 267 saldrían vacíos teniéndolo). Los datos los trae `get_expedientes_list_v4` (lote, instalador y `seguimiento` podado a sus cuatro claves de fase), que de paso arregla que `lote_id` **nunca llegara** al listado y los 45 expedientes ya loteados se ofrecieran para lotear. Ver "El listado de expedientes: las columnas se ELIGEN".
 
