@@ -93,6 +93,23 @@ def _casar(partes, construcciones) -> dict[str, dict]:
     return salida
 
 
+def _usos_del_nivel(cons, niveles) -> list[dict]:
+    """Lo que Catastro declara en las plantas de este cuerpo, de mayor a menor.
+
+    Es lo que queda cuando la casacion por superficie no da: las PARTES de
+    Catastro no se corresponden una a una con sus unidades constructivas — una
+    parte puede llevar dentro media vivienda y medio almacen—, asi que muchas
+    veces no hay a quien casar. Entonces no se puede decir QUE es este cuerpo,
+    pero si QUE HAY en su planta, que es con lo que una persona decide.
+    """
+    ns = set(niveles or ())
+    dentro = [c for c in cons if c["nivel"] is None or c["nivel"] in ns]
+    return sorted(({"uso": c["uso"], "superficie": c["superficie"],
+                    "habitable": c["habitable"], "nivel": c["nivel"]}
+                   for c in dentro),
+                  key=lambda c: -(c["superficie"] or 0))
+
+
 def inventario(modelo, excluidos=()) -> list[dict]:
     """Los cuerpos del edificio, listos para pintarlos y para preguntar por ellos."""
     fuera = set(excluidos or ())
@@ -115,6 +132,11 @@ def inventario(modelo, excluidos=()) -> list[dict]:
             # Lo unico que decide de verdad: si Catastro dice que ahi no se vive.
             # `None` es "no se sabe", que NO es lo mismo que "no es vivienda".
             "habitable": None if c is None else c.get("habitable"),
+            # Lo que Catastro declara en las plantas de este cuerpo. Se manda
+            # SIEMPRE, no solo cuando no casa: aunque haya casado, saber que en
+            # esa planta hay 438 m2 de almacen y 18 de vivienda es justo lo que
+            # dice si el cuerpo que se esta mirando sobra.
+            "usos_nivel": _usos_del_nivel(cons, niveles_de(p)),
             "fuera": pid in fuera,
             "_geom": p.geometry,
         })

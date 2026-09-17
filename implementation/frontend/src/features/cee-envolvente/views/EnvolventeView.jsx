@@ -1068,11 +1068,42 @@ function CuerpoModal({ cuerpo, onCerrar, onQuitar, onDevolver, onApartarParedes,
                         </>
                     ) : (
                         <>
-                            Catastro no dice que hay en este cuerpo: solo lo dibuja. Su
-                            superficie no casa con ninguna de las construcciones declaradas.
+                            Catastro no dice qué hay en este cuerpo: solo lo dibuja. Su
+                            superficie no casa con ninguna de las construcciones que declara
+                            — sus partes no se corresponden una a una con ellas.
                         </>
                     )}
                 </p>
+
+                {/* Lo que Catastro declara en ESTAS plantas. Cuando el cuerpo no
+                    casa con ninguna construccion es lo unico que queda para
+                    decidir, y aun casando dice si en esa planta hay mas almacen
+                    que vivienda. */}
+                {!!cuerpo.usos_nivel?.length && (
+                    <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-white/40">
+                            En {cuerpo.niveles?.length > 1 ? 'estas plantas' : 'esta planta'},
+                            Catastro declara
+                        </p>
+                        <ul className="mt-1.5 flex flex-col gap-1">
+                            {cuerpo.usos_nivel.map((u, i) => (
+                                <li key={i} className="flex items-baseline gap-2 text-[11.5px]">
+                                    <span className={u.habitable === false
+                                            ? 'text-amber-300/90' : 'text-white/75'}>
+                                        {u.uso}
+                                    </span>
+                                    <span className="text-white/40">{fmtM2(u.superficie)}</span>
+                                    {u.habitable === false && (
+                                        <span className="text-[10px] font-bold uppercase
+                                                         tracking-widest text-amber-300/60">
+                                            no vivienda
+                                        </span>
+                                    )}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
 
                 {cuerpo.fuera ? (
                     <>
