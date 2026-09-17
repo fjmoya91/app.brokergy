@@ -17,6 +17,7 @@ const path = require('path');
 const fs = require('fs');
 const { execSync } = require('child_process');
 const supabase = require('./supabaseClient');
+const { soloDatosDelAdjunto } = require('../utils/adjuntoWhatsapp');
 
 const SESSION_ROOT = path.join(__dirname, '..', '.wwebjs_auth');
 
@@ -931,6 +932,61 @@ async function confirmarEntrega(sent, etiqueta) {
     throw err;
 }
 
+// ─── El MODELO del adjunto pisa la clave del mensaje ─────────────────────────
+// `whatsapp-web.js` compone el mensaje de un adjunto así (Injected/Utils.js):
+//
+//     { id: newMsgKey, from, to, ..., ...mediaOptions, ...mediaOptions.toJSON() }
+//
+// `mediaOptions` es el MODELO `MediaData` que devuelve `processMediaData`, y
+// esparcirlo mete además sus campos INTERNOS. Los modelos de WhatsApp Web
+// guardan cada propiedad en un `__x_<nombre>`, y uno de ellos es **`__x_id`,
+// que vale 1**: al caer en el objeto del mensaje pisa la clave que identifica
+// ese mensaje, así que al construirlo `getValidatedSender` recibe `undefined` y
+// revienta con "Data passed to getter must include an id property (it's how we
+// memoize) but got undefined" (o su gemelo "must be a valid model or a plain
+// object"). Es lo que dejó SIN SALIR todos los adjuntos: medido el 17/09/2026
+// sobre el VPS, 3 intentos en 72 h y **ningún** "Media enviada" — el texto sí
+// sale, porque un mensaje de texto no pasa por aquí.
+//
+// El parche quita del esparcido las claves internas (`__*`) y nada más: los
+// valores buenos siguen llegando por `toJSON()`, que la propia librería ya
+// esparce a continuación. Comprobado campo a campo contra el objeto de antes:
+// se caen 32 claves, **todas** internas, y **ni un valor cambia** (clientUrl,
+// directPath, mediaKey, encFilehash, filehash, size, mimetype, filename, type).
+//
+// Va aquí y no en `node_modules` porque la imagen se construye con `npm ci`:
+// un parche en el paquete no sobrevive al siguiente build.
+async function asegurarParcheAdjuntos() {
+    if (!client || !client.pupPage) return;
+    try {
+        const r = await withTimeout(client.pupPage.evaluate((fuenteLimpieza) => {
+            const W = window.WWebJS;
+            if (!W || typeof W.processMediaData !== 'function') return 'sin-wwebjs';
+            // La marca va en la FUNCIÓN, no en `window`: si la librería vuelve a
+            // inyectar su código (recarga de la página, reconexión), la suya
+            // llega sin marca y se vuelve a envolver. Con la marca en `window`
+            // el parche se perdería en silencio justo tras una reconexión.
+            if (W.processMediaData.__brokergy) return 'ya';
+            // La limpieza es la MISMA función que se prueba en local: viaja
+            // como código fuente porque aquí dentro no hay `require`.
+            const limpiar = new Function('return (' + fuenteLimpieza + ')')();
+            const original = W.processMediaData;
+            const envuelta = async function (...args) {
+                return limpiar(await original.apply(this, args));
+            };
+            envuelta.__brokergy = true;
+            W.processMediaData = envuelta;
+            return 'puesto';
+        }, String(soloDatosDelAdjunto)), 10_000, 'parche de adjuntos');
+        if (r === 'puesto') console.log('[wwa] Parche de adjuntos aplicado (mediaData sin internos).');
+        if (r === 'sin-wwebjs') console.warn('[wwa] No se pudo aplicar el parche de adjuntos: WWebJS aún no inyectado.');
+    } catch (e) {
+        // No bloquea: sin parche el adjunto fallará como hasta ahora, y eso ya
+        // lo cuenta el error del envío. Tumbarlo aquí solo lo escondería.
+        console.warn('[wwa] No se pudo aplicar el parche de adjuntos:', e.message);
+    }
+}
+
 /**
  * Envío de media (PDF, imagen...). Solo funciona con cliente activo.
  * Si no está listo, lanza error (media no se puede persistir fácilmente en BD).
@@ -943,6 +999,10 @@ async function sendMedia(phone, media, { caption, asDocument = true, splitCaptio
     const chatId = resolveTarget(phone);
     const isGroup = chatId.endsWith('@g.us');
     console.log(`[wwa] sendMedia → ${chatId}, archivo: ${media.filename || 'sin nombre'}`);
+
+    // Se comprueba en cada envío, no solo al conectar: la librería reinyecta su
+    // código al recargar la página y ahí el parche se iría por el desagüe.
+    await asegurarParcheAdjuntos();
 
     const sendTypingThenWait = async () => {
         if (isGroup) return;

@@ -5536,6 +5536,59 @@ en modo *headful* con Xvfb y subir Puppeteer/Chrome (toca el Dockerfile); y la
 solución de fondo, salir de whatsapp-web.js (Baileys / wppconnect), que es un
 proyecto aparte.
 
+### Y el ADJUNTO no salía porque su MODELO pisa la clave del mensaje (2026-09-17)
+
+Segundo capítulo, distinto y con la misma cara: *"ENVIADO PARCIALMENTE · email ✓ ·
+WhatsApp ✗ Data passed to getter must be a valid model or a plain object"*. Medido
+sobre el VPS: en 72 h hubo **3 envíos de adjunto y ningún "Media enviada"** — el
+texto sí salía (en los tres casos el texto previo se entregó y el PDF se quedó por
+el camino), así que lo roto era **solo el adjunto**, no la sesión.
+
+`whatsapp-web.js` compone el mensaje de un adjunto así:
+
+```js
+{ id: newMsgKey, from, to, …, ...mediaOptions, ...mediaOptions.toJSON() }
+```
+
+`mediaOptions` es el MODELO `MediaData` que devuelve `processMediaData`, y
+esparcirlo mete además sus campos internos. Los modelos de WhatsApp Web guardan
+cada propiedad en un `__x_<nombre>`, y uno de ellos es **`__x_id`, que vale 1**: el
+constructor del `Msg` lo toma como su propio id, con lo que el mensaje deja de
+tener una clave válida y la resolución del remitente (`getValidatedSender` →
+`getSender`) recibe `undefined`.
+
+**REGLA — del modelo del adjunto se esparcen sus DATOS, nunca sus internos.**
+`soloDatosDelAdjunto()` ([utils/adjuntoWhatsapp.js](implementation/backend/utils/adjuntoWhatsapp.js))
+quita las claves `__*` y nada más: los valores buenos siguen llegando por
+`toJSON()`, que la propia librería esparce a continuación. Comparado campo a campo
+contra el objeto de antes: se caen **32 claves, todas internas**, y **ni un valor
+cambia** (clientUrl, deprecatedMms3Url, directPath, mediaKey, encFilehash,
+filehash, size, mimetype, filename, type).
+
+**REGLA — el parche va en NUESTRO código, no en `node_modules`.** La imagen se
+construye con `npm ci`, así que un parche dentro del paquete no sobrevive al
+siguiente build (es lo contrario que `autoscript.js`, que está vendorizado en el
+repo). `asegurarParcheAdjuntos()` envuelve `window.WWebJS.processMediaData` en la
+página, **y la marca de "ya parcheado" va en la FUNCIÓN, no en `window`**: la
+librería reinyecta su código al recargar la página, y con la marca en `window` el
+parche se perdería justo después de una reconexión, en silencio. Por eso se
+comprueba en CADA envío, que cuesta un `evaluate`.
+
+⚠️ La función de limpieza viaja a la página **por su código fuente**
+(`String(soloDatosDelAdjunto)`): dentro del navegador no hay `require`, y tenerla
+dos veces —una probada y otra inyectada— es tenerla mal el día que se corrija una.
+
+**Cómo se diagnosticó, sin enviar un solo mensaje**: conectando por CDP al Chrome
+que ya corre se replica lo que hace la librería hasta **construir** el modelo
+`Msg` (sin `addAndSendMsgToChat`, que es lo que envía) y se bisecciona clave a
+clave. Ahí se ve que con texto el modelo se construye y con el adjunto no, y que
+el único campo que lo tumba es `__x_id`. Es el mismo camino de lectura de la
+sección anterior y el que hay que repetir si vuelve a romperse.
+
+```bash
+node implementation/backend/scripts/test_adjunto_whatsapp.mjs
+```
+
 ---
 
 ## Las FICHAS y el ANEXO I se RELLENAN, ya no se redibujan (2026-09-08)
@@ -8968,6 +9021,8 @@ piscina y Anexo VI) y **+198 px** en el RES080.
 36. **La CONFIRMACIÓN DE COBRO es un formulario de la app, no de Tally**: `/cobro/:id?token=` cualifica al cliente (tarifa · fotovoltaica · IRPF) y confirma sus datos de pago cuando el lote llega a fase de pago. Lo obligatorio va AL FINAL y lo comercial delante, y **nunca retiene el cobro**. La forma de pago solo se pregunta a quien asume el coste (`discountCertificates` la calla, porque su convenio no la menciona), y las dos opciones NO cuestan lo mismo: el descuento va sobre la BASE sin IVA y la factura lo repercute, así que sale marcada `desaconsejada` con lo que cuesta de más y el retraso del cobro. **Cambiar de IBAN exige justificante NUEVO** —el anterior acredita la cuenta vieja— y el cambio va lo primero en el aviso al staff. Los datos van a `clientes` y el justificante a su slot de siempre; en `documentacion.cobro`, solo metadatos con RPC de MERGE. Fuentes únicas: [logic/cobroForm.js](implementation/frontend/src/features/cobro/logic/cobroForm.js) (qué se pregunta) y [cobroService.js](implementation/backend/services/cobroService.js) (a quién y con qué datos). Ver "Confirmación de cobro".
 
 39. **Un mensaje de WhatsApp con el RELOJ no está enviado, y el "escribiendo…" es lo que rompe la sesión**: `sendMessage()` devuelve el id en cuanto el mensaje se INSERTA en el chat, así que ese `{ok:true}` no significa entregado — el 08/09/2026 una propuesta quedó sellada con "✓ whatsapp ok" para el cliente y el instalador con los dos PDF dos horas en el reloj. Lo único que lo dice es el **ACK**: `confirmarEntrega()` lo espera tras `waitUntilMsgSent: true` y, si sigue en 0, es error de verdad → FAILED **sin reintentos** (el mensaje ya existe en el chat: reenviarlo lo duplica) + email al admin; si el ack no se puede leer, no se afirma nada. **NUNCA `getChatById`/`getChats`/`msg.getChat`/`sendSeen` en el camino de envío**: en WhatsApp Web 2.3000.x dejan la sesión enviando sin ACK hasta que se desconecta sola ([wwebjs#201849](https://github.com/wwebjs/whatsapp-web.js/issues/201849), sin arreglo publicado). `WWA_TYPING` y `WWA_SEND_SEEN` a `false`; la pausa humana entre mensajes se queda. Fijar la versión de la web (`WWA_WEB_VERSION`) NO sirve: se auto-actualiza igual. Ver "Un mensaje con el RELOJ no está enviado".
+
+39.b **Del MODELO del adjunto se esparcen sus DATOS, nunca sus internos.** `whatsapp-web.js` compone el mensaje de un adjunto con `{ id: newMsgKey, …, ...mediaOptions, ...mediaOptions.toJSON() }`, y el modelo `MediaData` trae dentro un **`__x_id` que vale 1** —así guardan sus campos los modelos de WhatsApp Web—: el `Msg` lo toma como su propio id, se queda sin clave válida y la resolución del remitente revienta con *"Data passed to getter must be a valid model or a plain object"* (o su gemelo *"must include an id property"*). Medido el 17/09/2026 sobre el VPS: **3 envíos de adjunto en 72 h y ninguno salió**, mientras el texto sí —el texto no pasa por ahí—. `soloDatosDelAdjunto()` ([utils/adjuntoWhatsapp.js](implementation/backend/utils/adjuntoWhatsapp.js)) quita las claves `__*` y nada más: comparado campo a campo, se caen 32 claves, todas internas, y ni un valor cambia. **El parche va en NUESTRO código, no en `node_modules`** (la imagen se construye con `npm ci`), la marca de "ya parcheado" va en la FUNCIÓN y no en `window` —la librería reinyecta su código al recargar la página— y se comprueba en cada envío. Tras tocarlo: `node implementation/backend/scripts/test_adjunto_whatsapp.mjs`. Ver "Y el ADJUNTO no salía porque su MODELO pisa la clave del mensaje".
 
 40. **El PAQUETE de cada actuación se genera, no se renombra a mano**: los ~20 documentos del expediente copiados como `E{n}-{código}` y comprimidos, en dos modos —`expediente` (la carpeta `E{n}` + `E{n}.zip`) y `gestor` (`{LOTE} - ENVIO GESTOR` + `ActuacionE{n}.zip`, que añade el dictamen y los escritos)—. La nomenclatura se REPRODUCE de los lotes ya presentados, no se inventa; el nº de actuación se SELLA al enviar la solicitud por API (`orden_origen: 'SOLICITUD_API'`, `soloSiFalta`) y es el mismo que rotula el anexo del MITECO (regla 29); lo imprescindible BLOQUEA, lo leve avisa y lo que **NO PROCEDE** (`exigencia()`) se dice con su motivo sin contar como falta; los ficheros se COPIAN y **lo que ya está colocado con su código no se renombra ni se sustituye** (y si una pieza sale de un fichero suelto de Drive, se dice). Fuente única del índice: [envioGestorService.js](implementation/backend/services/envioGestorService.js) (`INDICE`, `COD_RITE`). **El hueco de ficha técnica lo rellena el paquete** desde el catálogo del modelo ([fichaTecnicaSlot.js](implementation/backend/services/fichaTecnicaSlot.js)), en vez de depender de que alguien abra el modal del certificado — que es lo que bloqueó dos actuaciones de LOTE-2025-005 sin faltar ningún documento. El convenio CAE vive en la ficha del S.O. (`prescriptores.convenio_cae_link`), fuera de cualquier lote. **El modo `expediente` es TAMBIÉN el ZIP que se sube a beCAE** antes de la oferta (botón en la fase 3): el contenido NO depende de la ficha —comparadas las 20 actuaciones con dictamen favorable, solo cambia el nombre del `3-5`— y la ficha técnica suelta es el MISMO bloque de anexos del certificado, recortes incluidos. Ver "El ZIP que se sube a beCAE".
     **Y los FIRMADOS que devuelve el S.O. se sueltan todos de golpe en la fase 2**: la app lee las firmas del propio PDF ([utils/firmasPdf.js](implementation/backend/utils/firmasPdf.js) — DER puro, sin dependencias y **sin gasto de tokens**; esto NO valida la firma, solo dice qué certificados la declaran), identifica el documento por el nº de expediente —vigilando que `26RES060_10` no se cuele en `26RES060_105`— y lo registra por `guardarDocFirmado`, que ya le pone el `_fdo`. Sin firma electrónica NO se registra; una firma de otra persona solo AVISA; lo que no se sabe de quién es se PREGUNTA. Fuente única del proceso: [services/firmadosSo.js](implementation/backend/services/firmadosSo.js). Ver "El PAQUETE de cada actuación" y "Los FIRMADOS del S.O.".
