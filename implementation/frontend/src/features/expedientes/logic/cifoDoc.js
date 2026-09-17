@@ -526,6 +526,49 @@ export function deriveCifoData({ expediente, results }) {
 // «la pegatina de la máquina de fuera»: no se vuelve a subir.
 // ============================================================================
 
+/**
+ * LA FOTO DE LA PLACA, ENCUADRADA
+ * ---------------------------------------------------------------------------
+ * El recorte viaja como RECUADRO (`{x,y,w,h}` en % de la foto, más `ar`, su
+ * relación de aspecto) y se aplica aquí con una caja `overflow:hidden` y la
+ * imagen desplazada dentro. No se tocan los píxeles: el original sigue en Drive,
+ * el recorte se deshace, y el anexo conserva toda la resolución del trozo que
+ * interesa — que es el número que el verificador va a leer.
+ *
+ * Todo el cálculo va en PÍXELES y no en porcentajes: un `top` en % se resuelve
+ * contra la ALTURA DE LA CAJA, no contra la de la imagen, y ahí el encuadre se
+ * descoloca. Con px es la misma cuenta en el navegador y en Puppeteer.
+ *
+ * @param {object}  o
+ * @param {string}  o.src       data URI de la foto completa
+ * @param {object}  o.recorte   {x,y,w,h,ar} o null
+ * @param {number}  o.ancho     ancho de la caja, en px
+ * @param {number}  o.maxAlto   alto máximo (la hoja del PDF es FIJA)
+ * @param {string}  o.estilo    borde/redondeo de la caja
+ */
+export function placaImgHtml({ src, recorte, ancho, maxAlto, estilo = '' }) {
+    const alt = 'Placa de características de la unidad exterior';
+    if (!recorte) {
+        // Sin recorte, la imagen manda su propia proporción y se acota por alto.
+        return `<img src="${src}" alt="${alt}" style="max-width:${ancho}px;max-height:${maxAlto}px;display:block;margin:0 auto;${estilo}">`;
+    }
+    const { x, y, w, h, ar } = recorte;
+    let A = ancho;                        // ancho de la ventana de recorte
+    let imgW = A * (100 / w);             // la foto completa, a esa escala
+    let imgH = imgW / ar;
+    let boxH = imgH * (h / 100);
+    if (boxH > maxAlto) {                 // no cabe de alto: se reduce todo por igual
+        const k = maxAlto / boxH;
+        A *= k; imgW *= k; imgH *= k; boxH = maxAlto;
+    }
+    const left = -imgW * (x / 100);
+    const top = -imgH * (y / 100);
+    const px = (v) => `${Math.round(v * 100) / 100}px`;
+    return `<div style="width:${px(A)};height:${px(boxH)};overflow:hidden;position:relative;margin:0 auto;${estilo}">`
+        + `<img src="${src}" alt="${alt}" style="position:absolute;left:${px(left)};top:${px(top)};width:${px(imgW)};height:${px(imgH)};max-width:none;">`
+        + `</div>`;
+}
+
 /** Factor de corrección por zona climática del Anexo VI. */
 export const FC_ZONA_ACS = { A3: 1.246, A4: 1.251, B3: 1.223, B4: 1.228, C1: 1.154, C2: 1.165, C3: 1.175, C4: 1.181, D1: 1.093, D2: 1.103, D3: 1.113, E1: 1.056 };
 
@@ -533,7 +576,7 @@ export const FC_ZONA_ACS = { A3: 1.246, A4: 1.251, B3: 1.223, B4: 1.228, C1: 1.1
  * El recuadro «Cálculo del SCOP en ACS» del Anexo VI. Con `placaSrc` va a DOS
  * columnas y la foto queda al lado del número que justifica.
  */
-export function scopAcsAnexoViHtml({ zoneStr, zoneLabel, scopAcsRaw, scopAcsStr, acsFtUrl, anexoRef, placaSrc = null }) {
+export function scopAcsAnexoViHtml({ zoneStr, zoneLabel, scopAcsRaw, scopAcsStr, acsFtUrl, anexoRef, placaSrc = null, placaRecorte = null }) {
     const fc = FC_ZONA_ACS[zoneStr] ?? FC_ZONA_ACS.D3;
     const fcStr = fc.toFixed(3).replace('.', ',');
     const copCalc = (scopAcsRaw / fc).toFixed(2).replace('.', ',');
@@ -542,7 +585,7 @@ export function scopAcsAnexoViHtml({ zoneStr, zoneLabel, scopAcsRaw, scopAcsStr,
     // anexo—, pero es lo que dice, ahí mismo, de dónde ha salido el número.
     const aside = placaSrc ? `
                     <figure style="flex:none;width:208px;margin:0;">
-                        <img src="${placaSrc}" alt="Placa de características de la unidad exterior" style="max-width:100%;max-height:290px;display:block;margin:0 auto;border:1px solid #E9E9E1;border-radius:12px;">
+                        ${placaImgHtml({ src: placaSrc, recorte: placaRecorte, ancho: 208, maxAlto: 290, estilo: 'border:1px solid #E9E9E1;border-radius:12px;' })}
                         <figcaption style="margin-top:5px;font-size:9.5px;line-height:1.35;color:#8a8a80;text-align:center;">Placa de la unidad exterior. Se amplía en el anexo.</figcaption>
                     </figure>` : '';
     return `
@@ -581,11 +624,11 @@ export const PLACA_ANEXO_LABEL = 'Placa de características de la unidad exterio
  * qué está y la foto. El `sectionTitle`, la cabecera y el pie los pone cada
  * documento con los suyos. La altura va acotada porque la hoja son 297 mm FIJOS.
  */
-export function placaAnexoContenido({ placaSrc, anexoRef }) {
+export function placaAnexoContenido({ placaSrc, anexoRef, placaRecorte = null }) {
     return `
                 <p style="margin:0 0 14px 20px;font-size:12.5px;line-height:1.5;color:#4a4a44;">Fotografía de la placa de características de la unidad exterior de la bomba de calor instalada, de la que se obtiene el coeficiente de rendimiento (COP) empleado en el cálculo del SCOP<sub>dhw</sub> conforme al ${anexoRef}.</p>
                 <div style="flex:1;display:flex;align-items:flex-start;justify-content:center;min-height:0;">
-                    <img src="${placaSrc}" alt="Placa de características de la unidad exterior" style="max-width:100%;max-height:640px;object-fit:contain;border:1px solid #E9E9E1;border-radius:14px;">
+                    ${placaImgHtml({ src: placaSrc, recorte: placaRecorte, ancho: 700, maxAlto: 640, estilo: 'border:1px solid #E9E9E1;border-radius:14px;' })}
                 </div>`;
 }
 
@@ -597,6 +640,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     // placa es la única documentación donde el verificador puede comprobarlo.
     // La resuelve `services/placaScopAcs.js` desde Drive; aquí solo se pinta.
     const placaSrc = placaAcs?.src || null;
+    const placaRecorte = placaAcs?.recorte || null;
     const {
         inst, cli, ceeFinal,
         isHybrid, isTerciario, isTer173, cbAnexo, numexpte, zoneStr, zoneLabel,
@@ -1170,7 +1214,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             // Recuadro + placa: FUENTE ÚNICA con el Certificado RES080 (arriba).
             return scopAcsAnexoViHtml({
                 zoneStr, zoneLabel, scopAcsRaw, scopAcsStr, acsFtUrl,
-                anexoRef: anexoViRef, placaSrc,
+                anexoRef: anexoViRef, placaSrc, placaRecorte,
             });
         }
 
@@ -1445,7 +1489,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             <div class="doc-page">
                 ${pageHeader}
                 ${sectionTitle(PLACA_ANEXO_TITULO, '20px')}
-                ${placaAnexoContenido({ placaSrc, anexoRef: anexoViRef })}
+                ${placaAnexoContenido({ placaSrc, placaRecorte, anexoRef: anexoViRef })}
                 ${footer}
             </div>
         `);

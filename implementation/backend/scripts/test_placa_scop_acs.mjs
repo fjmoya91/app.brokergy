@@ -14,8 +14,8 @@
 import assert from 'assert';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
-const { aplicaAnexoVi, elegir } = require('../services/placaScopAcs');
-const { scopAcsAnexoViHtml, FC_ZONA_ACS } = await import('../../frontend/src/features/expedientes/logic/cifoDoc.js');
+const { aplicaAnexoVi, elegir, sanearRecorte } = require('../services/placaScopAcs');
+const { scopAcsAnexoViHtml, FC_ZONA_ACS, placaImgHtml } = await import('../../frontend/src/features/expedientes/logic/cifoDoc.js');
 
 let ok = 0;
 const t = (nombre, fn) => { fn(); ok++; console.log('  ✔', nombre); };
@@ -70,6 +70,47 @@ t('con foto, el documento CITA la placa como fuente del COP', () => {
 t('el número NO cambia por llevar foto', () => {
     const num = (h) => h.match(/= 3,34/g)?.length;
     assert.strictEqual(num(conPlaca), num(sinPlaca));
+});
+
+console.log('\n-- El RECORTE (recuadro, nunca la imagen recortada) --');
+const R = { x: 10, y: 20, w: 50, h: 30, ar: 1.5 };
+t('un recuadro valido se guarda tal cual', () =>
+    assert.deepStrictEqual(sanearRecorte(R), R));
+t('lo que se sale de la foto NO se guarda', () =>
+    assert.strictEqual(sanearRecorte({ x: 60, y: 0, w: 50, h: 30, ar: 1.5 }), null));
+t('un recorte ridiculo (<5 %) es un arrastre sin querer, no un encuadre', () =>
+    assert.strictEqual(sanearRecorte({ x: 0, y: 0, w: 2, h: 90, ar: 1.5 }), null));
+t('lo que no son numeros no se escribe a ciegas', () => {
+    assert.strictEqual(sanearRecorte({ x: 'a', y: 0, w: 50, h: 30, ar: 1.5 }), null);
+    assert.strictEqual(sanearRecorte(null), null);
+    assert.strictEqual(sanearRecorte('{}'), null);
+});
+
+console.log('\n-- El encuadre en el documento --');
+t('sin recorte, la foto va entera y acotada por alto', () => {
+    const h = placaImgHtml({ src: 'X', recorte: null, ancho: 208, maxAlto: 290 });
+    assert.ok(h.startsWith('<img'), 'sin recorte no hace falta caja');
+    assert.ok(h.includes('max-height:290px'));
+});
+t('con recorte, la ventana y el desplazamiento salen en PIXELES', () => {
+    // ar 1.5 y recorte al 50 % de ancho: la foto se pinta al doble (416 px), su
+    // alto es 416/1.5 = 277,33 y la ventana el 30 % de eso = 83,2.
+    const h = placaImgHtml({ src: 'X', recorte: R, ancho: 208, maxAlto: 290 });
+    assert.ok(h.includes('width:208px;height:83.2px'), h);
+    assert.ok(h.includes('width:416px'));
+    assert.ok(h.includes('left:-41.6px'));   // 10 % de 416
+    assert.ok(h.includes('top:-55.47px'));   // 20 % de 277,33
+    assert.ok(h.includes('overflow:hidden'));
+});
+t('un recorte que no cabe de alto se reduce ENTERO, sin deformarse', () => {
+    const alto = { x: 0, y: 0, w: 20, h: 90, ar: 1.5 };
+    const h = placaImgHtml({ src: 'X', recorte: alto, ancho: 208, maxAlto: 290 });
+    const caja = h.match(/width:([\d.]+)px;height:([\d.]+)px/);
+    const img = h.match(/width:([\d.]+)px;height:([\d.]+)px;max-width/);
+    assert.ok(caja && img);
+    assert.ok(Number(caja[2]) <= 290.01, 'la hoja del PDF es fija: no puede pasarse');
+    assert.ok(Math.abs(Number(img[1]) / Number(img[2]) - 1.5) < 0.01, 'la foto no puede deformarse');
+    assert.ok(Math.abs((Number(caja[1]) / Number(caja[2])) - (0.20 * 1.5) / 0.90) < 0.01, 'la ventana no es la del recuadro pedido');
 });
 
 console.log(`\n${ok} comprobaciones, todas bien.\n`);

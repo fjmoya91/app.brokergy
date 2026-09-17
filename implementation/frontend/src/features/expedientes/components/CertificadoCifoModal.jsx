@@ -541,7 +541,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     // La PLACA que justifica el COP del Anexo VI. Carga, elección y subida en
     // `PlacaScopAcs.jsx`, COMPARTIDO con el popup del Certificado RES080.
     const { placa: placaAcs, cargando: placaCargando, subiendo: placaSubiendo,
-            elegir: elegirPlaca, subir: subirPlaca } = usePlacaScopAcs(expediente, isOpen);
+            elegir: elegirPlaca, subir: subirPlaca, recortar: recortarPlaca } = usePlacaScopAcs(expediente, isOpen);
 
     if (!isOpen || !expediente) return null;
 
@@ -1427,7 +1427,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
 
                 <PlacaScopAcsBanda
                     placa={placaAcs} cargando={placaCargando} subiendo={placaSubiendo}
-                    onElegir={elegirPlaca} onSubir={subirPlaca}
+                    onElegir={elegirPlaca} onSubir={subirPlaca} onRecortar={recortarPlaca}
                 />
 
                 {/* CONTENT PREVIEW */}

@@ -87,6 +87,33 @@ async function dataUri(driveId, ancho = ANCHO) {
 }
 
 /**
+ * EL RECORTE SE GUARDA COMO RECUADRO, NO COMO IMÁGEN RECORTADA
+ * ---------------------------------------------------------------------------
+ * Cuatro números en % (`x`,`y`,`w`,`h`) más la relación de aspecto de la foto
+ * (`ar`), que es lo que hace falta para encuadrarla en el documento. Así:
+ *  · el ORIGINAL se conserva en Drive — un recorte mal hecho se deshace;
+ *  · el certificado sale igual generándolo desde la app o desde el backend (MCP),
+ *    porque el recuadro viaja en el expediente y no en el popup;
+ *  · en BD solo hay metadatos (regla 21): una imagen recortada en base64 dentro
+ *    de un JSONB es justo lo que tumbó la BD en julio.
+ * Se sanea aquí y no en la ruta: lo que llega del navegador no se escribe a ciegas.
+ */
+function sanearRecorte(r) {
+    if (!r || typeof r !== 'object') return null;
+    const n = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+    const x = n(r.x), y = n(r.y), w = n(r.w), h = n(r.h), ar = n(r.ar);
+    if ([x, y, w, h, ar].some((v) => v === null)) return null;
+    // Un recuadro fuera de la foto, o de tamaño cero, no encuadra nada.
+    if (w <= 0 || h <= 0 || ar <= 0) return null;
+    if (x < 0 || y < 0 || x + w > 100.01 || y + h > 100.01) return null;
+    // Recortes ridículos (<5 %) suelen ser un arrastre sin querer, y en el
+    // certificado se verían como un borrón ampliado.
+    if (w < 5 || h < 5) return null;
+    const r4 = (v) => Math.round(v * 100) / 100;
+    return { x: r4(x), y: r4(y), w: r4(w), h: r4(h), ar: r4(ar) };
+}
+
+/**
  * Cuál de las fotos del slot se imprime.
  *
  * Con VARIAS, manda la que eligió una persona: una unidad exterior puede llevar
@@ -130,16 +157,19 @@ async function resolverPlacaAcs(exp, folderId, { conImagen = false } = {}) {
         };
     }
 
-    const { elegida, aviso } = elegir(lista, exp?.instalacion?.placa_scop_acs?.driveId || null);
+    const guardado = exp?.instalacion?.placa_scop_acs || {};
+    const { elegida, aviso } = elegir(lista, guardado.driveId || null);
+    // El recorte es de ESA foto: si la elegida es otra, no se arrastra.
+    const recorte = elegida && guardado.driveId === elegida.driveId ? sanearRecorte(guardado.recorte) : null;
 
     const src = conImagen ? await dataUri(elegida.driveId) : null;
     if (conImagen && !src) {
         return {
-            aplica: true, elegida, candidatas: lista, src: null,
+            aplica: true, elegida, candidatas: lista, src: null, recorte,
             aviso: 'La foto de la placa está en Drive pero no se ha podido descargar.',
         };
     }
-    return { aplica: true, elegida, candidatas: lista, src, aviso };
+    return { aplica: true, elegida, candidatas: lista, src, recorte, aviso };
 }
 
 /**
@@ -170,4 +200,4 @@ async function placaDeExpediente(expedienteId, { conImagen = false } = {}) {
     return { exp, folderId, placa: await resolverPlacaAcs(exp, folderId, { conImagen }) };
 }
 
-module.exports = { SLOT, ANCHO, aplicaAnexoVi, candidatas, dataUri, elegir, resolverPlacaAcs, placaDeExpediente };
+module.exports = { SLOT, ANCHO, aplicaAnexoVi, candidatas, dataUri, elegir, sanearRecorte, resolverPlacaAcs, placaDeExpediente };

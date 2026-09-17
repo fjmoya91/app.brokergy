@@ -113,7 +113,8 @@ const acsPropio = (e, modelo = 'ECH2O 500 BIV') => {
  * completa como anexo. Lo único que importa de la foto para medir es su relación
  * de aspecto — un SVG evita meter un binario en el repo.
  */
-const placa = (w, h) => ({
+const placa = (w, h, recorte = null) => ({
+    ...(recorte ? { recorte: { ...recorte, ar: w / h } } : {}),
     aplica: true, candidatas: [],
     elegida: { driveId: 'fake', name: 'FOTO_UNIDAD_EXTERIOR_PLACA_1.jpg' },
     src: 'data:image/svg+xml;base64,' + Buffer.from(
@@ -153,6 +154,10 @@ const casos = [
     ['Anexo VI SIN placa · 5 en cascada', anexoVi(cascada(5))],
     ['Anexo VI + placa vertical (móvil) · 5 en cascada', anexoVi(cascada(5)), { placaAcs: placa(1080, 1920) }],
     ['Anexo VI + placa apaisada · 1 equipo', anexoVi(cascada(1)), { placaAcs: placa(1920, 1080) }],
+    // Con RECORTE la caja la manda el recuadro, no la foto: un recorte estrecho y
+    // alto es el que más estira la caja — va acotado, pero se mide.
+    ['Anexo VI + placa RECORTADA (estrecha y alta)', anexoVi(cascada(5)), { placaAcs: placa(1080, 1920, { x: 20, y: 5, w: 30, h: 85 }) }],
+    ['Anexo VI + placa RECORTADA (apaisada)', anexoVi(cascada(5)), { placaAcs: placa(1080, 1920, { x: 5, y: 40, w: 90, h: 12 }) }],
     ['Anexo VI + placa · 2 empresas · textos largos', conDelegacion(anexoVi(cascada(5)), { largos: true }), { placaAcs: placa(1080, 1920) }],
 ];
 

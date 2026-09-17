@@ -5262,7 +5262,7 @@ router.put('/:id/placa-scop-acs', staffOnly, async (req, res) => {
             .maybeSingle();
         if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
 
-        const { candidatas } = require('../services/placaScopAcs');
+        const { candidatas, sanearRecorte } = require('../services/placaScopAcs');
         const { carpetaDeExpediente } = require('../services/expedienteFolderSync');
         const folderId = await carpetaDeExpediente(exp).catch(() => null);
         const lista = await candidatas(folderId);
@@ -5272,9 +5272,22 @@ router.put('/:id/placa-scop-acs', staffOnly, async (req, res) => {
         const elegida = driveId ? lista.find((c) => c.driveId === driveId) : null;
         if (driveId && !elegida) return res.status(404).json({ error: 'Esa foto no está en el expediente.' });
 
+        // El RECORTE es de ESA foto: se guarda con ella y se pierde al cambiar de
+        // foto, que es lo correcto — un encuadre no vale para otra imagen.
+        // `recorte: null` explícito es «quitar el recorte»; no mandarlo, conservarlo.
+        const previo = exp.instalacion?.placa_scop_acs || {};
+        const mismaFoto = elegida && previo.driveId === elegida.driveId;
+        const recorte = Object.prototype.hasOwnProperty.call(req.body || {}, 'recorte')
+            ? sanearRecorte(req.body.recorte)
+            : (mismaFoto ? sanearRecorte(previo.recorte) : null);
+
         const inst = { ...(exp.instalacion || {}) };
         inst.placa_scop_acs = elegida
-            ? { driveId: elegida.driveId, name: elegida.name, at: new Date().toISOString(), por: req.user?.email || null }
+            ? {
+                driveId: elegida.driveId, name: elegida.name,
+                at: new Date().toISOString(), por: req.user?.email || null,
+                ...(recorte ? { recorte } : {}),
+            }
             : null;
 
         const { error: upErr } = await supabase

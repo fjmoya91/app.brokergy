@@ -771,6 +771,7 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
     // La PLACA de la unidad exterior, cuando el SCOP_dhw va por el ANEXO VI. Mismo
     // caso y mismo justificante que en el CIFO: ver cifoDoc.js.
     const placaSrc = placaAcs?.src || null;
+    const placaRecorte = placaAcs?.recorte || null;
     const ANEXO_VI_REF = 'Anexo VI de la ficha RES060 (Caso 3: bomba de calor aerotérmica con depósito de ACS no suministrado como conjunto)';
     const {
         fields, env, inst, cli, results,
@@ -1219,7 +1220,7 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
             // Recuadro + placa: FUENTE ÚNICA con el CIFO (cifoDoc.js).
             return scopAcsAnexoViHtml({
                 zoneStr, zoneLabel, scopAcsRaw, scopAcsStr, acsFtUrl,
-                anexoRef: ANEXO_VI_REF, placaSrc,
+                anexoRef: ANEXO_VI_REF, placaSrc, placaRecorte,
             });
         }
         return scopCallout(`SCOP en ACS = ${scopAcsStr}. Según la ficha técnica aportada por el fabricante que se entregará como anexo al expediente CAE.`);
@@ -1308,7 +1309,7 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
             <div class="doc-page">
                 ${pageHeader}
                 ${sectionTitle(PLACA_ANEXO_TITULO, '20px')}
-                ${placaAnexoContenido({ placaSrc, anexoRef: ANEXO_VI_REF })}
+                ${placaAnexoContenido({ placaSrc, placaRecorte, anexoRef: ANEXO_VI_REF })}
                 ${footer}
             </div>
         `);

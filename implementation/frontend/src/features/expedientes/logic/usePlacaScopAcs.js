@@ -98,5 +98,25 @@ export function usePlacaScopAcs(expediente, isOpen) {
         }
     }, [expediente?.oportunidad_id, expediente?.oportunidades?.id, expId, recargar]);
 
-    return { placa, cargando, subiendo, elegir, subir };
+    /**
+     * Guardar (o quitar, con `null`) el ENCUADRE de la foto elegida. Se manda el
+     * recuadro en %, nunca la imagen recortada: el original se conserva en Drive,
+     * el recorte se deshace, y el certificado sale igual generándolo desde la app
+     * o desde el backend — porque el encuadre vive en el expediente.
+     */
+    const recortar = useCallback(async (recorte) => {
+        const driveId = placa?.elegida?.driveId;
+        if (!expId || !driveId) return;
+        setCargando(true);
+        try {
+            await axios.put(`/api/expedientes/${expId}/placa-scop-acs`, { driveId, recorte });
+            await recargar();
+        } catch (e) {
+            console.warn('[placa Anexo VI] no se pudo guardar el recorte:', e.message);
+        } finally {
+            setCargando(false);
+        }
+    }, [expId, placa?.elegida?.driveId, recargar]);
+
+    return { placa, cargando, subiendo, elegir, subir, recortar };
 }

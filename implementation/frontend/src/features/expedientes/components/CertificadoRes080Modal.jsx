@@ -282,7 +282,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
     // La PLACA que justifica el COP del Anexo VI. Carga, elección y subida en
     // `logic/usePlacaScopAcs.js`, COMPARTIDO con el popup del CIFO.
     const { placa: placaAcs, cargando: placaCargando, subiendo: placaSubiendo,
-            elegir: elegirPlaca, subir: subirPlaca } = usePlacaScopAcs(expediente, isOpen);
+            elegir: elegirPlaca, subir: subirPlaca, recortar: recortarPlaca } = usePlacaScopAcs(expediente, isOpen);
 
     const updateScale = useCallback(() => {
         if (!containerRef.current) return;
@@ -1173,6 +1173,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
         // La placa de la unidad exterior (Anexo VI). Mismo bloque y misma página de
         // anexo que el documento que de verdad se envía (res080Doc.js).
         const placaSrc = placaAcs?.src || null;
+        const placaRecorte = placaAcs?.recorte || null;
         const ANEXO_VI_REF = 'Anexo VI de la ficha RES060 (Caso 3: bomba de calor aerotérmica con depósito de ACS no suministrado como conjunto)';
         const ed = (f) => editableData[f] || editableRef.current[f] || '';
         const eb = (f) => isForPdf ? ed(f) : `<div contenteditable="true" class="doc-editable" data-field="${f}">${ed(f)}</div>`;
@@ -1620,7 +1621,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                 // documento que de verdad se envía (res080Doc.js / cifoDoc.js).
                 return scopAcsAnexoViHtml({
                     zoneStr, zoneLabel, scopAcsRaw, scopAcsStr, acsFtUrl,
-                    anexoRef: ANEXO_VI_REF, placaSrc,
+                    anexoRef: ANEXO_VI_REF, placaSrc, placaRecorte,
                 });
             }
 
@@ -1715,7 +1716,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                 <div class="doc-page">
                     ${pageHeader}
                     ${sectionTitle(PLACA_ANEXO_TITULO, '20px')}
-                    ${placaAnexoContenido({ placaSrc, anexoRef: ANEXO_VI_REF })}
+                    ${placaAnexoContenido({ placaSrc, placaRecorte, anexoRef: ANEXO_VI_REF })}
                     ${footer}
                 </div>
             `);
@@ -2436,7 +2437,7 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
 
                 <PlacaScopAcsBanda
                     placa={placaAcs} cargando={placaCargando} subiendo={placaSubiendo}
-                    onElegir={elegirPlaca} onSubir={subirPlaca}
+                    onElegir={elegirPlaca} onSubir={subirPlaca} onRecortar={recortarPlaca}
                 />
 
                 {/* ── MODAL FIRMA CON CERTIFICADO (Autofirma, recuadro arrastrable) ── */}

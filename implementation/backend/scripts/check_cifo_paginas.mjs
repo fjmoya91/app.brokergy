@@ -132,7 +132,8 @@ const conDelegacion = (e, { largos = false } = {}) => {
  * a 208 px de ancho, y la página del anexo la imprime acotada por altura. Un SVG
  * evita meter un binario en el repo y se comporta igual que un JPEG.
  */
-const placa = (w, h) => ({
+const placa = (w, h, recorte = null) => ({
+    ...(recorte ? { recorte: { ...recorte, ar: w / h } } : {}),
     aplica: true,
     elegida: { driveId: 'fake', name: `${'26RES060_1'} - FOTO_UNIDAD_EXTERIOR_PLACA.jpg` },
     candidatas: [],
@@ -281,6 +282,10 @@ const casos = [
     // ancho pide 370 px de alto, más que la columna de texto.
     ['RES060 · Anexo VI + placa vertical (móvil)', anexoVi(cascada(5)), { placaAcs: placa(1080, 1920) }],
     ['RES060 · Anexo VI + placa apaisada', anexoVi(cascada(1)), { placaAcs: placa(1920, 1080) }],
+    // Con RECORTE la caja la manda el recuadro, no la foto: un recorte estrecho y
+    // alto es el que más estira la caja — va acotado, pero se mide.
+    ['RES060 · Anexo VI + placa RECORTADA (estrecha y alta)', anexoVi(cascada(5)), { placaAcs: placa(1080, 1920, { x: 20, y: 5, w: 30, h: 85 }) }],
+    ['RES060 · Anexo VI + placa RECORTADA (apaisada)', anexoVi(cascada(5)), { placaAcs: placa(1080, 1920, { x: 5, y: 40, w: 90, h: 12 }) }],
     ['RES060 · Anexo VI + placa vertical · 2 empresas', conDelegacion(anexoVi(cascada(5)), { largos: true }), { placaAcs: placa(1080, 1920) }],
     // El MISMO caso sin foto: es lo que dice cuánto de la holgura se lleva la placa
     // y cuánto ya se lo llevaba el bloque del Anexo VI, que nadie medía.
