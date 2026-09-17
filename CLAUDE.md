@@ -8770,6 +8770,7 @@ como anexo**.
 | Carga, elección y subida (hook) | [usePlacaScopAcs.js](implementation/frontend/src/features/expedientes/logic/usePlacaScopAcs.js) |
 | Superficie (compartida por los DOS popups) | [PlacaScopAcsBanda.jsx](implementation/frontend/src/features/expedientes/components/PlacaScopAcsBanda.jsx) |
 | Prueba de lo determinista | `node implementation/backend/scripts/test_placa_scop_acs.mjs` |
+| Qué placa saldría HOY (expedientes reales, solo lee) | `node implementation/backend/scripts/probar_placa_scop_acs.js [nº expte\|--todos]` |
 | Que ninguna hoja desborde | `check_cifo_paginas.mjs` **y** `check_res080_paginas.mjs` |
 
 **REGLA — la foto NO se sube otra vez: ya está en Drive.** La sube el instalador a
@@ -8810,6 +8811,14 @@ autenticada no lleva sesión (mismo motivo que las tipografías, regla 25.b). Se
 Drive **ya reducida a 1600 px** por el mismo camino que el proxy de miniaturas, y solo
 si eso falla se bajan los bytes originales. Medido sobre expedientes reales: **242-268
 KB** y 1,5-3,4 s.
+
+⚠️ **El `select` de la ruta vive en el SERVICIO** (`placaDeExpediente`), no en
+`routes/expedientes.js`. Pedir una columna que no existe hace fallar la consulta
+ENTERA y el expediente llega `null`, o sea un **404 sobre un expediente que sí
+existe** — y en pantalla eso no se ve como un error, se ve como que la función **no
+hace nada**. Pasó el 17/09/2026 con `drive_folder_id`, que NO es columna de
+`expedientes` (mismo gotcha que `prescriptores.telefono` y `oportunidades.historial`).
+Con el select ahí, `probar_placa_scop_acs.js` ejerce exactamente lo que corre.
 
 **REGLA — un fallo al resolver la placa NUNCA tumba la generación.** Sale como aviso
 (`warnings`) y el certificado se genera sin ella, que es el comportamiento de siempre.

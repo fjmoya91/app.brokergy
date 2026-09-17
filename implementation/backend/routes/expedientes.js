@@ -5240,17 +5240,9 @@ router.post('/:id/placas/ocr', suyoSiCertificador, async (req, res) => {
 // GET → qué placa se va a imprimir, qué otras hay y la imagen para la vista previa.
 router.get('/:id/placa-scop-acs', staffOnly, async (req, res) => {
     try {
-        const { data: exp, error } = await supabase
-            .from('expedientes')
-            .select('id, oportunidad_id, numero_expediente, instalacion, drive_folder_id')
-            .eq('id', req.params.id)
-            .maybeSingle();
-        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
-
-        const { resolverPlacaAcs } = require('../services/placaScopAcs');
-        const { carpetaDeExpediente } = require('../services/expedienteFolderSync');
-        const folderId = await carpetaDeExpediente(exp).catch(() => null);
-        const placa = await resolverPlacaAcs(exp, folderId, { conImagen: true });
+        const { placaDeExpediente } = require('../services/placaScopAcs');
+        const { exp, placa } = await placaDeExpediente(req.params.id, { conImagen: true });
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
         res.json(placa);
     } catch (err) {
         console.error('Error GET expedientes/:id/placa-scop-acs:', err.message);
@@ -5265,7 +5257,7 @@ router.put('/:id/placa-scop-acs', staffOnly, async (req, res) => {
     try {
         const { data: exp, error } = await supabase
             .from('expedientes')
-            .select('id, oportunidad_id, instalacion, drive_folder_id')
+            .select('id, oportunidad_id, instalacion')
             .eq('id', req.params.id)
             .maybeSingle();
         if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });

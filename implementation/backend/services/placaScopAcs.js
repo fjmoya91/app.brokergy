@@ -142,4 +142,32 @@ async function resolverPlacaAcs(exp, folderId, { conImagen = false } = {}) {
     return { aplica: true, elegida, candidatas: lista, src, aviso };
 }
 
-module.exports = { SLOT, ANCHO, aplicaAnexoVi, candidatas, dataUri, elegir, resolverPlacaAcs };
+/**
+ * La placa de un expediente, por su id. Carga el expediente, resuelve su carpeta
+ * y devuelve lo mismo que `resolverPlacaAcs`.
+ *
+ * ⚠️ El `select` vive AQUÍ y no en la ruta a propósito: pedir una columna que no
+ * existe hace fallar la consulta ENTERA y el expediente llega como `null`, o sea
+ * un 404 sobre un expediente que sí existe — y en la pantalla eso no se ve como
+ * un error, se ve como que la función no hace nada. Pasó el 17/09/2026 con
+ * `drive_folder_id`, que NO es una columna de `expedientes` (mismo gotcha que
+ * `prescriptores.telefono`). Con el select aquí, `probar_placa_scop_acs.js`
+ * ejerce exactamente lo que corre en producción.
+ */
+async function placaDeExpediente(expedienteId, { conImagen = false } = {}) {
+    const supabase = require('./supabaseClient');
+    const { carpetaDeExpediente } = require('./expedienteFolderSync');
+
+    const { data: exp, error } = await supabase
+        .from('expedientes')
+        .select('id, oportunidad_id, numero_expediente, instalacion')
+        .eq('id', expedienteId)
+        .maybeSingle();
+    if (error) throw new Error(`No se pudo leer el expediente: ${error.message}`);
+    if (!exp) return { exp: null };
+
+    const folderId = await carpetaDeExpediente(exp).catch(() => null);
+    return { exp, folderId, placa: await resolverPlacaAcs(exp, folderId, { conImagen }) };
+}
+
+module.exports = { SLOT, ANCHO, aplicaAnexoVi, candidatas, dataUri, elegir, resolverPlacaAcs, placaDeExpediente };
