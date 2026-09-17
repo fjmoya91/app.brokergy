@@ -225,8 +225,10 @@ router.post('/', enforceAuth, async (req, res) => {
             nombre_razon_social, apellidos, email, tlf, dni, sexo,
             ccaa, provincia, municipio, direccion, codigo_postal,
             numero_cuenta, prescriptor_id, oportunidad_id,
-            persona_contacto_nombre, persona_contacto_tlf, notificaciones_contacto_activas, notas,
-            es_empresa, representante_nombre, representante_apellidos, representante_dni
+            persona_contacto_nombre, persona_contacto_tlf, persona_contacto_email,
+            notificaciones_contacto_activas, notas,
+            es_empresa, representante_nombre, representante_apellidos, representante_dni,
+            copropietarios
         } = body;
 
 
@@ -268,7 +270,15 @@ router.post('/', enforceAuth, async (req, res) => {
             representante_dni: representante_dni || null,
             persona_contacto_nombre: persona_contacto_nombre || null,
             persona_contacto_tlf: persona_contacto_tlf || null,
+            // El correo del contacto se editaba en la ficha y NO se guardaba por
+            // aquí (ni en el alta ni en el PUT): solo lo escribían las rutas
+            // públicas. Es justo el dato del que tira `contactoCliente` cuando el
+            // titular no da el suyo.
+            persona_contacto_email: persona_contacto_email || null,
             notificaciones_contacto_activas: notificaciones_contacto_activas === true || notificaciones_contacto_activas === 'true' || false,
+            // Otros propietarios de la vivienda: destinatarios, no firmantes.
+            // Lo sanea `normalizeCliente` (fuente única, ver utils/normalization).
+            copropietarios: copropietarios || [],
 
             notas: notas || null,
         };
@@ -367,8 +377,10 @@ router.put('/:id', enforceAuth, async (req, res) => {
             nombre_razon_social, apellidos, email, tlf, dni, sexo,
             ccaa, provincia, municipio, direccion, codigo_postal,
             numero_cuenta, prescriptor_id,
-            persona_contacto_nombre, persona_contacto_tlf, notificaciones_contacto_activas, notas,
-            es_empresa, representante_nombre, representante_apellidos, representante_dni
+            persona_contacto_nombre, persona_contacto_tlf, persona_contacto_email,
+            notificaciones_contacto_activas, notas,
+            es_empresa, representante_nombre, representante_apellidos, representante_dni,
+            copropietarios
         } = body;
 
 
@@ -392,6 +404,13 @@ router.put('/:id', enforceAuth, async (req, res) => {
         if (representante_dni !== undefined) updates.representante_dni = representante_dni;
         if (persona_contacto_nombre !== undefined) updates.persona_contacto_nombre = persona_contacto_nombre;
         if (persona_contacto_tlf !== undefined) updates.persona_contacto_tlf = persona_contacto_tlf;
+        // Ver la nota del POST: el modal lo edita desde siempre y esta ruta no lo
+        // recogía, así que el correo de la persona de contacto se perdía al guardar.
+        if (persona_contacto_email !== undefined) updates.persona_contacto_email = persona_contacto_email;
+        // Los otros propietarios se mandan SIEMPRE enteros (la lista es la verdad),
+        // igual que las etiquetas de un chat de WhatsApp: un patch parcial dejaría
+        // vivo a quien se acaba de quitar.
+        if (copropietarios !== undefined) updates.copropietarios = copropietarios;
         if (notificaciones_contacto_activas !== undefined) updates.notificaciones_contacto_activas = notificaciones_contacto_activas === true || notificaciones_contacto_activas === 'true' || false;
 
         if (notas !== undefined) updates.notas = notas;

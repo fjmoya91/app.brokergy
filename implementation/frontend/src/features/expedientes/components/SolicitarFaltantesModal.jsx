@@ -166,6 +166,9 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
     const [dest, setDest] = useState({ CLIENTE: { nombre: '', tlf: '', email: '' }, INSTALADOR: { nombre: '', tlf: '', email: '' } });
     // Contactos del instalador marcados como destinatarios (puede haber varios).
     const [selectedInstIds, setSelectedInstIds] = useState([]);
+    // Y los del CLIENTE: una vivienda puede tener DOS propietarios, y lo que se
+    // pide aquí (facturas, fotos, el DNI) lo puede aportar cualquiera de ellos.
+    const [selectedCliIds, setSelectedCliIds] = useState([]);
     const [showWaConnect, setShowWaConnect] = useState(false);
     const [sendPhase, setSendPhase] = useState(null); // null | 'sending' | 'done'
     const [sendOutcome, setSendOutcome] = useState({ ok: false, text: '', sentTo: [] });
@@ -211,6 +214,14 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                 const def = conRol.length ? conRol
                     : (insContacts.find(c => (c.tlf && c.tlf === data.instalador?.tlf) || (c.email && c.email === data.instalador?.email)) || insContacts[0] || null);
                 setSelectedInstIds(Array.isArray(def) ? def.map(c => c.id) : (def ? [def.id] : []));
+                // Del CLIENTE viene marcado el que resuelve el automático (el
+                // titular, o su persona de contacto si la ficha tiene el desvío
+                // activo): se busca por su teléfono/correo, que es lo que el
+                // backend acaba de decidir. Los otros propietarios están a un clic.
+                const cliContactos = data.cliente?.contactos || [];
+                const defCli = cliContactos.find(c => (c.tlf && c.tlf === data.cliente?.tlf) || (c.email && c.email === data.cliente?.email))
+                    || cliContactos[0] || null;
+                setSelectedCliIds(defCli ? [defCli.id] : []);
                 // Empezar en el destinatario que tenga pendientes.
                 setActive(accFor('CLIENTE').length > 0 ? 'CLIENTE' : (accFor('INSTALADOR').length > 0 ? 'INSTALADOR' : 'CLIENTE'));
             })
@@ -273,20 +284,37 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
     // Destinatarios efectivos del tab activo. Para el INSTALADOR, si tiene contactos
     // configurados, se usan los marcados (varios); para el CLIENTE, el contacto único editable.
     const insContacts = info?.instalador?.contactos || [];
+    const cliContacts = info?.cliente?.contactos || [];
     const useInstChecklist = active === 'INSTALADOR' && insContacts.length > 0;
+    // Del cliente, la lista solo aparece si hay a QUIÉN elegir: con un solo
+    // propietario no hay nada que decidir y el campo libre de siempre sigue
+    // sirviendo para redirigirlo a mano a un número que no consta en la ficha.
+    const useCliChecklist = active === 'CLIENTE' && cliContacts.length > 1;
+    const useChecklist = useInstChecklist || useCliChecklist;
+    const contactsActive = active === 'CLIENTE' ? cliContacts : insContacts;
+    const selectedActive = active === 'CLIENTE' ? selectedCliIds : selectedInstIds;
     // Con el instalador, el COMERCIAL va primero: es el `to` del correo y quien
-    // tiene que reunir la documentación de la obra.
-    const recipientsActive = useInstChecklist
-        ? priorizarPorRol(insContacts.filter(c => selectedInstIds.includes(c.id)), 'comercial')
+    // tiene que reunir la documentación de la obra. En el cliente no hay roles:
+    // manda el orden de la lista (titular · propietarios · persona de contacto).
+    const recipientsActive = useChecklist
+        ? (active === 'INSTALADOR'
+            ? priorizarPorRol(insContacts.filter(c => selectedInstIds.includes(c.id)), 'comercial')
+            : cliContacts.filter(c => selectedCliIds.includes(c.id)))
         : [{ nombre: dst.nombre, tlf: dst.tlf, email: dst.email }];
     const anyTlf = recipientsActive.some(r => r.tlf);
     const anyEmail = recipientsActive.some(r => r.email);
-    const toggleInstContact = (id) => setSelectedInstIds(prev => {
-        const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
-        const first = insContacts.find(x => x.id === next[0]);
-        if (first) setDest(p => ({ ...p, INSTALADOR: { ...p.INSTALADOR, nombre: first.nombre || p.INSTALADOR.nombre } }));
-        return next;
-    });
+    const toggleContact = (id) => {
+        const setIds = active === 'CLIENTE' ? setSelectedCliIds : setSelectedInstIds;
+        setIds(prev => {
+            const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+            // El saludo lo manda el PRIMER marcado, no el titular: si se escribe al
+            // otro propietario y el mensaje sigue diciendo el nombre del primero,
+            // quien lo recibe ve que va dirigido a otra persona.
+            const first = contactsActive.find(x => x.id === next[0]);
+            if (first) setDest(p => ({ ...p, [active]: { ...p[active], nombre: first.saludo || first.nombre || p[active].nombre } }));
+            return next;
+        });
+    };
 
     const toggleChannel = (ch) => setChannels(prev => ({
         ...prev,
@@ -447,14 +475,18 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                                     Regenerar mensaje
                                 </button>
                             </div>
-                            {useInstChecklist ? (
+                            {useChecklist ? (
                                 <div className="space-y-2 mb-4">
-                                    {insContacts.map(c => (
-                                        <ContactoPickRow key={c.id} contacto={c} rol="comercial"
-                                            on={selectedInstIds.includes(c.id)} onClick={() => toggleInstContact(c.id)} />
+                                    {contactsActive.map(c => (
+                                        <ContactoPickRow key={c.id} contacto={c} rol={active === 'INSTALADOR' ? 'comercial' : null}
+                                            on={selectedActive.includes(c.id)} onClick={() => toggleContact(c.id)} />
                                     ))}
-                                    <p className="text-[9px] text-white/25">Puedes marcar varios contactos del instalador.</p>
-                                    <NotaVariosDestinatarios seleccionados={recipientsActive} email={actChannels.includes('email')} whatsapp={actChannels.includes('whatsapp')} rol="comercial" />
+                                    <p className="text-[9px] text-white/25">
+                                        {active === 'CLIENTE'
+                                            ? 'Esta vivienda tiene varios propietarios: puedes marcar a uno o a los dos.'
+                                            : 'Puedes marcar varios contactos del instalador.'}
+                                    </p>
+                                    <NotaVariosDestinatarios seleccionados={recipientsActive} email={actChannels.includes('email')} whatsapp={actChannels.includes('whatsapp')} rol={active === 'INSTALADOR' ? 'comercial' : null} />
                                 </div>
                             ) : (
                                 <div className="space-y-2 mb-4">

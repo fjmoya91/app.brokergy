@@ -301,8 +301,64 @@ function repartoPartner(p) {
     }, {});
 }
 
+// ─── El otro lado: el CLIENTE ────────────────────────────────────────────────
+// Los `select` que hacen falta para saber a quién se le puede escribir de una
+// ficha de cliente. `copropietarios` es la lista de los OTROS propietarios de la
+// vivienda: destinatarios, nunca firmantes (los documentos siguen saliendo a
+// nombre del titular).
+const CLIENTE_CONTACT_FIELDS = 'nombre_razon_social, apellidos, tlf, email, '
+    + 'persona_contacto_nombre, persona_contacto_tlf, persona_contacto_email, '
+    + 'notificaciones_contacto_activas, copropietarios';
+
+/**
+ * TODOS los destinatarios posibles de un cliente, en el orden en que se ofrecen:
+ * titular → otros propietarios → persona de contacto.
+ *
+ * ESPEJO de `clienteContacts` en frontend/utils/docContacts.js, por el mismo
+ * motivo que `contactosDePartner`: el popup enseña a quién se le va a mandar y
+ * el backend es quien manda cuando nadie elige. Los ids tienen que coincidir
+ * (`cli`, `cop0`…, `cli_contacto`) o el popup marcaría a otro.
+ *
+ * Quien no tiene NI teléfono NI email no sale: en un popup de envío es una fila
+ * que no se puede marcar.
+ */
+function contactosDeCliente(cli) {
+    if (!cli) return [];
+    const out = [];
+    const nombre = [cli.nombre_razon_social, cli.apellidos].filter(Boolean).join(' ').trim();
+    const tlf = cli.tlf || cli.telefono || '';
+    if (tlf || cli.email) {
+        out.push({
+            id: 'cli', nombre: nombre || 'Cliente', saludo: cli.nombre_razon_social || '',
+            tipo: 'Titular', tlf, email: cli.email || '', roles: [], general: false,
+        });
+    }
+    parseContactos(cli.copropietarios).forEach((c, i) => {
+        if (!c) return;
+        const t = (c.tlf || '').trim();
+        const e = (c.email || '').trim();
+        if (!t && !e) return;
+        const nom = [c.nombre, c.es_empresa ? '' : c.apellidos].filter(Boolean).join(' ').trim();
+        out.push({
+            id: `cop${i}`, nombre: nom || 'Propietario', saludo: c.nombre || '',
+            tipo: c.es_empresa ? 'Propietario (empresa)' : 'Propietario',
+            tlf: t, email: e, roles: [], general: false,
+        });
+    });
+    if (cli.persona_contacto_nombre && (cli.persona_contacto_tlf || cli.persona_contacto_email)) {
+        out.push({
+            id: 'cli_contacto', nombre: cli.persona_contacto_nombre, saludo: cli.persona_contacto_nombre,
+            tipo: 'Persona de contacto',
+            tlf: cli.persona_contacto_tlf || '', email: cli.persona_contacto_email || '',
+            roles: [], general: false,
+        });
+    }
+    return out;
+}
+
 module.exports = {
     ROLES, ROL_LABEL, ROL_RECIBE, PARTNER_CONTACT_FIELDS,
+    CLIENTE_CONTACT_FIELDS, contactosDeCliente,
     normalizeContactos, parseContactos, rolesDe,
     contactosDePartner, contactosPara, canalGeneral,
     partnerNotifyTargets, partnerNotifyTarget, repartoPartner, rolDeDocumento,

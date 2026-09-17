@@ -13,6 +13,79 @@ import { ExpedienteAccesos } from '../../expedientes/components/ExpedienteAcceso
 
 // Helpers de dirección catastral: fuente única en utils/direccionCatastral.js
 // ─── Sub-componentes ────────────────────────────────────────────────────────
+
+// ─── OTROS PROPIETARIOS de la vivienda ───────────────────────────────────────
+//
+// Una vivienda puede tener dos dueños, y la ficha solo tenía sitio para uno: lo
+// que se hacía era meter los dos en los campos del titular ("CARLOS MÓNICA" /
+// "POVEDA OCHOA CASTELLANOS SÁNCHEZ"). Eso deja un nombre que no es el de nadie
+// y, sobre todo, UN teléfono y UN correo: al otro propietario no se le podía
+// escribir.
+//
+// REGLA — un propietario añadido es un DESTINATARIO, no un firmante. El Anexo I
+// y el Convenio de Cesión se siguen emitiendo a nombre del titular y con su
+// único recuadro de firma. Lo que se gana es poder mandarle a cualquiera de los
+// dos —o a los dos— el mensaje, los anexos y la petición de documentación.
+// Se dice en pantalla: si no, la pregunta "¿y entonces quién firma?" se contesta
+// suponiendo.
+//
+// Los mismos campos del titular y en el mismo orden, para que la fila se lea
+// igual que el bloque de arriba.
+const propietarioVacio = () => ({
+    id: (globalThis.crypto?.randomUUID?.() || `cop_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),
+    es_empresa: false, nombre: '', apellidos: '', dni: '', email: '', tlf: '',
+});
+
+function PropietarioEdit({ value, index, onChange, onRemove }) {
+    const set = (patch) => onChange({ ...value, ...patch });
+    const esEmpresa = !!value.es_empresa;
+    return (
+        <div className="p-4 bg-white/[0.02] border border-white/[0.05] rounded-xl space-y-3 animate-fade-in">
+            <div className="flex items-center justify-between gap-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-white/30">
+                    Propietario {index + 2}
+                </p>
+                <div className="flex items-center gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer group">
+                        <div className="relative flex items-center">
+                            <input type="checkbox" className="peer sr-only" checked={esEmpresa}
+                                onChange={e => set({ es_empresa: e.target.checked })} />
+                            <div className="w-8 h-4 bg-transparent rounded-full peer border border-orange-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-white"></div>
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-white/30 group-hover:text-white/60 transition-colors">Empresa</span>
+                    </label>
+                    <button type="button" onClick={onRemove}
+                        className="text-[10px] font-black uppercase tracking-widest text-red-400/60 hover:text-red-400 transition-colors">
+                        Quitar
+                    </button>
+                </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <FieldInput label={esEmpresa ? 'Razón social' : 'Nombre'}>
+                    <Input uppercase value={value.nombre || ''} onChange={e => set({ nombre: e.target.value })} />
+                </FieldInput>
+                {/* Una sociedad no tiene apellidos: el hueco solo invita a rellenarlo mal. */}
+                {!esEmpresa && (
+                    <FieldInput label="Apellidos">
+                        <Input uppercase value={value.apellidos || ''} onChange={e => set({ apellidos: e.target.value })} />
+                    </FieldInput>
+                )}
+                <FieldInput label={esEmpresa ? 'CIF' : 'DNI / CIF'}>
+                    <Input uppercase value={value.dni || ''} onChange={e => set({ dni: e.target.value })} />
+                </FieldInput>
+                <FieldInput label="Teléfono">
+                    <Input placeholder="600 000 000" value={value.tlf || ''} onChange={e => set({ tlf: e.target.value })} />
+                </FieldInput>
+                <div className={esEmpresa ? '' : 'sm:col-span-2'}>
+                    <FieldInput label="Email">
+                        <Input type="email" placeholder="propietario@email.com"
+                            value={value.email || ''} onChange={e => set({ email: e.target.value.toLowerCase() })} />
+                    </FieldInput>
+                </div>
+            </div>
+        </div>
+    );
+}
 // ─── Modal principal ────────────────────────────────────────────────────────
 export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clienteId, onUpdated, onOpenOportunidad, onOpenExpediente, expedienteId, oportunidadId, onClienteSwapped, catastroData = null, justificanteLink = null }) {
     const { user } = useAuth();
@@ -123,6 +196,8 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
             persona_contacto_tlf: cliente.persona_contacto_tlf || '',
             persona_contacto_email: cliente.persona_contacto_email || '',
             notificaciones_contacto_activas: !!cliente.notificaciones_contacto_activas,
+            // Otros propietarios de la vivienda (destinatarios, no firmantes).
+            copropietarios: Array.isArray(cliente.copropietarios) ? cliente.copropietarios : [],
             notas: cliente.notas || '',
         });
         setShowNotas(!!cliente.notas);
@@ -218,6 +293,10 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                 persona_contacto_tlf: form.persona_contacto_tlf?.trim() || null,
                 persona_contacto_email: form.persona_contacto_email?.trim() || null,
                 notificaciones_contacto_activas: form.notificaciones_contacto_activas || false,
+                // La lista va ENTERA: es la verdad de quién es propietario. Un patch
+                // parcial dejaría vivo a quien se acaba de quitar. El saneado (qué
+                // claves valen, MAYÚSCULAS, filas vacías) es del backend.
+                copropietarios: (form.copropietarios || []),
                 notas: form.notas?.trim() || null,
             };
             const res = await axios.put(`/api/clientes/${cliente.id_cliente}`, payload);
@@ -535,6 +614,34 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                     )}
                                 </div>
                             </div>
+
+                            {/* Otros propietarios: solo si los hay — un bloque vacío
+                                permanente solo alarga la ficha. */}
+                            {Array.isArray(cliente.copropietarios) && cliente.copropietarios.length > 0 && (
+                                <div className="space-y-3">
+                                    <div className="flex items-center gap-2">
+                                        <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Otros propietarios</p>
+                                        <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md bg-white/5 border border-white/10 text-white/35">
+                                            {cliente.copropietarios.length}
+                                        </span>
+                                    </div>
+                                    {cliente.copropietarios.map((p, i) => (
+                                        <div key={p.id || i} className="p-4 bg-bkg-surface rounded-xl border border-white/[0.06] grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 [&_p.text-sm]:uppercase">
+                                            <FieldView
+                                                label={p.es_empresa ? 'Razón social' : 'Nombre y apellidos'}
+                                                value={[p.nombre, p.es_empresa ? '' : p.apellidos].filter(Boolean).join(' ')}
+                                            />
+                                            <FieldView label={p.es_empresa ? 'CIF' : 'DNI / CIF'} value={p.dni} />
+                                            <FieldView label="Email" value={p.email?.toLowerCase()} valueClassName="!lowercase" />
+                                            <FieldView label="Teléfono" value={p.tlf} />
+                                        </div>
+                                    ))}
+                                    <p className="text-[10px] text-white/25">
+                                        Se pueden elegir como destinatarios al enviar mensajes, anexos o peticiones de documentación.
+                                        Los documentos se emiten a nombre del titular, que es quien los firma.
+                                    </p>
+                                </div>
+                            )}
 
                             {(cliente.ccaa || cliente.provincia || cliente.municipio || cliente.direccion) && (
                                 <div className="space-y-3">
@@ -877,6 +984,31 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                         </div>
                                     )}
                                 </div>
+                            </div>
+
+                            {/* ── Otros propietarios de la vivienda ───────────────── */}
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between gap-3">
+                                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Propietarios</p>
+                                    <button type="button"
+                                        onClick={() => updateForm({ copropietarios: [...(form.copropietarios || []), propietarioVacio()] })}
+                                        className="px-3 py-1.5 rounded-lg bg-brand/10 border border-brand/30 text-brand text-[10px] font-black uppercase tracking-widest hover:bg-brand/20 transition-all">
+                                        + Añadir nuevo propietario
+                                    </button>
+                                </div>
+                                <p className="text-[10px] text-white/25">
+                                    El <strong className="text-white/40">titular</strong> es el de arriba y es quien firma los documentos.
+                                    Los que añadas aquí se podrán elegir como destinatarios al enviar mensajes, anexos o peticiones de documentación.
+                                </p>
+                                {(form.copropietarios || []).map((p, i) => (
+                                    <PropietarioEdit
+                                        key={p.id || i}
+                                        value={p}
+                                        index={i}
+                                        onChange={(next) => updateForm({ copropietarios: (form.copropietarios || []).map((x, j) => j === i ? next : x) })}
+                                        onRemove={() => updateForm({ copropietarios: (form.copropietarios || []).filter((_, j) => j !== i) })}
+                                    />
+                                ))}
                             </div>
 
                             <div className="space-y-3">

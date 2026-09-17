@@ -104,6 +104,62 @@ const CLIENTE_MAYUSCULAS = [
 const CLIENTE_MINUSCULAS = ['email', 'persona_contacto_email'];
 const CLIENTE_SOLO_TRIM = ['tlf', 'persona_contacto_tlf'];
 
+// ─── COPROPIETARIOS ──────────────────────────────────────────────────────────
+// Los OTROS propietarios de la vivienda (`clientes.copropietarios`). Son
+// DESTINATARIOS: se les puede mandar el mensaje, los anexos o la petición de
+// documentación. Quien FIRMA sigue siendo el titular — los documentos no se
+// tocan.
+//
+// REGLA — el saneado vive aquí, no en la ruta. Es la misma razón por la que
+// `normalizeCliente` existe: escriben en `clientes` el formulario, el funnel, la
+// aceptación de la propuesta y el formulario de cobro, y una lista saneada en un
+// sitio y a pelo en otro acaba con la mitad de las fichas en minúsculas.
+//
+// REGLA — solo se admiten las claves CONOCIDAS. El array llega de un formulario
+// y esto va a una columna que después se lee en cuatro popups de envío: guardar
+// lo que venga es guardar lo que le apetezca mandar a quien tenga la sesión.
+const COPROP_MAX = 5;
+const COPROP_MAYUSCULAS = ['nombre', 'apellidos', 'dni'];
+
+/**
+ * Deja la lista de copropietarios como la guarda la app.
+ *
+ * Descarta las filas que no son nadie: sin nombre Y sin ningún canal no hay a
+ * quién escribir, y una fila en blanco en la lista de destinatarios es una
+ * casilla que alguien acabará marcando.
+ *
+ * @param {Array|string} raw  el array (o su JSON, que es como llega de un form)
+ * @returns {Array}
+ */
+function sanearCopropietarios(raw) {
+    let lista = raw;
+    if (typeof lista === 'string') {
+        try { lista = JSON.parse(lista); } catch { return []; }
+    }
+    if (!Array.isArray(lista)) return [];
+
+    const out = [];
+    for (const item of lista) {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+        const c = {
+            id: typeof item.id === 'string' && item.id.trim() ? item.id.trim().slice(0, 40) : null,
+            es_empresa: item.es_empresa === true || item.es_empresa === 'true',
+            nombre: '', apellidos: '', dni: '', email: '', tlf: '',
+        };
+        for (const k of COPROP_MAYUSCULAS) {
+            if (typeof item[k] === 'string') c[k] = item[k].trim().toUpperCase().slice(0, 200);
+        }
+        if (typeof item.email === 'string') c.email = item.email.trim().toLowerCase().slice(0, 200);
+        if (typeof item.tlf === 'string') c.tlf = item.tlf.trim().slice(0, 40);
+
+        if (!c.nombre && !c.email && !c.tlf) continue;   // no es nadie
+        if (!c.id) c.id = `cop_${Date.now().toString(36)}_${out.length}`;
+        out.push(c);
+        if (out.length >= COPROP_MAX) break;
+    }
+    return out;
+}
+
 /**
  * Deja un patch/payload de `clientes` como lo guarda la app: MAYÚSCULAS y sin
  * espacios sobrantes, con los emails en minúsculas.
@@ -129,7 +185,10 @@ function normalizeCliente(payload) {
     for (const k of CLIENTE_SOLO_TRIM) {
         if (typeof out[k] === 'string') out[k] = out[k].trim();
     }
+    if (out.copropietarios !== undefined && out.copropietarios !== null) {
+        out.copropietarios = sanearCopropietarios(out.copropietarios);
+    }
     return out;
 }
 
-module.exports = { normalizeData, normalizeCliente };
+module.exports = { normalizeData, normalizeCliente, sanearCopropietarios };

@@ -34,7 +34,7 @@ export const ROL_RECIBE = {
 
 const esVerdadero = (v) => v === true || v === 'true' || v === 1;
 
-/** Contactos del cliente final: titular + persona de contacto si la hay. */
+/** Contactos del cliente final: titular + otros propietarios + persona de contacto. */
 // `label` es cómo se LISTA el contacto (nombre y apellidos, para reconocerlo) y
 // `saludo` cómo se le LLAMA en el mensaje: solo el nombre. "Hola José Antonio
 // Gallego Ortega" es un encabezado de expediente, no un saludo — y el nombre sale
@@ -46,6 +46,29 @@ export function clienteContacts(cli = {}) {
     if (tlf || cli.email) {
         out.push({ id: 'cli', label: nombre || 'Cliente', saludo: cli.nombre_razon_social || '', sublabel: 'Titular', phone: tlf, email: cli.email || '', roles: [], general: false });
     }
+    // Los OTROS propietarios de la vivienda. Van detrás del titular y delante de
+    // la persona de contacto porque son eso: propietarios, no un recado.
+    //
+    // REGLA — un copropietario es DESTINATARIO, no firmante. El Anexo I y el
+    // Convenio de Cesión se emiten a nombre del titular y con su recuadro de
+    // firma; lo que esto resuelve es poder mandarle el documento (o el mensaje) a
+    // quien de verdad coge el teléfono. Antes los dos nombres se metían en el
+    // campo del titular ("CARLOS MÓNICA") y solo había un teléfono y un correo.
+    //
+    // Sin ningún canal no se ofrece: una fila que no se puede marcar en un popup
+    // de envío solo alarga la lista.
+    parseContactos(cli.copropietarios).forEach((c, i) => {
+        if (!c) return;
+        const tlfC = (c.tlf || '').trim();
+        const emailC = (c.email || '').trim();
+        if (!tlfC && !emailC) return;
+        const nom = [c.nombre, c.es_empresa ? '' : c.apellidos].filter(Boolean).join(' ').trim();
+        out.push({
+            id: `cop${i}`, label: nom || 'Propietario', saludo: c.nombre || '',
+            sublabel: c.es_empresa ? 'Propietario (empresa)' : 'Propietario',
+            phone: tlfC, email: emailC, roles: [], general: false,
+        });
+    });
     if (cli.persona_contacto_nombre && (cli.persona_contacto_tlf || cli.persona_contacto_email)) {
         out.push({
             id: 'cli_contacto', label: cli.persona_contacto_nombre, saludo: cli.persona_contacto_nombre,
