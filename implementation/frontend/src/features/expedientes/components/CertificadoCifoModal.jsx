@@ -33,6 +33,9 @@ import AnexoPaginasModal from './AnexoPaginasModal';
 // popup de la Memoria RITE, con la ruta de envío y con la página pública.
 import { estadoInstalador, mensajeInstalador, enlaceInstalador } from '../logic/instaladorPendientes';
 import { DocsInstaladorPicker } from './DocsInstaladorPicker';
+// La placa de la unidad exterior que justifica el COP del Anexo VI (SCOP_dhw).
+import { usePlacaScopAcs } from '../logic/usePlacaScopAcs';
+import { PlacaScopAcsBanda } from './PlacaScopAcsBanda';
 // Quién firma cada documento, y poder arreglarlo sin salir del envío.
 import { FirmantesEnvio } from './FirmantesEnvio';
 
@@ -535,6 +538,11 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen, expediente?.id]);
 
+    // La PLACA que justifica el COP del Anexo VI. Carga, elección y subida en
+    // `PlacaScopAcs.jsx`, COMPARTIDO con el popup del Certificado RES080.
+    const { placa: placaAcs, cargando: placaCargando, subiendo: placaSubiendo,
+            elegir: elegirPlaca, subir: subirPlaca } = usePlacaScopAcs(expediente, isOpen);
+
     if (!isOpen || !expediente) return null;
 
     // ── DATA EXTRACTION ───────────────────────────────────────────────
@@ -1022,7 +1030,10 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
             data: deriveCifoData({ expediente: expedienteDoc, results }),
             appUrl: APP_URL,
             attachments: prepareAnnexAttachments(docAttachments, annexPrefs),
-            withAnnexPreview
+            withAnnexPreview,
+            // Solo lleva `src` cuando el SCOP_dhw va por el Anexo VI y hay foto de
+            // la placa en Drive; en cualquier otro caso el documento no cambia.
+            placaAcs,
         });
 
     // Anexos a concatenar al PDF principal: driveId + páginas a omitir, en el
@@ -1413,6 +1424,11 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                         </p>
                     </div>
                 )}
+
+                <PlacaScopAcsBanda
+                    placa={placaAcs} cargando={placaCargando} subiendo={placaSubiendo}
+                    onElegir={elegirPlaca} onSubir={subirPlaca}
+                />
 
                 {/* CONTENT PREVIEW */}
                 <div ref={containerRef} className="flex-1 overflow-auto bg-[#16181D] py-8 px-4 text-center">

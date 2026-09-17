@@ -28,7 +28,8 @@ const cifoService = require('../services/cifoService');
 const { applyStatus, stampSeguimientoTimestamps, markCertContact } = require('../services/seguimientoTracking');
 const { partnerNotifyTargets, partnerNotifyTarget, contactosDePartner, repartoPartner,
         normalizeContactos, saludoPartner, rolDeDocumento,
-        PARTNER_CONTACT_FIELDS } = require('../services/notifyContacts');
+        PARTNER_CONTACT_FIELDS,
+        CLIENTE_CONTACT_FIELDS, contactosDeCliente } = require('../services/notifyContacts');
 const { capitalizar: capitalizarNombre } = require('../services/recordatorios');
 const { buildCertClienteData } = require('../services/certClienteData');
 const cobroService = require('../services/cobroService');
@@ -1475,7 +1476,7 @@ async function resolveSolicitudContacto(exp, target, rol = null) {
     // CLIENTE — la tabla clientes NO tiene columna `telefono`, solo `tlf`.
     if (!exp.cliente_id) return { nombre: null, tlf: null, email: null };
     const { data: cli, error: cErr } = await supabase.from('clientes')
-        .select('nombre_razon_social, apellidos, tlf, persona_contacto_tlf, persona_contacto_nombre, email, persona_contacto_email, notificaciones_contacto_activas')
+        .select(CLIENTE_CONTACT_FIELDS)
         .eq('id_cliente', exp.cliente_id).maybeSingle();
     if (cErr) console.warn('[solicitud contacto CLIENTE]', cErr.message);
     const notif = cli?.notificaciones_contacto_activas === true || cli?.notificaciones_contacto_activas === 'true';
@@ -1484,6 +1485,12 @@ async function resolveSolicitudContacto(exp, target, rol = null) {
         nombre: (notif ? (cli?.persona_contacto_nombre || nombreCli) : nombreCli) || null,
         tlf: (notif ? (cli?.persona_contacto_tlf || cli?.tlf) : (cli?.tlf || cli?.persona_contacto_tlf)) || null,
         email: (notif ? (cli?.persona_contacto_email || cli?.email) : (cli?.email || cli?.persona_contacto_email)) || null,
+        // La lista completa para el selector del popup (titular · otros
+        // propietarios · persona de contacto), igual que se hace con el partner.
+        // El destinatario AUTOMÁTICO no cambia: sigue siendo el de arriba, o sea
+        // el titular salvo que la ficha tenga el desvío activado. Un copropietario
+        // no recibe nada por su cuenta — se le manda porque alguien lo marca.
+        contactos: contactosDeCliente(cli),
     };
 }
 
@@ -5215,6 +5222,79 @@ router.post('/:id/placas/ocr', suyoSiCertificador, async (req, res) => {
         console.error('Error POST expedientes/:id/placas/ocr:', err.message);
         res.status(err.status && err.status < 500 ? err.status : 500)
            .json({ error: err.message || 'No se han podido leer las placas.' });
+    }
+});
+
+
+// ─── LA PLACA DE LA UNIDAD EXTERIOR QUE IMPRIME EL CIFO ───────────────────────
+// Solo cuando el SCOP_dhw se justifica por el ANEXO VI (`metodo_scop:
+// 'independiente'`): ahí el certificado declara SCOP_dhw = COP · F_c y el COP a
+// A7/W55 NO lo publican todas las fichas técnicas — está en la placa. Sin
+// enseñarla, el verificador ve un COP que no encuentra en la documentación
+// aportada y abre una inexactitud (medido el 16/09/2026).
+//
+// La foto no se sube otra vez: ya está en Drive, en «la pegatina de la máquina de
+// fuera», que es la misma de la que el lector de placas saca el nº de serie.
+// Aquí solo se dice CUÁL de las que hay se imprime.
+
+// GET → qué placa se va a imprimir, qué otras hay y la imagen para la vista previa.
+router.get('/:id/placa-scop-acs', staffOnly, async (req, res) => {
+    try {
+        const { data: exp, error } = await supabase
+            .from('expedientes')
+            .select('id, oportunidad_id, numero_expediente, instalacion, drive_folder_id')
+            .eq('id', req.params.id)
+            .maybeSingle();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const { resolverPlacaAcs } = require('../services/placaScopAcs');
+        const { carpetaDeExpediente } = require('../services/expedienteFolderSync');
+        const folderId = await carpetaDeExpediente(exp).catch(() => null);
+        const placa = await resolverPlacaAcs(exp, folderId, { conImagen: true });
+        res.json(placa);
+    } catch (err) {
+        console.error('Error GET expedientes/:id/placa-scop-acs:', err.message);
+        res.status(500).json({ error: 'No se ha podido leer la placa del expediente.' });
+    }
+});
+
+// PUT → elegir cuál de las fotos del slot es la que lleva el COP. Se guarda solo
+// el driveId y su nombre (regla 21); la foto sigue siendo la de Drive.
+router.put('/:id/placa-scop-acs', staffOnly, async (req, res) => {
+    const driveId = String(req.body?.driveId || '').trim();
+    try {
+        const { data: exp, error } = await supabase
+            .from('expedientes')
+            .select('id, oportunidad_id, instalacion, drive_folder_id')
+            .eq('id', req.params.id)
+            .maybeSingle();
+        if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        const { candidatas } = require('../services/placaScopAcs');
+        const { carpetaDeExpediente } = require('../services/expedienteFolderSync');
+        const folderId = await carpetaDeExpediente(exp).catch(() => null);
+        const lista = await candidatas(folderId);
+
+        // Solo se puede elegir una foto que esté en el slot de ESTE expediente: la
+        // ruta no vale para apuntar a un fichero cualquiera de Drive.
+        const elegida = driveId ? lista.find((c) => c.driveId === driveId) : null;
+        if (driveId && !elegida) return res.status(404).json({ error: 'Esa foto no está en el expediente.' });
+
+        const inst = { ...(exp.instalacion || {}) };
+        inst.placa_scop_acs = elegida
+            ? { driveId: elegida.driveId, name: elegida.name, at: new Date().toISOString(), por: req.user?.email || null }
+            : null;
+
+        const { error: upErr } = await supabase
+            .from('expedientes')
+            .update({ instalacion: inst, updated_at: new Date().toISOString() })
+            .eq('id', exp.id);
+        if (upErr) return res.status(500).json({ error: 'No se pudo guardar la elección.', details: upErr.message });
+
+        res.json({ ok: true, elegida: inst.placa_scop_acs });
+    } catch (err) {
+        console.error('Error PUT expedientes/:id/placa-scop-acs:', err.message);
+        res.status(500).json({ error: 'No se ha podido guardar la placa elegida.' });
     }
 });
 

@@ -5,7 +5,10 @@ import { useAuth } from '../../../context/AuthContext';
 import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
 import { buildInstalacionAddress, empresaInstaladora, empresasActuacion } from '../utils/docGenerators';
 import { calcCifo } from '../logic/calcCifo';
-import { EMITTER_OPTIONS, emitterScopContext } from '../logic/cifoDoc';
+import { EMITTER_OPTIONS, emitterScopContext, scopAcsAnexoViHtml, placaAnexoContenido, PLACA_ANEXO_TITULO, PLACA_ANEXO_LABEL } from '../logic/cifoDoc';
+// La placa de la unidad exterior que justifica el COP del Anexo VI (SCOP_dhw).
+import { usePlacaScopAcs } from '../logic/usePlacaScopAcs';
+import { PlacaScopAcsBanda } from './PlacaScopAcsBanda';
 import { emisorLabelDocumento } from '../logic/emisores';
 import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevoLabel, esTermoElectrico } from '../logic/aerotermiaUnits';
 // Qué fichas técnicas lleva ESTE expediente: una por MODELO distinto de bomba de
@@ -276,6 +279,10 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
     const [editableData, setEditableData] = useState({});
     const [isAnexosOpen, setIsAnexosOpen] = useState(false);
     const [draggedId, setDraggedId] = useState(null);
+    // La PLACA que justifica el COP del Anexo VI. Carga, elección y subida en
+    // `logic/usePlacaScopAcs.js`, COMPARTIDO con el popup del CIFO.
+    const { placa: placaAcs, cargando: placaCargando, subiendo: placaSubiendo,
+            elegir: elegirPlaca, subir: subirPlaca } = usePlacaScopAcs(expediente, isOpen);
 
     const updateScale = useCallback(() => {
         if (!containerRef.current) return;
@@ -1163,6 +1170,10 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
     // con formato IDÉNTICO. Si tocas el DISEÑO o la derivación aquí, actualiza también
     // res080Doc.js para que ambos caminos sigan saliendo iguales.
     const generateHtml = (isForPdf = false, withAnnexPreview = false) => {
+        // La placa de la unidad exterior (Anexo VI). Mismo bloque y misma página de
+        // anexo que el documento que de verdad se envía (res080Doc.js).
+        const placaSrc = placaAcs?.src || null;
+        const ANEXO_VI_REF = 'Anexo VI de la ficha RES060 (Caso 3: bomba de calor aerotérmica con depósito de ACS no suministrado como conjunto)';
         const ed = (f) => editableData[f] || editableRef.current[f] || '';
         const eb = (f) => isForPdf ? ed(f) : `<div contenteditable="true" class="doc-editable" data-field="${f}">${ed(f)}</div>`;
         const formatN = (v) => v ? v.toString().replace('.', ',') : '—';
@@ -1586,7 +1597,6 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
             if (acsEsTermo) {
                 return scopCallout('Rendimiento del equipo de ACS = 1,00. El agua caliente sanitaria se produce por efecto Joule (resistencia eléctrica), cuyo rendimiento es la unidad por definición: no procede el cálculo de un SCOP estacional.');
             }
-            const FC_TABLE = { A3: 1.246, A4: 1.251, B3: 1.223, B4: 1.228, C1: 1.154, C2: 1.165, C3: 1.175, C4: 1.181, D1: 1.093, D2: 1.103, D3: 1.113, E1: 1.056 };
             const acsEprelUrl = sameAero ? inst.aerotermia_cal?.url_eprel : inst.aerotermia_acs?.url_eprel;
             const acsFtUrl    = sameAero ? inst.aerotermia_cal?.url_ficha  : inst.aerotermia_acs?.url_ficha;
 
@@ -1606,33 +1616,12 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
             }
 
             if (metodoAcs === 'independiente') {
-                // Anexo VI RES060 Caso 3: SCOPdhw = COP × Fc(zona)
-                const fc = FC_TABLE[zoneStr] ?? FC_TABLE['D3'];
-                const fcStr  = fc.toFixed(3).replace('.', ',');
-                const copCalc = (scopAcsRaw / fc).toFixed(2).replace('.', ',');
-                const ftLink = acsFtUrl ? `<li style="margin-top:3px;">Ficha técnica: <a href="${acsFtUrl}" style="color:#0000EE;text-decoration:underline;">Acceder a la ficha técnica del fabricante</a></li>` : '';
-                return `
-                    <div style="margin-top:12px;padding:16px 20px;border:1px solid #E9E9E1;border-radius:16px;font-size:12.5px;line-height:1.5;color:#4a4a44;">
-                        <div style="font-weight:800;font-size:13px;text-transform:uppercase;color:#1A1A1A;margin-bottom:8px;">Cálculo del SCOP en ACS</div>
-                        <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Fórmula aplicada</div>
-                        <p style="margin:0 0 6px;">Según el Anexo VI de la ficha RES060 (Caso 3: bomba de calor aerotérmica con depósito de ACS no suministrado como conjunto), para la zona climática ${zoneStr}:</p>
-                        <div style="text-align:center;font-weight:800;font-size:15px;background:#FBF6EE;border-radius:10px;padding:8px;margin:10px 0;color:#1A1A1A;">SCOP<sub>dhw</sub> = COP · F<sub>c</sub></div>
-                        <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Donde</div>
-                        <ul style="list-style:none;margin:0 0 10px;padding-left:0;">
-                            <li>· COP: coeficiente de rendimiento según ficha técnica y placa de características del equipo</li>
-                            <li style="margin-top:3px;">· F<sub>c</sub>: factor de corrección para la zona climática ${zoneStr} (clima ${zoneLabel.toLowerCase()})</li>
-                            ${ftLink}
-                        </ul>
-                        <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Valores utilizados</div>
-                        <ul style="list-style:none;margin:0 0 10px;padding-left:0;">
-                            <li>· COP = ${copCalc} (según ficha técnica del fabricante)</li>
-                            <li style="margin-top:3px;">· F<sub>c</sub> = ${fcStr} (para zona climática ${zoneStr})</li>
-                        </ul>
-                        <div style="display:flex;justify-content:space-between;align-items:center;background:#F3F8E6;border:1px solid #D5E6A8;border-radius:12px;padding:10px 16px;margin-top:10px;">
-                            <span style="font-weight:700;color:#1A1A1A;">SCOP<sub>dhw</sub> = ${copCalc} × ${fcStr} = ${scopAcsStr}</span>
-                            <span style="font-weight:900;font-size:18px;color:#4d6a12;">${scopAcsStr}</span>
-                        </div>
-                    </div>`;
+                // Recuadro + placa de la unidad exterior: FUENTE ÚNICA con el
+                // documento que de verdad se envía (res080Doc.js / cifoDoc.js).
+                return scopAcsAnexoViHtml({
+                    zoneStr, zoneLabel, scopAcsRaw, scopAcsStr, acsFtUrl,
+                    anexoRef: ANEXO_VI_REF, placaSrc,
+                });
             }
 
             // Ficha técnica (default + legacy 'eprel')
@@ -1679,11 +1668,15 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
         // preview enseñe exactamente lo que se descargará.
         const annexList = prepareAnnexAttachments(docAttachments, annexPrefs)
             .filter(a => a.file?.driveId);
-        if (annexList.length > 0) {
-            const items = annexList.map((a, i) => `
+        const annexLabels = [
+            ...annexList.map(a => a.label),
+            ...(placaSrc ? [PLACA_ANEXO_LABEL] : []),
+        ];
+        if (annexLabels.length > 0) {
+            const items = annexLabels.map((label, i) => `
                 <div style="display:flex;align-items:center;gap:16px;border:1px solid #E9E9E1;border-radius:16px;padding:14px 18px;background:#fff;">
                     <span style="flex:none;width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#F18A00,#93C01F);color:#fff;font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center;">${i + 1}</span>
-                    <div style="font-weight:700;font-size:13.5px;">${a.label}</div>
+                    <div style="font-weight:700;font-size:13.5px;">${label}</div>
                 </div>
             `).join('');
             pages.push(`
@@ -1714,6 +1707,18 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                     });
                 });
             }
+        }
+
+        // ANEXO · LA PLACA, AMPLIADA (en el recuadro del cálculo no se leen sus cifras).
+        if (placaSrc) {
+            pages.push(`
+                <div class="doc-page">
+                    ${pageHeader}
+                    ${sectionTitle(PLACA_ANEXO_TITULO, '20px')}
+                    ${placaAnexoContenido({ placaSrc, anexoRef: ANEXO_VI_REF })}
+                    ${footer}
+                </div>
+            `);
         }
 
         // NUMERACIÓN DINÁMICA (la portada no se cuenta)
@@ -2428,6 +2433,11 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
                         </p>
                     </div>
                 )}
+
+                <PlacaScopAcsBanda
+                    placa={placaAcs} cargando={placaCargando} subiendo={placaSubiendo}
+                    onElegir={elegirPlaca} onSubir={subirPlaca}
+                />
 
                 {/* ── MODAL FIRMA CON CERTIFICADO (Autofirma, recuadro arrastrable) ── */}
                 {signOpen && signPdfB64 && (

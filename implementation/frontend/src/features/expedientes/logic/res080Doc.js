@@ -21,7 +21,7 @@ import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation.js';
 import { buildInstalacionAddress, empresaInstaladora, empresasActuacion,
     EMPRESAS_COL_EJECUTA, EMPRESAS_COL_HABILITADA, notaDelegacionRite } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
-import { EMITTER_OPTIONS, emitterScopContext } from './cifoDoc.js';
+import { EMITTER_OPTIONS, emitterScopContext, scopAcsAnexoViHtml, placaAnexoContenido, PLACA_ANEXO_TITULO, PLACA_ANEXO_LABEL } from './cifoDoc.js';
 import { emisorLabelDocumento } from './emisores.js';
 import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevoLabel, esTermoElectrico, esAcumuladorAcs, datosAcumulador, acsSerieDeclarada } from './aerotermiaUnits.js';
 
@@ -766,8 +766,12 @@ export function buildJustificacionAhorroPages({ results, pageHeader, sectionTitl
 // buildRes080Html — documento HTML completo. `isForPdf` true (backend) → sin
 // contenteditable. `attachments`: slots de anexos con { id, label, file:{driveId} }.
 // ============================================================================
-export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = true, withAnnexPreview = false, ce3x = {} }) {
+export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = true, withAnnexPreview = false, ce3x = {}, placaAcs = null }) {
     const APP_URL = appUrl || '';
+    // La PLACA de la unidad exterior, cuando el SCOP_dhw va por el ANEXO VI. Mismo
+    // caso y mismo justificante que en el CIFO: ver cifoDoc.js.
+    const placaSrc = placaAcs?.src || null;
+    const ANEXO_VI_REF = 'Anexo VI de la ficha RES060 (Caso 3: bomba de calor aerotérmica con depósito de ACS no suministrado como conjunto)';
     const {
         fields, env, inst, cli, results,
         numExpte, locCA, locDir, locCat, utmX, utmY, clientFull, clientDir,
@@ -1198,7 +1202,6 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
         if (acsEsTermo) {
             return scopCallout('Rendimiento del equipo de ACS = 1,00. El agua caliente sanitaria se produce por efecto Joule (resistencia eléctrica), cuyo rendimiento es la unidad por definición: no procede el cálculo de un SCOP estacional.');
         }
-        const FC_TABLE = { A3: 1.246, A4: 1.251, B3: 1.223, B4: 1.228, C1: 1.154, C2: 1.165, C3: 1.175, C4: 1.181, D1: 1.093, D2: 1.103, D3: 1.113, E1: 1.056 };
         const acsEprelUrl = sameAero ? inst.aerotermia_cal?.url_eprel : inst.aerotermia_acs?.url_eprel;
         const acsFtUrl = sameAero ? inst.aerotermia_cal?.url_ficha : inst.aerotermia_acs?.url_ficha;
         if (metodoAcs === 'conjunto') {
@@ -1213,32 +1216,11 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
             );
         }
         if (metodoAcs === 'independiente') {
-            const fc = FC_TABLE[zoneStr] ?? FC_TABLE['D3'];
-            const fcStr = fc.toFixed(3).replace('.', ',');
-            const copCalc = (scopAcsRaw / fc).toFixed(2).replace('.', ',');
-            const ftLink = acsFtUrl ? `<li style="margin-top:3px;">Ficha técnica: <a href="${acsFtUrl}" style="color:#0000EE;text-decoration:underline;">Acceder a la ficha técnica del fabricante</a></li>` : '';
-            return `
-                <div style="margin-top:12px;padding:16px 20px;border:1px solid #E9E9E1;border-radius:16px;font-size:12.5px;line-height:1.5;color:#4a4a44;">
-                    <div style="font-weight:800;font-size:13px;text-transform:uppercase;color:#1A1A1A;margin-bottom:8px;">Cálculo del SCOP en ACS</div>
-                    <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Fórmula aplicada</div>
-                    <p style="margin:0 0 6px;">Según el Anexo VI de la ficha RES060 (Caso 3: bomba de calor aerotérmica con depósito de ACS no suministrado como conjunto), para la zona climática ${zoneStr}:</p>
-                    <div style="text-align:center;font-weight:800;font-size:15px;background:#FBF6EE;border-radius:10px;padding:8px;margin:10px 0;color:#1A1A1A;">SCOP<sub>dhw</sub> = COP · F<sub>c</sub></div>
-                    <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Donde</div>
-                    <ul style="list-style:none;margin:0 0 10px;padding-left:0;">
-                        <li>· COP: coeficiente de rendimiento según ficha técnica y placa de características del equipo</li>
-                        <li style="margin-top:3px;">· F<sub>c</sub>: factor de corrección para la zona climática ${zoneStr} (clima ${zoneLabel.toLowerCase()})</li>
-                        ${ftLink}
-                    </ul>
-                    <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Valores utilizados</div>
-                    <ul style="list-style:none;margin:0 0 10px;padding-left:0;">
-                        <li>· COP = ${copCalc} (según ficha técnica del fabricante)</li>
-                        <li style="margin-top:3px;">· F<sub>c</sub> = ${fcStr} (para zona climática ${zoneStr})</li>
-                    </ul>
-                    <div style="display:flex;justify-content:space-between;align-items:center;background:#F3F8E6;border:1px solid #D5E6A8;border-radius:12px;padding:10px 16px;margin-top:10px;">
-                        <span style="font-weight:700;color:#1A1A1A;">SCOP<sub>dhw</sub> = ${copCalc} × ${fcStr} = ${scopAcsStr}</span>
-                        <span style="font-weight:900;font-size:18px;color:#4d6a12;">${scopAcsStr}</span>
-                    </div>
-                </div>`;
+            // Recuadro + placa: FUENTE ÚNICA con el CIFO (cifoDoc.js).
+            return scopAcsAnexoViHtml({
+                zoneStr, zoneLabel, scopAcsRaw, scopAcsStr, acsFtUrl,
+                anexoRef: ANEXO_VI_REF, placaSrc,
+            });
         }
         return scopCallout(`SCOP en ACS = ${scopAcsStr}. Según la ficha técnica aportada por el fabricante que se entregará como anexo al expediente CAE.`);
     };
@@ -1275,11 +1257,17 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
     // SEPARADOR ANEXOS — qué fichas técnicas entran lo decidió ya quien construyó
     // `attachments` (resolveFichaSlots: una por modelo distinto de bomba de calor).
     const annexList = attachments.filter(a => a.file?.driveId);
-    if (annexList.length > 0) {
-        const items = annexList.map((a, i) => `
+    // La placa es un anexo MÁS del certificado, pero viaja DENTRO del documento
+    // (no es un PDF de Drive que se fusione detrás). Mismo criterio que el CIFO.
+    const annexLabels = [
+        ...annexList.map(a => a.label),
+        ...(placaSrc ? [PLACA_ANEXO_LABEL] : []),
+    ];
+    if (annexLabels.length > 0) {
+        const items = annexLabels.map((label, i) => `
             <div style="display:flex;align-items:center;gap:16px;border:1px solid #E9E9E1;border-radius:16px;padding:14px 18px;background:#fff;">
                 <span style="flex:none;width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#F18A00,#93C01F);color:#fff;font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center;">${i + 1}</span>
-                <div style="font-weight:700;font-size:13.5px;">${a.label}</div>
+                <div style="font-weight:700;font-size:13.5px;">${label}</div>
             </div>
         `).join('');
         pages.push(`
@@ -1310,6 +1298,20 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
                 });
             });
         }
+    }
+
+    // ANEXO · LA PLACA, AMPLIADA. En el recuadro del cálculo mide 208 px: sirve
+    // para ver qué aparato es, no para LEER el COP — y leerlo es justo lo que hace
+    // el verificador cuando la ficha técnica no lo publica.
+    if (placaSrc) {
+        pages.push(`
+            <div class="doc-page">
+                ${pageHeader}
+                ${sectionTitle(PLACA_ANEXO_TITULO, '20px')}
+                ${placaAnexoContenido({ placaSrc, anexoRef: ANEXO_VI_REF })}
+                ${footer}
+            </div>
+        `);
     }
 
     const total = pages.length - 1;

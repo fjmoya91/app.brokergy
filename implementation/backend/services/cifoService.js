@@ -17,6 +17,7 @@
 // ============================================================================
 const path = require('path');
 const { pathToFileURL } = require('url');
+const { resolverPlacaAcs } = require('./placaScopAcs');
 const supabase = require('./supabaseClient');
 const driveService = require('./driveService');
 const pdfService = require('./pdfService');
@@ -709,7 +710,12 @@ async function generarCifo(numeroOrId, { force = false } = {}) {
             const data = deriveRes080Data({ expediente: exp, results });
             ({ attachments, annexes } = await resolveAnnexAttachments(exp));
             const ce3x = await loadCe3xCapturas(exp);
-            html = buildRes080Html({ data, appUrl: ASSET_URL, attachments, isForPdf: true, ce3x });
+            // Misma placa y mismo motivo que en el CIFO (ver la rama de abajo): el
+            // Certificado RES080 justifica su SCOP_dhw con el mismo Anexo VI.
+            const placaAcs = await resolverPlacaAcs(exp, folderId, { conImagen: true })
+                .catch((e) => ({ aplica: false, src: null, aviso: `No se pudo resolver la placa: ${e.message}` }));
+            if (placaAcs.aplica && placaAcs.aviso) warnings = [...(warnings || []), placaAcs.aviso];
+            html = buildRes080Html({ data, appUrl: ASSET_URL, attachments, isForPdf: true, ce3x, placaAcs });
         }
         docLabel = 'Certificado Reforma RES080';
     } else {
@@ -719,7 +725,14 @@ async function generarCifo(numeroOrId, { force = false } = {}) {
         ({ blocking, warnings } = buildValidation(exp, data, savingsKwh, folderId));
         if (blocking.length === 0) {
             ({ attachments, annexes } = await resolveAnnexAttachments(exp));
-            html = buildCifoHtml({ data, appUrl: ASSET_URL, attachments, withAnnexPreview: false });
+            // La PLACA de la unidad exterior, cuando el SCOP_dhw se justifica por el
+            // Anexo VI: el COP a A7/W55 no lo publican todas las fichas técnicas y sin
+            // la placa el verificador no puede comprobar de dónde sale. Un fallo al
+            // leerla NO tumba la generación: sale como aviso (placaAviso, abajo).
+            const placaAcs = await resolverPlacaAcs(exp, folderId, { conImagen: true })
+                .catch((e) => ({ aplica: false, src: null, aviso: `No se pudo resolver la placa: ${e.message}` }));
+            if (placaAcs.aplica && placaAcs.aviso) warnings = [...(warnings || []), placaAcs.aviso];
+            html = buildCifoHtml({ data, appUrl: ASSET_URL, attachments, withAnnexPreview: false, placaAcs });
         }
         docLabel = 'Certificado CIFO';
     }

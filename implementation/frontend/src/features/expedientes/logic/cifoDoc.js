@@ -508,8 +508,95 @@ export function deriveCifoData({ expediente, results }) {
 // scope ahora vienen de `data` (deriveCifoData). `attachments` es la lista de
 // slots de anexos (FT cal/acs, extras) con { id, label, file:{ driveId, previewPages } }.
 // ============================================================================
-export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview = false }) {
+// ============================================================================
+// EL SCOP_dhw POR EL ANEXO VI, Y LA PLACA QUE LO JUSTIFICA
+// ----------------------------------------------------------------------------
+// FUENTE ÚNICA de las TRES superficies que lo imprimen: el CIFO, el Certificado
+// RES080 y la vista previa de su modal. Es el mismo cálculo y el mismo
+// justificante, y tres copias divergirían justo donde el verificador compara.
+//
+// POR QUÉ LLEVA UNA FOTO: aquí el certificado declara SCOP_dhw = COP · F_c, y el
+// COP a A7/W55 NO lo publican todas las fichas técnicas — está en la PLACA DE
+// CARACTERÍSTICAS del equipo. Sin enseñarla, el verificador ve un COP que no
+// encuentra en la documentación aportada y abre una inexactitud (medido el
+// 16/09/2026: «El valor de SCOPdhw utilizado en el cálculo no coincide con el
+// indicado en la documentación técnica aportada»).
+//
+// La foto sale de `services/placaScopAcs.js`, que la coge de Drive del apartado
+// «la pegatina de la máquina de fuera»: no se vuelve a subir.
+// ============================================================================
+
+/** Factor de corrección por zona climática del Anexo VI. */
+export const FC_ZONA_ACS = { A3: 1.246, A4: 1.251, B3: 1.223, B4: 1.228, C1: 1.154, C2: 1.165, C3: 1.175, C4: 1.181, D1: 1.093, D2: 1.103, D3: 1.113, E1: 1.056 };
+
+/**
+ * El recuadro «Cálculo del SCOP en ACS» del Anexo VI. Con `placaSrc` va a DOS
+ * columnas y la foto queda al lado del número que justifica.
+ */
+export function scopAcsAnexoViHtml({ zoneStr, zoneLabel, scopAcsRaw, scopAcsStr, acsFtUrl, anexoRef, placaSrc = null }) {
+    const fc = FC_ZONA_ACS[zoneStr] ?? FC_ZONA_ACS.D3;
+    const fcStr = fc.toFixed(3).replace('.', ',');
+    const copCalc = (scopAcsRaw / fc).toFixed(2).replace('.', ',');
+    const ftLink = acsFtUrl ? `<li style="margin-top:3px;">Ficha técnica: <a href="${acsFtUrl}" style="color:#0000EE;text-decoration:underline;">Acceder a la ficha técnica del fabricante</a></li>` : '';
+    // A 208 px no se leen las cifras de la placa —por eso va también ampliada como
+    // anexo—, pero es lo que dice, ahí mismo, de dónde ha salido el número.
+    const aside = placaSrc ? `
+                    <figure style="flex:none;width:208px;margin:0;">
+                        <img src="${placaSrc}" alt="Placa de características de la unidad exterior" style="max-width:100%;max-height:290px;display:block;margin:0 auto;border:1px solid #E9E9E1;border-radius:12px;">
+                        <figcaption style="margin-top:5px;font-size:9.5px;line-height:1.35;color:#8a8a80;text-align:center;">Placa de la unidad exterior. Se amplía en el anexo.</figcaption>
+                    </figure>` : '';
+    return `
+                <div style="margin-top:12px;padding:16px 20px;border:1px solid #E9E9E1;border-radius:16px;font-size:12.5px;line-height:1.5;color:#4a4a44;display:flex;gap:18px;align-items:flex-start;">
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-weight:800;font-size:13px;text-transform:uppercase;color:#1A1A1A;margin-bottom:8px;">Cálculo del SCOP en ACS</div>
+                    <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Fórmula aplicada</div>
+                    <p style="margin:0 0 6px;">Según el ${anexoRef}, para la zona climática ${zoneStr}:</p>
+                    <div style="text-align:center;font-weight:800;font-size:15px;background:#FBF6EE;border-radius:10px;padding:8px;margin:10px 0;color:#1A1A1A;">SCOP<sub>dhw</sub> = COP · F<sub>c</sub></div>
+                    <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Donde</div>
+                    <ul style="list-style:none;margin:0 0 10px;padding-left:0;">
+                        <li>· COP: coeficiente de rendimiento según ficha técnica y placa de características del equipo</li>
+                        <li style="margin-top:3px;">· F<sub>c</sub>: factor de corrección para la zona climática ${zoneStr} (clima ${String(zoneLabel).toLowerCase()})</li>
+                        ${ftLink}
+                    </ul>
+                    <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Valores utilizados</div>
+                    <ul style="list-style:none;margin:0 0 10px;padding-left:0;">
+                        <li>· COP = ${copCalc} ${placaSrc ? '(según la ficha técnica del fabricante y la placa de características del equipo, que se reproduce en este certificado)' : '(según ficha técnica del fabricante)'}</li>
+                        <li style="margin-top:3px;">· F<sub>c</sub> = ${fcStr} (para zona climática ${zoneStr})</li>
+                    </ul>
+                    <div style="display:flex;justify-content:space-between;align-items:center;background:#F3F8E6;border:1px solid #D5E6A8;border-radius:12px;padding:10px 16px;margin-top:10px;">
+                        <span style="font-weight:700;color:#1A1A1A;">SCOP<sub>dhw</sub> = ${copCalc} × ${fcStr} = ${scopAcsStr}</span>
+                        <span style="font-weight:900;font-size:18px;color:#4d6a12;">${scopAcsStr}</span>
+                    </div>
+                  </div>
+                  ${aside}
+                </div>`;
+}
+
+/** Rótulo del anexo de la placa (el mismo en los dos certificados). */
+export const PLACA_ANEXO_TITULO = 'Anexo · Placa de características de la unidad exterior';
+export const PLACA_ANEXO_LABEL = 'Placa de características de la unidad exterior (COP del Anexo VI)';
+
+/**
+ * El cuerpo de la página en la que la placa se amplía: el párrafo que dice para
+ * qué está y la foto. El `sectionTitle`, la cabecera y el pie los pone cada
+ * documento con los suyos. La altura va acotada porque la hoja son 297 mm FIJOS.
+ */
+export function placaAnexoContenido({ placaSrc, anexoRef }) {
+    return `
+                <p style="margin:0 0 14px 20px;font-size:12.5px;line-height:1.5;color:#4a4a44;">Fotografía de la placa de características de la unidad exterior de la bomba de calor instalada, de la que se obtiene el coeficiente de rendimiento (COP) empleado en el cálculo del SCOP<sub>dhw</sub> conforme al ${anexoRef}.</p>
+                <div style="flex:1;display:flex;align-items:flex-start;justify-content:center;min-height:0;">
+                    <img src="${placaSrc}" alt="Placa de características de la unidad exterior" style="max-width:100%;max-height:640px;object-fit:contain;border:1px solid #E9E9E1;border-radius:14px;">
+                </div>`;
+}
+
+export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview = false, placaAcs = null }) {
     const APP_URL = appUrl || '';
+    // La PLACA de características de la unidad exterior. Solo se imprime cuando el
+    // SCOP_dhw se justifica por el ANEXO VI (`metodo_scop: 'independiente'`), que es
+    // el caso en el que el COP a A7/W55 puede no venir en la ficha técnica y la
+    // placa es la única documentación donde el verificador puede comprobarlo.
+    // La resuelve `services/placaScopAcs.js` desde Drive; aquí solo se pinta.
+    const placaSrc = placaAcs?.src || null;
     const {
         inst, cli, ceeFinal,
         isHybrid, isTerciario, isTer173, cbAnexo, numexpte, zoneStr, zoneLabel,
@@ -1048,13 +1135,20 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         );
     };
 
+    // Qué anexo define el cálculo del SCOP_dhw en cada ficha. Se usa en el recuadro
+    // y otra vez en la página donde se amplía la placa: tienen que decir lo mismo.
+    const anexoViRef = isTer173
+        ? 'Anexo II de la ficha TER173 (bombas de calor aerotérmicas y depósitos no suministrados como conjunto)'
+        : isTerciario
+        ? 'Anexo VII de la ficha TER100 (condiciones generales para el cálculo del coeficiente de eficiencia estacional en el calentamiento de ACS)'
+        : 'Anexo VI de la ficha RES060 (Caso 3: bomba de calor aerotérmica con depósito de ACS no suministrado como conjunto)';
+
     const renderAcsScopJustification = () => {
         // Termo eléctrico: efecto Joule → rendimiento 1 por definición. No hay SCOP
         // que justificar ni ficha técnica que aportar.
         if (acsEsTermo) {
             return scopCallout('Rendimiento del equipo de ACS = 1,00. El agua caliente sanitaria se produce por efecto Joule (resistencia eléctrica), cuyo rendimiento es la unidad por definición: no procede el cálculo de un SCOP estacional.');
         }
-        const FC_TABLE = { A3: 1.246, A4: 1.251, B3: 1.223, B4: 1.228, C1: 1.154, C2: 1.165, C3: 1.175, C4: 1.181, D1: 1.093, D2: 1.103, D3: 1.113, E1: 1.056 };
         const acsEprelUrl = inst.misma_aerotermia_acs ? inst.aerotermia_cal?.url_eprel : inst.aerotermia_acs?.url_eprel;
         const acsFtUrl   = inst.misma_aerotermia_acs ? inst.aerotermia_cal?.url_ficha  : inst.aerotermia_acs?.url_ficha;
 
@@ -1073,32 +1167,11 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         }
 
         if (metodoAcs === 'independiente') {
-            const fc = FC_TABLE[zoneStr] ?? FC_TABLE['D3'];
-            const fcStr  = fc.toFixed(3).replace('.', ',');
-            const copCalc = (scopAcsRaw / fc).toFixed(2).replace('.', ',');
-            const ftLink = acsFtUrl ? `<li style="margin-top:3px;">Ficha técnica: <a href="${acsFtUrl}" style="color:#0000EE;text-decoration:underline;">Acceder a la ficha técnica del fabricante</a></li>` : '';
-            return `
-                <div style="margin-top:12px;padding:16px 20px;border:1px solid #E9E9E1;border-radius:16px;font-size:12.5px;line-height:1.5;color:#4a4a44;">
-                    <div style="font-weight:800;font-size:13px;text-transform:uppercase;color:#1A1A1A;margin-bottom:8px;">Cálculo del SCOP en ACS</div>
-                    <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Fórmula aplicada</div>
-                    <p style="margin:0 0 6px;">Según el ${isTer173 ? 'Anexo II de la ficha TER173 (bombas de calor aerotérmicas y depósitos no suministrados como conjunto)' : isTerciario ? 'Anexo VII de la ficha TER100 (condiciones generales para el cálculo del coeficiente de eficiencia estacional en el calentamiento de ACS)' : 'Anexo VI de la ficha RES060 (Caso 3: bomba de calor aerotérmica con depósito de ACS no suministrado como conjunto)'}, para la zona climática ${zoneStr}:</p>
-                    <div style="text-align:center;font-weight:800;font-size:15px;background:#FBF6EE;border-radius:10px;padding:8px;margin:10px 0;color:#1A1A1A;">SCOP<sub>dhw</sub> = COP · F<sub>c</sub></div>
-                    <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Donde</div>
-                    <ul style="list-style:none;margin:0 0 10px;padding-left:0;">
-                        <li>· COP: coeficiente de rendimiento según ficha técnica y placa de características del equipo</li>
-                        <li style="margin-top:3px;">· F<sub>c</sub>: factor de corrección para la zona climática ${zoneStr} (clima ${zoneLabel.toLowerCase()})</li>
-                        ${ftLink}
-                    </ul>
-                    <div style="font-weight:700;color:#1A1A1A;margin-bottom:4px;">Valores utilizados</div>
-                    <ul style="list-style:none;margin:0 0 10px;padding-left:0;">
-                        <li>· COP = ${copCalc} (según ficha técnica del fabricante)</li>
-                        <li style="margin-top:3px;">· F<sub>c</sub> = ${fcStr} (para zona climática ${zoneStr})</li>
-                    </ul>
-                    <div style="display:flex;justify-content:space-between;align-items:center;background:#F3F8E6;border:1px solid #D5E6A8;border-radius:12px;padding:10px 16px;margin-top:10px;">
-                        <span style="font-weight:700;color:#1A1A1A;">SCOP<sub>dhw</sub> = ${copCalc} × ${fcStr} = ${scopAcsStr}</span>
-                        <span style="font-weight:900;font-size:18px;color:#4d6a12;">${scopAcsStr}</span>
-                    </div>
-                </div>`;
+            // Recuadro + placa: FUENTE ÚNICA con el Certificado RES080 (arriba).
+            return scopAcsAnexoViHtml({
+                zoneStr, zoneLabel, scopAcsRaw, scopAcsStr, acsFtUrl,
+                anexoRef: anexoViRef, placaSrc,
+            });
         }
 
         return scopCallout(`SCOP en ACS = ${scopAcsStr}. Según la ficha técnica aportada por el fabricante que se entregará como anexo al expediente CAE.`);
@@ -1322,11 +1395,18 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     // técnicas entran lo decidió ya quien construyó `attachments` (resolveFichaSlots:
     // una por modelo distinto de bomba de calor), aquí no se vuelve a filtrar.
     const annexList = attachments.filter(a => a.file?.driveId);
-    if (annexList.length > 0) {
-        const items = annexList.map((a, i) => `
+    // La placa es un anexo MÁS del certificado, pero no un fichero de Drive que se
+    // fusione detrás: viaja DENTRO del propio documento, así que se lista igual y se
+    // imprime a página completa al final.
+    const annexLabels = [
+        ...annexList.map(a => a.label),
+        ...(placaSrc ? [PLACA_ANEXO_LABEL] : []),
+    ];
+    if (annexLabels.length > 0) {
+        const items = annexLabels.map((label, i) => `
             <div style="display:flex;align-items:center;gap:16px;border:1px solid #E9E9E1;border-radius:16px;padding:14px 18px;background:#fff;">
                 <span style="flex:none;width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#F18A00,#93C01F);color:#fff;font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center;">${i + 1}</span>
-                <div style="font-weight:700;font-size:13.5px;">${a.label}</div>
+                <div style="font-weight:700;font-size:13.5px;">${label}</div>
             </div>
         `).join('');
         pages.push(`
@@ -1351,6 +1431,24 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                 });
             });
         }
+    }
+
+    // ANEXO · LA PLACA, AMPLIADA
+    // -------------------------------------------------------------------------
+    // En el recuadro del cálculo la foto mide 208 px: sirve para ver que existe y
+    // qué aparato es, no para LEER el COP. Y leerlo es justo lo que hace el
+    // verificador cuando la ficha técnica no lo publica. Por eso va otra vez a
+    // página completa. La altura está acotada porque la hoja del PDF son 297 mm
+    // FIJOS y lo que sobra se parte por el borde (ver check_cifo_paginas.mjs).
+    if (placaSrc) {
+        pages.push(`
+            <div class="doc-page">
+                ${pageHeader}
+                ${sectionTitle(PLACA_ANEXO_TITULO, '20px')}
+                ${placaAnexoContenido({ placaSrc, anexoRef: anexoViRef })}
+                ${footer}
+            </div>
+        `);
     }
 
     // NUMERACIÓN

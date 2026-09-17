@@ -7955,6 +7955,73 @@ las dos calificaciones coinciden con lo que el técnico tecleó en la sede.
 
 ---
 
+## Una vivienda puede tener DOS propietarios (2026-09-17)
+
+La ficha de cliente solo tenía sitio para uno, así que lo que se hacía era meter
+los dos en los campos del titular: medido en la ficha de Mónica Castellanos,
+nombre = «CARLOS MÓNICA» y apellidos = «POVEDA OCHOA CASTELLANOS SÁNCHEZ». Eso
+deja un nombre que no es el de nadie —y que es el que imprimen el Anexo I y el
+Convenio— y, sobre todo, **UN teléfono y UN correo**: al otro propietario no se
+le podía escribir.
+
+Botón **«+ Añadir nuevo propietario»** en la ficha, con los mismos campos del
+titular: empresa (sí/no), nombre o razón social, apellidos, DNI/CIF, email y
+teléfono.
+
+| Qué | Dónde |
+|---|---|
+| La columna | `clientes.copropietarios` (`scripts/clientes_copropietarios.sql`) |
+| Saneado (claves admitidas, MAYÚSCULAS, tope) | `sanearCopropietarios` en [utils/normalization.js](implementation/backend/utils/normalization.js) |
+| A quién se le puede escribir — frontend | `clienteContacts` en [utils/docContacts.js](implementation/frontend/src/features/expedientes/utils/docContacts.js) |
+| …y su ESPEJO en el backend | `contactosDeCliente` / `CLIENTE_CONTACT_FIELDS` en [services/notifyContacts.js](implementation/backend/services/notifyContacts.js) |
+| Superficie | Bloque **Propietarios** de `ClienteDetailModal` |
+| Prueba | `node implementation/backend/scripts/test_copropietarios.mjs` |
+
+**REGLA — un copropietario es DESTINATARIO, no FIRMANTE.** El Anexo I y el
+Convenio de Cesión se siguen emitiendo a nombre del TITULAR y con su único
+recuadro de firma: aquí no se ha tocado ni un documento (decisión de 2026-09-17).
+Lo que se gana es poder mandarle a cualquiera de los dos —o a los dos— el
+mensaje, los anexos y la petición de documentación. Se dice en pantalla, en las
+dos caras de la ficha: si no, la pregunta «¿y entonces quién firma?» se contesta
+suponiendo.
+
+**REGLA — el destinatario AUTOMÁTICO no cambia.** `resolveSolicitudContacto`
+sigue devolviendo el titular (o su persona de contacto si la ficha tiene el
+desvío activo), que es de quien tiran el parte diario y los avisos que salen
+solos. Un copropietario no recibe nada por su cuenta: se le manda porque alguien
+lo marca. Sin esa separación, dar de alta a un segundo propietario duplicaría
+todos los avisos automáticos de ese expediente sin que nadie lo hubiera pedido.
+
+**REGLA — los dos ESPEJOS tienen que decir lo mismo, ids incluidos.** El popup
+enseña la lista con `clienteContacts` y el backend manda con `contactosDeCliente`:
+si los ids no coinciden (`cli` · `cop0`… · `cli_contacto`), se marca a uno y sale
+a otro — y eso no falla, entrega el mensaje a quien no era. Es la misma regla que
+ya rige `contactosDePartner`, y por eso el test los compara campo a campo.
+⚠️ El índice del id es el de la LISTA ORIGINAL, no el de los ofrecidos: quien no
+tiene ni teléfono ni email no se enseña (en un popup de envío es una fila que no
+se puede marcar) pero **no corre a los demás**, o quitarle el teléfono a uno
+reasignaría los destinatarios de los otros.
+
+**REGLA — la lista se guarda ENTERA, nunca por partes.** Es la verdad de quién es
+propietario; un patch parcial dejaría vivo a quien se acaba de quitar. Y el
+saneado vive en `normalizeCliente`, no en la ruta, por lo mismo que el resto de
+campos del cliente: en `clientes` escriben también el funnel, la aceptación de la
+propuesta y el formulario de cobro.
+
+**«Solicitar lo que falta» ofrece la lista solo si hay a quién elegir**
+(`cliContacts.length > 1`). Con un solo propietario no hay nada que decidir y el
+campo libre de siempre sigue sirviendo para dirigirlo a mano a un número que no
+consta en la ficha. Al marcar a otro, el saludo del mensaje se rehace con su
+nombre: escribirle al segundo propietario un mensaje que empieza por el nombre
+del primero delata la plantilla y hace dudar de a quién va dirigido.
+
+⚠️ De paso se arregló que **`persona_contacto_email` no se guardaba** ni en el
+alta ni en el PUT de `/api/clientes`: el modal lo edita desde siempre y solo lo
+escribían las rutas públicas. Es justo el campo del que tira `contactoCliente`
+cuando el titular no da su correo.
+
+---
+
 ## El listado de expedientes: las columnas se ELIGEN (2026-09-15)
 
 La tabla tenía SIETE columnas fijas y escritas a mano en tres sitios distintos
@@ -8682,6 +8749,78 @@ y las copias antiguas se quedan hasta que haya que tocarlas.
 
 ---
 
+## La PLACA de la unidad exterior, dentro del certificado (2026-09-17)
+
+El verificador abrió una inexactitud el 16/09/2026: *«El valor de SCOPdhw utilizado
+en el cálculo no coincide con el indicado en la documentación técnica aportada»*. Y
+el valor estaba bien: cuando el SCOP_dhw se justifica por el **ANEXO VI** (bomba de
+calor aerotérmica con depósito de ACS no suministrado como conjunto), el certificado
+declara `SCOP_dhw = COP · F_c`, y **el COP a A7/W55 no lo publican todas las fichas
+técnicas** — está en la PLACA DE CARACTERÍSTICAS del equipo. Se aportaba aparte, por
+correo, y quien revisaba el certificado no la tenía delante.
+
+Ahora el certificado la lleva dentro: **al lado del cálculo** y otra vez **ampliada
+como anexo**.
+
+| Qué | Dónde |
+|---|---|
+| Encontrar la foto en Drive, elegirla y servirla | [placaScopAcs.js](implementation/backend/services/placaScopAcs.js) |
+| El recuadro y la página del anexo (fuente única de las 3 superficies) | `scopAcsAnexoViHtml` / `placaAnexoContenido` en [cifoDoc.js](implementation/frontend/src/features/expedientes/logic/cifoDoc.js) |
+| Rutas | `GET|PUT /api/expedientes/:id/placa-scop-acs`, **staffOnly** |
+| Superficie | Banda del popup del CIFO y del Certificado RES080 |
+| Prueba de lo determinista | `node implementation/backend/scripts/test_placa_scop_acs.mjs` |
+| Que ninguna hoja desborde | `check_cifo_paginas.mjs` **y** `check_res080_paginas.mjs` |
+
+**REGLA — la foto NO se sube otra vez: ya está en Drive.** La sube el instalador a
+«la pegatina de la máquina de fuera» (`FOTO_UNIDAD_EXTERIOR_PLACA`), que está en
+`FULL_RES_SLOTS` precisamente para que esos caracteres se lean, y es la MISMA de la
+que el lector de placas saca el nº de serie (regla 27.e). Drive es la fuente de verdad
+de qué ficheros hay (regla 20): no se mira `reforma_uploads`. Medido el 17/09/2026:
+de los **25** expedientes que justifican su SCOP_dhw por el Anexo VI, **12 ya tienen la
+placa** en su carpeta y **3 de ellos tienen varias**.
+
+**REGLA — con VARIAS se elige, y un cambio de foto nunca es silencioso.** Una unidad
+exterior puede llevar dos etiquetas (la de datos y la del refrigerante) y cuál trae el
+COP lo sabe quien las mira. La elegida se guarda en `instalacion.placa_scop_acs` — solo
+el driveId y su nombre (regla 21) — y si ese fichero ya no está en Drive se cae a la
+primera **diciéndolo**: dejar el certificado sin justificante sería peor, pero cambiar
+lo que el verificador va a ver sin avisar es otra cosa.
+
+**REGLA — se imprime DOS veces, y no es redundancia.** En el recuadro del cálculo mide
+208 px: ahí sirve para decir, en el sitio del número, de dónde ha salido — **no para
+leerlo**. Leerlo es justo lo que hace el verificador, así que va otra vez a página
+completa como anexo, y aparece en la lista «Anexos · Documentación adjunta». Verificado
+sobre la foto real de 25RES060_76: en el anexo se lee su fila *«Air 7/6°C inlet/Outlet
+water 47/55°C · COP · 2.79-3.09»*, que es exactamente el 3,00 que el CIFO declara.
+
+**REGLA — el bloque del Anexo VI es FUENTE ÚNICA de las tres superficies.** Estaba
+copiado en `cifoDoc.js`, en `res080Doc.js` y en `CertificadoRes080Modal.jsx`: la foto
+habría sido una cuarta copia. Ahora las tres llaman a `scopAcsAnexoViHtml`, con el
+`anexoRef` de su ficha (Anexo VI de la RES060 · Anexo VII de la TER100 · Anexo II de la
+TER173) — es el mismo cálculo y el mismo justificante, y tres copias divergirían justo
+donde el verificador compara. `FC_ZONA_ACS` también estaba triplicada.
+
+**REGLA — el Certificado RES080 la lleva igual.** Justifica su SCOP_dhw con el MISMO
+Anexo VI (4 de los 25 son RES080) y es el mismo slot documental que el CIFO (regla 24).
+
+**REGLA — la imagen va como DATA URI dentro del HTML.** El PDF lo rasteriza Puppeteer
+con `setContent` sobre `about:blank`: una URL relativa no tiene base que resolver y una
+autenticada no lleva sesión (mismo motivo que las tipografías, regla 25.b). Se pide a
+Drive **ya reducida a 1600 px** por el mismo camino que el proxy de miniaturas, y solo
+si eso falla se bajan los bytes originales. Medido sobre expedientes reales: **242-268
+KB** y 1,5-3,4 s.
+
+**REGLA — un fallo al resolver la placa NUNCA tumba la generación.** Sale como aviso
+(`warnings`) y el certificado se genera sin ella, que es el comportamiento de siempre.
+Y cuando no hay ninguna foto se dice **qué hacer**: pedírsela al instalador desde su
+enlace, que es lo único accionable.
+
+⚠️ Las hojas del certificado son FIJAS y el recuadro pasa a dos columnas: tras tocarlo,
+los DOS medidores. Holguras actuales en el peor caso: **+37 px** en el CIFO (TER100 con
+piscina y Anexo VI) y **+198 px** en el RES080.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -8843,6 +8982,8 @@ y las copias antiguas se quedan hasta que haya que tocarlas.
 
 52. **El BORRADOR para presentar el CEE en el Registro**: botón **📄 Presentar el CEE** dentro de Ayudas CE3X — un popup con cada casilla del formulario telemático lista para copiar, más un PDF descargable que **viaja adjunto en el visto bueno** al certificador (`adjuntarBorrador`, por defecto sí, en el CAE y en los CEE directos). **NO es una réplica del impreso**: el trámite se rellena en la sede y no hay PDF que rellenar (a diferencia de las fichas RES, regla 41), así que lo que se genera es una GUÍA de qué va en cada casilla, en su orden, y **qué X marcar y cuál dejar sin marcar**. **Solo CASTILLA-LA MANCHA** (procedimiento 020264 · SIACI SJM3): fuera de ahí no se genera y se dice de qué comunidad es — cada una tiene su trámite y sus casillas. En el apartado 05 manda **lo que dice el propio certificado** (`cee_{fase}.identificacion`), que es contra lo que compara el Registro; el troceo de la vía se PROPONE con el original al lado y **lo ambiguo no se reparte a ojo**; y se avisa del **plazo de UN MES** desde la emisión, que es lo único que cuesta dinero. Los documentos anexados NO se copian: se DESCARGAN ya renombrados (`GET /:id/borrador-cee/fichero`), con el nombre REAL que tienen en Drive y el NIF delante — uno compuesto no coincidiría (medido en 26RES060_187: sus ficheros llevan `_REVISADO`). El teléfono y el correo del solicitante caen a su **persona de contacto** si el titular no los tiene, diciéndolo con su nombre ([utils/contactoCliente.js](implementation/frontend/src/utils/contactoCliente.js), compartido con la ficha del `.cex`). Es `staffOnly`: al técnico le llega adjunto, que es cuando puede presentar. ⚠️ `parseCeeXml` no leía la calificación de **EMISIONES** (solo la de energía primaria) y los certificados ya subidos no la tienen: se relee del `.xml` crudo con **`leerCalificacionesDeTexto`**, un lector SIN DOM — `DOMParser` no existe en Node y `parseEpnrFromXml` allí devuelve vacío **en silencio**. Fuente única: [logic/borradorCee.js](implementation/frontend/src/features/expedientes/logic/borradorCee.js). Tras tocarlo: `node implementation/backend/scripts/test_borrador_cee.mjs`. Ver "PRESENTAR el CEE en el Registro".
 
+60. **La PLACA de la unidad exterior va DENTRO del certificado cuando el SCOP_dhw se justifica por el ANEXO VI**: ahí se declara `SCOP_dhw = COP · F_c` y el **COP a A7/W55 no lo publican todas las fichas técnicas** — está en la placa, y sin ella el verificador ve un COP que no encuentra en la documentación aportada (inexactitud abierta el 16/09/2026). **La foto no se sube otra vez**: se coge de Drive, del slot `FOTO_UNIDAD_EXTERIOR_PLACA`, el mismo del que el lector de placas saca el nº de serie (medido: 12 de los 25 expedientes con Anexo VI ya la tienen, 3 con varias). **Con varias se ELIGE** —una unidad exterior lleva dos etiquetas y cuál trae el COP lo sabe quien las mira— y la elección se guarda en `instalacion.placa_scop_acs` (solo el driveId, regla 21); si esa foto desaparece de Drive se cae a la primera **diciéndolo**. **Se imprime DOS veces**: en el recuadro del cálculo (208 px — dice de dónde sale el número, no se lee) y a página completa como anexo, que es donde el verificador lo lee. Va como **data URI** (Puppeteer rasteriza sobre `about:blank`), pedida a Drive ya reducida a 1600 px: 242-268 KB medidos. Un fallo al resolverla **no tumba la generación**: sale como aviso. El **Certificado RES080 la lleva igual** (mismo Anexo VI, mismo slot documental). De paso, el bloque del Anexo VI y su `FC_TABLE`, que estaban TRIPLICADOS (CIFO, RES080 y su modal), pasan a fuente única: `scopAcsAnexoViHtml` / `placaAnexoContenido` en [cifoDoc.js](implementation/frontend/src/features/expedientes/logic/cifoDoc.js); la búsqueda y el servicio de la foto, en [placaScopAcs.js](implementation/backend/services/placaScopAcs.js). Tras tocarlo: `node implementation/backend/scripts/test_placa_scop_acs.mjs` **y los dos medidores de hojas**. Ver "La PLACA de la unidad exterior, dentro del certificado".
+
 ---
 
 ## Arquitectura de Ficheros Clave
@@ -8993,6 +9134,8 @@ WA_SYNC_FALLOS_MAX=3               ← tiempos de espera seguidos tras los que s
 58.b **En el catálogo, un ACCESORIO no es una UNIDAD INTERIOR — y el SCOP de calefacción no es el COP de ACS.** Los dos fallos salieron de repasar la gama PANASONIC R290 contra su ficha técnica, y los corrige [revisar_panasonic_r290.js](implementation/backend/scripts/revisar_panasonic_r290.js) (en seco sin `--execute`). **Siete filas** declaraban `CZ-RTW2TAW1C` como unidad interior; la ficha lo lista en **Accesorios**: *«Mando de pared con adaptador Wi-Fi (necesario para unidades exteriores independientes)»*. Es decir, el mando que se pone cuando la unidad exterior se monta **SOLA**, que es el montaje normal de esta gama —el hidráulico va dentro de la propia unidad exterior— y no hay ningún aparato en la vivienda. Eso no es cosmético: ese campo se COPIA al expediente al elegir el modelo y de ahí lo imprimen el Anexo I («Ud. interior: …») y el CIFO — **7 expedientes** lo llevaban escrito, uno ya enviado a verificador. Las unidades interiores reales de la gama son otras y ya están en el catálogo (el hidrokit `WH-SDC0916M3E5` y los All in One `WH-ADC…`). Y **diez filas** All in One (las de 185 y 260 l) tenían en las casillas de calefacción los valores de la fila «ERP del depósito ACS» de la ficha: se ve porque coinciden byte a byte con su propio `scop_dhw_*` y porque sus hermanas de 120 l —misma unidad exterior— declaran 6,20/4,34 frente a 3,35/3,00. El SCOP de calefacción **depende solo de la unidad exterior**, así que la tabla del script va indexada por ella y nada más.
     **REGLA — solo se ESCRIBE lo demostrado.** Que un valor sea exactamente el COP de ACS de su propia fila no admite otra lectura, y una fila sin unidad interior ES la propia unidad exterior de la tabla: esas se corrigen. Una diferencia suelta en una COMBINACIÓN (exterior + hidrokit) puede ser su SCOP declarado como sistema, que la ficha de la unidad exterior no publica — ahí el script **avisa y no toca** (hoy, la id 523, que además está en uso). Corregir el catálogo **no reescribe lo ya guardado**: al elegir un modelo el expediente se queda con su propia copia, así que ningún documento emitido cambia; por eso el script dice, fila a fila, **quién la usa** y a quién habrá que repasar.
     ⚠️ La ficha adjunta a esas filas es la de la **WDG16ME5** y cubre toda la gama (12/16 ME5 y 09/12/16 ME8), así que sirve para las cinco unidades exteriores. Se conservan los `scop_dhw_*` y los `eta_acs_*`, que ya eran los de la ficha y son los que distinguen un depósito de 120 l de uno de 260.
+
+59. **Una vivienda puede tener DOS propietarios, y el segundo es un DESTINATARIO — no un firmante.** La ficha solo tenía sitio para uno, así que se metían los dos en los campos del titular (medido: nombre «CARLOS MÓNICA», apellidos «POVEDA OCHOA CASTELLANOS SÁNCHEZ»), lo que deja un nombre que no es el de nadie —y que es el que imprimen el Anexo I y el Convenio— y **un solo teléfono y un solo correo**. Botón **«+ Añadir nuevo propietario»** en la ficha, con los mismos campos del titular. El Anexo I y el Convenio **siguen saliendo a nombre del titular y con su único recuadro de firma** (decisión 2026-09-17): no se ha tocado ningún documento, y la ficha lo dice en sus dos caras. El **destinatario automático tampoco cambia** —`resolveSolicitudContacto` sigue devolviendo el titular, que es de quien tiran el parte diario y los avisos que salen solos—: a un copropietario se le escribe porque alguien lo marca, o dar de alta al segundo duplicaría todos los avisos de ese expediente. Vive en `clientes.copropietarios` (JSONB, tope de 5) y el saneado es de `normalizeCliente`, no de la ruta: en `clientes` escriben también el funnel, la aceptación de la propuesta y el cobro. Los dos ESPEJOS —`clienteContacts` (lo que se enseña) y `contactosDeCliente` (lo que se manda)— tienen que coincidir **hasta en los ids** (`cli` · `cop0`… · `cli_contacto`): si divergen no falla nada, simplemente el mensaje sale a quien no era. ⚠️ El índice del id es el de la LISTA ORIGINAL y no el de los ofrecidos — quien no tiene ni teléfono ni email no se enseña pero **no corre a los demás**. Tras tocarlo: `node implementation/backend/scripts/test_copropietarios.mjs`. Ver "Una vivienda puede tener DOS propietarios".
 
 53. **Las COLUMNAS del listado de expedientes se ELIGEN, y son una lista declarativa**: botón **▦ Columnas · N** con vistas de fábrica (Operativa · Seguimiento CEE · Económica · Cartera). Cada columna se declara UNA vez en [logic/expedientesColumnas.jsx](implementation/frontend/src/features/expedientes/logic/expedientesColumnas.jsx) —rótulo, ancho, filtro, `valor()` y `render()`— y de ahí salen la cabecera, la fila de filtros, las celdas, el ORDEN (clic en la cabecera; el tercer clic vuelve al orden por PRIORIDAD, que es el de siempre) y el CSV, que exporta **lo que se está viendo**. Antes eran siete columnas escritas a mano en tres sitios alineados por posición, y por eso no se podía filtrar por **instalador**. **Un filtro activo NO puede esconderse**: al apagar su columna se limpia. Las columnas se **REORDENAN arrastrando su cabecera** (con eventos de PUNTERO y no con el drag&drop de HTML5, que no se puede disparar con eventos sintéticos y por tanto no se puede verificar; y con `setInterval` y no `requestAnimationFrame`, que el navegador congela con la ventana oculta): la tabla se desplaza sola al llegar al borde, soltar sobre "Acciones" la deja la última y sobre el nº de expediente —que no se mueve nunca, identifica la fila— justo detrás. El orden se guarda como los anchos, y **`roles` es una comodidad de pantalla, nunca el control de acceso** — el instalador se le capa al CERTIFICADOR también en la ruta (regla 48.d) y el margen sigue siendo de ADMIN. Instalador y Certificador pintan el **LOGO** de la empresa con [components/LogoEmpresa.jsx](implementation/frontend/src/components/LogoEmpresa.jsx), que es ahora la ÚNICA pieza que lo dibuja (eran dos copias: lotes y cuadro de mando) — sin logo, iniciales; en el certificador el chip de color de su ficha se conserva. ⚠️ Los logos son data URL a tamaño de papel: **8 MB en cada `GET /api/prescriptores`** (el mayor, 1,97 MB), y ya era así antes; la cuenta pendiente es una miniatura. La columna INSTALADOR resuelve `instalacion.instalador_id → expedientes.instalador_asociado_id → oportunidad`, la misma primera fuente que la FICHA, y **marca lo heredado** (con la primera sola, 98 de 267 saldrían vacíos teniéndolo). Los datos los trae `get_expedientes_list_v4` (lote, instalador y `seguimiento` podado a sus cuatro claves de fase), que de paso arregla que `lote_id` **nunca llegara** al listado y los 45 expedientes ya loteados se ofrecieran para lotear. Ver "El listado de expedientes: las columnas se ELIGEN".
 

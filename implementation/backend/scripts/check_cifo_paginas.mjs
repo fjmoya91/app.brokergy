@@ -126,6 +126,28 @@ const conDelegacion = (e, { largos = false } = {}) => {
     return e;
 };
 
+/**
+ * Una "foto" de placa para MEDIR. Lo único que importa de ella es su RELACIÓN DE
+ * ASPECTO: el recuadro del Anexo VI es un flex y crece hasta lo que mida la foto
+ * a 208 px de ancho, y la página del anexo la imprime acotada por altura. Un SVG
+ * evita meter un binario en el repo y se comporta igual que un JPEG.
+ */
+const placa = (w, h) => ({
+    aplica: true,
+    elegida: { driveId: 'fake', name: `${'26RES060_1'} - FOTO_UNIDAD_EXTERIOR_PLACA.jpg` },
+    candidatas: [],
+    src: 'data:image/svg+xml;base64,' + Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="#ddd"/></svg>`
+    ).toString('base64'),
+});
+
+/** El SCOP_dhw justificado por el Anexo VI (COP · F_c), que es el caso con placa. */
+const anexoVi = (e) => {
+    e.instalacion.misma_aerotermia_acs = false;
+    e.instalacion.aerotermia_acs = { ...(e.instalacion.aerotermia_acs || {}), metodo_scop: 'independiente', scop: 3.34 };
+    return e;
+};
+
 const casos = [
     ['RES060 · 1 equipo (caso normal)', cascada(1)],
     ['RES060 · 2 en cascada', cascada(2)],
@@ -251,6 +273,33 @@ const casos = [
         e.cee.acs_method = 'manual'; e.cee.dacs_manual = 48000;
         return conDelegacion(e, { largos: true });
     })()],
+
+    // ── SCOP_dhw por el ANEXO VI, con la PLACA de la unidad exterior ─────────
+    // La foto va al lado del cálculo (recuadro a dos columnas) y otra vez a página
+    // completa como anexo. Lo que puede desbordar es el recuadro: es un flex y
+    // crece hasta lo que mida la foto — una foto de móvil VERTICAL a 208 px de
+    // ancho pide 370 px de alto, más que la columna de texto.
+    ['RES060 · Anexo VI + placa vertical (móvil)', anexoVi(cascada(5)), { placaAcs: placa(1080, 1920) }],
+    ['RES060 · Anexo VI + placa apaisada', anexoVi(cascada(1)), { placaAcs: placa(1920, 1080) }],
+    ['RES060 · Anexo VI + placa vertical · 2 empresas', conDelegacion(anexoVi(cascada(5)), { largos: true }), { placaAcs: placa(1080, 1920) }],
+    // El MISMO caso sin foto: es lo que dice cuánto de la holgura se lleva la placa
+    // y cuánto ya se lo llevaba el bloque del Anexo VI, que nadie medía.
+    ['TER100 · Anexo VI SIN placa · piscina · 5 cascada', (() => {
+        const e = base('26TER100_9');
+        e.instalacion.aerotermia_cal = aero(5);
+        e.instalacion.piscina = { activa: true, demanda_kwh: 18000, scop: 4.2,
+            equipo: { marca: 'SIME', modelo: 'POOL HP 90', numero_serie: 'PL0099213' } };
+        e.cee.acs_method = 'manual'; e.cee.dacs_manual = 48000;
+        return anexoVi(e);
+    })()],
+    ['TER100 · Anexo VI + placa · piscina · 5 cascada', (() => {
+        const e = base('26TER100_9');
+        e.instalacion.aerotermia_cal = aero(5);
+        e.instalacion.piscina = { activa: true, demanda_kwh: 18000, scop: 4.2,
+            equipo: { marca: 'SIME', modelo: 'POOL HP 90', numero_serie: 'PL0099213' } };
+        e.cee.acs_method = 'manual'; e.cee.dacs_manual = 48000;
+        return anexoVi(e);
+    })(), { placaAcs: placa(1080, 1920) }],
 ];
 
 const results = { savingsKwh: 216754, caeBonus: 20591, caeMaintenanceCost: 0 };
@@ -281,9 +330,9 @@ page.on('request', (req) => {
 
 let malos = 0;
 
-for (const [nombre, exp] of casos) {
+for (const [nombre, exp, opts = {}] of casos) {
     const data = deriveCifoData({ expediente: exp, results });
-    await page.setContent(buildCifoHtml({ data, appUrl: APP_URL }), { waitUntil: 'load' });
+    await page.setContent(buildCifoHtml({ data, appUrl: APP_URL, placaAcs: opts.placaAcs || null }), { waitUntil: 'load' });
     await page.evaluate(async () => {
         for (const w of [400, 500, 600, 700]) await document.fonts.load(`${w} 12.5px 'Instrument Sans'`);
         await document.fonts.ready;

@@ -107,6 +107,27 @@ const acsPropio = (e, modelo = 'ECH2O 500 BIV') => {
     return e;
 };
 
+/**
+ * La PLACA de la unidad exterior que se imprime cuando el SCOP_dhw va por el
+ * ANEXO VI: al lado del cálculo (recuadro a dos columnas) y otra vez a página
+ * completa como anexo. Lo único que importa de la foto para medir es su relación
+ * de aspecto — un SVG evita meter un binario en el repo.
+ */
+const placa = (w, h) => ({
+    aplica: true, candidatas: [],
+    elegida: { driveId: 'fake', name: 'FOTO_UNIDAD_EXTERIOR_PLACA_1.jpg' },
+    src: 'data:image/svg+xml;base64,' + Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="#ddd"/></svg>`
+    ).toString('base64'),
+});
+
+/** SCOP_dhw justificado por el Anexo VI (COP · F_c), que es el caso con placa. */
+const anexoVi = (e) => {
+    e.instalacion.misma_aerotermia_acs = false;
+    e.instalacion.aerotermia_acs = { ...(e.instalacion.aerotermia_acs || {}), metodo_scop: 'independiente', scop: 3.34 };
+    return e;
+};
+
 const casos = [
     ['1 equipo (caso normal)', cascada(1)],
     ['3 en cascada', cascada(3)],
@@ -128,6 +149,11 @@ const casos = [
         };
         return conDelegacion(e, { largos: true });
     })()],
+    // ── SCOP_dhw por el ANEXO VI, con y sin la placa ────────────────────
+    ['Anexo VI SIN placa · 5 en cascada', anexoVi(cascada(5))],
+    ['Anexo VI + placa vertical (móvil) · 5 en cascada', anexoVi(cascada(5)), { placaAcs: placa(1080, 1920) }],
+    ['Anexo VI + placa apaisada · 1 equipo', anexoVi(cascada(1)), { placaAcs: placa(1920, 1080) }],
+    ['Anexo VI + placa · 2 empresas · textos largos', conDelegacion(anexoVi(cascada(5)), { largos: true }), { placaAcs: placa(1080, 1920) }],
 ];
 
 const results = {
@@ -160,9 +186,9 @@ page.on('request', (req) => {
 
 let malos = 0;
 
-for (const [nombre, exp] of casos) {
+for (const [nombre, exp, opts = {}] of casos) {
     const data = deriveRes080Data({ expediente: exp, results });
-    await page.setContent(buildRes080Html({ data, appUrl: APP_URL, isForPdf: true }), { waitUntil: 'load' });
+    await page.setContent(buildRes080Html({ data, appUrl: APP_URL, isForPdf: true, placaAcs: opts.placaAcs || null }), { waitUntil: 'load' });
     await page.evaluate(async () => {
         for (const w of [400, 500, 600, 700]) await document.fonts.load(`${w} 12.5px 'Instrument Sans'`);
         await document.fonts.ready;
