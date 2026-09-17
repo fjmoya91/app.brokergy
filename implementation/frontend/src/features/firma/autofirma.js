@@ -71,6 +71,40 @@ export function cargarAutoScript() {
     return _autoscriptPromise;
 }
 
+// ── ¿Es un PDF ENTERO? ───────────────────────────────────────────────────────
+// Autofirma rechaza un PDF incompleto con `SAF_28: El fichero no es un PDF o es
+// un PDF no soportado`, y ese mensaje no dice lo que pasa: que el fichero está
+// ROTO. Medido el 17/09/2026 en 26RES060_179 — el convenio que devolvió firmado
+// el cliente pesa en Drive los 382.347 bytes que Drive declara, se descarga
+// entero e idéntico tres veces, y ACABA A MEDIAS: `startxref 38043`, sin `%%EOF`.
+//
+// Y no se ve venir: **pdf.js RECONSTRUYE el índice de un PDF roto**, así que el
+// modal lo pinta perfectamente y el documento parece correcto en pantalla. El
+// único que se queja es Autofirma, con un código que suena a "formato raro".
+//
+// REGLA — esto NO se repara. Reescribir el PDF (pdf-lib) le arreglaría el índice
+// y de paso **invalidaría la firma que ya lleva dentro**, que aquí es la del
+// cliente. Un documento truncado tampoco vale como firmado: su firma abarca unos
+// bytes que ya no están. Lo que procede es pedirlo otra vez, y eso es lo que se
+// dice.
+export function pdfIncompleto(pdfBase64) {
+    const b64 = String(pdfBase64 || '');
+    if (!b64) return 'no hay documento que firmar';
+    const trozo = (desde, largo) => {
+        try { return atob(b64.substr(desde, largo).replace(/\s+/g, '')); } catch (_) { return ''; }
+    };
+    // La cabecera está en los primeros bytes; el cierre, en la cola. No se
+    // decodifica el fichero entero: son megas y solo hacen falta los extremos.
+    if (!trozo(0, 16).startsWith('%PDF-')) return 'el fichero no es un PDF';
+    // El final se decodifica desde un múltiplo de 4, o `atob` desfasa los bytes.
+    const colaDesde = Math.max(0, Math.floor((b64.length - 4096) / 4) * 4);
+    const cola = trozo(colaDesde, b64.length - colaDesde);
+    // `%%EOF` casi nunca es el último byte: hay PDFs con relleno detrás, así que
+    // se busca en la cola en vez de exigir que cierre el fichero.
+    if (cola && !cola.includes('%%EOF')) return 'el PDF está incompleto (le falta el final)';
+    return null;
+}
+
 // ── Clasificación del error ──────────────────────────────────────────────────
 // Devuelve 'comunicacion' | 'memoria' | 'version' | 'usuario' | 'certificado' | 'otro'.
 //
@@ -89,8 +123,12 @@ export function clasificarError({ codigo, tipo, mensaje }) {
     // se cubre el rango entero en vez de enumerarlos y quedarse corto.
     if (/^AS6200\d{2}$/.test(cod) || /^AS4[02]0\d{3}$/.test(cod) || cod === 'AS300302') return 'comunicacion';
     if (cod === 'AS500001') return 'usuario';
+    // SAF_28 lo devuelve AUTOFIRMA (no autoscript) cuando el PDF que recibe no
+    // puede abrirlo. Llega con el fichero ya entregado, así que no es de comunicación.
+    if (cod === 'SAF_28' || cod === 'SAF28') return 'documento';
 
     if (/AOCancelledOperationException|cancelad|cancell/i.test(txt)) return 'usuario';
+    if (/no es un PDF|PDF no soportado|incompleto/i.test(txt)) return 'documento';
     if (/version.*(protocolo|protocol)|protocol.*version|no soportad|unsupported/i.test(txt)) return 'version';
     if (/excede de la memoria|memoria disponible|demasiado larga|too long/i.test(txt)) return 'memoria';
     if (/certificad|keystore|almac[eé]n|KeyException|PKCS/i.test(txt)) return 'certificado';
@@ -112,7 +150,8 @@ export function explicarError({ codigo, tipo, mensaje, caminosProbados = [] }) {
     const agotado = caminosProbados.length > 1;
     // Ofrecer el modo compatible solo tiene sentido si aún no se ha probado y el
     // fallo es de los que puede causar una versión antigua.
-    const compat = !caminosProbados.includes(CAMINOS.SERVIDOR_COMPAT)
+    const compat = SERVIDOR_INTERMEDIO_ACTIVO
+        && !caminosProbados.includes(CAMINOS.SERVIDOR_COMPAT)
         && (clase === 'version' || clase === 'comunicacion' || clase === 'memoria');
 
     if (clase === 'usuario') {
@@ -122,6 +161,15 @@ export function explicarError({ codigo, tipo, mensaje, caminosProbados = [] }) {
             detalle: 'No se ha firmado nada. Puedes volver a intentarlo cuando quieras.',
             instalar: false,
             reintentar: true,
+        };
+    }
+    if (clase === 'documento') {
+        return {
+            clase,
+            titulo: 'El documento no se puede firmar: está dañado',
+            detalle: 'El PDF que hay guardado está incompleto, así que Autofirma no lo admite — y si ya llevaba una firma, esa firma tampoco vale. No es cosa de tu ordenador: hay que volver a generarlo o a subirlo, y firmarlo otra vez.',
+            instalar: false,
+            reintentar: false,
         };
     }
     if (clase === 'certificado') {
@@ -214,7 +262,27 @@ function prepararCamino(AutoScript, camino) {
 // lo arregla: si no responde NADA, repetir lo mismo con otra versión de protocolo
 // tampoco va a responder. El tercero vive a un clic en el mensaje de error, para la
 // instalación antigua de verdad — que es rara — y no lo pagan todos los demás.
+// ⛔ EL SERVIDOR INTERMEDIO ESTÁ DESACTIVADO (2026-09-17)
+//
+// Estuvo activo desde el 16/09 y CORROMPE el documento firmado. Medido el mismo
+// día sobre 26RES060_179: su Convenio de Cesión quedó TRUNCADO en Drive (382.347
+// bytes, sin `%%EOF`) y su CIFO volvió con la firma INVÁLIDA — «el rango de bytes
+// de la firma no es válido», que es lo que dice un lector cuando el PDF se ha
+// alterado DESPUÉS de firmarlo.
+//
+// La causa está en el trayecto de vuelta: Autofirma sube su resultado a nuestro
+// servlet como `application/x-www-form-urlencoded`, y ahí **un `+` del Base64 se
+// decodifica como ESPACIO**. El navegador de ida lo evita mandando Base64
+// url-safe (`-` y `_`, ver `sendData` en autoscript.js); Autofirma, no.
+//
+// Una firma que no vale es lo peor que puede producir esta app, así que el camino
+// se apaga entero hasta que el servlet esté arreglado Y comprobado con un PDF
+// firmado de verdad — no se deja "por si acaso" detrás de una condición. Con esto
+// el comportamiento vuelve a ser el de antes del 16/09: solo WebSocket.
+const SERVIDOR_INTERMEDIO_ACTIVO = false;
+
 function planDeIntentos(tamanoBytes, forzarCompat) {
+    if (!SERVIDOR_INTERMEDIO_ACTIVO) return [CAMINOS.WEBSOCKET];
     if (forzarCompat) return [CAMINOS.SERVIDOR_COMPAT];
     if (tamanoBytes > BYTES_DIRECTO_A_SERVIDOR) {
         // Por WebSocket este documento no cabe: no se pierde medio minuto probándolo.
@@ -240,6 +308,15 @@ export async function firmarConAutofirma({
     onCamino,
     forzarCompat = false,   // "mi Autofirma es antigua": un solo intento con ver=1
 }) {
+    // Antes de abrir Autofirma: si el documento está roto, lo va a rechazar con un
+    // mensaje que no se entiende. Mejor decirlo aquí, que es donde se puede hacer algo.
+    const roto = pdfIncompleto(pdfBase64);
+    if (roto) {
+        const err = new Error(roto);
+        err.afirma = { clase: 'documento', mensaje: roto, caminosProbados: [] };
+        throw err;
+    }
+
     const AutoScript = await cargarAutoScript();
     const plan = planDeIntentos((pdfBase64 || '').length * 0.75, forzarCompat);
     const probados = [];
