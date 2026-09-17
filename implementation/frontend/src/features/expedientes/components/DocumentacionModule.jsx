@@ -2188,12 +2188,12 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         if (rejectTipo === 'requerimiento') {
             const baja = reqImporteNuevo != null && reqImporteAnterior != null && reqImporteNuevo < reqImporteAnterior;
             const resultado = baja
-                ? `Lo hemos revisado punto por punto y hemos defendido la actuación con la documentación del expediente: en lugar de decaer por completo, hemos conseguido ajustarlo y mantener la ayuda en ${eur(reqImporteNuevo)} (frente a los ${eur(reqImporteAnterior)} previstos inicialmente).`
+                ? `En lugar de decaer por completo, hemos conseguido ajustarlo y mantener la ayuda en ${eur(reqImporteNuevo)} (frente a los ${eur(reqImporteAnterior)} previstos inicialmente).`
                 : reqImporteNuevo != null
                     ? `El expediente sigue adelante, con el importe de la ayuda en ${eur(reqImporteNuevo)}.`
                     : `El expediente sigue adelante, con un ajuste en la documentación presentada.`;
             return `${nombre}:\n\n`
-                + `Le informamos de que, tras la revisión del expediente ${numExp}, hemos recibido un requerimiento. ${resultado}\n\n`
+                + `Le informamos de que, tras la revisión del expediente ${numExp}, hemos recibido un requerimiento del verificador. Lo hemos atendido revisando el expediente punto por punto y defendiendo la actuación con toda la documentación disponible. ${resultado}\n\n`
                 + (motivo ? `• ${motivo}\n\n` : '')
                 + `Para poder contestarlo dentro del plazo de ${reqPlazo} días, necesitaremos que nos devuelva firmados de nuevo el Anexo I y el Anexo de Cesión de Ahorros, ya actualizados. `
                 + `Se los remitimos a continuación; la versión anterior queda anulada.\n\n`

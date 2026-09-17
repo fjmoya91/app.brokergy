@@ -95,10 +95,18 @@ const nombraDocs = (docKeys) => {
 /**
  * El mensaje que acompaña a los documentos que se vuelven a mandar.
  *
- * Dice, en este orden: qué ha pasado (requerimiento), QUÉ HEMOS HECHO con él, cómo
- * queda el expediente, qué necesitamos y en qué plazo, y que la versión anterior queda
- * anulada. Ese orden no es decorativo — es la secuencia de preguntas de quien lo lee:
- * "¿qué pasa con mi ayuda?", "¿por qué me lo mandáis otra vez si ya lo firmé?".
+ * Dice, en este orden: qué ha pasado (requerimiento) EXPLICADO —no da por hecho que
+ * el destinatario sabe qué es un requerimiento—, QUÉ HEMOS HECHO con él, cómo queda el
+ * expediente (destacado con ✅, que el email ya reconoce y resalta), qué necesitamos y
+ * en qué plazo, y que la versión anterior queda anulada. Ese orden no es decorativo —
+ * es la secuencia de preguntas de quien lo lee: "¿qué pasa con mi ayuda?", "¿por qué me
+ * lo mandáis otra vez si ya lo firmé?".
+ *
+ * REGLA — un requerimiento se cuenta como lo que es: trabajo real, no un trámite
+ * administrativo que se traslada sin más. Quien lo recibe tiene que quedarse con "no
+ * abandonan mi expediente, siguen detrás hasta el final" — es la diferencia entre un
+ * aviso que asusta y uno que da confianza. Por eso el párrafo explica brevemente qué
+ * revisa el verificador y qué hemos hecho nosotros, ANTES de decir el resultado.
  *
  * REGLA — un importe que BAJA se cuenta con lo que ha costado sostenerlo. Un
  * requerimiento no es una carta que llega y se traslada: es un expediente que podía
@@ -132,19 +140,23 @@ export function mensajeRequerimiento({
     const nA = num(importeAnterior), nN = num(importeNuevo);
     const baja = nA != null && nN != null && Math.round(nN) < Math.round(nA);
 
-    // Qué hemos hecho con el requerimiento. Es el corazón del mensaje: sin esto, lo
-    // único que se lee es que la ayuda ha bajado.
+    // Qué es un requerimiento y qué hemos hecho con él. Es el corazón del mensaje: sin
+    // esto, lo único que se lee es "os pedimos otra firma" o, peor, que la ayuda ha
+    // bajado. Explica el trámite (no da por hecho que el destinatario sabe qué es un
+    // requerimiento) y deja claro que hay trabajo real detrás, no un trasiego de papel.
     const gestion = target === 'instalador'
-        ? 'Lo hemos trabajado a fondo: hemos revisado punto por punto lo que se cuestionaba y hemos defendido la actuación con la documentación del expediente.'
-        : 'Nos hemos puesto con él de inmediato: hemos revisado punto por punto lo que se cuestionaba y hemos defendido la actuación con toda la documentación del expediente.';
+        ? 'El verificador revisa cada expediente uno a uno antes de conceder la ayuda, y en este caso ha pedido aclarar o justificar mejor algún punto — es lo que se llama un *requerimiento*. Lo hemos trabajado a fondo: lo hemos revisado punto por punto y hemos defendido la actuación con toda la documentación del expediente. No lo dejamos a medias.'
+        : 'Antes de conceder la ayuda, el verificador revisa cada expediente uno a uno y a veces pide aclarar o justificar mejor algún punto — es lo que se llama un *requerimiento*, y no es un fallo tuyo ni de la instalación. En cuanto nos llegó nos pusimos con él: nuestro equipo lo ha revisado punto por punto y ha defendido la actuación con toda la documentación del expediente. No es un trámite de un minuto, pero es justo para esto para lo que estamos — no dejamos ningún expediente a medias.';
 
-    // Cómo queda. Sin importe nuevo no se afirma ninguna cifra: es peor anunciar un
-    // número equivocado que no anunciar ninguno.
+    // Cómo queda, en su propia línea y con ✅ delante: el conversor de email la
+    // reconoce y la resalta, y en WhatsApp separa visualmente la buena noticia del
+    // párrafo de explicación de arriba. Sin importe nuevo no se afirma ninguna cifra:
+    // es peor anunciar un número equivocado que no anunciar ninguno.
     const resultado = baja
-        ? `El resultado es que *el expediente sigue adelante*: en lugar de decaer por completo, hemos conseguido ajustarlo y mantener la ayuda en *${nuevoStr}*${anteriorStr ? ` (frente a los *${anteriorStr}* previstos inicialmente)` : ''}.`
+        ? `✅ *El expediente sigue adelante*: en lugar de decaer por completo, hemos conseguido ajustarlo y mantener la ayuda en *${nuevoStr}*${anteriorStr ? ` (frente a los *${anteriorStr}* previstos inicialmente)` : ''}.`
         : nuevoStr
-            ? `El resultado es que *el expediente sigue adelante*, con el importe de la ayuda${anteriorStr ? ` ajustado de *${anteriorStr}* a *${nuevoStr}*` : ` fijado en *${nuevoStr}*`}.`
-            : `El resultado es que *el expediente sigue adelante*, con un ajuste en la documentación presentada.`;
+            ? `✅ *El expediente sigue adelante*, con el importe de la ayuda${anteriorStr ? ` ajustado de *${anteriorStr}* a *${nuevoStr}*` : ` fijado en *${nuevoStr}*`}.`
+            : `✅ *El expediente sigue adelante*, con un ajuste en la documentación presentada.`;
 
     // Sin cifra nueva NO se anuncia "el importe definitivo": el convenio adjunto lleva
     // el mismo importe de siempre, y prometer un ajuste que el documento no refleja es
@@ -154,7 +166,8 @@ export function mensajeRequerimiento({
     if (target === 'instalador') {
         return `¡Hola${saludo ? ` ${saludo}` : ''}!\n\n`
             + `Os escribimos en relación con el expediente *${numexpte}*${clienteNombre ? ` (cliente: *${clienteNombre}*)` : ''}.\n\n`
-            + `Tras la revisión del expediente hemos recibido un *requerimiento*. ${gestion} ${resultado}\n\n`
+            + `${gestion}\n\n`
+            + `${resultado}\n\n`
             + (motivo ? `*Qué se cuestionaba:* ${motivo}\n\n` : '')
             + `${plazoTxt}, necesitamos que el titular nos devuelva *firmados de nuevo* ${nombraDocs(docs)}, ya actualizados:\n\n`
             + `${listaDocs(docs)}\n\n`
@@ -166,7 +179,8 @@ export function mensajeRequerimiento({
 
     return `Hola ${saludo}:\n\n`
         + `Te escribimos en relación con tu expediente *${numexpte}*.\n\n`
-        + `Tras la revisión del expediente hemos recibido un *requerimiento*. ${gestion} ${resultado}\n\n`
+        + `${gestion}\n\n`
+        + `${resultado}\n\n`
         + (motivo ? `*Qué se cuestionaba:* ${motivo}\n\n` : '')
         + `${plazoTxt}, necesitamos que nos devuelvas *firmados de nuevo* estos dos documentos${nuevoStr ? ', ya actualizados con el importe definitivo' : ', ya actualizados'}:\n\n`
         + `${listaDocs(docs)}\n\n`

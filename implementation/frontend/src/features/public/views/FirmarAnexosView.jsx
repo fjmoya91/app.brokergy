@@ -362,7 +362,7 @@ export function FirmarAnexosView({ expedienteId }) {
                                     página solo dice que la ayuda ha bajado, entiende que le
                                     hemos recortado algo, no que se ha evitado perderlo. */}
                                 <p className="text-white/60 text-sm leading-relaxed">
-                                    Tras la revisión del expediente hemos recibido un <strong className="text-white">requerimiento</strong>. Lo hemos revisado punto por punto y hemos defendido tu actuación con toda la documentación del expediente
+                                    El verificador revisa cada expediente antes de conceder la ayuda, y en el tuyo ha pedido aclarar algún punto — es un <strong className="text-white">requerimiento</strong>, no un fallo tuyo. Lo hemos trabajado a fondo: lo hemos revisado punto por punto y hemos defendido tu actuación con toda la documentación del expediente
                                     {requerimiento.importe_nuevo != null && requerimiento.importe_anterior != null && requerimiento.importe_nuevo < requerimiento.importe_anterior ? (
                                         <>: en lugar de decaer por completo, <strong className="text-white">hemos conseguido ajustarlo y mantener tu ayuda en {eurCli(requerimiento.importe_nuevo)}</strong> (frente a los {eurCli(requerimiento.importe_anterior)} previstos inicialmente).</>
                                     ) : requerimiento.importe_nuevo != null ? (
