@@ -1323,7 +1323,14 @@ cargarlos a la vez, cada uno en su zona de suelta.
 extracción es [ceeExtract.js](implementation/frontend/src/features/cee/ceeExtract.js) (`.xml`/`.cex`
 exacto, PDF/fotos por OCR), compartida con `CeeUploadModal`.
 
-### REGLA — con CEE FINAL manda la demanda del FINAL
+### REGLA — con CEE FINAL manda la demanda de CALEFACCIÓN del FINAL
+
+⚠️ Solo la de CALEFACCIÓN. La demanda de **ACS** va por el criterio contrario y manda la
+del **INICIAL** (`baseAcs`, regla 12.f): es una propiedad del uso del edificio y la
+actuación no la mueve, así que si los dos certificados no coinciden, el bueno es el de
+partida. La simulación pasa los DOS certificados a `resolveDacs` para que aplique ahí la
+misma regla que en el expediente — si no, la propuesta prometería un ahorro que el
+expediente recalcularía distinto al aceptarla.
 
 La demanda de calefacción es una propiedad de la **envolvente**, no del generador. Si existe
 certificado posterior a la obra, la demanda que la bomba de calor cubre de verdad es la suya, así que
@@ -4470,11 +4477,60 @@ node implementation/backend/scripts/check_cifo_paginas.mjs
 
 ## El CEE que MANDA, y qué se avisa antes de generar (2026-09-03)
 
-La demanda de calefacción, la superficie y la demanda de ACS de todo documento del
-expediente salen de UNA regla: **si hay CEE FINAL cargado manda el final; si no, el
-inicial**. Fuente única: [ceeFases.js](implementation/frontend/src/features/expedientes/logic/ceeFases.js)
+La demanda de calefacción y la superficie de todo documento del expediente salen de
+UNA regla: **si hay CEE FINAL cargado manda el final; si no, el inicial**. Fuente
+única: [ceeFases.js](implementation/frontend/src/features/expedientes/logic/ceeFases.js)
 (`ceeBaseDocumento`), que consumen el CIFO, las cuatro fichas, el panel económico
 y el detalle del expediente.
+
+### La DEMANDA DE ACS es la EXCEPCIÓN: manda la del INICIAL (2026-09-17)
+
+**REGLA — la demanda de ACS tiene que ser LA MISMA en los dos certificados, y si no
+lo es, se usa la del CEE INICIAL.** Es el criterio del verificador, y tiene su razón:
+la demanda de ACS es una propiedad del USO del edificio —cuánta agua caliente se
+consume— y no de la envolvente ni del generador, así que **la actuación no la mueve**.
+Cuando los dos certificados no dicen lo mismo, la diferencia no describe una mejora:
+describe un criterio distinto del técnico que levantó el segundo. El de partida es el
+que el verificador toma como bueno.
+
+Fuente única: **`baseAcs`** en [demandaAcs.js](implementation/frontend/src/features/expedientes/logic/demandaAcs.js),
+que aplica `resolveDacs` en modo `xml` — así se corrigen **de una vez** las doce
+superficies que la piden (CIFO, las cuatro fichas y sus dos modales, el panel
+económico, su gemelo de Node, el listado, el detalle y `cifoService`). Ninguna
+decide por su cuenta de qué certificado sale la cifra.
+
+**REGLA — solo la D_ACS; la CALEFACCIÓN y la SUPERFICIE siguen saliendo del que
+manda.** Ahí el final SÍ recoge el resultado de la obra, y en un RES080 la diferencia
+entre los dos ES el ahorro que se justifica.
+
+**REGLA — el inicial manda SIEMPRE QUE DECLARE la cifra.** Un CEE inicial leído por
+OCR **no la trae** —el PDF del certificado no imprime esa tabla, solo está en el
+`.xml`—, así que exigir el inicial a ciegas dejaría esos expedientes con D_ACS = 0 y
+el AE_ACS del documento se iría a cero sin que nada lo delatara. Cuando hay DOS
+cifras manda la del inicial; cuando solo hay una se usa esa y **se avisa** de que
+falta el `.xml` del inicial, que es la única forma de saber que ahí hay un hueco.
+
+**REGLA — el CIFO imprime los factores de ESE certificado y lo NOMBRA.** El párrafo
+de justificación cogía `demandaACS` y `superficieHabitable` del CEE que manda: con la
+cifra saliendo del inicial, el documento enseñaría una multiplicación cuyo producto
+**no es** el D_ACS que declara su propia tabla de variables — y rehacer esa cuenta es
+lo primero que hace quien lo revisa. Los dos factores se leen ahora del resultado de
+`resolveDacs`, y cuando el expediente tiene los dos certificados el párrafo dice de
+cuál se ha copiado ("…del certificado de eficiencia energética **inicial**"). Con uno
+solo no se nombra: ahí no hay ambigüedad que aclarar.
+
+⚠️ **Los documentos YA EMITIDOS no se reescriben, y regenerarlos SÍ cambia la cifra.**
+Medido el 17/09/2026: **49 expedientes** tienen las dos demandas de ACS distintas, y en
+ellos la del inicial es de media un **~55 % más alta** que la del final. De esos, **17
+son RES060/RES093 con el ACS en alcance y el CIFO ya FIRMADO** (7 loteados): su
+documento declara la del final, así que volver a generarlo hoy subiría su D_ACS —y con
+ella su AE_ACS— entre un 38 % y un 81 %. No es un descuido: la puerta lo avisa antes de
+generar y la decisión es de una persona. Los otros 28 no cambian de documento (RES080,
+que justifica el ahorro por energía final, o ACS fuera de alcance). Para verlos:
+
+```bash
+node implementation/backend/scripts/revisar_dacs_fases.js   # SOLO LEE
+```
 
 **REGLA — la regla estaba escrita cuatro veces, y en otras cuatro NO estaba.** Las
 fichas RES060 y RES093 (y sus dos modales, que duplican el HTML) leían
@@ -4523,9 +4579,10 @@ de lo que hay que REVISAR —ámbar—):
 | Situación | Qué dice |
 |---|---|
 | Sin CEE final | Se genera con el INICIAL, y con qué demanda y superficie |
-| Sin CEE final **y ACS en alcance** | La D_ACS sale también del inicial: **es la cifra que SÍ cambia** entre los dos certificados |
+| Sin CEE final **y ACS en alcance** | Nota: la D_ACS sale del inicial, que es **la que manda también cuando se registre el final** — no cambiará |
 | Sin CEE final **y RES080** | El ahorro se justifica comparando los dos: el que se imprima no es el definitivo |
-| Los dos, D_ACS distinta | Se usa la del FINAL, que es lo correcto — compruébalo |
+| Los dos, D_ACS distinta | **Debería ser la misma**: se usa la del INICIAL (criterio del verificador) — compruébalo |
+| Los dos, pero el inicial **no declara D_ACS** | Sale la del FINAL por necesidad, no por criterio: carga el `.xml` del inicial |
 | Los dos, D_CAL distinta (no RES080) | La actuación no toca la envolvente: debería ser la misma |
 | ACS fuera de alcance | Nota informativa: D_ACS y SCOP_dhw salen como "no aplica" (regla 12.b) |
 | ACS en alcance pero **sin equipo identificado** | El documento imprime su D_ACS y su SCOP_dhw, pero el ahorro NO lo cuenta |
@@ -4543,7 +4600,15 @@ documento ya imprime "no aplica".
 
 **REGLA — un aviso `info` acompaña, pero no interrumpe.** Si lo único que hay que
 decir es que el ACS sale como "no aplica", el documento se genera sin puerta: una
-puerta que se abre siempre deja de leerse.
+puerta que se abre siempre deja de leerse. Por eso el de "sin CEE final, la D_ACS
+sale del inicial" pasó de `warn` a `info` el 2026-09-17: pedía revisarla "cuando se
+registre el final" y con el criterio nuevo eso es mandar a rehacer algo que ya está
+bien — un aviso que no hay que atender enseña a no leer los avisos.
+
+```bash
+node implementation/backend/scripts/test_dacs_fase_inicial.mjs
+node implementation/backend/scripts/check_cifo_paginas.mjs
+```
 
 ---
 
@@ -8489,6 +8554,59 @@ no expone ese método, y el servidor intermedio solo entra en juego si
 *"forzar WebSocket"*. O sea: la protección que el comentario decía tener para los
 ficheros grandes llevaba desde el principio sin estar activa.
 
+### ⛔ EL SERVIDOR INTERMEDIO ESTÁ APAGADO — corrompía la firma (2026-09-17)
+
+Estuvo activo **un día** y estropeó las tres firmas de **26RES060_179**:
+
+| Documento | Cómo quedó |
+|---|---|
+| Convenio de Cesión firmado | **TRUNCADO** en Drive (382.347 B, sin `%%EOF`) |
+| Anexo I firmado | **TRUNCADO** (313.723 B) |
+| CIFO firmado (9,5 MB) | vuelve con la **firma INVÁLIDA**: *«el rango de bytes de la firma no es válido»* |
+
+Ese mensaje es lo que dice un lector cuando el PDF **se ha alterado DESPUÉS de
+firmarlo**, y el `SAF_28` («no es un PDF o es un PDF no soportado») que sale al
+intentar firmar encima es lo mismo visto desde el otro lado.
+
+**Barridos los 300 PDF firmados de producción: 295 íntegros, y los 3 rotos son
+todos de ese expediente** — o sea, exactamente los que pasaron por ese camino.
+Todo lo anterior fue por WebSocket y está bien.
+
+**La causa está en el trayecto de VUELTA.** Autofirma sube su resultado a nuestro
+servlet como `application/x-www-form-urlencoded`, y ahí **un `+` del Base64 se
+decodifica como ESPACIO** — es lo que manda el estándar para ese tipo de
+contenido. El navegador de ida lo evita mandando Base64 **url-safe** (`-` y `_`,
+ver `sendData` en `autoscript.js`); Autofirma no.
+
+**REGLA — una firma que no vale es lo peor que puede producir esta app.** Por eso
+el camino se apaga ENTERO (`SERVIDOR_INTERMEDIO_ACTIVO = false`) y con él el botón
+de «modo compatible», que pasa por lo mismo — no se deja detrás de una condición
+«por si acaso». El comportamiento vuelve a ser el de antes: **solo WebSocket**.
+Verificado en el bundle desplegado: `planDeIntentos` es `return [WEBSOCKET]`.
+
+**Para reactivarlo hay que arreglar el servlet y COMPROBARLO con un PDF firmado de
+verdad**, no con el flujo simulado: `afirmaStorage.js` tiene que leer el cuerpo en
+CRUDO y no dejar que `+` se convierta en espacio en el `dat` — y la prueba es
+abrir el PDF que vuelve y ver su firma válida, porque todo lo demás (la conexión,
+el resultado que llega, el fichero que se guarda) **parecía correcto**.
+
+⚠️ **Lo que enseñó este fallo**: el daño no se ve en ninguna pantalla. El fichero
+se sube, el expediente lo da por firmado, el modal lo pinta —pdf.js reconstruye el
+índice de un PDF roto— y solo se descubre al abrirlo con un lector que valide la
+firma. Un camino de firma nuevo no se da por bueno hasta ver **la firma validada
+en un lector**.
+
+### Un PDF ROTO se para ANTES de abrir Autofirma
+
+`pdfIncompleto()` mira los dos extremos del base64 (`%PDF-` al principio, `%%EOF`
+en la cola) y, si el documento está incompleto, ni se abre Autofirma: se dice que
+el documento está dañado y que hay que volver a generarlo. Sin eso, el firmante ve
+`SAF_28`, que suena a «formato raro» y no a «este fichero está roto».
+
+**REGLA — NO se repara.** Reescribir el PDF con pdf-lib le arreglaría el índice y
+de paso **invalidaría la firma que ya lleva dentro**. Y un PDF truncado tampoco
+vale como firmado: su firma abarca unos bytes que ya no están.
+
 ### El parche de `autoscript.js`
 
 Tres líneas idénticas (una por cada cliente de conexión) que leen la versión del
@@ -8939,6 +9057,8 @@ piscina y Anexo VI) y **+198 px** en el RES080.
 12.d **La D_ACS admite los LITROS/DÍA que declara el certificado** (`acs_method: 'litros'` + `cee.dacs_litros_dia`, toggle **L/D** en la rejilla del CEE): misma fórmula del Anejo F pero **SIN el tramo de ocupación** —el dato del CEE ya es el consumo diario del edificio y multiplicarlo por N_P lo multiplicaría por cinco—, y el CIFO dice que sale del **Certificado de Eficiencia Energética aportado**, que es lo que lo separa de una estimación. Fuente única: [demandaAcs.js](implementation/frontend/src/features/expedientes/logic/demandaAcs.js), que ahora llaman TAMBIÉN las fichas RES060/RES093 y sus modales y el listado — tenían su propia copia que solo entendía 'xml' y 'cte', así que un TER100 en modo manual imprimía en la ficha una D_ACS distinta de la de su CIFO. `dacs_manual`/`dacs_litros_dia` entran en `CEE_ECO_FIELDS` (sin ellos el listado los resolvía a 0), y un modo tecleado **sin cifra bloquea el documento**. Tras tocarlo: `node implementation/backend/scripts/test_dacs_litros.mjs` y `check_cifo_paginas.mjs`. Ver "La D_ACS por LITROS/DÍA del certificado".
 12.c **`misma_aerotermia_acs` NO puede esconder un equipo de ACS DECLARADO**: ese flag no se edita en ninguna pantalla —se pone a `true` al activar "se actúa sobre el ACS" y solo baja a `false` al tocar el bloque *Aerotermia Nueva — ACS*—, así que cuando el equipo de ACS lo escribe una migración, un script o una skill de relleno, el flag se queda arriba y **la máquina real desaparece de los documentos**: se declara como SCOP<sub>dhw</sub> el de la bomba de CALEFACCIÓN, que no calienta esa agua (medido en 26RES080_54: 6,47 en vez de 3,69, y el equipo de ACS ni salía en el popup «Datos del equipo»). Entre un booleano que nadie ha tocado y una máquina con marca, modelo y nº de serie, **manda la máquina**. Fuente única: `acsEquipoPropio` / `acsMismoEquipo` en [aerotermiaUnits.js](implementation/frontend/src/features/expedientes/logic/aerotermiaUnits.js). ⚠️ La comparación es **por MODELO** (`aerotermia_db_id`, o marca+modelo si no está en catálogo), **nunca por nº de serie**: con el flag activo la app CLONA el nodo de calefacción y ese clon se queda atrás en cuanto se teclea una serie — medido, 11 expedientes difieren solo en la serie sin tener un segundo equipo. Hoy lo aplican las superficies **CE3X** (`resolverCe3x` → popup «Datos del equipo» y encargo al certificador); el CIFO, las fichas y el ahorro siguen leyendo el flag a propósito —cambiarlo movería cifras de expedientes ya emitidos—, así que la contradicción se **AVISA** en el popup y en Instalación, con un botón que corrige el dato y con él todo lo demás.
 
+12.f **La demanda de ACS es la MISMA en los dos certificados, y si no, manda la del CEE INICIAL** (criterio del verificador, 2026-09-17). Es la EXCEPCIÓN a la regla 32: la D_ACS es una propiedad del USO del edificio —cuánta agua caliente se consume— y no de la envolvente ni del generador, así que la actuación no la mueve; una diferencia entre los dos no describe una mejora, describe un criterio distinto del técnico que levantó el segundo. La demanda de **CALEFACCIÓN y la SUPERFICIE siguen saliendo del que manda**, donde el final sí recoge el resultado de la obra. Fuente única: `baseAcs` en [demandaAcs.js](implementation/frontend/src/features/expedientes/logic/demandaAcs.js), aplicada dentro de `resolveDacs`, así que las doce superficies que piden la D_ACS se corrigen de una vez y ninguna decide por su cuenta. **El inicial manda siempre que DECLARE la cifra**: un CEE leído por OCR no la trae —el PDF del certificado no imprime esa tabla, solo está en el `.xml`— y exigirlo a ciegas dejaría esos expedientes con D_ACS = 0 y el AE_ACS a cero sin que nada lo delatara; entonces se usa la del final y **se avisa** de que falta ese `.xml`. El **CIFO imprime los factores de ESE certificado y lo nombra** ("…del certificado de eficiencia energética *inicial*", solo cuando están los dos): cogiéndolos del que manda, el documento enseñaría una multiplicación cuyo producto no es el D_ACS de su propia tabla de variables, y rehacer esa cuenta es lo primero que hace quien revisa. La **simulación aplica la misma regla** (se le pasan los dos certificados a `resolveDacs`), o la propuesta prometería un ahorro que el expediente recalcularía al aceptarla. Tras tocarlo: `node implementation/backend/scripts/test_dacs_fase_inicial.mjs` y `check_cifo_paginas.mjs`. Ver "La DEMANDA DE ACS es la EXCEPCIÓN".
+
 13. **WhatsApp en Sidebar**: El botón debe estar posicionado en la sección inferior (entre tabs principales y user profile). Polling del estado: **30s** en sidebar, **8s** en WhatsappSettingsView (reducido desde 5s/2.5s el 2026-04-29 para limitar egress de Supabase — cada request pasa por auth middleware y generaba ~720 req/hora). No bloquear app si servicio no está disponible (graceful degradation con 503).
 14. **WhatsApp Session**: `.wwebjs_auth/` y `.wwebjs_cache/` DEBEN estar en `.gitignore`. La sesión es local del servidor.
 15. **Catastro — Cliente HTTP**: NUNCA usar `axios` contra `ovc.catastro.meh.es`. Usar el helper `catastroGet()` en [catastroService.js](implementation/backend/services/catastroService.js) (http.request puro, `family:4`, UA `Mozilla/5.0 (compatible; Brokergy/1.0)`). El WAF rechaza axios + Chrome UA largo desde IPs de datacenter.
@@ -9005,7 +9125,7 @@ piscina y Anexo VI) y **+198 px** en el RES080.
 
 31. **Una propuesta con presupuesto ESTIMADO lo dice, y dice a qué afecta**: el flujo interno pregunta el dinero UNA vez (`StepDocsObra`: documento · importe a mano · estimar 15.000 €) y la marca viaja en `inputs.presupuestoEstimado` hasta la portada, la tabla, el recuadro, la nota al pie y el mensaje de envío. El **bono CAE no cambia** (sale del ahorro certificado) y **la deducción del IRPF sí** (es un % del coste con IVA); sin deducción en juego, ese párrafo no se escribe. Fuente única del texto y de la cifra: [logic/presupuestoEstimado.js](implementation/frontend/src/features/calculator/logic/presupuestoEstimado.js), que carga también el backend (`leadMessages`) por import() ESM. Cualquier presupuesto tecleado en la calculadora LEVANTA la marca. Ver "Presupuesto ESTIMADO".
 
-32. **El CEE que MANDA es el FINAL si está cargado, y si no el INICIAL — en TODOS los documentos**: fuente única [ceeFases.js](implementation/frontend/src/features/expedientes/logic/ceeFases.js) (`ceeBaseDocumento`), que sustituye a las cuatro copias de la regla y a las cuatro superficies que no la aplicaban (las fichas RES060/RES093 imprimían 0,00 sin CEE final). Retirar un certificado se hace desde la rejilla del CEE, **solo ADMIN y preguntando**: borrar el `.xml` de Drive no borraba la demanda, que seguía mandando en el CIFO y en la economía. Antes de generar el CIFO / la ficha, la puerta AVISA (ámbar, separado de lo que falta) si no hay CEE final —en especial por la **demanda de ACS**, que es la que sí cambia entre los dos certificados— o si las dos demandas no coinciden; con el ACS fuera de alcance no se avisa: ya se imprime "no aplica" (regla 12.b). Ver "El CEE que MANDA, y qué se avisa antes de generar".
+32. **El CEE que MANDA es el FINAL si está cargado, y si no el INICIAL — en TODOS los documentos**: fuente única [ceeFases.js](implementation/frontend/src/features/expedientes/logic/ceeFases.js) (`ceeBaseDocumento`), que sustituye a las cuatro copias de la regla y a las cuatro superficies que no la aplicaban (las fichas RES060/RES093 imprimían 0,00 sin CEE final). Retirar un certificado se hace desde la rejilla del CEE, **solo ADMIN y preguntando**: borrar el `.xml` de Drive no borraba la demanda, que seguía mandando en el CIFO y en la economía. ⚠️ **La demanda de ACS va por el criterio CONTRARIO: manda la del INICIAL** (regla 12.f) — es del uso del edificio y la actuación no la mueve. Antes de generar el CIFO / la ficha, la puerta AVISA (ámbar, separado de lo que falta) si no hay CEE final, si las dos demandas no coinciden (diciendo cuál se usa y por qué) o si el inicial no declara su D_ACS; con el ACS fuera de alcance no se avisa: ya se imprime "no aplica" (regla 12.b). Ver "El CEE que MANDA, y qué se avisa antes de generar".
 
 33. **Un REQUERIMIENTO vuelve a pedir la firma del Anexo I y del Convenio, y lo dice con el importe nuevo**: mismo mecanismo que la re-firma del CIFO, generalizado en `BORRADORES_CLIENTE.refirma` ([docValidacion.js](implementation/backend/utils/docValidacion.js) — `refirmaPendiente`, `firmaVigente`). Se lanza desde el **popup de envío** (selector *Primera firma · Requerimiento*, como el del instalador; sale marcado solo si ya hay alguna firma) o desde el MISMO popup del rechazo (`tipo:'requerimiento'`), y en los dos casos sella solo los anexos que ya están firmados. El importe nuevo sale del **ahorro verificado** que se guarda en el expediente, nunca de un campo del mensaje, y con él se generan los anexos mientras el requerimiento siga vivo (`resultsParaDocumento`) — también desde el botón "Generar", o el borrador bueno de Drive se machacaría. El firmado anterior deja de contar (slot ámbar, vista pública y parte diario), sin borrarse. **Un importe que baja se cuenta con lo que ha costado sostenerlo** —qué se ha hecho primero, la cifra dentro de "el expediente sigue adelante"—, y las cuatro superficies lo dicen igual. Textos, importes y plazo: fuente única en [logic/requerimientoFirma.js](implementation/frontend/src/features/expedientes/logic/requerimientoFirma.js). Ver "Un REQUERIMIENTO vuelve a pedir la firma del Anexo I y del Convenio".
 
@@ -9216,7 +9336,7 @@ WA_SYNC_FALLOS_MAX=3               ← tiempos de espera seguidos tras los que s
 
 54. **Cada cerramiento del plano puede llevar su FOTO REAL, y de ella se cuentan sus huecos**: se pulsa la pared —o el hueco— y se le pega la suya, ofreciendo PRIMERO las que el expediente ya tiene (medido en 26RES060_186: 6 fotos de la envolvente llevaban meses en Drive mientras las ventanas se contaban a ojo). La foto vale **aunque no se lea**: es la prueba de por qué el cerramiento se clasificó como está, y por eso sale también en medianeras. **El modelo NO da metros**: da CAJAS (`box_2d`), y la escala la pone el código desde la **PUERTA DE ENTRADA** (2,05 m) — nunca desde el ancho de la pared, porque la fachada no ocupa el encuadre exacto **y** porque el modelo agranda todas las cajas ~1,5× de forma consistente, sesgo que una referencia dentro de la misma foto cancela (con el ancho de la pared la ventana salía a 2,4 m; con la puerta, a 1,71, que es lo que se ve). El largo que midió el motor **VALIDA, no escala**; sin puerta a la vista hay recuento pero no medidas. Lo leído **nace DUDOSO** (el ámbar que ya existe) y **no pisa** lo que hay: con huecos ya puestos las casillas nacen desmarcadas y reemplazar es un botón aparte — importa, porque señalar la entrada ya coloca una puerta y una ventana de relleno. La carpintería y el vidrio se guardan y se enseñan pero **no van al `.cex`** (no hay casilla en `loSenalado`). **Al abrir una foto sale el PANEL de la pared y cada hueco SEÑALADO sobre la imagen** con su nombre: las marcas salen solas de la lectura (el modelo ya da la caja de cada hueco) y se corrigen arrastrando. Se guardan con la FOTO y por `uid`, nunca por nombre —V1 se renombra y se recoloca— y **al momento**, no al cerrar. ⚠️ `var(--brand)` NO existe (es `--brand-primary`) y en un SVG eso sale NEGRO sin avisar; y arrastrar sobre una `<img>` la tiñe de azul salvo con `draggable={false}` + `select-none` + `preventDefault`. ⚠️ **`thinkingBudget: 0` cuelga esta lectura para siempre** —240 s frente a 13,3 s con `pensar`—, y no se arregla subiendo el plazo; `llamarGemini` acepta ya `pensar` y `deadline`. Coste: **0,006 €** por fachada. Fuentes únicas: [paredOcrService.js](implementation/backend/services/paredOcrService.js) (leer) y [paredFotoService.js](implementation/backend/services/paredFotoService.js) (Drive + estado, en `cee.envolvente_fotos`, clave APARTE del trabajo). Tras tocarlo: `node implementation/backend/scripts/test_pared_ocr.mjs`. Ver "La FOTO REAL de cada cerramiento".
 
-55. **Autofirma no falla igual en todos los ordenadores, y la app prueba DOS caminos**: `autoscript.js` elige siempre `wss://127.0.0.1:<puerto>`, que exige a la vez Autofirma ≥1.7, su **certificado SSL local vigente** en el almacén del navegador (caduca; y un perfil de Firefox creado después no lo tiene) y que nada corte 127.0.0.1 — si falla cualquiera, el firmante ve un aviso del Gobierno diciendo que no la tiene instalada, teniéndola. Ahora se cae al **servidor intermedio** (`afirma://sign?…&stservlet=<origen>/api/…`), que no usa ni puertos ni certificados locales y funciona con **cualquier Autofirma desde la 1.5**; y a un clic queda el **modo compatible** con `ver=1` para las que rechazan la versión 4 del protocolo (automáticos van DOS, no tres: el tercero suma otro minuto de espera a todos y no arregla un "no responde nada"). **REGLA — un intento nuevo solo se lanza si el anterior NO llegó a Autofirma**: si el firmante canceló o su certificado no sirve, reintentar le abre Autofirma encima; se clasifica por el **CÓDIGO** (`AS6200xx`, enum cerrado) y solo por el texto cuando no lo hay. **REGLA — los diálogos propios de autoscript van APAGADOS**, o el error no llega al callback y el fallback no se dispara nunca. Un documento >3 MB **se salta el WebSocket** (`AS620018`: se firma y no vuelve). ⚠️ El `setServlets` que había en el modal **no hacía nada** — `AppAfirmaWebSocketClient` no expone ese método y el servidor intermedio solo entra con `setForceWSMode(true)`, que significa *forzar modo WebService*, no *WebSocket*. Fuente única: [features/firma/autofirma.js](implementation/frontend/src/features/firma/autofirma.js), que usan las 9 pantallas que firman a través de `FirmarConCertificadoModal`. `POST /api/afirma-diagnostico` deja en el log en qué máquina y con qué código ha fallado (navegador y código, **nunca el documento ni datos del firmante**): sin eso, el mismo síntoma lo dan tres causas distintas. Tras tocarlo: `node implementation/backend/scripts/test_autofirma_caminos.mjs`. Ver "Autofirma no falla igual en todos los ordenadores".
+55. **Autofirma no falla igual en todos los ordenadores, y la app prueba DOS caminos**: `autoscript.js` elige siempre `wss://127.0.0.1:<puerto>`, que exige a la vez Autofirma ≥1.7, su **certificado SSL local vigente** en el almacén del navegador (caduca; y un perfil de Firefox creado después no lo tiene) y que nada corte 127.0.0.1 — si falla cualquiera, el firmante ve un aviso del Gobierno diciendo que no la tiene instalada, teniéndola. ⛔ **El fallback por servidor intermedio se probó el 16/09 y se APAGÓ el 17/09** (`SERVIDOR_INTERMEDIO_ACTIVO = false`): **corrompía el documento firmado** — Autofirma sube su resultado a nuestro servlet como `x-www-form-urlencoded` y ahí un `+` del Base64 se vuelve ESPACIO, así que las tres firmas de 26RES060_179 salieron truncadas o con el ByteRange inválido (295 de 298 firmados anteriores, por WebSocket, están íntegros). Hoy el plan es **solo WebSocket**, como antes; para reactivarlo hay que arreglar `afirmaStorage.js` y **comprobar la firma en un lector**, no el flujo simulado. **REGLA — un intento nuevo solo se lanza si el anterior NO llegó a Autofirma**: si el firmante canceló o su certificado no sirve, reintentar le abre Autofirma encima; se clasifica por el **CÓDIGO** (`AS6200xx`, enum cerrado) y solo por el texto cuando no lo hay. **REGLA — los diálogos propios de autoscript van APAGADOS**, o el error no llega al callback y el fallback no se dispara nunca. Y un **PDF ROTO se para antes de abrir Autofirma** (`pdfIncompleto`): pdf.js reconstruye el índice de un PDF truncado, así que el modal lo pinta perfecto y el único que se queja es Autofirma, con `SAF_28`. No se repara — reescribirlo invalidaría la firma que ya lleva dentro. ⚠️ El `setServlets` que había en el modal **no hacía nada** — `AppAfirmaWebSocketClient` no expone ese método y el servidor intermedio solo entra con `setForceWSMode(true)`, que significa *forzar modo WebService*, no *WebSocket*. Fuente única: [features/firma/autofirma.js](implementation/frontend/src/features/firma/autofirma.js), que usan las 9 pantallas que firman a través de `FirmarConCertificadoModal`. `POST /api/afirma-diagnostico` deja en el log en qué máquina y con qué código ha fallado (navegador y código, **nunca el documento ni datos del firmante**): sin eso, el mismo síntoma lo dan tres causas distintas. Tras tocarlo: `node implementation/backend/scripts/test_autofirma_caminos.mjs`. Ver "Autofirma no falla igual en todos los ordenadores".
 
 56. **SUBVENCIONES se autoguarda, y sus enums NO pueden ir a MAYÚSCULAS**: era el único módulo de la ficha con botón manual —al final de una pantalla larga—, así que se marcaba el bono social, se cambiaba de pestaña y se perdía. Ahora autoguarda con el mismo modelo que Instalación (freno de 900 ms + referencia de lo último persistido) y manda **solo su clave** (`mergeDocumentacion` funde en el backend), con acuse en pantalla en vez de botón. Y la causa de fondo: `normalizeData` subía `documentacion.subvenciones` a MAYÚSCULAS, donde `leerSubvenciones` **descarta lo que no case EXACTO** con el enum en minúscula — el bono se guardaba como `ELECTRICO_VULNERABLE`, al releer desaparecía y el Anexo I imprimía «Ninguno de los anteriores» (medido en 26RES060_165). La clave va a la **BLACKLIST** y la lectura **rescata** lo ya escrito casando sin distinguir mayúsculas (`canon`/`canonId`, mismo criterio que `rescatarHueco` en la envolvente): cubre `bono_social.tipos`, `catalogo_id`, `estado` y `fondo_nacional` — este último se compara con `=== 'si'` y **viaja al verificador** en `SE_fondo_nacional`, así que en MAYÚSCULAS se le declaraba lo contrario. ⚠️ Y lo que se escriba con las herramientas de anotación del VISOR sobre el PDF de un impreso oficial no se guarda ni se envía: lo dice ya la barra de `DocumentoOficialPreview`; para marcar a mano está el formato Clásico, cuyo estado sí viaja en `overrides.anexo1`. Tras tocarlo: `node implementation/backend/scripts/test_subvenciones_bono.mjs`. Ver "Lo que el FLAG esconde y lo que MAYÚSCULAS borra".
 
