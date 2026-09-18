@@ -1966,6 +1966,8 @@ router.post('/cifo-upload/:expedienteId', upload.single('cifo'), async (req, res
                     message: `El instalador *${instalador}* ha subido el *Certificado CIFO firmado* del expediente *${numexpte}*.\n\nCliente: *${clienteNombre}*\n\nQueda pendiente de revisión por vuestra parte.`,
                     primaryLink: fileLink || null,
                     primaryLabel: '📄 Ver documento en Drive',
+                    secondaryLink: `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${expedienteId}`,
+                    secondaryLabel: '📂 Abrir expediente en la app',
                     pill: { tone: 'success', text: 'CIFO firmado', emoji: '✅' },
                 });
             } catch (e) { console.error('[CIFO upload] Email notify error:', e.message); }

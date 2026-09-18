@@ -1763,7 +1763,7 @@ const sendAnexosFirmadosEmail = async ({ to, numExp, partes, clienteData, cesion
  */
 // Construye (sin enviar) el HTML+texto del email de documento. Exportado aparte
 // para poder previsualizarlo/testearlo sin SMTP.
-function buildDocumentEmailHtml({ subject, title, message, primaryLink, primaryLabel, secondaryNote, pill }) {
+function buildDocumentEmailHtml({ subject, title, message, primaryLink, primaryLabel, secondaryLink, secondaryLabel, secondaryNote, pill }) {
     const rawLines = String(message || '').split('\n');
     const bodyLines = primaryLink
         ? rawLines.filter(l => !l.includes(primaryLink))
@@ -1775,6 +1775,12 @@ function buildDocumentEmailHtml({ subject, title, message, primaryLink, primaryL
 
     const buttonBlock = primaryLink
         ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0 20px 0;"><tr><td align="center">${emailButton(primaryLink, primaryLabel || 'Abrir enlace', BRAND.orange)}</td></tr></table>`
+        : '';
+    // Botón secundario (outline): el mismo hueco que usa "Ver Expediente" en el
+    // aviso de anexos firmados, pero disponible para cualquier email de documento
+    // — lleva DIRECTO al expediente de la app, no solo al fichero en Drive.
+    const secondaryButtonBlock = secondaryLink
+        ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px 0;"><tr><td align="center">${emailOutlineButton(secondaryLink, secondaryLabel || 'Abrir en la app')}</td></tr></table>`
         : '';
     const noteBlock = secondaryNote
         ? emailP(secondaryNote, { size: 13, color: BRAND.muted, center: true, mb: 0 })
@@ -1789,7 +1795,7 @@ function buildDocumentEmailHtml({ subject, title, message, primaryLink, primaryL
         preheader: subject,
         title: title || 'BROKERGY · Ingeniería Energética',
         pill: resolvedPill,
-        contentHtml: emailP(bodyHtml, { mb: buttonBlock ? 22 : 6 }) + buttonBlock + noteBlock,
+        contentHtml: emailP(bodyHtml, { mb: buttonBlock ? 22 : 6 }) + buttonBlock + secondaryButtonBlock + noteBlock,
     });
     return { html, text: cleaned };
 }
@@ -1798,8 +1804,8 @@ function buildDocumentEmailHtml({ subject, title, message, primaryLink, primaryL
 // `to`. Es una copia DE VERDAD (el destinatario ve quién más lo ha recibido), no
 // N correos sueltos: al instalador se le manda a firmar y su comercial tiene que
 // ver el mismo hilo, no otro correo idéntico del que nadie sabe que existe.
-const sendDocumentEmail = async ({ to, cc, subject, title, message, primaryLink, primaryLabel, secondaryNote, attachments, pill, from }) => {
-    const { html, text } = buildDocumentEmailHtml({ subject, title, message, primaryLink, primaryLabel, secondaryNote, pill });
+const sendDocumentEmail = async ({ to, cc, subject, title, message, primaryLink, primaryLabel, secondaryLink, secondaryLabel, secondaryNote, attachments, pill, from }) => {
+    const { html, text } = buildDocumentEmailHtml({ subject, title, message, primaryLink, primaryLabel, secondaryLink, secondaryLabel, secondaryNote, pill });
     return sendMail({ to, cc, subject, html, text, attachments, from });
 };
 
