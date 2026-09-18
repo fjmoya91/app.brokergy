@@ -29,6 +29,10 @@ import { PanelAdministrativos, PanelEconomico, PanelGenerales, PanelInstalacione
 //: compone cada URL con ello. Sale de la dirección de la ventana, no del
 //: expediente cargado (ver `apiEnvolvente.js`).
 import { api, esCeeDirecto as enCeeDirecto } from '../logic/apiEnvolvente';
+//: Las dos peticiones LARGAS de esta ventana —medir el edificio y escribir el
+//: `.cex`— pasan por aquí: repite sola la que no llegó a salir y devuelve el
+//: fallo ya redactado, en vez de la misma frase para seis causas distintas.
+import { postEnvolvente } from '../logic/pedirEnvolvente';
 
 export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     const id = expediente?.id;
@@ -183,11 +187,17 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             // tachar sus paredes y dejar la casa abierta por ahí.
             const fuera = cuerposFuera ?? cuerposPedidos.current;
             cuerposPedidos.current = fuera || [];
-            const { data } = await axios.post(api(id, 'geometria'),
-                { referencia_catastral: rc, cuerpos_excluidos: fuera || [] });
+            const data = await postEnvolvente(api(id, 'geometria'),
+                { referencia_catastral: rc, cuerpos_excluidos: fuera || [] },
+                // Repetible: medir NO escribe nada —lee Catastro, y el motor lo
+                // tiene cacheado—, así que una petición que no ha llegado se
+                // puede volver a mandar sin consecuencias.
+                { haciendo: 'construir la envolvente', repetible: true });
             setGeo(data);
         } catch (e) {
-            setError(e.response?.data?.error || 'No se pudo construir la envolvente.');
+            // Ya viene redactado: qué ha fallado y qué hacer con ello. El
+            // respaldo es por si algo revienta antes de llegar a la petición.
+            setError(e.mensaje || e.message || 'No se pudo construir la envolvente.');
         } finally {
             setCargando(false);
         }
@@ -515,7 +525,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         setGenerando(true); setGenerandoFase(fase);
         setError(null); setAvisos(null); setGuardado(null);
         try {
-            const { data } = await axios.post(api(id, 'cex'), {
+            const data = await postEnvolvente(api(id, 'cex'), {
                 geometria: geo.geometria,
                 envolvente: plano.loSenalado(),
                 // Lo marcado solo vale para la fase que se está previsualizando:
@@ -523,7 +533,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                 // las medidas que se eligieron para el contrario.
                 medidas: fase === fichaFase ? medidasSel : null,
                 ajustes: cfg, fase,
-            });
+            }, { haciendo: 'generar el .cex' });
             setGuardado(data);
             setAvisos(data.avisos || null);
             // El enlace de la carpeta es el FINAL del recorrido: es lo que se le
@@ -534,8 +544,8 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         } catch (e) {
             // 422 = el motor NO ha escrito el fichero a propósito. Es una
             // respuesta, no una caída: lleva dentro qué le falta.
-            const d = e.response?.data;
-            setError(d?.error || 'No se pudo generar el .cex.');
+            const d = e.datos || e.response?.data;
+            setError(e.mensaje || d?.error || 'No se pudo generar el .cex.');
             if (d?.avisos?.length) setAvisos(d.avisos);
         } finally {
             setGenerando(false); setGenerandoFase(null);

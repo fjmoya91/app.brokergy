@@ -9033,6 +9033,77 @@ piscina y Anexo VI) y **+198 px** en el RES080.
 
 ---
 
+## «No se pudo construir la envolvente» no era una causa (2026-09-18)
+
+La ventana del certificador enseñó esa frase y nada más. Comprobado contra
+producción ese mismo día: el contenedor `cee-engine` levantado, **la MISMA
+referencia catastral (4065305WJ3446E) medida en 34,5 s con un 200** desde dentro
+de la red del VPS — y **ni una petición de geometría** en el log de nginx ni en
+el del backend. Ninguna. La petición no llegó a salir del navegador, y esas seis
+palabras no lo decían.
+
+| Qué | Dónde |
+|---|---|
+| Reintento, explicación del fallo y anotación | [pedirEnvolvente.js](implementation/frontend/src/features/cee-envolvente/logic/pedirEnvolvente.js) |
+| Ruta del diagnóstico | `POST /api/cee-envolvente/diagnostico` (**internalOnly**, declarada ANTES que `/:expedienteId/…`) |
+| Plazo de la pasarela | `location ~ ^/api/cee-envolvente/` con 300 s, a mano en el VPS |
+| Prueba | `node implementation/backend/scripts/test_envolvente_fallos.mjs` |
+
+**REGLA — un mensaje de error tiene que decir QUÉ ha pasado.** Esa frase cubría a
+la vez el motor caído, Catastro bloqueado, el corte de la pasarela, la sesión
+caducada y un tropiezo de la red. Con todas iguales no hay nada que mirar y lo
+único que se puede hacer es volver a pulsar a ciegas — que es exactamente lo que
+pasó: cuatro aperturas de la página en trece minutos. Ahora cada causa dice lo
+suyo **con el paso siguiente pegado**, y el texto del backend se CONSERVA y se le
+añade el consejo detrás: sustituirlo pierde el dato (`Catastro: 403`) y dejarlo
+solo no dice si hay que esperar, reintentar o avisar.
+
+**REGLA — una petición que NO HA LLEGADO se repite UNA vez, sola.** Sin respuesta
+del servidor no ha pasado nada al otro lado. Y es justo el caso que se arregla
+solo: una conexión **HTTP/2 reutilizada que el servidor acaba de cerrar tumba el
+POST y no el GET** —el navegador reintenta los GET por su cuenta y los POST no—,
+que es literalmente lo que se midió ese día (todos los GET de la página en 200 y
+el POST sin rastro en ningún log). Un tropiezo de red dura un segundo.
+
+**REGLA — `repetible` lo dice QUIEN LLAMA, nunca se deduce.** Sin respuesta no hay
+forma de distinguir «no llegó a salir» de «llegó y se murió el camino de vuelta»,
+así que repetir solo es seguro cuando la petición **no escribe nada**: medir el
+edificio lo es (lee Catastro, y el motor lo tiene cacheado), escribir el `.cex`
+**no** —toca Drive y archivaría en OLD una copia de más—.
+
+**REGLA — un fallo CON respuesta no se repite.** El servidor ya ha contestado que
+no, y en un 502 al otro lado está el **WAF del que depende el buscador de la app**:
+insistir es la forma de que nos bloquee la IP. Por eso ese mensaje dice
+expresamente que no se insista.
+
+**REGLA — lo que falla se ANOTA en el servidor.** Un fallo que solo vive en la
+pantalla de quien lo sufre no se puede diagnosticar después: lo que llega por
+teléfono es «no me funciona». Mismo patrón que `/api/afirma-diagnostico`, y con el
+mismo cuidado — ruta, código y navegador, **nunca** el expediente ni datos de
+nadie. Para leerlo: `docker logs brokergy-backend | grep ceeEnvolvente`.
+
+### Y la pasarela cortaba antes que el backend
+
+`/api/` va con `proxy_read_timeout 120s` y el backend espera **180 s** para medir
+(`ESPERA_ENVOLVENTE_MS`) y 120 s para escribir el `.cex`. Con nginx cortando
+primero, lo que llega al navegador es **su página HTML**: `data.error` no existe y
+el mensaje caía en el genérico — la misma frase, otra causa más. Es el mismo fallo
+que ya costó un diagnóstico en las rutas de lote (regla 40), así que se le da su
+propia `location` con **300 s**, para que el que mande sea el plazo del backend,
+que sí explica que ha sido el motor.
+
+Aplicada **a mano en el VPS** (`nginx/nginx.conf`, que está divergido del repo) y
+con `docker compose restart nginx`, nunca `reload`, por el gotcha del inodo del
+bind-mount. Ver `deploy_workflow`.
+
+⚠️ Lo que aquí **no** se puede afirmar: no hay prueba directa de cuál de las dos
+—conexión HTTP/2 medio cerrada o tropiezo de red— tumbó aquella petición, porque
+no dejó rastro en ningún sitio. Lo que sí está medido es que **no llegó**, y las
+dos se arreglan igual. Si vuelve a pasar, **lo primero es la línea del log**, no
+volver a suponer.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -9199,6 +9270,8 @@ piscina y Anexo VI) y **+198 px** en el RES080.
 52. **El BORRADOR para presentar el CEE en el Registro**: botón **📄 Presentar el CEE** dentro de Ayudas CE3X — un popup con cada casilla del formulario telemático lista para copiar, más un PDF descargable que **viaja adjunto en el visto bueno** al certificador (`adjuntarBorrador`, por defecto sí, en el CAE y en los CEE directos). **NO es una réplica del impreso**: el trámite se rellena en la sede y no hay PDF que rellenar (a diferencia de las fichas RES, regla 41), así que lo que se genera es una GUÍA de qué va en cada casilla, en su orden, y **qué X marcar y cuál dejar sin marcar**. **Solo CASTILLA-LA MANCHA** (procedimiento 020264 · SIACI SJM3): fuera de ahí no se genera y se dice de qué comunidad es — cada una tiene su trámite y sus casillas. En el apartado 05 manda **lo que dice el propio certificado** (`cee_{fase}.identificacion`), que es contra lo que compara el Registro; el troceo de la vía se PROPONE con el original al lado y **lo ambiguo no se reparte a ojo**; y se avisa del **plazo de UN MES** desde la emisión, que es lo único que cuesta dinero. Los documentos anexados NO se copian: se DESCARGAN ya renombrados (`GET /:id/borrador-cee/fichero`), con el nombre REAL que tienen en Drive y el NIF delante — uno compuesto no coincidiría (medido en 26RES060_187: sus ficheros llevan `_REVISADO`). El teléfono y el correo del solicitante caen a su **persona de contacto** si el titular no los tiene, diciéndolo con su nombre ([utils/contactoCliente.js](implementation/frontend/src/utils/contactoCliente.js), compartido con la ficha del `.cex`). Es `staffOnly`: al técnico le llega adjunto, que es cuando puede presentar. ⚠️ `parseCeeXml` no leía la calificación de **EMISIONES** (solo la de energía primaria) y los certificados ya subidos no la tienen: se relee del `.xml` crudo con **`leerCalificacionesDeTexto`**, un lector SIN DOM — `DOMParser` no existe en Node y `parseEpnrFromXml` allí devuelve vacío **en silencio**. Fuente única: [logic/borradorCee.js](implementation/frontend/src/features/expedientes/logic/borradorCee.js). Tras tocarlo: `node implementation/backend/scripts/test_borrador_cee.mjs`. Ver "PRESENTAR el CEE en el Registro".
 
 60. **La PLACA de la unidad exterior va DENTRO del certificado cuando el SCOP_dhw se justifica por el ANEXO VI**: ahí se declara `SCOP_dhw = COP · F_c` y el **COP a A7/W55 no lo publican todas las fichas técnicas** — está en la placa, y sin ella el verificador ve un COP que no encuentra en la documentación aportada (inexactitud abierta el 16/09/2026). **La foto no se sube otra vez**: se coge de Drive, del slot `FOTO_UNIDAD_EXTERIOR_PLACA`, el mismo del que el lector de placas saca el nº de serie (medido: 12 de los 25 expedientes con Anexo VI ya la tienen, 3 con varias). **Con varias se ELIGE** —una unidad exterior lleva dos etiquetas y cuál trae el COP lo sabe quien las mira— y la elección se guarda en `instalacion.placa_scop_acs` (solo el driveId, regla 21); si esa foto desaparece de Drive se cae a la primera **diciéndolo**. **Se imprime DOS veces**: en el recuadro del cálculo (208 px — dice de dónde sale el número, no se lee) y a página completa como anexo, que es donde el verificador lo lee. Va como **data URI** (Puppeteer rasteriza sobre `about:blank`), pedida a Drive ya reducida a 1600 px: 242-268 KB medidos. Un fallo al resolverla **no tumba la generación**: sale como aviso. **Se pulsa la foto y se RECORTA** (el mismo ReactCrop del Anexo Fotográfico), pero lo que se guarda es el RECUADRO — `{x,y,w,h}` en % más la relación de aspecto—, no la imagen recortada: el original sigue entero en Drive, el recorte se deshace, el anexo conserva la resolución del trozo que se va a leer y el certificado sale igual desde el backend. El encuadre se calcula en PÍXELES (`placaImgHtml`): un `top` en % se resuelve contra la altura de la CAJA y descoloca la foto. **Si no hay foto se puede SOLTAR en el propio popup**, y sube por la ruta de siempre (`/api/public/reforma-docs/:oportunidad/FOTO_UNIDAD_EXTERIOR_PLACA`, que admite sesión de staff sin token): entra en el slot de toda la vida y queda elegida, sin una segunda vía de subida que mantener. La banda es UNA pieza para los dos popups ([PlacaScopAcsBanda.jsx](implementation/frontend/src/features/expedientes/components/PlacaScopAcsBanda.jsx) + [usePlacaScopAcs.js](implementation/frontend/src/features/expedientes/logic/usePlacaScopAcs.js)). El **Certificado RES080 la lleva igual** (mismo Anexo VI, mismo slot documental). De paso, el bloque del Anexo VI y su `FC_TABLE`, que estaban TRIPLICADOS (CIFO, RES080 y su modal), pasan a fuente única: `scopAcsAnexoViHtml` / `placaAnexoContenido` en [cifoDoc.js](implementation/frontend/src/features/expedientes/logic/cifoDoc.js); la búsqueda y el servicio de la foto, en [placaScopAcs.js](implementation/backend/services/placaScopAcs.js). Tras tocarlo: `node implementation/backend/scripts/test_placa_scop_acs.mjs` **y los dos medidores de hojas**. Ver "La PLACA de la unidad exterior, dentro del certificado".
+
+61. **«No se pudo construir la envolvente» no era una causa**: esa frase cubría a la vez el motor caído, Catastro bloqueado, el corte de la pasarela, la sesión caducada y un tropiezo de red, así que no había nada que mirar. Medido el 18/09/2026: el motor levantado, la misma RC medida en **34,5 s con un 200** desde el VPS, y **ni una petición de geometría en el log de nginx ni en el del backend** — la petición no llegó a salir del navegador. Ahora cada causa dice lo suyo con el paso siguiente pegado (el texto del backend se CONSERVA y el consejo va detrás), **la que no ha llegado se repite UNA vez sola** —sin respuesta no ha pasado nada al otro lado, y una conexión HTTP/2 reutilizada y ya cerrada tumba el POST y no el GET, que es justo lo que se midió— y el fallo se ANOTA en el servidor (`POST /api/cee-envolvente/diagnostico`, declarada ANTES que `/:expedienteId/…`; ruta, código y navegador, nunca datos de nadie). **`repetible` lo dice quien llama**: medir no escribe y se puede repetir, escribir el `.cex` toca Drive y no. Un fallo CON respuesta NO se repite —en un 502 al otro lado está el WAF del buscador—. Y `/api/cee-envolvente/` tiene ya su propia `location` de nginx con **300 s**: con los 120 s de `/api/` cortaba la pasarela antes que el backend (que espera 180 s) y lo que llegaba era su HTML, o sea otra vez el mensaje genérico — el mismo fallo de la regla 40. Fuente única: [pedirEnvolvente.js](implementation/frontend/src/features/cee-envolvente/logic/pedirEnvolvente.js). Tras tocarlo: `node implementation/backend/scripts/test_envolvente_fallos.mjs`. Ver "«No se pudo construir la envolvente» no era una causa".
 
 ---
 

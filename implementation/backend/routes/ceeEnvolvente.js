@@ -95,6 +95,36 @@ async function alMotor(ruta, cuerpo, ms) {
 }
 
 /**
+ * POST /api/cee-envolvente/diagnostico
+ *
+ * Qué ha fallado en la ventana del certificador y desde qué máquina. No escribe
+ * en base de datos: es una línea en el log, que es donde se mira cuando alguien
+ * dice «no me funciona».
+ *
+ * REGLA — se declara ANTES que `/:expedienteId/...` o Express tomaría
+ * «diagnostico» por un id de expediente (mismo gotcha que `/fin-obra` en las
+ * subidas públicas y `/parte/global` en las acciones).
+ *
+ * REGLA — aquí NO entra nada del expediente ni del cliente: la ruta, el código
+ * del fallo y el navegador. Mismo criterio que `/api/afirma-diagnostico`.
+ */
+router.post('/diagnostico', internalOnly, express.json({ limit: '8kb' }), (req, res) => {
+    const b = req.body || {};
+    const texto = (v, n) => String(v == null ? '' : v).replace(/\s+/g, ' ').slice(0, n);
+    console.warn('[ceeEnvolvente] fallo en la ventana', JSON.stringify({
+        haciendo: texto(b.haciendo, 60),
+        ruta: texto(b.ruta, 120),
+        status: Number.isFinite(Number(b.status)) ? Number(b.status) : null,
+        codigo: texto(b.codigo, 40),
+        repetido: !!b.repetido,
+        mensaje: texto(b.mensaje, 200),
+        navegador: texto(b.navegador, 200),
+        ip: texto(req.headers['x-forwarded-for'] || req.ip, 60),
+    }));
+    res.status(204).end();
+});
+
+/**
  * POST /api/cee-envolvente/:expedienteId/geometria
  * Body: { referencia_catastral, altura_planta? }
  *
