@@ -1838,10 +1838,16 @@ function resolveScop(model, zone, temp, method = 'ficha') {
     // En clima cálido se usa scop_cal_calido_*; si está vacío o por debajo del
     // umbral mínimo (catálogo con dato basura), se hace fallback a scop_cal_medio_*.
     const SCOP_MIN = 2;
+    // Redondeo a 2 decimales SIEMPRE, aunque el dato de la ficha venga con más
+    // (a mano, o de un catálogo importado con más precisión de la que declara
+    // el fabricante): los otros métodos ('eprel', 'conjunto', 'independiente')
+    // ya redondean, y con éste dispar la misma pantalla mezclaba "4,62" con
+    // "4,017" según qué pestaña se mirara.
+    const round2 = (v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : v);
     const pickScop = (calido, medio) => {
         const c = warmZone ? parseFloat(calido) : NaN;
-        if (Number.isFinite(c) && c >= SCOP_MIN) return { value: c, warm: true };
-        return { value: parseFloat(medio), warm: false };
+        if (Number.isFinite(c) && c >= SCOP_MIN) return { value: round2(c), warm: true };
+        return { value: round2(parseFloat(medio)), warm: false };
     };
 
     let scop35 = pickScop(model.scop_cal_calido_35, model.scop_cal_medio_35);
@@ -1902,8 +1908,12 @@ export function getScopAcsFromModel(model, zone, method = 'ficha') {
 
     // CASO: Ficha Técnica (default) — valor directo de la BD
     // También captura legacy 'eprel' → ficha
+    // Redondeo a 2 decimales igual que 'conjunto' e 'independiente': sin esto, un
+    // scop_dhw_* con más precisión (tecleado a mano, o de un catálogo importado)
+    // salía tal cual en pantalla mientras los otros dos métodos ya venían a 2.
     let scopAcs = isWarm ? (model.scop_dhw_calido || model.scop_dhw_medio) : model.scop_dhw_medio;
-    return parseFloat(scopAcs || 3.0);
+    const n = parseFloat(scopAcs || 3.0);
+    return Number.isFinite(n) ? Math.round(n * 100) / 100 : n;
 }
 
 // ============================================================================

@@ -485,6 +485,13 @@ function buildPayload(body) {
     const num = (v) => (v !== undefined && v !== '' && v !== null ? parseFloat(v) : null);
     const str = (v) => (v !== undefined && v !== null && String(v).trim() !== '' ? String(v).trim() : null);
     const bool = (v) => (v === true || v === 'true' || v === 'SI' || v === 1 ? true : false);
+    // Los SCOP son de la ficha técnica del fabricante, pero cuando se teclean a
+    // mano llegan a veces con 3 decimales (o los arrastra un catálogo importado
+    // con más precisión de la que declara la ficha). El resto de la app los
+    // redondea a 2 en cuanto los calcula (`getScopAcsFromModel`, `resolveScop`);
+    // aquí, que es donde se ESCRIBEN, se hace lo mismo para que lo guardado sea
+    // ya lo que se va a mostrar, sin que cada lectura tenga que recordarlo.
+    const scop = (v) => { const n = num(v); return n === null ? null : Math.round(n * 100) / 100; };
 
     return {
         marca:                 str(body.marca)?.toUpperCase() || null,
@@ -500,12 +507,12 @@ function buildPayload(body) {
         modelo_ud_interior:    str(body.modelo_ud_interior),
         deposito_acs_incluido: bool(body.deposito_acs_incluido),
         litros_acs:            num(body.litros_acs),
-        scop_cal_calido_35:    num(body.scop_cal_calido_35),
-        scop_cal_calido_55:    num(body.scop_cal_calido_55),
-        scop_cal_medio_35:     num(body.scop_cal_medio_35),
-        scop_cal_medio_55:     num(body.scop_cal_medio_55),
-        scop_dhw_calido:       num(body.scop_dhw_calido),
-        scop_dhw_medio:        num(body.scop_dhw_medio),
+        scop_cal_calido_35:    scop(body.scop_cal_calido_35),
+        scop_cal_calido_55:    scop(body.scop_cal_calido_55),
+        scop_cal_medio_35:     scop(body.scop_cal_medio_35),
+        scop_cal_medio_55:     scop(body.scop_cal_medio_55),
+        scop_dhw_calido:       scop(body.scop_dhw_calido),
+        scop_dhw_medio:        scop(body.scop_dhw_medio),
         seer:                  num(body.seer),
         eta_calida_35:         num(body.eta_calida_35) < 10 && num(body.eta_calida_35) !== null ? num(body.eta_calida_35) * 100 : num(body.eta_calida_35),
         eta_calida_55:         num(body.eta_calida_55) < 10 && num(body.eta_calida_55) !== null ? num(body.eta_calida_55) * 100 : num(body.eta_calida_55),
