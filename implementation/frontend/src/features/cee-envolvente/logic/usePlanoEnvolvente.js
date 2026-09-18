@@ -74,6 +74,9 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                 for (const k of g.excluidas || []) {
                     if (nuevo[k]) nuevo[k].excluida = true;
                 }
+                for (const k of g.revisadas || []) {
+                    if (nuevo[k]) nuevo[k].revisada = true;
+                }
                 for (const [k, t] of Object.entries(g.tipos || {})) {
                     if (nuevo[k]) nuevo[k].tipo_manual = t;
                 }
@@ -134,6 +137,12 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
             .filter(m => m.como_particion).map(m => m.id),
         excluidas: Object.values(muros)
             .filter(m => m.excluida).map(m => m.id),
+        // Las que el certificador ha dado por REVISADAS. Se guardan con el
+        // trabajo porque son trabajo: mirar una fachada ciega, comprobar que no
+        // tiene ningún hueco y que al recargar vuelva a contar como pendiente
+        // es pedir que se mire dos veces lo mismo.
+        revisadas: Object.values(muros)
+            .filter(m => m.revisada).map(m => m.id),
         tipos: Object.fromEntries(Object.values(muros)
             .filter(m => m.tipo_manual).map(m => [m.id, m.tipo_manual])),
         nombres: Object.fromEntries(Object.values(muros)
@@ -163,6 +172,8 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                     .filter(m => m.como_particion).map(m => m.id),
                 excluidas: Object.values(muros)
                     .filter(m => m.excluida).map(m => m.id),
+                revisadas: Object.values(muros)
+                    .filter(m => m.revisada).map(m => m.id),
                 tipos: Object.fromEntries(Object.values(muros)
                     .filter(m => m.tipo_manual).map(m => [m.id, m.tipo_manual])),
                 nombres: Object.fromEntries(Object.values(muros)
@@ -219,8 +230,12 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                 m2 += (Number(h.ancho) || 0) * (Number(h.alto) || 0);
             }
         }
+        // Una pared DADA POR REVISADA sale de la cuenta aunque no lleve huecos:
+        // una fachada ciega no se puede resolver poniéndole una ventana que no
+        // tiene, y sin esta salida se quedaba contando como pendiente para
+        // siempre — un contador que nunca llega a cero se deja de mirar.
         const sinTocar = lista.filter(
-            m => !esMedianera(m) && !(m.huecos || []).length).length;
+            m => !esMedianera(m) && !m.revisada && !(m.huecos || []).length).length;
         const fuera = Object.values(muros).filter(m => esFuera(m)).length;
         // Una fachada SIN rumbo no se puede escribir, así que esto no es «algo
         // por confirmar»: es lo que va a parar el `.cex`. Se cuenta aquí para
@@ -431,6 +446,24 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
             return { ...v, [id]: { ...m, huecos: (m.huecos || []).map(h =>
                 h.uid === uid ? { ...h, lectura: recorta(lectura) } : h) } };
         });
+    }
+
+    /**
+     * Dar una pared por REVISADA.
+     *
+     * Es la pareja del «✓ OK» de un hueco, un escalón más arriba: ahí se da por
+     * buena una medida y aquí, la pared entera. Existe porque el contador de
+     * «paredes por mirar» solo se vaciaba poniendo huecos, y hay paredes que no
+     * tienen ninguno —una fachada ciega, un paño corto de patio—: la única
+     * forma de sacarlas de la cuenta era inventarles una ventana.
+     *
+     * NO viaja al `.cex` (`loSenalado` no lo manda) y no cambia ni una
+     * superficie: es la marca de que una persona ya la ha mirado. Por eso se
+     * puede quitar — decir «esta no la había mirado» tiene que costar lo mismo
+     * que decir que sí.
+     */
+    function marcaRevisada(id, si) {
+        setMuros(v => (v[id] ? { ...v, [id]: { ...v[id], revisada: !!si } } : v));
     }
 
     /** Una medianera lo es por lo que hay AL OTRO LADO, no por tocar. */
@@ -722,7 +755,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         confirmaHueco, confirmaPared,
         aplicaHuecosLeidos, anotaLecturaHueco,
         muevePared, dibujaPared, borraPared, esDibujada,
-        marcaComoParticion,
+        marcaComoParticion, marcaRevisada,
         apartaDeLaEnvolvente, reclasifica, renombra, ponU, orienta,
         cuerposFuera, sacaCuerpo, apartaParedesDe,
         loSenalado, restaurar,
@@ -853,7 +886,9 @@ export function estadoDe(m) {
     // Una medianera no lleva huecos: da contra el edificio de al lado. No está
     // "sin tocar", está resuelta.
     if (esMedianera(m) || esParticion(m)) return 'medido';
-    if (!(m.huecos || []).length) return 'falta';
+    // Sin huecos y REVISADA es una fachada ciega mirada y resuelta, no una
+    // pared a medias: en el plano deja de pedir atención.
+    if (!(m.huecos || []).length) return m.revisada ? 'medido' : 'falta';
     if (m.huecos.some(h => h.estado !== 'medido')) return 'dudoso';
     return 'medido';
 }

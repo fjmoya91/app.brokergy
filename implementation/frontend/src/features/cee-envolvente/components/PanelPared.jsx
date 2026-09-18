@@ -19,6 +19,7 @@ export function PanelPared({ plano, transmitancias, expedienteId }) {
     const { muros, sel, entrada, esMedianera, esParticion, esFuera, esDibujada,
             tipoDe, nombreDe,
             ponHuecos, cambiaHueco, duplicaHueco, quitaHueco, marcaComoParticion,
+            marcaRevisada,
             confirmaHueco, confirmaPared, muevePared, borraPared,
             apartaDeLaEnvolvente, reclasifica, renombra, ponU, orienta,
             rumboDe, necesitaRumbo, rumbosDe,
@@ -123,6 +124,14 @@ export function PanelPared({ plano, transmitancias, expedienteId }) {
                     <Marca dibujada={esDibujada(m)} antes={m.largo_catastro}
                            onDeshacer={esDibujada(m) ? () => borraPared(m.id)
                                                      : () => muevePared(m.id, null)} />
+                )}
+                {/* Dar la pared por mirada. Va JUNTO AL NOMBRE porque es lo
+                    último que se hace con ella y porque el contador que vacía
+                    —«quedan N paredes por mirar»— está arriba, no al final del
+                    panel. */}
+                {!fuera && (
+                    <Revisada si={!!m.revisada}
+                              onCambio={() => marcaRevisada(m.id, !m.revisada)} />
                 )}
             </div>
 
@@ -605,6 +614,31 @@ function Hueco({ h, onCambio, onDuplica, onQuita, onConfirma,
                     onLeido={onLeido} />
             )}
         </div>
+    );
+}
+
+/**
+ * La casilla de «ya la he mirado».
+ *
+ * Es una CASILLA y no un botón de acción («Dar por revisada») por dos motivos:
+ * se activa y se desactiva —decir que no la habías mirado tiene que costar lo
+ * mismo que decir que sí— y así, de un vistazo, se ve en qué estado está sin
+ * tener que leer nada. Dice lo que hace en su `title`, porque lo que cambia
+ * —el contador de arriba— está en la otra punta de la pantalla.
+ */
+function Revisada({ si, onCambio }) {
+    return (
+        <button onClick={onCambio}
+                aria-pressed={si}
+                title={si
+                    ? 'Revisada: no cuenta en «paredes por mirar». Pulsa para desmarcarla'
+                    : 'Darla por revisada: sale de «paredes por mirar» aunque no lleve huecos'}
+                className={`ml-auto shrink-0 rounded-md border px-2 py-1 text-[10.5px] font-bold
+                            uppercase tracking-[0.04em] transition
+                    ${si ? 'border-emerald-400/45 bg-emerald-400/10 text-emerald-300'
+                         : 'border-white/12 text-white/40 hover:border-white/25 hover:text-white/70'}`}>
+                {si ? '✓ Revisada' : '☐ Revisada'}
+        </button>
     );
 }
 
