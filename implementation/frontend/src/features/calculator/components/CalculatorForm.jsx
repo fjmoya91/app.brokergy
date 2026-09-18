@@ -660,7 +660,14 @@ export function CalculatorForm({
     // cifra calculada de otra manera sería enseñar una que luego no sale en la propuesta.
     const dacsForm = bloque
         ? resolveDacs(
-            { acs_method: inputs.acsMethod === ACS_METHOD.CTE ? ACS_METHOD.XML : inputs.acsMethod, dacs_manual: inputs.dacsManual },
+            {
+                acs_method: inputs.acsMethod === ACS_METHOD.CTE ? ACS_METHOD.XML : inputs.acsMethod,
+                dacs_manual: inputs.dacsManual,
+                // Los dos certificados: la demanda de ACS manda la del INICIAL
+                // (`baseAcs`), igual que en el cálculo y en el expediente.
+                cee_inicial: xmlDemandData || inputs.xmlDemandData || null,
+                cee_final: inputs.xmlDemandDataFinal || null,
+            },
             { demandaACS: ceeBaseForm?.demandaACS, superficieHabitable: supCeeForm },
           )
         : null;

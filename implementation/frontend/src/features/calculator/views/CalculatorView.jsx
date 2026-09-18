@@ -500,7 +500,15 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             || parseFloat(inputs.superficie) || 0;
         const dacsCalculada = (esTerciarioCalc || esBloqueCalc)
             ? resolveDacs(
-                { acs_method: acsMethodCalc, num_rooms: inputs.numRooms, dacs_manual: inputs.dacsManual },
+                {
+                    acs_method: acsMethodCalc, num_rooms: inputs.numRooms, dacs_manual: inputs.dacsManual,
+                    // Los dos certificados, para que aquí manden la MISMA regla y el
+                    // MISMO certificado que en el expediente: la demanda de ACS sale
+                    // del INICIAL (`baseAcs`). Sin ellos, la simulación usaría la del
+                    // final y el expediente recalcularía otro ahorro al aceptarla.
+                    cee_inicial: inputs.xmlDemandData || null,
+                    cee_final: inputs.xmlDemandDataFinal || null,
+                },
                 { demandaACS: ceeBaseCalc?.demandaACS, superficieHabitable: superficieCee },
             ).value
             : 2731.4;

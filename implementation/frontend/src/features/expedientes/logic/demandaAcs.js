@@ -9,6 +9,8 @@
 //
 // Modos (`expedientes.cee.acs_method`):
 //   · 'xml'    → del .xml del CEE: demandaACS (kWh/m²·año) · superficie útil (m²).
+//                De cuál de los DOS certificados lo decide `baseAcs`: manda el
+//                INICIAL (criterio del verificador, ver más abajo).
 //   · 'cte'    → estimación del Anejo F del CTE DB-HE para residencial privado:
 //                28 l/persona·día · N_P · C_e (0,001162 kWh/kg·°C) · 365 · ΔT(46°C),
 //                con N_P = nº de habitaciones + 1.
@@ -31,6 +33,67 @@
 // ============================================================================
 
 export const ACS_METHOD = { XML: 'xml', CTE: 'cte', LITROS: 'litros', MANUAL: 'manual' };
+
+// ─── De QUÉ certificado sale la demanda de ACS ───────────────────────────────
+// REGLA DEL VERIFICADOR (2026-09-17): la demanda de ACS tiene que ser LA MISMA
+// en el CEE inicial y en el final, y si no lo es, MANDA LA DEL INICIAL.
+//
+// Es la excepción a la regla general de `ceeFases.js` (con CEE final cargado
+// manda el final), y tiene su razón: la demanda de ACS es una propiedad del USO
+// del edificio —cuánta agua caliente se consume—, no de la envolvente ni del
+// generador, así que la actuación no la mueve. Si los dos certificados no dicen
+// lo mismo, la diferencia no describe una mejora: describe un criterio distinto
+// del técnico que levantó el segundo. El de partida es el que el verificador
+// toma como bueno, y es el que hay que declarar.
+//
+// La demanda de CALEFACCIÓN y la SUPERFICIE siguen saliendo del CEE que manda
+// (`ceeBaseDocumento`): ahí el final SÍ recoge el resultado de la obra, y en un
+// RES080 la diferencia entre los dos ES el ahorro que se justifica.
+
+/** Margen con el que se comparan las dos cifras. Por debajo son redondeos del
+ *  `.cex`; es el mismo 2 % que aplica el resto de la app. */
+export const ACS_TOL = 0.02;
+
+/**
+ * El certificado del que sale la demanda de ACS: el INICIAL siempre que la
+ * declare; si no la declara, lo que llegue como base.
+ *
+ * El escalón no es un matiz: un CEE inicial leído por OCR **no trae** demanda de
+ * ACS —el PDF del certificado no imprime esa tabla, solo está en el `.xml`—, así
+ * que exigir el inicial a ciegas dejaría a esos expedientes con D_ACS = 0 y el
+ * AE_ACS del documento se iría a cero sin que nada lo delatara. Cuando hay DOS
+ * cifras manda la del inicial; cuando solo hay una, se usa esa y se dice.
+ *
+ * @param {Object} cee      - `expedientes.cee`
+ * @param {Object} ceeBase  - el CEE que manda para lo demás (ver `ceeBaseDocumento`)
+ * @returns {{ base:Object, fase:('inicial'|'final'|null), hayDos:boolean, difiere:boolean, porM2Ini:number, porM2Fin:number }}
+ */
+export function baseAcs(cee = {}, ceeBase = {}) {
+    const ini = (cee || {}).cee_inicial || {};
+    const fin = (cee || {}).cee_final || {};
+    const porM2Ini = parseFloat(ini.demandaACS) || 0;
+    const porM2Fin = parseFloat(fin.demandaACS) || 0;
+    const hayDos = porM2Ini > 0 && porM2Fin > 0;
+    const difiere = hayDos && Math.abs(porM2Fin - porM2Ini) > porM2Ini * ACS_TOL;
+    const supBase = parseFloat((ceeBase || {}).superficieHabitable) || 0;
+
+    if (porM2Ini > 0) {
+        return {
+            // La superficie sale del MISMO certificado que la demanda por m², o el
+            // producto que imprime el documento no cuadraría con sus dos factores.
+            base: {
+                demandaACS: porM2Ini,
+                superficieHabitable: parseFloat(ini.superficieHabitable) || supBase,
+            },
+            fase: 'inicial', hayDos, difiere, porM2Ini, porM2Fin,
+        };
+    }
+    return {
+        base: ceeBase || {},
+        fase: porM2Fin > 0 ? 'final' : null,
+        hayDos, difiere, porM2Ini, porM2Fin,
+    };
+}
 
 /** Constantes de la fórmula del Anejo F del CTE DB-HE (residencial privado). */
 export const CTE_ACS = {
@@ -69,15 +132,22 @@ export function dacsLitros(cee = {}) {
 /**
  * Resuelve la demanda anual de ACS del expediente.
  *
+ * En modo 'xml' la cifra sale del certificado que dice `baseAcs` —el INICIAL
+ * siempre que la declare—, no del `ceeBase` que manda para la calefacción y la
+ * superficie. `acsFase` dice de cuál ha salido y `acsDifiere`, si los dos
+ * certificados no coinciden: es lo que hay que poder decir en el documento y en
+ * el aviso previo a generarlo.
+ *
  * @param {Object} cee      - `expedientes.cee`
  * @param {Object} ceeBase  - el CEE que manda (final si es válido, si no el inicial)
  * @param {Object} [extra]  - fallbacks de la oportunidad: { demandAcsFallback }
- * @returns {{ value:number, mode:string, dacsPorM2:number, superficie:number, personas:number, litrosDia:number }}
+ * @returns {{ value:number, mode:string, dacsPorM2:number, superficie:number, personas:number, litrosDia:number, acsFase:string, acsDifiere:boolean, acsHayDos:boolean, acsPorM2Ini:number, acsPorM2Fin:number }}
  */
 export function resolveDacs(cee = {}, ceeBase = {}, extra = {}) {
     const mode = cee.acs_method || ACS_METHOD.XML;
-    const superficie = parseFloat(ceeBase.superficieHabitable) || 0;
-    const dacsPorM2 = parseFloat(ceeBase.demandaACS) || 0;
+    const acs = baseAcs(cee, ceeBase);
+    const superficie = parseFloat(acs.base.superficieHabitable) || 0;
+    const dacsPorM2 = parseFloat(acs.base.demandaACS) || 0;
 
     let value;
     if (mode === ACS_METHOD.MANUAL) {
@@ -90,5 +160,10 @@ export function resolveDacs(cee = {}, ceeBase = {}, extra = {}) {
         value = dacsPorM2 * superficie || parseFloat(extra.demandAcsFallback) || 0;
     }
 
-    return { value, mode, dacsPorM2, superficie, personas: personasCte(cee), litrosDia: litrosDia(cee) };
+    return {
+        value, mode, dacsPorM2, superficie,
+        personas: personasCte(cee), litrosDia: litrosDia(cee),
+        acsFase: acs.fase, acsDifiere: acs.difiere, acsHayDos: acs.hayDos,
+        acsPorM2Ini: acs.porM2Ini, acsPorM2Fin: acs.porM2Fin,
+    };
 }

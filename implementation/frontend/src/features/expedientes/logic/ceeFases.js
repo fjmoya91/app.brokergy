@@ -8,6 +8,11 @@
 //
 //     SI HAY CEE FINAL, MANDA EL FINAL; SI NO, EL INICIAL.
 //
+// Con UNA excepción, que es del verificador y vive en `demandaAcs.js`: la
+// DEMANDA DE ACS manda la del CEE INICIAL, porque es una propiedad del uso del
+// edificio y la actuación no la mueve (ver `baseAcs`). Aquí solo se advierte de
+// ello; quien la resuelve es aquel módulo, que es el que la imprime.
+//
 // Estaba escrita en cuatro sitios y en otros cuatro no estaba: las fichas
 // RES060 y RES093 (y sus dos modales) leían `cee.cee_final` a secas, así que un
 // expediente sin CEE final —lo normal hasta que la obra termina— imprimía
@@ -19,6 +24,7 @@
 // ============================================================================
 
 import { acsEnAlcance, acsComputaAhorro } from './aerotermiaUnits.js';
+import { baseAcs } from './demandaAcs.js';
 
 // Se re-exporta para que quien pregunte "¿hay que avisar del ACS?" no tenga que
 // saber que la respuesta vive con los equipos. La función es UNA.
@@ -116,6 +122,7 @@ export const AVISO = {
     SIN_FINAL_ACS: 'sin_final_acs',
     SIN_FINAL_RES080: 'sin_final_res080',
     ACS_DIFIERE: 'acs_difiere',
+    ACS_DESDE_FINAL: 'acs_desde_final',
     CAL_DIFIERE: 'cal_difiere',
     ACS_NO_APLICA: 'acs_no_aplica',
     ACS_SIN_EQUIPO: 'acs_sin_equipo',
@@ -162,11 +169,16 @@ export function avisosCeeDocumento(expediente) {
                 + `(demanda ${fmt(ini.demandaCalefaccion)} kWh/m²·año · ${fmt(ini.superficieHabitable)} m²).`,
         });
         if (acs && acsDelCee) {
+            // Nota, no aviso: la del inicial es la que manda por criterio del
+            // verificador, así que registrar el final no la va a mover. Antes esto
+            // era un 'warn' que pedía revisarla "cuando se registre el final";
+            // con el criterio nuevo eso sería mandar a rehacer algo que ya está
+            // bien, y un aviso que no hay que atender enseña a no leer los avisos.
             out.push({
                 id: AVISO.SIN_FINAL_ACS,
-                nivel: 'warn',
-                texto: `La demanda de ACS sale también del CEE INICIAL (${fmt(ini.demandaACS)} kWh/m²·año). `
-                    + `Es la cifra que SÍ cambia entre los dos certificados: revísala cuando se registre el final.`,
+                nivel: 'info',
+                texto: `La demanda de ACS sale del CEE INICIAL (${fmt(ini.demandaACS)} kWh/m²·año), que es la que `
+                    + `manda también cuando se registre el final: no cambiará.`,
             });
         }
         if (esRes080) {
@@ -178,15 +190,33 @@ export function avisosCeeDocumento(expediente) {
             });
         }
     } else if (hayInicial) {
-        // Con los dos cargados manda el FINAL. Lo que se advierte es el descuadre.
-        const dAcsIni = num(ini.demandaACS);
-        const dAcsFin = num(fin.demandaACS);
-        if (acs && acsDelCee && dAcsIni > 0 && Math.abs(dAcsFin - dAcsIni) > dAcsIni * CEE_TOL) {
+        // Con los dos cargados manda el FINAL para la calefacción y la superficie,
+        // y el INICIAL para la demanda de ACS. Lo que se advierte es el descuadre.
+        // Quién decide de qué certificado sale la D_ACS es `baseAcs`, no este
+        // aviso: con dos criterios, la pantalla diría una cosa y el documento
+        // imprimiría otra.
+        const { fase: faseAcs, difiere: acsDifiere, porM2Ini: dAcsIni, porM2Fin: dAcsFin } = baseAcs(cee, fin);
+        if (acs && acsDelCee && acsDifiere) {
             out.push({
                 id: AVISO.ACS_DIFIERE,
                 nivel: 'warn',
                 texto: `La demanda de ACS del CEE FINAL (${fmt(dAcsFin)}) no coincide con la del INICIAL `
-                    + `(${fmt(dAcsIni)} kWh/m²·año). Se usa la del FINAL, que es lo correcto; compruébalo antes de firmar.`,
+                    + `(${fmt(dAcsIni)} kWh/m²·año). Debería ser la misma —la actuación no cambia el consumo de agua `
+                    + `caliente—, así que el documento se genera con la del INICIAL, que es el criterio del `
+                    + `verificador. Compruébalo antes de firmar.`,
+            });
+        }
+        // El inicial no declara su demanda de ACS (es el caso de un CEE leído por
+        // OCR: el PDF no imprime esa tabla). Entonces la cifra sale del final por
+        // necesidad, no por criterio, y hay que decirlo: es la única forma de
+        // saber que ahí falta el `.xml` del inicial.
+        if (acs && acsDelCee && faseAcs === 'final') {
+            out.push({
+                id: AVISO.ACS_DESDE_FINAL,
+                nivel: 'warn',
+                texto: `El CEE INICIAL no declara demanda de ACS, así que el documento usa la del FINAL `
+                    + `(${fmt(dAcsFin)} kWh/m²·año). El criterio es la del inicial: si tienes su `
+                    + `.xml, cárgalo —un CEE leído de un PDF no trae esa cifra.`,
             });
         }
         const dCalIni = num(ini.demandaCalefaccion);

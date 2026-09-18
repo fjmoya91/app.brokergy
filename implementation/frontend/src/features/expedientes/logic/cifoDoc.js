@@ -213,15 +213,28 @@ export function deriveCifoData({ expediente, results }) {
 
     // CEE base: final si está cargado; si no, inicial. Fuente única en ceeFases.js
     // (la comparten la ficha RES, el panel económico y el aviso previo a generar).
-    const { base: ceeFinal } = ceeBaseDocumento(cee);
+    const { base: ceeFinal, hayFinal: ceeHayFinal, hayInicial: ceeHayInicial } = ceeBaseDocumento(cee);
     const dcalRaw = parseFloat(ceeFinal.demandaCalefaccion) || 0;
     const dcal = dcalRaw.toFixed(2).replace('.', ',');
     const sRaw = parseFloat(ceeFinal.superficieHabitable) || 0;
     const sStr = sRaw.toFixed(2).replace('.', ',');
 
     // Demanda de ACS: fuente única en logic/demandaAcs.js (xml del CEE · CTE · manual).
+    // En modo 'xml' la cifra sale del CEE INICIAL (criterio del verificador: ver
+    // `baseAcs`), NO del que manda para la calefacción y la superficie. Los dos
+    // factores que imprime el párrafo de justificación se leen del resultado, no
+    // de `ceeFinal`: si se cogieran de ahí, el documento enseñaría una multiplicación
+    // cuyo producto no es el D_ACS que declara su propia tabla de variables.
     const acsResolved = resolveDacs(cee, ceeFinal);
     const acsMode = acsResolved.mode;
+    const acsPorM2Str = acsResolved.dacsPorM2.toFixed(2).replace('.', ',');
+    const acsSupStr = acsResolved.superficie.toFixed(2).replace('.', ',');
+    // Se nombra la fase solo cuando el expediente tiene los DOS certificados: es
+    // entonces cuando "el certificado" es ambiguo y quien revisa necesita saber
+    // de cuál de los dos se ha copiado la cifra. Con uno solo, decirlo sobra.
+    const acsFaseStr = (ceeHayFinal && ceeHayInicial && acsResolved.acsFase)
+        ? ` ${acsResolved.acsFase === 'final' ? 'final' : 'inicial'}`
+        : '';
     const numRooms = parseInt(cee.num_rooms) || 4;
     const numPeople = acsResolved.personas;
     const litrosDiaAcs = acsResolved.litrosDia;
@@ -472,6 +485,7 @@ export function deriveCifoData({ expediente, results }) {
         isHybrid, isTerciario, isTer173, cbAnexo, cbIncompleto, numexpte, zoneStr, zoneLabel,
         // variables de la fórmula
         dcal, dcalRaw, sStr, sRaw, dacsStr, acsMode, numRooms, numPeople, litrosDiaStr,
+        acsPorM2Str, acsSupStr, acsFaseStr,
         etaStr, scopCalStr, scopCalRaw, scopAcsStr, scopAcsRaw,
         aeKwh, aeKwhVal, beneficioStr, savingsKwhDoc, terciarioSavingsKwh,
         // localización / propietario
@@ -645,6 +659,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         inst, cli, ceeFinal,
         isHybrid, isTerciario, isTer173, cbAnexo, numexpte, zoneStr, zoneLabel,
         dcal, sStr, dacsStr, acsMode, numRooms, numPeople, litrosDiaStr,
+        acsPorM2Str, acsSupStr, acsFaseStr,
         etaStr, scopCalStr, scopCalRaw, scopAcsStr, scopAcsRaw,
         aeKwh, aeKwhVal,
         locCA, locFullDir, locRefCat, locUtmX, locUtmY, facturasList,
@@ -1097,7 +1112,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             // proyecto, así que se aporta como dato del expediente, no por fórmula.
             ? `<p style="margin:0 0 6px;font-size:12.5px;color:#4a4a44;line-height:1.6;">La demanda anual de agua caliente sanitaria del edificio es de <b style="color:#1A1A1A;">${dacsStr} kWh/año</b>, determinada conforme al Anexo V de la ficha ${cifoLabel} (demanda anual de ACS) a partir del uso y de la ocupación reales del edificio recogidos en el proyecto de la instalación térmica, que se aporta como documentación justificativa del expediente CAE.</p>`
             : acsMode === ACS_METHOD.XML
-            ? `<p style="margin:0 0 6px;font-size:12.5px;color:#4a4a44;line-height:1.6;">La demanda de ACS ha sido calculada según el archivo .xml del certificado de eficiencia energética cuyo valor es <b style="color:#1A1A1A;">${parseFloat(ceeFinal.demandaACS || 0).toFixed(2).replace('.', ',')} kWh/m²·año</b>, que multiplicado por la superficie habitable (<b style="color:#1A1A1A;">${parseFloat(ceeFinal.superficieHabitable || 0).toFixed(2).replace('.', ',')} m²</b>) da como resultado <b style="color:#1A1A1A;">${dacsStr} kWh/año</b>.</p>`
+            ? `<p style="margin:0 0 6px;font-size:12.5px;color:#4a4a44;line-height:1.6;">La demanda de ACS ha sido calculada según el archivo .xml del certificado de eficiencia energética${acsFaseStr} cuyo valor es <b style="color:#1A1A1A;">${acsPorM2Str} kWh/m²·año</b>, que multiplicado por la superficie habitable (<b style="color:#1A1A1A;">${acsSupStr} m²</b>) da como resultado <b style="color:#1A1A1A;">${dacsStr} kWh/año</b>.</p>`
             // Litros/día declarados por el propio certificado. Aquí NO interviene la
             // ocupación: el dato ya es el consumo diario del edificio, así que la
             // fórmula del Anejo F se aplica sin el tramo D_L/D · N_P. Se dice de
