@@ -587,6 +587,30 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     //: DECLARA la ficha, que es la misma con la que el motor midió las fachadas.
     const alturaPlanta = Number(ficha?.ficha?.generales?.altura_libre_planta?.valor) || null;
 
+    // ── Los CUERPOS del edificio ─────────────────────────────────────────────
+    // La envolvente de un certificado es la de la VIVIENDA: un aparcamiento
+    // adosado no va dentro. Catastro dibuja el edificio en partes y dice de qué
+    // es cada una, pero el plano se arma por NIVEL —la planta baja tiene
+    // vivienda, luego se dibuja entera—, así que sus paredes entraban igual y
+    // había que apartarlas una a una acertando con cuáles eran las suyas.
+    //
+    // ⚠ Estos dos hooks van AQUÍ, por encima del `return` de «todavía no hay
+    // geometría». Estaban debajo, y entonces el primer render (sin `geo`) salía
+    // antes de declararlos y el siguiente (ya con el plano medido) declaraba dos
+    // más: React lo corta con el error #310, «se han renderizado más hooks que
+    // en el render anterior», y la ventana entera se caía con el plano ya
+    // traído. Ningún hook puede quedar por debajo de un `return` condicional.
+    const [cuerpoSel, setCuerpoSel] = useState(null);
+    const cuerpos = useMemo(() => (geo?.cuerpos || []).map(
+        c => ({ ...c, fuera: plano.cuerposFuera.includes(c.id) })),
+        [geo?.cuerpos, plano.cuerposFuera]);
+    const cuerpoAbierto = cuerpos.find(c => c.id === cuerpoSel) || null;
+
+    // Lo que Catastro dice que NO es vivienda y sigue dentro. Es lo que se
+    // propone quitar: no se toca nada sin que lo pulse una persona, porque hay
+    // garajes que forman parte de la vivienda y porches cerrados que son estar.
+    const cuerposSospechosos = cuerpos.filter(c => c.habitable === false && !c.fuera);
+
     if (!geo) {
         // Mientras se mide, el popup: son entre veinte segundos y un minuto, y
         // una pantalla quieta durante ese rato se lee como que se ha colgado.
@@ -669,23 +693,6 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         if (valor === null) delete t[elemento]; else t[elemento] = valor;
         return { ...a, transmitancias: t };
     });
-
-    // ── Los CUERPOS del edificio ─────────────────────────────────────────────
-    // La envolvente de un certificado es la de la VIVIENDA: un aparcamiento
-    // adosado no va dentro. Catastro dibuja el edificio en partes y dice de qué
-    // es cada una, pero el plano se arma por NIVEL —la planta baja tiene
-    // vivienda, luego se dibuja entera—, así que sus paredes entraban igual y
-    // había que apartarlas una a una acertando con cuáles eran las suyas.
-    const [cuerpoSel, setCuerpoSel] = useState(null);
-    const cuerpos = useMemo(() => (geo?.cuerpos || []).map(
-        c => ({ ...c, fuera: plano.cuerposFuera.includes(c.id) })),
-        [geo?.cuerpos, plano.cuerposFuera]);
-    const cuerpoAbierto = cuerpos.find(c => c.id === cuerpoSel) || null;
-
-    // Lo que Catastro dice que NO es vivienda y sigue dentro. Es lo que se
-    // propone quitar: no se toca nada sin que lo pulse una persona, porque hay
-    // garajes que forman parte de la vivienda y porches cerrados que son estar.
-    const cuerposSospechosos = cuerpos.filter(c => c.habitable === false && !c.fuera);
 
     // Quitar o devolver un cuerpo obliga a volver a MEDIR: la pared que lo
     // separaba del resto aparece entonces como lo que es, y se van con él su

@@ -506,6 +506,18 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                  ancho: r.width, alto: r.height });
     };
 
+    //: Los cuerpos que hay en ESTA planta. Un cuerpo de Catastro es un prisma:
+    //: su contorno es el mismo en todas sus plantas, y `niveles` dice en cuáles
+    //: está (el garaje de una planta no se pinta sobre la primera).
+    //
+    //: ⚠ Va ARRIBA, por encima del `return` de «esta planta no tiene plano».
+    //: Debajo, una planta que llega sin medidas y las recibe después cambia el
+    //: número de hooks entre dos renders, y React corta con el error #310 — la
+    //: ventana entera en blanco. Ningún hook por debajo de un `return`.
+    const cuerposAqui = useMemo(() => (es3d ? [] : (cuerpos || []).filter(
+        c => !Array.isArray(c.niveles) || c.niveles.includes(planta?.nivel))),
+        [cuerpos, planta?.nivel, es3d]);
+
     // ── lo que se dibuja ─────────────────────────────────────────────────────
     if (!es3d && (!(ancho > 0) || !(alto > 0))) return <SinPlano planta={planta} />;
 
@@ -515,12 +527,6 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
 
     const capa2d = es3d ? [] : murosDe(planta);
 
-    //: Los cuerpos que hay en ESTA planta. Un cuerpo de Catastro es un prisma:
-    //: su contorno es el mismo en todas sus plantas, y `niveles` dice en cuáles
-    //: está (el garaje de una planta no se pinta sobre la primera).
-    const cuerposAqui = useMemo(() => (es3d ? [] : (cuerpos || []).filter(
-        c => !Array.isArray(c.niveles) || c.niveles.includes(planta?.nivel))),
-        [cuerpos, planta?.nivel, es3d]);
     const rotulos = es3d ? [] : colocarRotulos(capa2d, { sel, entrada, tam, entorno, nombreDe });
     const caras = es3d
         ? construirCaras({ capas, murosDe, alturaPlanta, sel, colorDe, estadoDe, proy })
