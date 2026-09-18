@@ -32,7 +32,7 @@ import { api, esCeeDirecto as enCeeDirecto } from '../logic/apiEnvolvente';
 //: Las dos peticiones LARGAS de esta ventana —medir el edificio y escribir el
 //: `.cex`— pasan por aquí: repite sola la que no llegó a salir y devuelve el
 //: fallo ya redactado, en vez de la misma frase para seis causas distintas.
-import { postEnvolvente } from '../logic/pedirEnvolvente';
+import { postEnvolvente, soloLista } from '../logic/pedirEnvolvente';
 
 export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     const id = expediente?.id;
@@ -177,6 +177,22 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
 
     // Traer la geometría es CARO: son varias peticiones a Catastro en serie,
     // nunca en ráfaga. No se dispara sola al abrir la pestaña — la pide él.
+    /**
+     * ⚠ `cuerposFuera` es una LISTA de claves o no es nada.
+     *
+     * Estuvo declarado `= null` y el botón se enganchaba con
+     * `onClick={onTraer}`, así que React le metía dentro su EVENTO: el cuerpo
+     * del POST se iba con un `SyntheticEvent`, que lleva `view: window` y por
+     * tanto no se puede serializar («Converting circular structure to JSON»).
+     * axios ni llegaba a mandar la petición, y por eso no quedaba rastro de ella
+     * en ningún log — el botón de «Traer la envolvente» llevaba roto desde el
+     * 16/09/2026 (22:21), y solo funcionaba la retoma automática, que sí pasa
+     * una lista.
+     *
+     * Por eso lo que no sea una lista se trata como «no me han dicho nada»: la
+     * comprobación va AQUÍ y no en el sitio que llama, o el próximo que enganche
+     * esta función a un `onClick` vuelve a romperlo sin enterarse.
+     */
     async function traerGeometria(cuerposFuera = null) {
         if (!rc) { setError('Este expediente no tiene referencia catastral.'); return; }
         setCargando(true); setError(null);
@@ -185,7 +201,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             // vuelve a MEDIR el edificio sin ellos —la pared que separaba el
             // garaje de la casa aparece entonces como lo que es— en vez de
             // tachar sus paredes y dejar la casa abierta por ahí.
-            const fuera = cuerposFuera ?? cuerposPedidos.current;
+            const fuera = soloLista(cuerposFuera) ?? cuerposPedidos.current;
             cuerposPedidos.current = fuera || [];
             const data = await postEnvolvente(api(id, 'geometria'),
                 { referencia_catastral: rc, cuerpos_excluidos: fuera || [] },
@@ -216,7 +232,12 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
      * correcto, porque esa pared ya no está en el edificio.
      */
     async function volverAMedir(cambios = {}) {
-        const actual = { ...(plano.trabajo || trabajoPrevio || {}), ...cambios };
+        // Mismo cuidado que en `traerGeometria`: lo que llegue aquí acaba dentro
+        // del cuerpo de un POST, y un evento de React no se puede serializar.
+        // Hoy nadie la engancha a un `onClick`; esto es para que el día que lo
+        // hagan no se repita el fallo del 16/09/2026.
+        const limpio = (cambios && !cambios.nativeEvent && !cambios.target) ? cambios : {};
+        const actual = { ...(plano.trabajo || trabajoPrevio || {}), ...limpio };
         setTrabajoPrevio(actual);
         await traerGeometria(actual.cuerpos_fuera || []);
     }
@@ -576,8 +597,12 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             return <MidiendoElEdificio expediente={expediente?.numero_expediente} />;
         }
         return (
+            // `onTraer` va ENVUELTO: sin el envoltorio, React le pasa su EVENTO
+            // como primer argumento y acaba dentro del cuerpo del POST —que es
+            // lo que rompió este botón del 16 al 18/09/2026—. `traerGeometria`
+            // ya se defiende sola, pero aquí tampoco se le manda.
             <Arranque rc={rc} cargando={cargando} error={error}
-                      onTraer={traerGeometria}
+                      onTraer={() => traerGeometria()}
                       retomando={!!trabajoPrevio && !error} />
         );
     }

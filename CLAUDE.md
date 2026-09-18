@@ -9033,14 +9033,41 @@ piscina y Anexo VI) y **+198 px** en el RES080.
 
 ---
 
-## «No se pudo construir la envolvente» no era una causa (2026-09-18)
+## El botón que metía su propio EVENTO dentro del POST (2026-09-18)
 
-La ventana del certificador enseñó esa frase y nada más. Comprobado contra
-producción ese mismo día: el contenedor `cee-engine` levantado, **la MISMA
-referencia catastral (4065305WJ3446E) medida en 34,5 s con un 200** desde dentro
-de la red del VPS — y **ni una petición de geometría** en el log de nginx ni en
-el del backend. Ninguna. La petición no llegó a salir del navegador, y esas seis
-palabras no lo decían.
+La ventana del certificador enseñó «No se pudo construir la envolvente.» y nada
+más. Comprobado contra producción: el contenedor `cee-engine` levantado, **la
+MISMA referencia catastral (4065305WJ3446E) medida en 34,5 s con un 200** desde
+dentro del VPS — y **ni una petición de geometría** en el log de nginx ni en el
+del backend. Ninguna. La petición no llegaba a salir del navegador.
+
+**LA CAUSA, que solo se supo al anotar el fallo en el servidor:**
+
+```
+"mensaje":"Converting circular structure to JSON --> starting at object with
+           constructor 'Window' --- property 'window' closes the circle"
+```
+
+`traerGeometria(cuerposFuera = null)` se enganchó al botón con
+`onClick={onTraer}`, así que **React le pasaba su `SyntheticEvent` por el
+argumento de «los cuerpos que se dejan fuera»**. Ese evento lleva `view: window`,
+o sea una referencia circular: el cuerpo del POST no se podía serializar, axios
+ni lo mandaba, y por eso no había rastro en ningún log. Entró en `86308b9`
+(16/09/2026, 22:21) con los cuerpos excluidos, y el último POST de geometría con
+éxito es de ese mismo día a las 15:25 — o sea que **el botón no funcionó ni una
+sola vez desde entonces**. La retoma automática sí (pasa una lista), y por eso
+los expedientes con trabajo guardado seguían abriendo y nadie lo cazó.
+
+**REGLA — lo que va a viajar en el cuerpo de un POST se NORMALIZA en la función,
+no en quien la llama.** `soloLista(v)`: una lista, o nada. Puesta en el sitio que
+llama, el siguiente que enganche esa función a un `onClick` vuelve a romperlo sin
+enterarse — y el fallo no se ve en la pantalla ni en el servidor.
+
+**REGLA — un cuerpo que no se puede serializar se para ANTES de salir, se dice
+que el fallo es NUESTRO y no se reintenta.** Repetir un error de programación da
+exactamente el mismo error, y contarlo como un problema de red manda a mirar el
+router a quien tiene la red perfecta — que es justo lo que pasó: el certificador
+trasladó la incidencia con conexión buena.
 
 | Qué | Dónde |
 |---|---|
@@ -9271,7 +9298,7 @@ volver a suponer.
 
 60. **La PLACA de la unidad exterior va DENTRO del certificado cuando el SCOP_dhw se justifica por el ANEXO VI**: ahí se declara `SCOP_dhw = COP · F_c` y el **COP a A7/W55 no lo publican todas las fichas técnicas** — está en la placa, y sin ella el verificador ve un COP que no encuentra en la documentación aportada (inexactitud abierta el 16/09/2026). **La foto no se sube otra vez**: se coge de Drive, del slot `FOTO_UNIDAD_EXTERIOR_PLACA`, el mismo del que el lector de placas saca el nº de serie (medido: 12 de los 25 expedientes con Anexo VI ya la tienen, 3 con varias). **Con varias se ELIGE** —una unidad exterior lleva dos etiquetas y cuál trae el COP lo sabe quien las mira— y la elección se guarda en `instalacion.placa_scop_acs` (solo el driveId, regla 21); si esa foto desaparece de Drive se cae a la primera **diciéndolo**. **Se imprime DOS veces**: en el recuadro del cálculo (208 px — dice de dónde sale el número, no se lee) y a página completa como anexo, que es donde el verificador lo lee. Va como **data URI** (Puppeteer rasteriza sobre `about:blank`), pedida a Drive ya reducida a 1600 px: 242-268 KB medidos. Un fallo al resolverla **no tumba la generación**: sale como aviso. **Se pulsa la foto y se RECORTA** (el mismo ReactCrop del Anexo Fotográfico), pero lo que se guarda es el RECUADRO — `{x,y,w,h}` en % más la relación de aspecto—, no la imagen recortada: el original sigue entero en Drive, el recorte se deshace, el anexo conserva la resolución del trozo que se va a leer y el certificado sale igual desde el backend. El encuadre se calcula en PÍXELES (`placaImgHtml`): un `top` en % se resuelve contra la altura de la CAJA y descoloca la foto. **Si no hay foto se puede SOLTAR en el propio popup**, y sube por la ruta de siempre (`/api/public/reforma-docs/:oportunidad/FOTO_UNIDAD_EXTERIOR_PLACA`, que admite sesión de staff sin token): entra en el slot de toda la vida y queda elegida, sin una segunda vía de subida que mantener. La banda es UNA pieza para los dos popups ([PlacaScopAcsBanda.jsx](implementation/frontend/src/features/expedientes/components/PlacaScopAcsBanda.jsx) + [usePlacaScopAcs.js](implementation/frontend/src/features/expedientes/logic/usePlacaScopAcs.js)). El **Certificado RES080 la lleva igual** (mismo Anexo VI, mismo slot documental). De paso, el bloque del Anexo VI y su `FC_TABLE`, que estaban TRIPLICADOS (CIFO, RES080 y su modal), pasan a fuente única: `scopAcsAnexoViHtml` / `placaAnexoContenido` en [cifoDoc.js](implementation/frontend/src/features/expedientes/logic/cifoDoc.js); la búsqueda y el servicio de la foto, en [placaScopAcs.js](implementation/backend/services/placaScopAcs.js). Tras tocarlo: `node implementation/backend/scripts/test_placa_scop_acs.mjs` **y los dos medidores de hojas**. Ver "La PLACA de la unidad exterior, dentro del certificado".
 
-61. **«No se pudo construir la envolvente» no era una causa**: esa frase cubría a la vez el motor caído, Catastro bloqueado, el corte de la pasarela, la sesión caducada y un tropiezo de red, así que no había nada que mirar. Medido el 18/09/2026: el motor levantado, la misma RC medida en **34,5 s con un 200** desde el VPS, y **ni una petición de geometría en el log de nginx ni en el del backend** — la petición no llegó a salir del navegador. Ahora cada causa dice lo suyo con el paso siguiente pegado (el texto del backend se CONSERVA y el consejo va detrás), **la que no ha llegado se repite UNA vez sola** —sin respuesta no ha pasado nada al otro lado, y una conexión HTTP/2 reutilizada y ya cerrada tumba el POST y no el GET, que es justo lo que se midió— y el fallo se ANOTA en el servidor (`POST /api/cee-envolvente/diagnostico`, declarada ANTES que `/:expedienteId/…`; ruta, código y navegador, nunca datos de nadie). **`repetible` lo dice quien llama**: medir no escribe y se puede repetir, escribir el `.cex` toca Drive y no. Un fallo CON respuesta NO se repite —en un 502 al otro lado está el WAF del buscador—. Y `/api/cee-envolvente/` tiene ya su propia `location` de nginx con **300 s**: con los 120 s de `/api/` cortaba la pasarela antes que el backend (que espera 180 s) y lo que llegaba era su HTML, o sea otra vez el mensaje genérico — el mismo fallo de la regla 40. Fuente única: [pedirEnvolvente.js](implementation/frontend/src/features/cee-envolvente/logic/pedirEnvolvente.js). Tras tocarlo: `node implementation/backend/scripts/test_envolvente_fallos.mjs`. Ver "«No se pudo construir la envolvente» no era una causa".
+61. **El botón que metía su propio EVENTO dentro del POST**: `onClick={onTraer}` le pasaba el `SyntheticEvent` de React a `traerGeometria(cuerposFuera)`, y ese evento lleva `view: window` — el cuerpo del POST dejaba de poder serializarse, axios ni lo mandaba y no quedaba rastro en NINGÚN log. Entró el 16/09/2026 a las 22:21 con los cuerpos excluidos y el último POST con éxito es de las 15:25 de ese día: **el botón no funcionó ni una vez desde entonces** (solo la retoma automática, que sí pasa una lista). Se arregla en las tres capas: `soloLista(v)` normaliza en la FUNCIÓN y no en quien llama, el botón va envuelto, y `postEnvolvente` **para antes de salir** si el cuerpo no se puede serializar, lo marca como fallo NUESTRO y NO lo reintenta. Y lo que lo destapó fue anotarlo: esa frase cubría a la vez el motor caído, Catastro bloqueado, el corte de la pasarela, la sesión caducada y un tropiezo de red, así que no había nada que mirar. Medido el 18/09/2026: el motor levantado, la misma RC medida en **34,5 s con un 200** desde el VPS, y **ni una petición de geometría en el log de nginx ni en el del backend** — la petición no llegó a salir del navegador. Ahora cada causa dice lo suyo con el paso siguiente pegado (el texto del backend se CONSERVA y el consejo va detrás), **la que no ha llegado se repite UNA vez sola** —sin respuesta no ha pasado nada al otro lado, y una conexión HTTP/2 reutilizada y ya cerrada tumba el POST y no el GET, que es justo lo que se midió— y el fallo se ANOTA en el servidor (`POST /api/cee-envolvente/diagnostico`, declarada ANTES que `/:expedienteId/…`; ruta, código y navegador, nunca datos de nadie). **`repetible` lo dice quien llama**: medir no escribe y se puede repetir, escribir el `.cex` toca Drive y no. Un fallo CON respuesta NO se repite —en un 502 al otro lado está el WAF del buscador—. Y `/api/cee-envolvente/` tiene ya su propia `location` de nginx con **300 s**: con los 120 s de `/api/` cortaba la pasarela antes que el backend (que espera 180 s) y lo que llegaba era su HTML, o sea otra vez el mensaje genérico — el mismo fallo de la regla 40. Fuente única: [pedirEnvolvente.js](implementation/frontend/src/features/cee-envolvente/logic/pedirEnvolvente.js). Tras tocarlo: `node implementation/backend/scripts/test_envolvente_fallos.mjs`. Ver "El botón que metía su propio EVENTO dentro del POST".
 
 ---
 

@@ -117,6 +117,9 @@ router.post('/diagnostico', internalOnly, express.json({ limit: '8kb' }), (req, 
         status: Number.isFinite(Number(b.status)) ? Number(b.status) : null,
         codigo: texto(b.codigo, 40),
         repetido: !!b.repetido,
+        // Puesto = el fallo es NUESTRO (la petición ni salió del navegador). Es
+        // lo que distingue «mirar el código» de «mirar la red».
+        nuestro: b.nuestro ? texto(b.nuestro, 200) : null,
         mensaje: texto(b.mensaje, 200),
         navegador: texto(b.navegador, 200),
         ip: texto(req.headers['x-forwarded-for'] || req.ip, 60),

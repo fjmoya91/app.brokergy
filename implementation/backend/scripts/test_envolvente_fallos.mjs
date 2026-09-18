@@ -19,7 +19,7 @@
 // $ node implementation/backend/scripts/test_envolvente_fallos.mjs
 // ============================================================================
 
-import { explicarFallo, noLlego }
+import { explicarFallo, noLlego, soloLista, postEnvolvente }
     from '../../frontend/src/features/cee-envolvente/logic/pedirEnvolvente.js';
 
 const HACIENDO = 'construir la envolvente';
@@ -75,6 +75,51 @@ for (const [que, e, seRepite] of CASOS) {
 const generica = 'No se pudo construir la envolvente.';
 if ([...vistos.keys()].includes(generica)) {
     fallo('ha vuelto la frase genérica que no dice nada');
+}
+
+// ── La regresión de verdad ───────────────────────────────────────────────────
+// Lo que tumbó el botón «Traer la envolvente» del 16 al 18/09/2026: el `onClick`
+// le metía su evento por el argumento de «los cuerpos que se dejan fuera», y ese
+// evento lleva `view: window`. El cuerpo del POST dejaba de poder serializarse,
+// axios ni lo mandaba, y no quedaba rastro en ningún log.
+console.log('La regresión del 16/09: un evento de React donde iba una lista\n');
+
+//: Un `SyntheticEvent` como el que pasa React, con su vuelta al `window`.
+const eventoDeClick = () => {
+    const ventana = { document: {} };
+    ventana.window = ventana;                 // ← el círculo
+    return { type: 'click', view: ventana, nativeEvent: {}, target: {} };
+};
+
+// 1. La lista se respeta; cualquier otra cosa es «no me han dicho nada».
+if (soloLista(['GARAJE']) === null) fallo('soloLista se come una lista buena');
+if (soloLista(eventoDeClick()) !== null) fallo('soloLista deja pasar el evento del clic');
+if (soloLista(undefined) !== null || soloLista('GARAJE') !== null) {
+    fallo('soloLista deja pasar algo que no es una lista');
+}
+console.log('   ✓ un evento de clic ya no puede colarse por donde va la lista');
+
+// 2. Y si aun así llegara un cuerpo que no se puede mandar, se para ANTES de
+//    salir, se dice que el fallo es NUESTRO y no se reintenta.
+{
+    const antes = Date.now();
+    let err = null;
+    try {
+        await postEnvolvente('/api/cee-envolvente/x/geometria',
+            { referencia_catastral: 'X', cuerpos_excluidos: eventoDeClick() },
+            { haciendo: 'construir la envolvente', repetible: true });
+    } catch (e) { err = e; }
+
+    if (!err) fallo('un cuerpo imposible de serializar se ha dado por bueno');
+    else {
+        if (!err.nuestro) fallo('no se marca como fallo NUESTRO');
+        if (!/aplicación|no de tu conexión/i.test(err.mensaje || '')) {
+            fallo(`el mensaje sigue culpando a la red → ${err.mensaje}`);
+        }
+        // Sin red que esperar: si hubiera reintentado, habría tardado su pausa.
+        if (Date.now() - antes > 400) fallo('lo ha reintentado, y repetirlo da el mismo error');
+        console.log(`   ✓ se para antes de salir y lo dice: «${err.mensaje.slice(0, 72)}…»`);
+    }
 }
 
 console.log(fallos

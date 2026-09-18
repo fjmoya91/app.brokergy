@@ -36,11 +36,43 @@ import axios from 'axios';
 //: conexión medio cerrada se haya soltado del todo; más es una pantalla quieta.
 const ESPERA_REINTENTO_MS = 900;
 
+/**
+ * ¿El cuerpo de la petición se puede mandar?
+ *
+ * Es lo que tumbó el botón de «Traer la envolvente» entre el 16 y el 18 de
+ * septiembre de 2026: el `onClick` metía su `SyntheticEvent` en el cuerpo, que
+ * lleva `view: window` y por tanto no se puede serializar. axios ni llegaba a
+ * mandar nada, así que no había rastro en ningún log y la pantalla lo contaba
+ * como un problema de red — con la red perfecta.
+ *
+ * Se comprueba ANTES de salir porque ese fallo NO es de fuera: es nuestro, y
+ * tiene que decirlo con esas palabras en vez de mandar a nadie a mirar el router.
+ */
+function noSePuedeMandar(cuerpo) {
+    try { JSON.stringify(cuerpo); return null; }
+    catch (e) { return e?.message || 'no se puede serializar'; }
+}
+
+/**
+ * Una LISTA, o nada.
+ *
+ * Existe por el fallo de arriba: el argumento «los cuerpos que se dejan fuera»
+ * acabó recibiendo el evento del `onClick`. Cualquier cosa que no sea una lista
+ * es «no me han dicho nada», y así el próximo que enganche una de estas
+ * funciones a un botón no vuelve a meter un evento dentro del cuerpo del POST.
+ */
+export const soloLista = (v) => (Array.isArray(v) ? v : null);
+
 /** ¿Este fallo es de los que NO llegaron al servidor? */
 export function noLlego(e) {
     // `e.response` es la respuesta del servidor. Sin ella, o no salió o no
     // volvió: en los dos casos al otro lado no ha pasado nada.
-    return !e?.response && e?.code !== 'ERR_CANCELED';
+    //
+    // Un fallo NUESTRO —un `TypeError` al componer la petición— también se queda
+    // sin respuesta, pero no es lo mismo y no se repite: repetir un error de
+    // programación da exactamente el mismo error. Se distinguen por `nuestro`,
+    // que pone `postEnvolvente` al detectarlo.
+    return !e?.response && !e?.nuestro && e?.code !== 'ERR_CANCELED';
 }
 
 /**
@@ -54,6 +86,15 @@ export function explicarFallo(e, haciendo = 'completar la operación', { repetid
     const r = e?.response;
 
     if (!r) {
+        // Un fallo NUESTRO se dice como lo que es. Contarlo como un problema de
+        // red manda a mirar el router a quien tiene la red perfecta — que es
+        // exactamente lo que pasó entre el 16 y el 18/09/2026.
+        if (e?.nuestro) {
+            return `Fallo de la aplicación al preparar la petición, no de tu conexión:`
+                 + ` ${e.nuestro}. Recarga la página por si tienes una versión`
+                 + ` antigua cargada; si sigue igual, avisa —esto se arregla en el`
+                 + ` código y queda anotado en el servidor.`;
+        }
         // Hoy nada cancela estas dos peticiones, pero si algún día se cancelan
         // (un `AbortController` al salir de la ventana) eso no es una avería y
         // no puede salir como el tropiezo de red de abajo.
@@ -124,6 +165,9 @@ function anotar(e, ruta, haciendo, repetido) {
             // `code` de axios: ERR_NETWORK, ECONNABORTED… Es lo que distingue
             // «no salió» de «contestó que no».
             codigo: e?.code || null,
+            // Que quede claro en el log si el fallo es NUESTRO: es la diferencia
+            // entre buscar una avería fuera y buscarla en el código.
+            nuestro: e?.nuestro || null,
             mensaje: e?.message || null,
             navegador: navigator.userAgent,
         }).catch(() => {});
@@ -146,6 +190,20 @@ function anotar(e, ruta, haciendo, repetido) {
 export async function postEnvolvente(url, cuerpo,
                                      { haciendo = 'completar la operación',
                                        repetible = false } = {}) {
+    // Antes de salir: si el cuerpo no se puede serializar, la petición no va a
+    // llegar nunca y repetirla da el mismo error. Se para aquí y se dice de
+    // quién es el fallo, en vez de dejarlo pasar por «no llega al servidor».
+    const roto = noSePuedeMandar(cuerpo);
+    if (roto) {
+        const e = new Error('cuerpo no serializable');
+        e.nuestro = roto;
+        anotar(e, url, haciendo, false);
+        const err = new Error(explicarFallo(e, haciendo));
+        err.mensaje = err.message;
+        err.nuestro = roto;
+        throw err;
+    }
+
     let ultimo, repetido = false;
     // Dos vueltas como mucho: la primera y la repetición de la que no llegó.
     for (let intento = 0; intento < 2; intento++) {
