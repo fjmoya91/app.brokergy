@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
+import { useModal } from '../../../context/ModalContext';
 import { toTitleCase } from '../logic/certMessages';
 import { unidadesSinSerie, countUnidades, acsEsOtraMaquina } from '../logic/aerotermiaUnits';
 import { AnexoIModal } from './AnexoIModal';
@@ -1041,6 +1042,7 @@ const SLOT_DE_CAMPO = {
 // ─── Componente Principal ─────────────────────────────────────────────────────
 export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, results, onEditCliente, autoFirmarDoc, onAutoFirmarDocDone, onIncidenciasChanged }) {
     const { user } = useAuth();
+    const { showAlert, showConfirm } = useModal();
     const isReforma = expediente?.oportunidades?.ficha === 'RES080' || expediente?.numero_expediente?.includes('RES080');
     const isHybrid  = expediente?.oportunidades?.ficha === 'RES093' || expediente?.numero_expediente?.includes('RES093');
     // TER100: mismo flujo documental que RES060 (comparte los slots ficha_res060_* y
@@ -1900,8 +1902,14 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     // su carpeta habitual) para que toda la documentación validada del CAE quede
     // reunida y lista para una auditoría posterior. Por eso es una única escritura
     // atómica en el backend (igual que /documentos/rechazar), no un setLocal+onSave.
-    const handleValidateSigned = async (field) => {
+    // Antes de dar el verde, el backend comprueba que la firma electrónica CUBRE el
+    // documento y responde 409 si no (`firma_rota`). No es un error de la app: es el
+    // documento, así que se dice qué le pasa y se ofrece la única salida sensata —
+    // pedir otra copia— dejando "validar igualmente" como decisión consciente, que
+    // se escribe en el historial con el nombre de quien la toma.
+    const handleValidateSigned = async (field, { forzar = false } = {}) => {
         setManagingSigned(null);
+        const antes = { validados: local.docs_validados, rechazados: local.docs_rechazados };
         // Optimista: refleja el verde al instante; se corrige si el backend falla.
         setLocal(prev => ({
             ...prev,
@@ -1909,11 +1917,30 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             docs_rechazados: (() => { const dr = { ...(prev.docs_rechazados || {}) }; delete dr[field]; return dr; })()
         }));
         try {
-            const { data } = await axios.post(`/api/expedientes/${expediente.id}/documentos/validar`, { field });
+            const { data } = await axios.post(`/api/expedientes/${expediente.id}/documentos/validar`, { field, forzar });
             setLocal(prev => ({ ...prev, docs_validados: data.docs_validados, docs_rechazados: data.docs_rechazados }));
         } catch (err) {
             console.error('Error validando documento:', err);
-            alert(err.response?.data?.error || 'No se pudo validar el documento.');
+            // El verde optimista se retira SIEMPRE que el backend diga que no: dejarlo
+            // puesto haría creer que el documento está dado por bueno.
+            setLocal(prev => ({ ...prev, docs_validados: antes.validados, docs_rechazados: antes.rechazados }));
+
+            const d = err.response?.data;
+            if (d?.firma_rota) {
+                const detalle = (d.problemas || []).map(p => `· ${p}`).join('\n');
+                const quien = (d.firmantes || []).length ? `\n\nFirma que declara: ${d.firmantes.join(', ')}.` : '';
+                const seguir = await showConfirm(
+                    `${d.error}\n\n${detalle}${quien}\n\n`
+                    + 'El documento se abre bien en pantalla, pero un lector que compruebe la firma la dará por inválida '
+                    + '—y es lo que hará el verificador—. Lo que procede es pedir otra copia firmada.',
+                    'La firma no cubre el documento',
+                    'error',
+                    { confirmar: 'Validarlo igualmente', cancelar: 'Pedir otra copia' },
+                );
+                if (seguir) await handleValidateSigned(field, { forzar: true });
+                return;
+            }
+            showAlert(d?.error || 'No se pudo validar el documento.', 'No se ha podido validar', 'error');
         }
     };
 
@@ -1971,7 +1998,20 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 docs_rechazados: (() => { const dr = { ...(prev.docs_rechazados || {}) }; delete dr[signCtx.field]; return dr; })(),
             }));
         } catch (err) {
-            alert('Se firmó pero no se pudo guardar: ' + (err.response?.data?.error || err.message));
+            const d = err.response?.data;
+            // El backend comprueba la firma que acaba de volver de Autofirma antes de
+            // subirla: si no cubre el documento, NO está en Drive. Decir "se firmó pero
+            // no se pudo guardar" haría buscar un fichero que no existe.
+            if (d?.firma_rota) {
+                showAlert(
+                    `${d.error}\n\n${(d.problemas || []).map(p => `· ${p}`).join('\n')}\n\n`
+                    + 'No se ha guardado nada: el documento sigue como estaba.',
+                    'La firma ha llegado dañada',
+                    'error',
+                );
+                return;
+            }
+            showAlert('Se firmó pero no se pudo guardar: ' + (d?.error || err.message), 'No se ha guardado', 'error');
         }
     };
 

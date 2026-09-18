@@ -22,7 +22,7 @@ import { SIGN_BOXES } from '../../expedientes/logic/signBoxes';
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ICONO = {
-    listo: '✅', revisar: '⚠️', sin_firma: '⛔', no_pdf: '⛔',
+    listo: '✅', revisar: '⚠️', sin_firma: '⛔', firma_rota: '⛔', no_pdf: '⛔',
     sin_identificar: '❓', duplicado: '❓', error: '⛔',
 };
 
@@ -55,6 +55,7 @@ const TONO = {
     listo: 'border-emerald-500/25 bg-emerald-500/[0.05]',
     revisar: 'border-amber-500/25 bg-amber-500/[0.05]',
     sin_firma: 'border-red-500/25 bg-red-500/[0.05]',
+    firma_rota: 'border-red-500/25 bg-red-500/[0.05]',
     no_pdf: 'border-red-500/25 bg-red-500/[0.05]',
     error: 'border-red-500/25 bg-red-500/[0.05]',
     sin_identificar: 'border-white/10 bg-white/[0.02]',

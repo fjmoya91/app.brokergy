@@ -71,6 +71,15 @@ function comprobarFirma(buffer, { exp, phase, certificador } = {}) {
                  avisos: ['El PDF no lleva firma electrónica.'] };
     }
 
+    // ¿La firma cubre este documento? Aquí AVISA y no bloquea, igual que la fecha:
+    // el certificado lo sube el técnico desde su enlace y dejarle sin poder entregar
+    // por una comprobación nuestra sería peor que el problema. Pero tiene que
+    // constar — un CEE firmado cuya firma no vale no lo acepta el Registro.
+    if (lectura.integridad?.rota) {
+        avisos.push(`La firma no cubre el documento (${lectura.integridad.problemas.join(' · ')}). `
+            + 'Hay que pedirle otra copia firmada: un lector que la compruebe la dará por inválida.');
+    }
+
     // La fecha que declara la PRIMERA firma (el certificado lo firma una persona).
     const primera = lectura.firmantes[0] || {};
     const fechaFirma = primera.fecha || null;   // dd/mm/aaaa
@@ -106,6 +115,7 @@ function comprobarFirma(buffer, { exp, phase, certificador } = {}) {
         fechaFirma,
         fechaCertificado: esperada,
         coincide,
+        integridad: lectura.integridad,
         avisos: [...avisos, ...(lectura.avisos || [])],
     };
 }

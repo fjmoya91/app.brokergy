@@ -209,6 +209,17 @@ async function procesarFirmados(loteId, ficheros, opts = {}) {
             resultados.push(res);
             continue;
         }
+        // Una firma que NO cubre el documento es el mismo caso que no tener firma: hay
+        // un diccionario de firma, pero lo que ampara ya no es este fichero (se tocó
+        // después de firmarlo, o llegó truncado). Bloquea igual, y por el mismo motivo
+        // — de aquí el documento sale al ZIP que se sube al MITECO.
+        if (firmas.integridad.rota) {
+            res.estado = 'firma_rota';
+            res.avisos.push(`La firma no cubre el documento: ${firmas.integridad.problemas.join(' · ')}.`);
+            res.avisos.push('Hay que pedir otra copia firmada: ésta la dará por inválida cualquier lector que la compruebe.');
+            resultados.push(res);
+            continue;
+        }
 
         // 2) ¿De qué documento es?
         const elegido = asignar[f.nombre]

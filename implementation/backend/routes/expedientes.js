@@ -2007,6 +2007,8 @@ router.post('/:id/documentos/rechazar', enforceAuth, async (req, res) => {
 // Etiquetas (nombre del fichero en "10. EXPEDIENTE CAE") y helpers de invalidación:
 // fuente única en utils/docValidacion.js, compartida con las subidas públicas.
 const { DOCUMENTO_VALIDABLE_LABELS, invalidarValidacionDocs, BORRADORES_CLIENTE, SLOT_A_BORRADOR } = require('../utils/docValidacion');
+// Qué dicen las firmas de un PDF y si cubren el documento: fuente única.
+const { leerFirmasPdf } = require('../utils/firmasPdf');
 
 // Helpers del requerimiento de re-firma: un importe que no llega no es 0.
 const numOrNull = (v) => { const n = parseFloat(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : null; };
@@ -2046,6 +2048,45 @@ router.post('/:id/documentos/validar', enforceAuth, async (req, res) => {
         const link = docObj[field];
         if (!link) return res.status(400).json({ error: 'El documento aún no tiene un fichero firmado que copiar' });
 
+        // ── Filtro previo: la firma tiene que CUBRIR el documento ────────────────
+        // Validar no es marcar un verde: es copiar el fichero a "10. EXPEDIENTE CAE",
+        // que es la carpeta que audita el verificador. Un PDF que enseña una firma
+        // pero cuyo resumen ya no cuadra —porque se tocó después de firmar, o llegó
+        // truncado— se ve perfecto en el visor (pdf.js reconstruye el índice) y solo
+        // se cae cuando alguien lo abre con un lector que la valida, semanas después.
+        // Por eso se mira AQUÍ, que es el último momento en que hay una persona
+        // delante pudiendo pedir otra copia.
+        //
+        // REGLA — bloquea solo lo que se ha PODIDO comprobar y NO cuadra. Lo que no
+        // se sabe leer pasa (`ok: null`): un falso positivo aquí para un expediente
+        // que está bien, y el aviso que salta sin motivo es el que enseña a ignorar
+        // los avisos. `forzar` es la salida cuando la persona lo da por bueno, y
+        // queda escrita en el historial con su nombre.
+        const forzar = req.body?.forzar === true;
+        let firmaForzada = null;
+        try {
+            const fileIdComprobar = extractDriveFileId(link);
+            if (fileIdComprobar) {
+                const buf = await require('../services/driveService').getFileContent(fileIdComprobar);
+                const firmas = leerFirmasPdf(buf);
+                if (firmas.integridad.rota) {
+                    if (!forzar) {
+                        return res.status(409).json({
+                            error: 'La firma de este documento no cubre el documento: no se puede dar por bueno.',
+                            firma_rota: true,
+                            problemas: firmas.integridad.problemas,
+                            firmantes: firmas.firmantes.map(f => f.nombre).filter(Boolean),
+                        });
+                    }
+                    firmaForzada = firmas.integridad.problemas;
+                }
+            }
+        } catch (e) {
+            // Si el fichero no se puede bajar no se para la validación: el filtro es
+            // una red, no un peaje — y Drive falla por su cuenta.
+            console.warn('[validar-doc] No se pudo comprobar la firma:', e.message);
+        }
+
         let auditLink = null;
         try {
             const op = exp.oportunidades;
@@ -2084,6 +2125,21 @@ router.post('/:id/documentos/validar', enforceAuth, async (req, res) => {
         const docsRechazados = { ...(docObj.docs_rechazados || {}) };
         delete docsRechazados[field];
         const newDoc = { ...docObj, docs_validados: docsValidados, docs_rechazados: docsRechazados };
+
+        // Dar por bueno un documento cuya firma no cuadra es una decisión de una
+        // persona, y como tal se escribe: el sello de validación es solo una fecha y
+        // dentro de tres meses nadie sabría que se validó sabiéndolo.
+        if (firmaForzada) {
+            const quien = req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
+            newDoc.historial = [...(Array.isArray(docObj.historial) ? docObj.historial : []), {
+                id: `${Date.now()}_firma_forzada_${field}`,
+                tipo: 'doc_firma_forzada',
+                texto: `${(DOCUMENTO_VALIDABLE_LABELS[field] || field).toUpperCase()}: VALIDADO PESE A QUE SU FIRMA NO CUBRE EL DOCUMENTO — ${firmaForzada.join(' · ')}`,
+                campo: field,
+                fecha: new Date().toISOString(),
+                usuario: quien,
+            }];
+        }
         const { error: updErr } = await supabase.from('expedientes')
             .update({ documentacion: newDoc, updated_at: new Date().toISOString() })
             .eq('id', req.params.id);
@@ -2209,6 +2265,23 @@ router.post('/:id/documentos/firmar-subir', enforceAuth, async (req, res) => {
         const pdfBuffer = Buffer.from(signedPdfBase64, 'base64');
         if (!pdfBuffer.length || pdfBuffer[0] !== 0x25 || pdfBuffer[1] !== 0x50) {
             return res.status(400).json({ error: 'El contenido recibido no es un PDF válido' });
+        }
+
+        // ── La firma que acaba de volver de Autofirma tiene que CUBRIR el documento ──
+        // Es la lección de la vía del servidor intermedio (ver regla 55 y
+        // features/firma/autofirma.js): el PDF volvía alterado por el camino, la
+        // pantalla lo daba por firmado, Drive lo guardaba y el daño solo se veía al
+        // abrirlo con un lector que valida la firma, semanas después. Aquí no hay
+        // escape ni "subirlo igualmente": acabamos de firmarlo nosotros, así que si
+        // no cuadra lo que procede es volver a firmar, no archivar una firma inválida.
+        const firmas = leerFirmasPdf(pdfBuffer);
+        if (firmas.integridad.rota) {
+            console.warn(`[firmar-subir] Firma ROTA, no se sube: ${firmas.integridad.problemas.join(' · ')}`);
+            return res.status(422).json({
+                error: 'El documento firmado ha llegado dañado y no se ha guardado. Vuelve a firmarlo.',
+                firma_rota: true,
+                problemas: firmas.integridad.problemas,
+            });
         }
 
         const driveService = require('../services/driveService');

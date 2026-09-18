@@ -27,7 +27,9 @@ function pinta(nombre, buffer, esperado) {
     console.log(`\n📄 ${nombre}  (${(buffer.length / 1024).toFixed(0)} KB)`);
     if (!r.esPdf) { console.log('   ✗ no es un PDF'); return r; }
     if (!r.firmada) { console.log('   ✗ SIN firma electrónica'); r.avisos.forEach(a => console.log('   ⚠ ' + a)); return r; }
-    console.log(`   ${r.n} firma(s):`);
+    const i = r.integridad || {};
+    console.log(`   ${r.n} firma(s) · ${i.rota ? '⛔ NO cubre el documento' : i.ok === true ? '✅ cubre el documento' : '· integridad no comprobable'}`);
+    if (i.rota) i.problemas.forEach(p => console.log(`     ⛔ ${p}`));
     for (const f of r.firmantes) {
         console.log(`     · ${f.nombre || '(sin nombre)'}${f.nif ? ` · ${f.nif}` : ''}`);
         console.log(`       ${[f.organizacion, f.subfiltro, f.fecha].filter(Boolean).join(' · ')}`);

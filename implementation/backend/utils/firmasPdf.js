@@ -10,12 +10,18 @@
 //   · dentro de ese PKCS#7 van los CERTIFICADOS y los `SignerInfo`. El nombre y el
 //     NIF del firmante son el `subject` de su certificado.
 //
-// REGLA — esto NO es una verificación criptográfica. No se comprueba el hash del
-// documento, ni la cadena de confianza, ni la revocación: eso lo hace Autofirma o
-// el validador del Ministerio. Aquí se LEE quién dice el certificado que firma,
-// que es exactamente lo que hace falta para clasificar un fichero y ponerle
-// nombre. Lo que se afirma es "el PDF declara N firmas y éstos son sus nombres",
-// nunca "la firma es válida".
+// REGLA — esto NO dice que una firma sea VÁLIDA. No se comprueba la cadena de
+// confianza, ni la revocación, ni que la firma la hiciera de verdad esa clave: eso
+// lo hace Autofirma o el validador del Ministerio. Aquí se LEE quién dice el
+// certificado que firma, que es lo que hace falta para clasificar un fichero y
+// ponerle nombre. Lo que se afirma es "el PDF declara N firmas y éstos son sus
+// nombres", nunca "la firma es válida".
+//
+// Lo que SÍ se comprueba, desde el 18/09/2026, es lo contrario y es más estrecho:
+// que la firma **cubra este documento** (`integridadDeFirma`, más abajo). Es un
+// hecho que se puede afirmar con el fichero en la mano —el `messageDigest` del
+// firmante contra el hash de lo que hay hoy— y es lo que separa una firma de
+// verdad de una que se ve en pantalla pero que ningún lector aceptará.
 //
 // REGLA — sin dependencias nuevas y sin modelos de IA. Es un recorrido TLV de DER
 // (~200 líneas) sobre unos pocos KB: milisegundos y coste cero. Meter una llamada
@@ -188,6 +194,149 @@ function leerPkcs7(der) {
     return firmantes;
 }
 
+// ─── Qué DOCUMENTO dice la firma que firmó ───────────────────────────────────
+// El `SignerInfo` lleva, entre sus atributos firmados, el `messageDigest`: el hash
+// de los bytes que el firmante tenía delante. Comparándolo con el hash de los bytes
+// que el PDF tiene HOY se sabe si el documento es el que se firmó o se ha tocado
+// después — que es exactamente lo que denuncia un lector con "el rango de bytes de
+// la firma no es válido".
+//
+// Sigue sin ser una verificación de VALIDEZ: no se comprueba la cadena de
+// confianza, ni la revocación, ni que la firma la hiciera de verdad ese
+// certificado (eso exige su clave pública y es trabajo del validador oficial). Lo
+// que se afirma aquí es más estrecho y más duro: "la firma NO cubre este
+// documento", que es un hecho comprobable con el fichero en la mano.
+const OID_MESSAGE_DIGEST = '2a864886f70d010904';   // 1.2.840.113549.1.9.4
+const HASHES = {
+    '2b0e03021a': 'sha1',
+    '608648016503040204': 'sha224',
+    '608648016503040201': 'sha256',
+    '608648016503040202': 'sha384',
+    '608648016503040203': 'sha512',
+};
+
+/**
+ * Por cada SignerInfo: qué hash usa y qué digest del documento declara.
+ * Devuelve [] si el PKCS#7 no se puede recorrer — "no he sabido leerlo", que no
+ * es lo mismo que "está mal".
+ */
+function leerDigestsPkcs7(der) {
+    const raiz = tlv(der, 0);
+    if (!raiz || !esSeq(raiz)) return [];
+    const nivel1 = hijos(der, raiz);
+    if (!nivel1.length || nivel1[0].tag !== 0x06 || !bytes(der, nivel1[0]).equals(OID_SIGNED_DATA)) return [];
+    const explicito = nivel1[1];
+    if (!explicito) return [];
+    const sd = hijos(der, explicito)[0];
+    if (!esSeq(sd)) return [];
+
+    // El SET OF SignerInfo es el ÚLTIMO SET del SignedData: los anteriores son
+    // `digestAlgorithms` y, si viene, el de CRLs.
+    const partes = hijos(der, sd);
+    let signerInfos = null;
+    for (const p of partes) if (p.tag === 0x31) signerInfos = p;
+    if (!signerInfos) return [];
+
+    const out = [];
+    for (const si of hijos(der, signerInfos)) {
+        if (!esSeq(si)) continue;
+        const campos = hijos(der, si);
+        // SignerInfo ::= SEQ { version, sid, digestAlgorithm, [0] signedAttrs?, … }
+        const algo = campos[2] && esSeq(campos[2]) ? hijos(der, campos[2])[0] : null;
+        const algoritmo = algo && algo.tag === 0x06 ? HASHES[hex(der, algo)] || null : null;
+
+        let messageDigest = null;
+        const signedAttrs = campos.find(c => c.tag === 0xa0);
+        if (signedAttrs) {
+            for (const attr of hijos(der, signedAttrs)) {
+                if (!esSeq(attr)) continue;
+                const ac = hijos(der, attr);
+                if (!ac.length || ac[0].tag !== 0x06 || hex(der, ac[0]) !== OID_MESSAGE_DIGEST) continue;
+                const valores = ac[1] ? hijos(der, ac[1]) : [];
+                const octeto = valores.find(v => v.tag === 0x04);
+                if (octeto) messageDigest = hex(der, octeto);
+            }
+        }
+        out.push({ algoritmo, messageDigest });
+    }
+    return out;
+}
+
+// Lo que sobra tras la última firma: un `%%EOF` con sus saltos de línea es normal
+// (el propio firmante lo escribe al cerrar la revisión); cualquier otra cosa son
+// bytes añadidos DESPUÉS de firmar.
+const SOLO_CIERRE = /^[\s\r\n]*(%%EOF[\s\r\n]*)?$/;
+
+/**
+ * ¿La firma `d` cubre este documento?
+ *
+ * @returns {{ ok: boolean|null, cubreHasta: number|null, problemas: string[], algoritmo: string|null }}
+ *   `ok: null` = no se ha podido comprobar (y eso NO se cuenta como rota: ver
+ *   la regla de `leerFirmasPdf`).
+ */
+function integridadDeFirma(buffer, txt, d, cubreMaximo) {
+    const problemas = [];
+    const total = buffer.length;
+    const br = d.byteRange;
+
+    if (!br) {
+        return { ok: null, cubreHasta: null, algoritmo: null, problemas: ['la firma no declara su rango de bytes'] };
+    }
+    const [ini1, len1, ini2, len2] = br;
+    const cubreHasta = ini2 + len2;
+
+    // 1. El hueco del /ByteRange tiene que ser EXACTAMENTE el `<…>` de la firma.
+    //    Si no lo es, el rango describe otro fichero: es el caso del PDF que vuelve
+    //    alterado de un trayecto que le cambió bytes por el camino.
+    if (ini1 !== 0 || ini1 + len1 !== d.contentsIni || ini2 !== d.contentsFin) {
+        problemas.push('el rango de bytes de la firma no encaja con el documento (se ha alterado después de firmarlo)');
+    }
+
+    // 2. Truncamiento: la firma declara más fichero del que hay.
+    if (cubreHasta > total) {
+        problemas.push(`el documento está incompleto: la firma cubre ${cubreHasta} bytes y el fichero tiene ${total}`);
+    } else if (cubreHasta === cubreMaximo && cubreHasta < total
+        // Lo que sobra se mira ACOTADO: un `slice` del sobrante de un CIFO de 9 MB
+        // copiaría 9 MB para leer cuatro caracteres. Y pasado ese tamaño ya no hay
+        // nada que interpretar — un cierre de PDF no ocupa 2 KB.
+        && (total - cubreHasta > 2048 || !SOLO_CIERRE.test(txt.slice(cubreHasta, cubreHasta + 2048)))) {
+        // 3. Bytes añadidos tras la ÚLTIMA firma. Una firma anterior que no llega al
+        //    final es lo normal en un PDF con varias (cada una cierra su revisión y
+        //    la siguiente escribe detrás), así que solo se mira la que llega más lejos.
+        problemas.push(`hay ${total - cubreHasta} bytes escritos después de la firma (se ha modificado el documento tras firmarlo)`);
+    }
+
+    // 4. El hash de lo firmado contra el hash de lo que hay hoy.
+    let algoritmo = null;
+    if (!problemas.length) {
+        let digests = [];
+        try { digests = leerDigestsPkcs7(d.der); } catch (_) { digests = []; }
+        const conDigest = digests.find(x => x.messageDigest && x.algoritmo);
+        if (conDigest) {
+            algoritmo = conDigest.algoritmo;
+            try {
+                const firmado = Buffer.concat([
+                    buffer.subarray(ini1, ini1 + len1),
+                    buffer.subarray(ini2, cubreHasta),
+                ]);
+                const actual = require('crypto').createHash(conDigest.algoritmo).update(firmado).digest('hex');
+                if (actual !== conDigest.messageDigest.toLowerCase()) {
+                    problemas.push('el contenido del documento no es el que se firmó (el resumen criptográfico no coincide)');
+                }
+            } catch (_) {
+                // Un algoritmo que este Node no soporta no convierte la firma en rota.
+                return { ok: null, cubreHasta, algoritmo, problemas };
+            }
+        } else {
+            // Sin messageDigest legible no se puede afirmar nada del contenido; lo que
+            // sí se ha comprobado (rango y truncamiento) ya ha pasado.
+            return { ok: null, cubreHasta, algoritmo: null, problemas };
+        }
+    }
+
+    return { ok: problemas.length === 0, cubreHasta, algoritmo, problemas };
+}
+
 // ─── Los diccionarios de firma del PDF ───────────────────────────────────────
 // Se localizan por su `/Contents<…>`: es lo único que siempre está y siempre es
 // un blob largo en hexadecimal. Las demás claves del diccionario (`/SubFilter`,
@@ -205,11 +354,20 @@ function diccionariosDeFirma(txt) {
         const antes = txt.slice(Math.max(0, m.index - VENTANA), m.index);
         const despues = txt.slice(re.lastIndex, re.lastIndex + VENTANA);
         const contexto = antes + despues;
+        // Offsets EN BYTES del blob dentro del fichero. `txt` es latin1, así que un
+        // carácter es un byte y la posición del string ES el offset — de eso vive la
+        // comprobación del /ByteRange (ver `integridadDeFirma`).
+        const contentsIni = m.index + m[0].indexOf('<');       // el propio '<'
+        const contentsFin = re.lastIndex;                      // justo tras el '>'
+        const br = contexto.match(/\/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]/);
         out.push({
             der: Buffer.from(crudo.replace(/(00)+$/, '').length % 2 ? crudo.slice(0, -1) : crudo, 'hex'),
             subfiltro: (contexto.match(/\/SubFilter\s*\/([A-Za-z0-9.]+)/) || [])[1] || null,
             nombreDeclarado: (contexto.match(/\/Name\s*\(([^)]*)\)/) || [])[1] || null,
             fecha: (contexto.match(/\/M\s*\(D:(\d{14})/) || [])[1] || null,
+            contentsIni,
+            contentsFin,
+            byteRange: br ? [Number(br[1]), Number(br[2]), Number(br[3]), Number(br[4])] : null,
         });
     }
     return out;
@@ -242,23 +400,45 @@ function nifFirmante(subject) {
     return m ? m[1].toUpperCase() : null;
 }
 
+// Un PDF entero cierra con `%%EOF`. Se busca en la COLA y no se exige que sea el
+// último byte: hay PDFs con relleno detrás que se abren perfectamente (mismo
+// criterio que `pdfIncompleto` en el frontend, que hace esta guardia antes de
+// llamar a Autofirma).
+const pdfCompleto = (txt) => txt.slice(-4096).includes('%%EOF');
+
 /**
- * Lee las firmas electrónicas de un PDF.
+ * Lee las firmas electrónicas de un PDF y comprueba que cubren el documento.
  *
  * @param {Buffer} buffer
  * @returns {{
- *   esPdf: boolean, firmada: boolean, n: number,
+ *   esPdf: boolean, firmada: boolean, completo: boolean, n: number,
  *   firmantes: Array<{ nombre: string|null, nif: string|null, organizacion: string|null,
  *                      cn: string|null, subfiltro: string|null, nombreDeclarado: string|null,
- *                      fecha: string|null, leido: boolean }>,
+ *                      fecha: string|null, leido: boolean,
+ *                      integridad: { ok: boolean|null, problemas: string[], algoritmo: string|null } }>,
+ *   integridad: { ok: boolean|null, rota: boolean, comprobadas: number, problemas: string[] },
  *   avisos: string[],
  * }}
+ *
+ * REGLA — `rota` solo es true cuando se ha PODIDO comprobar y NO cuadra. Lo que no
+ * se sabe leer sale como `ok: null`, nunca como rota: un falso positivo aquí para
+ * un expediente que está bien, y lo que se para es una firma buena.
  */
 function leerFirmasPdf(buffer) {
-    const salida = { esPdf: esPdf(buffer), firmada: false, n: 0, firmantes: [], avisos: [] };
+    const salida = {
+        esPdf: esPdf(buffer), firmada: false, completo: false, n: 0, firmantes: [],
+        integridad: { ok: null, rota: false, comprobadas: 0, problemas: [] },
+        avisos: [],
+    };
     if (!salida.esPdf) return salida;
 
     const txt = buffer.toString('latin1');
+    salida.completo = pdfCompleto(txt);
+    if (!salida.completo) {
+        salida.integridad.rota = true;
+        salida.integridad.ok = false;
+        salida.integridad.problemas.push('el PDF está incompleto: le falta el final del fichero');
+    }
     const dicts = diccionariosDeFirma(txt);
     if (!dicts.length) {
         // Puede haber un `/ByteRange` sin que se haya podido aislar el blob: entonces
@@ -271,14 +451,24 @@ function leerFirmasPdf(buffer) {
         return salida;
     }
 
+    // Una firma que no llega al final del fichero es lo NORMAL cuando hay varias:
+    // cada una cierra su revisión y la siguiente escribe detrás. Por eso solo se le
+    // exige llegar al final a la que llega más lejos.
+    const cubreMaximo = Math.max(...dicts.map(d => (d.byteRange ? d.byteRange[2] + d.byteRange[3] : 0)));
+
     for (const d of dicts) {
+        const integridad = integridadDeFirma(buffer, txt, d, cubreMaximo);
+        salida.integridad.problemas.push(...integridad.problemas);
+        if (integridad.ok === true) salida.integridad.comprobadas++;
+        if (integridad.ok === false) salida.integridad.rota = true;
+
         let subjects = null;
         try { subjects = leerPkcs7(d.der); } catch (_) { subjects = null; }
         if (!subjects || !subjects.length) {
             salida.firmantes.push({
                 nombre: d.nombreDeclarado || null, nif: null, organizacion: null, cn: null,
                 subfiltro: d.subfiltro, nombreDeclarado: d.nombreDeclarado,
-                fecha: fechaLegible(d.fecha), leido: false,
+                fecha: fechaLegible(d.fecha), leido: false, integridad,
             });
             salida.avisos.push('Una de las firmas no se ha podido leer del certificado; se usa el nombre que declara el PDF.');
             continue;
@@ -293,11 +483,19 @@ function leerFirmasPdf(buffer) {
                 nombreDeclarado: d.nombreDeclarado,
                 fecha: fechaLegible(d.fecha),
                 leido: !!s,
+                integridad,
             });
         }
     }
     salida.n = salida.firmantes.length;
     salida.firmada = salida.n > 0;
+    // Los problemas se repiten cuando varias firmas fallan por lo mismo: se agrupan
+    // (regla del informe que no repite el mismo aviso por cada elemento).
+    salida.integridad.problemas = [...new Set(salida.integridad.problemas)];
+    if (salida.integridad.ok !== false) {
+        salida.integridad.ok = salida.integridad.rota ? false
+            : (salida.integridad.comprobadas > 0 ? true : null);
+    }
     return salida;
 }
 
@@ -346,4 +544,6 @@ module.exports = {
     // Exportados para las pruebas
     leerPkcs7,
     diccionariosDeFirma,
+    leerDigestsPkcs7,
+    integridadDeFirma,
 };
