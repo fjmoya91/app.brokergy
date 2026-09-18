@@ -14,6 +14,16 @@ import { FICHAS, fichaColor } from '../../expedientes/logic/expedienteTaxonomia'
 
 const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
+// Fecha de alta en formato YYYY-MM-DD LOCAL (no UTC): es como la ve el usuario
+// en la columna ("Fecha") y como escribe un <input type="date">, así que
+// comparar lexicográficamente casa sin trucos de zona horaria.
+const opDateKey = (op) => {
+    if (!op?.created_at) return null;
+    const d = new Date(op.created_at);
+    if (Number.isNaN(d.getTime())) return null;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 export function AdminPanelView({
     onLoadOpportunity,
     onBackToCalculator,
@@ -363,8 +373,12 @@ export function AdminPanelView({
         ccaa: '',
         prescriptor_id: '',
         estado: initialEstado || '',
-        cod_cliente_interno: ''
+        cod_cliente_interno: '',
+        fechaDesde: '',
+        fechaHasta: ''
     });
+    // '' (sin ordenar, orden de llegada de la API) · 'desc' (más reciente primero) · 'asc'
+    const [fechaSort, setFechaSort] = useState('');
 
     // Estado precargado al saltar desde el cuadro de mando. Se consume una vez
     // para que volver a esta pestaña no reaplique el filtro.
@@ -703,7 +717,7 @@ export function AdminPanelView({
         }
     };
 
-    const filteredOportunidades = (oportunidades || []).filter(op => {
+    const filteredOportunidadesSinOrdenar = (oportunidades || []).filter(op => {
         if (!op) return false;
 
         // 1. Filtros por columna (los que están en la parte superior de la tabla)
@@ -737,7 +751,9 @@ export function AdminPanelView({
             (filters.ccaa === '' || getCCAA(op) === filters.ccaa) &&
             (filters.prescriptor_id === '' || (filters.prescriptor_id === 'none' ? !op.prescriptor_id : op.prescriptor_id === filters.prescriptor_id)) &&
             (filters.estado === '' || (op.datos_calculo?.estado || 'PTE ENVIAR') === filters.estado) &&
-            (filters.cod_cliente_interno === '' || norm(op.datos_calculo?.cod_cliente_interno).includes(norm(filters.cod_cliente_interno)))
+            (filters.cod_cliente_interno === '' || norm(op.datos_calculo?.cod_cliente_interno).includes(norm(filters.cod_cliente_interno))) &&
+            (filters.fechaDesde === '' || (opDateKey(op) !== null && opDateKey(op) >= filters.fechaDesde)) &&
+            (filters.fechaHasta === '' || (opDateKey(op) !== null && opDateKey(op) <= filters.fechaHasta))
         );
 
         if (!matchesColFilters) return false;
@@ -770,10 +786,25 @@ export function AdminPanelView({
         return searchFields.some(field => field && norm(String(field)).includes(gs));
     });
 
-    // Reset pagination when filters or global search change
+    // El orden por fecha es un extra sobre el filtrado, nunca al revés: si no se
+    // ha elegido ninguno, se conserva el orden que ya trae la API (más reciente
+    // primero). Las que no tienen fecha se quedan siempre al final, se ordene
+    // como se ordene — un guion arriba de la lista esconde justo lo que se pidió ver.
+    const filteredOportunidades = fechaSort
+        ? [...filteredOportunidadesSinOrdenar].sort((a, b) => {
+            const da = opDateKey(a);
+            const db = opDateKey(b);
+            if (da === null && db === null) return 0;
+            if (da === null) return 1;
+            if (db === null) return -1;
+            return fechaSort === 'asc' ? da.localeCompare(db) : db.localeCompare(da);
+        })
+        : filteredOportunidadesSinOrdenar;
+
+    // Reset pagination when filters, global search or sort change
     useEffect(() => {
         setCurrentPage(1);
-    }, [filters, globalSearch]);
+    }, [filters, globalSearch, fechaSort]);
 
     // Pagination logic
     const totalItems = filteredOportunidades.length;
@@ -1230,7 +1261,64 @@ export function AdminPanelView({
                                     <RH colKey="metricas" />
                                 </th>
                                 <th className="p-3.5 text-[10px] font-black uppercase tracking-[0.15em] text-white/25 border-b border-white/[0.06] relative overflow-visible" style={{ width: colW.fecha }}>
-                                    Fecha
+                                    <div className="flex items-center gap-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => setFechaSort(prev => prev === 'desc' ? 'asc' : prev === 'asc' ? '' : 'desc')}
+                                            title={fechaSort === 'desc' ? 'Más reciente primero — clic para invertir' : fechaSort === 'asc' ? 'Más antigua primero — clic para quitar el orden' : 'Ordenar por fecha'}
+                                            className={`flex items-center gap-1 transition-colors ${fechaSort ? 'text-brand' : 'text-white/25 hover:text-white/60'}`}
+                                        >
+                                            Fecha
+                                            <svg className="w-2.5 h-2.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                {fechaSort === 'asc'
+                                                    ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7" />
+                                                    : fechaSort === 'desc'
+                                                        ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
+                                                        : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l4-4 4 4m-8 6l4 4 4-4" />}
+                                            </svg>
+                                        </button>
+                                        <div className="relative" onClick={e => e.stopPropagation()}>
+                                            <button
+                                                type="button"
+                                                onClick={() => setOpenDropdownId(openDropdownId === 'fecha-filter' ? null : 'fecha-filter')}
+                                                title="Filtrar por rango de fechas"
+                                                className={`p-0.5 rounded transition-colors ${(filters.fechaDesde || filters.fechaHasta) ? 'text-brand' : 'text-white/25 hover:text-white/60'}`}
+                                            >
+                                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                                </svg>
+                                            </button>
+                                            {openDropdownId === 'fecha-filter' && (
+                                                <div className="absolute z-30 top-full left-0 mt-2 p-3 rounded-xl border border-white/10 bg-bkg-elevated shadow-2xl w-52 normal-case tracking-normal">
+                                                    <label className="block text-[9px] font-black uppercase tracking-widest text-white/30 mb-1">Desde</label>
+                                                    <input
+                                                        type="date"
+                                                        value={filters.fechaDesde}
+                                                        max={filters.fechaHasta || undefined}
+                                                        onChange={e => setFilters(prev => ({ ...prev, fechaDesde: e.target.value }))}
+                                                        className="w-full bg-bkg-deep border border-white/[0.08] rounded-lg px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-brand/40 mb-2"
+                                                    />
+                                                    <label className="block text-[9px] font-black uppercase tracking-widest text-white/30 mb-1">Hasta</label>
+                                                    <input
+                                                        type="date"
+                                                        value={filters.fechaHasta}
+                                                        min={filters.fechaDesde || undefined}
+                                                        onChange={e => setFilters(prev => ({ ...prev, fechaHasta: e.target.value }))}
+                                                        className="w-full bg-bkg-deep border border-white/[0.08] rounded-lg px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-brand/40"
+                                                    />
+                                                    {(filters.fechaDesde || filters.fechaHasta) && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setFilters(prev => ({ ...prev, fechaDesde: '', fechaHasta: '' }))}
+                                                            className="w-full mt-2 py-1.5 rounded-lg border border-white/10 text-white/50 hover:text-white text-[9px] font-black uppercase tracking-widest transition-all"
+                                                        >
+                                                            Limpiar
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
                                     <RH colKey="fecha" />
                                 </th>
                                 {user?.rol === 'ADMIN' && (
