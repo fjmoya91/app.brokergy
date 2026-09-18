@@ -62,6 +62,29 @@ function mergeDocumentacion(existingDoc, payloadDoc) {
         // un borrador ya corregido (regla 24).
         if (_ts(existing[spec.at]) > _ts(merged[spec.at])) merged[spec.at] = existing[spec.at];
 
+        // El sello de "te lo hemos vuelto a pedir" TAMPOCO retrocede, y por el
+        // mismo motivo. Lo escriben endpoints dedicados (la RPC de
+        // /instalador/enviar y la ruta de rechazo/requerimiento), así que la copia
+        // hidratada del navegador no lo trae — y no bastaba con no traerlo: en
+        // cuanto la clave EXISTE en BD (se pone a `null` al llegar una firma), la
+        // copia la lleva con ese null y el autoguardado siguiente BORRA el sello
+        // que se acaba de escribir. Medido en 26RES060_179 (18/09/2026): se reenvió
+        // el CIFO por requerimiento a las 07:34:37, la RPC selló la re-firma, y el
+        // PUT de "marcar como enviado" (07:34:38) la dejó otra vez en null — el
+        // enlace de ese mismo email le decía al instalador "¡TODO RECIBIDO!". Es el
+        // mismo fallo que ya costó el `_drive_at` y las `incidencias`.
+        //
+        // La excepción es el caso legítimo: si en ESTE guardado llega una firma
+        // POSTERIOR al sello, la petición está atendida y se limpia (la subida del
+        // firmado desde la app manda `signedAt` porque Drive puede devolver el
+        // mismo enlace y el bloque de abajo no lo vería).
+        if (spec.refirma) {
+            const selloVivo = _ts(existing[spec.refirma]);
+            if (selloVivo > _ts(merged[spec.refirma]) && _ts(merged[spec.signedAt]) < selloVivo) {
+                merged[spec.refirma] = existing[spec.refirma];
+            }
+        }
+
         // Cuándo nos llegó el firmado. Es lo que permite saber si corresponde al
         // borrador actual o a una versión anterior, y lo que cierra la petición de
         // volver a firmar (ver `estadoInstalador`).

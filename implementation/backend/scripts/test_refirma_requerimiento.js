@@ -50,5 +50,38 @@ ok(!!refirmaPendiente(cifo, 'cert_cifo'), 'el CIFO conserva su re-firma (misma r
 ok(SLOT_A_BORRADOR.cert_cifo_signed_link === 'cert_cifo', 'el mapa slot→documento resuelve el CIFO');
 ok(Object.values(BORRADORES_CLIENTE).every(s => s.refirma), 'los tres documentos firmables declaran su sello de re-firma');
 
+
+// 6 · El sello de re-firma NO lo borra la copia hidratada del navegador
+//     (26RES060_179): la RPC de /instalador/enviar lo escribe, y el PUT de
+//     "marcar como enviado" llega después con `cert_cifo_refirma_at: null`
+//     dentro de una `documentacion` que se hidrató antes del sello.
+const enBd = {
+    cert_cifo_drive_link: 'drv/cifo', cert_cifo_drive_at: t(-10),
+    cert_cifo_signed_link: 'drv/cifo_fdo', cert_cifo_signed_at: t(-1000),
+    cert_cifo_refirma_at: t(-1),                   // lo acaba de sellar la RPC
+};
+const copiaVieja = { ...enBd, cert_cifo_refirma_at: null, cert_cifo_sent_at: t(0) };
+const tras = mergeDocumentacion(enBd, copiaVieja);
+ok(!!tras.cert_cifo_refirma_at, 'un autoguardado con la copia hidratada NO borra el sello de re-firma');
+ok(!!refirmaPendiente(tras, 'cert_cifo'), 'y el CIFO sigue pendiente de volver a firmar');
+ok(!firmaVigente(tras, 'cert_cifo'), 'el firmado anterior deja de contar como recibido');
+
+// …pero la llegada de la firma nueva SÍ la cierra, venga por un enlace distinto
+const conFirmaNueva = mergeDocumentacion(enBd, { ...enBd, cert_cifo_signed_link: 'drv/cifo_fdo_v2' });
+ok(!conFirmaNueva.cert_cifo_refirma_at, 'la firma nueva (enlace distinto) cierra la petición');
+// …o por el mismo enlace, cuando la subida desde la app manda su `signed_at`
+const mismoEnlace = mergeDocumentacion(enBd, { ...enBd, cert_cifo_refirma_at: null, cert_cifo_signed_at: t(0) });
+ok(!mismoEnlace.cert_cifo_refirma_at, 'y también cuando Drive devuelve el mismo enlace pero llega un signed_at posterior');
+
+// 7 · El contexto del requerimiento se lee aunque esté guardado en MAYÚSCULAS
+const enMayus = {
+    anexo_i_signed_link: 'x', anexo_i_signed_at: t(-50), anexo_i_refirma_at: t(-5),
+    requerimiento_firma: { at: t(-5), docs: ['ANEXO_I', 'ANEXO_CESION'], importe_nuevo: 1640, plazo_dias: 10 },
+};
+ok(!!refirmaPendiente(enMayus, 'anexo_i')?.requerimiento, 'el requerimiento guardado en MAYUSCULAS sigue llegando a la pagina de firma');
+const { normalizeData } = require('../utils/normalization');
+ok(normalizeData({ requerimiento_firma: { docs: ['anexo_i'] } }).requerimiento_firma.docs[0] === 'anexo_i',
+   'y normalizeData ya no lo sube a MAYUSCULAS');
+
 console.log(fallos ? `\n${fallos} comprobación(es) fallidas` : '\nTodo correcto');
 process.exit(fallos ? 1 : 0);

@@ -2944,6 +2944,26 @@ DOS vías por las que puede llegar el firmado nuevo: la subida pública
 sella `cert_cifo_signed_at`). El popup lo dice ANTES de enviar: es una consecuencia
 irreversible del botón, no un efecto secundario.
 
+**REGLA — el SELLO DE RE-FIRMA tampoco retrocede, y esa es la parte que faltaba.**
+La marca la escribe un endpoint dedicado (la RPC de `/instalador/enviar`, o la ruta de
+requerimiento), así que la copia hidratada del navegador no la trae — y NO bastaba con
+eso: en cuanto la clave EXISTE en la BD (se pone a `null` al llegar una firma), esa copia
+la lleva con el null y el siguiente autoguardado BORRA el sello recién escrito. Medido en
+**26RES060_179** (18/09/2026): CIFO reenviado por requerimiento a las 07:34:37, sello
+escrito, y el PUT de "marcar como enviado" a las 07:34:38 lo dejó otra vez en `null` — el
+enlace de ese MISMO email le decía al instalador *"¡TODO RECIBIDO! No queda nada pendiente
+por tu parte"*. Afectaba a los tres documentos (`{doc}_refirma_at`) y a las tres vías que
+lo sellan. `mergeDocumentacion` lo conserva salvo que en ese mismo guardado llegue una
+firma POSTERIOR al sello — que es el caso legítimo de la subida del firmado desde la app,
+donde Drive puede devolver el mismo enlace y solo cambia `signed_at`. Vigilado en
+`test_refirma_requerimiento.js`.
+⚠️ Y `requerimiento_firma` —el contexto que la página de firma le explica al cliente
+(importes y plazo)— estaba en la **BLACKLIST de `normalizeData`**: su `docs` son las
+claves de `BORRADORES_CLIENTE` en minúscula y se guardaban como `['ANEXO_I',...]`, así que
+`refirmaPendiente().requerimiento` salía `null` y ese aviso no se pintaba. Se corrige la
+escritura y se lee sin distinguir mayúsculas, porque lo ya guardado tiene que poder leerse
+(mismo rescate que `leerSubvenciones`, regla 56).
+
 **REGLA — el `_drive_at` NUNCA retrocede.** La vista del expediente reenvía
 `documentacion` entera desde una copia hidratada al abrirla, así que un guardado
 posterior traía el sello ANTERIOR y lo pisaba: medido en 26RES060_127, el borrador era el
@@ -9176,6 +9196,71 @@ guarda.
 
 ---
 
+## Una firma que se VE no siempre CUBRE el documento (2026-09-18)
+
+Un PDF puede enseñar su firma en el visor y no valer: si se le tocó un byte después
+de firmarlo, o llegó truncado, el resumen que firmó el certificado ya no cuadra con
+el fichero. **En pantalla no se nota** —pdf.js reconstruye el índice de un PDF roto
+y lo pinta perfecto— y el único que se queja es un lector que compruebe la firma, o
+el verificador, semanas después. Es lo que dejó tres firmas inservibles en
+26RES060_179 el 17/09 (regla 55) sin que nada lo dijera.
+
+Ahora se comprueba antes de dar el verde, y antes de guardar lo que vuelve de
+Autofirma.
+
+| Qué | Dónde |
+|---|---|
+| La comprobación (rango, truncamiento y resumen del documento) | `integridadDeFirma` / `leerDigestsPkcs7` en [utils/firmasPdf.js](implementation/backend/utils/firmasPdf.js) |
+| El resultado, junto a quién firma | `leerFirmasPdf(buf).integridad` → `{ ok, rota, comprobadas, problemas[] }` |
+| Prueba de que la avería se detecta (sin BD, sin red) | `node implementation/backend/scripts/test_integridad_firma.mjs` |
+| Prueba de que lo BUENO no se marca (contra producción) | `node implementation/backend/scripts/barrer_integridad_firmas.js` |
+
+**REGLA — esto sigue SIN decir que una firma sea válida.** No se comprueba la cadena
+de confianza, ni la revocación, ni que firmara de verdad esa clave: eso es de
+Autofirma y del validador del Ministerio. Lo que se afirma es más estrecho y más
+duro: **"la firma NO cubre este documento"**, que es un hecho comprobable con el
+fichero en la mano — el `messageDigest` del firmante contra el hash de lo que hay
+hoy. Decirlo de otra forma en pantalla sería prometer una validez que nadie ha
+comprobado.
+
+**REGLA — bloquea solo lo que se ha PODIDO comprobar y NO cuadra.** Lo que no se
+sabe leer sale como `ok: null` y **pasa**: un falso positivo aquí para un expediente
+que está bien, y el aviso que salta sin motivo es el que enseña a ignorar los
+avisos. Medido sobre los 592 firmados de producción: **281 comprobadas y correctas,
+2 rotas, 2 sin messageDigest legible, 0 falsos positivos**.
+
+**REGLA — la ÚLTIMA firma es la única a la que se le exige llegar al final del
+fichero.** En un PDF con varias (el Anexo I lleva la del S.O. y la de Brokergy) cada
+una cierra su revisión y la siguiente escribe detrás, así que una firma anterior que
+no llega al final es lo NORMAL. Exigírselo a todas habría marcado como rotos todos
+los Anexos I de todos los lotes.
+
+**REGLA — un escaneo sin firma electrónica no es un documento roto.** 303 de los 592
+son manuscritos y de su integridad no se afirma nada.
+
+### Dónde está puesto, y qué hace cada uno
+
+| Superficie | Qué pasa con una firma rota |
+|---|---|
+| **Validar** un documento (`POST /:id/documentos/validar`) | **409**, con el motivo y la salida «validarlo igualmente» — que se escribe en el historial con el nombre de quien la toma |
+| **Firmar con Autofirma** (`POST /:id/documentos/firmar-subir`) | **422 y NO se sube**: acabamos de firmarlo nosotros, así que lo que procede es volver a firmar, no archivar una firma inválida |
+| **Firmados que devuelve el S.O.** (`firmadosSo`) | estado `firma_rota`, que no se registra: de ahí el documento sale al ZIP del MITECO |
+| **CEE firmado por el técnico** (`ceeFirmaService`) | **AVISA y no bloquea**: lo sube él desde su enlace y dejarle sin poder entregar sería peor que el problema |
+
+**REGLA — validar es copiar a «10. EXPEDIENTE CAE», y por eso se mira AHÍ.** Esa es
+la carpeta que audita el verificador, y el momento de validar es el último en que
+hay una persona delante pudiendo pedir otra copia. Cuesta una descarga de Drive por
+validación; si el fichero no se puede bajar, **no se para la validación**: el filtro
+es una red, no un peaje.
+
+⚠️ **Dos documentos ya validados tienen la firma rota** y el filtro no los toca
+(solo actúa al validar): el **CIFO de 26RES060_179** —validado el 17/09 a las 19:12,
+truncado en 8 bytes— y el **CIFO de 25RES060_70**, validado desde junio, con 55.751
+bytes escritos detrás de la firma. Los dos hay que volver a pedirlos firmados. El
+barrido los vuelve a listar cuando se quiera comprobar.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -9252,7 +9337,7 @@ guarda.
 
 27.e **Las TRES placas de la obra se leen de un botón, y la placa se lee SOLA**: el botón **Leer placas** de la cabecera de Instalación lee la de la caldera que se retira y las de la bomba de calor (ud. exterior y ud. interior) y rellena marca, modelo, nº de serie y potencia — el nº de serie de la ud. exterior va impreso en el CIFO, en el Anexo I y en la memoria RITE. **NADA de fotos de contexto junto a la etiqueta**: medido sobre dos placas reales (3 vueltas, `temperature: 0`), con la placa sola **12/12 aciertos** y con una segunda foto al lado **0/6**, fallando en UN DÍGITO en medio del número y siempre el mismo — así que ni se nota ni se corrige repitiendo. **Una lectura POR UNIDAD** (el slot ya dice de qué aparato es cada foto: mezclarlas escribe en el CIFO el nº de serie del otro aparato), y el nº de serie sale de su **LÍNEA LITERAL** como la potencia — ⚠️ sin cortar por el primer espacio, que los hay escritos por bloques (`S/N:1KK018 038JAP D8D5BJF 0134`). El **EQUIPO lo decide el catálogo** (`casarConCatalogo`, códigos normalizados; un código numérico como los de THERMOR nunca casa por prefijo), con **varios candidatos se desempata por la OTRA unidad** y, si aun así quedan varios, **se pregunta**: elegir por el usuario es declarar el SCOP de otra máquina. El **SCOP no se calcula aquí** — lo resuelven `getScopFromModel`/`getScopSeason` por ESM, las mismas del desplegable. Se PROPONE, solo se rellenan huecos, y al aplicar se escribe **lo revisado**, no una lectura nueva. Coste medido: **~0,002 € por expediente** (las tres placas), y el cruce con el catálogo **no gasta ni un token**. Fuente única: [placaEquipoOcrService.js](implementation/backend/services/placaEquipoOcrService.js). Tras tocarlo: `node implementation/backend/scripts/test_placa_equipo.js` y `test_placa_acs_conjunto.mjs` (que comprueba qué acaba imprimiendo el CIFO). Ver "Las TRES placas de la obra, de un botón".
 
-27. **Al instalador se le pide TODO de una vez, y un CIFO firmado NO cierra la tarea para siempre**: al enviar el CIFO o la documentación RITE, la app comprueba si el otro también falta y ofrece mandarlo en el MISMO mensaje, con UN enlace (`/instalador/:id`). Reenviarle el CIFO teniendo ya uno firmado (requerimiento) **anula esa firma** (`cert_cifo_refirma_at`), o el enlace de ese mismo correo le dice "todo recibido" y no le deja firmar; la cierran la subida pública y `mergeDocumentacion`, que además sella `cert_cifo_signed_at` y **no deja retroceder `_drive_at`**. Fuente única de qué falta y de los textos: [logic/instaladorPendientes.js](implementation/frontend/src/features/expedientes/logic/instaladorPendientes.js); del envío, `POST /api/expedientes/:id/instalador/enviar`. `cert_rite_drive_link` significa CERTIFICADO RITE aportado — la Memoria que generamos nosotros vive en `memoria_rite_docx_link`. Ver "Al instalador se le pide TODO de una vez".
+27. **Al instalador se le pide TODO de una vez, y un CIFO firmado NO cierra la tarea para siempre**: al enviar el CIFO o la documentación RITE, la app comprueba si el otro también falta y ofrece mandarlo en el MISMO mensaje, con UN enlace (`/instalador/:id`). Reenviarle el CIFO teniendo ya uno firmado (requerimiento) **anula esa firma** (`cert_cifo_refirma_at`), o el enlace de ese mismo correo le dice "todo recibido" y no le deja firmar; la cierran la subida pública y `mergeDocumentacion`, que además sella `cert_cifo_signed_at` y **no deja retroceder ni `_drive_at` ni el propio sello de re-firma** — ese sello lo escribe un endpoint dedicado y el autoguardado siguiente lo borraba con el `null` que traía la copia hidratada (medido en 26RES060_179: el enlace de ese mismo email decía «¡TODO RECIBIDO!»). Fuente única de qué falta y de los textos: [logic/instaladorPendientes.js](implementation/frontend/src/features/expedientes/logic/instaladorPendientes.js); del envío, `POST /api/expedientes/:id/instalador/enviar`. `cert_rite_drive_link` significa CERTIFICADO RITE aportado — la Memoria que generamos nosotros vive en `memoria_rite_docx_link`. Ver "Al instalador se le pide TODO de una vez".
 
 26. **El bot de WhatsApp solo habla en los chats ETIQUETADOS, en horario y sin tocar dinero**: contesta por la sesión real del VPS, así que sus frenos (etiqueta + lista blanca, 08:00-20:00 Madrid, ventana de silencio, silencio si escribe un humano, tope diario, apagado por defecto) protegen la cuenta de la que dependen TODOS los envíos automáticos. Los datos salen del dossier (`botContexto`, que reusa `buildChecklistData` y `ensureUploadLink`), nunca del prompt; los importes no viajan al dossier. Fuente única del texto: [botPrompt.js](implementation/backend/services/botPrompt.js). Ver "Bot de WhatsApp".
 
@@ -9346,6 +9431,8 @@ guarda.
 61. **El botón que metía su propio EVENTO dentro del POST**: `onClick={onTraer}` le pasaba el `SyntheticEvent` de React a `traerGeometria(cuerposFuera)`, y ese evento lleva `view: window` — el cuerpo del POST dejaba de poder serializarse, axios ni lo mandaba y no quedaba rastro en NINGÚN log. Entró el 16/09/2026 a las 22:21 con los cuerpos excluidos y el último POST con éxito es de las 15:25 de ese día: **el botón no funcionó ni una vez desde entonces** (solo la retoma automática, que sí pasa una lista). Se arregla en las tres capas: `soloLista(v)` normaliza en la FUNCIÓN y no en quien llama, el botón va envuelto, y `postEnvolvente` **para antes de salir** si el cuerpo no se puede serializar, lo marca como fallo NUESTRO y NO lo reintenta. Y lo que lo destapó fue anotarlo: esa frase cubría a la vez el motor caído, Catastro bloqueado, el corte de la pasarela, la sesión caducada y un tropiezo de red, así que no había nada que mirar. Medido el 18/09/2026: el motor levantado, la misma RC medida en **34,5 s con un 200** desde el VPS, y **ni una petición de geometría en el log de nginx ni en el del backend** — la petición no llegó a salir del navegador. Ahora cada causa dice lo suyo con el paso siguiente pegado (el texto del backend se CONSERVA y el consejo va detrás), **la que no ha llegado se repite UNA vez sola** —sin respuesta no ha pasado nada al otro lado, y una conexión HTTP/2 reutilizada y ya cerrada tumba el POST y no el GET, que es justo lo que se midió— y el fallo se ANOTA en el servidor (`POST /api/cee-envolvente/diagnostico`, declarada ANTES que `/:expedienteId/…`; ruta, código y navegador, nunca datos de nadie). **`repetible` lo dice quien llama**: medir no escribe y se puede repetir, escribir el `.cex` toca Drive y no. Un fallo CON respuesta NO se repite —en un 502 al otro lado está el WAF del buscador—. Y `/api/cee-envolvente/` tiene ya su propia `location` de nginx con **300 s**: con los 120 s de `/api/` cortaba la pasarela antes que el backend (que espera 180 s) y lo que llegaba era su HTML, o sea otra vez el mensaje genérico — el mismo fallo de la regla 40. Fuente única: [pedirEnvolvente.js](implementation/frontend/src/features/cee-envolvente/logic/pedirEnvolvente.js). Tras tocarlo: `node implementation/backend/scripts/test_envolvente_fallos.mjs`. Ver "El botón que metía su propio EVENTO dentro del POST".
 
 62. **Ningún hook por debajo de un `return` condicional, y el BUILD lo comprueba**: `vite build` no pasa el lint, así que una violación de `rules-of-hooks` se compila y llega a producción — donde React corta el render con el **error #310** («rendered more hooks than during the previous render») y **tumba la pantalla entera**, no el trozo. Le pasó a la ventana de la envolvente el 18/09/2026 en cuanto el plano por fin se trajo (`200`, 1,34 MB): el `useState` de los cuerpos estaba dos líneas por debajo del `return` de «todavía no hay geometría», así que el fallo llevaba días escrito y latente porque nadie cruzaba ese render. Ese día había **OCHO** en el repo (envolvente ×2, panel económico del expediente, cuadro de mando de lotes, comparativa de la calculadora y popup de propuesta) y se arreglaron las ocho: el hook sube por encima del `return`, o se le quita el `useCallback`/`useMemo` cuando no aportaba nada —el de `ProposalModal` solo se usaba desde un `onClick={() => …}`—. El candado es [check-hooks.mjs](implementation/frontend/scripts/check-hooks.mjs), **enganchado a `npm run build`**: con una violación el build sale con 1 y el deploy se para antes de compilar. **NO sustituye a `npm run lint`**: vigila UNA regla, la que rompe la pantalla; meter ahí las demás (efectos que llaman a `setState`, fast-refresh) lo convertiría en algo que hay que saltarse. Ver "Y con el plano por fin traído, la ventana se caía entera".
+
+63. **Una firma que se VE no siempre CUBRE el documento, y se comprueba antes de dar el verde**: si a un PDF se le tocó un byte tras firmarlo, o llegó truncado, el resumen que firmó el certificado ya no cuadra — y **en pantalla no se nota** (pdf.js reconstruye el índice y lo pinta perfecto), así que el daño solo aparece cuando lo abre un lector que valida la firma, o el verificador. `leerFirmasPdf(buf).integridad` lo dice: el `/ByteRange` contra la posición real del `/Contents`, el truncamiento, los bytes escritos detrás de la ÚLTIMA firma y el **`messageDigest` del firmante contra el hash de lo que hay hoy** (`integridadDeFirma` en [utils/firmasPdf.js](implementation/backend/utils/firmasPdf.js), recorrido DER sin dependencias ni IA: milisegundos y coste cero). **Sigue sin decir que una firma sea VÁLIDA** —ni cadena de confianza ni revocación, eso es del validador oficial—: afirma lo contrario y más estrecho, *"la firma NO cubre este documento"*, que es un hecho. **Bloquea solo lo que se ha PODIDO comprobar y no cuadra**; lo que no se sabe leer pasa (`ok: null`), porque el aviso que salta sin motivo es el que enseña a ignorar los avisos. **Solo a la ÚLTIMA firma se le exige llegar al final del fichero**: en un PDF con varias, cada una cierra su revisión y la siguiente escribe detrás — exigírselo a todas marcaría como rotos todos los Anexos I. Medido sobre los **592 firmados de producción: 281 correctas, 2 rotas, 2 no comprobables, 0 falsos positivos** — y una de las rotas es el CIFO de 26RES060_179, el daño que la regla 55 ya documentaba. Puesto en VALIDAR (409 + "validarlo igualmente", que se escribe en el historial), en `firmar-subir` (422 y **no se sube**: acabamos de firmarlo nosotros) y en los firmados del S.O. (`firma_rota`, no se registra); en el CEE del técnico **avisa y no bloquea**, que lo sube él desde su enlace. Tras tocarlo: `node implementation/backend/scripts/test_integridad_firma.mjs` y el barrido `barrer_integridad_firmas.js`. Ver "Una firma que se VE no siempre CUBRE el documento".
 
 ---
 

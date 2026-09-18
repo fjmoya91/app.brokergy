@@ -33,7 +33,14 @@
 // un mapa, así que en MAYÚSCULAS (`CALDERA.MARCA`) dejaba de encontrarlas — y de
 // paso convertía la línea literal de la placa, que es la EVIDENCIA, en algo que
 // ya no es lo que pone la etiqueta. Medido en 26RES060_167.
-const BLACKLIST = ['id', 'id_oportunidad', 'id_cliente', 'password', 'token', 'reformaType', 'method', 'type', 'icon', 'link', 'url', 'ficha', 'tipo_emisor', 'tipo_equipo_nuevo', 'metodo_scop', 'hibridacion_metodo', 'rendimiento_id', 'comb_', 'datos_calculo', 'fotovoltaica', 'envolvente', 'placa_ocr', 'placas_ocr', 'subvenciones'];
+//
+// `requerimiento_firma` (documentacion) es el contexto del requerimiento que se
+// le enseña al firmante: de QUÉ documentos y con qué importe y plazo. Su `docs`
+// son las claves de `BORRADORES_CLIENTE` en minúscula ('anexo_i') y se comparan
+// con `includes()`, así que en MAYÚSCULAS el aviso de la página de firma dejaba
+// de salir — el cliente veía dos documentos repetidos sin saber por qué. Medido
+// en 26RES060_179, guardado como ['ANEXO_I','ANEXO_CESION'].
+const BLACKLIST = ['id', 'id_oportunidad', 'id_cliente', 'password', 'token', 'reformaType', 'method', 'type', 'icon', 'link', 'url', 'ficha', 'tipo_emisor', 'tipo_equipo_nuevo', 'metodo_scop', 'hibridacion_metodo', 'rendimiento_id', 'comb_', 'datos_calculo', 'fotovoltaica', 'envolvente', 'placa_ocr', 'placas_ocr', 'subvenciones', 'requerimiento_firma'];
 
 function normalizeData(obj) {
     if (!obj || typeof obj !== 'object') return obj;

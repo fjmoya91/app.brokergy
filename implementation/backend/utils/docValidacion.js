@@ -139,6 +139,9 @@ const SLOT_A_BORRADOR = Object.fromEntries(
 
 const _ts = (v) => { const t = Date.parse(v || ''); return Number.isNaN(t) ? 0 : t; };
 
+const _incluyeDoc = (lista, which) => Array.isArray(lista)
+    && lista.some(d => String(d || '').toLowerCase() === String(which).toLowerCase());
+
 /**
  * Estado de rechazo del anexo `which` ('anexo_i' | 'anexo_cesion').
  * Devuelve null si nunca se rechazó. `obsoleto` = el borrador que serviría el
@@ -179,7 +182,12 @@ function refirmaPendiente(documentacion, which) {
         firmante: spec.firmante,
         at: doc[spec.refirma],
         // Contexto del requerimiento que la provocó (importes, plazo), si lo hubo.
-        requerimiento: doc.requerimiento_firma?.docs?.includes(which) ? doc.requerimiento_firma : null,
+        // El contexto del requerimiento (importes, plazo) es lo que la página de
+        // firma le explica al cliente. Su `docs` se compara SIN distinguir
+        // mayúsculas porque hasta el 18/09/2026 `normalizeData` subía el sub-árbol
+        // entero y lo dejaba guardado como ['ANEXO_I','ANEXO_CESION'] — lo que hay
+        // en la BD tiene que poder leerse (mismo rescate que `leerSubvenciones`).
+        requerimiento: _incluyeDoc(doc.requerimiento_firma?.docs, which) ? doc.requerimiento_firma : null,
     };
 }
 
