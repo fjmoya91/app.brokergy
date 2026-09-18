@@ -313,6 +313,14 @@ export const CeeDocumentsGrid = forwardRef(function CeeDocumentsGrid({
     const [sendingCertNotify, setSendingCertNotify] = useState(false);
     // Visto bueno: adjuntar los archivos del CEE directamente al email.
     const [certAttachFiles, setCertAttachFiles] = useState(false);
+    // El borrador para presentar el CEE en el Registro viaja MARCADO por defecto:
+    // el visto bueno es justo el momento en que el técnico puede presentar, y esa
+    // hoja es lo que evita que teclee a mano el NIF o la referencia catastral.
+    const [certBorrador, setCertBorrador] = useState(true);
+    // La fecha con la que se le pide firmar. Sale del propio certificado (la de
+    // emisión del .xml) porque es la que el Registro espera ver en la firma.
+    // Editable: hay expedientes donde se pacta otra.
+    const [certFechaFirma, setCertFechaFirma] = useState('');
     // Nota adicional del envío: se añade al final del mensaje (WhatsApp y email).
     // Vive aparte de la plantilla para que "Restaurar plantilla" no se la lleve.
     const [certNota, setCertNota] = useState('');
@@ -601,7 +609,10 @@ Según el documento:
             if (certTemplate === 'approve') {
                 // Visto bueno: avanza el estado a REVISADO y avisa al certificador.
                 const data = onApproveSend
-                    ? await onApproveSend(phase, certChannels, mensajeFinal, certAttachFiles)
+                    ? await onApproveSend(phase, certChannels, mensajeFinal, certAttachFiles, {
+                        adjuntarBorrador: certBorrador,
+                        fechaFirma: certFechaFirma || null,
+                    })
                     : null;
                 // Avisar solo si algún canal no salió limpio (mismo criterio que onForceNotify).
                 const issues = [];
@@ -645,6 +656,16 @@ Según el documento:
         setCertEspera(info.espera);
         setCertTono(tono);
         setCertChannels(['email']);
+        // Se siembra SIEMPRE, no solo con la plantilla de visto bueno: el tipo de
+        // mensaje se cambia DENTRO del popup y, sembrándolo solo aquí, cambiar a
+        // "Visto bueno" dejaría la fecha en blanco.
+        setCertBorrador(true);
+        setCertFechaFirma(
+            expediente?.cee?.[`fecha_firma_cee_${section}`]
+            || expediente?.cee?.[`cee_${section}`]?.fechaFirma
+            || (section === 'final' ? demands?.final : demands?.inicial)?.fechaFirma
+            || ''
+        );
         // Sembramos el texto correcto YA (no dependemos solo del efecto de apertura).
         const def = certTemplateText(tpl, section, info.espera, tono, info.dias);
         setCertNotifyMessage(def);
@@ -2320,6 +2341,32 @@ Según el documento:
                             </div>
                         )}
 
+                        {/* Con qué fecha tiene que firmar. Va ARRIBA, antes de los adjuntos
+                            y del mensaje: es el dato que se equivoca y el que hay que mirar
+                            antes de mandar nada. Autofirma sella con el reloj del ordenador
+                            de quien firma, así que la app no puede imponerla — solo pedirla
+                            aquí y comprobarla cuando el documento vuelva. */}
+                        {certTemplate === 'approve' && (
+                            <div className="mb-5 px-3 py-3 rounded-xl bg-white/[0.03] border border-white/10">
+                                <label className="block text-[9px] font-black text-white/30 uppercase tracking-widest mb-1.5">
+                                    Fecha con la que debe firmar
+                                </label>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <input
+                                        type="date"
+                                        value={certFechaFirma || ''}
+                                        onChange={e => setCertFechaFirma(e.target.value)}
+                                        disabled={sendingCertNotify}
+                                        className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-[13px] focus:border-brand/50 outline-none"
+                                    />
+                                    <span className="text-[10px] text-white/35 normal-case leading-snug flex-1 min-w-[200px]">
+                                        Sale del propio certificado. Va en el aviso, y cuando nos devuelva
+                                        el PDF firmado se comprueba que la firma lleve esta fecha.
+                                    </span>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Selector de Canal */}
                         <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-1.5">Canales</p>
                         <div className="flex gap-1.5 mb-4">
@@ -2351,18 +2398,36 @@ Según el documento:
 
                         {/* Visto bueno + email: opción de adjuntar los archivos del CEE al correo. */}
                         {certTemplate === 'approve' && certChannels.includes('email') && (
-                            <label className="flex items-start gap-2.5 mb-5 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 cursor-pointer hover:border-brand/30 transition-colors">
-                                <input
-                                    type="checkbox"
-                                    checked={certAttachFiles}
-                                    onChange={e => setCertAttachFiles(e.target.checked)}
-                                    disabled={sendingCertNotify}
-                                    className="mt-0.5 w-4 h-4 accent-brand shrink-0"
-                                />
-                                <span className="text-[10px] text-white/60 leading-snug normal-case">
-                                    <b className="text-white/80">Adjuntar los archivos del CEE al email</b> (además del enlace de descarga). Se adjuntan los ficheros de la carpeta {certNotifyModal.section === 'final' ? 'CEE FINAL' : 'CEE INICIAL'}.
-                                </span>
-                            </label>
+                            <div className="space-y-2 mb-5">
+                                <label className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 cursor-pointer hover:border-brand/30 transition-colors">
+                                    <input
+                                        type="checkbox"
+                                        checked={certAttachFiles}
+                                        onChange={e => setCertAttachFiles(e.target.checked)}
+                                        disabled={sendingCertNotify}
+                                        className="mt-0.5 w-4 h-4 accent-brand shrink-0"
+                                    />
+                                    <span className="text-[10px] text-white/60 leading-snug normal-case">
+                                        <b className="text-white/80">Adjuntar los archivos del CEE al email</b> (además del enlace de descarga). Se adjuntan los ficheros de la carpeta {certNotifyModal.section === 'final' ? 'CEE FINAL' : 'CEE INICIAL'}.
+                                    </span>
+                                </label>
+                                {/* Va aquí porque es el momento en que el certificador puede
+                                    presentar. Fuera de Castilla-La Mancha no hay borrador y el
+                                    correo sale igual, sin adjunto y sin fallar. */}
+                                <label className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 cursor-pointer hover:border-emerald-500/30 transition-colors">
+                                    <input
+                                        type="checkbox"
+                                        checked={certBorrador}
+                                        onChange={e => setCertBorrador(e.target.checked)}
+                                        disabled={sendingCertNotify}
+                                        className="mt-0.5 w-4 h-4 accent-emerald-500 shrink-0"
+                                    />
+                                    <span className="text-[10px] text-white/60 leading-snug normal-case">
+                                        <b className="text-white/80">Adjuntar el borrador de presentación</b> — qué va en cada
+                                        casilla del formulario del Registro. Solo para Castilla-La Mancha.
+                                    </span>
+                                </label>
+                            </div>
                         )}
 
                         {/* Visto bueno: enlaces (descarga + subida) que se añaden al mensaje. */}

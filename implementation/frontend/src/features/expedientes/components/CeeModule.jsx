@@ -700,7 +700,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
     // Visto bueno enviado DIRECTAMENTE desde el popup de la campana (sin abrir el popup
     // dedicado de Validar). Parametriza approve-cee con fase/canales/mensaje editado y
     // devuelve la respuesta para que el grid muestre el estado real por canal.
-    const submitApprove = async (phase, channels, customMessage, attachFiles = false) => {
+    const submitApprove = async (phase, channels, customMessage, attachFiles = false, opts = {}) => {
         if (!expediente?.id) throw new Error('Expediente no disponible');
         const { data } = await axios.post(`${apiBase}/${expediente.id}/approve-cee`, {
             phase,
@@ -708,6 +708,11 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
             sendWhatsApp: channels.includes('whatsapp'),
             customMessage: (customMessage || '').trim() || null,
             attachFiles: !!attachFiles && channels.includes('email'),
+            // El borrador de presentación y la fecha de firma son del visto bueno,
+            // no del popup: los pide el mismo `approve-cee` se entre por la campana
+            // del grid o por el popup dedicado de Validar.
+            adjuntarBorrador: opts.adjuntarBorrador !== false,
+            fechaFirma: opts.fechaFirma || null,
         });
         fireSuccessConfetti();
         if (onRefresh) onRefresh();
