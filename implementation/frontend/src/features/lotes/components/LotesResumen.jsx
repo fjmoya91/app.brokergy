@@ -53,6 +53,14 @@ export function LotesResumen({ lotes, todosLotes, canSeeMargin = false, filtroEs
     const r = useMemo(() => computeLotesResumen(lotes), [lotes]);
     const global = useMemo(() => computeLotesResumen(todosLotes || lotes), [todosLotes, lotes]);
 
+    // Lo que HOY se le puede pedir al Sujeto Obligado sobre los lotes que se están
+    // viendo. ⚠ El hook va ARRIBA de este `return`: debajo, la primera carga (sin
+    // lotes todavía) declaraba un hook menos que la siguiente y React corta con el
+    // error #310 — el cuadro de mando entero en blanco.
+    const peticiones = useMemo(
+        () => (canSeeMargin ? peticionesAplicables(lotes, r) : []),
+        [lotes, r, canSeeMargin]);
+
     if (!global.nLotes) return null;
 
     const estados = Object.entries(global.porEstado).sort((a, b) => b[1] - a[1]);
@@ -69,9 +77,6 @@ export function LotesResumen({ lotes, todosLotes, canSeeMargin = false, filtroEs
     // Pueden coincidir DOS: firmar las ofertas de unos lotes y reclamar el pago de
     // otros. Esconder la segunda detrás de la primera obliga a resolver una para
     // descubrir que había otra, así que se pintan las que apliquen (normalmente una).
-    const peticiones = useMemo(
-        () => (canSeeMargin ? peticionesAplicables(lotes, r) : []),
-        [lotes, r, canSeeMargin]);
 
     return (
         <div className="bg-bkg-surface/40 border border-white/[0.06] rounded-[1.75rem] p-4 sm:p-5 mb-5 space-y-3">

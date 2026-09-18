@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
-    "build": "vite build",
+    "build": "node scripts/check-hooks.mjs && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check:hooks": "node scripts/check-hooks.mjs"
   },
   "dependencies": {
     "@babel/core": "^7.29.0",

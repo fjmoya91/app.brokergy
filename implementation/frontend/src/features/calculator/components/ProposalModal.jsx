@@ -2385,7 +2385,13 @@ info@brokergy.es · 623 926 179`;
         setEmailChoice(true);
     };
 
-    const sendEmailToMultiple = useCallback(async (selectedModes) => {
+    // ⚠ Sin `useCallback`: este es el ÚNICO hook que quedaba por debajo del
+    // `return` de «el popup está cerrado», y un hook ahí cambia el número de
+    // hooks entre dos renders (React #310, pantalla en blanco). Envolverlo no
+    // aportaba nada — solo se usa desde un `onClick={() => …}`, donde su
+    // identidad da igual— y subirlo tampoco: lee media docena de cosas que se
+    // declaran más abajo.
+    const sendEmailToMultiple = async (selectedModes) => {
         setEmailChoice(false);
         setSendingEmail(true);
 
@@ -2505,7 +2511,7 @@ info@brokergy.es · 623 926 179`;
         const summary = results.map(r => `${r.ok ? '✅' : '❌'} ${r.name}${!r.ok && r.error ? ': ' + r.error : ''}`).join('\n');
         setConfirmConfig({ title: allOk ? '¡Correos enviados!' : 'Resultado del envío', message: summary, confirmText: 'Aceptar', onConfirm: () => setConfirmConfig(null) });
         setSendingEmail(false);
-    }, [inputs, result, displayId, urlId, proposalRef, clienteInfo, partnerInfo, instaladorInfo]);
+    };
 
 
 

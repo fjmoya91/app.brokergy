@@ -216,6 +216,27 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
     const inputRefVerif = useRef(null);
     const originalRefVerif = useRef(null);
 
+    // Popup de desglose RES060FC (mismo componente que la calculadora).
+    const [showFcModal, setShowFcModal] = useState(false);
+
+    // Foco en el campo que se acaba de abrir para editar.
+    useEffect(() => {
+        if (isEditing) {
+            inputRef.current?.focus();
+            inputRef.current?.select();
+        }
+    }, [isEditing]);
+
+    useEffect(() => {
+        if (isEditingVerif) {
+            inputRefVerif.current?.focus();
+            inputRefVerif.current?.select();
+        }
+    }, [isEditingVerif]);
+
+    // ⚠ Todos los hooks van ARRIBA de este `return`. Tres de ellos estaban
+    // debajo, y entonces el render sin `results` declaraba menos que el de
+    // después: React lo corta con el error #310 y el panel entero desaparece.
     if (!results) return null;
 
     const {
@@ -238,8 +259,6 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
         res060fcInputs = null,
     } = results;
 
-    // Popup de desglose RES060FC (mismo componente que la calculadora).
-    const [showFcModal, setShowFcModal] = useState(false);
     const hasFc = !!(res060fc && res060fc.cae > 0 && financialsRes060FC);
     // Result con la forma que espera Res060FCModal: la comparativa "actual" usa el ESTIMADO.
     const fcModalResult = hasFc ? {
@@ -344,20 +363,6 @@ export function ResumenEconomicoExpediente({ results, proposal, onUpdatePrice, o
         if (e.key === 'Enter') { e.preventDefault(); handleVerifSave(); }
         if (e.key === 'Escape') { e.preventDefault(); handleVerifCancel(); }
     };
-
-    useEffect(() => {
-        if (isEditing) {
-            inputRef.current?.focus();
-            inputRef.current?.select();
-        }
-    }, [isEditing]);
-
-    useEffect(() => {
-        if (isEditingVerif) {
-            inputRefVerif.current?.focus();
-            inputRefVerif.current?.select();
-        }
-    }, [isEditingVerif]);
 
     // Config de la línea "Verificado" (editable solo en Volumen).
     const verifEditProps = {

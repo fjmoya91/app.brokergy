@@ -52,9 +52,11 @@ const formatCurrency = (value) => {
 };
 
 function ComparativeAnalysisModal({ isOpen, onClose, inputs, currentResult }) {
-    if (!isOpen) return null;
-
+    // ⚠ Los dos `useMemo` van ANTES del `return` de «cerrado». Detrás, abrir el
+    // popup pasaba de cero hooks a dos entre dos renders del mismo componente, y
+    // React lo corta con el error #310.
     const relevantCases = React.useMemo(() => {
+        if (!isOpen || !inputs) return [];
         return realCasesData.filter(c => {
             if (c.zonaClimatica !== inputs.zona) return false;
             const mapType = (t) => t === 'piso' ? 'ViviendaIndividualEnBloque' : 'ViviendaUnifamiliar';
@@ -64,9 +66,10 @@ function ComparativeAnalysisModal({ isOpen, onClose, inputs, currentResult }) {
             const diffSurf = Math.abs(c.superficie - inputs.superficie);
             return (diffSurf / inputs.superficie) <= 0.5;
         });
-    }, [inputs]);
+    }, [inputs, isOpen]);
 
     const stats = React.useMemo(() => {
+        if (!isOpen || !currentResult) return null;
         const demands = relevantCases.map(c => c.demandaCalefaccion).filter(d => d > 0 && d < 1000);
         if (demands.length === 0) return null;
 
@@ -104,9 +107,14 @@ function ComparativeAnalysisModal({ isOpen, onClose, inputs, currentResult }) {
             current: currentResult.financials.caeBonus,
             currentRes080: currentResult.financialsRes080?.caeBonus || null
         };
-    }, [relevantCases, inputs, currentResult]);
+    }, [relevantCases, inputs, currentResult, isOpen]);
 
     const formatNum = (n) => formatNumber(n);
+
+    // Aquí, y no arriba: por encima de los hooks, abrir el popup pasaba de cero
+    // hooks a dos entre dos renders del mismo componente y React cortaba con el
+    // error #310. Sin `stats` tampoco hay nada que enseñar.
+    if (!isOpen || !stats) return null;
 
     return (
         <div

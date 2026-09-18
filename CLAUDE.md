@@ -9129,6 +9129,51 @@ no dejó rastro en ningún sitio. Lo que sí está medido es que **no llegó**, 
 dos se arreglan igual. Si vuelve a pasar, **lo primero es la línea del log**, no
 volver a suponer.
 
+### Y con el plano por fin traído, la ventana se caía entera (React #310)
+
+Arreglado el botón, la geometría llegó —`200`, **1,34 MB**— y la pantalla se fue
+a «ALGO HA FALLADO · Minified React error #310». No era otro fallo nuevo: era el
+que el lint ya marcaba y que **nunca se había llegado a ejecutar**, porque hacía
+dos días que no se cruzaba ese render.
+
+`useState(cuerpoSel)` y el `useMemo` de `cuerpos` se declaraban DEBAJO del
+`return` de «todavía no hay geometría». El primer render salía antes de
+declararlos y el siguiente, ya con el plano medido, declaraba dos más: React
+corta ahí (*rendered more hooks than during the previous render*) y **tumba la
+pantalla entera**. El mismo fallo estaba en `PlanoPlanta`, detrás del `return` de
+«esta planta no tiene plano».
+
+**REGLA — ningún hook por debajo de un `return` condicional, y el BUILD lo
+comprueba.** `vite build` no pasa el lint, así que una violación de
+`rules-of-hooks` se compila tan campante y llega a producción a esperar a que
+alguien cruce ese `return`. El día que se escribió el candado había **OCHO** en
+el repo:
+
+| Pantalla | Qué se caía |
+|---|---|
+| `EnvolventeView` · `PlanoPlanta` | la ventana del certificador, con el plano ya medido |
+| `ResumenEconomicoExpediente` | el panel económico del expediente |
+| `LotesResumen` | el cuadro de mando de lotes, al llegar los datos |
+| `ResultsPanel` (comparativa) · `ProposalModal` | al abrir el popup |
+
+Se arreglaron las ocho —el hook sube por encima del `return`, o se le quita el
+`useCallback` si no aportaba nada— y ahora
+[check-hooks.mjs](implementation/frontend/scripts/check-hooks.mjs) va **enganchado
+a `npm run build`**: con una violación, el build sale con 1 y el deploy se para
+antes de compilar. No sustituye a `npm run lint`: vigila UNA regla, la que tumba
+la pantalla. Meter ahí las demás (efectos que llaman a `setState`, fast-refresh)
+convertiría el candado en algo que hay que saltarse.
+
+```bash
+cd implementation/frontend && npm run check:hooks
+```
+
+⚠️ En `ResultsPanel`, el popup de comparativa **deja de abrirse** si no hay casos
+comparables (`stats` a `null`), donde antes se caía con un TypeError. Es mejor que
+una pantalla en blanco, pero sigue siendo un clic que no hace nada: si alguna vez
+sale, lo que toca es enseñar «no hay casos comparables», no volver a quitar la
+guarda.
+
 ---
 
 ## Reglas Críticas — No Romper
@@ -9299,6 +9344,8 @@ volver a suponer.
 60. **La PLACA de la unidad exterior va DENTRO del certificado cuando el SCOP_dhw se justifica por el ANEXO VI**: ahí se declara `SCOP_dhw = COP · F_c` y el **COP a A7/W55 no lo publican todas las fichas técnicas** — está en la placa, y sin ella el verificador ve un COP que no encuentra en la documentación aportada (inexactitud abierta el 16/09/2026). **La foto no se sube otra vez**: se coge de Drive, del slot `FOTO_UNIDAD_EXTERIOR_PLACA`, el mismo del que el lector de placas saca el nº de serie (medido: 12 de los 25 expedientes con Anexo VI ya la tienen, 3 con varias). **Con varias se ELIGE** —una unidad exterior lleva dos etiquetas y cuál trae el COP lo sabe quien las mira— y la elección se guarda en `instalacion.placa_scop_acs` (solo el driveId, regla 21); si esa foto desaparece de Drive se cae a la primera **diciéndolo**. **Se imprime DOS veces**: en el recuadro del cálculo (208 px — dice de dónde sale el número, no se lee) y a página completa como anexo, que es donde el verificador lo lee. Va como **data URI** (Puppeteer rasteriza sobre `about:blank`), pedida a Drive ya reducida a 1600 px: 242-268 KB medidos. Un fallo al resolverla **no tumba la generación**: sale como aviso. **Se pulsa la foto y se RECORTA** (el mismo ReactCrop del Anexo Fotográfico), pero lo que se guarda es el RECUADRO — `{x,y,w,h}` en % más la relación de aspecto—, no la imagen recortada: el original sigue entero en Drive, el recorte se deshace, el anexo conserva la resolución del trozo que se va a leer y el certificado sale igual desde el backend. El encuadre se calcula en PÍXELES (`placaImgHtml`): un `top` en % se resuelve contra la altura de la CAJA y descoloca la foto. **Si no hay foto se puede SOLTAR en el propio popup**, y sube por la ruta de siempre (`/api/public/reforma-docs/:oportunidad/FOTO_UNIDAD_EXTERIOR_PLACA`, que admite sesión de staff sin token): entra en el slot de toda la vida y queda elegida, sin una segunda vía de subida que mantener. La banda es UNA pieza para los dos popups ([PlacaScopAcsBanda.jsx](implementation/frontend/src/features/expedientes/components/PlacaScopAcsBanda.jsx) + [usePlacaScopAcs.js](implementation/frontend/src/features/expedientes/logic/usePlacaScopAcs.js)). El **Certificado RES080 la lleva igual** (mismo Anexo VI, mismo slot documental). De paso, el bloque del Anexo VI y su `FC_TABLE`, que estaban TRIPLICADOS (CIFO, RES080 y su modal), pasan a fuente única: `scopAcsAnexoViHtml` / `placaAnexoContenido` en [cifoDoc.js](implementation/frontend/src/features/expedientes/logic/cifoDoc.js); la búsqueda y el servicio de la foto, en [placaScopAcs.js](implementation/backend/services/placaScopAcs.js). Tras tocarlo: `node implementation/backend/scripts/test_placa_scop_acs.mjs` **y los dos medidores de hojas**. Ver "La PLACA de la unidad exterior, dentro del certificado".
 
 61. **El botón que metía su propio EVENTO dentro del POST**: `onClick={onTraer}` le pasaba el `SyntheticEvent` de React a `traerGeometria(cuerposFuera)`, y ese evento lleva `view: window` — el cuerpo del POST dejaba de poder serializarse, axios ni lo mandaba y no quedaba rastro en NINGÚN log. Entró el 16/09/2026 a las 22:21 con los cuerpos excluidos y el último POST con éxito es de las 15:25 de ese día: **el botón no funcionó ni una vez desde entonces** (solo la retoma automática, que sí pasa una lista). Se arregla en las tres capas: `soloLista(v)` normaliza en la FUNCIÓN y no en quien llama, el botón va envuelto, y `postEnvolvente` **para antes de salir** si el cuerpo no se puede serializar, lo marca como fallo NUESTRO y NO lo reintenta. Y lo que lo destapó fue anotarlo: esa frase cubría a la vez el motor caído, Catastro bloqueado, el corte de la pasarela, la sesión caducada y un tropiezo de red, así que no había nada que mirar. Medido el 18/09/2026: el motor levantado, la misma RC medida en **34,5 s con un 200** desde el VPS, y **ni una petición de geometría en el log de nginx ni en el del backend** — la petición no llegó a salir del navegador. Ahora cada causa dice lo suyo con el paso siguiente pegado (el texto del backend se CONSERVA y el consejo va detrás), **la que no ha llegado se repite UNA vez sola** —sin respuesta no ha pasado nada al otro lado, y una conexión HTTP/2 reutilizada y ya cerrada tumba el POST y no el GET, que es justo lo que se midió— y el fallo se ANOTA en el servidor (`POST /api/cee-envolvente/diagnostico`, declarada ANTES que `/:expedienteId/…`; ruta, código y navegador, nunca datos de nadie). **`repetible` lo dice quien llama**: medir no escribe y se puede repetir, escribir el `.cex` toca Drive y no. Un fallo CON respuesta NO se repite —en un 502 al otro lado está el WAF del buscador—. Y `/api/cee-envolvente/` tiene ya su propia `location` de nginx con **300 s**: con los 120 s de `/api/` cortaba la pasarela antes que el backend (que espera 180 s) y lo que llegaba era su HTML, o sea otra vez el mensaje genérico — el mismo fallo de la regla 40. Fuente única: [pedirEnvolvente.js](implementation/frontend/src/features/cee-envolvente/logic/pedirEnvolvente.js). Tras tocarlo: `node implementation/backend/scripts/test_envolvente_fallos.mjs`. Ver "El botón que metía su propio EVENTO dentro del POST".
+
+62. **Ningún hook por debajo de un `return` condicional, y el BUILD lo comprueba**: `vite build` no pasa el lint, así que una violación de `rules-of-hooks` se compila y llega a producción — donde React corta el render con el **error #310** («rendered more hooks than during the previous render») y **tumba la pantalla entera**, no el trozo. Le pasó a la ventana de la envolvente el 18/09/2026 en cuanto el plano por fin se trajo (`200`, 1,34 MB): el `useState` de los cuerpos estaba dos líneas por debajo del `return` de «todavía no hay geometría», así que el fallo llevaba días escrito y latente porque nadie cruzaba ese render. Ese día había **OCHO** en el repo (envolvente ×2, panel económico del expediente, cuadro de mando de lotes, comparativa de la calculadora y popup de propuesta) y se arreglaron las ocho: el hook sube por encima del `return`, o se le quita el `useCallback`/`useMemo` cuando no aportaba nada —el de `ProposalModal` solo se usaba desde un `onClick={() => …}`—. El candado es [check-hooks.mjs](implementation/frontend/scripts/check-hooks.mjs), **enganchado a `npm run build`**: con una violación el build sale con 1 y el deploy se para antes de compilar. **NO sustituye a `npm run lint`**: vigila UNA regla, la que rompe la pantalla; meter ahí las demás (efectos que llaman a `setState`, fast-refresh) lo convertiría en algo que hay que saltarse. Ver "Y con el plano por fin traído, la ventana se caía entera".
 
 ---
 
