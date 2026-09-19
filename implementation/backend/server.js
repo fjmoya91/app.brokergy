@@ -189,6 +189,15 @@ if (require.main === module) {
     } catch (err) {
       console.warn('[Parte] no se pudo iniciar la vigilancia:', err.message);
     }
+    // Propuestas con el envío PROGRAMADO: a su hora sale el mismo recorrido que
+    // haría el popup, con el ordenador de quien lo programó apagado. Nace
+    // APAGADO (PROPUESTA_PROGRAMADA_ENABLED): dos backends contra la misma base
+    // —el del VPS y el de un portátil— barrerían la misma tabla.
+    try {
+      require('./services/propuestaProgramada').start();
+    } catch (err) {
+      console.warn('[PropProg] no se pudo iniciar el despachador:', err.message);
+    }
   });
 }
 

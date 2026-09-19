@@ -1,4 +1,5 @@
 const express = require('express');
+const { estadoDesdeExpediente } = require('../utils/estadoOportunidad');
 const router = express.Router();
 const supabase = require('../services/supabaseClient');
 const driveService = require('../services/driveService');
@@ -398,6 +399,47 @@ router.post('/', requireAuth, async (req, res) => {
     }
 });
 
+// A partir de la aceptación, el estado que se ve en la lista lo manda el
+// EXPEDIENTE (ver utils/estadoOportunidad.js): ACEPTADA mientras no se le ha
+// encargado el CEE, EN CURSO en cuanto tiene certificador, FINALIZADO al
+// terminar. Se calcula aquí y viaja como `estado_visible`; `datos_calculo.estado`
+// NO se toca — sigue siendo el estado de captación con el que se aceptó.
+//
+// ⚠️ Del expediente se piden SOLO tres escalares (regla 22): `cee` entero trae
+// los XML de los certificados, que son megas.
+async function conEstadoDeExpediente(oportunidades) {
+    if (!oportunidades.length) return oportunidades;
+    try {
+        const { data, error } = await supabase
+            .from('expedientes')
+            .select('oportunidad_id, estado, numero_expediente, certificador_id:cee->>certificador_id');
+        if (error) throw new Error(error.message);
+
+        const porOportunidad = new Map(
+            (data || []).map(e => [String(e.oportunidad_id), e])
+        );
+        return oportunidades.map(op => {
+            const exp = porOportunidad.get(String(op.id));
+            if (!exp) return op;
+            return {
+                ...op,
+                numero_expediente: op.numero_expediente || exp.numero_expediente,
+                estado_visible: estadoDesdeExpediente({
+                    estado: exp.estado,
+                    cee: { certificador_id: exp.certificador_id }
+                })
+            };
+        });
+    } catch (e) {
+        // Si no se puede leer `expedientes` la lista sale igual, con el estado de
+        // captación de siempre: una etiqueta menos avanzada es mucho menos malo
+        // que dejar al usuario sin su cartera (regla 38 — no inventamos nada,
+        // simplemente no podemos adelantarla).
+        console.warn('[GET /oportunidades] sin estado de expediente:', e.message);
+        return oportunidades;
+    }
+}
+
 // 2. Obtener lista completa (GET /api/oportunidades)
 router.get('/', requireAuth, async (req, res) => {
     try {
@@ -447,7 +489,9 @@ router.get('/', requireAuth, async (req, res) => {
                     code: 'OPORTUNIDADES_UNAVAILABLE',
                     details: retryError.message
                 });
-                const retryVisible = (retryData || []).filter(o => o?.datos_calculo?.origen !== 'migracion_xml');
+                const retryVisible = await conEstadoDeExpediente(
+                    (retryData || []).filter(o => o?.datos_calculo?.origen !== 'migracion_xml')
+                );
                 return res.status(200).json(isNonAdmin(req) ? retryVisible.map(stripPartnerMargin) : retryVisible);
             }
             // Un error de la BD NO puede presentarse como "no tienes ninguna oportunidad".
@@ -464,7 +508,9 @@ router.get('/', requireAuth, async (req, res) => {
         }
         // Ocultar oportunidades "fantasma" creadas por la migración de expedientes desde XML.
         // A los no-ADMIN les quitamos el margen del payload (precio S.O., comisión, beneficio).
-        const visible = (data || []).filter(o => o?.datos_calculo?.origen !== 'migracion_xml');
+        const visible = await conEstadoDeExpediente(
+            (data || []).filter(o => o?.datos_calculo?.origen !== 'migracion_xml')
+        );
         res.status(200).json(isNonAdmin(req) ? visible.map(stripPartnerMargin) : visible);
     } catch (error) {
         console.error('Fatal crash in GET /:', error);
@@ -595,10 +641,29 @@ router.get('/sin-expediente', staffOnly, async (req, res) => {
 // al ENVIAR y no al guardar, y por qué en BD solo van metadatos y el enlace.
 
 const propuestaVersiones = require('../services/propuestaVersiones');
+// Envíos PROGRAMADOS: el mismo recorrido, a la hora elegida y con el ordenador
+// de quien lo programó apagado. Ver services/propuestaProgramada.js.
+const propuestaProgramada = require('../services/propuestaProgramada');
+
+// ─── Guard mixto: sesión O clave interna ──────────────────────────────────────
+// El despachador de propuestas programadas delega en ESTAS mismas rutas (igual
+// que `routes/acciones.js` con `notify-certificador`): así el número de versión,
+// el PDF archivado, el movimiento de la carpeta de Drive y la línea del
+// historial son los mismos que si lo hubieras enviado a mano. Marca
+// `req.internalCall` para que el nombre del usuario venga del cuerpo — el que
+// programó el envío, no "Sistema".
+const internalKeyOrAuth = (req, res, next) => {
+    const key = req.headers['x-internal-key'];
+    if (key && process.env.INTERNAL_API_KEY && key === process.env.INTERNAL_API_KEY) {
+        req.internalCall = true;
+        return next();
+    }
+    return enforceAuth(req, res, next);
+};
 
 const nombreUsuario = (req) => req.user
     ? (req.user.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user.acronimo || req.user.razon_social || 'PARTNER'))
-    : 'Sistema';
+    : ((req.internalCall && req.body?.usuario) ? String(req.body.usuario) : 'Sistema');
 
 // Carga la oportunidad con lo justo. NUNCA `datos_calculo` entero en un listado
 // (regla 22), pero aquí es UNA fila y hace falta el histórico + la carpeta.
@@ -610,6 +675,26 @@ async function cargarParaVersion(idLegible) {
         .maybeSingle();
     if (error || !data) return null;
     return data;
+}
+
+// Una línea en el historial de la oportunidad. Se RELEE `datos_calculo` justo
+// antes de escribir: entre que se cargó y aquí puede haberse sellado una versión
+// por RPC, y un read-modify-write con la copia vieja se la llevaría por delante.
+async function anotarHistorial(oportunidadUuid, texto, usuario) {
+    const { data } = await supabase
+        .from('oportunidades').select('datos_calculo').eq('id', oportunidadUuid).maybeSingle();
+    const dc = data?.datos_calculo || {};
+    const hist = dc.historial || [];
+    hist.push({
+        id: `${Date.now()}_prop_prog`,
+        tipo: 'comentario',
+        texto,
+        fecha: new Date().toISOString(),
+        usuario: usuario || 'Sistema',
+    });
+    await supabase.from('oportunidades')
+        .update({ datos_calculo: { ...dc, historial: hist } })
+        .eq('id', oportunidadUuid);
 }
 
 // GET /api/oportunidades/:id/propuesta/versiones
@@ -624,6 +709,13 @@ router.get('/:id/propuesta/versiones', enforceAuth, async (req, res) => {
             versiones,
             siguiente: propuestaVersiones.siguienteVersion(op.datos_calculo),
             vigente: propuestaVersiones.vigente(op.datos_calculo),
+            // Lo PROGRAMADO viaja en la misma respuesta: el popup ya la pide al
+            // abrirse, y un envío programado que no se ve al volver a entrar es
+            // uno que se manda otra vez a mano sin saberlo.
+            programadas: await propuestaProgramada.listar(op.id),
+            // Si el despachador está apagado (LOCAL), hay que DECIRLO: si no, se
+            // programa, no pasa nada a su hora y parece roto.
+            despachadorActivo: propuestaProgramada.activo(),
         });
     } catch (e) {
         console.error('[GET /:id/propuesta/versiones]', e.message);
@@ -635,7 +727,7 @@ router.get('/:id/propuesta/versiones', enforceAuth, async (req, res) => {
 // Reserva número, rasteriza el PDF, lo archiva en "0. PROPUESTAS" y DEVUELVE el
 // PDF para que lo manden los canales. Se llama ANTES de enviar a propósito: lo
 // que se archiva tiene que ser byte a byte lo que recibe el cliente.
-router.post('/:id/propuesta/version', enforceAuth, async (req, res) => {
+router.post('/:id/propuesta/version', internalKeyOrAuth, async (req, res) => {
     try {
         const { html, htmlWeb, marcarEnviada, destinatarios, canales, versionImpresa, result, inputs } = req.body || {};
         if (!html) return res.status(400).json({ error: 'Falta el HTML de la propuesta.' });
@@ -682,7 +774,7 @@ router.post('/:id/propuesta/version', enforceAuth, async (req, res) => {
 // Sella el resultado real del envío (a quién llegó y por dónde) y deja la
 // entrada legible en el historial. Se llama al TERMINAR de enviar: hasta
 // entonces no se sabe qué canal falló.
-router.patch('/:id/propuesta/version/:v', enforceAuth, async (req, res) => {
+router.patch('/:id/propuesta/version/:v', internalKeyOrAuth, async (req, res) => {
     try {
         const { envios, cambios } = req.body || {};
         const v = Number(req.params.v);
@@ -759,13 +851,95 @@ router.post('/:id/propuesta/borrador', enforceAuth, async (req, res) => {
     }
 });
 
+// ─── PROGRAMAR el envío ───────────────────────────────────────────────────────
+// POST /api/oportunidades/:id/propuesta/programar
+// Guarda el plan YA DECIDIDO en el popup (grupos, mensajes por persona, canales)
+// junto al documento tal y como se revisó. A su hora, el despachador lo replica
+// contra estas mismas rutas. Aquí no se envía nada.
+router.post('/:id/propuesta/programar', enforceAuth, async (req, res) => {
+    try {
+        const { enviarAt, plan, html, htmlEmail } = req.body || {};
+        if (!html) return res.status(400).json({ error: 'Falta el documento de la propuesta.' });
+
+        const op = await cargarParaVersion(req.params.id);
+        if (!op) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
+
+        const usuario = nombreUsuario(req);
+        const fila = await propuestaProgramada.crear({
+            oportunidad: op,
+            enviarAt,
+            plan: { ...(plan || {}), usuario },
+            htmlPdf: html,
+            htmlEmail: htmlEmail || null,
+            usuario,
+        });
+
+        // Queda anotado en el historial: dentro de dos semanas, "¿por qué salió
+        // esta propuesta un domingo?" tiene que poder contestarse sin abrir la BD.
+        try {
+            const cuando = new Date(fila.enviar_at).toLocaleString('es-ES', {
+                timeZone: 'Europe/Madrid', day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit',
+            });
+            const quien = [...new Set((plan?.destinatarios || []).map(d => d.label).filter(Boolean))].join(', ');
+            await anotarHistorial(op.id, `⏰ Envío de la propuesta programado para el ${cuando}${quien ? ` — a ${quien}` : ''}`, usuario);
+        } catch (e) { /* el aviso del historial no puede tumbar la programación */ }
+
+        res.json({ success: true, programada: fila, despachadorActivo: propuestaProgramada.activo() });
+    } catch (e) {
+        console.error('[POST /:id/propuesta/programar]', e.message);
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+// GET /api/oportunidades/:id/propuesta/programadas
+router.get('/:id/propuesta/programadas', enforceAuth, async (req, res) => {
+    try {
+        const op = await cargarParaVersion(req.params.id);
+        if (!op) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
+        res.json({
+            programadas: await propuestaProgramada.listar(op.id),
+            despachadorActivo: propuestaProgramada.activo(),
+        });
+    } catch (e) {
+        res.status(500).json({ error: 'Error del servidor.', message: e.message });
+    }
+});
+
+// DELETE /api/oportunidades/:id/propuesta/programada/:progId
+// Retirar lo programado. Solo mientras siga PENDIENTE: una que ya está
+// ENVIANDO tiene el PDF rasterizándose y puede haber salido — decir que se ha
+// cancelado algo que ya viajó es peor que no poder cancelarlo.
+router.delete('/:id/propuesta/programada/:progId', enforceAuth, async (req, res) => {
+    try {
+        const op = await cargarParaVersion(req.params.id);
+        if (!op) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
+
+        const usuario = nombreUsuario(req);
+        const fila = await propuestaProgramada.cancelar(req.params.progId, {
+            usuario, motivo: req.body?.motivo || 'Cancelada a mano',
+        });
+        if (!fila) return res.status(409).json({ error: 'Ese envío ya no estaba pendiente (se ha enviado o ya estaba cancelado).' });
+
+        try {
+            const cuando = new Date(fila.enviar_at).toLocaleString('es-ES', {
+                timeZone: 'Europe/Madrid', day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit',
+            });
+            await anotarHistorial(op.id, `🚫 Envío programado de la propuesta CANCELADO (estaba previsto para el ${cuando})`, usuario);
+        } catch (e) { /* no romper la cancelación por el historial */ }
+
+        res.json({ success: true, programada: fila });
+    } catch (e) {
+        console.error('[DELETE /:id/propuesta/programada]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Añadir un comentario (POST /api/oportunidades/:id/comentarios)
-router.post('/:id/comentarios', requireAuth, async (req, res) => {
+router.post('/:id/comentarios', internalKeyOrAuth, async (req, res) => {
     const { id } = req.params;
     try {
         const body = normalizeData(req.body);
         const { comentario } = body;
-        if (!req.user) return res.status(401).json({ error: 'Debes iniciar sesión' });
         if (!comentario) return res.status(400).json({ error: 'Comentario vacío.' });
         
         const { data: op, error: getErr } = await supabase.from('oportunidades').select('datos_calculo').eq('id_oportunidad', id).single();
@@ -774,18 +948,7 @@ router.post('/:id/comentarios', requireAuth, async (req, res) => {
         const dc = op.datos_calculo || {};
         const hist = dc.historial || [];
         
-        console.log('[Backend] req.user details:', {
-            rol: req.user.rol_nombre,
-            prescriptor_id: req.user.prescriptor_id,
-            acronimo: req.user.acronimo,
-            razon_social: req.user.razon_social
-        });
-
-        const usuarioName = req.user.rol_nombre === 'ADMIN' 
-            ? 'ADMINISTRADOR' 
-            : (req.user.acronimo || req.user.razon_social || 'PARTNER');
-
-        console.log(`[Backend] Resolved usuarioName: ${usuarioName}`);
+        const usuarioName = nombreUsuario(req);
 
         hist.push({
             id: Date.now().toString() + '_comment',
@@ -806,12 +969,10 @@ router.post('/:id/comentarios', requireAuth, async (req, res) => {
 });
 
 // Actualizar estado (PATCH /api/oportunidades/:id/estado)
-router.patch('/:id/estado', requireAuth, async (req, res) => {
+router.patch('/:id/estado', internalKeyOrAuth, async (req, res) => {
     const { id } = req.params;
     const { nuevo_estado } = req.body;
     try {
-        if (!req.user) return res.status(401).json({ error: 'Debes iniciar sesión' });
-
         const { data: op, error: getErr } = await supabase
             .from('oportunidades')
             .select('id, id_oportunidad, cliente_id, prescriptor_id, instalador_asociado_id, datos_calculo, referencia_cliente')
@@ -822,9 +983,7 @@ router.patch('/:id/estado', requireAuth, async (req, res) => {
 
         const dc = op.datos_calculo || {};
         
-        const usuarioName = req.user.rol_nombre === 'ADMIN' 
-            ? 'ADMINISTRADOR' 
-            : (req.user.acronimo || req.user.razon_social || 'PARTNER');
+        const usuarioName = nombreUsuario(req);
 
         const prevEstado = dc.estado || 'BORRADOR';
 
@@ -911,7 +1070,9 @@ router.patch('/:id/estado', requireAuth, async (req, res) => {
                     const inst = instRes.data;
                     const address = dc.inputs?.direccion || 'No especificada';
                     const installerName = inst ? (inst.acronimo || inst.razon_social) : 'No asignado';
-                    const usuarioName = req.user.acronimo || req.user.razon_social || req.user.email || 'SISTEMA';
+                    const usuarioName = req.user
+                        ? (req.user.acronimo || req.user.razon_social || req.user.email || 'SISTEMA')
+                        : nombreUsuario(req);
                     const notesList = dc.historial?.filter(h => h.tipo === 'comentario') || [];
                     let notesStr = notesList.length > 0 ? notesList.map(n => `- ${n.texto} (${n.usuario})`).join('\n') : '';
                     if (client?.notas) notesStr = `[NOTA CLIENTE]: ${client.notas}\n` + (notesStr ? `\n[HISTORIAL]:\n${notesStr}` : '');

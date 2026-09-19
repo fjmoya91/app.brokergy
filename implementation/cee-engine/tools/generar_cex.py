@@ -44,7 +44,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import leer_cex as L        # noqa: E402
 import pickle0 as P         # noqa: E402
+import puentes as PT        # noqa: E402
+from errores import GeneracionError  # noqa: E402
 from pickle0 import Cadena  # noqa: E402
+from puentes import _num    # noqa: E402
+
+#: QUE puentes termicos tiene el edificio se decide en `puentes.py`, que los
+#: mira uno a uno sobre la geometria. Aqui se reexportan los dos nombres que
+#: usaba el resto del proyecto para no partir a quien ya los importaba.
+PSI = PT.PSI
+puente = PT.puente
 
 # Los indices de los pickles que sabemos escribir. El resto se copia.
 ADMINISTRATIVOS = 1
@@ -63,8 +72,6 @@ ORIENTACION = {"N": "Norte", "S": "Sur", "E": "Este", "O": "Oeste",
 SIN_PATRON = "Sin patrón"
 
 
-class GeneracionError(Exception):
-    """Falta un dato o la plantilla no sirve. No se escribe nada a medias."""
 
 
 # --------------------------------------------------------------------------
@@ -97,14 +104,6 @@ def _numf(x: Any):
         return float(str(x).replace(",", "."))
     except (TypeError, ValueError):
         return None
-
-
-def _num(x: Any) -> str:
-    """Un numero como lo teclearia el certificador: sin ceros de mas."""
-    if x is None or x == "":
-        return ""
-    f = float(x)
-    return f"{f:.2f}".rstrip("0").rstrip(".") if f != int(f) else str(int(f))
 
 
 def _rumbo(orientacion, ident: str) -> str:
@@ -200,19 +199,6 @@ _SIN_PROTECCION = ["", "", "", "", "", "", ["", 0, 0], ["", 0, 0], "", False,
                    False, "", False, False, "", "", "", False, False, False,
                    False, False, False, False, ["", ""]]
 
-# Puentes termicos: psi por defecto de CE3X, y de donde sale la longitud.
-# Todo MEDIDO sobre los 55.771 puentes del corpus.
-PSI = {
-    "Contorno de hueco": 0.55,
-    "Caja de Persiana": 1.49,
-    "Encuentro de fachada con forjado": 1.58,
-    "Pilar en Esquina": 0.78,
-    "Pilar integrado en fachada": 1.05,
-    "Encuentro de fachada con cubierta": 1.04,
-    "Encuentro de fachada con solera": 0.14,
-}
-
-
 #: Los DOS valores que admite el campo `tipo` de un hueco. No es una opinion:
 #: el esquema del CTE lo declara como `pattern 'Hueco|Lucernario'` y el visor
 #: oficial (visorxml.codigotecnico.org) rechaza el XML con cualquier otro — con
@@ -289,21 +275,6 @@ def hueco(h: dict, cerramiento: list, espacio: str, defecto: dict):
         Cadena("correctorFSInvierno"): 1.0,
         Cadena("correctorFSVerano"): 1.0,
     })
-
-
-def puente(tipo: str, longitud, asociado: str, espacio: str,
-           etiqueta: str | None = None) -> list:
-    """Un puente termico: nueve campos.
-
-    Cuidado con los dos nombres, que no siempre son el mismo: el NOMBRE del
-    puente se remata con el hueco cuando el puente es de un hueco
-    (`PT Contorno de hueco-V1`), pero `cerramientoAsociado` es SIEMPRE el muro.
-    """
-    if tipo not in PSI:
-        raise GeneracionError(f"puente termico no contemplado: {tipo!r}")
-    return [f"PT {tipo}-{etiqueta or asociado}", Cadena("PT"), tipo, PSI[tipo],
-            _num(longitud), Cadena("defecto_fi"), Cadena("defecto"),
-            asociado, espacio]
 
 
 def particion(nombre, superficie, sentido, espacio, term,
@@ -1209,6 +1180,21 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
         return v.get("value") if isinstance(v, dict) else v
 
     cerramientos: list[list] = []
+    # Lo que hace falta para decidir los PUENTES TERMICOS y que la fila del
+    # cerramiento ya no dice: de que planta es, con que trazado y con que
+    # identificador de Catastro (que es por donde se corrigen los pilares).
+    # Se apunta aqui, segun se escribe cada uno, en vez de reconstruirlo
+    # despues a partir del nombre: el nombre lo puede cambiar el certificador.
+    paredes_pt: list[dict] = []
+
+    def apuntar(cerr, ident, clase, el):
+        paredes_pt.append({
+            "nombre": str(cerr[0]), "ident": ident, "clase": clase,
+            "destino": str(cerr[-1]), "espacio": str(cerr[-2]),
+            "nivel": el.get("nivel"), "wkt": el.get("geometria_wkt"),
+            "largo": medida(el, "largo"), "alto": medida(el, "alto"),
+        })
+
     for el in elementos:
         ident, tipo, planta = el["id"], el["tipo"], el["planta"]
         if ident in excluidos or planta not in plantas:
@@ -1260,6 +1246,7 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
                 rotulo(el["subtipo"]), sup_medida, rumbo,
                 medida(el, "largo"), medida(el, "alto"), zona, conU(term["fachada"]),
                 ident=ident))
+            apuntar(cerramientos[-1], ident, "FACHADA", el)
         elif tipo == "MEDIANERA":
             # Una medianera es adiabatica SOLO si al otro lado hay vivienda. Si
             # el certificador sabe que hay un garaje, deja de serlo y pasa a ser
@@ -1269,6 +1256,7 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
                     rotulo("PARTICION CON EL VECINO"), sup_medida, "vertical",
                     zona, conU(term["particion_vertical"]),
                     largo=medida(el, "largo"), alto=medida(el, "alto")))
+                apuntar(cerramientos[-1], ident, "PARTICION_VERTICAL", el)
                 avisos.append(
                     f"{ident}: escrito como PARTICION VERTICAL, no como medianera "
                     f"(el certificador dice que al otro lado hay un espacio no "
@@ -1277,6 +1265,7 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
                 cerramientos.append(medianera(
                     rotulo("MEDIANERA"), sup_medida,
                     medida(el, "largo"), medida(el, "alto"), zona, conU(term["medianera"])))
+                apuntar(cerramientos[-1], ident, "MEDIANERA", el)
         elif tipo == "SUELO":
             sup = _superficie(cfg.get("suelo"), sup_medida)
             if abs(sup - sup_medida) > 0.01:
@@ -1285,6 +1274,7 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
                     f"geometria mide {sup_medida} m2")
             cerramientos.append(suelo_terreno(
                 rotulo("SUELO EN TERRENO"), sup, zona, conU(term["suelo_terreno"])))
+            apuntar(cerramientos[-1], ident, "SUELO", el)
         elif tipo == "CUBIERTA":
             sup = _superficie(cfg.get("cubierta"), sup_medida)
             if abs(sup - sup_medida) > 0.01:
@@ -1293,6 +1283,7 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
                     f"vivienda) y la geometria mide {sup_medida} m2")
             cerramientos.append(cubierta(
                 rotulo("CUBIERTA"), sup, zona, conU(term["cubierta"])))
+            apuntar(cerramientos[-1], ident, "CUBIERTA", el)
         elif tipo == "PARTICION_INTERIOR_HORIZONTAL":
             sup = _superficie(cfg.get("particion_superior"), sup_medida)
             cerramientos.append(particion(
@@ -1404,39 +1395,34 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
             avisos.append(f"hueco {h['id']}: {h['de']}")
 
     # --- LOS PUENTES TERMICOS ---------------------------------------------
-    # Solo se generan los que salen de una MEDIDA, con la regla que usa CE3X
-    # (medida sobre los 55.771 puentes del corpus). Los pilares integrados en
-    # fachada NO: su numero no lo dice ni Catastro ni una foto, lo cuenta el
-    # certificador, asi que se piden en la ficha o no van.
-    puentes = []
+    # Que puentes tiene el edificio lo decide `puentes.py`, mirandolo: donde
+    # dos fachadas hacen esquina, cuanto mide el contorno de la cubierta, si el
+    # hueco lleva persiana. Aqui solo se le da lo medido y se recogen sus
+    # avisos — el criterio no se escribe dos veces.
+    pt_huecos = []
     for h, inst in zip(entrada_huecos, huecos):
-        a = float(inst.estado[Cadena("longitud")])
-        b = float(inst.estado[Cadena("altura")])
-        muro_h = str(inst.estado[Cadena("cerramientoAsociado")])
-        zona_h = str(inst.estado[Cadena("subgrupo")])
-        puentes.append(puente("Contorno de hueco", 2 * (a + b), muro_h, zona_h,
-                              etiqueta=h["id"]))
-        if h.get("persiana", defecto.get("persiana", False)):
-            puentes.append(puente("Caja de Persiana", a, muro_h, zona_h,
-                                  etiqueta=h["id"]))
-
-    for c in cerramientos:
-        if str(c[1]) != "Fachada" or str(c[-1]) != "aire":
-            continue
-        largo, alto = _numf(c[-5]), _numf(c[-4])
-        if largo:
-            puentes.append(puente("Encuentro de fachada con forjado", largo,
-                                  str(c[0]), str(c[-2])))
-        if alto:
-            puentes.append(puente("Pilar en Esquina", alto, str(c[0]), str(c[-2])))
-
+        pt_huecos.append({
+            "id": h["id"],
+            "muro": str(inst.estado[Cadena("cerramientoAsociado")]),
+            "espacio": str(inst.estado[Cadena("subgrupo")]),
+            "ancho": float(inst.estado[Cadena("longitud")]),
+            "alto": float(inst.estado[Cadena("altura")]),
+            "persiana": h.get("persiana", defecto.get("persiana", False)),
+        })
+    # Los anadidos a mano siguen resolviendo su cerramiento POR EL NOMBRE, que
+    # es como los escribe quien los mete en la ficha.
+    extra_pt = []
     for extra in cfg.get("puentes_extra", []):
         soporte_pt = _soporte(extra["asociado"])
-        puentes.append(puente(extra["tipo"], extra["longitud"],
-                              str(soporte_pt[0]) if soporte_pt else extra["asociado"],
-                              str(soporte_pt[-2]) if soporte_pt else espacio))
-        avisos.append(f"puente {extra['tipo']} sobre {extra['asociado']}: "
-                      f"{extra.get('de', 'anadido a mano en la ficha')}")
+        extra_pt.append({
+            **extra,
+            "asociado": str(soporte_pt[0]) if soporte_pt else extra["asociado"],
+            "espacio": str(soporte_pt[-2]) if soporte_pt else espacio,
+        })
+    puentes, avisos_pt = PT.construir(
+        paredes_pt, pt_huecos,
+        {"pilares": cfg.get("pilares"), "puentes_extra": extra_pt})
+    avisos.extend(avisos_pt)
 
     _sin_zona("huecos", {str(h.estado[Cadena("subgrupo")]) for h in huecos})
     _sin_zona("puentes termicos", {str(p[-1]) for p in puentes})

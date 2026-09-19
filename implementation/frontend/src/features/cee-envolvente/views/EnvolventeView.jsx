@@ -8,6 +8,8 @@ import { usePlanoEnvolvente } from '../logic/usePlanoEnvolvente';
 import { claveInstalacion } from '../logic/fichaCe3x';
 import { useDeshacer } from '../logic/useDeshacer';
 import { MidiendoElEdificio } from '../components/MidiendoElEdificio';
+import { VentanasViviendaModal } from '../components/VentanasViviendaModal';
+import { resumenVentanas, ventanasContestadas } from '../logic/ventanasVivienda';
 import { EscribiendoElCex, CexGenerado } from '../components/EscribiendoElCex';
 import { PanelAdministrativos, PanelEconomico, PanelGenerales, PanelInstalaciones,
          PanelMedidas, Ventana } from '../components/PanelesFicha';
@@ -73,6 +75,10 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     // transmitancias. Viaja con el trabajo, así que se guarda igual que los
     // huecos — un valor tecleado no puede perderse al cerrar la pestaña.
     const [ajustes, setAjustes] = useState({});
+    //: El popup de «cómo son las ventanas». Se abre solo la primera vez (ver
+    //: más abajo) y desde el botón de la cabecera. `false` NO significa «ya
+    //: contestado»: eso lo dice `ventanasContestadas`.
+    const [verVentanas, setVerVentanas] = useState(false);
     //: Se sube cuando cambia el EXPEDIENTE por debajo (leer la placa lo escribe),
     //: no lo que se teclea aquí: la ficha la compone el servidor desde él.
     const [refrescoFicha, setRefrescoFicha] = useState(0);
@@ -548,7 +554,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         try {
             const data = await postEnvolvente(api(id, 'cex'), {
                 geometria: geo.geometria,
-                envolvente: plano.loSenalado(),
+                envolvente: plano.loSenalado(cfg),
                 // Lo marcado solo vale para la fase que se está previsualizando:
                 // generar la OTRA con esa elección escribiría en un certificado
                 // las medidas que se eligieron para el contrario.
@@ -610,6 +616,19 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     // propone quitar: no se toca nada sin que lo pulse una persona, porque hay
     // garajes que forman parte de la vivienda y porches cerrados que son estar.
     const cuerposSospechosos = cuerpos.filter(c => c.habitable === false && !c.fuera);
+
+    // ── CÓMO SON LAS VENTANAS ────────────────────────────────────────────────
+    // Se pregunta al abrir un expediente que todavía no se ha modelado, y una
+    // sola vez: de ahí salen la transmitancia de cada hueco y el puente térmico
+    // de caja de persiana, que no estaban en ningún campo del expediente.
+    //
+    // ⚠️ SALE CON EL PLANO YA TRAÍDO, no en la pantalla de «traer la
+    // envolvente». Ahí no hay `trabajo`, y el autoguardado solo escribe cuando
+    // lo hay (`plano.trabajo && {...}`): lo contestado viviría en memoria hasta
+    // el primer hueco y se perdería al cerrar la pestaña.
+    const primeraVez = !ventanasContestadas(ajustes) && !ajustes.ventanas_luego
+                       && !Object.keys(trabajoPrevio?.huecos || {}).length;
+    const verVentanasAhora = verVentanas || (primeraVez && !preguntando && !generando);
 
     if (!geo) {
         // Mientras se mide, el popup: son entre veinte segundos y un minuto, y
@@ -741,7 +760,9 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             <div className={activa === 'envolvente' ? 'flex flex-col gap-4' : 'hidden'}>
                 <Cabecera resumen={resumen} entrada={entrada}
                           onCambiarEntrada={() => setEntrada(null)}
-                          estadoGuardado={estadoGuardado} />
+                          estadoGuardado={estadoGuardado}
+                          ventanas={resumenVentanas(ajustes.ventanas)}
+                          onVentanas={() => setVerVentanas(true)} />
 
                 {!entrada && <PasoEntrada />}
 
@@ -787,9 +808,21 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                     </div>
                 </div>
                     <PanelPared plano={plano} transmitancias={ficha?.ficha?.termicas}
-                                expedienteId={id} />
+                                ventanasVivienda={ajustes.ventanas} expedienteId={id} />
                 </div>
             </div>
+
+            {verVentanasAhora && (
+                <VentanasViviendaModal
+                    ventanas={ajustes.ventanas} muros={plano.muros}
+                    primeraVez={primeraVez}
+                    onGuardar={v => { cambiarAjuste('ventanas', v); setVerVentanas(false); }}
+                    // Cerrar sin contestar NO puede volver a abrirlo en el
+                    // render siguiente: se sella «no lo he contestado, y ya lo
+                    // sé» para que el popup no se convierta en una pared.
+                    onCerrar={() => { setVerVentanas(false);
+                                      if (primeraVez) cambiarAjuste('ventanas_luego', true); }} />
+            )}
 
             {cuerpoAbierto && (
                 <CuerpoModal cuerpo={cuerpoAbierto} ocupado={cargando}
@@ -985,7 +1018,8 @@ const GUARDADO = {
  * falta a mano —por dónde se entra, si está guardado y cuánto queda— cabe en un
  * renglón, y el estado de cada pared ya se ve en el plano por su color.
  */
-function Cabecera({ resumen, entrada, onCambiarEntrada, estadoGuardado }) {
+function Cabecera({ resumen, entrada, onCambiarEntrada, estadoGuardado,
+                   ventanas, onVentanas }) {
     return (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[11.5px] text-white/45">
             {entrada ? (
@@ -1018,6 +1052,17 @@ function Cabecera({ resumen, entrada, onCambiarEntrada, estadoGuardado }) {
                     {resumen.fuera === 1 ? ' apartada' : ' apartadas'} de la envolvente
                 </span>
             )}
+
+            {/* Como son las ventanas de la vivienda. Va aqui y no escondido en
+                un menu porque es lo que se acaba de contestar al entrar: hay
+                que poder comprobar de un vistazo que lo que se esta poniendo en
+                cada hueco es lo que se dijo. */}
+            <button onClick={onVentanas}
+                    className={ventanas
+                        ? 'text-white/55 hover:text-white'
+                        : 'font-bold text-amber-400/90 hover:text-amber-300'}>
+                ▤ {ventanas || 'di cómo son las ventanas'}
+            </button>
 
             {estadoGuardado && (
                 <span className={`ml-auto ${GUARDADO[estadoGuardado].color}`}>

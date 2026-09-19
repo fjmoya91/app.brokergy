@@ -218,10 +218,14 @@ function DeUnHueco({ l, hueco, onAplicar, onCerrar }) {
                 {(l.avisos || []).map((a, i) => <Nota key={i} tono="aviso">{a}</Nota>)}
                 {l.observaciones && <Nota tono="info">{l.observaciones}</Nota>}
 
-                {/* Lo honesto: esto NO va al certificado todavía. */}
+                {/* Qué va al certificado y qué no. Hasta 2026-09-19 no iba NADA
+                    —y esta nota lo decía—, pero el marco, el vidrio y la
+                    persiana ya tienen su casilla: son lo que fija la
+                    transmitancia del hueco y su puente de caja de persiana. */}
                 <Nota tono="info">
-                    Esto queda anotado en el hueco y en el expediente. <b>No se escribe en el
-                    .cex</b>: la carpintería y el vidrio del hueco se siguen tecleando en CE3X.
+                    El <b>marco</b>, el <b>vidrio</b> y la <b>persiana</b> se escriben en el
+                    .cex — repásalos en el hueco antes de generar. Lo demás (apertura, hojas,
+                    estado) queda anotado en el expediente y se teclea en CE3X.
                 </Nota>
             </div>
 

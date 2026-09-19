@@ -2396,6 +2396,70 @@ decir qué cambió sin recalcular ni rasterizar nada.
 
 ---
 
+## PROGRAMAR el envío de una propuesta (2026-09-19)
+
+Botón de **reloj pegado a ENVIAR** en el popup de la propuesta: se elige día y hora
+—o uno de los cuatro atajos— y sale sola, con el ordenador apagado.
+
+| Qué | Dónde |
+|---|---|
+| El despachador (alta, cancelación, barrido, envío, aviso) | [propuestaProgramada.js](implementation/backend/services/propuestaProgramada.js) |
+| Tabla | `propuestas_programadas` (`scripts/propuestas_programadas.sql`) |
+| Rutas | `POST /:id/propuesta/programar` · `GET /:id/propuesta/programadas` · `DELETE /:id/propuesta/programada/:progId` (**enforceAuth**) |
+| El panel del reloj | [ProgramarEnvioPanel.jsx](implementation/frontend/src/features/calculator/components/ProgramarEnvioPanel.jsx) |
+| Fechas y atajos (puro, probable desde Node) | [logic/programarEnvio.js](implementation/frontend/src/features/calculator/logic/programarEnvio.js) |
+| Pruebas | `node scripts/test_propuesta_programada.js` · `node scripts/test_programar_envio.mjs` |
+
+**REGLA — el despachador NO vuelve a decidir nada.** El envío lo orquesta el
+NAVEGADOR (a quién, por dónde, con qué texto), así que al programar se guarda el
+PLAN YA HECHO —grupos, mensaje por persona, canales— junto al documento tal y como
+se revisó, y a su hora solo se replica. Si recompusiera el mensaje saldría una
+propuesta distinta de la que se aprobó, y nadie estaría delante para verlo. Por eso
+`messageFor` y `planDeEnvio` son fuente única del popup: el envío a mano y el
+programado no pueden decir cosas distintas.
+
+**REGLA — se delega en las MISMAS rutas** (`propuesta/version`, `send-proposal`,
+`version/:v`, `estado`, `comentarios`), llamadas con `x-internal-key` como hace
+`routes/acciones.js`. Así el número de versión, el PDF archivado en Drive, la vista
+web del enlace, el movimiento de la carpeta y la línea del historial son los mismos
+que enviándola a mano. Esas cuatro rutas pasan a `internalKeyOrAuth`, y
+`nombreUsuario(req)` lee `body.usuario` en la llamada interna: queda a nombre de
+quien lo programó, no de "Sistema".
+
+**REGLA — el HTML va en columnas TEXT propias, nunca en `datos_calculo`.** Pesa 353
+KB de media y hasta 1,35 MB (regla 21), y se BORRA al terminar: de una programada ya
+enviada hace falta su rastro, no su documento, que queda archivado como versión.
+Ningún listado selecciona `html_pdf`/`html_email` (`SIN_HTML`).
+
+**REGLA — nace APAGADO** (`PROPUESTA_PROGRAMADA_ENABLED`, `true` solo en el VPS).
+Dos backends contra la misma base —el del VPS y el de un portátil— barrerían la
+misma tabla, y desde LOCAL saldría con su WhatsApp y su SMTP a un cliente real.
+Misma palanca que `CEE_ENTREGA_AUTO` y `BOT_WHATSAPP_ENABLED`. **Y la pantalla lo
+DICE**: si no, se programa, no pasa nada a su hora y parece roto.
+
+**REGLA — el claim es ATÓMICO** (`update … eq('estado','PENDIENTE')`): quien pierde
+la carrera se retira. Es lo que impide que la misma propuesta salga dos veces.
+
+**REGLA — sin PDF no sale NADA** y **siempre se avisa al staff** (WhatsApp +
+email), salga bien, a medias o mal: un envío programado ocurre con nadie delante, y
+"¿llegó mi propuesta?" no puede tener por respuesta abrir el expediente.
+
+**REGLA — enviar a mano CANCELA lo programado** de esa propuesta. Acaba de salir;
+dejarlo vivo se la manda al cliente por segunda vez. Se avisa en el banner ANTES de
+pulsar, y la cancelación queda en el historial. Lo que ya está `ENVIANDO` no se
+puede cancelar: su PDF se está rasterizando y puede haber salido — decir que se ha
+retirado algo que ya viajó es peor que no poder retirarlo.
+
+**REGLA — la hora se compone en LOCAL** (`new Date('2026-09-21T09:00')`), nunca
+partiendo un ISO: a las 00:30 en España el ISO ya dice el día anterior. El servidor
+solo compara el instante contra `now()`, así que su huso (UTC) no interviene.
+
+El panel se **portalea a `document.body`** (regla 29.b) —el popup tiene
+`overflow-hidden` y lo recortaría justo por el pie— y en móvil es hoja inferior. Un
+fallo al programar se enseña DENTRO del panel: el aviso del popup queda detrás.
+
+---
+
 ## Bot de WhatsApp — contesta a los chats ETIQUETADOS (2026-08-25)
 
 Un asistente que responde por la MISMA sesión de WhatsApp del VPS con la que ya
@@ -8873,6 +8937,133 @@ está vigilado en `tests/test_orientation.py`.
 
 ---
 
+## Los PUENTES TÉRMICOS se miran, ya no se listan (2026-09-19)
+
+Hasta hoy eran una lista fija: por cada fachada un forjado y un pilar en esquina,
+y por cada hueco su contorno. Salía igual en una vivienda de una planta que en un
+bloque, y dejaba fuera **la mitad de los que CE3X trae marcados por defecto** —la
+cubierta, la solera, los pilares integrados y la caja de persiana— porque no los
+calculaba nadie.
+
+Ahora se deciden mirando el edificio. Y de paso se cierra el agujero de al lado:
+`huecos_defecto` existía en el motor y **no se lo mandaba nadie**, así que los
+catorce huecos de un expediente salían todos «Doble + Metálico sin RPT».
+
+| Qué | Dónde |
+|---|---|
+| Qué puentes tiene el edificio (reglas + ψ + a qué cerramiento cuelga cada uno) | [tools/puentes.py](implementation/cee-engine/tools/puentes.py) |
+| Cómo son las ventanas de la vivienda (opciones, U, lo leído de las fotos) | [logic/ventanasVivienda.js](implementation/frontend/src/features/cee-envolvente/logic/ventanasVivienda.js) |
+| El popup del arranque | `VentanasViviendaModal.jsx` |
+| La estimación de pilares en el navegador | [logic/pilaresFachada.js](implementation/frontend/src/features/cee-envolvente/logic/pilaresFachada.js) |
+| Pruebas | `python -m pytest implementation/cee-engine/tests/test_puentes.py` |
+
+**TODO MEDIDO sobre 50 `.cex` de certificadores** (Downloads + Documents/CEX +
+ejemplos), **1.733 puentes**. Ninguna de estas reglas es una opinión.
+
+### Los OCHO tipos, y a qué cuelga cada uno
+
+**REGLA — los que se llaman «encuentro de fachada con…» NO van sobre la
+fachada.** El de cubierta cuelga de la **CUBIERTA** y los del suelo, del
+**SUELO**: medido sobre los 74 encuentros del corpus, sin una sola excepción. No
+es nomenclatura — CE3X los enseña bajo el cerramiento que dice
+`cerramientoAsociado`, y ahí el certificador no los encontraría.
+
+Su longitud es el **contorno vertical de esa planta, medianeras incluidas**: la
+cubierta se apoya igual sobre la medianera del vecino. Contra ese perímetro la
+mediana del corpus es **1,00**; contra el de solo las fachadas al aire, 1,19.
+
+⚠️ Faltaba el ψ de `Encuentro de fachada con suelo en contacto con el aire`:
+**0,97**, de los 10 casos del corpus, todos iguales. Los otros siete ya estaban y
+coinciden valor a valor con el valor dominante del corpus.
+
+### El forjado va SIEMPRE, también con una sola planta
+
+Lo llevan **46 de los 50** ficheros, incluidos los de un solo nivel (CARBON,
+GAS_NATURAL, PELLETS, PEDRO MUÑOZ), con longitud = largo del paño; y CE3X lo trae
+marcado por defecto. Ahí el forjado es el de la cubierta apoyando en la fachada.
+Decisión de 2026-09-19 tras contrastarlo: **no cambia ni un número de lo que la
+app ya generaba**.
+
+### Un pilar en esquina es un HECHO GEOMÉTRICO, no una fachada
+
+Antes se escribía uno por cada tramo de fachada —que es lo que hacen los
+certificadores a mano—, pero un edificio rectangular tiene cuatro esquinas tenga
+sus fachadas partidas en cuatro tramos o en trece. Sobre 26RES060_187 eso son 13
+pilares donde el edificio tiene 8. Ahora salen de los puntos donde dos fachadas
+concurren **haciendo ángulo**, leyendo el trazado (`geometria_wkt`).
+
+- **Un quiebro de menos de 15° no es una esquina.** Catastro parte una fachada
+  cuando cambia el vecino de enfrente, y esos retranqueos no son pilares.
+- **Contra una MEDIANERA no hay pilar en esquina.** Lo es por tener DOS caras al
+  exterior; donde la fachada muere contra el vecino solo tiene una, y esa ya la
+  recoge el pilar integrado.
+- **Cada planta tiene las suyas**, aunque las coordenadas coincidan.
+- **UNA fila por fachada, con sus esquinas sumadas.** Una fachada puede ser dueña
+  de las dos suyas, y entonces salían **dos puentes con el mismo nombre**
+  (`PT Pilar en Esquina-FBE1 PATIO` repetido): en el árbol de CE3X son dos
+  entradas idénticas sin forma de distinguirlas. Lo destapó escribir un `.cex` de
+  verdad y releerlo — no lo veía ningún test de la lista.
+- **Sin trazado se cae a uno por paño y SE DICE.** No saber dónde dobla el
+  edificio no puede dejar el `.cex` sin pilares, pero entonces el número es una
+  aproximación y no una medida.
+
+### Los pilares integrados se PROPONEN y se cuentan a mano
+
+Su número no lo dice Catastro ni una foto: lo cuenta quien tiene la fachada
+delante. Se propone **uno cada 3,5 m con mínimo 2** —la separación mediana de los
+32 ficheros del corpus que los llevan, y la luz habitual de una vivienda— y se
+corrige en el panel de la pared; **a 0 no se escribe el puente**. Su longitud es
+siempre **un número entero de pilares × la altura de planta**: es lo que escriben
+los 32 ficheros, sin una excepción.
+
+⚠️ **La estimación está en DOS sitios** (`pilares_de` en Python y
+`pilaresEstimados` en JS): la pantalla enseña el número y el motor lo escribe, y
+si se separan el panel dice 3 y el certificado lleva 4 — no falla, miente. Lo
+vigila `test_puentes.py`, que **lee el fichero JS**. Y el redondeo del navegador
+replica el BANCARIO de Python (`round(2.5) == 2`), que sobre 8,75 m es un pilar de
+diferencia.
+
+### ¿Cómo son las ventanas? — se pregunta al entrar, una vez
+
+Popup al abrir la envolvente de un expediente sin modelar: **vidrio, marco y
+persiana**. De ahí sale la transmitancia de cada hueco —lo que más pesa en la
+demanda de una vivienda antigua— y el puente de caja de persiana, que llevan 34 de
+los 50 `.cex` del corpus y la app no escribía en ninguno.
+
+**REGLA — no se pregunta NADA más.** Todo lo que se puede mirar en el plano o
+derivar del expediente ya se deriva; un popup que pregunta de más se responde sin
+leer, y entonces deja de servir para lo que sí importa.
+
+**REGLA — no BLOQUEA, y sin contestar sale lo de siempre**
+(`VENTANAS_POR_DEFECTO`: Doble + Metálico sin RPT, sin persiana). Un expediente
+que no pase por el popup se escribe **exactamente igual que antes**; subir o bajar
+ese defecto movería la demanda de partida de todo lo que se regenere, y eso lo
+decide una persona. «Lo pongo luego» se sella (`ajustes.ventanas_luego`) para que
+el popup no vuelva en el render siguiente.
+
+**REGLA — viene CONTESTADO con lo que dicen las fotos ya leídas.** El lector de
+huecos (`paredOcrService`) sacaba el material del marco, el acristalamiento y la
+persiana desde hace meses **y se tiraban**: el popup de la lectura decía
+literalmente «no se escribe en el .cex». Ahora manda lo más repetido, marcado «de
+la foto», y ese texto dice la verdad. Lo que la foto no permite afirmar sale
+`null`: un `triple` **no se traduce** —CE3X no lo tiene entre sus tres vidrios
+estimados y declararlo como doble bajo emisivo sería escribir otra ventana.
+
+**REGLA — un hueco puede llevar la CONTRARIA, y HEREDA en vez de copiar.** La
+cocina ya cambiada, el baño que sigue con vidrio simple. Va plegado en una línea
+(`Carpinteria`): en una fachada con seis ventanas, seis formularios abiertos son
+un muro que esconde las medidas. Si se guardara una copia, cambiar la respuesta de
+la vivienda no movería ningún hueco.
+
+⚠️ La **puerta** conserva su 90 % de marco y su madera: lo que hace puerta a una
+puerta es eso, no el tipo (regla del `.cex`).
+
+```bash
+python -m pytest implementation/cee-engine/tests/test_puentes.py
+```
+
+---
+
 ## Una EDIFICACIÓN entera se quita de un clic (2026-09-16)
 
 En el plano se pulsa un cuerpo del edificio —el garaje adosado, el porche, el
@@ -9281,6 +9472,10 @@ barrido los vuelve a listar cuando se quiera comprobar.
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
 2. **Estados de oportunidad**: `LEAD`, `PTE ENVIAR`, `EN CURSO`, `ENVIADA`, `PRE-ACEPTADO`, `ACEPTADA`, `RECHAZADA` (esta lista estaba desactualizada — le faltaban `LEAD` y `RECHAZADA`, que ya estaban en uso). Cada cambio de estado mueve la carpeta de Drive automáticamente (mapa en `services/driveFolders.js`, ver "Carpetas de Drive por estado"). **`PRE-ACEPTADO`** (2026-09-18) es la aceptación de PALABRA: el cliente ha dicho que sí pero aún no ha rellenado la aceptación formal (firma). Es solo para hacer seguimiento — no crea expediente, no exige `cliente_id`, y su carpeta de Drive es la misma que `ENVIADA` (`02. SIMULACION ENVIADA`: no tiene carpeta propia). Entra en `ESTADOS_CAPTACION` (`routes/oportunidades.js`) y en `FASES_CAPTACION` (`dashboardAgg.js`): sigue contando como captación viva hasta que se acepta de verdad. El único disparador real de `ACEPTADA` + creación de expediente sigue siendo el mismo de siempre (`PATCH /:id/estado` con `nuevo_estado === 'ACEPTADA'`, y el trigger SQL `trg_sync_oportunidad_aceptada` que fuerza `ACEPTADA` en cuanto nace un `expediente` — por eso ningún camino de `PRE-ACEPTADO` puede crear un expediente sin pasar antes por ese `PATCH`).
+   **REGLA — a partir de la aceptación, el estado que se VE lo manda el EXPEDIENTE y se CALCULA** ([utils/estadoOportunidad.js](implementation/backend/utils/estadoOportunidad.js), 2026-09-19). `datos_calculo.estado` describe la CAPTACIÓN y ahí se quedaba parado para siempre: una oportunidad aceptada hace ocho meses, con la obra hecha y el CAE cobrado, seguía diciendo `ACEPTADA` en la lista. `GET /api/oportunidades` cruza con `expedientes` y devuelve `estado_visible`: **`ACEPTADA`** mientras no se le ha encargado el CEE → **`EN CURSO`** en cuanto tiene `cee.certificador_id` → **`FINALIZADO`** al terminar. **No se ESCRIBE en la oportunidad**: duplicar la verdad en dos tablas es garantizar que un día digan cosas distintas (mismo criterio que `esCaptacionViva`, que ya excluía del embudo lo que tiene expediente «aunque su estado diga otra cosa: mandan los hechos, no la etiqueta»). Como consecuencia, **el desplegable de estado se sustituye por una chapa fija** en cuanto hay expediente: ofrecer un cambio que no se va a guardar es peor que no ofrecerlo.
+   ⚠️ **El criterio es EL MISMO que mueve la carpeta de Drive** (`carpetaObjetivoExpediente`: 03. ACEPTADO sin certificador · 04. EN CURSO con él · 11. FINALIZADOS al final). Si aquí se decidiera distinto, la etiqueta de la lista y la carpeta en la que está el expediente contarían dos historias del mismo día — lo vigila `test_estado_oportunidad.mjs`, que recorre los 27 estados × con/sin certificador y compara las dos decisiones. Del expediente se piden **solo tres escalares** (`estado`, `numero_expediente`, `cee->>certificador_id`): `cee` entero trae los XML de los certificados (regla 22). Si esa consulta falla, la lista sale igual con el estado de captación — una etiqueta menos avanzada es mucho menos malo que dejar al usuario sin su cartera (regla 38).
+   ⚠️ **`EN CURSO` significa ahora DOS cosas** y se asumió a propósito (decisión del usuario, 2026-09-19): propuesta en elaboración (sin expediente) y expediente en marcha (con él). Se distinguen por el color y porque las segundas ya no son captación, pero el filtro `EN CURSO` trae las dos.
+   **El color de `PRE-ACEPTADO` es FUCSIA, y no es decorativo**: en teal se confundía con el verde de `ACEPTADA`, que es justo el estado del que hay que distinguirlo. Va además más saturado que el resto (`/20` y borde `/50` frente a `/10` y `/30`) porque es el que hay que mirar. Funciona en tema claro porque `[class*="text-fuchsia-"]` ya está en el remapeo de `.theme-light` (#C026D3) — **un color que no esté enumerado ahí sale ilegible sobre blanco**. `FINALIZADO` va en cian por lo mismo: no puede parecerse al verde de `ACEPTADA`. Y el tono `fuchsia` se añadió a `TONOS` de `DashboardWidgets.jsx`, que es un diccionario CERRADO (Tailwind purga las clases interpoladas): un `color` que no esté ahí cae a gris sin avisar.
 3. **IDs de oportunidad**: Formato `{YY}RES_OP{N}`. No renombrar IDs antiguos para mantener trazabilidad.
 3.b **Fichas**: hay CINCO tipologías — `RES060`, `RES080`, `RES093`, `TER100` y `TER173`. La lista NO se escribe a mano en cada sitio: backend en [utils/fichas.js](implementation/backend/utils/fichas.js) (`FICHAS`, `correlativoInicial`, `detectPrograma`, `esTerciario`, `esHibridacion`), frontend en `expedienteTaxonomia.js` (`FICHAS`, `getFicha`, `fichaColor`). El correlativo inicial NO es 1 en todas (RES080 → 36, TER100 → 3). El SECTOR no se deduce de los inputs: las fichas TER las declara una persona, y se comprueban ANTES que `isHybrid` (TER173 es una hibridación y si no se la llevaría RES093). Ver "Ficha TER100" y "Ficha TER173".
 4. **Validación de Documentos**: Usar siempre el helper `isPresent(val)` en `validateExpediente` para comprobar que los datos no son nulos, vacíos ni placeholders (`_______`).
@@ -9464,6 +9659,9 @@ barrido los vuelve a listar cuando se quiera comprobar.
 62. **Ningún hook por debajo de un `return` condicional, y el BUILD lo comprueba**: `vite build` no pasa el lint, así que una violación de `rules-of-hooks` se compila y llega a producción — donde React corta el render con el **error #310** («rendered more hooks than during the previous render») y **tumba la pantalla entera**, no el trozo. Le pasó a la ventana de la envolvente el 18/09/2026 en cuanto el plano por fin se trajo (`200`, 1,34 MB): el `useState` de los cuerpos estaba dos líneas por debajo del `return` de «todavía no hay geometría», así que el fallo llevaba días escrito y latente porque nadie cruzaba ese render. Ese día había **OCHO** en el repo (envolvente ×2, panel económico del expediente, cuadro de mando de lotes, comparativa de la calculadora y popup de propuesta) y se arreglaron las ocho: el hook sube por encima del `return`, o se le quita el `useCallback`/`useMemo` cuando no aportaba nada —el de `ProposalModal` solo se usaba desde un `onClick={() => …}`—. El candado es [check-hooks.mjs](implementation/frontend/scripts/check-hooks.mjs), **enganchado a `npm run build`**: con una violación el build sale con 1 y el deploy se para antes de compilar. **NO sustituye a `npm run lint`**: vigila UNA regla, la que rompe la pantalla; meter ahí las demás (efectos que llaman a `setState`, fast-refresh) lo convertiría en algo que hay que saltarse. Ver "Y con el plano por fin traído, la ventana se caía entera".
 
 63. **Una firma que se VE no siempre CUBRE el documento, y se comprueba antes de dar el verde**: si a un PDF se le tocó un byte tras firmarlo, o llegó truncado, el resumen que firmó el certificado ya no cuadra — y **en pantalla no se nota** (pdf.js reconstruye el índice y lo pinta perfecto), así que el daño solo aparece cuando lo abre un lector que valida la firma, o el verificador. `leerFirmasPdf(buf).integridad` lo dice: el `/ByteRange` contra la posición real del `/Contents`, el truncamiento, los bytes escritos detrás de la ÚLTIMA firma y el **`messageDigest` del firmante contra el hash de lo que hay hoy** (`integridadDeFirma` en [utils/firmasPdf.js](implementation/backend/utils/firmasPdf.js), recorrido DER sin dependencias ni IA: milisegundos y coste cero). **Sigue sin decir que una firma sea VÁLIDA** —ni cadena de confianza ni revocación, eso es del validador oficial—: afirma lo contrario y más estrecho, *"la firma NO cubre este documento"*, que es un hecho. **Bloquea solo lo que se ha PODIDO comprobar y no cuadra**; lo que no se sabe leer pasa (`ok: null`), porque el aviso que salta sin motivo es el que enseña a ignorar los avisos. **Solo a la ÚLTIMA firma se le exige llegar al final del fichero**: en un PDF con varias, cada una cierra su revisión y la siguiente escribe detrás — exigírselo a todas marcaría como rotos todos los Anexos I. Medido sobre los **592 firmados de producción: 281 correctas, 2 rotas, 2 no comprobables, 0 falsos positivos** — y una de las rotas es el CIFO de 26RES060_179, el daño que la regla 55 ya documentaba. Puesto en VALIDAR (409 + "validarlo igualmente", que se escribe en el historial), en `firmar-subir` (422 y **no se sube**: acabamos de firmarlo nosotros) y en los firmados del S.O. (`firma_rota`, no se registra); en el CEE del técnico **avisa y no bloquea**, que lo sube él desde su enlace. Tras tocarlo: `node implementation/backend/scripts/test_integridad_firma.mjs` y el barrido `barrer_integridad_firmas.js`. Ver "Una firma que se VE no siempre CUBRE el documento".
+64. **Los PUENTES TÉRMICOS se MIRAN, ya no se listan** (y las ventanas de la vivienda se preguntan): eran una lista fija —un forjado y un pilar en esquina por cada fachada, un contorno por cada hueco— que salía igual en una vivienda de una planta que en un bloque y dejaba fuera **la mitad de los ocho que CE3X trae marcados por defecto**. Ahora los decide [tools/puentes.py](implementation/cee-engine/tools/puentes.py) mirando la geometría, con todo MEDIDO sobre **50 `.cex` de certificadores (1.733 puentes)**. **REGLA — los dos que se llaman «encuentro de fachada con…» NO cuelgan de la fachada**: el de cubierta va sobre la **CUBIERTA** y los del suelo sobre el **SUELO** (74 casos del corpus, sin una excepción; CE3X los enseña bajo el cerramiento que dicen, y ahí no se encontrarían), y su longitud es el **contorno vertical de esa planta con las medianeras dentro** —la cubierta se apoya igual sobre la del vecino— contra el que la mediana del corpus da 1,00 frente a 1,19 del perímetro al aire. **REGLA — el forjado va SIEMPRE, también con una sola planta** (46 de 50 ficheros, y CE3X lo trae marcado): ahí es el de la cubierta apoyando en la fachada, así que **no cambia ni un número de lo que ya se generaba**. **REGLA — un pilar en esquina es un HECHO GEOMÉTRICO, no una fachada**: sale de los puntos donde dos fachadas **al aire** concurren haciendo ángulo (>15° de los 180°, que los retranqueos de Catastro no son pilares); contra una medianera no hay —lo es por tener DOS caras fuera—, cada planta tiene las suyas, y van **sumadas en UNA fila por fachada** porque una fachada puede ser dueña de sus dos esquinas y salían **dos puentes con el mismo nombre**, que en el árbol de CE3X son dos entradas indistinguibles (lo destapó escribir un `.cex` de verdad y releerlo, no lo veía ningún test). Sin trazado se cae a uno por paño **y se dice**. **REGLA — los pilares integrados se PROPONEN** (uno cada 3,5 m, mínimo 2 — la separación mediana de los 32 ficheros que los llevan) y los **cuenta una persona** en el panel de la pared; a 0 no se escribe el puente, y su longitud es siempre un nº entero de pilares × la altura. ⚠️ Esa estimación está en DOS sitios (`pilares_de` en Python y `pilaresEstimados` en JS, con el redondeo BANCARIO replicado): si se separan, el panel dice 3 y el certificado lleva 4 — lo vigila `test_puentes.py`, que **lee el fichero JS**. Y de paso: **`huecos_defecto` existía en el motor y no se lo mandaba nadie**, así que todos los huecos salían «Doble + Metálico sin RPT» y ninguno con persiana (que llevan 34 de los 50 del corpus). Se pregunta al abrir un expediente sin modelar —vidrio, marco y persiana, **nada más**—, **viene contestado con lo que dicen las fotos ya leídas** (el lector de huecos lo sacaba desde hace meses y se tiraba: su popup decía «no se escribe en el .cex»), **no bloquea**, y sin contestar sale **exactamente lo de siempre**. Un hueco puede llevar la contraria y **HEREDA en vez de copiar**. Fuentes únicas: `puentes.py` y [ventanasVivienda.js](implementation/frontend/src/features/cee-envolvente/logic/ventanasVivienda.js). Tras tocarlo: `python -m pytest implementation/cee-engine/tests/test_puentes.py`. Ver "Los PUENTES TÉRMICOS se miran, ya no se listan".
+
+65. **Programar el envío de una propuesta**: botón de RELOJ pegado a ENVIAR; se elige día y hora y sale sola. El envío lo orquesta el NAVEGADOR, así que al programar se guarda el **plan YA HECHO** (grupos, mensaje por persona, canales) con el documento tal y como se revisó, y el despachador **NO vuelve a decidir nada** — si recompusiera el mensaje saldría otra propuesta distinta de la aprobada, con nadie delante. Se **delega en las MISMAS rutas** que usa el popup (`propuesta/version`, `send-proposal`, `version/:v`, `estado`, `comentarios`) con `x-internal-key`, como `routes/acciones.js`: el nº de versión, el PDF en Drive, la vista web del enlace, la carpeta y el historial son los mismos que enviándola a mano — esas cuatro rutas pasan a `internalKeyOrAuth` y `nombreUsuario(req)` lee `body.usuario`, para que quede a nombre de quien lo programó. El **HTML va en columnas TEXT propias** (353 KB de media, regla 21), nunca en `datos_calculo`, y se borra al terminar. **Nace APAGADO** (`PROPUESTA_PROGRAMADA_ENABLED`, solo `true` en el VPS): dos backends contra la misma base barrerían la misma tabla y desde LOCAL saldría a un cliente real — el claim atómico evita el doble envío, no el envío desde local, y **la pantalla dice cuándo está apagado**. **Sin PDF no sale nada** y **siempre se avisa al staff** (WhatsApp + email), salga bien, a medias o mal. **Enviar a mano cancela lo programado** de esa propuesta —o el cliente la recibe dos veces—, se avisa antes de pulsar, y lo que ya está `ENVIANDO` no se puede cancelar. La hora se compone en LOCAL, nunca partiendo un ISO. Tras tocarlo: `node implementation/backend/scripts/test_propuesta_programada.js` y `test_programar_envio.mjs`. Ver "PROGRAMAR el envío de una propuesta".
 
 ---
 
@@ -9597,6 +9795,11 @@ WA_SYNC_INSTALADORES=false         ← enganche automático al alta/edición. En
 WA_SYNC_ETIQUETA_INSTALADORES=INSTALADORES
 WA_SYNC_PAUSA_MS=1500              ← pausa entre chats (no hacerle ráfagas a ese Chrome)
 WA_SYNC_FALLOS_MAX=3               ← tiempos de espera seguidos tras los que se corta el repaso
+
+# Propuestas con el envío PROGRAMADO (ver "PROGRAMAR el envío de una propuesta")
+PROPUESTA_PROGRAMADA_ENABLED=false ← en LOCAL, APAGADO: saldría a un cliente REAL
+PROPUESTA_PROGRAMADA_INTERVALO_MS=60000
+PROPUESTA_PROGRAMADA_MAX_DIAS=90   ← hasta cuándo se admite programar
 ```
 
 54. **Cada cerramiento del plano puede llevar su FOTO REAL, y de ella se cuentan sus huecos**: se pulsa la pared —o el hueco— y se le pega la suya, ofreciendo PRIMERO las que el expediente ya tiene (medido en 26RES060_186: 6 fotos de la envolvente llevaban meses en Drive mientras las ventanas se contaban a ojo). La foto vale **aunque no se lea**: es la prueba de por qué el cerramiento se clasificó como está, y por eso sale también en medianeras. **El modelo NO da metros**: da CAJAS (`box_2d`), y la escala la pone el código desde la **PUERTA DE ENTRADA** (2,05 m) — nunca desde el ancho de la pared, porque la fachada no ocupa el encuadre exacto **y** porque el modelo agranda todas las cajas ~1,5× de forma consistente, sesgo que una referencia dentro de la misma foto cancela (con el ancho de la pared la ventana salía a 2,4 m; con la puerta, a 1,71, que es lo que se ve). El largo que midió el motor **VALIDA, no escala**; sin puerta a la vista hay recuento pero no medidas. Lo leído **nace DUDOSO** (el ámbar que ya existe) y **no pisa** lo que hay: con huecos ya puestos las casillas nacen desmarcadas y reemplazar es un botón aparte — importa, porque señalar la entrada ya coloca una puerta y una ventana de relleno. La carpintería y el vidrio se guardan y se enseñan pero **no van al `.cex`** (no hay casilla en `loSenalado`). **Al abrir una foto sale el PANEL de la pared y cada hueco SEÑALADO sobre la imagen** con su nombre: las marcas salen solas de la lectura (el modelo ya da la caja de cada hueco) y se corrigen arrastrando. Se guardan con la FOTO y por `uid`, nunca por nombre —V1 se renombra y se recoloca— y **al momento**, no al cerrar. ⚠️ `var(--brand)` NO existe (es `--brand-primary`) y en un SVG eso sale NEGRO sin avisar; y arrastrar sobre una `<img>` la tiñe de azul salvo con `draggable={false}` + `select-none` + `preventDefault`. ⚠️ **`thinkingBudget: 0` cuelga esta lectura para siempre** —240 s frente a 13,3 s con `pensar`—, y no se arregla subiendo el plazo; `llamarGemini` acepta ya `pensar` y `deadline`. Coste: **0,006 €** por fachada. Fuentes únicas: [paredOcrService.js](implementation/backend/services/paredOcrService.js) (leer) y [paredFotoService.js](implementation/backend/services/paredFotoService.js) (Drive + estado, en `cee.envolvente_fotos`, clave APARTE del trabajo). Tras tocarlo: `node implementation/backend/scripts/test_pared_ocr.mjs`. Ver "La FOTO REAL de cada cerramiento".

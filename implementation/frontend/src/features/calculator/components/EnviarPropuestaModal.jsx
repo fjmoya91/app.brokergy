@@ -13,6 +13,11 @@ import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal
 // escrito de dos formas distintas según por dónde se envíe.
 import { ContactoPickRow, NotaVariosDestinatarios } from '../../expedientes/components/ContactoPickRow';
 import { priorizarPorRol, avisoReparto } from '../../expedientes/utils/docContacts';
+// Programar el envío: el mismo recorrido, a la hora que se elija. El panel del
+// reloj solo elige CUÁNDO; el plan (a quién, por dónde y con qué texto) es el
+// que ya está revisado en esta pantalla.
+import { ProgramarEnvioPanel } from './ProgramarEnvioPanel';
+import { textoFecha } from '../logic/programarEnvio';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Envío unificado de la PROPUESTA al cliente — homogéneo con EnviarAnexosModal /
@@ -133,6 +138,28 @@ export function EnviarPropuestaModal({
     //     encima de los datos buenos).
     const [editando, setEditando] = useState(null);
     const [abriendoFicha, setAbriendoFicha] = useState(null);   // mode en curso
+
+    // ── Envíos PROGRAMADOS ───────────────────────────────────────────────────
+    // Se cargan con las versiones (una sola llamada) porque un envío programado
+    // que no se ve al volver a abrir el popup es uno que se manda otra vez a
+    // mano sin saberlo. `despachadorActivo` a false = el servidor no los va a
+    // sacar (LOCAL): hay que decirlo o parece que el botón no hace nada.
+    const [programadas, setProgramadas] = useState([]);
+    const [despachadorActivo, setDespachadorActivo] = useState(true);
+    const [panelHora, setPanelHora] = useState(false);
+    const [programando, setProgramando] = useState(false);
+    const relojRef = useRef(null);
+
+    const pendientes = programadas.filter(p => p.estado === 'PENDIENTE');
+
+    const recargarProgramadas = async () => {
+        if (!expedienteId) return;
+        try {
+            const { data } = await axios.get(`/api/oportunidades/${expedienteId}/propuesta/programadas`);
+            setProgramadas(data?.programadas || []);
+            if (data?.despachadorActivo !== undefined) setDespachadorActivo(!!data.despachadorActivo);
+        } catch { /* la lista es informativa: no romper el popup por ella */ }
+    };
 
     const abrirFicha = async (cand) => {
         const ent = cand.entidad;
@@ -292,6 +319,11 @@ export function EnviarPropuestaModal({
         setSendResults([]);
         setBusy(false);
         setWaReady(null);
+        setPanelHora(false);
+        setProgramando(false);
+        setProgramadas(versionInfo?.programadas || []);
+        setDespachadorActivo(versionInfo?.despachadorActivo !== false);
+        recargarProgramadas();
         axios.get('/api/whatsapp/status').then(r => setWaReady(!!r.data?.ready)).catch(() => setWaReady(false));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
@@ -427,6 +459,109 @@ export function EnviarPropuestaModal({
         return !(ca.email && channels.email) && !(ca.whatsapp && channels.whatsapp && waReady !== false);
     });
 
+    // ── El mensaje de CADA destinatario ──────────────────────────────────────
+    // El que encabeza el modo principal usa el texto editado en la caja; el
+    // resto regenera el suyo (el cliente recibe el de cliente, el partner el de
+    // partner, y cada persona su propio saludo). La nota adicional se inserta en
+    // todos si está marcada.
+    const principalPrimary = principalDe(primaryMode);
+    const messageFor = (c) => {
+        const esElDeLaCaja = c.mode === primaryMode
+            && (!c.personaId || c.personaId === principalPrimary?.personaId);
+        const base = esElDeLaCaja
+            ? stripNote(message)
+            : (buildDefaultMessage ? buildDefaultMessage(c.mode, saludoDe(c)) : stripNote(message));
+        return noteInMessage ? composeNote(base, extraNote) : base;
+    };
+
+    // ── El PLAN de envío, ya decidido ────────────────────────────────────────
+    // Lo mismo que recorre `handleSend`, pero como DATO. Es lo que se guarda al
+    // programar: el despachador del servidor lo replica sin volver a decidir a
+    // quién ni con qué texto — si recompusiera el mensaje a su hora, saldría una
+    // propuesta distinta de la que se revisó aquí.
+    const planDeEnvio = () => {
+        const doEmail = willEmail, doWa = willWhatsapp;
+        const gruposPlan = [];
+        for (const grupo of grupos) {
+            const mode = grupo[0].mode;
+            const conEmail = priorizarPorRol(grupo, ROL_PROPUESTA).filter(c => canalDe(c).email);
+            let email = null;
+            if (doEmail && conEmail.length) {
+                const principal = conEmail[0];
+                const nombre = saludoDe(principal) || principal.label;
+                email = {
+                    to: principal.email,
+                    cc: conEmail.slice(1).map(c => c.email),
+                    label: principal.label,
+                    userName: nombre,
+                    summaryData: buildSummaryData ? buildSummaryData(mode, nombre) : { id: numexpte },
+                    mensaje: messageFor(principal),
+                };
+            }
+            const whatsapps = doWa
+                ? grupo.filter(c => canalDe(c).whatsapp).map(c => ({
+                    label: c.label,
+                    phone: String(c.phone).replace(/[^0-9]/g, ''),
+                    mensaje: messageFor(c),
+                }))
+                : [];
+            if (email || whatsapps.length) gruposPlan.push({ modo: mode, email, whatsapps });
+        }
+        return {
+            numexpte,
+            versionImpresa: versionInfo?.siguiente || 1,
+            canales: [doEmail && 'email', doWa && 'whatsapp'].filter(Boolean),
+            nota: extraNote.trim() || null,
+            destinatarios: selectedContacts.map(c => ({ modo: c.mode, label: c.label, email: c.email, telefono: c.phone })),
+            grupos: gruposPlan,
+            result: proposalResult || null,
+            inputs: proposalInputs || null,
+        };
+    };
+
+    // ── Programar ────────────────────────────────────────────────────────────
+    const handleProgramar = async (cuando) => {
+        if (!expedienteId) {
+            setStatus({ ok: false, text: 'Hay que guardar la oportunidad antes de poder programar su envío.' });
+            setPanelHora(false);
+            return;
+        }
+        setProgramando(true);
+        setStatus(null);
+        try {
+            const { data } = await axios.post(`/api/oportunidades/${expedienteId}/propuesta/programar`, {
+                enviarAt: cuando.toISOString(),
+                plan: planDeEnvio(),
+                html: getPdfHtml(),
+                htmlEmail: willEmail && getEmailHtml ? getEmailHtml() : null,
+            }, { timeout: 180000 });
+            if (data?.despachadorActivo !== undefined) setDespachadorActivo(!!data.despachadorActivo);
+            setPanelHora(false);
+            await recargarProgramadas();
+            setStatus({ ok: true, text: `Envío programado para el ${textoFecha(cuando)}.` });
+        } catch (e) {
+            const txt = e.response?.data?.error || e.message;
+            setStatus({ ok: false, text: txt });
+            // Se relanza para que el panel lo pinte dentro: el aviso del popup
+            // queda DETRÁS de él y no se vería.
+            throw new Error(txt);
+        } finally {
+            setProgramando(false);
+        }
+    };
+
+    const cancelarProgramada = async (p) => {
+        if (!expedienteId) return;
+        try {
+            await axios.delete(`/api/oportunidades/${expedienteId}/propuesta/programada/${p.id}`);
+            await recargarProgramadas();
+            setStatus({ ok: true, text: 'Envío programado cancelado.' });
+        } catch (e) {
+            setStatus({ ok: false, text: e.response?.data?.error || e.message });
+            await recargarProgramadas();
+        }
+    };
+
     // ── Orquestador de envío ─────────────────────────────────────────────────
     const handleSend = async () => {
         const doEmail = willEmail;
@@ -488,19 +623,9 @@ export function EnviarPropuestaModal({
             return;
         }
 
-        // Mensaje POR destinatario: el que encabeza el modo principal usa el texto
-        // editado en la caja; el resto regenera el suyo (el cliente recibe el de
-        // cliente, el partner el de partner, y cada persona su propio saludo). La
-        // nota adicional se inserta en todos si está marcada.
-        const principalPrimary = principalDe(primaryMode);
-        const messageFor = (c) => {
-            const esElDeLaCaja = c.mode === primaryMode
-                && (!c.personaId || c.personaId === principalPrimary?.personaId);
-            const base = esElDeLaCaja
-                ? stripNote(message)
-                : (buildDefaultMessage ? buildDefaultMessage(c.mode, saludoDe(c)) : stripNote(message));
-            return noteInMessage ? composeNote(base, extraNote) : base;
-        };
+        // El mensaje de cada destinatario lo compone `messageFor`, arriba: es el
+        // mismo que se guarda al PROGRAMAR, y tenerlo dos veces haría que la
+        // propuesta programada y la enviada a mano pudieran decir cosas distintas.
 
         for (const grupo of grupos) {
             const mode = grupo[0].mode;
@@ -590,8 +715,25 @@ export function EnviarPropuestaModal({
             try { await axios.post(`/api/oportunidades/${expedienteId}/comentarios`, { comentario: `📝 Nota de la propuesta: ${extraNote.trim()}` }); } catch (e) { /* no romper */ }
         }
 
+        // Si había un envío PROGRAMADO de esta misma propuesta, se retira: acaba
+        // de salir a mano, y dejarlo vivo se la mandaría por segunda vez al mismo
+        // cliente. Se avisa antes de pulsar (aviso del pie) y queda en el
+        // historial por la ruta de cancelación.
+        let canceladas = 0;
+        if (anyOk && expedienteId && pendientes.length) {
+            for (const p of pendientes) {
+                try { await axios.delete(`/api/oportunidades/${expedienteId}/propuesta/programada/${p.id}`); canceladas++; }
+                catch { /* si ya no estaba pendiente, no hay nada que retirar */ }
+            }
+            await recargarProgramadas();
+        }
+
         setSendResults(out);
-        setStatus({ ok: anyOk, text: out.map(r => `${r.status === 'ok' ? '✓' : '✕'} ${r.text}`).join('   ') });
+        setStatus({
+            ok: anyOk,
+            text: out.map(r => `${r.status === 'ok' ? '✓' : '✕'} ${r.text}`).join('   ')
+                + (canceladas ? `   · Se ha cancelado ${canceladas === 1 ? 'el envío programado' : `${canceladas} envíos programados`} de esta propuesta.` : ''),
+        });
         setSendPhase('done');
         setBusy(false);
         if (anyOk) { fireSuccessConfetti(); if (onSent) onSent(out); }
@@ -625,6 +767,35 @@ export function EnviarPropuestaModal({
                 </div>
 
                 <div className="px-6 py-5 space-y-5 max-h-[74vh] overflow-y-auto custom-scrollbar">
+                    {/* ── YA HAY UN ENVÍO PROGRAMADO ──────────────────────────
+                        Va lo PRIMERO y con su hora: es lo que cambia la decisión
+                        de pulsar ENVIAR, y enterarse después de que el cliente ha
+                        recibido la misma propuesta dos veces no tiene arreglo. */}
+                    {pendientes.map(p => (
+                        <div key={p.id} className="rounded-xl border border-brand/30 bg-brand/[0.07] px-4 py-3 flex items-start gap-3">
+                            <svg className="w-5 h-5 text-brand shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><circle cx="12" cy="12" r="9" /><path strokeLinecap="round" d="M12 7v5l3 2" /></svg>
+                            <div className="min-w-0 flex-1">
+                                <p className="text-[11px] font-black uppercase tracking-widest text-brand">Envío programado</p>
+                                <p className="text-[12px] text-white/75 mt-1 leading-relaxed">
+                                    Esta propuesta saldrá sola el <strong className="text-white">{textoFecha(p.enviar_at)}</strong>
+                                    {p.creada_por ? ` · lo programó ${p.creada_por}` : ''}.
+                                </p>
+                                <p className="text-[11px] text-white/45 mt-1">
+                                    Si envías ahora, ese envío programado se cancelará para no mandarla dos veces.
+                                </p>
+                                {!despachadorActivo && (
+                                    <p className="text-[11px] text-amber-400/90 mt-1.5">
+                                        ⚠️ El envío automático está apagado en este servidor: no saldrá solo.
+                                    </p>
+                                )}
+                            </div>
+                            <button onClick={() => cancelarProgramada(p)} disabled={busy}
+                                className="shrink-0 px-3 py-1.5 rounded-lg border border-white/15 text-white/55 text-[9px] font-black uppercase tracking-widest hover:text-white hover:border-white/35 transition-all">
+                                Cancelar
+                            </button>
+                        </div>
+                    ))}
+
                     {/* Aviso de REENVÍO — antes de pulsar, no después. Saber que
                         el cliente ya tiene una propuesta encima de la mesa cambia
                         lo que se le escribe en el mensaje. */}
@@ -900,6 +1071,18 @@ export function EnviarPropuestaModal({
                             {avisoPie || `${selectedContacts.length} dest.`}
                         </span>
                         <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest hover:text-white hover:border-white/30 transition-all">Cerrar</button>
+                        {/* Programar: pegado a ENVIAR porque es la MISMA decisión
+                            —sale esto, a estos, por aquí— y lo único que cambia es
+                            el "ahora" por una hora. Se apaga exactamente con lo
+                            mismo que apaga ENVIAR: sin destinatario o sin canal no
+                            hay nada que programar. */}
+                        <button ref={relojRef} onClick={() => setPanelHora(v => !v)}
+                            disabled={busy || !selectedContacts.length || (!willEmail && !willWhatsapp)}
+                            title={avisoPie || 'Programar el envío para otro día y hora'}
+                            aria-label="Programar el envío"
+                            className={`flex items-center justify-center w-11 h-11 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-30 disabled:cursor-not-allowed ${panelHora ? 'border-brand/60 bg-brand/15 text-brand' : 'border-white/10 text-white/50 hover:text-white hover:border-white/30'}`}>
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><circle cx="12" cy="12" r="9" /><path strokeLinecap="round" d="M12 7v5l3 2" /></svg>
+                        </button>
                         <button onClick={handleSend} disabled={busy || !selectedContacts.length || (!willEmail && !willWhatsapp)}
                             title={avisoPie || 'Enviar'}
                             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
@@ -910,6 +1093,22 @@ export function EnviarPropuestaModal({
                         </button>
                     </div>
                 </div>
+
+                {/* Panel del reloj. Portaleado a `document.body` (regla 29.b): el
+                    popup tiene `overflow-hidden` y lo recortaría justo por el pie,
+                    que es donde cuelga. */}
+                {panelHora && (
+                    <ProgramarEnvioPanel
+                        anchorRef={relojRef}
+                        busy={programando}
+                        onClose={() => setPanelHora(false)}
+                        onProgramar={handleProgramar}
+                        resumen={`a ${selectedContacts.length} destinatario${selectedContacts.length === 1 ? '' : 's'} por ${[willEmail && 'email', willWhatsapp && 'WhatsApp'].filter(Boolean).join(' y ')}`}
+                        aviso={!despachadorActivo
+                            ? 'El envío automático está apagado en este servidor: lo que programes NO saldrá solo.'
+                            : (willWhatsapp ? 'WhatsApp tiene que estar conectado a esa hora; si no, esa parte no saldrá y te avisamos.' : null)}
+                    />
+                )}
 
                 {/* ── OVERLAY DE ENVÍO: enviando → enviado, estado por canal ── */}
                 {sendPhase && (() => {

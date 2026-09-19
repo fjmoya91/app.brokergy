@@ -706,13 +706,23 @@ export function AdminPanelView({
         }
     };
 
+    // El estado que se PINTA. Una vez aceptada, el avance lo manda el EXPEDIENTE
+    // y el backend lo envía ya resuelto en `estado_visible` (ACEPTADA → EN CURSO
+    // cuando tiene certificador → FINALIZADO al terminar). Mientras no hay
+    // expediente, manda la captación. Ver utils/estadoOportunidad.js.
+    const estadoDe = (op) => op?.estado_visible || op?.datos_calculo?.estado || 'PTE ENVIAR';
+    // Con expediente el estado no se teclea: se deduce de él. El desplegable se
+    // sustituye por una chapa fija para no ofrecer un cambio que no se guardaría.
+    const loMandaElExpediente = (op) => !!op?.estado_visible;
+
     const getStatusColor = (status) => {
         switch (status) {
             case 'LEAD': return 'bg-violet-500/10 text-violet-400 border-violet-500/30';
             case 'EN CURSO': return 'bg-orange-500/10 text-orange-400 border-orange-500/30';
             case 'ENVIADA': return 'bg-blue-500/10 text-blue-400 border-blue-500/30';
-            case 'PRE-ACEPTADO': return 'bg-teal-500/10 text-teal-400 border-teal-500/30';
+            case 'PRE-ACEPTADO': return 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/50';
             case 'ACEPTADA': return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
+            case 'FINALIZADO': return 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40';
             case 'RECHAZADA': return 'bg-red-500/10 text-red-400 border-red-500/30';
             default: return 'bg-white/[0.06] text-white/40 border-white/10'; // PTE ENVIAR
         }
@@ -751,7 +761,7 @@ export function AdminPanelView({
             })()) &&
             (filters.ccaa === '' || getCCAA(op) === filters.ccaa) &&
             (filters.prescriptor_id === '' || (filters.prescriptor_id === 'none' ? !op.prescriptor_id : op.prescriptor_id === filters.prescriptor_id)) &&
-            (filters.estado === '' || (op.datos_calculo?.estado || 'PTE ENVIAR') === filters.estado) &&
+            (filters.estado === '' || estadoDe(op) === filters.estado) &&
             (filters.cod_cliente_interno === '' || norm(op.datos_calculo?.cod_cliente_interno).includes(norm(filters.cod_cliente_interno))) &&
             (filters.fechaDesde === '' || (opDateKey(op) !== null && opDateKey(op) >= filters.fechaDesde)) &&
             (filters.fechaHasta === '' || (opDateKey(op) !== null && opDateKey(op) <= filters.fechaHasta))
@@ -842,13 +852,14 @@ export function AdminPanelView({
 
     const stats = {
         total: (oportunidades || []).length,
-        leads: (oportunidades || []).filter(op => op.datos_calculo?.estado === 'LEAD').length,
-        pending: (oportunidades || []).filter(op => (op.datos_calculo?.estado || 'PTE ENVIAR') === 'PTE ENVIAR').length,
-        inProgress: (oportunidades || []).filter(op => op.datos_calculo?.estado === 'EN CURSO').length,
-        sent: (oportunidades || []).filter(op => op.datos_calculo?.estado === 'ENVIADA').length,
-        preAccepted: (oportunidades || []).filter(op => op.datos_calculo?.estado === 'PRE-ACEPTADO').length,
-        accepted: (oportunidades || []).filter(op => op.datos_calculo?.estado === 'ACEPTADA').length,
-        rejected: (oportunidades || []).filter(op => op.datos_calculo?.estado === 'RECHAZADA').length,
+        leads: (oportunidades || []).filter(op => estadoDe(op) === 'LEAD').length,
+        pending: (oportunidades || []).filter(op => estadoDe(op) === 'PTE ENVIAR').length,
+        inProgress: (oportunidades || []).filter(op => estadoDe(op) === 'EN CURSO').length,
+        sent: (oportunidades || []).filter(op => estadoDe(op) === 'ENVIADA').length,
+        preAccepted: (oportunidades || []).filter(op => estadoDe(op) === 'PRE-ACEPTADO').length,
+        accepted: (oportunidades || []).filter(op => estadoDe(op) === 'ACEPTADA').length,
+        finished: (oportunidades || []).filter(op => estadoDe(op) === 'FINALIZADO').length,
+        rejected: (oportunidades || []).filter(op => estadoDe(op) === 'RECHAZADA').length,
     };
 
     return (
@@ -1083,15 +1094,16 @@ export function AdminPanelView({
                     </div>
 
                     {/* Status Filter Cards */}
-                    <div className="flex overflow-x-auto gap-2 pb-2 mb-4 md:mb-6 md:grid md:grid-cols-8 md:overflow-visible md:pb-0 snap-x snap-mandatory scrollbar-hide" style={{ WebkitOverflowScrolling: 'touch' }}>
+                    <div className="flex overflow-x-auto gap-2 pb-2 mb-4 md:mb-6 md:grid md:grid-cols-9 md:overflow-visible md:pb-0 snap-x snap-mandatory scrollbar-hide" style={{ WebkitOverflowScrolling: 'touch' }}>
                         {[
                             { label: 'Total', count: stats.total, filter: '', dotColor: 'bg-white/30', borderActive: 'border-brand shadow-brand/20' },
                             { label: 'Leads Web', count: stats.leads, filter: 'LEAD', dotColor: 'bg-violet-400', borderActive: 'border-violet-500 shadow-violet-500/20' },
                             { label: 'Pendientes', count: stats.pending, filter: 'PTE ENVIAR', dotColor: 'bg-brand', borderActive: 'border-brand shadow-brand/20' },
                             { label: 'En Curso', count: stats.inProgress, filter: 'EN CURSO', dotColor: 'bg-orange-400', borderActive: 'border-orange-500 shadow-orange-500/20' },
                             { label: 'Enviadas', count: stats.sent, filter: 'ENVIADA', dotColor: 'bg-blue-400', borderActive: 'border-blue-500 shadow-blue-500/20' },
-                            { label: 'Pre-aceptadas', count: stats.preAccepted, filter: 'PRE-ACEPTADO', dotColor: 'bg-teal-400', borderActive: 'border-teal-500 shadow-teal-500/20' },
+                            { label: 'Pre-aceptadas', count: stats.preAccepted, filter: 'PRE-ACEPTADO', dotColor: 'bg-fuchsia-400', borderActive: 'border-fuchsia-500 shadow-fuchsia-500/20' },
                             { label: 'Aceptadas', count: stats.accepted, filter: 'ACEPTADA', dotColor: 'bg-emerald-400', borderActive: 'border-emerald-500 shadow-emerald-500/20' },
+                            { label: 'Finalizadas', count: stats.finished, filter: 'FINALIZADO', dotColor: 'bg-cyan-400', borderActive: 'border-cyan-500 shadow-cyan-500/20' },
                             { label: 'Rechazadas', count: stats.rejected, filter: 'RECHAZADA', dotColor: 'bg-red-400', borderActive: 'border-red-500 shadow-red-500/20' }
                         ].map((stat, i) => (
                             <button
@@ -1611,11 +1623,19 @@ export function AdminPanelView({
 
                                             <td className="p-3.5 align-top" onClick={e => e.stopPropagation()}>
                                                 <div className="flex items-center gap-1.5 flex-wrap">
+                                                    {loMandaElExpediente(op) ? (
+                                                        <span
+                                                            title="Lo marca su expediente: se pone EN CURSO al asignarle certificador y FINALIZADO al terminarlo."
+                                                            className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1.5 rounded-lg border ${getStatusColor(estadoDe(op))}`}
+                                                        >
+                                                            {estadoDe(op)}
+                                                        </span>
+                                                    ) : (
                                                     <select
-                                                        value={op.datos_calculo?.estado || 'PTE ENVIAR'}
+                                                        value={estadoDe(op)}
                                                         onChange={(e) => handleStatusChange(e, op)}
                                                         disabled={updatingStatus === op.id_oportunidad}
-                                                        className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1.5 rounded-lg border outline-none cursor-pointer transition-all appearance-none ${getStatusColor(op.datos_calculo?.estado || 'PTE ENVIAR')} ${updatingStatus === op.id_oportunidad ? 'opacity-50' : ''}`}
+                                                        className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1.5 rounded-lg border outline-none cursor-pointer transition-all appearance-none ${getStatusColor(estadoDe(op))} ${updatingStatus === op.id_oportunidad ? 'opacity-50' : ''}`}
                                                     >
                                                         {op.datos_calculo?.estado === 'LEAD' && (
                                                             <option value="LEAD" className="bg-slate-800 text-violet-400">LEAD</option>
@@ -1623,10 +1643,11 @@ export function AdminPanelView({
                                                         <option value="PTE ENVIAR" className="bg-slate-800 text-slate-300">PTE ENVIAR</option>
                                                         <option value="EN CURSO" className="bg-slate-800 text-orange-400">EN CURSO</option>
                                                         <option value="ENVIADA" className="bg-slate-800 text-blue-400">ENVIADA</option>
-                                                        <option value="PRE-ACEPTADO" className="bg-slate-800 text-teal-400">PRE-ACEPTADO</option>
+                                                        <option value="PRE-ACEPTADO" className="bg-slate-800 text-fuchsia-400">PRE-ACEPTADO</option>
                                                         <option value="ACEPTADA" className="bg-slate-800 text-emerald-400">ACEPTADA</option>
                                                         <option value="RECHAZADA" className="bg-slate-800 text-red-500">RECHAZADA</option>
                                                     </select>
+                                                    )}
                                                     <button
                                                         onClick={(e) => { e.stopPropagation(); setHistoryModalOp(op); }}
                                                         className="text-white/15 hover:text-white p-1 rounded-lg hover:bg-white/[0.06] transition-all"
@@ -1729,7 +1750,7 @@ export function AdminPanelView({
                 ) : (
                     paginatedOportunidades.map((op) => {
                         const meta = getOpMeta(op);
-                        const estado = op.datos_calculo?.estado || 'PTE ENVIAR';
+                        const estado = estadoDe(op);
                         const dirText = getOpDireccion(op);
                         const tercero = viewMode === 'brokergy' ? meta.profitBrokergy : meta.presupuesto;
                         const fmt = (v) => v.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
@@ -1815,6 +1836,14 @@ export function AdminPanelView({
 
                                 {/* Acciones */}
                                 <div className="mt-3 pt-3 border-t border-white/[0.06] flex items-center gap-2 flex-wrap" onClick={e => e.stopPropagation()}>
+                                    {loMandaElExpediente(op) ? (
+                                        <span
+                                            title="Lo marca su expediente: se pone EN CURSO al asignarle certificador y FINALIZADO al terminarlo."
+                                            className={`flex-1 min-w-[130px] text-[11px] font-bold uppercase tracking-wider px-2.5 py-2 rounded-lg border text-center ${getStatusColor(estado)}`}
+                                        >
+                                            {estado}
+                                        </span>
+                                    ) : (
                                     <select
                                         value={estado}
                                         onChange={(e) => handleStatusChange(e, op)}
@@ -1825,10 +1854,11 @@ export function AdminPanelView({
                                         <option value="PTE ENVIAR" className="bg-slate-800 text-slate-300">PTE ENVIAR</option>
                                         <option value="EN CURSO" className="bg-slate-800 text-orange-400">EN CURSO</option>
                                         <option value="ENVIADA" className="bg-slate-800 text-blue-400">ENVIADA</option>
-                                        <option value="PRE-ACEPTADO" className="bg-slate-800 text-teal-400">PRE-ACEPTADO</option>
+                                        <option value="PRE-ACEPTADO" className="bg-slate-800 text-fuchsia-400">PRE-ACEPTADO</option>
                                         <option value="ACEPTADA" className="bg-slate-800 text-emerald-400">ACEPTADA</option>
                                         <option value="RECHAZADA" className="bg-slate-800 text-red-500">RECHAZADA</option>
                                     </select>
+                                    )}
                                     <button
                                         onClick={(e) => { e.stopPropagation(); setHistoryModalOp(op); }}
                                         className="w-9 h-9 flex items-center justify-center text-white/40 hover:text-white rounded-lg hover:bg-white/[0.06] transition-all"

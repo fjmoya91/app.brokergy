@@ -20,6 +20,7 @@ export const TONOS = {
     blue:    { texto: 'text-blue-400',    suave: 'text-blue-400/50',   borde: 'border-blue-500/20',        fondo: 'bg-blue-500/[0.06]',     barra: 'bg-blue-500/70',   punto: 'bg-blue-400' },
     violet:  { texto: 'text-violet-400',  suave: 'text-violet-400/50', borde: 'border-violet-500/20',      fondo: 'bg-violet-500/[0.06]',   barra: 'bg-violet-500/70', punto: 'bg-violet-400' },
     emerald: { texto: 'text-emerald-400', suave: 'text-emerald-400/50',borde: 'border-emerald-500/20',     fondo: 'bg-emerald-500/[0.06]',  barra: 'bg-emerald-500/70',punto: 'bg-emerald-400' },
+    fuchsia: { texto: 'text-fuchsia-400', suave: 'text-fuchsia-400/50',borde: 'border-fuchsia-500/20',     fondo: 'bg-fuchsia-500/[0.06]',  barra: 'bg-fuchsia-500/70',punto: 'bg-fuchsia-400' },
     brand:   { texto: 'text-brand',       suave: 'text-brand/50',      borde: 'border-brand/20',           fondo: 'bg-brand/[0.06]',        barra: 'bg-brand/70',      punto: 'bg-brand' }
 };
 

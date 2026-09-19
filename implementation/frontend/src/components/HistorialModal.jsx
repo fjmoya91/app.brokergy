@@ -6,7 +6,7 @@ const STATUS_COLORS = {
     'PTE ENVIAR': 'bg-slate-500/20 text-slate-300 border-slate-500/40',
     'EN CURSO':   'bg-blue-500/20 text-blue-300 border-blue-500/40',
     'ENVIADA':    'bg-amber-500/20 text-amber-300 border-amber-500/40',
-    'PRE-ACEPTADO': 'bg-teal-500/20 text-teal-300 border-teal-500/40',
+    'PRE-ACEPTADO': 'bg-fuchsia-500/25 text-fuchsia-300 border-fuchsia-500/50',
     'ACEPTADA':   'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
 };
 const getStatusColor = (estado) => STATUS_COLORS[estado] || 'bg-slate-500/20 text-slate-300 border-slate-500/40';

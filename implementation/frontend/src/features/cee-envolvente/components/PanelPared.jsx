@@ -3,6 +3,9 @@ import { api } from '../logic/apiEnvolvente';
 import axios from 'axios';
 import { TIPOS_PARED, nuevoUid } from '../logic/usePlanoEnvolvente';
 import { RUMBOS } from '../logic/geometriaPlano';
+import { SEPARACION_PILARES_M, pilaresEstimados } from '../logic/pilaresFachada';
+import { MARCOS, VIDRIOS, desdeLaFoto, rotuloMarco, rotuloVidrio }
+    from '../logic/ventanasVivienda';
 import { FotosCerramiento } from './FotosCerramiento';
 import { LecturaFotoModal } from './LecturaFotoModal';
 
@@ -15,13 +18,14 @@ import { LecturaFotoModal } from './LecturaFotoModal';
 // en todo el edificio.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function PanelPared({ plano, transmitancias, expedienteId }) {
+export function PanelPared({ plano, transmitancias, expedienteId,
+                             ventanasVivienda }) {
     const { muros, sel, entrada, esMedianera, esParticion, esFuera, esDibujada,
             tipoDe, nombreDe,
             ponHuecos, cambiaHueco, duplicaHueco, quitaHueco, marcaComoParticion,
             marcaRevisada,
             confirmaHueco, confirmaPared, muevePared, borraPared,
-            apartaDeLaEnvolvente, reclasifica, renombra, ponU, orienta,
+            apartaDeLaEnvolvente, reclasifica, renombra, ponU, orienta, ponPilares,
             rumboDe, necesitaRumbo, rumbosDe,
             aplicaHuecosLeidos, anotaLecturaHueco } = plano;
     const m = sel ? muros[sel] : null;
@@ -168,9 +172,11 @@ export function PanelPared({ plano, transmitancias, expedienteId }) {
                     <Contador etiqueta="Puertas" n={puertas.length}
                               onCambio={n => ponHuecos(m.id, 'puerta', n)} />
 
+                    <Pilares m={m} onCambio={n => ponPilares(m.id, n)} />
+
                     <div className="flex flex-col gap-1.5">
                         {(m.huecos || []).map((h, i) => (
-                            <Hueco key={h.uid || i} h={h}
+                            <Hueco key={h.uid || i} h={h} vivienda={ventanasVivienda}
                                    expedienteId={expedienteId} paredId={m.id}
                                    cerramiento={nombreDe(m)} muro={m} nombreDe={nombreDe}
                                    onLeido={l => setPropuesta({ ambito: 'hueco', l, hueco: h })}
@@ -513,6 +519,37 @@ function Contador({ etiqueta, n, onCambio, nota }) {
     );
 }
 
+/**
+ * Cuántos pilares tiene esta fachada por dentro.
+ *
+ * POR QUÉ SE PREGUNTA: es el único puente térmico de los ocho de CE3X cuyo
+ * número no está en ninguna parte — no lo dice Catastro, no se ve en el plano y
+ * una foto de la calle no los cuenta. Lo sabe quien ha estado delante.
+ *
+ * REGLA — se PROPONE uno cada 3,5 m y sale dicho que es una estimación. Dejarlo
+ * en blanco sería quitar un puente que llevan 32 de los 50 .cex del corpus;
+ * darlo por contado sería afirmar algo que nadie ha mirado.
+ */
+function Pilares({ m, onCambio }) {
+    const contados = Number.isFinite(m.pilares);
+    const n = contados ? m.pilares : pilaresEstimados(m.largo);
+    return (
+        <div className="flex flex-col gap-1">
+            <Contador etiqueta="Pilares" n={n} onCambio={onCambio}
+                      nota={contados ? null : 'estimado'} />
+            <p className="pl-[78px] text-[10.5px] leading-snug text-white/35">
+                {contados
+                    ? <>Contados por ti. <button onClick={() => onCambio(null)}
+                            className="text-white/50 underline hover:text-white/80">
+                            volver a la estimación ({pilaresEstimados(m.largo)})
+                        </button></>
+                    : <>Los que se verían a uno cada {fmt(SEPARACION_PILARES_M)} m.
+                        Cuéntalos si los ves; a 0 no se escribe el puente.</>}
+            </p>
+        </div>
+    );
+}
+
 /** Los m² de hueco de una pared: la suma de sus ventanas y sus puertas. */
 function m2Hueco(huecos) {
     const total = (huecos || []).reduce(
@@ -520,7 +557,7 @@ function m2Hueco(huecos) {
     return total ? `${fmt(total)} m² de hueco` : null;
 }
 
-function Hueco({ h, onCambio, onDuplica, onQuita, onConfirma,
+function Hueco({ h, onCambio, onDuplica, onQuita, onConfirma, vivienda,
                 expedienteId, paredId, cerramiento, muro, nombreDe, onLeido }) {
     const [verFoto, setVerFoto] = useState(false);
     const borde = { medido: 'border-l-emerald-400', dudoso: 'border-l-amber-400' }[h.estado]
@@ -591,15 +628,24 @@ function Hueco({ h, onCambio, onDuplica, onQuita, onConfirma,
                 <span className="text-[10.5px] leading-snug text-white/35">{h.por_que}</span>
             )}
 
-            {/* Lo que su foto dijo de él, en una línea. Es lo que hay que teclear
-                en CE3X, así que tiene que verse sin abrir nada. */}
+            {/* Su carpintería: la de la vivienda salvo que este hueco diga otra
+                cosa. Va PLEGADA en una línea porque lo normal es que herede —en
+                una fachada con seis ventanas, seis formularios abiertos son un
+                muro y esconden las medidas, que es a lo que se entra. */}
+            {h.tipo !== 'puerta' && (
+                <Carpinteria h={h} vivienda={vivienda} onCambio={onCambio} />
+            )}
+
+            {/* Lo que su foto dijo de él, en una línea: la apertura y el estado
+                no tienen casilla en el .cex y se siguen tecleando en CE3X. El
+                marco, el vidrio y la persiana SÍ se escriben, y por eso están
+                arriba, donde se pueden cambiar. */}
             {h.lectura && (
                 <span className="text-[10.5px] leading-snug text-brand/75">
-                    {[h.lectura.material_marco && `marco de ${h.lectura.material_marco}`,
-                      h.lectura.acristalamiento && (h.lectura.acristalamiento === 'monolitico'
-                          ? 'vidrio simple' : `vidrio ${h.lectura.acristalamiento}`),
-                      h.lectura.apertura,
-                      h.lectura.persiana === true && 'con persiana',
+                    {[h.lectura.apertura,
+                      h.lectura.hojas && `${h.lectura.hojas} hojas`,
+                      h.lectura.reja === true && 'con reja',
+                      h.lectura.estado,
                      ].filter(Boolean).join(' · ') || 'leído de su foto'}
                 </span>
             )}
@@ -614,6 +660,94 @@ function Hueco({ h, onCambio, onDuplica, onQuita, onConfirma,
                     onLeido={onLeido} />
             )}
         </div>
+    );
+}
+
+/**
+ * El marco, el vidrio y la persiana de UN hueco.
+ *
+ * POR QUÉ EXISTE: la carpintería se contesta una vez para toda la vivienda, que
+ * es como son las viviendas — pero no siempre. La cocina que ya se cambió, el
+ * baño que sigue con vidrio simple: si eso no se pudiera declarar, o se
+ * escribiría mal el hueco o se escribiría mal toda la casa.
+ *
+ * REGLA — lo que no declara nada HEREDA, no copia. Al cambiar la respuesta de la
+ * vivienda cambian con ella todos los huecos que no hayan dicho lo contrario;
+ * si aquí se guardara una copia, cambiar la vivienda no movería ninguno.
+ */
+function Carpinteria({ h, vivienda, onCambio }) {
+    const [abierto, setAbierto] = useState(false);
+    const base = vivienda || {};
+    const v = h.vidrio ?? base.vidrio ?? 'Doble';
+    const marco = h.marco ?? base.marco ?? 'Metálico sin RPT';
+    const persiana = h.persiana ?? base.persiana ?? false;
+    const propio = !!(h.vidrio || h.marco || typeof h.persiana === 'boolean');
+
+    // Lo que dice su FOTO, cuando no es lo que se va a escribir. No se aplica
+    // solo: la carpintería la decide quien mira, y una foto no siempre deja ver
+    // si el perfil lleva rotura. Pero tampoco puede perderse — es justo el dato
+    // que antes se leía y se tiraba.
+    const foto = desdeLaFoto(h.lectura);
+    const discrepa = Object.entries(foto).filter(([k, x]) =>
+        x !== undefined && x !== ({ vidrio: v, marco, persiana })[k]);
+
+    return (
+        <div className="flex flex-col gap-1">
+            <button onClick={() => setAbierto(a => !a)}
+                    className={`text-left text-[10.5px] leading-snug
+                        ${propio ? 'text-brand/85' : 'text-white/35'} hover:text-white/70`}>
+                {abierto ? '▾ ' : '▸ '}
+                {rotuloVidrio(v)} · {rotuloMarco(marco)} · {persiana ? 'con' : 'sin'} persiana
+                {propio ? ' · solo esta' : ''}
+            </button>
+            {abierto && (
+                <div className="flex flex-wrap items-center gap-1.5 pb-0.5">
+                    <Desplegable valor={v} opciones={VIDRIOS}
+                                 etiqueta="vidrio de este hueco"
+                                 onCambio={x => onCambio('vidrio', x)} />
+                    <Desplegable valor={marco} opciones={MARCOS}
+                                 etiqueta="marco de este hueco"
+                                 onCambio={x => onCambio('marco', x)} />
+                    <button onClick={() => onCambio('persiana', !persiana)}
+                            className={`rounded-md border px-2 py-1 text-[10.5px] font-bold
+                                ${persiana ? 'border-brand/60 bg-brand/10 text-brand'
+                                           : 'border-white/12 text-white/45'}`}>
+                        {persiana ? '✓ persiana' : 'sin persiana'}
+                    </button>
+                    {propio && (
+                        <button onClick={() => { onCambio('vidrio', undefined);
+                                                 onCambio('marco', undefined);
+                                                 onCambio('persiana', undefined); }}
+                                className="text-[10px] text-white/35 hover:text-white/70">
+                            como el resto de la vivienda
+                        </button>
+                    )}
+                </div>
+            )}
+            {abierto && !!discrepa.length && (
+                <button onClick={() => discrepa.forEach(([k, x]) => onCambio(k, x))}
+                        className="text-left text-[10px] leading-snug text-brand/75
+                                   hover:text-brand">
+                    Su foto dice {discrepa.map(([k, x]) => (
+                        k === 'persiana' ? (x ? 'con persiana' : 'sin persiana')
+                        : k === 'vidrio' ? rotuloVidrio(x) : rotuloMarco(x)
+                    )).join(' · ')} · usarlo
+                </button>
+            )}
+        </div>
+    );
+}
+
+function Desplegable({ valor, opciones, etiqueta, onCambio }) {
+    return (
+        <select value={valor} aria-label={etiqueta}
+                onChange={e => onCambio(e.target.value)}
+                className="no-uppercase rounded-md border border-white/12 bg-white/[0.04]
+                           px-1.5 py-1 text-[11px] font-bold">
+            {opciones.map(o => (
+                <option key={o.id} value={o.id} className="bg-bkg-surface">{o.rotulo}</option>
+            ))}
+        </select>
     );
 }
 

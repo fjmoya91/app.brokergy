@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { largo as largoDe, rumbosDeLaPared } from './geometriaPlano';
+import { huecosDefecto } from './ventanasVivienda';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // El estado del plano: qué paredes hay, qué huecos les ha puesto el
@@ -89,6 +90,9 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                 for (const [k, o] of Object.entries(g.orientaciones || {})) {
                     if (nuevo[k]) nuevo[k].orientacion_manual = o;
                 }
+                for (const [k, n] of Object.entries(g.pilares || {})) {
+                    if (nuevo[k]) nuevo[k].pilares = n;
+                }
                 // Las paredes movidas y las dibujadas. Las dibujadas ENTRAN en
                 // el mapa de muros: para la vista son una pared más —se pulsan,
                 // llevan huecos y se reclasifican— y lo único que las separa es
@@ -151,6 +155,12 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
             .filter(m => Number.isFinite(m.u_manual)).map(m => [m.id, m.u_manual])),
         orientaciones: Object.fromEntries(Object.values(muros)
             .filter(m => m.orientacion_manual).map(m => [m.id, m.orientacion_manual])),
+        // Los pilares integrados que ha CONTADO el certificador. Se guardan
+        // porque contarlos es trabajo: son los que ve en la fachada, y un 0 es
+        // tan respuesta como un 5 — por eso la condición es «lo ha declarado»,
+        // no «es distinto de cero».
+        pilares: Object.fromEntries(Object.values(muros)
+            .filter(m => Number.isFinite(m.pilares)).map(m => [m.id, m.pilares])),
         // La geometría corregida. Se guarda con el trabajo porque es TRABAJO:
         // volver a colocar un tabique y perderlo al recargar sería peor que no
         // poder moverlo.
@@ -649,6 +659,24 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
     }
 
     /**
+     * Cuántos pilares tiene esta fachada por dentro.
+     *
+     * El motor PROPONE uno cada 3,5 m, que es la luz habitual de una vivienda y
+     * la separación mediana de los 32 .cex del corpus que los llevan. Pero el
+     * número real lo cuenta quien tiene la fachada delante, así que se puede
+     * corregir — y poner 0 los quita.
+     *
+     * `null` devuelve la estimación: decir «no lo he contado» tiene que costar
+     * lo mismo que contarlos.
+     */
+    function ponPilares(id, n) {
+        const v = n === null || n === '' ? null : Math.max(0, Math.round(Number(n)));
+        setMuros(m => (m[id]
+            ? { ...m, [id]: { ...m[id], pilares: Number.isFinite(v) ? v : null } }
+            : m));
+    }
+
+    /**
      * Lo que se señala AQUÍ y el motor no puede saber: los huecos, por dónde
      * se entra y qué medianeras dan a un espacio no habitable.
      *
@@ -657,7 +685,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
      * Que el navegador mandase las U sería dejar que el certificado se
      * escribiera con las que quisiera quien tenga la sesión abierta.
      */
-    function loSenalado() {
+    function loSenalado(ajustes = null) {
         const huecos = [];
         for (const m of Object.values(muros)) {
             // Un hueco de una pared apartada NO se manda: el motor no escribe
@@ -684,6 +712,13 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                     // Una puerta de entrada es casi toda opaca: 90% de marco,
                     // no el 20% de una ventana.
                     ...(esPuerta ? { porc_marco: '90', marco: 'Madera' } : {}),
+                    // Y la carpintería de ESTE hueco, cuando no es la de la
+                    // vivienda: la cocina que ya se cambió, la ventana del baño
+                    // que sigue siendo simple. Lo que no declare nada hereda el
+                    // `huecos_defecto` de abajo, que es lo normal.
+                    ...(h.vidrio ? { vidrio: h.vidrio } : {}),
+                    ...(h.marco && !esPuerta ? { marco: h.marco } : {}),
+                    ...(typeof h.persiana === 'boolean' ? { persiana: h.persiana } : {}),
                     de: h.estado === 'medido'
                         ? 'SEÑALADO EN LA VISTA DEL CERTIFICADOR'
                         : 'SEÑALADO EN LA VISTA, medida POR CONFIRMAR',
@@ -735,6 +770,18 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         return {
             huecos,
             paredes,
+            // Cómo son las ventanas de la vivienda: de aquí sale la
+            // transmitancia de cada hueco y, con la persiana, su puente térmico
+            // de cajón. Sin contestar sale lo de siempre («Doble + Metálico sin
+            // RPT», sin persiana), así que un expediente que no haya pasado por
+            // el popup se escribe exactamente igual que antes.
+            huecos_defecto: huecosDefecto(ajustes),
+            // Los pilares integrados que ha contado una persona, por el ID DE
+            // CATASTRO: el nombre lo puede cambiar ella misma y entonces el
+            // motor no casaría el override con su fachada.
+            pilares: Object.fromEntries(Object.values(muros)
+                .filter(m => !esFuera(m) && Number.isFinite(m.pilares))
+                .map(m => [m.id, m.pilares])),
             entrada: { valor: entrada, de: 'SEÑALADO POR EL CERTIFICADOR' },
             medianeras_como_particion: Object.values(muros)
                 .filter(m => esMedianera(m) && m.como_particion).map(m => m.id),
@@ -756,7 +803,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         aplicaHuecosLeidos, anotaLecturaHueco,
         muevePared, dibujaPared, borraPared, esDibujada,
         marcaComoParticion, marcaRevisada,
-        apartaDeLaEnvolvente, reclasifica, renombra, ponU, orienta,
+        apartaDeLaEnvolvente, reclasifica, renombra, ponU, orienta, ponPilares,
         cuerposFuera, sacaCuerpo, apartaParedesDe,
         loSenalado, restaurar,
         esCandidata, esMedianera, esParticion, esFuera, tipoDe, nombreDe, estadoDe,
