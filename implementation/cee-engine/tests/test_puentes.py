@@ -470,7 +470,17 @@ def test_un_hueco_puede_llevar_la_CONTRARIA_al_defecto_de_la_vivienda():
 _PILARES_JS = (RAIZ.parent / "frontend" / "src" / "features" / "cee-envolvente"
                / "logic" / "pilaresFachada.js")
 
+# La imagen del motor solo lleva `cee-engine`: el fichero del navegador no viaja
+# dentro, asi que ahi no hay nada que cotejar y el test se salta DICIENDOLO. La
+# vigilancia sigue viva donde el espejo existe de verdad, que es el repo — y es
+# donde se toca uno de los dos ficheros. Darlo por bueno en silencio seria peor:
+# el build de la imagen diria que el espejo cuadra sin haberlo mirado.
+sin_espejo = pytest.mark.skipif(
+    not _PILARES_JS.exists(),
+    reason="el fichero del navegador no esta en este arbol (imagen del motor)")
 
+
+@sin_espejo
 def test_la_pantalla_estima_los_pilares_con_los_MISMOS_numeros_que_el_motor():
     """El panel de la pared ensena la estimacion y el motor la escribe. Si los
     dos se separan, la pantalla dice 3 y el .cex lleva 4: no falla, miente.
@@ -488,4 +498,5 @@ def test_el_redondeo_del_navegador_es_el_de_python():
     assert PT.pilares_de(8.75) == 2      # 2.5 -> 2, y el minimo lo sube a 2
     assert PT.pilares_de(12.25) == 4     # 3.5 -> 4
     assert PT.pilares_de(15.75) == 4     # 4.5 -> 4, no 5
-    assert "redondeoBancario" in _PILARES_JS.read_text(encoding="utf-8")
+    if _PILARES_JS.exists():
+        assert "redondeoBancario" in _PILARES_JS.read_text(encoding="utf-8")
