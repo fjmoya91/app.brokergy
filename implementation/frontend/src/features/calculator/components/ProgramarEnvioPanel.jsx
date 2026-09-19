@@ -30,6 +30,11 @@ export function ProgramarEnvioPanel({
     const cajaRef = useRef(null);
     const [inicial] = useState(() => porDefecto());
     const [opciones] = useState(() => atajos());
+    // El mínimo del calendario es HOY, no el valor por defecto: quien quiere
+    // mandarla dentro de una hora la manda HOY. Que la hora elegida sea posterior
+    // a ahora lo decide `esValido`, que es quien sabe la hora — el calendario solo
+    // sabe de días, y cerrar el de hoy deja fuera medio día de envíos legítimos.
+    const [hoy] = useState(() => aFecha(new Date()));
     const [fecha, setFecha] = useState(() => aFecha(inicial));
     const [hora, setHora] = useState(() => aHora(inicial));
     const [valido, setValido] = useState(true);
@@ -100,11 +105,12 @@ export function ProgramarEnvioPanel({
             </div>
 
             <div className="grid grid-cols-2 gap-1.5 mb-3">
-                {opciones.map(a => {
+                {opciones.map((a, i) => {
                     const activo = fecha === aFecha(a.d) && hora === aHora(a.d);
+                    const solo = i === opciones.length - 1 && opciones.length % 2 === 1;
                     return (
                         <button key={a.label} onClick={() => ponerAtajo(a.d)}
-                            className={`px-2.5 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${activo ? 'bg-brand text-black' : 'bg-white/[0.04] border border-white/10 text-white/60 hover:text-white hover:border-white/25'}`}>
+                            className={`px-2.5 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${solo ? 'col-span-2' : ''} ${activo ? 'bg-brand text-black' : 'bg-white/[0.04] border border-white/10 text-white/60 hover:text-white hover:border-white/25'}`}>
                             {a.label}
                         </button>
                     );
@@ -114,7 +120,7 @@ export function ProgramarEnvioPanel({
             <div className="flex items-center gap-2">
                 {/* 16px en los dos campos: por debajo, iOS amplía la página al
                     enfocarlos y el panel se sale de la pantalla. */}
-                <input type="date" value={fecha} min={aFecha(inicial)}
+                <input type="date" value={fecha} min={hoy}
                     onChange={e => { setFecha(e.target.value); setError(null); }}
                     className="flex-1 min-w-0 no-uppercase bg-bkg-elevated border border-white/10 rounded-xl px-3 py-2.5 text-white text-[16px] md:text-[13px] focus:outline-none focus:border-brand/40" />
                 <input type="time" value={hora} step="300"
@@ -122,10 +128,14 @@ export function ProgramarEnvioPanel({
                     className="w-[7.5rem] shrink-0 no-uppercase bg-bkg-elevated border border-white/10 rounded-xl px-3 py-2.5 text-white text-[16px] md:text-[13px] focus:outline-none focus:border-brand/40" />
             </div>
 
-            <p className="mt-2.5 text-[10px] text-white/40 leading-relaxed">
+            {/* Con la hora ya pasada se dice POR QUÉ no vale: el botón se apaga
+                solo, y un botón apagado sin explicación se lee como una avería. */}
+            <p className={`mt-2.5 text-[10px] leading-relaxed ${valido || !elegido ? 'text-white/40' : 'text-amber-400/90'}`}>
                 {valido && elegido
                     ? <>Saldrá el <span className="text-white font-bold">{textoFecha(elegido)}</span>{resumen ? ` · ${resumen}` : ''}.</>
-                    : 'Elige cuándo tiene que salir.'}
+                    : elegido
+                        ? 'Esa hora ya ha pasado. Elige una posterior a ahora.'
+                        : 'Elige cuándo tiene que salir.'}
             </p>
             {/* Lo que se programa es el documento de AHORA: si mañana se cambia
                 el precio en la calculadora, esto sigue llevando el de hoy. */}

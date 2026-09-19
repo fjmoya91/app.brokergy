@@ -58,19 +58,29 @@ console.log('\n── Qué hora vale ──');
 
 console.log('\n── Los atajos ──');
 {
-    // Un martes a las 10:00: caben los cuatro.
+    // Un martes a las 10:00: caben los cinco.
     const martes = new Date(2026, 8, 15, 10, 0);
     const a = atajos(martes);
-    ok(a.length === 4, 'por la mañana se ofrecen los cuatro');
-    ok(a[0].label === 'Hoy 18:00' && a[0].d.getDate() === 15, '"Hoy 18:00" es hoy');
-    ok(a[1].d.getDate() === 16 && a[1].d.getHours() === 9, '"Mañana 9:00" es mañana a las 9');
+    ok(a.length === 5, 'por la mañana se ofrecen los cinco');
+    ok(a[0].label === 'En 1 hora' && a[0].d.getDate() === 15 && a[0].d.getHours() === 11,
+        '"En 1 hora" va primero y es HOY — el único que sirve a cualquier hora');
+    ok(a[1].label === 'Hoy 18:00' && a[1].d.getDate() === 15, '"Hoy 18:00" es hoy');
+    ok(a[2].d.getDate() === 16 && a[2].d.getHours() === 9, '"Mañana 9:00" es mañana a las 9');
     const lunes = a[a.length - 1];
     ok(lunes.d.getDay() === 1 && lunes.d.getDate() === 21, 'el lunes es el 21, no el de dentro de un rato');
 
-    // A las 20:00 ya no tiene sentido ofrecer "Hoy 18:00".
+    // "En 1 hora" cae en un múltiplo de 5 minutos (el campo va a pasos de 5).
+    const raro = atajos(new Date(2026, 8, 15, 7, 13));
+    ok(raro[0].d.getHours() === 8 && raro[0].d.getMinutes() === 15,
+        'a las 7:13, "En 1 hora" son las 8:15 y no las 8:13');
+    ok(raro[0].d.getSeconds() === 0, 'y sin segundos sueltos');
+
+    // A las 20:00 ya no tiene sentido ofrecer "Hoy 18:00", pero "En 1 hora" sigue.
     const noche = atajos(new Date(2026, 8, 15, 20, 0));
     ok(!noche.some(x => x.label === 'Hoy 18:00'), 'pasadas las 18:00 desaparece "Hoy 18:00"');
-    ok(noche.length === 3, 'quedan tres');
+    ok(noche[0].label === 'En 1 hora' && noche[0].d.getDate() === 15,
+        'pero a las 20:00 todavía se puede programar para HOY a las 21:00');
+    ok(noche.length === 4, 'quedan cuatro');
 
     // Un LUNES, "Lunes 9:00" tiene que ser el de la semana que viene.
     const l = atajos(new Date(2026, 8, 21, 16, 0));

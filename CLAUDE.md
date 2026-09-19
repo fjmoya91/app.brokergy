@@ -2399,7 +2399,7 @@ decir qué cambió sin recalcular ni rasterizar nada.
 ## PROGRAMAR el envío de una propuesta (2026-09-19)
 
 Botón de **reloj pegado a ENVIAR** en el popup de la propuesta: se elige día y hora
-—o uno de los cuatro atajos— y sale sola, con el ordenador apagado.
+—o uno de los cinco atajos— y sale sola, con el ordenador apagado.
 
 | Qué | Dónde |
 |---|---|
@@ -2453,6 +2453,16 @@ retirado algo que ya viajó es peor que no poder retirarlo.
 **REGLA — la hora se compone en LOCAL** (`new Date('2026-09-21T09:00')`), nunca
 partiendo un ISO: a las 00:30 en España el ISO ya dice el día anterior. El servidor
 solo compara el instante contra `now()`, así que su huso (UTC) no interviene.
+
+**REGLA — el calendario deja elegir HOY.** Su `min` es hoy, no el valor por
+defecto: quien quiere mandarla dentro de una hora la manda HOY, y cerrar el día de
+hoy deja fuera medio día de envíos legítimos. Que la hora sea posterior a *ahora* lo
+decide `esValido`, que es quien sabe la hora — el calendario solo sabe de días. Y
+cuando la hora elegida ya ha pasado se **dice por qué** («Esa hora ya ha pasado»),
+porque el botón se apaga solo y un botón apagado sin explicación se lee como una
+avería. Por lo mismo, **«En 1 hora» va el primero de los atajos**: es el único que
+sirve para HOY a cualquier hora —los demás son horas fijas y a media tarde ya han
+pasado todas— y se redondea al múltiplo de 5 minutos, que es el paso del campo.
 
 El panel se **portalea a `document.body`** (regla 29.b) —el popup tiene
 `overflow-hidden` y lo recortaría justo por el pie— y en móvil es hoja inferior. Un

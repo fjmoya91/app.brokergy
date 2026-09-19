@@ -40,16 +40,29 @@ export const MARGEN_MS = 60 * 1000;
 export const esValido = (d, ahora = Date.now()) =>
     !!d && d.getTime() > ahora + MARGEN_MS;
 
+/** Redondea hacia ARRIBA al múltiplo de 5 minutos: el campo de hora va a pasos
+ *  de 5 min, y un 08:13 se lee como un número tecleado por error. */
+const aCinco = (d) => {
+    const r = new Date(d);
+    r.setSeconds(0, 0);
+    const m = r.getMinutes();
+    if (m % 5) r.setMinutes(m + (5 - m % 5));
+    return r;
+};
+
 /**
  * Los atajos del panel. La hora a la que se manda una propuesta casi siempre es
- * una de tres, y teclear día y hora para eso son seis pulsaciones y una
+ * una de cuatro, y teclear día y hora para eso son seis pulsaciones y una
  * oportunidad de equivocarse de mes.
+ *
+ * "En 1 hora" va PRIMERO porque es el único que sirve para HOY a cualquier hora:
+ * los demás son horas fijas y a media tarde ya han pasado todas.
  *
  * "Hoy 18:00" solo aparece si todavía queda margen: un atajo que al pulsarlo
  * dice que esa hora ya pasó es peor que no ofrecerlo.
  */
 export function atajos(ahora = new Date()) {
-    const out = [];
+    const out = [{ label: 'En 1 hora', d: aCinco(new Date(ahora.getTime() + 3600000)) }];
 
     const hoyTarde = new Date(ahora); hoyTarde.setHours(18, 0, 0, 0);
     if (hoyTarde.getTime() > ahora.getTime() + 5 * 60000) out.push({ label: 'Hoy 18:00', d: hoyTarde });
