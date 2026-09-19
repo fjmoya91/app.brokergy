@@ -18,9 +18,11 @@
 // ============================================================================
 
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { LogoEmpresa } from '../../../components/LogoEmpresa';
 import { getCCAA, getCifoYear, fichaColor, FICHAS } from './expedienteTaxonomia';
 import { SUBESTADO_LABELS, daysSince, fmtDate } from './seguimientoTime';
+import { dentroDelRango, delEs } from './rangoFecha';
 
 const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
@@ -72,6 +74,130 @@ const Opt = ({ value, children }) => (
 );
 
 const Vacio = () => <span className="text-white/20 text-xs">—</span>;
+
+// ─── Filtro por RANGO DE FECHAS ──────────────────────────────────────────────
+// La comparación vive en `rangoFecha.js` (sin JSX) para poder probarla: el
+// desfase de zona horaria no se ve en pantalla, solo en los bordes del rango.
+
+// El popover se PORTALEA a `body` y va `fixed`: la tabla tiene scroll horizontal
+// y recorta, así que un desplegable `absolute` dentro de su `<td>` se cortaría
+// justo en las columnas de la derecha — que es donde viven las fechas (misma
+// razón que la etiqueta de arrastre de la cabecera).
+const RangoFecha = ({ desde, hasta, onChange, titulo }) => {
+    const [abierto, setAbierto] = React.useState(false);
+    const [pos, setPos] = React.useState(null);
+    const btnRef = React.useRef(null);
+    const activo = !!(desde || hasta);
+
+    const abrir = () => {
+        const r = btnRef.current?.getBoundingClientRect();
+        if (r) setPos({ top: r.bottom + 6, left: Math.min(r.left, window.innerWidth - 268) });
+        setAbierto(v => !v);
+    };
+
+    // Cerrar al pulsar fuera o con ESC: es un popover sobre una tabla larga y
+    // dejarlo abierto tapa las filas que se acaban de filtrar.
+    React.useEffect(() => {
+        if (!abierto) return undefined;
+        const fuera = (e) => { if (!e.target.closest?.('[data-rango-fecha]')) setAbierto(false); };
+        const esc = (e) => { if (e.key === 'Escape') setAbierto(false); };
+        document.addEventListener('mousedown', fuera);
+        document.addEventListener('keydown', esc);
+        return () => { document.removeEventListener('mousedown', fuera); document.removeEventListener('keydown', esc); };
+    }, [abierto]);
+
+    // Qué dice el botón: con el rango puesto, el rango; sin él, "todas". Un icono
+    // solo no distingue "sin filtrar" de "filtrado por algo que no se ve".
+    const texto = !activo ? 'TODAS LAS FECHAS'
+        : desde && hasta ? `${delEs(desde)} – ${delEs(hasta)}`
+            : desde ? `DESDE ${delEs(desde)}` : `HASTA ${delEs(hasta)}`;
+
+    return (
+        <div data-rango-fecha className="w-full">
+            <button
+                ref={btnRef}
+                type="button"
+                onClick={abrir}
+                title={titulo}
+                className={`w-full text-left text-[10px] font-black uppercase tracking-wider transition-colors truncate ${
+                    activo ? 'text-brand' : 'text-white/40 hover:text-brand'
+                }`}
+            >
+                {texto}
+            </button>
+
+            {abierto && pos && createPortal(
+                <div
+                    data-rango-fecha
+                    style={{ top: pos.top, left: pos.left }}
+                    className="fixed z-[200] w-[252px] p-3 rounded-xl bg-bkg-deep border border-white/10 shadow-2xl space-y-2"
+                >
+                    <label className="block text-[9px] font-black uppercase tracking-wider text-white/40">Desde</label>
+                    <input
+                        type="date"
+                        value={desde || ''}
+                        max={hasta || undefined}
+                        onChange={e => onChange({ desde: e.target.value, hasta })}
+                        className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-brand no-uppercase"
+                    />
+                    <label className="block text-[9px] font-black uppercase tracking-wider text-white/40">Hasta</label>
+                    <input
+                        type="date"
+                        value={hasta || ''}
+                        min={desde || undefined}
+                        onChange={e => onChange({ desde, hasta: e.target.value })}
+                        className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-brand no-uppercase"
+                    />
+                    {activo && (
+                        <button
+                            type="button"
+                            onClick={() => { onChange({ desde: '', hasta: '' }); setAbierto(false); }}
+                            className="w-full mt-1 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-[10px] font-black uppercase tracking-wider text-white/60 hover:text-white hover:bg-white/[0.08] transition-colors"
+                        >
+                            Quitar el filtro
+                        </button>
+                    )}
+                </div>,
+                document.body
+            )}
+        </div>
+    );
+};
+
+/**
+ * Las cuatro piezas del filtro de una columna de FECHA, para no escribirlas en
+ * cada una: el control, el descarte de filas, la chapa de "filtro activo" y el
+ * limpiado al apagar la columna.
+ *
+ * @param {string} clave  prefijo del estado en `ctx.filtros` ('creado' → creadoDesde/creadoHasta)
+ * @param {string} label  cómo se llama en la chapa de filtros activos
+ * @param {(exp) => string} leer  de dónde sale la fecha de esa fila
+ */
+export const filtroDeFecha = (clave, label, leer) => ({
+    filtro: (ctx) => (
+        <RangoFecha
+            desde={ctx.filtros[`${clave}Desde`]}
+            hasta={ctx.filtros[`${clave}Hasta`]}
+            titulo={`Filtrar por ${label.toLowerCase()}`}
+            onChange={({ desde, hasta }) => {
+                ctx.setFiltro(`${clave}Desde`, desde);
+                ctx.setFiltro(`${clave}Hasta`, hasta);
+            }}
+        />
+    ),
+    match: (exp, ctx) => dentroDelRango(leer(exp), ctx.filtros[`${clave}Desde`], ctx.filtros[`${clave}Hasta`]),
+    filtroActivo: (ctx) => {
+        const desde = ctx.filtros[`${clave}Desde`];
+        const hasta = ctx.filtros[`${clave}Hasta`];
+        if (!desde && !hasta) return false;
+        return {
+            label,
+            value: desde && hasta ? `${delEs(desde)} – ${delEs(hasta)}`
+                : desde ? `desde ${delEs(desde)}` : `hasta ${delEs(hasta)}`,
+        };
+    },
+    limpiar: (ctx) => { ctx.setFiltro(`${clave}Desde`, ''); ctx.setFiltro(`${clave}Hasta`, ''); },
+});
 
 const fmtEur = (v) => v == null ? null : v.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 const fmtMwh = (kwh) => kwh == null ? null : `${(kwh / 1000).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} MWh`;
@@ -650,6 +776,10 @@ export const COLUMNAS = [
         render: (exp) => fmtDate(exp.created_at)
             ? <span className="text-white/40 text-[11px]">{fmtDate(exp.created_at)}</span>
             : <Vacio />,
+        // Rango desde/hasta, como la columna Fecha de Oportunidades. El ORDEN (más
+        // reciente primero) no se declara aquí: lo da la cabecera para cualquier
+        // columna con `valor`, y el suyo es el ISO de `created_at`.
+        ...filtroDeFecha('creado', 'Creado', (exp) => exp.created_at),
     },
 ];
 

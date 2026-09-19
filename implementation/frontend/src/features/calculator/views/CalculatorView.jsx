@@ -203,6 +203,7 @@ const getEstadoColor = (estado) => {
     switch ((estado || 'PTE ENVIAR').toUpperCase()) {
         case 'EN CURSO': return 'bg-orange-500/10 text-orange-400 border-orange-500/30';
         case 'ENVIADA': return 'bg-blue-500/10 text-blue-400 border-blue-500/30';
+        case 'PRE-ACEPTADO': return 'bg-teal-500/10 text-teal-400 border-teal-500/30';
         case 'ACEPTADA': return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
         case 'RECHAZADA': return 'bg-red-500/10 text-red-400 border-red-500/30';
         default: return 'bg-white/[0.06] text-white/40 border-white/10'; // PTE ENVIAR
@@ -1210,7 +1211,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                         showEficiencia={showEficiencia}
                         setShowEficiencia={setShowEficiencia}
                         onOpenRes060FCDetail={() => setShowRes060FCDetail(true)}
-                        onAcceptOpportunity={['ENVIADA', 'PTE ENVIAR'].includes(inputs.estado?.toUpperCase()) && !associatedExpediente ? () => {
+                        onAcceptOpportunity={['ENVIADA', 'PTE ENVIAR', 'PRE-ACEPTADO'].includes(inputs.estado?.toUpperCase()) && !associatedExpediente ? () => {
                             setManualExpNumber('');
                             setIsManualMode(false);
                             setAcceptError(null);

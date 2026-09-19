@@ -59,12 +59,16 @@ function nombreCarpeta(folderId) {
 // Mientras no se envía la propuesta la carpeta se queda en "01. OPORTUNIDADES"
 // (antes 'EN CURSO' la mandaba a "04. EN CURSO", que ahora es de expedientes).
 const CARPETA_OPORTUNIDAD = {
-    'PTE ENVIAR': FOLDERS.OPORTUNIDADES,
-    'EN CURSO':   FOLDERS.OPORTUNIDADES,
-    'LEAD':       FOLDERS.OPORTUNIDADES,   // lead de la landing, aún sin trabajar
-    'ENVIADA':    FOLDERS.SIMULACION_ENVIADA,
-    'ACEPTADA':   FOLDERS.ACEPTADO,
-    'RECHAZADA':  FOLDERS.RECHAZADOS,
+    'PTE ENVIAR':    FOLDERS.OPORTUNIDADES,
+    'EN CURSO':      FOLDERS.OPORTUNIDADES,
+    'LEAD':          FOLDERS.OPORTUNIDADES,   // lead de la landing, aún sin trabajar
+    'ENVIADA':       FOLDERS.SIMULACION_ENVIADA,
+    // Aceptación de palabra, pendiente de que rellenen la aceptación formal: aún
+    // no hay nada firmado ni expediente, así que se queda con las ENVIADA — no
+    // tiene carpeta propia en Drive.
+    'PRE-ACEPTADO':  FOLDERS.SIMULACION_ENVIADA,
+    'ACEPTADA':      FOLDERS.ACEPTADO,
+    'RECHAZADA':     FOLDERS.RECHAZADOS,
 };
 
 function carpetaObjetivoOportunidad(estado) {

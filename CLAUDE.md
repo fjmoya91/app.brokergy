@@ -8240,6 +8240,22 @@ panel de filtros del MÓVIL enseña los mismos selectores sin que haya tabla
 detrás; que no quede ninguno activo sobre una columna oculta lo garantiza la
 regla de arriba.
 
+**REGLA — una columna de FECHA filtra por RANGO, y la fecha se lee en LOCAL.**
+`Creado` lleva su desde/hasta como la columna Fecha de Oportunidades
+(`filtroDeFecha` en el registro; el ORDEN «más reciente primero» no se declara —
+lo da la cabecera para cualquier columna con `valor`). ⚠️ La comparación **nunca**
+es `iso.slice(0,10)`: `created_at` viene en UTC, así que un expediente dado de
+alta a las 00:30 en España son las 22:30 UTC del día ANTERIOR y se filtraría en
+el día que no es — y solo se nota en los extremos del rango, que es justo donde
+se mira. Vive en [rangoFecha.js](implementation/frontend/src/features/expedientes/logic/rangoFecha.js),
+**fuera del `.jsx`** para poder probarlo desde Node. Los dos extremos son
+INCLUSIVOS (quien escribe «hasta el 18» espera ver lo del 18) y una fila **sin
+fecha no entra en un rango**: no se sabe si cae dentro, y colarla haría creer que
+sí. El popover va PORTALEADO a `body` (regla 29.b): la tabla tiene scroll
+horizontal y recortaría un `absolute` justo en las columnas de la derecha, que es
+donde viven las fechas. Tras tocarlo:
+`node implementation/backend/scripts/test_rango_fecha.mjs`.
+
 **REGLA — la CABECERA ordena, y sin ordenación elegida manda la PRIORIDAD.** La
 lista es una cola de trabajo antes que una hoja de cálculo, así que el tercer
 clic vuelve al orden de siempre. Lo vacío va SIEMPRE al final, se ordene como se
@@ -9264,7 +9280,7 @@ barrido los vuelve a listar cuando se quiera comprobar.
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
-2. **Estados de oportunidad**: Los estados válidos son `PTE ENVIAR`, `EN CURSO`, `ENVIADA`, `ACEPTADA`. Cada cambio de estado mueve la carpeta de Drive automáticamente (mapa en `services/driveFolders.js`, ver "Carpetas de Drive por estado").
+2. **Estados de oportunidad**: `LEAD`, `PTE ENVIAR`, `EN CURSO`, `ENVIADA`, `PRE-ACEPTADO`, `ACEPTADA`, `RECHAZADA` (esta lista estaba desactualizada — le faltaban `LEAD` y `RECHAZADA`, que ya estaban en uso). Cada cambio de estado mueve la carpeta de Drive automáticamente (mapa en `services/driveFolders.js`, ver "Carpetas de Drive por estado"). **`PRE-ACEPTADO`** (2026-09-18) es la aceptación de PALABRA: el cliente ha dicho que sí pero aún no ha rellenado la aceptación formal (firma). Es solo para hacer seguimiento — no crea expediente, no exige `cliente_id`, y su carpeta de Drive es la misma que `ENVIADA` (`02. SIMULACION ENVIADA`: no tiene carpeta propia). Entra en `ESTADOS_CAPTACION` (`routes/oportunidades.js`) y en `FASES_CAPTACION` (`dashboardAgg.js`): sigue contando como captación viva hasta que se acepta de verdad. El único disparador real de `ACEPTADA` + creación de expediente sigue siendo el mismo de siempre (`PATCH /:id/estado` con `nuevo_estado === 'ACEPTADA'`, y el trigger SQL `trg_sync_oportunidad_aceptada` que fuerza `ACEPTADA` en cuanto nace un `expediente` — por eso ningún camino de `PRE-ACEPTADO` puede crear un expediente sin pasar antes por ese `PATCH`).
 3. **IDs de oportunidad**: Formato `{YY}RES_OP{N}`. No renombrar IDs antiguos para mantener trazabilidad.
 3.b **Fichas**: hay CINCO tipologías — `RES060`, `RES080`, `RES093`, `TER100` y `TER173`. La lista NO se escribe a mano en cada sitio: backend en [utils/fichas.js](implementation/backend/utils/fichas.js) (`FICHAS`, `correlativoInicial`, `detectPrograma`, `esTerciario`, `esHibridacion`), frontend en `expedienteTaxonomia.js` (`FICHAS`, `getFicha`, `fichaColor`). El correlativo inicial NO es 1 en todas (RES080 → 36, TER100 → 3). El SECTOR no se deduce de los inputs: las fichas TER las declara una persona, y se comprueban ANTES que `isHybrid` (TER173 es una hibridación y si no se la llevaría RES093). Ver "Ficha TER100" y "Ficha TER173".
 4. **Validación de Documentos**: Usar siempre el helper `isPresent(val)` en `validateExpediente` para comprobar que los datos no son nulos, vacíos ni placeholders (`_______`).
@@ -9314,6 +9330,21 @@ barrido los vuelve a listar cuando se quiera comprobar.
     sella solo `mergeDocumentacion` al cambiar el enlace, que es lo que además levanta el bloqueo del
     rechazo.
     ⚠️ `cert_cifo_*` es el mismo slot para dos documentos distintos: el **CIFO** lo firma el INSTALADOR (enlace bloqueable) y el **Certificado RES080** lo firma Brokergy y solo se ENTREGA al cliente. `DOC_REGENERABLE` lo distingue por `isReforma`.
+    **REGLA — `docs_validados` y `docs_rechazados` NO los puede tocar el PUT general.** Los
+    escriben solo sus rutas dedicadas (`/documentos/validar`, `/documentos/rechazar`,
+    `firmar-subir`), que además copian el fichero a "10. EXPEDIENTE CAE"; la copia de
+    `documentacion` que el detalle reenvía en CADA autoguardado se hidrató al abrir la vista y
+    no los trae al día, así que los BORRABA. Se ve como *"lo valido, me salgo y me lo vuelve a
+    pedir"* — y es el mismo fallo que ya costó `incidencias`, `_drive_at` y `refirma_at`, con
+    ocho sitios del módulo reenviando `documentacion` entera. Medido en **26RES060_101**
+    (18/09/2026): sobrevivieron el CIFO (13:59) y las facturas (14:00), y el Anexo I no, porque
+    después de él sí hubo un autoguardado. Van a `CLAVES_PROTEGIDAS` de
+    [mergeDocumentacion.js](implementation/backend/utils/mergeDocumentacion.js).
+    ⚠️ Como consecuencia, **borrar un firmado tiene que invalidar su visto bueno
+    explícitamente**: antes se limpiaba de rebote porque el navegador mandaba su copia sin esa
+    clave — o sea, por el mismo accidente que se acaba de cerrar. Un slot verde que apunta a un
+    fichero que ya no existe dice que alguien revisó algo que no está. Tras tocarlo:
+    `node implementation/backend/scripts/test_validacion_no_se_pisa.mjs`.
 25. **La PROPUESTA se versiona al ENVIARLA, nunca al guardarla**: cada envío archiva su PDF en `0. PROPUESTAS` como `Propuesta_{expte}_v{N}.pdf`, imprime la marca DENTRO del documento y sella qué versión aceptó el cliente. Fuente única: [propuestaVersiones.js](implementation/backend/services/propuestaVersiones.js) — no volver a generar el PDF de la propuesta por separado en cada canal (el del email y el de WhatsApp acababan siendo documentos distintos), ni guardar el HTML de una versión en el JSONB (353 KB de media, regla 21). Ver "Versiones de la PROPUESTA".
 25.b **Las TIPOGRAFÍAS de un documento se AUTO-ALOJAN, nunca se piden a Google Fonts.** El PDF lo rasteriza Puppeteer en el servidor abriendo y cerrando un Chrome en CADA documento —sin caché entre uno y otro—, así que un `<link>` a `fonts.googleapis.com` significa volver a descargar la fuente en cada propuesta y depender de que llegue a tiempo. Y cuando no llega, el resultado no es "parecido": el contenedor solo tiene `fonts-liberation`, ninguna de las familias del respaldo (Arial, Roboto, Noto Sans, Segoe UI) existe, y `fc-match sans-serif` devolvía **Liberation MONO** — la propuesta 26RES060_OP193 salió ENTERA en Courier y así la recibió el cliente (15/09/2026). **Reproducido** quitando el `<link>`: idéntico al PDF que llegó. El CIFO ya lo hacía bien; ahora la propuesta usa **la misma función** (`buildFontFaces(appUrl, familias)` en [cifoDoc.js](implementation/frontend/src/features/expedientes/logic/cifoDoc.js)) y los mismos nombres de fichero en `frontend/public/fonts` — el contenedor las pide a su propio nginx (93 ms medidos). Y como red de seguridad, [fontconfig-local.conf](implementation/backend/fontconfig-local.conf) mapea `sans-serif` → Liberation **Sans** y las familias de respaldo que no existen: un fallo de fuente podrá cambiar la letra, pero **no volverá a dar Courier**. Para comprobar dónde cae hoy: `docker exec brokergy-backend fc-match sans-serif`.
     ⚠️ **Las fuentes se sirven con `Access-Control-Allow-Origin`**, o no cargan: Puppeteer rasteriza con `page.setContent`, o sea desde un documento `about:blank`, así que toda `@font-face` es CROSS-ORIGIN y Chrome la bloquea sin esa cabecera (`net::ERR_FAILED`). En producción colaba porque el Chrome de `@sparticuz/chromium` arranca con la seguridad web desactivada — una casualidad, no un mecanismo. El `location ^~ /fonts/` está aplicado **a mano en el VPS** (`nginx.conf` + `nginx.https.conf` + `docker compose restart nginx`, nunca por el repo: regla del nginx divergido).

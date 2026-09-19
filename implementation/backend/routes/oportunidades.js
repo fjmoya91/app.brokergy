@@ -483,7 +483,7 @@ router.get('/', requireAuth, async (req, res) => {
 // a los estados previos a la aceptación. Es un proyector de datos: NO calcula
 // economía — devuelve el snapshot tal cual y el frontend lo interpreta con la
 // misma lógica que el resto del panel.
-const ESTADOS_CAPTACION = ['LEAD', 'PTE ENVIAR', 'EN CURSO', 'ENVIADA'];
+const ESTADOS_CAPTACION = ['LEAD', 'PTE ENVIAR', 'EN CURSO', 'ENVIADA', 'PRE-ACEPTADO'];
 
 router.get('/captacion', staffOnly, async (req, res) => {
     try {

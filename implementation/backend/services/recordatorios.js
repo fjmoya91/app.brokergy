@@ -212,7 +212,7 @@ function encargoCeeClienteMsg({ destinatario, numExp, fase, obraHecha = false })
         ? ''
         : `\n\n⚠️ *Importante:* no empieces la obra hasta que ese certificado esté registrado. Las facturas de la instalación tienen que ser posteriores a esa fecha; si son anteriores, la ayuda no se puede tramitar.`;
 
-    return `${hola}\n\nYa hemos puesto en marcha tu expediente ${exp}.\n\nHemos asignado al *técnico certificador* y le hemos enviado tu documentación junto con las instrucciones para que emita el *certificado de eficiencia energética inicial* de tu vivienda. Es el primer paso del trámite y se hace sobre la situación de partida, antes de la reforma.\n\nEl técnico se pondrá en contacto contigo para concertar la visita.${aviso}\n\nEn cuanto quede registrado te avisamos por aquí. Por tu parte no tienes que hacer nada más de momento.\n\n¡Gracias!\n${FIRMA}`;
+    return `${hola}\n\nYa hemos puesto en marcha tu expediente ${exp}.\n\nHemos asignado al *técnico certificador* y le hemos enviado tu documentación junto con las instrucciones para que emita el *certificado de eficiencia energética inicial* de tu vivienda. Es el primer paso del trámite y se hace sobre la situación de partida, antes de la reforma.\n\nSi necesitamos algo más de tu parte, nos pondremos en contacto contigo.${aviso}\n\nEn cuanto quede registrado te avisamos por aquí. Por tu parte no tienes que hacer nada más de momento.\n\n¡Gracias!\n${FIRMA}`;
 }
 
 // ─── Mensajes de LOTE: un destinatario, varios expedientes ────────────────────

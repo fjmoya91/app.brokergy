@@ -138,7 +138,7 @@ export function MiExpedienteView({ uuid, token }) {
                                 <div className="mt-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 flex items-start gap-2 text-left">
                                     <span className="text-emerald-400 mt-0.5">＋</span>
                                     <div className="text-emerald-300 text-xs leading-relaxed">
-                                        <strong className="font-semibold">Y además, deducción en tu IRPF.</strong> Podrás deducirte hasta {eur(money.deduccionIrpf)} por la reforma (60 % de la obra) en tu declaración.
+                                        <strong className="font-semibold">Y además, deducción en tu IRPF.</strong> Si eres propietario de la vivienda y tienes retenciones, podrás deducirte hasta {eur(money.deduccionIrpf)} por la reforma (60 % de la obra) en tu declaración.
                                     </div>
                                 </div>
                             ) : null}

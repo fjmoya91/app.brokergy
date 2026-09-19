@@ -350,6 +350,7 @@ export const generateBrokergyReport = async (data) => {
 
             const irpfReqs = [
                 '• Ser contribuyente del IRPF (declaración de la renta en España).',
+                '• Ser propietario de la vivienda y contar con retenciones aplicables.',
                 '• Disponer de Certificado Energético ANTES y DESPUÉS de la actuación.',
                 '• Importante: NO realizar pagos en efectivo (solo transferencias/tarjeta).',
                 `• Deducción del ${financials.irpfRate} % (hasta máximo anual de ${formatCurrency(financials.irpfCap)

@@ -106,7 +106,10 @@ export const FASES_CAPTACION = [
     { id: 'LEAD',       label: 'Lead',              desc: 'Entró por la landing, sin trabajar todavía', color: 'slate',  estados: ['LEAD'] },
     { id: 'PTE_ENVIAR', label: 'Propuesta por enviar', desc: 'Calculada pero aún no enviada al cliente', color: 'amber', estados: ['PTE ENVIAR'] },
     { id: 'EN_CURSO',   label: 'En elaboración',    desc: 'Trabajándose la propuesta',                   color: 'blue',   estados: ['EN CURSO'] },
-    { id: 'ENVIADA',    label: 'Enviada',           desc: 'En manos del cliente, esperando respuesta',   color: 'violet', estados: ['ENVIADA'] }
+    { id: 'ENVIADA',    label: 'Enviada',           desc: 'En manos del cliente, esperando respuesta',   color: 'violet', estados: ['ENVIADA'] },
+    // Ha dicho que sí de palabra pero todavía no ha rellenado la aceptación
+    // formal (firma): sigue sin expediente, así que sigue siendo captación.
+    { id: 'PRE_ACEPTADO', label: 'Pre-aceptado', desc: 'Aceptación verbal, pendiente de formalizar', color: 'teal', estados: ['PRE-ACEPTADO'] }
 ];
 
 const FASE_POR_ESTADO_OP = FASES_CAPTACION.reduce((acc, f) => {

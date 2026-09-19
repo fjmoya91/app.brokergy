@@ -29,6 +29,16 @@ const CLAVES_PROTEGIDAS = [
     'anexo_orden',
     'ce3x_capturas',
     'incidencias',
+    // El VISTO BUENO de un documento (y su rechazo) lo escriben SOLO sus rutas
+    // dedicadas —/documentos/validar, /documentos/rechazar y firmar-subir—, que
+    // además copian el fichero a "10. EXPEDIENTE CAE". La copia hidratada del
+    // navegador se quedó sin él, así que el siguiente autoguardado de CUALQUIER
+    // módulo lo borraba: el slot volvía a ámbar y había que validar otra vez.
+    // Medido en 26RES060_101 (18/09/2026): el CIFO (13:59) y las facturas (14:00)
+    // sobrevivieron, el Anexo I no — porque después de él sí hubo un autoguardado.
+    // Mismo fallo que ya costó `incidencias`, `_drive_at` y `refirma_at`.
+    'docs_validados',
+    'docs_rechazados',
 ];
 
 const { DOCUMENTO_VALIDABLE_LABELS, BORRADORES_CLIENTE, invalidarValidacionDocs } = require('./docValidacion');
@@ -100,8 +110,15 @@ function mergeDocumentacion(existingDoc, payloadDoc) {
     // guardado (fichero nuevo) pero el payload sigue trayendo su validación previa,
     // el slot volvería a verde con un PDF que nadie ha revisado. Se invalida aquí,
     // pase por donde pase la escritura (app, MCP, skills).
+    //
+    // Y lo mismo si el enlace DESAPARECE (se borra el documento firmado): su visto
+    // bueno ya no ampara nada. Ahora hace falta decirlo aquí, porque `docs_validados`
+    // está protegido y viene de la BD — antes se limpiaba de rebote si el navegador
+    // mandaba una copia sin esa clave, que es justo el accidente que se acaba de
+    // cerrar. Un slot en verde que apunta a un fichero que ya no existe es peor que
+    // uno en ámbar: dice que alguien revisó algo que no está.
     const cambiados = Object.keys(DOCUMENTO_VALIDABLE_LABELS)
-        .filter(campo => merged[campo] && existing[campo] && merged[campo] !== existing[campo]);
+        .filter(campo => existing[campo] && merged[campo] !== existing[campo]);
     return cambiados.length
         ? invalidarValidacionDocs(merged, cambiados, { origen: 'versión nueva del documento' })
         : merged;

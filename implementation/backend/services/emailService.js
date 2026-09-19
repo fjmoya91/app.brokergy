@@ -505,9 +505,15 @@ const sendProposalEmail = async ({ to, cc = null, userName, pdfBuffer, tableImag
         )
     );
 
-    const irpfNote = !isB2B
-        ? emailP('💡 Recordatorio: Para las deducciones del IRPF debes contar con retenciones aplicables. Nosotros dejaremos toda la parte técnica preparada para tu solicitud.', { size: 13, color: BRAND.muted, mb: 22 })
-        : '';
+    // El recordatorio se dice SIEMPRE que se menciona una deducción —y las tres
+    // ramas de arriba lo hacen—, tanto en B2B como en B2C: antes solo salía para
+    // el cliente directo (!isB2B) y el partner se quedaba sin matizar nada.
+    const irpfNote = emailP(
+        isB2B
+            ? '💡 Recordatorio: para las deducciones del IRPF el cliente debe ser propietario de la vivienda y contar con retenciones aplicables. Nosotros dejaremos toda la parte técnica preparada para su solicitud.'
+            : '💡 Recordatorio: para las deducciones del IRPF debes ser propietario de la vivienda y contar con retenciones aplicables. Nosotros dejaremos toda la parte técnica preparada para tu solicitud.',
+        { size: 13, color: BRAND.muted, mb: 22 }
+    );
 
     const pasosHtml = emailHeading('Pasos a seguir:') +
         (isB2B
@@ -563,7 +569,7 @@ const sendProposalEmail = async ({ to, cc = null, userName, pdfBuffer, tableImag
         ? String(customMessage).replace(/\*([^*\n]+)\*/g, '$1').replace(/_([^_\n]+)_/g, '$1')
         : isB2B
         ? `¡Hola, ${userName}!\n\nAdjuntamos la propuesta para vuestro cliente ${summaryData.clienteName || ''} (Exp. ${summaryData.id}).\n\nEnlace de firma para el cliente: ${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${summaryData.urlId || summaryData.id}\n\nBROKERGY · Ingeniería Energética`
-        : `¡Hola, ${userName}!\n\nYa hemos calculado las ayudas para tu instalación de aerotermia.\n\n🔹 Bono Energético CAE: ${summaryData.caeBonus}\n🔹 Deducciones IRPF: ${summaryData.irpfDeduction}\n\nResumen total ayudas: Hasta ${summaryData.totalAyuda}\n\nPasos a seguir:\n1. Aceptar presupuesto al instalador.\n2. Aceptar propuesta adjunta.\n\n📄 Ver propuesta online:\n${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/api/public/propuesta/${summaryData.urlId || summaryData.id}\n\nPuedes firmar directamente aquí: ${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${summaryData.urlId || summaryData.id}\n\nQuedo a tu disposición.\n\nBROKERGY · Ingeniería Energética`;
+        : `¡Hola, ${userName}!\n\nYa hemos calculado las ayudas para tu instalación de aerotermia.\n\n🔹 Bono Energético CAE: ${summaryData.caeBonus}\n🔹 Deducciones IRPF: ${summaryData.irpfDeduction}\n(Para las deducciones del IRPF debes ser propietario de la vivienda y contar con retenciones aplicables)\n\nResumen total ayudas: Hasta ${summaryData.totalAyuda}\n\nPasos a seguir:\n1. Aceptar presupuesto al instalador.\n2. Aceptar propuesta adjunta.\n\n📄 Ver propuesta online:\n${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/api/public/propuesta/${summaryData.urlId || summaryData.id}\n\nPuedes firmar directamente aquí: ${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/firma/${summaryData.urlId || summaryData.id}\n\nQuedo a tu disposición.\n\nBROKERGY · Ingeniería Energética`;
 
     return sendMail({ to, cc, subject, html, text, attachments, from });
 };

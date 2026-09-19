@@ -903,6 +903,10 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
     const [faseIniFilter, setFaseIniFilter] = useState('ALL');
     const [faseFinFilter, setFaseFinFilter] = useState('ALL');
     const [incidenciasFilter, setIncidenciasFilter] = useState('ALL');
+    // Rango de la columna CREADO ('' = sin acotar). En 'YYYY-MM-DD' local, que es
+    // lo que escribe un <input type="date"> y lo que devuelve `fechaLocal`.
+    const [creadoDesde, setCreadoDesde] = useState('');
+    const [creadoHasta, setCreadoHasta] = useState('');
     // 'ALL' salvo que se llegue con ?prioridad= desde el cuadro de mando.
     const [prioridadFilter, setPrioridadFilter] = useState(initialPrioridad || 'ALL');
     const [yearFilter, setYearFilter] = useState('ALL');
@@ -1306,12 +1310,14 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
             fase_inicial: faseIniFilter,
             fase_final: faseFinFilter,
             incidencias: incidenciasFilter,
+            creadoDesde, creadoHasta,
         },
         setFiltro: (key, val) => ({
             prioridad: setPrioridadFilter, ccaa: setCcaaFilter, ficha: setFichaFilter,
             certificador: setCertificadorFilter, anio: setYearFilter,
             instalador: setInstaladorFilter, lote: setLoteFilter, municipio: setMunicipioFilter,
             fase_inicial: setFaseIniFilter, fase_final: setFaseFinFilter, incidencias: setIncidenciasFilter,
+            creadoDesde: setCreadoDesde, creadoHasta: setCreadoHasta,
         }[key]?.(val)),
         onStatusChange: (id, val, e) => handleStatusChange(id, val, e),
     };

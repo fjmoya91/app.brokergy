@@ -169,7 +169,7 @@ async function buildWhatsAppMessage({
     lines.push(`✅ Bono Energético BROKERGY (CAE): *${fmtEur(cae)}*.`);
     if (Number(irpf) > 0) {
         lines.push('');
-        lines.push(`✅ Deducción estimada en tu IRPF: *${fmtEur(irpf)}*, si puedes acogerte a ella (dejamos toda la parte técnica lista para que la solicites).`);
+        lines.push(`✅ Deducción estimada en tu IRPF: *${fmtEur(irpf)}*, si eres propietario de la vivienda y tienes retenciones (dejamos toda la parte técnica lista para que la solicites).`);
     }
     lines.push('');
     lines.push(`💡 *Total de ayudas: hasta ${fmtEur(Number(cae) + Number(irpf))}.*`);
@@ -228,6 +228,13 @@ async function buildProposalPdfHtml({
              <td style="padding:12px 18px;font-size:13px;color:#475569;border-top:1px solid #e2e8f0;">Deducción estimada en el IRPF</td>
              <td style="padding:12px 18px;font-size:13px;font-weight:700;color:#059669;text-align:right;border-top:1px solid #e2e8f0;">${fmtEur(irpf)}</td>
            </tr>`
+        : '';
+    // La tabla enseña un € de IRPF a secas; el matiz de a quién le corresponde
+    // (propietario + retenciones) va aparte, igual que la nota del presupuesto.
+    const notaIrpf = Number(irpf) > 0
+        ? `<p style="margin:8px 0 0;font-size:10px;color:#94a3b8;line-height:1.5;">
+             Para la deducción del IRPF debes ser propietario de la vivienda y contar con retenciones aplicables.
+           </p>`
         : '';
     const cobrand = (partner && partner.nombre)
         ? `<div style="font-size:12px;color:#64748b;margin-top:4px;">en colaboración con <strong>${partner.nombre}</strong></div>`
@@ -299,6 +306,7 @@ async function buildProposalPdfHtml({
       </tr>
     </table>
     ${cualitativo}
+    ${notaIrpf}
     ${notaPresupuesto}
 
     <!-- Siguiente paso -->
