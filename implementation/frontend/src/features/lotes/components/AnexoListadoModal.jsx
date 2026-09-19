@@ -11,7 +11,9 @@ import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteF
 import { SIGN_BOXES, fichaSignBox } from '../../expedientes/logic/signBoxes';
 import FirmarConCertificadoModal from '../../expedientes/components/FirmarConCertificadoModal';
 import { EnviarLoteDocModal } from './EnviarLoteDocModal';
-import { deriveSoEnvio, CC_BROKERGY } from '../logic/soContactos';
+import { deriveSoEnvio, CC_BROKERGY, representanteElegido } from '../logic/soContactos';
+import { FirmantePicker } from './FirmantePicker';
+import { docParaEnvio } from '../logic/docEnvio';
 
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
@@ -43,7 +45,14 @@ export function AnexoListadoModal({ lote, onClose }) {
     // los contactos del S.O. se añaden de un clic desde las sugerencias.
     const so = lote.sujeto_obligado || {};
     const { contactoPrincipal, notifyEmail: soNotifyEmail, notifyPhone: soNotifyPhone,
-        ccSugerencias: soCc, repNombre: soRepNombre, repNif: soRepNif } = useMemo(() => deriveSoEnvio(so), [so]);
+        ccSugerencias: soCc, representantes } = useMemo(() => deriveSoEnvio(so), [so]);
+
+    // Quién firma por el S.O. este lote: su nombre y NIF se imprimen en la casilla
+    // "Representante del solicitante" de cada ficha RES.
+    const [firmanteId, setFirmanteId] = useState('principal');
+    const firmante = useMemo(() => representanteElegido(so, firmanteId), [so, firmanteId]);
+    const soRepNombre = firmante?.nombre || undefined;
+    const soRepNif = firmante?.nif || undefined;
 
     // Aviso corto por WhatsApp al interlocutor, además del email con los documentos.
     const avisoWaDefault = `Hola ${contactoPrincipal?.nombre ? String(contactoPrincipal.nombre).split(' ')[0] : ''}, os hemos enviado por email otro lote (${lote.codigo || ''}) para firmar.
@@ -90,11 +99,11 @@ Un saludo.`.replace(/ ,/g, ',');
         const rep = { representanteNombre: soRepNombre, representanteNif: soRepNif };
         // Si Brokergy ya firmó el Anexo I (columna PROVEEDOR), se envía ESE PDF firmado
         // (pdfBase64) para que el S.O. solo añada su firma; si no, se genera del HTML.
-        const docs = [{ html, pdfBase64: proveedorSigned, fileName: `${lote.codigo || 'LOTE'} - Anexo I Listado Cesion`, label: 'Anexo I', tipo: 'anexo_i_listado', expediente_id: null, anchor: ANEXO_ANCHOR, fixedBox: SIGN_BOXES.anexo_i_listado }];
+        const docs = [{ html, pdfBase64: proveedorSigned, fileName: `${lote.codigo || 'LOTE'} - Anexo I Listado Cesion`, label: 'Anexo I', tipo: 'anexo_i_listado', expediente_id: null, anchor: ANEXO_ANCHOR, fixedBox: SIGN_BOXES.anexo_i_listado, repNombre: soRepNombre, repNif: soRepNif }];
         for (const e of (lote.expedientes || [])) {
             const f = fichaDe(e.numero_expediente);
             const formulario = fichaFormulario(f, e, { ...rep, results: computeExpedienteFinancials(e) });
-            docs.push({ formulario, fileName: `${e.numero_expediente} - Ficha ${f}`, label: `Ficha ${f}`, tipo: 'ficha_res', expediente_id: e.id, anchor: FICHA_ANCHOR, fixedBox: fichaSignBox(f) });
+            docs.push({ formulario, fileName: `${e.numero_expediente} - Ficha ${f}`, label: `Ficha ${f}`, tipo: 'ficha_res', expediente_id: e.id, anchor: FICHA_ANCHOR, fixedBox: fichaSignBox(f), repNombre: soRepNombre, repNif: soRepNif });
         }
         return docs;
     };
@@ -135,7 +144,10 @@ Un saludo.`.replace(/ ,/g, ',');
                 ? { phone: avisoWaPhone.trim(), message: avisoWaMsg }
                 : null,
             summaryData: { id: lote.codigo || 'LOTE', docType: 'Anexo I · Listado Cesión + Fichas RES' },
-            docs: buildDocs().map(d => ({ html: d.html, pdfBase64: d.pdfBase64 || null, fileName: d.fileName, label: d.label, tipo: d.tipo, expediente_id: d.expediente_id || null, anchor: d.anchor || null, fixedBox: d.fixedBox || null })),
+            // El documento viaja ENTERO (`docParaEnvio`): una ficha RES es un
+            // `formulario` —el impreso oficial— y serializando campos a mano se
+            // quedaba fuera, así que la ficha no llegaba a enviarse.
+            docs: buildDocs().map(docParaEnvio),
             solicitud: solicitud ? { base64: solicitud.base64, fileName: solicitud.name, fixedBox: SIGN_BOXES.solicitud_verificacion } : null,
             frontendOrigin: window.location.origin,
         });
@@ -160,6 +172,10 @@ Un saludo.`.replace(/ ,/g, ',');
     // Slot para subir la Solicitud de Verificación descargada (se inyecta en el modal de envío).
     const solicitudSlot = (
         <div className="space-y-5">
+            {/* Quién firma por el S.O. Va aquí y no en la vista previa del Anexo I
+                porque es una decisión del ENVÍO: de ella dependen el nombre y el
+                NIF impresos en cada ficha que se manda a firmar. */}
+            <FirmantePicker representantes={representantes} value={firmanteId} onChange={setFirmanteId} />
             <div>
                 <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Solicitud de Verificación (PDF)</label>
                 {/* Si ya se subió en la fase 1 del proceso, no hay que volver a adjuntarla:

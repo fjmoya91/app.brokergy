@@ -693,6 +693,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
         // Representante legal, SOLO si es una persona distinta de la de contacto.
         representante_distinto: false,
         representante_nombre: '', representante_apellidos: '', representante_dni: '',
+        // Apoderados ADICIONALES que pueden firmar (S.O.): [{nombre,apellidos,nif,cargo}].
+        representantes: [],
         comision_activa: false, comision_tipo: 'eur', comision_valor: '',
         ccaa: '', provincia: '', provincia_cod: '', municipio: '',
         codigo_postal: '', direccion: '', es_autonomo: false, logo_empresa: '',
@@ -901,6 +903,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 representante_nombre:     p.representante_nombre || '',
                 representante_apellidos:  p.representante_apellidos || '',
                 representante_dni:        p.representante_dni || '',
+                representantes:           Array.isArray(p.representantes) ? p.representantes : [],
                 precio_referencia:    p.precio_referencia ?? '',
                 comision_activa:      !!p.comision_activa,
                 comision_tipo:        p.comision_tipo || 'eur',
@@ -1129,6 +1132,13 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                 representante_nombre:     form.representante_distinto ? (form.representante_nombre.trim() || null) : null,
                 representante_apellidos:  form.representante_distinto ? (form.representante_apellidos.trim() || null) : null,
                 representante_dni:        form.representante_distinto ? (form.representante_dni.trim().toUpperCase() || null) : null,
+                // Apoderados adicionales: solo en un SUJETO OBLIGADO, que es quien
+                // firma varios documentos del lote y puede tener más de uno.
+                representantes:           form.tipo_empresa === 'SUJETO_OBLIGADO'
+                    ? (form.representantes || [])
+                        .map(r => ({ nombre: (r.nombre || '').trim(), apellidos: (r.apellidos || '').trim(), nif: (r.nif || '').trim().toUpperCase(), cargo: (r.cargo || '').trim() }))
+                        .filter(r => r.nombre || r.apellidos || r.nif)
+                    : [],
                 precio_referencia:     (form.precio_referencia === '' || form.precio_referencia == null) ? null : Number(form.precio_referencia),
                 codigo_identificacion: form.codigo_identificacion?.trim() || null,
                 ccaa:                  form.ccaa || null,
@@ -1585,6 +1595,22 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                         {!isEntidadCae && p.email_responsable && <FV label="Email" value={p.email_responsable} lower />}
                                         {p.tiene_carnet_rite && <FV label="N.º Empresa RITE" value={p.numero_carnet_rite} mono />}
                                     </div>
+                                    {/* Otros apoderados: se ven sin desplegar nada porque son
+                                        los que se pueden elegir al mandar un lote a firmar. */}
+                                    {isEntidadCae && Array.isArray(p.representantes) && p.representantes.length > 0 && (
+                                        <div className="mt-4 pt-4 border-t border-white/5">
+                                            <p className="text-[9px] uppercase tracking-[0.2em] font-black text-white/30 mb-2">Otros apoderados que pueden firmar</p>
+                                            <div className="space-y-1.5">
+                                                {p.representantes.map((r, i) => (
+                                                    <div key={i} className="flex items-baseline gap-2 text-[12px]">
+                                                        <span className="text-white/80 font-bold">{[r.nombre, r.apellidos].filter(Boolean).join(' ')}</span>
+                                                        <span className="text-white/35 font-mono text-[11px]">{r.nif}</span>
+                                                        {r.cargo && <span className="text-white/30 text-[10px] uppercase tracking-wider">· {r.cargo}</span>}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </Section>
                             )}
 
@@ -2231,6 +2257,53 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                         <Inp value={form.nif_responsable} uppercase onChange={e => upd({ nif_responsable: e.target.value })} placeholder="00000000X" />
                                     </FI>
                                 </div>
+
+                                {/* OTROS APODERADOS. Una empresa puede tener varios con poder
+                                    para firmar, y cuál firma cada lote lo elige una persona en
+                                    el envío. El de arriba es el que sale por defecto; aquí van
+                                    los demás, nunca repetido el de arriba. */}
+                                {form.tipo_empresa === 'SUJETO_OBLIGADO' && (
+                                    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-4 py-4 space-y-3">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <p className="text-[10px] uppercase tracking-[0.2em] font-black text-white/30">Otros apoderados que pueden firmar</p>
+                                            <button type="button"
+                                                onClick={() => upd({ representantes: [...(form.representantes || []), { nombre: '', apellidos: '', nif: '', cargo: '' }] })}
+                                                className="text-[9px] font-black uppercase tracking-widest text-brand/70 hover:text-brand transition-colors">
+                                                + Añadir
+                                            </button>
+                                        </div>
+                                        {(form.representantes || []).length === 0 ? (
+                                            <p className="text-[11px] text-white/30">
+                                                Solo firma el representante de arriba. Añade aquí a los demás apoderados y, al enviar
+                                                el lote, se elige cuál de ellos firma: su nombre y NIF se imprimen en cada ficha.
+                                            </p>
+                                        ) : (form.representantes || []).map((r, i) => (
+                                            <div key={i} className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-3 border-b border-white/5 last:border-0 last:pb-0">
+                                                <FI label="Nombre">
+                                                    <Inp value={r.nombre || ''} uppercase
+                                                        onChange={e => upd({ representantes: form.representantes.map((x, j) => j === i ? { ...x, nombre: e.target.value } : x) })} />
+                                                </FI>
+                                                <FI label="Apellidos">
+                                                    <Inp value={r.apellidos || ''} uppercase
+                                                        onChange={e => upd({ representantes: form.representantes.map((x, j) => j === i ? { ...x, apellidos: e.target.value } : x) })} />
+                                                </FI>
+                                                <FI label="NIF / DNI">
+                                                    <Inp value={r.nif || ''} uppercase placeholder="00000000X"
+                                                        onChange={e => upd({ representantes: form.representantes.map((x, j) => j === i ? { ...x, nif: e.target.value } : x) })} />
+                                                </FI>
+                                                <FI label="Cargo">
+                                                    <div className="flex items-center gap-2">
+                                                        <Inp value={r.cargo || ''} uppercase placeholder="ADMINISTRADOR / DIR. OPERACIONES"
+                                                            onChange={e => upd({ representantes: form.representantes.map((x, j) => j === i ? { ...x, cargo: e.target.value } : x) })} />
+                                                        <button type="button" title="Quitar este apoderado"
+                                                            onClick={() => upd({ representantes: form.representantes.filter((_, j) => j !== i) })}
+                                                            className="shrink-0 px-2 py-2 text-white/30 hover:text-red-400 transition-colors text-xs font-black">✕</button>
+                                                    </div>
+                                                </FI>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                             )}
 

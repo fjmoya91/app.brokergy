@@ -2996,7 +2996,14 @@ router.get('/lote-firma/:loteId', async (req, res) => {
         // sale aquí. Filtro en services/loteDocs.docsParaFirma.
         const ronda = String(req.query.r || '').trim() || null;
         const { docsParaFirma } = require('../services/loteDocs');
-        const docs = docsParaFirma(lote.documentos_so, { ronda }).map(d => ({
+        const paraFirma = docsParaFirma(lote.documentos_so, { ronda });
+        // Con VARIOS apoderados, quien firma este envío es el que se selló al
+        // mandarlo (`rep_nombre`) y es el que va impreso en los documentos: decir
+        // aquí otro nombre confunde justo a quien está a punto de firmar. Solo se
+        // usa si todos los documentos de la ronda coinciden.
+        const repsEnRonda = [...new Set(paraFirma.map(d => (d.rep_nombre || '').trim()).filter(Boolean))];
+        if (repsEnRonda.length === 1) representante = repsEnRonda[0];
+        const docs = paraFirma.map(d => ({
             key: d.key, label: d.label, tipo: d.tipo, expediente_id: d.expediente_id || null,
             anchor: d.anchor || null,
             fixedBox: d.fixedBox || null,

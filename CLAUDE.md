@@ -9478,6 +9478,77 @@ barrido los vuelve a listar cuando se quiera comprobar.
 
 ---
 
+## Quién FIRMA por el SUJETO OBLIGADO, y la ficha que no viajaba (2026-09-19)
+
+Dos cosas que salieron del mismo envío: un requerimiento de LOTE-2025-006 en el
+que se marcó una ficha y **el correo salió solo con el Anexo I**.
+
+### La ficha se quedaba en el navegador
+
+Desde que las fichas RES se rellenan sobre el impreso oficial (regla 41), una
+ficha es un **`formulario`** —no un `html`—. Pero los dos modales del lote
+serializaban a mano los campos del documento antes de postearlos
+(`docs: buildDocs().map(d => ({ html: d.html, … }))`) y ese campo no estaba en la
+lista: la ficha llegaba al backend sin nada dentro, el bucle hacía `continue` y el
+email salía con un documento menos **sin decirlo**. Afectaba a las DOS superficies
+—el envío inicial al S.O. y el requerimiento— desde el 09/09/2026.
+
+**REGLA — el documento viaja ENTERO** (`docParaEnvio` en
+[logic/docEnvio.js](implementation/frontend/src/features/lotes/logic/docEnvio.js)),
+nunca campo a campo. Un campo nuevo se añade ahí y lo heredan las dos.
+
+**REGLA — un documento marcado que no se puede preparar ABORTA el envío**, con su
+nombre. `enviar-so` y `requerimiento` respondían saltándoselo en silencio; un
+correo que anuncia dos documentos y lleva uno deja al S.O. buscando el que no
+llegó, y nadie se entera hasta el siguiente requerimiento. Todo o nada, mismo
+criterio que el envío conjunto al instalador (regla 27).
+
+### Y lo firma el apoderado que se ELIGE
+
+INTERNACIONAL DE ALCOHOLES tiene DOS apoderados con poder para firmar: **PEDRO
+JOSÉ LÓPEZ MONTERO** (06239730Z), que es el que consta en su ficha, y **JESÚS
+ANTONIO ALMODÓVAR FUENTES** (06236833S), su director de operaciones. Su nombre y
+su NIF van IMPRESOS en la casilla «Representante del solicitante» de cada ficha
+RES y en la solicitud de emisión, así que cuál firma no es un detalle: es lo que
+tiene que casar con el certificado del PDF que vuelve.
+
+| Qué | Dónde |
+|---|---|
+| Lista de apoderados y quién está elegido | `representantesSo` / `representanteElegido` en [logic/soContactos.js](implementation/frontend/src/features/lotes/logic/soContactos.js) |
+| El selector (compartido por los dos envíos) | [FirmantePicker.jsx](implementation/frontend/src/features/lotes/components/FirmantePicker.jsx) |
+| Dónde se declaran | Ficha del S.O. → «Otros apoderados que pueden firmar» (`prescriptores.representantes`) |
+| Comprobación de la firma que vuelve | [firmadosSo.js](implementation/backend/services/firmadosSo.js) |
+| Prueba sin BD | `node implementation/backend/scripts/test_firmante_so.mjs` |
+
+**REGLA — el PRINCIPAL no se duplica en la lista.** Sigue en
+`nombre_responsable`/`nif_responsable` (o en `representante_*` si es otra
+persona), que es de donde lo lee el resto de la app; `representantes` guarda solo
+a LOS DEMÁS. Dos sitios contestando a «quién firma» es una contradicción esperando
+a ocurrir. Un apoderado que repita el NIF del principal no se ofrece dos veces, y
+el NIF se compara sin guiones («06239730-Z» es «06239730Z»).
+
+**REGLA — con UN solo apoderado no se pregunta.** El selector no se pinta: una
+pregunta cuya respuesta no puede cambiar se contesta sin leerla. Nada cambia en
+los S.O. que solo tienen uno.
+
+**REGLA — se SELLA a quién se le pidió la firma** (`documentos_so[].rep_nombre` /
+`rep_nif`). De ahí salen las otras dos mitades: la página `/firmar-lote/:id` dice
+el nombre del apoderado de ESA ronda —no el genérico de la ficha, que confundiría
+justo a quien está a punto de firmar— y, cuando el PDF vuelve, `firmadosSo`
+comprueba contra ÉL. Sin sello (lotes anteriores) vale cualquiera de los
+declarados: se avisa solo si no firma ninguno, y el aviso los nombra a todos.
+
+**REGLA — la SOLICITUD de emisión sale a nombre del que firmó las fichas.** Se
+toma del sello del lote, no se vuelve a preguntar: una carátula a nombre de uno
+con sus adjuntos firmados por otro es lo primero que cruza quien la revisa.
+
+⚠️ `deriveSoEnvio` pasa a resolver el representante con `representantesSo`, que sí
+mira `representante_distinto` —antes leía `nombre_responsable` a pelo mientras la
+comprobación de firmas usaba el otro—. Hoy no cambia ningún documento (el S.O. lo
+tiene desactivado), pero eran dos criterios para el mismo dato.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -9672,6 +9743,8 @@ barrido los vuelve a listar cuando se quiera comprobar.
 64. **Los PUENTES TÉRMICOS se MIRAN, ya no se listan** (y las ventanas de la vivienda se preguntan): eran una lista fija —un forjado y un pilar en esquina por cada fachada, un contorno por cada hueco— que salía igual en una vivienda de una planta que en un bloque y dejaba fuera **la mitad de los ocho que CE3X trae marcados por defecto**. Ahora los decide [tools/puentes.py](implementation/cee-engine/tools/puentes.py) mirando la geometría, con todo MEDIDO sobre **50 `.cex` de certificadores (1.733 puentes)**. **REGLA — los dos que se llaman «encuentro de fachada con…» NO cuelgan de la fachada**: el de cubierta va sobre la **CUBIERTA** y los del suelo sobre el **SUELO** (74 casos del corpus, sin una excepción; CE3X los enseña bajo el cerramiento que dicen, y ahí no se encontrarían), y su longitud es el **contorno vertical de esa planta con las medianeras dentro** —la cubierta se apoya igual sobre la del vecino— contra el que la mediana del corpus da 1,00 frente a 1,19 del perímetro al aire. **REGLA — el forjado va SIEMPRE, también con una sola planta** (46 de 50 ficheros, y CE3X lo trae marcado): ahí es el de la cubierta apoyando en la fachada, así que **no cambia ni un número de lo que ya se generaba**. **REGLA — un pilar en esquina es un HECHO GEOMÉTRICO, no una fachada**: sale de los puntos donde dos fachadas **al aire** concurren haciendo ángulo (>15° de los 180°, que los retranqueos de Catastro no son pilares); contra una medianera no hay —lo es por tener DOS caras fuera—, cada planta tiene las suyas, y van **sumadas en UNA fila por fachada** porque una fachada puede ser dueña de sus dos esquinas y salían **dos puentes con el mismo nombre**, que en el árbol de CE3X son dos entradas indistinguibles (lo destapó escribir un `.cex` de verdad y releerlo, no lo veía ningún test). Sin trazado se cae a uno por paño **y se dice**. **REGLA — los pilares integrados se PROPONEN** (uno cada 3,5 m, mínimo 2 — la separación mediana de los 32 ficheros que los llevan) y los **cuenta una persona** en el panel de la pared; a 0 no se escribe el puente, y su longitud es siempre un nº entero de pilares × la altura. ⚠️ Esa estimación está en DOS sitios (`pilares_de` en Python y `pilaresEstimados` en JS, con el redondeo BANCARIO replicado): si se separan, el panel dice 3 y el certificado lleva 4 — lo vigila `test_puentes.py`, que **lee el fichero JS**. Y de paso: **`huecos_defecto` existía en el motor y no se lo mandaba nadie**, así que todos los huecos salían «Doble + Metálico sin RPT» y ninguno con persiana (que llevan 34 de los 50 del corpus). Se pregunta al abrir un expediente sin modelar —vidrio, marco y persiana, **nada más**—, **viene contestado con lo que dicen las fotos ya leídas** (el lector de huecos lo sacaba desde hace meses y se tiraba: su popup decía «no se escribe en el .cex»), **no bloquea**, y sin contestar sale **exactamente lo de siempre**. Un hueco puede llevar la contraria y **HEREDA en vez de copiar**. Fuentes únicas: `puentes.py` y [ventanasVivienda.js](implementation/frontend/src/features/cee-envolvente/logic/ventanasVivienda.js). Tras tocarlo: `python -m pytest implementation/cee-engine/tests/test_puentes.py`. Ver "Los PUENTES TÉRMICOS se miran, ya no se listan".
 
 65. **Programar el envío de una propuesta**: botón de RELOJ pegado a ENVIAR; se elige día y hora y sale sola. El envío lo orquesta el NAVEGADOR, así que al programar se guarda el **plan YA HECHO** (grupos, mensaje por persona, canales) con el documento tal y como se revisó, y el despachador **NO vuelve a decidir nada** — si recompusiera el mensaje saldría otra propuesta distinta de la aprobada, con nadie delante. Se **delega en las MISMAS rutas** que usa el popup (`propuesta/version`, `send-proposal`, `version/:v`, `estado`, `comentarios`) con `x-internal-key`, como `routes/acciones.js`: el nº de versión, el PDF en Drive, la vista web del enlace, la carpeta y el historial son los mismos que enviándola a mano — esas cuatro rutas pasan a `internalKeyOrAuth` y `nombreUsuario(req)` lee `body.usuario`, para que quede a nombre de quien lo programó. El **HTML va en columnas TEXT propias** (353 KB de media, regla 21), nunca en `datos_calculo`, y se borra al terminar. **Nace APAGADO** (`PROPUESTA_PROGRAMADA_ENABLED`, solo `true` en el VPS): dos backends contra la misma base barrerían la misma tabla y desde LOCAL saldría a un cliente real — el claim atómico evita el doble envío, no el envío desde local, y **la pantalla dice cuándo está apagado**. **Sin PDF no sale nada** y **siempre se avisa al staff** (WhatsApp + email), salga bien, a medias o mal. **Enviar a mano cancela lo programado** de esa propuesta —o el cliente la recibe dos veces—, se avisa antes de pulsar, y lo que ya está `ENVIANDO` no se puede cancelar. La hora se compone en LOCAL, nunca partiendo un ISO. Tras tocarlo: `node implementation/backend/scripts/test_propuesta_programada.js` y `test_programar_envio.mjs`. Ver "PROGRAMAR el envío de una propuesta".
+
+67. **El documento viaja ENTERO, y lo firma el apoderado que se ELIGE**: desde que las fichas RES se rellenan sobre el impreso oficial (regla 41) una ficha es un `formulario`, y los dos modales del lote serializaban a mano los campos del documento dejándolo fuera — la ficha llegaba vacía al backend, el bucle la saltaba **en silencio** y el correo salía solo con el Anexo I (medido en un requerimiento de LOTE-2025-006; afectaba también al envío inicial al S.O. desde el 09/09/2026). Fuente única: `docParaEnvio` en [logic/docEnvio.js](implementation/frontend/src/features/lotes/logic/docEnvio.js), y **un documento marcado que no se puede preparar ABORTA el envío** diciendo cuál, nunca se salta. Y una empresa puede tener VARIOS apoderados —en INTERNACIONAL DE ALCOHOLES firman Pedro José López Montero (06239730Z) y Jesús Antonio Almodóvar Fuentes (06236833S)—, cuyo nombre y NIF van impresos en la casilla «Representante del solicitante»: se eligen en el envío (`FirmantePicker`, que no se pinta con uno solo) y se declaran en la ficha del S.O. (`prescriptores.representantes`, solo los ADICIONALES: el principal sigue en `nombre_responsable`/`nif_responsable` y no se duplica). **Se SELLA a quién se le pidió la firma** (`documentos_so[].rep_nombre`/`rep_nif`): con él, la página `/firmar-lote/:id` nombra al apoderado de esa ronda, `firmadosSo` comprueba contra ÉL —sin sello vale cualquiera de los declarados— y la SOLICITUD de emisión sale a nombre del que firmó las fichas, sin volver a preguntar. Tras tocarlo: `node implementation/backend/scripts/test_firmante_so.mjs`. Ver "Quién FIRMA por el SUJETO OBLIGADO".
 
 ---
 

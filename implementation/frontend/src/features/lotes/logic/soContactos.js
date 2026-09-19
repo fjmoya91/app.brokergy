@@ -16,6 +16,62 @@
 export const CC_BROKERGY = 'franciscojavier.moya.s2e2@gmail.com';
 
 const lower = (s) => String(s || '').trim().toLowerCase();
+const limpio = (s) => String(s || '').trim();
+// El NIF se compara sin guiones ni espacios y en mayúsculas: en la ficha está
+// "06239730Z" y en los documentos se ha escrito "06239730-Z".
+export const nifNorm = (s) => String(s || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+
+// ─── Representantes legales que pueden FIRMAR por la empresa ─────────────────
+// REGLA — una empresa puede tener VARIOS apoderados, y cuál firma cada documento
+// lo decide una persona. El PRINCIPAL sigue saliendo de las columnas de siempre
+// (`representante_distinto` → `representante_*`, y si no `nombre_responsable`),
+// que es lo que lee el resto de la app; los demás viven en `representantes`, una
+// lista de APODERADOS ADICIONALES. No se duplica el principal ahí: dos sitios
+// contestando a "quién firma" es una contradicción esperando a ocurrir.
+
+export function parseRepresentantes(raw) {
+    let arr = raw;
+    if (typeof raw === 'string') {
+        try { arr = JSON.parse(raw || '[]'); } catch { arr = []; }
+    }
+    return (Array.isArray(arr) ? arr : [])
+        .map(r => ({
+            nombre: limpio(r?.nombre),
+            apellidos: limpio(r?.apellidos),
+            nif: limpio(r?.nif),
+            cargo: limpio(r?.cargo),
+        }))
+        .filter(r => r.nombre || r.apellidos || r.nif);
+}
+
+// Lista de firmantes de un S.O., el principal primero. Cada uno lleva un `id`
+// estable (`principal`, `r0`, `r1`…) con el que viaja la elección.
+export function representantesSo(so) {
+    const p = so || {};
+    const principal = p.representante_distinto
+        ? { nombre: [p.representante_nombre, p.representante_apellidos].filter(Boolean).join(' ').trim(), nif: limpio(p.representante_dni) }
+        : { nombre: [p.nombre_responsable, p.apellidos_responsable].filter(Boolean).join(' ').trim(), nif: limpio(p.nif_responsable) };
+
+    const out = [];
+    if (principal.nombre || principal.nif) {
+        out.push({ id: 'principal', nombre: principal.nombre, nif: principal.nif, cargo: '', principal: true });
+    }
+    parseRepresentantes(p.representantes).forEach((r, i) => {
+        const nombre = [r.nombre, r.apellidos].filter(Boolean).join(' ').trim();
+        // Un apoderado que repita el NIF del principal es el mismo: no se ofrece dos veces.
+        if (out.some(x => x.nif && r.nif && nifNorm(x.nif) === nifNorm(r.nif))) return;
+        out.push({ id: `r${i}`, nombre, nif: r.nif, cargo: r.cargo, principal: false });
+    });
+    return out;
+}
+
+// El firmante elegido, o el principal si la elección ya no existe (se borró de la
+// ficha). Nunca devuelve `undefined` habiendo alguno declarado: un documento sin
+// representante sale con la casilla vacía.
+export function representanteElegido(so, id) {
+    const lista = representantesSo(so);
+    return lista.find(r => r.id === id) || lista[0] || null;
+}
 
 // `contactos_notificacion` puede venir como array o como texto JSON.
 export function parseContactosNotificacion(raw) {
@@ -56,6 +112,7 @@ export function deriveSoEnvio(so) {
         destinatarios.push({ nombre: '', cargo: '', email });
     }
     const nombreDe = (mail) => destinatarios.find(d => d.email === lower(mail))?.nombre || '';
+    const representantes = representantesSo(p);
 
     return {
         contactos,
@@ -71,7 +128,13 @@ export function deriveSoEnvio(so) {
             const n = (nombreDe(mail) || '').trim().split(/\s+/)[0] || '';
             return n ? n.charAt(0).toUpperCase() + n.slice(1).toLowerCase() : '';
         },
-        repNombre: [p.nombre_responsable, p.apellidos_responsable].filter(Boolean).join(' ') || undefined,
-        repNif: p.nif_responsable || undefined,
+        // Firmantes declarados, el principal primero. `repNombre`/`repNif` son los
+        // de ese principal — y salen de `representantesSo`, que es también lo que
+        // el backend comprueba cuando el documento vuelve firmado: si aquí se
+        // resolviera de otra forma, el documento diría un nombre y la comprobación
+        // esperaría otro.
+        representantes,
+        repNombre: representantes[0]?.nombre || undefined,
+        repNif: representantes[0]?.nif || undefined,
     };
 }

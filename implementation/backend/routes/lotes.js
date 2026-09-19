@@ -210,7 +210,7 @@ async function enrichLotes(lotes) {
 
     const [presRes, expRes, facRes] = await Promise.all([
         presIds.length
-            ? supabase.from('prescriptores').select('id_empresa, razon_social, acronimo, precio_referencia, codigo_identificacion, email, cif, direccion, codigo_postal, municipio, provincia, nombre_responsable, apellidos_responsable, nif_responsable, landing_telefono_contacto, contactos_notificacion, contacto_notificaciones_activas, logo_empresa').in('id_empresa', presIds)
+            ? supabase.from('prescriptores').select('id_empresa, razon_social, acronimo, precio_referencia, codigo_identificacion, email, cif, direccion, codigo_postal, municipio, provincia, nombre_responsable, apellidos_responsable, nif_responsable, representante_distinto, representante_nombre, representante_apellidos, representante_dni, representantes, landing_telefono_contacto, contactos_notificacion, contacto_notificaciones_activas, logo_empresa').in('id_empresa', presIds)
             : Promise.resolve({ data: [] }),
         // `cee` se pide por campos (sin el XML crudo) y de `documentacion` solo la
         // fecha del CIFO, que es lo único que mira geoCcaa.resolveAnioActuacion.
@@ -1188,12 +1188,20 @@ router.post('/:id/anexos-actuacion', adminOnly, async (req, res) => {
                     .select('razon_social, cif, codigo_identificacion, nombre_responsable, apellidos_responsable, nif_responsable, municipio')
                     .eq('id_empresa', lote.sujeto_obligado_id).maybeSingle();
 
+                // Quién firma: el apoderado con el que se mandaron a firmar las
+                // fichas de ESTE lote (se sella en `documentos_so`). Con varios
+                // apoderados en la ficha del S.O., la carátula no puede salir a
+                // nombre de uno distinto del que firma sus adjuntos.
+                const repSellado = (Array.isArray(lote.documentos_so) ? lote.documentos_so : [])
+                    .find(x => x && (x.rep_nombre || x.rep_nif));
+                const rep = repSellado ? { nombre: repSellado.rep_nombre || '', nif: repSellado.rep_nif || '' } : null;
+
                 const d = solicitudCae.datosDesdeLote(lote, generados.map(g => ({
                     numero_expediente: g.numero_expediente,
                     ficha: g.ficha,
                     n_actuacion: g.n_actuacion,
                     ahorro_kwh: g.ahorro_kwh,
-                })), so);
+                })), so, rep);
                 const faltan = solicitudCae.faltantes(d);
                 if (faltan.length) {
                     solicitud_error = `Falta ${faltan.join(', ')}.`;
@@ -2180,8 +2188,18 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
             if (x && x.key) existingByKey[x.key] = x;
         }
 
+        // Igual que en el requerimiento: un documento sin contenido no se salta en
+        // silencio. Si la ficha no llega, el email sale con el Anexo I solo y sin
+        // decirlo — es lo que pasaba desde que las fichas se rellenan sobre el
+        // impreso oficial y el navegador no mandaba su `formulario`.
+        const vacios = docs.filter(d => !d.html && !d.pdfBase64 && !d.formulario);
+        if (vacios.length) {
+            return res.status(400).json({
+                error: `No se pudo preparar ${vacios.length === 1 ? 'un documento' : `${vacios.length} documentos`}: ${vacios.map(d => d.label || d.fileName || 'sin nombre').join(', ')}. No se ha enviado nada.`,
+            });
+        }
+
         for (const d of docs) {
-            if (!d.html && !d.pdfBase64 && !d.formulario) continue;
             // `pdfBase64` = PDF ya firmado (p.ej. el Anexo I firmado por el PROVEEDOR/Brokergy);
             // tiene prioridad para no regenerarlo y perder la firma. `formulario` = el
             // impreso OFICIAL de la ficha, que se rellena en vez de rasterizar HTML.
@@ -2210,6 +2228,9 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
                 anchor: d.anchor || null,
                 fixedBox: d.fixedBox || null,
                 draft_link: saved?.link || null, draft_file_id: saved?.id || null,
+                // Apoderado del S.O. que debe firmarlo (va impreso en el documento).
+                rep_nombre: d.rep_nombre || null,
+                rep_nif: d.rep_nif || null,
                 signed_link: null, signed_file_id: null,
                 sent_at: sentAt, signed_at: null,
             });
@@ -2393,8 +2414,18 @@ router.post('/:id/requerimiento', staffOnly, async (req, res) => {
         // se ha pedido en este envío, y no todo el papeleo del lote.
         const ronda = String(Date.parse(sentAt) || Date.now());
 
+        // Un documento marcado que llega SIN contenido no se puede regenerar. No se
+        // salta en silencio: el correo saldría con menos documentos de los que
+        // anuncia y nadie se entera hasta el siguiente requerimiento. Todo o nada,
+        // mismo criterio que el envío conjunto al instalador.
+        const vacios = docs.filter(d => !d.html && !d.pdfBase64 && !d.formulario);
+        if (vacios.length) {
+            return res.status(400).json({
+                error: `No se pudo preparar ${vacios.length === 1 ? 'un documento' : `${vacios.length} documentos`}: ${vacios.map(d => d.label || d.fileName || d.key || 'sin nombre').join(', ')}. No se ha enviado nada.`,
+            });
+        }
+
         for (const d of docs) {
-            if (!d.html && !d.pdfBase64 && !d.formulario) continue;
             const key = keyOf(d);
             const idx = documentosSo.findIndex(x => x.key === key);
             const existing = idx >= 0 ? documentosSo[idx] : null;
@@ -2425,6 +2456,11 @@ router.post('/:id/requerimiento', staffOnly, async (req, res) => {
                 anchor: d.anchor || existing?.anchor || null,
                 fixedBox: d.fixedBox || existing?.fixedBox || null,
                 draft_link: saved?.link || null, draft_file_id: saved?.id || null,
+                // Quién debe firmarlo por el S.O.: va impreso en el documento, así que
+                // se sella para poder comprobar, cuando vuelva, que lo ha firmado el
+                // apoderado que toca y no otro.
+                rep_nombre: d.rep_nombre || existing?.rep_nombre || null,
+                rep_nif: d.rep_nif || existing?.rep_nif || null,
                 // Reseteo de la firma: el S.O. debe volver a firmar este documento.
                 signed_link: null, signed_file_id: null, signed_at: null,
                 sent_at: sentAt,

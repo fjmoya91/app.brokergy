@@ -88,8 +88,10 @@ const entero = (v) => {
  * @param {object} lote          fila de `lotes`
  * @param {Array}  actuaciones   [{ numero_expediente, ficha, n_actuacion, ahorro_kwh }]
  * @param {object} so            fila de `prescriptores` del sujeto obligado
+ * @param {object} [rep]         apoderado que firma: { nombre, nif }. Si no viene,
+ *                               el representante que consta en la ficha del S.O.
  */
-function datosDesdeLote(lote, actuaciones, so) {
+function datosDesdeLote(lote, actuaciones, so, rep) {
     const p = so || {};
     const filas = [...(actuaciones || [])]
         .filter(a => Number(a.n_actuacion) > 0)
@@ -99,8 +101,13 @@ function datosDesdeLote(lote, actuaciones, so) {
         codigo_lote: lote?.codigo || '',
         razon_social: p.razon_social || '',
         nif: p.cif || '',
-        representante: [p.nombre_responsable, p.apellidos_responsable].filter(Boolean).join(' ').trim(),
-        representante_dni: p.nif_responsable || '',
+        // REGLA — la solicitud la firma el MISMO apoderado que firmó las fichas del
+        // lote. Una empresa puede tener varios, y una carátula a nombre de uno con
+        // las fichas firmadas por otro es lo primero que cruza quien la revisa. Se
+        // toma de lo que se selló al mandarlas a firmar (`documentos_so[].rep_*`);
+        // sin sello (lotes anteriores), el representante de la ficha.
+        representante: (rep && rep.nombre) || [p.nombre_responsable, p.apellidos_responsable].filter(Boolean).join(' ').trim(),
+        representante_dni: (rep && rep.nif) || p.nif_responsable || '',
         // Para un sujeto obligado el código es "SO-" + su NIF (nota 2 del impreso).
         codigo_identificacion: p.codigo_identificacion || (p.cif ? `SO-${p.cif}` : ''),
         anio: String(lote?.anio_actuacion || ''),

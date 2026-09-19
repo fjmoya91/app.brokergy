@@ -92,26 +92,44 @@ function identificar(nombreFichero, candidatos, expNumPorId, codigoLote) {
 
 // Quién tiene que firmar cada documento. El Anexo I lo firman los DOS: el S.O. y
 // Brokergy (que ya lo firma antes de enviarlo, ver AnexoListadoModal).
-function firmantesEsperados(docKey, repSo, cesionario) {
+//
+// Por el S.O. puede firmar CUALQUIERA de sus apoderados declarados, así que el
+// esperado lleva `opciones` y basta con que una de ellas conste. Si al enviarlo se
+// selló a quién se le pedía la firma (`rep_nombre`/`rep_nif` del documento), ése
+// manda: es el nombre que va IMPRESO en el papel, y una firma de otro apoderado
+// sobre un documento que nombra al primero es justo lo que hay que mirar.
+function firmantesEsperados(docKey, repsSo, cesionario, docRep) {
     const out = [];
-    if (repSo && (repSo.nombre || repSo.nif)) out.push({ ...repSo, rol: 'Sujeto Obligado' });
+    const sellado = docRep && (docRep.nombre || docRep.nif) ? docRep : null;
+    const opciones = sellado ? [sellado] : (repsSo || []).filter(r => r.nombre || r.nif);
+    if (opciones.length) {
+        out.push({ nombre: opciones[0].nombre, nif: opciones[0].nif, rol: 'Sujeto Obligado', opciones });
+    }
     if (docKey === 'anexo_i' && cesionario) out.push({ ...cesionario, rol: 'Brokergy' });
     return out;
 }
 
-// El representante legal del S.O., tal como consta en su ficha.
-function representanteDe(so) {
-    if (!so) return null;
-    if (so.representante_distinto) {
-        return {
-            nombre: [so.representante_nombre, so.representante_apellidos].filter(Boolean).join(' ').trim(),
-            nif: so.representante_dni || null,
-        };
+// Los apoderados del S.O. que pueden firmar, tal y como constan en su ficha.
+// Fuente única con lo que el navegador imprime en el documento
+// (`lotes/logic/soContactos.js`), cargada por import() ESM como `docGenerators`:
+// con dos copias, el papel diría un nombre y la comprobación esperaría otro.
+async function representantesDe(so) {
+    if (!so) return [];
+    try {
+        const { pathToFileURL } = require('url');
+        const path = require('path');
+        const url = pathToFileURL(path.join(__dirname, '../../frontend/src/features/lotes/logic/soContactos.js')).href;
+        const mod = await import(url);
+        return mod.representantesSo(so).map(r => ({ nombre: r.nombre, nif: r.nif || null, cargo: r.cargo || '' }));
+    } catch (e) {
+        console.warn('[firmadosSo] no se pudieron leer los apoderados del S.O.:', e.message);
+        // Respaldo: el representante de siempre. Que no se pueda cargar el módulo
+        // no puede dejar la comprobación sin hacer.
+        const principal = so.representante_distinto
+            ? { nombre: [so.representante_nombre, so.representante_apellidos].filter(Boolean).join(' ').trim(), nif: so.representante_dni || null }
+            : { nombre: [so.nombre_responsable, so.apellidos_responsable].filter(Boolean).join(' ').trim(), nif: so.nif_responsable || null };
+        return (principal.nombre || principal.nif) ? [principal] : [];
     }
-    return {
-        nombre: [so.nombre_responsable, so.apellidos_responsable].filter(Boolean).join(' ').trim(),
-        nif: so.nif_responsable || null,
-    };
 }
 
 // Quién firma por Brokergy sale del MISMO sitio que lo imprime el Convenio de
@@ -173,10 +191,11 @@ async function procesarFirmados(loteId, ficheros, opts = {}) {
 
     const { data: so } = lote.sujeto_obligado_id
         ? await supabase.from('prescriptores')
-            .select('razon_social, cif, nombre_responsable, apellidos_responsable, nif_responsable, representante_distinto, representante_nombre, representante_apellidos, representante_dni')
+            .select('razon_social, cif, nombre_responsable, apellidos_responsable, nif_responsable, representante_distinto, representante_nombre, representante_apellidos, representante_dni, representantes')
             .eq('id_empresa', lote.sujeto_obligado_id).maybeSingle()
         : { data: null };
-    const repSo = representanteDe(so);
+    const repsSo = await representantesDe(so);
+    const repSo = repsSo[0] || null;
     const cesionario = await firmanteCesionario();
 
     const forzarSet = new Set(forzar.map(String));
@@ -248,7 +267,8 @@ async function procesarFirmados(loteId, ficheros, opts = {}) {
         }
 
         // 3) ¿Firman quienes tienen que firmar?
-        const esperados = firmantesEsperados(doc.key, repSo, cesionario);
+        const esperados = firmantesEsperados(doc.key, repsSo, cesionario,
+            { nombre: doc.rep_nombre || '', nif: doc.rep_nif || '' });
         res.esperados = esperados.map(e => ({ nombre: e.nombre, nif: e.nif, rol: e.rol }));
         // Quién FALTA va en estructura, no solo dentro de la frase del aviso: es lo
         // que le permite a la pantalla ofrecer "fírmalo tú ahora" cuando la que
@@ -256,10 +276,14 @@ async function procesarFirmados(loteId, ficheros, opts = {}) {
         // primera vez que alguien mejore la redacción.
         res.faltan = [];
         for (const e of esperados) {
-            const hit = firmas.firmantes.map(x => firmanteCoincide(x, e)).find(x => x.coincide);
+            const opciones = e.opciones && e.opciones.length ? e.opciones : [e];
+            const hit = firmas.firmantes.some(x => opciones.some(o => firmanteCoincide(x, o).coincide));
             if (!hit) {
                 const quien = firmas.firmantes.map(x => x.nombre || x.cn).filter(Boolean).join(', ') || 'nadie reconocible';
-                res.avisos.push(`No consta la firma de ${e.nombre || e.nif} (${e.rol}); firma ${quien}.`);
+                const esperado = opciones.length > 1
+                    ? `ninguno de sus apoderados (${opciones.map(o => o.nombre || o.nif).join(' o ')})`
+                    : (e.nombre || e.nif);
+                res.avisos.push(`No consta la firma de ${esperado} (${e.rol}); firma ${quien}.`);
                 res.faltan.push({ nombre: e.nombre, nif: e.nif, rol: e.rol });
             }
         }
@@ -320,6 +344,7 @@ async function procesarFirmados(loteId, ficheros, opts = {}) {
         codigo: lote.codigo,
         dryRun: !!dryRun,
         representante_so: repSo,
+        representantes_so: repsSo,
         firmante_brokergy: cesionario ? { nombre: cesionario.nombre, nif: cesionario.nif } : null,
         resultados,
         registrados: registrados.length,

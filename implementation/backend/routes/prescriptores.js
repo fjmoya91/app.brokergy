@@ -37,6 +37,35 @@ const MARKETPLACE_SLUG_REGEX = /^[a-z0-9]([a-z0-9-]{1,78}[a-z0-9])$/;
 // Versión del texto de consentimiento del escaparate (para auditar qué aceptó cada instalador).
 const MARKETPLACE_CONSENT_VERSION = 1;
 
+// APODERADOS ADICIONALES que pueden firmar por la empresa (`representantes`).
+//
+// REGLA — aquí NO va el representante principal: ése sigue viviendo en
+// `nombre_responsable`/`nif_responsable` (o en `representante_*` si es distinto),
+// que es lo que lee el resto de la app. Dos sitios contestando a "quién firma" es
+// una contradicción esperando a ocurrir; esto es la lista de los DEMÁS.
+// Solo tiene sentido en un SUJETO OBLIGADO, que es quien firma varios documentos
+// del lote y puede tener más de un apoderado.
+function normalizeRepresentantes(value) {
+    let arr = value;
+    if (typeof arr === 'string') { try { arr = JSON.parse(arr || '[]'); } catch { arr = []; } }
+    return (Array.isArray(arr) ? arr : [])
+        .map(r => ({
+            nombre: (r?.nombre || '').toString().trim(),
+            apellidos: (r?.apellidos || '').toString().trim(),
+            nif: (r?.nif || '').toString().trim().toUpperCase(),
+            cargo: (r?.cargo || '').toString().trim(),
+        }))
+        .filter(r => r.nombre || r.apellidos || r.nif)
+        .slice(0, 10);
+}
+
+// Solo se escribe si el payload lo trae: un PATCH que no habla de apoderados no
+// puede borrarlos.
+function buildRepresentantesFields(payload) {
+    if (payload.representantes === undefined) return {};
+    return { representantes: normalizeRepresentantes(payload.representantes) };
+}
+
 // Construye los campos de contacto a persistir a partir del payload:
 //  · contactos_notificacion: array normalizado de { nombre, tlf, email } (fuente preferente)
 //  · espejo del PRIMER contacto en nombre_contacto/tlf_contacto/email_contacto (compatibilidad
@@ -757,6 +786,7 @@ router.post('/avanzado', enforceAuth, async (req, res) => {
             representante_nombre: payload.representante_nombre,
             representante_apellidos: payload.representante_apellidos,
             representante_dni: payload.representante_dni,
+            ...buildRepresentantesFields(payload),
             precio_referencia: payload.precio_referencia ?? null,
             codigo_identificacion: payload.codigo_identificacion ?? null,
             logo_empresa: payload.logo_empresa,
@@ -986,6 +1016,7 @@ router.patch('/:id', enforceAuth, async (req, res) => {
             representante_nombre: payload.representante_nombre,
             representante_apellidos: payload.representante_apellidos,
             representante_dni: payload.representante_dni,
+            ...buildRepresentantesFields(payload),
             precio_referencia: payload.precio_referencia,
             codigo_identificacion: payload.codigo_identificacion,
             contacto_alternativo_activo: payload.contacto_alternativo_activo,

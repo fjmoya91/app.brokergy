@@ -9,7 +9,9 @@ import { fichaFormulario } from '../../expedientes/logic/fichasFormulario';
 import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
 import { SIGN_BOXES, fichaSignBox } from '../../expedientes/logic/signBoxes';
 import { EnviarLoteDocModal } from './EnviarLoteDocModal';
-import { deriveSoEnvio, CC_BROKERGY } from '../logic/soContactos';
+import { deriveSoEnvio, CC_BROKERGY, representanteElegido } from '../logic/soContactos';
+import { FirmantePicker } from './FirmantePicker';
+import { docParaEnvio } from '../logic/docEnvio';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Requerimiento — reenvío al S.O. de documentos concretos para NUEVA firma.
@@ -58,8 +60,15 @@ export function RequerimientoModal({ lote, onClose, onSent }) {
 
     // ── Destinatario S.O. (fuente única: logic/soContactos.js) ──────────────────
     const so = lote.sujeto_obligado || {};
-    const { contactoPrincipal, notifyEmail: soNotifyEmail, notifyPhone: soNotifyPhone,
-        ccSugerencias: soCc, repNombre: soRepNombre, repNif: soRepNif } = useMemo(() => deriveSoEnvio(so), [so]);
+    const { notifyEmail: soNotifyEmail, notifyPhone: soNotifyPhone,
+        ccSugerencias: soCc, representantes } = useMemo(() => deriveSoEnvio(so), [so]);
+
+    // Quién firma por el S.O. este reenvío: su nombre y NIF se imprimen en la
+    // casilla "Representante del solicitante" de cada ficha regenerada.
+    const [firmanteId, setFirmanteId] = useState('principal');
+    const firmante = useMemo(() => representanteElegido(so, firmanteId), [so, firmanteId]);
+    const soRepNombre = firmante?.nombre || undefined;
+    const soRepNif = firmante?.nif || undefined;
 
     // ── Documentos a regenerar y reenviar ───────────────────────────────────────
     const buildDocs = () => {
@@ -71,6 +80,7 @@ export function RequerimientoModal({ lote, onClose, onSent }) {
                 key: 'anexo_i', fileName: `${lote.codigo || 'LOTE'} - Anexo I Listado Cesion`,
                 label: 'Anexo I', tipo: 'anexo_i_listado', expediente_id: null,
                 anchor: ANEXO_ANCHOR, fixedBox: SIGN_BOXES.anexo_i_listado,
+                repNombre: soRepNombre, repNif: soRepNif,
             });
         }
         for (const e of selectedExps) {
@@ -79,6 +89,7 @@ export function RequerimientoModal({ lote, onClose, onSent }) {
             docs.push({
                 formulario, fileName: `${e.numero_expediente} - Ficha ${f}`, label: `Ficha ${f} · ${e.numero_expediente}`,
                 tipo: 'ficha_res', expediente_id: e.id, anchor: FICHA_ANCHOR, fixedBox: fichaSignBox(f),
+                repNombre: soRepNombre, repNif: soRepNif,
             });
         }
         return docs;
@@ -114,7 +125,11 @@ export function RequerimientoModal({ lote, onClose, onSent }) {
             whatsappMessage: soloWhatsapp ? null : waMsg,
             whatsappAttachments: soloWhatsapp,
             summaryData: { id: lote.codigo || 'LOTE', docType: 'Requerimiento · documentos para nueva firma' },
-            docs: buildDocs().map(d => ({ html: d.html, key: d.key || null, fileName: d.fileName, label: d.label, tipo: d.tipo, expediente_id: d.expediente_id || null, anchor: d.anchor || null, fixedBox: d.fixedBox || null })),
+            // El documento viaja ENTERO (`docParaEnvio`): una ficha RES es un
+            // `formulario` —el impreso oficial, que rellena el backend— y no un
+            // `html`. Serializando los campos a mano se quedaba fuera y la ficha
+            // no llegaba a enviarse.
+            docs: buildDocs().map(docParaEnvio),
             frontendOrigin: window.location.origin,
         });
         onSent?.(data?.lote);
@@ -208,6 +223,13 @@ export function RequerimientoModal({ lote, onClose, onSent }) {
                             </div>
                         )}
                     </div>
+
+                    {/* Quién firma por el S.O. (solo si tiene más de un apoderado) */}
+                    {representantes.length > 1 && (
+                        <div className="border-t border-white/5 pt-4">
+                            <FirmantePicker representantes={representantes} value={firmanteId} onChange={setFirmanteId} />
+                        </div>
+                    )}
                 </div>
 
                 {/* Footer */}
