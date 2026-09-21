@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { largo as largoDe, LARGO_MINIMO_PARED, rumbosDeLaPared } from './geometriaPlano';
+import { lectorDeIds } from './identidadParedes';
 import { huecosDefecto } from './ventanasVivienda';
 
 import { SUFIJO_CAMBIA, nombreHueco } from './reforma.js';
@@ -61,12 +62,26 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
      * otro trabajo. Reconstruirlo desde `geo` en vez de guardar copias del mapa
      * de muros mantiene una sola forma de leer un trabajo: la del fichero.
      */
+    //: Los muros que había ANTES de esta siembra. Va por `ref` y no por estado
+    //: a propósito: `sembrar` no puede depender de `muros` —se re-dispararía a
+    //: cada cambio y volvería a sembrar encima de lo que se acaba de hacer—,
+    //: pero necesita saber qué pared era cada nombre para no mudarle el trabajo.
+    const murosRef = useRef({});
+
     const sembrar = useCallback((guardadoAhora, { conLocal = true } = {}) => {
         if (!geo) return;
         const nuevo = {};
         for (const p of plantasDe(geo)) {
-            for (const m of p.muros) nuevo[m.id] = { ...m, huecos: [] };
+            // `svg_catastro` es el trazado TAL COMO LO MIDE el motor. Se guarda
+            // aparte porque `svg` lo puede mover el certificador, y para saber
+            // si dos paredes son la misma hay que comparar lo medido.
+            for (const m of p.muros) nuevo[m.id] = { ...m, svg_catastro: m.svg, huecos: [] };
         }
+        // Cómo se llama HOY cada pared que el trabajo guardado nombra de otra
+        // forma. Al volver a medir con un cuerpo menos, el motor recicla los
+        // nombres —`FBS1` pasaba de la pared de 6,90 m a una de 1,03— y con
+        // ellos se mudaban las ventanas, las medidas confirmadas y la entrada.
+        const id = lectorDeIds(murosRef.current, nuevo);
         try {
             // Manda lo guardado en el EXPEDIENTE; el localStorage es el
             // respaldo de lo que aún no se ha llegado a guardar (o de un
@@ -74,37 +89,47 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
             const local = conLocal ? JSON.parse(localStorage.getItem(clave) || 'null') : null;
             const g = guardadoAhora || local;
             if (g) {
-                setEntrada(g.entrada ?? null);
-                setSel(g.sel ?? null);
-                for (const [k, v] of Object.entries(g.huecos || {})) {
-                    if (nuevo[k]) nuevo[k].huecos = (v || []).map(rescatarHueco);
+                setEntrada(g.entrada ? id(g.entrada) : null);
+                setSel(g.sel ? id(g.sel) : null);
+                for (const [k0, v] of Object.entries(g.huecos || {})) {
+                    const k = id(k0);
+                    if (k && nuevo[k]) nuevo[k].huecos = (v || []).map(rescatarHueco);
                 }
-                for (const k of g.particiones || []) {
-                    if (nuevo[k]) nuevo[k].como_particion = true;
+                for (const k0 of g.particiones || []) {
+                    const k = id(k0);
+                    if (k && nuevo[k]) nuevo[k].como_particion = true;
                 }
-                for (const k of g.excluidas || []) {
-                    if (nuevo[k]) nuevo[k].excluida = true;
+                for (const k0 of g.excluidas || []) {
+                    const k = id(k0);
+                    if (k && nuevo[k]) nuevo[k].excluida = true;
                 }
-                for (const k of g.revisadas || []) {
-                    if (nuevo[k]) nuevo[k].revisada = true;
+                for (const k0 of g.revisadas || []) {
+                    const k = id(k0);
+                    if (k && nuevo[k]) nuevo[k].revisada = true;
                 }
-                for (const k of g.cambian || []) {
-                    if (nuevo[k]) nuevo[k].cambia = true;
+                for (const k0 of g.cambian || []) {
+                    const k = id(k0);
+                    if (k && nuevo[k]) nuevo[k].cambia = true;
                 }
-                for (const [k, t] of Object.entries(g.tipos || {})) {
-                    if (nuevo[k]) nuevo[k].tipo_manual = t;
+                for (const [k0, t] of Object.entries(g.tipos || {})) {
+                    const k = id(k0);
+                    if (k && nuevo[k]) nuevo[k].tipo_manual = t;
                 }
-                for (const [k, n] of Object.entries(g.nombres || {})) {
-                    if (nuevo[k]) nuevo[k].nombre_manual = n;
+                for (const [k0, n] of Object.entries(g.nombres || {})) {
+                    const k = id(k0);
+                    if (k && nuevo[k]) nuevo[k].nombre_manual = n;
                 }
-                for (const [k, u] of Object.entries(g.us || {})) {
-                    if (nuevo[k]) nuevo[k].u_manual = u;
+                for (const [k0, u] of Object.entries(g.us || {})) {
+                    const k = id(k0);
+                    if (k && nuevo[k]) nuevo[k].u_manual = u;
                 }
-                for (const [k, o] of Object.entries(g.orientaciones || {})) {
-                    if (nuevo[k]) nuevo[k].orientacion_manual = o;
+                for (const [k0, o] of Object.entries(g.orientaciones || {})) {
+                    const k = id(k0);
+                    if (k && nuevo[k]) nuevo[k].orientacion_manual = o;
                 }
-                for (const [k, n] of Object.entries(g.pilares || {})) {
-                    if (nuevo[k]) nuevo[k].pilares = n;
+                for (const [k0, n] of Object.entries(g.pilares || {})) {
+                    const k = id(k0);
+                    if (k && nuevo[k]) nuevo[k].pilares = n;
                 }
                 // Las paredes movidas y las dibujadas. Las dibujadas ENTRAN en
                 // el mapa de muros: para la vista son una pared más —se pulsan,
@@ -117,8 +142,13 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                     geoGuardada.dibujadas.push(d);
                     nuevo[d.id] = paredDibujada(d, g.huecos?.[d.id]);
                 }
-                for (const [k, pts] of Object.entries(geoGuardada.movidas)) {
-                    if (!nuevo[k]) { delete geoGuardada.movidas[k]; continue; }
+                for (const [k0, pts] of Object.entries({ ...geoGuardada.movidas })) {
+                    const k = id(k0);
+                    if (k !== k0) {
+                        delete geoGuardada.movidas[k0];
+                        if (k) geoGuardada.movidas[k] = pts;
+                    }
+                    if (!k || !nuevo[k]) { delete geoGuardada.movidas[k0]; continue; }
                     // La marca y la medida de Catastro se rehacen AQUÍ, no solo
                     // al arrastrar: si no, al recargar la pared aparecía movida
                     // pero sin decirlo, que es justo lo que no puede pasar con
@@ -135,6 +165,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                              ? g.cubierta_reforma : {});
             }
         } catch { /* almacenamiento bloqueado: se empieza limpio */ }
+        murosRef.current = nuevo;
         setMuros(nuevo);
     }, [geo, clave]);
 
