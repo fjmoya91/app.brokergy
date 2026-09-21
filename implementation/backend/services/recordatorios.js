@@ -151,6 +151,29 @@ function finObraMsg({ destinatario, esInstalador, numExp, obra, dias, acciones, 
 }
 
 /**
+ * "Nos faltan las fotos para poder hacer el certificado."
+ *
+ * Es el material que necesita el CERTIFICADOR para modelar la vivienda en CE3X —
+ * la fachada desde la calle, las paredes que dan a patios, un vídeo—, no la
+ * documentación de la obra. Se pide ANTES de que haya obra, y por eso el texto no
+ * menciona equipos ni facturas: pedirle a la vez la foto de la máquina nueva a
+ * quien no ha empezado es pedirle una foto imposible.
+ *
+ * El enlace va FILTRADO (`?need=`) a lo que falta: el cliente abre y ve esas
+ * casillas y ninguna más, cada una con su foto de ejemplo.
+ */
+function ceeMaterialMsg({ destinatario, esInstalador, numExp, obra, faltan = [], url }) {
+    const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
+    const dir = direccionLimpia(obra?.direccion);
+    const laObra = esInstalador && (obra?.cliente || dir)
+        ? ` de la obra de *${capitalizar(obra.cliente) || 'tu cliente'}*${dir ? ` (${dir})` : ''}`
+        : '';
+    const lista = faltan.map(f => `· *${f}*`).join('\n');
+
+    return `${hola}\n\nPara poder hacer el *certificado energético*${laObra} (expediente *${numExp}*) necesitamos ver cómo es la vivienda por fuera. Con estas fotos el técnico puede calcularlo sin tener que ir a tomar medidas.\n\n*Nos falta:*\n${lista}\n\nSe suben desde el móvil en este enlace, que te lleva directo y te enseña un ejemplo de cada una:\n${url}\n\nNo hace falta hacerlo de una vez: puedes volver al enlace y seguir por donde lo dejes.\n\n¡Gracias!\n${FIRMA}`;
+}
+
+/**
  * "Te falta firmar" — uno o varios documentos salieron a firma y no han vuelto.
  * El enlace es el público de firma, que sirve el borrador vigente de Drive y presenta
  * de una vez todo lo que ese firmante tenga pendiente.
@@ -279,6 +302,25 @@ function firmaLoteWa({ destinatario, items, esInstalador }) {
  * REGLA — no se promete fecha de ingreso. Depende del pago del Sujeto Obligado;
  * una fecha aquí es una reclamación garantizada dentro de dos semanas.
  */
+/** Varias viviendas del mismo cliente/instalador sin el material del certificado. */
+function ceeMaterialLoteWa({ destinatario, items, esInstalador = false }) {
+    const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
+    const n = items.length;
+    const cuerpo = esInstalador
+        ? `Para poder hacer el *certificado energético* de ${n === 1 ? 'esta obra' : `estas *${n}* obras`} nos faltan las fotos de la vivienda.`
+        : `Para poder hacer el *certificado energético* de ${n === 1 ? 'tu vivienda' : `tus *${n}* viviendas`} nos faltan unas fotos.`;
+    return `${hola}
+
+${cuerpo} Con ellas el técnico puede calcularlo sin tener que ir a tomar medidas: basta con la *fachada desde la calle* y las *paredes que dan a patios*.
+
+${listaExpedientes(items)}
+
+Cada enlace lleva directo a lo que falta y enseña un ejemplo de cada foto.
+
+¡Gracias!
+${FIRMA}`;
+}
+
 function cobroLoteWa({ destinatario, items }) {
     const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
     const n = items.length;
@@ -290,7 +332,7 @@ function cobroLoteWa({ destinatario, items }) {
 
 module.exports = {
     certRegistroWa, certEmisionWa, encargoCeeClienteMsg,
-    finObraMsg, firmaMsg, bloqueAcciones,
-    certRegistroLoteWa, certEmisionLoteWa, finObraLoteWa, firmaLoteWa, cobroLoteWa, listaExpedientes,
+    finObraMsg, firmaMsg, ceeMaterialMsg, bloqueAcciones,
+    certRegistroLoteWa, certEmisionLoteWa, finObraLoteWa, firmaLoteWa, cobroLoteWa, ceeMaterialLoteWa, listaExpedientes,
     capitalizar, nombrePila, nombreSaludo, direccionLimpia, FIRMA,
 };

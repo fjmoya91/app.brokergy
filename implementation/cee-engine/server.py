@@ -184,7 +184,8 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
         # el CUERPO y se vuelve a medir: la pared que lo separaba de la casa
         # aparece entonces como lo que es, en vez de quedarse la casa abierta
         # por ahi (que es lo que pasa tachando paredes una a una).
-        pipeline.excluir_cuerpos(modelo, payload.get("cuerpos_excluidos"))
+        pipeline.excluir_cuerpos(modelo, payload.get("cuerpos_excluidos"),
+                                 inventario=inventario)
         res = pipeline.analizar(o, modelo)
         pipeline.escribir_salidas(o, res, rc)
 

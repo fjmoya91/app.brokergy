@@ -156,6 +156,9 @@ function pictoDe(key = '') {
     if (k.includes('_PLACA')) return 'placa';
     if (k.includes('ARMARIO_SUELO')) return 'colectores';
     if (k.includes('CALDERA_DESMONTADA')) return 'hueco';
+    // Hibridación: lo que hay que reconocer es la caldera que se CONSERVA, no la
+    // máquina nueva (esa ya tiene su propio apartado con su foto).
+    if (k.includes('HIBRIDACION')) return 'caldera';
     if (k.includes('CALDERA')) return 'caldera';
     if (k.includes('UNIDAD_EXTERIOR') || k.includes('PISCINA_BDC')) return 'unidad_exterior';
     if (k.includes('UNIDAD_INTERIOR') || k.includes('ACS_DEPOSITO') || k.includes('ACS_ANTES')) return 'deposito';

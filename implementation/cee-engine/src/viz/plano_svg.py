@@ -20,7 +20,15 @@ import re
 
 #: Lo que se dibuja: lo que tiene un trazado en planta. Un suelo o una cubierta
 #: son superficies horizontales y no se ven en un plano de paredes.
-DIBUJABLES = ("FACHADA", "MEDIANERA", "PARTICION_VERTICAL")
+#: Que cerramientos se dibujan como MUROS en el plano.
+#: OJO con el nombre: el motor emite "PARTICION_INTERIOR_VERTICAL"
+#: (`schema.TIPO_PARTICION_VERTICAL`), no "PARTICION_VERTICAL". Con el corto a
+#: secas, la pared contra el garaje que se ha dejado fuera no se pintaba: el
+#: resumen la contaba y en la pantalla no existia, asi que no se podia ni
+#: seleccionar ni ponerle huecos. Se dejan los DOS por si alguna version
+#: antigua guardo el corto.
+DIBUJABLES = ("FACHADA", "MEDIANERA",
+              "PARTICION_INTERIOR_VERTICAL", "PARTICION_VERTICAL")
 
 #: Como se llama cada planta en pantalla. El resto se queda con su codigo.
 NOMBRE_PLANTA = {"PB": "PLANTA BAJA"}

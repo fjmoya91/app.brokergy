@@ -80,6 +80,25 @@ function uploadDocsSingle(req, res, next) {
         next();
     });
 }
+// Subida en TANDA: varias fotos del mismo apartado en una sola petición. El tope
+// de 25 es el de una carpeta de móvil seleccionada de golpe; por encima, el
+// navegador parte la tanda.
+const DOCS_MAX_FICHEROS = 25;
+function uploadDocsArray(req, res, next) {
+    uploadDocs.array('files', DOCS_MAX_FICHEROS)(req, res, (err) => {
+        if (err) {
+            if (err.code === 'LIMIT_FILE_SIZE') {
+                return res.status(413).json({ error: `Alguno de los archivos es demasiado grande (máximo ${DOCS_MAX_MB} MB).` });
+            }
+            if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+                return res.status(400).json({ error: `Demasiados archivos de una vez (máximo ${DOCS_MAX_FICHEROS}).` });
+            }
+            console.error('[Reforma] multer upload error:', err.message);
+            return res.status(400).json({ error: 'No se pudieron procesar los archivos. Inténtalo de nuevo.' });
+        }
+        next();
+    });
+}
 
 // Helpers de PDF/DNI: fuente ÚNICA en utils/dniAnexo.js. El montaje del Anexo de
 // Cesión manuscrito (escaneo + DNI del cliente + DNI del representante) lo comparten
@@ -798,9 +817,6 @@ router.get('/reforma-docs/:uuid', async (req, res) => {
     }
 });
 
-// POST /api/public/reforma-docs/:uuid/:slot?token= → sube 1 fichero al slot
-// requireAuth es NO bloqueante: si hay sesión (admin/instalador) marca subido_por
-// en consecuencia; si solo hay token (cliente), subido_por = 'cliente'.
 // POST /api/public/reforma-docs/:uuid/fin-obra?token=
 // El cliente/instalador comunica que la obra está TERMINADA desde el enlace de
 // subida (el mensaje del CEE inicial se lo pide, pero hasta ahora no había dónde
@@ -844,145 +860,165 @@ router.post('/reforma-docs/:uuid/fin-obra', requireAuth, async (req, res) => {
     }
 });
 
-router.post('/reforma-docs/:uuid/:slot', requireAuth, uploadDocsSingle, async (req, res) => {
-    try {
-        const { uuid, slot } = req.params;
-        const { token } = req.query;
-        if (!req.file) return res.status(400).json({ error: 'No se ha recibido ningún archivo' });
+// ---------------------------------------------------------------------------
+// SUBIDA DE DOCUMENTACIÓN — un fichero o una tanda, por el MISMO camino.
+// ---------------------------------------------------------------------------
+// `/:slot`       sube UN fichero (contrato de siempre: lo usan los navegadores
+//                que aún no se han refrescado y cualquier integración externa).
+// `/:slot/batch` sube VARIOS de una vez, que es el caso normal cuando alguien
+//                suelta media carpeta del móvil sobre un apartado.
+//
+// Los dos delegan en `subirFicherosASlot`, que es quien decide el nombre en
+// Drive y escribe en `reforma_uploads`: si cada ruta lo resolviera por su
+// cuenta, la misma foto acabaría con un nombre distinto según por dónde entre.
+//
+// requireAuth es NO bloqueante: si hay sesión (admin/instalador) marca
+// `subido_por` en consecuencia; si solo hay token (cliente), 'cliente'.
 
-        const { data: opp } = await supabase
-            .from('oportunidades')
-            .select('id, id_oportunidad, datos_calculo')
-            .eq('id', uuid)
-            .maybeSingle();
-        if (!opp) return res.status(404).json({ error: 'Solicitud no encontrada' });
-        // El token es la credencial del canal PÚBLICO (cliente/instalador por enlace).
-        // Una sesión interna (ADMIN/TRABAJADOR) vale igual: el gestor de fotos del
-        // Anexo Fotográfico sube por aquí sin tener que pedir antes el token.
-        if (!isStaff(req) && (!token || opp.datos_calculo?.upload_token !== token)) {
-            return res.status(403).json({ error: 'Enlace inválido o caducado.' });
-        }
+/** Comprueba credencial y slot. Devuelve `{ opp, slotDef }` o responde el error. */
+async function resolverDestinoSubida(req, res) {
+    const { uuid, slot } = req.params;
+    const { token } = req.query;
+    const { data: opp } = await supabase
+        .from('oportunidades')
+        .select('id, id_oportunidad, datos_calculo')
+        .eq('id', uuid)
+        .maybeSingle();
+    if (!opp) { res.status(404).json({ error: 'Solicitud no encontrada' }); return null; }
+    // El token es la credencial del canal PÚBLICO (cliente/instalador por enlace).
+    // Una sesión interna (ADMIN/TRABAJADOR) vale igual: el gestor de fotos del
+    // Anexo Fotográfico sube por aquí sin tener que pedir antes el token.
+    if (!isStaff(req) && (!token || opp.datos_calculo?.upload_token !== token)) {
+        res.status(403).json({ error: 'Enlace inválido o caducado.' }); return null;
+    }
+    // MISMO checklist que ve el cliente: con el alcance del expediente resuelto.
+    // Si la vista poda un apartado (ACS fuera de alcance, CEE inicial ya
+    // registrado…), aquí tampoco es un destino válido.
+    const checklist = await reformaUploadService.checklistForOportunidad(opp);
+    const slotDef = checklist.find(s => s.key === slot);
+    if (!slotDef) { res.status(400).json({ error: 'Tipo de documento no válido' }); return null; }
+    return { opp, slotDef };
+}
 
-        const dc = opp.datos_calculo || {};
-        // MISMO checklist que ve el cliente: con el alcance del expediente resuelto.
-        // Si la vista poda un apartado (ACS fuera de alcance, CEE inicial ya
-        // registrado…), aquí tampoco es un destino válido.
-        const checklist = await reformaUploadService.checklistForOportunidad(opp);
-        const slotDef = checklist.find(s => s.key === slot);
-        if (!slotDef) return res.status(400).json({ error: 'Tipo de documento no válido' });
+/** Quién sube, para el sello `subido_por` de cada foto. */
+function quienSube(req) {
+    return req.user ? (req.user.rol_nombre === 'ADMIN' ? 'admin' : 'instalador') : 'cliente';
+}
 
-        // Asegurar carpeta del lead + subcarpeta destino (la crea si falta).
-        // Las FACTURAS van TODAS a "5. FACTURAS" (mismo sitio que el alta del admin);
-        // el resto de documentos/fotos a "12. DOCUMENTOS PARA CEE".
-        const folderId = await reformaUploadService.ensureDriveFolder(uuid);
-        const targetSub = slot === 'DOC_FACTURAS'
-            ? reformaUploadService.SUBCARPETA_FACTURAS
-            : reformaUploadService.SUBCARPETA_DOCS;
-        // Facturas: búsqueda TOLERANTE (evita duplicar "5. FACTURAS" vs "5.FACTURAS").
-        const subId = slot === 'DOC_FACTURAS'
-            ? await driveService.getOrCreateSubfolderNormalized(folderId, targetSub)
-            : await driveService.getOrCreateSubfolder(folderId, targetSub);
-
-        // Nombre por slot-key (compatible con scan-photos del Anexo Fotográfico)
-        const ext = (req.file.originalname.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
-        const prev = Array.isArray(dc.reforma_uploads?.[slot]) ? dc.reforma_uploads[slot] : [];
-        // Slots "named" (Otros…): el usuario da una etiqueta legible que se usa como
-        // nombre del fichero en Drive → `SLOT__Etiqueta.ext` (reconciliable y reconocible).
-        const rawLabel = (req.body?.label || '').toString().trim();
-        let fileName;
-        if (slotDef.named && rawLabel) {
-            fileName = `${reformaUploadService.buildNamedFileBase(slot, rawLabel, prev)}.${ext}`;
-        } else if (slotDef.multiple) {
-            // El índice se calcula contra DRIVE, no solo contra reforma_uploads: las
-            // fotos que llegaron por migración o copia manual existen en Drive pero no
-            // en la BD, y `prev.length + 1` habría reutilizado un nombre ya ocupado
-            // (dos ficheros `FOTO_VENTANAS_DESPUES_1.jpg` en la misma carpeta).
-            let maxIdx = prev.length;
-            try {
-                const existing = await driveService.listFilesByPrefix(subId, slot);
-                const re = new RegExp(`^${slot}_(\\d+)\\.`, 'i');
-                for (const f of existing || []) {
-                    const m = re.exec(f.name || '');
-                    if (m) maxIdx = Math.max(maxIdx, parseInt(m[1], 10));
-                }
-            } catch (nErr) { console.warn('[Reforma] índice multiple desde Drive:', nErr.message); }
-            fileName = `${slot}_${maxIdx + 1}.${ext}`;
-        } else {
-            fileName = `${slot}.${ext}`;
-        }
-
-        // Slot único: borrar versión previa en Drive para no acumular duplicados
-        if (!slotDef.multiple) {
-            try {
-                const existing = await driveService.listFilesByPrefix(subId, slot);
-                await Promise.all(existing.map(async (f) => {
-                    const fBase = f.name.replace(/\.[a-z0-9]{2,5}$/i, '');
-                    if (fBase.toUpperCase() === slot.toUpperCase()) await driveService.deleteFile(f.id);
-                }));
-            } catch (dErr) { console.warn('[Reforma] dedup slot único:', dErr.message); }
-        }
-
-        const saved = await driveService.saveFileToFolder(subId, fileName, req.file.mimetype, req.file.buffer);
-        if (!saved?.id) return res.status(500).json({ error: 'Error al subir a Google Drive' });
-
-        // Estado y autoría POR FOTO en la propia entrada de reforma_uploads
-        const subidoPor = req.user ? (req.user.rol_nombre === 'ADMIN' ? 'admin' : 'instalador') : 'cliente';
-        const entry = {
-            name: fileName, link: saved.link, driveId: saved.id, at: new Date().toISOString(),
-            estado: 'subida', subido_por: subidoPor, motivo: null
-        };
-
-        // Escritura ATÓMICA por slot (evita que subidas concurrentes se pisen)
-        const { error: rpcErr } = await supabase.rpc('reforma_append', {
-            p_id: uuid, p_slot: slot, p_entry: entry, p_multiple: !!slotDef.multiple
-        });
-        if (rpcErr) {
-            console.error('[Reforma] rpc reforma_append:', rpcErr.message);
-            return res.status(500).json({ error: 'No se pudo registrar la foto. Inténtalo de nuevo.' });
-        }
-
+/**
+ * Lo que pasa DESPUÉS de que el fichero esté en Drive: avisar al staff, reflejar
+ * el RITE en el expediente y dar de alta (y leer) las facturas. Nada de esto
+ * puede hacer fallar la subida — el fichero ya está guardado.
+ */
+function efectosPostSubida({ req, uuid, slotDef, subidas, label }) {
+    const slot = slotDef.key;
+    for (const s of subidas) {
         // Aviso al staff: se agrupa en una ventana de silencio (el enlace sube foto
         // a foto) y sale UN resumen por tanda. No avisa si lo sube el propio staff.
         uploadNotifier.registrarSubida({
             oportunidadUuid: uuid,
             slotKey: slot,
-            slotLabel: slotDef.named && rawLabel ? `${slotDef.label}: ${rawLabel}` : slotDef.label,
+            slotLabel: slotDef.named && label ? `${slotDef.label}: ${label}` : slotDef.label,
             fase: slotDef.fase || null,
             // Cualquier subida desde dentro (ADMIN o TRABAJADOR) no genera aviso:
-            // `subidoPor` marca 'instalador' a un TRABAJADOR y avisaría en falso.
-            subidoPor: isStaff(req) ? 'admin' : subidoPor,
+            // `quienSube` marca 'instalador' a un TRABAJADOR y avisaría en falso.
+            subidoPor: isStaff(req) ? 'admin' : quienSube(req),
         });
-
         // RITE unificado: si es el Certificado RITE, refleja el enlace en el expediente
         // (cert_rite_drive_link) para que Documentación, CIFO y el agente lo vean.
-        if (slot === 'DOC_RITE') reformaUploadService.syncRiteToExpediente(uuid, saved.link);
+        if (slot === 'DOC_RITE') reformaUploadService.syncRiteToExpediente(uuid, s.link);
         // FACTURAS unificadas: crea la entrada en documentacion.facturas del expediente.
         if (slot === 'DOC_FACTURAS') {
-            reformaUploadService.addFacturaToExpediente(uuid, saved.link, saved.id);
+            reformaUploadService.addFacturaToExpediente(uuid, s.link, s.driveId);
             // …y la LEE en segundo plano para que la fila no llegue al admin con el
             // nº, la fecha y el importe en blanco. El cliente no espera ni lo ve:
-            // la respuesta ya se está devolviendo abajo. Ver services/facturaAutoOcr.
+            // la respuesta ya se está devolviendo. Ver services/facturaAutoOcr.
+            const f = s.file;
             setImmediate(() => {
                 facturaAutoOcr.leerYCompletar({
                     oportunidadId: uuid,
-                    driveId: saved.id,
-                    buffer: req.file.buffer,
-                    originalname: req.file.originalname,
-                    mimetype: req.file.mimetype,
+                    driveId: s.driveId,
+                    buffer: f.buffer,
+                    originalname: f.originalname,
+                    mimetype: f.mimetype,
                 }).catch(e => console.warn('[facturaAutoOcr] subida pública:', e.message));
             });
         }
+    }
+}
 
+// POST /api/public/reforma-docs/:uuid/:slot?token= → sube 1 fichero al slot
+router.post('/reforma-docs/:uuid/:slot', requireAuth, uploadDocsSingle, async (req, res) => {
+    try {
+        const { uuid, slot } = req.params;
+        if (!req.file) return res.status(400).json({ error: 'No se ha recibido ningún archivo' });
+        const destino = await resolverDestinoSubida(req, res);
+        if (!destino) return;
+        const { opp, slotDef } = destino;
+
+        const label = (req.body?.label || '').toString().trim() || null;
+        const dc = opp.datos_calculo || {};
+        const prev = Array.isArray(dc.reforma_uploads?.[slot]) ? dc.reforma_uploads[slot] : [];
+        const { subidas, fallidas } = await reformaUploadService.subirFicherosASlot({
+            oportunidadUuid: uuid,
+            datosCalculo: dc,
+            slotDef,
+            archivos: [req.file],
+            label,
+            subidoPor: quienSube(req),
+        });
+        if (!subidas.length) {
+            return res.status(500).json({ error: fallidas[0]?.error || 'Error al subir a Google Drive' });
+        }
+        efectosPostSubida({ req, uuid, slotDef, subidas, label });
+
+        const s = subidas[0];
         return res.json({
-            success: true, slot, name: fileName, link: saved.link,
-            label: slotDef.named ? reformaUploadService.parseOtrosLabel(fileName, slot) : null,
-            driveId: saved.id,
-            thumb: reformaUploadService.driveThumb(saved.id),
+            success: true, slot, name: s.name, link: s.link,
+            label: s.label, driveId: s.driveId, thumb: s.thumb,
             estado: 'subida', count: (slotDef.multiple ? prev.length + 1 : 1)
         });
     } catch (e) {
         console.error('Error reforma-docs POST:', e);
         res.status(500).json({ error: 'Error interno al subir el archivo' });
+    }
+});
+
+// POST /api/public/reforma-docs/:uuid/:slot/batch?token= → sube VARIOS al slot
+router.post('/reforma-docs/:uuid/:slot/batch', requireAuth, uploadDocsArray, async (req, res) => {
+    try {
+        const { uuid, slot } = req.params;
+        const archivos = req.files || [];
+        if (!archivos.length) return res.status(400).json({ error: 'No se ha recibido ningún archivo' });
+        const destino = await resolverDestinoSubida(req, res);
+        if (!destino) return;
+        const { opp, slotDef } = destino;
+
+        const label = (req.body?.label || '').toString().trim() || null;
+        const { subidas, fallidas } = await reformaUploadService.subirFicherosASlot({
+            oportunidadUuid: uuid,
+            datosCalculo: opp.datos_calculo || {},
+            slotDef,
+            archivos,
+            label,
+            subidoPor: quienSube(req),
+        });
+        efectosPostSubida({ req, uuid, slotDef, subidas, label });
+
+        // Ninguna ha entrado: es un error de verdad y se dice como tal. Con alguna
+        // dentro se responde 200 con el parcial — lo que ya está subido no puede
+        // presentarse como si no hubiera pasado nada.
+        if (!subidas.length) {
+            return res.status(500).json({ error: fallidas[0]?.error || 'No se pudo subir ningún archivo.' });
+        }
+        return res.json({
+            success: true, slot,
+            items: subidas.map(({ file, ...resto }) => resto),
+            fallidas,
+        });
+    } catch (e) {
+        console.error('Error reforma-docs BATCH:', e);
+        res.status(500).json({ error: 'Error interno al subir los archivos' });
     }
 });
 

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { largo as largoDe, rumbosDeLaPared } from './geometriaPlano';
+import { largo as largoDe, LARGO_MINIMO_PARED, rumbosDeLaPared } from './geometriaPlano';
 import { huecosDefecto } from './ventanasVivienda';
+
+import { SUFIJO_CAMBIA, nombreHueco } from './reforma.js';
+export { SUFIJO_CAMBIA, nombreHueco };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // El estado del plano: qué paredes hay, qué huecos les ha puesto el
@@ -43,6 +46,13 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
     //: ningún muro del que leerlo después.
     const [cuerposFuera, setCuerposFuera] = useState([]);
 
+    //: La CUBIERTA que se reforma, por planta: entera, o la parte que encierra
+    //: un polígono dibujado sobre el plano. Va en su propio estado porque la
+    //: cubierta NO es un muro —no está en `muros`, es una superficie horizontal
+    //: y el plano de paredes no la dibuja— y lo que se guarda son los vértices
+    //: tal cual se soltaron: la superficie la mide el motor.
+    const [cubiertas, setCubiertas] = useState({});
+
     /**
      * Monta el estado del plano desde la geometría y le pone encima un TRABAJO.
      *
@@ -77,6 +87,9 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                 }
                 for (const k of g.revisadas || []) {
                     if (nuevo[k]) nuevo[k].revisada = true;
+                }
+                for (const k of g.cambian || []) {
+                    if (nuevo[k]) nuevo[k].cambia = true;
                 }
                 for (const [k, t] of Object.entries(g.tipos || {})) {
                     if (nuevo[k]) nuevo[k].tipo_manual = t;
@@ -118,6 +131,8 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                 }
                 setGeometria(geoGuardada);
                 setCuerposFuera(Array.isArray(g.cuerpos_fuera) ? g.cuerpos_fuera : []);
+                setCubiertas(g.cubierta_reforma && typeof g.cubierta_reforma === 'object'
+                             ? g.cubierta_reforma : {});
             }
         } catch { /* almacenamiento bloqueado: se empieza limpio */ }
         setMuros(nuevo);
@@ -147,6 +162,12 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         // es pedir que se mire dos veces lo mismo.
         revisadas: Object.values(muros)
             .filter(m => m.revisada).map(m => m.id),
+        // Las paredes que se REFORMAN (aislamiento): al .cex van con «- CAMBIA»
+        // en el nombre. Los huecos llevan su marca dentro de cada uno.
+        cambian: Object.values(muros)
+            .filter(m => m.cambia).map(m => m.id),
+        // Y la cubierta que se reforma, entera o por el polígono dibujado.
+        cubierta_reforma: cubiertas,
         tipos: Object.fromEntries(Object.values(muros)
             .filter(m => m.tipo_manual).map(m => [m.id, m.tipo_manual])),
         nombres: Object.fromEntries(Object.values(muros)
@@ -169,7 +190,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         // a PEDIR la geometría con ellos: si no, al recargar el aparcamiento
         // volvería a la envolvente y nadie se enteraría.
         cuerpos_fuera: cuerposFuera,
-    } : null), [muros, entrada, sel, geometria, cuerposFuera]);
+    } : null), [muros, entrada, sel, geometria, cuerposFuera, cubiertas]);
 
     useEffect(() => {
         if (!Object.keys(muros).length) return;
@@ -184,6 +205,9 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                     .filter(m => m.excluida).map(m => m.id),
                 revisadas: Object.values(muros)
                     .filter(m => m.revisada).map(m => m.id),
+                cambian: Object.values(muros)
+                    .filter(m => m.cambia).map(m => m.id),
+                cubierta_reforma: cubiertas,
                 tipos: Object.fromEntries(Object.values(muros)
                     .filter(m => m.tipo_manual).map(m => [m.id, m.tipo_manual])),
                 nombres: Object.fromEntries(Object.values(muros)
@@ -195,7 +219,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                 paredes: geometria,
             }));
         } catch { /* idem */ }
-    }, [muros, entrada, sel, clave, geometria]);
+    }, [muros, entrada, sel, clave, geometria, cubiertas]);
 
     const plantas = useMemo(() => {
         if (!geo) return [];
@@ -246,14 +270,24 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         // siempre — un contador que nunca llega a cero se deja de mirar.
         const sinTocar = lista.filter(
             m => !esMedianera(m) && !m.revisada && !(m.huecos || []).length).length;
+        // Cuántas hay que mirar EN TOTAL: es el denominador de la barra de
+        // progreso de la cabecera. Las medianeras no cuentan — no se miran, no
+        // llevan huecos.
+        const paredes = lista.filter(m => !esMedianera(m)).length;
         const fuera = Object.values(muros).filter(m => esFuera(m)).length;
         // Una fachada SIN rumbo no se puede escribir, así que esto no es «algo
         // por confirmar»: es lo que va a parar el `.cex`. Se cuenta aquí para
         // que se vea en la barra de apartados sin tener que pulsar la pared.
         const sinRumbo = lista.filter(necesitaRumbo).length;
-        return { medidos, dudosos, sinTocar, fuera, sinRumbo,
+        // Lo marcado como que SE REFORMA: paredes, huecos y cubiertas. Es lo
+        // que va a salir con «- CAMBIA» en el .cex, y se cuenta en la cabecera
+        // para que se vea sin recorrer las paredes una a una.
+        const cambian = lista.filter(m => m.cambia).length
+            + lista.reduce((s, m) => s + (m.huecos || []).filter(h => h.cambia).length, 0)
+            + Object.values(cubiertas || {}).filter(c => c && (c.entera || c.poligono)).length;
+        return { medidos, dudosos, sinTocar, fuera, sinRumbo, cambian, paredes,
                  m2Hueco: m2.toFixed(1).replace('.', ',') };
-    }, [muros]);
+    }, [muros, cubiertas]);
 
     // ── acciones ─────────────────────────────────────────────────────────────
 
@@ -476,6 +510,117 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         setMuros(v => (v[id] ? { ...v, [id]: { ...v[id], revisada: !!si } } : v));
     }
 
+    /**
+     * La siguiente pared POR MIRAR, a partir de una. Es lo que hace útil «dar
+     * por revisada»: en una casa de catorce paredes, marcar una y tener que ir
+     * a buscar la siguiente con el ratón es lo que hace que se deje de marcar.
+     * Recorre en el orden del plano (planta, id) y da la vuelta al llegar al
+     * final. `null` si no queda ninguna.
+     */
+    function siguientePorMirar(desde) {
+        const lista = Object.values(muros)
+            .filter(m => !esFuera(m))
+            .sort((a, b) => String(a.planta).localeCompare(String(b.planta))
+                            || String(a.id).localeCompare(String(b.id)));
+        if (!lista.length) return null;
+        const pendiente = m => !esMedianera(m) && !m.revisada && !(m.huecos || []).length;
+        const i = Math.max(0, lista.findIndex(m => m.id === desde));
+        for (let k = 1; k <= lista.length; k++) {
+            const m = lista[(i + k) % lista.length];
+            if (m.id !== desde && pendiente(m)) return m.id;
+        }
+        return null;
+    }
+
+    /**
+     * Marcar una PARED como que se reforma (se mejora su aislamiento).
+     *
+     * Al .cex va con «- CAMBIA» pegado al nombre y NADA MÁS: ni la U ni la
+     * superficie se tocan. Es lo que le dice al certificador, en el árbol de
+     * CE3X, sobre qué cerramientos montar la medida de mejora.
+     */
+    function marcaCambia(id, si) {
+        setMuros(v => (v[id] ? { ...v, [id]: { ...v[id], cambia: !!si } } : v));
+    }
+
+    /** Lo mismo para UN hueco: «V1» pasa a escribirse «V1 - CAMBIA». */
+    function marcaHuecoCambia(id, i, si) {
+        setMuros(v => {
+            const huecos = [...(v[id]?.huecos || [])];
+            if (!huecos[i]) return v;
+            huecos[i] = { ...huecos[i], cambia: !!si };
+            return { ...v, [id]: { ...v[id], huecos } };
+        });
+    }
+
+    /**
+     * La carpintería (y la marca de CAMBIA) de VARIOS huecos de una vez.
+     *
+     * `objetivos` son `[{ pared, uid }]`; `valores` trae solo lo que se toca:
+     * una clave ausente no cambia nada, `null` quita lo propio del hueco (vuelve
+     * a heredar de la vivienda). Es lo que hace útil el popup de «cambiar en
+     * bloque»: la cocina y el baño con PVC y el resto como estaban.
+     */
+    function ponCarpinteria(objetivos, valores) {
+        const quiere = new Set((objetivos || []).map(o => `${o.pared}/${o.uid}`));
+        if (!quiere.size || !valores) return;
+        setMuros(v => {
+            const copia = { ...v };
+            for (const [k, m] of Object.entries(v)) {
+                if (!(m.huecos || []).some(h => quiere.has(`${k}/${h.uid}`))) continue;
+                copia[k] = { ...m, huecos: (m.huecos || []).map(h => {
+                    if (!quiere.has(`${k}/${h.uid}`)) return h;
+                    const n = { ...h };
+                    for (const campo of ['vidrio', 'marco', 'persiana', 'cambia']) {
+                        if (!(campo in valores)) continue;
+                        const x = valores[campo];
+                        // «No cambia» es la ausencia de la marca, no un `false`
+                        // guardado en cada hueco.
+                        if (x === null || x === undefined || (campo === 'cambia' && !x)) delete n[campo];
+                        else n[campo] = x;
+                    }
+                    return n;
+                }) };
+            }
+            return copia;
+        });
+    }
+
+    /** Quita la carpintería PROPIA de todos los huecos: vuelven a heredar. */
+    function quitaCarpinteriaPropia() {
+        setMuros(v => Object.fromEntries(Object.entries(v).map(([k, m]) => [k, {
+            ...m, huecos: (m.huecos || []).map(h => {
+                if (!(h.vidrio || h.marco || typeof h.persiana === 'boolean')) return h;
+                const n = { ...h };
+                delete n.vidrio; delete n.marco; delete n.persiana;
+                return n;
+            }),
+        }])));
+    }
+
+    /**
+     * La cubierta de una planta que se REFORMA: entera, o la parte que encierra
+     * el polígono dibujado (vértices del lienzo, tal cual se soltaron). La
+     * superficie de cada parte la mide el MOTOR intersecando con el tejado real
+     * (`partir_cubierta`); aquí no se calcula ni un m² que vaya al .cex.
+     */
+    function ponCubierta(plantaId, reforma) {
+        if (!plantaId) return;
+        setCubiertas(v => {
+            const n = { ...v };
+            const limpio = reforma && (reforma.entera || (reforma.poligono || []).length >= 3)
+                ? (reforma.entera ? { entera: true }
+                                  : { poligono: reforma.poligono.map(([x, y]) => [
+                                        Math.round(Number(x) * 100) / 100,
+                                        Math.round(Number(y) * 100) / 100]) })
+                : null;
+            if (limpio) n[plantaId] = limpio; else delete n[plantaId];
+            return n;
+        });
+    }
+
+    function quitaCubierta(plantaId) { ponCubierta(plantaId, null); }
+
     /** Una medianera lo es por lo que hay AL OTRO LADO, no por tocar. */
     function marcaComoParticion(id, si) {
         setMuros(v => ({ ...v, [id]: { ...v[id], como_particion: si } }));
@@ -520,11 +665,18 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
      * pared que separaba el cuerpo del resto NO existe en el modelo —Catastro
      * une los dos y esa línea queda dentro—, así que la casa se queda abierta
      * por ahí y hay que dibujarla. Por eso no es lo que se ofrece primero.
+     *
+     * REGLA — solo las paredes de las PLANTAS donde ese cuerpo no cuenta. Un
+     * garaje con vivienda encima es un prisma de dos plantas: apartar las
+     * suyas sin mirar el nivel se lleva por delante las fachadas reales de la
+     * planta de arriba, que es vivienda. Sin `niveles` se aparta todo, que es
+     * lo correcto para un cuerpo que sobra en todas sus plantas.
      */
-    function apartaParedesDe(cuerpo, si = true) {
+    function apartaParedesDe(cuerpo, si = true, niveles = null) {
         if (!cuerpo) return;
+        const aqui = (m) => !Array.isArray(niveles) || niveles.includes(m.nivel);
         setMuros(v => Object.fromEntries(Object.entries(v).map(([k, m]) => (
-            m.cuerpo === cuerpo ? [k, { ...m, excluida: !!si }] : [k, m]))));
+            m.cuerpo === cuerpo && aqui(m) ? [k, { ...m, excluida: !!si }] : [k, m]))));
     }
 
     /**
@@ -632,7 +784,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
      */
     function dibujaPared(planta, a, b) {
         const pts = [[a[0], a[1]], [b[0], b[1]]];
-        if (largoDe(pts) < LARGO_MINIMO) return null;
+        if (largoDe(pts) < LARGO_MINIMO_PARED) return null;
         const hermanas = (plantas.find(p => p.id === planta)?.muros) || [];
         const alto = hermanas.map(m => Number(m.alto)).find(n => n > 0) || null;
         const id = nombreLibre(planta, muros);
@@ -685,7 +837,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
      * Que el navegador mandase las U sería dejar que el certificado se
      * escribiera con las que quisiera quien tenga la sesión abierta.
      */
-    function loSenalado(ajustes = null) {
+    function loSenalado(ajustes = null, { lienzoAMundo = null } = {}) {
         const huecos = [];
         for (const m of Object.values(muros)) {
             // Un hueco de una pared apartada NO se manda: el motor no escribe
@@ -697,7 +849,9 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                 huecos.push({
                     // Al cerramiento por su nombre EFECTIVO: es como lo casa el
                     // motor, y si se ha renombrado, el viejo ya no existe allí.
-                    id: h.nombre, cerramiento: nombreDe(m),
+                    // El del hueco lleva ya su «- CAMBIA» si se reforma: es lo
+                    // que CE3X enseña y por lo que enlaza sus puentes.
+                    id: nombreHueco(h), cerramiento: nombreDe(m),
                     ancho: Number(h.ancho), alto: Number(h.alto),
                     // ⚠️ SIEMPRE 'Hueco'. CE3X no distingue aquí la puerta de la
                     // ventana: sus dos valores son `Hueco` y `Lucernario`, el
@@ -718,7 +872,11 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                     // `huecos_defecto` de abajo, que es lo normal.
                     ...(h.vidrio ? { vidrio: h.vidrio } : {}),
                     ...(h.marco && !esPuerta ? { marco: h.marco } : {}),
-                    ...(typeof h.persiana === 'boolean' ? { persiana: h.persiana } : {}),
+                    // Una PUERTA no lleva persiana salvo que alguien lo diga: el
+                    // `huecos_defecto` de la vivienda es de las VENTANAS, y sin
+                    // esto la puerta de entrada heredaba su caja de persiana.
+                    ...(typeof h.persiana === 'boolean' ? { persiana: h.persiana }
+                        : esPuerta ? { persiana: false } : {}),
                     de: h.estado === 'medido'
                         ? 'SEÑALADO EN LA VISTA DEL CERTIFICADOR'
                         : 'SEÑALADO EN LA VISTA, medida POR CONFIRMAR',
@@ -792,6 +950,17 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                 de: 'APARTADAS POR EL CERTIFICADOR: no son del espacio habitable',
             },
             reclasificar, renombrar, nombres_propios, u_por_cerramiento, orientaciones,
+            // Lo que se REFORMA. Las paredes van por su id de Catastro y el
+            // motor les pega «- CAMBIA» detrás de lo que son; la cubierta, por
+            // planta, entera o con su polígono en coordenadas del LIENZO más la
+            // traslación al mundo, para que el motor la interseque con el
+            // tejado real. Los huecos ya van con el sufijo en su `id`.
+            mejora: {
+                cerramientos: Object.values(muros)
+                    .filter(m => !esFuera(m) && m.cambia).map(m => m.id),
+                cubierta: cubiertas,
+                ...(lienzoAMundo ? { lienzo_a_mundo: lienzoAMundo } : {}),
+            },
         };
     }
 
@@ -802,7 +971,9 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         confirmaHueco, confirmaPared,
         aplicaHuecosLeidos, anotaLecturaHueco,
         muevePared, dibujaPared, borraPared, esDibujada,
-        marcaComoParticion, marcaRevisada,
+        marcaComoParticion, marcaRevisada, siguientePorMirar,
+        marcaCambia, marcaHuecoCambia, ponCarpinteria, quitaCarpinteriaPropia,
+        cubiertas, ponCubierta, quitaCubierta,
         apartaDeLaEnvolvente, reclasifica, renombra, ponU, orienta, ponPilares,
         cuerposFuera, sacaCuerpo, apartaParedesDe,
         loSenalado, restaurar,
@@ -829,8 +1000,20 @@ export const TIPOS_PARED = [
       ayuda: 'Da a un garaje, trastero o local sin calefactar: sí pierde calor' },
 ];
 
+//: El motor emite el nombre LARGO del esquema CE3X
+//: (`PARTICION_INTERIOR_VERTICAL`) y la app usa el corto: es el que está en
+//: `TIPOS_PARED`, en el color del plano, en la chapa del panel y en lo que se
+//: le manda de vuelta al reclasificar. Se traduce en UN solo sitio —por aquí
+//: pasa el tipo de todos los muros de la pantalla— porque sin esto la pared
+//: contra el garaje que se ha dejado fuera salía gris, sin chapa y sin poder
+//: reclasificarse: ninguna comparación casaba.
+const TIPO_DEL_MOTOR = { PARTICION_INTERIOR_VERTICAL: 'PARTICION_VERTICAL' };
+
 /** El tipo con el que se va a escribir: manda el certificador sobre Catastro. */
-export function tipoDe(m) { return m?.tipo_manual || m?.tipo; }
+export function tipoDe(m) {
+    const t = m?.tipo_manual || m?.tipo;
+    return TIPO_DEL_MOTOR[t] || t;
+}
 
 //: Lo que cabe en el nombre de un cerramiento de CE3X.
 //:
@@ -995,8 +1178,6 @@ function rescatarHueco(h) {
     return { ...h, uid: h?.uid || nuevoUid(), tipo: baja(h?.tipo), estado: baja(h?.estado) };
 }
 
-/** Menos de esto no es una pared: es un resbalón del ratón. */
-const LARGO_MINIMO = 0.2;
 
 /**
  * Lo que mide una pared por sus puntos.

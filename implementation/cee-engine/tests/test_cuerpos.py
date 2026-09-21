@@ -109,7 +109,13 @@ def test_cada_pared_sabe_de_que_cuerpo_es():
 
 
 def test_quitar_un_cuerpo_lo_saca_del_edificio_y_lo_dice():
-    """No es solo dejar de dibujarlo: el edificio se vuelve a medir sin el."""
+    """No es solo dejar de dibujarlo: el edificio se vuelve a medir sin el.
+
+    Pero el cuerpo NO se borra del modelo y la huella global NO se recorta: lo
+    que se ha dejado fuera sigue CONSTRUIDO, y de ahi salen la particion
+    vertical contra el y el forjado de encima. Ver `test_garaje_por_planta.py`
+    para el caso de un cuerpo que solo sale de UNA de sus plantas.
+    """
     from src import pipeline
     from src.model import Modelo, Objeto
 
@@ -121,11 +127,10 @@ def test_quitar_un_cuerpo_lo_saca_del_edificio_y_lo_dice():
 
     dichos = pipeline.excluir_cuerpos(modelo, ["p_garaje"])
     assert dichos and "p_garaje" in dichos[0]
-    assert [p.original_id for p in modelo.partes] == ["p_casa"]
-    # La huella GLOBAL tambien se recorta: con ella sin tocar, la pared que daba
-    # al garaje saldria clasificada contra "edificio propio al otro lado".
-    assert modelo.buildings[0].geometry.area == pytest.approx(100.0)
     assert [(p.nivel, round(p.area_m2)) for p in modelo.floors] == [(0, 100)]
+    assert modelo.floors[0].no_habitable.area == pytest.approx(30.0)
+    assert [p.original_id for p in modelo.partes] == ["p_casa", "p_garaje"]
+    assert modelo.buildings[0].geometry.area == pytest.approx(130.0)
     assert any("CUERPOS_EXCLUIDOS" in d for d in modelo.diagnostics.messages)
 
 

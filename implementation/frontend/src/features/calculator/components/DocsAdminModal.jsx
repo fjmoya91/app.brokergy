@@ -36,6 +36,9 @@ export function DocsAdminModal({ isOpen, onClose, idOportunidad }) {
     const [sel, setSel] = useState(new Set());   // destinatarios seleccionados
     const [manual, setManual] = useState('');
     const [message, setMessage] = useState('');
+    // Un mensaje editado a mano no se rehace al cambiar la selección: lo escrito
+    // lo escribió una persona (mismo criterio que los popups del expediente).
+    const [msgTocado, setMsgTocado] = useState(false);
     const [sending, setSending] = useState(false);
     const [abriendoLocal, setAbriendoLocal] = useState(false);
 
@@ -112,8 +115,138 @@ ${pendientes.length ? `\nNos falta:\n${pendientes.map(p => `• ${p}`).join('\n'
         setSel(new Set(info?.recipients?.cliente ? ['cliente'] : []));
         setManual('');
         setMessage(buildDefaultMessage());
-        setSend({ channel });
+        setMsgTocado(false);
+        setSend({ channel, need: null });
     };
+
+    // ── PEDIR UNA FOTO CONCRETA ─────────────────────────────────────────────
+    // Lo que falta casi nunca es "la documentación": es una foto con nombre. El
+    // enlace se manda filtrado a lo pedido (`need=`), así que el cliente abre y
+    // ve SOLO esas casillas — ni tiene que buscarlas entre veinte, ni volvemos a
+    // pedirle lo que ya subió.
+    //
+    // Los apartados que se le pueden reclamar: los que no tiene y no se han
+    // marcado como no necesarios. Un `existing` (cajón de lo ya aportado) no es
+    // una casilla que rellenar.
+    const faltantes = useMemo(
+        () => (info?.slots || []).filter(s => !(s.items?.length) && !s.waived && !s.existing),
+        [info]
+    );
+
+    // Cuántas faltan de cada destino. De aquí salen los dos botones de petición
+    // rápida: si de un destino no falta nada, su botón no existe — uno apagado
+    // obliga a pulsarlo para descubrir por qué.
+    const faltaPorDestino = useMemo(() => {
+        const n = { CEE: 0, EXPEDIENTE: 0 };
+        for (const s of faltantes) {
+            // El contador cuenta lo que el botón va a pedir DE VERDAD: si dijera 9 y
+            // luego la lista viniera con 4 marcadas, el número sería una promesa falsa.
+            if (s.optionalAlways || s.prescindible) continue;
+            if (!info?.fin_obra && s.fase === 'DESPUES') continue;
+            const d = s.destino || 'EXPEDIENTE';
+            n[d] = (n[d] || 0) + 1;
+        }
+        return n;
+    }, [faltantes, info]);
+
+    // Al cliente se le nombra la foto en SU idioma, no con la etiqueta técnica:
+    // "la pegatina de la máquina de fuera", no "Placa de la unidad exterior".
+    const nombreCliente = (s) => s.labelCliente || s.label;
+
+    // POR QUÉ se le pide. Un cliente que entiende para qué sirve una foto la hace
+    // bien; al que solo recibe una lista de nombres técnicos hay que repetírsela.
+    const MOTIVO = {
+        CEE: 'Para poder hacer el certificado energético de tu vivienda necesitamos ver cómo es la casa por fuera',
+        EXPEDIENTE: 'Para seguir con la tramitación de tu ayuda nos falta',
+    };
+
+    const buildNeedMessage = (keys, destino = null) => {
+        const pedidos = faltantes.filter(s => keys.includes(s.key));
+        const lista = pedidos.map(s => {
+            const ayuda = s.helpCliente || s.help;
+            return `• *${nombreCliente(s)}*${ayuda ? `\n   ${ayuda}` : ''}`;
+        }).join('\n');
+        const link = `${info?.upload_link || ''}${info?.upload_link?.includes('?') ? '&' : '?'}need=${keys.join(',')}`;
+        // Con un destino declarado se explica para qué es; pidiendo cosas sueltas
+        // de aquí y de allá no se puede decir "esto es para el certificado" sin
+        // mentir a medias, así que se cae a la frase de siempre.
+        const intro = destino && MOTIVO[destino]
+            ? `${MOTIVO[destino]}:`
+            : `Para seguir con el expediente *${info?.id_oportunidad || ''}* nos falta ${pedidos.length > 1 ? 'esto' : 'esta foto'}:`;
+        return `Hola
+
+${intro}
+
+${lista}
+
+Puedes ${pedidos.length > 1 ? 'subirlas' : 'subirla'} desde el móvil en este enlace, que te lleva directo:
+
+🔗 ${link}
+
+¡Gracias!
+*BROKERGY — Ingeniería Energética*`;
+    };
+
+    /** La vista se cargó al abrir el modal: sin refrescar se reclama lo ya subido. */
+    const refrescarDocs = async () => {
+        try {
+            const { data } = await axios.get(`/api/oportunidades/${idOportunidad}/docs`);
+            setInfo(data);
+        } catch { /* con lo que ya teníamos basta para enviar */ }
+    };
+
+    // Pedir TODO lo que falta de un destino. Es el caso normal: al cliente se le
+    // reclama "lo del certificado" o "lo de la obra", nunca una casilla suelta de
+    // cada — y mezclarlo le pediría a la vez la fachada (que puede hacer hoy) y la
+    // máquina nueva instalada (que no existe todavía).
+    const pedirDestino = async (destino) => {
+        // Vienen marcados los que de verdad se reclaman. Lo `optionalAlways` (el CEE
+        // anterior, el RITE) se le OFRECE al cliente, no se le exige: meterlo en una
+        // lista de "nos falta" le reclama un papel que puede no existir. Sigue en la
+        // lista de abajo por si se quiere pedir a propósito.
+        const keys = faltantes
+            .filter(s => (s.destino || 'EXPEDIENTE') === destino && !s.optionalAlways && !s.prescindible)
+            // Mientras la obra no esté terminada, lo del DESPUÉS no se reclama: la
+            // foto de la máquina instalada no existe todavía, y una lista con cinco
+            // cosas imposibles hace que no se atienda ninguna. Se puede marcar a
+            // mano si se sabe que la obra ya está hecha.
+            .filter(s => info?.fin_obra || s.fase !== 'DESPUES')
+            .map(s => s.key);
+        if (!keys.length) return;
+        setSel(new Set(info?.recipients?.cliente ? ['cliente'] : []));
+        setManual('');
+        setMessage(buildNeedMessage(keys, destino));
+        setMsgTocado(false);
+        setSend({ channel: 'whatsapp', need: keys, destino });
+        await refrescarDocs();
+    };
+
+    const pedirSlot = async (slot) => {
+        const keys = [slot.key];
+        setSel(new Set(info?.recipients?.cliente ? ['cliente'] : []));
+        setManual('');
+        setMessage(buildNeedMessage(keys));
+        setMsgTocado(false);
+        setSend({ channel: 'whatsapp', need: keys, destino: slot.destino || null });
+        // Se pide DESPUÉS de abrir para no dejar el botón sin respuesta mientras
+        // llega: lo que importa es que la lista esté al día antes de enviar.
+        await refrescarDocs();
+    };
+
+    // Marcar/desmarcar otra foto en la misma petición: lo que falta rara vez es
+    // una sola cosa, y dos mensajes seguidos el mismo día se leen como un lío.
+    const toggleNeed = (key) => setSend(prev => {
+        if (!prev?.need) return prev;
+        const keys = prev.need.includes(key) ? prev.need.filter(k => k !== key) : [...prev.need, key];
+        if (!keys.length) return prev;                    // al menos una: si no, no hay petición
+        // El "para qué" solo se mantiene mientras TODO lo marcado sea de ese
+        // destino: en cuanto se mezcla, decir "esto es para el certificado" sería
+        // mentir a medias, y el mensaje vuelve a la frase genérica.
+        const destinos = new Set(faltantes.filter(s => keys.includes(s.key)).map(s => s.destino || 'EXPEDIENTE'));
+        const destino = destinos.size === 1 ? [...destinos][0] : null;
+        if (!msgTocado) setMessage(buildNeedMessage(keys, destino));
+        return { ...prev, need: keys, destino };
+    });
 
     const toggle = (type) => setSel(prev => {
         const n = new Set(prev);
@@ -198,6 +331,24 @@ ${pendientes.length ? `\nNos falta:\n${pendientes.map(p => `• ${p}`).join('\n'
                             </>
                         )}
 
+                        {/* Pedir de una vez todo lo que falta de UN destino. Es como
+                            se pide de verdad ("necesito lo del certificado"), y el
+                            enlace que recibe el cliente va filtrado a eso. */}
+                        {faltaPorDestino.CEE > 0 && (
+                            <button onClick={() => pedirDestino('CEE')} disabled={!info?.upload_link}
+                                title="Pedir al cliente lo que falta para levantar el certificado energético"
+                                className="px-2.5 py-1.5 rounded-lg border border-sky-400/30 text-sky-300 text-[10px] font-black uppercase tracking-wider hover:bg-sky-400/10 transition-all disabled:opacity-30">
+                                📐 Pedir lo del certificado · {faltaPorDestino.CEE}
+                            </button>
+                        )}
+                        {faltaPorDestino.EXPEDIENTE > 0 && (
+                            <button onClick={() => pedirDestino('EXPEDIENTE')} disabled={!info?.upload_link}
+                                title="Pedir al cliente o al instalador lo que falta del expediente"
+                                className="px-2.5 py-1.5 rounded-lg border border-amber-400/30 text-amber-300 text-[10px] font-black uppercase tracking-wider hover:bg-amber-400/10 transition-all disabled:opacity-30">
+                                📸 Pedir lo del expediente · {faltaPorDestino.EXPEDIENTE}
+                            </button>
+                        )}
+                        <span className="w-px h-5 bg-white/10 mx-0.5" />
                         {/* Reenviar enlace de subida */}
                         <button onClick={() => openSend('email')} disabled={!info?.upload_link} title="Enviar enlace por email"
                             className="p-2 rounded-full hover:bg-white/10 text-white/60 hover:text-amber-400 transition-all disabled:opacity-30">
@@ -215,7 +366,8 @@ ${pendientes.length ? `\nNos falta:\n${pendientes.map(p => `• ${p}`).join('\n'
 
                 <div className="p-5 md:p-6 overflow-y-auto bg-[#0F1013] flex-1 text-white">
                     {idOportunidad ? (
-                        <DocsManager mode="admin" idOrUuid={idOportunidad} embedded canValidate={canValidate} />
+                        <DocsManager mode="admin" idOrUuid={idOportunidad} embedded canValidate={canValidate}
+                            onPedirSlot={info?.upload_link ? pedirSlot : null} />
                     ) : (
                         <p className="text-white/50 text-sm text-center py-10">Guarda la oportunidad antes de gestionar su documentación.</p>
                     )}
@@ -230,13 +382,54 @@ ${pendientes.length ? `\nNos falta:\n${pendientes.map(p => `• ${p}`).join('\n'
                             <span className={send.channel === 'whatsapp' ? 'text-[#25D366]' : 'text-amber-400'}>
                                 {send.channel === 'whatsapp' ? <IconWA className="w-6 h-6" /> : <IconMail className="w-6 h-6" />}
                             </span>
-                            <div>
-                                <h4 className="text-white font-black uppercase tracking-widest text-xs">Reenviar enlace de subida</h4>
+                            <div className="flex-1 min-w-0">
+                                <h4 className="text-white font-black uppercase tracking-widest text-xs">
+                                    {send.need ? (send.need.length > 1 ? 'Pedir las fotos que faltan' : 'Pedir esta foto') : 'Reenviar enlace de subida'}
+                                </h4>
                                 <p className="text-white/40 text-[11px]">{send.channel === 'whatsapp' ? 'Por WhatsApp' : 'Por email'} · selecciona destinatario(s)</p>
+                            </div>
+                            {/* El canal se cambia AQUÍ: al pedir una foto desde su casilla no
+                                hay dos botones de los que salir, y cerrar para volver a
+                                entrar por el otro es un peaje. */}
+                            <div className="flex items-center gap-1 shrink-0">
+                                {[['whatsapp', 'WhatsApp'], ['email', 'Email']].map(([c, txt]) => (
+                                    <button key={c} type="button" onClick={() => setSend(prev => ({ ...prev, channel: c }))}
+                                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${send.channel === c ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/70'}`}>
+                                        {txt}
+                                    </button>
+                                ))}
                             </div>
                         </div>
 
                         <div className="p-5 overflow-y-auto space-y-4">
+                            {/* Qué se está pidiendo. Va ARRIBA, antes del destinatario: es
+                                lo que hay que revisar, y de aquí sale tanto el texto del
+                                mensaje como el enlace filtrado que abrirá el cliente. */}
+                            {send.need && (
+                                <div>
+                                    <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">
+                                        Se le pide ({send.need.length})
+                                    </label>
+                                    <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                                        {faltantes.map(s => {
+                                            const on = send.need.includes(s.key);
+                                            return (
+                                                <button key={s.key} type="button" onClick={() => toggleNeed(s.key)}
+                                                    className={`w-full text-left px-3 py-2 rounded-xl border-2 transition-all flex items-center gap-2.5 ${on ? 'border-sky-400/60 bg-sky-400/10' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
+                                                    <span className={`w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center ${on ? 'bg-sky-400 border-sky-400' : 'border-white/20'}`}>
+                                                        {on && <svg className="w-2.5 h-2.5 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M5 13l4 4L19 7" /></svg>}
+                                                    </span>
+                                                    <span className="min-w-0 flex-1">
+                                                        <span className={`block text-sm font-bold truncate ${on ? 'text-white' : 'text-white/55'}`}>{nombreCliente(s)}</span>
+                                                        {s.required && <span className="text-[9px] font-black uppercase tracking-wider text-amber-300/80">Obligatoria</span>}
+                                                    </span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <p className="text-white/30 text-[10px] mt-1.5">El enlace que recibe va filtrado a esto: no verá el resto de casillas.</p>
+                                </div>
+                            )}
                             {/* Destinatarios */}
                             <div className="space-y-2">
                                 {recipientCard('cliente', 'Cliente', info?.recipients?.cliente?.name || 'Sin cliente vinculado', send.channel === 'whatsapp' ? info?.recipients?.cliente?.phone : null, !info?.recipients?.cliente)}
@@ -258,7 +451,7 @@ ${pendientes.length ? `\nNos falta:\n${pendientes.map(p => `• ${p}`).join('\n'
                                 <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2">Mensaje (editable)</label>
                                 <textarea
                                     value={message}
-                                    onChange={e => setMessage(e.target.value)}
+                                    onChange={e => { setMessage(e.target.value); setMsgTocado(true); }}
                                     rows={9}
                                     className="case-sensitive w-full bg-white/[0.04] border-2 border-white/10 focus:border-amber-400 rounded-xl px-4 py-3 text-white text-sm outline-none resize-none leading-relaxed"
                                 />

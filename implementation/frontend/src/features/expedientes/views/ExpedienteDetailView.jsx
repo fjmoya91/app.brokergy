@@ -38,6 +38,7 @@ import { ComunicacionesCertificador } from '../components/ComunicacionesCertific
 import { HistorialModal } from '../../../components/HistorialModal';
 import { IncidenciasModal } from '../components/IncidenciasModal';
 import { AnexoFotograficoModal } from '../components/AnexoFotograficoModal';
+import { DocsAdminModal } from '../../calculator/components/DocsAdminModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
 import { LoteDetailModal } from '../../lotes/components/LoteDetailModal';
 import { FechasPrevistasEjecucion } from '../components/FechasPrevistasEjecucion';
@@ -1818,17 +1819,19 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                 />
             )}
 
-            {/* "Fotos" abre el MISMO gestor que el Anexo Fotográfico (`soloFotos`),
-                no un popup distinto: gestionar fotos se ve igual desde los dos sitios.
-                Para SUBIR, ese gestor lleva dentro el botón "+ Subir fotos", que abre
-                el popup de documentación de siempre (validar, "no necesario",
-                reenviar el enlace al cliente). Un solo componente, sin copias. */}
+            {/* "Fotos" abre el GESTOR DE DOCUMENTACIÓN (decisión del usuario,
+                2026-09-21). Abría el del Anexo Fotográfico, y ese gestor es para
+                preparar ESE DOCUMENTO —ordenar, comentar, excluir del PDF—, no para
+                trabajar con las fotos: quien pulsa "Fotos" viene a subir, revisar o
+                pedir, y allí no estaban ni el buzón, ni pegar, ni "pedírsela al
+                cliente", ni los dos bloques (certificado / expediente).
+                El gestor del Anexo sigue vivo dentro del propio Anexo Fotográfico,
+                que es de donde se llega a lo suyo. */}
             {showFotos && (
-                <AnexoFotograficoModal
+                <DocsAdminModal
                     isOpen={showFotos}
                     onClose={() => setShowFotos(false)}
-                    expediente={expediente}
-                    soloFotos
+                    idOportunidad={expediente?.oportunidad_id || expediente?.oportunidades?.id || expediente?.id_oportunidad_ref}
                 />
             )}
 

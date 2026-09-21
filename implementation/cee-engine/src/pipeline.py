@@ -400,8 +400,8 @@ def aplicar_seleccion(modelo: Modelo, incluidas) -> list[str]:
     return cambios
 
 
-def excluir_cuerpos(modelo: Modelo, ids) -> list[str]:
-    """Saca del edificio los CUERPOS que el certificador dice que no cuentan.
+def excluir_cuerpos(modelo: Modelo, ids, inventario=None) -> list[str]:
+    """Saca de la envolvente los CUERPOS que el certificador dice que no cuentan.
 
     POR QUE EXISTE: Catastro dibuja el edificio en partes —la casa, el garaje
     adosado, el porche— y aqui se unen por nivel para sacar la huella que se
@@ -410,54 +410,89 @@ def excluir_cuerpos(modelo: Modelo, ids) -> list[str]:
     NIVEL —la planta baja tiene vivienda, luego se dibuja entera— sus paredes
     entraban igual y habia que apartarlas una a una.
 
-    REGLA — se quita el cuerpo y se VUELVE A MEDIR, no se tachan sus paredes.
-    La pared que separaba el garaje de la casa no existe en el modelo (los dos
-    cuerpos se unen y esa linea queda dentro): quitando la parte y midiendo otra
-    vez, esa pared aparece como lo que es —fachada o medianera de la vivienda—.
-    Tachando paredes, la casa se queda abierta por ahi.
+    REGLA — se quita POR PLANTA y se VUELVE A MEDIR, no se tachan sus paredes
+    ni se borra el cuerpo entero. Un garaje con vivienda encima es UN
+    BuildingPart de DOS plantas: Catastro dibuja el prisma completo y declara
+    APARCAMIENTO solo en la baja. Borrandolo de las dos, la planta primera
+    pierde su superficie y sus fachadas reales (medido en 2370310VJ4027S: 19 m2
+    y dos fachadas a la calle). Los niveles los dice `cuerpos.niveles_fuera`.
 
-    Se toca tambien `buildings`, que es de donde sale la huella GLOBAL: con ella
-    sin recortar, la pared nueva se clasificaria contra "edificio propio al otro
-    lado" y saldria como particion interior.
+    REGLA — lo que se quita SIGUE CONSTRUIDO, y por eso no se toca `buildings`.
+    Se guarda en `Planta.no_habitable`, de donde salen las dos cosas que lo
+    distinguen de un solar: que la pared de la casa contra el sea una PARTICION
+    VERTICAL —no una fachada al aire— y que el forjado de encima sea una
+    particion con espacio no habitable —no un voladizo—.
     """
     fuera = {str(i).strip() for i in (ids or []) if str(i).strip()}
     if not fuera:
         return []
 
-    quitadas = [p for p in modelo.partes if (p.original_id or "") in fuera]
-    if not quitadas:
+    from .gis import cuerpos as cuerpos_mod
+    inv = inventario if inventario is not None else cuerpos_mod.inventario(modelo)
+    por_id = {c["id"]: c for c in inv}
+
+    desconocidos = sorted(fuera - set(por_id))
+    if desconocidos:
         # Un id que ya no existe es que la geometria de Catastro ha cambiado, o
         # que lo guardado es de otra parcela. Se dice: callarlo seria medir de
         # mas sin que nadie se entere.
         modelo.diagnostics.add(
             "CUERPOS_EXCLUIDOS",
-            "se pidio dejar fuera " + ", ".join(sorted(fuera))
+            "se pidio dejar fuera " + ", ".join(desconocidos)
             + ", y ninguno esta entre los cuerpos que devuelve Catastro hoy")
+
+    fuera_por_nivel: dict[int, list[dict]] = {}
+    dichos: list[str] = []
+    for pid in sorted(fuera & set(por_id)):
+        c = por_id[pid]
+        niveles = cuerpos_mod.niveles_fuera(c)
+        geom = c.get("_geom")
+        if geom is None or not niveles:
+            continue
+        # Cada cuerpo va con SU uso: un garaje y un almacen bajo la misma
+        # planta son dos particiones distintas, y el forjado de cada una tiene
+        # que decir sobre que da.
+        for n in niveles:
+            fuera_por_nivel.setdefault(n, []).append(
+                {"geom": geom, "uso": (c.get("construccion") or {}).get("uso")
+                 or floors_mod.NO_HABITABLE})
+        uso = (c.get("construccion") or {}).get("uso") or "sin uso declarado"
+        plantas_dichas = ", ".join(_nombre_nivel(n) for n in niveles)
+        resto = [n for n in (c.get("niveles") or []) if n not in niveles]
+        dichos.append(
+            f"{pid} ({uso}, {geom.area:.0f} m2) en {plantas_dichas}"
+            + (f"; en {', '.join(_nombre_nivel(n) for n in resto)} SIGUE contando"
+               if resto else ""))
+
+    if not fuera_por_nivel:
         return []
 
-    modelo.partes = [p for p in modelo.partes if (p.original_id or "") not in fuera]
-    if not modelo.partes:
-        raise CatastroError("no queda ningun cuerpo del edificio: no hay nada que medir")
-
-    recorte = unir([p.geometry for p in quitadas])
-    for b in modelo.buildings:
-        if b.geometry is not None:
-            b.geometry = b.geometry.difference(recorte)
-    modelo.buildings = [b for b in modelo.buildings
-                        if b.geometry is not None and not b.geometry.is_empty]
-
-    plantas = floors_mod.plantas_desde_partes(modelo.partes)
+    plantas = floors_mod.plantas_desde_partes(modelo.partes,
+                                              fuera_por_nivel=fuera_por_nivel)
+    if not plantas or all(p.huella.is_empty for p in plantas):
+        raise CatastroError("no queda ninguna planta que medir: todo lo construido "
+                            "se ha dejado fuera de la envolvente")
     datos = modelo.catastro.get("_datos")
     if datos is not None:
         floors_mod.asignar_usos(plantas, datos.usos_por_planta())
     modelo.floors = plantas
 
-    dichos = [f"{p.original_id} ({p.geometry.area:.0f} m2)" for p in quitadas]
     modelo.diagnostics.add(
         "CUERPOS_EXCLUIDOS",
-        "el certificador deja FUERA de la envolvente " + ", ".join(dichos)
-        + ": sus paredes no se miden y el edificio se ha vuelto a medir sin ellos")
+        "el certificador deja FUERA de la envolvente " + "; ".join(dichos)
+        + ". Sus paredes no se miden y el edificio se ha vuelto a medir sin ellas, "
+        "pero lo que hay al otro lado sigue construido: la pared que da contra el "
+        "sale como PARTICION y el forjado de encima, como particion con espacio "
+        "no habitable")
     return dichos
+
+
+def _nombre_nivel(n: int) -> str:
+    if n == 0:
+        return "la planta baja"
+    if n < 0:
+        return f"el sotano {abs(n)}"
+    return f"la planta {n}"
 
 
 # ------------------------------------------------------------- clasificacion
@@ -473,6 +508,14 @@ def analizar(o: Opciones, modelo: Modelo) -> Resultado:
     # huellas de espacios no habitables de la MISMA parcela (solo si hay DXF)
     no_hab = unir([s.geometry for s in modelo.spaces
                    if s.geometry is not None and s.use in ("GARAJE", "ALMACEN")])
+
+    def no_habitables_de(planta) -> "BaseGeometry | None":
+        """Lo no habitable que toca ESTA planta: el DXF mas lo que se ha dejado
+        fuera en su nivel. Sin esto, la pared de la casa contra el garaje sale
+        como fachada a un espacio libre de la parcela — y ahi no hay aire, hay
+        un garaje, asi que es una particion vertical y por ella se pierde calor.
+        """
+        return unir([no_hab, planta.no_habitable])
 
     v = Vecindad(parcela=parcela, edificio_propio=huella, edificios_vecinos=vecinos,
                  no_habitables=no_hab, boundary_tolerance_m=o.tolerancia,
@@ -526,8 +569,11 @@ def analizar(o: Opciones, modelo: Modelo) -> Resultado:
         vecinos_nivel = _vecinos_en_nivel(modelo, planta.nivel)
         abajo = por_nivel.get(planta.nivel - 1)
         vp = Vecindad(parcela=parcela, edificio_propio=planta.huella,
-                      edificios_vecinos=vecinos_nivel, no_habitables=no_hab,
-                      huella_inferior=abajo.huella if abajo else None,
+                      edificios_vecinos=vecinos_nivel,
+                      no_habitables=no_habitables_de(planta),
+                      # CONSTRUIDA, no la habitable: un muro levantado sobre la
+                      # cubierta del garaje de abajo tampoco vuela al aire.
+                      huella_inferior=abajo.huella_construida if abajo else None,
                       huella_global=huella,
                       vecinos_globales=vecinos,
                       boundary_tolerance_m=o.tolerancia, min_contact_m=o.min_contacto)
@@ -578,7 +624,17 @@ def _cruzar_superficies(modelo: Modelo, tolerancia: float = 0.15) -> None:
     datos = modelo.catastro.get("_datos")
     if datos is None:
         return
-    por_planta = datos.usos_por_planta()
+    # Solo lo que CUENTA: con un garaje dejado fuera, la huella ya no lo mide y
+    # compararla contra el total declarado marcaria un desvio que no existe.
+    por_planta: dict = {}
+    for sp in modelo.spaces:
+        a = sp.attrs or {}
+        if not a.get("codigo") or sp.floor is None or not a.get("habitable"):
+            continue
+        por_planta.setdefault(sp.floor, {})
+        por_planta[sp.floor][sp.use] = (por_planta[sp.floor].get(sp.use) or 0) + (sp.area or 0)
+    if not por_planta:
+        por_planta = datos.usos_por_planta()
     filas = []
     for pl in modelo.floors:
         declarada = round(sum(por_planta.get(pl.nivel, {}).values()), 2)

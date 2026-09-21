@@ -17,6 +17,15 @@ const { createLead } = require('../services/leadService');
 // (residencial), las declara una persona. Fuente única en utils/fichas.js.
 const { FICHAS, detectPrograma } = require('../utils/fichas');
 const { sellarPrecioCae } = require('../utils/precioCae');
+const clasificarFotos = require('../services/clasificarFotosService');
+const multer = require('multer');
+// Las fotos del "buzón" viajan YA REDUCIDAS desde el navegador (para clasificar
+// no hace falta resolución: lo que se mira es qué aparato sale). El tope es
+// generoso por si alguna llega sin reducir.
+const uploadFotosClasificar = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 8 * 1024 * 1024, files: 30 },
+}).array('files', 30);
 const TERCIARIAS = FICHAS.filter(f => f.startsWith('TER'));
 const { getProvinceInfo, normalizeProvinceCode } = require('../data/allowedProvinces');
 
@@ -440,12 +449,126 @@ async function conEstadoDeExpediente(oportunidades) {
     }
 }
 
+// ─── El LISTADO no trae `datos_calculo` entero (regla 22) ────────────────────
+// Esta ruta pinta la pantalla principal del panel y traía la columna JSONB
+// COMPLETA de las ~420 oportunidades: 47 MB por petición. Y de esos 47 MB, lo
+// que la tabla pinta no llega a 1: son 19 MB de `html_propuesta` (el HTML de
+// cada propuesta enviada), 17 MB de `inputs` (que arrastra su propio snapshot
+// anidado), 6,8 MB de `cee_previo` y 4 MB de `photo_attachments`. Nada de eso
+// se ve en una fila de tabla.
+//
+// No es un problema de velocidad: Postgres descomprime ese TOAST ENTERO en
+// memoria y lo serializa a JSON, y en la instancia de 1 GB eso la MATA. El
+// 21/09/2026 tumbó la base DOS veces ("database system was not properly shut
+// down; automatic recovery in progress", 11:19 y 13:28) y la app estuvo caída
+// entre medias, con los 500 de `statement timeout` en los logs.
+//
+// Se proyectan por JSON path SOLO los campos que la tabla usa de verdad y se
+// devuelve con la MISMA forma anidada (`datos_calculo`), para que el frontend no
+// tenga que enterarse. Mismo patrón que /captacion y /sin-expediente.
+//
+// ⚠️ ABRIR una oportunidad en la calculadora SÍ necesita el `datos_calculo`
+// entero (inputs, result y sus anidados): `loadOpportunity` lo recarga con
+// `GET /:id`, que sigue devolviendo `*`. Si se añade un campo a la tabla del
+// panel, hay que AÑADIRLO AQUÍ o llegará vacío — y en una tabla un hueco no se
+// distingue de un dato que no existe.
+const listaSelect = (conFicha = true) => `
+    id, id_oportunidad, ref_catastral, ${conFicha ? 'ficha,' : ''} referencia_cliente,
+    prescriptor, demanda_calefaccion, created_at, updated_at, creador_id,
+    prescriptor_id, cliente_id, instalador_asociado_id,
+    dc_estado:datos_calculo->>estado,
+    dc_origen:datos_calculo->>origen,
+    dc_cod_cliente:datos_calculo->>cod_cliente_interno,
+    dc_isReforma:datos_calculo->isReforma,
+    dc_reformaType:datos_calculo->>reformaType,
+    dc_hibridacion:datos_calculo->hibridacion,
+    dc_historial:datos_calculo->historial,
+    in_isReforma:datos_calculo->inputs->isReforma,
+    in_reformaType:datos_calculo->inputs->>reformaType,
+    in_hibridacion:datos_calculo->inputs->hibridacion,
+    in_provincia:datos_calculo->inputs->>provincia,
+    in_provincia_nombre:datos_calculo->inputs->>provincia_nombre,
+    in_municipio:datos_calculo->inputs->>municipio,
+    in_direccion:datos_calculo->inputs->>direccion,
+    in_address:datos_calculo->inputs->>address,
+    in_cp:datos_calculo->inputs->>cp,
+    in_codigo_postal:datos_calculo->inputs->>codigo_postal,
+    in_nombre:datos_calculo->inputs->>nombre,
+    in_apellidos:datos_calculo->inputs->>apellidos,
+    in_razon_social:datos_calculo->inputs->>razon_social,
+    in_dni:datos_calculo->inputs->>dni,
+    in_nif:datos_calculo->inputs->>nif,
+    in_email:datos_calculo->inputs->>email,
+    in_telefono:datos_calculo->inputs->>telefono,
+    re_financials:datos_calculo->result->financials,
+    re_financialsRes080:datos_calculo->result->financialsRes080,
+    re_ahorroRes080:datos_calculo->result->res080->ahorroEnergiaFinalTotal,
+    re_savingsKwh:datos_calculo->result->savings->savingsKwh
+`.replace(/\s+/g, ' ').trim();
+
+// Devuelve la fila proyectada con la forma que el frontend ya espera. Los
+// objetos de `result` se dejan TAL CUAL (financials lleva el margen dentro, y de
+// quitarlo se sigue encargando stripPartnerMargin); los que no existen se dejan
+// sin definir en vez de a {}, porque el panel decide por su presencia
+// (`isReforma && result.financialsRes080 ? … : financials`).
+function filaListado(o) {
+    return {
+        id: o.id,
+        id_oportunidad: o.id_oportunidad,
+        ref_catastral: o.ref_catastral,
+        ficha: o.ficha,
+        referencia_cliente: o.referencia_cliente,
+        prescriptor: o.prescriptor,
+        demanda_calefaccion: o.demanda_calefaccion,
+        created_at: o.created_at,
+        updated_at: o.updated_at,
+        creador_id: o.creador_id,
+        prescriptor_id: o.prescriptor_id,
+        cliente_id: o.cliente_id,
+        instalador_asociado_id: o.instalador_asociado_id,
+        datos_calculo: {
+            estado: o.dc_estado,
+            origen: o.dc_origen,
+            cod_cliente_interno: o.dc_cod_cliente,
+            isReforma: o.dc_isReforma,
+            reformaType: o.dc_reformaType,
+            hibridacion: o.dc_hibridacion,
+            historial: o.dc_historial || [],
+            inputs: {
+                isReforma: o.in_isReforma,
+                reformaType: o.in_reformaType,
+                hibridacion: o.in_hibridacion,
+                provincia: o.in_provincia,
+                provincia_nombre: o.in_provincia_nombre,
+                municipio: o.in_municipio,
+                direccion: o.in_direccion,
+                address: o.in_address,
+                cp: o.in_cp,
+                codigo_postal: o.in_codigo_postal,
+                nombre: o.in_nombre,
+                apellidos: o.in_apellidos,
+                razon_social: o.in_razon_social,
+                dni: o.in_dni,
+                nif: o.in_nif,
+                email: o.in_email,
+                telefono: o.in_telefono,
+            },
+            result: {
+                financials: o.re_financials || {},
+                ...(o.re_financialsRes080 ? { financialsRes080: o.re_financialsRes080 } : {}),
+                res080: { ahorroEnergiaFinalTotal: o.re_ahorroRes080 },
+                savings: { savingsKwh: o.re_savingsKwh },
+            },
+        },
+    };
+}
+
 // 2. Obtener lista completa (GET /api/oportunidades)
 router.get('/', requireAuth, async (req, res) => {
     try {
         let query = supabase
             .from('oportunidades')
-            .select('id, id_oportunidad, ref_catastral, ficha, referencia_cliente, prescriptor, demanda_calefaccion, datos_calculo, created_at, updated_at, creador_id, prescriptor_id, cliente_id, instalador_asociado_id')
+            .select(listaSelect(true))
             .order('updated_at', { ascending: false });
 
         // Seguridad Node-Level: el equipo interno (ADMIN/TRABAJADOR) ve TODAS las
@@ -470,7 +593,7 @@ router.get('/', requireAuth, async (req, res) => {
                 console.log('[Router Oportunidades] Reintentando sin columna ficha...');
                 const retryQuery = supabase
                     .from('oportunidades')
-                    .select('id, id_oportunidad, ref_catastral, referencia_cliente, prescriptor, demanda_calefaccion, datos_calculo, created_at, creador_id, prescriptor_id, cliente_id, instalador_asociado_id')
+                    .select(listaSelect(false))
                     .order('created_at', { ascending: false });
                 
                 // Aplicar mismos filtros si no es equipo interno (ADMIN/TRABAJADOR)
@@ -490,7 +613,7 @@ router.get('/', requireAuth, async (req, res) => {
                     details: retryError.message
                 });
                 const retryVisible = await conEstadoDeExpediente(
-                    (retryData || []).filter(o => o?.datos_calculo?.origen !== 'migracion_xml')
+                    (retryData || []).map(filaListado).filter(o => o.datos_calculo.origen !== 'migracion_xml')
                 );
                 return res.status(200).json(isNonAdmin(req) ? retryVisible.map(stripPartnerMargin) : retryVisible);
             }
@@ -509,7 +632,7 @@ router.get('/', requireAuth, async (req, res) => {
         // Ocultar oportunidades "fantasma" creadas por la migración de expedientes desde XML.
         // A los no-ADMIN les quitamos el margen del payload (precio S.O., comisión, beneficio).
         const visible = await conEstadoDeExpediente(
-            (data || []).filter(o => o?.datos_calculo?.origen !== 'migracion_xml')
+            (data || []).map(filaListado).filter(o => o.datos_calculo.origen !== 'migracion_xml')
         );
         res.status(200).json(isNonAdmin(req) ? visible.map(stripPartnerMargin) : visible);
     } catch (error) {
@@ -1777,6 +1900,42 @@ router.get('/:id/docs', enforceAuth, async (req, res) => {
     } catch (e) {
         console.error('[Docs] GET error:', e);
         res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+// POST /api/oportunidades/:id/docs/clasificar → a qué apartado va cada foto.
+// ---------------------------------------------------------------------------
+// El "buzón": se sueltan las fotos de la obra tal y como llegan del chat y un
+// modelo PROPONE el apartado de cada una. NO escribe nada — ni Drive ni BD:
+// devuelve la propuesta y la sube después el camino de siempre, cuando una
+// persona la ha confirmado.
+//
+// `staffOnly`: detrás hay una llamada de pago, y esto es trabajo interno (el
+// cliente sube por su enlace, apartado a apartado, guiado).
+router.post('/:id/docs/clasificar', staffOnly, uploadFotosClasificar, async (req, res) => {
+    try {
+        const imagenes = (req.files || []).filter(f => (f.mimetype || '').startsWith('image/'));
+        if (!imagenes.length) return res.status(400).json({ error: 'No se ha recibido ninguna imagen.' });
+
+        const opp = await findOppForDocs(req.params.id);
+        if (!opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
+
+        // El checklist REAL de este expediente (con su alcance): un apartado que
+        // aquí no procede no puede ni proponerse, o la foto acabaría en un destino
+        // que la vista ya no enseña.
+        const slots = await reformaUploadService.checklistForOportunidad(opp);
+        const propuesta = await clasificarFotos.clasificar(
+            imagenes.map(f => ({ buffer: f.buffer, mimeType: f.mimetype, nombre: f.originalname })),
+            slots
+        );
+        return res.json({ propuesta });
+    } catch (e) {
+        console.error('[Docs] clasificar:', e.message);
+        return res.status(e.status === 504 ? 504 : 500).json({
+            error: e.status === 504
+                ? 'La lectura ha tardado demasiado. Colócalas a mano o prueba con menos fotos.'
+                : 'No se pudieron leer las fotos. Colócalas a mano.',
+        });
     }
 });
 

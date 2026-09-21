@@ -3599,6 +3599,36 @@ firmada por otro. El carné **no se imprime si coincide con el nº de empresa**:
 técnico declarado esa función devuelve el de empresa como carné (es el caso del autónomo) y el
 mismo número dos veces en la misma línea se lee como un error del documento.
 
+**REGLA — con DOS empresas, a QUIÉN se le pide la firma del CIFO se ELIGE al enviarlo**
+(2026-09-21). Es la consecuencia de que el recuadro vaya en blanco: si el papel no dice quién
+firma, no hay una respuesta que deducir — la pone quien envía. El popup «Enviar al instalador»
+ofrece las dos (`opcionesFirmanteCifo` en
+[instaladorPendientes.js](implementation/frontend/src/features/expedientes/logic/instaladorPendientes.js)),
+por defecto la HABILITADA, que es lo que la app venía haciendo: cambiar el defecto movería a quién
+se le pide la firma en todos los expedientes con delegación sin que nadie lo hubiera decidido.
+⚠️ **Esto NO vale para la Memoria RITE**, que imprime el nombre y el carné de quien la suscribe y
+solo puede firmarla el habilitado: ahí manda la ficha (`firmanteMemoriaRite`), no el popup.
+
+**REGLA — los DESTINATARIOS traen las DOS empresas, y se marcan los de quien firma.**
+`contactosDeLaActuacion` / `defaultContactIdsActuacion` en
+[docContacts.js](implementation/frontend/src/features/expedientes/utils/docContacts.js). Con solo
+los de quien firma, elegir una empresa y mandarle el enlace a la otra era el descuadre que el
+selector viene a evitar; y las dos hacen falta a la vez cuando en el mismo mensaje va la Memoria
+RITE. Cambiar de firmante re-marca los suyos pero **conserva lo marcado a mano** — puede haber que
+avisar a las dos. Los ids van PREFIJADOS (`ejecutora:` / `habilitada:`) porque los de
+`instaladorContacts` se repiten entre fichas (`empresa`, `c0`…) y dos contactos con el mismo id
+son uno solo en la lista. Ese prefijo **no rompe el espejo de ids del backend** (regla 44): el
+envío manda los destinatarios ya resueltos (`{nombre, email, phone}`), no sus ids. **Sin
+delegación no cambia nada**: ni selector, ni prefijos, ni rótulos.
+
+**REGLA — la elección se SELLA y va al historial.** `documentacion.cert_cifo_firmante_rol` +
+una entrada `cifo_firmante`, escritos por `/instalador/enviar`. El **NOMBRE lo resuelve el backend**
+desde la ficha, nunca se coge del body: el navegador manda solo cuál de las dos y el historial
+tiene que decir la verdad aunque llegue cualquier cosa. El sello va en `CLAVES_PROTEGIDAS` de
+`mergeDocumentacion`, o el primer autoguardado lo borraría (mismo fallo que el `refirma_at`); y el
+historial, que es un read-modify-write, se escribe ANTES de las RPC de sellado para no llevárselas
+por delante. Tras tocarlo: `node implementation/backend/scripts/test_firmante_cifo.mjs`.
+
 **REGLA — el recuadro de firma va SIN NOMBRE.** Quién firma no se sabe al generarlo: unas veces lo
 firma la empresa instaladora y otras el técnico habilitado. Con el nombre impreso había que
 regenerar el documento al cambiar de firmante —o quedaba un certificado que nombra a uno y lleva
@@ -9135,7 +9165,7 @@ python -m pytest implementation/cee-engine/tests/test_puentes.py
 
 ---
 
-## Una EDIFICACIÓN entera se quita de un clic (2026-09-16)
+## Una EDIFICACIÓN entera se quita de un clic (2026-09-16 · POR PLANTA 2026-09-21)
 
 En el plano se pulsa un cuerpo del edificio —el garaje adosado, el porche, el
 trastero del fondo— y se le dice **que no cuenta**. Se sombrea al pasar por
@@ -9150,27 +9180,60 @@ acertando con cuáles eran las suyas. Medido en 9412508VJ8691S: 71 m² de garaje
 
 | Qué | Dónde |
 |---|---|
-| Qué cuerpos hay, con qué construcción casa cada uno y de quién es cada pared | [gis/cuerpos.py](implementation/cee-engine/src/gis/cuerpos.py) |
+| Qué cuerpos hay, con qué construcción casa cada uno y **en qué plantas sobra** | [gis/cuerpos.py](implementation/cee-engine/src/gis/cuerpos.py) — `inventario`, `niveles_fuera` |
 | Quitar uno y volver a medir | `excluir_cuerpos()` en [pipeline.py](implementation/cee-engine/src/pipeline.py) |
+| La huella de cada planta y el forjado de encima | [gis/floors.py](implementation/cee-engine/src/gis/floors.py) — `Planta.no_habitable_partes`, `huella_construida`, `elementos_horizontales` |
 | Proyectarlos al lienzo del plano | `_cuerpos()` en [viz/plano_svg.py](implementation/cee-engine/src/viz/plano_svg.py) |
-| API | `POST /envolvente` con `cuerpos_excluidos`, y `cuerpos` en la respuesta |
+| API | `POST /envolvente` con `cuerpos_excluidos`; `cuerpos[].niveles_fuera` en la respuesta |
+| Lo mismo, dicho para la pantalla (puro) | [logic/cuerposEnvolvente.js](implementation/frontend/src/features/cee-envolvente/logic/cuerposEnvolvente.js) |
 | El gesto | `Cuerpos` en [PlanoPlanta.jsx](implementation/frontend/src/features/cee-envolvente/components/PlanoPlanta.jsx) + `CuerpoModal`/`AvisoCuerpos` en `EnvolventeView` |
 | Dónde se guarda | `cee.envolvente.cuerpos_fuera`, con el resto del trabajo |
-| Pruebas | `python -m pytest implementation/cee-engine/tests/test_cuerpos.py` |
+| Pruebas | `python -m pytest implementation/cee-engine/tests/test_garaje_por_planta.py implementation/cee-engine/tests/test_cuerpos.py` · `node implementation/backend/scripts/test_cuerpo_por_planta.mjs` |
+
+**REGLA — se quita POR PLANTA, nunca el cuerpo entero (2026-09-21).** Un garaje
+adosado con VIVIENDA ENCIMA es UN BuildingPart de DOS plantas: Catastro dibuja el
+prisma completo y declara APARCAMIENTO solo en la baja. Quitándolo de las dos, la
+planta primera pierde su superficie y sus fachadas reales — medido en
+2370310VJ4027S (26RES060_195): **19 m² y dos fachadas a la calle**, y en su lugar
+aparecían cuatro fachadas fantasma donde la vivienda continúa. En qué plantas
+sobra lo dice `cuerpos.niveles_fuera`: las de su construcción NO habitable; si no
+casa con ninguna —o casa con una que sí es vivienda, y se quita igual, contra
+Catastro— sale de todas, que es lo que se está pidiendo al pulsar el botón.
 
 **REGLA — «no cuenta» es VOLVER A MEDIR, no tachar paredes.** La pared que
 separaba el garaje de la casa NO existe en el modelo: Catastro une los dos
 cuerpos y esa línea queda dentro. Quitando la parte y midiendo otra vez, esa
-pared aparece como lo que es —fachada o medianera de la vivienda— y con el cuerpo
-se van además **su cubierta y su suelo**. Tachando sus paredes, la casa se queda
-abierta por ahí y con una cubierta que ya no cubre nada. La segunda salida
-(**«solo apartar sus paredes»**, instantánea y sin medir) se ofrece igual en el
-popup, diciendo esto mismo: hay veces que no se quiere que se remida.
+pared aparece como lo que es. Tachando sus paredes, la casa se queda abierta por
+ahí. La segunda salida (**«solo apartar sus paredes»**, instantánea y sin medir)
+se ofrece igual en el popup, diciendo esto mismo — y **aparta solo las de las
+plantas donde el cuerpo no cuenta**, o se lleva por delante las fachadas de la
+vivienda de arriba.
 
-**REGLA — se recorta también la huella GLOBAL** (`buildings`), no solo las
-partes. De ella sale el «edificio propio» con el que se clasifica cada tramo: sin
-recortarla, la pared que daba al garaje saldría como partición interior contra un
-edificio que ya no está.
+**REGLA — lo que se quita SIGUE CONSTRUIDO, así que NO se toca `buildings` ni se
+borra la parte del modelo.** De ahí salen las dos cosas que lo distinguen de un
+solar, y las dos son lo que el certificador tenía que poner a mano:
+- la pared de la casa contra él es una **PARTICIÓN VERTICAL con espacio no
+  habitable** (`Vecindad.no_habitables` por nivel), no una fachada al aire: por
+  ahí se pierde calor y no es adiabática;
+- el forjado de encima es una **partición con espacio no habitable inferior**, no
+  un voladizo (`Planta.huella_construida`).
+
+**REGLA — el forjado entre dos plantas de VIVIENDA no se escribe en el `.cex`.**
+A los dos lados hay la misma temperatura y CE3X no lo quiere. Lo marca el motor
+(`relevante_ce3x`) comparando el uso de las dos plantas, y `generar_cex` lo
+respeta: antes salía como «Partición Interior / Garaje-espacio enterrado» en
+**toda vivienda de dos plantas**, tuviera garaje o no. Y el **sentido** de una
+partición horizontal y su **tipo de espacio** los dice ahora el SUBTIPO del
+propio elemento (`SENTIDO_PARTICION`), no un booleano deducido de los niveles:
+van emparejados en CE3X —«Garaje/espacio enterrado» solo existe hacia abajo— y
+escribirlos al revés es un cerramiento que CE3X lee mal.
+
+⚠️ **`DIBUJABLES` en `plano_svg.py` decía `PARTICION_VERTICAL` y el motor emite
+`PARTICION_INTERIOR_VERTICAL`** (`schema.TIPO_PARTICION_VERTICAL`). Con el nombre
+corto, la pared contra el garaje se contaba en el resumen y **no se pintaba**: no
+se podía ni seleccionar ni ponerle huecos. Lo mismo en el frontend, donde todas
+las comparaciones son con el corto — se traduce en **`tipoDe`**, que es la puerta
+única por la que pasa el tipo de cada muro de la pantalla.
 
 **REGLA — casar un cuerpo con su construcción es una CONJETURA, y se dice.**
 Catastro **no publica el polígono de cada unidad constructiva** (sus `spaces`
@@ -9190,6 +9253,13 @@ a trazos en ámbar sin tener que pulsar nada.
 **REGLA — el cuerpo que está FUERA se sigue viendo.** Se dibuja atenuado, con su
 rótulo «NO CUENTA», y pulsándolo se devuelve. Un cuerpo que desaparece del plano
 no se puede volver a meter, y esa es la mitad de la función.
+
+**REGLA — «NO CUENTA» y el aviso en ámbar son DE ESA PLANTA** (`fueraAqui` /
+`sospechosoAqui` en `cuerposDeLaPlanta`). El mismo cuerpo puede sobrar abajo y ser
+la vivienda arriba: pintarlo igual en las dos es lo que llevó a apartar a mano una
+fachada de verdad de la planta primera. Y los textos lo DICEN («Quitarlo de la
+planta baja», «en la planta 1 sigue contando»): decir solo «se quita» hace pensar
+que se va entero.
 
 **REGLA — al volver a MEDIR se resiembra el trabajo ACTUAL, no el de cuando se
 abrió la ventana.** El plano se siembra desde lo que se leyó al abrir; sin esto,
@@ -10044,6 +10114,85 @@ botón de visto bueno. Mientras eso no exista, la revisión se hace con el CLI o
 Cowork, sin el comprobador delante, el veredicto lo da el modelo aplicando
 `referencia/criterio.md`, que **no es lo mismo** y el informe tiene que decirlo.
 
+### Para el CERTIFICADO o para el EXPEDIENTE: no es lo mismo (2026-09-21)
+
+Las fotos de una obra sirven para dos cosas distintas y tenían la misma pinta:
+
+| Destino | Qué es | Cuándo se pide |
+|---|---|---|
+| **`CEE`** | La fachada desde la calle, las paredes que dan a patios, el vídeo, los planos, el CEE anterior. Es lo que el CERTIFICADOR necesita para modelar la vivienda en CE3X | ANTES de aceptar, y deja de pedirse cuando el CEE inicial queda registrado |
+| **`EXPEDIENTE`** | Caldera y su placa, máquinas nuevas y las suyas, caldera retirada, envolvente antes/después, facturas | Es lo que justifica la actuación: de aquí salen el Anexo Fotográfico y el CIFO |
+
+Mezclados en una lista corrida, ni el admin sabía qué hacía falta para qué ni se
+podía pedir una cosa sin la otra — y pedirle a la vez la fachada (que puede
+hacer hoy) y la máquina nueva instalada (que no existe) es pedirle una foto
+imposible, que es lo que hace que no atienda ninguna.
+
+**REGLA — el destino es un ATRIBUTO del slot** (`destinoDeSlot` en
+[reformaUploadService.js](implementation/backend/services/reformaUploadService.js)),
+no una lista que cada vista rehace. Lo declara el checklist y lo consumen las tres
+superficies: los dos bloques del panel, los botones de petición y el titular que
+ve el cliente.
+
+⚠️ En un **RES080 la ENVOLVENTE es del EXPEDIENTE**, no del certificado: son los
+slots `FOTO_VENTANAS_ANTES`/`_DESPUES` y compañía, distintos de
+`FOTO_FACHADA_PRINCIPAL`, que es la fachada desde la calle y solo sirve de
+contexto para el CEE.
+
+**Al cliente se le dice PARA QUÉ.** Si todo lo que se le pide es del mismo
+destino, el enlace lo explica en una línea ("esto es para poder hacer el
+certificado energético de tu vivienda; con estas fotos el técnico se ahorra una
+visita"). Mezclado no se dice nada: afirmar "esto es para el certificado" con
+media lista de la obra sería mentir a medias.
+
+**REGLA — lo `optionalAlways` NO se reclama.** El CEE anterior se le OFRECE ("si
+ya tienes uno") y el RITE lo emite el instalador: meterlos en una lista de "nos
+falta" le reclama al cliente un papel que puede no existir, y le deja la
+sensación de que su expediente está parado por su culpa cuando no lo está. Siguen
+en la lista del popup para marcarlos a mano.
+
+**REGLA — mientras la obra no esté terminada, lo del DESPUÉS no se preselecciona.**
+El botón dice cuántas va a pedir, y ese número tiene que ser el de verdad: si
+contara 9 y la lista viniera con 4 marcadas, sería una promesa falsa.
+
+### El bloque del parte: sin las fotos, no hay certificado
+
+`CEE_SIN_MATERIAL` en [seguimientoRadar.js](implementation/backend/services/seguimientoRadar.js).
+Se acepta la propuesta, el cliente no manda nada y el expediente se queda parado
+ANTES de empezar, sin que nadie lo reclame. Medido al estrenarlo: **16
+expedientes** en producción, el más antiguo de **160 días**.
+
+Es distinto de `SIN_ENCARGAR` —allí falta que mandemos el encargo— y solo vive
+mientras el material sirve de algo: en cuanto el CEE se entrega (`PRESENTADO` en
+adelante), el técnico ya pudo trabajar y reclamarlo sería pedir fotos que no va a
+mirar nadie.
+
+**REGLA — el detector mira `reforma_uploads`; el MENSAJE se compone mirando
+DRIVE.** Traer Drive de 150 expedientes es una llamada por cada uno, así que el
+detector se conforma con lo que hay en la BD — y por eso puede sobrar alguno. El
+texto lo redacta `faltantesPorDestino`, que sí reconcilia (regla 20) y puede
+acabar diciendo que no falta nada. Los MIGRADOS se excluyen: su material vive en
+el Drive antiguo y saldrían todos en falso.
+
+**REGLA — solo se reclama lo IMPRESCINDIBLE** (`SLOTS_CEE_MINIMOS`: fachada y
+patios). El vídeo, los planos y el CEE anterior ayudan, pero el certificador
+trabaja sin ellos; reclamar lo que da igual que no llegue es lo que enseña a
+ignorar el parte entero.
+
+El envío en bloque (`pedir-cee` en `TIPOS_LOTE`) manda UN mensaje al cliente con
+sus N viviendas, cada línea con su enlace filtrado.
+
+### El botón «Fotos» del expediente abre el gestor de DOCUMENTACIÓN
+
+Abría el gestor del Anexo Fotográfico (`soloFotos`), y ese gestor es para
+preparar ESE DOCUMENTO —ordenar, comentar, excluir del PDF—, no para trabajar con
+las fotos: quien pulsa "Fotos" viene a subir, a revisar o a pedir, y allí no
+estaban ni el buzón, ni pegar, ni "pedírsela al cliente", ni los dos bloques.
+Revierte la decisión de 2026-07-24 (decisión del usuario, 2026-09-21). El gestor
+del Anexo sigue vivo **dentro del propio Anexo Fotográfico**, que es de donde se
+llega a lo suyo, y su "+ Añadir fotos" sube ya por la ruta de tanda.
+
+
 ---
 
 ## Reglas Críticas — No Romper
@@ -10131,7 +10280,7 @@ Cowork, sin el comprobador delante, el veredicto lo da el modelo aplicando
     Comprueba que nadie pide fuentes a Google y que las 44 caras declaradas existen en `public/fonts`. Pásalo al tocar un documento o al añadir un peso.
     ⚠️ El origen lo resuelve `origenApp()` en `fuentesDoc.js` (navegador → `window.location.origin`; Node → `CIFO_ASSET_URL`/`VITE_APP_URL`/`FRONTEND_URL`), porque estos documentos se generan **también en el servidor** y en relativo no hay base que resolver sobre `about:blank`.
 
-26.b **El CIFO y el certificado RES080 identifican a las DOS empresas cuando no son la misma**: la que EJECUTA y factura (instalador asignado) y la HABILITADA que firma ante Industria (`instalador_rite_id`). Sin las dos, el NIF del certificado no casa con el de las facturas del expediente. Fuente única de la decisión y del texto: `empresasActuacion` / `notaDelegacionRite` en [docGenerators.js](implementation/frontend/src/features/expedientes/utils/docGenerators.js). Con una sola empresa el documento no cambia. **En el CIFO preside la EJECUTORA** (nombre, NIF y domicilio) y la habilitada ocupa una sola fila, «Técnico firmante de la memoria», con sus DOS números —el de EMPRESA habilitada y el CARNÉ PERSONAL de quien firma, que se resuelven con `firmanteMemoriaRite` y no se imprimen repetidos—; el NIF de la habilitada sigue constando en la nota de responsabilidad. Y **su recuadro de firma va SIN NOMBRE**: unas veces firma la empresa instaladora y otras el técnico, y la identidad la pone el certificado electrónico (2026-09-21). Los dos documentos tienen hojas de alto FIJO: tras tocarlos, pasar `check_cifo_paginas.mjs` **y** `check_res080_paginas.mjs`. Ver "Quién EJECUTA la obra y quién FIRMA ante Industria".
+26.b **El CIFO y el certificado RES080 identifican a las DOS empresas cuando no son la misma**: la que EJECUTA y factura (instalador asignado) y la HABILITADA que firma ante Industria (`instalador_rite_id`). Sin las dos, el NIF del certificado no casa con el de las facturas del expediente. Fuente única de la decisión y del texto: `empresasActuacion` / `notaDelegacionRite` en [docGenerators.js](implementation/frontend/src/features/expedientes/utils/docGenerators.js). Con una sola empresa el documento no cambia. **En el CIFO preside la EJECUTORA** (nombre, NIF y domicilio) y la habilitada ocupa una sola fila, «Técnico firmante de la memoria», con sus DOS números —el de EMPRESA habilitada y el CARNÉ PERSONAL de quien firma, que se resuelven con `firmanteMemoriaRite` y no se imprimen repetidos—; el NIF de la habilitada sigue constando en la nota de responsabilidad. Y **su recuadro de firma va SIN NOMBRE**: unas veces firma la empresa instaladora y otras el técnico, y la identidad la pone el certificado electrónico (2026-09-21). Por eso, **a cuál de las dos se le pide la firma se ELIGE en el popup de envío** (`opcionesFirmanteCifo`; por defecto la habilitada), los destinatarios traen los contactos de LAS DOS rotulados (`contactosDeLaActuacion`) y la elección se sella en `cert_cifo_firmante_rol` + historial. La Memoria RITE queda fuera del selector: imprime el carné de quien la suscribe y solo puede firmarla el habilitado. Los dos documentos tienen hojas de alto FIJO: tras tocarlos, pasar `check_cifo_paginas.mjs` **y** `check_res080_paginas.mjs`. Ver "Quién EJECUTA la obra y quién FIRMA ante Industria".
 
 27.b **El Certificado RITE se LEE al subirlo**: de él salen la fecha de PRUEBAS y la de FIRMA —las que fijan el inicio y el fin de actuación del CIFO— y una comprobación del emplazamiento (dirección + referencia catastral) contra el expediente. Solo se mandan a leer las DOS PRIMERAS PÁGINAS (258 tokens/página, y estos PDF llegan con los acuses detrás): ~0,0005 € por lectura. Se rellenan HUECOS, nunca se pisa una fecha ya escrita, y el emplazamiento AVISA pero no bloquea. Fuentes únicas: [riteOcrService.js](implementation/backend/services/riteOcrService.js) (leer) y [riteCertificado.js](implementation/backend/services/riteCertificado.js) (juzgar y escribir). Ver "El Certificado RITE se LEE al subirlo".
 
@@ -10214,7 +10363,7 @@ Cowork, sin el comprobador delante, el veredicto lo da el modelo aplicando
 
 48.f **Un certificador FIRMA como persona y puede ejercer en una EMPRESA**: CE3X pide las dos casillas —Nombre y Apellidos + NIF de quien firma, Razón social + CIF de la sociedad— y la ficha no tenía dónde declarar la segunda, así que se colaba en los campos de al lado (la de FÉLIX PÉREZ SOBRINO llevaba `cif` = B01799436, que es el de FESSA SOLAR, SL). Se declara en `empresa_razon_social` / `empresa_cif`, que es **texto** y no un enlace a otra ficha: la empresa de un certificador no tiene por qué estar dada de alta, y el `.cex` no puede depender de una ficha ajena. **El nombre de una sociedad nunca desplaza al de quien firma** —la titulación y el nº de colegiado son suyos— y sin empresa declarada la casilla «Razón social» la ocupa su propio nombre, que es como se emitieron los de Luis Alberto y Raquel. **De quién es el `cif` lo dice `es_autonomo`**, no la empresa: en los demás, sin `nif_responsable` la casilla del NIF sale vacía y se avisa, antes que escribir ahí el CIF de una sociedad. Y a un CERTIFICADOR se le nombra y se le busca por su NOMBRE (`nombrePartner`), con la empresa debajo; a un INSTALADOR, por su acrónimo, como siempre. Tras tocarlo: `node implementation/backend/scripts/test_tecnico_ce3x.mjs`. Ver "Un certificador FIRMA como persona".
 
-48.j **Una EDIFICACIÓN entera se quita del plano de un clic, y eso VUELVE A MEDIR**: la envolvente de un certificado es la de la VIVIENDA, pero el plano se arma por NIVEL —la planta baja tiene vivienda, luego se dibuja entera— así que las paredes del aparcamiento adosado entraban igual (medido en 9412508VJ8691S: 71 m² de garaje y **98 m² de cerramiento vertical** ajenos a la vivienda). Se pulsa el cuerpo y el motor mide otra vez sin él (`cuerpos_excluidos` → `excluir_cuerpos`), con lo que la pared que lo separaba de la casa aparece como lo que es y se van también su cubierta y su suelo; tachar sus paredes deja la casa abierta por ahí, y por eso «solo apartar sus paredes» es la segunda opción del popup, no la primera. **Se recorta también la huella GLOBAL** (`buildings`), o ese tramo saldría como partición contra un edificio que ya no está. **Casar cuerpo con construcción es una CONJETURA** —Catastro NO publica el polígono de cada `lcons`— así que se empareja por SUPERFICIE (1:1, mismo nivel, parecido ≥ 92 %) y lo que no casa se dice. **Lo que Catastro no cuenta como vivienda se AVISA con su botón, nunca se quita solo**, y el cuerpo que está fuera se sigue viendo para poder devolverlo. ⚠️ Al volver a medir se resiembra el trabajo ACTUAL y no el de cuando se abrió la ventana (`volverAMedir`), o los huecos puestos desde entonces se pierden — el mismo fallo que tenía latente el cambio de construcciones. Fuente única: [gis/cuerpos.py](implementation/cee-engine/src/gis/cuerpos.py). Tras tocarlo: `python -m pytest implementation/cee-engine/tests/test_cuerpos.py`. Ver "Una EDIFICACIÓN entera se quita de un clic".
+48.j **Una EDIFICACIÓN entera se quita del plano de un clic, se vuelve a medir, y sale SOLO DE LAS PLANTAS EN LAS QUE SOBRA**: la envolvente de un certificado es la de la VIVIENDA, pero el plano se arma por NIVEL —la planta baja tiene vivienda, luego se dibuja entera— así que las paredes del aparcamiento adosado entraban igual (medido en 9412508VJ8691S: 71 m² de garaje y **98 m² de cerramiento vertical** ajenos a la vivienda). Se pulsa el cuerpo y el motor mide otra vez sin él (`cuerpos_excluidos` → `excluir_cuerpos`). ⚠️ **POR PLANTA, no entero** (2026-09-21): un garaje con vivienda encima es UN BuildingPart de DOS plantas y Catastro solo declara APARCAMIENTO en la baja — quitarlo de las dos le costaba a la planta primera 19 m² y **sus dos fachadas reales a la calle** (medido en 2370310VJ4027S · 26RES060_195), y en su lugar salían cuatro fachadas fantasma. Lo dice `cuerpos.niveles_fuera`: los niveles de su construcción NO habitable, o todos si no casa con ninguna. **Lo que se quita SIGUE CONSTRUIDO** —no se toca `buildings` ni se borra la parte—, y de ahí salen las dos cosas que el certificador ponía a mano: la pared de la casa contra él es una **PARTICIÓN VERTICAL** con espacio no habitable (`no_habitables` por nivel) y el forjado de encima, una **partición con espacio no habitable inferior** y no un voladizo (`Planta.huella_construida`). **El forjado entre dos plantas de VIVIENDA no se escribe en el `.cex`** (`relevante_ce3x`): salía como «Garaje/espacio enterrado» en toda vivienda de dos plantas, tuviera garaje o no, y el sentido de una partición lo dice ahora su SUBTIPO. **Casar cuerpo con construcción es una CONJETURA** —Catastro NO publica el polígono de cada `lcons`— así que se empareja por SUPERFICIE (1:1, mismo nivel, parecido ≥ 92 %) y lo que no casa se dice. **Lo que Catastro no cuenta como vivienda se AVISA con su botón, nunca se quita solo**; el cuerpo que está fuera se sigue viendo para devolverlo, y «NO CUENTA» solo se pinta en las plantas donde de verdad no cuenta. ⚠️ `DIBUJABLES` decía `PARTICION_VERTICAL` y el motor emite `PARTICION_INTERIOR_VERTICAL`: la pared contra el garaje se contaba y **no se pintaba** — en el frontend se traduce en `tipoDe`, puerta única del tipo de cada muro. ⚠️ Al volver a medir se resiembra el trabajo ACTUAL y no el de cuando se abrió la ventana (`volverAMedir`), o los huecos puestos desde entonces se pierden. Fuentes únicas: [gis/cuerpos.py](implementation/cee-engine/src/gis/cuerpos.py) y [logic/cuerposEnvolvente.js](implementation/frontend/src/features/cee-envolvente/logic/cuerposEnvolvente.js). Tras tocarlo: `python -m pytest implementation/cee-engine/tests/test_garaje_por_planta.py` y `node implementation/backend/scripts/test_cuerpo_por_planta.mjs`. Ver "Una EDIFICACIÓN entera se quita de un clic".
 
 48.i **La envolvente vale también para los CEE DIRECTOS** (`/envolvente/:id?origen=cee`): el botón CE3X del módulo CEE abría la ventana pidiendo el encargo a `/api/expedientes/:id` y contestaba «Ese expediente no existe» — son dos tablas y el mismo UUID no vale en las dos. **Se ADAPTA la fila, no se bifurca la lógica**: [ceeDirectoComoExpediente](implementation/frontend/src/features/cee-envolvente/logic/ceeDirecto.js) compone el `instalacion` sintético (RC, dirección y **zona climática**, que en `cee_directos` son columnas) y `fichaCe3x`, `buildInstalacionAddress` y el plano funcionan sin enterarse; es fuente única con la ventana, cargada por `import()` ESM. **El ORIGEN viaja explícito** (`?origen=cee`, que lo pone `CeeModule` desde su `apiBase` y lo lee [apiEnvolvente.js](implementation/frontend/src/features/cee-envolvente/logic/apiEnvolvente.js)): nunca se busca en qué tabla está un UUID. Dónde se escribe y dónde cae el `.cex` lo deciden `esCeeDirecto`/`setCeeField`/`carpetaFase`/`sufijoCex` (RPC nueva `set_cee_directo_cee_field`). Un encargo de **alcance ÚNICO no tiene fase FINAL** —su fichero se llama `CEE_REVISAR.cex` y saldría con el mismo nombre en la misma carpeta—: no se ofrece el botón y la ruta responde 409. Sin `instalacion` que leer, el equipo **se teclea** y el botón de leer la placa no se pinta. Las construcciones que cuentan van a `cee.construcciones_elegidas` del propio encargo. ⚠️ De paso se arregló que `paredFotoService.carpeta` y `sustituirImagen` le pasaban el EXPEDIENTE a `ensureCeeSectionFolder` (que espera el id de la carpeta): subir una foto de cerramiento o sustituir la de fachada no funcionaba **en ninguno de los dos negocios**. ⚠️ Y que una planta en DOS cuerpos (`MultiPolygon`) mataba al motor en `segmentar()`; para un polígono suelto la salida es idéntica (`tests/test_orientation.py`). Tras tocarlo: `node implementation/backend/scripts/probar_cex_envolvente.js 2026CEE_55 --cee`. Ver "La envolvente vale también para los CEE DIRECTOS".
 
@@ -10245,7 +10394,7 @@ Cowork, sin el comprobador delante, el veredicto lo da el modelo aplicando
 
 67. **El documento viaja ENTERO, y lo firma el apoderado que se ELIGE**: desde que las fichas RES se rellenan sobre el impreso oficial (regla 41) una ficha es un `formulario`, y los dos modales del lote serializaban a mano los campos del documento dejándolo fuera — la ficha llegaba vacía al backend, el bucle la saltaba **en silencio** y el correo salía solo con el Anexo I (medido en un requerimiento de LOTE-2025-006; afectaba también al envío inicial al S.O. desde el 09/09/2026). Fuente única: `docParaEnvio` en [logic/docEnvio.js](implementation/frontend/src/features/lotes/logic/docEnvio.js), y **un documento marcado que no se puede preparar ABORTA el envío** diciendo cuál, nunca se salta. Y una empresa puede tener VARIOS apoderados —en INTERNACIONAL DE ALCOHOLES firman Pedro José López Montero (06239730Z) y Jesús Antonio Almodóvar Fuentes (06236833S)—, cuyo nombre y NIF van impresos en la casilla «Representante del solicitante»: se eligen en el envío (`FirmantePicker`, que no se pinta con uno solo) y se declaran en la ficha del S.O. (`prescriptores.representantes`, solo los ADICIONALES: el principal sigue en `nombre_responsable`/`nif_responsable` y no se duplica). **Se SELLA a quién se le pidió la firma** (`documentos_so[].rep_nombre`/`rep_nif`): con él, la página `/firmar-lote/:id` nombra al apoderado de esa ronda, `firmadosSo` comprueba contra ÉL —sin sello vale cualquiera de los declarados— y la SOLICITUD de emisión sale a nombre del que firmó las fichas, sin volver a preguntar. Tras tocarlo: `node implementation/backend/scripts/test_firmante_so.mjs`. Ver "Quién FIRMA por el SUJETO OBLIGADO".
 
-68. **Las fotos suben en TANDA, se pegan con Ctrl+V y se reparten desde un buzón**: cada foto era su propio POST, y ese POST le pedía a Drive tres cosas **antes de mover un byte** (buscar la subcarpeta · listar el slot para el índice `_N` · en slot único, listar otra vez para borrar la anterior), en serie — porque dos subidas a la vez calculaban el mismo índice y se pisaban el nombre. Ahora `subirFicherosASlot` ([reformaUploadService.js](implementation/backend/services/reformaUploadService.js)) lista **una vez**, reserva los índices de toda la tanda y sube **en paralelo** (tope 4); la subcarpeta se resuelve una vez por proceso (`ensureSubfolderId` — ⚠️ su respaldo es devolver el PADRE cuando falla, y ese caso NO se cachea o todas las fotos caerían en la raíz). Es **fuente única**: `/:slot` (un fichero, que siguen usando los navegadores sin refrescar y el gestor del Anexo Fotográfico) y `/:slot/batch` delegan las dos, o la misma foto se nombraría distinto según por dónde entre. **Una tanda a medias se responde 200 con el parcial** (`items` + `fallidas`): lo que ya está en Drive no puede presentarse como si no hubiera pasado nada. La **miniatura se pinta antes de que responda el servidor** y el botón dice la fase real ("Preparando 3 de 10…" y luego un porcentaje monótono, que es el de UNA petición y no vuelve a cero en cada foto). **Ctrl+V** pega en la tarjeta que señala el ratón, anunciándolo en ella (`hidden md:`: en un móvil no hay portapapeles). Soltar **fuera** de una casilla abre el **BUZÓN** ([BuzonFotos.jsx](implementation/frontend/src/features/docs/BuzonFotos.jsx)): un modelo propone el apartado de cada foto y dice qué ha visto, y la persona confirma — el prompt lleva dentro el checklist REAL de ese expediente y **una clave que no esté en él se descarta**, la foto queda "sin clasificar" y no se sube; el cajón "Otros" no se propone nunca. A clasificar va una copia **muy reducida** (768 px: se reconoce el aparato, no se lee su serie) y **con `pensar: true`**, al revés que los lectores que transcriben; en tandas de 12, porque con más el modelo confunde el orden de las imágenes con el de las respuestas. Y **📩 Pedírsela** en cada casilla vacía manda el enlace filtrado `?need=` con el mensaje en lenguaje de cliente, **refrescando antes la lista de lo que falta** — si no, se le reclama lo que acaba de subir. Dos huecos de alcance cerrados: **`FOTO_HIBRIDACION`** (lo que define un RES093/TER173 son las dos máquinas conectadas, y eso no lo enseña ninguna otra foto; entra también en el mapa explícito del Anexo Fotográfico) y el **depósito de ACS que va DENTRO de la unidad interior**, que se retira solo si el expediente lo afirma y solo si está vacío (`acsEquipoPropio`, por la MÁQUINA y no por el flag — regla 12.c). Tras tocarlo: `node implementation/backend/scripts/test_docs_fotos.js`. Ver "El gestor de FOTOGRAFÍAS".
+68. **Las fotos suben en TANDA, se pegan con Ctrl+V y se reparten desde un buzón**: cada foto era su propio POST, y ese POST le pedía a Drive tres cosas **antes de mover un byte** (buscar la subcarpeta · listar el slot para el índice `_N` · en slot único, listar otra vez para borrar la anterior), en serie — porque dos subidas a la vez calculaban el mismo índice y se pisaban el nombre. Ahora `subirFicherosASlot` ([reformaUploadService.js](implementation/backend/services/reformaUploadService.js)) lista **una vez**, reserva los índices de toda la tanda y sube **en paralelo** (tope 4); la subcarpeta se resuelve una vez por proceso (`ensureSubfolderId` — ⚠️ su respaldo es devolver el PADRE cuando falla, y ese caso NO se cachea o todas las fotos caerían en la raíz). Es **fuente única**: `/:slot` (un fichero, que siguen usando los navegadores sin refrescar y el gestor del Anexo Fotográfico) y `/:slot/batch` delegan las dos, o la misma foto se nombraría distinto según por dónde entre. **Una tanda a medias se responde 200 con el parcial** (`items` + `fallidas`): lo que ya está en Drive no puede presentarse como si no hubiera pasado nada. La **miniatura se pinta antes de que responda el servidor** y el botón dice la fase real ("Preparando 3 de 10…" y luego un porcentaje monótono, que es el de UNA petición y no vuelve a cero en cada foto). **Ctrl+V** pega en la tarjeta que señala el ratón, anunciándolo en ella (`hidden md:`: en un móvil no hay portapapeles). Soltar **fuera** de una casilla abre el **BUZÓN** ([BuzonFotos.jsx](implementation/frontend/src/features/docs/BuzonFotos.jsx)): un modelo propone el apartado de cada foto y dice qué ha visto, y la persona confirma — el prompt lleva dentro el checklist REAL de ese expediente y **una clave que no esté en él se descarta**, la foto queda "sin clasificar" y no se sube; el cajón "Otros" no se propone nunca. A clasificar va una copia **muy reducida** (768 px: se reconoce el aparato, no se lee su serie) y **con `pensar: true`**, al revés que los lectores que transcriben; en tandas de 12, porque con más el modelo confunde el orden de las imágenes con el de las respuestas. Y **📩 Pedírsela** en cada casilla vacía manda el enlace filtrado `?need=` con el mensaje en lenguaje de cliente, **refrescando antes la lista de lo que falta** — si no, se le reclama lo que acaba de subir. Dos huecos de alcance cerrados: **`FOTO_HIBRIDACION`** (lo que define un RES093/TER173 son las dos máquinas conectadas, y eso no lo enseña ninguna otra foto; entra también en el mapa explícito del Anexo Fotográfico) y el **depósito de ACS que va DENTRO de la unidad interior**, que se retira solo si el expediente lo afirma y solo si está vacío (`acsEquipoPropio`, por la MÁQUINA y no por el flag — regla 12.c). Y cada apartado declara su **DESTINO** (`destinoDeSlot`): `CEE` —lo que el certificador necesita para modelar la vivienda: fachada desde la calle, patios, vídeo, planos, CEE anterior— o `EXPEDIENTE` —lo que justifica la actuación—. ⚠️ En un RES080 la ENVOLVENTE es del EXPEDIENTE, no del certificado. De ahí salen los dos bloques del panel, los dos botones de petición rápida y el titular que le explica al cliente PARA QUÉ se le pide (solo si todo lo pedido es del mismo destino: mezclado sería mentir a medias). **Lo `optionalAlways` no se reclama** —el CEE anterior se OFRECE— y **lo del DESPUÉS no se preselecciona mientras la obra no esté terminada**. El parte diario lo vigila con **`CEE_SIN_MATERIAL`** (16 expedientes en producción al estrenarlo, el más viejo de 160 días): el detector mira `reforma_uploads` —Drive de 150 expedientes sería una llamada por cada uno— y el MENSAJE lo compone `faltantesPorDestino`, que sí reconcilia con Drive y puede acabar diciendo que no falta nada. Y el botón **«Fotos» del expediente abre este gestor**, no el del Anexo Fotográfico (decisión del usuario, 2026-09-21: aquí se viene a subir y a pedir; a ordenar y comentar se entra desde el propio Anexo). Tras tocarlo: `node implementation/backend/scripts/test_docs_fotos.js`. Ver "El gestor de FOTOGRAFÍAS".
 
 69. **El CEE que entrega el certificador se REVISA antes de darle el visto bueno**: `radiografiaCee` lee los HECHOS del `.xml` y `revisionCee` los cruza con el expediente punto por punto, con la evidencia literal al lado (`node scripts/revisar_cee.js --expediente 26RES060_192`). **PROPONE, no aprueba**: no escribe en el expediente, no registra incidencias y no le escribe al certificador — el visto bueno se sigue dando en el módulo CEE. **Lo que no se puede comprobar se DICE** y baja el veredicto a APTO CON AVISOS: un punto callado se lee como un punto que está bien. Tres cosas MEDIDAS sobre los 462 certificados reales: **la acumulación de ACS NO está en el `.xml`** (el único nodo con «volumen» es el de la vivienda — solo vive en el `.cex`, regla 48.b), **en un RES080 qué se sustituye no se lee del texto de la medida de mejora** (es texto libre: «CEE FINAL.cex», «MAE 1») sino comparando los DOS certificados cerramiento a cerramiento —la ventana que se cambia es la que baja de U—, y **el combustible se compara por FAMILIA**, porque `gas_*` cubre gas natural y GLP con la misma fila del Anexo VIII (dentro de la familia → aviso; cambiar de familia → falla). El `.xml` se lee de **Supabase** (`cee.xml_inicial`), donde vive EN MAYÚSCULAS: `parseCeeXml` no puede releerlo (regla 32) y este lector sí, porque busca sin distinguir mayúsculas — si alguien quita el flag `i`, deja de funcionar en silencio. Comprueba además que las **transmitancias** de muros, cubierta, suelo y particiones estén justificadas —⚠️ en el `.xml` el «Conocido» de CE3X se escribe **`Usuario`**, no existe ninguna cadena «Conocido»; los huecos lo declaran en `<ModoDeObtencionTransmitancia>` y los puentes térmicos no cuentan—, que la **fecha del certificado** sea la que consta en el expediente (que es la que el visto bueno le pide firmar, `fechaFirmaCee`), que la **visita** sea anterior al certificado y exista, y que **quien firma** sea el técnico asignado (por su NIF o el de su entidad). Esos cuatro son AVISO salvo la visita posterior y la fecha futura, que son imposibles: como fallo, el de las transmitancias dejaría fuera a media cartera (65 de 115 la cumplen; el SUELO queda fuera de la cuenta porque solo el 11 % lo justifica). ⚠️ La **FASE no se deduce del nombre del fichero**: de ella depende el criterio, y equivocarla revisa con el contrario. Tras tocarlo: `node implementation/backend/scripts/test_revision_cee.js`. Ver "REVISAR el CEE que entrega el certificador".
 

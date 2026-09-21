@@ -24,7 +24,7 @@
 
 const supabase = require('./supabaseClient');
 const { detectPrograma, esSustitucionCaldera, esHibridacion } = require('../utils/fichas');
-const { esTermoElectrico } = require('../utils/aerotermiaUnits');
+const { esTermoElectrico, mismaMaquina, acsEsOtraMaquina, getUnidades } = require('../utils/aerotermiaUnits');
 
 /** ¿Hay valor de verdad (no null/vacío/placeholder de los migrados)? */
 function present(v) {
@@ -88,6 +88,46 @@ function acsEnAlcance(inst) {
 }
 
 /**
+ * ¿El agua caliente la da una máquina DISTINTA de la de calefacción?
+ *
+ *   true  → dos aparatos: la unidad interior y el depósito de ACS son cosas
+ *           distintas y cada una necesita su foto.
+ *   false → es la MISMA máquina (un conjunto con el depósito dentro): pedir
+ *           "la unidad interior" y "el depósito" son dos fotos del mismo
+ *           aparato, y la segunda se queda siempre sin subir.
+ *   null  → el expediente aún no identifica los equipos: no se afirma nada y
+ *           manda el comportamiento de siempre (los dos apartados).
+ *
+ * Lo decide la MÁQUINA (`aerotermiaUnits`), nunca el flag `misma_aerotermia_acs`
+ * — regla 12.c: ese flag baja a `false` en cuanto alguien rellena el bloque de
+ * ACS para poner su SCOP_dhw, que es lo normal, y leerlo como "son dos equipos"
+ * duplicaría la foto en todos los conjuntos.
+ */
+function acsEquipoPropio(inst) {
+    if (!inst || typeof inst !== 'object') return null;
+    // El flag en ALTO sí es una declaración ("el ACS lo da la misma máquina"): es
+    // el toggle de Instalación sin tocar el bloque de ACS. Lo que no vale es su
+    // `false` (regla 12.c), que se pone solo con rellenar el SCOP_dhw.
+    if (inst.misma_aerotermia_acs === true) return false;
+    if (mismaMaquina(inst.aerotermia_acs, inst.aerotermia_cal)) return false;
+    // ⚠️ `acsEsOtraMaquina` responde TRUE con los dos nodos en blanco, y hace bien:
+    // dos huecos sin rellenar no son "el mismo equipo" y darlos por uno escondería
+    // el que falta. Pero aquí eso no es una declaración: para afirmar que son dos
+    // aparatos hay que tener IDENTIFICADO el de ACS.
+    if (!identificado(inst.aerotermia_acs)) return null;
+    return acsEsOtraMaquina(inst);
+}
+
+/** ¿Este nodo nombra una máquina concreta (catálogo, o marca y modelo)? */
+function identificado(nodo) {
+    return getUnidades(nodo).some(u => u && (
+        (u.aerotermia_db_id != null && String(u.aerotermia_db_id).trim() !== '')
+        || String(u.marca || '').trim()
+        || String(u.modelo || u.modelo_conjunto || '').trim()
+    ));
+}
+
+/**
  * Alcance documental a partir del expediente (puede ser null) y su oportunidad.
  * Función PURA: los llamadores que ya tienen las filas en mano la usan directa
  * (el barrido), y `resolver()` es el envoltorio que las lee de la BD.
@@ -123,6 +163,9 @@ function alcanceFromExpediente(exp, opp) {
         // sí lo es: alguien movió el toggle en Instalación a propósito. Por eso
         // solo se propaga el false.
         acs_misma_caldera: inst.misma_caldera_acs === false ? false : null,
+        // ¿El equipo NUEVO de ACS es otra máquina, o el depósito va dentro de la
+        // unidad interior? De ahí depende que se pidan una foto o dos.
+        acs_equipo_propio: exp ? acsEquipoPropio(inst) : null,
         emisor: familiaEmisor(inst.tipo_emisor),
         piscina: inst.piscina?.activa === true ? true : (exp ? false : null),
         envolvente: envolventeDeclarada(doc.envolvente || e.envolvente),
@@ -194,6 +237,7 @@ function conAlcance(datosCalculo, alcance) {
 
 module.exports = {
     present,
+    acsEquipoPropio,
     familiaEmisor,
     envolventeDeclarada,
     acsEnAlcance,

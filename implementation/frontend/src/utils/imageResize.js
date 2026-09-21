@@ -47,40 +47,63 @@ export async function prepararImagenParaSubir(file, opts = {}) {
     try {
         if (!file || opts.fullRes) return file;
         if (file.size <= UMBRAL_BYTES) return file;
-        if (!esImagenProcesable(file)) return file;
-
-        // `imageOrientation: 'from-image'` aplica la orientación EXIF al decodificar.
-        // Sin esto, las fotos hechas en vertical con el móvil se suben giradas.
-        const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-        const { width, height } = bitmap;
-        const lado = Math.max(width, height);
-        if (lado <= MAX_LADO) { bitmap.close?.(); return file; }
-
-        const escala = MAX_LADO / lado;
-        const w = Math.round(width * escala);
-        const h = Math.round(height * escala);
-
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) { bitmap.close?.(); return file; }
-        ctx.drawImage(bitmap, 0, 0, w, h);
-        bitmap.close?.();
-
-        const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', CALIDAD_JPEG));
-        // Si el reescalado no ahorra nada (imagen ya optimizada), no compensa
-        // sustituirla: se sube la original y se conserva su formato.
-        if (!blob || blob.size >= file.size) return file;
-
-        // El NOMBRE se conserva íntegro (incluida la extensión). El backend nombra
-        // el fichero en Drive por su slot y solo toma de aquí la extensión; cambiarla
-        // no aportaría nada y rompería la correspondencia con lo que ve el usuario.
-        return new File([blob], file.name, { type: 'image/jpeg', lastModified: file.lastModified });
+        return await reducir(file, MAX_LADO, CALIDAD_JPEG);
     } catch (e) {
         console.warn('[imageResize] No se pudo reducir, se sube el original:', e?.message);
         return file;
     }
+}
+
+/**
+ * Copia MUY reducida de una foto, para MIRARLA y no para guardarla: es lo que se
+ * manda a clasificar (lo que hay que reconocer es qué aparato sale, no leer su
+ * número de serie) y así una tanda de veinte fotos no son cien megas por la red
+ * ni un gasto innecesario de tokens.
+ *
+ * Devuelve el fichero ORIGINAL si no se puede reducir — nunca lanza.
+ */
+export async function miniaturaParaMirar(file, maxLado = 768) {
+    try {
+        if (!file) return file;
+        return await reducir(file, maxLado, 0.7);
+    } catch (e) {
+        console.warn('[imageResize] miniatura:', e?.message);
+        return file;
+    }
+}
+
+/** Núcleo compartido: reescala a `maxLado` si hace falta. Puede devolver el original. */
+async function reducir(file, maxLado, calidad) {
+    if (!esImagenProcesable(file)) return file;
+
+    // `imageOrientation: 'from-image'` aplica la orientación EXIF al decodificar.
+    // Sin esto, las fotos hechas en vertical con el móvil se suben giradas.
+    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    const { width, height } = bitmap;
+    const lado = Math.max(width, height);
+    if (lado <= maxLado) { bitmap.close?.(); return file; }
+
+    const escala = maxLado / lado;
+    const w = Math.round(width * escala);
+    const h = Math.round(height * escala);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) { bitmap.close?.(); return file; }
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    bitmap.close?.();
+
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', calidad));
+    // Si el reescalado no ahorra nada (imagen ya optimizada), no compensa
+    // sustituirla: se sube la original y se conserva su formato.
+    if (!blob || blob.size >= file.size) return file;
+
+    // El NOMBRE se conserva íntegro (incluida la extensión). El backend nombra
+    // el fichero en Drive por su slot y solo toma de aquí la extensión; cambiarla
+    // no aportaría nada y rompería la correspondencia con lo que ve el usuario.
+    return new File([blob], file.name, { type: 'image/jpeg', lastModified: file.lastModified });
 }
 
 /** Igual que la anterior pero para una lista. Mantiene el orden. */

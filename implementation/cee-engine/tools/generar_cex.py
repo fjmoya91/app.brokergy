@@ -277,6 +277,25 @@ def hueco(h: dict, cerramiento: list, espacio: str, defecto: dict):
     })
 
 
+#: El SENTIDO y el tipo de espacio de una particion horizontal salen del
+#: subtipo que ya trae el elemento. En CE3X van emparejados: 'Garaje/espacio
+#: enterrado' solo existe hacia abajo, y hacia arriba solo 'Espacio bajo
+#: cubierta inclinada' y 'Otro'.
+SENTIDO_PARTICION = {
+    "ESPACIO_NO_HABITABLE_INFERIOR": {"sentido": "horizontal inferior",
+                                      "tipo_espacio": "Garaje/espacio enterrado"},
+    "ESPACIO_NO_HABITABLE_SUPERIOR": {"sentido": "horizontal superior",
+                                      "tipo_espacio": "Otro"},
+}
+
+#: Que se le pega al nombre. "PH11 PARTICION" no dice con que; el arbol de CE3X
+#: se lee mucho mejor con "PH11 SUELO SOBRE ESPACIO NO HABITABLE".
+ROTULO_PARTICION = {
+    "ESPACIO_NO_HABITABLE_INFERIOR": "SUELO SOBRE ESPACIO NO HABITABLE",
+    "ESPACIO_NO_HABITABLE_SUPERIOR": "TECHO BAJO ESPACIO NO HABITABLE",
+}
+
+
 def particion(nombre, superficie, sentido, espacio, term,
               largo="", alto="") -> list:
     """Particion con espacio no habitable: 15 campos.
@@ -1108,6 +1127,120 @@ def aplicar_paredes(geo: dict, cfg: dict):
     return elementos, avisos
 
 
+#: Lo que se pega al NOMBRE de un cerramiento o de un hueco que se REFORMA.
+#: El certificador lo marca en el plano —esta ventana se cambia, esta pared se
+#: aisla, esta parte de la cubierta se rehace— y en el arbol de CE3X sale
+#: «V1 - CAMBIA», «FBE1 CALLE - CAMBIA»: es lo que le dice sobre que elementos
+#: montar la medida de mejora. SOLO el nombre (decision del 2026-09-19): la
+#: medida la escribe el en CE3X, y aqui no se toca ni una U.
+SUFIJO_CAMBIA = " - CAMBIA"
+
+
+def con_cambia(nombre: str) -> str:
+    """El nombre con su sufijo, sin repetirlo si ya lo lleva."""
+    n = str(nombre or "")
+    return n if n.endswith(SUFIJO_CAMBIA) else n + SUFIJO_CAMBIA
+
+
+def _area_poligono(pts) -> float:
+    """Shoelace. Solo se usa cuando no hay con que intersecar (ver abajo)."""
+    try:
+        q = [(float(x), float(y)) for x, y in pts]
+    except (TypeError, ValueError):
+        return 0.0
+    if len(q) < 3:
+        return 0.0
+    s = 0.0
+    for i in range(len(q)):
+        x1, y1 = q[i]
+        x2, y2 = q[(i + 1) % len(q)]
+        s += x1 * y2 - x2 * y1
+    return abs(s) / 2.0
+
+
+def superficie_reformada(el: dict, poligono, lienzo_a_mundo) -> tuple[float | None, str | None]:
+    """Cuantos m2 de ESTA cubierta caen dentro del poligono que dibujo el
+    certificador.
+
+    REGLA — la mide el MOTOR, no el navegador: del plano llegan los vertices tal
+    cual se soltaron, en coordenadas del LIENZO, y aqui se pasan al mundo con la
+    misma traslacion con la que `plano_svg` los coloco (x + dx, y0 - y) y se
+    INTERSECAN con el poligono real de la cubierta. Asi un poligono que se sale
+    del tejado por un lado no cuenta de mas, y uno que lo cubre entero lo dice.
+
+    Sin georreferencia, o sin shapely, se cae al area del poligono dibujado
+    (recortada a la de la cubierta) y SE DICE: es una aproximacion, no una
+    medida.
+    """
+    pts = list(poligono or [])
+    if len(pts) < 3:
+        return None, "el poligono de la cubierta tiene menos de tres vertices"
+    if isinstance(lienzo_a_mundo, dict):
+        try:
+            dx = float(lienzo_a_mundo.get("dx", 0))
+            y0 = float(lienzo_a_mundo.get("y0", 0))
+            mundo = [(float(x) + dx, y0 - float(y)) for x, y in pts]
+        except (TypeError, ValueError):
+            return None, "la georreferencia del lienzo no es valida"
+        wkt = el.get("geometria_wkt")
+        if wkt:
+            try:
+                from shapely import wkt as _wkt
+                from shapely.geometry import Polygon
+                techo = _wkt.loads(wkt)
+                dibujado = Polygon(mundo).buffer(0)
+                return float(dibujado.intersection(techo).area), None
+            except Exception as exc:  # noqa: BLE001 — se dice y se cae al plan B
+                nota = f"no se pudo intersecar con la cubierta ({exc}); "
+                return _area_poligono(mundo), nota + "se toma el area del poligono dibujado"
+        return _area_poligono(mundo), ("la cubierta no trae poligono en la geometria; "
+                                       "se toma el area del poligono dibujado")
+    return _area_poligono(pts), ("el poligono llega sin georreferencia; se toma su "
+                                 "area tal cual, sin recortarla a la cubierta")
+
+
+def partir_cubierta(el: dict, nombre: str, sup: float, sup_medida: float, reforma,
+                    lienzo_a_mundo) -> tuple[list[tuple[str, float, bool]], list[str]]:
+    """La cubierta de una planta, en UNA fila o en DOS.
+
+    Devuelve `[(nombre, superficie, soporte)]`: `soporte` dice de que fila cuelga
+    el encuentro de fachada con cubierta — de la parte que se CONSERVA cuando
+    hay dos, o de la unica que haya. Con dos filas del mismo `ident`, el puente
+    saldria dos veces.
+    """
+    ident = el.get("id")
+    if not isinstance(reforma, dict):
+        return [(nombre, sup, True)], []
+    if reforma.get("entera"):
+        return [(con_cambia(nombre), sup, True)], [
+            f"{ident}: la cubierta ENTERA se reforma (marcado por el certificador): "
+            f"se escribe como «{con_cambia(nombre)}»"]
+    area, nota = superficie_reformada(el, reforma.get("poligono"), lienzo_a_mundo)
+    if area is None:
+        return [(nombre, sup, True)], [f"{ident}: {nota}; la cubierta se escribe entera"]
+    # Si la ficha declara otra superficie que la medida (derivada de la
+    # vivienda), el reparto se hace en PROPORCION: el total escrito sigue
+    # siendo el declarado y la parte reformada, la misma fraccion del tejado.
+    escala = (sup / sup_medida) if sup_medida and sup_medida > 0 else 1.0
+    ref = round(area * escala, 2)
+    avisos = []
+    if nota:
+        avisos.append(f"{ident}: {nota}")
+    if ref < 0.05:
+        avisos.append(f"{ident}: el poligono dibujado no toca la cubierta (0 m2): "
+                      f"se escribe entera, sin reforma")
+        return [(nombre, sup, True)], avisos
+    if ref >= sup - 0.05:
+        avisos.append(f"{ident}: el poligono cubre la cubierta entera ({ref:.2f} de "
+                      f"{sup:.2f} m2): se escribe como «{con_cambia(nombre)}»")
+        return [(con_cambia(nombre), sup, True)], avisos
+    queda = round(sup - ref, 2)
+    avisos.append(f"{ident}: cubierta partida en dos por el certificador: {queda:.2f} m2 "
+                  f"se conservan («{nombre}») y {ref:.2f} m2 se reforman "
+                  f"(«{con_cambia(nombre)}»), medidos sobre el poligono dibujado")
+    return [(nombre, queda, True), (con_cambia(nombre), ref, False)], avisos
+
+
 def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
     """Devuelve (pickle 3, avisos)."""
     cfg = datos["envolvente"]
@@ -1166,6 +1299,14 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
             continue
         if n >= 0:
             u_pared[k] = n
+    # Lo que se REFORMA, marcado en el plano por el certificador. Va como sufijo
+    # en el NOMBRE («FBE1 CALLE - CAMBIA») y nada mas: la medida de mejora la
+    # monta el en CE3X, y este sufijo es lo que le dice sobre que elementos.
+    # Los huecos ya llegan con el suyo puesto en el `id` (lo pone la vista).
+    mejora = cfg.get("mejora") or {}
+    cambian = {str(x) for x in (mejora.get("cerramientos") or [])}
+    cubierta_mejora = mejora.get("cubierta") if isinstance(mejora.get("cubierta"), dict) else {}
+    lienzo_a_mundo = mejora.get("lienzo_a_mundo")
     plantas = set(cfg["incluir_plantas"])
     excluidos = set(cfg["excluir_ids"]["ids"])
 
@@ -1180,6 +1321,9 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
         return v.get("value") if isinstance(v, dict) else v
 
     cerramientos: list[list] = []
+    #: forjados entre dos plantas del mismo uso: existen, pero en CE3X no se
+    #: introducen. Se dicen juntos al final en vez de uno por uno.
+    sin_escribir: list[str] = []
     # Lo que hace falta para decidir los PUENTES TERMICOS y que la fila del
     # cerramiento ya no dice: de que planta es, con que trazado y con que
     # identificador de Catastro (que es por donde se corrigen los pilares).
@@ -1204,7 +1348,13 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
                 f"{ident}: se escribe como {reclasificado[ident]} y Catastro lo "
                 f"clasifica como {tipo} (lo ha cambiado el certificador)")
             tipo = reclasificado[ident]
-        if tipo == "PARTICION_VERTICAL":
+        # Una pared contra un espacio NO HABITABLE de la propia parcela —el
+        # garaje que se ha dejado fuera de la envolvente— llega ya clasificada
+        # asi por el motor. Sin esta rama no se escribia en absoluto: se
+        # quedaba en "tipo no contemplado" y el .cex salia con la casa abierta
+        # por donde toca el garaje.
+        contra_no_habitable = tipo == "PARTICION_INTERIOR_VERTICAL"
+        if tipo in ("PARTICION_VERTICAL", "PARTICION_INTERIOR_VERTICAL"):
             # Se escribe por la rama de la medianera, que ya sabe emitir una
             # particion con su U. Asi las tres opciones que ve el certificador
             # —fachada, medianera, particion— salen de un solo camino.
@@ -1221,7 +1371,8 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
         suyo = ident in propios or el.get("subtipo") == "DIBUJADA"
 
         def rotulo(sufijo):
-            return nombre if suyo else f"{nombre} {sufijo}"
+            base = nombre if suyo else f"{nombre} {sufijo}"
+            return con_cambia(base) if ident in cambian else base
 
         def conU(term_base):
             """El bloque termico de ESTA pared, con su U si se le ha puesto."""
@@ -1252,15 +1403,21 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
             # el certificador sabe que hay un garaje, deja de serlo y pasa a ser
             # una particion vertical con su U: por ahi si se pierde calor.
             if ident in como_particion:
+                con_que = ("ESPACIO NO HABITABLE" if contra_no_habitable
+                           else "EL VECINO")
                 cerramientos.append(particion(
-                    rotulo("PARTICION CON EL VECINO"), sup_medida, "vertical",
+                    rotulo(f"PARTICION CON {con_que}"), sup_medida, "vertical",
                     zona, conU(term["particion_vertical"]),
                     largo=medida(el, "largo"), alto=medida(el, "alto")))
                 apuntar(cerramientos[-1], ident, "PARTICION_VERTICAL", el)
                 avisos.append(
-                    f"{ident}: escrito como PARTICION VERTICAL, no como medianera "
-                    f"(el certificador dice que al otro lado hay un espacio no "
-                    f"habitable). Deja de ser adiabatico.")
+                    f"{ident}: escrito como PARTICION VERTICAL, no como medianera. "
+                    + ("Al otro lado esta el cuerpo que se ha dejado fuera de la "
+                       "envolvente (garaje, almacen): no es adiabatico, por ahi "
+                       "se pierde calor."
+                       if contra_no_habitable else
+                       "El certificador dice que al otro lado hay un espacio no "
+                       "habitable. Deja de ser adiabatico."))
             else:
                 cerramientos.append(medianera(
                     rotulo("MEDIANERA"), sup_medida,
@@ -1281,17 +1438,54 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
                 avisos.append(
                     f"{ident}: se escribe {sup} m2 (derivado de la superficie de "
                     f"vivienda) y la geometria mide {sup_medida} m2")
-            cerramientos.append(cubierta(
-                rotulo("CUBIERTA"), sup, zona, conU(term["cubierta"])))
-            apuntar(cerramientos[-1], ident, "CUBIERTA", el)
+            # La cubierta puede REFORMARSE entera o solo en parte: con un
+            # poligono dibujado sobre el plano se parte en dos filas —lo que se
+            # conserva y lo que se rehace, «... - CAMBIA»— y la superficie de
+            # cada una la mide el motor intersecando con el tejado real.
+            partes, av_cub = partir_cubierta(
+                el, rotulo("CUBIERTA"), sup, sup_medida,
+                cubierta_mejora.get(str(planta)), lienzo_a_mundo)
+            avisos.extend(av_cub)
+            for nombre_parte, sup_parte, soporte in partes:
+                cerramientos.append(cubierta(
+                    nombre_parte, sup_parte, zona, conU(term["cubierta"])))
+                # El encuentro de fachada con cubierta cuelga de UNA de las dos,
+                # o saldria repetido: de la que se conserva.
+                if soporte:
+                    apuntar(cerramientos[-1], ident, "CUBIERTA", el)
         elif tipo == "PARTICION_INTERIOR_HORIZONTAL":
+            # REGLA — el forjado entre dos plantas de VIVIENDA no es un
+            # cerramiento de la envolvente y NO se escribe. Arriba y abajo hay
+            # la misma temperatura: por ahi no se pierde nada, y CE3X no lo
+            # quiere. Lo marca el motor (`relevante_ce3x`) comparando el uso de
+            # las dos plantas; escribirlo hacia "Garaje/espacio enterrado"
+            # —que es lo que hacia— declara un garaje debajo de cada vivienda
+            # de dos plantas.
+            if not (el.get("extra") or {}).get("relevante_ce3x", True):
+                sin_escribir.append(ident)
+                continue
             sup = _superficie(cfg.get("particion_superior"), sup_medida)
+            # El SENTIDO y el tipo de espacio los dice el propio elemento: el
+            # motor sabe si el garaje esta debajo o encima. Van EMPAREJADOS en
+            # CE3X ('Garaje/espacio enterrado' solo hacia abajo), asi que
+            # escribirlos al reves es un cerramiento que CE3X lee mal.
+            base = term["particion_superior"]
+            sentido = SENTIDO_PARTICION.get(el.get("subtipo"))
+            if sentido:
+                base = {**base, **sentido}
             cerramientos.append(particion(
-                rotulo("PARTICION"), sup, term["particion_superior"].get(
-                    "sentido", "horizontal superior"),
-                zona, conU(term["particion_superior"])))
+                rotulo(ROTULO_PARTICION.get(el.get("subtipo"), "PARTICION")),
+                sup, base.get("sentido", "horizontal superior"),
+                zona, conU(base)))
         else:
             avisos.append(f"{ident}: tipo {tipo} no contemplado, NO se escribe")
+
+    if sin_escribir:
+        avisos.append(
+            "NO se escriben " + ", ".join(sin_escribir)
+            + ": son forjados entre dos plantas del mismo uso, y en CE3X un "
+            "cerramiento asi no se introduce (a los dos lados hay la misma "
+            "temperatura)")
 
     # La particion vertical con el almacen de PB no sale de la geometria: no hay
     # poligono para ese uso. Va aparte y con el aviso puesto.

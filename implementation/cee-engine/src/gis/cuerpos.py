@@ -110,6 +110,31 @@ def _usos_del_nivel(cons, niveles) -> list[dict]:
                   key=lambda c: -(c["superficie"] or 0))
 
 
+def niveles_fuera(cuerpo: dict) -> list[int]:
+    """En que NIVELES no cuenta este cuerpo, de los que ocupa.
+
+    REGLA — un cuerpo se deja fuera POR PLANTA, no entero. Un garaje adosado
+    con vivienda encima es UN BuildingPart de dos plantas: Catastro dibuja el
+    prisma completo y declara APARCAMIENTO solo en la planta baja. Quitarlo de
+    las dos borra las fachadas REALES de la vivienda de arriba —medido en
+    2370310VJ4027S: la planta primera perdia 19 m2 y dos fachadas a la calle—.
+
+    El nivel lo dice la CONSTRUCCION con la que casa, y solo cuando esa
+    construccion NO es habitable: ahi Catastro esta diciendo "en esta planta
+    esto es un garaje". Cuando el cuerpo no casa con ninguna, o casa con una
+    que SI es vivienda —y el certificador la quita igual, contra Catastro—, no
+    hay forma de saber en que planta sobra: sale de todas, que es lo que se
+    esta pidiendo al pulsar el boton.
+    """
+    c = cuerpo.get("construccion") or {}
+    niveles = list(cuerpo.get("niveles") or [])
+    nivel = c.get("nivel")
+    if nivel is None or c.get("habitable") is not False:
+        return niveles
+    nivel = int(nivel)
+    return [nivel] if nivel in niveles else niveles
+
+
 def inventario(modelo, excluidos=()) -> list[dict]:
     """Los cuerpos del edificio, listos para pintarlos y para preguntar por ellos."""
     fuera = set(excluidos or ())
@@ -140,6 +165,11 @@ def inventario(modelo, excluidos=()) -> list[dict]:
             "fuera": pid in fuera,
             "_geom": p.geometry,
         })
+    for c in out:
+        # En que plantas NO cuenta. Va en la respuesta porque de aqui salen dos
+        # cosas: que niveles se recortan al medir y en cuales lo pinta el plano
+        # como "NO CUENTA". En las demas sigue siendo parte de la vivienda.
+        c["niveles_fuera"] = niveles_fuera(c)
     return sorted(out, key=lambda c: -c["superficie"])
 
 

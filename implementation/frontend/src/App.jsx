@@ -885,6 +885,26 @@ function App() {
     setActiveTab('oportunidades');
 
     try {
+      // El LISTADO viaja LIGERO (regla 22): de `datos_calculo` solo trae los
+      // campos que pinta la tabla, porque traerlo entero son 47 MB por petición
+      // y eso tumbó la base dos veces el 21/09/2026. Pero resembrar la
+      // calculadora necesita el objeto ENTERO —inputs, result y los snapshots
+      // anidados—, así que aquí se recarga por su id (`GET /:id` sigue
+      // devolviendo `*`). Es UNA fila, no la cartera entera.
+      //
+      // Si la recarga falla se sigue con lo que trajo el listado: abrir la
+      // simulación a medias se ve en pantalla y se corrige; no poder abrirla,
+      // no. El deep-link `?op=` ya llega con el objeto completo y vuelve a
+      // pedirlo — cuesta una petición pequeña y deja UN solo camino.
+      if (op?.id_oportunidad) {
+        try {
+          const { data: completa } = await axios.get(`/api/oportunidades/${op.id_oportunidad}`);
+          if (completa?.datos_calculo?.inputs) op = { ...op, ...completa };
+        } catch (e) {
+          console.warn('[loadOpportunity] no se pudo recargar entera:', e.message);
+        }
+      }
+
       let catastroData = null;
       
       if (!op.ref_catastral || op.ref_catastral === 'MANUAL') {

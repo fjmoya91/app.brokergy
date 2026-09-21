@@ -1365,7 +1365,7 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
                                   'CATASTRO: croquis de la parcela'),
         },
         termicas: transmitancias(anio, zona, {
-            particionArriba: particionArriba(g, habitables),
+            particionArriba: particionArriba(g),
             retoques: cfg.transmitancias,
         }),
         ...(tecnicoCe3x(certificador) ? { tecnico: tecnicoCe3x(certificador) } : {}),
@@ -1554,15 +1554,28 @@ function superficieHabitable(g) {
     return total ? Math.round(total) : null;
 }
 
-/** ¿El espacio no habitable está ENCIMA de la vivienda? */
-function particionArriba(g, habitables) {
-    const techo = Math.max(...habitables.map(p => p.nivel), 0);
-    const particiones = (g.elementos || [])
-        .filter(e => e.tipo === 'PARTICION_INTERIOR_HORIZONTAL');
-    if (!particiones.length) return true;
-    // Si alguna cae por debajo del último nivel habitable, el espacio no
-    // habitable está debajo (el garaje enterrado típico).
-    return !particiones.some(e => Number(e.nivel) < techo);
+/**
+ * ¿El espacio no habitable está ENCIMA de la vivienda?
+ *
+ * Lo dice el SUBTIPO del propio elemento, que es un dato: el motor ya sabe si
+ * el garaje está debajo (`ESPACIO_NO_HABITABLE_INFERIOR`) o encima
+ * (`..._SUPERIOR`). Antes se deducía de los NIVELES —«si alguna partición cae
+ * por debajo del último nivel habitable, hay garaje abajo»— y eso daba `false`
+ * en CUALQUIER vivienda de dos plantas, porque el forjado entre ellas también
+ * es una partición: el `.cex` salía declarando «Garaje/espacio enterrado»
+ * debajo de una vivienda que no tiene ninguno.
+ *
+ * Los forjados entre dos plantas del mismo uso NO cuentan aquí (el motor los
+ * marca `relevante_ce3x: false` y tampoco se escriben): no dicen nada sobre
+ * dónde está el espacio no habitable, porque no hay ninguno.
+ */
+export function particionArriba(g) {
+    const subtipos = (g.elementos || [])
+        .filter(e => e.tipo === 'PARTICION_INTERIOR_HORIZONTAL')
+        .map(e => e.subtipo);
+    if (subtipos.includes('ESPACIO_NO_HABITABLE_INFERIOR')) return false;
+    if (subtipos.includes('ESPACIO_NO_HABITABLE_SUPERIOR')) return true;
+    return true;
 }
 
 function refCatastral(geo, expediente) {

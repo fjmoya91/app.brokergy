@@ -48,6 +48,19 @@ export const VENTANAS_POR_DEFECTO = {
     persiana: false,
 };
 
+//: Desde el 2026-09-19 una VENTANA nace CON persiana (y una puerta, sin ella):
+//: es lo normal en una vivienda de aquí, y sin persiana el hueco se queda sin
+//: su puente de cajón. Pero solo «de ahora en adelante» (decisión del usuario):
+//: un expediente ya modelado que nunca contestó el popup sigue saliendo como
+//: salía, o su .cex cambiaría al regenerarlo sin que nadie lo hubiera pedido.
+//: La marca es `ajustes.persiana_defecto`, que la vista siembra al abrir un
+//: expediente SIN trabajo previo.
+export const PERSIANA_DEFECTO_NUEVOS = true;
+
+/** La persiana que lleva una ventana cuando nadie ha dicho nada de ella. */
+export const persianaDefecto = (ajustes) =>
+    ajustes?.persiana_defecto === true ? true : VENTANAS_POR_DEFECTO.persiana;
+
 /** ¿Está contestado ya cómo son las ventanas de esta vivienda? */
 export const ventanasContestadas = (ajustes) => !!ajustes?.ventanas?.vidrio;
 
@@ -61,11 +74,33 @@ export const ventanasContestadas = (ajustes) => !!ajustes?.ventanas?.vidrio;
  */
 export function huecosDefecto(ajustes) {
     const v = ajustes?.ventanas;
-    if (!ventanasContestadas(ajustes)) return { ...VENTANAS_POR_DEFECTO };
+    if (!ventanasContestadas(ajustes)) {
+        return { ...VENTANAS_POR_DEFECTO, persiana: persianaDefecto(ajustes) };
+    }
     return {
         vidrio: v.vidrio,
         marco: v.marco || VENTANAS_POR_DEFECTO.marco,
         persiana: !!v.persiana,
+    };
+}
+
+/**
+ * La carpintería EFECTIVA de un hueco: lo suyo, y si no dice nada, lo de la
+ * vivienda. Es lo que se enseña en el panel y lo que acaba en el .cex, y por
+ * eso vive aquí y no en cada pantalla: dos copias de esta cascada acabarían
+ * enseñando una cosa y escribiendo otra.
+ *
+ * Una PUERTA no lleva persiana salvo que alguien lo diga expresamente.
+ */
+export function carpinteriaDe(h, defecto) {
+    const base = defecto || { ...VENTANAS_POR_DEFECTO };
+    const esPuerta = h?.tipo === 'puerta';
+    return {
+        vidrio: h?.vidrio ?? base.vidrio,
+        marco: h?.marco ?? base.marco,
+        persiana: typeof h?.persiana === 'boolean' ? h.persiana
+                : esPuerta ? false : !!base.persiana,
+        propia: !!(h?.vidrio || h?.marco || typeof h?.persiana === 'boolean'),
     };
 }
 

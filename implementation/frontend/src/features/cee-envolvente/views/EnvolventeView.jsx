@@ -5,11 +5,14 @@ import { getRoleFlags } from '../../../utils/roleFlags';
 import { PlanoPlanta } from '../components/PlanoPlanta';
 import { PanelPared } from '../components/PanelPared';
 import { usePlanoEnvolvente } from '../logic/usePlanoEnvolvente';
+import { lienzoAMundo } from '../logic/geometriaPlano';
+import { dondeSobra, dondeSigue } from '../logic/cuerposEnvolvente';
 import { claveInstalacion } from '../logic/fichaCe3x';
 import { useDeshacer } from '../logic/useDeshacer';
 import { MidiendoElEdificio } from '../components/MidiendoElEdificio';
 import { VentanasViviendaModal } from '../components/VentanasViviendaModal';
-import { resumenVentanas, ventanasContestadas } from '../logic/ventanasVivienda';
+import { PERSIANA_DEFECTO_NUEVOS, huecosDefecto, resumenVentanas, ventanasContestadas }
+    from '../logic/ventanasVivienda';
 import { EscribiendoElCex, CexGenerado } from '../components/EscribiendoElCex';
 import { PanelAdministrativos, PanelEconomico, PanelGenerales, PanelInstalaciones,
          PanelMedidas, Ventana } from '../components/PanelesFicha';
@@ -108,6 +111,11 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                 if (!vivo) return;
                 setTrabajoPrevio(data?.trabajo || null);
                 if (data?.trabajo?.ajustes) setAjustes(data.trabajo.ajustes);
+                // Un expediente SIN trabajo previo estrena el defecto nuevo: las
+                // ventanas nacen con persiana. Uno ya modelado se queda como
+                // estaba —su .cex no cambia por regenerarlo— y la marca viaja
+                // con los ajustes, así que se guarda con el trabajo.
+                else if (!data?.trabajo) setAjustes({ persiana_defecto: PERSIANA_DEFECTO_NUEVOS });
             })
             .catch(() => { if (vivo) setTrabajoPrevio(null); });
         return () => { vivo = false; };
@@ -136,6 +144,10 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     //: clasificarla. El modo es de la PANTALLA y no de cada plano: en 3D se
     //: dibuja el edificio entero, así que las dos tarjetas se funden en una.
     const [modo, setModo] = useState('2d');
+    //: La planta sobre cuyo plano se está dibujando la parte de CUBIERTA que se
+    //: reforma (`null`: ninguna). Es de la pantalla, no del plano: lo enciende
+    //: el panel de la cubierta y lo apaga cerrar el polígono o cancelar.
+    const [dibujandoCubierta, setDibujandoCubierta] = useState(null);
 
     //: QUÉ PLANTAS se ven a la vez. `null` es la vista dividida —todas, una al
     //: lado de otra—; un índice es ver esa sola a todo el ancho. Las dos hacen
@@ -554,7 +566,9 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         try {
             const data = await postEnvolvente(api(id, 'cex'), {
                 geometria: geo.geometria,
-                envolvente: plano.loSenalado(cfg),
+                // Con la traslación del lienzo al mundo: es lo que permite al
+                // motor intersecar el polígono de la cubierta con el tejado real.
+                envolvente: plano.loSenalado(cfg, { lienzoAMundo: lienzoAMundo(geo.georef) }),
                 // Lo marcado solo vale para la fase que se está previsualizando:
                 // generar la OTRA con esa elección escribiría en un certificado
                 // las medidas que se eligieron para el contrario.
@@ -611,6 +625,15 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         c => ({ ...c, fuera: plano.cuerposFuera.includes(c.id) })),
         [geo?.cuerpos, plano.cuerposFuera]);
     const cuerpoAbierto = cuerpos.find(c => c.id === cuerpoSel) || null;
+
+    //: QUÉ PLANTAS tienen tejado al aire. No todas: una planta cubierta entera
+    //: por la de arriba no tiene cubierta que reformar, y ofrecer marcarla
+    //: sería ofrecer algo que el .cex no va a escribir. Va aquí arriba, por
+    //: encima del `return` de «todavía no hay geometría» (regla de los hooks).
+    const conCubierta = useMemo(() => new Set(
+        (geo?.geometria?.elementos || [])
+            .filter(e => e.tipo === 'CUBIERTA').map(e => e.planta)),
+        [geo?.geometria?.elementos]);
 
     // Lo que Catastro dice que NO es vivienda y sigue dentro. Es lo que se
     // propone quitar: no se toca nada sin que lo pulse una persona, porque hay
@@ -724,8 +747,10 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             ? [...new Set([...plano.cuerposFuera, id])]
             : plano.cuerposFuera.filter(x => x !== id);
         await volverAMedir({ cuerpos_fuera: siguiente });
+        const donde = dondeSobra(cuerpos.find(x => x.id === id));
         onAviso?.(fuera
-            ? 'Fuera de la envolvente: el edificio se ha vuelto a medir sin ese cuerpo.'
+            ? `Fuera de la envolvente${donde ? ` en ${donde}` : ''}: el edificio se ha `
+              + 'vuelto a medir sin ese cuerpo.'
             : 'Vuelve a contar: el edificio se ha medido otra vez con él.');
     }
 
@@ -733,10 +758,14 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     // la pared que lo separaba del resto NO existe en el modelo, así que la casa
     // se queda abierta por ahí y hay que dibujarla.
     function apartarParedes(id) {
+        const c = cuerpos.find(x => x.id === id);
         setCuerpoSel(null);
-        plano.apartaParedesDe(id, true);
-        onAviso?.('Apartadas sus paredes. Si el cuerpo estaba pegado a la casa, '
-                  + 'comprueba que no falte la pared que los separaba.');
+        // Solo las de las plantas donde ese cuerpo no cuenta: las de arriba
+        // pueden ser fachadas de la vivienda.
+        plano.apartaParedesDe(id, true, c?.niveles_fuera || null);
+        onAviso?.('Apartadas sus paredes' + (dondeSobra(c) ? ` de ${dondeSobra(c)}` : '')
+                  + '. Si el cuerpo estaba pegado a la casa, comprueba que no falte '
+                  + 'la pared que los separaba.');
     }
 
     // ¿Hay DOS fases que generar? En el CAE siempre: el CEE inicial lleva la
@@ -799,6 +828,18 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                          cuerpos={cuerpos} onCuerpo={setCuerpoSel}
                                          entorno={entorno} onEntorno={setEntorno}
                                          modo="2d" altura={alturaPlanta}
+                                         cubierta={plano.cubiertas?.[p.id] || null}
+                                         dibujarCubierta={dibujandoCubierta === p.id}
+                                         onCubierta={(poly) => {
+                                             if (poly) plano.ponCubierta(p.id, { poligono: poly });
+                                             setDibujandoCubierta(null);
+                                         }}
+                                         onCubiertaModo={conCubierta.has(p.id)
+                                             ? (si => setDibujandoCubierta(si ? p.id : null)) : null}
+                                         onCubiertaEntera={() => { setDibujandoCubierta(null);
+                                                                   plano.ponCubierta(p.id, { entera: true }); }}
+                                         onCubiertaQuitar={() => { setDibujandoCubierta(null);
+                                                                   plano.quitaCubierta(p.id); }}
                                          catastro={quiereCatastro ? catastro : null}
                                          quiereCatastro={quiereCatastro}
                                          onCatastro={verCatastro}
@@ -807,16 +848,41 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                         ))}
                     </div>
                 </div>
+                    {/* La CUBIERTA no está aquí: se marca dibujándola sobre el
+                        plano de su planta, así que su mando vive bajo la barra
+                        de ese plano. Esta columna es LA PARED seleccionada. */}
                     <PanelPared plano={plano} transmitancias={ficha?.ficha?.termicas}
-                                ventanasVivienda={ajustes.ventanas} expedienteId={id} />
+                                carpinteriaDefecto={huecosDefecto(ajustes)} expedienteId={id} />
                 </div>
             </div>
 
             {verVentanasAhora && (
                 <VentanasViviendaModal
                     ventanas={ajustes.ventanas} muros={plano.muros}
+                    nombreDe={plano.nombreDe} esFuera={plano.esFuera}
+                    defecto={huecosDefecto(ajustes)}
                     primeraVez={primeraVez}
-                    onGuardar={v => { cambiarAjuste('ventanas', v); setVerVentanas(false); }}
+                    onGuardar={(v, opts = {}) => {
+                        const marca = opts.cambia === true || opts.cambia === false
+                            ? { cambia: opts.cambia } : {};
+                        if (opts.ambito === 'algunas') {
+                            // Solo las marcadas: cada una recibe lo suyo y deja
+                            // de heredar de la vivienda.
+                            plano.ponCarpinteria(opts.objetivos, {
+                                vidrio: v.vidrio, marco: v.marco, persiana: !!v.persiana, ...marca,
+                            });
+                        } else {
+                            cambiarAjuste('ventanas', v);
+                            if (opts.quitarExcepciones) plano.quitaCarpinteriaPropia();
+                            if (opts.cambia === true || opts.cambia === false) {
+                                const todas = Object.values(plano.muros).flatMap(m =>
+                                    (m.huecos || []).filter(h => h.tipo !== 'puerta' && h.uid)
+                                        .map(h => ({ pared: m.id, uid: h.uid })));
+                                plano.ponCarpinteria(todas, marca);
+                            }
+                        }
+                        setVerVentanas(false);
+                    }}
                     // Cerrar sin contestar NO puede volver a abrirlo en el
                     // render siguiente: se sella «no lo he contestado, y ya lo
                     // sé» para que el popup no se convierta en una pared.
@@ -1020,57 +1086,104 @@ const GUARDADO = {
  */
 function Cabecera({ resumen, entrada, onCambiarEntrada, estadoGuardado,
                    ventanas, onVentanas }) {
+    // El PROGRESO: cuántas paredes están miradas de las que hay que mirar. Es
+    // la respuesta a «¿cuánto me queda?», que antes había que deducir de una
+    // cifra suelta en letra pequeña.
+    const total = resumen.paredes || 0;
+    const miradas = Math.max(0, total - (resumen.sinTocar || 0));
+    const pct = total ? Math.round((miradas / total) * 100) : 0;
     return (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[11.5px] text-white/45">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-[11.5px] text-white/70">
+            {/* POR DÓNDE SE ENTRA: es lo primero que se señala y de ahí cuelga
+                el resto, así que es la primera píldora y va en el color de
+                marca. Sin entrada, la píldora ES la instrucción. */}
             {entrada ? (
-                <button onClick={onCambiarEntrada}
-                        className="text-white/60 hover:text-white">
-                    ◆ se entra por <b className="text-brand">{entrada}</b> · cambiar
-                </button>
+                <Pildora tono="brand" onClick={onCambiarEntrada}
+                         title="Cambiar la pared por la que se entra">
+                    ◆ Entrada <b>{entrada}</b>
+                </Pildora>
             ) : (
-                <span className="font-bold text-brand">◆ señala por dónde se entra</span>
+                <Pildora tono="brand" fuerte>◆ Señala por dónde se entra</Pildora>
             )}
 
-            {resumen.sinTocar > 0 && (
-                <span>
-                    {resumen.sinTocar === 1 ? 'queda ' : 'quedan '}
-                    <b className="text-white/70 tabular-nums">{resumen.sinTocar}</b>
-                    {resumen.sinTocar === 1 ? ' pared' : ' paredes'} por mirar
+            {/* La barra: lo mirado frente a lo que hay que mirar. */}
+            {total > 0 && (
+                <span className="flex items-center gap-2 rounded-full border border-white/10
+                                 bg-white/[0.03] px-2.5 py-1"
+                      title={`${miradas} de ${total} paredes miradas`}>
+                    <span className="h-1.5 w-20 overflow-hidden rounded-full bg-white/10">
+                        <span className={`block h-full rounded-full transition-all
+                                          ${pct >= 100 ? 'bg-emerald-400' : 'bg-brand'}`}
+                              style={{ width: `${pct}%` }} />
+                    </span>
+                    <span className="tabular-nums">
+                        {pct >= 100
+                            ? <span className="font-bold text-emerald-300">✓ todas miradas</span>
+                            : <><b className="text-white/90">{miradas}</b>
+                               <span className="text-white/45">/{total}</span> paredes miradas</>}
+                    </span>
                 </span>
             )}
+
             {resumen.dudosos > 0 && (
-                <span className="text-amber-400/80">
-                    <b className="tabular-nums">{resumen.dudosos}</b> con medida por confirmar
-                </span>
+                <Pildora tono="aviso" title="Huecos con la medida por defecto, sin confirmar">
+                    <b>{resumen.dudosos}</b> {resumen.dudosos === 1 ? 'medida' : 'medidas'} por confirmar
+                </Pildora>
+            )}
+            {/* Lo que SE REFORMA. Sale con «- CAMBIA» en el .cex, y es lo que
+                hay que poder comprobar de un vistazo antes de generar. */}
+            {resumen.cambian > 0 && (
+                <Pildora tono="aviso" title="Se escriben con «- CAMBIA» en el .cex">
+                    <b>{resumen.cambian}</b> con CAMBIA
+                </Pildora>
             )}
             {/* Lo APARTADO se dice aquí: en el plano son cuatro trazos finos, y
                 una pared que alguien sacó de la envolvente hace un mes no puede
                 depender de que hoy te fijes en ellos. */}
             {resumen.fuera > 0 && (
-                <span>
-                    <b className="text-white/70 tabular-nums">{resumen.fuera}</b>
-                    {resumen.fuera === 1 ? ' apartada' : ' apartadas'} de la envolvente
-                </span>
+                <Pildora title="Paredes apartadas de la envolvente: no van al .cex">
+                    <b>{resumen.fuera}</b> {resumen.fuera === 1 ? 'apartada' : 'apartadas'}
+                </Pildora>
             )}
 
             {/* Como son las ventanas de la vivienda. Va aqui y no escondido en
                 un menu porque es lo que se acaba de contestar al entrar: hay
                 que poder comprobar de un vistazo que lo que se esta poniendo en
                 cada hueco es lo que se dijo. */}
-            <button onClick={onVentanas}
-                    className={ventanas
-                        ? 'text-white/55 hover:text-white'
-                        : 'font-bold text-amber-400/90 hover:text-amber-300'}>
-                ▤ {ventanas || 'di cómo son las ventanas'}
-            </button>
+            <Pildora tono={ventanas ? null : 'aviso'} fuerte={!ventanas} onClick={onVentanas}
+                     title={ventanas ? 'Cambiar la carpintería, de toda la vivienda o de algunas ventanas'
+                                     : 'De aquí salen la U de cada hueco y su caja de persiana'}>
+                ▤ {ventanas || 'Di cómo son las ventanas'}
+                <span className="opacity-60"> ✎</span>
+            </Pildora>
 
             {estadoGuardado && (
-                <span className={`ml-auto ${GUARDADO[estadoGuardado].color}`}>
+                <span className={`ml-auto text-[11px] ${GUARDADO[estadoGuardado].color}`}>
                     {GUARDADO[estadoGuardado].texto}
                 </span>
             )}
         </div>
     );
+}
+
+/**
+ * Una píldora de la tira de estado. Las hay de tres tonos —marca (lo que se
+ * decide), aviso (lo que falta) y neutra (lo que solo informa)— y la
+ * diferencia de tono es lo que hace que la tira se lea en el orden correcto
+ * sin leerla entera.
+ */
+function Pildora({ tono, fuerte, onClick, title, children }) {
+    const base = 'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 leading-none';
+    const color = tono === 'brand'
+        ? 'border-brand/40 bg-brand/10 text-white/85 [&_b]:text-brand'
+        : tono === 'aviso'
+            ? 'border-amber-400/40 bg-amber-400/10 text-amber-200 [&_b]:text-amber-300'
+            : 'border-white/10 bg-white/[0.03] text-white/65 [&_b]:text-white/90';
+    const cls = `${base} ${color} ${fuerte ? 'font-bold' : ''}`
+        + (onClick ? ' cursor-pointer transition hover:brightness-125' : '');
+    return onClick
+        ? <button type="button" onClick={onClick} title={title} className={cls}>{children}</button>
+        : <span title={title} className={cls}>{children}</span>;
 }
 
 /**
@@ -1102,12 +1215,20 @@ function AvisoCuerpos({ cuerpos, onQuitar, ocupado }) {
                                        tracking-widest text-amber-200 disabled:opacity-40
                                        hover:bg-amber-400/20">
                         Quitar {c.construccion?.uso || 'el cuerpo'} · {fmtM2(c.superficie)}
+                        {dondeSobra(c) && (
+                            <span className="ml-1 font-bold normal-case tracking-normal
+                                             text-amber-200/60">
+                                (solo en {dondeSobra(c)})
+                            </span>
+                        )}
                     </button>
                 ))}
             </div>
             <span className="mt-1 block text-[11px] text-white/45">
-                Se vuelve a medir el edificio sin el, y con el se van su cubierta y su
-                suelo. Se puede devolver pulsandolo en el plano.
+                Se vuelve a medir el edificio sin el: la pared de la casa contra el pasa a
+                ser una particion y el forjado de encima, un suelo sobre espacio no
+                habitable. Sale solo de las plantas en las que Catastro dice que no es
+                vivienda. Se puede devolver pulsandolo en el plano.
             </span>
         </Franja>
     );
@@ -1118,10 +1239,14 @@ function AvisoCuerpos({ cuerpos, onQuitar, ocupado }) {
  *
  * Las dos salidas no son lo mismo y por eso se dicen enteras:
  *  · QUITARLO vuelve a medir el edificio sin el, y entonces la pared que lo
- *    separaba de la casa aparece como lo que es (fachada o medianera).
+ *    separaba de la casa aparece como lo que es: una PARTICION con un espacio
+ *    no habitable, porque al otro lado no hay aire, hay un garaje.
  *  · APARTAR SUS PAREDES es instantaneo y no mide nada, pero esa pared no
  *    existe en el modelo —Catastro une los dos cuerpos y la linea queda
  *    dentro—, asi que la casa se queda abierta por ahi.
+ *
+ * Y las dos van POR PLANTA: un garaje con vivienda encima es UN cuerpo de dos
+ * plantas, sale de la baja y arriba sigue siendo la casa.
  */
 function CuerpoModal({ cuerpo, onCerrar, onQuitar, onDevolver, onApartarParedes, ocupado }) {
     const c = cuerpo.construccion;
@@ -1196,8 +1321,13 @@ function CuerpoModal({ cuerpo, onCerrar, onQuitar, onDevolver, onApartarParedes,
                     <>
                         <p className="mt-3 rounded-lg border border-white/10 bg-white/[0.03]
                                       px-3 py-2 text-[11.5px] text-white/60">
-                            Ahora mismo esta FUERA de la envolvente: sus paredes no se miden
-                            ni se escriben en el .cex.
+                            Ahora mismo esta FUERA de la envolvente
+                            {dondeSobra(cuerpo) && <> en <b className="text-white/85">
+                                {dondeSobra(cuerpo)}</b></>}: sus paredes no se miden ni se
+                            escriben en el .cex, y la pared de la casa contra el es una
+                            particion.
+                            {dondeSigue(cuerpo) && <> En <b className="text-white/85">
+                                {dondeSigue(cuerpo)}</b> sigue contando como vivienda.</>}
                         </p>
                         <div className="mt-4 flex flex-wrap items-center gap-2">
                             <button onClick={onDevolver} disabled={ocupado}
@@ -1221,12 +1351,18 @@ function CuerpoModal({ cuerpo, onCerrar, onQuitar, onDevolver, onApartarParedes,
                                                disabled:opacity-40 hover:brightness-110">
                                 <span className="block text-[11px] font-black uppercase
                                                  tracking-widest text-black">
-                                    {ocupado ? 'Midiendo…' : 'Quitarlo y volver a medir'}
+                                    {ocupado ? 'Midiendo…'
+                                        : `Quitarlo${dondeSobra(cuerpo)
+                                            ? ` de ${dondeSobra(cuerpo)}` : ''} y volver a medir`}
                                 </span>
                                 <span className="mt-0.5 block text-[11px] leading-snug text-black/70">
                                     El edificio se mide otra vez sin el: la pared que lo separaba
-                                    de la casa sale como lo que es, y se van con el su cubierta
-                                    y su suelo.
+                                    de la casa sale como una particion con espacio no habitable,
+                                    y el forjado de encima, como un suelo sobre el.
+                                    {dondeSigue(cuerpo)
+                                        ? ` En ${dondeSigue(cuerpo)} no se toca nada: ahi Catastro
+                                            declara vivienda.`
+                                        : ' Se van con el su cubierta y su suelo.'}
                                 </span>
                             </button>
                             <button onClick={onApartarParedes} disabled={ocupado}
@@ -1238,9 +1374,10 @@ function CuerpoModal({ cuerpo, onCerrar, onQuitar, onDevolver, onApartarParedes,
                                     Solo apartar sus paredes
                                 </span>
                                 <span className="mt-0.5 block text-[11px] leading-snug text-white/45">
-                                    Sin volver a medir. Si el cuerpo estaba pegado a la casa, la
-                                    pared que los separaba no existe en el modelo y habra que
-                                    dibujarla.
+                                    Sin volver a medir{dondeSobra(cuerpo)
+                                        ? `, y solo las de ${dondeSobra(cuerpo)}` : ''}. Si el
+                                    cuerpo estaba pegado a la casa, la pared que los separaba no
+                                    existe en el modelo y habra que dibujarla.
                                 </span>
                             </button>
                         </div>

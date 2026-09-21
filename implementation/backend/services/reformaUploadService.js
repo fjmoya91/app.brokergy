@@ -123,6 +123,42 @@ const PHASE = { ANTES: 'ANTES', DESPUES: 'DESPUES' };
 // alturas la inversión que declara el Anexo sale ya de la factura.
 // La caldera y su placa NO entran: de ahí salen el Anexo Fotográfico y los
 // datos del equipo antiguo del CIFO.
+// ───────────────────────────────────────────────────────────────────────────
+// PARA QUÉ sirve cada apartado. Dos trabajos distintos con la misma pinta:
+//
+//   'CEE'         → material para que el CERTIFICADOR levante el certificado en
+//                   CE3X: la fachada desde la calle, las paredes que dan a
+//                   patios, un vídeo recorriendo la casa, los planos, el CEE
+//                   anterior. Se pide en fase de OPORTUNIDAD —antes de aceptar—
+//                   y NO va a ningún documento del expediente CAE.
+//   'EXPEDIENTE'  → lo que justifica la ACTUACIÓN ante el verificador: la
+//                   caldera y su placa, las máquinas nuevas y las suyas, la
+//                   caldera retirada, la envolvente antes/después, las facturas.
+//                   De aquí salen el Anexo Fotográfico y el CIFO.
+//
+// No es lo mismo y no se pide igual: a una oportunidad que aún no ha aceptado se
+// le reclama lo del CERTIFICADO, y pedirle de paso la foto de la máquina nueva
+// es pedirle una foto imposible. Mezclados en una sola lista, ni el admin sabía
+// qué hacía falta para qué, ni se le podía pedir al cliente una cosa sin la otra.
+//
+// ⚠️ En un RES080 la ENVOLVENTE (ventanas, cubierta, fachada aislada) es del
+// EXPEDIENTE, no del certificado: son los slots `_ANTES`/`_DESPUES`, distintos
+// de `FOTO_FACHADA_PRINCIPAL` (la fachada desde la calle, que es contexto).
+const SLOTS_CEE = new Set([
+    'FOTO_FACHADA_PRINCIPAL',
+    'FOTO_PATIOS_INTERIORES',
+    'VIDEO_VIVIENDA',
+    'DOC_PLANOS',
+    'DOC_CEE_EXISTENTE',
+    'DOC_CEE_POSTERIOR',
+]);
+const DESTINO = { CEE: 'CEE', EXPEDIENTE: 'EXPEDIENTE' };
+
+/** Para qué sirve este apartado. Fuente única: no se vuelve a decidir en una vista. */
+function destinoDeSlot(slotKey) {
+    return SLOTS_CEE.has(slotKey) ? DESTINO.CEE : DESTINO.EXPEDIENTE;
+}
+
 const CEE_CAPTACION_SLOTS = new Set([
     'FOTO_FACHADA_PRINCIPAL',
     'FOTO_PATIOS_INTERIORES',
@@ -159,6 +195,9 @@ const ADDABLE_CONCEPTS = [
     { id: 'suelo',    label: 'Suelo (antes y después)', slots: ['FOTO_SUELO_ANTES', 'FOTO_SUELO_DESPUES'] },
     { id: 'acs',      label: 'ACS: sistema actual + depósito', slots: ['FOTO_ACS_ANTES', 'FOTO_ACS_DEPOSITO'] },
     { id: 'placas',   label: 'Placas solares (después)', slots: ['FOTO_PLACAS_SOLARES'] },
+    // Hibridación: sale sola en las fichas híbridas (RES093 · TER173). Queda aquí
+    // para un expediente que hibride sin que la ficha lo diga todavía.
+    { id: 'hibridacion', label: 'Hibridación: caldera + bomba conectadas (después)', slots: ['FOTO_HIBRIDACION'] },
     { id: 'suelo_radiante', label: 'Armario del suelo radiante (después)', slots: ['FOTO_ARMARIO_SUELO_RADIANTE'] },
     // Unidad terminal de AGUA que NO es suelo radiante (radiadores). Es la pareja
     // del armario de colectores: en la ficha, el emisor existente es quien fija la
@@ -408,6 +447,13 @@ function deriveSelectors(datosCalculo = {}) {
     // ── Piscina (terciario) ──────────────────────────────────────────────────
     const piscina = alc.piscina === true;
 
+    // ── ¿El depósito de ACS es OTRO aparato, o va dentro de la unidad interior? ─
+    // Un conjunto (all-in-one, o un bibloc con el acumulador integrado) es UNA
+    // máquina: "la unidad interior" y "el depósito de ACS" son la MISMA foto, y
+    // la segunda casilla se queda siempre vacía. `null` = el expediente aún no
+    // identifica los equipos y manda el comportamiento de siempre.
+    const acsAparatoPropio = alc.acs_equipo_propio;
+
     // ── El GENERADOR DE CALOR que se sustituye ───────────────────────────────
     // Se documenta SIEMPRE que haya calefacción, sea del tipo que sea. Antes esto
     // preguntaba "¿hay caldera de COMBUSTIÓN?" y, si no la había, el expediente
@@ -472,7 +518,7 @@ function deriveSelectors(datosCalculo = {}) {
         ? 'otro'
         : (acsTipo && acsTipo !== 'misma_caldera' ? acsTipo : (acsTipoInputs || ''));
 
-    return { reforma, changeAcs, acsInicial, acsInicialTipo, hayCaldera, calderaEsCombustion, hibridacion, sueloRadiante, piscina };
+    return { reforma, changeAcs, acsInicial, acsInicialTipo, acsAparatoPropio, hayCaldera, calderaEsCombustion, hibridacion, sueloRadiante, piscina };
 }
 
 /**
@@ -582,7 +628,17 @@ function buildDocChecklist(datosCalculo = {}) {
     if (want('FOTO_ARMARIO_SUELO_RADIANTE', sel.sueloRadiante)) push({ key: 'FOTO_ARMARIO_SUELO_RADIANTE', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Armario del suelo radiante (colectores)', help: 'El armario de colectores abierto: que se vean los circuitos, las válvulas y la conexión con el equipo nuevo.' });
     if (want('FOTO_ACS_DEPOSITO', sel.changeAcs)) push({ key: 'FOTO_ACS_DEPOSITO', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
+           // `acsUnico` (abajo) lo retira cuando el depósito va DENTRO de la unidad
+           // interior: ahí las dos casillas piden la misma foto.
            label: 'Depósito de ACS / inercia', help: 'El depósito del agua caliente ya instalado. Incluye una foto donde se vea su etiqueta de datos.' });
+    // HIBRIDACIÓN (RES093 · TER173): lo que hay que acreditar es que las dos
+    // máquinas trabajan JUNTAS. No lo cubre ninguna otra foto — la de la unidad
+    // exterior enseña la bomba sola y la de "caldera desmontada" describe justo
+    // lo contrario de lo que pasa aquí (la caldera se conserva). Sin este
+    // apartado, de la actuación que DEFINE la ficha no quedaba ni una imagen.
+    if (want('FOTO_HIBRIDACION', sel.hibridacion)) push({ key: 'FOTO_HIBRIDACION', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
+           label: 'Hibridación: caldera y bomba de calor conectadas',
+           help: 'La conexión hidráulica entre la caldera que se conserva y el equipo nuevo: tuberías, válvulas y kit de hibridación. Si caben las dos máquinas en el mismo encuadre, mejor.' });
     if (want('FOTO_PISCINA_BDC', sel.piscina)) push({ key: 'FOTO_PISCINA_BDC', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Bomba de calor de piscina instalada', help: 'El equipo nuevo de piscina ya montado y conectado. Incluye una foto de su placa de características (marca, modelo y nº de serie).' });
     // El generador antiguo, ya retirado. Solo si había alguno: sin calefacción
@@ -658,6 +714,10 @@ function buildDocChecklist(datosCalculo = {}) {
     // PLACA se marcan para que suban intactas: de ahí se lee el nº de serie.
     for (const s of podados) {
         if (FULL_RES_SLOTS.has(s.key)) s.fullRes = true;
+        // Para QUÉ sirve: el certificado o el expediente. Lo deciden las vistas
+        // (dos bloques en el panel) y la petición al cliente (se le pide una cosa
+        // o la otra, nunca las dos mezcladas).
+        s.destino = destinoDeSlot(s.key);
     }
 
     // Nombre en lenguaje de cliente, junto al técnico (no lo sustituye).
@@ -692,6 +752,19 @@ function buildDocChecklist(datosCalculo = {}) {
         if (s) {
             s.labelCliente = 'El depósito nuevo, junto a tu caldera de siempre';
             s.helpCliente = 'Tu caldera no se quita: se queda trabajando con la máquina nueva. Haz una foto donde salgan las dos.';
+        }
+    }
+    // Conjunto con el depósito DENTRO: la casilla del depósito se retira en
+    // `buildDocsView` (solo si está vacía), así que la de la unidad interior pasa
+    // a ser la única foto de ese aparato y tiene que decirlo — si no, el cliente
+    // busca un depósito aparte que no existe y el admin no sabe si falta algo.
+    if (sel.acsAparatoPropio === false) {
+        const s = podados.find(x => x.key === 'FOTO_UNIDAD_INTERIOR');
+        if (s) {
+            s.label = 'Unidad interior con depósito de ACS integrado';
+            s.help = 'El equipo de dentro ya instalado. Lleva el depósito del agua caliente incorporado, así que con esta foto queda cubierto.';
+            s.labelCliente = 'La máquina nueva de dentro';
+            s.helpCliente = 'El aparato que han puesto dentro de casa, con el depósito del agua caliente incluido. Que salga entero.';
         }
     }
 
@@ -745,6 +818,7 @@ const LABEL_CLIENTE = {
     FOTO_ARMARIO_SUELO_RADIANTE:{ label: 'El armario del suelo radiante, abierto', help: 'El armario empotrado con los tubos y las llaves. Ábrelo para que se vea por dentro.' },
     FOTO_ACS_DEPOSITO:         { label: 'El depósito del agua caliente', help: 'El depósito nuevo ya instalado. Haz también una foto de su pegatina, de cerca.' },
     FOTO_CALDERA_DESMONTADA:   { label: 'La caldera vieja, ya quitada', help: 'La caldera antigua fuera, o el hueco que ha dejado en la pared.' },
+    FOTO_HIBRIDACION:          { label: 'Tu caldera y la máquina nueva, conectadas', help: 'Los tubos que unen la caldera de siempre con el equipo nuevo. Si caben las dos en la misma foto, mejor.' },
     FOTO_PISCINA_BDC:          { label: 'La máquina nueva de la piscina', help: 'El aparato ya montado y conectado. Y otra foto de su pegatina, de cerca.' },
     FOTO_VENTANAS_DESPUES:     { label: 'Las ventanas nuevas, ya puestas' },
     FOTO_CUBIERTA_DESPUES:     { label: 'El tejado, ya terminado' },
@@ -1069,6 +1143,173 @@ async function docsSubfolder(folderId) {
     return { id, link: `https://drive.google.com/drive/folders/${id}` };
 }
 
+/**
+ * La subcarpeta destino, CREÁNDOLA si aún no existe, y cacheando el id.
+ *
+ * `subfolderIdCached` solo BUSCA: en una carpeta recién creada devuelve null y
+ * la ruta de subida caía en `getOrCreateSubfolder` a pelo — una búsqueda en
+ * Drive (~0,9 s) EN CADA FOTO para devolver siempre el mismo id. Aquí se cachea
+ * también la creación, así que la primera subida la busca/crea y las siguientes
+ * no cuestan nada.
+ *
+ * ⚠️ `getOrCreateSubfolder` devuelve el PADRE como respaldo cuando falla: ese
+ * caso no se cachea, o un fallo puntual de Drive dejaría todas las fotos del
+ * proceso cayendo en la raíz del expediente.
+ */
+async function ensureSubfolderId(folderId, nombre, normalizado = false) {
+    const key = `${folderId}::${nombre}`;
+    if (subfolderIdCache.has(key)) return subfolderIdCache.get(key);
+    const id = normalizado
+        ? await driveService.getOrCreateSubfolderNormalized(folderId, nombre)
+        : await driveService.getOrCreateSubfolder(folderId, nombre);
+    if (id && id !== folderId) subfolderIdCache.set(key, id);
+    return id;
+}
+
+/** Ejecuta `fn` sobre `items` con un tope de tareas simultáneas. Conserva el orden. */
+async function mapLimit(items, limite, fn) {
+    const out = new Array(items.length);
+    let cursor = 0;
+    const worker = async () => {
+        while (cursor < items.length) {
+            const i = cursor++;
+            out[i] = await fn(items[i], i);
+        }
+    };
+    await Promise.all(Array.from({ length: Math.min(limite, items.length) }, worker));
+    return out;
+}
+
+/**
+ * Sube N ficheros a UN slot en una sola tanda.
+ *
+ * Es la FUENTE ÚNICA de la subida: la usan tanto el POST de un fichero como el
+ * de tanda, para que el nombre en Drive, el índice y la entrada de
+ * `reforma_uploads` no puedan divergir según por dónde se entre.
+ *
+ * POR QUÉ EN TANDA. Antes cada foto costaba tres idas y vueltas a Google antes
+ * de mover un solo byte (buscar la subcarpeta · listar para calcular el índice
+ * `_N` · en slot único, listar otra vez para borrar la anterior) y el navegador
+ * las encadenaba de una en una, porque dos subidas en paralelo calculaban el
+ * MISMO índice y se pisaban el nombre. Aquí se lista Drive UNA vez, se reservan
+ * los índices consecutivos de toda la tanda y las subidas van en paralelo: ocho
+ * fotos pasan de ~24 llamadas a Drive en serie a 1 + 8 concurrentes.
+ *
+ * Nunca lanza por un fichero suelto: devuelve `{ subidas, fallidas }` y el
+ * llamador decide. Un fallo a mitad no puede tirar las que sí llegaron.
+ *
+ * @returns {Promise<{subidas: Array, fallidas: Array, subId: string}>}
+ */
+async function subirFicherosASlot({ oportunidadUuid, datosCalculo = {}, slotDef, archivos, label = null, subidoPor = 'cliente' }) {
+    const slot = slotDef.key;
+    const lista = Array.from(archivos || []);
+    // Slot de UNA sola foto: solo entra la primera. El resto se descarta aquí y
+    // no en el navegador, para que las dos entradas se comporten igual.
+    const files = slotDef.multiple ? lista : lista.slice(0, 1);
+    if (!files.length) return { subidas: [], fallidas: [], subId: null };
+
+    const folderId = await ensureDriveFolder(oportunidadUuid);
+    // Las FACTURAS van TODAS a "5. FACTURAS" (mismo sitio que el alta del admin);
+    // el resto de documentos y fotos, a "12. DOCUMENTOS PARA CEE". La búsqueda de
+    // facturas es TOLERANTE para no duplicar "5. FACTURAS" vs "5.FACTURAS".
+    const esFactura = slot === 'DOC_FACTURAS';
+    const subId = await ensureSubfolderId(folderId, esFactura ? SUBCARPETA_FACTURAS : SUBCARPETA_DOCS, esFactura);
+
+    // UN solo listado para toda la tanda: de él salen el índice de partida de un
+    // slot múltiple y, en uno único, los ficheros que hay que retirar.
+    let existentes = [];
+    try { existentes = await driveService.listFilesByPrefix(subId, slot) || []; }
+    catch (e) { console.warn('[Reforma] listado previo del slot:', e.message); }
+
+    const prev = Array.isArray(datosCalculo.reforma_uploads?.[slot]) ? datosCalculo.reforma_uploads[slot] : [];
+
+    // ── Nombres, reservados de una vez ──────────────────────────────────────
+    // El índice se calcula contra DRIVE y no solo contra `reforma_uploads`: las
+    // fotos llegadas por migración o copiadas a mano existen en Drive y no en la
+    // BD, y `prev.length + 1` habría reutilizado un nombre ya ocupado.
+    const ext = (f) => (String(f.originalname || '').split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
+    let maxIdx = prev.length;
+    if (slotDef.multiple && !(slotDef.named && label)) {
+        const re = new RegExp(`^${slot}_(\\d+)\\.`, 'i');
+        for (const f of existentes) {
+            const m = re.exec(f.name || '');
+            if (m) maxIdx = Math.max(maxIdx, parseInt(m[1], 10));
+        }
+    }
+    // Los nombres ya asignados en ESTA tanda cuentan para el siguiente (slots
+    // `named`, cuya unicidad se resuelve por etiqueta y no por índice).
+    const reservados = [...prev];
+    const plan = files.map((f, i) => {
+        let fileName;
+        let fileLabel = null;
+        if (slotDef.named && label) {
+            fileLabel = files.length > 1 ? `${label}_${i + 1}` : label;
+            fileName = `${buildNamedFileBase(slot, fileLabel, reservados)}.${ext(f)}`;
+        } else if (slotDef.multiple) {
+            fileName = `${slot}_${maxIdx + 1 + i}.${ext(f)}`;
+        } else {
+            fileName = `${slot}.${ext(f)}`;
+        }
+        reservados.push({ name: fileName });
+        return { file: f, fileName, fileLabel };
+    });
+
+    // Slot único: retirar la versión anterior para no acumular duplicados. Se
+    // hace con el listado que ya tenemos, sin pedírselo otra vez a Drive.
+    if (!slotDef.multiple) {
+        await Promise.all(existentes.map(async (f) => {
+            const base = String(f.name || '').replace(/\.[a-z0-9]{2,5}$/i, '');
+            if (base.toUpperCase() === slot.toUpperCase()) {
+                try { await driveService.deleteFile(f.id); } catch (e) { console.warn('[Reforma] dedup slot único:', e.message); }
+            }
+        }));
+    }
+
+    // ── Subida CONCURRENTE ──────────────────────────────────────────────────
+    const SIMULTANEAS = 4;
+    const resultados = await mapLimit(plan, SIMULTANEAS, async (p) => {
+        try {
+            const saved = await driveService.saveFileToFolder(subId, p.fileName, p.file.mimetype, p.file.buffer);
+            if (!saved?.id) throw new Error('Google Drive no devolvió el archivo');
+            return { ok: true, ...p, saved };
+        } catch (e) {
+            console.error('[Reforma] subida a Drive:', p.fileName, e.message);
+            return { ok: false, ...p, error: e.message };
+        }
+    });
+
+    // ── Registro en BD ──────────────────────────────────────────────────────
+    // En SERIE y con la RPC atómica: `reforma_append` bloquea la fila, así que
+    // lanzarlas a la vez solo añadiría contención sobre el mismo `datos_calculo`.
+    const subidas = [];
+    const fallidas = [];
+    for (const r of resultados) {
+        if (!r.ok) { fallidas.push({ originalname: r.file.originalname, error: r.error }); continue; }
+        const entry = {
+            name: r.fileName, link: r.saved.link, driveId: r.saved.id, at: new Date().toISOString(),
+            estado: 'subida', subido_por: subidoPor, motivo: null,
+        };
+        const { error } = await supabase.rpc('reforma_append', {
+            p_id: oportunidadUuid, p_slot: slot, p_entry: entry, p_multiple: !!slotDef.multiple,
+        });
+        if (error) {
+            console.error('[Reforma] rpc reforma_append:', error.message);
+            fallidas.push({ originalname: r.file.originalname, error: 'No se pudo registrar la foto.' });
+            continue;
+        }
+        subidas.push({
+            name: r.fileName,
+            link: r.saved.link,
+            driveId: r.saved.id,
+            thumb: driveThumb(r.saved.id),
+            label: slotDef.named ? parseOtrosLabel(r.fileName, slot) : null,
+            estado: 'subida',
+            file: r.file,          // el llamador lo necesita para el OCR de facturas
+        });
+    }
+    return { subidas, fallidas, subId };
+}
+
 async function buildDocsView(opp, opts = {}) {
     // El ALCANCE del expediente manda sobre la simulación: qué ficha es, si se
     // toca el ACS, qué unidad terminal hay, qué envolvente se rehabilita y si el
@@ -1140,8 +1381,18 @@ async function buildDocsView(opp, opts = {}) {
     // material suelto— y lo ya subido no se esconde jamás.
     const ocultarPrescindibles = opts.audience === 'cliente' && dc.estado === 'ACEPTADA';
 
+    // El DEPÓSITO DE ACS cuando va DENTRO de la unidad interior. Un conjunto
+    // (all-in-one, o un bibloc con el acumulador integrado) es UNA máquina: "la
+    // unidad interior" y "el depósito" son la misma foto, y la segunda casilla se
+    // queda siempre vacía — al cliente le pide una foto que ya ha hecho y al
+    // admin le deja el apartado en rojo para siempre. Solo se retira si el
+    // expediente lo AFIRMA (`false`, no `null`) y si está VACÍO: lo ya subido no
+    // se esconde nunca (mismo criterio que `emisorDesencaja`).
+    const acsDepositoIncluido = alcance.acs_equipo_propio === false;
+
     const checklistVivo = checklist.filter(s => {
         if (emisorDesencaja(s.key, alcance.emisor)) return tieneMaterial(s.key);
+        if (acsDepositoIncluido && s.key === 'FOTO_ACS_DEPOSITO') return tieneMaterial(s.key);
         if (ocultarPrescindibles && s.prescindible) return tieneMaterial(s.key);
         return true;
     });
@@ -1311,6 +1562,57 @@ async function buildDocsView(opp, opts = {}) {
  * "Aportado" y el CIFO, que no se emite sin RITE, sigue bloqueado. Medido en
  * 26RES060_131. Aquí no hay nada que adivinar — el slot se llama "Certificado RITE".
  */
+/**
+ * Qué falta de UN destino (certificado o expediente) y el enlace para pedirlo.
+ *
+ * Reconcilia con Drive (`buildDocsView`), así que no reclama lo que ya está
+ * subido aunque la BD no lo sepa — migrados, copias a mano, la skill del Anexo.
+ * Es lo que usa el parte diario para redactar el mensaje: si contara solo con
+ * `reforma_uploads`, le pediría al cliente fotos que ya mandó.
+ *
+ * Nunca lanza: sin oportunidad, o si Drive falla, devuelve la lista vacía y el
+ * llamador no propone nada — mejor que proponer una petición equivocada.
+ *
+ * @returns {Promise<{slots: Array, link: string|null}>}
+ */
+async function faltantesPorDestino(oportunidadUuid, destino = 'CEE') {
+    try {
+        if (!oportunidadUuid) return { slots: [], link: null };
+        const { data: opp } = await supabase
+            .from('oportunidades')
+            .select('id, id_oportunidad, datos_calculo')
+            .eq('id', oportunidadUuid)
+            .maybeSingle();
+        if (!opp) return { slots: [], link: null };
+
+        const view = await buildDocsView(opp);
+        const slots = (view.slots || []).filter(s =>
+            (s.destino || DESTINO.EXPEDIENTE) === destino
+            && !s.existing && !s.waived && !(s.items?.length)
+            // Un apartado PRESCINDIBLE (vídeo, planos, "Otros") no se reclama: no
+            // alimenta ningún documento y alargaría el mensaje con cosas que da
+            // igual que no lleguen.
+            && !s.prescindible
+            // Ni lo que es OPCIONAL SIEMPRE: el CEE anterior se le ofrece "si ya
+            // tienes uno", y ponerlo en una lista de "nos falta" le reclama un
+            // papel que puede no existir — y deja la sensación de que su
+            // expediente está parado por su culpa cuando no lo está.
+            && !s.optionalAlways
+        );
+        if (!slots.length) return { slots: [], link: null };
+
+        const token = opp.datos_calculo?.upload_token || (await ensureUploadLink(opp.id)).token;
+        const base = buildUploadLink(opp.id, token);
+        // El enlace va FILTRADO a lo que se pide: el cliente abre y ve solo esas
+        // casillas, cada una con su foto de ejemplo.
+        const link = `${base}${base.includes('?') ? '&' : '?'}need=${slots.map(s => s.key).join(',')}`;
+        return { slots, link };
+    } catch (e) {
+        console.warn('[Docs] faltantesPorDestino:', e.message);
+        return { slots: [], link: null };
+    }
+}
+
 async function syncRiteToExpediente(oportunidadId, link) {
     const set = async (field, value) => {
         const { error } = await supabase.rpc('set_expediente_doc_field', {
@@ -1499,6 +1801,9 @@ module.exports = {
     ADDABLE_CONCEPTS,
     ADDABLE_SLOT_KEYS,
     FULL_RES_SLOTS,
+    SLOTS_CEE,
+    DESTINO,
+    destinoDeSlot,
     getReformaSlots,
     getAerotermiaSlots,
     getLeadSlots,
@@ -1512,7 +1817,10 @@ module.exports = {
     buildDocChecklist,
     checklistForOportunidad,
     buildDocsView,
+    faltantesPorDestino,
     docsSubfolder,
+    ensureSubfolderId,
+    subirFicherosASlot,
     conceptsFromEnvolvente,
     syncEnvolventeConcepts,
     conceptsFromInstalacion,

@@ -51,6 +51,10 @@ const TIPOS = {
         via: 'solicitud', titulo: 'Recordar una firma pendiente',
         entradilla: 'El documento salió a firma y no ha vuelto. El mensaje lo recuerda con el enlace directo de firma.',
     },
+    'pedir-cee': {
+        via: 'solicitud', titulo: 'Pedir las fotos de la vivienda',
+        entradilla: 'El certificador necesita ver cómo es la casa por fuera para calcular el CEE, y el cliente no ha mandado nada. El mensaje le pide solo ese material, con un enlace que le enseña un ejemplo de cada foto.',
+    },
     'pedir-cobro': {
         via: 'solicitud', titulo: 'Pedir los datos de cobro',
         entradilla: 'El CAE ya está concedido y vamos a ingresarle el bono. El mensaje le pide que confirme su número de cuenta —es donde se cuelan los errores de transferencia— y le hace tres preguntas rápidas de venta cruzada.',
@@ -263,6 +267,33 @@ async function prepararSolicitud(expId, tipo, scope) {
                     uploadBase: info.uploadBase,
                 }),
             });
+        }
+    } else if (tipo === 'pedir-cee') {
+        // Lo que falta se recalcula AQUÍ, reconciliando con Drive: el detector solo
+        // pudo mirar `reforma_uploads` (no puede llamar a Drive una vez por
+        // expediente), así que una foto copiada a mano allí le habría hecho
+        // reclamar algo que ya está. Si al mirarlo de verdad no falta nada, no se
+        // propone destinatario y la página lo dice.
+        const reformaUploadService = require('../services/reformaUploadService');
+        const { data: ex } = await supabase.from('expedientes')
+            .select('oportunidad_id').eq('id', expId).maybeSingle();
+        const { slots, link } = await reformaUploadService.faltantesPorDestino(ex?.oportunidad_id, 'CEE');
+        if (slots.length && link) {
+            // Al CLIENTE: es quien tiene acceso a la vivienda. Al instalador se le
+            // ofrece desmarcado — a veces es él quien pasa por la obra.
+            for (const [id, c, esIns] of [['CLIENTE', info.cliente, false], ['INSTALADOR', info.instalador, true]]) {
+                if (!c?.tlf && !c?.email) continue;
+                destinatarios.push({
+                    id, rol: esIns ? 'Instalador' : 'Cliente', nombre: c.nombre || (esIns ? 'Instalador' : 'Cliente'),
+                    email: c.email || null, tlf: c.tlf || null,
+                    marcado: !esIns,
+                    mensaje: recordatorios.ceeMaterialMsg({
+                        destinatario: c.nombre, esInstalador: esIns, numExp: info.numero_expediente,
+                        obra: info.obra, url: link,
+                        faltan: slots.map(sl => sl.labelCliente || sl.label),
+                    }),
+                });
+            }
         }
     } else if (tipo === 'pedir-cobro') {
         // Solo el CLIENTE: el que cobra es él y la cuenta es suya. Al instalador no
@@ -556,7 +587,9 @@ router.post('/:tipo/:expId', express.json(), comprobarFirma, async (req, res) =>
                 const target = envio.target === 'INSTALADOR' ? 'INSTALADOR' : 'CLIENTE';
                 await axios.post(`${API()}/expedientes/${expId}/solicitar-faltantes`, {
                     target, channels: canales, mensaje,
-                    asunto: tipo === 'fin-obra'
+                    asunto: tipo === 'pedir-cee'
+                        ? `Fotos para el certificado energético — expediente ${numExp}`
+                        : tipo === 'fin-obra'
                         ? `¿Cómo va la obra? — expediente ${numExp}`
                         : tipo === 'pedir-cobro'
                             ? `Confirma tus datos para el ingreso de tu ayuda — expediente ${numExp}`

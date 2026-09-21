@@ -44,6 +44,37 @@ class Planta:
     uso_dominante: str | None = None
     confianza_uso: float = 0.0
     nota_uso: str = ""
+    #: Lo que hay CONSTRUIDO en este nivel y NO es de la vivienda: el garaje
+    #: adosado, el almacen. No esta en `huella` —sus paredes no se miden— pero
+    #: sigue estando ahi, y eso decide dos cosas: que la pared de la casa
+    #: contra el sea una PARTICION y no una fachada, y que el forjado de
+    #: encima sea una particion con espacio no habitable y no un voladizo.
+    #:
+    #: Va una entrada POR CUERPO, con su uso: un garaje y un almacen debajo de
+    #: la misma planta son DOS particiones, y el forjado de cada una tiene que
+    #: decir sobre que da. Con una sola geometria unida, los dos salian con el
+    #: nombre del primero.
+    no_habitable_partes: list[dict] = field(default_factory=list)
+
+    @property
+    def no_habitable(self) -> BaseGeometry | None:
+        """Todo lo no habitable de este nivel, junto. Es lo que ve el
+        clasificador de paredes: le da igual de quien sea cada trozo."""
+        gs = [p["geom"] for p in self.no_habitable_partes
+              if p.get("geom") is not None and not p["geom"].is_empty]
+        return unary_union(gs) if gs else None
+
+    @property
+    def huella_construida(self) -> BaseGeometry:
+        """Todo lo levantado en este nivel: la vivienda MAS lo que no cuenta.
+
+        Es la que decide si algo VUELA (no hay nada debajo) o se apoya. Con la
+        huella habitable sola, la planta sobre un garaje salia como voladizo.
+        """
+        nh = self.no_habitable
+        if nh is None:
+            return self.huella
+        return unary_union([self.huella, nh])
 
     @property
     def etiqueta(self) -> str:
@@ -95,15 +126,27 @@ def _limpia(g: BaseGeometry | None) -> BaseGeometry | None:
 
 
 def plantas_desde_partes(partes: list[ParteEdificio],
-                         plantas_por_defecto: int = 1) -> list[Planta]:
+                         plantas_por_defecto: int = 1,
+                         fuera_por_nivel: dict[int, list[dict]] | None = None,
+                         ) -> list[Planta]:
     """Huella de cada planta a partir de los BuildingParts.
 
     Una parte con `numberOfFloorsAboveGround = 2` esta presente en los niveles
     0 y 1. Si Catastro no dice cuantas plantas tiene, se cuenta UNA y queda
     anotado: inventar plantas seria inventar cubiertas y suelos.
+
+    `fuera_por_nivel` es lo que el certificador ha dejado FUERA de la
+    envolvente EN ESE NIVEL. Se resta de la huella —sus paredes no se miden—
+    pero se conserva en `Planta.no_habitable`, porque sigue estando construido:
+    de ahi salen la particion vertical contra el y el forjado de encima.
+
+    REGLA — se recorta POR NIVEL, nunca el cuerpo entero. Un garaje adosado con
+    vivienda encima es UN BuildingPart de dos plantas: quitarlo de las dos
+    borra las fachadas reales de la vivienda de arriba.
     """
     if not partes:
         return []
+    fuera_por_nivel = fuera_por_nivel or {}
     max_sobre = max((p.plantas_sobre_rasante or plantas_por_defecto) for p in partes)
     max_bajo = max((p.plantas_bajo_rasante or 0) for p in partes)
 
@@ -118,7 +161,22 @@ def plantas_desde_partes(partes: list[ParteEdificio],
         g = _limpia(unary_union(trozos)) if trozos else None
         if g is None:
             continue
-        plantas.append(Planta(nivel=nivel, huella=g, area_m2=round(g.area, 2)))
+        partes_fuera = []
+        for cuerpo in fuera_por_nivel.get(nivel) or []:
+            fuera = cuerpo.get("geom")
+            if fuera is None or fuera.is_empty:
+                continue
+            # Lo que de verdad se quita de ESTA huella, no el poligono entero
+            # del cuerpo: puede sobresalir de lo construido en este nivel.
+            trozo = _limpia(g.intersection(fuera))
+            if trozo is None:
+                continue
+            partes_fuera.append({"geom": trozo, "uso": cuerpo.get("uso") or NO_HABITABLE})
+            recortada = _limpia(g.difference(fuera))
+            if recortada is not None:
+                g = recortada
+        plantas.append(Planta(nivel=nivel, huella=g, area_m2=round(g.area, 2),
+                              no_habitable_partes=partes_fuera))
     return sorted(plantas, key=lambda p: p.nivel)
 
 
@@ -150,6 +208,17 @@ def asignar_usos(plantas: list[Planta], usos_por_planta: dict[int, dict[str, flo
             pl.nota_uso = ("varios usos en la misma planta ("
                            + ", ".join(f"{k} {v:g} m2" for k, v in usos.items())
                            + "): Catastro no dice que poligono es cada uno")
+
+
+#: Como se llama un espacio no habitable del que Catastro no dice el uso.
+NO_HABITABLE = "ESPACIO NO HABITABLE"
+
+
+def _partir(g: BaseGeometry, fuera: BaseGeometry | None):
+    """Separa de `g` lo que cae sobre `fuera` y lo que queda."""
+    if g is None or g.is_empty or fuera is None or fuera.is_empty:
+        return None, g
+    return _limpia(g.intersection(fuera)), g.difference(fuera)
 
 
 def _uso(pl: Planta | None) -> str:
@@ -188,8 +257,24 @@ def elementos_horizontales(plantas: list[Planta]) -> list[ElementoHorizontal]:
                     espacio_origen=_uso(pl), espacio_destino="TERRENO",
                     confianza=0.85, nota="no hay planta construida debajo")
         else:
-            comun = _limpia(pl.huella.intersection(abajo.huella))
-            volado = _limpia(pl.huella.difference(abajo.huella))
+            # Lo que se apoya sobre el GARAJE de abajo es una particion con
+            # espacio no habitable AUNQUE las dos plantas sean de VIVIENDA: lo
+            # decide la geometria, no el uso dominante de la planta.
+            resto = pl.huella
+            for cuerpo in abajo.no_habitable_partes:
+                sobre_nohab, resto = _partir(resto, cuerpo["geom"])
+                for poli in _polis(sobre_nohab):
+                    destino = cuerpo["uso"]
+                    add(nivel=pl.nivel, planta=pl.etiqueta, tipo="PARTICION_HORIZONTAL",
+                        subtipo="ESPACIO_NO_HABITABLE_INFERIOR",
+                        poligono=poli, area_m2=round(poli.area, 2),
+                        espacio_origen=_uso(pl), espacio_destino=destino,
+                        confianza=0.85,
+                        nota=f"suelo de {pl.etiqueta} sobre {destino} de {abajo.etiqueta}",
+                        relevante_ce3x=True)
+            comun = _limpia(resto.intersection(abajo.huella))
+            # VUELA lo que no tiene NADA construido debajo: ni vivienda ni garaje.
+            volado = _limpia(resto.difference(abajo.huella))
             for poli in _polis(comun):
                 destino = _uso(abajo)
                 no_hab = destino in NO_HABITABLES
@@ -214,8 +299,22 @@ def elementos_horizontales(plantas: list[Planta]) -> list[ElementoHorizontal]:
                     espacio_origen=_uso(pl), espacio_destino="EXTERIOR",
                     confianza=0.85, nota="no hay planta construida encima")
         else:
-            cubierta = _limpia(pl.huella.difference(arriba.huella))
-            comun = _limpia(pl.huella.intersection(arriba.huella))
+            resto = pl.huella
+            for cuerpo in arriba.no_habitable_partes:
+                bajo_nohab, resto = _partir(resto, cuerpo["geom"])
+                for poli in _polis(bajo_nohab):
+                    destino = cuerpo["uso"]
+                    add(nivel=pl.nivel, planta=pl.etiqueta, tipo="PARTICION_HORIZONTAL",
+                        subtipo="ESPACIO_NO_HABITABLE_SUPERIOR",
+                        poligono=poli, area_m2=round(poli.area, 2),
+                        espacio_origen=_uso(pl), espacio_destino=destino,
+                        confianza=0.85,
+                        nota=f"techo de {pl.etiqueta} bajo {destino} de {arriba.etiqueta}",
+                        relevante_ce3x=True)
+            # Es CUBIERTA solo lo que no tiene NADA encima: si arriba hay un
+            # trastero que no cuenta, esto es una particion y no un tejado.
+            cubierta = _limpia(resto.difference(arriba.huella))
+            comun = _limpia(resto.intersection(arriba.huella))
             for poli in _polis(cubierta):
                 add(nivel=pl.nivel, planta=pl.etiqueta, tipo="CUBIERTA",
                     subtipo="AIRE_EXTERIOR", poligono=poli, area_m2=round(poli.area, 2),

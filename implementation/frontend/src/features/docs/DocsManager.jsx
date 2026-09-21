@@ -14,6 +14,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { prepararImagenParaSubir } from '../../utils/imageResize';
+import { BuzonFotos } from './BuzonFotos';
 import { SlotIlustracion, tieneIlustracion } from './SlotIlustracion';
 
 const ESTADO_UI = {
@@ -22,6 +23,35 @@ const ESTADO_UI = {
     validada:  { ring: 'border-emerald-400/40 bg-emerald-400/[0.06]', chip: { txt: '✓ Validada', cls: 'bg-emerald-400/15 text-emerald-300' } },
     rechazada: { ring: 'border-red-400/40 bg-red-400/[0.06]', chip: { txt: '✗ Vuelve a subirla', cls: 'bg-red-400/15 text-red-300' } },
 };
+
+// Para qué sirve cada bloque, dicho en una línea. El DESTINO lo declara el
+// backend (`slot.destino`); aquí solo se le pone nombre y color.
+const DESTINO_UI = {
+    EXPEDIENTE: {
+        titulo: '📸 Para el EXPEDIENTE',
+        ayuda: 'Lo que justifica la actuación ante el verificador: de aquí salen el Anexo Fotográfico y el certificado de fin de obra.',
+        color: 'amber',
+    },
+    CEE: {
+        titulo: '📐 Para levantar el CERTIFICADO',
+        ayuda: 'Lo que el certificador necesita para modelar la vivienda. No va al expediente CAE, y deja de pedirse cuando el CEE inicial queda registrado.',
+        color: 'sky',
+    },
+};
+
+function BloqueDestino({ titulo, ayuda, color, n, children }) {
+    const borde = color === 'sky' ? 'border-sky-400/25' : 'border-amber-400/25';
+    const texto = color === 'sky' ? 'text-sky-300' : 'text-amber-300';
+    return (
+        <section className="mb-6 last:mb-0">
+            <div className={`mb-3 pl-3 border-l-2 ${borde}`}>
+                <p className={`text-[11px] font-black uppercase tracking-widest ${texto}`}>{titulo} <span className="text-white/30">· {n}</span></p>
+                <p className="text-white/40 text-[11px] mt-0.5 leading-snug">{ayuda}</p>
+            </div>
+            <div className="space-y-3">{children}</div>
+        </section>
+    );
+}
 
 const FOTO_ESTADO_BORDER = {
     validada: 'border-emerald-400 ring-1 ring-emerald-400/40',
@@ -111,7 +141,7 @@ function DriveImg({ localUrl, proxySrc = null, driveId, thumb, lowSrc = null, si
     );
 }
 
-export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedded = false, canValidate = false, rol = null, need = null }) {
+export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedded = false, canValidate = false, rol = null, need = null, onPedirSlot = null }) {
     // Enlace scoped por rol: cliente sube el ANTES de la obra; instalador, el DESPUÉS
     // (instalación terminada + facturas + RITE). Restringe la vista a esa fase.
     const roleFase = rol === 'cliente' ? 'ANTES' : rol === 'instalador' ? 'DESPUES' : null;
@@ -126,7 +156,10 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const [uploadPct, setUploadPct] = useState({}); // % de subida por slot
     // Subida MÚLTIPLE: los ficheros van de uno en uno, así que un % suelto vuelve a
     // cero en cada foto y parece que se ha atascado. Esto dice por cuál va.
-    const [uploadN, setUploadN] = useState({});     // { slot: { hecho, total } }
+    const [uploadN, setUploadN] = useState({});     // { slot: { hecho, total, fase } }
+    const [previewing, setPreviewing] = useState({}); // { slot: [objectURL|null] } mientras suben
+    const [buzon, setBuzon] = useState(null);       // { files } al soltar fuera de una casilla
+    const [buzonDrag, setBuzonDrag] = useState(false);
     const [slotError, setSlotError] = useState({});
     const [lightbox, setLightbox] = useState(null);
     const [lbConfirmDelete, setLbConfirmDelete] = useState(false); // confirmación de borrado en lightbox
@@ -313,47 +346,74 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     // borrar la antigua si la nueva falló).
     // `label` (opcional): nombre legible para los slots "Otros". Si se suben varios
     // archivos a la vez con la misma etiqueta, se numeran _1, _2… en el fichero.
+    // Va en UNA sola petición (`/batch`), no foto a foto. Antes cada foto era su
+    // propio POST y el servidor pedía a Drive la carpeta y el listado del slot
+    // ANTES de mover un byte: ocho fotos eran ~24 idas y vueltas a Google, en
+    // serie. En tanda, el servidor lista una vez, reserva los índices y sube en
+    // paralelo. Y el porcentaje pasa a ser real y monótono, en vez de volver a
+    // cero en cada foto (que es lo que parecía un cuelgue).
     const uploadFiles = async (slot, fileList, label = null) => {
-        const files = Array.from(fileList || []);
-        if (!files.length) return false;
+        const todos = Array.from(fileList || []);
+        if (!todos.length) return false;
+        // Apartado de UNA sola foto: solo entra la primera. El servidor aplica el
+        // mismo criterio, así que no puede colarse una segunda por otra vía.
+        const files = slot.multiple ? todos : todos.slice(0, 1);
         let ok = true;
         setBusySlot(slot.key);
         setSlotError(prev => ({ ...prev, [slot.key]: null }));
-        if (files.length > 1) setUploadN(prev => ({ ...prev, [slot.key]: { hecho: 0, total: files.length } }));
+
+        // Miniatura ANTES de que responda el servidor: la foto ya se ve puesta
+        // mientras viaja. Sin esto, soltar diez fotos deja la tarjeta igual que
+        // estaba durante medio minuto y no se distingue de que no haya pasado nada.
+        const previews = files.map(f => (f.type?.startsWith('image/') ? URL.createObjectURL(f) : null));
+        setPreviewing(prev => ({ ...prev, [slot.key]: previews }));
+
         try {
+            // Foto de móvil = 5-12 MB. Se reduce antes de subirla salvo en los
+            // slots de PLACA (`fullRes`), donde hay que poder leer el nº de serie.
+            // Aquí importa el doble: el cliente suele subir con datos móviles.
+            const preparados = [];
             for (let i = 0; i < files.length; i++) {
-                if (files.length > 1) setUploadN(prev => ({ ...prev, [slot.key]: { hecho: i, total: files.length } }));
-                // Foto de móvil = 5-12 MB. Se reduce antes de subirla salvo en los
-                // slots de PLACA (`fullRes`), donde hay que poder leer el nº de serie.
-                // Aquí importa el doble: el cliente suele subir con datos móviles.
-                const file = await prepararImagenParaSubir(files[i], { fullRes: slot.fullRes });
-                const form = new FormData();
-                // La etiqueta va ANTES del fichero para que multer la deje en req.body.
-                let fileLabel = null;
-                if (label) {
-                    fileLabel = files.length > 1 ? `${label}_${i + 1}` : label;
-                    form.append('label', fileLabel);
+                if (files.length > 1) setUploadN(prev => ({ ...prev, [slot.key]: { hecho: i, total: files.length, fase: 'preparando' } }));
+                preparados.push(await prepararImagenParaSubir(files[i], { fullRes: slot.fullRes }));
+            }
+            if (files.length > 1) setUploadN(prev => ({ ...prev, [slot.key]: { hecho: files.length, total: files.length, fase: 'subiendo' } }));
+
+            const form = new FormData();
+            // La etiqueta va ANTES de los ficheros para que multer la deje en req.body.
+            // Con varios, el servidor la numera (_1, _2…) al nombrar cada uno.
+            if (label) form.append('label', label);
+            for (const f of preparados) form.append('files', f);
+
+            const res = await axios.post(
+                `/api/public/reforma-docs/${uuidRef.current}/${slot.key}/batch`,
+                form,
+                {
+                    params: { token: tokenRef.current },
+                    headers: { 'Content-Type': 'multipart/form-data' },
+                    timeout: 10 * 60 * 1000,
+                    onUploadProgress: (e) => {
+                        if (e.total) setUploadPct(prev => ({ ...prev, [slot.key]: Math.round((e.loaded / e.total) * 100) }));
+                    },
                 }
-                form.append('file', file);
-                const res = await axios.post(
-                    `/api/public/reforma-docs/${uuidRef.current}/${slot.key}`,
-                    form,
-                    {
-                        params: { token: tokenRef.current },
-                        headers: { 'Content-Type': 'multipart/form-data' },
-                        timeout: 5 * 60 * 1000,
-                        onUploadProgress: (e) => {
-                            if (e.total) setUploadPct(prev => ({ ...prev, [slot.key]: Math.round((e.loaded / e.total) * 100) }));
-                        },
-                    }
-                );
-                const localUrl = file.type?.startsWith('image/') ? URL.createObjectURL(file) : null;
-                const entry = { name: res.data.name, label: res.data.label ?? fileLabel, link: res.data.link, thumb: res.data.thumb, driveId: res.data.driveId, localUrl, estado: 'subida', at: new Date().toISOString() };
+            );
+            const subidas = res.data?.items || [];
+            const entries = subidas.map((it, i) => ({
+                name: it.name, label: it.label ?? null, link: it.link, thumb: it.thumb,
+                driveId: it.driveId, localUrl: previews[i] || null,
+                estado: 'subida', at: new Date().toISOString(),
+            }));
+            if (entries.length) {
                 patchSlot(slot.key, s => {
-                    const items = s.multiple ? [...(s.items || []), entry] : [entry];
+                    const items = s.multiple ? [...(s.items || []), ...entries] : [entries[entries.length - 1]];
                     return { ...s, items, estado: rollup(items) };
                 });
-                if (!slot.multiple) break;
+            }
+            // Parcial: lo que sí entró se conserva y se dice qué se quedó fuera.
+            const fallidas = res.data?.fallidas || [];
+            if (fallidas.length) {
+                ok = false;
+                setSlotError(prev => ({ ...prev, [slot.key]: `No se pudieron subir ${fallidas.length} de ${files.length} archivos. Vuelve a intentarlo con esos.` }));
             }
         } catch (err) {
             ok = false;
@@ -365,6 +425,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
             setBusySlot(null);
             setUploadPct(prev => ({ ...prev, [slot.key]: undefined }));
             setUploadN(prev => ({ ...prev, [slot.key]: undefined }));
+            setPreviewing(prev => ({ ...prev, [slot.key]: undefined }));
         }
         if (ok) {
             // Acuse visible y vuelta al recorrido automático: el apartado deja de
@@ -397,6 +458,58 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         setNamePrompt(null);
         setNameValue('');
         await uploadFiles(slot, files, label);
+    };
+
+    // ── PEGAR (Ctrl+V) ──────────────────────────────────────────────────────
+    // Media documentación llega por WhatsApp Web: se copia la foto del chat y lo
+    // natural es pegarla, no guardarla en Descargas para después buscarla en un
+    // diálogo de archivos. El destino es el apartado que tiene el RATÓN ENCIMA
+    // (en el recorrido guiado, el paso en pantalla), que es el único que el
+    // usuario puede señalar sin un paso más — y se anuncia en la propia tarjeta,
+    // porque un atajo que no se ve no lo prueba nadie.
+    //
+    // No se roba el pegado dentro de un campo de texto: ahí es el del navegador.
+    const pasteRef = useRef({ slot: null, upload: null, busy: false });
+    pasteRef.current.upload = requestUpload;
+    pasteRef.current.busy = busySlot !== null;
+    useEffect(() => {
+        const onPaste = (e) => {
+            const t = e.target;
+            if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+            const slot = pasteRef.current.slot;
+            if (!slot || pasteRef.current.busy) return;
+            const ficheros = Array.from(e.clipboardData?.items || [])
+                .filter(i => i.kind === 'file')
+                .map(i => i.getAsFile())
+                .filter(Boolean);
+            if (!ficheros.length) return;
+            e.preventDefault();
+            pasteRef.current.upload(slot, ficheros);
+        };
+        document.addEventListener('paste', onPaste);
+        return () => document.removeEventListener('paste', onPaste);
+    }, []);
+    // El apartado señalado. Se guarda en el ref (no en estado) porque cambia con
+    // cada movimiento del ratón y volver a pintar la lista entera por eso sería
+    // tirar rendimiento a la basura; lo que sí es estado es cuál se resalta.
+    const [pasteSlot, setPasteSlot] = useState(null);
+    const apuntarPegado = (slot) => { pasteRef.current.slot = slot; setPasteSlot(slot?.key || null); };
+
+    // ── BUZÓN (solo admin) ──────────────────────────────────────────────────
+    // Soltar fotos donde no hay casilla abre el repartidor. El cliente no lo
+    // tiene: él va guiado apartado por apartado y no sabría qué repartir.
+    // ⚠️ Se mira `mode`, no `clientView`: esa constante se declara MÁS ABAJO y
+    // leerla aquí revienta el componente entero ("Cannot access 'clientView'
+    // before initialization") — pantalla en rojo, no un fallo discreto.
+    const buzonHandlers = mode === 'token' ? {} : {
+        onDragOver: (e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); if (!buzonDrag) setBuzonDrag(true); } },
+        onDragLeave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setBuzonDrag(false); },
+        onDrop: (e) => {
+            e.preventDefault();
+            setBuzonDrag(false);
+            const files = Array.from(e.dataTransfer?.files || []);
+            if (files.length) setBuzon({ files });
+        },
     };
 
     const deleteItem = async (slot, item) => {
@@ -583,6 +696,14 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         .map(x => x.s);
 
     const matchesNeed = (s) => !needSet || needSet.has(s.key);
+
+    // ¿Todo lo que se le pide es del MISMO destino? Entonces se le puede decir
+    // para qué es. Mezclado, no: no sería verdad del todo.
+    const destinoPedido = (() => {
+        if (!needSet) return null;
+        const d = new Set((info?.slots || []).filter(s => needSet.has(s.key)).map(s => s.destino || 'EXPEDIENTE'));
+        return d.size === 1 ? [...d][0] : null;
+    })();
     const antes = byTier(slots.filter(s => s.fase === 'ANTES' && matchesNeed(s)));
     const despues = byTier(slots.filter(s => s.fase === 'DESPUES' && matchesNeed(s)));
     const reqAntes = antes.filter(s => s.required);
@@ -721,7 +842,11 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const textoSubiendo = (slot) => {
         const n = uploadN[slot.key];
         const pct = uploadPct[slot.key];
-        if (n && n.total > 1) return `Subiendo ${Math.min(n.hecho + 1, n.total)} de ${n.total}…`;
+        // Reducir diez fotos de móvil antes de mandarlas lleva su rato y en esa
+        // fase no hay porcentaje de red que enseñar: se dice lo que está pasando
+        // ("Preparando 3 de 10") en vez de un "Subiendo…" que aún no es cierto.
+        if (n && n.fase === 'preparando' && n.total > 1) return `Preparando ${Math.min(n.hecho + 1, n.total)} de ${n.total}…`;
+        if (n && n.total > 1) return pct != null ? `Subiendo ${n.total} archivos… ${pct}%` : `Subiendo ${n.total} archivos…`;
         return pct != null ? `Subiendo… ${pct}%` : 'Subiendo…';
     };
 
@@ -739,6 +864,27 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         if (slot.key.startsWith('VIDEO_')) return '🎥 Subir vídeo';
         if (slot.key.startsWith('FOTO_')) return varias ? '📷 Subir fotos' : '📷 Subir foto';
         return varias ? '📎 Subir archivos' : '📎 Subir archivo';
+    };
+
+    // ── Los dos TRABAJOS, separados ─────────────────────────────────────────
+    // Un apartado sirve para levantar el CERTIFICADO (lo que el certificador
+    // necesita para modelar la vivienda en CE3X) o para el EXPEDIENTE (lo que
+    // justifica la actuación ante el verificador). Son dos cosas distintas con la
+    // misma pinta, y mezcladas en una lista corrida no había forma de saber qué
+    // hacía falta para qué — ni de pedirle al cliente una sin la otra.
+    //
+    // La cabecera solo aparece cuando de verdad conviven los dos: rotular un
+    // bloque único es ruido.
+    const porDestino = (lista) => {
+        const cee = lista.filter(s => s.destino === 'CEE');
+        const exp = lista.filter(s => s.destino !== 'CEE');
+        if (!cee.length || !exp.length) return <div className="space-y-3">{lista.map(renderSlot)}</div>;
+        return (
+            <>
+                <BloqueDestino {...DESTINO_UI.EXPEDIENTE} n={exp.length}>{exp.map(renderSlot)}</BloqueDestino>
+                <BloqueDestino {...DESTINO_UI.CEE} n={cee.length}>{cee.map(renderSlot)}</BloqueDestino>
+            </>
+        );
     };
 
     const renderSlot = (slot) => {
@@ -763,7 +909,11 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                 setDragOver(null);
                 if (!busy) { const files = e.dataTransfer.files; if (files?.length) requestUpload(slot, files); }
             },
+            // Apuntar aquí lo que se pegue con Ctrl+V mientras el ratón esté encima.
+            onMouseEnter: () => apuntarPegado(slot),
+            onMouseLeave: () => { if (pasteRef.current.slot?.key === slot.key) apuntarPegado(null); },
         };
+        const pegaAqui = !slot.existing && !busy && pasteSlot === slot.key;
 
         return (
             <div key={slot.key} {...dragHandlers} className={`p-4 md:p-5 rounded-2xl border-2 transition-all relative ${isDragOver ? 'border-amber-400 bg-amber-400/[0.1] shadow-[0_0_28px_rgba(251,191,36,0.28)] scale-[1.006]' : done ? ui.ring : slot.required ? 'border-amber-400/30 bg-amber-400/[0.04]' : 'border-white/10 bg-white/[0.03]'}`}>
@@ -774,6 +924,14 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                         <span className="text-amber-300 font-black text-xs uppercase tracking-widest">Suelta para subir</span>
                     </div>
                 </div>
+            )}
+            {/* Solo con ratón: en un móvil no hay portapapeles del que pegar y
+                mencionarlo únicamente confunde (mismo criterio que "o arrástralas aquí"). */}
+            {pegaAqui && !isDragOver && (
+                <span className="hidden md:flex absolute top-2 right-3 items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-white/35 pointer-events-none">
+                    <kbd className="px-1.5 py-0.5 rounded border border-white/20 bg-white/[0.06] text-white/55">Ctrl+V</kbd>
+                    pega aquí
+                </span>
             )}
                 {/* En el enlace del cliente (móvil) el botón cae DEBAJO y a todo el
                     ancho: con el botón a la derecha, un título de dos líneas lo
@@ -808,6 +966,20 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                     </a>
                                 ))}
                             </div>
+                        )}
+                        {/* Pedirle ESTA foto al cliente, desde la propia casilla que falta.
+                            Antes había que salir al expediente, abrir "solicitar lo que
+                            falta" y buscarla entre veinte líneas: el gesto no se hacía y
+                            la foto se reclamaba por teléfono. El enlace que se manda va
+                            filtrado a lo pedido (`need=`), así que el cliente abre y ve
+                            solo eso. */}
+                        {onPedirSlot && !done && !slot.waived && !slot.existing && (
+                            <button
+                                onClick={() => onPedirSlot(slot)}
+                                className="mt-2 mr-2 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border border-sky-400/30 text-sky-300 hover:bg-sky-400/10 transition-all"
+                            >
+                                📩 Pedírsela
+                            </button>
                         )}
                         {/* Admin: marcar obligatorio (o cualquier slot de DESPUÉS) como "no necesario" (o reactivar) */}
                         {canValidate && (slot.required || slot.waived || slot.fase === 'DESPUES') && !slot.existing && (
@@ -850,6 +1022,23 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                             );
                         })()}
 
+                        {/* Las que están viajando ahora mismo: se ven puestas, en gris
+                            y con su indicador. Es lo que convierte "no ha pasado nada"
+                            en "ya están, se están guardando". */}
+                        {(previewing[slot.key] || []).length > 0 && (
+                            <div className="mt-3 flex flex-wrap gap-3">
+                                {(previewing[slot.key] || []).map((url, i) => (
+                                    <div key={`prev-${i}`} className="relative w-16 h-16 rounded-lg overflow-hidden border-2 border-white/15 bg-white/[0.04] flex items-center justify-center">
+                                        {url
+                                            ? <img src={url} alt="" className="w-full h-full object-cover opacity-45" />
+                                            : <span className="text-xl leading-none opacity-40">📎</span>}
+                                        <span className="absolute inset-0 flex items-center justify-center">
+                                            <span className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white/80 animate-spin" />
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                         {items.length > 0 && (
                             <div className="mt-3 flex flex-wrap gap-3">
                                 {items.map((it, i) => {
@@ -953,7 +1142,25 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     };
 
     return (
-        <div>
+        <div {...buzonHandlers} className={buzonDrag ? 'relative rounded-3xl outline-dashed outline-2 outline-offset-4 outline-amber-400/60' : 'relative'}>
+            {/* Soltar fotos FUERA de una casilla abre el buzón: se reparten después.
+                Las tarjetas de apartado cortan la propagación, así que soltar sobre
+                una sigue subiendo ahí directamente — el buzón es para cuando llegan
+                veinte de golpe y no se sabe cuál va dónde. */}
+            {buzonDrag && (
+                <div className="absolute inset-0 z-30 flex items-center justify-center rounded-3xl bg-black/60 backdrop-blur-[2px] pointer-events-none">
+                    <span className="text-amber-300 font-black text-sm uppercase tracking-widest">🗂️ Suelta aquí y las repartimos</span>
+                </div>
+            )}
+            {buzon && (
+                <BuzonFotos
+                    idOrUuid={idOrUuid}
+                    files={buzon.files}
+                    slots={(info.slots || []).filter(s => !s.existing)}
+                    onSubir={(slot, archivos) => uploadFiles(slot, archivos)}
+                    onCerrar={() => setBuzon(null)}
+                />
+            )}
             {/* Cabecera de identificación */}
             <div className={`text-center ${embedded ? 'mb-4' : 'mb-6'}`}>
                 {!embedded && <h1 className="text-2xl md:text-4xl font-black text-white tracking-tight leading-tight">Documentación del expediente</h1>}
@@ -1028,6 +1235,10 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                 e.preventDefault(); setDragOver(null);
                                 if (!busy && e.dataTransfer.files?.length) requestUpload(pasoSlot, e.dataTransfer.files);
                             }}
+                            // En el recorrido guiado solo hay un apartado en pantalla:
+                            // lo que se pegue va ahí, sin tener que apuntar con el ratón.
+                            onMouseEnter={() => apuntarPegado(pasoSlot)}
+                            onMouseLeave={() => apuntarPegado(null)}
                             className={`relative rounded-3xl border-2 p-5 md:p-6 transition-all ${dragOver === pasoSlot.key ? 'border-amber-400 bg-amber-400/[0.12] shadow-[0_0_36px_rgba(251,191,36,0.3)]' : pasoSlot.estado === 'rechazada' ? 'border-red-400/40 bg-red-400/[0.06]' : yaEnviado ? 'border-emerald-400/35 bg-emerald-400/[0.05]' : 'border-amber-400/30 bg-amber-400/[0.04]'}`}>
                             {dragOver === pasoSlot.key && (
                                 <div className="absolute inset-0 z-10 flex items-center justify-center rounded-3xl bg-black/50 backdrop-blur-[2px] pointer-events-none">
@@ -1230,9 +1441,20 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
 
                     {cliAhora.length > 0 ? (
                         <section>
+                            {/* PARA QUÉ se le pide. Quien entiende para qué sirve una
+                                foto la hace bien; al que solo recibe una lista de
+                                nombres hay que repetírsela. Solo cuando todo lo
+                                pedido es del mismo destino: mezclado, decir "esto es
+                                para el certificado" sería mentir a medias. */}
+                            {destinoPedido === 'CEE' && (
+                                <div className="mb-3 p-4 rounded-2xl border border-sky-400/25 bg-sky-400/[0.07] text-sm text-white/70 leading-relaxed">
+                                    📐 Esto es para poder hacer el <strong className="text-sky-200">certificado energético</strong> de tu vivienda.
+                                    Un técnico necesita ver cómo es la casa por fuera para calcularlo, y con estas fotos se ahorra una visita.
+                                </div>
+                            )}
                             <p className="mb-3 text-sm text-white/60 leading-relaxed">
                                 {needSet
-                                    ? <>📋 Sube <strong className="text-white/85">solo lo que te pedimos</strong> aquí abajo. Puedes hacerlo desde el móvil, archivo a archivo.</>
+                                    ? <>📋 Sube <strong className="text-white/85">solo lo que te pedimos</strong> aquí abajo. Puedes hacerlo desde el móvil, y en cada apartado puedes mandar varias fotos.</>
                                     : <>📷 Puedes hacerlo <strong className="text-white/85">desde el móvil, una foto cada vez</strong>. No hace falta terminarlo de una sentada: vuelve a este enlace cuando quieras y sigue por donde lo dejaste.</>}
                             </p>
                             <div className="space-y-3">{cliAhora.map(renderSlot)}</div>
@@ -1356,7 +1578,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                             {bulkValidating === '__antes__' ? 'Validando…' : `✓ Validar todo lo pendiente (${antesPending.length})`}
                         </button>
                     )}
-                    <div className="space-y-3">{antes.map(renderSlot)}</div>
+                    {porDestino(antes)}
                 </section>
             ) : (
                 <section>
@@ -1372,7 +1594,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                             {bulkValidating === '__despues__' ? 'Validando…' : `✓ Validar todo lo pendiente (${despuesPending.length})`}
                         </button>
                     )}
-                    <div className="space-y-3">{despues.map(renderSlot)}</div>
+                    {porDestino(despues)}
                 </section>
             ))}
 

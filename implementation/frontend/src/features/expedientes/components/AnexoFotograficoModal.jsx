@@ -366,27 +366,37 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
         // se reducen si son grandes. Ver utils/imageResize.
         const fullRes = photos.some(p => p.slotKey === slotKey && p.fullRes);
         setUploadingSlot(slotKey);
-        setUploadInfo({ hechas: 0, total: files.length, pct: 0 });
+        setUploadInfo({ hechas: 0, total: files.length, pct: 0, fase: 'preparando' });
         try {
-            // En SERIE: el nombre del fichero depende de cuántos haya ya en el slot,
-            // así que dos subidas en paralelo se asignarían el mismo índice.
+            // Se reducen todas y se mandan en UNA petición (`/batch`). Iban de una en
+            // una porque el nombre del fichero dependía de cuántos hubiera ya en el
+            // slot y dos subidas a la vez se asignaban el mismo índice; eso lo
+            // resuelve ahora el servidor, que reserva los índices de toda la tanda y
+            // sube a Drive en paralelo.
+            const preparados = [];
             for (let i = 0; i < files.length; i++) {
-                const file = await prepararImagenParaSubir(files[i], { fullRes });
-                const fd = new FormData();
-                fd.append('file', file);
-                await axios.post(`/api/public/reforma-docs/${oppUuid}/${slotKey}`, fd, {
-                    headers: { 'Content-Type': 'multipart/form-data' },
-                    // Sin esto el spinner no distingue "subiendo despacio" de "colgado",
-                    // que es justo lo que confundía con las fotos grandes.
-                    onUploadProgress: (e) => {
-                        if (!e.total) return;
-                        setUploadInfo({ hechas: i, total: files.length, pct: Math.round((e.loaded / e.total) * 100) });
-                    },
-                    timeout: 5 * 60 * 1000, // una foto grande por una línea lenta puede tardar
-                });
-                setUploadInfo({ hechas: i + 1, total: files.length, pct: 100 });
+                setUploadInfo({ hechas: i, total: files.length, pct: 0, fase: 'preparando' });
+                preparados.push(await prepararImagenParaSubir(files[i], { fullRes }));
             }
+            const fd = new FormData();
+            for (const f of preparados) fd.append('files', f);
+            const { data } = await axios.post(`/api/public/reforma-docs/${oppUuid}/${slotKey}/batch`, fd, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+                // Sin esto el spinner no distingue "subiendo despacio" de "colgado",
+                // que es justo lo que confundía con las fotos grandes.
+                onUploadProgress: (e) => {
+                    if (!e.total) return;
+                    setUploadInfo({ hechas: files.length, total: files.length, pct: Math.round((e.loaded / e.total) * 100), fase: 'subiendo' });
+                },
+                timeout: 10 * 60 * 1000, // varias fotos grandes por una línea lenta
+            });
             await loadDynamic();
+            // Parcial: lo que sí entró se queda, y se dice qué se ha caído. Callarlo
+            // dejaría creer que están las siete cuando solo han subido cinco.
+            const fallidas = data?.fallidas || [];
+            if (fallidas.length) {
+                showAlert('Faltan algunas', `No se pudieron subir ${fallidas.length} de ${files.length} archivos. Vuelve a intentarlo con esos.`, 'warning');
+            }
         } catch (err) {
             console.error('[AnexoFotografico] Error subiendo a Drive:', err);
             const msg = err.code === 'ECONNABORTED'
@@ -1015,7 +1025,11 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                                                         : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4"/></svg>}
                                                     {uploadingSlot === group.slotKey
                                                         ? (uploadInfo
-                                                            ? `${uploadInfo.pct}%${uploadInfo.total > 1 ? ` (${uploadInfo.hechas + 1}/${uploadInfo.total})` : ''}`
+                                                            // Reducir diez fotos de móvil lleva su rato y ahí no hay
+                                                            // porcentaje de red que enseñar: se dice qué está pasando.
+                                                            ? (uploadInfo.fase === 'preparando' && uploadInfo.total > 1
+                                                                ? `Preparando ${Math.min(uploadInfo.hechas + 1, uploadInfo.total)}/${uploadInfo.total}…`
+                                                                : `${uploadInfo.pct}%${uploadInfo.total > 1 ? ` (${uploadInfo.total} fotos)` : ''}`)
                                                             : 'Subiendo…')
                                                         : 'Añadir fotos'}
                                                     <input type="file" className="hidden" accept={ACCEPT_FOTOS} multiple disabled={!!uploadingSlot}

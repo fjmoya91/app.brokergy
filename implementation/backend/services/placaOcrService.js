@@ -182,10 +182,10 @@ const FAMILIAS = [
     ['liquido', /\b(l[íi]quid|gas[óo]leo|gasoil|gas-oil|fuel|di[ée]sel)/i],
     ['gas', /\b(gas|propano|butano|glp|metano)\b/i],
 ];
-const FAMILIA_DE_COMBUSTIBLE = {
-    gas_natural: 'gas', glp: 'gas', gasoleo: 'liquido', pellets: 'solido', carbon: 'solido',
-};
-const NOMBRE_FAMILIA = { solido: 'combustible sólido', liquido: 'combustible líquido', gas: 'gas' };
+//: Fuente única en `utils/combustibleCaldera.js`, que los comparte con la
+//: revisión del CEE (allí deciden si un combustible distinto cambia la fila
+//: del Anexo VIII o no).
+const { FAMILIA_DE_COMBUSTIBLE, NOMBRE_FAMILIA } = require('../utils/combustibleCaldera');
 
 //: Solo para los AVISOS, que los lee una persona en castellano. El valor que
 //: viaja al .cex sigue siendo el número, con el punto decimal que escribe CE3X
@@ -493,16 +493,11 @@ async function leerPlacaCaldera(entrada, opciones = {}) {
     };
 }
 
-/** El combustible del expediente, desde su fila de rendimiento. */
-function combustibleDeclarado(instalacion = {}, inputs = {}) {
-    const id = String(instalacion?.caldera_antigua_cal?.rendimiento_id || '');
-    if (id.startsWith('gas_')) return inputs?.fuelType === 'glp' ? 'glp' : 'gas_natural';
-    if (id.startsWith('oil_')) return 'gasoleo';
-    if (id === 'electric') return 'electricidad';
-    // solid_*: la tabla no distingue carbón de biomasa; lo dice la oportunidad.
-    if (id.startsWith('solid_')) return inputs?.fuelType === 'pellets' ? 'pellets' : 'carbon';
-    return null;
-}
+//: La FUENTE ÚNICA vive en `utils/combustibleCaldera.js`: la comparte la
+//: revisión del CEE, que cruza este combustible con el <VectorEnergetico> del
+//: certificado y no puede arrastrar Gemini, Drive y el correo para usarla. Se
+//: reexporta para que quien ya la pedía aquí no se entere.
+const { combustibleDeclarado } = require('../utils/combustibleCaldera');
 
 module.exports = {
     PROVIDER, leerPlacaCaldera, fotosDeLaCaldera, potenciaDesdeTexto, elegirPotencia,

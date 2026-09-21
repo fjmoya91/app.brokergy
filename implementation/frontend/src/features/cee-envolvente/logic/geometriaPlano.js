@@ -294,6 +294,114 @@ export function rumbosDeLaPared(pts) {
 
 export const fmt = n => (Number(n) || 0).toFixed(2).replace('.', ',');
 
+// ─────────────────────────────────────────────────────────────────────────────
+// LOS TAMAÑOS DE LO QUE SE AGARRA
+//
+// Lo dijo una certificadora con tres expedientes ya hechos: «lo único que me
+// entorpece a veces es dibujar muros nuevos pequeños, como que el puntero que
+// sale en los extremos son gordos».
+//
+// La causa: el plano está EN METROS y los tiradores, las asas y el imán
+// estaban fijos en metros. Un tirador de 0,30 m de radio son 0,60 m de
+// diámetro: sobre un tabique de 0,80 m los dos extremos se tocan y tapan la
+// pared entera. Y AMPLIAR NO AYUDABA, porque el tirador crecía con el dibujo.
+//
+// Aquí se derivan del ENCUADRE, así que son constantes en PANTALLA: al ampliar
+// para trabajar fino, el muro crece y el tirador se queda igual de grande —
+// que es lo que hace cualquier programa de dibujo. El grosor del MURO no entra
+// aquí: ese es una medida del edificio y sigue en metros.
+// ─────────────────────────────────────────────────────────────────────────────
+
+//: Cada tamaño, en múltiplos de la letra del plano (`tam`). Están calibrados
+//: para que en el encuadre de partida salgan los valores de siempre (tirador
+//: 0,30 m y asa 0,60 m sobre un edificio de ~20 m): lo que cambia es que ahora
+//: ACOMPAÑAN AL ZOOM.
+export const DIBUJO = {
+    letra: 38,      // el encuadre entre esto es el cuerpo de letra
+    tirador: 0.58,
+    asa: 1.15,
+    iman: 3.0,
+};
+
+//: Los topes del imán, en METROS. Arriba, lo de siempre —un ancho de puerta—,
+//: porque lo que se dibuja va DE PARED A PARED y soltarlo a 20 cm de la pared
+//: deja un tabique que no llega a ninguna parte. Abajo, el punto en el que
+//: dejaría de pegar nada.
+export const IMAN = { max: 1.6, min: 0.15 };
+
+//: Menos de esto no es una pared: es un resbalón del ratón. Es el MISMO valor
+//: que aplica `dibujaPared` al darla de alta y el que usa el motor
+//: (`aplicar_paredes` en `generar_cex.py`).
+export const LARGO_MINIMO_PARED = 0.2;
+
+/**
+ * La HUELLA de un encuadre: sus números, no su identidad.
+ *
+ * ⚠️ EL ZOOM SE PERDÍA AL DIBUJAR. El reinicio del encuadre colgaba de la
+ * identidad del objeto, y ese objeto se recalcula cada vez que cambian las
+ * paredes: dibujar una, mover un hueco o marcar algo devolvía el MISMO
+ * rectángulo en otro objeto, el efecto saltaba igual y el plano volvía de
+ * golpe a su encuadre de partida. «Arrastro y de repente hace zoom», lo contó
+ * una certificadora el 2026-09-19.
+ *
+ * Con la huella, el encuadre solo se reinicia cuando cambia DE VERDAD: al
+ * pasar de planta a 3D, al mirar el entorno o al traer otra geometría. Se
+ * redondea al centímetro para que el ruido de coma flotante no cuente.
+ */
+export function claveEncuadre(es3d, entorno, base) {
+    return [es3d, entorno, base?.x, base?.y, base?.ancho, base?.alto]
+        .map(v => (typeof v === 'number' ? Math.round(v * 100) : String(v)))
+        .join('|');
+}
+
+/** Lo que miden, EN METROS, los elementos que se agarran en este encuadre. */
+export function tamanosDeDibujo(vista) {
+    const lado = Math.max(Number(vista?.ancho) || 0, Number(vista?.alto) || 0);
+    const tam = lado / DIBUJO.letra || 0.5;
+    return {
+        tam,
+        tirador: tam * DIBUJO.tirador,
+        asa: tam * DIBUJO.asa,
+        iman: Math.min(IMAN.max, Math.max(IMAN.min, tam * DIBUJO.iman)),
+    };
+}
+
+/**
+ * El área de un polígono cerrado (shoelace), en m² del lienzo.
+ *
+ * Es para VERLA mientras se dibuja la parte de cubierta que se reforma. La
+ * cifra que acaba en el .cex NO es esta: la mide el motor intersecando el
+ * polígono con el tejado real (`partir_cubierta` en `generar_cex.py`), que es
+ * donde se miden todas las superficies.
+ */
+export function areaPoligono(pts) {
+    const p = pts || [];
+    if (p.length < 3) return 0;
+    let s = 0;
+    for (let i = 0; i < p.length; i++) {
+        const [x1, y1] = p[i], [x2, y2] = p[(i + 1) % p.length];
+        s += x1 * y2 - x2 * y1;
+    }
+    return Math.abs(s) / 2;
+}
+
+/**
+ * Del LIENZO al MUNDO: la traslación con la que el motor colocó el plano.
+ *
+ * `plano_svg._georef` deja `bbox = [oeste, sur, este, norte]` del rectángulo del
+ * entorno y `en_el_lienzo` dice dónde cae ese rectángulo dentro del lienzo, así
+ * que `x_mundo = x_lienzo + (oeste − x_entorno)` y
+ * `y_mundo = (norte + y_entorno) − y_lienzo`. Dos números; la intersección con
+ * el tejado la hace el motor.
+ */
+export function lienzoAMundo(georef) {
+    const bbox = georef?.bbox, en = georef?.en_el_lienzo;
+    if (!Array.isArray(bbox) || bbox.length < 4 || !en) return null;
+    return { dx: Number(bbox[0]) - Number(en.x || 0),
+             y0: Number(bbox[3]) + Number(en.y || 0) };
+}
+
 export default { largo, at, centro, centroide, cota, iso, proyector, CAMARA_ISO, ESCALA_AXO,
+                 areaPoligono, claveEncuadre, lienzoAMundo, tamanosDeDibujo,
                  TOPE_ALT, caja, recorrido, reparto, fmt, puntoMasCercano, pegarAPared,
                  RUMBOS, rumboDelAzimut, rumbosDeLaPared };

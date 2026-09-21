@@ -91,6 +91,17 @@ const BLOQUES = {
         dias: num(process.env.RADAR_CERT_DIAS, 10), reinsistir: num(process.env.RADAR_CERT_REINSISTIR, 7),
         nota: null,
     },
+    CEE_SIN_MATERIAL: {
+        // Se acepta la propuesta y el cliente no manda NADA: sin ver cómo es la
+        // vivienda por fuera, el certificador no puede modelarla y el expediente se
+        // queda parado antes de empezar, sin que nadie lo reclame. Es distinto de
+        // SIN_ENCARGAR: allí lo que falta es que mandemos el encargo; aquí falta el
+        // material con el que trabajar, y lo tiene que pasar el cliente.
+        orden: 9, emoji: '📐', titulo: 'Sin las fotos para levantar el certificado',
+        dias: num(process.env.RADAR_CEE_MATERIAL_DIAS, 5),
+        reinsistir: num(process.env.RADAR_CEE_MATERIAL_REINSISTIR, 7),
+        nota: 'Es lo que el certificador necesita para calcular el CEE: la fachada desde la calle y las paredes que dan a patios.',
+    },
     SIN_ENCARGAR: {
         // Plazo 0, por el mismo motivo que REVISION: un expediente aceptado sin
         // encargar está parado desde el minuto uno y el encargo lo mandas TÚ.
@@ -99,12 +110,12 @@ const BLOQUES = {
         nota: 'Nadie está trabajando en ellos todavía: el encargo no ha salido de aquí.',
     },
     MIGRADO_SIN_REVISAR: {
-        orden: 9, emoji: '📦', titulo: 'Migrados y sin revisar',
+        orden: 10, emoji: '📦', titulo: 'Migrados y sin revisar',
         dias: num(process.env.RADAR_MIGRADO_DIAS, 15), reinsistir: null,
         nota: 'Llegaron del sistema antiguo y nadie los ha auditado todavía.',
     },
     FIRMA_PENDIENTE: {
-        orden: 10, emoji: '🟡', titulo: 'Enviados a firma y sin devolver',
+        orden: 11, emoji: '🟡', titulo: 'Enviados a firma y sin devolver',
         dias: num(process.env.RADAR_FIRMA_DIAS, 7), reinsistir: num(process.env.RADAR_FIRMA_REINSISTIR, 7),
         nota: null,
     },
@@ -114,12 +125,12 @@ const BLOQUES = {
         // está terminado. Pero SÍ tiene plazo 0 — el enlace lo mandamos nosotros y
         // hasta que el cliente no confirma la cuenta no se puede ordenar la
         // transferencia, así que está pendiente desde el minuto uno.
-        orden: 12, emoji: '🏦', titulo: 'Verificados y sin confirmar los datos de cobro',
+        orden: 13, emoji: '🏦', titulo: 'Verificados y sin confirmar los datos de cobro',
         dias: num(process.env.RADAR_COBRO_DIAS, 0), reinsistir: num(process.env.RADAR_COBRO_REINSISTIR, 7),
         nota: 'El CAE está concedido: falta que el cliente confirme el nº de cuenta antes de hacerle la transferencia.',
     },
     FIN_OBRA: {
-        orden: 11, emoji: '🔵', titulo: 'CEE inicial registrado y obra sin terminar',
+        orden: 12, emoji: '🔵', titulo: 'CEE inicial registrado y obra sin terminar',
         dias: num(process.env.RADAR_FIN_OBRA_DIAS, 30), reinsistir: num(process.env.RADAR_FIN_OBRA_REINSISTIR, 15),
         nota: null,
     },
@@ -132,6 +143,13 @@ const BLOQUES = {
 const LOTE_EN_PAGO = ['CAE EMITIDO – PTE PAGO BROKERGY', 'CAE EMITIDO - PTE PAGO BROKERGY', 'PTE. PAGO BROKERGY A CLIENTE'];
 
 // Subestados por fase del CEE, agrupados por DE QUIÉN es la pelota.
+// Lo IMPRESCINDIBLE para levantar el certificado. No es toda la lista del destino
+// CEE: el vídeo, los planos y el CEE anterior son `prescindible` —ayudan, pero el
+// certificador puede trabajar sin ellos—, y reclamar lo que da igual que no llegue
+// es lo que enseña a ignorar el parte. Estas dos no: sin ver la fachada y los
+// patios no hay huecos que medir.
+const SLOTS_CEE_MINIMOS = ['FOTO_FACHADA_PRINCIPAL', 'FOTO_PATIOS_INTERIORES'];
+
 const ESPERANDO_REVISION = ['PRESENTADO', 'PTE_REVISION'];   // la tiene Brokergy
 const EN_CERTIFICADOR    = ['ASIGNADO', 'EN_TRABAJO', 'PTE_PRESENTACION'];
 const FASES = [
@@ -249,6 +267,44 @@ function detectarSinEncargar(e, out) {
         detalle: e.certificador_id ? 'Técnico asignado, encargo SIN ENVIAR' : 'Sin certificador asignado',
         responsable: 'BROKERGY',
         accion: { tipo: 'ver', label: e.certificador_id ? 'Enviar el encargo' : 'Encargar el CEE inicial' },
+    }));
+}
+
+/**
+ * D'' · Sin el material con el que el certificador levanta el CEE.
+ *
+ * Solo mientras ese material sirve de algo: en cuanto el CEE inicial se entrega
+ * (PRESENTADO en adelante) el técnico ya pudo trabajar, y reclamarlo entonces es
+ * pedir fotos que no va a mirar nadie.
+ *
+ * ⚠️ Se mira `reforma_uploads`, que es lo único que se puede traer de 150
+ * expedientes sin llamar a Drive una vez por cada uno. Drive es la fuente de
+ * verdad (regla 20), así que una foto copiada a mano allí y no registrada aquí
+ * daría un falso positivo: por eso se excluyen los MIGRADOS —cuyo material vive
+ * en el Drive antiguo— y por eso el mensaje se redacta con `faltantesPorDestino`,
+ * que sí reconcilia con Drive y puede acabar diciendo que no falta nada.
+ */
+function detectarCeeSinMaterial(e, out) {
+    if (e.estado === 'PENDIENTE REVISAR EXPTE') return;     // migrado: otro bloque
+    const sub = e.seguimiento?.cee_inicial;
+    // Entregado o más allá: el certificador ya tuvo con qué trabajar.
+    if (sub && !['PTE_ENVIO_CERT', 'ASIGNADO', 'EN_TRABAJO'].includes(sub)) return;
+    if (rankEstado(e.estado) > rankEstado('PTE. CEE INICIAL')) return;
+
+    const uploads = e.uploads || {};
+    const faltan = SLOTS_CEE_MINIMOS.filter(k => !(uploads[k]?.length));
+    if (!faltan.length) return;
+
+    const desde = e.created_at;
+    const d = dias(desde);
+    const aviso = ultimoAviso(e.recordatorios, 'pedir-cee:CLIENTE');
+    out.push(fila(e, 'CEE_SIN_MATERIAL', {
+        scope: 'CLIENTE', desde, d, aviso,
+        detalle: faltan.length === SLOTS_CEE_MINIMOS.length
+            ? 'No ha mandado ninguna foto de la vivienda'
+            : 'Falta parte del material de la vivienda',
+        responsable: 'CLIENTE',
+        accion: { tipo: 'pedir-cee', scope: 'CLIENTE', label: 'Pedir las fotos de la vivienda' },
     }));
 }
 
@@ -495,7 +551,7 @@ function detectarSinLotear(e, out) {
 
 const DETECTORES = [
     detectarRechazoSinReenviar, detectarRevision, detectarRegistro,
-    detectarCertSinEntregar, detectarSinEncargar, detectarMigradoSinRevisar,
+    detectarCertSinEntregar, detectarSinEncargar, detectarCeeSinMaterial, detectarMigradoSinRevisar,
     detectarFirmaPendiente, detectarFinObra, detectarTramitacion, detectarSinLotear,
     detectarCobro,
 ];
@@ -547,7 +603,7 @@ async function escanear(opts = {}) {
         .select(`
             id, numero_expediente, estado, cliente_id, created_at, seguimiento, instalacion,
             oportunidad_id, lote_id,
-            oportunidades(instalador_asociado_id,prescriptor_id),
+            oportunidades(instalador_asociado_id,prescriptor_id,uploads:datos_calculo->reforma_uploads),
             certificador_id:cee->>certificador_id,
             fin_obra:documentacion->>fecha_fin_obra_comunicada,
             fecha_registro_ini:documentacion->>fecha_registro_cee_inicial,

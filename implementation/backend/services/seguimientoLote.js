@@ -47,6 +47,15 @@ const TIPOS_LOTE = {
         // Al instalador lo que se le reclama aquí es el CIFO firmado: es del TÉCNICO.
         rolPartner: 'tecnico',
     },
+    'pedir-cee': {
+        destinatario: 'CLIENTE',
+        asunto: (n) => (n === 1
+            ? 'Fotos para el certificado energético'
+            : `Fotos para el certificado energético de ${n} viviendas`),
+        plantilla: recordatorios.ceeMaterialLoteWa,
+        // Pasar por la obra a hacer unas fotos es asunto del COMERCIAL.
+        rolPartner: 'comercial',
+    },
     'pedir-cobro': {
         destinatario: 'CLIENTE',
         asunto: (n) => (n === 1
@@ -97,6 +106,23 @@ async function prepararLote(grupo) {
         }
     }
 
+    // El enlace de las fotos del CERTIFICADO va FILTRADO a lo que falta de verdad
+    // (se reconcilia con Drive), así que se resuelve por expediente y tampoco cabe
+    // en `urlDe`. Un expediente al que, mirado de cerca, no le falte nada se queda
+    // sin enlace y no se le reclama.
+    const enlacesCee = new Map();
+    if (grupo.tipo === 'pedir-cee') {
+        const reformaUploadService = require('./reformaUploadService');
+        const { data: exps } = await supabase.from('expedientes')
+            .select('id, oportunidad_id').in('id', grupo.filas.map(f => f.expediente_id));
+        for (const e of exps || []) {
+            try {
+                const { link } = await reformaUploadService.faltantesPorDestino(e.oportunidad_id, 'CEE');
+                if (link) enlacesCee.set(e.id, link);
+            } catch (err) { console.warn('[Lote] enlace del material CEE:', err.message); }
+        }
+    }
+
     // El enlace del formulario de cobro lleva su propio token, que hay que crear (o
     // recuperar) por expediente: no se puede componer en `urlDe`, que es síncrona.
     const enlacesCobro = new Map();
@@ -112,7 +138,9 @@ async function prepararLote(grupo) {
     }
 
     const items = grupo.filas.map(f => {
-        const link = grupo.tipo === 'pedir-cobro'
+        const link = grupo.tipo === 'pedir-cee'
+            ? (enlacesCee.has(f.expediente_id) ? { url: enlacesCee.get(f.expediente_id), urlLabel: '📐' } : {})
+            : grupo.tipo === 'pedir-cobro'
             ? (enlacesCobro.has(f.expediente_id) ? { url: enlacesCobro.get(f.expediente_id), urlLabel: '🏦' } : {})
             : grupo.tipo === 'fin-obra'
             ? (enlacesSubida.has(f.expediente_id) ? { url: enlacesSubida.get(f.expediente_id), urlLabel: '📸' } : {})

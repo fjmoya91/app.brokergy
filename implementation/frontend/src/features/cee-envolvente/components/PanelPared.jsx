@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { api } from '../logic/apiEnvolvente';
 import axios from 'axios';
-import { TIPOS_PARED, nuevoUid } from '../logic/usePlanoEnvolvente';
+import { TIPOS_PARED, nuevoUid, nombreHueco, SUFIJO_CAMBIA } from '../logic/usePlanoEnvolvente';
 import { RUMBOS } from '../logic/geometriaPlano';
 import { SEPARACION_PILARES_M, pilaresEstimados } from '../logic/pilaresFachada';
-import { MARCOS, VIDRIOS, desdeLaFoto, rotuloMarco, rotuloVidrio }
+import { MARCOS, VIDRIOS, carpinteriaDe, desdeLaFoto, rotuloMarco, rotuloVidrio }
     from '../logic/ventanasVivienda';
 import { FotosCerramiento } from './FotosCerramiento';
 import { LecturaFotoModal } from './LecturaFotoModal';
@@ -19,11 +19,11 @@ import { LecturaFotoModal } from './LecturaFotoModal';
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function PanelPared({ plano, transmitancias, expedienteId,
-                             ventanasVivienda }) {
+                             carpinteriaDefecto }) {
     const { muros, sel, entrada, esMedianera, esParticion, esFuera, esDibujada,
-            tipoDe, nombreDe,
+            tipoDe, nombreDe, setSel, estadoDe,
             ponHuecos, cambiaHueco, duplicaHueco, quitaHueco, marcaComoParticion,
-            marcaRevisada,
+            marcaRevisada, siguientePorMirar, marcaCambia, marcaHuecoCambia,
             confirmaHueco, confirmaPared, muevePared, borraPared,
             apartaDeLaEnvolvente, reclasifica, renombra, ponU, orienta, ponPilares,
             rumboDe, necesitaRumbo, rumbosDe,
@@ -80,9 +80,15 @@ export function PanelPared({ plano, transmitancias, expedienteId,
     const ventanas = (m.huecos || []).filter(h => h.tipo === 'ventana');
     const puertas = (m.huecos || []).filter(h => h.tipo === 'puerta');
     const fuera = esFuera(m);
+    const tipo = tipoDe(m);
+    const estado = estadoDe(m);
 
     return (
         <Caja>
+            {/* LA CABECERA de la pared: qué pared es, qué es, y en qué estado
+                está. El tipo va en SU color —el mismo que en el plano—, y el
+                estado en una chapa a la derecha: es lo que antes había que
+                deducir leyendo tres cosas en gris. */}
             <div className="flex flex-wrap items-center gap-2">
                 {/* El nombre es EDITABLE: es el que se ve en CE3X y el que
                     enlaza sus puentes térmicos. Cambia solo al reclasificar
@@ -113,14 +119,24 @@ export function PanelPared({ plano, transmitancias, expedienteId,
                         ({m.id})
                     </button>
                 )}
-                <span className="text-[12px] tabular-nums text-white/40">
-                    {/* El rumbo EFECTIVO, no el de la geometría: si lo ha dicho
-                        el certificador, es el que se va a escribir. */}
-                    <span className={m.orientacion_manual ? 'text-brand' : undefined}>
+                {!fuera && <ChapaTipo tipo={esMedianera(m) && m.como_particion ? 'PARTICION_VERTICAL' : tipo} />}
+                {!fuera && <ChapaEstado estado={estado} />}
+            </div>
+            <div className="-mt-1 flex flex-wrap items-center gap-x-2 text-[11.5px] tabular-nums text-white/55">
+                {/* El rumbo EFECTIVO, no el de la geometría: si lo ha dicho
+                    el certificador, es el que se va a escribir. */}
+                <span>
+                    <span className={m.orientacion_manual ? 'font-bold text-brand' : 'font-bold text-white/75'}>
                         {rumboDe(m) || '—'}
                     </span>
                     {' · '}{fmt(m.largo)} m · {fmt(m.superficie)} m²
                 </span>
+                {(m.huecos || []).length > 0 && (
+                    <span className="text-white/40">
+                        · {(m.huecos || []).length === 1 ? '1 hueco' : `${(m.huecos || []).length} huecos`}
+                        {m2Hueco(m.huecos) ? ` (${m2Hueco(m.huecos)})` : ''}
+                    </span>
+                )}
                 {/* Una pared que ha puesto o corregido una PERSONA no puede
                     parecer una medida de Catastro: de ella sale una superficie
                     que va al certificado. */}
@@ -129,15 +145,16 @@ export function PanelPared({ plano, transmitancias, expedienteId,
                            onDeshacer={esDibujada(m) ? () => borraPared(m.id)
                                                      : () => muevePared(m.id, null)} />
                 )}
-                {/* Dar la pared por mirada. Va JUNTO AL NOMBRE porque es lo
-                    último que se hace con ella y porque el contador que vacía
-                    —«quedan N paredes por mirar»— está arriba, no al final del
-                    panel. */}
-                {!fuera && (
-                    <Revisada si={!!m.revisada}
-                              onCambio={() => marcaRevisada(m.id, !m.revisada)} />
-                )}
             </div>
+
+            {/* Lo que se va a ESCRIBIR de esta pared, cuando no es su nombre a
+                secas: con «- CAMBIA» detrás se ve aquí antes que en CE3X. */}
+            {!fuera && m.cambia && (
+                <p className="-mt-1 text-[10.5px] text-amber-300/80">
+                    Se escribe en el <code>.cex</code> como{' '}
+                    <b className="font-black">{nombreDe(m)} … {SUFIJO_CAMBIA.trim()}</b>
+                </p>
+            )}
 
             {fuera ? (
                 <Apartada propia={!!m.excluida}
@@ -155,6 +172,14 @@ export function PanelPared({ plano, transmitancias, expedienteId,
             {!fuera && !esMedianera(m) && (
                 <UDeLaPared m={m} deLaEpoca={uDelTipo(transmitancias, tipoDe(m))}
                             onCambio={u => ponU(m.id, u)} />
+            )}
+
+            {/* ¿Se REFORMA esta pared? Va junto a su U porque es de lo mismo —el
+                aislamiento— y porque es lo que hay que decidir mirándola. Al
+                .cex solo llega como sufijo en el nombre: la medida la monta el
+                certificador en CE3X, y el nombre es lo que le dice dónde. */}
+            {!fuera && !esMedianera(m) && (
+                <Actuacion cambia={!!m.cambia} onCambio={si => marcaCambia(m.id, si)} />
             )}
 
             {fuera ? null : esMedianera(m) || esParticion(m) ? (
@@ -176,11 +201,12 @@ export function PanelPared({ plano, transmitancias, expedienteId,
 
                     <div className="flex flex-col gap-1.5">
                         {(m.huecos || []).map((h, i) => (
-                            <Hueco key={h.uid || i} h={h} vivienda={ventanasVivienda}
+                            <Hueco key={h.uid || i} h={h} defecto={carpinteriaDefecto}
                                    expedienteId={expedienteId} paredId={m.id}
                                    cerramiento={nombreDe(m)} muro={m} nombreDe={nombreDe}
                                    onLeido={l => setPropuesta({ ambito: 'hueco', l, hueco: h })}
                                    onCambio={(c, v) => cambiaHueco(m.id, i, c, v)}
+                                   onCambia={si => marcaHuecoCambia(m.id, i, si)}
                                    onDuplica={() => duplicaHueco(m.id, i)}
                                    onConfirma={() => confirmaHueco(m.id, i)}
                                    onQuita={() => quitaHueco(m.id, i)} />
@@ -193,13 +219,27 @@ export function PanelPared({ plano, transmitancias, expedienteId,
                         ninguna. */}
                     {(m.huecos || []).some(h => h.estado !== 'medido') && (
                         <button onClick={() => confirmaPared(m.id)}
-                                className="rounded-lg border border-emerald-400/40 px-3 py-2
-                                           text-[11px] font-bold text-emerald-300
-                                           hover:bg-emerald-400/10">
-                            ✓ Dar por buenas las medidas de esta pared
+                                className="self-start rounded-md border border-white/15 px-2.5 py-1.5
+                                           text-[11px] font-bold text-white/70
+                                           hover:border-emerald-400/50 hover:text-emerald-300">
+                            ✓ Dar por buenas todas las medidas
                         </button>
                     )}
                 </>
+            )}
+
+            {/* DAR POR REVISADA, en grande y al final de lo que se decide de la
+                pared: es lo último que se hace con ella. La casilla de arriba
+                dice el ESTADO de un vistazo; esto es la ACCIÓN, y lleva pegada
+                la siguiente pared por mirar — marcar una y tener que ir a
+                buscar la siguiente con el ratón es lo que hace que se deje de
+                marcar. */}
+            {!fuera && (
+                <RevisarPared revisada={!!m.revisada}
+                              siguiente={siguientePorMirar(m.id)}
+                              nombreDe={id => (muros[id] ? nombreDe(muros[id]) : id)}
+                              onMarcar={si => marcaRevisada(m.id, si)}
+                              onIr={id => setSel(id)} />
             )}
 
             {/* La foto de la pared sale TAMBIÉN en medianeras y particiones, y
@@ -259,7 +299,7 @@ function Tipo({ m, tipo, onCambio, onApartar, esEntrada, huecos,
     return (
         <div className="flex flex-col gap-1.5">
             <div className="flex items-baseline gap-2">
-                <span className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-white/40">
+                <span className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-white/55">
                     Da contra
                 </span>
                 {cambiado && (
@@ -347,7 +387,7 @@ function Rumbo({ falta, rumbo, rumbos, propio, onCambio }) {
     return (
         <div className="flex flex-col gap-1.5">
             <div className="flex items-baseline gap-2">
-                <span className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-white/40">
+                <span className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-white/55">
                     Hacia dónde da
                 </span>
                 {propio && (
@@ -442,7 +482,7 @@ function UDeLaPared({ m, deLaEpoca, onCambio }) {
     return (
         <div className="flex items-center gap-2">
             <span className="min-w-[66px] text-[10.5px] font-bold uppercase
-                             tracking-[0.08em] text-white/40">Su U</span>
+                             tracking-[0.08em] text-white/55">Su U</span>
             <input
                 type="number" step="0.01" min="0"
                 value={propia ? m.u_manual : (deLaEpoca ?? '')}
@@ -502,7 +542,7 @@ function Contador({ etiqueta, n, onCambio, nota }) {
     return (
         <div className="flex items-center gap-3">
             <span className="min-w-[66px] text-[10.5px] font-bold uppercase
-                             tracking-[0.08em] text-white/40">{etiqueta}</span>
+                             tracking-[0.08em] text-white/55">{etiqueta}</span>
             <div className="flex items-center overflow-hidden rounded-lg border border-white/10">
                 <button onClick={() => onCambio(Math.max(0, n - 1))}
                         className="bg-white/[0.04] px-3.5 py-2 text-[15px] font-bold
@@ -537,14 +577,14 @@ function Pilares({ m, onCambio }) {
         <div className="flex flex-col gap-1">
             <Contador etiqueta="Pilares" n={n} onCambio={onCambio}
                       nota={contados ? null : 'estimado'} />
-            <p className="pl-[78px] text-[10.5px] leading-snug text-white/35">
+            <p className="pl-[78px] text-[10.5px] leading-snug text-white/40"
+               title={`Pilares integrados en la fachada (puente térmico). Sin contar se estima uno cada ${fmt(SEPARACION_PILARES_M)} m; a 0 no se escribe el puente.`}>
                 {contados
-                    ? <>Contados por ti. <button onClick={() => onCambio(null)}
+                    ? <>Contados por ti · <button onClick={() => onCambio(null)}
                             className="text-white/50 underline hover:text-white/80">
                             volver a la estimación ({pilaresEstimados(m.largo)})
                         </button></>
-                    : <>Los que se verían a uno cada {fmt(SEPARACION_PILARES_M)} m.
-                        Cuéntalos si los ves; a 0 no se escribe el puente.</>}
+                    : <>Estimados, uno cada {fmt(SEPARACION_PILARES_M)} m · cuéntalos si los ves</>}
             </p>
         </div>
     );
@@ -557,17 +597,26 @@ function m2Hueco(huecos) {
     return total ? `${fmt(total)} m² de hueco` : null;
 }
 
-function Hueco({ h, onCambio, onDuplica, onQuita, onConfirma, vivienda,
+function Hueco({ h, onCambio, onCambia, onDuplica, onQuita, onConfirma, defecto,
                 expedienteId, paredId, cerramiento, muro, nombreDe, onLeido }) {
     const [verFoto, setVerFoto] = useState(false);
+    //: El editor de la carpintería, detrás del lápiz. Cerrado se lee en una
+    //: línea; abierto son tres controles. En una fachada con seis ventanas,
+    //: seis editores abiertos son un muro que esconde las medidas.
+    const [editar, setEditar] = useState(false);
     const borde = { medido: 'border-l-emerald-400', dudoso: 'border-l-amber-400' }[h.estado]
         || 'border-l-white/25';
     const tono = { medido: 'text-emerald-400', dudoso: 'text-amber-400' }[h.estado]
         || 'text-white/40';
     return (
         <div className={`flex flex-col gap-1.5 rounded-lg border border-white/[0.07]
-                         border-l-[3px] ${borde} bg-white/[0.02] px-2.5 py-2`}>
-            <div className="flex items-center gap-2">
+                         border-l-[3px] ${borde} bg-white/[0.02] px-2.5 py-2
+                         ${h.cambia ? 'ring-1 ring-amber-400/35' : ''}`}>
+            {/* `flex-wrap` y el grupo de iconos con `shrink-0`: con la fila
+                rígida, el nombre no encogía y la ✕ se salía por fuera del borde
+                de la tarjeta. Ahora, si no cabe, los iconos bajan a su renglón
+                en vez de desbordar. */}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className={`text-[11px] font-bold uppercase tracking-[0.06em] ${tono}`}>
                     {h.tipo}
                 </span>
@@ -576,31 +625,62 @@ function Hueco({ h, onCambio, onDuplica, onQuita, onConfirma, vivienda,
                     onChange={e => onCambio('nombre', e.target.value)}
                     title="El nombre que verás en CE3X"
                     aria-label="nombre del hueco"
-                    className="w-[66px] rounded-md border border-white/10 bg-white/[0.04]
+                    className="w-[58px] min-w-0 rounded-md border border-white/10 bg-white/[0.04]
                                px-1.5 py-1 text-[12.5px] font-bold tabular-nums" />
+                {/* ¿Se CAMBIA en la reforma? Es una chapa que se enciende, y
+                    en cuanto se enciende el nombre pasa a «V1 - CAMBIA»: se
+                    lee aquí debajo antes que en CE3X. */}
+                <button onClick={() => onCambia?.(!h.cambia)}
+                        aria-pressed={!!h.cambia}
+                        title={h.cambia
+                            ? `Se reforma: se escribe «${nombreHueco(h)}». Pulsa para quitarlo`
+                            : 'Marcar que este hueco se cambia en la reforma'}
+                        className={`rounded-md border px-1.5 py-0.5 text-[9.5px] font-black
+                                    uppercase tracking-wider transition
+                            ${h.cambia
+                                ? 'border-amber-400/60 bg-amber-400/15 text-amber-300'
+                                : 'border-white/10 text-white/30 hover:border-white/25 hover:text-white/60'}`}>
+                    {h.cambia ? '✓ cambia' : 'cambia'}
+                </button>
+                {/* El LÁPIZ: abre el marco, el vidrio y la persiana de ESTE
+                    hueco. Va como icono y no como texto porque en la fila no
+                    cabe más, y se enciende cuando el hueco tiene lo suyo. */}
+                <span className="ml-auto flex shrink-0 items-center gap-0.5">
+                <IconoBoton activo={editar || carpinteriaDe(h, defecto).propia}
+                            onClick={() => setEditar(v => !v)}
+                            pressed={editar}
+                            etiqueta="editar la carpintería de este hueco"
+                            title={editar ? 'Cerrar' : 'Marco, vidrio y persiana de este hueco'}>
+                    ✎
+                </IconoBoton>
                 {/* Su FOTO. Va plegada tras un icono y no abierta: en una fachada
                     con seis ventanas, seis bloques de fotos abiertos son un muro
                     y esconden justo las medidas, que es a lo que se entra. El
                     icono se enciende cuando el hueco ya tiene la suya. */}
                 {expedienteId && h.uid && (
-                    <button onClick={() => setVerFoto(v => !v)}
-                            title={verFoto ? 'Cerrar' : 'La foto de esta ventana'}
-                            aria-label="foto de este hueco"
-                            className={`ml-auto px-1 text-[13px] leading-none
-                                ${verFoto || h.lectura ? 'text-brand' : 'text-white/30'}
-                                hover:text-brand`}>
-                        📷
-                    </button>
+                    <IconoBoton activo={verFoto || !!h.lectura}
+                                onClick={() => setVerFoto(v => !v)}
+                                pressed={verFoto}
+                                etiqueta="foto de este hueco"
+                                title={verFoto ? 'Cerrar' : 'La foto de este hueco'}>
+                        {/* Una CÁMARA dibujada, no el emoji 📷: en el Chrome del
+                            certificador salía como un rectángulo vacío — una
+                            tecla que no se sabe qué hace. */}
+                        <svg viewBox="0 0 16 16" width="13" height="13" fill="none"
+                             stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
+                            <path d="M1.8 5.2h2.6l1-1.6h5.2l1 1.6h2.6v7.4H1.8z"
+                                  strokeLinejoin="round" />
+                            <circle cx="8" cy="8.9" r="2.3" />
+                        </svg>
+                    </IconoBoton>
                 )}
                 {/* Duplicar, al lado de la medida que se acaba de teclear: tres
                     ventanas iguales es el caso normal. */}
-                <button onClick={onDuplica} title="Otra igual, con estas medidas"
-                        aria-label="duplicar este hueco"
-                        className={`${expedienteId && h.uid ? '' : 'ml-auto '}px-1 text-[13px]
-                                   leading-none text-white/30 hover:text-brand`}>⧉</button>
-                <button onClick={onQuita} aria-label="quitar este hueco"
-                        className="px-1 text-[17px] leading-none text-white/30
-                                   hover:text-red-400">×</button>
+                <IconoBoton onClick={onDuplica} etiqueta="duplicar este hueco"
+                            title="Otra igual, con estas medidas">⧉</IconoBoton>
+                <IconoBoton onClick={onQuita} etiqueta="quitar este hueco" peligro
+                            title="Quitar este hueco">✕</IconoBoton>
+                </span>
             </div>
             <div className="flex items-center gap-1.5">
                 <Medida v={h.ancho} onCambio={v => onCambio('ancho', v)} />
@@ -627,14 +707,19 @@ function Hueco({ h, onCambio, onDuplica, onQuita, onConfirma, vivienda,
             {h.por_que && (
                 <span className="text-[10.5px] leading-snug text-white/35">{h.por_que}</span>
             )}
+            {h.cambia && (
+                <span className="text-[10.5px] leading-snug text-amber-300/80">
+                    Se escribe como <b className="font-black">{nombreHueco(h)}</b>
+                </span>
+            )}
 
             {/* Su carpintería: la de la vivienda salvo que este hueco diga otra
                 cosa. Va PLEGADA en una línea porque lo normal es que herede —en
                 una fachada con seis ventanas, seis formularios abiertos son un
-                muro y esconden las medidas, que es a lo que se entra. */}
-            {h.tipo !== 'puerta' && (
-                <Carpinteria h={h} vivienda={vivienda} onCambio={onCambio} />
-            )}
+                muro y esconden las medidas, que es a lo que se entra. El lápiz
+                de arriba la abre. */}
+            <Carpinteria h={h} defecto={defecto} onCambio={onCambio}
+                         abierto={editar} onAbrir={setEditar} />
 
             {/* Lo que su foto dijo de él, en una línea: la apertura y el estado
                 no tienen casilla en el .cex y se siguen tecleando en CE3X. El
@@ -675,13 +760,10 @@ function Hueco({ h, onCambio, onDuplica, onQuita, onConfirma, vivienda,
  * vivienda cambian con ella todos los huecos que no hayan dicho lo contrario;
  * si aquí se guardara una copia, cambiar la vivienda no movería ninguno.
  */
-function Carpinteria({ h, vivienda, onCambio }) {
-    const [abierto, setAbierto] = useState(false);
-    const base = vivienda || {};
-    const v = h.vidrio ?? base.vidrio ?? 'Doble';
-    const marco = h.marco ?? base.marco ?? 'Metálico sin RPT';
-    const persiana = h.persiana ?? base.persiana ?? false;
-    const propio = !!(h.vidrio || h.marco || typeof h.persiana === 'boolean');
+function Carpinteria({ h, defecto, onCambio, abierto, onAbrir }) {
+    const esPuerta = h.tipo === 'puerta';
+    const { vidrio: v, marco, persiana, propia: propio } = carpinteriaDe(h, defecto);
+    const setAbierto = f => onAbrir?.(typeof f === 'function' ? f(abierto) : f);
 
     // Lo que dice su FOTO, cuando no es lo que se va a escribir. No se aplica
     // solo: la carpintería la decide quien mira, y una foto no siempre deja ver
@@ -697,17 +779,27 @@ function Carpinteria({ h, vivienda, onCambio }) {
                     className={`text-left text-[10.5px] leading-snug
                         ${propio ? 'text-brand/85' : 'text-white/35'} hover:text-white/70`}>
                 {abierto ? '▾ ' : '▸ '}
-                {rotuloVidrio(v)} · {rotuloMarco(marco)} · {persiana ? 'con' : 'sin'} persiana
+                {esPuerta
+                    ? <>Puerta · marco de madera al 90 % · {persiana ? 'con' : 'sin'} persiana</>
+                    : <>{rotuloVidrio(v)} · {rotuloMarco(marco)} · {persiana ? 'con' : 'sin'} persiana</>}
                 {propio ? ' · solo esta' : ''}
             </button>
             {abierto && (
                 <div className="flex flex-wrap items-center gap-1.5 pb-0.5">
-                    <Desplegable valor={v} opciones={VIDRIOS}
-                                 etiqueta="vidrio de este hueco"
-                                 onCambio={x => onCambio('vidrio', x)} />
-                    <Desplegable valor={marco} opciones={MARCOS}
-                                 etiqueta="marco de este hueco"
-                                 onCambio={x => onCambio('marco', x)} />
+                    {/* Una PUERTA no elige vidrio ni marco: el motor la escribe
+                        con su 90 % de marco de madera, que es lo que hace
+                        puerta a una puerta. Lo único que se decide es la
+                        persiana, que por defecto no lleva. */}
+                    {!esPuerta && (
+                        <>
+                            <Desplegable valor={v} opciones={VIDRIOS}
+                                         etiqueta="vidrio de este hueco"
+                                         onCambio={x => onCambio('vidrio', x)} />
+                            <Desplegable valor={marco} opciones={MARCOS}
+                                         etiqueta="marco de este hueco"
+                                         onCambio={x => onCambio('marco', x)} />
+                        </>
+                    )}
                     <button onClick={() => onCambio('persiana', !persiana)}
                             className={`rounded-md border px-2 py-1 text-[10.5px] font-bold
                                 ${persiana ? 'border-brand/60 bg-brand/10 text-brand'
@@ -738,6 +830,28 @@ function Carpinteria({ h, vivienda, onCambio }) {
     );
 }
 
+/**
+ * Un icono de la fila del hueco: cuadrado, de 24 px, y con su `title`.
+ *
+ * Son cuatro en una fila estrecha, así que tienen que medir lo mismo y
+ * alinearse; sueltos con `px-1` y tamaños distintos, la fila bailaba y el
+ * último se salía de la tarjeta. 24 px no es el objetivo táctil de un móvil,
+ * pero esta pantalla es de escritorio (`internalOnly`) y con más no caben.
+ */
+function IconoBoton({ onClick, title, etiqueta, activo, pressed, peligro, children }) {
+    return (
+        <button onClick={onClick} title={title} aria-label={etiqueta}
+                {...(pressed === undefined ? {} : { 'aria-pressed': pressed })}
+                className={`grid h-6 w-6 shrink-0 place-items-center rounded-md text-[13px]
+                            leading-none transition
+                    ${activo ? 'text-brand' : 'text-white/35'}
+                    ${peligro ? 'hover:bg-red-500/15 hover:text-red-400'
+                              : 'hover:bg-white/[0.07] hover:text-brand'}`}>
+            {children}
+        </button>
+    );
+}
+
 function Desplegable({ valor, opciones, etiqueta, onCambio }) {
     return (
         <select value={valor} aria-label={etiqueta}
@@ -752,27 +866,120 @@ function Desplegable({ valor, opciones, etiqueta, onCambio }) {
 }
 
 /**
- * La casilla de «ya la he mirado».
+ * La ACCIÓN de dar la pared por revisada, y la siguiente que queda por mirar.
  *
- * Es una CASILLA y no un botón de acción («Dar por revisada») por dos motivos:
- * se activa y se desactiva —decir que no la habías mirado tiene que costar lo
- * mismo que decir que sí— y así, de un vistazo, se ve en qué estado está sin
- * tener que leer nada. Dice lo que hace en su `title`, porque lo que cambia
- * —el contador de arriba— está en la otra punta de la pantalla.
+ * La casilla de la cabecera dice el estado; esto es lo que se pulsa al
+ * terminar con la pared. Va al final de lo que se decide de ella —tipo, U,
+ * huecos— porque es lo último que se hace, y en GRANDE: una casilla de 10 px
+ * arriba a la derecha es lo que hacía que nadie la marcara. Con la siguiente
+ * pegada, revisar catorce paredes son catorce clics y ninguna búsqueda con el
+ * ratón.
  */
-function Revisada({ si, onCambio }) {
+function RevisarPared({ revisada, siguiente, nombreDe, onMarcar, onIr }) {
+    if (revisada) {
+        return (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border
+                            border-emerald-400/30 bg-emerald-400/[0.06] px-2.5 py-2">
+                <span className="text-[11.5px] font-bold text-emerald-300">✓ Pared revisada</span>
+                {siguiente && (
+                    <button onClick={() => onIr(siguiente)}
+                            className="rounded-md border border-white/15 px-2 py-1 text-[11px]
+                                       font-bold text-white/70 hover:border-brand/50 hover:text-brand">
+                        Siguiente por mirar: {nombreDe(siguiente)} →
+                    </button>
+                )}
+                <button onClick={() => onMarcar(false)}
+                        className="ml-auto text-[10.5px] text-white/35 hover:text-white/70">
+                    desmarcar
+                </button>
+            </div>
+        );
+    }
     return (
-        <button onClick={onCambio}
-                aria-pressed={si}
-                title={si
-                    ? 'Revisada: no cuenta en «paredes por mirar». Pulsa para desmarcarla'
-                    : 'Darla por revisada: sale de «paredes por mirar» aunque no lleve huecos'}
-                className={`ml-auto shrink-0 rounded-md border px-2 py-1 text-[10.5px] font-bold
-                            uppercase tracking-[0.04em] transition
-                    ${si ? 'border-emerald-400/45 bg-emerald-400/10 text-emerald-300'
-                         : 'border-white/12 text-white/40 hover:border-white/25 hover:text-white/70'}`}>
-                {si ? '✓ Revisada' : '☐ Revisada'}
-        </button>
+        <div className="flex flex-col gap-1">
+            <button onClick={() => { onMarcar(true); if (siguiente) onIr(siguiente); }}
+                    className="w-full rounded-lg border border-emerald-400/50 bg-emerald-400/15
+                               px-3 py-2.5 text-[12px] font-black text-emerald-200
+                               hover:bg-emerald-400/25">
+                ✓ Dar esta pared por revisada
+                {siguiente ? ` y pasar a ${nombreDe(siguiente)} →` : ''}
+            </button>
+            {siguiente && (
+                <button onClick={() => onMarcar(true)}
+                        className="self-end text-[10.5px] text-white/35 hover:text-white/70">
+                    solo marcarla, sin cambiar de pared
+                </button>
+            )}
+        </div>
+    );
+}
+
+/**
+ * ¿Se REFORMA esta pared (se mejora su aislamiento)?
+ *
+ * Dos opciones y ninguna cifra: al .cex va SOLO como sufijo en el nombre
+ * («FBE1 CALLE - CAMBIA»), que es lo que le dice al certificador en el árbol
+ * de CE3X sobre qué cerramientos montar la medida de mejora. La U de la pared
+ * sigue siendo la de hoy —es el estado inicial del edificio— y la medida la
+ * escribe él.
+ */
+function Actuacion({ cambia, onCambio }) {
+    return (
+        <div className="flex flex-col gap-1.5">
+            <span className="text-[10.5px] font-bold uppercase tracking-[0.08em] text-white/55">
+                En la reforma
+            </span>
+            <div className="flex gap-1.5">
+                <Opcion activa={!cambia} onClick={() => onCambio(false)}
+                        title="Esta pared se queda como está">
+                    Se conserva
+                </Opcion>
+                <Opcion activa={cambia} onClick={() => onCambio(true)}
+                        title="Se mejora su aislamiento: en CE3X sale con «- CAMBIA» detrás">
+                    Se aísla → CAMBIA
+                </Opcion>
+            </div>
+        </div>
+    );
+}
+
+//: El tipo de pared, en SU color: el mismo que la pinta en el plano, para que
+//: el panel y el dibujo se lean con el mismo código. Las clases son las que
+//: `index.css` remapea en tema claro (`text-brand`, `text-sky-*`).
+const CHAPA_TIPO = {
+    FACHADA: 'border-brand/50 bg-brand/10 text-brand',
+    MEDIANERA: 'border-sky-400/50 bg-sky-400/10 text-sky-300',
+    PARTICION_VERTICAL: 'border-pink-400/50 bg-pink-400/10 text-pink-300',
+};
+
+function ChapaTipo({ tipo }) {
+    const t = TIPOS_PARED.find(x => x.id === tipo);
+    return (
+        <span className={`rounded-md border px-1.5 py-0.5 text-[9.5px] font-black uppercase
+                          tracking-wider ${CHAPA_TIPO[tipo] || 'border-white/15 text-white/50'}`}
+              title={t?.ayuda}>
+            {t?.etiqueta || tipo}
+        </span>
+    );
+}
+
+//: En qué estado está la pared: lo mismo que dice su color de TRAZO en el
+//: plano, con palabras. Va a la derecha de la cabecera porque es lo primero
+//: que se comprueba al pulsarla — ¿me queda algo aquí?
+const CHAPA_ESTADO = {
+    falta: ['Por mirar', 'border-white/20 bg-white/[0.04] text-white/60'],
+    dudoso: ['Por confirmar', 'border-amber-400/50 bg-amber-400/10 text-amber-300'],
+    medido: ['✓ Revisada', 'border-emerald-400/50 bg-emerald-400/10 text-emerald-300'],
+    fuera: ['Apartada', 'border-white/15 text-white/40'],
+};
+
+function ChapaEstado({ estado }) {
+    const [texto, cls] = CHAPA_ESTADO[estado] || CHAPA_ESTADO.falta;
+    return (
+        <span className={`ml-auto rounded-md border px-1.5 py-0.5 text-[9.5px] font-black
+                          uppercase tracking-wider ${cls}`}>
+            {texto}
+        </span>
     );
 }
 
@@ -818,7 +1025,7 @@ function Opcion({ activa, onClick, children, title }) {
         <button onClick={onClick} title={title}
                 className={`flex-1 rounded-lg border px-2.5 py-2 text-[11px] font-semibold
                     ${activa ? 'border-brand bg-brand/15 text-brand'
-                             : 'border-white/10 text-white/50 hover:border-white/25'}`}>
+                             : 'border-white/10 text-white/65 hover:border-white/30 hover:text-white/90'}`}>
             {children}
         </button>
     );

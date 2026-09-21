@@ -33,6 +33,12 @@ const ORIGEN = process.argv.includes('--cee') ? 'cee' : 'cae';
 // `--online` se le deja preguntar: hace falta la primera vez que se prueba un
 // inmueble, y es UNA petición, la misma que hace el botón.
 const OFFLINE = !process.argv.includes('--online');
+// `--cambia` marca lo que se REFORMA como lo haría el certificador en el plano:
+// la ventana V1, la pared de la entrada y la MITAD OESTE de la cubierta de la
+// planta baja por polígono. Es la prueba del sufijo «- CAMBIA» de punta a
+// punta. `--guardar=<ruta>` deja el .cex en disco para mirarlo.
+const CAMBIA = process.argv.includes('--cambia');
+const GUARDAR = (process.argv.find(a => a.startsWith('--guardar=')) || '').slice(10);
 const CLAVE = process.argv[2];
 
 async function main() {
@@ -118,6 +124,7 @@ async function main() {
     if (!r.ok) throw new Error(`el motor no ha escrito el .cex: ${(await r.json()).detail}`);
     const fichero = Buffer.from(await r.arrayBuffer());
     const avMotor = JSON.parse(r.headers.get('X-Cee-Avisos') || '[]');
+    if (GUARDAR) { require('fs').writeFileSync(GUARDAR, fichero); console.log(`   (guardado en ${GUARDAR})`); }
     console.log(`${FASE === 'final' ? '  ' : '\n4.'} .cex escrito · ${fichero.length} bytes`);
     // Los avisos del motor son "lo que NO es una medida": se leen antes de
     // firmar, así que el script los enseña en vez de contarlos.
@@ -158,14 +165,37 @@ async function main() {
 function senaladoDeMentira(geo) {
     const muros = geo.plantas.flatMap(p => p.muros);
     const entrada = muros.find(m => m.subtipo === 'CALLE' && m.nivel === 0) || muros[0];
-    return {
+    const base = {
         huecos: [
             { id: 'P1', cerramiento: entrada.id, ancho: 0.9, alto: 2.1, tipo: 'Puerta',
-              porc_marco: '90', marco: 'Madera', de: 'PRUEBA' },
-            { id: 'V1', cerramiento: entrada.id, ancho: 1.3, alto: 1.3, tipo: 'Ventana', de: 'PRUEBA' },
+              porc_marco: '90', marco: 'Madera', persiana: false, de: 'PRUEBA' },
+            { id: CAMBIA ? 'V1 - CAMBIA' : 'V1', cerramiento: entrada.id, ancho: 1.3, alto: 1.3,
+              tipo: 'Ventana', de: 'PRUEBA' },
         ],
         entrada: { valor: entrada.id, de: 'PRUEBA' },
         medianeras_como_particion: [],
+    };
+    if (!CAMBIA) return base;
+    // La mitad oeste de la planta baja, en coordenadas del LIENZO: la caja de
+    // sus paredes, partida por la mitad. La traslación al mundo es la MISMA que
+    // hace la vista (`lienzoAMundo` en geometriaPlano.js).
+    const pb = geo.plantas.find(p => p.nivel === 0) || geo.plantas[0];
+    const pts = pb.muros.flatMap(m => m.svg || []);
+    const xs = pts.map(q => q[0]), ys = pts.map(q => q[1]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    const xm = (x0 + x1) / 2;
+    const gr = geo.georef || {};
+    const lienzo_a_mundo = gr.bbox && gr.en_el_lienzo
+        ? { dx: gr.bbox[0] - gr.en_el_lienzo.x, y0: gr.bbox[3] + gr.en_el_lienzo.y } : null;
+    console.log(`   --cambia: V1, la pared ${entrada.id} y la mitad oeste de la cubierta de`
+                + ` ${pb.nombre} (x ${x0.toFixed(1)}…${xm.toFixed(1)} del lienzo)`);
+    return {
+        ...base,
+        mejora: {
+            cerramientos: [entrada.id],
+            cubierta: { [pb.id]: { poligono: [[x0 - 1, y0 - 1], [xm, y0 - 1], [xm, y1 + 1], [x0 - 1, y1 + 1]] } },
+            ...(lienzo_a_mundo ? { lienzo_a_mundo } : {}),
+        },
     };
 }
 
