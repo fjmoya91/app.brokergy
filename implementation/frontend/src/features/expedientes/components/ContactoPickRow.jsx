@@ -65,6 +65,13 @@ export function ContactoPickRow({ contacto: c, on, rol = null, onClick, classNam
                 <div className="text-[11px] text-white/40 truncate">
                     {tlf || 'sin teléfono'}{c.email ? ` · ${c.email}` : ''}
                     {c.general && <span className="text-white/25"> · teléfono y email generales</span>}
+                    {/* De QUÉ empresa es. Solo llega cuando la actuación tiene dos
+                        (quien ejecuta y quien firma ante Industria): dos listas de
+                        contactos juntas sin decir de quién es cada uno es peor que
+                        una sola. En el canal GENERAL se calla: ahí el nombre de
+                        arriba ya ES el de la empresa, y repetirlo solo empuja fuera
+                        de la fila el teléfono, que es lo que hay que comprobar. */}
+                    {c.empresa && !c.general && <span className="text-white/25"> · {c.empresa}</span>}
                 </div>
             </div>
         </button>

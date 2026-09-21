@@ -39,6 +39,11 @@ const CLAVES_PROTEGIDAS = [
     // Mismo fallo que ya costó `incidencias`, `_drive_at` y `refirma_at`.
     'docs_validados',
     'docs_rechazados',
+    // A cuál de las DOS empresas se le pidió la firma del CIFO. Lo escribe solo
+    // /instalador/enviar y la copia hidratada del navegador no lo trae, así que
+    // sin protegerlo el primer autoguardado lo borraría y el siguiente envío
+    // volvería a proponer la habilitada — mismo fallo que el `refirma_at`.
+    'cert_cifo_firmante_rol',
 ];
 
 const { DOCUMENTO_VALIDABLE_LABELS, BORRADORES_CLIENTE, invalidarValidacionDocs } = require('./docValidacion');

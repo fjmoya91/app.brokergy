@@ -4,12 +4,13 @@ import confetti from 'canvas-confetti';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
 import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
-import { buildInstalacionAddress, empresaInstaladora } from '../utils/docGenerators';
+import { buildInstalacionAddress, empresaInstaladora, empresasActuacion } from '../utils/docGenerators';
 import { calcCifo } from '../logic/calcCifo';
 import { esTermoElectrico, esAcumuladorAcs } from '../logic/aerotermiaUnits';
 // Qué fichas técnicas lleva ESTE expediente: una por MODELO distinto de bomba de
 // calor, no una por hueco. FUENTE ÚNICA con las rutas y con cifoService.
-import { instaladorContacts, defaultContactIds, avisoReparto, priorizarPorRol } from '../utils/docContacts';
+import { instaladorContacts, defaultContactIds, avisoReparto, priorizarPorRol,
+    contactosDeLaActuacion, defaultContactIdsActuacion } from '../utils/docContacts';
 import { ContactoPickRow, NotaVariosDestinatarios } from './ContactoPickRow';
 import { resolveFichaSlots, ftAttachmentSlots, ftSlotId, ftTypeFromSlotId } from '../logic/fichasTecnicas';
 import { GuardarEnCatalogoGate } from '../../ventanas/components/GuardarEnCatalogoGate';
@@ -31,7 +32,8 @@ import {
 import AnexoPaginasModal from './AnexoPaginasModal';
 // Qué le falta al INSTALADOR y con qué texto se le pide. FUENTE ÚNICA con el
 // popup de la Memoria RITE, con la ruta de envío y con la página pública.
-import { estadoInstalador, mensajeInstalador, enlaceInstalador } from '../logic/instaladorPendientes';
+import { estadoInstalador, mensajeInstalador, enlaceInstalador,
+    opcionesFirmanteCifo, firmanteCifoRol } from '../logic/instaladorPendientes';
 import { DocsInstaladorPicker } from './DocsInstaladorPicker';
 // La placa de la unidad exterior que justifica el COP del Anexo VI (SCOP_dhw).
 import { usePlacaScopAcs } from '../logic/usePlacaScopAcs';
@@ -88,6 +90,9 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
         return () => clearInterval(t);
     }, [sendOpen, waReady]);
     const [selectedIds, setSelectedIds] = useState([]);          // varios destinatarios
+    // Cuál de las DOS empresas firma el CIFO en este envío. `null` = lo que tenga
+    // sellado el expediente (o la habilitada, que es el comportamiento de siempre).
+    const [firmanteRolSel, setFirmanteRolSel] = useState(null);
     const [manualContact, setManualContact] = useState({ name: '', phone: '', email: '' });
     const [templateKey, setTemplateKey] = useState('primera');   // 'primera' | 'requerimiento' | 'correccion'
     const [sendMessage, setSendMessage] = useState('');
@@ -568,6 +573,14 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
             : { ...expediente, prescriptores: presRefrescada })
         : expediente;
     const pres = empresaInstaladora(expedienteDoc);
+    // LAS DOS empresas de la actuación. Con delegación, el CIFO lo puede firmar
+    // cualquiera de ellas y se ELIGE aquí (su recuadro va en blanco, así que el
+    // documento no cambia); sin delegación, `opcionesCifoFirma` viene vacío y el
+    // popup se comporta exactamente como antes.
+    const empresasAct = empresasActuacion(expedienteDoc);
+    const opcionesCifoFirma = opcionesFirmanteCifo(empresasAct);
+    const firmanteRol = firmanteCifoRol(empresasAct, firmanteRolSel ?? doc.cert_cifo_firmante_rol);
+    const presFirmaCifo = (opcionesCifoFirma.find(o => o.rol === firmanteRol) || {}).pres || pres;
     // Quién firmará la Memoria RITE si se manda de paso (MISMA comprobación que
     // el popup del RITE: las dos superficies no pueden decir cosas distintas).
     // ⚠️ VA DESPUÉS de `pres`: leerlo antes es un TDZ que revienta el modal entero
@@ -1099,7 +1112,12 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     // (services/notifyContacts) y con el popup del RITE: si divergieran, un popup
     // ofrecería un teléfono y el otro otro. El CIFO lo FIRMA el técnico.
     const ROL = 'tecnico';
-    const instContacts = instaladorContacts(pres);
+    // Con DOS empresas la lista trae los contactos de las dos, rotulados: si solo
+    // saliera la de quien firma, no se le podría mandar el enlace al otro — y en
+    // el mismo mensaje puede ir la Memoria RITE, que firma siempre la habilitada.
+    const instContacts = opcionesCifoFirma.length
+        ? contactosDeLaActuacion(empresasAct)
+        : instaladorContacts(pres);
     const phoneValid = (ph) => (ph || '').replace(/[^0-9]/g, '').length >= 9;
 
     const resolveContact = (id) => {
@@ -1122,8 +1140,11 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
 
     const openSendModal = async () => {
         // Por defecto: si la redirección está activa, todos los contactos de
-        // notificación; si no, el representante (o el primero disponible).
-        const defIds = defaultContactIds('instalador', null, pres, ROL);
+        // notificación; si no, el representante (o el primero disponible). Con dos
+        // empresas, los de la que FIRMA (los de la otra se pueden marcar a mano).
+        const defIds = opcionesCifoFirma.length
+            ? defaultContactIdsActuacion(empresasAct, firmanteRol, ROL)
+            : defaultContactIds('instalador', null, pres, ROL);
         const sel = instContacts.filter(c => defIds.includes(c.id));
         // Si venimos de rechazar el CIFO firmado, la plantilla es la de corrección.
         // Si no, y ya hubo un firmado previo, lo más probable es un requerimiento.
@@ -1183,6 +1204,28 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     const pickTemplate = (key) => {
         setTemplateKey(key);
         setSendMessage(buildCifoMessage(key, (selectedContacts[0]?.saludo || selectedContacts[0]?.label) || empResponsable));
+    };
+    // Cambiar de empresa firmante re-marca los destinatarios con los SUYOS y
+    // rehace el saludo: elegir que firma una y mandarle el enlace a la otra es
+    // justo el descuadre que este selector viene a evitar. Lo ya marcado a mano
+    // de la otra empresa se conserva — puede haber que avisar a las dos.
+    const pickFirmante = (rol) => {
+        if (rol === firmanteRol) return;
+        setFirmanteRolSel(rol);
+        const nuevos = defaultContactIdsActuacion(empresasAct, rol, ROL);
+        const previos = defaultContactIdsActuacion(empresasAct, firmanteRol, ROL);
+        setSelectedIds(prev => {
+            // Se quitan los que estaban puestos por DEFECTO (no los marcados a mano).
+            const conservados = prev.filter(id => !previos.includes(id));
+            const next = [...nuevos, ...conservados.filter(id => !nuevos.includes(id))];
+            const first = next.length ? resolveContact(next[0]) : null;
+            setSendMessage(buildCifoMessage(templateKey, (first?.saludo || first?.label) || empResponsable));
+            setChannels({
+                email: next.some(id => resolveContact(id).email),
+                whatsapp: next.some(id => phoneValid(resolveContact(id).phone)),
+            });
+            return next;
+        });
     };
     // Marcar/desmarcar el RITE rehace el cuerpo del mensaje: uno que anuncia dos
     // documentos y solo lleva uno deja al instalador buscando lo que no llegó.
@@ -1297,6 +1340,10 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
             const resp = await postEmail(`/api/expedientes/${expediente.id}/instalador/enviar`, {
                 docs: docsEnviar, channels: chans, message: sendMessage, recipients,
                 cifoDriveLink, plantilla: templateKey,
+                // A cuál de las dos empresas se le pide la firma del CIFO. El
+                // backend lo sella y lo escribe en el historial; sin delegación no
+                // hay elección y no se manda nada.
+                firmanteCifo: opcionesCifoFirma.length ? firmanteRol : null,
             }, showConfirm);
             data = resp.data;
         } catch (err) {
@@ -1522,6 +1569,9 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                                     docs={sendDocsSel.filter(k => k !== 'rite' || !riteBloqueo)}
                                     pres={presFirmanteRite}
                                     onFichaActualizada={setPresRefrescada}
+                                    opcionesCifo={opcionesCifoFirma}
+                                    firmanteCifo={firmanteRol}
+                                    onFirmanteCifo={pickFirmante}
                                 />
 
                                 {/* Destinatario(s) — se puede marcar más de uno */}

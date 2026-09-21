@@ -264,6 +264,51 @@ export function firmanteCifo(pres = {}) {
     };
 }
 
+/**
+ * A QUIÉN se le puede pedir que firme el CIFO, cuando hay DOS empresas.
+ *
+ * El CIFO no dice en el papel quién lo firma —su recuadro va en blanco, porque
+ * unas veces lo firma la empresa instaladora y otras el técnico habilitado—, así
+ * que quién lo suscribe es una decisión de quien envía y no un dato del
+ * documento. Con una sola empresa no hay nada que elegir y devuelve [].
+ *
+ * ⚠️ Esto NO vale para la Memoria RITE: ese documento imprime el nombre y el
+ * carné de quien la suscribe, y solo puede hacerlo quien está habilitado ante
+ * Industria. Ahí manda la ficha (`firmanteMemoriaRite`), no el popup.
+ *
+ * @param {{delegado:boolean, ejecutora:object, habilitada:object}} empresas
+ *        lo que devuelve `empresasActuacion` (docGenerators.js).
+ */
+export function opcionesFirmanteCifo(empresas = {}) {
+    const { delegado, ejecutora = {}, habilitada = {} } = empresas;
+    if (!delegado) return [];
+    const opcion = (rol, pres, etiqueta) => ({
+        rol,
+        pres,
+        etiqueta,
+        empresa: pres.razon_social || pres.nombre || '—',
+        nif: pres.cif || pres.nif || '',
+        firmante: firmanteCifo(pres),
+    });
+    return [
+        opcion('ejecutora', ejecutora, 'Ejecuta y factura la obra'),
+        opcion('habilitada', habilitada, 'Habilitada ante Industria'),
+    ];
+}
+
+/**
+ * La empresa que firma el CIFO en este envío.
+ *
+ * Por defecto la HABILITADA, que es lo que la app venía haciendo: cambiar el
+ * defecto movería a quién se le pide la firma en todos los expedientes con
+ * delegación sin que nadie lo hubiera decidido.
+ */
+export function firmanteCifoRol(empresas = {}, rolGuardado = null) {
+    const ops = opcionesFirmanteCifo(empresas);
+    if (!ops.length) return null;
+    return ops.some(o => o.rol === rolGuardado) ? rolGuardado : 'habilitada';
+}
+
 /** ¿Se puede mandar la memoria a firmar? Falta el nombre o el DNI del firmante. */
 export function firmanteIncompleto(f) {
     return !present(f?.nombre) || !present(f?.dni);

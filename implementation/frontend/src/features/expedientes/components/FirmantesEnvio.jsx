@@ -24,7 +24,8 @@ const FIRMANTE_DE = {
     rite: { titulo: 'Firma la Memoria RITE', resolver: firmanteMemoriaRite },
 };
 
-export function FirmantesEnvio({ docs = [], pres = {}, onFichaActualizada }) {
+export function FirmantesEnvio({ docs = [], pres = {}, onFichaActualizada,
+    opcionesCifo = [], firmanteCifo: firmanteCifoRolSel = null, onFirmanteCifo = null }) {
     // Ficha recargada tras editarla: el bloque tiene que decir la verdad en
     // cuanto se guarda, sin esperar a que el padre recargue el expediente.
     const [fichaLocal, setFichaLocal] = useState(null);
@@ -84,6 +85,40 @@ export function FirmantesEnvio({ docs = [], pres = {}, onFichaActualizada }) {
 
             {lista.map(k => {
                 const { titulo, resolver } = FIRMANTE_DE[k];
+                // CIFO con DOS empresas: se ELIGE cuál lo firma. El documento no
+                // lo dice (su recuadro va en blanco), así que no hay una respuesta
+                // correcta que deducir: la pone quien envía.
+                if (k === 'cifo' && opcionesCifo.length > 1) {
+                    return (
+                        <div key={k} className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+                            <p className="text-[9.5px] uppercase tracking-wider font-bold text-white/35 mb-2">
+                                {titulo} <span className="text-white/20 normal-case tracking-normal">· elige quién</span>
+                            </p>
+                            <div className="space-y-1.5">
+                                {opcionesCifo.map(o => {
+                                    const on = o.rol === firmanteCifoRolSel;
+                                    return (
+                                        <button key={o.rol} type="button" onClick={() => onFirmanteCifo?.(o.rol)}
+                                            className={`w-full flex items-start gap-2.5 p-2.5 rounded-lg border text-left transition-all ${on ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
+                                            <span className={`mt-0.5 w-3.5 h-3.5 rounded-full border-2 shrink-0 flex items-center justify-center ${on ? 'border-brand' : 'border-white/20'}`}>
+                                                {on && <span className="w-1.5 h-1.5 rounded-full bg-brand" />}
+                                            </span>
+                                            <span className="min-w-0 flex-1">
+                                                <span className="block text-[12px] font-bold text-white leading-snug truncate">{o.empresa}</span>
+                                                <span className="block text-[10px] text-white/40">
+                                                    {o.etiqueta}{o.nif ? ` · ${o.nif}` : ''}
+                                                </span>
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <p className="text-[10px] text-white/30 leading-snug mt-2">
+                                El certificado no lleva el nombre impreso: lo pone el certificado electrónico de quien lo firme.
+                            </p>
+                        </div>
+                    );
+                }
                 const f = resolver(p);
                 const sinDatos = firmanteIncompleto(f);
                 const aviso = sinDatos || !f.declarado;

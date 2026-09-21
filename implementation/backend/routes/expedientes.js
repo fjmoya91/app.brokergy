@@ -6003,7 +6003,8 @@ router.post('/:id/memoria-rite/files', enforceAuth, async (req, res) => {
 router.post('/:id/instalador/enviar', enforceAuth, async (req, res) => {
     const driveService = require('../services/driveService');
     try {
-        const { docs = [], channels = [], message = '', recipients, cifoDriveLink, plantilla = 'primera', from } = req.body || {};
+        const { docs = [], channels = [], message = '', recipients, cifoDriveLink, plantilla = 'primera', from,
+            firmanteCifo = null } = req.body || {};
         const wants = ['cifo', 'rite'].filter(k => docs.includes(k));
         const chans = ['email', 'whatsapp'].filter(c => (Array.isArray(channels) ? channels : []).includes(c));
         if (!wants.length) return res.status(400).json({ error: 'Indica al menos un documento (cifo/rite)' });
@@ -6184,6 +6185,58 @@ router.post('/:id/instalador/enviar', enforceAuth, async (req, res) => {
         // formato que entiende `postEmail` para ofrecer el reenvío desde el
         // alternativo (utils/emailFallback en el frontend).
         if (!anyOk && quotaErr) return emailService.emailErrorResponse(res, quotaErr, 'No se pudo enviar la documentación al instalador.');
+
+        // ── A QUIÉN SE LE HA PEDIDO LA FIRMA DEL CIFO ────────────────────────
+        // Con dos empresas (la que ejecuta y la habilitada), el CIFO lo puede
+        // firmar cualquiera de ellas y lo elige quien envía: el documento no lo
+        // dice, su recuadro de firma va en blanco. Se deja escrito para que se
+        // sepa dentro de tres meses y para que el próximo envío venga marcado.
+        //
+        // ⚠️ El NOMBRE lo resuelve el BACKEND desde la ficha, no se coge del
+        // body: el navegador manda solo cuál de las dos, y el historial tiene que
+        // decir la verdad aunque llegue cualquier cosa.
+        if (anyOk && wants.includes('cifo') && ['ejecutora', 'habilitada'].includes(firmanteCifo)) {
+            const fichaFirma = firmanteCifo === 'ejecutora' ? (presReal || pres) : pres;
+            const nombreFirma = fichaFirma?.razon_social || fichaFirma?.nombre || '—';
+            const etiqueta = firmanteCifo === 'ejecutora'
+                ? 'empresa que ejecuta y factura' : 'empresa habilitada ante Industria';
+            try {
+                // El historial es un read-modify-write, así que va ANTES de las RPC
+                // de sellado: al revés se llevaría por delante lo que acaban de
+                // escribir (mismo motivo que la regla de `mergeDocumentacion`).
+                const { data: fresco } = await supabase
+                    .from('expedientes').select('documentacion').eq('id', req.params.id).maybeSingle();
+                const docFresco = fresco?.documentacion || {};
+                const historial = Array.isArray(docFresco.historial) ? [...docFresco.historial] : [];
+                const usuario = req.internalCall ? 'AGENTE IA'
+                    : (req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA'));
+                historial.push({
+                    id: `${Date.now()}_cifo_firmante`,
+                    tipo: 'cifo_firmante',
+                    texto: `CIFO enviado a firmar a ${nombreFirma} (${etiqueta})`
+                        + ` · ${chans.join(' + ')} a ${destinatarios.map(d => d.nombre).filter(Boolean).join(', ') || 'sin nombre'}`,
+                    firmante_rol: firmanteCifo,
+                    firmante_nombre: nombreFirma,
+                    fecha: new Date().toISOString(),
+                    usuario,
+                });
+                await supabase.from('expedientes')
+                    .update({ documentacion: { ...docFresco, historial }, updated_at: new Date().toISOString() })
+                    .eq('id', req.params.id);
+                if (exp.oportunidad_id) {
+                    const { error } = await supabase.rpc('set_expediente_doc_field', {
+                        p_oportunidad_id: exp.oportunidad_id,
+                        p_field: 'cert_cifo_firmante_rol',
+                        p_value: firmanteCifo,
+                    });
+                    if (error) throw new Error(error.message);
+                }
+            } catch (e) {
+                // El mensaje ya ha salido: esto no puede devolverle un error a
+                // quien envía, pero tiene que constar.
+                console.error('[instalador/enviar] no se pudo sellar el firmante del CIFO:', e.message);
+            }
+        }
 
         // ── VOLVER A PEDIR LA FIRMA ──────────────────────────────────────────
         // Si le mandamos el CIFO teniendo ya uno firmado (requerimiento, o una

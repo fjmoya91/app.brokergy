@@ -201,3 +201,41 @@ export function priorizarPorRol(contactos = [], rol = null) {
     const suyos = contactos.filter(c => (c.roles || []).includes(rol));
     return [...suyos, ...contactos.filter(c => !suyos.includes(c))];
 }
+
+/** Cómo se llama una empresa en una línea (para rotular de quién es un contacto). */
+const nombreCorto = (pres = {}) => pres.acronimo || pres.razon_social || pres.nombre || 'la empresa';
+
+/**
+ * Contactos de LAS DOS empresas de la actuación, cuando no son la misma.
+ *
+ * Con delegación, el CIFO lo puede firmar la EJECUTORA o la HABILITADA (lo elige
+ * quien envía), así que la lista tiene que traer a las dos: marcando solo la de
+ * quien firma se le mandaba el enlace a quien no iba a firmarlo. Y las dos hacen
+ * falta a la vez cuando en el mismo mensaje va también la Memoria RITE, que solo
+ * puede suscribir la habilitada.
+ *
+ * Cada contacto lleva de qué empresa es (`empresa`) y su `firmanteRol`, y el id
+ * va PREFIJADO porque los de `instaladorContacts` se repiten entre fichas
+ * (`empresa`, `c0`…) y dos contactos con el mismo id son uno solo en la lista.
+ *
+ * ⚠️ Ese prefijo NO rompe el espejo de ids del backend: el envío manda los
+ * destinatarios YA RESUELTOS (`{nombre, email, phone}`), no sus ids.
+ *
+ * Sin delegación devuelve exactamente lo de siempre, sin prefijos ni rótulos.
+ */
+export function contactosDeLaActuacion(empresas = {}) {
+    const { delegado, ejecutora = {}, habilitada = {} } = empresas;
+    if (!delegado) return instaladorContacts(habilitada.id_empresa ? habilitada : ejecutora);
+    const marcar = (pres, rol) => instaladorContacts(pres).map(c => ({
+        ...c, id: `${rol}:${c.id}`, firmanteRol: rol, empresa: nombreCorto(pres),
+    }));
+    return [...marcar(ejecutora, 'ejecutora'), ...marcar(habilitada, 'habilitada')];
+}
+
+/** Los ids que vienen marcados al abrir, para la empresa que FIRMA. */
+export function defaultContactIdsActuacion(empresas = {}, firmanteRol, rol = null) {
+    const { delegado, ejecutora = {}, habilitada = {} } = empresas;
+    if (!delegado) return defaultContactIds('instalador', null, habilitada.id_empresa ? habilitada : ejecutora, rol);
+    const pres = firmanteRol === 'ejecutora' ? ejecutora : habilitada;
+    return defaultContactIds('instalador', null, pres, rol).map(id => `${firmanteRol}:${id}`);
+}
