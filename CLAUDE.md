@@ -1752,8 +1752,8 @@ La hoja 1 también iba al ras (RES093 y TER100 se pasaban 1-2px, y con los texto
 Se le quitaron el subtítulo que repetía literalmente las dos filas de debajo, el encabezado "Hitos de
 la actuación" (sus dos fechas van ahora dentro de "Identificación de la actuación", rotuladas igual)
 y el encabezado "Firma y sello". El `kv` bajó de 7px a 6px de padding vertical: son 14 filas en esa
-hoja. Holguras actuales: **+43px en el peor caso** y +73 en la hoja de variables de un TER100 con
-piscina.
+hoja. Holguras actuales: **+28px en el peor caso** (RES093 de textos largos con dos empresas) y
++43 con una sola empresa.
 
 ---
 
@@ -2212,6 +2212,37 @@ El troceo de la cadena es **fuente única** en
 necesitarlo la segunda pantalla, porque con dos copias la misma dirección se
 rellena distinto según por dónde entres. Sin código postal no reparte nada: vuelca
 la cadena entera en la calle y lo dice, antes que inventarse el municipio.
+
+**Y se pregunta al DAR DE ALTA, no solo al corregir** (2026-09-21). En el alta, la
+referencia catastral va justo detrás de "¿qué se ha contratado?" — antes que el
+cliente — porque de ella sale todo lo demás. El alta usaba además inputs de TEXTO
+LIBRE para municipio y provincia mientras la ficha usaba la cascada: el mismo
+expediente se escribía de dos maneras según el momento, y de que el municipio case
+con el INE depende la **zona climática**, que el servidor deriva de él en el propio
+alta. Ahora las dos pantallas montan `DireccionEdit` y llaman a la misma
+[traerDireccionCatastral](implementation/frontend/src/utils/traerDireccionCatastral.js),
+que consulta, trocea y traduce los errores (el WAF saturado no es "no se ha podido
+consultar"). Del modal salen también la comunidad (`ccaa`, que la ruta ya aceptaba)
+y la chapa de zona climática.
+
+**REGLA — la ZONA se DERIVA, no se invalida a mano.** Los dos sitios borraban la
+zona en el `onChange` de la cascada "porque cambiar de municipio la invalida", y
+rellenar la cascada dispara sus propios efectos de normalización, que vuelven a
+emitir `municipio` y `provincia`: la zona recién traída se borraba un instante
+después de traerla y **en el alta no llegaba a verse nunca** (en la ficha lo tapaba
+el respaldo de `expediente.zona_climatica`). Se guarda CON QUÉ municipio se calculó
+y se enseña mientras siga siendo ese (`mismoMunicipio`); al cambiar de pueblo
+desaparece sola.
+
+**REGLA — si hay que CREAR el cliente, su ficha nace con la dirección del
+inmueble** (`ClientePicker`, prop `datosNuevoCliente` → `initialData` de
+`ClienteFormModal`, que ya la esparcía en su formulario). En un CEE suelto el
+titular vive casi siempre en la vivienda que se certifica, así que volver a teclear
+lo que se acaba de traer del Catastro solo sirve para colar una errata; queda
+editable, y **se DICE** bajo el botón ("nacerá con la dirección del inmueble ya
+puesta"), porque quien da de alta al propietario de un piso alquilado no mira ese
+bloque y guardaría una dirección que no es la suya. Vale para las DOS superficies:
+el alta y la ficha.
 
 ### Qué ve el certificador — y qué NO
 
@@ -3548,7 +3579,35 @@ el verificador compara el CIFO con el certificado RES080 y no pueden decirlo dis
 | Documento | Cómo lo imprime |
 |---|---|
 | **Certificado RES080** | Apartado propio: tabla a dos columnas con razón social y CIF/NIF, y debajo el párrafo. `buildEmpresasBox` en [res080Doc.js](implementation/frontend/src/features/expedientes/logic/res080Doc.js), compartido con `CertificadoRes080Modal` |
-| **CIFO (RES060/093/TER100)** | Las mismas cuatro filas de siempre: el nº RITE viaja con la razón social y la fila "Cargo firmante" deja el sitio a "Ejecuta y factura la obra". La nota va al pie de la hoja de la instalación |
+| **CIFO (RES060/093/TER100)** | Cuatro filas presididas por la EJECUTORA (ver abajo). La nota va al pie de la hoja de la instalación |
+
+**REGLA — en el CIFO manda la que EJECUTA Y FACTURA, y la habilitada baja a una fila
+(2026-09-21).** El apartado se abría con la razón social, el NIF y el domicilio del FIRMANTE, y
+eran los suyos los que presidían la empresa instaladora del certificado: no casaban con las
+facturas del expediente, que es lo primero que cruza el verificador. Ahora las tres primeras filas
+son de quien ejecuta y factura —*Ejecuta y factura la obra · NIF / CIF · Domicilio*— y la
+habilitada ocupa la cuarta, **Técnico firmante de la memoria**. Su NIF no se pierde: sigue en la
+nota de responsabilidad al pie de la hoja de la instalación (`notaDelegacionRite`), que es donde
+se explica el reparto.
+
+**REGLA — esa fila lleva DOS números y no son lo mismo.** El de **EMPRESA** habilitada (registro
+de empresas instaladoras, `numero_carnet_rite`) y el **CARNÉ PERSONAL** de quien firma
+(`tecnico_firmante_carnet_rite`), que solo existe si la ficha declara técnico firmante. Se
+resuelve con `firmanteMemoriaRite` —la MISMA función que el popup de envío y que el espejo Python
+de la Memoria RITE—: si se duplicara, el certificado nombraría a un técnico y la memoria saldría
+firmada por otro. El carné **no se imprime si coincide con el nº de empresa**: en una ficha sin
+técnico declarado esa función devuelve el de empresa como carné (es el caso del autónomo) y el
+mismo número dos veces en la misma línea se lee como un error del documento.
+
+**REGLA — el recuadro de firma va SIN NOMBRE.** Quién firma no se sabe al generarlo: unas veces lo
+firma la empresa instaladora y otras el técnico habilitado. Con el nombre impreso había que
+regenerar el documento al cambiar de firmante —o quedaba un certificado que nombra a uno y lleva
+la firma de otro, que es justo lo que cruza el verificador—. La identidad la pone el certificado
+electrónico de quien firma. La línea vacía **conserva su alto** (`&nbsp;`): el sello se estampa en
+coordenadas FIJAS (`SIGN_BOXES.cifo_res060`) y el recuadro no puede moverse. Esto vale para TODOS
+los CIFO; la tabla, en cambio, solo cambia en el caso delegado (decisión del usuario, 2026-09-21).
+⚠️ Como consecuencia, el aviso de `FirmantesEnvio` ("saldría sin firmante") ya solo es literal
+para la Memoria RITE; en el CIFO ese dato sigue haciendo falta para saber a QUIÉN mandárselo.
 
 **REGLA — el PÁRRAFO se escribe también cuando hay UNA sola empresa**, con su nº RITE: es lo que
 deja constancia de que quien ejecuta es además quien firma y con qué inscripción. Por eso el
@@ -3559,9 +3618,11 @@ afirmar una inscripción que no tiene a la vista. (El CIFO sigue imprimiendo el 
 delegación; su hoja 1 no da para más.)
 
 **REGLA — en el CIFO el bloque NO puede crecer.** La hoja 1 es la más apretada del documento
-(+43px de holgura en el peor caso medido) y ahí está anclado el recuadro de firma. Una tabla a
-dos columnas la desbordaba 58px, y con un segundo bloque, 163. Por eso son cuatro filas y el
-cargo del firmante se lee dentro del propio recuadro de firma, al pie de esa hoja.
+(**+28px** de holgura en el peor caso medido, un RES093 de textos largos con dos empresas) y ahí
+está anclado el recuadro de firma. Una tabla a dos columnas la desbordaba 58px, y con un segundo
+bloque, 163. Por eso son cuatro filas y una sola línea para la habilitada. El medidor ejerce el
+peor caso donde de verdad está: la razón social y el domicilio largos van en la EJECUTORA —que es
+quien preside la tabla— y la línea del técnico se mide con nombre largo + nº de empresa + carné.
 
 **REGLA — el certificado RES080 tiene su propio medidor**, `scripts/check_res080_paginas.mjs`,
 gemelo del del CIFO. Al escribirlo se descubrió que la hoja de la instalación **ya desbordaba
@@ -5945,9 +6006,9 @@ textos son fuente única en `recordatorios.js`.
 | Memoria RITE · borrador del certificado · CIFO para firmar | `tecnico` | `/instalador/enviar`, `CertificadoCifoModal`, `EnviarBorradorRiteModal`, `recordar-firma` del parte |
 | Propuestas · fotos y documentación · "¿cómo va la obra?" · rechazo de una foto | `comercial` | `solicitar-faltantes`, `EnviarAnexosModal`, `reformaUploadService`, `fin-obra` del parte |
 
-**REGLA — el REPRESENTANTE LEGAL no es un buzón.** `nombre_responsable` es quien FIRMA:
-va impreso en el CIFO y en su recuadro de firma (`firmanteCifo`), es una identidad
-documental. Usarlo además como destinatario por defecto es lo que producía el fallo,
+**REGLA — el REPRESENTANTE LEGAL no es un buzón.** `nombre_responsable` es quien FIRMA
+(`firmanteCifo`): es una identidad documental —a quien se le manda a firmar el CIFO y, por
+la otra cascada, la Memoria RITE, donde sí sale impreso—. Usarlo además como destinatario por defecto es lo que producía el fallo,
 porque **67 de los 70 instaladores no tienen `tlf_responsable`** y su nombre acababa
 pegado al teléfono de la empresa: la lista del popup decía *"Jesús · 654547040"* y ese
 número era de Carlos. Ya no se ofrece como contacto.
@@ -9478,6 +9539,159 @@ barrido los vuelve a listar cuando se quiera comprobar.
 
 ---
 
+## Lo que se REFORMA en la envolvente: «- CAMBIA» (2026-09-19)
+
+El certificador marca en el plano **qué ventana se cambia, qué pared se aísla y
+qué parte de la cubierta se rehace**, y al `.cex` eso llega como un SUFIJO en el
+NOMBRE: «V1 - CAMBIA», «FBE1 CALLE - CAMBIA», «CU1 CUBIERTA - CAMBIA». Es lo que
+ve en el árbol de CE3X y lo que le dice sobre qué elementos montar la medida de
+mejora.
+
+**REGLA — SOLO el nombre (decisión del usuario, 2026-09-19).** Ni la U, ni la
+superficie, ni la medida de mejora: el `.cex` sigue describiendo el edificio de
+HOY y la medida la monta el certificador en CE3X. Escribir aquí la U nueva sería
+meter en el certificado inicial algo que no existe todavía.
+
+| Qué | Dónde |
+|---|---|
+| El sufijo y el nombre efectivo de un hueco (puro, probable desde Node) | [logic/reforma.js](implementation/frontend/src/features/cee-envolvente/logic/reforma.js) — `SUFIJO_CAMBIA`, `nombreHueco` |
+| Marcar pared / hueco, carpintería en bloque, cubierta | `marcaCambia` · `marcaHuecoCambia` · `ponCarpinteria` · `ponCubierta` en [usePlanoEnvolvente.js](implementation/frontend/src/features/cee-envolvente/logic/usePlanoEnvolvente.js) |
+| Lo que viaja al motor | `loSenalado().mejora` = `{ cerramientos: [ids], cubierta: { [planta]: { entera } \| { poligono } }, lienzo_a_mundo }` |
+| El motor: sufijo y partición de la cubierta | `con_cambia` · `partir_cubierta` · `superficie_reformada` en [generar_cex.py](implementation/cee-engine/tools/generar_cex.py) |
+| La cubierta en pantalla | `CubiertaControl` ([PanelCubierta.jsx](implementation/frontend/src/features/cee-envolvente/components/PanelCubierta.jsx)), **dentro del plano de su planta** |
+| Cambiar ventanas en bloque | `VentanasViviendaModal` («A qué ventanas»: toda la vivienda · solo las marcadas) |
+| Pruebas | `python -m pytest implementation/cee-engine/tests/test_mejora.py` · `node implementation/backend/scripts/test_envolvente_cambia.mjs` |
+
+**REGLA — el sufijo es UNO y lo escriben los DOS lados igual.** La pared la
+renombra el MOTOR (`rotulo()` le pega «- CAMBIA» DETRÁS de lo que es: «FBE1
+FACHADA - CAMBIA», no «FBE1 - CAMBIA FACHADA», para que el árbol de CE3X se siga
+leyendo por el tipo); el hueco llega YA con el sufijo en su `id` porque lo pone la
+vista (`nombreHueco`). `SUFIJO_CAMBIA` está en `reforma.js` y en `generar_cex.py`
+con el mismo valor: si divergen, un hueco y su pared saldrían con dos sufijos. El
+hueco sigue casando con su pared renombrada porque el motor resuelve el
+cerramiento por el ident (`por_id`), no por el nombre completo.
+
+**REGLA — la CUBIERTA se parte en DOS filas, y la mide el MOTOR.** Entera →
+una fila renombrada. Por polígono → «CU1 CUBIERTA» con lo que se conserva y «CU1
+CUBIERTA - CAMBIA» con lo que se rehace. Los vértices viajan en coordenadas del
+LIENZO tal cual se soltaron (como `paredes.movidas`) más la traslación al mundo
+(`lienzo_a_mundo = { dx, y0 }`, que sale de `geo.georef` con `lienzoAMundo()`), y
+el motor INTERSECA con el polígono real del tejado (shapely): lo que se sale del
+tejado no cuenta, un polígono que lo cubre entero se escribe como entera, y uno
+que no lo toca no parte nada — y todo eso SE DICE en los avisos. Si la ficha
+declara otra superficie de cubierta que la medida, el reparto va en PROPORCIÓN.
+El m² que enseña la pantalla (`areaPoligono`, shoelace) es para VERLO mientras
+se dibuja; el del `.cex` es el del motor.
+
+**REGLA — el encuentro de fachada con cubierta cuelga de la parte que se
+CONSERVA.** Con dos filas del mismo `ident`, `apuntar()` las dos duplicaría el
+puente térmico; solo la marcada `soporte` entra en `paredes_pt`.
+
+**REGLA — el mando de la cubierta vive EN EL PLANO de su planta, no en la
+columna de la derecha.** Se marca DIBUJÁNDOLA encima, así que el control tiene
+que estar donde está el gesto: una tira bajo la barra de ese plano con las tres
+respuestas a la vista (se conserva · entera · ✎ solo una parte). En una columna
+aparte, debajo del panel de la pared —que ya es largo—, había que bajar hasta el
+fondo para descubrir que existía; y además ese panel es «la pared
+seleccionada», y una cubierta no es una pared. En 3D no se pinta: ahí no se
+dibuja.
+
+**REGLA — dibujar la cubierta es un MODO, y el gesto es PULSAR, no arrastrar.**
+Cada clic es un vértice, se cierra pulsando el primero, con doble clic o con el
+botón «✓ Cerrar» de la tira, y Esc cancela. Arrastrar SIGUE moviendo el plano:
+hace falta para llegar a la otra esquina del tejado. Mientras se dibuja, la
+tira pasa a ser la instrucción y sus dos mandos, con el nº de vértices y los m²
+que lleva encerrados. Lo dibujado se guarda con el trabajo (`cubierta_reforma`,
+por planta).
+
+**REGLA — lo que se AGARRA se mide en PANTALLA, no en metros** (2026-09-19).
+Lo dijo Raquel, certificadora, con tres expedientes ya hechos con la app: *«lo
+único que me entorpece a veces es dibujar muros nuevos pequeños, como que el
+puntero que sale en los extremos son gordos»*. El plano está en METROS (regla 1
+de la cabecera de `PlanoPlanta`) y los tiradores, las asas de los huecos y el
+imán estaban fijos en metros: un tirador de 0,30 m de radio son 0,60 m de
+diámetro, así que sobre un tabique de 0,80 m los dos extremos se tocan y tapan
+la pared entera — y **ampliar no ayudaba**, porque el tirador crecía con el
+dibujo. Ahora salen del ENCUADRE (`tamanosDeDibujo` en
+[geometriaPlano.js](implementation/frontend/src/features/cee-envolvente/logic/geometriaPlano.js)),
+así que son constantes en pantalla y ampliar da precisión de verdad. Medido: en
+el encuadre de partida salen los valores de siempre (tirador 0,30 m, asa 0,59 m,
+imán en su tope de 1,6 m) y ampliando ×4 el tirador baja a 0,074 m y el imán a
+0,38 m, que es lo que permite dibujar un tabique corto. **El grosor del MURO no
+entra ahí**: es una medida del edificio y sigue en metros.
+
+**REGLA — el IMÁN no puede comerse el muro que se está dibujando.** Con 1,6 m
+fijos, los dos extremos de un tabique corto se pegaban al mismo sitio y el trazo
+se descartaba. `pegar(x, y, salvo, desde)` no pega si el punto pegado dejaría la
+pared por debajo del mínimo. Y **tres tiradores tienen que CABER**: son tres
+círculos, o sea seis radios, así que el radio se recorta a `L / 6.2` en una
+pared corta.
+
+**REGLA — un trazo demasiado corto SE DICE y no saca del modo.** Antes
+desaparecía sin explicación y había que volver a pulsar «Pared nueva» a ciegas,
+que es parte de lo que hace que dibujar «cueste». Ahora el botón dice «✎ Muy
+corta · vuelve a intentarlo» y el modo sigue activo; el rótulo del trazo se pone
+en ámbar por debajo del mínimo. Ese mínimo es **uno solo**
+(`LARGO_MINIMO_PARED`), compartido por el plano, el hook y el motor. Y el rótulo
+de la medida va APARTADO por la perpendicular del trazo: encima tapaba justo lo
+que se está dibujando.
+
+**REGLA — el ENCUADRE se reinicia por sus NÚMEROS, nunca por la identidad del
+objeto** (`claveEncuadre` en `geometriaPlano.js`). El reinicio del zoom colgaba
+de `useEffect([base])`, y `base` es un `useMemo` cuyas dependencias incluyen
+`muros` y `planta`: dibujar una pared, mover un hueco o marcar algo devolvía el
+MISMO rectángulo en otro objeto, el efecto saltaba igual y el plano volvía de
+golpe a su encuadre de partida. Visto por el certificador: *«cuando quito zoom
+para hacer una pared nueva y arrastro, de repente hace zoom y se me da mal»*.
+Con la huella —redondeada al centímetro— solo se reencuadra al pasar de planta
+a 3D, al mirar el entorno y al traer otra geometría, que son las tres veces que
+hay que hacerlo.
+
+**REGLA — un arrastre lleva GUARDADO el encuadre con el que empezó, así que la
+rueda tiene que RE-ANCLARLO.** Ese encuadre es lo que convierte píxeles en
+metros; al hacer zoom a media faena se quedaba viejo y el trazo se iba a otro
+sitio. `escalar` devuelve el encuadre nuevo y el manejador de la rueda lo
+escribe en el gesto en curso.
+
+**REGLA — con la BARRA ESPACIADORA se mueve el plano sin salir del modo de
+dibujo.** En modo dibujo el botón izquierdo traza, así que la única forma de
+llegar a otra parte del plano era alejarse con la rueda y volver. El espacio
+solo se escucha mientras se dibuja —fuera de ahí arrastrar ya mueve el plano— y
+no se roba dentro de un campo de texto.
+
+**REGLA — las VENTANAS se cambian en bloque desde el mismo popup de «cómo son
+las ventanas».** Toda la vivienda (el defecto que heredan) o SOLO LAS MARCADAS
+de una lista por pared con casilla por pared y «todas»; y un cuarto bloque
+«¿se cambian en la reforma?» (no tocar · sí → CAMBIA · no) porque la respuesta
+casi siempre es «todas menos dos». En «toda la vivienda» se puede pedir quitar
+las excepciones hueco a hueco; si no, se quedan como estaban. `ponCarpinteria`
+recibe solo lo que se toca: una clave ausente no cambia nada, `null` vuelve a
+heredar, y «no cambia» es la AUSENCIA de la marca (no un `false` guardado).
+
+**Cada hueco lleva su lápiz ✎** (marco · vidrio · persiana) y su chapa «cambia».
+Una PUERTA no elige vidrio ni marco (el motor la escribe con su 90 % de madera)
+y **nunca hereda la persiana** de la vivienda: `loSenalado` manda `persiana:
+false` en las puertas salvo que alguien lo diga. `carpinteriaDe(h, defecto)` en
+`ventanasVivienda.js` es la cascada única (lo suyo → la vivienda → el defecto).
+
+**REGLA — la persiana por defecto es «CON», pero SOLO en expedientes NUEVOS**
+(decisión del usuario, 2026-09-19: «solo de ahora en adelante»).
+`VENTANAS_POR_DEFECTO.persiana` sigue en `false`; la marca es
+`ajustes.persiana_defecto = true`, que la vista siembra al abrir un expediente
+SIN trabajo previo y viaja con los ajustes. Un expediente ya modelado que nunca
+contestó el popup sigue saliendo sin persiana: su `.cex` no cambia por
+regenerarlo. Lo CONTESTADO en el popup manda sobre la marca.
+
+**«Dar por revisada» es ahora un botón grande al final del panel de la pared**,
+con la siguiente pared por mirar pegada («… y pasar a FBN1 →»,
+`siguientePorMirar`): revisar catorce paredes son catorce clics. La casilla
+pequeña de la cabecera se queda como ESTADO. En el plano, una pared que se
+reforma lleva una orla ámbar a trazos y «· CAMBIA» en su rótulo; un hueco, un
+recuadro ámbar; la cubierta, su trama ámbar con el m² aproximado. La cabecera
+cuenta «N elementos con CAMBIA».
+
+---
+
 ## Quién FIRMA por el SUJETO OBLIGADO, y la ficha que no viajaba (2026-09-19)
 
 Dos cosas que salieron del mismo envío: un requerimiento de LOTE-2025-006 en el
@@ -9546,6 +9760,289 @@ con sus adjuntos firmados por otro es lo primero que cruza quien la revisa.
 mira `representante_distinto` —antes leía `nombre_responsable` a pelo mientras la
 comprobación de firmas usaba el otro—. Hoy no cambia ningún documento (el S.O. lo
 tiene desactivado), pero eran dos criterios para el mismo dato.
+
+---
+
+## El gestor de FOTOGRAFÍAS: subir en tanda, pegar y repartir (2026-09-21)
+
+Tres trabajos distintos sobre la misma superficie (`DocsManager`): el CLIENTE sube
+guiado desde el móvil, el ADMIN coloca de golpe lo que le llega por WhatsApp, y a
+quien falte una foto hay que poder pedírsela. Lo que se tocó y por qué:
+
+| Qué | Dónde |
+|---|---|
+| La subida (nombre en Drive, índice y entrada en BD) — FUENTE ÚNICA | `subirFicherosASlot` en [reformaUploadService.js](implementation/backend/services/reformaUploadService.js) |
+| Rutas | `POST /api/public/reforma-docs/:uuid/:slot` (uno) · `…/:slot/batch` (tanda) |
+| Clasificar lo que se suelta de golpe | [clasificarFotosService.js](implementation/backend/services/clasificarFotosService.js) + `POST /api/oportunidades/:id/docs/clasificar` (**staffOnly**) |
+| El repartidor | [BuzonFotos.jsx](implementation/frontend/src/features/docs/BuzonFotos.jsx) |
+| Pedir una foto concreta | `pedirSlot` en [DocsAdminModal.jsx](implementation/frontend/src/features/calculator/components/DocsAdminModal.jsx) → enlace `?need=` |
+| Prueba (Drive y Supabase simulados) | `node implementation/backend/scripts/test_docs_fotos.js` |
+
+### La subida va en TANDA, no foto a foto
+
+Cada foto era su propio POST, y ese POST le pedía a Drive **tres cosas antes de
+mover un solo byte**: buscar la subcarpeta, listar el slot para calcular el índice
+`_N` y —en un apartado de una sola foto— listar otra vez para borrar la anterior.
+Ocho fotos eran ~24 idas y vueltas a Google, **en serie**, porque dos subidas a la
+vez calculaban el mismo índice y se pisaban el nombre.
+
+**REGLA — se lista Drive UNA vez por tanda, se reservan los índices y se sube en
+paralelo.** Con el listado ya en la mano, el índice de las N fotos se reparte de
+una vez y el borrado del slot único no cuesta una segunda consulta. Medido por el
+test: de 3 listados + 3 subidas en serie a **1 listado + 3 subidas concurrentes**
+(tope de 4 a la vez: más no acelera y sí arriesga un 429 de Drive).
+
+**REGLA — la subcarpeta se resuelve una vez POR PROCESO** (`ensureSubfolderId`).
+`subfolderIdCached` solo BUSCA, y en una carpeta recién creada devuelve null, así
+que la ruta caía en `getOrCreateSubfolder` a pelo en cada foto. ⚠️ El respaldo de
+esa función es devolver el PADRE cuando falla: ese caso no se cachea, o un fallo
+puntual de Drive dejaría todas las fotos del proceso cayendo en la raíz.
+
+**REGLA — las dos rutas comparten la MISMA función.** `/:slot` (un fichero) sigue
+viva —la usan los navegadores sin refrescar y el gestor del Anexo Fotográfico— y
+delega igual que `/batch`: si cada una nombrara el fichero por su cuenta, la misma
+foto acabaría con un nombre distinto según por dónde entre.
+
+**REGLA — una tanda a medias se responde 200 con el parcial.** Lo que ya está en
+Drive no puede presentarse como si no hubiera pasado nada: vuelven `items` y
+`fallidas`, la pantalla conserva lo subido y dice cuántas se quedaron fuera. Solo
+si no entra NINGUNA es un error de verdad.
+
+**La foto se ve puesta ANTES de que responda el servidor.** Se pinta la miniatura
+local en gris con su indicador mientras viaja: soltar diez fotos dejaba la tarjeta
+exactamente igual durante medio minuto, y eso no se distingue de que no haya
+pasado nada. Y el botón dice la fase real — "Preparando 3 de 10…" mientras se
+reducen (que no es subir) y luego un porcentaje que ya es **monótono**, porque es
+el de una sola petición y no vuelve a cero en cada foto.
+
+### Ctrl+V pega en el apartado que señala el ratón
+
+Media documentación llega por WhatsApp Web: se copia la foto del chat, y lo
+natural es pegarla, no guardarla en Descargas para buscarla luego en un diálogo de
+archivos. El destino es la tarjeta que tiene el ratón encima (en el recorrido
+guiado, el paso en pantalla) y **se anuncia en ella** (`Ctrl+V pega aquí`): un
+atajo que no se ve no lo prueba nadie. No se roba el pegado dentro de un campo de
+texto, y la pista va en `hidden md:` — en un móvil no hay portapapeles del que
+pegar y mencionarlo solo confunde (mismo criterio que "o arrástralas aquí").
+
+### El BUZÓN: se sueltan todas y se reparten
+
+Soltar ficheros **fuera** de una casilla abre el repartidor (las tarjetas cortan la
+propagación, así que soltar sobre una sigue subiendo ahí). Un modelo propone el
+apartado de cada foto y dice qué ha visto ("caldera mural de gas"); quien mira
+confirma o corrige con un desplegable. Solo ADMIN: detrás hay una llamada de pago,
+y el cliente va guiado apartado por apartado.
+
+**REGLA — el modelo mira, el código valida y la persona confirma.** El prompt
+lleva dentro el checklist REAL de ese expediente (con su alcance ya podado) y la
+clave propuesta tiene que estar en él: cualquier otra cosa se descarta y la foto
+queda "sin clasificar". Lo que no encaja se deja sin destino a propósito — quien
+revisa detecta antes un hueco que un acierto falso — y lo que no tiene destino NO
+se sube. El cajón "Otros" no se propone nunca: es donde va lo que no encaja, y eso
+es una decisión de la persona, no del modelo.
+
+**REGLA — a clasificar se manda una copia MUY reducida** (`miniaturaParaMirar`,
+768 px): lo que hay que reconocer es qué aparato sale, no leer su nº de serie. Es
+lo contrario del lector de placas, que las manda intactas. Después se sube el
+fichero de verdad, por el camino de siempre.
+
+**REGLA — aquí SÍ se piensa** (`pensar: true`). Los demás lectores de la casa
+transcriben y van con `thinkingBudget: 0`; reconocer un aparato en su contexto no
+es transcribir. Se trocea en tandas de 12 por llamada: con más, el modelo empieza a
+confundir el orden de las imágenes con el de las respuestas, que es el único hilo
+que las ata — por eso el índice se valida contra el tramo de su tanda.
+
+Una tanda que falle deja sus fotos **sin clasificar**, no tumba la pantalla: se
+colocan a mano, que es lo que se hacía antes. Coste estimado sobre el tamaño de
+entrada medido en los otros lectores: unos **0,0005 € por foto**.
+
+### Pedir la foto que falta, desde la foto que falta
+
+Botón **📩 Pedírsela** en cada casilla vacía del panel del admin. Abre el popup de
+envío de siempre con esa foto marcada, el resto de pendientes a un clic, y el
+mensaje redactado en LENGUAJE DE CLIENTE (`labelCliente`, no "Placa de la unidad
+interior / DEPOSITO ACS"). El enlace va filtrado con `?need=` —que `DocsManager` ya
+sabía leer— así que el cliente abre y ve SOLO eso.
+
+**REGLA — la lista de lo que falta se REFRESCA al abrir el popup.** La vista se
+cargó al abrir el modal y desde entonces se han podido subir fotos: sin ese GET, se
+le reclamaría al cliente algo que ya mandó, que es justo lo que esto viene a
+evitar. Se pide después de abrir, para que el botón no se quede sin respuesta.
+
+De paso, el canal (WhatsApp · Email) se cambia DENTRO del popup: entrando desde una
+casilla no hay dos botones de los que salir, y cerrar para volver a entrar por el
+otro es un peaje.
+
+### Dos huecos del alcance
+
+**La HIBRIDACIÓN no tenía foto propia.** Lo que hay que acreditar en un RES093 o un
+TER173 es que las dos máquinas trabajan JUNTAS, y eso no lo cubre ninguna otra: la
+de la unidad exterior enseña la bomba sola y la de "caldera desmontada" describe lo
+contrario de lo que pasa ahí (la caldera se conserva). Se colaba reetiquetando
+aquella, así que de la actuación que DEFINE la ficha no quedaba una imagen propia.
+`FOTO_HIBRIDACION` sale sola con `alcance.hibridacion`, está en `ADDABLE_CONCEPTS`
+para activarla a mano y **entra en el mapa del Anexo Fotográfico** — ese mapa es
+explícito (`ANEXO_ACTUACIONES`) y un slot que no esté en él cae en "Otras
+fotografías".
+
+**El DEPÓSITO DE ACS cuando va DENTRO de la unidad interior.** Un conjunto es UNA
+máquina: "la unidad interior" y "el depósito" eran dos fotos del mismo aparato, así
+que la segunda casilla se quedaba siempre vacía — al cliente le pedía una foto que
+ya había hecho y al admin le dejaba el apartado en rojo para siempre. Lo decide
+`acsEquipoPropio` ([docsAlcance.js](implementation/backend/services/docsAlcance.js))
+por la MÁQUINA y no por el flag `misma_aerotermia_acs` (regla 12.c), y el apartado
+se retira **solo si el expediente lo afirma y solo si está VACÍO**: lo ya subido no
+se esconde nunca (mismo criterio que `emisorDesencaja`). Entonces la etiqueta de la
+unidad interior lo dice, o el cliente busca un depósito aparte que no existe.
+
+⚠️ `acsEsOtraMaquina` responde **true con los dos nodos en blanco**, y hace bien
+(dos huecos no son "el mismo equipo"). Pero eso no es una declaración: para afirmar
+que son dos aparatos hay que tener IDENTIFICADO el de ACS, o un expediente sin
+rellenar diría "dos" con la misma autoridad que uno comprobado.
+
+
+---
+
+## REVISAR el CEE que entrega el certificador (2026-09-21)
+
+Cuando el certificador sube su certificado, antes de decirle que lo registre hay que abrirlo y
+comprobar una lista de cosas: que declare el equipo que se va a sustituir con su combustible, que el
+alcance coincida, que la demanda y la superficie no queden por debajo de las simuladas, y —en un
+RES080— que se vea QUÉ elementos se rehabilitan. Se hacía a ojo, expediente a expediente.
+
+| Qué | Dónde |
+|---|---|
+| Los HECHOS del certificado (lector de `.xml`, sin DOM) | [radiografiaCee.js](implementation/backend/services/cee/radiografiaCee.js) |
+| El JUICIO (cruce con el expediente, punto por punto) | [revisionCee.js](implementation/backend/services/cee/revisionCee.js) |
+| Combustible declarado y su FAMILIA (fuente única) | [utils/combustibleCaldera.js](implementation/backend/utils/combustibleCaldera.js) |
+| Por línea de órdenes | `node scripts/revisar_cee.js --expediente 26RES060_192 [--fase inicial\|final]` |
+| Skill | `.claude/skills/revisar-cee/` (+ su `referencia/criterio.md` para Cowork) |
+| Pruebas | `node implementation/backend/scripts/test_revision_cee.js` |
+
+**REGLA — el fichero solo se LEE; el juicio es del código.** Mismo reparto que
+`facturaOcrService` ↔ `facturaIncidencias` y `placaOcrService` ↔ `elegirPotencia`. Cada comprobación
+sale con la EVIDENCIA literal —lo que dice el certificado frente a lo que dice el expediente—, que es
+lo que permite contrastarla sin abrir el fichero y reproducir por qué saltó.
+
+**REGLA — esto PROPONE; el visto bueno lo da una persona.** No escribe en el expediente, no registra
+incidencias, no le escribe al certificador y no toca la fase del CEE. Eso sigue en el módulo CEE, que
+es donde se sella el seguimiento y el historial.
+
+**REGLA — lo que NO se puede comprobar se DICE.** Un punto omitido en silencio se lee como un punto
+que está bien, y aquí eso significa dar por revisado algo que nadie ha mirado. Por eso hay un estado
+`no_comprobable` que cuenta aparte y que **impide decir APTO a secas**: el veredicto baja a APTO CON
+AVISOS. Es lo que separa «lo he mirado y está bien» de «esto no lo he podido mirar».
+
+### Lo que hay que saber del `.xml` (MEDIDO sobre 462 certificados reales)
+
+**LA ACUMULACIÓN DE ACS NO ESTÁ EN EL `.xml`.** Buscado en los 462 cualquier nodo con «acumul»,
+«volum», «deposit» o «inercia»: el único que aparece es `<VolumenEspacioHabitable>`, que es el de la
+vivienda. Así que «¿la caldera tiene depósito de ACS?» —uno de los puntos que se revisan a ojo— solo
+se puede contestar con el **`.cex`**, donde sí vive (regla 48.b). Sale siempre marcado como no
+comprobable, nunca callado.
+
+**En un RES080, qué se sustituye NO se lee del texto de la medida de mejora.** Su `<Nombre>` es texto
+libre: en el corpus dice cosas como «CEE FINAL.cex», «MAE 1» o «PLACAS SOLARES». Lo que sí lo prueba
+—y es lo que el verificador puede reproducir— es comparar los DOS certificados **cerramiento a
+cerramiento**, casándolos por su `<Nombre>`: la ventana que se cambia es la que baja de transmitancia
+(holgura del 2 %). Con un solo `.xml` ese punto NO se afirma. El `<Tipo>` viaja con cada cambio
+(`Fachada` · `Cubierta` · `Suelo` · `Lucernario`), que es lo que lo cruza con `documentacion.envolvente`.
+
+**El combustible se compara por FAMILIA, no letra por letra.** La tabla del Anexo VIII no distingue
+dentro de la familia: `gas_*` cubre gas natural y GLP con la MISMA fila y el mismo η, y `solid_*`
+cubre carbón y biomasa. Un vector distinto de la misma familia no mueve el ahorro → **aviso**; cambiar
+de familia sí cambia la fila → **falla**. Medido sobre los 115 expedientes con `.xml` en la BD: de las
+4 discrepancias, 2 son de la misma familia (25RES060_67, 26RES060_181) y 2 cambian de fila
+(26RES080_41, 26RES080_83 — éste declara una caldera de GASÓLEO al 30 % donde el expediente dice gas
+natural al 73 %).
+
+**«Conocido» NO existe en el `.xml`: se escribe `Usuario`.** Los tres valores de
+`<ModoDeObtencion>` son `PorDefecto`, `Estimado` y `Usuario`, y ese último ES el «Conocido
+(Ensayado/justificado)» de CE3X. Verificado por contraste: las bombas de calor —que en el `.cex` se
+declaran «Conocido», 132 de 138 (regla 48.b)— llevan `Usuario` en 618 de 769, y las calderas
+estándar `Estimado` en 392 de 394. Buscar la palabra «Conocido» en el XML no encuentra nada, y de
+ahí a concluir que ningún certificado justifica sus transmitancias hay un paso.
+
+**Que las transmitancias estén JUSTIFICADAS es un aviso, no un fallo.** Un CEE con transmitancias
+por defecto es válido; lo que pasa es que son el caso más desfavorable —dan más demanda y con ella
+más ahorro— y es de lo primero que mira el verificador. Medido con el propio lector sobre los 115
+expedientes con `.xml` en la BD: **65 de 115** tienen todas sus fachadas y cubiertas justificadas,
+así que el criterio discrimina de verdad, pero como fallo dejaría fuera a media cartera.
+
+⚠️ **El SUELO queda FUERA de la cuenta a propósito**: solo el **11 %** lo justifica (frente al 63 %
+de las fachadas, el 72 % de las cubiertas y el 66 %/56 % de las particiones), así que incluyéndolo
+el aviso saltaría en casi los 115 y dejaría de leerse. Cuando va por defecto se DICE en el detalle,
+sin disparar nada. Los ADIABÁTICOS tampoco cuentan: su U no describe nada y están al 0 %.
+
+⚠️ Esas cifras se midieron **con el lector**, no con una consulta SQL: una regex que dé por hecho
+que `<ModoDeObtencion>` va pegado a `<Tipo>` cuenta mal, porque el orden de los hijos de
+`<Elemento>` cambia entre ficheros. La primera medición por SQL dijo «68 y 45» y era un artefacto. En un RES080 se señala aparte si el
+cerramiento sin justificar es de los que se REHABILITAN: ahí su U de partida es la base del ahorro.
+⚠️ Un HUECO no lleva `<ModoDeObtencion>` sino `<ModoDeObtencionTransmitancia>`; y los PUENTES
+TÉRMICOS no cuentan —van por defecto en 19.999 de las 29.780 apariciones del corpus y ahogarían el
+recuento—, ni los adiabáticos, cuya U no describe nada.
+
+**La fecha que se le pide firmar es la del EXPEDIENTE.** El visto bueno le dice «fírmalo con fecha
+X, la misma con la que se emitió el certificado», y esa X sale de `fechaFirmaCee`
+([utils/ceeFechas.js](implementation/backend/utils/ceeFechas.js)): si el `.xml` declara otra, se le
+pedirá una fecha que no es la de su certificado → aviso. Se comprueban además que la fecha no sea
+futura (falla), que la VISITA sea anterior al certificado (falla: no se puede certificar una
+vivienda antes de verla), que la visita exista (aviso — `//` es «no consta», 18 de los 462) y, con
+los dos certificados, que el final vaya después del inicial. ⚠️ `<FechaGeneracion>` NO es la del
+certificado: es cuándo se guardó el fichero, y difieren en 115 de los 462. Lo que **no** se
+comprueba aquí es la fecha con la que se firma el PDF: de eso ya se ocupa
+`ceeFirmaService.comprobarFirmaCee` al recibirlo.
+
+**Quién firma el certificado se compara con el técnico ASIGNADO.** `<DatosDelCertificador>` trae
+`<NIF>`, `<NIFEntidad>` y `<NombreyApellidos>`; vale cualquiera de los dos NIF, porque un técnico
+puede ejercer en una empresa y firmar con su NIF personal mientras el expediente guarda el CIF de la
+sociedad (regla 48.f). **Aviso, no fallo**: puede haberlo firmado un compañero de su despacho, pero
+conviene saberlo antes de dar el visto bueno.
+
+**Sin generador de calefacción NO es lo mismo en un RES080.** Allí la actuación es la envolvente, así
+que una vivienda sin calefacción es un caso legítimo → aviso, no fallo. Los 3 certificados del corpus
+de producción sin generador son RES080; dos de ellos (26RES080_67 y _77) declaran además
+`rendimiento_id: 'default'` (η 0,92), o sea que el expediente SÍ supone una caldera que el certificado
+no reconoce — eso es lo que el aviso saca.
+
+**⚠️ Un `<Tipo>` o un `<VectorEnergetico>` que no esté en las tablas NO se clasifica.** Se devuelve
+`null` y el informe lo dice: adivinar si un generador desconocido quema combustible es justo lo que no
+puede hacer una comprobación que da o quita el visto bueno. Las tablas salen de contar el corpus (11
+tipos y 6 vectores), no de deducirlas.
+
+**⚠️ `99999999.99` significa «no consta»**, no un valor — sale en casi todos los
+`<RendimientoNominal>` y en `<NumeroDePlantasSobreRasante>`. Tomarlo por bueno daría una caldera de
+cien millones de kW.
+
+**⚠️ Varios ficheros DECLARAN `encoding="UTF-8"` y están en ISO-8859-1.** Leídos como UTF-8, «Caldera
+Estándar» sale con un carácter de reemplazo y deja de casar con el enum.
+
+### El `.xml` se lee de SUPABASE, sin bajar nada de Drive
+
+El certificado crudo está guardado en el propio expediente (`cee.xml_inicial` / `cee.xml_final`: 115
+expedientes lo tienen), así que la revisión no necesita Drive: `--expediente 26RES060_192` lo trae
+todo de una vez.
+
+**⚠️ Ese XML está EN MAYÚSCULAS** —`normalizeData` deja la columna entera así— y eso es justo lo que
+impide releerlo con `parseCeeXml` (regla 32: busca los tags con mayúsculas exactas y `DOMParser`
+rechaza `<?XML VERSION…?>`). `radiografiaCee` SÍ puede, porque busca sin distinguir mayúsculas y
+normaliza los valores antes de casarlos con los enums. **Si alguien quita el flag `i` de esas
+expresiones, deja de funcionar EN SILENCIO** (devolvería todo a `null`): lo vigila el test.
+
+**⚠️ Los dos XML pesan ~110 KB cada uno**: se piden de UN expediente, nunca de un listado (regla 22).
+
+**⚠️ La FASE no se deduce del nombre del fichero.** De ella depende el criterio —en el inicial se
+espera una caldera y en el final una bomba de calor, y en un RES080 la demanda tiene que BAJAR—, así
+que equivocarla no da un aviso raro: revisa con el criterio contrario. En la app la da el SLOT al que
+se subió (`ceeUploadService`), que es un dato; en el CLI, `--fase` MANDA y lo deducido se dice.
+
+### Pendiente (fase 2)
+
+El juicio ya vive en `services/`, así que llevarlo a la app es **declarar una ruta**
+(`POST /api/expedientes/:id/revisar-cee`, staffOnly) y pintar el resultado en el módulo CEE, junto al
+botón de visto bueno. Mientras eso no exista, la revisión se hace con el CLI o con la skill — y en
+Cowork, sin el comprobador delante, el veredicto lo da el modelo aplicando
+`referencia/criterio.md`, que **no es lo mismo** y el informe tiene que decirlo.
 
 ---
 
@@ -9634,7 +10131,7 @@ tiene desactivado), pero eran dos criterios para el mismo dato.
     Comprueba que nadie pide fuentes a Google y que las 44 caras declaradas existen en `public/fonts`. Pásalo al tocar un documento o al añadir un peso.
     ⚠️ El origen lo resuelve `origenApp()` en `fuentesDoc.js` (navegador → `window.location.origin`; Node → `CIFO_ASSET_URL`/`VITE_APP_URL`/`FRONTEND_URL`), porque estos documentos se generan **también en el servidor** y en relativo no hay base que resolver sobre `about:blank`.
 
-26.b **El CIFO y el certificado RES080 identifican a las DOS empresas cuando no son la misma**: la que EJECUTA y factura (instalador asignado) y la HABILITADA que firma ante Industria (`instalador_rite_id`). Sin las dos, el NIF del certificado no casa con el de las facturas del expediente. Fuente única de la decisión y del texto: `empresasActuacion` / `notaDelegacionRite` en [docGenerators.js](implementation/frontend/src/features/expedientes/utils/docGenerators.js). Con una sola empresa el documento no cambia. Los dos documentos tienen hojas de alto FIJO: tras tocarlos, pasar `check_cifo_paginas.mjs` **y** `check_res080_paginas.mjs`. Ver "Quién EJECUTA la obra y quién FIRMA ante Industria".
+26.b **El CIFO y el certificado RES080 identifican a las DOS empresas cuando no son la misma**: la que EJECUTA y factura (instalador asignado) y la HABILITADA que firma ante Industria (`instalador_rite_id`). Sin las dos, el NIF del certificado no casa con el de las facturas del expediente. Fuente única de la decisión y del texto: `empresasActuacion` / `notaDelegacionRite` en [docGenerators.js](implementation/frontend/src/features/expedientes/utils/docGenerators.js). Con una sola empresa el documento no cambia. **En el CIFO preside la EJECUTORA** (nombre, NIF y domicilio) y la habilitada ocupa una sola fila, «Técnico firmante de la memoria», con sus DOS números —el de EMPRESA habilitada y el CARNÉ PERSONAL de quien firma, que se resuelven con `firmanteMemoriaRite` y no se imprimen repetidos—; el NIF de la habilitada sigue constando en la nota de responsabilidad. Y **su recuadro de firma va SIN NOMBRE**: unas veces firma la empresa instaladora y otras el técnico, y la identidad la pone el certificado electrónico (2026-09-21). Los dos documentos tienen hojas de alto FIJO: tras tocarlos, pasar `check_cifo_paginas.mjs` **y** `check_res080_paginas.mjs`. Ver "Quién EJECUTA la obra y quién FIRMA ante Industria".
 
 27.b **El Certificado RITE se LEE al subirlo**: de él salen la fecha de PRUEBAS y la de FIRMA —las que fijan el inicio y el fin de actuación del CIFO— y una comprobación del emplazamiento (dirección + referencia catastral) contra el expediente. Solo se mandan a leer las DOS PRIMERAS PÁGINAS (258 tokens/página, y estos PDF llegan con los acuses detrás): ~0,0005 € por lectura. Se rellenan HUECOS, nunca se pisa una fecha ya escrita, y el emplazamiento AVISA pero no bloquea. Fuentes únicas: [riteOcrService.js](implementation/backend/services/riteOcrService.js) (leer) y [riteCertificado.js](implementation/backend/services/riteCertificado.js) (juzgar y escribir). Ver "El Certificado RITE se LEE al subirlo".
 
@@ -9744,7 +10241,13 @@ tiene desactivado), pero eran dos criterios para el mismo dato.
 
 65. **Programar el envío de una propuesta**: botón de RELOJ pegado a ENVIAR; se elige día y hora y sale sola. El envío lo orquesta el NAVEGADOR, así que al programar se guarda el **plan YA HECHO** (grupos, mensaje por persona, canales) con el documento tal y como se revisó, y el despachador **NO vuelve a decidir nada** — si recompusiera el mensaje saldría otra propuesta distinta de la aprobada, con nadie delante. Se **delega en las MISMAS rutas** que usa el popup (`propuesta/version`, `send-proposal`, `version/:v`, `estado`, `comentarios`) con `x-internal-key`, como `routes/acciones.js`: el nº de versión, el PDF en Drive, la vista web del enlace, la carpeta y el historial son los mismos que enviándola a mano — esas cuatro rutas pasan a `internalKeyOrAuth` y `nombreUsuario(req)` lee `body.usuario`, para que quede a nombre de quien lo programó. El **HTML va en columnas TEXT propias** (353 KB de media, regla 21), nunca en `datos_calculo`, y se borra al terminar. **Nace APAGADO** (`PROPUESTA_PROGRAMADA_ENABLED`, solo `true` en el VPS): dos backends contra la misma base barrerían la misma tabla y desde LOCAL saldría a un cliente real — el claim atómico evita el doble envío, no el envío desde local, y **la pantalla dice cuándo está apagado**. **Sin PDF no sale nada** y **siempre se avisa al staff** (WhatsApp + email), salga bien, a medias o mal. **Enviar a mano cancela lo programado** de esa propuesta —o el cliente la recibe dos veces—, se avisa antes de pulsar, y lo que ya está `ENVIANDO` no se puede cancelar. La hora se compone en LOCAL, nunca partiendo un ISO. Tras tocarlo: `node implementation/backend/scripts/test_propuesta_programada.js` y `test_programar_envio.mjs`. Ver "PROGRAMAR el envío de una propuesta".
 
+66. **Lo que se REFORMA lleva «- CAMBIA» en el nombre, y SOLO en el nombre**: ventana («V1 - CAMBIA», lo pone la vista en el `id`), pared («FBE1 CALLE - CAMBIA», lo pega el motor DETRÁS de lo que es) y cubierta, que además se puede partir en DOS filas —lo que se conserva y «CU1 CUBIERTA - CAMBIA»— dibujando un polígono sobre el plano; la superficie de cada parte la mide el MOTOR intersecando con el tejado real (`partir_cubierta`), con los vértices en coordenadas del lienzo más `lienzo_a_mundo`, y el encuentro de fachada con cubierta cuelga solo de la parte que se conserva. Ni la U ni la medida de mejora se tocan: eso lo monta el certificador en CE3X (decisión 2026-09-19). `SUFIJO_CAMBIA` vive en [reforma.js](implementation/frontend/src/features/cee-envolvente/logic/reforma.js) y en `generar_cex.py` con el mismo valor. Las ventanas se cambian en bloque desde el popup de «cómo son las ventanas» (toda la vivienda · solo las marcadas · ¿se cambian?), cada hueco lleva su lápiz ✎, una PUERTA nunca hereda la persiana, y **la persiana por defecto es «con» SOLO en expedientes nuevos** (`ajustes.persiana_defecto`, sembrado al abrir uno sin trabajo previo — `VENTANAS_POR_DEFECTO` no se toca). Tras tocarlo: `pytest implementation/cee-engine/tests/test_mejora.py` y `node implementation/backend/scripts/test_envolvente_cambia.mjs`. Ver "Lo que se REFORMA en la envolvente".
+
 67. **El documento viaja ENTERO, y lo firma el apoderado que se ELIGE**: desde que las fichas RES se rellenan sobre el impreso oficial (regla 41) una ficha es un `formulario`, y los dos modales del lote serializaban a mano los campos del documento dejándolo fuera — la ficha llegaba vacía al backend, el bucle la saltaba **en silencio** y el correo salía solo con el Anexo I (medido en un requerimiento de LOTE-2025-006; afectaba también al envío inicial al S.O. desde el 09/09/2026). Fuente única: `docParaEnvio` en [logic/docEnvio.js](implementation/frontend/src/features/lotes/logic/docEnvio.js), y **un documento marcado que no se puede preparar ABORTA el envío** diciendo cuál, nunca se salta. Y una empresa puede tener VARIOS apoderados —en INTERNACIONAL DE ALCOHOLES firman Pedro José López Montero (06239730Z) y Jesús Antonio Almodóvar Fuentes (06236833S)—, cuyo nombre y NIF van impresos en la casilla «Representante del solicitante»: se eligen en el envío (`FirmantePicker`, que no se pinta con uno solo) y se declaran en la ficha del S.O. (`prescriptores.representantes`, solo los ADICIONALES: el principal sigue en `nombre_responsable`/`nif_responsable` y no se duplica). **Se SELLA a quién se le pidió la firma** (`documentos_so[].rep_nombre`/`rep_nif`): con él, la página `/firmar-lote/:id` nombra al apoderado de esa ronda, `firmadosSo` comprueba contra ÉL —sin sello vale cualquiera de los declarados— y la SOLICITUD de emisión sale a nombre del que firmó las fichas, sin volver a preguntar. Tras tocarlo: `node implementation/backend/scripts/test_firmante_so.mjs`. Ver "Quién FIRMA por el SUJETO OBLIGADO".
+
+68. **Las fotos suben en TANDA, se pegan con Ctrl+V y se reparten desde un buzón**: cada foto era su propio POST, y ese POST le pedía a Drive tres cosas **antes de mover un byte** (buscar la subcarpeta · listar el slot para el índice `_N` · en slot único, listar otra vez para borrar la anterior), en serie — porque dos subidas a la vez calculaban el mismo índice y se pisaban el nombre. Ahora `subirFicherosASlot` ([reformaUploadService.js](implementation/backend/services/reformaUploadService.js)) lista **una vez**, reserva los índices de toda la tanda y sube **en paralelo** (tope 4); la subcarpeta se resuelve una vez por proceso (`ensureSubfolderId` — ⚠️ su respaldo es devolver el PADRE cuando falla, y ese caso NO se cachea o todas las fotos caerían en la raíz). Es **fuente única**: `/:slot` (un fichero, que siguen usando los navegadores sin refrescar y el gestor del Anexo Fotográfico) y `/:slot/batch` delegan las dos, o la misma foto se nombraría distinto según por dónde entre. **Una tanda a medias se responde 200 con el parcial** (`items` + `fallidas`): lo que ya está en Drive no puede presentarse como si no hubiera pasado nada. La **miniatura se pinta antes de que responda el servidor** y el botón dice la fase real ("Preparando 3 de 10…" y luego un porcentaje monótono, que es el de UNA petición y no vuelve a cero en cada foto). **Ctrl+V** pega en la tarjeta que señala el ratón, anunciándolo en ella (`hidden md:`: en un móvil no hay portapapeles). Soltar **fuera** de una casilla abre el **BUZÓN** ([BuzonFotos.jsx](implementation/frontend/src/features/docs/BuzonFotos.jsx)): un modelo propone el apartado de cada foto y dice qué ha visto, y la persona confirma — el prompt lleva dentro el checklist REAL de ese expediente y **una clave que no esté en él se descarta**, la foto queda "sin clasificar" y no se sube; el cajón "Otros" no se propone nunca. A clasificar va una copia **muy reducida** (768 px: se reconoce el aparato, no se lee su serie) y **con `pensar: true`**, al revés que los lectores que transcriben; en tandas de 12, porque con más el modelo confunde el orden de las imágenes con el de las respuestas. Y **📩 Pedírsela** en cada casilla vacía manda el enlace filtrado `?need=` con el mensaje en lenguaje de cliente, **refrescando antes la lista de lo que falta** — si no, se le reclama lo que acaba de subir. Dos huecos de alcance cerrados: **`FOTO_HIBRIDACION`** (lo que define un RES093/TER173 son las dos máquinas conectadas, y eso no lo enseña ninguna otra foto; entra también en el mapa explícito del Anexo Fotográfico) y el **depósito de ACS que va DENTRO de la unidad interior**, que se retira solo si el expediente lo afirma y solo si está vacío (`acsEquipoPropio`, por la MÁQUINA y no por el flag — regla 12.c). Tras tocarlo: `node implementation/backend/scripts/test_docs_fotos.js`. Ver "El gestor de FOTOGRAFÍAS".
+
+69. **El CEE que entrega el certificador se REVISA antes de darle el visto bueno**: `radiografiaCee` lee los HECHOS del `.xml` y `revisionCee` los cruza con el expediente punto por punto, con la evidencia literal al lado (`node scripts/revisar_cee.js --expediente 26RES060_192`). **PROPONE, no aprueba**: no escribe en el expediente, no registra incidencias y no le escribe al certificador — el visto bueno se sigue dando en el módulo CEE. **Lo que no se puede comprobar se DICE** y baja el veredicto a APTO CON AVISOS: un punto callado se lee como un punto que está bien. Tres cosas MEDIDAS sobre los 462 certificados reales: **la acumulación de ACS NO está en el `.xml`** (el único nodo con «volumen» es el de la vivienda — solo vive en el `.cex`, regla 48.b), **en un RES080 qué se sustituye no se lee del texto de la medida de mejora** (es texto libre: «CEE FINAL.cex», «MAE 1») sino comparando los DOS certificados cerramiento a cerramiento —la ventana que se cambia es la que baja de U—, y **el combustible se compara por FAMILIA**, porque `gas_*` cubre gas natural y GLP con la misma fila del Anexo VIII (dentro de la familia → aviso; cambiar de familia → falla). El `.xml` se lee de **Supabase** (`cee.xml_inicial`), donde vive EN MAYÚSCULAS: `parseCeeXml` no puede releerlo (regla 32) y este lector sí, porque busca sin distinguir mayúsculas — si alguien quita el flag `i`, deja de funcionar en silencio. Comprueba además que las **transmitancias** de muros, cubierta, suelo y particiones estén justificadas —⚠️ en el `.xml` el «Conocido» de CE3X se escribe **`Usuario`**, no existe ninguna cadena «Conocido»; los huecos lo declaran en `<ModoDeObtencionTransmitancia>` y los puentes térmicos no cuentan—, que la **fecha del certificado** sea la que consta en el expediente (que es la que el visto bueno le pide firmar, `fechaFirmaCee`), que la **visita** sea anterior al certificado y exista, y que **quien firma** sea el técnico asignado (por su NIF o el de su entidad). Esos cuatro son AVISO salvo la visita posterior y la fecha futura, que son imposibles: como fallo, el de las transmitancias dejaría fuera a media cartera (65 de 115 la cumplen; el SUELO queda fuera de la cuenta porque solo el 11 % lo justifica). ⚠️ La **FASE no se deduce del nombre del fichero**: de ella depende el criterio, y equivocarla revisa con el contrario. Tras tocarlo: `node implementation/backend/scripts/test_revision_cee.js`. Ver "REVISAR el CEE que entrega el certificador".
 
 ---
 

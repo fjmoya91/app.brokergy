@@ -18,8 +18,15 @@ const norm = (s) => (s || '').toString().toLowerCase().normalize('NFD').replace(
  *        cliente elegido. El flujo es "buscar o crear, y corregir sin salir": si
  *        para arreglar un teléfono hay que irse a la pestaña de Clientes, se
  *        pierde lo que estabas haciendo y casi nadie vuelve.
+ * @param {object} [datosNuevoCliente] dirección con la que nace la ficha si hay
+ *        que CREAR el cliente ({ direccion, codigo_postal, ccaa, provincia,
+ *        provincia_cod, municipio }). En un CEE suelto el titular vive casi
+ *        siempre en la vivienda que se certifica, así que volver a teclear lo
+ *        que se acaba de traer del Catastro solo sirve para colar una errata.
+ *        Se PROPONE: los campos quedan editables, y de un piso alquilado se
+ *        corrigen sin más.
  */
-export function ClientePicker({ cliente, onChange, onEditar, autoFocus = false }) {
+export function ClientePicker({ cliente, onChange, onEditar, autoFocus = false, datosNuevoCliente = null }) {
     const [busqueda, setBusqueda] = useState('');
     const [resultados, setResultados] = useState([]);
     const [buscando, setBuscando] = useState(false);
@@ -49,6 +56,15 @@ export function ClientePicker({ cliente, onChange, onEditar, autoFocus = false }
     }, [busqueda]);
 
     const elegir = (c) => { setBusqueda(''); setResultados([]); onChange?.(c); };
+
+    // Solo se PROPONE lo que de verdad hay: una clave vacía pisaría el valor por
+    // defecto del formulario sin aportar nada, y `provincia_cod` viaja porque es
+    // lo que carga la lista de municipios de la cascada (el POST de clientes no
+    // lo manda: su payload es una lista blanca).
+    const direccionHeredada = Object.fromEntries(
+        Object.entries(datosNuevoCliente || {}).filter(([, v]) => v != null && String(v).trim() !== '')
+    );
+    const heredaDireccion = !!direccionHeredada.direccion || !!direccionHeredada.municipio;
 
     if (cliente) {
         return (
@@ -103,12 +119,21 @@ export function ClientePicker({ cliente, onChange, onEditar, autoFocus = false }
                     className="w-full min-h-[44px] rounded-xl border border-dashed border-white/15 text-[11px] font-black uppercase tracking-widest text-white/45 hover:text-white hover:border-white/30 transition-colors">
                     + Crear cliente nuevo
                 </button>
+                {/* Se DICE que la ficha nacerá con la dirección del inmueble: si no,
+                    quien dé de alta al propietario de un piso alquilado no mira ese
+                    bloque y se guarda una dirección que no es la suya. */}
+                {heredaDireccion && (
+                    <p className="text-[11px] text-white/30">
+                        Nacerá con la dirección del inmueble ya puesta{direccionHeredada.municipio ? ` (${direccionHeredada.municipio})` : ''}. Si el titular vive en otro sitio, se cambia ahí mismo.
+                    </p>
+                )}
             </div>
 
             <ClienteFormModal
                 isOpen={showNuevo}
                 onClose={() => setShowNuevo(false)}
                 onSuccess={(c) => { setShowNuevo(false); if (c?.id_cliente) elegir(c); }}
+                initialData={heredaDireccion ? direccionHeredada : undefined}
             />
         </>
     );

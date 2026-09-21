@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { PrescriptorPicker } from '../../../components/PrescriptorPicker';
-import { parseCatastroAddressFull } from '../../../utils/direccionCatastral';
+// Consultar el Catastro y trocear su dirección: la MISMA función que el alta de
+// un CEE. Con dos copias, la misma referencia rellenaría cosas distintas según
+// por dónde entres.
+import { traerDireccionCatastral, mismoMunicipio } from '../../../utils/traerDireccionCatastral';
 import { ClientePicker } from './ClientePicker';
 // Cascada CCAA -> Provincia -> Municipio: la MISMA que la ficha de cliente. Con
 // dos copias, la direccion del cliente y la del inmueble se normalizarian
@@ -161,56 +164,41 @@ export function DatosExpediente({ expediente, prescriptores = [], onGuardado, pu
      * escribe la dirección de verdad, y el piso y la puerta no los da nunca.
      */
     const traerDelCatastro = async () => {
-        const rc = form.ref_catastral.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-        if (!/^[A-Z0-9]{14,20}$/.test(rc)) {
-            setCatastro({ cargando: false, msg: null, error: 'La referencia catastral debe tener 14 o 20 caracteres.' });
-            return;
-        }
         setCatastro({ cargando: true, msg: null, error: null });
         try {
-            const { data } = await axios.get('/api/catastro/search', { params: { q: rc } });
-            const direccion = data?.data?.address;
-            if (!direccion) throw new Error('El Catastro no ha devuelto dirección para esa referencia.');
-
-            const trozos = parseCatastroAddressFull(direccion);
-            if (!trozos) {
-                // Sin código postal no se puede repartir con garantías: se vuelca la
-                // cadena entera en la calle antes que inventarse el municipio.
-                setForm(f => ({ ...f, direccion, ref_catastral: rc }));
-                setCatastro({ cargando: false, error: null, msg: 'Traída sin desglosar: revisa municipio y provincia.' });
-                return;
+            const r = await traerDireccionCatastral(form.ref_catastral);
+            if (!r.campos) {
+                setForm(f => ({ ...f, direccion: r.direccion, ref_catastral: r.rc }));
+            } else {
+                // Se rellena la cascada ENTERA: comunidad, provincia (con su codigo,
+                // que es lo que carga la lista de municipios) y CP. El municipio no se
+                // escribe a pelo: se deja como PISTA para que la cascada lo case con
+                // su nombre oficial en cuanto cargue la lista.
+                setForm(f => ({
+                    ...f,
+                    ref_catastral: r.rc,
+                    direccion: r.campos.direccion || f.direccion,
+                    codigo_postal: r.campos.codigo_postal || f.codigo_postal,
+                    ccaa: r.campos.ccaa || f.ccaa,
+                    provincia: r.campos.provincia || f.provincia,
+                    provincia_cod: r.campos.provincia_cod || f.provincia_cod,
+                    municipio: ''
+                }));
+                setPistaMunicipio(r.municipioHint);
             }
-            // Se rellena la cascada ENTERA: comunidad, provincia (con su codigo,
-            // que es lo que carga la lista de municipios) y CP. El municipio no se
-            // escribe a pelo: se deja como PISTA para que la cascada lo case con
-            // su nombre oficial en cuanto cargue la lista.
-            setForm(f => ({
-                ...f,
-                ref_catastral: rc,
-                direccion: trozos.direccion || f.direccion,
-                codigo_postal: trozos.codigo_postal || f.codigo_postal,
-                ccaa: trozos.ccaa || f.ccaa,
-                provincia: trozos.provincia || f.provincia,
-                provincia_cod: trozos.provincia_cod || f.provincia_cod,
-                municipio: ''
-            }));
-            setPistaMunicipio(trozos.municipioHint || null);
-            // El Catastro ya trae la zona (la calcula `climateService` con el código
-            // INE del municipio, que es más fiable que casar por nombre).
-            const ci = data?.data?.climateInfo;
-            if (ci?.climateZone) setZonaViva({ zona: ci.climateZone, altitud: ci.altitude ?? null });
-            const uso = data?.data?.use ? ` · ${data.data.use}` : '';
-            setCatastro({ cargando: false, error: null, msg: `Traída del Catastro${uso}. Compruébala: la vía viene como la tiene registrada y el piso no lo da.` });
+            if (r.zona) setZonaViva({ zona: r.zona, altitud: r.altitud, municipio: r.municipioZona });
+            setCatastro({ cargando: false, error: null, msg: r.aviso });
         } catch (err) {
-            const d = err.response?.data;
-            setCatastro({
-                cargando: false, msg: null,
-                error: d?.code === 'CATASTRO_RATE_LIMITED'
-                    ? 'El Catastro está saturado ahora mismo. Inténtalo en unos minutos.'
-                    : (d?.details || d?.error || err.message || 'No se ha podido consultar el Catastro.')
-            });
+            setCatastro({ cargando: false, msg: null, error: err.message });
         }
     };
+
+    // La zona se DERIVA, no se invalida a mano: rellenar la cascada dispara sus
+    // efectos de normalización, que vuelven a emitir `municipio`, y borrarla ahí
+    // hacía desaparecer la que acababa de traer el Catastro. Vale mientras el
+    // municipio de pantalla sea aquel con el que se calculó; si se cambia de
+    // pueblo, manda la del expediente (que la deriva el servidor al guardar).
+    const zonaVivaVale = !!zonaViva && (!form.municipio || mismoMunicipio(form.municipio, zonaViva.municipio));
 
     const carpetaSera = `${expediente.numero_expediente} - ${(form.nombre || '').trim() || '…'}`;
     const cambiaCarpeta = form.nombre.trim() && form.nombre.trim() !== expediente.nombre;
@@ -245,7 +233,12 @@ export function DatosExpediente({ expediente, prescriptores = [], onGuardado, pu
                     Cliente {!cliente && <span className="text-amber-400">· sin asignar</span>}
                 </div>
                 {puedeEditar ? (
-                    <ClientePicker cliente={cliente} onChange={elegirCliente} onEditar={onAbrirCliente} />
+                    <ClientePicker cliente={cliente} onChange={elegirCliente} onEditar={onAbrirCliente}
+                        datosNuevoCliente={{
+                            direccion: form.direccion, codigo_postal: form.codigo_postal,
+                            ccaa: form.ccaa, provincia: form.provincia,
+                            provincia_cod: form.provincia_cod, municipio: form.municipio
+                        }} />
                 ) : cliente ? (
                     <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
                         <div className="text-sm font-bold text-white">
@@ -304,13 +297,7 @@ export function DatosExpediente({ expediente, prescriptores = [], onGuardado, pu
                     <div className="text-[9px] font-black uppercase tracking-widest text-white/30 mb-2">Dónde está el inmueble</div>
                     <DireccionEdit
                         values={form}
-                        onChange={(parcial) => {
-                            // Cambiar el municipio invalida la zona que trajo el
-                            // Catastro: dejarla puesta enseñaría la de otro pueblo
-                            // hasta que el guardado la corrigiera.
-                            if ('municipio' in parcial || 'provincia' in parcial) setZonaViva(null);
-                            setForm(f => ({ ...f, ...parcial }));
-                        }}
+                        onChange={(parcial) => setForm(f => ({ ...f, ...parcial }))}
                         autoMunicipioHint={pistaMunicipio}
                     />
                     {/* La ZONA CLIMÁTICA se DERIVA del municipio en el servidor —
@@ -321,12 +308,12 @@ export function DatosExpediente({ expediente, prescriptores = [], onGuardado, pu
                         `zonaViva` es lo que acaba de decir el Catastro; mientras el
                         autoguardado no ha ido y vuelto, el expediente todavía no la
                         tiene y sin esto parecería que no se ha calculado. */}
-                    {(zonaViva || expediente.zona_climatica) ? (
+                    {(zonaVivaVale || expediente.zona_climatica) ? (
                         <div className="mt-3 inline-flex items-center gap-2 rounded-lg border border-brand/25 bg-brand/[0.06] px-3 py-2">
                             <span className="text-[9px] font-black uppercase tracking-widest text-white/40">Zona climática CTE</span>
-                            <span className="text-sm font-black text-brand">{zonaViva?.zona || expediente.zona_climatica}</span>
-                            {(zonaViva?.altitud ?? expediente.altitud) != null && (
-                                <span className="text-[10px] text-white/35">{zonaViva?.altitud ?? expediente.altitud} m</span>
+                            <span className="text-sm font-black text-brand">{zonaVivaVale ? zonaViva.zona : expediente.zona_climatica}</span>
+                            {(zonaVivaVale ? zonaViva.altitud : expediente.altitud) != null && (
+                                <span className="text-[10px] text-white/35">{zonaVivaVale ? zonaViva.altitud : expediente.altitud} m</span>
                             )}
                         </div>
                     ) : form.municipio ? (

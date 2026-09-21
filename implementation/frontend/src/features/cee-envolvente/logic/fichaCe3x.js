@@ -7,6 +7,7 @@ import { normalizarFotovoltaica } from '../../expedientes/logic/fotovoltaica.js'
 import { EQUIPO_NUEVO, RENDIMIENTO_JOULE }
     from '../../expedientes/logic/aerotermiaUnits.js';
 import { contactoCliente, deQuienEs } from '../../../utils/contactoCliente.js';
+import { esCeeDirecto } from './ceeDirecto.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // La ficha del certificador: lo que el `.cex` necesita ALREDEDOR de la
@@ -575,9 +576,15 @@ export function instalacionNueva({ expediente, superficie, modelos = {},
     // no se sella en el expediente —el SEER— salía como si faltara.
     const d = resolverCe3x(expediente, { modelos });
     if (!d) {
+        //: A dónde se manda a rellenarlo depende del negocio: un CEE contratado
+        //: suelto no tiene módulo «Instalación» —no hay obra que describir—, y su
+        //: equipo se teclea en la pestaña de esta misma ventana. Mandar a una
+        //: pantalla que no existe es peor que no decir nada.
         return { equipo: null, falta: 'falta la aerotermia',
-                 avisos: ['No consta la aerotermia nueva en el expediente: el .cex '
-                          + 'final sale sin instalación. Rellénala en Instalación.'] };
+                 avisos: ['No consta el equipo nuevo: el .cex final sale sin instalación. '
+                          + (esCeeDirecto(expediente)
+                              ? 'Tecléalo en la pestaña Instalaciones.'
+                              : 'Rellénala en Instalación.')] };
     }
 
     // En una HIBRIDACIÓN la caldera NO se retira: en CE3X son DOS generadores
@@ -911,6 +918,13 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
     const esFinal = fase === 'final';
     const catalogo = [];
     const avisos = [];
+    //: Un CEE contratado SUELTO certifica el estado actual: no hay una actuación
+    //: declarada de la que salga la medida de aerotermia, así que no se marca
+    //: sola. Marcada, salía un aviso en CADA generación mandando a rellenar un
+    //: equipo que ese encargo no tiene por qué tener — y un aviso que sale
+    //: siempre y no se puede atender enseña a no leer los avisos. Se queda en el
+    //: catálogo: si la obra de un encargo DOBLE es justamente ésa, se marca.
+    const ceeSuelto = esCeeDirecto(expediente);
 
     // ── 1. La AEROTERMIA: la actuación de este expediente ────────────────────
     const { equipo, extras = [], avisos: avEquipo } =
@@ -925,13 +939,17 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
         id: 'aerotermia',
         titulo: esHibrida ? 'Hibridación con aerotermia' : 'Sustitución por aerotermia',
         resumen: nombreDelConjunto(expediente, equipo, modelos),
-        porDefecto: !esFinal,
+        porDefecto: !esFinal && !ceeSuelto,
         disponible: !!equipo && !esFinal,
         motivo: esFinal
             ? (esHibrida
                 ? 'En el CEE final la bomba de calor ya está instalada: no es una mejora que proponer.'
                 : 'En el CEE final la aerotermia ya está instalada: no es una mejora que proponer.')
-            : (equipo ? null : (avEquipo[0] || 'El expediente no declara equipo nuevo.')),
+            : (equipo ? null
+                : ceeSuelto
+                    ? 'Este encargo certifica el estado actual y no declara ninguna actuación. '
+                      + 'Si la obra es ésta, márcala y teclea el equipo en Instalaciones.'
+                    : (avEquipo[0] || 'El expediente no declara equipo nuevo.')),
         nota: null,
         datos: equipo ? {
             // El nombre del CONJUNTO, no el del generador: la medida es todo lo
