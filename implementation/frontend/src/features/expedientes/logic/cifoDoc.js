@@ -20,7 +20,7 @@
 // about:blank, las rutas relativas no cargan).
 // ============================================================================
 import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs, HYBRID_METHODS } from '../../calculator/logic/calculation.js';
-import { buildInstalacionAddress, empresaInstaladora, empresasActuacion,
+import { buildInstalacionAddress, domicilioEmpresa, empresaInstaladora, empresasActuacion,
     notaDelegacionRite } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
 import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevo, tipoEquipoNuevoLabel, esTermoElectrico, datosAcumulador, acsSerieDeclarada, EQUIPO_NUEVO } from './aerotermiaUnits.js';
@@ -33,7 +33,7 @@ import {
 } from './terciario.js';
 // Quién firma el CIFO. FUENTE ÚNICA con los popups de envío: si la regla se
 // duplicara, el popup anunciaría un firmante y el documento saldría con otro.
-import { firmanteCifo } from './instaladorPendientes.js';
+import { firmanteCifo, firmanteMemoriaRite } from './instaladorPendientes.js';
 import { buildFontFaces } from './fuentesDoc.js';
 
 // Unidades terminales. Las tres primeras son de AGUA: la temperatura de impulsión
@@ -377,8 +377,22 @@ export function deriveCifoData({ expediente, results }) {
     const empResponsable = _firmante.nombre || empNombre;
     const empResponsableDni = _firmante.dni || '';
     const empRite   = pres.numero_carnet_rite || '—';
+    // Quién firma la MEMORIA RITE de la empresa habilitada: no siempre es quien
+    // firma el CIFO (ahí manda el representante legal; aquí, quien está
+    // habilitado ante Industria, que puede ser un técnico con su propio carné).
+    // FUENTE ÚNICA con el popup de envío y con el microservicio de la memoria
+    // (espejo en rite-generator/lib/supabase_client.py): si se duplicara, el
+    // certificado nombraría a un técnico y la memoria saldría firmada por otro.
+    const tecMemoria = firmanteMemoriaRite(pres);
+    const tecNombre  = tecMemoria.nombre || empNombre;
+    // Solo se imprime el carné PERSONAL si consta y es distinto del nº de
+    // empresa: en una ficha sin técnico declarado, `firmanteMemoriaRite` devuelve
+    // el de empresa como carné (es el caso del autónomo) y repetir el mismo
+    // número dos veces en la misma línea se lee como un error del documento.
+    const tecCarnet  = tecMemoria.carnet && tecMemoria.carnet !== empRite ? tecMemoria.carnet : '';
     const ejeNombre = empresas.ejecutora.razon_social || empresas.ejecutora.nombre || '—';
     const ejeCif    = empresas.ejecutora.cif || empresas.ejecutora.nif || '—';
+    const ejeDir    = domicilioEmpresa(empresas.ejecutora, ' ·') || '—';
     const emiLabel  = EMITTER_OPTIONS.find(o => o.value === inst.tipo_emisor)?.label || '—';
     const metodoCal = inst.aerotermia_cal?.metodo_scop || 'ficha';
     const metodoAcs = inst.aerotermia_acs?.metodo_scop || 'ficha';
@@ -509,7 +523,7 @@ export function deriveCifoData({ expediente, results }) {
         metodoCal, metodoAcs, emiLabel,
         // empresa instaladora
         empNombre, empCif, empDir, empCp, empMun, empProv, empCargo, empEmail, empResponsable, empResponsableDni,
-        empRite, empresas, ejeNombre, ejeCif,
+        empRite, empresas, ejeNombre, ejeCif, ejeDir, tecNombre, tecCarnet,
         // hibridación (RES093)
         cbStr, pDesignKwStr, coveragePct, coveragePctStr, thZone, pbdcKw, pbdcKwStr, demandaAnualKwhStr, appliedCovStr,
         hybridMethod, pCalderaKwStr, refPowerKwStr, pDesignWStr, pEspecificaStr, pEspecificaNum, climateSeason,
@@ -674,8 +688,11 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         acsEsAcumulador, acsEsTermo, acsNuTipo, acsNuMarca, acsNuMod, acsNuSerieEx, acsNuUds,
         acsTermoFuera, acsFueraMarca, acsFueraMod, acsFueraSerie,
         metodoCal, metodoAcs, emiLabel,
-        empNombre, empCif, empDir, empCp, empMun, empProv, empCargo, empEmail, empResponsable, empResponsableDni,
-        empRite, empresas, ejeNombre, ejeCif,
+        // `empResponsable`/`empResponsableDni` siguen en el objeto que devuelve
+        // deriveCifoData (los usa quien decide a quién mandárselo a firmar), pero
+        // el documento ya no imprime su nombre: el recuadro de firma va en blanco.
+        empNombre, empCif, empDir, empCp, empMun, empProv, empCargo, empEmail,
+        empRite, empresas, ejeNombre, ejeCif, ejeDir, tecNombre, tecCarnet,
         cbStr, pDesignKwStr, coveragePct, coveragePctStr, thZone, pbdcKwStr, demandaAnualKwhStr, appliedCovStr,
         hybridMethod, pCalderaKwStr, refPowerKwStr, pDesignWStr, pEspecificaStr, pEspecificaNum, climateSeason,
     } = data;
@@ -842,22 +859,33 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
 
     // Apartado de la empresa instaladora cuando quien EJECUTA y factura no es
     // quien firma ante Industria. No es una tabla a dos columnas ni un segundo
-    // bloque: la hoja 1 es la más apretada del documento —+43px de holgura en el
+    // bloque: la hoja 1 es la más apretada del documento —+28px de holgura en el
     // peor caso medido (ver check_cifo_paginas.mjs)— y cualquiera de las dos
-    // opciones la desbordaba. Cabe porque mantiene CUATRO filas: el nº de
-    // empresa RITE viaja con la razón social y la fila "Cargo firmante" deja el
-    // sitio a la ejecutora (el cargo ya va impreso dentro del recuadro de firma,
-    // al pie de esta misma hoja).
+    // opciones la desbordaba. Cabe porque mantiene CUATRO filas.
+    //
+    // La EMPRESA INSTALADORA del apartado es la que EJECUTA Y FACTURA (nombre,
+    // NIF y domicilio), y la habilitada baja a una sola fila como el TÉCNICO que
+    // firma la memoria. Antes era al revés, y el NIF y el domicilio que presidían
+    // el apartado eran los del firmante: no casaban con las facturas del
+    // expediente, que es lo primero que cruza el verificador. Su NIF sigue
+    // constando —en la nota de responsabilidad, al pie del apartado de la
+    // instalación (`notaDelegacionRite`)—, así que la trazabilidad no se pierde.
+    //
+    // La fila del técnico lleva los DOS números, que son cosas distintas: el de
+    // EMPRESA habilitada (registro de empresas instaladoras) y el CARNÉ PERSONAL
+    // de quien firma (ver `tecCarnet` en deriveCifoData).
     const empresasRows = !empresas.delegado ? `
                 ${kv('Razón social', empNombre)}
                 ${kv('NIF / CIF', empCif)}
                 ${kv('Domicilio', `${empDir} · ${empCp} ${empMun} (${empProv})`)}
                 ${kv('Cargo firmante', empCargo, true)}
     ` : `
-                ${kv('Razón social', `${empNombre}${empRite && empRite !== '—' ? ` · Empresa habilitada RITE nº ${empRite}` : ''}`)}
-                ${kv('NIF / CIF', empCif)}
-                ${kv('Domicilio', `${empDir} · ${empCp} ${empMun} (${empProv})`)}
-                ${kv('Ejecuta y factura la obra', `${ejeNombre} · NIF ${ejeCif}`, true)}
+                ${kv('Ejecuta y factura la obra', ejeNombre)}
+                ${kv('NIF / CIF', ejeCif)}
+                ${kv('Domicilio', ejeDir)}
+                ${kv('Técnico firmante de la memoria', `${tecNombre}`
+                    + `${empRite && empRite !== '—' ? ` · Empresa habilitada RITE nº ${empRite}` : ''}`
+                    + `${tecCarnet ? ` con carnet de instalador ${tecCarnet}` : ''}`, true)}
     `;
 
     // PÁGINA 0: PORTADA
@@ -953,10 +981,19 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                   instalador y el nombre oficial de la ficha RES093 largos a la
                   vez, esos 44px eran la diferencia entre caber y sacar una hoja
                   en blanco de más. */''}
+            ${/* El recuadro va SIN nombre: quién firma no se sabe al generarlo.
+                  Unas veces lo firma la empresa instaladora y otras el técnico
+                  habilitado, y el nombre impreso obligaba a regenerar el
+                  documento —o dejaba un certificado que nombra a uno y lleva la
+                  firma de otro, que es lo que cruza el verificador—. La identidad
+                  de quien firma la pone su propio certificado electrónico.
+                  La línea vacía se conserva con su alto para que el recuadro siga
+                  midiendo lo mismo: el sello se estampa en coordenadas FIJAS
+                  (SIGN_BOXES.cifo_res060) y no puede moverse. */''}
             <div class="doc-sign-bottom" style="border:2px solid #1A1A1A;border-radius:16px;padding:12px 18px;min-height:104px;display:flex;flex-direction:column;break-inside:avoid;">
                 <div style="font-weight:800;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#6E6E66;">Espacio reservado para firma electrónica</div>
                 <div style="flex:1;"></div>
-                <div style="border-top:1px solid #ECECE4;padding-top:10px;font-size:12.5px;font-weight:700;color:#1A1A1A;">${empResponsable}${empResponsableDni ? ` <span style="font-weight:500;color:#9A9A93;">(DNI ${empResponsableDni})</span>` : ''} <span style="font-weight:600;color:#6E6E66;">· ${empCargo}</span></div>
+                <div style="border-top:1px solid #ECECE4;padding-top:10px;font-size:12.5px;font-weight:700;color:#1A1A1A;">&nbsp;</div>
             </div>
             ${footer}
         </div>

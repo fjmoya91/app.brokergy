@@ -57,9 +57,6 @@ const base = (numero_expediente = '26RES060_146') => ({
         direccion: 'POLÍGONO INDUSTRIAL LA VEGA, PARCELA 27', codigo_postal: '13700',
         municipio: 'Villanueva de los Infantes', provincia: 'Ciudad Real',
         nombre_responsable: 'FRANCISCO JAVIER', apellidos_responsable: 'MOYA LÓPEZ',
-        // El DNI del representante ahora se imprime en el recuadro de firma
-        // (junto al nombre): tiene que estar en el fixture para que este
-        // medidor ejerza de verdad ese añadido, no solo el caso sin DNI.
         nif_responsable: '12345678X',
     },
     instalacion: {
@@ -104,20 +101,35 @@ const cascada = (n, { mismaAcs = false } = {}) => {
  * la hoja 1 imprime entonces las DOS empresas (tabla + nota de responsabilidad)
  * en vez del bloque de una sola. Es lo que más engorda esa hoja, así que se mide
  * con la razón social y el domicilio más largos que hemos visto.
+ *
+ * ⚠️ El peor caso vive en la EJECUTORA, no en la habilitada: desde que la tabla
+ * preside el apartado con quien ejecuta y factura, son su razón social y su
+ * domicilio los que ocupan tres filas, y la habilitada baja a una sola línea. El
+ * nombre largo va por tanto en `prescriptores`, y la línea del técnico se mide
+ * con nombre largo + nº de empresa + carné personal, que es el renglón más
+ * cargado que puede salir.
  */
 const conDelegacion = (e, { largos = false } = {}) => {
-    e.prescriptores = { ...e.prescriptores, id_empresa: 'aaaa-1111', tiene_carnet_rite: false };
+    e.prescriptores = { ...e.prescriptores, id_empresa: 'aaaa-1111', tiene_carnet_rite: false,
+        ...(largos ? {
+            razon_social: 'MONTAJES E INSTALACIONES TÉRMICAS DEL GUADIANA SOCIEDAD LIMITADA UNIPERSONAL',
+            cif: 'B45998877',
+            direccion: 'CALLE DE LA INDUSTRIA Y EL COMERCIO, 118, POLÍGONO SANTA MARÍA DE BENQUERENCIA',
+            codigo_postal: '45007', municipio: 'Toledo', provincia: 'Toledo',
+        } : {}) };
     e.prescriptores_firmante = largos ? {
         id_empresa: 'bbbb-2222', tiene_carnet_rite: true,
-        razon_social: 'MONTAJES E INSTALACIONES TÉRMICAS DEL GUADIANA SOCIEDAD LIMITADA UNIPERSONAL',
+        razon_social: 'INSTALACIONES Y MANTENIMIENTOS DEL GUADALQUIVIR, SOCIEDAD LIMITADA',
         cif: 'B45998877', numero_carnet_rite: '08-B-D20-46001724',
         direccion: 'CALLE DE LA INDUSTRIA Y EL COMERCIO, 118, POLÍGONO SANTA MARÍA DE BENQUERENCIA',
         codigo_postal: '45007', municipio: 'Toledo', provincia: 'Toledo',
-        // El firmante de la delegada es quien imprime nombre+DNI en la firma
-        // (empresaInstaladora → prescriptores_firmante): sin esto el peor caso
-        // no ejercía de verdad el DNI nuevo.
         nombre_responsable: 'FRANCISCO JAVIER', apellidos_responsable: 'MOYA LÓPEZ DE LA TORRE',
         nif_responsable: '12345678X',
+        // El técnico con carné propio es lo que alarga la fila de la habilitada:
+        // nombre + nº de empresa + nº de carné en un solo renglón.
+        tecnico_firmante_distinto: true,
+        tecnico_firmante_nombre: 'JOSÉ ANTONIO', tecnico_firmante_apellidos: 'CARRASCOSA VELASCO DE LA FUENTE',
+        tecnico_firmante_dni: '05636766H', tecnico_firmante_carnet_rite: '130300945',
     } : {
         id_empresa: 'bbbb-2222', tiene_carnet_rite: true,
         razon_social: 'OSCAR REDONDO MARTIN', cif: '52977772D',
