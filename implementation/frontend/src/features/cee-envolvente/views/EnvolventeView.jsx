@@ -6,6 +6,7 @@ import { PlanoPlanta } from '../components/PlanoPlanta';
 import { PanelPared } from '../components/PanelPared';
 import { usePlanoEnvolvente } from '../logic/usePlanoEnvolvente';
 import { lienzoAMundo } from '../logic/geometriaPlano';
+import { CampoDecimal } from '../../../components/CampoDecimal';
 import { dondeSobra, dondeSigue } from '../logic/cuerposEnvolvente';
 import { claveInstalacion } from '../logic/fichaCe3x';
 import { useDeshacer } from '../logic/useDeshacer';
@@ -1598,8 +1599,8 @@ function SiNoNumero({ p, valor, onPon }) {
             {si && (
                 <label className="mt-2.5 flex items-center gap-2">
                     <span className="text-[11px] text-white/45">¿Cuántos?</span>
-                    <input type="number" min="1" value={valor}
-                           onChange={e => onPon(Number(e.target.value) || 0)}
+                    <CampoDecimal valor={valor} onCambio={onPon}
+                           alVaciar={() => onPon(0)}
                            className="w-24 rounded-lg border border-white/10 bg-white/[0.04]
                                       px-2 py-1 text-right text-[13px] text-white/85" />
                     <span className="text-[11px] text-white/35">{p.unidad}</span>
@@ -1615,9 +1616,8 @@ function SiNoNumero({ p, valor, onPon }) {
 function Numero({ p, valor, onPon }) {
     return (
         <label className="mt-2.5 flex items-center gap-2">
-            <input type="number" min="0"
-                   value={valor === undefined ? p.propuesto : valor}
-                   onChange={e => onPon(Number(e.target.value) || 0)}
+            <CampoDecimal valor={valor === undefined ? p.propuesto : valor}
+                   onCambio={onPon} alVaciar={() => onPon(0)}
                    className="w-28 rounded-lg border border-white/10 bg-white/[0.04]
                               px-2 py-1 text-right text-[13px] text-white/85" />
             <span className="text-[11px] text-white/35">{p.unidad}</span>

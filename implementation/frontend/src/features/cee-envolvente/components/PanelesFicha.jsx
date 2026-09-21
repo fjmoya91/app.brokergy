@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { CampoDecimal } from '../../../components/CampoDecimal';
 import { AISLAMIENTOS_CE3X, COMBUSTIBLES_CE3X, esDeCaldera, GENERADORES_CE3X,
          TIPOS_EQUIPO_CE3X, tipoEquipo } from '../logic/fichaCe3x';
 
@@ -330,11 +331,11 @@ export function PanelGenerales({ datos, puestos = {}, retocadas = {},
                     <div key={clave} className="flex items-center gap-2 text-[12px]">
                         <dt className="w-44 shrink-0 text-white/45">{etiqueta}</dt>
                         <dd className="flex items-center gap-2">
-                            <input
-                                type="number" step="0.01" min="0" value={v?.u ?? ''}
+                            <CampoDecimal
+                                valor={v?.u ?? ''}
                                 aria-label={`transmitancia de ${etiqueta}`}
-                                onChange={e => onCambiarU?.(clave,
-                                    e.target.value === '' ? null : Number(e.target.value))}
+                                onCambio={n => onCambiarU?.(clave, n)}
+                                alVaciar={() => onCambiarU?.(clave, null)}
                                 className={`w-[74px] rounded-md border bg-white/[0.04] px-2 py-1
                                             text-[12.5px] font-bold tabular-nums
                                     ${retocadas[clave] !== undefined
@@ -728,9 +729,10 @@ function FormularioEquipo({ eq, superficie, puesto = {}, onCampo }) {
     const num = (k, rotulo, unidad, extra = {}) => (
         <Editable rotulo={rotulo} unidad={unidad} suyo={suyo(k)}
                   onDeshacer={() => onCampo(k, null)}>
-            <input type="number" value={v(k)} aria-label={rotulo} {...extra}
-                   onChange={e => onCampo(k, e.target.value)}
-                   className={caja(suyo(k), 'w-[92px]')} />
+            <CampoDecimal valor={v(k)} aria-label={rotulo} {...extra}
+                          onCambio={n => onCampo(k, n)}
+                          alVaciar={() => onCampo(k, '')}
+                          className={caja(suyo(k), 'w-[92px]')} />
         </Editable>
     );
 
@@ -804,11 +806,12 @@ function FormularioEquipo({ eq, superficie, puesto = {}, onCampo }) {
                         <Editable rotulo="Volumen del depósito" unidad="litros"
                                   suyo={suyo('litros_acumulacion')}
                                   onDeshacer={() => onCampo('litros_acumulacion', null)}>
-                            <input type="number" min="0" step="10"
-                                   value={puesto.litros_acumulacion
+                            <CampoDecimal
+                                   valor={puesto.litros_acumulacion
                                        ?? eq?.acumulacion?.volumen ?? ''}
                                    aria-label="Litros del depósito"
-                                   onChange={e => onCampo('litros_acumulacion', e.target.value)}
+                                   onCambio={n => onCampo('litros_acumulacion', n)}
+                                   alVaciar={() => onCampo('litros_acumulacion', '')}
                                    className={caja(suyo('litros_acumulacion'), 'w-[92px]')} />
                         </Editable>
                     )}
@@ -829,17 +832,19 @@ function Servicio({ serv, eq, superficie, suyo, onCampo }) {
         <>
             <Editable rotulo={`${ROTULO_SERVICIO[serv]} · superficie`} unidad="m²"
                       suyo={suyo(kSup)} onDeshacer={() => onCampo(kSup, null)}>
-                <input type="number" min="0" step="0.5"
-                       value={eq?.[kSup] ?? superficie ?? ''}
+                <CampoDecimal
+                       valor={eq?.[kSup] ?? superficie ?? ''}
                        aria-label={`superficie de ${ROTULO_SERVICIO[serv]}`}
-                       onChange={e => onCampo(kSup, e.target.value)}
+                       onCambio={n => onCampo(kSup, n)}
+                       alVaciar={() => onCampo(kSup, '')}
                        className={caja(suyo(kSup), 'w-[92px]')} />
             </Editable>
             <Editable rotulo={`${ROTULO_SERVICIO[serv]} · porcentaje`} unidad="%"
                       suyo={suyo(kPct)} onDeshacer={() => onCampo(kPct, null)}>
-                <input type="number" min="0" max="100" value={eq?.[kPct] ?? 100}
+                <CampoDecimal valor={eq?.[kPct] ?? 100}
                        aria-label={`porcentaje de ${ROTULO_SERVICIO[serv]}`}
-                       onChange={e => onCampo(kPct, e.target.value)}
+                       onCambio={n => onCampo(kPct, n)}
+                       alVaciar={() => onCampo(kPct, '')}
                        className={caja(suyo(kPct), 'w-[76px]')} />
             </Editable>
         </>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../logic/apiEnvolvente';
 import axios from 'axios';
 import { TIPOS_PARED, nuevoUid, nombreHueco, SUFIJO_CAMBIA } from '../logic/usePlanoEnvolvente';
+import { CampoDecimal } from '../../../components/CampoDecimal';
 import { RUMBOS } from '../logic/geometriaPlano';
 import { SEPARACION_PILARES_M, pilaresEstimados } from '../logic/pilaresFachada';
 import { MARCOS, VIDRIOS, carpinteriaDe, desdeLaFoto, rotuloMarco, rotuloVidrio }
@@ -486,11 +487,10 @@ function UDeLaPared({ m, deLaEpoca, onCambio }) {
         <div className="flex items-center gap-2">
             <span className="min-w-[66px] text-[10.5px] font-bold uppercase
                              tracking-[0.08em] text-white/55">Su U</span>
-            <input
-                type="number" step="0.01" min="0"
-                value={propia ? m.u_manual : (deLaEpoca ?? '')}
+            <CampoDecimal
+                valor={propia ? m.u_manual : (deLaEpoca ?? '')}
                 aria-label="transmitancia de esta pared"
-                onChange={e => onCambio(e.target.value === '' ? null : Number(e.target.value))}
+                onCambio={onCambio} alVaciar={() => onCambio(null)}
                 className={`w-[70px] rounded-md border bg-white/[0.04] px-1.5 py-1
                             text-[12.5px] font-bold tabular-nums
                     ${propia ? 'border-brand/60 text-brand' : 'border-white/10'}`} />
@@ -1082,11 +1082,21 @@ function Marca({ dibujada, antes, onDeshacer }) {
     );
 }
 
+/**
+ * El ancho o el alto de un hueco.
+ *
+ * Era un `type="number"`, y ese devuelve cadena vacía mientras lo escrito no
+ * sea un número completo: al teclear «2.2» pasaba por «2.» y metía un 0 —que
+ * además queda marcado como medida CONFIRMADA, porque tocar una medida la da
+ * por buena—. Y borrarlo para reescribirlo, lo mismo. Ver
+ * [numeroDecimal.js](../../../utils/numeroDecimal.js).
+ *
+ * Vaciarlo no escribe nada: una ventana siempre mide algo.
+ */
 function Medida({ v, onCambio }) {
     return (
-        <input
-            type="number" step="0.05" min="0.1" value={v}
-            onChange={e => onCambio(Number(e.target.value))}
+        <CampoDecimal
+            valor={v} onCambio={onCambio} size={5}
             className="w-[58px] rounded-md border border-white/10 bg-white/[0.03]
                        px-1.5 py-1 text-[12.5px] font-semibold tabular-nums" />
     );

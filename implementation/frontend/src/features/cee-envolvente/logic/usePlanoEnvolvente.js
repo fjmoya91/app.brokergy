@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { largo as largoDe, LARGO_MINIMO_PARED, rumbosDeLaPared } from './geometriaPlano';
 import { lectorDeIds } from './identidadParedes.js';
-import { admiteHuecos, esFuera, esMedianera, esParticion, tipoDe }
-    from './tiposPared.js';
+import { esFuera, esMedianera, esParticion, tipoDe } from './tiposPared.js';
 import { mudarHueco, paredesParaHueco } from './huecosEnParedes.js';
 import { huecosDefecto } from './ventanasVivienda';
 

@@ -6879,6 +6879,58 @@ exige pero Node sí, y sin ella el test no arranca.
 
 Tras tocarlo: `node implementation/backend/scripts/test_mudar_hueco.mjs`.
 
+### La COMA y el PUNTO valen igual al teclear una medida (2026-09-21)
+
+Lo dijo el certificador: *«si pongo 2.2 o 2,2 es lo mismo. y eso da error.»* Y no
+era un error visible: era un **0 guardado como medida buena**.
+
+Un `<input type="number">` devuelve **cadena vacía** mientras lo escrito no sea
+un número completo, y `Number('')` es **0**. Medido en su Chrome, tecleando en
+el ancho de una ventana:
+
+| se teclea | el campo devuelve | se guarda |
+|---|---|---|
+| `2,2` | `"2.2"` | 2,2 ✓ |
+| `2.2` | pasa por `2.` → `""` | **0** |
+| `2,` | `"2"` (se come la coma) | 2 |
+| borrarlo para reescribirlo | `""` | **0** |
+
+Y como **tocar una medida la da por CONFIRMADA** (`cambiaHueco` pone
+`estado: 'medido'`), ese 0 quedaba marcado como medida comprobada por el
+certificador: una ventana de 0 m² que va al `.cex` sin que nada lo delate.
+
+| Qué | Dónde |
+|---|---|
+| Leer y escribir el número (puro, probable desde Node) | [numeroDecimal.js](implementation/frontend/src/utils/numeroDecimal.js) |
+| El campo | [CampoDecimal.jsx](implementation/frontend/src/components/CampoDecimal.jsx) |
+| Prueba | `node implementation/backend/scripts/test_numero_decimal.mjs` |
+
+**REGLA — mientras se escribe manda el TEXTO, no el número.** Un campo
+controlado por el número se pelea con quien lo teclea: al escribir «2,» el valor
+ya es 2, y si el componente reescribe «2» la coma desaparece debajo de los dedos.
+El texto vive en el campo hasta que se sale de él (`onBlur`), y entonces se
+enseña el número de verdad, con su coma.
+
+**REGLA — lo que no es un número NO vale 0: no vale nada.** `aNumero` devuelve
+**`null`**, que no es 0, y de esa diferencia depende todo lo de arriba. Un campo
+a medias no es un error y no se avisa de nada: se deja escribir, no se guarda, y
+al salir vuelve a enseñar el último valor bueno.
+
+**REGLA — vaciar el campo significa cosas distintas y lo dice quien lo pone**
+(`alVaciar`). En la U de la pared significa «vuelve a la de su época»; en el
+ancho de una ventana no significa nada, porque una ventana siempre mide algo, y
+ahí el vacío no puede escribir un cero.
+
+⚠️ Va con `inputMode="decimal"`, así que en el móvil sale el teclado numérico
+igual. Lo que se pierde de un `type="number"` son las flechitas y la rueda del
+ratón, que sobre una medida es justo lo que no se quiere: pasar el ratón por
+encima cambiaba el ancho de una ventana sin tocar nada.
+
+Son los **nueve** campos numéricos de la ventana: las dos medidas de cada hueco
+y la U de la pared (`PanelPared`), la U de la ficha, los números del equipo, los
+litros del depósito, la superficie y el porcentaje de cada servicio
+(`PanelesFicha`) y los dos de `EnvolventeView`.
+
 **Los contadores se fueron a una línea.** Cuatro cajas (medidos · dudosos · sin
 tocar · m² de hueco) ocupaban la primera fila y eran lo primero que se veía,
 cuando al entrar la única tarea es señalar la entrada. Lo que hace falta —por
@@ -10471,6 +10523,8 @@ llega a lo suyo, y su "+ Añadir fotos" sube ya por la ruta de tanda.
 68. **Las fotos suben en TANDA, se pegan con Ctrl+V y se reparten desde un buzón**: cada foto era su propio POST, y ese POST le pedía a Drive tres cosas **antes de mover un byte** (buscar la subcarpeta · listar el slot para el índice `_N` · en slot único, listar otra vez para borrar la anterior), en serie — porque dos subidas a la vez calculaban el mismo índice y se pisaban el nombre. Ahora `subirFicherosASlot` ([reformaUploadService.js](implementation/backend/services/reformaUploadService.js)) lista **una vez**, reserva los índices de toda la tanda y sube **en paralelo** (tope 4); la subcarpeta se resuelve una vez por proceso (`ensureSubfolderId` — ⚠️ su respaldo es devolver el PADRE cuando falla, y ese caso NO se cachea o todas las fotos caerían en la raíz). Es **fuente única**: `/:slot` (un fichero, que siguen usando los navegadores sin refrescar y el gestor del Anexo Fotográfico) y `/:slot/batch` delegan las dos, o la misma foto se nombraría distinto según por dónde entre. **Una tanda a medias se responde 200 con el parcial** (`items` + `fallidas`): lo que ya está en Drive no puede presentarse como si no hubiera pasado nada. La **miniatura se pinta antes de que responda el servidor** y el botón dice la fase real ("Preparando 3 de 10…" y luego un porcentaje monótono, que es el de UNA petición y no vuelve a cero en cada foto). **Ctrl+V** pega en la tarjeta que señala el ratón, anunciándolo en ella (`hidden md:`: en un móvil no hay portapapeles). Soltar **fuera** de una casilla abre el **BUZÓN** ([BuzonFotos.jsx](implementation/frontend/src/features/docs/BuzonFotos.jsx)): un modelo propone el apartado de cada foto y dice qué ha visto, y la persona confirma — el prompt lleva dentro el checklist REAL de ese expediente y **una clave que no esté en él se descarta**, la foto queda "sin clasificar" y no se sube; el cajón "Otros" no se propone nunca. A clasificar va una copia **muy reducida** (768 px: se reconoce el aparato, no se lee su serie) y **con `pensar: true`**, al revés que los lectores que transcriben; en tandas de 12, porque con más el modelo confunde el orden de las imágenes con el de las respuestas. Y **📩 Pedírsela** en cada casilla vacía manda el enlace filtrado `?need=` con el mensaje en lenguaje de cliente, **refrescando antes la lista de lo que falta** — si no, se le reclama lo que acaba de subir. Dos huecos de alcance cerrados: **`FOTO_HIBRIDACION`** (lo que define un RES093/TER173 son las dos máquinas conectadas, y eso no lo enseña ninguna otra foto; entra también en el mapa explícito del Anexo Fotográfico) y el **depósito de ACS que va DENTRO de la unidad interior**, que se retira solo si el expediente lo afirma y solo si está vacío (`acsEquipoPropio`, por la MÁQUINA y no por el flag — regla 12.c). Y cada apartado declara su **DESTINO** (`destinoDeSlot`): `CEE` —lo que el certificador necesita para modelar la vivienda: fachada desde la calle, patios, vídeo, planos, CEE anterior— o `EXPEDIENTE` —lo que justifica la actuación—. ⚠️ En un RES080 la ENVOLVENTE es del EXPEDIENTE, no del certificado. De ahí salen los dos bloques del panel, los dos botones de petición rápida y el titular que le explica al cliente PARA QUÉ se le pide (solo si todo lo pedido es del mismo destino: mezclado sería mentir a medias). **Lo `optionalAlways` no se reclama** —el CEE anterior se OFRECE— y **lo del DESPUÉS no se preselecciona mientras la obra no esté terminada**. El parte diario lo vigila con **`CEE_SIN_MATERIAL`** (16 expedientes en producción al estrenarlo, el más viejo de 160 días): el detector mira `reforma_uploads` —Drive de 150 expedientes sería una llamada por cada uno— y el MENSAJE lo compone `faltantesPorDestino`, que sí reconcilia con Drive y puede acabar diciendo que no falta nada. Y el botón **«Fotos» del expediente abre este gestor**, no el del Anexo Fotográfico (decisión del usuario, 2026-09-21: aquí se viene a subir y a pedir; a ordenar y comentar se entra desde el propio Anexo). Tras tocarlo: `node implementation/backend/scripts/test_docs_fotos.js`. Ver "El gestor de FOTOGRAFÍAS".
 
 69. **El CEE que entrega el certificador se REVISA antes de darle el visto bueno**: `radiografiaCee` lee los HECHOS del `.xml` y `revisionCee` los cruza con el expediente punto por punto, con la evidencia literal al lado (`node scripts/revisar_cee.js --expediente 26RES060_192`). **PROPONE, no aprueba**: no escribe en el expediente, no registra incidencias y no le escribe al certificador — el visto bueno se sigue dando en el módulo CEE. **Lo que no se puede comprobar se DICE** y baja el veredicto a APTO CON AVISOS: un punto callado se lee como un punto que está bien. Tres cosas MEDIDAS sobre los 462 certificados reales: **la acumulación de ACS NO está en el `.xml`** (el único nodo con «volumen» es el de la vivienda — solo vive en el `.cex`, regla 48.b), **en un RES080 qué se sustituye no se lee del texto de la medida de mejora** (es texto libre: «CEE FINAL.cex», «MAE 1») sino comparando los DOS certificados cerramiento a cerramiento —la ventana que se cambia es la que baja de U—, y **el combustible se compara por FAMILIA**, porque `gas_*` cubre gas natural y GLP con la misma fila del Anexo VIII (dentro de la familia → aviso; cambiar de familia → falla). El `.xml` se lee de **Supabase** (`cee.xml_inicial`), donde vive EN MAYÚSCULAS: `parseCeeXml` no puede releerlo (regla 32) y este lector sí, porque busca sin distinguir mayúsculas — si alguien quita el flag `i`, deja de funcionar en silencio. Comprueba además que las **transmitancias** de muros, cubierta, suelo y particiones estén justificadas —⚠️ en el `.xml` el «Conocido» de CE3X se escribe **`Usuario`**, no existe ninguna cadena «Conocido»; los huecos lo declaran en `<ModoDeObtencionTransmitancia>` y los puentes térmicos no cuentan—, que la **fecha del certificado** sea la que consta en el expediente (que es la que el visto bueno le pide firmar, `fechaFirmaCee`), que la **visita** sea anterior al certificado y exista, y que **quien firma** sea el técnico asignado (por su NIF o el de su entidad). Esos cuatro son AVISO salvo la visita posterior y la fecha futura, que son imposibles: como fallo, el de las transmitancias dejaría fuera a media cartera (65 de 115 la cumplen; el SUELO queda fuera de la cuenta porque solo el 11 % lo justifica). ⚠️ La **FASE no se deduce del nombre del fichero**: de ella depende el criterio, y equivocarla revisa con el contrario. Tras tocarlo: `node implementation/backend/scripts/test_revision_cee.js`. Ver "REVISAR el CEE que entrega el certificador".
+
+70. **La COMA y el PUNTO valen igual al teclear una medida, y lo que no es un número NO vale 0**: un `<input type="number">` devuelve **cadena vacía** mientras lo escrito no sea un número completo, y `Number('')` es **0** — así que escribir «2.2» metía un 0 al pasar por «2.», y borrar el campo para reescribirlo lo dejaba en 0. Y como **tocar una medida la da por CONFIRMADA** (`cambiaHueco` pone `estado: 'medido'`), ese 0 quedaba marcado como medida comprobada por el certificador: una ventana de 0 m² camino del `.cex` sin que nada lo delatara. `aNumero` devuelve **`null`** (que NO es 0) para lo que no es un número, y de esa diferencia depende todo. **Mientras se escribe manda el TEXTO, no el número**: un campo controlado por el número reescribe «2» sobre «2,» y la coma desaparece debajo de los dedos, así que el texto vive en el campo hasta el `onBlur`. **Vaciarlo significa cosas distintas y lo dice quien pone el campo** (`alVaciar`): en la U de la pared es «vuelve a la de su época» y en el ancho de una ventana no es nada, porque una ventana siempre mide algo. Va con `inputMode="decimal"` (mismo teclado en el móvil) y de paso se pierden las flechitas y la rueda del ratón, que sobre una medida es justo lo que no se quiere. Aplicado a los **nueve** campos numéricos de la ventana de envolvente. Fuentes únicas: [numeroDecimal.js](implementation/frontend/src/utils/numeroDecimal.js) y [CampoDecimal.jsx](implementation/frontend/src/components/CampoDecimal.jsx). Tras tocarlo: `node implementation/backend/scripts/test_numero_decimal.mjs`. Ver "La COMA y el PUNTO valen igual al teclear una medida".
 
 ---
 
