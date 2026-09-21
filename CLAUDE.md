@@ -6841,6 +6841,44 @@ tres ventanas iguales es lo normal, y volver a teclear 1,40 × 1,10 en cada una
 es donde se cuela el error. La copia sale ya confirmada — sus medidas no son un
 valor por defecto.
 
+**MOVER un hueco a otra pared** (⇄, 2026-09-21). Las ventanas se ponen mirando
+el plano, y con las dos plantas a la vista y seis fachadas encadenadas es fácil
+meterla en la de al lado. La única salida era quitarla y volver a teclear sus
+medidas en la buena — y lo que se teclea dos veces se teclea mal una. Fuente
+única: [huecosEnParedes.js](implementation/frontend/src/features/cee-envolvente/logic/huecosEnParedes.js).
+
+- **El hueco llega ENTERO**: su identidad (`uid`), su nombre, sus medidas y si
+  estaban confirmadas, su carpintería, si se cambia en la reforma y lo que dijo
+  su foto. Lo único que NO viaja es `pos`, dónde caía a lo largo del muro: ese
+  sitio es del muro viejo y en el nuevo lo pondría en un punto cualquiera. Se
+  recoloca solo en el reparto, igual que hace `duplicaHueco`.
+- **Solo se ofrecen FACHADAS** (`admiteHuecos`). Una medianera es adiabática y
+  una partición da a un local: ninguna lleva huecos, y un hueco apuntando a un
+  cerramiento que no es exterior **deja el `.cex` sin poder escribirse**.
+  Tampoco las apartadas de la envolvente ni la pared en la que ya está.
+- **Van las de TODAS las plantas**, agrupadas por planta y diciendo de cuál es
+  cada una: con las dos a la vista en el plano, equivocarse de planta es uno de
+  los errores que esto viene a arreglar.
+- **Queda dicho de dónde viene** (`por_que`: «movida desde FBS1, con sus
+  medidas») y el panel salta a la pared DESTINO: sin eso te quedas mirando la
+  pared vieja sin la ventana, sin saber si ha ido a alguna parte.
+- El nombre viaja con el hueco —es el que se lee en CE3X y el que nombran sus
+  puentes térmicos— salvo que en el edificio ya lo tenga otro, y entonces se le
+  da uno libre.
+- ⚠️ Su MARCA sobre la foto de la pared vieja se queda ahí: no se pinta —el
+  visor cruza las marcas con los huecos de ESA pared— y no se borra, así que
+  devolverlo la recupera. Es la misma regla que la de un hueco borrado.
+
+⚠️ El criterio de qué es cada pared (`tipoDe`, `esFuera`, `esMedianera`,
+`esParticion`, `admiteHuecos`) vive ahora en
+[tiposPared.js](implementation/frontend/src/features/cee-envolvente/logic/tiposPared.js),
+que NO importa React y por eso se puede comprobar desde Node;
+`usePlanoEnvolvente` lo reexporta, así que quien ya lo importaba de allí sigue
+igual. Y los imports de esos módulos llevan **la extensión `.js`**: Vite no la
+exige pero Node sí, y sin ella el test no arranca.
+
+Tras tocarlo: `node implementation/backend/scripts/test_mudar_hueco.mjs`.
+
 **Los contadores se fueron a una línea.** Cuatro cajas (medidos · dudosos · sin
 tocar · m² de hueco) ocupaban la primera fila y eran lo primero que se veía,
 cuando al entrar la única tarea es señalar la entrada. Lo que hace falta —por

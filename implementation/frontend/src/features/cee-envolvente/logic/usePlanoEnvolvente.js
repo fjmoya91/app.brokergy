@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { largo as largoDe, LARGO_MINIMO_PARED, rumbosDeLaPared } from './geometriaPlano';
-import { lectorDeIds } from './identidadParedes';
+import { lectorDeIds } from './identidadParedes.js';
+import { admiteHuecos, esFuera, esMedianera, esParticion, tipoDe }
+    from './tiposPared.js';
+import { mudarHueco, paredesParaHueco } from './huecosEnParedes.js';
 import { huecosDefecto } from './ventanasVivienda';
 
 import { SUFIJO_CAMBIA, nombreHueco } from './reforma.js';
@@ -448,6 +451,23 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                         por_que: 'dada por buena por el certificador' }) } };
         });
     }
+
+    /**
+     * Mueve un hueco a OTRA pared.
+     *
+     * Las ventanas se ponen mirando el plano, y con las dos plantas a la vista
+     * es fácil meterla en la fachada de al lado. La única salida era quitarla y
+     * volver a teclear sus medidas en la buena — y lo que se teclea dos veces se
+     * teclea mal una. Se muda el hueco entero: mismas medidas, mismo nombre,
+     * misma carpintería y lo que dijo su foto.
+     */
+    function mudaHueco(id, i, destino) {
+        setMuros(v => mudarHueco(v, id, i, destino));
+        setSel(destino);
+    }
+
+    /** A qué paredes se puede mudar un hueco que hoy está en `id`. */
+    function destinosDeHueco(id) { return paredesParaHueco(muros, id); }
 
     function quitaHueco(id, i) {
         setMuros(v => {
@@ -1000,7 +1020,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         setEntrada, setSel,
         elegir, ponHuecos, cambiaHueco, duplicaHueco, quitaHueco, mueveHueco,
         confirmaHueco, confirmaPared,
-        aplicaHuecosLeidos, anotaLecturaHueco,
+        aplicaHuecosLeidos, anotaLecturaHueco, mudaHueco, destinosDeHueco,
         muevePared, dibujaPared, borraPared, esDibujada,
         marcaComoParticion, marcaRevisada, siguientePorMirar,
         marcaCambia, marcaHuecoCambia, ponCarpinteria, quitaCarpinteriaPropia,
@@ -1031,20 +1051,10 @@ export const TIPOS_PARED = [
       ayuda: 'Da a un garaje, trastero o local sin calefactar: sí pierde calor' },
 ];
 
-//: El motor emite el nombre LARGO del esquema CE3X
-//: (`PARTICION_INTERIOR_VERTICAL`) y la app usa el corto: es el que está en
-//: `TIPOS_PARED`, en el color del plano, en la chapa del panel y en lo que se
-//: le manda de vuelta al reclasificar. Se traduce en UN solo sitio —por aquí
-//: pasa el tipo de todos los muros de la pantalla— porque sin esto la pared
-//: contra el garaje que se ha dejado fuera salía gris, sin chapa y sin poder
-//: reclasificarse: ninguna comparación casaba.
-const TIPO_DEL_MOTOR = { PARTICION_INTERIOR_VERTICAL: 'PARTICION_VERTICAL' };
-
-/** El tipo con el que se va a escribir: manda el certificador sobre Catastro. */
-export function tipoDe(m) {
-    const t = m?.tipo_manual || m?.tipo;
-    return TIPO_DEL_MOTOR[t] || t;
-}
+//: Qué ES cada pared vive en `tiposPared.js`, que no importa React y por eso
+//: se puede comprobar desde Node. Se reexporta para que quien ya lo importaba
+//: de aquí siga igual.
+export { tipoDe, esFuera, esMedianera, esParticion, admiteHuecos } from './tiposPared.js';
 
 //: Lo que cabe en el nombre de un cerramiento de CE3X.
 //:
@@ -1118,9 +1128,7 @@ function inicialDe(id, tipo) {
     return letra && id ? letra + String(id).slice(1) : id;
 }
 
-export function esMedianera(m) { return tipoDe(m) === 'MEDIANERA'; }
 
-export function esParticion(m) { return tipoDe(m) === 'PARTICION_VERTICAL'; }
 
 /**
  * Lo MÁS PROBABLE, no lo único posible. Es una sugerencia.
@@ -1140,7 +1148,6 @@ export function esCandidata(m) {
  * Dos caminos y el mismo resultado: lo que el motor ya devuelve apartado
  * (`fuera`) y lo que aparta el certificador desde el panel (`excluida`).
  */
-export function esFuera(m) { return !!(m?.fuera || m?.excluida); }
 
 export function estadoDe(m) {
     if (esFuera(m)) return 'fuera';

@@ -27,7 +27,8 @@ export function PanelPared({ plano, transmitancias, expedienteId,
             confirmaHueco, confirmaPared, muevePared, borraPared,
             apartaDeLaEnvolvente, reclasifica, renombra, ponU, orienta, ponPilares,
             rumboDe, necesitaRumbo, rumbosDe,
-            aplicaHuecosLeidos, anotaLecturaHueco } = plano;
+            aplicaHuecosLeidos, anotaLecturaHueco,
+            mudaHueco, destinosDeHueco } = plano;
     const m = sel ? muros[sel] : null;
 
     //: Lo leído de una foto, esperando a que lo revise una persona. Vive aquí y
@@ -209,6 +210,8 @@ export function PanelPared({ plano, transmitancias, expedienteId,
                                    onCambia={si => marcaHuecoCambia(m.id, i, si)}
                                    onDuplica={() => duplicaHueco(m.id, i)}
                                    onConfirma={() => confirmaHueco(m.id, i)}
+                                   destinos={destinosDeHueco(m.id)}
+                                   onMuda={d => mudaHueco(m.id, i, d)}
                                    onQuita={() => quitaHueco(m.id, i)} />
                         ))}
                     </div>
@@ -598,8 +601,14 @@ function m2Hueco(huecos) {
 }
 
 function Hueco({ h, onCambio, onCambia, onDuplica, onQuita, onConfirma, defecto,
-                expedienteId, paredId, cerramiento, muro, nombreDe, onLeido }) {
+                expedienteId, paredId, cerramiento, muro, nombreDe, onLeido,
+                destinos = [], onMuda }) {
     const [verFoto, setVerFoto] = useState(false);
+    //: El selector de pared, detrás de su icono. Va plegado por el mismo motivo
+    //: que la carpintería: mover un hueco es la excepción, y un desplegable
+    //: permanente en cada tarjeta es, en una fachada con seis ventanas, seis
+    //: controles que no se van a tocar tapando las medidas.
+    const [mover, setMover] = useState(false);
     //: El editor de la carpintería, detrás del lápiz. Cerrado se lee en una
     //: línea; abierto son tres controles. En una fachada con seis ventanas,
     //: seis editores abiertos son un muro que esconde las medidas.
@@ -678,6 +687,16 @@ function Hueco({ h, onCambio, onCambia, onDuplica, onQuita, onConfirma, defecto,
                     ventanas iguales es el caso normal. */}
                 <IconoBoton onClick={onDuplica} etiqueta="duplicar este hueco"
                             title="Otra igual, con estas medidas">⧉</IconoBoton>
+                {/* MOVERLA a otra pared. Con las dos plantas a la vista es fácil
+                    meter la ventana en la fachada de al lado, y hasta ahora la
+                    única salida era quitarla y volver a teclear sus medidas en
+                    la buena — que es donde se cuela el error. */}
+                {!!destinos.length && onMuda && (
+                    <IconoBoton activo={mover} pressed={mover}
+                                onClick={() => setMover(v => !v)}
+                                etiqueta="mover este hueco a otra pared"
+                                title={mover ? 'Cerrar' : 'Moverlo a otra pared'}>⇄</IconoBoton>
+                )}
                 <IconoBoton onClick={onQuita} etiqueta="quitar este hueco" peligro
                             title="Quitar este hueco">✕</IconoBoton>
                 </span>
@@ -704,6 +723,10 @@ function Hueco({ h, onCambio, onCambia, onDuplica, onQuita, onConfirma, defecto,
                     </button>
                 )}
             </div>
+            {mover && !!destinos.length && (
+                <MoverAOtraPared destinos={destinos}
+                                 onMuda={(d) => { setMover(false); onMuda(d); }} />
+            )}
             {h.por_que && (
                 <span className="text-[10.5px] leading-snug text-white/35">{h.por_que}</span>
             )}
@@ -747,6 +770,55 @@ function Hueco({ h, onCambio, onCambia, onDuplica, onQuita, onConfirma, defecto,
         </div>
     );
 }
+
+/**
+ * A qué otra pared se lleva este hueco.
+ *
+ * Solo salen FACHADAS: una medianera es adiabática y una partición da a un
+ * local, así que ninguna lleva huecos — y un hueco apuntando a un cerramiento
+ * que no es exterior deja el `.cex` sin poder escribirse.
+ *
+ * Van las de TODAS las plantas, agrupadas y diciendo de cuál es cada una: con
+ * las dos a la vista en el plano, equivocarse de planta es justo uno de los
+ * errores que esto viene a arreglar.
+ */
+function MoverAOtraPared({ destinos, onMuda }) {
+    const porPlanta = [];
+    for (const d of destinos) {
+        const ult = porPlanta[porPlanta.length - 1];
+        if (ult && ult.planta === d.planta) ult.paredes.push(d);
+        else porPlanta.push({ planta: d.planta, paredes: [d] });
+    }
+    return (
+        <label className="flex items-center gap-2 rounded-lg border border-white/10
+                          bg-white/[0.03] px-2 py-1.5">
+            <span className="shrink-0 text-[10px] font-black uppercase tracking-widest
+                             text-white/40">
+                Moverla a
+            </span>
+            <select value="" aria-label="mover este hueco a otra pared"
+                    onChange={e => e.target.value && onMuda(e.target.value)}
+                    className="min-w-0 flex-1 rounded-md border border-white/10
+                               bg-bkg-surface px-1.5 py-1 text-[12px] font-bold">
+                <option value="">— elige la pared —</option>
+                {porPlanta.map(g => (
+                    <optgroup key={g.planta || '—'} label={g.planta || 'esta planta'}>
+                        {g.paredes.map(d => (
+                            <option key={d.id} value={d.id}>
+                                {d.nombre}
+                                {Number.isFinite(d.largo) ? ` · ${fmtM(d.largo)} m` : ''}
+                                {d.huecos ? ` · ${d.huecos} hueco${d.huecos > 1 ? 's' : ''}` : ''}
+                            </option>
+                        ))}
+                    </optgroup>
+                ))}
+            </select>
+        </label>
+    );
+}
+
+const fmtM = n => Number(n).toFixed(2).replace('.', ',');
+
 
 /**
  * El marco, el vidrio y la persiana de UN hueco.
