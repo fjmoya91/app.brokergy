@@ -326,6 +326,7 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
         prescriptor_id: '',
         instalador_asociado_id: '',
         ccaa: '', provincia: '', provincia_cod: '', municipio: '',
+        direccion: '', codigo_postal: '',
         persona_contacto_nombre: '',
         persona_contacto_tlf: '',
         persona_contacto_email: '',
@@ -470,31 +471,40 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
         setLoading(true);
         let payload;
         try {
+            // Un campo que nadie ha tocado puede no estar en el estado (o llegar
+            // como null desde `initialData`): se limpia SIEMPRE con la guarda, o
+            // el `.trim()` revienta y el fallo sale en pantalla como
+            // "Cannot read properties of undefined (reading 'trim')" — que no le
+            // dice a nadie qué campo falta.
+            const txt = (v) => (v == null ? '' : String(v).trim());
             payload = {
-                nombre_razon_social: form.nombre_razon_social.trim(),
-                apellidos: esEmpresa ? null : (form.apellidos.trim() || null),
-                email: form.email.trim() || null,
-                tlf: form.tlf.trim() || null,
-                dni: form.dni.trim() || null,
+                nombre_razon_social: txt(form.nombre_razon_social),
+                apellidos: esEmpresa ? null : (txt(form.apellidos) || null),
+                email: txt(form.email) || null,
+                tlf: txt(form.tlf) || null,
+                dni: txt(form.dni) || null,
                 sexo: esEmpresa ? null : (form.sexo || null),
                 // Persona jurídica: quien firma los anexos es el representante legal.
                 es_empresa: esEmpresa,
-                representante_nombre: esEmpresa ? (form.representante_nombre?.trim() || null) : null,
-                representante_apellidos: esEmpresa ? (form.representante_apellidos?.trim() || null) : null,
-                representante_dni: esEmpresa ? (form.representante_dni?.trim() || null) : null,
+                representante_nombre: esEmpresa ? (txt(form.representante_nombre) || null) : null,
+                representante_apellidos: esEmpresa ? (txt(form.representante_apellidos) || null) : null,
+                representante_dni: esEmpresa ? (txt(form.representante_dni) || null) : null,
                 ccaa: form.ccaa || null,
                 provincia: form.provincia || null,
                 municipio: form.municipio || null,
-                direccion: form.direccion.trim() || null,
-                codigo_postal: form.codigo_postal.trim() || null,
-                numero_cuenta: form.numero_cuenta.trim() || null,
+                direccion: txt(form.direccion) || null,
+                codigo_postal: txt(form.codigo_postal) || null,
+                numero_cuenta: txt(form.numero_cuenta) || null,
                 prescriptor_id: isAdmin ? (form.prescriptor_id || null) : undefined,
                 instalador_asociado_id: (isAdmin || isDistribuidor) ? (form.instalador_asociado_id || null) : undefined,
                 oportunidad_id: oportunidad?.id_oportunidad || null,
-                persona_contacto_nombre: form.persona_contacto_nombre?.trim() || null,
-                persona_contacto_tlf: form.persona_contacto_tlf?.trim() || null,
+                persona_contacto_nombre: txt(form.persona_contacto_nombre) || null,
+                persona_contacto_tlf: txt(form.persona_contacto_tlf) || null,
+                // El correo de la persona de contacto se tecleaba y NO se enviaba:
+                // es de donde tira `contactoCliente` cuando el titular no da el suyo.
+                persona_contacto_email: txt(form.persona_contacto_email).toLowerCase() || null,
                 notificaciones_contacto_activas: form.notificaciones_contacto_activas || false,
-                notas: form.notas?.trim() || null,
+                notas: txt(form.notas) || null,
             };
 
             const res = await axios.post('/api/clientes', payload);
@@ -1065,7 +1075,7 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
                                     className="flex-1 py-3 rounded-xl border border-white/10 text-white/60 hover:text-white hover:border-white/20 font-bold text-sm transition-all">
                                     Cancelar
                                 </button>
-                                <button type="submit" disabled={loading || !form.nombre_razon_social.trim()}
+                                <button type="submit" disabled={loading || !String(form.nombre_razon_social || '').trim()}
                                     className="flex-1 py-3 rounded-xl bg-gradient-to-r from-brand to-brand-700 text-bkg-deep font-black text-sm uppercase tracking-wider shadow-lg shadow-brand/20 hover:shadow-brand/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                     {loading ? 'Creando...' : 'Crear Cliente'}
                                 </button>
