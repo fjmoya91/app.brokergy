@@ -363,5 +363,6 @@ module.exports = {
     // Exportados para las pruebas
     identificar,
     contieneNumero,
-    representanteDe,
+    representantesDe,
+    firmantesEsperados,
 };
