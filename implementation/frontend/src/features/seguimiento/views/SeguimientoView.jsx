@@ -39,6 +39,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { useModal } from '../../../context/ModalContext';
 import { EnvioLoteModal } from '../components/EnvioLoteModal';
+import { abrirCarpetaLocal } from '../../../utils/carpetaLocal';
 
 // Tono por bloque. El color es información: dice cuánto duele, no adorna.
 const TONO = {
@@ -149,14 +150,24 @@ export function SeguimientoView() {
         return s;
     });
 
+    // ⚠️ `showAlert` es (mensaje, título, variante) — NO un objeto. Con un objeto,
+    // el provider renderiza `{message}` y React tumba la app entera ("Objects are
+    // not valid as a React child"), así que pulsar este botón dejaba la pantalla en
+    // blanco en vez de dar el acuse.
     const mandarParte = async () => {
         try {
             const { data } = await axios.post('/api/seguimiento/enviar-parte');
-            showAlert(data.ok && data.enviados
-                ? { tipo: 'success', titulo: 'Parte enviado', mensaje: `Te lo hemos mandado por WhatsApp y email (${data.total} expedientes).` }
-                : { tipo: 'info', titulo: 'Sin novedades', mensaje: data.reason === 'ya-avisado-hoy' ? 'El parte de hoy ya se te ha enviado.' : data.reason === 'deshabilitado' ? 'Los avisos están deshabilitados en este entorno.' : 'No hay nada por encima del umbral.' });
+            if (data.ok && data.enviados) {
+                showAlert(`Te lo hemos mandado por WhatsApp y email (${data.total} expedientes).`, 'Parte enviado', 'success');
+            } else {
+                showAlert(
+                    data.reason === 'ya-avisado-hoy' ? 'El parte de hoy ya se te ha enviado.'
+                        : data.reason === 'deshabilitado' ? 'Los avisos están deshabilitados en este entorno.'
+                        : 'No hay nada por encima del umbral.',
+                    'Sin novedades', 'info');
+            }
         } catch (e) {
-            showAlert({ tipo: 'error', titulo: 'No se ha podido enviar', mensaje: e.response?.data?.error || e.message });
+            showAlert(e.response?.data?.error || e.message, 'No se ha podido enviar', 'error');
         }
     };
 
@@ -390,25 +401,92 @@ function TarjetaGrupo({ g, onAbrir }) {
     );
 }
 
+/**
+ * Acceso directo a la carpeta del expediente en el EXPLORADOR (el espejo local de
+ * Drive para escritorio). Aquí es donde de verdad hace falta: revisar un CEE o
+ * mirar una factura es abrir su carpeta, y llegar a ella obligaba a salir de la
+ * lista, abrir el expediente y volver — perdiendo el sitio de la cola de trabajo.
+ *
+ * El GESTO no se reimplementa: `abrirCarpetaLocal` es la fuente única (pedir la
+ * ruta, copiarla al portapapeles y lanzar el protocolo `brokergylocal:`), con sus
+ * detalles de base64url que no se deben "simplificar". Aquí solo va el dibujo del
+ * botón, que sigue el lenguaje de ESTA pantalla y no el del listado.
+ *
+ * REGLA — en MÓVIL no se pinta. El protocolo es de Windows: en un teléfono no abre
+ * nada y la ruta que copia (`G:\Mi unidad\…`) no sirve para nada. Esta vista está
+ * pensada para el pulgar, así que un botón que ahí no puede funcionar solo ocupa el
+ * sitio de lo que sí (mismo criterio que la pista "o arrástralas aquí" de DocsManager).
+ *
+ * La ruta es `staffOnly` y toda esta pantalla es de staff, así que no hace falta
+ * comprobar el rol: al certificador no le llega esta vista.
+ */
+function BotonCarpeta({ f }) {
+    const { showAlert } = useModal();
+    const [abriendo, setAbriendo] = useState(false);
+
+    // La ruta resuelve por UUID Y por número de expediente, así que el número vale
+    // de respaldo: una fila sin id no puede quedarse sin su carpeta.
+    const ref = f.expediente_id || f.numero_expediente;
+    if (!ref) return null;
+
+    const abrir = async (e) => {
+        // La fila es un enlace a la app: este botón va a otro sitio.
+        e.preventDefault();
+        e.stopPropagation();
+        if (abriendo) return;
+        setAbriendo(true);
+        const r = await abrirCarpetaLocal(`/api/expedientes/${encodeURIComponent(ref)}/local-path`);
+        // Un fallo se DICE: sin aviso, el botón que no abre nada no se distingue de
+        // un PC al que le falta el protocolo registrado.
+        if (!r.ok) showAlert(r.error, 'No se ha podido abrir la carpeta', 'error');
+        setAbriendo(false);
+    };
+
+    return (
+        <button type="button" onClick={abrir} disabled={abriendo}
+            title={`Abrir la carpeta de ${f.numero_expediente} en el Explorador (se copia también la ruta)`}
+            aria-label={`Abrir la carpeta de ${f.numero_expediente} en el Explorador`}
+            className="hidden md:flex shrink-0 w-9 h-9 mr-1 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 items-center justify-center hover:bg-emerald-500/20 disabled:opacity-40 transition-colors">
+            {abriendo ? (
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" />
+                </svg>
+            ) : (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+                </svg>
+            )}
+        </button>
+    );
+}
+
 /** Una fila del diagnóstico. `enPlazo` la atenúa: está en marcha, no es una tarea. */
 function FilaExpediente({ f, enPlazo }) {
     return (
-        <a href={`/?exp=${encodeURIComponent(f.numero_expediente)}`}
-            className={`flex items-center gap-2.5 px-2.5 py-2.5 rounded-xl active:bg-bkg-hover/50 transition-colors ${enPlazo ? 'opacity-60' : ''}`}>
-            <span className="flex-1 min-w-0">
-                <span className="flex items-center gap-2 flex-wrap">
-                    <span className="font-black text-brand text-[11px] tabular-nums">{f.numero_expediente}</span>
-                    {f.silenciada && (
-                        <span className="px-1.5 py-0.5 rounded bg-white/[0.04] text-[9px] font-bold text-white/35 whitespace-nowrap">{f.silenciada}</span>
-                    )}
+        // El botón va FUERA del enlace, como hermano: un <button> dentro de un <a> es
+        // contenido interactivo anidado y el navegador puede acabar haciendo las dos
+        // cosas. El realce al pulsar se queda en el <a>, o tocar el botón teñiría la
+        // fila entera y parecería que se ha abierto el expediente.
+        <div className={`flex items-center rounded-xl ${enPlazo ? 'opacity-60' : ''}`}>
+            <a href={`/?exp=${encodeURIComponent(f.numero_expediente)}`}
+                className="flex-1 min-w-0 flex items-center gap-2.5 px-2.5 py-2.5 rounded-xl active:bg-bkg-hover/50 transition-colors">
+                <span className="flex-1 min-w-0">
+                    <span className="flex items-center gap-2 flex-wrap">
+                        <span className="font-black text-brand text-[11px] tabular-nums">{f.numero_expediente}</span>
+                        {f.silenciada && (
+                            <span className="px-1.5 py-0.5 rounded bg-white/[0.04] text-[9px] font-bold text-white/35 whitespace-nowrap">{f.silenciada}</span>
+                        )}
+                    </span>
+                    <span className="block text-[11px] text-white/60 leading-snug mt-0.5">{f.detalle}</span>
+                    <span className="block text-[10px] text-white/25 truncate">{f.cliente_nombre || f.municipio || '—'}</span>
                 </span>
-                <span className="block text-[11px] text-white/60 leading-snug mt-0.5">{f.detalle}</span>
-                <span className="block text-[10px] text-white/25 truncate">{f.cliente_nombre || f.municipio || '—'}</span>
-            </span>
-            <span className={`text-[11px] font-black tabular-nums shrink-0 ${enPlazo ? 'text-white/30' : colorDias(f.dias, f.sin_fecha)}`}>
-                {textoDias(f.dias, f.sin_fecha)}
-            </span>
-        </a>
+                <span className={`text-[11px] font-black tabular-nums shrink-0 ${enPlazo ? 'text-white/30' : colorDias(f.dias, f.sin_fecha)}`}>
+                    {textoDias(f.dias, f.sin_fecha)}
+                </span>
+            </a>
+            <BotonCarpeta f={f} />
+        </div>
     );
 }
 
