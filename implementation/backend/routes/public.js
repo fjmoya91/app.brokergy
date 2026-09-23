@@ -399,6 +399,11 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
         // saber sobre qué documento dio su conformidad.
         const propuestaVersiones = require('../services/propuestaVersiones');
         const vAceptada = propuestaVersiones.vigente(opp.datos_calculo)?.v || null;
+        // Y con QUÉ condiciones y autorizaciones (CEE, tratamiento de datos…): el
+        // texto vive en frontend/src/features/public/logic/condicionesAceptacion.js
+        // y cada retoque sube su versión. Llega del navegador, así que se acota.
+        const condicionesVersion = /^[\w.-]{1,20}$/.test(String(formFields.condiciones_version || ''))
+            ? String(formFields.condiciones_version) : null;
 
         if (prevEstado !== 'ACEPTADA') {
             const clienteNombre = [formFields.nombre_razon_social, formFields.apellidos].filter(Boolean).join(' ');
@@ -409,6 +414,7 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
                 fecha: new Date().toISOString(),
                 usuario: `Firma Cliente (${clienteNombre})`,
                 ...(vAceptada ? { propuesta_version: vAceptada } : {}),
+                ...(condicionesVersion ? { condiciones_version: condicionesVersion } : {}),
                 ...(ceeDecision ? { cee_decision: ceeDecision } : {})
             }];
 

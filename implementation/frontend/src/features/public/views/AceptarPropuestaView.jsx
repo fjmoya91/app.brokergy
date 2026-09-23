@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { DynamicNetworkBackground } from '../../../components/DynamicNetworkBackground';
+import CondicionesAceptacionModal from '../components/CondicionesAceptacionModal';
+import { CONDICIONES_VERSION } from '../logic/condicionesAceptacion';
 
 // Usamos el entorno para definir dónde están las API (Vite local o Vercel)
 const isProd = import.meta.env.PROD;
@@ -174,6 +176,8 @@ function FileUploadSection({ idOportunidad, API_URL }) {
 export function AceptarPropuestaView({ idOportunidad }) {
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
+    const [verCondiciones, setVerCondiciones] = useState(false);
+    const formRef = useRef(null);
     const [success, setSuccess] = useState(false);
     const [error, setError] = useState(null);
     const [showIbanInfo, setShowIbanInfo] = useState(false);
@@ -259,6 +263,8 @@ export function AceptarPropuestaView({ idOportunidad }) {
             Object.entries(formData).forEach(([k, v]) => fd.append(k, v || ''));
             if (justificanteFile) fd.append('justificante', justificanteFile);
             if (ceeAportado && ceeChoice) fd.append('cee_choice', ceeChoice);
+            // Qué texto de condiciones tenía delante al aceptar: se sella en el historial.
+            fd.append('condiciones_version', CONDICIONES_VERSION);
             const res = await axios.post(`${API_URL}/aceptar/${idOportunidad}`, fd, {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
@@ -616,7 +622,7 @@ export function AceptarPropuestaView({ idOportunidad }) {
                                     </div>
                                 )}
 
-                                <form onSubmit={handleSubmit} className="space-y-6">
+                                <form ref={formRef} onSubmit={handleSubmit} className="space-y-6">
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                                         <div className="space-y-1.5">
                                             <label className="block text-xs font-black uppercase tracking-widest text-white/40 ml-1" htmlFor="nombre_razon_social">
@@ -850,8 +856,26 @@ export function AceptarPropuestaView({ idOportunidad }) {
                                                 </>
                                             )}
                                         </button>
+                                        {/* Aceptación por clic: el botón ES la aceptación, y el
+                                            texto completo queda a un clic. No hay casilla porque
+                                            lo que se acepta es el servicio que se contrata, no un
+                                            consentimiento aparte (ni publicidad, que no se hace). */}
+                                        <p className="mt-3 text-center text-[11px] text-white/40 leading-relaxed">
+                                            Al pulsar «Confirmar y aceptar propuesta» aceptas las{' '}
+                                            <button type="button" onClick={() => setVerCondiciones(true)}
+                                                    className="underline underline-offset-2 text-white/60 hover:text-brand transition-colors">
+                                                condiciones y autorizaciones
+                                            </button>
+                                            {' '}de la propuesta, incluidas la presentación de los Certificados de Eficiencia Energética y el tratamiento de tus datos personales.
+                                        </p>
                                     </div>
                                 </form>
+                                <CondicionesAceptacionModal
+                                    open={verCondiciones}
+                                    onClose={() => setVerCondiciones(false)}
+                                    enviando={submitting}
+                                    onAceptar={() => { setVerCondiciones(false); formRef.current?.requestSubmit(); }}
+                                />
                             </>
                         )}
                     </div>
