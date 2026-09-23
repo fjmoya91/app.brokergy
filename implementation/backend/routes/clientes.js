@@ -4,6 +4,29 @@ const supabase = require('../services/supabaseClient');
 const { enforceAuth, adminOnly, isStaff } = require('../middleware/auth');
 const { normalizeData, normalizeCliente } = require('../utils/normalization');
 const { enLotes } = require('../utils/consultaLotes');
+const { PARTNER_CONTACT_FIELDS, contactoClienteDesdePartner } = require('../services/notifyContacts');
+
+const esSi = v => v === true || v === 'true';
+
+/**
+ * Si el cliente tiene al PARTNER como persona de contacto, rellena en `payload`
+ * los `persona_contacto_*` con el comercial de su ficha (ver
+ * `contactoClienteDesdePartner`). Lo que llegue del navegador en esos campos se
+ * IGNORA: los manda la ficha del partner, no un formulario.
+ *
+ * Devuelve un mensaje de error si no se puede (sin partner, o partner sin ningún
+ * teléfono ni email): marcarlo y no tener a quién escribir dejaría al cliente sin
+ * avisos y a nadie enterado.
+ */
+async function aplicarContactoPartner(payload, prescriptorId) {
+    if (!prescriptorId) return 'Para que los avisos vayan al partner, asigna antes un prescriptor al cliente.';
+    const { data: p } = await supabase.from('prescriptores')
+        .select(PARTNER_CONTACT_FIELDS).eq('id_empresa', prescriptorId).maybeSingle();
+    const c = contactoClienteDesdePartner(p);
+    if (!c) return 'El partner asignado no tiene ningún teléfono ni email en su ficha.';
+    Object.assign(payload, c);
+    return null;
+}
 
 // GET /api/clientes -> Listar clientes
 router.get('/', enforceAuth, async (req, res) => {
@@ -282,7 +305,13 @@ router.post('/', enforceAuth, async (req, res) => {
             copropietarios: copropietarios || [],
 
             notas: notas || null,
+            contacto_es_partner: esSi(body.contacto_es_partner),
         };
+
+        if (payload.contacto_es_partner) {
+            const err = await aplicarContactoPartner(payload, finalPrescriptorId);
+            if (err) return res.status(400).json({ error: err });
+        }
 
         const { data, error } = await supabase.from('clientes').insert([normalizeCliente(payload)]).select().single();
         if (error) throw error;
@@ -354,7 +383,7 @@ router.put('/:id', enforceAuth, async (req, res) => {
         // Verificar que existe y tiene acceso
         const { data: existingData, error: fetchErr } = await supabase
             .from('clientes')
-            .select('id_cliente, prescriptor_id')
+            .select('id_cliente, prescriptor_id, contacto_es_partner')
             .eq('id_cliente', req.params.id)
             .single();
 
@@ -418,6 +447,17 @@ router.put('/:id', enforceAuth, async (req, res) => {
         // Solo el equipo interno (ADMIN/TRABAJADOR) puede reasignar prescriptor
         if (isStaff(req) && prescriptor_id !== undefined) {
             updates.prescriptor_id = prescriptor_id || null;
+        }
+
+        // Partner como persona de contacto: con la marca puesta (la que llega, o la
+        // que ya tenía) la copia se rehace en cada guardado — también al cambiar
+        // de prescriptor, que es cuando más fácil se quedaría apuntando al anterior.
+        if (body.contacto_es_partner !== undefined) updates.contacto_es_partner = esSi(body.contacto_es_partner);
+        const marcaPartner = updates.contacto_es_partner ?? esSi(existingData.contacto_es_partner);
+        if (marcaPartner) {
+            const presId = updates.prescriptor_id !== undefined ? updates.prescriptor_id : existingData.prescriptor_id;
+            const err = await aplicarContactoPartner(updates, presId);
+            if (err) return res.status(400).json({ error: err });
         }
 
         const { data, error } = await supabase

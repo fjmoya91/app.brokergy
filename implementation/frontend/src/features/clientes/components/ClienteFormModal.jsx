@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import InstaladorFormModal from './InstaladorFormModal';
+// El partner como persona de contacto: fuente única con la ficha del cliente.
+import { PartnerComoContacto } from './PartnerComoContacto';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 function normalize(s) {
@@ -504,6 +506,9 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
                 // es de donde tira `contactoCliente` cuando el titular no da el suyo.
                 persona_contacto_email: txt(form.persona_contacto_email).toLowerCase() || null,
                 notificaciones_contacto_activas: form.notificaciones_contacto_activas || false,
+                // Partner como persona de contacto: persona_contacto_* los rellena
+                // el backend desde su ficha.
+                ...(isAdmin ? { contacto_es_partner: !!form.contacto_es_partner } : {}),
                 notas: txt(form.notas) || null,
             };
 
@@ -734,6 +739,15 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
 
                                 {/* Persona de Contacto */}
                                 <div className="mt-4 pt-4 border-t border-white/[0.05] space-y-4">
+                                    {isAdmin && (
+                                        <PartnerComoContacto
+                                            form={form}
+                                            updateForm={updateForm}
+                                            prescriptor={selectedPrescriptor}
+                                        />
+                                    )}
+
+                                    {!form.contacto_es_partner && (<>
                                     <label className="flex items-center gap-3 cursor-pointer group w-fit">
                                         <div className="relative flex items-center">
                                             <input
@@ -797,6 +811,7 @@ export function ClienteFormModal({ isOpen, onClose, onSuccess, oportunidad, init
                                             </p>
                                         </div>
                                     )}
+                                    </>)}
                                 </div>
                             </div>
 

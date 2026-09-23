@@ -2,7 +2,23 @@ const express = require('express');
 const router = express.Router();
 const supabase = require('../services/supabaseClient');
 const { requireAuth, enforceAuth, adminOnly } = require('../middleware/auth');
-const { normalizeContactos } = require('../services/notifyContacts');
+const { normalizeContactos, PARTNER_CONTACT_FIELDS, contactoClienteDesdePartner } = require('../services/notifyContacts');
+const { normalizeCliente } = require('../utils/normalization');
+
+// Rehace la persona de contacto de los clientes que tienen a este partner como
+// tal (`clientes.contacto_es_partner`). Si el partner se queda sin ningún canal,
+// NO se borra lo que había: un contacto viejo es mejor que ninguno.
+async function resincronizarClientesDelPartner(idEmpresa) {
+    const { data: p } = await supabase.from('prescriptores')
+        .select(PARTNER_CONTACT_FIELDS).eq('id_empresa', idEmpresa).maybeSingle();
+    const c = contactoClienteDesdePartner(p);
+    if (!c) return;
+    const { error } = await supabase.from('clientes')
+        .update(normalizeCliente({ ...c }))
+        .eq('prescriptor_id', idEmpresa)
+        .eq('contacto_es_partner', true);
+    if (error) throw error;
+}
 const { searchAddress } = require('../services/googleService');
 const marketplaceStats = require('../services/marketplaceStatsRefresher');
 const certificadorFacturacion = require('../services/certificadorFacturacion');
@@ -1325,6 +1341,14 @@ router.patch('/:id', enforceAuth, async (req, res) => {
         // esté desconectado no puede hacer fallar el guardado de una ficha.
         if (presData?.tipo_empresa === 'INSTALADOR' && tocaTelefonos(payload)) {
             waSync.sincronizarEnDiferido(presData.id_empresa, { motivo: 'edición' });
+        }
+
+        // Los clientes que tienen a ESTE partner como persona de contacto llevan una
+        // copia de su comercial: si no se rehace aquí, al cambiar de comercial los
+        // avisos seguirían yendo al anterior. Diferido y sin tumbar el guardado.
+        if (presData?.id_empresa) {
+            setImmediate(() => resincronizarClientesDelPartner(presData.id_empresa)
+                .catch(e => console.warn('[prescriptores] resync contacto clientes:', e.message)));
         }
 
       res.json(presData);

@@ -356,9 +356,40 @@ function contactosDeCliente(cli) {
     return out;
 }
 
+// ─── El PARTNER como persona de contacto del cliente ──────────────────────────
+// Hay partners que piden llevar ellos la relación con sus clientes (JOSE VICENTE
+// RUIZ SL): todo lo que le escribiríamos al cliente —avisos, anexos, peticiones de
+// documentación— tiene que llegarles a ellos.
+//
+// REGLA — se RELLENA la persona de contacto con los datos del partner, no se
+// inventa un canal nuevo. Hay ~30 sitios que leen `persona_contacto_*` +
+// `notificaciones_contacto_activas` (rutas públicas, cobro, parte diario, popups);
+// un tercer modo de resolver el destinatario habría que enseñárselo a todos y
+// alguno se quedaría atrás mandándole el mensaje al cliente. Con la copia, todos
+// aciertan sin tocarlos.
+//
+// REGLA — la copia la mantiene el BACKEND (`clientes.contacto_es_partner`): se
+// rehace al guardar el cliente y cada vez que cambian los contactos del partner,
+// así que no envejece cuando el partner cambia de comercial.
+//
+// Es asunto COMERCIAL: el que lleva la obra con el cliente, no el que firma.
+function contactoClienteDesdePartner(p) {
+    if (!p) return null;
+    const t = partnerNotifyTarget(p, 'comercial');
+    if (!t.tlf && !t.email) return null;
+    return {
+        // Sin persona concreta (canal general) el nombre es el de la empresa: sin
+        // nombre, `contactosDeCliente` no ofrece la fila en los popups de envío.
+        persona_contacto_nombre: t.nombre || p.acronimo || p.razon_social || 'Partner',
+        persona_contacto_tlf: t.tlf || null,
+        persona_contacto_email: t.email || null,
+        notificaciones_contacto_activas: true,
+    };
+}
+
 module.exports = {
     ROLES, ROL_LABEL, ROL_RECIBE, PARTNER_CONTACT_FIELDS,
-    CLIENTE_CONTACT_FIELDS, contactosDeCliente,
+    CLIENTE_CONTACT_FIELDS, contactosDeCliente, contactoClienteDesdePartner,
     normalizeContactos, parseContactos, rolesDe,
     contactosDePartner, contactosPara, canalGeneral,
     partnerNotifyTargets, partnerNotifyTarget, repartoPartner, rolDeDocumento,

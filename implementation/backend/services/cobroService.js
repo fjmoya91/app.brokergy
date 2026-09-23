@@ -41,7 +41,7 @@ function loadCobroForm() {
 const SELECT_EXP = `id, numero_expediente, cliente_id, oportunidad_id, documentacion, instalacion,
     clientes!cliente_id(id_cliente, nombre_razon_social, apellidos, dni, email, tlf,
         persona_contacto_nombre, persona_contacto_email, persona_contacto_tlf,
-        notificaciones_contacto_activas, numero_cuenta),
+        notificaciones_contacto_activas, contacto_es_partner, numero_cuenta),
     oportunidades!oportunidad_id(datos_calculo)`;
 
 /** Carga el expediente con lo justo para este formulario (nunca `cee`: regla 22). */

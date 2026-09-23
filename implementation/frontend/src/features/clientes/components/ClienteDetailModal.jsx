@@ -10,6 +10,8 @@ import { WhatsappEtiquetas } from '../../../components/WhatsappEtiquetas';
 // Los accesos a la carpeta del expediente (Drive / local) son fuente única en
 // ExpedienteAccesos: los comparte con el listado de clientes.
 import { ExpedienteAccesos } from '../../expedientes/components/ExpedienteAccesos';
+// El partner como persona de contacto: fuente única con el alta de cliente.
+import { PartnerComoContacto } from './PartnerComoContacto';
 
 // Helpers de dirección catastral: fuente única en utils/direccionCatastral.js
 // ─── Sub-componentes ────────────────────────────────────────────────────────
@@ -196,6 +198,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
             persona_contacto_tlf: cliente.persona_contacto_tlf || '',
             persona_contacto_email: cliente.persona_contacto_email || '',
             notificaciones_contacto_activas: !!cliente.notificaciones_contacto_activas,
+            contacto_es_partner: !!cliente.contacto_es_partner,
             // Otros propietarios de la vivienda (destinatarios, no firmantes).
             copropietarios: Array.isArray(cliente.copropietarios) ? cliente.copropietarios : [],
             notas: cliente.notas || '',
@@ -293,6 +296,9 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                 persona_contacto_tlf: form.persona_contacto_tlf?.trim() || null,
                 persona_contacto_email: form.persona_contacto_email?.trim() || null,
                 notificaciones_contacto_activas: form.notificaciones_contacto_activas || false,
+                // Con el partner como contacto, persona_contacto_* los rellena el
+                // backend desde su ficha: lo que viaje aquí se ignora.
+                ...(isAdmin ? { contacto_es_partner: !!form.contacto_es_partner } : {}),
                 // La lista va ENTERA: es la verdad de quién es propietario. Un patch
                 // parcial dejaría vivo a quien se acaba de quitar. El saneado (qué
                 // claves valen, MAYÚSCULAS, filas vacías) es del backend.
@@ -599,7 +605,14 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                     <FieldView label="Teléfono" value={cliente.tlf} />
                                     {cliente.numero_cuenta && isAdmin && <FieldView label="Cuenta (IBAN)" value={cliente.numero_cuenta} />}
                                     {cliente.prescriptores?.acronimo && <FieldView label="Prescriptor" value={cliente.prescriptores.acronimo || cliente.prescriptores.razon_social} />}
-                                    {cliente.persona_contacto_nombre && <FieldView label="Contacto" value={cliente.persona_contacto_nombre} />}
+                                    {cliente.contacto_es_partner && (
+                                        <div className="sm:col-span-2">
+                                            <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md bg-sky-500/10 border border-sky-500/20 text-sky-400">
+                                                Los avisos los recibe el partner{cliente.prescriptores?.acronimo ? ` · ${cliente.prescriptores.acronimo}` : ''}
+                                            </span>
+                                        </div>
+                                    )}
+                                    {cliente.persona_contacto_nombre && <FieldView label={cliente.contacto_es_partner ? 'Contacto (partner)' : 'Contacto'} value={cliente.persona_contacto_nombre} />}
                                     {cliente.persona_contacto_email && <FieldView label="Email Contacto" value={cliente.persona_contacto_email?.toLowerCase()} valueClassName="!lowercase" />}
                                     {cliente.persona_contacto_tlf && (
                                         <div>
@@ -920,6 +933,15 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                 </div>
 
                                 <div className="mt-4 pt-4 border-t border-white/[0.05] space-y-4">
+                                    {isAdmin && (
+                                        <PartnerComoContacto
+                                            form={form}
+                                            updateForm={updateForm}
+                                            prescriptor={selectedPrescriptor}
+                                        />
+                                    )}
+
+                                    {!form.contacto_es_partner && (<>
                                     <label className="flex items-center gap-3 cursor-pointer group w-fit">
                                         <div className="relative flex items-center">
                                             <input
@@ -983,6 +1005,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                             </p>
                                         </div>
                                     )}
+                                    </>)}
                                 </div>
                             </div>
 

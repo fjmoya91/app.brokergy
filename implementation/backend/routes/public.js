@@ -294,8 +294,11 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
 
         // 1. Resolver si debemos actualizar datos principales o de contacto
         if (id_cliente) {
-            const { data: currentCli } = await supabase.from('clientes').select('notificaciones_contacto_activas').eq('id_cliente', id_cliente).single();
-            if (currentCli?.notificaciones_contacto_activas) {
+            const { data: currentCli } = await supabase.from('clientes').select('notificaciones_contacto_activas, contacto_es_partner').eq('id_cliente', id_cliente).single();
+            if (currentCli?.contacto_es_partner) {
+                // La persona de contacto es el PARTNER (copia de su ficha, la mantiene
+                // el backend): lo que teclee aquí el cliente no puede pisarla.
+            } else if (currentCli?.notificaciones_contacto_activas) {
                 // Si el modo contacto está activo, guardamos email/tlf en los campos de contacto
                 clienteData.persona_contacto_email = formFields.email;
                 clienteData.persona_contacto_tlf = formFields.telefono;
@@ -576,9 +579,11 @@ router.patch('/datos/:id', async (req, res) => {
         if (iban !== undefined) updates.numero_cuenta = iban || null;
 
         // Distinguir entre actualizar titular o contacto alternativo
-        const { data: currentCli } = await supabase.from('clientes').select('notificaciones_contacto_activas').eq('id_cliente', opp.cliente_id).single();
+        const { data: currentCli } = await supabase.from('clientes').select('notificaciones_contacto_activas, contacto_es_partner').eq('id_cliente', opp.cliente_id).single();
         
-        if (currentCli?.notificaciones_contacto_activas) {
+        if (currentCli?.contacto_es_partner) {
+            // Persona de contacto = el partner: no se pisa desde un formulario público.
+        } else if (currentCli?.notificaciones_contacto_activas) {
             if (email !== undefined) updates.persona_contacto_email = email;
             if (telefono !== undefined) updates.persona_contacto_tlf = telefono;
         } else {
@@ -2383,7 +2388,9 @@ router.post('/cobro/:expedienteId', upload.single('justificante'), async (req, r
             };
             // Con el modo "persona de contacto" activo, el email y el teléfono que
             // escribe quien abre el enlace son los de ESA persona, no los del titular.
-            if (notif) {
+            if (exp.clientes?.contacto_es_partner) {
+                // Persona de contacto = el partner: no se pisa desde el enlace.
+            } else if (notif) {
                 datos.persona_contacto_email = limpio(f.email) || exp.clientes?.persona_contacto_email;
                 datos.persona_contacto_tlf = limpio(f.telefono) || exp.clientes?.persona_contacto_tlf;
             } else {
@@ -2570,7 +2577,7 @@ router.post('/anexos-datos/:expedienteId',
             const b = req.body || {};
             const { data: exp, error } = await supabase
                 .from('expedientes')
-                .select('id, numero_expediente, cliente_id, documentacion, instalacion, clientes!cliente_id(id_cliente, notificaciones_contacto_activas), oportunidades!oportunidad_id(datos_calculo, ref_catastral, referencia_cliente)')
+                .select('id, numero_expediente, cliente_id, documentacion, instalacion, clientes!cliente_id(id_cliente, notificaciones_contacto_activas, contacto_es_partner), oportunidades!oportunidad_id(datos_calculo, ref_catastral, referencia_cliente)')
                 .eq('id', expedienteId)
                 .maybeSingle();
             if (error) console.error('[anexos-datos] select error:', error.message);
@@ -2581,16 +2588,19 @@ router.post('/anexos-datos/:expedienteId',
             // Email/teléfono van a los campos principales o a los de "persona de
             // contacto" según la preferencia del cliente (igual que la propuesta).
             const notif = exp.clientes?.notificaciones_contacto_activas === true;
+            // Persona de contacto = el partner: ni su email ni su teléfono se pisan
+            // desde el enlace, y tampoco se escriben en los del titular.
+            const esPartner = exp.clientes?.contacto_es_partner === true;
             const clienteUpdate = {};
             if (b.nombre_razon_social != null && b.nombre_razon_social !== '') clienteUpdate.nombre_razon_social = b.nombre_razon_social.trim();
             if (b.apellidos != null) clienteUpdate.apellidos = b.apellidos.trim() || null;
             if (b.dni_cif != null && b.dni_cif !== '') clienteUpdate.dni = b.dni_cif.trim().toUpperCase();
             if (b.iban != null && b.iban !== '') clienteUpdate.numero_cuenta = b.iban.replace(/\s+/g, '').toUpperCase();
-            if (b.email != null && b.email !== '') {
+            if (!esPartner && b.email != null && b.email !== '') {
                 if (notif) clienteUpdate.persona_contacto_email = b.email.trim().toLowerCase();
                 else clienteUpdate.email = b.email.trim().toLowerCase();
             }
-            if (b.telefono != null && b.telefono !== '') {
+            if (!esPartner && b.telefono != null && b.telefono !== '') {
                 if (notif) clienteUpdate.persona_contacto_tlf = b.telefono.trim();
                 else clienteUpdate.tlf = b.telefono.trim();
             }
