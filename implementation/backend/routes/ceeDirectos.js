@@ -372,6 +372,59 @@ router.post('/ofertas/:ofertaId/anular', staffOnly, async (req, res) => {
     }
 });
 
+// ─── FACTURA ────────────────────────────────────────────────────────────────
+// Se emite contra el libro de facturas de la hoja de AppSheet (misma serie
+// {YY}ING_{n}): ver services/ceeFacturaService.js. Solo ADMIN: son importes y
+// un número de factura que no se puede tirar.
+const facturas = require('../services/ceeFacturaService');
+
+router.get('/:id/factura', adminOnly, async (req, res) => {
+    try {
+        res.json(await facturas.borrador(req.params.id));
+    } catch (err) {
+        console.error('[cee-directos factura borrador]', err.message);
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+router.post('/:id/factura', adminOnly, async (req, res) => {
+    try {
+        res.json(await facturas.emitir(req.params.id, req.body || {}, { usuario: req.user?.email || null }));
+    } catch (err) {
+        console.error('[cee-directos factura emitir]', err.message);
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+router.get('/:id/factura/:numero/pdf', adminOnly, async (req, res) => {
+    try {
+        const { buffer, filename } = await facturas.pdfDe(req.params.id, req.params.numero);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(filename)}`);
+        res.send(buffer);
+    } catch (err) {
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+router.post('/:id/factura/:numero/pdf', adminOnly, async (req, res) => {
+    try {
+        res.json(await facturas.rehacerPdf(req.params.id, req.params.numero));
+    } catch (err) {
+        console.error('[cee-directos factura pdf]', err.message);
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+router.post('/:id/factura/:numero/enviar', adminOnly, async (req, res) => {
+    try {
+        res.json(await facturas.enviar(req.params.id, req.params.numero, { ...(req.body || {}), usuario: req.user?.email || null }));
+    } catch (err) {
+        console.error('[cee-directos factura enviar]', err.message);
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
 // ─── GET /:id ── Detalle ────────────────────────────────────────────────────
 router.get('/:id', internalOnly, async (req, res) => {
     try {
@@ -466,6 +519,18 @@ router.put('/:id', internalOnly, async (req, res) => {
         }
         // El alcance solo se amplía por su ruta, que además reorganiza la carpeta.
         delete patch.alcance;
+
+        // Las FACTURAS emitidas las escribe solo su ruta. La ficha reenvía
+        // `documentacion` entera desde la copia que cargó al abrirse, y una
+        // pestaña abierta antes de emitir borraría el registro de la factura
+        // (su número ya está en el libro de facturas: perderlo aquí es perder
+        // el rastro de un número emitido).
+        if (patch.documentacion && typeof patch.documentacion === 'object') {
+            const guardadas = row.documentacion?.facturas_emitidas;
+            patch.documentacion = { ...patch.documentacion };
+            if (guardadas) patch.documentacion.facturas_emitidas = guardadas;
+            else delete patch.documentacion.facturas_emitidas;
+        }
 
         if (!isStaff(req)) {
             // El técnico manda el objeto `cee` ENTERO (es lo que tiene en pantalla)
@@ -623,6 +688,11 @@ router.patch('/:id/cobrado', adminOnly, async (req, res) => {
             texto: cobrado ? 'MARCADO COMO COBRADO — SE PUEDE ENTREGAR AL CLIENTE' : 'SE RETIRA LA MARCA DE COBRADO',
             usuario: req.user?.email || null
         });
+
+        // Sus facturas pasan a PAGADA (o vuelven a ENVIADA) en el libro de
+        // facturas: es el mismo hecho, y en diferido — la hoja no puede tumbar el cobro.
+        setImmediate(() => facturas.sincronizarCobro(row.id, cobrado, data.cobrado_at)
+            .catch(e => console.warn('[cee-directos cobro→factura]', e.message)));
 
         // La otra mitad de la condición. Se prueba con TODAS las fases ya
         // registradas: en un encargo doble puede tocar entregar las dos de golpe

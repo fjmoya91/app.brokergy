@@ -8,6 +8,7 @@ import { ResumenDatos } from '../components/ResumenDatos';
 import { Trazabilidad } from '../components/Trazabilidad';
 import { CuestionarioCliente } from '../components/CuestionarioCliente';
 import { DocumentacionCee } from '../components/DocumentacionCee';
+import { FacturaCeeModal } from '../components/FacturaCeeModal';
 import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
 
@@ -45,6 +46,7 @@ export function CeeDirectoDetailView({ id, onBack }) {
     const [menuAbierto, setMenuAbierto] = useState(false);
     const [showDatos, setShowDatos] = useState(false);
     const [showPartner, setShowPartner] = useState(false);
+    const [showFactura, setShowFactura] = useState(false);
 
     const cargar = useCallback(async (silent = false) => {
         if (!silent) setLoading(true);
@@ -260,6 +262,20 @@ export function CeeDirectoDetailView({ id, onBack }) {
                             que su enlace es solo para el equipo. Al certificador se le
                             comparten sus dos carpetas en el encargo, una a una; el
                             backend además le borra este campo de la respuesta. */}
+                        {/* FACTURA: solo ADMIN (importes, y un número de factura
+                            que no se puede tirar). Dice cuál tiene si ya la hay. */}
+                        {isAdmin && (() => {
+                            const nums = Object.keys(expediente.documentacion?.facturas_emitidas || {});
+                            return (
+                                <button onClick={() => setShowFactura(true)}
+                                    title={nums.length ? 'Ver, reenviar o emitir otra factura' : 'Preparar y emitir la factura de este CEE'}
+                                    className={`min-h-[44px] px-4 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-colors ${nums.length
+                                        ? 'border-emerald-500/25 text-emerald-400 hover:bg-emerald-500/10'
+                                        : 'border-white/10 text-white/50 hover:text-white hover:border-white/25'}`}>
+                                    🧾 {nums.length ? `Factura ${nums[nums.length - 1]}` : 'Generar factura'}
+                                </button>
+                            );
+                        })()}
                         {isStaff && expediente.drive_folder_link && (
                             <a href={expediente.drive_folder_link} target="_blank" rel="noreferrer"
                                 className="min-h-[44px] px-4 inline-flex items-center rounded-xl border border-white/10 text-[10px] font-black uppercase tracking-widest text-white/50 hover:text-white hover:border-white/25 transition-colors">
@@ -367,6 +383,11 @@ export function CeeDirectoDetailView({ id, onBack }) {
                     onClose={() => setShowPartner(false)}
                     onUpdated={() => { setShowPartner(false); cargar(true); }}
                 />
+            )}
+
+            {isAdmin && (
+                <FacturaCeeModal isOpen={showFactura} onClose={() => setShowFactura(false)}
+                    expedienteId={expediente.id} onCambio={() => cargar(true)} />
             )}
 
             {showCliente && expediente.cliente_id && (
