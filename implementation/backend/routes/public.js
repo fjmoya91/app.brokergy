@@ -231,8 +231,11 @@ router.get('/cliente/:id', async (req, res) => {
         const { vigente: versionVigente } = require('../services/propuestaVersiones');
         const vProp = versionVigente(opp.datos_calculo);
 
-        const useContact = foundCliente?.notificaciones_contacto_activas;
-        
+        // Con el PARTNER como persona de contacto, el formulario enseña los datos
+        // del TITULAR: quien lo rellena es el cliente, y el teléfono de Paloma
+        // (JOSE VICENTE RUIZ SL) en "tu teléfono" no es suyo.
+        const useContact = foundCliente?.notificaciones_contacto_activas && !foundCliente?.contacto_es_partner;
+
         return res.json({
             id_oportunidad: id,
             id_cliente: foundCliente?.id_cliente || null,
@@ -297,7 +300,10 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
             const { data: currentCli } = await supabase.from('clientes').select('notificaciones_contacto_activas, contacto_es_partner').eq('id_cliente', id_cliente).single();
             if (currentCli?.contacto_es_partner) {
                 // La persona de contacto es el PARTNER (copia de su ficha, la mantiene
-                // el backend): lo que teclee aquí el cliente no puede pisarla.
+                // el backend) y no se pisa. Lo que teclea el cliente es SUYO: va a los
+                // campos del titular. Antes se descartaba y se perdía (26RES060_202).
+                clienteData.email = formFields.email;
+                clienteData.tlf = formFields.telefono;
             } else if (currentCli?.notificaciones_contacto_activas) {
                 // Si el modo contacto está activo, guardamos email/tlf en los campos de contacto
                 clienteData.persona_contacto_email = formFields.email;
@@ -484,23 +490,78 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
                 }
             }
 
-            // 3. Email cliente
+            // A QUIÉN va el acuse: lo dice la FICHA, no el formulario. Con los avisos
+            // desviados a su persona de contacto (o al partner, como Paloma de JOSE
+            // VICENTE RUIZ SL) le llega a ella, aunque el cliente haya escrito su
+            // propio móvil al aceptar — medido en 26RES060_202: salió al 649396849
+            // del titular. Sin desvío, lo de siempre: lo que tecleó el cliente.
+            let dest = {
+                tlf: formFields.telefono || null,
+                email: formFields.email || null,
+                saludo: formFields.nombre_razon_social,
+                titular: null,
+            };
             try {
+                if (id_cliente) {
+                    const { data: cli } = await supabase.from('clientes')
+                        .select('nombre_razon_social, apellidos, notificaciones_contacto_activas, persona_contacto_nombre, persona_contacto_tlf, persona_contacto_email')
+                        .eq('id_cliente', id_cliente).maybeSingle();
+                    const desvio = cli?.notificaciones_contacto_activas === true || cli?.notificaciones_contacto_activas === 'true';
+                    if (desvio && (cli.persona_contacto_tlf || cli.persona_contacto_email)) {
+                        dest = {
+                            tlf: cli.persona_contacto_tlf || null,
+                            email: cli.persona_contacto_email || null,
+                            saludo: cli.persona_contacto_nombre || '',
+                            titular: require('../services/recordatorios').capitalizar(
+                                `${cli.nombre_razon_social || formFields.nombre_razon_social || ''} ${cli.apellidos || formFields.apellidos || ''}`.trim()),
+                        };
+                    }
+                }
+            } catch (e) { console.warn('[Public] resolviendo destinatario del acuse:', e.message); }
+
+            // 3. Email
+            if (dest.email) try {
                 await emailService.sendAcceptanceNotificationEmail({
-                    to: formFields.email,
-                    userName: nombreSaludo(formFields.nombre_razon_social),
+                    to: dest.email,
+                    userName: nombreSaludo(dest.saludo),
                     numeroExpediente,
-                    uploadLink
+                    uploadLink,
+                    titular: dest.titular,
                 });
-                console.log(`[Public] Email cliente enviado.`);
+                console.log(`[Public] Email de aceptación enviado${dest.titular ? ' (a la persona de contacto)' : ''}.`);
             } catch (emailErr) {
                 console.error("[Public] Error email cliente:", emailErr.message);
             }
 
-            // 4. WhatsApp cliente
-            if (formFields.telefono) {
+            // 4. WhatsApp
+            if (dest.tlf && dest.titular) {
+                // Versión para la persona de contacto: de QUIÉN es la propuesta.
+                const msgTercero =
+`¡Hola *${nombreSaludo(dest.saludo)}*!
+
+*${dest.titular}* ha aceptado la propuesta. *¡Muchas gracias por confiar en Brokergy!*
+
+El número de expediente asignado es: *${numeroExpediente || 'Pte. confirmar'}*
+
+A partir de este momento, nuestro equipo técnico comenzará a preparar el *Certificado de Eficiencia Energética inicial*. Es fundamental emitirlo antes de la última factura de obra para asegurar las deducciones fiscales y tramitar el expediente CAE.
+
+📁 *Documentación necesaria (se puede enviar poco a poco):*
+• Planos de la vivienda o croquis de distribución.
+• Foto de la caldera existente y de su placa de características.
+• Foto de los radiadores o del colector si es suelo radiante.
+• Vídeo corto recorriendo la vivienda.
+• Si se cambian ventanas o aislamiento, fotos y presupuesto.
+
+🔗 *Se puede subir aquí:*
+${uploadLink}
+
+¡Quedamos a vuestra disposición para cualquier duda!
+*BROKERGY — Ingeniería Energética*`;
+                whatsappService.sendText(dest.tlf, msgTercero)
+                    .catch(err => console.warn(`[Public] Error WhatsApp contacto:`, err.message));
+            } else if (dest.tlf) {
                 const whatsappMsg =
-`¡Hola *${nombreSaludo(formFields.nombre_razon_social)}*!
+`¡Hola *${nombreSaludo(dest.saludo)}*!
 
 Hemos recibido correctamente la aceptación de tu propuesta. *¡Muchas gracias por confiar en Brokergy!*
 
@@ -520,7 +581,7 @@ ${uploadLink}
 
 ¡Quedamos a tu disposición para cualquier duda!
 *BROKERGY — Ingeniería Energética*`;
-                whatsappService.sendText(formFields.telefono, whatsappMsg)
+                whatsappService.sendText(dest.tlf, whatsappMsg)
                     .catch(err => console.warn(`[Public] Error WhatsApp cliente:`, err.message));
             }
 
@@ -588,7 +649,9 @@ router.patch('/datos/:id', async (req, res) => {
         const { data: currentCli } = await supabase.from('clientes').select('notificaciones_contacto_activas, contacto_es_partner').eq('id_cliente', opp.cliente_id).single();
         
         if (currentCli?.contacto_es_partner) {
-            // Persona de contacto = el partner: no se pisa desde un formulario público.
+            // Persona de contacto = el partner: no se pisa. Lo tecleado es del titular.
+            if (email !== undefined) updates.email = email;
+            if (telefono !== undefined) updates.tlf = telefono;
         } else if (currentCli?.notificaciones_contacto_activas) {
             if (email !== undefined) updates.persona_contacto_email = email;
             if (telefono !== undefined) updates.persona_contacto_tlf = telefono;
@@ -2397,7 +2460,9 @@ router.post('/cobro/:expedienteId', upload.single('justificante'), async (req, r
             // Con el modo "persona de contacto" activo, el email y el teléfono que
             // escribe quien abre el enlace son los de ESA persona, no los del titular.
             if (exp.clientes?.contacto_es_partner) {
-                // Persona de contacto = el partner: no se pisa desde el enlace.
+                // Persona de contacto = el partner: no se pisa. Lo tecleado es del titular.
+                datos.email = limpio(f.email) || exp.clientes?.email;
+                datos.tlf = limpio(f.telefono) || exp.clientes?.tlf;
             } else if (notif) {
                 datos.persona_contacto_email = limpio(f.email) || exp.clientes?.persona_contacto_email;
                 datos.persona_contacto_tlf = limpio(f.telefono) || exp.clientes?.persona_contacto_tlf;
@@ -2596,20 +2661,21 @@ router.post('/anexos-datos/:expedienteId',
             // Email/teléfono van a los campos principales o a los de "persona de
             // contacto" según la preferencia del cliente (igual que la propuesta).
             const notif = exp.clientes?.notificaciones_contacto_activas === true;
-            // Persona de contacto = el partner: ni su email ni su teléfono se pisan
-            // desde el enlace, y tampoco se escriben en los del titular.
+            // Persona de contacto = el partner: su email y su teléfono no se pisan
+            // desde el enlace; lo que se teclea aquí va a los del titular.
             const esPartner = exp.clientes?.contacto_es_partner === true;
             const clienteUpdate = {};
             if (b.nombre_razon_social != null && b.nombre_razon_social !== '') clienteUpdate.nombre_razon_social = b.nombre_razon_social.trim();
             if (b.apellidos != null) clienteUpdate.apellidos = b.apellidos.trim() || null;
             if (b.dni_cif != null && b.dni_cif !== '') clienteUpdate.dni = b.dni_cif.trim().toUpperCase();
             if (b.iban != null && b.iban !== '') clienteUpdate.numero_cuenta = b.iban.replace(/\s+/g, '').toUpperCase();
-            if (!esPartner && b.email != null && b.email !== '') {
-                if (notif) clienteUpdate.persona_contacto_email = b.email.trim().toLowerCase();
+            // Con el partner de contacto, lo tecleado es del TITULAR (no se pierde).
+            if (b.email != null && b.email !== '') {
+                if (notif && !esPartner) clienteUpdate.persona_contacto_email = b.email.trim().toLowerCase();
                 else clienteUpdate.email = b.email.trim().toLowerCase();
             }
-            if (!esPartner && b.telefono != null && b.telefono !== '') {
-                if (notif) clienteUpdate.persona_contacto_tlf = b.telefono.trim();
+            if (b.telefono != null && b.telefono !== '') {
+                if (notif && !esPartner) clienteUpdate.persona_contacto_tlf = b.telefono.trim();
                 else clienteUpdate.tlf = b.telefono.trim();
             }
 

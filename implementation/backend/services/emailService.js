@@ -577,19 +577,25 @@ const sendProposalEmail = async ({ to, cc = null, userName, pdfBuffer, tableImag
 /**
  * Envía el email de confirmación tras recibir la aceptación de la propuesta
  */
-const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente, uploadLink }) => {
+// `titular`: solo cuando lo recibe la PERSONA DE CONTACTO del cliente (o el partner
+// que lleva la relación): entonces la propuesta aceptada es la de ese titular.
+const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente, uploadLink, titular = null }) => {
     const subject = `Aceptación recibida [Exp ${numeroExpediente || ''}] — Brokergy`;
 
-    const whatsAppLink = `https://wa.me/34623926179?text=${encodeURIComponent(`Hola, soy ${userName}. Mi número de expediente es ${numeroExpediente || 'A consultar'}. Aquí envío la documentación solicitada.`)}`;
+    const whatsAppLink = `https://wa.me/34623926179?text=${encodeURIComponent(titular
+        ? `Hola, soy ${userName}. Os envío la documentación del expediente ${numeroExpediente || 'A consultar'} de ${titular}.`
+        : `Hola, soy ${userName}. Mi número de expediente es ${numeroExpediente || 'A consultar'}. Aquí envío la documentación solicitada.`)}`;
 
     const html = brandEmailShell({
-        preheader: 'Hemos recibido la aceptación de tu propuesta.',
+        preheader: titular ? `${titular} ha aceptado la propuesta.` : 'Hemos recibido la aceptación de tu propuesta.',
         title: 'Aceptación recibida',
         pill: PILL.success('Aceptación recibida'),
         contentHtml:
             emailP(`¡Hola, ${escapeHtml(userName || 'cliente')}!`, { size: 20, bold: true, mb: 20 }) +
-            emailP('Hemos recibido correctamente la aceptación de tu propuesta. <strong>Muchas gracias por confiar en Brokergy.</strong>', { color: BRAND.muted, mb: 15 }) +
-            (numeroExpediente ? emailBox(emailP(`Tu número de expediente asignado es: <strong style="color:${BRAND.orangeDark};">${escapeHtml(numeroExpediente)}</strong>`, { mb: 0 }), { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }) : '') +
+            emailP(titular
+                ? `Hemos recibido correctamente la aceptación de la propuesta de <strong>${escapeHtml(titular)}</strong>. <strong>Muchas gracias por confiar en Brokergy.</strong>`
+                : 'Hemos recibido correctamente la aceptación de tu propuesta. <strong>Muchas gracias por confiar en Brokergy.</strong>', { color: BRAND.muted, mb: 15 }) +
+            (numeroExpediente ? emailBox(emailP(`${titular ? 'El' : 'Tu'} número de expediente asignado es: <strong style="color:${BRAND.orangeDark};">${escapeHtml(numeroExpediente)}</strong>`, { mb: 0 }), { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }) : '') +
             emailP('A partir de este momento nos ponemos con el <strong>Certificado de Eficiencia Energética (CEE)</strong>: de prepararlo y presentarlo nos encargamos nosotros. Para poder hacerlo cuanto antes necesitamos la documentación de abajo — en cuanto la tengamos, nos ponemos manos a la obra.', { color: BRAND.muted, mb: 15 }) +
             emailBox(
                 emailP('⚠️ Muy importante antes de empezar la obra', { size: 14, bold: true, color: BRAND.orangeDark, mb: 10 }) +
