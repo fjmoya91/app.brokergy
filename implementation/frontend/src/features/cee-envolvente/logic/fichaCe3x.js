@@ -370,7 +370,7 @@ export function equipoConAjustes(equipo, ajustes, { superficie } = {}) {
             avisos.push(`El equipo sigue sin escribirse: ${faltan.length === 1
                 ? 'falta' : 'faltan'} ${faltan.join(', ')}.`);
         }
-        return { equipo: null, avisos };
+        return { equipo: null, falta: `falta ${faltan[0]}`, avisos };
     }
 
     const slot = a.slot === 'calefaccion' || a.slot === 'mixto2'
@@ -499,18 +499,43 @@ export function instalacionExistente({ expediente, superficie, litros = null } =
     // MISMO número, así que se mira también aquí — si no, un expediente que ya
     // lo tiene escrito volvería a pedirlo. `potencia_caldera_kw` es donde lo
     // deja el lector de la placa.
-    const potencia = positivo(inst.potencia_caldera_kw)
+    const potenciaDeclarada = positivo(inst.potencia_caldera_kw)
         || positivo(inst.potencia_caldera)
         || positivo(inputs.potenciaCaldera);
-    if (!potencia) {
-        avisos.push('No consta la potencia de la caldera actual —está en su placa—: '
-            + 'la instalación existente se pone en CE3X. Si hay foto de la placa, '
-            + 'pulsa «Leer la placa».');
-        return { equipo: null, falta: 'falta la potencia', avisos };
-    }
+    // Sin potencia declarada se pone la que CE3X trae por defecto al crear un
+    // equipo (24 kW): es lo mismo que saldría tecleándolo allí, y así la caldera
+    // se escribe en vez de quedarse fuera del `.cex`. Se AVISA: el dato bueno
+    // está en la placa.
+    const potencia = potenciaDeclarada || POTENCIA_CALDERA_POR_DEFECTO;
 
     const daAcs = inst.misma_caldera_acs !== false;
     const nombre = [caldera.marca, caldera.modelo].filter(Boolean).join(' ').trim();
+
+    const equipo = {
+            slot: daAcs ? 'mixto2' : 'calefaccion',
+            nombre: (nombre ? `CALDERA ${nombre}` : 'CALDERA EXISTENTE').toUpperCase(),
+            generador: GENERADOR_CALDERA,
+            combustible,
+            aislamiento: AISLAMIENTO_POR_DEFECTO,
+            rend_combustion: String(rend),
+            ...(potencia ? { potencia: String(potencia) } : {}),
+            superficie_calefaccion: superficie,
+            ...(daAcs ? { superficie_acs: superficie } : {}),
+            // El DEPÓSITO es del edificio, no de la caldera: no está en ningún
+            // campo del expediente porque se mide en la visita, así que lo
+            // contesta el certificador antes de generar. Sin él, el equipo sale
+            // sin acumulación y el CEE final lo hereda así.
+            ...(daAcs && litros > 0 ? { acumulacion: { volumen: litros } } : {}),
+            de: `de la oportunidad: ${fila.label}. El aislamiento `
+                + `«${AISLAMIENTO_POR_DEFECTO}» es la hipótesis desfavorable — `
+                + 'CONFIRMAR EN VISITA.',
+    };
+
+    if (!potenciaDeclarada) {
+        avisos.push(`No consta la potencia de la caldera actual: va con ${
+            POTENCIA_CALDERA_POR_DEFECTO} kW, la que CE3X pone por defecto. La buena `
+            + 'está en su placa: si hay foto, pulsa «Leer la placa» o tecléala.');
+    }
 
     // El aviso lo lee una persona en castellano: coma decimal. El valor que va al
     // `.cex` conserva el punto, que es lo que escribe CE3X en sus ficheros (`V24.0`).
@@ -522,31 +547,15 @@ export function instalacionExistente({ expediente, superficie, litros = null } =
             + 'equipo va como «CALDERA EXISTENTE».');
     }
 
-    return {
-        equipo: {
-            slot: daAcs ? 'mixto2' : 'calefaccion',
-            nombre: (nombre ? `CALDERA ${nombre}` : 'CALDERA EXISTENTE').toUpperCase(),
-            generador: GENERADOR_CALDERA,
-            combustible,
-            aislamiento: AISLAMIENTO_POR_DEFECTO,
-            rend_combustion: String(rend),
-            potencia: String(potencia),
-            superficie_calefaccion: superficie,
-            ...(daAcs ? { superficie_acs: superficie } : {}),
-            // El DEPÓSITO es del edificio, no de la caldera: no está en ningún
-            // campo del expediente porque se mide en la visita, así que lo
-            // contesta el certificador antes de generar. Sin él, el equipo sale
-            // sin acumulación y el CEE final lo hereda así.
-            ...(daAcs && litros > 0 ? { acumulacion: { volumen: litros } } : {}),
-            de: `de la oportunidad: ${fila.label}. El aislamiento `
-                + `«${AISLAMIENTO_POR_DEFECTO}» es la hipótesis desfavorable — `
-                + 'CONFIRMAR EN VISITA.',
-        },
-        avisos,
-    };
+    return { equipo, avisos };
 }
 
 const positivo = v => (Number(v) > 0 ? Number(v) : null);
+
+//: La potencia con la que CE3X crea un «Equipo de sólo calefacción» / mixto
+//: nuevo (Potencia nominal 24.0 kW). Es el respaldo cuando el expediente no la
+//: declara.
+export const POTENCIA_CALDERA_POR_DEFECTO = 24;
 
 /**
  * El equipo NUEVO, para el CEE FINAL: la aerotermia que sustituye a la caldera.
@@ -1263,8 +1272,11 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
     // declarando que la obra instaló otra caldera. El depósito no se pierde por
     // separarlos: al final le llega del propio `.cex` que copia
     // (`_heredar_acumulacion`), que es una fuente mejor.
-    const conMano = equipoConAjustes(derivada.equipo, ajustesDeFase(cfg, fase),
-                                     { superficie });
+    //: Con la potencia sin declarar, lo derivado llega como PARCIAL: es la base
+    //: que completa lo tecleado, y el aviso de «falta» lo decide lo que siga
+    //: faltando después de aplicarlo, no lo que faltaba antes.
+    const conMano = equipoConAjustes(derivada.equipo || derivada.parcial || null,
+                                     ajustesDeFase(cfg, fase), { superficie });
     // Y los que se hayan AÑADIDO: un termo para el ACS, un aire acondicionado.
     // En CE3X son equipos aparte, cada uno con el % de demanda que cubre.
     const anadidos = (cfg.equipos_extra || []).map(x => equipoAnadido(x, { superficie }));
@@ -1277,7 +1289,7 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
         // son los que el certificador mete en su pestaña.
         equipos: [conMano.equipo, ...(derivada.extras || []),
                   ...anadidos.map(a => a.equipo)].filter(Boolean),
-        falta: conMano.equipo ? null : derivada.falta,
+        falta: conMano.equipo ? null : (conMano.falta || derivada.falta),
         avisos: [...derivada.avisos, ...conMano.avisos,
                  ...anadidos.flatMap(a => a.avisos)],
     };
