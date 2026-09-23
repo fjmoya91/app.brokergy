@@ -272,6 +272,120 @@ async function cambiarAlcance(id, nuevoAlcance) {
     return guardar(id, { alcance: 'UNICO', seguimiento }, { seguimientoPrev: row.seguimiento });
 }
 
+/**
+ * Da de alta un CEE directo con numeración AUTOMÁTICA y crea su carpeta.
+ *
+ * La usa la ACEPTACIÓN de una oferta por el cliente (ceeOfertaService). Compone
+ * la MISMA fila que el alta a mano de `POST /api/cee-directos` — zona climática,
+ * token del portal, subestado de partida —; si se toca una, hay que mirar la
+ * otra.
+ *
+ * Drive NO bloquea (regla 1): la carpeta se crea en segundo plano y, cuando
+ * existe, se llama a `onCarpeta(carpeta, creado)` — ahí cuelga la aceptación de
+ * la oferta para archivar su PDF.
+ *
+ * @returns {object} la fila creada
+ */
+async function crearExpediente(datos = {}, { createdBy = null, onCarpeta = null, esperarCarpeta = false } = {}) {
+    const alcanceOk = String(datos.alcance || '').toUpperCase() === 'DOBLE' ? 'DOBLE' : 'UNICO';
+    const municipio = datos.municipio || null;
+    const provincia = datos.provincia || null;
+    const info = municipio ? climateService.getClimateByNames(provincia, municipio) : null;
+
+    // Reintento corto ante la carrera del número: la RPC bloquea la tabla para
+    // leer el MAX, pero el INSERT va en otra transacción.
+    for (let intento = 0; intento < 3; intento++) {
+        const sig = await siguienteNumero(datos.anio);
+        const fila = {
+            numero_expediente: sig.numero, anio: sig.anio, correlativo: sig.correlativo,
+            nombre: String(datos.nombre || '').trim(),
+            alcance: alcanceOk,
+            cliente_id: datos.cliente_id,
+            prescriptor_id: datos.prescriptor_id || null,
+            direccion: datos.direccion || null,
+            ref_catastral: datos.ref_catastral || null,
+            ccaa: datos.ccaa || null,
+            provincia, municipio,
+            codigo_postal: datos.codigo_postal || null,
+            zona_climatica: info?.climateZone ?? null,
+            altitud: info?.altitude ?? null,
+            cee: datos.certificador_id ? { certificador_id: datos.certificador_id } : {},
+            seguimiento: { cee_inicial: 'PTE_ENVIO_CERT' },
+            documentacion: datos.documentacion || {},
+            portal_token: nuevoPortalToken(),
+            notas: datos.notas || null,
+            created_by: createdBy,
+            estado: 'PTE. CEE INICIAL'
+        };
+        const { data: creado, error } = await supabase.from(TABLA).insert(fila).select().single();
+        if (error) {
+            if (error.code === '23505' && intento < 2) continue;
+            throw new Error(error.message);
+        }
+
+        // `esperarCarpeta`: quien llama necesita la carpeta YA (la aceptación de
+        // una oferta deja al cliente subiendo fotos en el acto). Aun así un fallo
+        // de Drive no tumba el alta: la subida la vuelve a intentar crear.
+        const prepararCarpeta = async () => {
+            try {
+                const carpeta = await ceeDirectoFolders.crearCarpeta(creado.numero_expediente, creado.nombre, alcanceOk);
+                if (carpeta?.id) {
+                    await supabase.from(TABLA)
+                        .update({ drive_folder_id: carpeta.id, drive_folder_link: carpeta.link })
+                        .eq('id', creado.id);
+                    creado.drive_folder_id = carpeta.id;
+                    creado.drive_folder_link = carpeta.link;
+                }
+                if (onCarpeta) {
+                    // El PDF de la oferta, en segundo plano: no hace esperar a nadie.
+                    setImmediate(() => Promise.resolve(onCarpeta(carpeta, creado))
+                        .catch(e => console.error('[cee-directos alta] onCarpeta:', e.message)));
+                }
+            } catch (e) {
+                console.error('[cee-directos alta] carpeta Drive:', e.message);
+            }
+        };
+        if (esperarCarpeta) await prepararCarpeta();
+        else setImmediate(prepararCarpeta);
+        return creado;
+    }
+    throw new Error('No se pudo reservar un número de expediente');
+}
+
+/**
+ * A quién se le escribe cuando el aviso es PARA EL CLIENTE. Mismo criterio que
+ * `resolveSolicitudContacto` del CAE: con el desvío activo
+ * (`notificaciones_contacto_activas`) va a su persona de contacto y se le habla
+ * en tercera persona (`tercero`); si no, al titular, con la persona de contacto
+ * de respaldo para el dato que falte.
+ */
+function contactoCliente(cli) {
+    if (!cli) return { nombre: null, tlf: null, email: null, tercero: false };
+    const notif = cli.notificaciones_contacto_activas === true || cli.notificaciones_contacto_activas === 'true';
+    const titular = `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim() || null;
+    return {
+        nombre: (notif ? (cli.persona_contacto_nombre || titular) : titular) || null,
+        tlf: (notif ? (cli.persona_contacto_tlf || cli.tlf) : (cli.tlf || cli.persona_contacto_tlf)) || null,
+        email: (notif ? (cli.persona_contacto_email || cli.email) : (cli.email || cli.persona_contacto_email)) || null,
+        tercero: !!(notif && cli.persona_contacto_nombre && (cli.persona_contacto_tlf || cli.persona_contacto_email)),
+    };
+}
+
+/** De qué inmueble y de quién se habla, para cuando lo lee un tercero. */
+function obraDe(row) {
+    const cli = row.cliente;
+    return {
+        cliente: cli ? `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim() : null,
+        direccion: [row.direccion, [row.codigo_postal, row.municipio].filter(Boolean).join(' ')].filter(Boolean).join(', ') || null,
+    };
+}
+
+/** Fase del CEE dicha para el cliente: un encargo ÚNICO no tiene "inicial". */
+function faseCliente(row, phase) {
+    if (String(row.alcance || '').toUpperCase() !== 'DOBLE') return 'unico';
+    return phase === 'final' ? 'final' : 'inicial';
+}
+
 /** Compat: ampliar a doble sigue siendo la operación más común. */
 const ampliarADoble = (id) => cambiarAlcance(id, 'DOBLE');
 
@@ -288,5 +402,9 @@ module.exports = {
     mergeDoc,
     setDocField,
     ampliarADoble,
-    cambiarAlcance
+    cambiarAlcance,
+    crearExpediente,
+    contactoCliente,
+    obraDe,
+    faseCliente
 };

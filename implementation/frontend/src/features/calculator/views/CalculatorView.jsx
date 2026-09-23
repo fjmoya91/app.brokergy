@@ -16,6 +16,7 @@ import {
     calculateRes080Simplificado,
     calculateRes080SimplificadoFromXml,
     calculateHybridization,
+    resolveClimateSeason,
     normalizeHybridMethod,
     FUEL_PRICES,
     getUByYear,
@@ -644,8 +645,11 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             method: sanitizedInputs.hibridacionMetodo,
             boilerPower: sanitizedInputs.potenciaCaldera,
             // Las horas equivalentes son las de la temporada del SCOP elegido: si la
-            // simulación usara otra, el ahorro cambiaría al crear el expediente.
-            climateSeason: sanitizedInputs.scopTemporada
+            // simulación usara otra, el ahorro cambiaría al crear el expediente. Con
+            // el SCOP tecleado a mano no hay temporada sellada y manda la ZONA —la
+            // MISMA cascada que el expediente (`resolveClimateSeason`), o la
+            // oportunidad y su expediente darían dos C_b distintos.
+            climateSeason: resolveClimateSeason({}, sanitizedInputs, sanitizedInputs.zona)
         }) : null;
         const cb = hybridizationRes?.cb ?? 1.0;
 

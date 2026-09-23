@@ -2337,6 +2337,119 @@ El número se conserva TAL CUAL lo escribe la carpeta —los doce primeros lleva
 | Rutas | [routes/ceeDirectos.js](implementation/backend/routes/ceeDirectos.js) + `/cee-directo-upload` en `routes/public.js` |
 | Esquema | `scripts/cee_directos_schema.sql` |
 
+### La OFERTA — el paso anterior al expediente (2026-09-23)
+
+Botón **Enviar oferta** en la pestaña CEE directos (junto a "+ Nuevo CEE"). Se
+elige qué se ofrece —**un certificado (150 €)** o **inicial + final (220 €)**, sin
+IVA y editable—, la **tasa de registro por certificado** (16,39 €, la de
+Castilla-La Mancha; 0 = no se incluye) y el cliente, que puede ser un **alta
+rápida con solo nombre y teléfono** (lo que se tiene de quien pregunta por
+WhatsApp; se crea la ficha al enviar y se borra si no sale por ningún canal).
+Conceptos y observaciones son los de los presupuestos que ya se mandaban
+(P-26ING_39): "Certificado de Eficiencia Energética inicial y final, incluida su
+presentación en Industria" + "Tasa Certificado … Castilla-La Mancha". Sale como la propuesta CAE:
+**el PDF adjunto y un enlace** (`/aceptar-cee/:token`) donde el cliente completa
+sus datos y la acepta. **Al aceptar nace el expediente `{AAAA}CEE_{n}`**.
+
+| Qué | Dónde |
+|---|---|
+| Importes, líneas, mensaje y el HTML del PDF (fuente única: popup, backend y página pública) | [logic/ofertaCee.js](implementation/frontend/src/features/cee-directo/logic/ofertaCee.js) |
+| Guardar, rasterizar, enviar y aceptar | [services/ceeOfertaService.js](implementation/backend/services/ceeOfertaService.js) |
+| Alta del expediente al aceptar | `crearExpediente` en `ceeDirectoService.js` |
+| Rutas staff | `GET/POST /api/cee-directos/ofertas` · `/:ofertaId/pdf` · `/enviar` · `/anular` (declaradas ANTES que `/:id`) |
+| Rutas públicas | `GET /api/public/oferta-cee/:token` · `/pdf` · `POST /aceptar` |
+| Superficies | `OfertaCeeModal` · filas del propio listado (`CeeDirectosView` + `AccionesOferta`) · `AceptarOfertaCeeView` |
+| Esquema | `scripts/cee_ofertas_schema.sql` (tabla `cee_ofertas`, RLS deny-all) |
+| Prueba | `node implementation/backend/scripts/test_oferta_cee.mjs` |
+
+**REGLA — en el LISTADO el presupuesto es una FILA más, no un bloque aparte.**
+Es trabajo vivo con la pelota en el cliente, así que va en la misma tabla: número
+`{AAAA}PCEE_{n}` con su pastilla «Presupuesto», estado **«PRESUPUESTO ENVIADO»**,
+«Pelota: Cliente» y los días desde el último envío. Pulsarla despliega sus
+acciones (PDF · copiar enlace · reenviar · anular) — no abre ficha, porque todavía
+no hay expediente. El **ACEPTADO no se pinta**: ya es la fila de su expediente y
+saldría dos veces; el **ANULADO** solo con «Ver terminados» o buscando. Buscador y
+filtro de prescriptor valen igual para los dos tipos de fila.
+
+**REGLA — la oferta va en su PROPIA tabla, no como fila de `cee_directos`.** El
+correlativo de los CEE es global y seguido desde 2024: una oferta rechazada se
+comería un número, y además aparecería en el listado, el radar y la facturación.
+Su número es `{AAAA}PCEE_{n}` y lo compone la BD en el INSERT (secuencia +
+columna generada). Si ningún canal sale, la oferta se BORRA: nunca llegó a nadie.
+
+**REGLA — el PDF es una RÉPLICA del presupuesto de AppSheet**
+(`appsheet-factura-pdf/lib/presupuestoAppsheetHtml.js`), con las fuentes
+AUTO-ALOJADAS (regla 25.b) y en una sola hoja: una oferta tiene dos líneas como
+mucho. No se guarda en BD (regla 21): se REGENERA de la fila, y al aceptar se
+archiva en `3. PRESUPUESTO Y FACTURAS` del expediente recién creado.
+
+**La tasa es un suplido, sin IVA y UNA POR CERTIFICADO** (inicial + final = dos).
+La nota del PDF cita el art. 78.Tres.3º LIVA — la plantilla de AppSheet citaba el
+20.Uno.1º, que es otra cosa.
+
+**REGLA — la aceptación pide LO MISMO que /firma/:id, SIN la cuenta bancaria**:
+aquí no hay bono que ingresarle, paga él. Mismo reparto del email y el teléfono
+(desvío de contacto, partner que no se pisa) y, si el DNI ya es de otra ficha, se
+usa esa en vez de fallar. Y termina de completar sus datos: el **inmueble** —con
+la **referencia catastral** siempre a la vista (rellena si la tenemos), botón
+"Buscar" y **"Usar mi ubicación"** (GPS → `/api/catastro/reverse-geocode`, lo
+mismo que la captación; en un edificio de varias viviendas se le pregunta cuál
+es la suya)— y su **domicilio** ("vivo en este inmueble", por defecto sí). Lo
+que corrige el cliente MANDA sobre lo de la oferta: el Catastro no da el piso. Las condiciones son propias
+(`condicionesOfertaCee.js`, versión sellada en la oferta) y el popup de
+condiciones se reutiliza parametrizado.
+
+**REGLA — aceptar es un claim ATÓMICO** (`eq estado ENVIADA`) antes de crear nada:
+dos pulsaciones no crean dos expedientes, y si el alta falla la oferta vuelve a
+ENVIADA. Al aceptar se avisa al staff (WhatsApp + email, con el enlace para
+encargar el CEE) y se le da acuse al cliente con su número de expediente.
+
+### Descuento, cuestionario de climatización y documentación del CEE (2026-09-23)
+
+- **Descuento %** (`cee_ofertas.dto_pct`): solo sobre los HONORARIOS —la tasa es un
+  suplido y no se descuenta—; sale en la columna % Dto del PDF y en el total.
+- **Cuestionario de climatización** en la aceptación ([cuestionarioCee.js](implementation/frontend/src/features/cee-directo/logic/cuestionarioCee.js)):
+  calefacción y ACS con las MISMAS opciones que el funnel de captación, termo
+  eléctrico además de la caldera, aires acondicionados (y cuántos) y placas
+  —con la opción "estos certificados son para la deducción del IRPF por poner
+  placas"—. Se guarda en `cee_directos.documentacion.cuestionario`, lo ven el
+  equipo y el técnico en la ficha (`CuestionarioCliente`) y va en el aviso al equipo.
+- **La MISMA gestión de documentación que el CAE** para el CEE (fachada, patios,
+  vídeo, planos, CEE anterior): `DocsManager` con la prop `api`
+  (`features/docs/docsApi.js` → `API_DOCS_CEE_DIRECTO`, `unaFase`, sin escaparate)
+  y `reformaUploadService.subirFicherosASlot` con un `destino` propio. Servicio:
+  [ceeDirectoDocsService.js](implementation/backend/services/ceeDirectoDocsService.js);
+  estado en `documentacion.reforma_uploads` por las RPC
+  `cee_directo_docs_append` / `_replace_slot`; ficheros en «4. DOCUMENTACIÓN PARA
+  CEE»; token = `portal_token`. Rutas públicas `/api/public/cee-directo-docs/:id`
+  (+ `/:slot/batch`, DELETE) y `/cee-directo-thumb`; página `/subir-cee-docs/:id?token=&need=`;
+  equipo `/api/cee-directos/:id/docs` (validar · rechazar con aviso · waive · clasificar · enviar-enlace).
+  Solo la FACHADA es obligatoria; patios, vídeo y planos se piden como recomendables.
+- **Se suben al aceptar**, en la misma pantalla (la aceptación ESPERA a que exista
+  la carpeta: `crearExpediente({ esperarCarpeta })`). La confirmación al cliente
+  (`confirmarAlCliente`) sale al pulsar «He terminado» / «Lo subo más tarde» —o a
+  los 30 min, respaldo en memoria— y **si falta algo lleva el enlace** filtrado a
+  lo que falta. Una sola vez (`documentacion.confirmacion_cliente`).
+
+### Los avisos al CLIENTE, como en el CAE (2026-09-23)
+
+Hasta aquí un CEE directo solo le mandaba al cliente la entrega final.
+- **Al encargar el CEE**: el popup de "Notificar certificador" ofrece el aviso al
+  cliente en los DOS negocios (`GET /:id/aviso-cliente-cee`, cada ruta con su
+  texto). El de CEE suelto (`encargoCeeDirectoClienteMsg`) nombra al técnico y no
+  habla de ayudas ni facturas. Una vez por fase (`aviso_cliente_cee[fase]`).
+- **Al quedar REGISTRADO**: `ceeDirectoEntrega.avisarRegistrado` — desde el popup
+  de la rejilla (que antes decía "enviadas" habiendo avisado solo al equipo) y
+  AUTOMÁTICO cuando el técnico sube el justificante por su enlace. Si está
+  **cobrado no se manda**: sale la entrega con los PDF y lo cubre. Si no, le
+  recuerda el pago por transferencia. Respeta `CEE_ENTREGA_AUTO`.
+- **El técnico ACEPTA el encargo**: ni el CAE ni los directos avisan al cliente.
+- El destinatario sale de `ceeDirectoService.contactoCliente` (desvío a la persona
+  de contacto, igual que `resolveSolicitudContacto` del CAE), también en la entrega.
+
+⚠️ En LOCAL la base es la de producción: enviar una oferta desde localhost manda un
+WhatsApp y un email REALES, y aceptarla consume un número de CEE y crea carpeta.
+
 ---
 
 ---
@@ -10319,6 +10432,112 @@ del Anexo sigue vivo **dentro del propio Anexo Fotográfico**, que es de donde s
 llega a lo suyo, y su "+ Añadir fotos" sube ya por la ruta de tanda.
 
 
+### El buzón, medido (2026-09-21)
+
+La primera prueba con trece fotos reales salió mal, y por tres cosas distintas:
+
+**1 · Las miniaturas salían ROTAS, así que no había nada que revisar.** Los
+`objectURL` se creaban en el inicializador de `useState` y se revocaban en el
+cleanup del efecto. En **StrictMode** (desarrollo) React monta, desmonta y
+remonta, y al remontar el estado se **RESTAURA en vez de recalcularse**: las
+URLs quedaban revocadas y no se volvían a crear. Se crean ahora dentro del
+efecto, que es lo que hace que el ciclo de StrictMode las suelte y las rehaga.
+⚠️ No es un problema "solo de desarrollo": lo que se rompe es el orden de
+creación y liberación, y revocar un recurso que el render sigue usando está mal
+en cualquier modo.
+
+**2 · Reconocía las fotos y las dejaba sin clasificar igual.** Once de trece, con
+descripciones correctas ("Ventana de baño", "Tuberías y vaso de expansión"). Dos
+causas:
+
+- **El expediente era un RES060 y no tiene apartado de ventanas** (su ficha no
+  cubre envolvente, regla 12.b). El modelo hacía bien en no inventarse un
+  destino, pero el resultado era un hueco mudo: trece casillas vacías y ninguna
+  pista. Ahora devuelve también el **`concepto`** —de la lista de
+  `ADDABLE_CONCEPTS`, la misma del botón "Añadir apartado de obra"— y el buzón
+  ofrece **"3 fotos parecen de ventanas · este expediente no tiene ese apartado
+  → ➕ Añadir apartado"**, que lo activa por el MISMO endpoint de siempre y
+  coloca esas fotos solas en el apartado de su fase.
+- **El prompt era demasiado tímido.** "Aparato blanco con controles" es una
+  caldera y salía DUDOSO. Ahora se le dice que asigne siempre que reconozca el
+  objeto, que un apartado `multiple` admite todas las perspectivas del mismo
+  aparato, y qué cuenta como caldera —su entorno inmediato: los tubos, el vaso
+  de expansión, la bomba, las llaves—, que es lo que sale en la mitad de las
+  fotos de una sala de calderas.
+
+**3 · Detalles que impedían revisar**: la miniatura no se podía ampliar (a 56 px
+no se distingue la ventana de la cocina de la del baño, que es justo lo que hay
+que confirmar) y el botón contaba APARTADOS donde lo que se reparte son
+ARCHIVOS.
+
+**Medido, no estimado** — sobre las fotos de ejemplo del tutorial, que son del
+mismo tipo que las que llegan:
+
+```bash
+node implementation/backend/scripts/probar_clasificar_fotos.js
+```
+
+**7 de 7 correctas**, todas con confianza alta, 8,6 s y **0,005 €** la tanda
+(in 3.402 · out 415 · pensamiento 1.215 tokens). El checklist del banco de
+pruebas es el de un RES060 **sin envolvente** a propósito: la ventana tiene que
+salir sin apartado y con `concepto: ventanas`, que es el caso que falló.
+
+### Medio minuto de espera no puede ser una pantalla quieta (2026-09-22)
+
+Con veintiuna fotos el buzón tarda medio minuto en proponer nada —se reducen una
+a una en el navegador y el modelo las mira en tandas de doce— y en ese rato la
+pantalla era la lista de casillas vacías con un rótulo pequeño arriba. Eso se lee
+como que se ha colgado, y lo siguiente es cerrar y volver a soltarlas, que
+empieza la espera otra vez.
+
+[ClasificandoFotos.jsx](implementation/frontend/src/features/docs/ClasificandoFotos.jsx)
+es esa espera dibujada: las fotos salen de la pila, se paran bajo una lente y
+caen en su apartado, que entonces se marca. Es lo que está pasando.
+
+**REGLA — la primera fase lleva el número DE VERDAD.** Reducir las fotos ocurre
+AQUÍ y se puede contar, así que se cuenta (`Preparando las fotos… 7 de 21`). Lo
+que pasa en el servidor va por TIEMPO, con los rótulos de lo que de verdad hace,
+y el último **se queda** en vez de dar la vuelta: mismo criterio que
+`MidiendoElEdificio` — una cuenta que vuelve a empezar miente dos veces. El reloj
+de esas fases arranca **cuando las fotos ya han salido**; contándolo desde que se
+abre el popup, con veinte fotos el primer rótulo se habría pasado antes de que la
+petición saliera siquiera.
+
+**REGLA — el dibujo es SVG y `@keyframes`, nunca un GIF** (como los otros dos
+popups de espera de la casa): no pesa en la carga, se adapta al tema, no se
+pixela y sale de los tokens. Y dice cuántas TANDAS son, que es lo que explica por
+qué con veintiuna tarda el doble que con diez.
+
+⚠️ **En SVG el `scale` pivota sobre el ORIGEN DEL VIEWBOX, no sobre el
+elemento.** Sin `transform-box: fill-box`, la foto no encogía al llegar a su
+carpeta: salía disparada en diagonal. Es el mismo cuidado que pide cualquier
+`transform` dentro de un `<svg>`.
+⚠️ Va **portaleado a `body`** (regla 29.b): el buzón lleva `backdrop-blur`, y un
+`position: fixed` dentro de un ancestro con `backdrop-filter` se ancla a ÉL — se
+recortaría a la caja del modal en vez de cubrir la pantalla.
+
+### Y el desplegable se leía BLANCO SOBRE BLANCO
+
+El `<select>` de cada fila lleva `text-white`, pero el POPUP de sus opciones lo
+pinta el navegador con el esquema del **sistema** —fondo blanco— y ahí hereda ese
+color: no se leía más que la opción resaltada, y había que recorrerlas con el
+ratón para saber qué ponía cada una. **No era del buzón**: le pasa a cualquier
+`<select>` de la app.
+
+**REGLA — `color-scheme` se DECLARA** (`:root { color-scheme: dark }` y
+`.theme-light { color-scheme: light }`). Es lo que le dice al navegador en qué
+tema está la app, y con eso pinta el popup del `<select>`, las barras de scroll y
+los iconos de los campos de fecha. Las dos reglas de `option`/`optgroup` van
+**además**, a propósito: no todos los navegadores atienden al esquema cuando el
+`<select>` trae un `color` explícito, y una opción ilegible no es un detalle de
+estilo — es no poder elegir.
+
+⚠️ De rebote, **las barras de scroll y los selectores de fecha de toda la app se
+pintan en oscuro**. Es la consecuencia buscada (hasta hoy el icono del calendario
+salía negro sobre fondo oscuro y casi no se veía), pero se nota en todas las
+pantallas. En **tema claro no cambia nada**: ahí se declara `light`.
+
+
 ---
 
 ## Reglas Críticas — No Romper
@@ -10338,7 +10557,8 @@ llega a lo suyo, y su "+ Añadir fotos" sube ya por la ruta de tanda.
 8. **Expedientes — SCOP según emisor**: `suelo_radiante`→35°C, `radiadores_baja_temp`→45°C, `radiadores_convencionales`→55°C. En **RES080** la unidad terminal puede ser **aire-aire**: `splits` y `conductos`. No tienen temperatura de impulsión de agua — la ficha da un único SCOP, así que en el catálogo `aerotermia` esos modelos llevan el MISMO valor en `scop_cal_medio_35` y `_55` (`tipo = 'AIRE-AIRE'`) y el certificado imprime "unidad terminal …" en vez de "impulsión N°C". La lista de emisores es **fuente única** en [cifoDoc.js](implementation/frontend/src/features/expedientes/logic/cifoDoc.js) (`EMITTER_OPTIONS` / `getEmitterTemp` / `emitterScopContext`); no volver a duplicarla en los modales. Splits y conductos solo se ofrecen si el nº de expediente es RES080. ⚠️ **En aire-aire el SCOP de clima CÁLIDO solo está en EPREL** (categoría `airconditioners`, no `spaceheaters`): la ficha del fabricante publica únicamente el medio, que es el único obligatorio del Reg. 206/2012 — medido en el GREE PULAR 18, ficha 4,0 frente a **5,1** en EPREL. Por eso la ficha EPREL se archiva junto a la técnica (sin ella nadie reproduce ese número) y el modelo se identifica **por el código de placa**, no por el nombre comercial: `GWH18AGDXB` da 4,0/5,1 y `GWH18AGDXD` da 4,2/5,7. Ver la memoria [[project_aire_aire_eprel_scop_calido]].
 8.d **Una vivienda SIN calefacción se DECLARA, no se disfraza de "Otro"**: `caldera_antigua_cal.rendimiento_id = 'sin_calefaccion'` (η **0,92** y **Gas Natural** de referencia — los MISMOS que ya aplica la calculadora con `boilerHeatingType: 'No tiene Calefacción'`, o el expediente daría otro ahorro que la propuesta aceptada). Antes había que ponerlo como "Otro" + "Caldera eléctrica (η=1)", que afirma un equipo inexistente con el rendimiento equivocado, y de ese campo cuelgan el CIFO, las cuatro fichas, el RES080, el CE3X y la economía. La fila va **al final** de `BOILER_EFFICIENCIES` (no es del Anexo VIII) y su label lleva coma a propósito: el CIFO imprime el combustible con `label.split(',')[0]`. Tipo de equipo y Rendimiento se mueven JUNTOS, y solo se ofrece en la columna de CALEFACCIÓN. Sin generador previo la medida de mejora **no es una "sustitución"** (`generadorAntiguo` → null) y el encargo CE3X lleva su bloque: *marca Gas Natural en «otros combustibles», rendimiento 92 %* — si cada certificador elige el suyo, el CEE inicial deja de reproducir el ahorro firmado. Ver [[project_sin_calefaccion_expediente]].
 8.e **El emisor INICIAL y el FINAL no siempre son lo mismo**: en **RES060/RES093/TER100/TER173 SÍ** —la actuación cambia el generador, no la distribución, y es ella la que fija la temperatura de impulsión del SCOP—, así que el inicial se **deriva** y no se pregunta dos veces. En **RES080 no**: el inicial se declara y puede ser **NINGUNO** (vivienda sin calefacción), y en el final hay **tantos emisores como equipos instalados** (un conductos y un split conviviendo es el caso normal). Fuente única: [logic/emisores.js](implementation/frontend/src/features/expedientes/logic/emisores.js), que IMPORTA `EMITTER_OPTIONS` de `cifoDoc.js` sin duplicarla. Modelo incremental: `instalacion.tipo_emisor` no cambia (sigue siendo lo que leen CIFO, RITE y SCOP), y se añaden `instalacion.tipo_emisor_inicial` y `unidad.tipo_emisor` — solo RES080; sin ellos, todo se comporta como antes. **Dos emisores distintos son DOS GENERADORES en CE3X**, no una cascada: `buildCe3xFinal` emite un bloque por equipo con su tipo (`Bomba de calor aire-aire (conductos)` / `(split)`), su SCOP, **su** SEER —no el menor del conjunto— y su serie; y el certificado RES080 los enumera (`emisorLabelDocumento`, en `res080Doc.js` **y** en su modal gemelo) o contradiría al CE3X. ⚠️ En `res080Doc.js` la variable del expediente es `exp`, no `expediente`. Tras tocarlo: `node implementation/backend/scripts/test_emisores.mjs` y `check_res080_paginas.mjs`. Ver [[project_emisor_inicial_final]].
-8.b **Cb (RES093) — la carga de diseño sale del REGLAMENTO EUROPEO, no de la zona climática**: en el método `demanda`, `P_designh = Q_H / H_HE` (Rgto. (UE) 813/2013, Anexo III, punto 4, letra c); el Rgto. Delegado (UE) 811/2013, Anexo VII, punto 4, letra c) da las tres temporadas: medias **2.066 h** · más frías **2.465** · más cálidas **1.336**). **Las horas son las de la MISMA temporada en la que se declara el SCOP aplicado**, o el rendimiento y la potencia salen de temporadas distintas y dejan de compararse en igualdad de condiciones. Esa temporada la sella `instalacion.aerotermia_cal.scop_temporada` al elegir modelo/método/emisor (`getScopSeason`, que sale de la MISMA decisión que el valor del SCOP en `resolveScop`); sin sellar → `medio`, y el CIFO dice expresamente que no consta rendimiento para condiciones más cálidas. Fuente única: `HE_ACTIVE_MODE_HOURS` en [calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js). **No volver a dividir por "horas equivalentes" de la zona** (las tablas RES220/RES230, 3.503 h en D3): son horas de funcionamiento, daban una carga de diseño ~40 % baja y con ella un Cb inflado. El apartado 8 del CIFO desarrolla el procedimiento en 5 pasos con las referencias [R1]-[R5] y ocupa DOS páginas; el método `caldera` no usa horas y sigue en una.
+8.b **Cb (RES093) — la carga de diseño sale del REGLAMENTO EUROPEO, no de la zona climática**: en el método `demanda`, `P_designh = Q_H / H_HE` (Rgto. (UE) 813/2013, Anexo III, punto 4, letra c); el Rgto. Delegado (UE) 811/2013, Anexo VII, punto 4, letra c) da las tres temporadas: medias **2.066 h** · más frías **2.465** · más cálidas **1.336**). **Las horas son las de la MISMA temporada en la que se declara el SCOP aplicado**, o el rendimiento y la potencia salen de temporadas distintas y dejan de compararse en igualdad de condiciones. Esa temporada la sella `instalacion.aerotermia_cal.scop_temporada` al elegir modelo/método/emisor (`getScopSeason`, que sale de la MISMA decisión que el valor del SCOP en `resolveScop`). **Sin sellar manda la ZONA** (`resolveClimateSeason`: cálida salvo E1, que es la equivalencia que publica el **Anexo III de la ficha RES060** — BOE-A-2024-14816 pág. 91401), y solo sin zona conocida se declara `medio`, que ese mismo anexo admite siempre. Antes caía a `medio` a secas y eso **no era neutro**: con el SCOP TECLEADO A MANO —que no dice de qué temporada es— en una zona cálida se declaraba un SCOP de clima cálido con las horas del medio, y de paso con el C_b **más alto** de los dos. Medido en D3 (20.950 kWh/año, bomba de 12 kW): 98,40 % frente a 95,31 %. Fuente única: `HE_ACTIVE_MODE_HOURS` y `resolveClimateSeason` en [calculation.js](implementation/frontend/src/features/calculator/logic/calculation.js), que usan los 11 consumidores vía `resolveHybridInputs(inst, opSource, zona)` **y la calculadora** — la oportunidad y su expediente no pueden dar dos C_b distintos. El CIFO dice qué temporada declara (`climateSeason`), así que se explica solo. Tras tocarlo: `node implementation/backend/scripts/test_temporada_scop.mjs`.
+⚠️ **Un sello existente NO se toca**: los 7 expedientes de hibridación lo tienen (y `26RES093_3`, subido a MITECO, lo tiene en `MEDIO` pese a estar en D3), así que ninguno cambia. El único que se mueve es **26RES060_122** —un RES060 que hibrida porque lo pide su oportunidad, sin equipo del catálogo y por tanto sin sello—: su C_b pasa de 88,63 % a 68,94 %, y no tiene CIFO ni ficha generados. Las **oportunidades** sin sellar sí cambian al reabrirse y reguardarse (medido: bajadas de 14 a 19 puntos, y una a 0 % por caer bajo el 15 % de cobertura). **No volver a dividir por "horas equivalentes" de la zona** (las tablas RES220/RES230, 3.503 h en D3): son horas de funcionamiento, daban una carga de diseño ~40 % baja y con ella un Cb inflado. El apartado 8 del CIFO desarrolla el procedimiento en 5 pasos con las referencias [R1]-[R5] y ocupa DOS páginas; el método `caldera` no usa horas y sigue en una.
 8.c **Anexos del CIFO — una ficha técnica por MODELO, no por hueco**: hasta 2026-08-13 había dos huecos fijos (`aerotermia_cal` y `aerotermia_acs`) y eso fallaba por los dos lados. **Por defecto** en cascada: el hueco de calefacción resolvía la ficha de la UNIDAD 1 y las demás quedaban sin justificar (medido: 26RES060_130, dos modelos distintos, iba sin la ficha de la unidad 2). **Por exceso** con un equipo que cubre calefacción y ACS —lo habitual—: el hueco de ACS resolvía el MISMO modelo y el PDF llevaba dos veces las mismas treinta páginas (medido: **24 de 241** expedientes). Fuente única: [fichasTecnicas.js](implementation/frontend/src/features/expedientes/logic/fichasTecnicas.js) — `resolveFichaSlots` agrupa las unidades (cal + ACS) por `aerotermia_db_id`, o por marca+modelo si se tecleó a mano, y devuelve **un hueco por grupo**. El que cubre los dos servicios se anuncia como "Ficha técnica aerotermia calefacción y ACS". Lo consumen las CUATRO superficies y no se decide en ninguna otra: los dos modales (`CertificadoCifoModal`, `CertificadoRes080Modal`), `cifoService` (generación automática / MCP) y las tres rutas `/fichas-tecnicas/*`. **La ruta valida contra el mismo alcance que el modal** (mismo motivo que la regla del checklist documental): sin eso, subir a un hueco que la vista ya no enseña respondería 200 y dejaría un destino vivo. Nomenclatura sin migración: el primer hueco de cada bloque conserva sus claves de siempre (`cal`/`acs`, `ft_aerotermia_cal_link`, "… - FT AEROTERMIA CALEFACCION.pdf") y los adicionales son `cal2`, `cal3`… (`ft_aerotermia_cal2_link`, "… CALEFACCION 2.pdf"). `annexPrefs` **dedupe por `driveId`** como red de seguridad: dos huecos que apunten al mismo fichero se anexan una vez. Un `ft_aerotermia_acs_link` heredado que ya no corresponde se ignora — el fichero sigue en Drive, pero no vuelve al PDF.
 9. **DNI único**: La columna `clientes.dni` tiene constraint `UNIQUE`.
 10. **Modales de Clientes / Partners**: Nunca cerrar al clicar fuera. Solo "X" o "Cancelar".
@@ -10520,11 +10740,12 @@ llega a lo suyo, y su "+ Añadir fotos" sube ya por la ruta de tanda.
 
 67. **El documento viaja ENTERO, y lo firma el apoderado que se ELIGE**: desde que las fichas RES se rellenan sobre el impreso oficial (regla 41) una ficha es un `formulario`, y los dos modales del lote serializaban a mano los campos del documento dejándolo fuera — la ficha llegaba vacía al backend, el bucle la saltaba **en silencio** y el correo salía solo con el Anexo I (medido en un requerimiento de LOTE-2025-006; afectaba también al envío inicial al S.O. desde el 09/09/2026). Fuente única: `docParaEnvio` en [logic/docEnvio.js](implementation/frontend/src/features/lotes/logic/docEnvio.js), y **un documento marcado que no se puede preparar ABORTA el envío** diciendo cuál, nunca se salta. Y una empresa puede tener VARIOS apoderados —en INTERNACIONAL DE ALCOHOLES firman Pedro José López Montero (06239730Z) y Jesús Antonio Almodóvar Fuentes (06236833S)—, cuyo nombre y NIF van impresos en la casilla «Representante del solicitante»: se eligen en el envío (`FirmantePicker`, que no se pinta con uno solo) y se declaran en la ficha del S.O. (`prescriptores.representantes`, solo los ADICIONALES: el principal sigue en `nombre_responsable`/`nif_responsable` y no se duplica). **Se SELLA a quién se le pidió la firma** (`documentos_so[].rep_nombre`/`rep_nif`): con él, la página `/firmar-lote/:id` nombra al apoderado de esa ronda, `firmadosSo` comprueba contra ÉL —sin sello vale cualquiera de los declarados— y la SOLICITUD de emisión sale a nombre del que firmó las fichas, sin volver a preguntar. Tras tocarlo: `node implementation/backend/scripts/test_firmante_so.mjs`. Ver "Quién FIRMA por el SUJETO OBLIGADO".
 
-68. **Las fotos suben en TANDA, se pegan con Ctrl+V y se reparten desde un buzón**: cada foto era su propio POST, y ese POST le pedía a Drive tres cosas **antes de mover un byte** (buscar la subcarpeta · listar el slot para el índice `_N` · en slot único, listar otra vez para borrar la anterior), en serie — porque dos subidas a la vez calculaban el mismo índice y se pisaban el nombre. Ahora `subirFicherosASlot` ([reformaUploadService.js](implementation/backend/services/reformaUploadService.js)) lista **una vez**, reserva los índices de toda la tanda y sube **en paralelo** (tope 4); la subcarpeta se resuelve una vez por proceso (`ensureSubfolderId` — ⚠️ su respaldo es devolver el PADRE cuando falla, y ese caso NO se cachea o todas las fotos caerían en la raíz). Es **fuente única**: `/:slot` (un fichero, que siguen usando los navegadores sin refrescar y el gestor del Anexo Fotográfico) y `/:slot/batch` delegan las dos, o la misma foto se nombraría distinto según por dónde entre. **Una tanda a medias se responde 200 con el parcial** (`items` + `fallidas`): lo que ya está en Drive no puede presentarse como si no hubiera pasado nada. La **miniatura se pinta antes de que responda el servidor** y el botón dice la fase real ("Preparando 3 de 10…" y luego un porcentaje monótono, que es el de UNA petición y no vuelve a cero en cada foto). **Ctrl+V** pega en la tarjeta que señala el ratón, anunciándolo en ella (`hidden md:`: en un móvil no hay portapapeles). Soltar **fuera** de una casilla abre el **BUZÓN** ([BuzonFotos.jsx](implementation/frontend/src/features/docs/BuzonFotos.jsx)): un modelo propone el apartado de cada foto y dice qué ha visto, y la persona confirma — el prompt lleva dentro el checklist REAL de ese expediente y **una clave que no esté en él se descarta**, la foto queda "sin clasificar" y no se sube; el cajón "Otros" no se propone nunca. A clasificar va una copia **muy reducida** (768 px: se reconoce el aparato, no se lee su serie) y **con `pensar: true`**, al revés que los lectores que transcriben; en tandas de 12, porque con más el modelo confunde el orden de las imágenes con el de las respuestas. Y **📩 Pedírsela** en cada casilla vacía manda el enlace filtrado `?need=` con el mensaje en lenguaje de cliente, **refrescando antes la lista de lo que falta** — si no, se le reclama lo que acaba de subir. Dos huecos de alcance cerrados: **`FOTO_HIBRIDACION`** (lo que define un RES093/TER173 son las dos máquinas conectadas, y eso no lo enseña ninguna otra foto; entra también en el mapa explícito del Anexo Fotográfico) y el **depósito de ACS que va DENTRO de la unidad interior**, que se retira solo si el expediente lo afirma y solo si está vacío (`acsEquipoPropio`, por la MÁQUINA y no por el flag — regla 12.c). Y cada apartado declara su **DESTINO** (`destinoDeSlot`): `CEE` —lo que el certificador necesita para modelar la vivienda: fachada desde la calle, patios, vídeo, planos, CEE anterior— o `EXPEDIENTE` —lo que justifica la actuación—. ⚠️ En un RES080 la ENVOLVENTE es del EXPEDIENTE, no del certificado. De ahí salen los dos bloques del panel, los dos botones de petición rápida y el titular que le explica al cliente PARA QUÉ se le pide (solo si todo lo pedido es del mismo destino: mezclado sería mentir a medias). **Lo `optionalAlways` no se reclama** —el CEE anterior se OFRECE— y **lo del DESPUÉS no se preselecciona mientras la obra no esté terminada**. El parte diario lo vigila con **`CEE_SIN_MATERIAL`** (16 expedientes en producción al estrenarlo, el más viejo de 160 días): el detector mira `reforma_uploads` —Drive de 150 expedientes sería una llamada por cada uno— y el MENSAJE lo compone `faltantesPorDestino`, que sí reconcilia con Drive y puede acabar diciendo que no falta nada. Y el botón **«Fotos» del expediente abre este gestor**, no el del Anexo Fotográfico (decisión del usuario, 2026-09-21: aquí se viene a subir y a pedir; a ordenar y comentar se entra desde el propio Anexo). Tras tocarlo: `node implementation/backend/scripts/test_docs_fotos.js`. Ver "El gestor de FOTOGRAFÍAS".
+68. **Las fotos suben en TANDA, se pegan con Ctrl+V y se reparten desde un buzón**: cada foto era su propio POST, y ese POST le pedía a Drive tres cosas **antes de mover un byte** (buscar la subcarpeta · listar el slot para el índice `_N` · en slot único, listar otra vez para borrar la anterior), en serie — porque dos subidas a la vez calculaban el mismo índice y se pisaban el nombre. Ahora `subirFicherosASlot` ([reformaUploadService.js](implementation/backend/services/reformaUploadService.js)) lista **una vez**, reserva los índices de toda la tanda y sube **en paralelo** (tope 4); la subcarpeta se resuelve una vez por proceso (`ensureSubfolderId` — ⚠️ su respaldo es devolver el PADRE cuando falla, y ese caso NO se cachea o todas las fotos caerían en la raíz). Es **fuente única**: `/:slot` (un fichero, que siguen usando los navegadores sin refrescar y el gestor del Anexo Fotográfico) y `/:slot/batch` delegan las dos, o la misma foto se nombraría distinto según por dónde entre. **Una tanda a medias se responde 200 con el parcial** (`items` + `fallidas`): lo que ya está en Drive no puede presentarse como si no hubiera pasado nada. La **miniatura se pinta antes de que responda el servidor** y el botón dice la fase real ("Preparando 3 de 10…" y luego un porcentaje monótono, que es el de UNA petición y no vuelve a cero en cada foto). **Ctrl+V** pega en la tarjeta que señala el ratón, anunciándolo en ella (`hidden md:`: en un móvil no hay portapapeles). Soltar **fuera** de una casilla abre el **BUZÓN** ([BuzonFotos.jsx](implementation/frontend/src/features/docs/BuzonFotos.jsx)): un modelo propone el apartado de cada foto y dice qué ha visto, y la persona confirma — el prompt lleva dentro el checklist REAL de ese expediente y **una clave que no esté en él se descarta**, la foto queda "sin clasificar" y no se sube; el cajón "Otros" no se propone nunca. A clasificar va una copia **muy reducida** (768 px: se reconoce el aparato, no se lee su serie) y **con `pensar: true`**, al revés que los lectores que transcriben; en tandas de 12, porque con más el modelo confunde el orden de las imágenes con el de las respuestas. Cuando reconoce algo para lo que ESTE expediente no tiene apartado (una ventana en un RES060) devuelve su **`concepto`** —de `ADDABLE_CONCEPTS`— y el buzón ofrece **añadir el apartado** y colocarlas ahí, en vez de dejar un hueco mudo. ⚠️ Los `objectURL` de las miniaturas se crean **dentro del efecto**: creados en el inicializador de `useState`, el cleanup de StrictMode los revocaba y al remontar el estado se RESTAURA en vez de recalcularse — las trece miniaturas salían rotas y no había nada que revisar. Acierto medido sobre las fotos de ejemplo del tutorial: **7/7**, 0,005 € la tanda (`node implementation/backend/scripts/probar_clasificar_fotos.js`). Y **📩 Pedírsela** en cada casilla vacía manda el enlace filtrado `?need=` con el mensaje en lenguaje de cliente, **refrescando antes la lista de lo que falta** — si no, se le reclama lo que acaba de subir. Dos huecos de alcance cerrados: **`FOTO_HIBRIDACION`** (lo que define un RES093/TER173 son las dos máquinas conectadas, y eso no lo enseña ninguna otra foto; entra también en el mapa explícito del Anexo Fotográfico) y el **depósito de ACS que va DENTRO de la unidad interior**, que se retira solo si el expediente lo afirma y solo si está vacío (`acsEquipoPropio`, por la MÁQUINA y no por el flag — regla 12.c). Y cada apartado declara su **DESTINO** (`destinoDeSlot`): `CEE` —lo que el certificador necesita para modelar la vivienda: fachada desde la calle, patios, vídeo, planos, CEE anterior— o `EXPEDIENTE` —lo que justifica la actuación—. ⚠️ En un RES080 la ENVOLVENTE es del EXPEDIENTE, no del certificado. De ahí salen los dos bloques del panel, los dos botones de petición rápida y el titular que le explica al cliente PARA QUÉ se le pide (solo si todo lo pedido es del mismo destino: mezclado sería mentir a medias). **Lo `optionalAlways` no se reclama** —el CEE anterior se OFRECE— y **lo del DESPUÉS no se preselecciona mientras la obra no esté terminada**. El parte diario lo vigila con **`CEE_SIN_MATERIAL`** (16 expedientes en producción al estrenarlo, el más viejo de 160 días): el detector mira `reforma_uploads` —Drive de 150 expedientes sería una llamada por cada uno— y el MENSAJE lo compone `faltantesPorDestino`, que sí reconcilia con Drive y puede acabar diciendo que no falta nada. Y el botón **«Fotos» del expediente abre este gestor**, no el del Anexo Fotográfico (decisión del usuario, 2026-09-21: aquí se viene a subir y a pedir; a ordenar y comentar se entra desde el propio Anexo). ⚠️ **Medio minuto de espera no puede ser una pantalla quieta**: mientras clasifica sale [ClasificandoFotos](implementation/frontend/src/features/docs/ClasificandoFotos.jsx) —SVG y `@keyframes`, nunca un GIF—, con el número DE VERDAD en la fase que se puede contar (reducir las fotos ocurre en el navegador) y por TIEMPO lo del servidor, parándose en el último rótulo en vez de dar la vuelta. ⚠️ En SVG el `scale` pivota sobre el ORIGEN DEL VIEWBOX: sin `transform-box: fill-box` la foto salía disparada en diagonal en vez de encoger donde estaba. ⚠️ Y el **desplegable de cada fila se leía blanco sobre blanco** —el popup de un `<select>` lo pinta el navegador con el esquema del SISTEMA y ahí hereda el `text-white` de la app—: se arregla declarando **`color-scheme`** (`dark` en `:root`, `light` en `.theme-light`), que de paso pinta en oscuro las barras de scroll y los iconos de fecha de toda la app, más dos reglas explícitas de `option`. No era del buzón: le pasaba a cualquier `<select>`. Tras tocarlo: `node implementation/backend/scripts/test_docs_fotos.js`. Ver "El gestor de FOTOGRAFÍAS".
 
 69. **El CEE que entrega el certificador se REVISA antes de darle el visto bueno**: `radiografiaCee` lee los HECHOS del `.xml` y `revisionCee` los cruza con el expediente punto por punto, con la evidencia literal al lado (`node scripts/revisar_cee.js --expediente 26RES060_192`). **PROPONE, no aprueba**: no escribe en el expediente, no registra incidencias y no le escribe al certificador — el visto bueno se sigue dando en el módulo CEE. **Lo que no se puede comprobar se DICE** y baja el veredicto a APTO CON AVISOS: un punto callado se lee como un punto que está bien. Tres cosas MEDIDAS sobre los 462 certificados reales: **la acumulación de ACS NO está en el `.xml`** (el único nodo con «volumen» es el de la vivienda — solo vive en el `.cex`, regla 48.b), **en un RES080 qué se sustituye no se lee del texto de la medida de mejora** (es texto libre: «CEE FINAL.cex», «MAE 1») sino comparando los DOS certificados cerramiento a cerramiento —la ventana que se cambia es la que baja de U—, y **el combustible se compara por FAMILIA**, porque `gas_*` cubre gas natural y GLP con la misma fila del Anexo VIII (dentro de la familia → aviso; cambiar de familia → falla). El `.xml` se lee de **Supabase** (`cee.xml_inicial`), donde vive EN MAYÚSCULAS: `parseCeeXml` no puede releerlo (regla 32) y este lector sí, porque busca sin distinguir mayúsculas — si alguien quita el flag `i`, deja de funcionar en silencio. Comprueba además que las **transmitancias** de muros, cubierta, suelo y particiones estén justificadas —⚠️ en el `.xml` el «Conocido» de CE3X se escribe **`Usuario`**, no existe ninguna cadena «Conocido»; los huecos lo declaran en `<ModoDeObtencionTransmitancia>` y los puentes térmicos no cuentan—, que la **fecha del certificado** sea la que consta en el expediente (que es la que el visto bueno le pide firmar, `fechaFirmaCee`), que la **visita** sea anterior al certificado y exista, y que **quien firma** sea el técnico asignado (por su NIF o el de su entidad). Esos cuatro son AVISO salvo la visita posterior y la fecha futura, que son imposibles: como fallo, el de las transmitancias dejaría fuera a media cartera (65 de 115 la cumplen; el SUELO queda fuera de la cuenta porque solo el 11 % lo justifica). ⚠️ La **FASE no se deduce del nombre del fichero**: de ella depende el criterio, y equivocarla revisa con el contrario. Tras tocarlo: `node implementation/backend/scripts/test_revision_cee.js`. Ver "REVISAR el CEE que entrega el certificador".
 
 70. **La COMA y el PUNTO valen igual al teclear una medida, y lo que no es un número NO vale 0**: un `<input type="number">` devuelve **cadena vacía** mientras lo escrito no sea un número completo, y `Number('')` es **0** — así que escribir «2.2» metía un 0 al pasar por «2.», y borrar el campo para reescribirlo lo dejaba en 0. Y como **tocar una medida la da por CONFIRMADA** (`cambiaHueco` pone `estado: 'medido'`), ese 0 quedaba marcado como medida comprobada por el certificador: una ventana de 0 m² camino del `.cex` sin que nada lo delatara. `aNumero` devuelve **`null`** (que NO es 0) para lo que no es un número, y de esa diferencia depende todo. **Mientras se escribe manda el TEXTO, no el número**: un campo controlado por el número reescribe «2» sobre «2,» y la coma desaparece debajo de los dedos, así que el texto vive en el campo hasta el `onBlur`. **Vaciarlo significa cosas distintas y lo dice quien pone el campo** (`alVaciar`): en la U de la pared es «vuelve a la de su época» y en el ancho de una ventana no es nada, porque una ventana siempre mide algo. Va con `inputMode="decimal"` (mismo teclado en el móvil) y de paso se pierden las flechitas y la rueda del ratón, que sobre una medida es justo lo que no se quiere. Aplicado a los **nueve** campos numéricos de la ventana de envolvente. Fuentes únicas: [numeroDecimal.js](implementation/frontend/src/utils/numeroDecimal.js) y [CampoDecimal.jsx](implementation/frontend/src/components/CampoDecimal.jsx). Tras tocarlo: `node implementation/backend/scripts/test_numero_decimal.mjs`. Ver "La COMA y el PUNTO valen igual al teclear una medida".
+71. **La referencia de la UD. EXTERIOR solo se añade al modelo si DICE algo, y SOLO A PARTIR DE AHORA**: la celda "Modelo" del CIFO es el par `comercial · referencia de placa`, y en un tercio de los equipos hace falta (`GENIA AIR SPLIT 8 · HA 8-8.2 OS`): el comercial es el que se reconoce y la referencia la que casa con la foto. Pero `modelo` se rellena con `modelo_comercial || modelo_conjunto`, y un equipo del catálogo SIN comercial propio acaba llevando el CONJUNTO —que ya contiene la exterior—, así que la celda salía repitiéndola: `ERLA16DAV37 + EBVX16S23DJ6V · ERLA16DAV37` (medido en 26RES060_157). Sobre los 404 equipos del catálogo con referencia exterior, **63 la repiten idéntica y 190 la llevan dentro**; solo 151 aportan algo. En expedientes, **50 de 112** imprimían la celda repetida. **REGLA — se compara NORMALIZADO y como PIEZA DELIMITADA**, nunca como trozo de una palabra mayor (mismo cuidado que `contieneNumero` y `casarConCatalogo`): eso conserva los dos casos que no son lo que parecen —`ALTHERMA 3 ERLA14DV3 · ERLA14D2V3`, casi iguales pero distintos, y los 20 `AURUM6VA240K R32 · AURUM6VA`, donde la referencia no está escrita como pieza propia—. **REGLA — SOLO A PARTIR DE AHORA** (decisión del usuario, 2026-09-22): suprimirla exige la marca `modelo_sin_repetir`, que se siembra donde se escribe el snapshot del equipo (el desplegable de Instalación, el alta del expediente y el aplicar del OCR de placas). **Sin la marca no cambia ni un carácter**, así que los 50 expedientes que ya lo tenían guardado —29 con el CIFO firmado, incluido el 157— siguen imprimiendo lo de siempre y regenerar su certificado no mueve su documento; para arreglar uno concreto basta volver a elegir su modelo en el desplegable, que es una acción deliberada. La PRESENCIA de la marca ES la marca: ninguna fecha de corte que explicar ni migración que hacer (mismo criterio que el sello del precio CAE y que `persiana_defecto`). Fuente ÚNICA de la decisión: `refExtVisible` en [aerotermiaUnits.js](implementation/frontend/src/features/expedientes/logic/aerotermiaUnits.js), que comparten `modeloUnidad` (CIFO, Anexo I, certificado RES080) y el encargo CE3X al certificador —que la escribe entre paréntesis y tenía el mismo doble—. De paso se retiran 11 líneas MUERTAS de `CertificadoCifoModal` que replicaban ese join **sin la cascada** y que no leía nadie. Tras tocarlo: `node implementation/backend/scripts/test_modelo_ref_ext.mjs`.
 
 ---
 

@@ -64,15 +64,18 @@ async function estado(row, fase) {
     if (!enDrive.pdf) faltan.push('Subir el PDF del CEE firmado');
     if (!enDrive.registro) faltan.push('Subir el justificante de registro');
 
-    const email = cli?.email || null;
-    const tlf = cli?.tlf || cli?.telefono || cli?.movil || null;
+    // Mismo destinatario que el resto de avisos al cliente: con el desvío
+    // activo, su persona de contacto (como en el CAE).
+    const contacto = svc.contactoCliente(cli);
+    const email = contacto.email;
+    const tlf = contacto.tlf;
     if (!email && !tlf) faltan.push('El cliente no tiene ni email ni teléfono en su ficha');
 
     return {
         puede: faltan.length === 0,
         faltan,
         yaEntregado: sello,
-        destinatario: { nombre: nombreCliente(cli), email, tlf },
+        destinatario: { nombre: contacto.nombre || nombreCliente(cli), email, tlf },
         ficheros: {
             pdf: enDrive.pdf ? enDrive.pdf.name : null,
             registro: enDrive.registro ? enDrive.registro.name : null
@@ -218,7 +221,61 @@ function intentarEntregaAsync(id, fase, contexto = '') {
     });
 }
 
+/**
+ * Aviso al cliente de que su certificado ya está REGISTRADO — el gemelo del
+ * "CEE registrado" del CAE, con texto de CEE suelto (recordatorios.js).
+ *
+ * No duplica la ENTREGA: si ya está cobrado, la entrega sale sola con los dos
+ * PDF y un segundo mensaje contándole lo mismo sobra — ahí no se manda nada.
+ * Una vez por fase (`documentacion.aviso_registrado[fase]`), salvo que una
+ * persona lo repita a mano. El automático respeta `CEE_ENTREGA_AUTO`.
+ *
+ * @returns {Promise<{enviado:boolean, motivo?:string, canales?:string[]}>}
+ */
+async function avisarRegistrado(id, fase, { manual = false, channels = ['whatsapp', 'email'], usuario = null, mensaje: textoLibre = null } = {}) {
+    const ph = uploads.normalizePhase(fase);
+    const row = await svc.cargar(id);
+    if (!row) return { enviado: false, motivo: 'NO_EXISTE' };
+    const clave = ph === 'final' ? 'final' : 'inicial';
+    if (!manual && row.documentacion?.aviso_registrado?.[clave]) return { enviado: false, motivo: 'YA_AVISADO' };
+    if (!manual && row.cobrado) return { enviado: false, motivo: 'LO_CUBRE_LA_ENTREGA' };
+    if (!manual && !autoActivado()) return { enviado: false, motivo: 'AUTO_DESACTIVADO' };
+
+    const contacto = svc.contactoCliente(row.cliente);
+    if (!contacto.tlf && !contacto.email) return { enviado: false, motivo: 'SIN_CONTACTO' };
+    const texto = (textoLibre && String(textoLibre).trim()) || require('./recordatorios').ceeDirectoRegistradoClienteMsg({
+        destinatario: contacto.nombre, numExp: row.numero_expediente,
+        fase: svc.faseCliente(row, ph), cobrado: !!row.cobrado,
+        tercero: contacto.tercero, obra: contacto.tercero ? svc.obraDe(row) : null
+    });
+    const canales = [];
+    if (channels.includes('whatsapp') && contacto.tlf) {
+        try { await whatsappService.sendText(contacto.tlf, texto); canales.push('whatsapp'); }
+        catch (e) { console.warn('[cee-directo registrado] WA:', e.message); }
+    }
+    if (channels.includes('email') && contacto.email) {
+        try {
+            await emailService.sendMail({
+                to: contacto.email,
+                subject: `${row.numero_expediente} — Tu certificado energético ya está registrado`,
+                text: texto.replace(/\*/g, ''),
+                html: `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;color:#222;font-size:15px;line-height:24px">${texto.replace(/\*/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').split('\n').join('<br>')}</div>`
+            });
+            canales.push('email');
+        } catch (e) { console.warn('[cee-directo registrado] email:', e.message); }
+    }
+    if (!canales.length) return { enviado: false, motivo: 'ENVIO_FALLIDO' };
+    await svc.mergeDoc(row.id, 'aviso_registrado', { [clave]: { at: new Date().toISOString(), canales, to: contacto.email || contacto.tlf, automatico: !manual } });
+    await svc.anotarHistorial(row.id, {
+        tipo: 'CLIENTE',
+        texto: `AVISO AL CLIENTE: ${estados.nombreFase(row, ph).toUpperCase()} REGISTRADO, POR ${canales.join(' Y ').toUpperCase()}${manual ? '' : ' (AUTOMÁTICO)'}`,
+        usuario
+    });
+    return { enviado: true, canales };
+}
+
 module.exports = {
+    avisarRegistrado,
     SLOTS_ENTREGA,
     autoActivado,
     estado,

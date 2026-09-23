@@ -477,10 +477,11 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
             setVerMsgCliente(false);
             setAvisarCliente(false);
             setClienteChannels(['whatsapp']);
-            // Solo en el CAE: un CEE contratado suelto no tiene obra ni trámite de
-            // ayuda, y ese texto le hablaría al cliente de algo que no existe.
-            if (expediente?.id && msgCtx.cae !== false) {
-                axios.get(`${apiBase}/${expediente.id}/aviso-cliente-cee?phase=initial`)
+            // En los DOS negocios: cada ruta redacta SU texto (el de un CEE suelto
+            // no habla de obra ni de ayudas). Se pasa el técnico elegido porque en
+            // un CEE directo el aviso lo nombra, y aún no está guardado.
+            if (expediente?.id) {
+                axios.get(`${apiBase}/${expediente.id}/aviso-cliente-cee?phase=initial&certificador_id=${encodeURIComponent(newCertId)}`)
                     .then(r => {
                         const d = r.data || {};
                         setAvisoCliente(d);

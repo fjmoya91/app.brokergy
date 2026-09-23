@@ -79,14 +79,16 @@ export const HDD = {
 // recoge la misma relación para las tres temporadas de calefacción de
 // referencia (medio 2.066 h · frío 2.465 h · cálido 1.336 h).
 //
-// Se aplica la temporada de CLIMA MEDIO porque es aquella en la que el
-// fabricante declara el SCOP adoptado (condiciones climáticas promedio), que es
-// la condición mínima que exige el Anexo V de la ficha RES060 —marco al que
-// remite el Anexo II de la RES093—. SCOP y horas equivalentes son parámetros de
-// la MISMA temporada de referencia y se toman conjuntamente: mezclar el SCOP de
-// una temporada con las horas de otra no es defendible ante el verificador.
-// Por eso la temporada no se ofrece en la interfaz; el parámetro existe para
-// documentar de dónde sale el número, no para elegir a conveniencia.
+// SCOP y horas equivalentes son parámetros de la MISMA temporada de referencia
+// y se toman conjuntamente: mezclar el SCOP de una temporada con las horas de
+// otra no es defendible ante el verificador. Por eso la temporada no se ofrece
+// en la interfaz —se DERIVA del SCOP que se aplica (`resolveHybridInputs`)— y el
+// parámetro existe para documentar de dónde sale el número, no para elegir a
+// conveniencia.
+//
+// La temporada mínima exigible es la de CLIMA MEDIO (condiciones climáticas
+// promedio), que es la que pide el Anexo V de la ficha RES060 —marco al que
+// remite el Anexo II de la RES093— y la que se declara cuando no consta otra.
 // ============================================================================
 export const HE_ACTIVE_MODE_HOURS = {
     medio: 2066,
@@ -240,8 +242,11 @@ export function calculateHybridization({ demandAnnual, heatPumpPower, method, bo
  * en cada consumidor (hay 8: vistas, fichas, CIFO y financials de front y back).
  * @param {object} inst - expediente.instalacion
  * @param {object} opSource - oportunidad.datos_calculo (o datos_calculo.inputs)
+ * @param {string} [zone] - Zona climática (A-E). Respaldo de la temporada cuando
+ *          el SCOP se tecleó a mano y por tanto no hay temporada sellada. Pásala
+ *          cuando el llamante la tenga a mano; si no, se busca en `opSource`.
  */
-export function resolveHybridInputs(inst = {}, opSource = {}) {
+export function resolveHybridInputs(inst = {}, opSource = {}, zone) {
     // Acepta tanto `datos_calculo` como `datos_calculo.inputs`: lo anidado manda.
     const fromOp = (key) => opSource?.inputs?.[key] || opSource?.[key];
     const num = (a, b) => parseFloat(a || b) || 0;
@@ -249,13 +254,60 @@ export function resolveHybridInputs(inst = {}, opSource = {}) {
         method: normalizeHybridMethod(inst?.hibridacion_metodo || fromOp('hibridacionMetodo')),
         heatPumpPower: num(inst?.potencia_bomba, fromOp('potenciaBomba')),
         boilerPower: num(inst?.potencia_caldera, fromOp('potenciaCaldera')),
-        // Temporada del SCOP aplicado — la sella `scop_temporada` al elegir el
-        // modelo (getScopSeason). Sin sellar, 'medio': es lo que hay que declarar
-        // cuando no consta que el SCOP sea de clima cálido.
-        climateSeason: normalizeClimateSeason(
-            inst?.aerotermia_cal?.scop_temporada || fromOp('scopTemporada')
-        ),
+        climateSeason: resolveClimateSeason(inst, opSource, zone),
     };
+}
+
+/**
+ * Temporada de referencia del SCOP APLICADO, que es la que fija las horas
+ * equivalentes del C_b. La regla es una sola y no la decide la zona por su cuenta:
+ *
+ *     zona cálida + TENEMOS el SCOP de clima cálido  → horas de clima cálido
+ *     zona cálida y NO lo tenemos (se aplica el medio) → horas de clima medio
+ *
+ * La zona dice qué COLUMNA del catálogo se mira; el catálogo dice si esa columna
+ * existe. Eso ya lo resuelve `resolveScop`, que devuelve el valor y su temporada
+ * en la misma pasada y solo dice 'calido' cuando TODOS los valores salen de las
+ * columnas de clima cálido. Aquí solo se lee su veredicto:
+ *
+ *   1. La SELLADA al elegir el equipo (`getScopSeason` → `scop_temporada`). Manda
+ *      siempre: es el dato con el que se calculó y puede estar ya certificado.
+ *   2. La sellada en la OPORTUNIDAD (`scopTemporada`), por lo mismo.
+ *   3. Hay EQUIPO del catálogo pero nadie selló su temporada (expedientes
+ *      anteriores al sello, o rellenados por una skill): no consta que ese equipo
+ *      publique SCOP cálido, así que no se afirma → 'medio'. Es el caso de
+ *      26RES060_OP3, un THERMOR sin columna cálida cuyo 4,53 ES el dato medio
+ *      aunque la vivienda esté en D3. Para que este escalón casi no se pise,
+ *      `scripts/sellar_temporada_scop.js` lo resuelve contra el catálogo real.
+ *   4. SCOP TECLEADO A MANO (sin equipo): no hay ficha que consultar y manda la
+ *      ZONA — cálida salvo E1. No es una convención de la casa: la publica el
+ *      ANEXO III de la ficha RES060 (BOE-A-2024-14816, pág. 91401, «Equivalencias
+ *      climas CTE y zonas climáticas europeas, en calefacción»: A3-D3 → cálidas ·
+ *      E1 → medias), que remite a las temporadas del Rgto. 813/2013 y el Rgto.
+ *      Delegado 811/2013. Decisión del usuario, 2026-09-22.
+ *   5. Sin zona NO se afirma que sea cálida: 'medio', que ese mismo Anexo III
+ *      admite siempre («el SCOP utilizado deberá ser, AL MENOS, el de las
+ *      condiciones de clima medio…, o el indicado para la zona climática
+ *      equivalente»).
+ *
+ * Que la temporada importe no es un matiz: medido en D3 (demanda 20.950 kWh/año,
+ * bomba de 12 kW), el C_b sale 98,40 % con las horas del clima medio y 95,31 %
+ * con las del cálido — y mezclar el SCOP de una temporada con las horas de otra
+ * es lo primero que cruza el verificador.
+ */
+export function resolveClimateSeason(inst = {}, opSource = {}, zone) {
+    const fromOp = (key) => opSource?.inputs?.[key] || opSource?.[key];
+    const sellada = inst?.aerotermia_cal?.scop_temporada || fromOp('scopTemporada');
+    if (sellada) return normalizeClimateSeason(sellada);
+
+    // ¿El SCOP sale de un equipo del CATÁLOGO o lo ha tecleado una persona?
+    // 'custom' es el modelo escrito a mano de la calculadora: cuenta como tecleado.
+    const idCatalogo = inst?.aerotermia_cal?.aerotermia_db_id ?? fromOp('aerothermiaModel');
+    const delCatalogo = idCatalogo != null && idCatalogo !== '' && String(idCatalogo) !== 'custom';
+    if (delCatalogo) return HE_DEFAULT_SEASON;
+
+    const z = zone || inst?.zona_climatica || fromOp('zona');
+    return z ? zoneClimateSeason(z) : HE_DEFAULT_SEASON;
 }
 
 // ============================================================================

@@ -23,7 +23,7 @@
 // ============================================================================
 import { BOILER_EFFICIENCIES, esSinCalefaccion, calculateHybridization, resolveHybridInputs } from '../../calculator/logic/calculation.js';
 import {
-    getUnidades, countUnidades, modeloUnidad, formatSeries,
+    getUnidades, countUnidades, modeloUnidad, refExtVisible, formatSeries,
     tipoEquipoNuevo, esTermoElectrico, datosAcumulador, EQUIPO_NUEVO,
     acsMismoEquipo, acsEquipoPropio,
 } from './aerotermiaUnits.js';
@@ -73,7 +73,10 @@ function nombreEquipo(aero, prefijo = 'AEROTERMIA ', { udExterior = true, conteo
         const label = [
             u?.marca,
             u?.modelo,
-            udExterior && u?.modelo_ud_exterior ? `(${u.modelo_ud_exterior})` : '',
+            // La referencia de la ud. exterior solo se escribe si dice algo que el
+            // modelo no diga: con la MISMA decisión que la celda del CIFO, para que
+            // el equipo no se nombre de dos formas (ver `refExtVisible`).
+            udExterior && refExtVisible(u) ? `(${refExtVisible(u)})` : '',
         ].filter(Boolean).join(' ').trim() || modeloUnidad(u);
         if (!label) continue;
         const g = grupos.find(x => x.label === label);
@@ -289,7 +292,7 @@ export function resolverCe3x(exp, { modelos = {} } = {}) {
         const r = calculateHybridization({
             demandAnnual,
             zone: opDatos.zona || 'D3',
-            ...resolveHybridInputs(inst, opDatos),
+            ...resolveHybridInputs(inst, opDatos, opDatos.zona),
         });
         if (r?.coverage > 0) {
             coberturaBdc = Math.round(r.coverage * 100);

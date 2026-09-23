@@ -97,7 +97,12 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
         // NO se guardan duplicados en inputs, así que el expediente los lee
         // desde la tabla `aerotermia` por ID.
         const resolveAerotermia = async (modelId, customBrand, customModel, scopFallback) => {
-            const empty = { aerotermia_db_id: null, marca: '', modelo: '', numero_serie: '', scop: null, metodo_scop: 'ficha' };
+            // `modelo_sin_repetir`: el nodo nace sabiendo que su `modelo` puede traer ya
+            // dentro la referencia de la ud. exterior, y entonces la celda "Modelo" del
+            // CIFO no la repite detrás (ver `refExtVisible` en aerotermiaUnits.js). Se
+            // siembra en los expedientes NUEVOS y nunca se añade a los ya guardados:
+            // sin la marca, su certificado sigue imprimiendo exactamente lo de siempre.
+            const empty = { aerotermia_db_id: null, marca: '', modelo: '', numero_serie: '', scop: null, metodo_scop: 'ficha', modelo_sin_repetir: true };
             if (modelId === null || modelId === undefined || modelId === '') return empty;
 
             // Caso custom: marca y modelo introducidos a mano en la calculadora
@@ -108,7 +113,8 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
                     modelo: customModel || '',
                     numero_serie: '',
                     scop: scopFallback != null && scopFallback !== '' ? Number(scopFallback) : null,
-                    metodo_scop: 'ficha'
+                    metodo_scop: 'ficha',
+                    modelo_sin_repetir: true
                 };
             }
 
@@ -129,6 +135,7 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
                     aerotermia_db_id: aero.id,
                     marca: aero.marca || '',
                     modelo: aero.modelo_comercial || aero.modelo_conjunto || aero.modelo_ud_exterior || '',
+                    modelo_sin_repetir: true,
                     numero_serie: '',
                     scop: scopFallback != null && scopFallback !== '' ? Number(scopFallback) : null,
                     metodo_scop: 'ficha',

@@ -77,7 +77,7 @@ async function computeExpedienteFinancialsNode(exp, op) {
                     const hybridRes = calculateHybridization({
                         demandAnnual: q_net_heating,
                         zone: op.datos_calculo?.zona || 'D3',
-                        ...resolveHybridInputs(inst, opInputs)
+                        ...resolveHybridInputs(inst, opInputs, op.datos_calculo?.zona)
                     });
                     cb = hybridRes.cb;
                 }

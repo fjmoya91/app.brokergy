@@ -1200,7 +1200,11 @@ async function mapLimit(items, limite, fn) {
  *
  * @returns {Promise<{subidas: Array, fallidas: Array, subId: string}>}
  */
-async function subirFicherosASlot({ oportunidadUuid, datosCalculo = {}, slotDef, archivos, label = null, subidoPor = 'cliente' }) {
+async function subirFicherosASlot({ oportunidadUuid, datosCalculo = {}, slotDef, archivos, label = null, subidoPor = 'cliente', destino = null }) {
+    // `destino` (opcional) — la MISMA subida para otro dueño que no es una
+    // oportunidad: los CEE directos (ceeDirectoDocsService). Trae la carpeta de
+    // Drive, la subcarpeta, lo ya registrado del slot y cómo registrar cada
+    // entrada. Sin él, todo es exactamente lo de siempre.
     const slot = slotDef.key;
     const lista = Array.from(archivos || []);
     // Slot de UNA sola foto: solo entra la primera. El resto se descarta aquí y
@@ -1208,12 +1212,13 @@ async function subirFicherosASlot({ oportunidadUuid, datosCalculo = {}, slotDef,
     const files = slotDef.multiple ? lista : lista.slice(0, 1);
     if (!files.length) return { subidas: [], fallidas: [], subId: null };
 
-    const folderId = await ensureDriveFolder(oportunidadUuid);
+    const folderId = destino ? destino.folderId : await ensureDriveFolder(oportunidadUuid);
+    if (!folderId) throw new Error('El expediente todavía no tiene carpeta de Drive');
     // Las FACTURAS van TODAS a "5. FACTURAS" (mismo sitio que el alta del admin);
     // el resto de documentos y fotos, a "12. DOCUMENTOS PARA CEE". La búsqueda de
     // facturas es TOLERANTE para no duplicar "5. FACTURAS" vs "5.FACTURAS".
     const esFactura = slot === 'DOC_FACTURAS';
-    const subId = await ensureSubfolderId(folderId, esFactura ? SUBCARPETA_FACTURAS : SUBCARPETA_DOCS, esFactura);
+    const subId = await ensureSubfolderId(folderId, destino ? destino.subcarpeta : (esFactura ? SUBCARPETA_FACTURAS : SUBCARPETA_DOCS), !destino && esFactura);
 
     // UN solo listado para toda la tanda: de él salen el índice de partida de un
     // slot múltiple y, en uno único, los ficheros que hay que retirar.
@@ -1221,7 +1226,8 @@ async function subirFicherosASlot({ oportunidadUuid, datosCalculo = {}, slotDef,
     try { existentes = await driveService.listFilesByPrefix(subId, slot) || []; }
     catch (e) { console.warn('[Reforma] listado previo del slot:', e.message); }
 
-    const prev = Array.isArray(datosCalculo.reforma_uploads?.[slot]) ? datosCalculo.reforma_uploads[slot] : [];
+    const prevRaw = destino ? destino.prev : datosCalculo.reforma_uploads?.[slot];
+    const prev = Array.isArray(prevRaw) ? prevRaw : [];
 
     // ── Nombres, reservados de una vez ──────────────────────────────────────
     // El índice se calcula contra DRIVE y no solo contra `reforma_uploads`: las
@@ -1289,9 +1295,11 @@ async function subirFicherosASlot({ oportunidadUuid, datosCalculo = {}, slotDef,
             name: r.fileName, link: r.saved.link, driveId: r.saved.id, at: new Date().toISOString(),
             estado: 'subida', subido_por: subidoPor, motivo: null,
         };
-        const { error } = await supabase.rpc('reforma_append', {
-            p_id: oportunidadUuid, p_slot: slot, p_entry: entry, p_multiple: !!slotDef.multiple,
-        });
+        const { error } = destino
+            ? await destino.registrar(slot, entry, !!slotDef.multiple)
+            : await supabase.rpc('reforma_append', {
+                p_id: oportunidadUuid, p_slot: slot, p_entry: entry, p_multiple: !!slotDef.multiple,
+            });
         if (error) {
             console.error('[Reforma] rpc reforma_append:', error.message);
             fallidas.push({ originalname: r.file.originalname, error: 'No se pudo registrar la foto.' });

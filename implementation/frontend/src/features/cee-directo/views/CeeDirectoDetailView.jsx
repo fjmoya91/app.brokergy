@@ -6,6 +6,8 @@ import { EntregaCliente } from '../components/EntregaCliente';
 import { DatosExpedienteModal } from '../components/DatosExpedienteModal';
 import { ResumenDatos } from '../components/ResumenDatos';
 import { Trazabilidad } from '../components/Trazabilidad';
+import { CuestionarioCliente } from '../components/CuestionarioCliente';
+import { DocumentacionCee } from '../components/DocumentacionCee';
 import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
 
@@ -343,6 +345,10 @@ export function CeeDirectoDetailView({ id, onBack }) {
                     onAbrirPartner={isStaff && expediente.prescriptor ? () => setShowPartner(true) : undefined}
                 />
             </div>
+
+            <CuestionarioCliente cuestionario={expediente.documentacion?.cuestionario} />
+
+            <DocumentacionCee id={expediente.id} esEquipo={isStaff} esAdmin={isAdmin} />
 
             <DatosExpedienteModal
                 isOpen={showDatos}

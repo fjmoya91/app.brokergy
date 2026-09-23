@@ -527,6 +527,30 @@ body {
   background: rgba(255, 255, 255, 0.03);
 }
 
+/* ─── Los controles NATIVOS también van en oscuro ─────────────────────────────
+   Un `<select>` de la app lleva `text-white`, pero el POPUP de sus opciones lo
+   pinta el navegador con el esquema del SISTEMA —blanco— y ahí hereda ese color:
+   texto blanco sobre fondo blanco, y solo se lee la opción resaltada. Se vio en
+   el buzón de fotos, pero le pasa a cualquier `<select>` de la app.
+
+   `color-scheme` es lo que lo arregla de raíz: le dice al navegador en qué tema
+   está la app y con eso pinta el popup del select, las barras de scroll y los
+   iconos de los campos de fecha. Y las dos reglas de `option` van además a
+   propósito: no todos los navegadores atienden al esquema cuando el `<select>`
+   trae un `color` explícito, y una opción ilegible no es un detalle — es no
+   poder elegir. */
+:root { color-scheme: dark; }
+.theme-light { color-scheme: light; }
+
+option, optgroup {
+    background-color: #1A1C22;   /* --bkg-elevated */
+    color: #F5F6F8;
+}
+.theme-light option, .theme-light optgroup {
+    background-color: #FFFFFF;
+    color: #16181D;
+}
+
 /* ─── Normalización de Mayúsculas ─── */
 input:not([type="email"]):not([type="password"]), 
 textarea,

@@ -30,6 +30,8 @@ import { ResetPasswordView } from './features/auth/views/ResetPasswordView';
 import { AceptarPropuestaView } from './features/public/views/AceptarPropuestaView';
 import { CertAckView } from './features/public/views/CertAckView';
 import { CeeAckView } from './features/public/views/CeeAckView';
+import { AceptarOfertaCeeView } from './features/public/views/AceptarOfertaCeeView';
+import { API_DOCS_CEE_DIRECTO } from './features/docs/docsApi';
 import { SubirCifoView } from './features/public/views/SubirCifoView';
 import { PresentarCeeView } from './features/public/views/PresentarCeeView';
 import { SubirRiteView } from './features/public/views/SubirRiteView';
@@ -290,6 +292,13 @@ function App() {
     return null;
   });
 
+  // Aceptación de una OFERTA de CEE directo: /aceptar-cee/:token
+  const [ofertaCeeToken] = useState(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/aceptar-cee/')) return path.split('/aceptar-cee/')[1]?.split('/')[0] || null;
+    return null;
+  });
+
   // Firma en cadena del lote por el Sujeto Obligado: /firmar-lote/:loteId
   const [firmarLoteId] = useState(() => {
     const path = window.location.pathname;
@@ -309,6 +318,16 @@ function App() {
       if (uuid && token) return { uuid, token, rol, need };
     }
     return null;
+  });
+
+  // Documentación para el CEE de un CEE DIRECTO: /subir-cee-docs/:id?token=&need=
+  const [ceeDocsData] = useState(() => {
+    const path = window.location.pathname;
+    if (!path.startsWith('/subir-cee-docs/')) return null;
+    const id = path.split('/subir-cee-docs/')[1]?.split('/')[0] || null;
+    const sp = new URLSearchParams(window.location.search);
+    const token = sp.get('token');
+    return id && token ? { id, token, need: sp.get('need') || null } : null;
   });
 
   // Portal del cliente: /portal (login) y /mi-expediente/:uuid?token= (home).
@@ -1078,8 +1097,8 @@ function App() {
 
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
-  const isPublicRoute = !!(landingRoute || reformaDocsData || firmaOportunidadId || certAckData || cobroData || cifoUploadId || riteUploadId || instaladorId || presentarCeeData || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || firmarLoteId || portalRoute);
-  const isLoggedDashboard = user && !firmaOportunidadId && !resetToken && !certAckData && !cobroData && !cifoUploadId && !riteUploadId && !instaladorId && !presentarCeeData && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
+  const isPublicRoute = !!(landingRoute || reformaDocsData || ceeDocsData || firmaOportunidadId || ofertaCeeToken || certAckData || cobroData || cifoUploadId || riteUploadId || instaladorId || presentarCeeData || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || firmarLoteId || portalRoute);
+  const isLoggedDashboard = user && !firmaOportunidadId && !ofertaCeeToken && !ceeDocsData && !resetToken && !certAckData && !cobroData && !cifoUploadId && !riteUploadId && !instaladorId && !presentarCeeData && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
   const wrapperPadding = (isLoggedDashboard || isPublicRoute || (user && envolventeId)) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
@@ -1111,6 +1130,9 @@ function App() {
           portalRoute.view === 'home'
             ? <MiExpedienteView uuid={portalRoute.uuid} token={portalRoute.token} />
             : <PortalLoginView />
+        ) : ceeDocsData ? (
+          <SubirDocsReformaView uuid={ceeDocsData.id} token={ceeDocsData.token} need={ceeDocsData.need}
+            api={API_DOCS_CEE_DIRECTO} intro="Documentación para tu certificado energético" />
         ) : reformaDocsData ? (
           <SubirDocsReformaView uuid={reformaDocsData.uuid} token={reformaDocsData.token} rol={reformaDocsData.rol} need={reformaDocsData.need} />
         ) : instaladorId ? (
@@ -1143,6 +1165,8 @@ function App() {
           <FirmarLoteView loteId={firmarLoteId} />
         ) : certAckData ? (
           <CertAckView expedienteId={certAckData.id} token={certAckData.token} phase={certAckData.phase} />
+        ) : ofertaCeeToken ? (
+          <AceptarOfertaCeeView token={ofertaCeeToken} />
         ) : firmaOportunidadId ? (
           <AceptarPropuestaView idOportunidad={firmaOportunidadId} />
         ) : resetToken ? (

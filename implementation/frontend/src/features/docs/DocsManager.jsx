@@ -15,6 +15,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { prepararImagenParaSubir } from '../../utils/imageResize';
 import { BuzonFotos } from './BuzonFotos';
+import { API_DOCS_OPORTUNIDAD } from './docsApi';
 import { SlotIlustracion, tieneIlustracion } from './SlotIlustracion';
 
 const ESTADO_UI = {
@@ -176,7 +177,7 @@ function ErrorSlot({ error, className = '' }) {
     );
 }
 
-export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedded = false, canValidate = false, rol = null, need = null, onPedirSlot = null }) {
+export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedded = false, canValidate = false, rol = null, need = null, onPedirSlot = null, api = API_DOCS_OPORTUNIDAD }) {
     // Enlace scoped por rol: cliente sube el ANTES de la obra; instalador, el DESPUÉS
     // (instalación terminada + facturas + RITE). Restringe la vista a esa fase.
     const roleFase = rol === 'cliente' ? 'ANTES' : rol === 'instalador' ? 'DESPUES' : null;
@@ -268,14 +269,14 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         if (!silent) setLoading(true);
         try {
             if (mode === 'admin') {
-                const res = await axios.get(`/api/oportunidades/${idOrUuid}/docs`);
+                const res = await axios.get(`${api.admin}/${idOrUuid}/docs`);
                 uuidRef.current = res.data.uuid;
                 tokenRef.current = res.data.upload_token;
                 setInfo(res.data);
             } else {
                 // `need` viaja también al servidor: lo pedido expresamente se enseña
                 // aunque sea un apartado que normalmente se le oculta (el vídeo).
-                const res = await axios.get(`/api/public/reforma-docs/${idOrUuid}`, { params: { token: tokenProp, ...(need ? { need } : {}) } });
+                const res = await axios.get(`${api.public}/${idOrUuid}`, { params: { token: tokenProp, ...(need ? { need } : {}) } });
                 uuidRef.current = idOrUuid;
                 tokenRef.current = tokenProp;
                 setInfo(res.data);
@@ -292,9 +293,9 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
 
     // Fotos ya publicadas en el escaparate (solo admin).
     const loadPublicadas = async () => {
-        if (mode !== 'admin' || !canValidate) return;
+        if (mode !== 'admin' || !canValidate || !api.escaparate) return;
         try {
-            const r = await axios.get(`/api/oportunidades/${idOrUuid}/docs/escaparate`);
+            const r = await axios.get(`${api.admin}/${idOrUuid}/docs/escaparate`);
             const map = {};
             (r.data.publicadas || []).forEach(p => { map[p.drive_id] = p; });
             setPublicadas(map);
@@ -311,7 +312,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         const { slot, item } = pubModal;
         setPubBusy(true);
         try {
-            await axios.post(`/api/oportunidades/${idOrUuid}/docs/${slot.key}/publicar-escaparate`, {
+            await axios.post(`${api.admin}/${idOrUuid}/docs/${slot.key}/publicar-escaparate`, {
                 driveId: item.driveId, name: item.name, titulo_publico: pubForm.titulo,
                 actuacion: pubForm.actuacion, consentimiento_cliente: true,
             });
@@ -323,7 +324,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const unpublish = async (it) => {
         setPubBusy(true);
         try {
-            await axios.delete(`/api/oportunidades/${idOrUuid}/docs/escaparate/${it.driveId}`);
+            await axios.delete(`${api.admin}/${idOrUuid}/docs/escaparate/${it.driveId}`);
             await loadPublicadas();
         } catch { /* noop */ } finally { setPubBusy(false); }
     };
@@ -376,7 +377,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
 
     // URL de miniatura servida por NUESTRO backend (mismo origen → siempre carga).
     const thumbProxy = (driveId, size) => (driveId && uuidRef.current && tokenRef.current)
-        ? `/api/public/reforma-thumb/${uuidRef.current}/${driveId}?token=${tokenRef.current}&sz=${size}`
+        ? `${api.thumb}/${uuidRef.current}/${driveId}?token=${tokenRef.current}&sz=${size}`
         : null;
 
     // Devuelve true si todas las subidas fueron OK (lo usa "Cambiar foto" para no
@@ -433,7 +434,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
             for (const f of preparados) form.append('files', f);
 
             const res = await axios.post(
-                `/api/public/reforma-docs/${uuidRef.current}/${slot.key}/batch`,
+                `${api.public}/${uuidRef.current}/${slot.key}/batch`,
                 form,
                 {
                     params: { token: tokenRef.current },
@@ -546,6 +547,17 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const [pasteSlot, setPasteSlot] = useState(null);
     const apuntarPegado = (slot) => { pasteRef.current.slot = slot; setPasteSlot(slot?.key || null); };
 
+    // Activar un apartado que el expediente no contemplaba, desde el buzón. Es el
+    // MISMO endpoint que el botón "Añadir apartado de obra" —no hay un segundo
+    // camino que mantener— y devuelve el checklist ya recargado, para que las
+    // fotos huérfanas se coloquen solas en el apartado recién creado.
+    const anadirApartadoDesdeBuzon = async (conceptId) => {
+        await axios.post(`${api.admin}/${idOrUuid}/docs/concept`, { conceptId, enabled: true });
+        const res = await axios.get(`${api.admin}/${idOrUuid}/docs`);
+        setInfo(res.data);
+        return res.data?.slots || [];
+    };
+
     // ── BUZÓN (solo admin) ──────────────────────────────────────────────────
     // Soltar fotos donde no hay casilla abre el repartidor. El cliente no lo
     // tiene: él va guiado apartado por apartado y no sabría qué repartir.
@@ -566,7 +578,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const deleteItem = async (slot, item) => {
         setBusySlot(slot.key);
         try {
-            await axios.delete(`/api/public/reforma-docs/${uuidRef.current}/${slot.key}`, { params: { token: tokenRef.current, name: item.name, driveId: item.driveId || undefined } });
+            await axios.delete(`${api.public}/${uuidRef.current}/${slot.key}`, { params: { token: tokenRef.current, name: item.name, driveId: item.driveId || undefined } });
             patchSlot(slot.key, s => {
                 const items = (s.items || []).filter(it => (item.driveId ? it.driveId !== item.driveId : it.name !== item.name));
                 return { ...s, items, estado: rollup(items) };
@@ -599,7 +611,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const reviewItem = async (slot, item, accion, motivo = null, notifyTarget = undefined) => {
         setActing(`${slot.key}:${item.name}`);
         try {
-            await axios.post(`/api/oportunidades/${idOrUuid}/docs/${slot.key}/${accion === 'validar' ? 'validar' : 'rechazar'}`,
+            await axios.post(`${api.admin}/${idOrUuid}/docs/${slot.key}/${accion === 'validar' ? 'validar' : 'rechazar'}`,
                 accion === 'validar' ? { name: item.name } : { name: item.name, motivo, notifyTarget });
             patchSlot(slot.key, s => {
                 const items = (s.items || []).map(it => it.name === item.name
@@ -620,7 +632,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         setWaiving(slot.key);
         setSlotError(prev => ({ ...prev, [slot.key]: null }));
         try {
-            await axios.post(`/api/oportunidades/${idOrUuid}/docs/${slot.key}/waive`, { waived: next });
+            await axios.post(`${api.admin}/${idOrUuid}/docs/${slot.key}/waive`, { waived: next });
             patchSlot(slot.key, s => ({ ...s, waived: next, required: next ? false : (s.baseRequired ?? s.required) }));
         } catch (err) {
             setSlotError(prev => ({ ...prev, [slot.key]: err.response?.data?.error || 'No se pudo cambiar.' }));
@@ -636,7 +648,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         setSlotError(prev => ({ ...prev, [slot.key]: null }));
         try {
             const res = await axios.post(
-                `/api/public/reforma-docs/${uuidRef.current}/${slot.key}/merge-pdf`,
+                `${api.public}/${uuidRef.current}/${slot.key}/merge-pdf`,
                 null,
                 { params: { token: tokenRef.current } }
             );
@@ -658,7 +670,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         setConceptBusy(concept.id);
         setConceptError(null);
         try {
-            await axios.post(`/api/oportunidades/${idOrUuid}/docs/concept`, { conceptId: concept.id, enabled });
+            await axios.post(`${api.admin}/${idOrUuid}/docs/concept`, { conceptId: concept.id, enabled });
             await load(true);
         } catch (err) {
             setConceptError(err.response?.data?.error || 'No se pudo cambiar el apartado.');
@@ -866,7 +878,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         setFinError(null);
         try {
             const r = await axios.post(
-                `/api/public/reforma-docs/${uuidRef.current}/fin-obra`,
+                `${api.public}/${uuidRef.current}/fin-obra`,
                 { rol: rol || (roleFase === 'DESPUES' ? 'instalador' : 'cliente') },
                 { params: { token: tokenRef.current } }
             );
@@ -1150,7 +1162,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                                         title="Rechazar foto" aria-label="Rechazar foto"
                                                         className={`w-7 h-7 rounded-lg text-sm font-black flex items-center justify-center transition-all disabled:opacity-50 ${fEstado === 'rechazada' ? 'bg-red-500 text-white shadow-sm shadow-red-500/30' : 'bg-red-500/15 text-red-300 hover:bg-red-500/30'}`}>✗</button>
                                                     {/* Publicar en el escaparate — solo fotos VALIDADAS */}
-                                                    {img && fEstado === 'validada' && (
+                                                    {img && fEstado === 'validada' && api.escaparate && (
                                                         publicadas[it.driveId]
                                                             ? <button onClick={() => unpublish(it)} disabled={pubBusy} title="Quitar del escaparate público"
                                                                 className="w-7 h-7 rounded-lg text-sm flex items-center justify-center bg-amber-500 text-white shadow-sm shadow-amber-500/30 disabled:opacity-50">★</button>
@@ -1206,9 +1218,12 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
             {buzon && (
                 <BuzonFotos
                     idOrUuid={idOrUuid}
+                    adminBase={api.admin}
                     files={buzon.files}
                     slots={(info.slots || []).filter(s => !s.existing)}
+                    addableConcepts={info.addableConcepts || []}
                     onSubir={(slot, archivos) => uploadFiles(slot, archivos)}
+                    onAnadirApartado={canValidate ? anadirApartadoDesdeBuzon : null}
                     onCerrar={() => setBuzon(null)}
                 />
             )}
@@ -1245,7 +1260,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                             lo primero que hay que saber para hacerlas bien. */}
                         <div className="flex items-center justify-between gap-3 mb-2">
                             <span className={`text-[11px] font-black uppercase tracking-widest ${faseActiva === 'ANTES' ? 'text-amber-300/90' : 'text-emerald-300/90'}`}>
-                                {faseActiva === 'ANTES' ? '① Antes de la obra' : '② La instalación nueva'}
+                                {api.unaFase ? '📷 Para tu certificado' : (faseActiva === 'ANTES' ? '① Antes de la obra' : '② La instalación nueva')}
                             </span>
                             <button onClick={() => setGuiado(false)}
                                 className="text-[11px] font-bold text-white/45 hover:text-white/80 underline underline-offset-2">
@@ -1591,7 +1606,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
 
             {/* Tabs — ocultas cuando el enlace está scoped por rol (solo una fase)
                 y en el enlace del cliente, que va en una sola lista. */}
-            {!clientView && !roleFase && (
+            {!clientView && !roleFase && !api.unaFase && (
                 <div className="grid grid-cols-2 gap-2 mb-6 p-1 bg-white/[0.03] rounded-2xl border border-white/10">
                     <button onClick={() => setTab('ANTES')}
                         className={`py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${tab === 'ANTES' ? 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/20' : 'text-white/50 hover:text-white/80'}`}>

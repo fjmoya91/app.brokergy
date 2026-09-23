@@ -468,7 +468,7 @@ export function deriveCifoData({ expediente, results }) {
     let climateSeason = 'medio';
     if (isHybrid) {
         const demandaAnual = dcalRaw * sRaw;
-        const hybridIn = resolveHybridInputs(inst, opInputs);
+        const hybridIn = resolveHybridInputs(inst, opInputs, op.datos_calculo?.zona);
         hybridMethod = hybridIn.method;
         pbdcKw = hybridIn.heatPumpPower;
         const hybridData = calculateHybridization({ demandAnnual: demandaAnual, zone: zoneStr, ...hybridIn });
@@ -1355,8 +1355,9 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         const URL_811 = 'https://www.boe.es/doue/2013/239/L00001-00082.pdf';
 
         // Condiciones en las que se declara el SCOP adoptado. Tienen que ser las de la
-        // MISMA temporada de referencia que las horas equivalentes (clima medio): un
-        // SCOP de una temporada con las horas de otra no es defendible.
+        // MISMA temporada de referencia que las horas equivalentes: un SCOP de una
+        // temporada con las horas de otra no es defendible. Las dos salen de la misma
+        // decisión (`resolveClimateSeason`), así que aquí no se elige nada.
         const esCalido = climateSeason === 'calido';
         const tempLabel = esCalido ? 'condiciones climáticas más cálidas' : 'condiciones climáticas medias';
         const emiTemp = getEmitterTemp(inst.tipo_emisor);

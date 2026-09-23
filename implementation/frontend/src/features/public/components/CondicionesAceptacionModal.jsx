@@ -9,7 +9,13 @@ import { CONDICIONES, CONDICIONES_VERSION } from '../logic/condicionesAceptacion
 //
 // `onAceptar` es opcional: si llega, el pie ofrece aceptar desde aquí mismo —
 // quien acaba de leer las condiciones no tiene por qué cerrar y buscar el botón.
-export default function CondicionesAceptacionModal({ open, onClose, onAceptar, enviando }) {
+//
+// `condiciones` / `version` / `subtitulo` / `aceptarLabel` son opcionales: por
+// defecto, las de la propuesta CAE. La oferta de CEE directo pasa las suyas
+// (logic/condicionesOfertaCee.js) — mismo popup, otro texto.
+export default function CondicionesAceptacionModal({ open, onClose, onAceptar, enviando,
+    condiciones = CONDICIONES, version = CONDICIONES_VERSION,
+    subtitulo = 'Lo que aceptas al confirmar la propuesta', aceptarLabel = 'Aceptar propuesta' }) {
     useEffect(() => {
         if (!open) return;
         const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -29,7 +35,7 @@ export default function CondicionesAceptacionModal({ open, onClose, onAceptar, e
                 <div className="flex items-start justify-between gap-4 px-6 pt-6 pb-4 border-b border-white/10 shrink-0">
                     <div>
                         <h2 id="condiciones-titulo" className="text-lg font-black text-white">Condiciones y autorizaciones</h2>
-                        <p className="text-xs text-white/40 mt-1">Lo que aceptas al confirmar la propuesta</p>
+                        <p className="text-xs text-white/40 mt-1">{subtitulo}</p>
                     </div>
                     <button type="button" onClick={onClose} aria-label="Cerrar"
                             className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-colors">
@@ -38,7 +44,7 @@ export default function CondicionesAceptacionModal({ open, onClose, onAceptar, e
                 </div>
 
                 <div className="overflow-y-auto px-6 py-5 space-y-6">
-                    {CONDICIONES.map((sec, i) => (
+                    {condiciones.map((sec, i) => (
                         <section key={sec.titulo}>
                             <h3 className="text-sm font-bold text-white mb-2">
                                 <span className="text-brand mr-2">{i + 1}.</span>{sec.titulo}
@@ -59,7 +65,7 @@ export default function CondicionesAceptacionModal({ open, onClose, onAceptar, e
                             {sec.nota && <p className="text-[12px] text-white/40 mt-2">{sec.nota}</p>}
                         </section>
                     ))}
-                    <p className="text-[10px] text-white/25 uppercase tracking-widest">Versión {CONDICIONES_VERSION}</p>
+                    <p className="text-[10px] text-white/25 uppercase tracking-widest">Versión {version}</p>
                 </div>
 
                 <div className="flex flex-col-reverse sm:flex-row gap-3 px-6 py-4 border-t border-white/10 shrink-0"
@@ -71,7 +77,7 @@ export default function CondicionesAceptacionModal({ open, onClose, onAceptar, e
                     {onAceptar && (
                         <button type="button" onClick={onAceptar} disabled={enviando}
                                 className="flex-1 py-3 rounded-xl bg-gradient-to-r from-brand to-brand-700 text-bkg-deep font-black text-sm uppercase tracking-widest disabled:opacity-50">
-                            {enviando ? 'Procesando…' : 'Aceptar propuesta'}
+                            {enviando ? 'Procesando…' : aceptarLabel}
                         </button>
                     )}
                 </div>

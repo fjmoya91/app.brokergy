@@ -266,6 +266,60 @@ function encargoCeeClienteMsg({ destinatario, numExp, fase, obraHecha = false, t
     return `${hola}\n\nYa hemos puesto en marcha tu expediente ${exp}.\n\nHemos asignado al *técnico certificador* y le hemos enviado tu documentación junto con las instrucciones para que emita el *certificado de eficiencia energética inicial* de tu vivienda. Es el primer paso del trámite y se hace sobre la situación de partida, antes de la reforma.\n\nSi necesitamos algo más de tu parte, nos pondremos en contacto contigo.${aviso}\n\nEn cuanto quede registrado te avisamos por aquí. Por tu parte no tienes que hacer nada más de momento.\n\n¡Gracias!\n${FIRMA}`;
 }
 
+// ─── CEE DIRECTO: los avisos al cliente ──────────────────────────────────────
+// El gemelo de `encargoCeeClienteMsg` para un certificado contratado SUELTO.
+// Mismo momento y mismo gesto (sale con el encargo al técnico), pero aquí no hay
+// "trámite", ni ayuda, ni facturas que tengan que ser posteriores: hablarle de
+// eso a quien vende su piso le pone a buscar un problema que no tiene.
+
+/**
+ * @param {object} p
+ * @param {string} p.destinatario nombre de quien lo lee
+ * @param {string} p.numExp       2026CEE_57
+ * @param {'inicial'|'final'|'unico'} p.fase
+ * @param {string} [p.tecnico]    nombre del técnico asignado (para que reconozca la llamada)
+ * @param {boolean} [p.tercero]   lo lee su persona de contacto, no el titular
+ * @param {object}  [p.obra]      { cliente, direccion } cuando es un tercero
+ */
+function encargoCeeDirectoClienteMsg({ destinatario, numExp, fase, tecnico = null, tercero = false, obra = null }) {
+    const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
+    const quien = tecnico ? `al técnico certificador *${capitalizar(tecnico)}*` : 'al *técnico certificador*';
+    const dir = direccionLimpia(obra?.direccion);
+    const deQue = tercero
+        ? `de *${capitalizar(obra?.cliente) || 'tu cliente'}*${dir ? ` (${dir})` : ''}`
+        : 'de tu vivienda';
+    const cert = fase === 'final' ? '*certificado de eficiencia energética final*'
+        : fase === 'inicial' ? '*certificado de eficiencia energética inicial*'
+            : '*certificado de eficiencia energética*';
+    const tu = tercero ? 'os' : 'te';
+    const contigo = tercero ? 'con vosotros' : 'contigo';
+    const extra = fase === 'inicial'
+        ? `\n\nEs el certificado de la situación de partida: la visita tiene que hacerse *antes de empezar la obra*.`
+        : fase === 'final'
+            ? `\n\nEs el certificado con la obra ya terminada.`
+            : '';
+    return `${hola}\n\nYa hemos encargado el ${cert} ${deQue} (expediente *${numExp}*) ${quien}. Se pondrá en contacto ${contigo} en los próximos días para concertar la visita.${extra}\n\nEn cuanto quede registrado ${tu} avisamos por aquí.\n\n¡Gracias!\n${FIRMA}`;
+}
+
+/**
+ * El certificado ya está REGISTRADO. Si aún no está cobrado se le dice que la
+ * entrega va tras el pago —es la condición del presupuesto—; si ya lo está, la
+ * entrega sale sola con los PDF y aquí basta con anunciarla.
+ */
+function ceeDirectoRegistradoClienteMsg({ destinatario, numExp, fase, cobrado = false, tercero = false, obra = null }) {
+    const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
+    const cert = fase === 'final' ? 'certificado de eficiencia energética final'
+        : fase === 'inicial' ? 'certificado de eficiencia energética inicial'
+            : 'certificado de eficiencia energética';
+    const dir = direccionLimpia(obra?.direccion);
+    const deQue = tercero ? ` de *${capitalizar(obra?.cliente) || 'tu cliente'}*${dir ? ` (${dir})` : ''}` : '';
+    const tu = tercero ? 'os' : 'te';
+    const cierre = cobrado
+        ? `En breve ${tu} lo enviamos junto con su justificante de registro.`
+        : `Te lo enviamos, junto con su justificante de registro, en cuanto recibamos el pago del presupuesto por transferencia (BBVA · ES10 0182 0394 3002 0175 3286). Si ya lo has hecho, no hace falta que hagas nada más.`;
+    return `${hola}\n\n✅ El *${cert}*${deQue} (expediente *${numExp}*) ya está *registrado* en Industria.\n\n${cierre}\n\n¡Gracias!\n${FIRMA}`;
+}
+
 // ─── Mensajes de LOTE: un destinatario, varios expedientes ────────────────────
 //
 // Un certificador con cuatro CEE sin registrar no necesita cuatro mensajes idénticos
@@ -371,6 +425,7 @@ function cobroLoteWa({ destinatario, items, tercero = false }) {
 
 module.exports = {
     certRegistroWa, certEmisionWa, encargoCeeClienteMsg,
+    encargoCeeDirectoClienteMsg, ceeDirectoRegistradoClienteMsg,
     finObraMsg, firmaMsg, ceeMaterialMsg, bloqueAcciones,
     certRegistroLoteWa, certEmisionLoteWa, finObraLoteWa, firmaLoteWa, cobroLoteWa, ceeMaterialLoteWa, listaExpedientes,
     capitalizar, nombrePila, nombreSaludo, direccionLimpia, FIRMA,

@@ -122,7 +122,7 @@ export function deriveFichaRes093(expediente, opts = {}) {
     const hybridRes = calculateHybridization({
         demandAnnual: q_net_heating,
         zone: op.datos_calculo?.zona || 'D3',
-        ...resolveHybridInputs(inst, opInputs)
+        ...resolveHybridInputs(inst, opInputs, op.datos_calculo?.zona)
     });
     const cbVal = hybridRes?.cb ?? 1;
     const cbStr = cbVal.toFixed(3).replace('.', ',');

@@ -166,7 +166,7 @@ export function deriveTerciarioVars(expediente) {
     let cb = 1;
     let cbIncompleto = false;
     if (esHibrida) {
-        const hybridIn = resolveHybridInputs(inst, opInputs);
+        const hybridIn = resolveHybridInputs(inst, opInputs, opDatos.zona);
         hybrid = calculateHybridization({ demandAnnual: qNetHeating, ...hybridIn });
         cb = hybrid.cb;
         // Sin potencia de bomba o sin denominador, `calculateHybridization` devuelve

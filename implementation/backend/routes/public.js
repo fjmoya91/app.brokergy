@@ -1393,6 +1393,146 @@ router.get('/cee-firma/:expedienteId/borrador-cee/fichero', async (req, res) => 
 // que no puede) y va protegida por el token de un solo uso de `cee.ack_token`.
 // ═══════════════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════════════
+// OFERTA DE CEE — el cliente la ve y la acepta en /aceptar-cee/:token
+// ---------------------------------------------------------------------------
+// Gemelo pequeño de /firma/:id de la propuesta CAE: completa su ficha y, al
+// aceptar, nace el expediente {AAAA}CEE_{n}. El token (32 hex) es el acceso; la
+// vista no enseña nada interno (ni partner, ni historial). Ver ceeOfertaService.
+// ═══════════════════════════════════════════════════════════════════════════
+router.get('/oferta-cee/:token', async (req, res) => {
+    try {
+        const svc = require('../services/ceeOfertaService');
+        const o = await svc.cargarPorToken(req.params.token);
+        if (!o) return res.status(404).json({ error: 'Esta oferta no existe o el enlace no es correcto.' });
+        res.json(await svc.vistaPublica(o));
+    } catch (err) {
+        console.error('[oferta-cee vista]', err.message);
+        res.status(500).json({ error: 'No se pudo cargar la oferta.' });
+    }
+});
+
+router.get('/oferta-cee/:token/pdf', async (req, res) => {
+    try {
+        const svc = require('../services/ceeOfertaService');
+        const o = await svc.cargarPorToken(req.params.token);
+        if (!o) return res.status(404).json({ error: 'Esta oferta no existe.' });
+        const { buffer, filename } = await svc.pdfDe(o);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
+        res.send(buffer);
+    } catch (err) {
+        console.error('[oferta-cee pdf]', err.message);
+        res.status(500).json({ error: 'No se pudo preparar el PDF.' });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DOCUMENTACIÓN DEL CEE DIRECTO — fachada, patios, vídeo, planos
+// ---------------------------------------------------------------------------
+// Gemelas de /reforma-docs y /reforma-thumb (CAE) sobre `cee_directos`, con el
+// `portal_token` del expediente. Mismas formas de respuesta: las pinta el MISMO
+// DocsManager (ver ceeDirectoDocsService).
+// ═══════════════════════════════════════════════════════════════════════════
+async function ceeDirectoConToken(req, res) {
+    const docs = require('../services/ceeDirectoDocsService');
+    const row = await require('../services/ceeDirectoService').cargar(req.params.id);
+    if (!row) { res.status(404).json({ error: 'Expediente no encontrado' }); return null; }
+    if (!docs.tokenValido(row, req.query.token)) { res.status(403).json({ error: 'Enlace inválido o caducado.' }); return null; }
+    return row;
+}
+
+router.get('/cee-directo-docs/:id', async (req, res) => {
+    try {
+        const row = await ceeDirectoConToken(req, res); if (!row) return;
+        res.json(await require('../services/ceeDirectoDocsService').vista(row, { need: req.query.need || null }));
+    } catch (e) {
+        console.error('[cee-directo-docs GET]', e.message);
+        res.status(500).json({ error: 'No se pudo cargar la documentación.' });
+    }
+});
+
+router.post('/cee-directo-docs/:id/:slot/batch', requireAuth, uploadDocsArray, async (req, res) => {
+    try {
+        const row = await ceeDirectoConToken(req, res); if (!row) return;
+        const archivos = req.files || [];
+        if (!archivos.length) return res.status(400).json({ error: 'No se ha recibido ningún archivo.' });
+        const { subidas, fallidas } = await require('../services/ceeDirectoDocsService').subir(row, req.params.slot, archivos, {
+            label: req.body?.label || null,
+            subidoPor: isStaff(req) ? 'admin' : 'cliente',
+        });
+        if (!subidas.length) return res.status(500).json({ error: fallidas[0]?.error || 'No se pudo subir ningún archivo.', fallidas });
+        res.json({
+            success: true, slot: req.params.slot, fallidas,
+            items: subidas.map(({ file, ...it }) => it), // eslint-disable-line no-unused-vars
+        });
+    } catch (e) {
+        console.error('[cee-directo-docs batch]', e.message);
+        res.status(e.status || 500).json({ error: e.message || 'Error al subir.' });
+    }
+});
+
+router.delete('/cee-directo-docs/:id/:slot', async (req, res) => {
+    try {
+        const row = await ceeDirectoConToken(req, res); if (!row) return;
+        const { name, driveId } = req.query;
+        if (!name && !driveId) return res.status(400).json({ error: 'Falta el identificador del archivo' });
+        await require('../services/ceeDirectoDocsService').borrar(row, req.params.slot, { name, driveId });
+        res.json({ success: true });
+    } catch (e) {
+        res.status(e.status || 500).json({ error: e.message || 'No se pudo borrar el archivo.' });
+    }
+});
+
+// Miniatura por proxy (mismo origen), igual que /reforma-thumb.
+router.get('/cee-directo-thumb/:id/:driveId', async (req, res) => {
+    try {
+        const row = await ceeDirectoConToken(req, res); if (!row) return;
+        const { driveId } = req.params;
+        const size = /^\d+$/.test(String(req.query.sz)) ? String(req.query.sz) : '400';
+        const tryFetch = async (url) => {
+            try {
+                const r = await axios.get(url, { responseType: 'arraybuffer', timeout: 9000, maxRedirects: 5, validateStatus: s => s === 200 });
+                return { buf: Buffer.from(r.data), type: r.headers['content-type'] || 'image/jpeg' };
+            } catch { return null; }
+        };
+        let img = await tryFetch(`https://lh3.googleusercontent.com/d/${driveId}=w${size}`);
+        if (!img) img = await tryFetch(`https://drive.google.com/thumbnail?id=${driveId}&sz=w${size}`);
+        if (!img) {
+            const buf = await driveService.getFileContent(driveId);
+            if (!buf) return res.status(404).end();
+            img = { buf, type: 'image/jpeg' };
+        }
+        res.set('Content-Type', img.type);
+        res.set('Cache-Control', 'private, max-age=86400');
+        res.send(img.buf);
+    } catch (e) {
+        console.error('[cee-directo-thumb]', e.message);
+        res.status(500).end();
+    }
+});
+
+// El cliente ha terminado con las fotos (o las deja para luego): se le manda la
+// confirmación de la aceptación, con el enlace si falta algo por adjuntar.
+router.post('/oferta-cee/:token/terminar', express.json(), async (req, res) => {
+    try {
+        const r = await require('../services/ceeOfertaService').confirmarAlCliente(req.params.token, { motivo: 'cliente' });
+        res.json(r);
+    } catch (e) {
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'No se pudo completar.' });
+    }
+});
+
+router.post('/oferta-cee/:token/aceptar', express.json(), async (req, res) => {
+    try {
+        const svc = require('../services/ceeOfertaService');
+        res.json(await svc.aceptar(req.params.token, req.body || {}));
+    } catch (err) {
+        console.error('[oferta-cee aceptar]', err.message);
+        res.status(err.status || 500).json({ error: err.status ? err.message : 'No se pudo registrar la aceptación. Inténtalo de nuevo en unos minutos.' });
+    }
+});
+
 // GET /api/public/cee-ack/:id?token=  → datos para pintar la página
 router.get('/cee-ack/:id', async (req, res) => {
     try {
@@ -1585,6 +1725,13 @@ router.post('/cee-directo-upload/:id/:slot', uploadDocsSingle, async (req, res) 
             // el cliente recibe su certificado sin que nadie tenga que acordarse.
             require('../services/ceeDirectoEntrega')
                 .intentarEntregaAsync(row.id, ph, 'registro subido por el certificador');
+            // Si aún NO está cobrado, la entrega no sale: se le avisa de que ya
+            // está registrado y de que se le envía tras el pago (una vez por fase;
+            // `avisarRegistrado` se calla solo si está cobrado o ya se avisó, y
+            // respeta CEE_ENTREGA_AUTO como la entrega).
+            setImmediate(() => require('../services/ceeDirectoEntrega')
+                .avisarRegistrado(row.id, ph, { manual: false })
+                .catch(e => console.warn('[cee-directo-upload aviso cliente]', e.message)));
 
             const [aa, mm, dd] = String(fechaRegistro).split('-');
             await svcCeeDirecto.anotarHistorial(row.id, {

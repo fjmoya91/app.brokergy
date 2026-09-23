@@ -3,6 +3,9 @@ import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { NuevoCeeDirectoModal } from '../components/NuevoCeeDirectoModal';
 import { CeeDirectoDetailView } from './CeeDirectoDetailView';
+import { OfertaCeeModal } from '../components/OfertaCeeModal';
+import { AccionesOferta } from '../components/AccionesOferta';
+import { fmtEur } from '../logic/ofertaCee';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CEE directos — los certificados que nos contratan sueltos, fuera del CAE.
@@ -42,6 +45,15 @@ const COLOR_ESTADO = (estado) => {
     return 'bg-white/[0.04] text-white/45 border-white/10';
 };
 
+// Un PRESUPUESTO enviado todavía no es un expediente (no tiene número de CEE
+// hasta que el cliente lo acepta), pero es trabajo vivo: va en la MISMA tabla,
+// con su número de presupuesto y la pelota en el cliente. El aceptado no se
+// pinta: ya es la fila de su expediente, y saldría dos veces.
+const ESTADO_OFERTA = {
+    ENVIADA: { texto: 'Presupuesto enviado', color: 'bg-sky-500/10 text-sky-400 border-sky-500/20' },
+    ANULADA: { texto: 'Presupuesto anulado', color: 'bg-white/[0.04] text-white/35 border-white/10 line-through' },
+};
+
 const Pastilla = ({ children, className = '' }) => (
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border whitespace-nowrap ${className}`}>
         {children}
@@ -63,6 +75,10 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
     const [verFinalizados, setVerFinalizados] = useState(false);
     const [filtroPrescriptor, setFiltroPrescriptor] = useState('');
     const [showNuevo, setShowNuevo] = useState(false);
+    const [showOferta, setShowOferta] = useState(false);
+    const [recargaOfertas, setRecargaOfertas] = useState(0);
+    const [ofertas, setOfertas] = useState([]);
+    const [ofertaAbierta, setOfertaAbierta] = useState(null);
     const [seleccionado, setSeleccionado] = useState(initialSelectedId);
 
     const cargar = useCallback(async () => {
@@ -92,6 +108,26 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
     // detalle vive aquí dentro, no en App, así que allí no hay forma de saberlo.
     useEffect(() => { onOpenChange?.(seleccionado); }, [seleccionado, onOpenChange]);
 
+    // Los presupuestos son cosa del equipo (la ruta es staffOnly). Se piden
+    // también los anulados: se enseñan solo con "Ver terminados" o buscando.
+    const cargarOfertas = useCallback(async () => {
+        if (!isStaff) return;
+        try {
+            const { data } = await axios.get(`${API}/ofertas`, { params: { todas: 1 } });
+            setOfertas(Array.isArray(data) ? data : []);
+        } catch {
+            // Sin presupuestos el listado de expedientes sigue sirviendo: no se
+            // tapa con un error rojo por algo accesorio.
+            setOfertas([]);
+        }
+    }, [isStaff]);
+
+    useEffect(() => { cargarOfertas(); }, [cargarOfertas, recargaOfertas]);
+
+    // Aceptar o anular un presupuesto mueve las dos listas: el aceptado deja su
+    // fila de presupuesto y aparece como expediente.
+    const recargarTodo = useCallback(() => { cargar(); cargarOfertas(); }, [cargar, cargarOfertas]);
+
     useEffect(() => {
         if (!isStaff) return;
         axios.get('/api/prescriptores').then(r => setPrescriptores(r.data || [])).catch(() => setPrescriptores([]));
@@ -112,6 +148,29 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
             return palabras.every(w => heno.includes(w));
         });
     }, [filas, busqueda, verFinalizados, filtroPrescriptor]);
+
+    const nombrePrescriptor = useMemo(() => {
+        const m = {};
+        for (const p of prescriptores) m[String(p.id_empresa)] = p.acronimo || p.razon_social;
+        return m;
+    }, [prescriptores]);
+
+    const ofertasVisibles = useMemo(() => {
+        const palabras = norm(busqueda).split(/\s+/).filter(Boolean);
+        return ofertas
+            .filter(f => f.estado !== 'ACEPTADA')
+            .filter(f => {
+                if (f.estado === 'ANULADA' && !verFinalizados && !palabras.length) return false;
+                if (filtroPrescriptor && String(f.prescriptor_id) !== filtroPrescriptor) return false;
+                if (!palabras.length) return true;
+                const heno = norm([f.numero, 'presupuesto', f.cliente_nombre, f.municipio, f.direccion, nombrePrescriptor[String(f.prescriptor_id)]].filter(Boolean).join(' '));
+                return palabras.every(w => heno.includes(w));
+            })
+            // Los enviados delante: esperan respuesta y son los que se reclaman.
+            .sort((a, b) => (a.estado === 'ENVIADA' ? 0 : 1) - (b.estado === 'ENVIADA' ? 0 : 1));
+    }, [ofertas, busqueda, verFinalizados, filtroPrescriptor, nombrePrescriptor]);
+
+    const ofertasAnuladas = useMemo(() => ofertas.filter(f => f.estado === 'ANULADA').length, [ofertas]);
 
     const finalizados = useMemo(() => filas.filter(r => r.estado === 'FINALIZADO').length, [filas]);
 
@@ -138,10 +197,19 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
                     </p>
                 </div>
                 {isStaff && (
-                    <button onClick={() => setShowNuevo(true)}
-                        className="min-h-[44px] px-5 rounded-xl bg-brand text-bkg-deep text-[11px] font-black uppercase tracking-widest hover:bg-brand-700 transition-colors">
-                        + Nuevo CEE
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                        {/* La OFERTA va primero: es como empieza casi todo encargo, y
+                            el expediente nace solo cuando el cliente la acepta. El
+                            alta a mano queda para lo que ya viene contratado. */}
+                        <button onClick={() => setShowOferta(true)}
+                            className="min-h-[44px] px-5 rounded-xl border border-brand/40 bg-brand/10 text-brand text-[11px] font-black uppercase tracking-widest hover:bg-brand/20 transition-colors">
+                            Enviar oferta
+                        </button>
+                        <button onClick={() => setShowNuevo(true)}
+                            className="min-h-[44px] px-5 rounded-xl bg-brand text-bkg-deep text-[11px] font-black uppercase tracking-widest hover:bg-brand-700 transition-colors">
+                            + Nuevo CEE
+                        </button>
+                    </div>
                 )}
             </div>
 
@@ -173,7 +241,7 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
                     className={`min-h-[44px] px-4 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-colors ${
                         verFinalizados ? 'bg-white/[0.06] border-white/20 text-white' : 'border-white/10 text-white/40 hover:text-white/70'
                     }`}>
-                    {verFinalizados ? 'Ocultar terminados' : `Ver terminados (${finalizados})`}
+                    {verFinalizados ? 'Ocultar terminados' : `Ver terminados (${finalizados + ofertasAnuladas})`}
                 </button>
             </div>
 
@@ -183,9 +251,9 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
 
             {loading ? (
                 <div className="py-16 text-center text-white/25 text-xs font-black uppercase tracking-widest">Cargando…</div>
-            ) : visibles.length === 0 ? (
+            ) : visibles.length === 0 && ofertasVisibles.length === 0 ? (
                 <div className="py-16 text-center text-white/25 text-xs font-black uppercase tracking-widest">
-                    {filas.length ? 'Nada que coincida con el filtro' : 'Todavía no hay ningún CEE directo'}
+                    {filas.length || ofertas.length ? 'Nada que coincida con el filtro' : 'Todavía no hay ningún CEE directo'}
                 </div>
             ) : (
                 <>
@@ -200,6 +268,55 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
                                 </tr>
                             </thead>
                             <tbody>
+                                {ofertasVisibles.map(f => {
+                                    const est = ESTADO_OFERTA[f.estado] || ESTADO_OFERTA.ENVIADA;
+                                    const dias = diasDesde(f.ultimo_envio?.at || f.created_at);
+                                    const abierta = ofertaAbierta === f.id;
+                                    const cols = isStaff ? 7 : 6;
+                                    return [
+                                        <tr key={f.id}
+                                            onClick={() => setOfertaAbierta(abierta ? null : f.id)}
+                                            className={`border-b border-white/[0.04] hover:bg-white/[0.02] cursor-pointer transition-colors ${abierta ? 'bg-white/[0.02]' : ''}`}>
+                                            <td className="px-4 py-3">
+                                                <div className="font-mono text-sky-400 text-sm font-bold">{f.numero}</div>
+                                                <div className="text-white/70 text-xs mt-0.5 uppercase tracking-wide line-clamp-1">{f.direccion || f.cliente_nombre || '—'}</div>
+                                                <div className="flex items-center gap-1.5 mt-1">
+                                                    <Pastilla className="bg-sky-500/10 text-sky-400 border-sky-500/20">Presupuesto</Pastilla>
+                                                    <Pastilla className={f.alcance === 'DOBLE' ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' : 'bg-white/[0.04] text-white/40 border-white/10'}>
+                                                        {f.alcance === 'DOBLE' ? 'Ini+Fin' : 'Único'}
+                                                    </Pastilla>
+                                                    <span className="text-[10px] font-mono text-white/40">{fmtEur(f.total)}</span>
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-3 text-xs text-white/60">
+                                                {f.cliente_nombre || <span className="text-white/20">—</span>}
+                                                {f.municipio && <div className="text-white/25 text-[11px] mt-0.5">{f.municipio}</div>}
+                                            </td>
+                                            {isStaff && (
+                                                <td className="px-4 py-3 text-xs text-white/45">{nombrePrescriptor[String(f.prescriptor_id)] || <span className="text-white/20">Directo</span>}</td>
+                                            )}
+                                            <td className="px-4 py-3 text-xs"><span className="text-white/20">Aún sin encargar</span></td>
+                                            <td className="px-4 py-3">
+                                                <Pastilla className={est.color}>{est.texto}</Pastilla>
+                                                {f.estado === 'ENVIADA' && (
+                                                    <div className="text-[10px] text-white/25 mt-1 uppercase tracking-widest">Pelota: Cliente</div>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-xs font-mono tabular-nums">
+                                                {dias == null || f.estado !== 'ENVIADA' ? <span className="text-white/20">—</span>
+                                                    : <span className={dias > 14 ? 'text-red-400 font-black' : dias > 5 ? 'text-amber-400' : 'text-white/40'}>{dias} d</span>}
+                                            </td>
+                                            <td className="px-4 py-3 text-right text-white/25 text-xs">{abierta ? '▴' : '▾'}</td>
+                                        </tr>,
+                                        abierta && (
+                                            <tr key={`${f.id}-acciones`} className="border-b border-white/[0.04] bg-white/[0.02]">
+                                                <td colSpan={cols} className="px-4 pb-3 pt-1">
+                                                    <AccionesOferta oferta={f} onCambio={recargarTodo} />
+                                                </td>
+                                            </tr>
+                                        ),
+                                    ];
+                                })}
                                 {visibles.map(r => {
                                     const dias = diasParado(r);
                                     return (
@@ -254,6 +371,38 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
 
                     {/* ── Tarjetas (móvil) ───────────────────────────────── */}
                     <div className="md:hidden space-y-3">
+                        {ofertasVisibles.map(f => {
+                            const est = ESTADO_OFERTA[f.estado] || ESTADO_OFERTA.ENVIADA;
+                            const dias = diasDesde(f.ultimo_envio?.at || f.created_at);
+                            const abierta = ofertaAbierta === f.id;
+                            return (
+                                <div key={f.id} onClick={() => setOfertaAbierta(abierta ? null : f.id)}
+                                    className="rounded-2xl p-4 bg-bkg-surface/60 border border-sky-500/15">
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div className="min-w-0 flex-1">
+                                            <div className="font-mono text-sky-400 text-sm font-bold leading-tight">{f.numero}</div>
+                                            <div className="text-white/90 text-xs font-bold mt-0.5 uppercase tracking-wide line-clamp-1">{f.cliente_nombre || '—'}</div>
+                                            {(f.direccion || f.municipio) && <div className="text-white/35 text-[11px] mt-0.5 line-clamp-1">{f.direccion || f.municipio}</div>}
+                                        </div>
+                                        <Pastilla className="bg-sky-500/10 text-sky-400 border-sky-500/20">Presupuesto</Pastilla>
+                                    </div>
+                                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                                        <Pastilla className={est.color}>{est.texto}</Pastilla>
+                                        <span className="text-[11px] font-mono text-white/40">{fmtEur(f.total)}</span>
+                                        {dias != null && f.estado === 'ENVIADA' && (
+                                            <span className={`text-[11px] font-mono ${dias > 14 ? 'text-red-400 font-black' : dias > 5 ? 'text-amber-400' : 'text-white/30'}`}>
+                                                enviado hace {dias} d
+                                            </span>
+                                        )}
+                                    </div>
+                                    {abierta && (
+                                        <div className="mt-3 pt-3 border-t border-white/[0.06]">
+                                            <AccionesOferta oferta={f} onCambio={recargarTodo} />
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
                         {visibles.map(r => {
                             const dias = diasParado(r);
                             return (
@@ -289,6 +438,13 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
                     </div>
                 </>
             )}
+
+            <OfertaCeeModal
+                isOpen={showOferta}
+                onClose={() => setShowOferta(false)}
+                onSent={() => setRecargaOfertas(n => n + 1)}
+                prescriptores={prescriptores}
+            />
 
             <NuevoCeeDirectoModal
                 isOpen={showNuevo}

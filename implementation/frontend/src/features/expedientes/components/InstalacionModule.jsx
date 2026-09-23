@@ -650,6 +650,10 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                 modelo_ud_exterior: data?.modelo_ud_exterior || '',
                 modelo_ud_interior: data?.modelo_ud_interior || '',
                 modelo_conjunto: data?.modelo_conjunto || '',
+                // La marca viaja con el modelo que se hereda: si la unidad 1 no la
+                // tiene (equipo guardado antes de 2026-09-22), la copia tampoco, y
+                // las dos siguen imprimiéndose igual que hasta ahora.
+                ...(data?.modelo_sin_repetir ? { modelo_sin_repetir: true } : {}),
                 scop: scopPropio ?? null,
                 potencia: data?.potencia ?? 0,
                 metodo_scop: data?.metodo_scop || 'ficha',
@@ -708,6 +712,11 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
             // Temporada de la que sale ese SCOP: viaja con el número (ver abajo).
             scop_temporada: isAcs ? null : getScopSeason(found, zonaCE, temp, method),
             aerotermia_db_id: found.id,
+            // El snapshot nace con la marca de que su `modelo` puede traer ya la
+            // referencia de la ud. exterior: la celda "Modelo" del CIFO no la repite
+            // (ver `refExtVisible`). Solo lo NUEVO —sin ella, un expediente ya
+            // guardado sigue imprimiendo exactamente lo que imprimía.
+            modelo_sin_repetir: true,
             modelo: found.modelo_comercial || found.modelo_conjunto || found.modelo_exterior || '',
             modelo_ud_exterior: found.modelo_ud_exterior || '',
             modelo_ud_interior: found.modelo_ud_interior || '',
@@ -744,6 +753,11 @@ function AerotermiaSection({ title, data, onChange, marcas, modelosPorMarca, tip
                 // el número, para que no puedan divergir.
                 scop_temporada: isAcs ? null : getScopSeason(found, zonaCE, getEmitterTemp(tipoEmisor), method),
                 aerotermia_db_id: found.id,
+                // El snapshot nace con la marca de que su `modelo` puede traer ya la
+                // referencia de la ud. exterior: la celda "Modelo" del CIFO no la repite
+                // (ver `refExtVisible`). Solo lo NUEVO —sin ella, un expediente ya
+                // guardado sigue imprimiendo exactamente lo que imprimía.
+                modelo_sin_repetir: true,
                 modelo: found.modelo_comercial || found.modelo_conjunto || found.modelo_exterior || '',
                 // Snapshot de las referencias del catálogo en el expediente: el CIFO y
                 // demás documentos leen de aquí, no del catálogo. La ud. exterior es la
@@ -1900,7 +1914,7 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
 
     // Misma cadena de fallback (expediente → oportunidad) que usan el CIFO y las
     // fichas, para que lo que se ve aquí sea lo que sale en los documentos.
-    const hybridInputs = resolveHybridInputs(local, opDatos);
+    const hybridInputs = resolveHybridInputs(local, opDatos, opDatos.zona);
     const hybridizationRes = local.hibridacion ? calculateHybridization({
         demandAnnual: demandAnnual,
         zone: opDatos.zona || 'D3',

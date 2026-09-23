@@ -297,6 +297,81 @@ router.post('/', staffOnly, async (req, res) => {
     }
 });
 
+// ════════════════════════════════════════════════════════════════════════════
+// OFERTAS — el paso ANTERIOR al expediente (ver services/ceeOfertaService.js)
+// ⚠️ Declaradas ANTES que `/:id`, o Express tomaría "ofertas" por un id.
+// ════════════════════════════════════════════════════════════════════════════
+const ofertas = require('../services/ceeOfertaService');
+
+router.get('/ofertas', staffOnly, async (req, res) => {
+    try {
+        const estados = req.query.todas ? ['ENVIADA', 'ACEPTADA', 'ANULADA'] : ['ENVIADA'];
+        res.json(await ofertas.listar({ estados }));
+    } catch (err) {
+        console.error('[cee-ofertas listado]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * Crea la oferta y la envía en el mismo gesto. Si NINGÚN canal sale, la oferta
+ * se borra: nunca llegó a nadie, y dejarla viva la pintaría como "enviada".
+ */
+router.post('/ofertas', staffOnly, async (req, res) => {
+    const { envio = {}, ...datos } = req.body || {};
+    let oferta = null;
+    try {
+        oferta = await ofertas.crear(datos, { usuarioId: req.user?.id_usuario || null, usuarioNombre: req.user?.email || null });
+        const r = await ofertas.enviar(oferta, { ...envio, usuario: req.user?.email || null });
+        if (!r.canalesOk.length) {
+            await ofertas.descartar(oferta);
+            return res.status(502).json({ error: 'No salió por ningún canal', resultados: r.resultados });
+        }
+        res.status(201).json({ oferta: { id: oferta.id, numero: oferta.numero }, ...r });
+    } catch (err) {
+        if (oferta?.id) {
+            // El PDF no se pudo preparar (o el envío falló antes de salir): no ha
+            // salido nada, así que no queda ni la oferta ni la ficha rápida.
+            await ofertas.descartar(oferta);
+        }
+        console.error('[cee-ofertas alta]', err.message);
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+router.get('/ofertas/:ofertaId/pdf', staffOnly, async (req, res) => {
+    try {
+        const o = await ofertas.cargar(req.params.ofertaId);
+        if (!o) return res.status(404).json({ error: 'Oferta no encontrada' });
+        const { buffer, filename } = await ofertas.pdfDe(o);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
+        res.send(buffer);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/ofertas/:ofertaId/enviar', staffOnly, async (req, res) => {
+    try {
+        const o = await ofertas.cargar(req.params.ofertaId);
+        if (!o) return res.status(404).json({ error: 'Oferta no encontrada' });
+        const r = await ofertas.enviar(o, { ...(req.body || {}), usuario: req.user?.email || null });
+        if (!r.canalesOk.length) return res.status(502).json({ error: 'No salió por ningún canal', resultados: r.resultados });
+        res.json(r);
+    } catch (err) {
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
+router.post('/ofertas/:ofertaId/anular', staffOnly, async (req, res) => {
+    try {
+        res.json(await ofertas.anular(req.params.ofertaId, req.user?.email || null));
+    } catch (err) {
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
 // ─── GET /:id ── Detalle ────────────────────────────────────────────────────
 router.get('/:id', internalOnly, async (req, res) => {
     try {
@@ -671,6 +746,177 @@ function canalesDe(req, { porDefectoEmail = true } = {}) {
     ].filter(Boolean);
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// AVISOS AL CLIENTE — como en el CAE, con textos de CEE suelto
+// ────────────────────────────────────────────────────────────────────────────
+// Al ENCARGAR el certificado sale, por el mismo botón y a la vez, un aviso al
+// cliente (quién es su técnico y que le llamará para la visita). Los textos
+// viven en `recordatorios.js`; el destinatario, en `svc.contactoCliente`, que
+// aplica el desvío a la persona de contacto igual que el CAE.
+// ════════════════════════════════════════════════════════════════════════════
+const recordatorios = require('../services/recordatorios');
+
+/** El técnico con nombre de PERSONA (firma como tal), o la razón social. */
+const nombreTecnico = (p) => {
+    if (!p) return null;
+    const persona = [p.nombre_responsable, p.apellidos_responsable].filter(Boolean).join(' ').trim();
+    return persona || p.razon_social || p.acronimo || null;
+};
+
+async function buildAvisoClienteCeeDirecto(row, phase, certificadorId = null) {
+    const fase = svc.faseCliente(row, phase);
+    const contacto = svc.contactoCliente(row.cliente);
+    let tecnico = null;
+    const certId = certificadorId || row.cee?.certificador_id;
+    if (certId) {
+        const { data: p } = await supabase.from('prescriptores')
+            .select('razon_social, acronimo, nombre_responsable, apellidos_responsable')
+            .eq('id_empresa', certId).maybeSingle();
+        tecnico = nombreTecnico(p);
+    }
+    const mensaje = recordatorios.encargoCeeDirectoClienteMsg({
+        destinatario: contacto.nombre, numExp: row.numero_expediente, fase, tecnico,
+        tercero: contacto.tercero, obra: contacto.tercero ? svc.obraDe(row) : null
+    });
+    const asunto = `Hemos encargado tu certificado energético · ${row.numero_expediente}`;
+    const clave = phase === 'final' ? 'final' : 'inicial';
+    const sello = (row.documentacion?.aviso_cliente_cee || {})[clave] || null;
+    return { fase: clave, ...contacto, mensaje, asunto, avisadoEn: sello?.at || null, avisadoA: sello?.to || null };
+}
+
+/** Envía un texto al cliente por los canales pedidos. Best-effort por canal. */
+async function enviarAlCliente({ tlf, email }, { channels = [], texto, asunto }) {
+    const canales = [];
+    if (channels.includes('whatsapp') && tlf) {
+        try { await whatsappService.sendText(tlf, texto); canales.push('WhatsApp'); }
+        catch (e) { console.warn('[cee-directo aviso cliente] WA:', e.message); }
+    }
+    if (channels.includes('email') && email) {
+        const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#222;font-size:15px;line-height:24px">${texto.replace(/\*/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r\n|\r|\n/g, '<br>')}</div>`;
+        try { await emailService.sendMail({ to: email, subject: asunto, text: texto.replace(/\*/g, ''), html }); canales.push('Email'); }
+        catch (e) { console.warn('[cee-directo aviso cliente] Email:', e.message); }
+    }
+    return canales;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// DOCUMENTACIÓN PARA EL CEE — fachada, patios, vídeo, planos
+// La MISMA gestión que el CAE (ver ceeDirectoDocsService). Lo ven el equipo Y el
+// técnico asignado (son las fotos con las que trabaja); validar, rechazar y
+// pedirla, solo el equipo.
+// ════════════════════════════════════════════════════════════════════════════
+const docsCee = require('../services/ceeDirectoDocsService');
+const multerDocs = require('multer')({ storage: require('multer').memoryStorage(), limits: { fileSize: 8 * 1024 * 1024, files: 30 } }).array('files', 30);
+
+async function filaConAcceso(req, res) {
+    const row = await svc.cargar(req.params.id);
+    if (!row) { res.status(404).json({ error: 'Expediente no encontrado' }); return null; }
+    if (!puedeVer(req, row)) { res.status(403).json({ error: 'Acceso denegado' }); return null; }
+    return row;
+}
+
+router.get('/:id/docs', internalOnly, async (req, res) => {
+    try {
+        const row = await filaConAcceso(req, res); if (!row) return;
+        const v = await docsCee.vista(row, { admin: true });
+        // Para el botón de pedírselo al cliente.
+        const contacto = svc.contactoCliente(row.cliente);
+        res.json({ ...v, recipients: { cliente: contacto.tlf || contacto.email ? contacto : null, instalador: null } });
+    } catch (err) {
+        console.error('[cee-directos docs]', err.message);
+        res.status(500).json({ error: 'No se pudo cargar la documentación.' });
+    }
+});
+
+router.post('/:id/docs/:slot/validar', staffOnly, async (req, res) => {
+    try {
+        const row = await filaConAcceso(req, res); if (!row) return;
+        await docsCee.marcar(row, req.params.slot, req.body?.name, { estado: 'validada', motivo: null, revisado_at: new Date().toISOString(), revisado_por: req.user?.email || null });
+        res.json({ ok: true });
+    } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
+});
+
+// Rechazar una foto y, si se pide, decírselo al cliente con el enlace a ESE
+// apartado (sin el motivo por delante, una foto rechazada no se sabe repetir).
+router.post('/:id/docs/:slot/rechazar', staffOnly, async (req, res) => {
+    try {
+        const row = await filaConAcceso(req, res); if (!row) return;
+        const motivo = String(req.body?.motivo || '').trim() || null;
+        await docsCee.marcar(row, req.params.slot, req.body?.name, { estado: 'rechazada', motivo, revisado_at: new Date().toISOString(), revisado_por: req.user?.email || null });
+        let avisado = null;
+        if (req.body?.notifyTarget === 'cliente') {
+            const contacto = svc.contactoCliente(row.cliente);
+            const slotDef = docsCee.checklist().find(s => s.key === req.params.slot);
+            const url = await docsCee.enlace(row, [req.params.slot]);
+            const texto = `¡Hola!\n\nHemos revisado la foto de *${(slotDef?.labelCliente || slotDef?.label || 'tu documentación').toLowerCase()}* (expediente *${row.numero_expediente}*) y necesitamos que la repitas${motivo ? `: ${motivo}` : '.'}\n\nPuedes subirla aquí: ${url}\n\n¡Gracias!\n*BROKERGY · Ingeniería Energética*`;
+            const canales = await enviarAlCliente(contacto, { channels: ['whatsapp', 'email'], texto, asunto: `${row.numero_expediente} — Necesitamos repetir una foto` });
+            avisado = { canales };
+        }
+        res.json({ ok: true, avisado });
+    } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
+});
+
+router.post('/:id/docs/:slot/waive', staffOnly, async (req, res) => {
+    try {
+        const row = await filaConAcceso(req, res); if (!row) return;
+        await svc.mergeDoc(row.id, 'docs_overrides', { [req.params.slot]: { waived: !!req.body?.waived } });
+        res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// El buzón: soltar varias fotos y que se propongan sus apartados (mismo
+// clasificador que el CAE, con el checklist de ESTE expediente).
+router.post('/:id/docs/clasificar', staffOnly, multerDocs, async (req, res) => {
+    try {
+        const imagenes = (req.files || []).filter(f => (f.mimetype || '').startsWith('image/'));
+        if (!imagenes.length) return res.status(400).json({ error: 'No se ha recibido ninguna imagen.' });
+        const propuesta = await require('../services/clasificarFotosService').clasificar(
+            imagenes.map(f => ({ buffer: f.buffer, mimeType: f.mimetype, nombre: f.originalname })),
+            docsCee.checklist()
+        );
+        res.json({ propuesta });
+    } catch (err) {
+        res.status(err.status === 504 ? 504 : 500).json({ error: 'No se pudieron leer las fotos. Colócalas a mano.' });
+    }
+});
+
+// Pedirle al cliente lo que falta, con el enlace filtrado a esos apartados.
+router.post('/:id/docs/enviar-enlace', staffOnly, async (req, res) => {
+    try {
+        const row = await filaConAcceso(req, res); if (!row) return;
+        const f = await docsCee.faltan(row);
+        const pedir = Array.isArray(req.body?.slots) && req.body.slots.length ? req.body.slots : [...f.obligatorios, ...f.recomendados];
+        const url = await docsCee.enlace(row, pedir.length ? pedir : null);
+        const contacto = svc.contactoCliente(row.cliente);
+        const lista = pedir.map(k => docsCee.checklist().find(s => s.key === k)?.labelCliente).filter(Boolean);
+        const texto = String(req.body?.mensaje || '').trim() || [
+            '¡Hola!', '',
+            `Para preparar el certificado energético de tu vivienda (expediente *${row.numero_expediente}*) necesitamos:`,
+            ...(lista.length ? lista.map(l => `   · ${l}`) : ['   · Fotos de la fachada, patios, un vídeo o los planos']),
+            '', `Puedes subirlo aquí: ${url}`, '', '¡Gracias!', '*BROKERGY · Ingeniería Energética*'
+        ].join('\n');
+        const canales = await enviarAlCliente(contacto, {
+            channels: Array.isArray(req.body?.channels) ? req.body.channels : ['whatsapp', 'email'],
+            texto, asunto: `${row.numero_expediente} — Documentación para tu certificado energético`
+        });
+        if (!canales.length) return res.status(502).json({ error: 'No se pudo enviar (sin teléfono ni email del cliente, o fallo del canal).', url });
+        await svc.anotarHistorial(row.id, { tipo: 'CLIENTE', texto: `DOCUMENTACIÓN PEDIDA AL CLIENTE POR ${canales.join(' Y ').toUpperCase()}`, usuario: req.user?.email || null });
+        res.json({ ok: true, canales, url });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /:id/aviso-cliente-cee?phase=initial&certificador_id=  → borrador para el popup
+router.get('/:id/aviso-cliente-cee', staffOnly, async (req, res) => {
+    try {
+        const row = await svc.cargar(req.params.id);
+        if (!row) return res.status(404).json({ error: 'Expediente no encontrado' });
+        res.json(await buildAvisoClienteCeeDirecto(row, req.query.phase === 'final' ? 'final' : 'inicial', req.query.certificador_id || null));
+    } catch (err) {
+        console.error('[cee-directo aviso-cliente-cee]', err.message);
+        res.status(500).json({ error: 'Error preparando el aviso al cliente' });
+    }
+});
+
 // ─── POST /:id/notify-certificador ── Encargo y recordatorios ───────────────
 router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
     try {
@@ -878,7 +1124,35 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
             usuario: req.user?.email || null
         });
 
-        res.json({ ok: true, enviados, errores, expediente: guardado, compartidas });
+        // ── Aviso al cliente: SOLO si de verdad ha salido el encargo (el texto le
+        // dice que ya se lo hemos encargado al técnico). Un fallo aquí no tumba
+        // el encargo: el técnico ya lo tiene.
+        let avisoCliente = null;
+        if (req.body?.avisarCliente && enviados.length) {
+            try {
+                const rowFresco = await svc.cargar(row.id);
+                const borrador = await buildAvisoClienteCeeDirecto(rowFresco, phase);
+                const texto = String(req.body.clienteMessage || '').trim() || borrador.mensaje;
+                const canalesCli = await enviarAlCliente(borrador, {
+                    channels: Array.isArray(req.body.clienteChannels) ? req.body.clienteChannels : ['whatsapp'],
+                    texto, asunto: req.body.clienteAsunto || borrador.asunto
+                });
+                if (canalesCli.length) {
+                    const to = borrador.email || borrador.tlf || null;
+                    await svc.mergeDoc(row.id, 'aviso_cliente_cee', { [borrador.fase]: { at: new Date().toISOString(), to, canales: canalesCli } });
+                    await svc.anotarHistorial(row.id, {
+                        tipo: 'CLIENTE',
+                        texto: `AVISO AL CLIENTE DEL ENCARGO DEL ${faseLabel.toUpperCase()} POR ${canalesCli.join(' Y ').toUpperCase()}`,
+                        usuario: req.user?.email || null
+                    });
+                }
+                avisoCliente = { canales: canalesCli, nombre: borrador.nombre, to: borrador.email || borrador.tlf || null };
+            } catch (e) {
+                console.warn('[cee-directos aviso cliente]', e.message);
+            }
+        }
+
+        res.json({ ok: true, enviados, errores, expediente: guardado, compartidas, avisoCliente });
     } catch (err) {
         console.error('[cee-directos notify-certificador]', err.message);
         res.status(500).json({ error: err.message });
@@ -1103,7 +1377,29 @@ router.post('/:id/notify-registration', internalOnly, async (req, res) => {
                 + `${nombreCliente(row.cliente) ? ` (${nombreCliente(row.cliente)})` : ''}\n\n${enlaceApp(row.id)}`
         });
 
-        res.json({ ok: true, expediente: guardado });
+        // Y a quien se haya marcado en el popup — antes este paso no existía y el
+        // popup decía "notificaciones enviadas" habiendo avisado solo al equipo.
+        // Al CLIENTE, con el texto de CEE suelto (y el recordatorio del pago si
+        // aún no está cobrado); al PARTNER que trajo el encargo, una línea.
+        const target = String(req.body?.target || '').toUpperCase();
+        const canalesPedidos = Array.isArray(req.body?.channels) && req.body.channels.length
+            ? req.body.channels.map(c => String(c).toLowerCase()) : ['whatsapp', 'email'];
+        const avisos = {};
+        if (target === 'CLIENTE' || target === 'AMBOS') {
+            avisos.cliente = await require('../services/ceeDirectoEntrega')
+                .avisarRegistrado(row.id, phase, { manual: true, channels: canalesPedidos, usuario: req.user?.email || null });
+        }
+        if ((target === 'PARTNER' || target === 'AMBOS') && row.prescriptor) {
+            const { partnerNotifyTarget } = require('../services/notifyContacts');
+            const dest = partnerNotifyTarget(row.prescriptor, 'comercial') || {};
+            const texto = `¡Hola!\n\n✅ El *${faseLabel}* de *${nombreCliente(row.cliente) || row.nombre}* (expediente *${row.numero_expediente}*) ya está registrado en Industria.\n\n¡Gracias!\n*BROKERGY · Ingeniería Energética*`;
+            avisos.partner = await enviar({
+                canales: canalesPedidos, email: dest.email || null, telefono: dest.tlf || null,
+                asunto: `${row.numero_expediente} — ${faseLabel} registrado`, cuerpo: texto
+            }).catch(e => ({ error: e.message }));
+        }
+
+        res.json({ ok: true, expediente: guardado, avisos });
     } catch (err) {
         console.error('[cee-directos notify-registration]', err.message);
         res.status(500).json({ error: err.message });

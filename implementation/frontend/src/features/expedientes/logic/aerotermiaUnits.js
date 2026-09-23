@@ -61,9 +61,68 @@ export function esCascada(aero) {
     return countUnidades(aero) > 1;
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// LA REFERENCIA DE LA UD. EXTERIOR SOLO SE AÑADE SI DICE ALGO (2026-09-22)
+// ───────────────────────────────────────────────────────────────────────────
+// El par "comercial · referencia de placa" identifica el equipo sin ambigüedad
+// cuando son dos cosas distintas ("GENIA AIR SPLIT 8 · HA 8-8.2 OS"): el comercial
+// es el que se reconoce y la referencia la que casa con la foto de la placa.
+//
+// Pero `modelo` se rellena con `modelo_comercial || modelo_conjunto`, y un equipo
+// del catálogo SIN comercial propio acaba llevando el CONJUNTO —que ya contiene la
+// exterior—, así que la celda salía repitiéndola:
+//     "ERLA16DAV37 + EBVX16S23DJ6V · ERLA16DAV37"
+// Medido el 22/09/2026 sobre los 404 equipos del catálogo con referencia exterior:
+// 63 la repiten idéntica y 190 la llevan dentro; solo 151 aportan algo. En
+// expedientes, 50 de 112 imprimían esa celda repetida.
+//
+// REGLA — se compara NORMALIZADO y como PIEZA DELIMITADA, nunca como trozo de una
+// palabra mayor. Es el mismo cuidado que `contieneNumero` (firmados del S.O.) y que
+// `casarConCatalogo` (OCR de placas), y aquí protege dos casos REALES: 25RES060_32
+// dice "ALTHERMA 3 ERLA14DV3 · ERLA14D2V3" —casi iguales, pero NO lo son: se
+// conserva— y los 20 "AURUM6VA240K R32 · AURUM6VA", donde la referencia no está
+// escrita como pieza propia.
+const canonRef = (s) => String(s || '').toUpperCase().replace(/\s+/g, ' ').trim();
+const esAlfaNum = (c) => !!c && /[A-Z0-9]/.test(c);
+
+/** ¿El `modelo` ya DICE la referencia de la ud. exterior? */
+export function refExtRedundante(modelo, ext) {
+    const m = canonRef(modelo);
+    const e = canonRef(ext);
+    if (!m || !e) return false;
+    if (m === e) return true;
+    // Se recorren TODAS las apariciones: la primera puede estar pegada a otra
+    // palabra y una posterior sí ser una pieza propia.
+    for (let i = m.indexOf(e); i >= 0; i = m.indexOf(e, i + 1)) {
+        if (!esAlfaNum(m[i - 1]) && !esAlfaNum(m[i + e.length])) return true;
+    }
+    return false;
+}
+
+/**
+ * La referencia de la ud. exterior que hay que MOSTRAR junto al modelo, o ''.
+ * FUENTE ÚNICA de la decisión: la comparten `modeloUnidad` (CIFO, Anexo I,
+ * certificado RES080) y el encargo CE3X al certificador, que la escribe entre
+ * paréntesis. Con dos criterios, el mismo equipo saldría nombrado de dos formas.
+ *
+ * ⚠️ SOLO A PARTIR DE AHORA (decisión del usuario, 2026-09-22): suprimirla exige
+ * la marca `modelo_sin_repetir`, que se siembra al escribir el snapshot del equipo
+ * desde el catálogo. Sin ella —los 50 expedientes que ya lo tenían guardado, 29 de
+ * ellos con el CIFO firmado— la celda sale EXACTAMENTE como salía, así que
+ * regenerar su certificado no mueve ni un carácter. La PRESENCIA de la marca ES la
+ * marca: no hay ninguna fecha de corte que explicar ni que migrar (mismo criterio
+ * que el sello del precio CAE y que `persiana_defecto`).
+ */
+export function refExtVisible(u) {
+    const ext = String(u?.modelo_ud_exterior || '').trim();
+    if (!ext) return '';
+    if (u?.modelo_sin_repetir && refExtRedundante(u?.modelo, ext)) return '';
+    return ext;
+}
+
 /** Etiqueta de modelo de UNA unidad: "COMERCIAL · UD_EXTERIOR" (formato del CIFO). */
 export function modeloUnidad(u) {
-    return [u?.modelo, u?.modelo_ud_exterior].filter(Boolean).join(' · ') || u?.modelo_conjunto || '';
+    return [u?.modelo, refExtVisible(u)].filter(Boolean).join(' · ') || u?.modelo_conjunto || '';
 }
 
 /**

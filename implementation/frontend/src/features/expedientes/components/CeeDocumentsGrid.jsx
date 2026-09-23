@@ -1322,7 +1322,7 @@ Según el documento:
             // Si se seleccionan ambos, mandamos 'AMBOS', de lo contrario el específico
             const targetParam = selectedTargets.length === 2 ? 'AMBOS' : selectedTargets[0];
 
-            await axios.post(`${apiBase}/${expId}/notify-registration`, {
+            const { data: resNotif } = await axios.post(`${apiBase}/${expId}/notify-registration`, {
                 target: targetParam,
                 type: notifyModal.type,
                 channels: selectedChannels,
@@ -1331,7 +1331,14 @@ Según el documento:
                 // "Omitir notificación" no genera ningún email, ni siquiera interno.
                 notifyStaff: true,
             });
-            showAlert(`Notificaciones enviadas correctamente.`, 'Comunicaciones Enviadas', 'success');
+            // Los CEE directos dicen qué ha salido al cliente: si no ha salido, se
+            // dice, en vez de dar por avisado a quien no ha recibido nada.
+            const cli = resNotif?.avisos?.cliente;
+            if (cli && !cli.enviado) {
+                showAlert(`El certificado queda registrado, pero el aviso al cliente no ha salido (${cli.motivo === 'SIN_CONTACTO' ? 'su ficha no tiene teléfono ni email' : 'fallo al enviar'}).`, 'Aviso al cliente', 'warning');
+            } else {
+                showAlert(`Notificaciones enviadas correctamente.`, 'Comunicaciones Enviadas', 'success');
+            }
             setNotifyModal(null);
         } catch (err) {
             console.error('Notify error:', err);

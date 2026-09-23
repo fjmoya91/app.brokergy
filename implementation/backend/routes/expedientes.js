@@ -5242,6 +5242,10 @@ router.post('/:id/placas/ocr', suyoSiCertificador, async (req, res) => {
                 nuevaAero.aerotermia_db_id = equipoCatalogo.id;
                 nuevaAero.marca = equipoCatalogo.marca || nuevaAero.marca;
                 nuevaAero.modelo = equipoCatalogo.modelo;
+                // El modelo se acaba de escribir desde el catálogo, así que puede traer
+                // ya dentro la referencia de la ud. exterior: se marca para que la
+                // celda "Modelo" del CIFO no la repita detrás (ver `refExtVisible`).
+                nuevaAero.modelo_sin_repetir = true;
                 nuevaAero.modelo_ud_exterior = equipoCatalogo.modelo_ud_exterior || nuevaAero.modelo_ud_exterior || '';
                 nuevaAero.modelo_ud_interior = equipoCatalogo.modelo_ud_interior || nuevaAero.modelo_ud_interior || '';
                 nuevaAero.modelo_conjunto = catalogo.modelo.modelo_conjunto || '';
