@@ -369,14 +369,39 @@ function nombreParaSaludo(cli) {
     return (cli?.nombre_razon_social || 'Cliente').trim();
 }
 
-function buildCeeRegistradoMessages(phase, { numExp, clienteName, clienteFull, portalLink, expedienteLink }) {
+/**
+ * ¿El aviso "al cliente" lo lee su PERSONA DE CONTACTO (un hijo, o el partner que
+ * lleva la relación, como JOSE VICENTE RUIZ SL) y no el titular? Entonces no se
+ * le puede hablar de "tu expediente": se le dice de QUIÉN es. Y su email es el del
+ * contacto, no el del titular — que era por donde salía el email de "CEE
+ * presentado" aunque el WhatsApp sí respetara el desvío.
+ */
+function avisoCliente(cli) {
+    const desvio = cli?.notificaciones_contacto_activas === true
+        || cli?.notificaciones_contacto_activas === 'true';
+    const tercero = !!(desvio && (cli?.persona_contacto_nombre || '').trim()
+        && (cli?.persona_contacto_tlf || cli?.persona_contacto_email));
+    const titular = recordatorios.capitalizar(`${cli?.nombre_razon_social || ''} ${cli?.apellidos || ''}`.trim());
+    return {
+        tercero,
+        titular,
+        email: (desvio ? (cli?.persona_contacto_email || cli?.email) : (cli?.email || cli?.persona_contacto_email)) || null,
+    };
+}
+
+function buildCeeRegistradoMessages(phase, { numExp, clienteName, clienteFull, portalLink, expedienteLink, tercero = false, titular = '' }) {
+    // "de tu expediente X" al titular; "del expediente X de María Teresa…" a quien
+    // lo lee por él.
+    const delExp = tercero
+        ? `del expediente *${numExp}* de *${titular || clienteFull}*`
+        : `de tu expediente *${numExp}*`;
     if (phase === 'final') {
-        const clientMsg = `¡Hola *${clienteName}*!\n\nTe comunicamos que ya ha sido presentado el *Certificado de Eficiencia Energética FINAL* de tu expediente *${numExp}*.\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
+        const clientMsg = `¡Hola *${clienteName}*!\n\nTe comunicamos que ya ha sido presentado el *Certificado de Eficiencia Energética FINAL* ${delExp}.\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
         const staffMsg = `✅ *REGISTRO CEE FINAL PRESENTADO*\nExpediente: ${numExp}\nCliente: ${clienteFull}\n\nSe ha subido el justificante de registro del CEE Final al sistema.\n\nVer expediente:\n🔗 ${expedienteLink}`;
         return { CLIENTE: clientMsg, PARTNER: staffMsg, ADMIN: staffMsg };
     }
     // ── CEE INICIAL ──
-    const clientMsg = `¡Hola *${clienteName}*!\n\nTe escribimos para comunicarte que ya ha sido presentado el *Certificado de Eficiencia Energética INICIAL* de tu expediente *${numExp}*.\n\n*Desde este momento ya se pueden emitir facturas y pagos*\n\n📸 Recuerda hacerle fotografías a todo:\n• *Caldera existente y placa de fabricación.*\n• *Desmontaje de la caldera.*\n• *Montaje de la aerotermia.*\n• *Fotos de las nuevas placas de fabricación* (tanto de la unidad exterior como de la interior).\n\nLas fotos son la parte más importante del proceso para que podamos argumentar ante el ministerio que se ha realizado la reforma.\n\nPuedes subirlas directamente al expediente a través de este enlace:\n🔗 ${portalLink}\n\nUna vez finalizada la obra, debes comunicárnoslo por aquí para proceder con el CEE Final y el resto de la documentación.\n\n📄 Y cuando quieras, puedes *consultar el estado de tu expediente* y el bono que cobrarás aquí:\n🔗 ${(portalLink || '').replace('/subir-docs/', '/mi-expediente/')}\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
+    const clientMsg = `¡Hola *${clienteName}*!\n\nTe escribimos para comunicarte que ya ha sido presentado el *Certificado de Eficiencia Energética INICIAL* ${delExp}.\n\n*Desde este momento ya se pueden emitir facturas y pagos*\n\n📸 Recuerda hacerle fotografías a todo:\n• *Caldera existente y placa de fabricación.*\n• *Desmontaje de la caldera.*\n• *Montaje de la aerotermia.*\n• *Fotos de las nuevas placas de fabricación* (tanto de la unidad exterior como de la interior).\n\nLas fotos son la parte más importante del proceso para que podamos argumentar ante el ministerio que se ha realizado la reforma.\n\nPuedes subirlas directamente al expediente a través de este enlace:\n🔗 ${portalLink}\n\nUna vez finalizada la obra, debes comunicárnoslo por aquí para proceder con el CEE Final y el resto de la documentación.\n\n📄 Y cuando quieras, puedes *consultar el estado ${tercero ? 'del expediente* y el bono que cobrará' : 'de tu expediente* y el bono que cobrarás'} aquí:\n🔗 ${(portalLink || '').replace('/subir-docs/', '/mi-expediente/')}\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
     const staffMsg = `✅ *REGISTRO CEE INICIAL PRESENTADO*\nExpediente: ${numExp}\nCliente: ${clienteFull}\n\nSe ha subido el justificante de registro del CEE Inicial al sistema. Desde este momento ya se pueden emitir facturas y pagos.\n\nVer expediente:\n🔗 ${expedienteLink}`;
     // Mensaje específico para el INSTALADOR: además de avisar, le pedimos las fotos
     // de la obra terminada y la factura, con el enlace de subida acotado a su rol.
@@ -417,7 +442,7 @@ async function notifyCeeInicialRegistrado(expediente, filters = {}) {
 
         // Textos por destinatario (compartidos con la previsualización). El admin puede
         // sobrescribirlos desde el modal de reenvío (filters.overrides).
-        const msgs = buildCeeRegistradoMessages('inicial', { numExp, clienteName, clienteFull, portalLink, expedienteLink });
+        const msgs = buildCeeRegistradoMessages('inicial', { numExp, clienteName, clienteFull, portalLink, expedienteLink, ...avisoCliente(cli) });
         const overrides = filters.overrides || {};
         if (filters.preview) return { ok: true, preview: msgs };
         const clientMsg = overrides.CLIENTE || msgs.CLIENTE;
@@ -455,9 +480,10 @@ async function notifyCeeInicialRegistrado(expediente, filters = {}) {
 
         // --- EMAIL ---
         if (chFilter.includes('email')) {
-            if (targets.includes('CLIENTE') && cli.email) {
+            const av = avisoCliente(cli);
+            if (targets.includes('CLIENTE') && av.email) {
                 channels.email.push('cliente');
-                await emailService.sendCeeInicialRegistradoClientEmail(cli.email, clienteName, numExp, portalLink)
+                await emailService.sendCeeInicialRegistradoClientEmail(av.email, clienteName, numExp, portalLink, av.tercero ? av.titular : null)
                     .catch(e => console.error(`${tag} Email Cliente:`, e.message));
             }
             if (targets.includes('ADMIN')) {
@@ -505,7 +531,7 @@ async function notifyCeeFinalRegistrado(expediente, filters = {}) {
         const channels = { whatsapp: [], email: [] };
 
         // Textos por destinatario (compartidos con la previsualización) + overrides del admin.
-        const msgs = buildCeeRegistradoMessages('final', { numExp, clienteName, clienteFull, portalLink: null, expedienteLink });
+        const msgs = buildCeeRegistradoMessages('final', { numExp, clienteName, clienteFull, portalLink: null, expedienteLink, ...avisoCliente(cli) });
         const overrides = filters.overrides || {};
         if (filters.preview) return { ok: true, preview: msgs };
         const clientMsg = overrides.CLIENTE || msgs.CLIENTE;
@@ -1485,6 +1511,9 @@ async function resolveSolicitudContacto(exp, target, rol = null) {
         nombre: (notif ? (cli?.persona_contacto_nombre || nombreCli) : nombreCli) || null,
         tlf: (notif ? (cli?.persona_contacto_tlf || cli?.tlf) : (cli?.tlf || cli?.persona_contacto_tlf)) || null,
         email: (notif ? (cli?.persona_contacto_email || cli?.email) : (cli?.email || cli?.persona_contacto_email)) || null,
+        // Quien lo lee NO es el titular (su persona de contacto, o el partner): el
+        // popup le escribe en tercera persona, diciéndole de qué cliente es.
+        tercero: !!(notif && cli?.persona_contacto_nombre && (cli?.persona_contacto_tlf || cli?.persona_contacto_email)),
         // La lista completa para el selector del popup (titular · otros
         // propietarios · persona de contacto), igual que se hace con el partner.
         // El destinatario AUTOMÁTICO no cambia: sigue siendo el de arriba, o sea
@@ -1526,6 +1555,23 @@ function obraYaEjecutada(exp) {
  * @param {object} exp expediente completo
  * @param {'initial'|'final'|'inicial'} phase
  */
+/**
+ * Titular y dirección de la obra, para los mensajes que lee un INTERMEDIARIO (la
+ * persona de contacto del cliente, o el partner): sin ellos no sabe de qué obra le
+ * hablamos. Mismo formato que el `obra` de `solicitud-info`.
+ */
+async function obraDelExpediente(exp) {
+    if (!exp?.cliente_id) return { cliente: null, direccion: null };
+    const { data: cli } = await supabase.from('clientes')
+        .select('nombre_razon_social, apellidos, direccion, codigo_postal, municipio, provincia')
+        .eq('id_cliente', exp.cliente_id).maybeSingle();
+    if (!cli) return { cliente: null, direccion: null };
+    return {
+        cliente: `${cli.nombre_razon_social || ''} ${cli.apellidos || ''}`.trim() || null,
+        direccion: [cli.direccion, [cli.codigo_postal, cli.municipio].filter(Boolean).join(' '), cli.provincia ? `(${cli.provincia})` : null].filter(Boolean).join(', ') || null,
+    };
+}
+
 async function buildAvisoClienteCee(exp, phase) {
     const fase = phase === 'final' ? 'final' : 'inicial';
     const contacto = await resolveSolicitudContacto(exp, 'CLIENTE');
@@ -1535,10 +1581,13 @@ async function buildAvisoClienteCee(exp, phase) {
         numExp,
         fase,
         obraHecha: obraYaEjecutada(exp),
+        tercero: !!contacto.tercero,
+        obra: contacto.tercero ? await obraDelExpediente(exp) : null,
     });
+    const suyo = contacto.tercero ? 'del expediente' : 'de tu expediente';
     const asunto = fase === 'final'
-        ? `Certificado energético final de tu expediente ${numExp}`.trim()
-        : `Hemos iniciado el trámite de tu expediente ${numExp}`.trim();
+        ? `Certificado energético final ${suyo} ${numExp}`.trim()
+        : `Hemos iniciado el trámite ${suyo} ${numExp}`.trim();
     const sello = (exp.documentacion?.aviso_cliente_cee || {})[fase] || null;
     return { fase, ...contacto, mensaje, asunto, avisadoEn: sello?.at || null, avisadoA: sello?.to || null };
 }
@@ -2853,22 +2902,26 @@ Puedes subirlas directamente al expediente a través de este enlace:
         if (target === 'CLIENTE' || target === 'AMBOS') {
             const subject = `Certificado de Eficiencia Energética ${labelType} presentado - Expediente ${numExp}`;
             
-            // Email (Normal)
-            if (sendEmail && cli.email) {
-                const intro = `¡Hola ${clienteName}!\n\nTe escribimos para comunicarte que ya ha sido presentado el Certificado de Eficiencia Energética ${labelType} de tu expediente ${numExp}.`;
-                const body = type === 'inicial' 
+            // Quien lo lee: el titular, o su persona de contacto (a veces el partner).
+            const av = avisoCliente(cli);
+            const delExpTxt = av.tercero ? `del expediente ${numExp} de ${av.titular}` : `de tu expediente ${numExp}`;
+            const pasos = av.tercero ? 'del expediente' : 'de tu expediente';
+            // Email (Normal) — al del contacto si tiene el desvío, no al del titular.
+            if (sendEmail && av.email) {
+                const intro = `¡Hola ${clienteName}!\n\nTe escribimos para comunicarte que ya ha sido presentado el Certificado de Eficiencia Energética ${labelType} ${delExpTxt}.`;
+                const body = type === 'inicial'
                     ? `${intro}\n\n${photoTextEmail}\n\n${closingTextEmail}`
-                    : `${intro}\n\nYa puedes proceder con los siguientes pasos de tu expediente.\n\n¡Muchas gracias!\nBROKERGY — Ingeniería Energética`;
-                await emailService.sendMail({ to: cli.email, subject, text: body }).catch(e => console.error('Error Email Cliente:', e.message));
+                    : `${intro}\n\nYa se puede proceder con los siguientes pasos ${pasos}.\n\n¡Muchas gracias!\nBROKERGY — Ingeniería Energética`;
+                await emailService.sendMail({ to: av.email, subject, text: body }).catch(e => console.error('Error Email Cliente:', e.message));
             }
 
             // WhatsApp (Negritas)
             const cliWaPhone = (cli.notificaciones_contacto_activas && cli.persona_contacto_tlf) ? cli.persona_contacto_tlf : cli.tlf;
             if (sendWA && cliWaPhone && whatsappService) {
-                const waIntro = `¡Hola *${clienteName}*!\n\nTe escribimos para comunicarte que ya ha sido presentado el *Certificado de Eficiencia Energética ${labelType.toUpperCase()}* de tu expediente *${numExp}*.`;
+                const waIntro = `¡Hola *${clienteName}*!\n\nTe escribimos para comunicarte que ya ha sido presentado el *Certificado de Eficiencia Energética ${labelType.toUpperCase()}* ${av.tercero ? `del expediente *${numExp}* de *${av.titular}*` : `de tu expediente *${numExp}*`}.`;
                 const waBody = type === 'inicial'
                     ? `${waIntro}\n\n${photoTextWA}\n\n${closingTextWA}`
-                    : `${waIntro}\n\nYa puedes proceder con los siguientes pasos de tu expediente.\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
+                    : `${waIntro}\n\nYa se puede proceder con los siguientes pasos ${pasos}.\n\n¡Muchas gracias!\n*BROKERGY — Ingeniería Energética*`;
                 await whatsappService.sendText(cliWaPhone, waBody).catch(e => console.error('Error WA Cliente:', e.message));
             }
         }

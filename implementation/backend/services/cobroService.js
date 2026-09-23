@@ -136,11 +136,17 @@ function datosCliente(exp) {
 /** Nombre de pila para saludar, sin la razón social entera ni las mayúsculas de la ficha. */
 function primerNombre(exp) {
     const c = exp?.clientes || {};
-    const notif = c.notificaciones_contacto_activas === true;
-    const bruto = (notif && c.persona_contacto_nombre) ? c.persona_contacto_nombre : c.nombre_razon_social;
-    const uno = String(bruto || '').trim().split(/\s+/)[0] || '';
-    if (!uno) return null;
-    return uno.charAt(0).toUpperCase() + uno.slice(1).toLowerCase();
+    const bruto = esTercero(c) ? c.persona_contacto_nombre : c.nombre_razon_social;
+    // El nombre ENTERO: en su campo ya va solo el nombre, y los compuestos ("José
+    // Luis") son mayoría — cortarlo por el primer espacio es llamarle "Jose".
+    const n = require('./recordatorios').capitalizar(String(bruto || '').trim());
+    return n || null;
+}
+
+/** ¿Lo lee su persona de contacto (o el partner) y no el titular? */
+function esTercero(c = {}) {
+    const notif = c.notificaciones_contacto_activas === true || c.notificaciones_contacto_activas === 'true';
+    return !!(notif && c.persona_contacto_nombre && (c.persona_contacto_tlf || c.persona_contacto_email));
 }
 
 /** A quién se le escribe (mismo criterio que `resolveSolicitudContacto` para CLIENTE). */
@@ -190,6 +196,23 @@ async function buildVista(exp) {
 function mensajeCobro(exp, link) {
     const nombre = primerNombre(exp);
     const n = exp?.numero_expediente ? ` (${exp.numero_expediente})` : '';
+    const c = exp?.clientes || {};
+    // A la persona de contacto (o al partner): el dinero es del titular y los datos
+    // los confirma él — se le pide que le haga llegar el enlace.
+    if (esTercero(c)) {
+        const titular = require('./recordatorios').capitalizar(`${c.nombre_razon_social || ''} ${c.apellidos || ''}`.trim()) || 'el titular';
+        return [
+            nombre ? `Hola ${nombre},` : 'Hola,',
+            '',
+            `¡Buenas noticias! Ya tenemos concedida la ayuda de la instalación de *${titular}*${n} y estamos preparando el ingreso.`,
+            '',
+            `Antes de hacer la transferencia necesitamos que *${titular} confirme sus datos de cobro* — sobre todo el número de cuenta, para que el dinero no acabe donde no debe. ¿Le puedes hacer llegar este enlace? Le llevará menos de un minuto y los verá ya rellenos:`,
+            '',
+            link,
+            '',
+            'Cualquier duda, contesta a este mensaje.',
+        ].join('\n');
+    }
     return [
         nombre ? `Hola ${nombre},` : 'Hola,',
         '',

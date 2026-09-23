@@ -815,7 +815,9 @@ router.get('/reforma-docs/:uuid', async (req, res) => {
         // Vista unificada (checklist + estado por foto + miniaturas + flag aceptada).
         // `audience: 'cliente'` → en un expediente en curso no se le enseñan los
         // apartados prescindibles (vídeos, planos, "Otros", CEE posterior).
-        return res.json(await reformaUploadService.buildDocsView(opp, { audience: 'cliente' }));
+        // Salvo lo que se le haya PEDIDO en el enlace (`?need=`): eso se enseña siempre.
+        const pedidos = String(req.query.need || '').split(',').map(s => s.trim()).filter(Boolean);
+        return res.json(await reformaUploadService.buildDocsView(opp, { audience: 'cliente', pedidos }));
     } catch (e) {
         console.error('Error reforma-docs GET:', e);
         res.status(500).json({ error: 'Error interno' });

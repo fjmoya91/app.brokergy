@@ -180,6 +180,9 @@ async function prepararLote(grupo) {
         certName: contacto.nombre || grupo.destinatario.nombre || 'Técnico',
         destinatario: contacto.nombre || grupo.destinatario.nombre,
         esInstalador: grupo.destinatario.tipo === 'INSTALADOR',
+        // El cliente con los avisos desviados: lo lee su persona de contacto (o el
+        // partner), así que las plantillas le hablan de su cliente, no de "tu".
+        tercero: !!contacto.tercero,
         items,
     });
 
@@ -205,6 +208,7 @@ async function resolverContacto(tipo, id, rol = null) {
             nombre: (notif ? (c?.persona_contacto_nombre || nom) : nom) || null,
             tlf: (notif ? (c?.persona_contacto_tlf || c?.tlf) : (c?.tlf || c?.persona_contacto_tlf)) || null,
             email: (notif ? (c?.persona_contacto_email || c?.email) : (c?.email || c?.persona_contacto_email)) || null,
+            tercero: !!(notif && c?.persona_contacto_nombre && (c?.persona_contacto_tlf || c?.persona_contacto_email)),
         };
     }
     // CERTIFICADOR / INSTALADOR — ambos viven en `prescriptores`.

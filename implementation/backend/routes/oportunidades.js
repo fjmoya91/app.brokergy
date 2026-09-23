@@ -12,6 +12,8 @@ const { normalizeData } = require('../utils/normalization');
 const expedienteService = require('../services/expedienteService');
 const whatsappService = require('../services/whatsappService');
 const emailService = require('../services/emailService');
+const { PARTNER_CONTACT_FIELDS, partnerNotifyTarget } = require('../services/notifyContacts');
+const { capitalizar } = require('../services/recordatorios');
 const { createLead } = require('../services/leadService');
 // Fichas del sector TERCIARIO: no se deducen de los inputs de la calculadora
 // (residencial), las declara una persona. Fuente única en utils/fichas.js.
@@ -1810,6 +1812,71 @@ router.delete('/:id', adminOnly, async (req, res) => {
 // ===========================================================================
 
 // Resuelve una oportunidad por UUID (id) o por id_oportunidad legible.
+// ─── A quién va de verdad un mensaje "al cliente" o "al instalador" ──────────
+// El popup de pedir fotos mandaba al `tlf` del titular aunque el cliente tuviera
+// el desvío a su persona de contacto, y al instalador por el teléfono GENERAL de
+// la empresa en vez de a su comercial. Medido en 26RES060_201: los avisos de ese
+// cliente van a PALOMA (JOSE VICENTE RUIZ SL, 633402366) y el popup ofrecía el
+// 637541284 de la titular y el 609865808 de la centralita.
+//
+// Devuelve además `saludo` (a quién se saluda) y `tercero` (si quien lo lee NO es
+// el propio cliente): un mensaje a Paloma no puede hablarle de "tu casa".
+const CLIENTE_DOCS_FIELDS = 'nombre_razon_social, apellidos, tlf, email, direccion, municipio, '
+    + 'persona_contacto_nombre, persona_contacto_tlf, persona_contacto_email, '
+    + 'notificaciones_contacto_activas, contacto_es_partner, prescriptores(razon_social, acronimo)';
+
+function destinoClienteDocs(c) {
+    const titular = [c.nombre_razon_social, c.apellidos].filter(Boolean).join(' ').trim() || 'Cliente';
+    const desvio = c.notificaciones_contacto_activas === true || c.notificaciones_contacto_activas === 'true';
+    const usaContacto = desvio && !!(c.persona_contacto_tlf || c.persona_contacto_email);
+    const partner = c.contacto_es_partner ? (c.prescriptores?.acronimo || c.prescriptores?.razon_social || null) : null;
+    return {
+        name: titular,
+        titular,
+        vivienda: [c.direccion, c.municipio].filter(Boolean).join(', ') || null,
+        saludo: usaContacto ? (c.persona_contacto_nombre || '') : (c.nombre_razon_social || ''),
+        phone: (usaContacto ? (c.persona_contacto_tlf || c.tlf) : (c.tlf || c.persona_contacto_tlf)) || null,
+        email: (usaContacto ? (c.persona_contacto_email || c.email) : (c.email || c.persona_contacto_email)) || null,
+        tercero: usaContacto,
+        // Por dónde le llega: lo dice la tarjeta del popup, para que nadie crea
+        // que le escribe a la titular cuando le escribe a su instalador.
+        via: usaContacto ? { nombre: c.persona_contacto_nombre || null, partner } : null,
+    };
+}
+
+async function destinoInstaladorDocs(insId) {
+    if (!insId) return null;
+    const { data: p } = await supabase.from('prescriptores')
+        .select(PARTNER_CONTACT_FIELDS).eq('id_empresa', insId).maybeSingle();
+    if (!p) return null;
+    // La documentación de la obra es asunto COMERCIAL (rolDeDocumento).
+    const t = partnerNotifyTarget(p, 'comercial');
+    return {
+        name: p.razon_social || p.acronimo || 'Instalador',
+        saludo: t.nombre || '',
+        phone: t.tlf || null,
+        email: t.email || null,
+        tercero: true,
+        via: t.general ? { nombre: 'Teléfono general de la empresa', partner: null } : (t.nombre ? { nombre: t.nombre, partner: null } : null),
+    };
+}
+
+/**
+ * Pone el saludo de CADA destinatario en la primera línea del mensaje, si esa
+ * línea es un saludo ("Hola", "Hola Paloma,", "¡Hola X!"). Un mensaje que va a
+ * dos personas no puede saludar a la primera en el WhatsApp de la segunda; si
+ * quien lo editó cambió la primera línea por otra cosa, no se toca.
+ */
+function conSaludo(message, saludo) {
+    const lineas = String(message).split('\n');
+    if (!/^\s*¡?\s*hola\b.{0,40}$/i.test(lineas[0] || '')) return message;
+    // El nombre ENTERO: en su campo ya va solo el nombre, y los compuestos ("José
+    // Luis") son mayoría — cortarlo por el primer espacio es llamarle "Jose".
+    const nombre = capitalizar((saludo || '').trim());
+    lineas[0] = nombre ? `Hola ${nombre},` : 'Hola,';
+    return lineas.join('\n');
+}
+
 async function findOppForDocs(idParam) {
     const fields = 'id, id_oportunidad, referencia_cliente, datos_calculo, cliente_id, instalador_asociado_id, prescriptor_id';
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idParam || '');
@@ -1872,17 +1939,11 @@ router.get('/:id/docs', enforceAuth, async (req, res) => {
         let clienteInfo = null;
         if (opp.cliente_id) {
             const { data: c } = await supabase.from('clientes')
-                .select('nombre_razon_social, tlf, persona_contacto_tlf').eq('id_cliente', opp.cliente_id).maybeSingle();
-            if (c) clienteInfo = { name: c.nombre_razon_social || view.cliente || 'Cliente', phone: c.tlf || c.persona_contacto_tlf || null };
-            else clienteInfo = { name: view.cliente || 'Cliente', phone: null };
+                .select(CLIENTE_DOCS_FIELDS).eq('id_cliente', opp.cliente_id).maybeSingle();
+            clienteInfo = c ? destinoClienteDocs(c)
+                : { name: view.cliente || 'Cliente', titular: view.cliente || 'Cliente', phone: null, email: null, saludo: '', tercero: false, via: null };
         }
-        let instaladorInfo = null;
-        const insId = opp.instalador_asociado_id || opp.prescriptor_id;
-        if (insId) {
-            const { data: p } = await supabase.from('prescriptores')
-                .select('razon_social, acronimo, tlf, tlf_contacto').eq('id_empresa', insId).maybeSingle();
-            if (p) instaladorInfo = { name: p.razon_social || p.acronimo || 'Instalador', phone: p.tlf || p.tlf_contacto || null };
-        }
+        const instaladorInfo = await destinoInstaladorDocs(opp.instalador_asociado_id || opp.prescriptor_id);
         view.recipients = { cliente: clienteInfo, instalador: instaladorInfo };
 
         // Acceso directo a la carpeta donde caen las fotos ("12. DOCUMENTOS PARA CEE"),
@@ -2159,31 +2220,34 @@ router.post('/:id/docs/enviar-enlace', staffOnly, async (req, res) => {
         if (!opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
 
         const results = [];
+        // Cliente e instalador pueden acabar en la MISMA persona (el cliente con el
+        // partner como contacto): un solo mensaje, no dos iguales al mismo número.
+        const yaEnviado = new Set();
         for (const rcp of recipients) {
-            let phone = null, email = null, name = '';
+            let phone = null, email = null, saludo = '';
             try {
                 if (rcp.type === 'cliente' && opp.cliente_id) {
                     const { data: c } = await supabase.from('clientes')
-                        .select('nombre_razon_social, tlf, persona_contacto_tlf, email, persona_contacto_email')
-                        .eq('id_cliente', opp.cliente_id).maybeSingle();
-                    if (c) { phone = c.tlf || c.persona_contacto_tlf; email = c.email || c.persona_contacto_email; name = c.nombre_razon_social || 'Cliente'; }
+                        .select(CLIENTE_DOCS_FIELDS).eq('id_cliente', opp.cliente_id).maybeSingle();
+                    if (c) { const d = destinoClienteDocs(c); phone = d.phone; email = d.email; saludo = d.saludo; }
                 } else if (rcp.type === 'instalador') {
-                    const insId = opp.instalador_asociado_id || opp.prescriptor_id;
-                    if (insId) {
-                        const { data: p } = await supabase.from('prescriptores')
-                            .select('razon_social, tlf, tlf_contacto, email, email_contacto')
-                            .eq('id_empresa', insId).maybeSingle();
-                        if (p) { phone = p.tlf || p.tlf_contacto; email = p.email || p.email_contacto; name = p.razon_social || 'Instalador'; }
-                    }
+                    const d = await destinoInstaladorDocs(opp.instalador_asociado_id || opp.prescriptor_id);
+                    if (d) { phone = d.phone; email = d.email; saludo = d.saludo; }
                 } else if (rcp.type === 'otro') {
                     if (channel === 'whatsapp') phone = rcp.value;
                     else email = rcp.value;
-                    name = rcp.name || '';
+                    saludo = rcp.name || '';
                 }
+                const texto = conSaludo(message, saludo);
+                const clave = channel === 'whatsapp'
+                    ? String(phone || '').replace(/\D/g, '').slice(-9)
+                    : String(email || '').toLowerCase();
+                if (clave && yaEnviado.has(clave)) { results.push({ type: rcp.type, ok: true, to: phone || email, repetido: true }); continue; }
+                if (clave) yaEnviado.add(clave);
 
                 if (channel === 'whatsapp') {
                     if (!phone) { results.push({ type: rcp.type, ok: false, error: 'sin teléfono' }); continue; }
-                    await whatsappService.sendText(phone, message);
+                    await whatsappService.sendText(phone, texto);
                     results.push({ type: rcp.type, ok: true, to: phone });
                 } else {
                     if (!email) { results.push({ type: rcp.type, ok: false, error: 'sin email' }); continue; }
@@ -2192,8 +2256,8 @@ router.post('/:id/docs/enviar-enlace', staffOnly, async (req, res) => {
                         subject: `Documentación de tu expediente ${opp.id_oportunidad}`,
                         // Saltos en <br>: Outlook ignora `white-space:pre-wrap` y el
                         // mensaje llegaba de una pieza, como un párrafo corrido.
-                        html: `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#222;font-size:15px;line-height:24px">${String(message).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\r\n|\r|\n/g, '<br>')}</div>`,
-                        text: message
+                        html: `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#222;font-size:15px;line-height:24px">${String(texto).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\r\n|\r|\n/g, '<br>')}</div>`,
+                        text: texto
                     });
                     results.push({ type: rcp.type, ok: true, to: email });
                 }

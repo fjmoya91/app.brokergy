@@ -141,6 +141,41 @@ function DriveImg({ localUrl, proxySrc = null, driveId, thumb, lowSrc = null, si
     );
 }
 
+// ── Un fichero que no cabe se manda por WhatsApp ─────────────────────────────
+// El servidor admite hasta 120 MB por fichero (multer + nginx), y un vídeo de
+// móvil de un par de minutos los pasa. Rechazarlo con un "demasiado grande" deja
+// al cliente sin salida; lo que hay que decirle es por dónde sí puede mandarlo.
+// Se comprueba ANTES de subir: descubrirlo tras subir 200 MB con datos móviles es
+// lo peor que le puede pasar. Margen de 5 MB para la cabecera del multipart.
+const MAX_SUBIDA_MB = 115;
+// El WhatsApp de Brokergy: el mismo que ofrece la página de aceptación de la
+// propuesta para mandar documentación (AceptarPropuestaView).
+const WHATSAPP_BROKERGY = '34623926179';
+
+function enlaceWhatsappExpediente(info, slot) {
+    const ref = info?.numero_expediente || info?.id_oportunidad || '';
+    const que = slot ? (slot.labelCliente || slot.label || 'el archivo') : 'el archivo';
+    const texto = `Hola, os envío por aquí ${que.toLowerCase().startsWith('un') ? que.toLowerCase() : `«${que}»`} del expediente ${ref}${info?.cliente ? ` (${info.cliente})` : ''}, porque pesa demasiado para subirlo por el enlace.`;
+    return `https://wa.me/${WHATSAPP_BROKERGY}?text=${encodeURIComponent(texto)}`;
+}
+
+/** El error de un apartado: un texto, o un texto con salida por WhatsApp. */
+function ErrorSlot({ error, className = '' }) {
+    if (!error) return null;
+    if (typeof error === 'string') return <p className={`text-red-400 text-xs ${className}`}>{error}</p>;
+    return (
+        <div className={`rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-100 space-y-2 ${className}`}>
+            <p>{error.texto}</p>
+            {error.wa && (
+                <a href={error.wa} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-[#25D366] text-white font-black uppercase tracking-wider text-[11px] hover:bg-[#1eb554]">
+                    Enviarlo por WhatsApp
+                </a>
+            )}
+        </div>
+    );
+}
+
 export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedded = false, canValidate = false, rol = null, need = null, onPedirSlot = null }) {
     // Enlace scoped por rol: cliente sube el ANTES de la obra; instalador, el DESPUÉS
     // (instalación terminada + facturas + RITE). Restringe la vista a esa fase.
@@ -238,7 +273,9 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                 tokenRef.current = res.data.upload_token;
                 setInfo(res.data);
             } else {
-                const res = await axios.get(`/api/public/reforma-docs/${idOrUuid}`, { params: { token: tokenProp } });
+                // `need` viaja también al servidor: lo pedido expresamente se enseña
+                // aunque sea un apartado que normalmente se le oculta (el vídeo).
+                const res = await axios.get(`/api/public/reforma-docs/${idOrUuid}`, { params: { token: tokenProp, ...(need ? { need } : {}) } });
                 uuidRef.current = idOrUuid;
                 tokenRef.current = tokenProp;
                 setInfo(res.data);
@@ -358,6 +395,16 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         // Apartado de UNA sola foto: solo entra la primera. El servidor aplica el
         // mismo criterio, así que no puede colarse una segunda por otra vía.
         const files = slot.multiple ? todos : todos.slice(0, 1);
+
+        const grandes = files.filter(f => f.size > MAX_SUBIDA_MB * 1024 * 1024);
+        if (grandes.length) {
+            const mb = Math.round(Math.max(...grandes.map(f => f.size)) / (1024 * 1024));
+            setSlotError(prev => ({ ...prev, [slot.key]: {
+                texto: `${grandes.length > 1 ? 'Algunos archivos pesan' : 'Este archivo pesa'} demasiado para subirlo por aquí (${mb} MB; el máximo son ${MAX_SUBIDA_MB} MB). Envíanoslo directamente por WhatsApp: el mensaje ya lleva el número de tu expediente.`,
+                wa: enlaceWhatsappExpediente(info, slot),
+            } }));
+            return false;
+        }
         let ok = true;
         setBusySlot(slot.key);
         setSlotError(prev => ({ ...prev, [slot.key]: null }));
@@ -417,9 +464,13 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
             }
         } catch (err) {
             ok = false;
-            const msg = err.code === 'ECONNABORTED'
-                ? 'La subida ha tardado demasiado. Comprueba tu conexión e inténtalo de nuevo.'
-                : (err.response?.data?.error || 'No se pudo subir. Inténtalo de nuevo.');
+            // Demasiado grande (lo corta el servidor) o una subida que no acaba —
+            // lo típico con un vídeo por datos móviles—: salida por WhatsApp.
+            const msg = err.response?.status === 413
+                ? { texto: 'Este archivo pesa demasiado para subirlo por aquí. Envíanoslo directamente por WhatsApp: el mensaje ya lleva el número de tu expediente.', wa: enlaceWhatsappExpediente(info, slot) }
+                : err.code === 'ECONNABORTED'
+                    ? { texto: 'La subida ha tardado demasiado. Comprueba tu conexión e inténtalo de nuevo, o envíanoslo por WhatsApp.', wa: enlaceWhatsappExpediente(info, slot) }
+                    : (err.response?.data?.error || 'No se pudo subir. Inténtalo de nuevo.');
             setSlotError(prev => ({ ...prev, [slot.key]: msg }));
         } finally {
             setBusySlot(null);
@@ -1116,7 +1167,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                 })}
                             </div>
                         )}
-                        {slotError[slot.key] && <p className="text-red-400 text-xs mt-2">{slotError[slot.key]}</p>}
+                        <ErrorSlot error={slotError[slot.key]} className="mt-2" />
                     </div>
 
                     {!slot.existing && (
@@ -1341,7 +1392,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                     <span className="hidden md:inline"> · o arrástralas aquí</span>
                                 </p>
                             )}
-                            {slotError[pasoSlot.key] && <p className="mt-3 text-center text-red-400 text-xs">{slotError[pasoSlot.key]}</p>}
+                            <ErrorSlot error={slotError[pasoSlot.key]} className="mt-3 text-center" />
 
                             {/* Navegación del recorrido. "Siguiente" sobre un apartado aún
                                 pendiente lo APLAZA (vuelve más tarde), nunca lo omite; por

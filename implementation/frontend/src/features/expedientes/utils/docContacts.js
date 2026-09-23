@@ -72,7 +72,10 @@ export function clienteContacts(cli = {}) {
     if (cli.persona_contacto_nombre && (cli.persona_contacto_tlf || cli.persona_contacto_email)) {
         out.push({
             id: 'cli_contacto', label: cli.persona_contacto_nombre, saludo: cli.persona_contacto_nombre,
-            sublabel: 'Persona de contacto',
+            // Si es el partner, se dice: el mensaje no le llega al cliente sino a él.
+            sublabel: esVerdadero(cli.contacto_es_partner) ? 'Persona de contacto · el partner' : 'Persona de contacto',
+            // Quien lo lee NO es el titular: los textos le hablan de su cliente.
+            tercero: true,
             phone: cli.persona_contacto_tlf || '', email: cli.persona_contacto_email || '',
             roles: [], general: false,
         });
@@ -160,8 +163,17 @@ export function contactosPara(pres = {}, rol = null) {
  */
 export function defaultContactIds(target, cli, pres, rol = null) {
     if (target !== 'instalador') {
-        const first = clienteContacts(cli)[0];
-        return first ? [first.id] : [];
+        const lista = clienteContacts(cli);
+        // Con el desvío activo, lo que iría al cliente va a su PERSONA DE CONTACTO
+        // (un hijo, o el propio partner): es la decisión de su ficha, y marcar al
+        // titular por defecto la contradecía — medido en 26RES060_201, los anexos
+        // salían marcados para la titular con los avisos desviados a Paloma
+        // (JOSE VICENTE RUIZ SL). Mismo criterio que el backend.
+        if (esVerdadero(cli?.notificaciones_contacto_activas)) {
+            const contacto = lista.find(c => c.id === 'cli_contacto');
+            if (contacto) return [contacto.id];
+        }
+        return lista[0] ? [lista[0].id] : [];
     }
     const elegidos = contactosPara(pres, rol);
     if (elegidos.length) return elegidos.map(c => c.id);

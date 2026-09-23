@@ -135,14 +135,18 @@ function bloqueAcciones(acciones, { relay = false } = {}) {
  * enlace donde subirlo. Preguntar a secas obliga a un segundo mensaje con las
  * instrucciones, y ese segundo mensaje casi nunca se manda.
  */
-function finObraMsg({ destinatario, esInstalador, numExp, obra, dias, acciones, uploadBase }) {
+function finObraMsg({ destinatario, esInstalador, tercero = false, numExp, obra, dias, acciones, uploadBase }) {
     const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
     const dir = direccionLimpia(obra?.direccion);
-    const laObra = esInstalador && (obra?.cliente || dir)
+    // `tercero`: el aviso del CLIENTE le llega a su persona de contacto (a veces el
+    // partner que lleva la relación). Se le habla como a un intermediario: se le
+    // dice de qué cliente es la obra, nunca "tu instalación".
+    const inter = esInstalador || tercero;
+    const laObra = inter && (obra?.cliente || dir)
         ? `la obra de *${capitalizar(obra.cliente) || 'tu cliente'}*${dir ? ` (${dir})` : ''}`
         : 'tu instalación';
 
-    const pendiente = bloqueAcciones(acciones, { relay: esInstalador });
+    const pendiente = bloqueAcciones(acciones, { relay: inter });
     const fotos = uploadBase
         ? `\n\n📸 Las fotos de la instalación terminada se suben aquí:\n${uploadBase}`
         : '';
@@ -162,10 +166,10 @@ function finObraMsg({ destinatario, esInstalador, numExp, obra, dias, acciones, 
  * El enlace va FILTRADO (`?need=`) a lo que falta: el cliente abre y ve esas
  * casillas y ninguna más, cada una con su foto de ejemplo.
  */
-function ceeMaterialMsg({ destinatario, esInstalador, numExp, obra, faltan = [], url }) {
+function ceeMaterialMsg({ destinatario, esInstalador, tercero = false, numExp, obra, faltan = [], url }) {
     const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
     const dir = direccionLimpia(obra?.direccion);
-    const laObra = esInstalador && (obra?.cliente || dir)
+    const laObra = (esInstalador || tercero) && (obra?.cliente || dir)
         ? ` de la obra de *${capitalizar(obra.cliente) || 'tu cliente'}*${dir ? ` (${dir})` : ''}`
         : '';
     const lista = faltan.map(f => `· *${f}*`).join('\n');
@@ -183,15 +187,25 @@ function ceeMaterialMsg({ destinatario, esInstalador, numExp, obra, faltan = [],
  * falta" — con dos pendientes eso era sencillamente falso, y obligaba a un segundo
  * mensaje que se contradecía con el primero.
  */
-function firmaMsg({ destinatario, docs = [], numExp, obra, dias, url, esInstalador }) {
+function firmaMsg({ destinatario, docs = [], numExp, obra, dias, url, esInstalador, tercero = false }) {
     const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
     const dir = direccionLimpia(obra?.direccion);
-    const laObra = esInstalador && (obra?.cliente || dir)
+    const laObra = (esInstalador || tercero) && (obra?.cliente || dir)
         ? ` de la obra de *${capitalizar(obra.cliente) || 'tu cliente'}*${dir ? ` (${dir})` : ''}`
         : '';
 
     const lista = docs.map(d => `· *${d}*`).join('\n');
     const varios = docs.length > 1;
+
+    // A la PERSONA DE CONTACTO no le toca firmar: firma el titular. Se le pide que
+    // se lo haga llegar, con el enlace, y se le dice de quién es.
+    if (tercero) {
+        const titular = capitalizar(obra?.cliente) || 'el titular';
+        const cab = varios
+            ? `Te recordamos que estos documentos del expediente *${numExp}*${laObra} siguen *pendientes de la firma del titular* (el más antiguo, desde hace ${dias} días):\n\n${lista}`
+            : `Te recordamos que el *${docs[0] || 'documento'}* del expediente *${numExp}*${laObra} sigue *pendiente de la firma del titular* desde hace ${dias} días.`;
+        return `${hola}\n\n${cab}\n\nEs lo que nos falta para poder seguir con la tramitación de la ayuda. ¿Se ${varios ? 'los' : 'lo'} puedes hacer llegar? Se ${varios ? 'firman' : 'firma'} en 2 minutos desde el móvil, en este enlace:\n${url}\n\nSi tenéis cualquier duda, respóndenos por aquí mismo.\n\n¡Gracias!\n${FIRMA}`;
+    }
     const cabecera = varios
         ? `Te recordamos que estos documentos del expediente *${numExp}*${laObra} siguen *pendientes de tu firma* (el más antiguo, desde hace ${dias} días):\n\n${lista}`
         : `Te recordamos que el *${docs[0] || 'documento'}* del expediente *${numExp}*${laObra} sigue *pendiente de tu firma* desde hace ${dias} días.`;
@@ -223,9 +237,23 @@ function firmaMsg({ destinatario, docs = [], numExp, obra, dias, url, esInstalad
  * @param {'inicial'|'final'} p.fase
  * @param {boolean} [p.obraHecha]  hay factura, CIFO, RITE o fin de obra comunicado
  */
-function encargoCeeClienteMsg({ destinatario, numExp, fase, obraHecha = false }) {
+function encargoCeeClienteMsg({ destinatario, numExp, fase, obraHecha = false, tercero = false, obra = null }) {
     const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
     const exp = `*${numExp}*`;
+
+    // A la persona de contacto del cliente (o al partner que lleva la relación):
+    // se le cuenta lo mismo, diciéndole de QUÉ cliente, sin "tu vivienda".
+    if (tercero) {
+        const dir = direccionLimpia(obra?.direccion);
+        const deQuien = `de *${capitalizar(obra?.cliente) || 'tu cliente'}*${dir ? ` (${dir})` : ''}`;
+        if (fase === 'final') {
+            return `${hola}\n\nYa hemos encargado el *certificado de eficiencia energética final* de la vivienda ${deQuien} (expediente ${exp}): el que recoge la instalación ya terminada y con el que se justifica el ahorro conseguido.\n\nHemos asignado al *técnico certificador* y le hemos enviado la documentación de la obra junto con las instrucciones para emitirlo. Se pondrá en contacto para la visita final.\n\nEn cuanto esté registrado os avisamos por aquí.\n\n¡Gracias!\n${FIRMA}`;
+        }
+        const avisoT = obraHecha
+            ? ''
+            : `\n\n⚠️ *Importante:* la obra no debe empezar hasta que ese certificado esté registrado. Las facturas de la instalación tienen que ser posteriores a esa fecha; si son anteriores, la ayuda no se puede tramitar.`;
+        return `${hola}\n\nYa hemos puesto en marcha el expediente ${exp} ${deQuien}.\n\nHemos asignado al *técnico certificador* y le hemos enviado la documentación junto con las instrucciones para que emita el *certificado de eficiencia energética inicial* de la vivienda. Es el primer paso del trámite y se hace sobre la situación de partida, antes de la reforma.\n\nSi necesitamos algo más, nos pondremos en contacto.${avisoT}\n\nEn cuanto quede registrado os avisamos por aquí.\n\n¡Gracias!\n${FIRMA}`;
+    }
 
     if (fase === 'final') {
         return `${hola}\n\nYa hemos encargado el *certificado de eficiencia energética final* de tu vivienda (expediente ${exp}): el que recoge la instalación ya terminada y con el que se justifica el ahorro conseguido.\n\nHemos asignado al *técnico certificador* y le hemos enviado toda la documentación de la obra junto con las instrucciones para emitirlo. Se pondrá en contacto contigo para la visita final.\n\nEn cuanto esté registrado te avisamos por aquí. Por tu parte no hace falta nada más de momento.\n\n¡Gracias!\n${FIRMA}`;
@@ -280,16 +308,22 @@ function certEmisionLoteWa({ certName, items }) {
 }
 
 /** Varias obras del mismo instalador sin terminar. */
-function finObraLoteWa({ destinatario, items }) {
+function finObraLoteWa({ destinatario, items, tercero = false }) {
     const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
     const n = items.length;
-    return `${hola}\n\nTenemos *${n} ${plural(n, 'obra tuya', 'obras tuyas')}* con el certificado energético inicial registrado desde hace tiempo y sin constancia de que ${plural(n, 'esté terminada', 'estén terminadas')}:\n\n${listaExpedientes(items)}\n\n¿Cómo ${plural(n, 'va', 'van')}? ¿Nos puedes decir fechas aproximadas?\n\n*De cada una necesitamos, para tramitar la ayuda:*\n· Las *fotos de la instalación terminada* (equipo, placa de características y unidad interior).\n· La *factura* de la obra.\n\nEn el enlace de cada obra puedes subirlo todo y avisarnos con el botón *"He terminado la obra"*.\n\n¡Gracias!\n${FIRMA}`;
+    // A un intermediario las obras no son "suyas": son las de su cliente.
+    const cuales = tercero ? plural(n, 'obra', 'obras') : plural(n, 'obra tuya', 'obras tuyas');
+    return `${hola}\n\nTenemos *${n} ${cuales}* con el certificado energético inicial registrado desde hace tiempo y sin constancia de que ${plural(n, 'esté terminada', 'estén terminadas')}:\n\n${listaExpedientes(items)}\n\n¿Cómo ${plural(n, 'va', 'van')}? ¿Nos puedes decir fechas aproximadas?\n\n*De cada una necesitamos, para tramitar la ayuda:*\n· Las *fotos de la instalación terminada* (equipo, placa de características y unidad interior).\n· La *factura* de la obra.\n\nEn el enlace de cada obra puedes subirlo todo y avisarnos con el botón *"He terminado la obra"*.\n\n¡Gracias!\n${FIRMA}`;
 }
 
 /** Varios documentos sin firmar, del mismo firmante, en varios expedientes. */
-function firmaLoteWa({ destinatario, items, esInstalador }) {
+function firmaLoteWa({ destinatario, items, esInstalador, tercero = false }) {
     const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
     const n = items.length;
+    // La persona de contacto no firma: firma el titular de cada expediente.
+    if (tercero) {
+        return `${hola}\n\nHay documentación *pendiente de la firma del titular* en *${n} ${plural(n, 'expediente', 'expedientes')}*:\n\n${listaExpedientes(items)}\n\nEs lo que nos falta para poder seguir con la tramitación. ¿Se lo puedes hacer llegar? Se firma en 2 minutos desde el móvil, en el enlace de cada uno.\n\n¡Gracias!\n${FIRMA}`;
+    }
     return `${hola}\n\nTienes documentación *pendiente de firma* en *${n} ${plural(n, 'expediente', 'expedientes')}*${esInstalador ? '' : ''}:\n\n${listaExpedientes(items)}\n\nEs lo que nos falta para poder seguir con la tramitación. Se firma en 2 minutos desde el móvil, en el enlace de cada uno.\n\n¡Gracias!\n${FIRMA}`;
 }
 
@@ -303,10 +337,10 @@ function firmaLoteWa({ destinatario, items, esInstalador }) {
  * una fecha aquí es una reclamación garantizada dentro de dos semanas.
  */
 /** Varias viviendas del mismo cliente/instalador sin el material del certificado. */
-function ceeMaterialLoteWa({ destinatario, items, esInstalador = false }) {
+function ceeMaterialLoteWa({ destinatario, items, esInstalador = false, tercero = false }) {
     const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
     const n = items.length;
-    const cuerpo = esInstalador
+    const cuerpo = (esInstalador || tercero)
         ? `Para poder hacer el *certificado energético* de ${n === 1 ? 'esta obra' : `estas *${n}* obras`} nos faltan las fotos de la vivienda.`
         : `Para poder hacer el *certificado energético* de ${n === 1 ? 'tu vivienda' : `tus *${n}* viviendas`} nos faltan unas fotos.`;
     return `${hola}
@@ -321,9 +355,14 @@ Cada enlace lleva directo a lo que falta y enseña un ejemplo de cada foto.
 ${FIRMA}`;
 }
 
-function cobroLoteWa({ destinatario, items }) {
+function cobroLoteWa({ destinatario, items, tercero = false }) {
     const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
     const n = items.length;
+    // A la persona de contacto: el dinero es del titular y los datos los confirma
+    // él. Se le pide que le haga llegar el enlace.
+    if (tercero) {
+        return `${hola}\n\n¡Buenas noticias! Ya ${plural(n, 'está concedida la ayuda', `están concedidas las ayudas de *${n} instalaciones*`)} y estamos preparando ${plural(n, 'el ingreso', 'los ingresos')}:\n\n${listaExpedientes(items)}\n\nAntes de hacer la transferencia necesitamos que *el titular confirme sus datos de cobro* — sobre todo el número de cuenta, para que el dinero no acabe donde no debe. ¿Le puedes hacer llegar ${plural(n, 'el enlace', 'el enlace de cada uno')}? Le llevará menos de un minuto: lo verá casi todo relleno.\n\n¡Gracias!\n${FIRMA}`;
+    }
     const cuerpo = n === 1
         ? `¡Buenas noticias! Ya tenemos concedida la ayuda de tu instalación y estamos preparando el ingreso.`
         : `¡Buenas noticias! Ya tenemos concedidas las ayudas de *${n} instalaciones tuyas* y estamos preparando los ingresos.`;

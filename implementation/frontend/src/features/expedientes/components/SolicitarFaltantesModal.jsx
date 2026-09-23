@@ -26,21 +26,26 @@ const RECIPIENTS = [
 // Brokergy, y un mensaje de trabajo que reclama documentación se lee mejor sin
 // decoración. Los asteriscos de WhatsApp (negrita) tampoco se usan aquí: el
 // mismo texto viaja por email, donde se ven como asteriscos sueltos.
-function buildMessage({ nombre, numExp, acciones, obra, target }) {
+function buildMessage({ nombre, numExp, acciones, obra, target, tercero = false }) {
     const saludo = `Hola${nombre ? ` ${nombre}` : ''},`;
+    // Quien lo lee es un INTERMEDIARIO: el instalador, o la persona de contacto
+    // del cliente cuando tiene los avisos desviados (a veces el propio partner,
+    // como JOSE VICENTE RUIZ SL). A esa persona no se le habla de "tu expediente":
+    // se le dice de qué cliente es y se le pasa lo del cliente en tercera persona.
+    const intermediario = target === 'INSTALADOR' || tercero;
     // Para el instalador (lleva varias obras a la vez) indicamos cliente + dirección.
-    const obraLine = (target === 'INSTALADOR' && obra && (obra.cliente || obra.direccion))
+    const obraLine = (intermediario && obra && (obra.cliente || obra.direccion))
         ? `\n\nObra de ${obra.cliente || '—'}${obra.direccion ? ` — ${obra.direccion}` : ''}\nExpediente ${numExp || ''}`
         : '';
     if (!acciones || acciones.length === 0) {
-        return `${saludo}${obraLine}\n\nDe momento no hay nada pendiente${target === 'INSTALADOR' ? '' : ' por tu parte'} en el expediente ${numExp || ''}.\n\nBROKERGY — Ingeniería Energética`;
+        return `${saludo}${obraLine}\n\nDe momento no hay nada pendiente${intermediario ? '' : ' por tu parte'} en el expediente ${numExp || ''}.\n\nBROKERGY — Ingeniería Energética`;
     }
-    const intro = target === 'INSTALADOR'
+    const intro = intermediario
         ? `Para avanzar con esta obra necesitamos lo siguiente:`
         : `Para avanzar con tu expediente ${numExp || ''} necesitamos lo siguiente:`;
     const blocks = acciones.map((a, i) => {
         // Si al instalador le relayamos una acción del cliente → tercera persona.
-        const relay = target === 'INSTALADOR' && a.owner === 'CLIENTE';
+        const relay = intermediario && a.owner === 'CLIENTE';
         const titulo = relay ? (a.tituloRelay || a.titulo) : a.titulo;
         const nota = relay ? (a.notaRelay || a.nota) : a.nota;
         const items = (a.items || []).map(it => `   - ${it}`).join('\n');
@@ -194,7 +199,7 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
                 const msgs = {}, chs = {}, dst = {};
                 for (const r of RECIPIENTS) {
                     const c = data[r.key] || {};
-                    msgs[r.id] = buildMessage({ nombre: c.nombre, numExp, acciones: accFor(r.id), obra: data.obra, target: r.id });
+                    msgs[r.id] = buildMessage({ nombre: c.nombre, numExp, acciones: accFor(r.id), obra: data.obra, target: r.id, tercero: !!c.tercero });
                     chs[r.id] = [c.tlf && 'whatsapp', c.email && 'email'].filter(Boolean);
                     dst[r.id] = { nombre: c.nombre || '', tlf: c.tlf || '', email: c.email || '' };
                 }
@@ -263,7 +268,7 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
         const cliAcc = buildAccionesFromItems(next, 'CLIENTE', info);
         const insAcc = buildAccionesFromItems(next, 'INSTALADOR', info);
         setMessages({
-            CLIENTE: buildMessage({ nombre: dest.CLIENTE?.nombre, numExp, acciones: cliAcc, obra: info?.obra, target: 'CLIENTE' }),
+            CLIENTE: buildMessage({ nombre: dest.CLIENTE?.nombre, numExp, acciones: cliAcc, obra: info?.obra, target: 'CLIENTE', tercero: !!info?.cliente?.tercero }),
             INSTALADOR: buildMessage({ nombre: dest.INSTALADOR?.nombre, numExp, acciones: todoAlInstalador ? [...cliAcc, ...insAcc] : insAcc, obra: info?.obra, target: 'INSTALADOR' }),
         });
     };
@@ -339,7 +344,7 @@ export function SolicitarFaltantesModal({ isOpen, onClose, expedienteId, numeroE
         const acc = active === 'INSTALADOR'
             ? (todoAlInstalador ? [...cliAcciones, ...insAcciones] : insAcciones)
             : cliAcciones;
-        setMessages(m => ({ ...m, [active]: buildMessage({ nombre: dest[active]?.nombre, numExp, acciones: acc, obra: info?.obra, target: active }) }));
+        setMessages(m => ({ ...m, [active]: buildMessage({ nombre: dest[active]?.nombre, numExp, acciones: acc, obra: info?.obra, target: active, tercero: active === 'CLIENTE' && !!info?.cliente?.tercero }) }));
     };
 
     // Barrido previo: si se envía por WhatsApp y NO está conectado, abrir la puerta

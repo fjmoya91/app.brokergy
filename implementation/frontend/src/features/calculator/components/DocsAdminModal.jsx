@@ -101,20 +101,52 @@ export function DocsAdminModal({ isOpen, onClose, idOportunidad }) {
         return out;
     }, [info]);
 
-    const buildDefaultMessage = () =>
-`Hola
+    // ── A QUIÉN se le habla ─────────────────────────────────────────────────
+    // El saludo va con NOMBRE (el de quien lo recibe: si el cliente tiene los
+    // avisos desviados a su instalador, es "Hola Paloma", no "Hola"), y el TONO
+    // cambia según quién lo lea: al propio cliente se le habla de "tu casa"; a su
+    // instalador o a su persona de contacto, de "la vivienda de MARIA TERESA…".
+    // El backend vuelve a poner el saludo de CADA destinatario al enviar.
+    const destinatarios = (selSet) => ['cliente', 'instalador']
+        .filter(t => selSet.has(t) && info?.recipients?.[t])
+        .map(t => info.recipients[t]);
+    const saludoDe = (selSet) => {
+        // Nombre ENTERO y capitalizado ("Jose Luis", no "Jose" ni "JOSE LUIS").
+        const n = (destinatarios(selSet)[0]?.saludo || '').trim().toLowerCase()
+            .split(/\s+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+        return n ? `Hola ${n},` : 'Hola,';
+    };
+    // Tercera persona solo si TODOS los que lo van a leer son terceros: si el
+    // propio cliente está entre ellos, el mensaje se le escribe a él.
+    const esTercero = (selSet) => {
+        const ds = destinatarios(selSet);
+        return ds.length > 0 && ds.every(d => d.tercero);
+    };
+    const titular = info?.recipients?.cliente?.titular || info?.cliente || '';
+    const refExpte = info?.numero_expediente || info?.id_oportunidad || '';
+    const deQuien = () => `de *${titular || 'este cliente'}*${refExpte ? ` (expediente *${refExpte}*` : ''}${info?.recipients?.cliente?.vivienda ? `, ${info.recipients.cliente.vivienda}` : ''}${refExpte ? ')' : ''}`;
 
-Para continuar con el expediente *${info?.id_oportunidad || ''}* aún nos falta algo de documentación. Puedes subirla fácilmente desde el móvil en este enlace:
+    const buildDefaultMessage = (selSet = sel) => {
+        const tercero = esTercero(selSet);
+        return `${saludoDe(selSet)}
+
+${tercero
+    ? `Para continuar con el expediente ${deQuien()} aún nos falta algo de documentación. Podéis subirla desde el móvil en este enlace:`
+    : `Para continuar con el expediente *${refExpte}* aún nos falta algo de documentación. Puedes subirla fácilmente desde el móvil en este enlace:`}
 
 🔗 ${info?.upload_link || ''}
 ${pendientes.length ? `\nNos falta:\n${pendientes.map(p => `• ${p}`).join('\n')}\n` : ''}
 ¡Gracias!
 *BROKERGY — Ingeniería Energética*`;
+    };
+
+    const selPorDefecto = () => new Set(info?.recipients?.cliente ? ['cliente'] : []);
 
     const openSend = (channel) => {
-        setSel(new Set(info?.recipients?.cliente ? ['cliente'] : []));
+        const s = selPorDefecto();
+        setSel(s);
         setManual('');
-        setMessage(buildDefaultMessage());
+        setMessage(buildDefaultMessage(s));
         setMsgTocado(false);
         setSend({ channel, need: null });
     };
@@ -159,30 +191,49 @@ ${pendientes.length ? `\nNos falta:\n${pendientes.map(p => `• ${p}`).join('\n'
         CEE: 'Para poder hacer el certificado energético de tu vivienda necesitamos ver cómo es la casa por fuera',
         EXPEDIENTE: 'Para seguir con la tramitación de tu ayuda nos falta',
     };
+    // Lo mismo dicho a un TERCERO (su instalador, su persona de contacto): se le
+    // dice de QUIÉN es la vivienda, o no sabe de qué obra le hablamos.
+    const MOTIVO_TERCERO = {
+        CEE: () => `Para poder hacer el certificado energético de la vivienda ${deQuien()} necesitamos que nos paséis`,
+        EXPEDIENTE: () => `Para seguir con la tramitación de la ayuda ${deQuien()} nos falta`,
+    };
 
-    const buildNeedMessage = (keys, destino = null) => {
+    const buildNeedMessage = (keys, destino = null, selSet = sel) => {
+        const tercero = esTercero(selSet);
         const pedidos = faltantes.filter(s => keys.includes(s.key));
+        // Al cliente, en su idioma ("Tu casa vista desde la calle"); a un tercero,
+        // el nombre de lo que es ("Fachada de la calle"): "tu casa" en el WhatsApp
+        // de su instalador no tiene sentido.
         const lista = pedidos.map(s => {
-            const ayuda = s.helpCliente || s.help;
-            return `• *${nombreCliente(s)}*${ayuda ? `\n   ${ayuda}` : ''}`;
+            const nombre = tercero ? s.label : nombreCliente(s);
+            const ayuda = tercero ? s.help : (s.helpCliente || s.help);
+            return `• *${nombre}*${ayuda ? `\n   ${ayuda}` : ''}`;
         }).join('\n');
         const link = `${info?.upload_link || ''}${info?.upload_link?.includes('?') ? '&' : '?'}need=${keys.join(',')}`;
         // Con un destino declarado se explica para qué es; pidiendo cosas sueltas
         // de aquí y de allá no se puede decir "esto es para el certificado" sin
         // mentir a medias, así que se cae a la frase de siempre.
-        const intro = destino && MOTIVO[destino]
-            ? `${MOTIVO[destino]}:`
-            : `Para seguir con el expediente *${info?.id_oportunidad || ''}* nos falta ${pedidos.length > 1 ? 'esto' : 'esta foto'}:`;
-        return `Hola
+        const intro = tercero
+            ? (destino && MOTIVO_TERCERO[destino]
+                ? `${MOTIVO_TERCERO[destino]()}:`
+                : `Para seguir con el expediente ${deQuien()} nos falta ${pedidos.length > 1 ? 'esto' : 'esta foto'}:`)
+            : (destino && MOTIVO[destino]
+                ? `${MOTIVO[destino]}:`
+                : `Para seguir con el expediente *${refExpte}* nos falta ${pedidos.length > 1 ? 'esto' : 'esta foto'}:`);
+        const cierre = tercero
+            ? `Podéis ${pedidos.length > 1 ? 'subirlo' : 'subirla'} desde el móvil en este enlace, que lleva directo a lo que falta:`
+            : `Puedes ${pedidos.length > 1 ? 'subirlas' : 'subirla'} desde el móvil en este enlace, que te lleva directo:`;
+        const hayVideo = pedidos.some(s => s.key.startsWith('VIDEO_'));
+        return `${saludoDe(selSet)}
 
 ${intro}
 
 ${lista}
 
-Puedes ${pedidos.length > 1 ? 'subirlas' : 'subirla'} desde el móvil en este enlace, que te lleva directo:
+${cierre}
 
 🔗 ${link}
-
+${hayVideo ? `\nSi el vídeo pesa demasiado para subirlo por el enlace, ${tercero ? 'enviádnoslo' : 'envíanoslo'} por WhatsApp indicando el expediente${refExpte ? ` ${refExpte}` : ''}.\n` : ''}
 ¡Gracias!
 *BROKERGY — Ingeniería Energética*`;
     };
@@ -213,9 +264,10 @@ Puedes ${pedidos.length > 1 ? 'subirlas' : 'subirla'} desde el móvil en este en
             .filter(s => info?.fin_obra || s.fase !== 'DESPUES')
             .map(s => s.key);
         if (!keys.length) return;
-        setSel(new Set(info?.recipients?.cliente ? ['cliente'] : []));
+        const selIni = selPorDefecto();
+        setSel(selIni);
         setManual('');
-        setMessage(buildNeedMessage(keys, destino));
+        setMessage(buildNeedMessage(keys, destino, selIni));
         setMsgTocado(false);
         setSend({ channel: 'whatsapp', need: keys, destino });
         await refrescarDocs();
@@ -223,9 +275,10 @@ Puedes ${pedidos.length > 1 ? 'subirlas' : 'subirla'} desde el móvil en este en
 
     const pedirSlot = async (slot) => {
         const keys = [slot.key];
-        setSel(new Set(info?.recipients?.cliente ? ['cliente'] : []));
+        const selIni = selPorDefecto();
+        setSel(selIni);
         setManual('');
-        setMessage(buildNeedMessage(keys));
+        setMessage(buildNeedMessage(keys, null, selIni));
         setMsgTocado(false);
         setSend({ channel: 'whatsapp', need: keys, destino: slot.destino || null });
         // Se pide DESPUÉS de abrir para no dejar el botón sin respuesta mientras
@@ -248,11 +301,16 @@ Puedes ${pedidos.length > 1 ? 'subirlas' : 'subirla'} desde el móvil en este en
         return { ...prev, need: keys, destino };
     });
 
-    const toggle = (type) => setSel(prev => {
-        const n = new Set(prev);
+    // Cambiar de destinatario rehace el mensaje (saludo y tono son SUYOS), salvo
+    // que ya se haya editado a mano.
+    const toggle = (type) => {
+        const n = new Set(sel);
         n.has(type) ? n.delete(type) : n.add(type);
-        return n;
-    });
+        setSel(n);
+        if (!msgTocado && send) {
+            setMessage(send.need ? buildNeedMessage(send.need, send.destino || null, n) : buildDefaultMessage(n));
+        }
+    };
 
     const doSend = async () => {
         const recipients = [];
@@ -284,7 +342,20 @@ Puedes ${pedidos.length > 1 ? 'subirlas' : 'subirla'} desde el móvil en este en
 
     if (!isOpen) return null;
 
-    const recipientCard = (type, title, name, phone, disabled) => (
+    // Qué se enseña de un destinatario: el canal de ESTE envío (teléfono o email)
+    // y, si no le llega a él sino a otra persona, a quién — que es justo lo que se
+    // comprueba antes de pulsar.
+    const datoCanal = (r) => r ? (send?.channel === 'whatsapp' ? r.phone : r.email) : null;
+    const lineaVia = (r, esCliente) => {
+        if (!r?.via) return null;
+        if (esCliente) {
+            const quien = [r.via.nombre, r.via.partner ? `(${r.via.partner})` : null].filter(Boolean).join(' ');
+            return `Le llega a ${quien || 'su persona de contacto'}`;
+        }
+        return r.via.nombre ? `Le llega a ${r.via.nombre}` : null;
+    };
+
+    const recipientCard = (type, title, name, phone, disabled, via = null) => (
         <button type="button" disabled={disabled}
             onClick={() => !disabled && toggle(type)}
             className={`w-full text-left p-3.5 rounded-xl border-2 transition-all flex items-center gap-3 ${
@@ -297,7 +368,11 @@ Puedes ${pedidos.length > 1 ? 'subirlas' : 'subirla'} desde el móvil en este en
             <div className="min-w-0 flex-1">
                 <p className="text-[10px] font-black uppercase tracking-widest text-white/40">{title}</p>
                 <p className="text-white font-bold text-sm truncate">{name}</p>
-                {phone && <p className="text-white/40 text-xs font-mono mt-0.5">{phone}</p>}
+                {via && <p className="text-sky-300 text-[11px] font-bold mt-0.5 truncate">→ {via}</p>}
+                {phone && <p className="text-white/40 text-xs font-mono mt-0.5 truncate">{phone}</p>}
+                {!disabled && !phone && type !== 'otro' && (
+                    <p className="text-amber-300/80 text-[11px] mt-0.5">Sin {send?.channel === 'whatsapp' ? 'teléfono' : 'email'}</p>
+                )}
             </div>
         </button>
     );
@@ -432,8 +507,8 @@ Puedes ${pedidos.length > 1 ? 'subirlas' : 'subirla'} desde el móvil en este en
                             )}
                             {/* Destinatarios */}
                             <div className="space-y-2">
-                                {recipientCard('cliente', 'Cliente', info?.recipients?.cliente?.name || 'Sin cliente vinculado', send.channel === 'whatsapp' ? info?.recipients?.cliente?.phone : null, !info?.recipients?.cliente)}
-                                {recipientCard('instalador', 'Instalador', info?.recipients?.instalador?.name || 'Sin instalador asignado', send.channel === 'whatsapp' ? info?.recipients?.instalador?.phone : null, !info?.recipients?.instalador)}
+                                {recipientCard('cliente', 'Cliente', info?.recipients?.cliente?.name || 'Sin cliente vinculado', datoCanal(info?.recipients?.cliente), !info?.recipients?.cliente, lineaVia(info?.recipients?.cliente, true))}
+                                {recipientCard('instalador', 'Instalador', info?.recipients?.instalador?.name || 'Sin instalador asignado', datoCanal(info?.recipients?.instalador), !info?.recipients?.instalador, lineaVia(info?.recipients?.instalador, false))}
                                 {recipientCard('otro', 'Otro contacto', sel.has('otro') ? 'Escribe abajo el destino' : 'Introducir manualmente', null, false)}
                                 {sel.has('otro') && (
                                     <input

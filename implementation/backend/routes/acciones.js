@@ -262,7 +262,7 @@ async function prepararSolicitud(expId, tipo, scope) {
                 email: c.email || null, tlf: c.tlf || null,
                 marcado: esIns ? hayIns : !hayIns,
                 mensaje: recordatorios.finObraMsg({
-                    destinatario: c.nombre, esInstalador: esIns, numExp: info.numero_expediente,
+                    destinatario: c.nombre, esInstalador: esIns, tercero: !esIns && !!c.tercero, numExp: info.numero_expediente,
                     obra: info.obra, dias: d, acciones: esIns ? info.instalador?.acciones : info.cliente?.acciones,
                     uploadBase: info.uploadBase,
                 }),
@@ -288,9 +288,11 @@ async function prepararSolicitud(expId, tipo, scope) {
                     email: c.email || null, tlf: c.tlf || null,
                     marcado: !esIns,
                     mensaje: recordatorios.ceeMaterialMsg({
-                        destinatario: c.nombre, esInstalador: esIns, numExp: info.numero_expediente,
+                        destinatario: c.nombre, esInstalador: esIns, tercero: !esIns && !!c.tercero, numExp: info.numero_expediente,
                         obra: info.obra, url: link,
-                        faltan: slots.map(sl => sl.labelCliente || sl.label),
+                        // "Tu casa vista desde la calle" solo se le dice al titular; a
+                        // un intermediario, el nombre de lo que es.
+                        faltan: slots.map(sl => ((esIns || c.tercero) ? sl.label : (sl.labelCliente || sl.label))),
                     }),
                 });
             }
@@ -350,7 +352,7 @@ async function prepararSolicitud(expId, tipo, scope) {
             mensaje: recordatorios.firmaMsg({
                 destinatario: c.nombre, docs: pendientes.map(p => p.label), numExp: info.numero_expediente,
                 obra: info.obra, dias: diasDesde(masViejo.sentAt) ?? 0,
-                url: `${FRONTEND()}/${pendientes[0].ruta}/${expId}`, esInstalador: esIns,
+                url: `${FRONTEND()}/${pendientes[0].ruta}/${expId}`, esInstalador: esIns, tercero: !esIns && !!c.tercero,
             }),
         });
     }

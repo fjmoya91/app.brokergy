@@ -1380,6 +1380,10 @@ async function buildDocsView(opp, opts = {}) {
     // y SOLO si están vacíos: el admin los conserva —los usa para archivar
     // material suelto— y lo ya subido no se esconde jamás.
     const ocultarPrescindibles = opts.audience === 'cliente' && dc.estado === 'ACEPTADA';
+    // Lo que se le ha PEDIDO expresamente (el enlace filtrado `?need=`) se enseña
+    // aunque sea prescindible: si le pedimos el vídeo y el enlace no le deja
+    // subirlo, le hemos pedido algo imposible (visto en 26RES060_201).
+    const pedidos = new Set(Array.isArray(opts.pedidos) ? opts.pedidos : []);
 
     // El DEPÓSITO DE ACS cuando va DENTRO de la unidad interior. Un conjunto
     // (all-in-one, o un bibloc con el acumulador integrado) es UNA máquina: "la
@@ -1393,7 +1397,7 @@ async function buildDocsView(opp, opts = {}) {
     const checklistVivo = checklist.filter(s => {
         if (emisorDesencaja(s.key, alcance.emisor)) return tieneMaterial(s.key);
         if (acsDepositoIncluido && s.key === 'FOTO_ACS_DEPOSITO') return tieneMaterial(s.key);
-        if (ocultarPrescindibles && s.prescindible) return tieneMaterial(s.key);
+        if (ocultarPrescindibles && s.prescindible && !pedidos.has(s.key)) return tieneMaterial(s.key);
         return true;
     });
 
@@ -1683,25 +1687,33 @@ async function notifyRechazo({ opp, slotLabel, motivo, subidoPor }) {
             // cliente (también para 'admin'/desconocido: avisamos al cliente por defecto)
             if (opp.cliente_id) {
                 const { data: c } = await supabase.from('clientes')
-                    .select('nombre_razon_social, tlf, persona_contacto_tlf, email, persona_contacto_email')
+                    .select('nombre_razon_social, apellidos, tlf, email, persona_contacto_nombre, persona_contacto_tlf, persona_contacto_email, notificaciones_contacto_activas')
                     .eq('id_cliente', opp.cliente_id).maybeSingle();
+                // Con el desvío activo, a su PERSONA DE CONTACTO (a veces el partner),
+                // como todos los avisos al cliente — iba siempre al titular.
+                const desvio = c?.notificaciones_contacto_activas === true || c?.notificaciones_contacto_activas === 'true';
+                const tercero = !!(desvio && c?.persona_contacto_nombre && (c?.persona_contacto_tlf || c?.persona_contacto_email));
                 if (c) targets = [{
-                    nombre: c.nombre_razon_social || '',
-                    tlf: c.tlf || c.persona_contacto_tlf || null,
-                    email: c.email || c.persona_contacto_email || null,
+                    nombre: tercero ? c.persona_contacto_nombre : (c.nombre_razon_social || ''),
+                    tlf: (desvio ? (c.persona_contacto_tlf || c.tlf) : (c.tlf || c.persona_contacto_tlf)) || null,
+                    email: (desvio ? (c.persona_contacto_email || c.email) : (c.email || c.persona_contacto_email)) || null,
+                    titular: tercero ? `${c.nombre_razon_social || ''} ${c.apellidos || ''}`.trim() : null,
                 }];
             }
         }
     } catch (e) { console.warn('[Reforma] resolviendo contacto rechazo:', e.message); }
 
+    const { capitalizar } = require('./recordatorios');
     for (const t of targets) {
-        const nombre = t.nombre || '';
+        const nombre = capitalizar(t.nombre || '');
         const phone = t.tlf, email = t.email;
+        // A la persona de contacto se le dice de QUIÉN es el expediente.
+        const deQuien = t.titular ? ` de *${capitalizar(t.titular)}*` : '';
 
         const msg =
 `Hola${nombre ? ` *${nombre}*` : ''}
 
-Revisando la documentación del expediente *${opp.id_oportunidad}* hemos visto que una foto no nos sirve y necesitamos que la repitas:
+Revisando la documentación del expediente *${opp.id_oportunidad}*${deQuien} hemos visto que una foto no nos sirve y necesitamos que la repitas:
 
 📷 *${slotLabel}*
 ⚠️ Motivo: ${motivo}

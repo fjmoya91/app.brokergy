@@ -1597,16 +1597,23 @@ const sendCertificadorApproveNotification = async (to, certName, numExp, phaseLa
 /**
  * Notifica al cliente que el CEE Inicial ha sido presentado
  */
-const sendCeeInicialRegistradoClientEmail = async (to, clientName, numExp, portalLink) => {
+// `titular`: solo cuando lo lee la PERSONA DE CONTACTO del cliente (o el partner):
+// entonces no es "tu expediente", es el de ese titular.
+const sendCeeInicialRegistradoClientEmail = async (to, clientName, numExp, portalLink, titular = null) => {
     const subject = `✅ CEE INICIAL PRESENTADO — ${numExp}`;
-    
+    const delExp = titular
+        ? `del expediente <strong>${escapeHtml(numExp)}</strong> de <strong>${escapeHtml(titular)}</strong>`
+        : `de tu expediente <strong>${escapeHtml(numExp)}</strong>`;
+
     const html = brandEmailShell({
-        preheader: `El CEE Inicial de tu expediente ${numExp} ya ha sido presentado.`,
+        preheader: titular
+            ? `El CEE Inicial del expediente ${numExp} de ${titular} ya ha sido presentado.`
+            : `El CEE Inicial de tu expediente ${numExp} ya ha sido presentado.`,
         title: 'Certificado presentado',
         pill: PILL.success('Certificado presentado'),
         contentHtml:
             emailP(`¡Hola <strong>${escapeHtml(clientName)}</strong>!`, { mb: 15 }) +
-            emailP(`Te escribimos para comunicarte que ya ha sido presentado el Certificado de Eficiencia Energética INICIAL de tu expediente <strong>${escapeHtml(numExp)}</strong>.`, { color: BRAND.muted, mb: 22 }) +
+            emailP(`Te escribimos para comunicarte que ya ha sido presentado el Certificado de Eficiencia Energética INICIAL ${delExp}.`, { color: BRAND.muted, mb: 22 }) +
             emailBox(emailP('Desde este momento ya se pueden emitir facturas y pagos.', { bold: true, color: BRAND.greenDark, mb: 0 }), { bg: BRAND.greenTint, border: BRAND.green, mb: 22 }) +
             emailP('📸 <strong>Recuerda hacerle fotografías a todo:</strong>', { mb: 8 }) +
             emailList([

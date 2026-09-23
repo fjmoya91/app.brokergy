@@ -257,6 +257,14 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
             : '';
 
         const saludo = greetName(tgt, ids, manual);
+        // ¿Quien lo lee es el propio titular? Si solo está marcada su PERSONA DE
+        // CONTACTO (un hijo, o el partner que lleva la relación, como JOSE VICENTE
+        // RUIZ SL), "te adjunto el anexo de tu expediente" le habla a quien no es:
+        // se usa el texto de intermediario, que dice de qué cliente es y que lo
+        // firma el titular.
+        const aTercero = tgt === 'cliente' && (ids || []).length > 0
+            && ids.every(id => cliContacts.find(c => c.id === id)?.tercero);
+        const tgtTexto = aTercero ? 'instalador' : tgt;
 
         // Un requerimiento no se cuenta con el texto de siempre: lo primero que hay
         // que responderle a quien ya firmó es POR QUÉ se le manda otra vez.
@@ -268,12 +276,12 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
                 plazoDias: diasReq,
                 limite: limiteReq,
                 motivo: requerimiento?.motivo || '',
-                target: tgt,
-                footer: tgt === 'cliente' ? footerCliente : footerInstalador,
+                target: tgtTexto,
+                footer: tgtTexto === 'cliente' ? footerCliente : footerInstalador,
             });
         }
 
-        if (tgt === 'cliente') {
+        if (tgtTexto === 'cliente') {
             if (both) return getDualMessage(saludo, benefStr, numexpte) + footerCliente;
             if (docKeys[0] === 'anexo1') {
                 return `Hola ${saludo}:\n\n`
