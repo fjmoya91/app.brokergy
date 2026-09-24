@@ -175,6 +175,9 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
         # cliente. Se aplica ANTES de clasificar: de `habitable` cuelgan que
         # plantas se miden, la superficie del .cex y el plan de fotos.
         pipeline.aplicar_seleccion(modelo, payload.get("construcciones"))
+        # Una finca en la que Catastro no declara ninguna vivienda (todo
+        # «ALMACEN») se queda sin plano: se mide entera y se dice.
+        pipeline.sin_vivienda_mide_todo(modelo)
         # Los CUERPOS del edificio, ANTES de quitar ninguno: la lista tiene que
         # seguir enseñando el que se ha dejado fuera, o no habria forma de
         # volver a meterlo — desapareceria del plano y del popup a la vez.
@@ -199,6 +202,14 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
             # De que cuerpo es cada pared. Se calcula sobre las partes que
             # QUEDAN: las del cuerpo excluido ya no estan en el plano.
             muro_cuerpo=cuerpos_mod.de_cada_muro(geometria["elementos"], modelo.partes))
+        # Sin una sola pared que dibujar no hay plano que devolver: se dice por
+        # que, en vez de morir mas abajo con un `KeyError('contexto')`, que es
+        # lo unico que llegaba a la pantalla (26RES060_184).
+        if not dibujo.get("plantas"):
+            raise HTTPException(
+                422, "Catastro no devuelve ninguna pared de vivienda para esta "
+                     "referencia: no hay plano que medir. Comprueba la referencia "
+                     "catastral del expediente.")
 
         return JSONResponse({
             "referencia_catastral": rc.to_dict(),
@@ -265,6 +276,9 @@ def _construcciones(modelo: Modelo) -> list[dict]:
             "superficie": s.area,
             "cuenta": bool(a.get("habitable")),
             "catastro": a.get("habitable_catastro"),
+            # Cuenta porque Catastro no declara NINGUNA vivienda y se mide todo
+            # (`sin_vivienda_mide_todo`), no porque la haya marcado nadie.
+            "por_defecto": bool(a.get("habitable_por_defecto")),
         })
     return sorted(out, key=lambda c: (c["nivel"] if c["nivel"] is not None else 99,
                                       c["codigo"]))

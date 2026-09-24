@@ -400,6 +400,40 @@ def aplicar_seleccion(modelo: Modelo, incluidas) -> list[str]:
     return cambios
 
 
+def sin_vivienda_mide_todo(modelo: Modelo) -> list[str]:
+    """Si NADA cuenta como habitable, se mide el edificio ENTERO, y se dice.
+
+    POR QUE EXISTE: hay fincas en las que Catastro no declara ninguna vivienda
+    —una casa que consta entera como ALMACEN, la reforma que nunca se declaro—.
+    Medido en 0005703VJ8100N (26RES060_184): planta baja y primera, las dos
+    «ALMACEN». Con la regla de «solo lo habitable», al plano no le quedaba ni
+    una pared, el motor devolvia un plano vacio a medias y la ventana moria con
+    un escueto `'contexto'` — y encima sin salida, porque el desglose para
+    marcar que cuenta solo se ve cuando ya hay plano.
+
+    Medir todo es lo unico con sentido: si se esta certificando, alli hay una
+    vivienda, y Catastro no dice cual de sus partes es. Se marca
+    `habitable_por_defecto` para que la pantalla lo diga con esas palabras y
+    se pueda desmarcar lo que no sea vivienda (eso ya lo guarda una persona, y
+    entonces manda su seleccion).
+    """
+    con_codigo = [s for s in modelo.spaces if (s.attrs or {}).get("codigo")]
+    if not con_codigo or any((s.attrs or {}).get("habitable") for s in modelo.spaces):
+        return []
+    cambios = []
+    for s in con_codigo:
+        s.attrs["habitable"] = True
+        s.attrs["cuenta"] = True
+        s.attrs["habitable_por_defecto"] = True
+        cambios.append(f"{s.attrs['codigo']} ({s.attrs.get('uso_literal') or s.use}, "
+                       f"{s.attrs.get('planta_literal') or s.floor}, {s.area} m2)")
+    modelo.diagnostics.add(
+        "SIN_VIVIENDA_EN_CATASTRO",
+        "Catastro no declara ninguna vivienda en esta finca: se mide el edificio "
+        f"ENTERO ({'; '.join(cambios)}). Desmarca en el desglose lo que no sea vivienda.")
+    return cambios
+
+
 def excluir_cuerpos(modelo: Modelo, ids, inventario=None) -> list[str]:
     """Saca de la envolvente los CUERPOS que el certificador dice que no cuentan.
 

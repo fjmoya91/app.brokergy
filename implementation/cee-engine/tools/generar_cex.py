@@ -841,18 +841,17 @@ def _heredar_superficies(equipos: list[dict], plantilla: list) -> list[str]:
             if len(viejo) < 6 or not isinstance(viejo[5], list):
                 continue
             acs, cal = viejo[5][0], viejo[5][1]
-            ref = viejo[5][2] if len(viejo[5]) > 2 else None
             da = SERVICIOS_DEL_SLOT.get(nombre_slot, set())
             if "acs" in da and isinstance(acs, list) and acs[0]:
                 servido.setdefault("acs", str(acs[0]))
             if "calefaccion" in da and isinstance(cal, list) and cal[0]:
                 servido.setdefault("calefaccion", str(cal[0]))
-            if "refrigeracion" in da and isinstance(ref, list) and ref[0]:
-                servido.setdefault("refrigeracion", str(ref[0]))
-    # Una vivienda que hoy no tiene frio y en la que la aerotermia lo da por su
-    # suelo radiante: la superficie refrigerada es la que se calefacta. Es lo
-    # que escribio el certificador en 26RES060_198 (343.0 en los tres servicios).
-    if "refrigeracion" not in servido and "calefaccion" in servido:
+    # La superficie de FRIO de la aerotermia es la que se calefacta: es la que
+    # escribio el certificador en 26RES060_198 (343.0 en los tres servicios).
+    # NO la de un aire acondicionado que ya haya: ese sirve solo su parte (un
+    # split de salon, el 40 %), y heredarla dejaria a la bomba con una fraccion
+    # de una fraccion.
+    if "calefaccion" in servido:
         servido["refrigeracion"] = servido["calefaccion"]
 
     for eq in equipos:
@@ -899,6 +898,40 @@ def _heredar_superficies(equipos: list[dict], plantilla: list) -> list[str]:
             eq[clave] = heredada
             eq[clave + "_cruda"] = heredada
     return avisos
+
+
+def _pct_refrigeracion_de(slots: list) -> float:
+    """Cuanta demanda de FRIO cubren ya los equipos que se quedan en el fichero."""
+    total = 0.0
+    for lista in slots:
+        for reg in (lista if isinstance(lista, list) else []):
+            if not (isinstance(reg, list) and len(reg) > 5 and isinstance(reg[5], list)
+                    and len(reg[5]) > 2):
+                continue
+            par = reg[5][2]
+            if isinstance(par, list) and len(par) == 2 and par[0] not in (None, ""):
+                total += _numf(par[1]) or 0.0
+    return round(total, 2)
+
+
+def _frio_repartido(eq: dict, previo: float) -> tuple[dict, list[str]]:
+    """La aerotermia cubre del FRIO lo que no cubren los aires que ya hay.
+
+    Los aires acondicionados existentes se quedan con su parte (la que declara
+    el certificado); a la bomba le toca el resto, con la superficie en la misma
+    proporcion —que es como la escriben los certificadores: 104,8 m2 al 80 %
+    sobre 131—. Asi la refrigeracion sigue sumando el 100 %.
+    """
+    nuevo = dict(eq)
+    pct = max(0.0, round(100.0 - previo, 2))
+    base = _numf(nuevo.get("superficie_refrigeracion_cruda")
+                 or nuevo.get("superficie_refrigeracion")) or 0.0
+    nuevo["pct_refrigeracion"] = _num(pct)
+    nuevo["superficie_refrigeracion"] = round(base * pct / 100.0, 2)
+    nuevo.pop("superficie_refrigeracion_cruda", None)
+    return nuevo, [
+        f"los aires acondicionados que ya hay se QUEDAN y cubren el {_num(previo)} % del "
+        f"frio: a {nuevo.get('nombre')!r} le toca el {_num(pct)} % restante."]
 
 
 _ROTULO_SERVICIO = {"acs": "ACS", "calefaccion": "calefaccion",
@@ -1001,6 +1034,11 @@ def construir_instalaciones(datos: dict, plantilla: list,
     asumidos: set[str] = set()
     for eq in datos.get("instalaciones", []):
         asumidos |= SERVICIOS_DEL_SLOT.get(eq.get("slot", "mixto2"), set())
+    # ...salvo la REFRIGERACION, que no retira nada: los aires acondicionados
+    # que ya tiene la vivienda siguen ahi aunque la aerotermia nueva refresque
+    # por el suelo radiante (decision del usuario, 2026-09-24). Se quedan con
+    # su parte y la aerotermia cubre lo que ellos no cubren (ver mas abajo).
+    asumidos_retira = asumidos - {"refrigeracion"}
 
     # Lo retirado se dice CON SU NOMBRE. Que de un .cex desaparezca un generador
     # no puede ser un efecto silencioso: es la actuacion entera.
@@ -1025,9 +1063,9 @@ def construir_instalaciones(datos: dict, plantilla: list,
             # saliendo de la caldera. Retirarla entera dejaba la demanda de ACS
             # sin cubrir, y con eso CE3X no calcula ni la medida ni el
             # certificado («la instalacion de ACS no esta bien definida»).
-            resto = SERVICIOS_DEL_SLOT.get(nombre_slot, set()) - asumidos
+            resto = SERVICIOS_DEL_SLOT.get(nombre_slot, set()) - asumidos_retira
             if resto:
-                reg, av = _sin_servicios(viejo, asumidos)
+                reg, av = _sin_servicios(viejo, asumidos_retira)
                 quedan.append(reg)
                 avisos.append(
                     f"se CONSERVA {str(viejo[0])!r} solo para "
@@ -1044,7 +1082,11 @@ def construir_instalaciones(datos: dict, plantilla: list,
     if str(espacio).lower() == "auto":
         # los equipos van a la raiz: 604 de los 620 equipos mixtos del corpus
         espacio = "Edificio Objeto"
+    frio_previo = _pct_refrigeracion_de(slots) if conservar is None else 0.0
     for eq in datos.get("instalaciones", []):
+        if frio_previo > 0 and "refrigeracion" in SERVICIOS_DEL_SLOT.get(eq.get("slot"), set()):
+            eq, av = _frio_repartido(eq, frio_previo)
+            avisos.extend(av)
         tipo = eq.get("slot", "mixto2")
         if tipo not in SLOTS:
             raise GeneracionError(f"tipo de equipo no contemplado: {tipo!r}")

@@ -99,3 +99,24 @@ def test_un_espacio_sin_codigo_no_se_toca():
     pipeline.aplicar_seleccion(m, ["1/00/01"])
     assert m.spaces[1].attrs["habitable"] is False
     assert "cuenta" not in m.spaces[1].attrs
+
+
+# ---------------------------------------------------------------------------
+# Una finca sin NINGUNA vivienda en Catastro (26RES060_184: todo «ALMACEN»)
+# ---------------------------------------------------------------------------
+
+def test_sin_ninguna_vivienda_se_mide_el_edificio_entero():
+    m = _modelo([_unidad("ALMACEN", "1", "00", "01"), _unidad("ALMACEN", "1", "01", "01")])
+    assert not any(s.attrs["habitable"] for s in m.spaces)
+    cambios = pipeline.sin_vivienda_mide_todo(m)
+    assert cambios and all(s.attrs["habitable"] for s in m.spaces)
+    assert all(s.attrs["habitable_por_defecto"] for s in m.spaces)
+    assert any("SIN_VIVIENDA_EN_CATASTRO" in str(x) for x in m.diagnostics.messages)
+
+
+def test_con_alguna_vivienda_no_se_toca_nada():
+    m = _modelo([_unidad("VIVIENDA", "1", "01", "01"), _unidad("ALMACEN", "1", "00", "01")])
+    antes = [s.attrs.get("habitable") for s in m.spaces]
+    assert any(antes)
+    assert pipeline.sin_vivienda_mide_todo(m) == []
+    assert [s.attrs.get("habitable") for s in m.spaces] == antes

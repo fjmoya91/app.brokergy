@@ -1602,6 +1602,9 @@ function deQuienSaleLoQueCuenta(g, que) {
     const base = que === 'superficie'
         ? 'CATASTRO: superficie de uso VIVIENDA'
         : 'CATASTRO: plantas con uso habitable';
+    if ((g.modelo?.spaces || []).some(s => s.attrs?.habitable_por_defecto)) {
+        return 'el edificio ENTERO: Catastro no declara ninguna vivienda en la finca';
+    }
     const corregidas = (g.modelo?.spaces || []).filter(
         s => s.attrs && s.attrs.habitable_catastro !== null
                      && s.attrs.habitable_catastro !== undefined

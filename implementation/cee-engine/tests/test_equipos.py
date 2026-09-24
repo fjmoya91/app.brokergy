@@ -435,3 +435,40 @@ def test_un_termo_que_ya_daba_el_acs_se_queda_con_una_bomba_de_solo_calefaccion(
     slots, _ = _sustituye([_aerotermia("calefaccion")], base)
     assert [e[0] for e in slots[G.SLOTS.index("ACS")]] == ["TERMO"]
     assert [e[0] for e in slots[G.SLOTS.index("calefaccion")]] == ["AEROTERMIA DAIKIN"]
+
+
+# ---------------------------------------------------------------------------
+# Los AIRES ACONDICIONADOS que ya hay se QUEDAN (decision del usuario,
+# 2026-09-24): la aerotermia que refresca por el suelo radiante se reparte el
+# frio con ellos y cubre lo que ellos no cubren.
+# ---------------------------------------------------------------------------
+
+def _base_con_caldera_y_split(pct_frio="40"):
+    base = _base_con_caldera()
+    base[G.SLOTS.index("refrigeracion")] = [["SPLIT SALON", "refrigeracion",
+        ["", "", 202.6], "Maquina frigorífica", "Electricidad",
+        [["", ""], ["", ""], ["49.2", pct_frio]], "Estimado según Instalación",
+        [["", "", "321.61"], [True, False, False], [False, "1.0", "0.0"], 0], ZONA]]
+    return base
+
+
+def test_el_split_que_ya_habia_se_queda_y_la_aerotermia_cubre_el_resto():
+    antes = _base_con_caldera_y_split()[G.SLOTS.index("refrigeracion")][0]
+    slots, avisos = _sustituye([_aerotermia("mixto3")], _base_con_caldera_y_split())
+    assert _plano(slots[G.SLOTS.index("refrigeracion")]) == _plano([antes])   # TAL CUAL
+    [aero] = slots[G.SLOTS.index("mixto3")]
+    assert _plano(aero[5])[2] == ["73.8", "60"]      # 123 m2 x 60 %
+    assert slots[G.SLOTS.index("mixto2")] == []       # la caldera si se va
+    assert any("se QUEDAN" in a for a in avisos)
+
+
+def test_un_split_que_tambien_calentaba_se_queda_solo_para_el_frio():
+    base = _base_con_caldera()
+    base[G.SLOTS.index("climatizacion")] = [["SPLIT", "climatizacion",
+        ["", 214.1, 202.6], "Bomba de Calor", "Electricidad",
+        [["", ""], ["41.05", "15"], ["41.05", "15"]], "Estimado según Instalación",
+        [["", "361.81", "321.61"], [True, False, False], []], ZONA]]
+    slots, _ = _sustituye([_aerotermia("mixto3")], base)
+    [split] = slots[G.SLOTS.index("climatizacion")]
+    assert _plano(split[5]) == [["", ""], ["0.0", "0"], ["41.05", "15"]]
+    assert _plano(slots[G.SLOTS.index("mixto3")][0][5])[2][1] == "85"

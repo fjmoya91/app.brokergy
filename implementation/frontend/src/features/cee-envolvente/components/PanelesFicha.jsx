@@ -388,7 +388,10 @@ function Construcciones({ lista, onCambiar, guardando }) {
     const cuentan = lista.filter(c => c.cuenta);
     const total = cuentan.reduce((s, c) => s + (Number(c.superficie) || 0), 0);
     const niveles = new Set(cuentan.map(c => c.nivel));
-    const corregidas = lista.filter(c => c.catastro !== null
+    //: Lo que cuenta porque Catastro no declara NINGUNA vivienda y se mide todo
+    //: no lo ha decidido nadie: se dice aparte y con otras palabras.
+    const porDefecto = lista.some(c => c.por_defecto);
+    const corregidas = lista.filter(c => !c.por_defecto && c.catastro !== null
                                       && c.catastro !== undefined
                                       && !!c.catastro !== !!c.cuenta);
     const alternar = (c) => onCambiar?.(
@@ -449,6 +452,13 @@ function Construcciones({ lista, onCambiar, guardando }) {
                 </table>
             </div>
 
+            {porDefecto && (
+                <p className="mt-2 text-[10.5px] leading-relaxed text-amber-200/80">
+                    ⚠ Catastro no declara ninguna vivienda en esta finca (todo consta como{' '}
+                    {[...new Set(lista.map(c => c.uso).filter(Boolean))].join(' / ') || 'otro uso'}),
+                    así que se mide el edificio ENTERO. Desmarca lo que no sea vivienda.
+                </p>
+            )}
             {corregidas.length > 0 && (
                 <p className="mt-2 text-[10.5px] leading-relaxed text-amber-200/80">
                     ⚠ {corregidas.map(c => (
