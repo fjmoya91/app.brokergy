@@ -532,10 +532,10 @@ function FilaExpediente({ f, enPlazo }) {
                         {f.silenciada && (
                             <span className="px-1.5 py-0.5 rounded bg-white/[0.04] text-[9px] font-bold text-white/35 whitespace-nowrap">{f.silenciada}</span>
                         )}
+                        {f.material && <MaterialCee m={f.material} />}
                     </span>
                     <span className="block text-[11px] text-white/60 leading-snug mt-0.5">{f.detalle}</span>
                     <span className="block text-[10px] text-white/25 truncate">{f.cliente_nombre || f.municipio || '—'}</span>
-                    {f.material && <MaterialCee m={f.material} className="mt-1.5" />}
                 </span>
                 <span className={`text-[11px] font-black tabular-nums shrink-0 ${enPlazo ? 'text-white/30' : colorDias(f.dias, f.sin_fecha)}`}>
                     {textoDias(f.dias, f.sin_fecha)}
@@ -690,51 +690,54 @@ function FilaEncargo({ f, enPlazo, certificadores, encargoEnCurso, onEncargar, g
     const valor = enEsteEncargo ? encargoEnCurso.certificador.id_empresa : (f.certificador_id || '');
     const faltaMaterial = f.material && !f.material.listo;
 
+    // En ESCRITORIO todo va en UNA fila: nº + chapas de material arriba, detalle y
+    // cliente en una sola línea debajo, y a la derecha las acciones. Apilado ocupaba
+    // el doble de alto y con 20 expedientes el bloque no se abarcaba de un vistazo.
+    // En MÓVIL las acciones bajan a su propia línea: al lado no caben.
     return (
-        <div className={`rounded-xl ${enPlazo ? 'opacity-60' : ''}`}>
-            <div className="flex items-center">
-                <a href={`/?exp=${encodeURIComponent(f.numero_expediente)}`}
-                    className="flex-1 min-w-0 flex items-center gap-2.5 px-2.5 pt-2.5 pb-1.5 rounded-xl active:bg-bkg-hover/50 transition-colors">
-                    <span className="flex-1 min-w-0">
-                        <span className="font-black text-brand text-[11px] tabular-nums">{f.numero_expediente}</span>
-                        <span className="block text-[11px] text-white/60 leading-snug mt-0.5">{f.detalle}</span>
-                        <span className="block text-[10px] text-white/25 truncate">{f.cliente_nombre || f.municipio || '—'}</span>
-                    </span>
-                    <span className={`text-[11px] font-black tabular-nums shrink-0 ${enPlazo ? 'text-white/30' : colorDias(f.dias, f.sin_fecha)}`}>
-                        {textoDias(f.dias, f.sin_fecha)}
-                    </span>
-                </a>
-                <BotonCarpeta f={f} />
+        <div className={`flex flex-wrap md:flex-nowrap items-center gap-x-2 rounded-xl ${enPlazo ? 'opacity-60' : ''}`}>
+            <a href={`/?exp=${encodeURIComponent(f.numero_expediente)}`}
+                className="flex-1 min-w-0 px-2.5 py-2 rounded-xl active:bg-bkg-hover/50 transition-colors">
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="font-black text-brand text-[11px] tabular-nums">{f.numero_expediente}</span>
+                    <MaterialCee m={f.material} />
+                </span>
+                <span className="block text-[11px] text-white/60 leading-snug mt-0.5 truncate">
+                    {f.detalle}
+                    <span className="text-white/25"> · {f.cliente_nombre || f.municipio || '—'}</span>
+                </span>
+            </a>
+
+            <div className="w-full md:w-auto order-last md:order-none flex flex-wrap md:flex-nowrap items-center gap-2 px-2.5 pb-2 md:p-0 shrink-0">
+                {faltaMaterial && grupoPedir && (
+                    <button type="button" onClick={() => onPedir(grupoPedir)}
+                        title="Mandar al cliente el enlace para subir lo que falta"
+                        className="px-3 py-2 rounded-xl border border-red-500/25 bg-red-500/[0.06] text-red-300 text-[10px] font-black uppercase tracking-wider hover:bg-red-500/10 transition-colors whitespace-nowrap max-md:flex-1">
+                        📩 Pedir
+                    </button>
+                )}
+                <div className="w-full md:w-56">
+                    <TecnicoPicker
+                        certificadores={certificadores}
+                        value={valor}
+                        onChange={(v) => { if (v) onEncargar(f, v); }}
+                        // Desde aquí solo se ENCARGA: quitar un técnico no avisa a
+                        // nadie y se hace, si hace falta, desde el expediente.
+                        permiteVaciar={false}
+                    />
+                </div>
+                {f.certificador_id && (
+                    <button type="button" onClick={() => onEncargar(f, f.certificador_id)}
+                        className="px-3 py-2 rounded-xl bg-brand text-bkg-deep text-[10px] font-black uppercase tracking-wider shadow-lg shadow-brand/20 active:scale-95 transition-all whitespace-nowrap max-md:flex-1">
+                        Enviar encargo
+                    </button>
+                )}
             </div>
 
-            <div className="px-2.5 pb-2.5 flex flex-col md:flex-row md:items-center gap-2">
-                <MaterialCee m={f.material} className="md:flex-1 min-w-0" />
-                <div className="flex flex-wrap items-center gap-2 md:justify-end">
-                    {faltaMaterial && grupoPedir && (
-                        <button type="button" onClick={() => onPedir(grupoPedir)}
-                            title="Mandar al cliente el enlace para subir lo que falta"
-                            className="px-3 py-2 rounded-xl border border-red-500/25 bg-red-500/[0.06] text-red-300 text-[10px] font-black uppercase tracking-wider hover:bg-red-500/10 transition-colors max-md:flex-1">
-                            📩 Pedir al cliente
-                        </button>
-                    )}
-                    <div className="w-full md:w-56">
-                        <TecnicoPicker
-                            certificadores={certificadores}
-                            value={valor}
-                            onChange={(v) => { if (v) onEncargar(f, v); }}
-                            // Desde aquí solo se ENCARGA: quitar un técnico no avisa a
-                            // nadie y se hace, si hace falta, desde el expediente.
-                            permiteVaciar={false}
-                        />
-                    </div>
-                    {f.certificador_id && (
-                        <button type="button" onClick={() => onEncargar(f, f.certificador_id)}
-                            className="px-3 py-2 rounded-xl bg-brand text-bkg-deep text-[10px] font-black uppercase tracking-wider shadow-lg shadow-brand/20 active:scale-95 transition-all max-md:flex-1">
-                            Enviar el encargo
-                        </button>
-                    )}
-                </div>
-            </div>
+            <span className={`text-[11px] font-black tabular-nums shrink-0 w-9 text-right ${enPlazo ? 'text-white/30' : colorDias(f.dias, f.sin_fecha)}`}>
+                {textoDias(f.dias, f.sin_fecha)}
+            </span>
+            <BotonCarpeta f={f} />
         </div>
     );
 }
