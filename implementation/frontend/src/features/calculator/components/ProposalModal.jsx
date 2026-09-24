@@ -2996,7 +2996,11 @@ info@brokergy.es · 623 926 179`;
                                                         </div>
                                                     ))}
 
-                                                    {isBoth && !hideBudget && (
+                                                    {/* Los totales CIERRAN la tabla en todas las propuestas, no
+                                                        solo en la comparativa: aunque las tarjetas de arriba den
+                                                        las mismas cifras, una tabla que termina en la deducción
+                                                        se lee como cortada (petición del 24/09/2026). */}
+                                                    {!hideBudget && (
                                                         <>
                                                             <div className="prop-ftaids">
                                                                 <span className="prop-fl">AYUDA TOTAL ESTIMADA</span>
@@ -3056,7 +3060,7 @@ info@brokergy.es · 623 926 179`;
                                                         </div>
                                                     ))}
 
-                                                    {isBoth && !hideBudget && (
+                                                    {!hideBudget && (
                                                         <>
                                                             <div className="prop-ftaids">
                                                                 <span className="prop-fl">AYUDA TOTAL ESTIMADA</span>
