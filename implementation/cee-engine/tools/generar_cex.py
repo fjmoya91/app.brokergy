@@ -474,6 +474,101 @@ def equipo_calefaccion(eq: dict, espacio: str) -> tuple[list, list[str]]:
     ], avisos
 
 
+def _solo_conocido(eq: dict, slot: str) -> None:
+    """Estos dos escritores solo saben la forma del rendimiento CONOCIDO.
+
+    Es la de una bomba de calor, cuyo SCOP/SEER vienen ensayados: 153 de los 164
+    'mixto3' y 237 de los 441 'climatizacion' del corpus. La forma ESTIMADA
+    existe (su cola lleva los nominales, interruptores y una lista mas) pero no
+    se ha medido lo bastante para escribirla, y un registro con la forma
+    equivocada CE3X lo abre y no lo enseña.
+    """
+    if eq.get("rendimiento") != "conocido":
+        raise GeneracionError(
+            f"el equipo {eq.get('nombre')!r} ({slot}) solo se sabe escribir con el "
+            f"rendimiento CONOCIDO (bomba de calor con su SCOP/SEER ensayados)")
+
+
+def equipo_mixto3(eq: dict, espacio: str) -> tuple[list, list[str]]:
+    """Un equipo mixto de calefaccion, REFRIGERACION y ACS (el slot 'mixto3'): 10 campos.
+
+    Es la aerotermia que ademas de la calefaccion y el ACS da FRIO por su unidad
+    terminal (suelo radiante, fancoils). Forma medida sobre 153 equipos del
+    corpus con el rendimiento conocido, y sobre el `.cex` que el certificador
+    guardo a mano para 26RES060_198:
+
+        ['AEROTERMIA DAIKIN ERLA16D2V37 + EBVX16S23DJ6V (ERLA16D2V37)', 'mixto3',
+         ['310', '623', '416'], 'Bomba de Calor - Caudal Ref. Variable',
+         'Electricidad', [['343.0','100'], ['343.0','100'], ['343.0','100']],
+         'Conocido (Ensayado/justificado)', ['310', '623', '416'],
+         [True, '230', '80', '60', '5.4', 'Por defecto', '1'], 'Edificio Objeto']
+
+    El trio es [ACS, calefaccion, refrigeracion] y el [7] repite el [2]: con el
+    rendimiento ensayado CE3X no calcula nada.
+    """
+    _solo_conocido(eq, "mixto3")
+    acs = str(_v(eq.get("rend_acs"), "instalaciones.rend_acs"))
+    cal = str(_v(eq.get("rend_calefaccion"), "instalaciones.rend_calefaccion"))
+    ref = str(_v(eq.get("rend_refrigeracion"), "instalaciones.rend_refrigeracion"))
+    return [
+        str(eq["nombre"]),
+        Cadena("mixto3"),
+        [acs, cal, ref],
+        str(_v(eq.get("generador"), "instalaciones.generador")),
+        str(_v(eq.get("combustible"), "instalaciones.combustible")),
+        [[_sup(eq, "superficie_acs"), _pct(eq.get("pct_acs"))],
+         [_sup(eq, "superficie_calefaccion"), _pct(eq.get("pct_calefaccion"))],
+         [_sup(eq, "superficie_refrigeracion"), _pct(eq.get("pct_refrigeracion"))]],
+        RENDIMIENTO["conocido"],
+        [acs, cal, ref],
+        _bloque_acumulacion(eq),
+        espacio,
+    ], []
+
+
+def equipo_climatizacion(eq: dict, espacio: str) -> tuple[list, list[str]]:
+    """Un equipo de calefaccion y REFRIGERACION (el slot 'climatizacion'): 9 campos.
+
+    La aerotermia con frio cuando el ACS no lo da ella (va aparte, o no entra en
+    la actuacion). Es el mixto3 sin el ACS: sin bloque de acumulacion y con el
+    hueco del ACS vacio. Forma medida sobre 237 equipos del corpus:
+
+        ['AEORTERMIA DAIKIN EBLA08E23V3', 'climatizacion', ['', '673', '519'],
+         'Bomba de Calor - Caudal Ref. Variable', 'Electricidad',
+         [['', ''], ['163.0', '100'], ['163.0', '100']],
+         'Conocido (Ensayado/justificado)', ['', '673', '519'], 'Edificio Objeto']
+    """
+    _solo_conocido(eq, "climatizacion")
+    cal = str(_v(eq.get("rend_calefaccion"), "instalaciones.rend_calefaccion"))
+    ref = str(_v(eq.get("rend_refrigeracion"), "instalaciones.rend_refrigeracion"))
+    return [
+        str(eq["nombre"]),
+        Cadena("climatizacion"),
+        ["", cal, ref],
+        str(_v(eq.get("generador"), "instalaciones.generador")),
+        str(_v(eq.get("combustible"), "instalaciones.combustible")),
+        [["", ""],
+         [_sup(eq, "superficie_calefaccion"), _pct(eq.get("pct_calefaccion"))],
+         [_sup(eq, "superficie_refrigeracion"), _pct(eq.get("pct_refrigeracion"))]],
+        RENDIMIENTO["conocido"],
+        ["", cal, ref],
+        espacio,
+    ], []
+
+
+def _bloque_acumulacion(eq: dict) -> list:
+    """El bloque [8] de un equipo que da ACS: el deposito, o `[False]`."""
+    crudo = eq.get("acumulacion_cruda")
+    if crudo:
+        return list(crudo)
+    acum = eq.get("acumulacion")
+    if acum:
+        return [True, str(acum["volumen"]), str(acum.get("t_alta", "80")),
+                str(acum.get("t_baja", "60")), str(acum.get("ua", "4.7")),
+                "Por defecto", str(acum.get("mult", "1"))]
+    return [False]
+
+
 #: Los interruptores de un equipo de SOLO ACS y de uno de SOLO refrigeracion.
 #: Forma medida en «CEE DISTINTOS USOS CALEFACCION Y ACS Y AACC.cex», guardado
 #: desde CE3X con los tres equipos a la vez. No se tocan, como los del mixto.
@@ -635,6 +730,7 @@ def equipo_renovable(eq: dict, espacio: str) -> tuple[list, list[str]]:
 #: dice: un registro con la forma equivocada CE3X lo abre y no lo enseña.
 ESCRITORES = {"mixto2": equipo_mixto, "calefaccion": equipo_calefaccion,
               "ACS": equipo_acs, "refrigeracion": equipo_refrigeracion,
+              "climatizacion": equipo_climatizacion, "mixto3": equipo_mixto3,
               "renovable": equipo_renovable}
 
 #: Que SERVICIOS da cada slot. Es lo que dice la propia pestaña de CE3X: un
@@ -708,8 +804,14 @@ def _heredar_acumulacion(equipos: list[dict], plantilla: list) -> list[str]:
     for eq in equipos:
         if "acs" not in SERVICIOS_DEL_SLOT.get(eq.get("slot", "mixto2"), set()):
             continue
-        if eq.get("acumulacion"):
-            continue                       # lo declarado en el expediente manda
+        declarado = eq.get("acumulacion")
+        if declarado:
+            # Lo declarado en el expediente manda... salvo que sea el MISMO
+            # deposito: mismos litros que el del fichero. Entonces se conserva
+            # su registro tal cual (con su UA y sus temperaturas), que es lo que
+            # hizo el certificador en 26RES060_198 (230 l, UA 5.4).
+            if _numf(declarado.get("volumen")) != _numf(previa[1]):
+                continue
         eq["acumulacion_cruda"] = list(previa)
         avisos.append(
             f"se conserva el deposito de ACS del .cex que se copia ({previa[1]} l): el "
@@ -739,16 +841,25 @@ def _heredar_superficies(equipos: list[dict], plantilla: list) -> list[str]:
             if len(viejo) < 6 or not isinstance(viejo[5], list):
                 continue
             acs, cal = viejo[5][0], viejo[5][1]
+            ref = viejo[5][2] if len(viejo[5]) > 2 else None
             da = SERVICIOS_DEL_SLOT.get(nombre_slot, set())
             if "acs" in da and isinstance(acs, list) and acs[0]:
                 servido.setdefault("acs", str(acs[0]))
             if "calefaccion" in da and isinstance(cal, list) and cal[0]:
                 servido.setdefault("calefaccion", str(cal[0]))
+            if "refrigeracion" in da and isinstance(ref, list) and ref[0]:
+                servido.setdefault("refrigeracion", str(ref[0]))
+    # Una vivienda que hoy no tiene frio y en la que la aerotermia lo da por su
+    # suelo radiante: la superficie refrigerada es la que se calefacta. Es lo
+    # que escribio el certificador en 26RES060_198 (343.0 en los tres servicios).
+    if "refrigeracion" not in servido and "calefaccion" in servido:
+        servido["refrigeracion"] = servido["calefaccion"]
 
     for eq in equipos:
         for servicio, clave, pct_clave in (
                 ("calefaccion", "superficie_calefaccion", "pct_calefaccion"),
-                ("acs", "superficie_acs", "pct_acs")):
+                ("acs", "superficie_acs", "pct_acs"),
+                ("refrigeracion", "superficie_refrigeracion", "pct_refrigeracion")):
             if servicio not in SERVICIOS_DEL_SLOT.get(eq.get("slot", "mixto2"), set()):
                 continue
             heredada = servido.get(servicio)
@@ -788,6 +899,39 @@ def _heredar_superficies(equipos: list[dict], plantilla: list) -> list[str]:
             eq[clave] = heredada
             eq[clave + "_cruda"] = heredada
     return avisos
+
+
+_ROTULO_SERVICIO = {"acs": "ACS", "calefaccion": "calefaccion",
+                    "refrigeracion": "refrigeracion"}
+
+#: Donde va cada servicio dentro del bloque [5] de un equipo.
+_POS_SERVICIO = {"acs": 0, "calefaccion": 1, "refrigeracion": 2}
+
+
+def _sin_servicios(registro: list, quitar: set[str]) -> tuple[list, list[str]]:
+    """El MISMO registro del .cex, con la demanda de `quitar` a 0.
+
+    Es como lo dejan los certificadores a mano: una caldera mixta que se queda
+    solo para el ACS lleva la calefaccion a `['0.0', '0']` y el ACS como estaba
+    (medido en el corpus, 8 casos, p. ej. «CALDERA ROCA GAS NATURAL»:
+    `[['98.0','100'], ['0.0','0'], ['','']]`). Todo lo demas —rendimientos,
+    aislamiento, potencia, deposito— se reescribe tal cual lo dejo CE3X.
+    """
+    if len(registro) < 6 or not isinstance(registro[5], list):
+        return registro, [
+            f"{str(registro[0])!r}: no se le puede quitar la demanda que asume el equipo "
+            f"nuevo (su registro no tiene la forma esperada); se conserva como estaba."]
+    nuevo = list(registro)
+    bloque = [list(p) if isinstance(p, list) else p for p in registro[5]]
+    for servicio in quitar:
+        i = _POS_SERVICIO.get(servicio)
+        if i is None or i >= len(bloque):
+            continue
+        par = bloque[i]
+        if isinstance(par, list) and len(par) == 2 and par[0] not in (None, ""):
+            bloque[i] = ["0.0", "0"]
+    nuevo[5] = bloque
+    return nuevo, []
 
 
 def _con_reparto(registro: list, pct: float) -> tuple[list, list[str]]:
@@ -853,6 +997,11 @@ def construir_instalaciones(datos: dict, plantilla: list,
         slots = [list(x) if isinstance(x, list) else [] for x in plantilla]
     avisos: list[str] = []
 
+    # Los servicios que asumen los equipos que se escriben ahora.
+    asumidos: set[str] = set()
+    for eq in datos.get("instalaciones", []):
+        asumidos |= SERVICIOS_DEL_SLOT.get(eq.get("slot", "mixto2"), set())
+
     # Lo retirado se dice CON SU NOMBRE. Que de un .cex desaparezca un generador
     # no puede ser un efecto silencioso: es la actuacion entera.
     for nombre_slot in sorted(retirar or ()):
@@ -869,12 +1018,28 @@ def construir_instalaciones(datos: dict, plantilla: list,
                 avisos.extend(av)
             slots[i] = quedan
             continue
+        quedan = []
         for viejo in slots[i]:
+            # Lo que el equipo nuevo NO asume se queda. El caso: se cambia la
+            # caldera por una aerotermia de SOLO calefaccion y el ACS sigue
+            # saliendo de la caldera. Retirarla entera dejaba la demanda de ACS
+            # sin cubrir, y con eso CE3X no calcula ni la medida ni el
+            # certificado («la instalacion de ACS no esta bien definida»).
+            resto = SERVICIOS_DEL_SLOT.get(nombre_slot, set()) - asumidos
+            if resto:
+                reg, av = _sin_servicios(viejo, asumidos)
+                quedan.append(reg)
+                avisos.append(
+                    f"se CONSERVA {str(viejo[0])!r} solo para "
+                    f"{' y '.join(sorted(_ROTULO_SERVICIO[s] for s in resto))}: el "
+                    f"equipo nuevo no los asume. Se le pone a 0 lo que si asume.")
+                avisos.extend(av)
+                continue
             avisos.append(
                 f"se RETIRA del CEE {str(viejo[0])!r} "
                 f"({str(viejo[3]) if len(viejo) > 3 else nombre_slot}): lo sustituye "
                 f"el equipo nuevo. Es la actuacion.")
-        slots[i] = []
+        slots[i] = quedan
     espacio = datos["envolvente"]["espacio"]
     if str(espacio).lower() == "auto":
         # los equipos van a la raiz: 604 de los 620 equipos mixtos del corpus

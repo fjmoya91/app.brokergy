@@ -320,12 +320,23 @@ router.put('/:id', enforceAuth, requireAdmin, async (req, res) => {
 //
 // `staffOnly` en vez de `requireAdmin`: es un dato técnico del catálogo y quien
 // genera el RITE puede ser un TRABAJADOR; no hay dinero ni borrado de por medio.
+//: Por encima de esto no es un SEER, es el mismo número escrito en % (el
+//: rendimiento que pide CE3X). Los SEER del catálogo van de ~3 a ~9.
+const SEER_MAX = 15;
+
 router.patch('/:id/datos-rite', staffOnly, async (req, res) => {
     try {
         const updates = {};
         for (const campo of ['potencia_calefaccion', 'potencia_frigorifica', 'potencia_compresores', 'seer']) {
             // El SEER llega tecleado a mano y en España se escribe con coma.
             const v = parseFloat(String(req.body?.[campo] ?? '').replace(',', '.'));
+            // Un SEER es un cociente (4,16), no un %. Tecleado como el rendimiento
+            // de CE3X (416) entró así en el modelo de 26RES060_198 y el .cex salía
+            // con 41.600 % de refrigeración. Se para aquí, que es donde se escribe.
+            if (campo === 'seer' && v > SEER_MAX) {
+                return res.status(400).json({ error: `Un SEER va entre 2 y ${SEER_MAX} (p. ej. 4,16). `
+                    + `Has puesto ${v}: ¿lo has escrito en % como en CE3X?` });
+            }
             if (v > 0) updates[campo] = v;
         }
         const refri = String(req.body?.refrigerante || '').trim().toUpperCase();
@@ -513,7 +524,8 @@ function buildPayload(body) {
         scop_cal_medio_55:     scop(body.scop_cal_medio_55),
         scop_dhw_calido:       scop(body.scop_dhw_calido),
         scop_dhw_medio:        scop(body.scop_dhw_medio),
-        seer:                  num(body.seer),
+        // En % (416) es el rendimiento de CE3X, no el SEER (4,16): ver `SEER_MAX`.
+        seer:                  num(body.seer) > SEER_MAX ? num(body.seer) / 100 : num(body.seer),
         eta_calida_35:         num(body.eta_calida_35) < 10 && num(body.eta_calida_35) !== null ? num(body.eta_calida_35) * 100 : num(body.eta_calida_35),
         eta_calida_55:         num(body.eta_calida_55) < 10 && num(body.eta_calida_55) !== null ? num(body.eta_calida_55) * 100 : num(body.eta_calida_55),
         eta_media_35:          num(body.eta_media_35) < 10 && num(body.eta_media_35) !== null ? num(body.eta_media_35) * 100 : num(body.eta_media_35),

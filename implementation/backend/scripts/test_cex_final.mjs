@@ -17,7 +17,7 @@ import { pathToFileURL } from 'url';
 import path from 'path';
 
 const raiz = path.join(import.meta.dirname, '../../frontend/src/features');
-const { instalacionNueva } = await import(
+const { instalacionNueva, equipoConAjustes } = await import(
     pathToFileURL(path.join(raiz, 'cee-envolvente/logic/fichaCe3x.js')).href);
 const { acsMismoEquipo, mismaMaquina } = await import(
     pathToFileURL(path.join(raiz, 'expedientes/logic/aerotermiaUnits.js')).href);
@@ -154,12 +154,43 @@ comprueba('  …al 100 %', termo?.rend_nominal, '100');
 //  la vista les manda lo que esperan y que el contrato no se ha movido.)
 console.log('\n5. El contrato con el motor');
 comprueba('el slot que se manda es uno de los que sabe escribir',
-          ['mixto2', 'calefaccion'].includes(equipo.slot), true);
+          ['mixto2', 'calefaccion', 'mixto3', 'climatizacion'].includes(equipo.slot), true);
 comprueba('el rendimiento es el modo, no un número', equipo.rendimiento, 'conocido');
 comprueba('los rendimientos van como TEXTO en %',
           [typeof equipo.rend_calefaccion, typeof equipo.rend_acs], ['string', 'string']);
 comprueba('NO se manda acumulación inventada: la hereda el motor del .cex',
           'acumulacion' in equipo, false);
+
+// ── 6. La UNIDAD TERMINAL decide si da frío ──────────────────────────────────
+// Referencia: el `.cex` que el certificador guardó a mano para 26RES060_198 —
+// suelo radiante + ACS—, con un solo `mixto3` ['310', '623', '416'].
+console.log('\n6. Suelo radiante: mixto3 / climatización · radiadores: mixto2 / calefacción');
+const modelos = { 447: { seer: 4.16 } };
+const nueva = (inst) => instalacionNueva({ expediente: expediente(inst), superficie: 165, modelos }).equipo;
+
+const sr = nueva({ tipo_emisor: 'suelo_radiante' });
+comprueba('suelo radiante + ACS → mixto3', sr.slot, 'mixto3');
+comprueba('  con el SEER en % como tercer rendimiento', sr.rend_refrigeracion, '416');
+comprueba('  y los tres servicios al 100 % sobre la misma superficie',
+          [sr.pct_acs, sr.pct_calefaccion, sr.pct_refrigeracion, sr.superficie_refrigeracion],
+          ['100', '100', '100', 165]);
+comprueba('suelo radiante SIN ACS → climatización (calefacción + refrigeración)',
+          nueva({ tipo_emisor: 'suelo_radiante', cambio_acs: false }).slot, 'climatizacion');
+const rad = nueva({ tipo_emisor: 'radiadores_convencionales' });
+comprueba('radiadores + ACS → mixto2, SIN refrigeración',
+          [rad.slot, rad.rend_refrigeracion], ['mixto2', undefined]);
+comprueba('radiadores SIN ACS → solo calefacción',
+          nueva({ tipo_emisor: 'radiadores_convencionales', cambio_acs: false }).slot, 'calefaccion');
+const sinSeer = instalacionNueva({ expediente: expediente({ tipo_emisor: 'suelo_radiante' }),
+                                   superficie: 165, modelos: {} });
+comprueba('suelo radiante sin SEER en el catálogo → mixto2, y se dice',
+          [sinSeer.equipo.slot, sinSeer.avisos.some(a => a.includes('SIN refrigeración'))],
+          ['mixto2', true]);
+// `equipoConAjustes` borraba el ACS de todo lo que no fuera 'mixto2'.
+const aj = equipoConAjustes(sr, {}, { superficie: 165 }).equipo;
+comprueba('los ajustes a mano NO le quitan el ACS ni el frío a un mixto3',
+          [aj.slot, aj.superficie_acs, aj.superficie_refrigeracion, aj.rend_acs],
+          ['mixto3', 165, 165, '300']);
 
 console.log(fallos ? `\n${fallos} FALLAN` : '\nTodo correcto.');
 process.exit(fallos ? 1 : 0);

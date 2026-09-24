@@ -240,10 +240,11 @@ export const AISLAMIENTOS_CE3X = [
 ];
 
 //: Los cuatro escritores de equipo que tiene el motor, con sus rótulos de CE3X
-//: y qué servicios da cada uno. Los otros dos del diálogo —«calefacción y
-//: refrigeración» y «mixto de los tres»— NO están: su forma en el pickle no se
-//: ha medido en ningún `.cex` real, y un registro con la forma equivocada CE3X
-//: lo abre y no lo enseña.
+//: y qué servicios da cada uno, para AÑADIR un equipo a mano. Los otros dos del
+//: diálogo —«calefacción y refrigeración» y «mixto de los tres»— no se ofrecen
+//: aquí: el motor solo sabe su forma con el rendimiento CONOCIDO (el de una
+//: bomba de calor), y los escribe la app desde el expediente. Van aparte, en
+//: `TIPOS_BOMBA_FRIO_CE3X`.
 export const TIPOS_EQUIPO_CE3X = [
     { valor: 'ACS', etiqueta: 'Equipo de ACS', servicios: ['acs'],
       generador: 'Efecto Joule', combustible: 'Electricidad', nominal: '100.0' },
@@ -256,8 +257,23 @@ export const TIPOS_EQUIPO_CE3X = [
       servicios: ['calefaccion', 'acs'], generador: 'Caldera Estándar' },
 ];
 
+//: Los dos tipos de la AEROTERMIA QUE DA FRÍO. No se ofrecen en «+ Añadir»
+//: porque el motor solo sabe su forma con el rendimiento CONOCIDO (153 mixto3 y
+//: 237 climatizacion del corpus): son los que escribe la app desde el
+//: expediente, y aquí solo hace falta saber cómo se llaman y qué servicios dan.
+export const TIPOS_BOMBA_FRIO_CE3X = [
+    { valor: 'climatizacion', etiqueta: 'Equipo de calefacción y refrigeración',
+      servicios: ['calefaccion', 'refrigeracion'], generador: 'Bomba de Calor - Caudal Ref. Variable',
+      combustible: 'Electricidad' },
+    { valor: 'mixto3', etiqueta: 'Equipo mixto de calefacción, refrigeración y ACS',
+      servicios: ['calefaccion', 'refrigeracion', 'acs'],
+      generador: 'Bomba de Calor - Caudal Ref. Variable', combustible: 'Electricidad' },
+];
+
 export const tipoEquipo = (slot) =>
-    TIPOS_EQUIPO_CE3X.find(t => t.valor === slot) || TIPOS_EQUIPO_CE3X[3];
+    TIPOS_EQUIPO_CE3X.find(t => t.valor === slot)
+    || TIPOS_BOMBA_FRIO_CE3X.find(t => t.valor === slot)
+    || TIPOS_EQUIPO_CE3X[3];
 
 //: Un equipo de caldera necesita potencia y rendimiento de combustión; uno de
 //: ACS o de frío, un rendimiento nominal y ya. Es lo que separa las dos colas
@@ -375,7 +391,11 @@ export function equipoConAjustes(equipo, ajustes, { superficie } = {}) {
 
     const slot = a.slot === 'calefaccion' || a.slot === 'mixto2'
         ? a.slot : (equipo?.slot || 'mixto2');
-    const daAcs = slot === 'mixto2';
+    //: Por los SERVICIOS del tipo, no por su nombre: un `mixto3` también da ACS
+    //: y con `slot === 'mixto2'` se le borraban el ACS y el depósito.
+    const servicios = tipoEquipo(slot).servicios;
+    const daAcs = servicios.includes('acs');
+    const daFrio = servicios.includes('refrigeracion');
     const litros = Number(a.litros_acumulacion) > 0 ? Number(a.litros_acumulacion) : null;
     const acumula = a.acumulacion === undefined ? !!equipo?.acumulacion : !!a.acumulacion;
 
@@ -394,10 +414,18 @@ export function equipoConAjustes(equipo, ajustes, { superficie } = {}) {
             : (equipo?.superficie_calefaccion ?? superficie),
         ...(daAcs ? { superficie_acs: Number(a.superficie_acs) > 0
             ? Number(a.superficie_acs) : (equipo?.superficie_acs ?? superficie) } : {}),
+        ...(daFrio ? { superficie_refrigeracion: Number(a.superficie_refrigeracion) > 0
+            ? Number(a.superficie_refrigeracion)
+            : (equipo?.superficie_refrigeracion ?? superficie) } : {}),
         ...(a.pct_calefaccion ? { pct_calefaccion: String(a.pct_calefaccion) } : {}),
         ...(daAcs && a.pct_acs ? { pct_acs: String(a.pct_acs) } : {}),
+        ...(daFrio && a.pct_refrigeracion ? { pct_refrigeracion: String(a.pct_refrigeracion) } : {}),
     };
     // Un equipo de SOLO calefacción no lleva ni ACS ni depósito.
+    if (!daFrio) {
+        delete nuevo.superficie_refrigeracion; delete nuevo.pct_refrigeracion;
+        delete nuevo.rend_refrigeracion;
+    }
     if (!daAcs) { delete nuevo.superficie_acs; delete nuevo.pct_acs; delete nuevo.acumulacion; }
     else if (acumula && litros) nuevo.acumulacion = { volumen: litros };
     else if (!acumula) delete nuevo.acumulacion;
@@ -411,7 +439,10 @@ export function equipoConAjustes(equipo, ajustes, { superficie } = {}) {
                                ['rend_combustion', 'el rendimiento de combustión'],
                                ['aislamiento', 'el aislamiento'], ['slot', 'el tipo de equipo'],
                                ['pct_calefaccion', 'el % de calefacción'],
-                               ['pct_acs', 'el % de ACS'], ['acumulacion', 'la acumulación'],
+                               ['pct_acs', 'el % de ACS'],
+                               ['superficie_refrigeracion', 'la superficie de refrigeración'],
+                               ['pct_refrigeracion', 'el % de refrigeración'],
+                               ['acumulacion', 'la acumulación'],
                                ['litros_acumulacion', 'los litros del depósito']]) {
         if (a[k] !== undefined && a[k] !== null && a[k] !== '') cambios.push(rotulo);
     }
@@ -427,7 +458,8 @@ export function equipoConAjustes(equipo, ajustes, { superficie } = {}) {
         avisos.push(`El combustible «${combustible}» no se ha comprobado en ningún .cex real: `
                     + 'ábrelo en CE3X y mira que lo reconozca en Instalaciones.');
     }
-    for (const [k, rotulo] of [['pct_calefaccion', 'calefacción'], ['pct_acs', 'ACS']]) {
+    for (const [k, rotulo] of [['pct_calefaccion', 'calefacción'], ['pct_acs', 'ACS'],
+                               ['pct_refrigeracion', 'refrigeración']]) {
         const v = Number(nuevo[k]);
         if (v > 0 && v < 100) {
             avisos.push(`El equipo cubre el ${v} % de la demanda de ${rotulo}: el resto lo `
@@ -657,6 +689,9 @@ export function instalacionNueva({ expediente, superficie, modelos = {},
 
     avisos.push(`Instalación nueva: ${d.nombre} → ${rendCal} % en calefacción`
         + (mixto ? ` y ${rendAcs} % en ACS` : '')
+        + (d.conFrio && Number(d.seer) > 0
+            ? `, ${Math.round(Number(d.seer) * 100)} % en refrigeración (SEER, la unidad `
+              + 'terminal da frío)' : '')
         + `${acumulacion ? `, con depósito de ${d.litros} l` : ''}. `
         + 'Sale de la aerotermia del expediente: compruébalo con su ficha técnica.');
 
@@ -667,8 +702,33 @@ export function instalacionNueva({ expediente, superficie, modelos = {},
     const pct = d.hibridacion ? (d.pctCal ?? 100) : 100;
     const sup = reparteSuperficie(superficie, pct);
 
+    // ── ¿Da FRÍO? Lo decide la UNIDAD TERMINAL, no la máquina ──────────────
+    // Con suelo radiante (o splits/conductos) la aerotermia refresca, y en CE3X
+    // el equipo es «mixto de calefacción, refrigeración y ACS» (`mixto3`) o de
+    // «calefacción y refrigeración» (`climatizacion`) si el ACS no es suyo.
+    // Con RADIADORES no hay modo frío aunque la máquina sea reversible: se queda
+    // en mixto2 / calefacción. Es el mismo criterio que el encargo al
+    // certificador (`emisorDaFrio` en ce3xFinal.js), así que el `.cex` y el
+    // WhatsApp no pueden contar dos cosas distintas.
+    //
+    // Medido sobre el `.cex` que el certificador guardó para 26RES060_198
+    // (suelo radiante + ACS): un solo `mixto3` con ['310', '623', '416'], los
+    // tres servicios al 100 % sobre la misma superficie.
+    //
+    // La refrigeración NO se reparte con el C_b: la caldera que se queda en una
+    // hibridación no da frío, así que ese servicio es entero de la bomba.
+    const rendRef = d.conFrio ? Math.round((Number(d.seer) || 0) * 100) : 0;
+    const conFrio = d.conFrio && rendRef > 0;
+    if (d.conFrio && !rendRef) {
+        avisos.push('La unidad terminal da frío pero el equipo no tiene SEER en el catálogo: '
+                    + 'se escribe SIN refrigeración. Ponlo en la ficha del modelo y regenera.');
+    }
+    const slotBomba = conFrio
+        ? (mixto ? 'mixto3' : 'climatizacion')
+        : (mixto ? 'mixto2' : 'calefaccion');
+
     const bomba = {
-        slot: mixto ? 'mixto2' : 'calefaccion',
+        slot: slotBomba,
         nombre: d.nombre,
         generador: d.generadorBdc,
         //: 138 de 138 en el corpus. Una bomba de calor va con electricidad.
@@ -676,6 +736,9 @@ export function instalacionNueva({ expediente, superficie, modelos = {},
         rendimiento: 'conocido',
         rend_calefaccion: String(rendCal),
         ...(mixto ? { rend_acs: String(rendAcs) } : {}),
+        ...(conFrio ? { rend_refrigeracion: String(rendRef),
+                        superficie_refrigeracion: Number(superficie) || 0,
+                        pct_refrigeracion: '100' } : {}),
         superficie_calefaccion: sup,
         ...(mixto ? { superficie_acs: sup, pct_acs: String(pct) } : {}),
         pct_calefaccion: String(pct),

@@ -138,10 +138,10 @@ def test_equipo_de_refrigeracion_tiene_la_forma_medida():
     assert plano[7] == [["", "", "250.0"], [True, False, False], [False, "1.0", "0.0"], 0]
 
 
-def test_los_cuatro_slots_se_saben_escribir():
+def test_los_slots_que_se_saben_escribir():
     """Lo que no este en ESCRITORES no se escribe, y se dice en vez de inventarlo."""
     assert set(G.ESCRITORES) == {"mixto2", "calefaccion", "ACS", "refrigeracion",
-                                 "renovable"}
+                                 "climatizacion", "mixto3", "renovable"}
 
 
 def test_el_reparto_avisa_cuando_pasa_del_cien():
@@ -319,3 +319,119 @@ def test_un_generador_que_YA_compartia_servicio_se_reparte_proporcional():
     mixtos, _ = _final(_bomba_sola(), base, conservar=21)
     assert _plano(mixtos[0][5])[0] == ["25.83", "10.5"]    # ACS: 50 % x 21 %
     assert _plano(mixtos[0][5])[1] == ["25.83", "21"]      # calefaccion: 100 % x 21 %
+
+
+# ---------------------------------------------------------------------------
+# La AEROTERMIA QUE DA FRIO (suelo radiante): mixto3 y climatizacion
+#
+# Forma medida en el corpus (153 'mixto3' y 237 'climatizacion' con el
+# rendimiento conocido) y en el `.cex` que el certificador guardo a mano para
+# 26RES060_198: suelo radiante + ACS, un solo equipo con ['310','623','416'].
+# ---------------------------------------------------------------------------
+
+def _aerotermia(slot, **extra):
+    eq = {"slot": slot, "nombre": "AEROTERMIA DAIKIN", "generador":
+          "Bomba de Calor - Caudal Ref. Variable", "combustible": "Electricidad",
+          "rendimiento": "conocido", "rend_calefaccion": "623",
+          "superficie_calefaccion": 120, "pct_calefaccion": "100"}
+    if slot in ("mixto2", "mixto3"):
+        eq.update(rend_acs="310", superficie_acs=120, pct_acs="100")
+    if slot in ("climatizacion", "mixto3"):
+        eq.update(rend_refrigeracion="416", superficie_refrigeracion=120,
+                  pct_refrigeracion="100")
+    eq.update(extra)
+    return eq
+
+
+def test_mixto3_tiene_la_forma_del_cex_de_26RES060_198():
+    base = _base_con_caldera(sup="343.0", litros="230")
+    base[G.SLOTS.index("mixto2")][0][8] = [True, "230", "80", "60", "5.4", "Por defecto", "1"]
+    equipos = [_aerotermia("mixto3", acumulacion={"volumen": 230})]
+    G.heredar_del_base(equipos, base)
+    slots, avisos = G.construir_instalaciones(
+        {"instalaciones": equipos, "envolvente": {"espacio": ZONA}},
+        base, {ZONA}, retirar=G.slots_a_retirar(equipos))
+    assert slots[G.SLOTS.index("mixto2")] == []            # la caldera sale entera
+    assert _plano(slots[G.SLOTS.index("mixto3")]) == [[
+        "AEROTERMIA DAIKIN", "mixto3", ["310", "623", "416"],
+        "Bomba de Calor - Caudal Ref. Variable", "Electricidad",
+        [["343.0", "100"], ["343.0", "100"], ["343.0", "100"]],
+        "Conocido (Ensayado/justificado)", ["310", "623", "416"],
+        # El MISMO deposito (230 l): se conserva el del fichero, con su UA.
+        [True, "230", "80", "60", "5.4", "Por defecto", "1"], ZONA,
+    ]]
+    assert any("se RETIRA" in a for a in avisos)
+
+
+def test_climatizacion_tiene_la_forma_medida():
+    registro, _ = G.equipo_climatizacion(_aerotermia("climatizacion"), ZONA)
+    assert _plano(registro) == [
+        "AEROTERMIA DAIKIN", "climatizacion", ["", "623", "416"],
+        "Bomba de Calor - Caudal Ref. Variable", "Electricidad",
+        [["", ""], ["120", "100"], ["120", "100"]],
+        "Conocido (Ensayado/justificado)", ["", "623", "416"], ZONA,
+    ]
+
+
+def test_con_otro_deposito_manda_el_declarado():
+    """Litros distintos de los del fichero: es un acumulador nuevo de verdad."""
+    equipos = [_aerotermia("mixto3", acumulacion={"volumen": 150})]
+    G.heredar_del_base(equipos, _base_con_caldera(litros="100"))
+    assert "acumulacion_cruda" not in equipos[0]
+
+
+def test_mixto3_estimado_no_se_escribe():
+    import pytest
+    with pytest.raises(G.GeneracionError):
+        G.equipo_mixto3(_aerotermia("mixto3", rendimiento="estimado"), ZONA)
+
+
+# ---------------------------------------------------------------------------
+# Se cambia la CALDERA pero NO el ACS: la caldera se queda para el ACS
+#
+# Retirarla entera dejaba la demanda de ACS sin cubrir y CE3X no calcula
+# («la instalacion de ACS no esta bien definida»). Se conserva con la
+# calefaccion a ['0.0','0'], que es como lo dejan los certificadores a mano
+# (8 casos medidos en el corpus).
+# ---------------------------------------------------------------------------
+
+def _sustituye(equipos, base):
+    G.heredar_del_base(equipos, base)
+    return G.construir_instalaciones(
+        {"instalaciones": equipos, "envolvente": {"espacio": ZONA}},
+        base, {ZONA}, retirar=G.slots_a_retirar(equipos))
+
+
+def test_solo_calefaccion_conserva_la_caldera_para_el_acs():
+    antes = _base_con_caldera()[G.SLOTS.index("mixto2")][0]
+    slots, avisos = _sustituye([_aerotermia("calefaccion")], _base_con_caldera())
+    [caldera] = slots[G.SLOTS.index("mixto2")]
+    assert _plano(caldera[5]) == [["123.0", "100"], ["0.0", "0"], ["", ""]]
+    for i, (a, d) in enumerate(zip(antes, caldera)):     # lo demas, TAL CUAL
+        if i != 5:
+            assert _plano(a) == _plano(d), f"el campo {i} no deberia haber cambiado"
+    assert slots[G.SLOTS.index("calefaccion")][0][0] == "AEROTERMIA DAIKIN"
+    assert any("se CONSERVA" in a and "ACS" in a for a in avisos)
+
+
+def test_suelo_radiante_sin_acs_conserva_la_caldera_para_el_acs():
+    slots, _ = _sustituye([_aerotermia("climatizacion")], _base_con_caldera())
+    [caldera] = slots[G.SLOTS.index("mixto2")]
+    assert _plano(caldera[5])[0] == ["123.0", "100"]
+    assert _plano(caldera[5])[1] == ["0.0", "0"]
+    assert slots[G.SLOTS.index("climatizacion")][0][1] == "climatizacion"
+
+
+def test_un_termo_que_ya_daba_el_acs_se_queda_con_una_bomba_de_solo_calefaccion():
+    base = [[] for _ in G.SLOTS]
+    base[G.SLOTS.index("calefaccion")] = [["CALDERA", "calefaccion", ["", 50.0, ""],
+        "Caldera Estándar", "Gasóleo-C", [["", ""], ["123.0", "100"], ["", ""]],
+        "Estimado según Instalación", ["Sin aislamiento", "79", "0.2", "24",
+        list(G._INTERRUPTORES), list(G._COLA_PARAMETROS)], ZONA]]
+    base[G.SLOTS.index("ACS")] = [["TERMO", "ACS", [100.0, "", ""], "Efecto Joule",
+        "Electricidad", [["123.0", "100"], ["", ""], ["", ""]],
+        "Estimado según Instalación", [["100.0", "", ""], [False, False, True],
+        [False, "1.0", "0.0"]], [False], ZONA]]
+    slots, _ = _sustituye([_aerotermia("calefaccion")], base)
+    assert [e[0] for e in slots[G.SLOTS.index("ACS")]] == ["TERMO"]
+    assert [e[0] for e in slots[G.SLOTS.index("calefaccion")]] == ["AEROTERMIA DAIKIN"]
