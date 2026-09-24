@@ -91,6 +91,7 @@ async function htmlToPdf(html) {
         await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 60000 });
         await new Promise(r => setTimeout(r, 1000));
         try { await page.evaluate(() => document.fonts.ready); } catch (_) { }
+        await encajarPortadas(page);
         const pdfBuffer = await page.pdf({
             format: 'A4',
             printBackground: true,
@@ -243,7 +244,67 @@ async function fetchAnnexBuffers(annexes) {
     return results.filter(r => r && r.buffer && r.buffer.length > 0);
 }
 
+/**
+ * Red de seguridad de la PORTADA de la propuesta, medida con el MISMO motor que
+ * la imprime.
+ *
+ * La hoja 1 es un A4 de alto FIJO con el pie negro (`.prop-cta`) anclado abajo
+ * en `position:absolute`: lo que no cabe no empuja nada, se queda DEBAJO del pie
+ * y desaparece. El navegador ajusta la portada antes de mandar el HTML (ver el
+ * "ajuste de la portada" de ProposalModal), pero lo mide con SU tipografía, y el
+ * Chrome del servidor pinta el texto algo más ancho: medido el 24/09/2026 sobre
+ * 26RES060_OP230, la hoja sale ~14 px más alta que en la vista previa. Con una
+ * fila más en la tabla (la fotovoltaica) eso basta para que el final de la
+ * tabla se meta bajo el pie.
+ *
+ * Aquí se vuelve a medir y, si el contenido pisa el pie, se reduce SOLO el
+ * cuerpo de esa hoja con `zoom` lo justo para que quepa. El ancho visual se
+ * conserva (un bloque con zoom sigue llenando su contenedor), así que no queda
+ * margen a la derecha. Con un tope: por debajo de 0,85 la letra deja de leerse
+ * y se deja como está (y se avisa en el log).
+ *
+ * Solo actúa sobre hojas con `.prop-pb` + `.prop-cta` como hijos directos, o
+ * sea las de la propuesta: cualquier otro documento pasa sin tocarse.
+ */
+async function encajarPortadas(page) {
+    try {
+        // `page.pdf` imprime con media print; se mide igual.
+        await page.emulateMediaType('print');
+        const r = await page.evaluate(() => {
+            const AIRE = 6;
+            const MIN_ZOOM = 0.85;
+            const out = [];
+            for (const hoja of document.querySelectorAll('.prop-page')) {
+                const body = hoja.querySelector(':scope > .prop-pb');
+                const cta = hoja.querySelector(':scope > .prop-cta');
+                if (!body || !cta) continue;
+                const medir = () => {
+                    const b = body.getBoundingClientRect();
+                    const c = cta.getBoundingClientRect();
+                    return { top: b.top, alto: b.height, libre: c.top - AIRE - b.top };
+                };
+                let m = medir();
+                if (m.alto <= m.libre) continue;
+                let zoom = 1;
+                // Iterativo: al reducir, el texto reparte las líneas de otra forma.
+                for (let i = 0; i < 5 && m.alto > m.libre; i++) {
+                    zoom = Math.max(MIN_ZOOM, zoom * (m.libre / m.alto) - 0.002);
+                    body.style.zoom = String(zoom);
+                    m = medir();
+                    if (zoom <= MIN_ZOOM) break;
+                }
+                out.push({ zoom: Math.round(zoom * 1000) / 1000, cabe: m.alto <= m.libre });
+            }
+            return out;
+        });
+        if (r.length) console.log('[PDF] Portada reajustada en el servidor:', JSON.stringify(r));
+    } catch (e) {
+        console.warn('[PDF] No se pudo comprobar el encaje de la portada:', e.message);
+    }
+}
+
 module.exports = {
+    encajarPortadas,
     getBrowser,
     imageToPdf,
     htmlToPdf,

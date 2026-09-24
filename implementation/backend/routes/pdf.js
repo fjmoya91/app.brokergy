@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 
-const { getBrowser, mergePdfs, fetchAnnexBuffers, documentoAPdf } = require("../services/pdfService");
+const { getBrowser, mergePdfs, fetchAnnexBuffers, documentoAPdf, encajarPortadas } = require("../services/pdfService");
 const { esPlantillaValida } = require("../services/formularioOficialService");
 
 // Un documento puede llegar como maqueta HTML o como IMPRESO OFICIAL en formato
@@ -65,6 +65,7 @@ router.post('/generate', async (req, res) => {
             await page.evaluate(() => document.fonts.ready);
         } catch (_) { }
 
+        await encajarPortadas(page);
         let pdfBuffer = await page.pdf({
             format: 'A4',
             printBackground: true,
@@ -133,6 +134,7 @@ router.post('/save-to-drive', async (req, res) => {
             await new Promise(r => setTimeout(r, 1000));
             try { await page.evaluate(() => document.fonts.ready); } catch (_) { }
 
+            await encajarPortadas(page);
             pdfBuffer = await page.pdf({
                 format: 'A4',
                 printBackground: true,
@@ -212,6 +214,7 @@ router.post('/send-proposal', async (req, res) => {
             try { await page.evaluate(() => document.fonts.ready); } catch (_) { }
 
             // 1. Generar PDF
+            await encajarPortadas(page);
             pdfBuffer = await page.pdf({
                 format: 'A4',
                 printBackground: true,
@@ -332,6 +335,7 @@ router.post('/send-annex', async (req, res) => {
                 await page.setContent(doc.html, { waitUntil: 'domcontentloaded', timeout: 30000 });
                 try { await page.evaluateHandle('document.fonts.ready'); } catch (_) { }
 
+                await encajarPortadas(page);
                 pdfBuffer = await page.pdf({
                     format: 'A4',
                     printBackground: true,
@@ -394,6 +398,7 @@ router.post('/send-cifo', async (req, res) => {
         await new Promise(r => setTimeout(r, 1000));
         try { await page.evaluate(() => document.fonts.ready); } catch (_) { }
 
+        await encajarPortadas(page);
         let pdfBuffer = await page.pdf({
             format: 'A4',
             printBackground: true,

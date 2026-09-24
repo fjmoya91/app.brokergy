@@ -951,7 +951,13 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
         // El pie negro también respira: se come parte del hueco de abajo.
         { v: '--e-cta', encoge: 0.25, estira: 34, doble: true },
     ];
-    const AIRE = 10;          // el contenido nunca roza el pie negro
+    // El contenido nunca roza el pie negro. Y no son 10 px sino 24 porque esto se
+    // mide con la tipografía de ESTE navegador, y el Chrome del servidor que
+    // imprime el PDF pinta el texto algo más ancho: medido en 26RES060_OP230, la
+    // hoja sale ~14 px más alta allí. Con 10 px, la fila de fotovoltaica bastaba
+    // para que el final de la tabla se metiera bajo el pie en el PDF. El servidor
+    // lo vuelve a comprobar de todos modos (pdfService.encajarPortadas).
+    const AIRE = 24;
     const TOLERANCIA = 14;    // sobra aceptable: por debajo, se da por bueno
     const MAX_PASADAS = 4;
 

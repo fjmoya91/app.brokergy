@@ -25,7 +25,7 @@
 
 const supabase = require('./supabaseClient');
 const driveService = require('./driveService');
-const { getBrowser } = require('./pdfService');
+const { getBrowser, encajarPortadas } = require('./pdfService');
 
 // Las versiones se acumulan aquí para no llenar la raíz de la oportunidad, que
 // ya viene con su plantilla de subcarpetas.
@@ -107,6 +107,7 @@ async function renderPdf(html) {
         await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 60000 });
         await new Promise(r => setTimeout(r, 1000));
         try { await page.evaluate(() => document.fonts.ready); } catch (_) { }
+        await encajarPortadas(page);
         return await page.pdf({
             format: 'A4',
             printBackground: true,
