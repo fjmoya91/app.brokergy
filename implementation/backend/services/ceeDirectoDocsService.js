@@ -223,8 +223,15 @@ async function marcar(row, slotKey, name, patch) {
 async function faltan(row) {
     const v = await vista(row);
     const vacio = (k) => !(v.slots.find(s => s.key === k)?.items?.length);
-    const obligatorios = [...OBLIGATORIOS].filter(k => vacio(k) && !v.slots.find(s => s.key === k)?.waived);
-    const recomendados = RECOMENDADOS.filter(vacio);
+    const waived = (k) => !!v.slots.find(s => s.key === k)?.waived;
+    // El VÍDEO sustituye a las fotos de la fachada (mismo criterio que el CAE,
+    // utils/materialCee.js): con él, al técnico no le falta ver la casa.
+    const casaCubierta = !vacio('VIDEO_VIVIENDA') || !vacio('FOTO_FACHADA_PRINCIPAL') || waived('FOTO_FACHADA_PRINCIPAL');
+    const obligatorios = casaCubierta ? [] : [...OBLIGATORIOS].filter(vacio);
+    // Con vídeo ya no hacen falta patios; con la fachada, el vídeo deja de pedirse.
+    const recomendados = RECOMENDADOS.filter(vacio).filter(k =>
+        !(k === 'FOTO_PATIOS_INTERIORES' && !vacio('VIDEO_VIVIENDA')) &&
+        !(k === 'VIDEO_VIVIENDA' && casaCubierta));
     const etiqueta = (k) => v.slots.find(s => s.key === k)?.labelCliente || k;
     return {
         obligatorios, recomendados,
@@ -233,4 +240,32 @@ async function faltan(row) {
     };
 }
 
-module.exports = { SUBCARPETA, checklist, tokenValido, asegurarToken, enlace, vista, subir, borrar, marcar, faltan, carpeta };
+// Lo que se le pide a la CASA (qué ventanas tiene y a qué lado da cada una).
+const CLAVES_CASA = ['FOTO_FACHADA_PRINCIPAL', 'FOTO_PATIOS_INTERIORES', 'VIDEO_VIVIENDA'];
+
+/**
+ * Las líneas del mensaje al cliente para pedir estos apartados, en LENGUAJE DE
+ * CASA y con el porqué. Misma redacción que el acuse de aceptación del CAE
+ * (routes/public.js + emailService): al cliente se le pide lo mismo con las
+ * mismas palabras, sea cual sea el negocio.
+ */
+function lineasPeticion(claves) {
+    const set = new Set(claves || []);
+    const out = [];
+    const casa = CLAVES_CASA.filter(k => set.has(k));
+    if (casa.includes('FOTO_FACHADA_PRINCIPAL') || casa.includes('VIDEO_VIVIENDA')) {
+        out.push('Un vídeo corto recorriendo la vivienda o, si no, fotos de las paredes que dan a la calle o al patio, donde se vean las ventanas. Necesitamos saber cuántas hay y a qué lado da cada una.');
+    } else if (casa.includes('FOTO_PATIOS_INTERIORES')) {
+        out.push('Si la vivienda tiene patio, fotos de las paredes que dan a él, donde se vean las ventanas.');
+    }
+    if (set.has('DOC_PLANOS')) out.push('Planos de la vivienda o un croquis de la distribución, si los tienes.');
+    const cl = checklist();
+    for (const k of set) {
+        if (CLAVES_CASA.includes(k) || k === 'DOC_PLANOS') continue;
+        const l = cl.find(s => s.key === k)?.labelCliente;
+        if (l) out.push(l.endsWith('.') ? l : `${l}.`);
+    }
+    return out;
+}
+
+module.exports = { SUBCARPETA, checklist, tokenValido, asegurarToken, enlace, vista, subir, borrar, marcar, faltan, lineasPeticion, carpeta };

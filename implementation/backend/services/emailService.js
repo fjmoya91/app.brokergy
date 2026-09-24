@@ -577,6 +577,17 @@ const sendProposalEmail = async ({ to, cc = null, userName, pdfBuffer, tableImag
 /**
  * Envía el email de confirmación tras recibir la aceptación de la propuesta
  */
+// Lo que se le pide al cliente para el CEE inicial al aceptar. MISMA redacción que
+// los dos WhatsApp de aceptación (routes/public.js) y que los CEE directos
+// (ceeDirectoDocsService.lineasPeticion): el cliente recibe los dos canales a la
+// vez y no pueden pedirle cosas distintas. `tu`: false = lo lee su persona de contacto.
+const documentacionAceptacion = (tu = true) => [
+    'Un vídeo corto recorriendo la vivienda o, si no, fotos de las paredes que dan a la calle o al patio, donde se vean las ventanas. Necesitamos saber cuántas hay y a qué lado da cada una.',
+    `Planos de la vivienda o un croquis de la distribución, si ${tu ? 'los tienes' : 'los hay'}.`,
+    `Foto de la caldera actual y de su placa de características (bien legible), si no nos la ${tu ? 'has' : 'habéis'} enviado ya.`,
+    `Si ${tu ? 'vas' : 'se van'} a cambiar ventanas o aislamiento, fotos y presupuesto.`,
+];
+
 // `titular`: solo cuando lo recibe la PERSONA DE CONTACTO del cliente (o el partner
 // que lleva la relación): entonces la propuesta aceptada es la de ese titular.
 const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente, uploadLink, titular = null }) => {
@@ -604,17 +615,8 @@ const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente,
                 { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
             ) +
             emailBox(
-                emailP('📁 Documentación previa necesaria', { size: 14, bold: true, color: BRAND.orangeDark, mb: 12 }) +
-                emailList([
-                    'Planos de la vivienda o croquis de distribución.',
-                    'Foto general de la caldera existente.',
-                    'Foto de la placa de características de la caldera, bien legible.',
-                    'Si la caldera ya no está instalada, fotos del hueco donde estaba.',
-                    'Fotos de los radiadores (al menos uno por estancia) o del colector, si hay suelo radiante.',
-                    'Vídeo corto recorriendo la vivienda, mostrando estancias, ventanas, puertas y accesos al exterior.',
-                    'Fotos de las fachadas o paredes exteriores, incluyendo ventanas y puertas.',
-                    'Si vas a cambiar ventanas o mejorar aislamiento, fotos y presupuesto.',
-                ], { mb: 0 }),
+                emailP('📁 Para poder hacer el CEE inicial necesitamos', { size: 14, bold: true, color: BRAND.orangeDark, mb: 12 }) +
+                emailList(documentacionAceptacion(!titular), { mb: 0 }),
                 { mb: 22 }
             ) +
             emailP('No hace falta que nos lo envíes todo de una sola vez; puedes mandarlo poco a poco conforme lo vayas recopilando.', { size: 14, color: BRAND.muted, mb: 15 }) +
@@ -636,7 +638,7 @@ const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente,
         footerNote: `Un saludo, Equipo BROKERGY · <a href="https://brokergy.es" style="color:${BRAND.greenDark};text-decoration:none;">brokergy.es</a>`,
     });
 
-    const text = `¡Hola, ${userName}!\n\nHemos recibido correctamente la aceptación de tu propuesta. Muchas gracias.\n\n${numeroExpediente ? `Tu número de expediente es: ${numeroExpediente}\n\n` : ''}A partir de ahora nos ponemos con el Certificado de Eficiencia Energética (CEE): de prepararlo y presentarlo nos encargamos nosotros. Para poder hacerlo cuanto antes necesitamos la documentación de abajo.\n\nMUY IMPORTANTE ANTES DE EMPEZAR LA OBRA: no dejes que te presenten ninguna factura hasta que te avisemos con un nuevo mensaje confirmando que el CEE ya está presentado — es la condición para no perder la ayuda. Si pasan unos días sin noticias nuestras, o si tenéis prisa por facturar, escríbenos sin problema: preferimos que preguntes antes de que se cuele una factura.\n\nNecesitamos que nos envíes la siguiente documentación:\n- Planos o croquis.\n- Fotos de la caldera y su placa.\n- Fotos de radiadores/colector.\n- Vídeo corto de la vivienda.\n- Fotos de fachadas y ventanas.\n\n${uploadLink ? `Puedes subir tu documentación directamente aquí:\n${uploadLink}\n\nO también p` : `P`}uedes enviarlo por:\nEmail: info@brokergy.es\nWhatsApp: 623 926 179\n\nUn saludo,\nEquipo BROKERGY`;
+    const text = `¡Hola, ${userName}!\n\nHemos recibido correctamente la aceptación de tu propuesta. Muchas gracias.\n\n${numeroExpediente ? `Tu número de expediente es: ${numeroExpediente}\n\n` : ''}A partir de ahora nos ponemos con el Certificado de Eficiencia Energética (CEE): de prepararlo y presentarlo nos encargamos nosotros. Para poder hacerlo cuanto antes necesitamos la documentación de abajo.\n\nMUY IMPORTANTE ANTES DE EMPEZAR LA OBRA: no dejes que te presenten ninguna factura hasta que te avisemos con un nuevo mensaje confirmando que el CEE ya está presentado — es la condición para no perder la ayuda. Si pasan unos días sin noticias nuestras, o si tenéis prisa por facturar, escríbenos sin problema: preferimos que preguntes antes de que se cuele una factura.\n\nPara poder hacer el CEE inicial necesitamos (puedes enviarlo poco a poco):\n${documentacionAceptacion(!titular).map(l => `- ${l}`).join('\n')}\n\n${uploadLink ? `Puedes subir tu documentación directamente aquí:\n${uploadLink}\n\nO también p` : `P`}uedes enviarlo por:\nEmail: info@brokergy.es\nWhatsApp: 623 926 179\n\nUn saludo,\nEquipo BROKERGY`;
 
     return sendMail({ to, subject, html, text });
 };

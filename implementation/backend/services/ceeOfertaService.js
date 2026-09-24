@@ -570,23 +570,32 @@ async function confirmarAlCliente(token, { motivo = 'cliente' } = {}) {
         const contacto = ceeDirectos.contactoCliente(row.cliente);
         const primer = (String(contacto.nombre || '').split(/\s+/)[0] || '');
         const saludo = primer ? `¡Hola ${primer.charAt(0).toUpperCase()}${primer.slice(1).toLowerCase()}!` : '¡Hola!';
+        // Misma redacción que el acuse de aceptación del CAE (routes/public.js).
         const bloqueDocs = !pedir.length ? ['¡Gracias por las fotos! Ya tenemos lo necesario para preparar el certificado.', '']
             : [
                 f.obligatorios.length
-                    ? 'Para preparar tu certificado todavía nos falta:'
-                    : 'Si puedes, envíanos también (le ahorra trabajo al técnico en la visita):',
-                ...f.etiquetas.map(e => `   · ${e}`),
+                    ? '📁 *Para poder hacer tu certificado necesitamos* (puedes enviarlo poco a poco):'
+                    : '📁 *Si puedes, envíanos también* (le ahorra trabajo al técnico en la visita):',
+                ...docs.lineasPeticion(pedir).map(l => `• ${l}`),
                 '',
-                `Puedes subirlo aquí cuando quieras: ${url}`,
+                '🔗 *Puedes subir tu documentación aquí:*',
+                url,
                 '',
             ];
+        // Con los DOS certificados, el inicial describe la vivienda ANTES de la
+        // obra: hecho después, ya no sirve (p. ej. para la deducción del IRPF).
+        const avisoObra = String(row.alcance || '').toUpperCase() === 'DOBLE'
+            ? ['Como vas a necesitar el certificado de antes y el de después de la obra, es importante que el inicial quede hecho *antes de empezar la obra*: te avisaremos en cuanto esté.', '']
+            : [];
         const texto = [
             saludo, '',
-            `Hemos recibido la aceptación de tu presupuesto *${oferta.numero}*. Tu expediente es el *${row.numero_expediente}*.`, '',
+            `Hemos recibido la aceptación de tu presupuesto *${oferta.numero}*. *¡Muchas gracias por confiar en Brokergy!*`, '',
+            `Tu número de expediente asignado es: *${row.numero_expediente}*`, '',
+            ...avisoObra,
             ...bloqueDocs,
             'En los próximos días el técnico certificador se pondrá en contacto contigo para concertar la visita.', '',
-            'Gracias por confiar en nosotros.',
-            '*BROKERGY* · Ingeniería Energética'
+            '¡Quedamos a tu disposición para cualquier duda!',
+            '*BROKERGY — Ingeniería Energética*'
         ].join('\n');
 
         const canales = [];

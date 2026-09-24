@@ -958,12 +958,13 @@ router.post('/:id/docs/enviar-enlace', staffOnly, async (req, res) => {
         const pedir = Array.isArray(req.body?.slots) && req.body.slots.length ? req.body.slots : [...f.obligatorios, ...f.recomendados];
         const url = await docsCee.enlace(row, pedir.length ? pedir : null);
         const contacto = svc.contactoCliente(row.cliente);
-        const lista = pedir.map(k => docsCee.checklist().find(s => s.key === k)?.labelCliente).filter(Boolean);
+        const lista = docsCee.lineasPeticion(pedir.length ? pedir : ['VIDEO_VIVIENDA', 'DOC_PLANOS']);
         const texto = String(req.body?.mensaje || '').trim() || [
             '¡Hola!', '',
-            `Para preparar el certificado energético de tu vivienda (expediente *${row.numero_expediente}*) necesitamos:`,
-            ...(lista.length ? lista.map(l => `   · ${l}`) : ['   · Fotos de la fachada, patios, un vídeo o los planos']),
-            '', `Puedes subirlo aquí: ${url}`, '', '¡Gracias!', '*BROKERGY · Ingeniería Energética*'
+            `📁 *Para poder hacer el certificado energético de tu vivienda* (expediente *${row.numero_expediente}*) *necesitamos* (puedes enviarlo poco a poco):`,
+            ...lista.map(l => `• ${l}`),
+            '', '🔗 *Puedes subir tu documentación aquí:*', url, '',
+            '¡Quedamos a tu disposición para cualquier duda!', '*BROKERGY — Ingeniería Energética*'
         ].join('\n');
         const canales = await enviarAlCliente(contacto, {
             channels: Array.isArray(req.body?.channels) ? req.body.channels : ['whatsapp', 'email'],

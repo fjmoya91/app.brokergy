@@ -543,14 +543,13 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
 
 El número de expediente asignado es: *${numeroExpediente || 'Pte. confirmar'}*
 
-A partir de este momento, nuestro equipo técnico comenzará a preparar el *Certificado de Eficiencia Energética (CEE) inicial*. Es fundamental que se quede presentado *antes de la última factura de obra* para asegurar las deducciones fiscales y tramitar el expediente CAE.
+A partir de este momento, nuestro equipo técnico comenzará a preparar el *Certificado de Eficiencia Energética (CEE) inicial*. Es fundamental que quede presentado *antes de que se presente ninguna factura de la obra*: os avisaremos en cuanto lo esté.
 
-📁 *Documentación necesaria para poder realizar el CEE INICIAL:*
-• Vídeo corto recorriendo la vivienda o en su defecto, fotos de las paredes que dan al exterior donde se puedan ver las ventanas. (Es un dato necesario que debemos incluir en el CEE)
-• Planos de la vivienda o croquis de distribución (si se tienen)
-• Foto de la caldera existente y de su placa de características. (si no se ha aportado ya)
-• Foto de los radiadores o del colector si es suelo radiante.
-• Si se cambian ventanas o aislamiento, fotos y presupuesto.
+📁 *Para poder hacer el CEE inicial necesitamos* (se puede enviar poco a poco):
+• Un vídeo corto recorriendo la vivienda o, si no, fotos de las paredes que dan a la calle o al patio, donde se vean las ventanas. Necesitamos saber cuántas hay y a qué lado da cada una.
+• Planos de la vivienda o un croquis de la distribución, si los hay.
+• Foto de la caldera actual y de su placa de características, si no nos la habéis enviado ya.
+• Si se van a cambiar ventanas o aislamiento, fotos y presupuesto.
 
 🔗 *Se puede subir aquí:*
 ${uploadLink}
@@ -567,14 +566,13 @@ Hemos recibido correctamente la aceptación de tu propuesta. *¡Muchas gracias p
 
 Tu número de expediente asignado es: *${numeroExpediente || 'Pte. confirmar'}*
 
-A partir de este momento, nuestro equipo técnico comenzará a preparar el *Certificado de Eficiencia Energética (CEE) inicial*. Es fundamental que se quede presentado *antes de la última factura de obra* para asegurar tus deducciones fiscales y tramitar el expediente CAE.
+A partir de este momento, nuestro equipo técnico comenzará a preparar el *Certificado de Eficiencia Energética (CEE) inicial*. Es fundamental que quede presentado *antes de que te presenten ninguna factura de la obra*: te avisaremos en cuanto lo esté.
 
-📁 *Documentación necesaria para poder realizar el CEE INICIAL:*
-• Vídeo corto recorriendo la vivienda o en su defecto, fotos de las paredes que dan al exterior donde se puedan ver las ventanas. (Es un dato necesario que debemos incluir en el CEE)
-• Planos de la vivienda o croquis de distribución (Si los tiene)
-• Foto de la caldera existente y de su placa de características. (Si no la han aportado ya)
-• Foto de los radiadores o del colector si es suelo radiante.
-• Si cambias ventanas o aislamiento, fotos y presupuesto.
+📁 *Para poder hacer el CEE inicial necesitamos* (puedes enviarlo poco a poco):
+• Un vídeo corto recorriendo la vivienda o, si no, fotos de las paredes que dan a la calle o al patio, donde se vean las ventanas. Necesitamos saber cuántas hay y a qué lado da cada una.
+• Planos de la vivienda o un croquis de la distribución, si los tienes.
+• Foto de la caldera actual y de su placa de características, si no nos la has enviado ya.
+• Si vas a cambiar ventanas o aislamiento, fotos y presupuesto.
 
 🔗 *Puedes subir tu documentación aquí:*
 ${uploadLink}
