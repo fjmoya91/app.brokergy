@@ -332,6 +332,20 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             num_rooms: parseInt(opInputs.numRooms, 10) || undefined,
         };
 
+        // ── La ENVOLVENTE empezada en la oportunidad ─────────────────────────
+        // Si se abrió la ventana CE3X desde la calculadora, lo señalado (la
+        // entrada, los huecos, las fotos de cada cerramiento y las imágenes que
+        // sustituyen a las de Catastro) está en `datos_calculo.envolvente_cee`,
+        // con las MISMAS claves que `cee`. Se hereda para continuar donde se dejó:
+        // los ficheros de Drive ya están en su sitio, porque la carpeta de la
+        // oportunidad ES la del expediente (se mueve, no se copia).
+        const envOp = op.datos_calculo?.envolvente_cee;
+        if (envOp && typeof envOp === 'object') {
+            for (const k of ['envolvente', 'envolvente_fotos', 'envolvente_imagenes']) {
+                if (envOp[k] != null) cee[k] = envOp[k];
+            }
+        }
+
         // ── Facturas ya leídas en la simulación ────────────────────────────────
         // Si en la toma de datos se soltaron las facturas, `datos_calculo.docs_ocr`
         // trae ya el nº, la fecha, la base imponible y las partidas de cada una, y los

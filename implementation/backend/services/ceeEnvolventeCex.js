@@ -61,9 +61,26 @@ function faseDe(fase) {
 // falte `oportunidad_id`, porque de esto depende en qué TABLA se escribe.
 const esCeeDirecto = (e) => !!e?.es_cee_directo;
 
+//: Una OPORTUNIDAD todavía sin aceptar (la envolvente se empieza desde la
+//: calculadora). La marca la pone `oportunidadComoExpediente` al cargar. Su
+//: trabajo vive en `datos_calculo.envolvente_cee`, con las MISMAS claves que
+//: `expedientes.cee`, y `expedienteService` lo vuelca al expediente al aceptar.
+const esOportunidad = (e) => !!e?.es_oportunidad;
+
+/** 'cae' · 'cee' · 'op' — cualquier otra cosa es el CAE de siempre. */
+function origenNorm(origen) {
+    const o = String(origen || 'cae').toLowerCase();
+    return o === 'cee' || o === 'op' ? o : 'cae';
+}
+
+const esUuid = (v) => /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(String(v));
+
 /** Escribe UNA clave de `cee` en la tabla que toque. Reemplaza, no funde. */
 async function setCeeField(expediente, campo, valor) {
-    const { error } = esCeeDirecto(expediente)
+    const { error } = esOportunidad(expediente)
+        ? await supabase.rpc('set_oportunidad_cee_field', {
+            p_oportunidad_id: expediente.id, p_field: campo, p_value: valor })
+        : esCeeDirecto(expediente)
         ? await supabase.rpc('set_cee_directo_cee_field', {
             p_cee_directo_id: expediente.id, p_field: campo, p_value: valor })
         : await supabase.rpc('set_expediente_cee_field', {
@@ -150,6 +167,16 @@ function loadCeeDirecto() {
     return loadEsm(CEE_DIRECTO_JS, _ceeDirecto);
 }
 
+//: Una oportunidad leída como expediente. Fuente única con la VENTANA, por lo
+//: mismo que el de arriba.
+const OPORTUNIDAD_JS = path.join(
+    __dirname, '../../frontend/src/features/cee-envolvente/logic/oportunidad.js');
+const _oportunidad = { sello: null, promesa: null };
+
+function loadOportunidad() {
+    return loadEsm(OPORTUNIDAD_JS, _oportunidad);
+}
+
 /**
  * Expediente + cliente + carpeta de Drive: lo que la ficha necesita.
  * `clave` es el id o el número de expediente.
@@ -161,7 +188,8 @@ function loadCeeDirecto() {
  * equivocado. Mismo criterio que `?cee=` frente a `?exp=` en los enlaces.
  */
 async function cargarExpediente(clave, origen = 'cae') {
-    if (String(origen).toLowerCase() === 'cee') return cargarCeeDirecto(clave);
+    if (origenNorm(origen) === 'cee') return cargarCeeDirecto(clave);
+    if (origenNorm(origen) === 'op') return cargarOportunidad(clave);
     const esUuid = /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(String(clave));
     // Con la oportunidad: de ella salen la zona climática y el año con los que
     // se simuló, que son los que fijaron las transmitancias de la propuesta.
@@ -229,6 +257,106 @@ async function cargarCeeDirecto(clave) {
 }
 
 /**
+ * La fila de la OPORTUNIDAD, solo con lo que la envolvente necesita.
+ *
+ * ⚠ `datos_calculo` entero puede llevar el HTML de las propuestas enviadas
+ * (hasta 1,35 MB): se proyecta por JSON path, como el listado (regla 22), y se
+ * devuelve con la misma forma anidada. `clave` es el uuid o el `id_oportunidad`.
+ */
+async function filaOportunidad(clave) {
+    const { data, error } = await supabase.from('oportunidades')
+        .select('id, id_oportunidad, ref_catastral, cliente_id, prescriptor_id, ficha, '
+              + 'inputs:datos_calculo->inputs, zona:datos_calculo->zona, '
+              + 'anio:datos_calculo->anio, provincia:datos_calculo->provincia, '
+              + 'ccaa:datos_calculo->ccaa, estado:datos_calculo->>estado, '
+              + 'drive_folder_id:datos_calculo->>drive_folder_id, '
+              + 'drive_folder_link:datos_calculo->>drive_folder_link, '
+              + 'envolvente_cee:datos_calculo->envolvente_cee')
+        .eq(esUuid(clave) ? 'id' : 'id_oportunidad', clave)
+        .order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) return null;
+    const { inputs, zona, anio, provincia, ccaa, estado, drive_folder_id,
+            drive_folder_link, envolvente_cee, ...resto } = data;
+    return {
+        ...resto,
+        datos_calculo: {
+            inputs: inputs || {}, estado,
+            ...(zona != null ? { zona } : {}), ...(anio != null ? { anio } : {}),
+            ...(provincia != null ? { provincia } : {}), ...(ccaa != null ? { ccaa } : {}),
+            drive_folder_id, drive_folder_link,
+            envolvente_cee: envolvente_cee || {},
+        },
+    };
+}
+
+/** El expediente que ya nació de esta oportunidad, si lo hay (solo su id). */
+async function expedienteDeOportunidad(oportunidadId) {
+    if (!oportunidadId) return null;
+    const { data } = await supabase.from('expedientes')
+        .select('id, numero_expediente').eq('oportunidad_id', oportunidadId)
+        .order('created_at', { ascending: false }).limit(1).maybeSingle();
+    return data || null;
+}
+
+/**
+ * Lo que la ventana necesita para abrir una oportunidad: la fila, el cliente y
+ * —si ya se aceptó— el expediente al que hay que ir. Desde que existe el
+ * expediente, el trabajo vive allí y seguir escribiendo en la oportunidad sería
+ * tener dos envolventes del mismo edificio.
+ */
+async function datosOportunidad(clave) {
+    const fila = await filaOportunidad(clave);
+    if (!fila) return null;
+    const exp = await expedienteDeOportunidad(fila.id);
+    let cliente = null;
+    if (fila.cliente_id) {
+        const { data } = await supabase.from('clientes').select('*')
+            .eq('id_cliente', fila.cliente_id).maybeSingle();
+        cliente = data || null;
+    }
+    return { oportunidad: fila, cliente, expediente: exp };
+}
+
+/**
+ * Una OPORTUNIDAD, con la forma de un expediente.
+ *
+ * Aquí todavía no hay certificador asignado (no hay técnico que escribir en el
+ * `.cex`) y la carpeta de Drive es la de la oportunidad — que es la MISMA que
+ * tendrá el expediente: al aceptar se mueve, no se copia. Así las fotos y las
+ * imágenes que se suban ahora siguen en su sitio después.
+ */
+async function cargarOportunidad(clave) {
+    const d = await datosOportunidad(clave);
+    if (!d) return null;
+    if (d.expediente) {
+        throw Object.assign(new Error(
+            `Esta oportunidad ya es el expediente ${d.expediente.numero_expediente}: `
+            + 'la envolvente se sigue desde allí.'), { status: 409, expediente: d.expediente });
+    }
+    const { oportunidadComoExpediente } = await loadOportunidad();
+    const expediente = oportunidadComoExpediente(d.oportunidad, { cliente: d.cliente });
+    const modelos = await modelosDeAerotermia(expediente);
+    // La calculadora guarda solo el ID del modelo: la marca y el modelo salen
+    // del catálogo — como hará el expediente al nacer.
+    for (const k of ['aerotermia_cal', 'aerotermia_acs']) {
+        const u = expediente.instalacion[k];
+        const m = u?.aerotermia_db_id && modelos[u.aerotermia_db_id];
+        if (m && !u.marca) {
+            u.marca = m.marca || '';
+            u.modelo = m.modelo_comercial || m.modelo_conjunto || m.modelo_ud_exterior || '';
+        }
+    }
+    return {
+        expediente,
+        cliente: d.cliente,
+        certificador: null,
+        driveFolderId: d.oportunidad.datos_calculo.drive_folder_id || null,
+        modelos,
+    };
+}
+
+/**
  * Los modelos de aerotermia del CATÁLOGO que usa este expediente.
  *
  * ⚠️ Sin esto, la ficha decía que faltaba el SEER de equipos que SÍ lo tienen.
@@ -270,20 +398,28 @@ async function modelosDeAerotermia(expediente) {
  * que nunca pasó por ahí no puede empezar a medir distinto.
  */
 async function construccionesElegidas(clave, origen = 'cae') {
-    const esUuid = /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(String(clave));
+    // En una OPORTUNIDAD, lo marcado en su propia ficha técnica.
+    if (origenNorm(origen) === 'op') {
+        const { data } = await supabase.from('oportunidades')
+            .select('elegidas:datos_calculo->inputs->construcciones_elegidas')
+            .eq(esUuid(clave) ? 'id' : 'id_oportunidad', clave)
+            .order('created_at', { ascending: false }).limit(1).maybeSingle();
+        const lista = data?.elegidas;
+        return Array.isArray(lista) && lista.length ? lista : null;
+    }
     // En un CEE directo no hay oportunidad —no hay ficha técnica que marcar—,
     // así que lo elegido vive en el propio encargo. Es la misma lista y la mira
     // el mismo motor; lo único que cambia es dónde está escrita.
     if (String(origen).toLowerCase() === 'cee') {
         const { data } = await supabase.from('cee_directos')
             .select('cee')
-            .eq(esUuid ? 'id' : 'numero_expediente', clave).maybeSingle();
+            .eq(esUuid(clave) ? 'id' : 'numero_expediente', clave).maybeSingle();
         const lista = data?.cee?.[CAMPO_CONSTRUCCIONES];
         return Array.isArray(lista) && lista.length ? lista : null;
     }
     const { data } = await supabase
         .from('expedientes').select('oportunidades(datos_calculo)')
-        .eq(esUuid ? 'id' : 'numero_expediente', clave).maybeSingle();
+        .eq(esUuid(clave) ? 'id' : 'numero_expediente', clave).maybeSingle();
     const inputs = data?.oportunidades?.datos_calculo?.inputs || {};
     const lista = inputs.construcciones_elegidas;
     return Array.isArray(lista) && lista.length ? lista : null;
@@ -344,10 +480,17 @@ async function guardarConstrucciones(clave, elegidas, desglose, origen = 'cae') 
     // `datos_calculo`. Pedirla aquí hacía fallar la consulta ENTERA y la app
     // decía «este expediente no tiene oportunidad detrás» de uno que sí la
     // tiene (mismo gotcha que `prescriptores.telefono`). La escribe la RPC.
-    const { data, error: errLeer } = await supabase
-        .from('expedientes')
-        .select('numero_expediente, oportunidad_id')
-        .eq(esUuid ? 'id' : 'numero_expediente', clave).maybeSingle();
+    // En una OPORTUNIDAD es ella misma: se lee con la misma forma para que el
+    // resto no tenga que enterarse.
+    const { data, error: errLeer } = origenNorm(origen) === 'op'
+        ? await supabase.from('oportunidades')
+            .select('numero_expediente:id_oportunidad, oportunidad_id:id')
+            .eq(esUuid ? 'id' : 'id_oportunidad', clave)
+            .order('created_at', { ascending: false }).limit(1).maybeSingle()
+        : await supabase
+            .from('expedientes')
+            .select('numero_expediente, oportunidad_id')
+            .eq(esUuid ? 'id' : 'numero_expediente', clave).maybeSingle();
     if (errLeer) throw new Error(errLeer.message);
     if (!data?.oportunidad_id) {
         throw Object.assign(
@@ -443,6 +586,16 @@ function fuenteEditable(ctx) {
 //: del certificador (regla 22). El resto es una fila corta y da igual.
 async function expedienteBasico(clave, columnas, origen = 'cae') {
     const esUuid = /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(String(clave));
+    if (origenNorm(origen) === 'op') {
+        // Una oportunidad no tiene `numero_expediente` ni certificador: se leen
+        // su id y su cliente, con los nombres que espera quien llama.
+        const { data, error } = await supabase.from('oportunidades')
+            .select('id, numero_expediente:id_oportunidad, cliente_id')
+            .eq(esUuid ? 'id' : 'id_oportunidad', clave)
+            .order('created_at', { ascending: false }).limit(1).maybeSingle();
+        if (error) throw new Error(error.message);
+        return data || null;
+    }
     const tabla = String(origen).toLowerCase() === 'cee' ? 'cee_directos' : 'expedientes';
     const { data, error } = await supabase.from(tabla).select(columnas)
         .eq(esUuid ? 'id' : 'numero_expediente', clave).maybeSingle();
@@ -485,6 +638,10 @@ async function guardarCliente(clave, campos, origen = 'cae') {
  * a salir en este `.cex`.
  */
 async function guardarTecnico(clave, campos, { soloSuyo = null, origen = 'cae' } = {}) {
+    if (origenNorm(origen) === 'op') {
+        throw alto('Una oportunidad todavía no tiene técnico certificador: se le asigna '
+                   + 'en el módulo CEE cuando sea expediente.', 409);
+    }
     const exp = await expedienteBasico(
         clave, 'id, numero_expediente, certificador_id:cee->>certificador_id', origen);
     if (!exp) throw alto('Expediente no encontrado.', 404);
@@ -709,6 +866,13 @@ const CAMPO_CONSTRUCCIONES = 'construcciones_elegidas';
 
 /** Lo guardado, o `null` si este expediente no tiene nada todavía. */
 async function leerTrabajo(id, origen = 'cae') {
+    if (origenNorm(origen) === 'op') {
+        const { data } = await supabase.from('oportunidades')
+            .select('trabajo:datos_calculo->envolvente_cee->envolvente')
+            .eq(esUuid(id) ? 'id' : 'id_oportunidad', id)
+            .order('created_at', { ascending: false }).limit(1).maybeSingle();
+        return data?.trabajo || null;
+    }
     const tabla = String(origen).toLowerCase() === 'cee' ? 'cee_directos' : 'expedientes';
     const { data } = await supabase.from(tabla)
         .select('cee').eq('id', id).maybeSingle();
@@ -721,7 +885,21 @@ async function leerTrabajo(id, origen = 'cae') {
  * no puede pisar `cee.cee_inicial` ni el seguimiento.
  */
 async function guardarTrabajo(id, trabajo, origen = 'cae') {
-    await setCeeField({ id, es_cee_directo: String(origen).toLowerCase() === 'cee' },
+    const o = origenNorm(origen);
+    // La RPC de la oportunidad va por uuid: si llega el `id_oportunidad`, se
+    // resuelve. Y una oportunidad YA aceptada no se escribe: su trabajo vive en
+    // el expediente, y seguir aquí dejaría dos envolventes del mismo edificio.
+    if (o === 'op') {
+        const fila = await filaOportunidad(id);
+        if (!fila) throw alto('Esa oportunidad no existe.', 404);
+        const exp = await expedienteDeOportunidad(fila.id);
+        if (exp) {
+            throw alto(`Esta oportunidad ya es el expediente ${exp.numero_expediente}: `
+                       + 'la envolvente se sigue desde allí.', 409);
+        }
+        id = fila.id;
+    }
+    await setCeeField({ id, es_cee_directo: o === 'cee', es_oportunidad: o === 'op' },
                       CAMPO_TRABAJO,
                       { ...trabajo, guardado_at: new Date().toISOString() });
     return true;
@@ -900,6 +1078,9 @@ async function escribirImagenes(expediente, puestas) {
 
 module.exports = {
     esCeeDirecto,
+    esOportunidad,
+    origenNorm,
+    datosOportunidad,
     setCeeField,
     carpetaFase,
     sufijoCex,

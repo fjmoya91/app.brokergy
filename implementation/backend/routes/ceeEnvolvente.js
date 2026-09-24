@@ -31,9 +31,23 @@ const MOTOR = process.env.CEE_ENGINE_URL || 'http://cee-engine:8080';
  * en el negocio equivocado. Es el mismo criterio que `?cee=` frente a `?exp=` en
  * los enlaces que ya viajan en los mensajes.
  */
-const origenDe = (req) => (
-    String(req.query?.origen || req.body?.origen || 'cae').toLowerCase() === 'cee'
-        ? 'cee' : 'cae');
+const origenDe = (req) => cex.origenNorm(req.query?.origen || req.body?.origen);
+
+/**
+ * `origen=op` — una OPORTUNIDAD aún sin aceptar: la envolvente se empieza desde
+ * la calculadora y lo señalado pasa al expediente al aceptarla.
+ *
+ * REGLA — eso es del EQUIPO INTERNO. El certificador entra a los expedientes
+ * que tiene asignados, y una oportunidad no tiene certificador: no es su sitio
+ * (y la oportunidad lleva el margen de Brokergy dentro).
+ */
+const staffSiOportunidad = (req, res, next) => {
+    if (origenDe(req) === 'op' && !isStaff(req)) {
+        return res.status(403).json({
+            error: 'La envolvente de una oportunidad es del equipo interno.' });
+    }
+    next();
+};
 
 // La envolvente de una parcela tarda: son varias peticiones a Catastro EN
 // SERIE —nunca en ráfaga, porque al otro lado está el mismo WAF del que
@@ -128,6 +142,25 @@ router.post('/diagnostico', internalOnly, express.json({ limit: '8kb' }), (req, 
 });
 
 /**
+ * GET /api/cee-envolvente/:id/oportunidad
+ *
+ * Lo que la ventana necesita para abrir la envolvente de una OPORTUNIDAD (`:id`
+ * es su `id_oportunidad` o su uuid): la fila —proyectada, sin el HTML de las
+ * propuestas—, su cliente y, si ya se aceptó, el expediente al que la ventana
+ * tiene que saltar. Solo el equipo interno.
+ */
+router.get('/:expedienteId/oportunidad', staffOnly, async (req, res) => {
+    try {
+        const d = await cex.datosOportunidad(req.params.expedienteId);
+        if (!d) return res.status(404).json({ error: 'Esa oportunidad no existe.' });
+        res.json(d);
+    } catch (e) {
+        console.error('[ceeEnvolvente] oportunidad:', e.message);
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+/**
  * POST /api/cee-envolvente/:expedienteId/geometria
  * Body: { referencia_catastral, altura_planta? }
  *
@@ -135,7 +168,7 @@ router.post('/diagnostico', internalOnly, express.json({ limit: '8kb' }), (req, 
  * La RC sale del expediente si no viene en el cuerpo: cada consulta a Catastro
  * cuesta, y no se pregunta dos veces lo mismo.
  */
-router.post('/:expedienteId/geometria', internalOnly, async (req, res) => {
+router.post('/:expedienteId/geometria', internalOnly, staffSiOportunidad, async (req, res) => {
     try {
         const rc = (req.body?.referencia_catastral || '').trim();
         if (!rc) return res.status(400).json({ error: 'Falta la referencia catastral.' });
@@ -185,7 +218,7 @@ router.post('/:expedienteId/geometria', internalOnly, async (req, res) => {
  * siga otra persona— y aquí hay trabajo de verdad: las ventanas se ponen una a
  * una.
  */
-router.get('/:expedienteId/trabajo', internalOnly, async (req, res) => {
+router.get('/:expedienteId/trabajo', internalOnly, staffSiOportunidad, async (req, res) => {
     try {
         res.json({ trabajo: await cex.leerTrabajo(req.params.expedienteId, origenDe(req)) });
     } catch (e) {
@@ -194,7 +227,7 @@ router.get('/:expedienteId/trabajo', internalOnly, async (req, res) => {
     }
 });
 
-router.put('/:expedienteId/trabajo', internalOnly, async (req, res) => {
+router.put('/:expedienteId/trabajo', internalOnly, staffSiOportunidad, async (req, res) => {
     try {
         const t = req.body?.trabajo;
         if (!t || typeof t !== 'object') {
@@ -216,7 +249,7 @@ router.put('/:expedienteId/trabajo', internalOnly, async (req, res) => {
  * dónde sale, y eso es lo que el certificador revisa antes de generar: aquí se
  * ve si una transmitancia o un año no son los que él daría por buenos.
  */
-router.post('/:expedienteId/ficha', internalOnly, async (req, res) => {
+router.post('/:expedienteId/ficha', internalOnly, staffSiOportunidad, async (req, res) => {
     try {
         const { geometria } = req.body || {};
         if (!geometria) return res.status(400).json({ error: 'Falta `geometria`.' });
@@ -254,7 +287,7 @@ router.post('/:expedienteId/ficha', internalOnly, async (req, res) => {
  * cuando alguien las pide, y el helper las cachea por referencia catastral, así
  * que mirarlas no cuesta una petición más al generar después.
  */
-router.post('/:expedienteId/imagenes', internalOnly, async (req, res) => {
+router.post('/:expedienteId/imagenes', internalOnly, staffSiOportunidad, async (req, res) => {
     try {
         const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
@@ -281,7 +314,7 @@ router.post('/:expedienteId/imagenes', internalOnly, async (req, res) => {
  * por rectángulo: encender y apagar el fondo no puede ser una petición cada vez
  * al WMS del que depende el buscador de la app.
  */
-router.post('/:expedienteId/cartografia', internalOnly, async (req, res) => {
+router.post('/:expedienteId/cartografia', internalOnly, staffSiOportunidad, async (req, res) => {
     try {
         res.json(await cex.cartografia(req.body?.georef));
     } catch (e) {
@@ -301,7 +334,7 @@ router.post('/:expedienteId/cartografia', internalOnly, async (req, res) => {
  *
  * Después hay que volver a TRAER la envolvente: el motor mide con esto puesto.
  */
-router.put('/:expedienteId/construcciones', internalOnly, async (req, res) => {
+router.put('/:expedienteId/construcciones', internalOnly, staffSiOportunidad, async (req, res) => {
     try {
         const r = await cex.guardarConstrucciones(
             req.params.expedienteId, req.body?.elegidas, req.body?.construcciones,
@@ -325,7 +358,7 @@ router.put('/:expedienteId/construcciones', internalOnly, async (req, res) => {
  * certificado salen de ahí—, así que se corrige donde se corrige todo lo demás
  * suyo. Al técnico le toca su propio bloque, que es el de abajo.
  */
-router.put('/:expedienteId/cliente', staffOnly, async (req, res) => {
+router.put('/:expedienteId/cliente', staffOnly, staffSiOportunidad, async (req, res) => {
     try {
         const r = await cex.guardarCliente(
             req.params.expedienteId, req.body?.campos, origenDe(req));
@@ -346,7 +379,7 @@ router.put('/:expedienteId/cliente', staffOnly, async (req, res) => {
  * ficha de otro: se comprueba contra el que está ASIGNADO a este expediente,
  * que es el único cuyo nombre va a salir en este `.cex`.
  */
-router.put('/:expedienteId/tecnico', internalOnly, async (req, res) => {
+router.put('/:expedienteId/tecnico', internalOnly, staffSiOportunidad, async (req, res) => {
     try {
         // `soloSuyo` a null = sin restricción (equipo interno). Un CERTIFICADOR
         // sin empresa queda en 0, que no casa con ningún id: 403.
@@ -371,7 +404,7 @@ router.put('/:expedienteId/tecnico', internalOnly, async (req, res) => {
  * El fichero va a DRIVE, a la misma carpeta que el `.cex`; en la BD solo queda
  * su id (regla 21).
  */
-router.post('/:expedienteId/imagenes/:cual', internalOnly, upload.single('file'),
+router.post('/:expedienteId/imagenes/:cual', internalOnly, staffSiOportunidad, upload.single('file'),
     async (req, res) => {
         try {
             const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
@@ -384,7 +417,7 @@ router.post('/:expedienteId/imagenes/:cual', internalOnly, upload.single('file')
         }
     });
 
-router.delete('/:expedienteId/imagenes/:cual', internalOnly, async (req, res) => {
+router.delete('/:expedienteId/imagenes/:cual', internalOnly, staffSiOportunidad, async (req, res) => {
     try {
         const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
@@ -415,7 +448,7 @@ router.delete('/:expedienteId/imagenes/:cual', internalOnly, async (req, res) =>
  * navegador viejo —o cualquiera con la sesión— podría escribir un certificado
  * con las U que quisiera.
  */
-router.post('/:expedienteId/cex', internalOnly, async (req, res) => {
+router.post('/:expedienteId/cex', internalOnly, staffSiOportunidad, async (req, res) => {
     try {
         const { geometria } = req.body || {};
         if (!geometria) return res.status(400).json({ error: 'Falta `geometria`.' });
@@ -425,6 +458,17 @@ router.post('/:expedienteId/cex', internalOnly, async (req, res) => {
 
         const fase = req.body?.fase || 'inicial';
         const esFinal = fase === 'final';
+
+        // En una OPORTUNIDAD no se escribe el .cex: todavía no hay técnico que
+        // lo firme ni número de expediente con el que nombrarlo (el fichero lo
+        // lleva, y el CEE final se busca por él). Todo lo señalado ya está
+        // guardado y pasa al expediente al aceptar: se genera desde allí.
+        if (cex.esOportunidad(ctx.expediente)) {
+            return res.status(409).json({
+                error: 'Esto es todavía una oportunidad: el .cex se genera cuando sea '
+                     + 'expediente. Lo señalado ya está guardado y pasa a él al aceptarla.',
+            });
+        }
 
         // Un CEE contratado de ALCANCE ÚNICO no tiene fase final: su fichero se
         // llama «CEE» a secas y vive en «1. CEE», así que un «final» saldría con
@@ -562,7 +606,7 @@ const quienEs = (req) => req.user?.email || req.user?.nombre || null;
  * peor forma de estrenar esto, y además la suya es la buena: es de antes de la
  * obra.
  */
-router.get('/:expedienteId/fotos', internalOnly, async (req, res) => {
+router.get('/:expedienteId/fotos', internalOnly, staffSiOportunidad, async (req, res) => {
     try {
         const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
@@ -578,7 +622,7 @@ router.get('/:expedienteId/fotos', internalOnly, async (req, res) => {
 });
 
 /** POST /:expedienteId/fotos?clave=FBS3 — sube fotos nuevas a ese cerramiento. */
-router.post('/:expedienteId/fotos', internalOnly, uploadFotos.array('files', 6),
+router.post('/:expedienteId/fotos', internalOnly, staffSiOportunidad, uploadFotos.array('files', 6),
     async (req, res) => {
         try {
             const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
@@ -605,7 +649,7 @@ router.post('/:expedienteId/fotos', internalOnly, uploadFotos.array('files', 6),
     });
 
 /** POST /:expedienteId/fotos/adoptar — pega una que YA está en el expediente. */
-router.post('/:expedienteId/fotos/adoptar', internalOnly, async (req, res) => {
+router.post('/:expedienteId/fotos/adoptar', internalOnly, staffSiOportunidad, async (req, res) => {
     try {
         const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
@@ -619,7 +663,7 @@ router.post('/:expedienteId/fotos/adoptar', internalOnly, async (req, res) => {
 });
 
 /** DELETE /:expedienteId/fotos?clave=FBS3&drive_id=… — la despega. */
-router.delete('/:expedienteId/fotos', internalOnly, async (req, res) => {
+router.delete('/:expedienteId/fotos', internalOnly, staffSiOportunidad, async (req, res) => {
     try {
         const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
@@ -638,7 +682,7 @@ router.delete('/:expedienteId/fotos', internalOnly, async (req, res) => {
  * Dónde cae cada hueco DENTRO de esta foto. Se escribe al aplicar una lectura
  * —el modelo ya ha mirado dónde está cada ventana— y al señalar una a mano.
  */
-router.put('/:expedienteId/fotos/marcas', internalOnly, async (req, res) => {
+router.put('/:expedienteId/fotos/marcas', internalOnly, staffSiOportunidad, async (req, res) => {
     try {
         const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
@@ -662,7 +706,7 @@ router.put('/:expedienteId/fotos/marcas', internalOnly, async (req, res) => {
  * Solo sirve fotos de ESTE expediente —pegadas a un cerramiento o candidatas—:
  * el driveId llega del navegador y esto no puede ser un proxy de la Drive API.
  */
-router.get('/:expedienteId/fotos/:driveId/contenido', internalOnly, async (req, res) => {
+router.get('/:expedienteId/fotos/:driveId/contenido', internalOnly, staffSiOportunidad, async (req, res) => {
     try {
         const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).send('Expediente no encontrado');
@@ -688,7 +732,7 @@ router.get('/:expedienteId/fotos/:driveId/contenido', internalOnly, async (req, 
  * la que el certificador puede haber corregido moviendo la pared. Con ella el
  * código pone la escala; el modelo solo da proporciones.
  */
-router.post('/:expedienteId/fotos/leer', internalOnly, async (req, res) => {
+router.post('/:expedienteId/fotos/leer', internalOnly, staffSiOportunidad, async (req, res) => {
     try {
         const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });

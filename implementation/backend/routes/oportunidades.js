@@ -304,6 +304,18 @@ router.post('/', requireAuth, async (req, res) => {
         // utils/precioCae.js.
         sellarPrecioCae(datosCalculoFinal.inputs, existingData);
 
+        // La ENVOLVENTE empezada desde la calculadora (botón CE3X) vive en
+        // `envolvente_cee` y la escribe SOLO su RPC (`set_oportunidad_cee_field`).
+        // La copia de `datos_calculo` que manda el navegador no la trae al día
+        // —la ventana de la envolvente está en otra pestaña— y además aquí pasa
+        // por `normalizeData`: se conserva SIEMPRE la de la BD, o re-guardar la
+        // simulación borraría las ventanas que se acaban de poner.
+        if (existingData?.datos_calculo?.envolvente_cee !== undefined) {
+            datosCalculoFinal.envolvente_cee = existingData.datos_calculo.envolvente_cee;
+        } else {
+            delete datosCalculoFinal.envolvente_cee;
+        }
+
         let payloadPrescriptorStr = prescriptor || 'BROKERGY';
         if (!prescriptor && req.user && req.user.perfilCompleto) {
             payloadPrescriptorStr = `${req.user.perfilCompleto.nombre || ''} ${req.user.perfilCompleto.apellidos || ''}`.trim();

@@ -34,7 +34,7 @@ import { PanelAdministrativos, PanelEconomico, PanelGenerales, PanelInstalacione
 //: A qué negocio pertenece este expediente —CAE o CEE directo— y cómo se
 //: compone cada URL con ello. Sale de la dirección de la ventana, no del
 //: expediente cargado (ver `apiEnvolvente.js`).
-import { api, esCeeDirecto as enCeeDirecto } from '../logic/apiEnvolvente';
+import { api, esCeeDirecto as enCeeDirecto, esOportunidad as enOportunidad } from '../logic/apiEnvolvente';
 //: Las dos peticiones LARGAS de esta ventana —medir el edificio y escribir el
 //: `.cex`— pasan por aquí: repite sola la que no llegó a salir y devuelve el
 //: fallo ya redactado, en vez de la misma frase para seis causas distintas.
@@ -938,7 +938,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                         404 es peor que no tenerlo. */}
                     <Instalacion equipo={ficha?.ficha?.instalaciones?.[0]} placa={placa}
                                  fase={fichaFase} leyendo={leyendoPlaca} onLeer={leerPlaca}
-                                 puedeLeerPlaca={!enCeeDirecto} />
+                                 puedeLeerPlaca={!enCeeDirecto && !enOportunidad} />
                 </PanelInstalaciones>)}
 
             {activa === 'medidas' && (
@@ -951,6 +951,17 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
 
             {activa === 'cex' && (
                 <Ventana titulo="Generar el .cex">
+                    {/* En una OPORTUNIDAD no se genera: aún no hay técnico que lo
+                        firme ni número de expediente con el que nombrarlo. Lo
+                        señalado ya está guardado y pasa al expediente al aceptar.
+                        El backend lo repite (409). */}
+                    {enOportunidad ? (
+                        <p className="text-[12px] leading-snug text-white/55">
+                            Esto es todavía una <b>oportunidad</b>: el .cex se genera desde el
+                            expediente, cuando se acepte y tenga técnico certificador. Todo lo
+                            que señales aquí ya está guardado y pasa al expediente al aceptarla.
+                        </p>
+                    ) : (<>
                     {/* El FINAL no se levanta de cero: se COPIA el inicial y se le
                         cambia el generador, que es como se hace a mano. Verificado
                         sobre 26RES060_186 contra el .cex que guardó el certificador
@@ -1000,6 +1011,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                         : ficha?.avisos?.length > 0 && (
                             <Avisos lista={ficha.avisos}
                                     titulo="Lo que hay que mirar antes de generar" />)}
+                    </>)}
                 </Ventana>)}
 
             {preguntando && (
@@ -1072,7 +1084,7 @@ function Arranque({ rc, cargando, error, onTraer, retomando }) {
 //: llegado: un autoguardado mudo no se distingue de no guardar.
 const GUARDADO = {
     guardando: { texto: 'Guardando…', color: 'text-white/40' },
-    guardado: { texto: '✓ Guardado en el expediente', color: 'text-emerald-400' },
+    guardado: { texto: enOportunidad ? '✓ Guardado en la oportunidad' : '✓ Guardado en el expediente', color: 'text-emerald-400' },
     error: { texto: '⚠ No se ha podido guardar — no cierres la pestaña', color: 'text-red-300' },
 };
 
@@ -1692,7 +1704,9 @@ function Instalacion({ equipo, placa, leyendo, onLeer, fase = 'inicial',
             {!esFinal && !puedeLeerPlaca && !equipo && (
                 <p className="mt-2 text-[11.5px] text-white/45">
                     Teclea marca, modelo, combustible, rendimiento y potencia aquí debajo:
-                    en un CEE suelto no hay expediente de obra del que sacarlos.
+                    {enOportunidad
+                        ? ' la placa se lee desde el expediente, cuando se acepte.'
+                        : ' en un CEE suelto no hay expediente de obra del que sacarlos.'}
                 </p>
             )}
 

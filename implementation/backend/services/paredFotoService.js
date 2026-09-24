@@ -101,6 +101,14 @@ function fotosDe(expediente) {
 }
 
 async function escribir(expediente, todas) {
+    //: En una OPORTUNIDAD (envolvente empezada desde la calculadora) el estado
+    //: vive en `datos_calculo.envolvente_cee` y pasa al expediente al aceptar.
+    //: La carpeta es la misma que tendrá el expediente, así que las fotos no se
+    //: mueven. Se escribe por la misma función que el resto de la envolvente.
+    if (expediente?.es_oportunidad) {
+        await require('./ceeEnvolventeCex').setCeeField(expediente, CAMPO, todas);
+        return;
+    }
     const { error } = esCeeDirecto(expediente)
         ? await supabase.rpc('set_cee_directo_cee_field', {
             p_cee_directo_id: expediente.id, p_field: CAMPO, p_value: todas })

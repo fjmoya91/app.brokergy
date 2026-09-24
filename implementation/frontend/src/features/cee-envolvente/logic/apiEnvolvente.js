@@ -25,8 +25,10 @@ export const ORIGEN = (() => {
         //: `origen=cee`, y NO `?cee=`: ese otro parámetro ya significa «abre este
         //: CEE directo» en el dashboard y lleva un id dentro. Dos cosas distintas
         //: con el mismo nombre acaban leyéndose la una por la otra.
-        return new URLSearchParams(window.location.search).get('origen') === 'cee'
-            ? 'cee' : 'cae';
+        const o = new URLSearchParams(window.location.search).get('origen');
+        //: `op` = una OPORTUNIDAD aún sin aceptar: la envolvente se empieza
+        //: desde la calculadora y el trabajo pasa al expediente al aceptarla.
+        return o === 'cee' || o === 'op' ? o : 'cae';
     } catch {
         return 'cae';
     }
@@ -34,6 +36,9 @@ export const ORIGEN = (() => {
 
 /** ¿Esta ventana está sobre un CEE contratado suelto? */
 export const esCeeDirecto = ORIGEN === 'cee';
+
+/** ¿Esta ventana está sobre una OPORTUNIDAD (todavía sin expediente)? */
+export const esOportunidad = ORIGEN === 'op';
 
 /**
  * La URL de una ruta de la envolvente, con el origen puesto.
@@ -46,12 +51,12 @@ export function api(id, ruta = '', params = null) {
     for (const [k, v] of Object.entries(params || {})) {
         if (v !== undefined && v !== null && v !== '') qs.set(k, String(v));
     }
-    if (ORIGEN === 'cee') qs.set('origen', ORIGEN);
+    if (ORIGEN !== 'cae') qs.set('origen', ORIGEN);
     const cola = qs.toString();
     return `${BASE}/${id}${ruta ? `/${ruta}` : ''}${cola ? `?${cola}` : ''}`;
 }
 
 /** Lo que hay que añadir al CUERPO de un POST/PUT para que el backend lo sepa. */
-export const cuerpoOrigen = ORIGEN === 'cee' ? { origen: ORIGEN } : {};
+export const cuerpoOrigen = ORIGEN !== 'cae' ? { origen: ORIGEN } : {};
 
 export default api;

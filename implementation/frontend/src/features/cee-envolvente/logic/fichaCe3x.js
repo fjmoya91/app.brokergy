@@ -625,6 +625,8 @@ export function instalacionNueva({ expediente, superficie, modelos = {},
                  avisos: ['No consta el equipo nuevo: el .cex final sale sin instalación. '
                           + (esCeeDirecto(expediente)
                               ? 'Tecléalo en la pestaña Instalaciones.'
+                              : expediente?.es_oportunidad
+                              ? 'Elígela en la calculadora de la oportunidad.'
                               : 'Rellénala en Instalación.')] };
     }
 

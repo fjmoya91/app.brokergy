@@ -5,11 +5,12 @@ import { EnvolventeView } from './EnvolventeView';
 import { PestanasCe3x } from '../components/PestanasCe3x';
 import { buildInstalacionAddress } from '../../expedientes/utils/docGenerators';
 import { EnlacesInmueble } from '../../../components/EnlacesInmueble';
-import { esCeeDirecto } from '../logic/apiEnvolvente';
+import { esCeeDirecto, esOportunidad } from '../logic/apiEnvolvente';
 import { abrirCarpetaLocal } from '../../../utils/carpetaLocal';
 import { useAuth } from '../../../context/AuthContext';
 import { getRoleFlags } from '../../../utils/roleFlags';
 import { ceeDirectoComoExpediente } from '../logic/ceeDirecto';
+import { oportunidadComoExpediente } from '../logic/oportunidad';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // La envolvente en su PROPIA VENTANA (`/envolvente/:expedienteId`).
@@ -37,7 +38,7 @@ export function EnvolventeVentana({ expedienteId }) {
     //: `staffOnly` y al CERTIFICADOR no se le ofrece (le daria un 403 y ademas
     //: no es su sitio — el trabaja contra la carpeta que se le comparte).
     const { user } = useAuth();
-    const { isStaff: esStaff } = getRoleFlags(user);
+    const { isStaff: esStaff, isAdmin: esAdmin } = getRoleFlags(user);
 
     // El Explorador de Windows, en la carpeta de ESTE expediente: es de donde se
     // arrastra el `.cex` a CE3X y donde se sueltan las fotos. Salir de la ventana
@@ -46,8 +47,11 @@ export function EnvolventeVentana({ expedienteId }) {
     // su propia ruta, que es la que sabe donde vive su carpeta.
     const irALaCarpeta = async () => {
         setAbriendo(true);
-        const base = esCeeDirecto ? '/api/cee-directos' : '/api/expedientes';
-        const r = await abrirCarpetaLocal(`${base}/${expedienteId}/local-path`);
+        // La de una oportunidad se pide por su `id_oportunidad` (es lo que
+        // entiende su ruta), que es además lo que lleva esta dirección.
+        const base = esOportunidad ? '/api/oportunidades'
+            : esCeeDirecto ? '/api/cee-directos' : '/api/expedientes';
+        const r = await abrirCarpetaLocal(`${base}/${encodeURIComponent(expedienteId)}/local-path`);
         if (!r.ok) setAviso(r.error);
         setAbriendo(false);
     };
@@ -63,6 +67,28 @@ export function EnvolventeVentana({ expedienteId }) {
     // saldrían de sitios distintos.
     useEffect(() => {
         let vivo = true;
+        // Una OPORTUNIDAD (se abre desde la calculadora). Si ya se aceptó, su
+        // envolvente vive en el EXPEDIENTE —se le volcó al nacer— y esta ventana
+        // salta allí: seguir escribiendo en la oportunidad dejaría dos
+        // envolventes del mismo edificio.
+        if (esOportunidad) {
+            axios.get(`/api/cee-envolvente/${encodeURIComponent(expedienteId)}/oportunidad`)
+                .then(({ data }) => {
+                    if (!vivo) return;
+                    if (data?.expediente?.id) {
+                        window.location.replace(`/envolvente/${data.expediente.id}`);
+                        return;
+                    }
+                    setExpediente(oportunidadComoExpediente(data.oportunidad,
+                                                            { cliente: data.cliente }));
+                })
+                .catch(e => {
+                    if (vivo) setError(e.response?.status === 404
+                        ? 'Esa oportunidad no existe.'
+                        : (e.response?.data?.error || 'No se ha podido abrir la oportunidad.'));
+                });
+            return () => { vivo = false; };
+        }
         axios.get(esCeeDirecto
                     ? `/api/cee-directos/${expedienteId}`
                     : `/api/expedientes/${expedienteId}`)
@@ -183,7 +209,8 @@ export function EnvolventeVentana({ expedienteId }) {
                         sidebar: para ver la app en claro había que salir. Y es
                         justo aquí donde se mira el contraste, con el plano
                         delante. */}
-                    {esStaff && (
+                    {/* La de una oportunidad la sirve una ruta de ADMIN. */}
+                    {esStaff && (!esOportunidad || esAdmin) && (
                         <button onClick={irALaCarpeta} disabled={abriendo}
                                 title="Abrir en el Explorador la carpeta de este expediente"
                                 className="shrink-0 rounded-lg border border-white/10 px-3 py-2
@@ -198,19 +225,34 @@ export function EnvolventeVentana({ expedienteId }) {
                         son dos tablas y el mismo UUID no vale en las dos, así
                         que el enlace equivocado no lleva a otro expediente —
                         no lleva a ninguno. */}
-                    <a href={esCeeDirecto
+                    <a href={esOportunidad
+                                ? `/?op=${encodeURIComponent(expediente.id_oportunidad || expedienteId)}`
+                                : esCeeDirecto
                                 ? `/?tab=cee-directos&cee=${expedienteId}`
                                 : `/?tab=expedientes&exp=${expedienteId}`}
                        className="shrink-0 rounded-lg border border-white/10
                                   px-3 py-2 text-[10px] font-black uppercase tracking-widest
                                   text-white/45 hover:border-white/30 hover:text-white">
-                        {esCeeDirecto ? 'Ver el encargo ↗' : 'Ver el expediente ↗'}
+                        {esOportunidad ? 'Ver la oportunidad ↗'
+                            : esCeeDirecto ? 'Ver el encargo ↗' : 'Ver el expediente ↗'}
                     </a>
                 </header>
                 <PestanasCe3x {...(barra || {})} />
             </div>
 
             <main className="mx-auto max-w-[1400px] px-5 py-5">
+                {/* Qué pasa con lo que se hace aquí: sin esto, trabajar sobre una
+                    oportunidad parece trabajar en el aire. */}
+                {esOportunidad && (
+                    <div className="mb-4 rounded-xl border border-sky-500/30 bg-sky-500/10
+                                    px-4 py-3 text-[12px] leading-snug text-sky-200">
+                        <b>Oportunidad todavía sin aceptar.</b> Todo lo que señales aquí —la
+                        entrada, las ventanas, las fotos de cada pared— se guarda en la
+                        oportunidad y <b>pasa al expediente al aceptarla</b>, para seguir
+                        donde lo dejes. El <b>.cex</b> se genera desde el expediente, cuando
+                        ya tenga número y técnico certificador.
+                    </div>
+                )}
                 <EnvolventeView expediente={expediente} onAviso={setAviso}
                                 onPestanas={setBarra} />
             </main>
@@ -233,7 +275,12 @@ function subtitulo(expediente) {
     const cliente = expediente.cliente?.nombre_razon_social
         || expediente.clientes?.nombre_razon_social;
     const dir = buildInstalacionAddress(expediente) || {};
-    const sitio = [dir.calle, dir.municipio].filter(Boolean).join(', ');
+    // Cuando la «calle» ya es la dirección entera (lo que guarda la simulación:
+    // «CL SAN LUIS 44 13610 CAMPO DE CRIPTANA (CIUDAD REAL)»), el municipio ya
+    // va dentro y repetirlo detrás solo alarga la línea.
+    const yaLoLleva = dir.municipio
+        && String(dir.calle || '').toUpperCase().includes(String(dir.municipio).toUpperCase());
+    const sitio = [dir.calle, yaLoLleva ? null : dir.municipio].filter(Boolean).join(', ');
     return [expediente.numero_expediente, cliente, sitio].filter(Boolean).join(' · ');
 }
 

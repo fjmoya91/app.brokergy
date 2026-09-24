@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
 import { driveFolderLink } from '../../../utils/driveFolder';
+import { getRoleFlags } from '../../../utils/roleFlags';
 import html2canvas from 'html2canvas';
 import { SectionCard, Divider, Input, Label } from './UIComponents';
 import { SummaryTable } from './SummaryTable';
@@ -621,6 +622,19 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
 
     // ─── Política: guardar la oportunidad antes de producir entregables ──────────
     const isAdmin = user?.rol?.toUpperCase() === 'ADMIN';
+    const { isStaff } = getRoleFlags(user);
+
+    // La ENVOLVENTE (CE3X) en su propia ventana, igual que desde el módulo CEE
+    // del expediente. Se puede empezar ya en la oportunidad: lo que se señale
+    // se guarda en ella y pasa al expediente al aceptarla. Si ya se aceptó, la
+    // ventana salta sola al expediente, que es donde vive el trabajo desde
+    // entonces. Hace falta la oportunidad GUARDADA: la envolvente lee de la BD
+    // la referencia catastral y lo marcado en la ficha técnica.
+    const abrirEnvolvente = () => {
+        if (!inputs.id_oportunidad) { setShowSaveOpportunity(true); return; }
+        const id = encodeURIComponent(inputs.id_oportunidad);
+        window.open(`/envolvente/${id}?origen=op`, `envolvente-op-${id}`, 'noopener');
+    };
 
     // Ejecuta la acción ya validada (no comprueba guardado).
     const runAction = (action) => {
@@ -665,6 +679,22 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                             )}
                         </div>
                         <div className="flex items-center gap-1">
+                            {/* CE3X — la envolvente, solo el equipo interno (como la
+                                ruta que la sirve). El logo es la herramienta que se
+                                abre: el botón se reconoce sin leerlo. */}
+                            {isStaff && (
+                                <button
+                                    type="button"
+                                    onClick={abrirEnvolvente}
+                                    className="p-1.5 mr-1 rounded-full bg-brand/10 hover:bg-brand/20 border border-brand/30 transition-all hover:scale-110 active:scale-90"
+                                    title={inputs.id_oportunidad
+                                        ? 'Envolvente CE3X (se abre en otra pestaña). Lo que señales se guarda en la oportunidad y pasa al expediente al aceptarla.'
+                                        : 'Envolvente CE3X — guarda antes la oportunidad'}
+                                >
+                                    <img src="/logo-ce3x.svg" alt="CE3X" className="w-7 h-7" />
+                                </button>
+                            )}
+
                             {driveFolderLink(inputs) && user?.rol?.toUpperCase() === 'ADMIN' && (
                                 <button
                                     type="button"
