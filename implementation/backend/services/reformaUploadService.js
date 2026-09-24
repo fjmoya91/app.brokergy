@@ -587,7 +587,7 @@ function buildDocChecklist(datosCalculo = {}) {
            label: 'Fachada de la calle (completa)', help: 'Para ver cuántas ventanas hay y su tamaño.' });
     push({ key: 'FOTO_PATIOS_INTERIORES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Patios interiores', help: 'Paredes que dan a patios, con sus ventanas.' });
-    push({ key: 'VIDEO_VIVIENDA', fase: PHASE.ANTES, required: false, multiple: false, prescindible: true, accept: ACCEPT_VIDEO,
+    push({ key: 'VIDEO_VIVIENDA', fase: PHASE.ANTES, required: false, multiple: true, prescindible: true, accept: ACCEPT_VIDEO,
            label: 'Vídeo recorriendo la vivienda', help: 'Un vídeo corto mostrando estancias, ventanas y accesos al exterior.' });
     push({ key: 'DOC_PLANOS', fase: PHASE.ANTES, required: false, multiple: true, prescindible: true, accept: ACCEPT_DOC,
            label: 'Planos o croquis', help: 'PDF o foto (.pdf, .png, .jpg…). Si no los tienes, con el vídeo nos vale.' });
@@ -659,7 +659,7 @@ function buildDocChecklist(datosCalculo = {}) {
     if (want('FOTO_FACHADA_DESPUES', sel.reforma.paredes))  push({ key: 'FOTO_FACHADA_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Aislamiento de fachada terminado', help: 'La fachada ya aislada y terminada.' });
     if (want('FOTO_SUELO_DESPUES', sel.reforma.suelo))    push({ key: 'FOTO_SUELO_DESPUES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Suelo terminado (después)', help: 'El suelo ya aislado y terminado.' });
     if (want('FOTO_PLACAS_SOLARES', sel.reforma.placas))  push({ key: 'FOTO_PLACAS_SOLARES', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_FOTO, label: 'Placas solares instaladas', help: 'Las placas fotovoltaicas o solares térmicas ya montadas.' });
-    push({ key: 'VIDEO_REFORMA', fase: PHASE.DESPUES, required: false, optionalAlways: true, prescindible: true, multiple: false, accept: ACCEPT_VIDEO, label: 'Vídeo de la reforma (opcional)', help: 'Recorrido en vídeo de la instalación ya terminada.' });
+    push({ key: 'VIDEO_REFORMA', fase: PHASE.DESPUES, required: false, optionalAlways: true, prescindible: true, multiple: true, accept: ACCEPT_VIDEO, label: 'Vídeo de la reforma (opcional)', help: 'Recorrido en vídeo de la instalación ya terminada.' });
     push({ key: 'DOC_FACTURAS', fase: PHASE.DESPUES, required: false, multiple: true, accept: ACCEPT_DOC, label: 'Facturas de la instalación', help: 'Las facturas de los materiales y de la instalación (en PDF o foto).' });
     // CEE POSTERIOR a la obra. Existía en los slots del enlace público de /reforma
     // (getReformaSlots) pero NO en este checklist, que es contra el que valida el POST

@@ -924,7 +924,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         const varias = !!slot.multiple;
         if (done) return varias ? '+ Añadir más' : 'Cambiar';
         if (!clientView) return 'Subir';
-        if (slot.key.startsWith('VIDEO_')) return '🎥 Subir vídeo';
+        if (slot.key.startsWith('VIDEO_')) return varias ? '🎥 Subir vídeos' : '🎥 Subir vídeo';
         if (slot.key.startsWith('FOTO_')) return varias ? '📷 Subir fotos' : '📷 Subir foto';
         return varias ? '📎 Subir archivos' : '📎 Subir archivo';
     };
