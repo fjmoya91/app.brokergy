@@ -581,16 +581,29 @@ const sendProposalEmail = async ({ to, cc = null, userName, pdfBuffer, tableImag
 // los dos WhatsApp de aceptación (routes/public.js) y que los CEE directos
 // (ceeDirectoDocsService.lineasPeticion): el cliente recibe los dos canales a la
 // vez y no pueden pedirle cosas distintas. `tu`: false = lo lee su persona de contacto.
-const documentacionAceptacion = (tu = true) => [
+//
+// `caldera` = lo que dice `reformaUploadService.calderaPendiente` (reconciliado con
+// Drive): solo se pide la foto que FALTA. Pedírsela a quien ya la mandó al simular
+// hace dudar de si llegó, y se vuelve a subir. Con `null` (no se pudo comprobar)
+// se pide con la coletilla "si no nos la has enviado ya", que es lo prudente.
+const lineaCalderaAceptacion = (caldera, tu = true) => {
+    if (!caldera) return `Foto de la caldera actual y de su placa de características (bien legible), si no nos la ${tu ? 'has' : 'habéis'} enviado ya.`;
+    const que = caldera.esCaldera ? 'la caldera actual' : 'el equipo de calefacción actual';
+    if (caldera.caldera && caldera.placa) return `Foto de ${que} y de su placa de características (bien legible).`;
+    if (caldera.caldera) return `Foto de ${que}: la de su placa ya la tenemos.`;
+    if (caldera.placa) return `Foto de la placa de características de ${que}, que se lea bien: la del aparato ya la tenemos.`;
+    return null;
+};
+const documentacionAceptacion = (tu = true, caldera = null) => [
     'Un vídeo corto recorriendo la vivienda o, si no, fotos de las paredes que dan a la calle o al patio, donde se vean las ventanas. Necesitamos saber cuántas hay y a qué lado da cada una.',
     `Planos de la vivienda o un croquis de la distribución, si ${tu ? 'los tienes' : 'los hay'}.`,
-    `Foto de la caldera actual y de su placa de características (bien legible), si no nos la ${tu ? 'has' : 'habéis'} enviado ya.`,
+    lineaCalderaAceptacion(caldera, tu),
     `Si ${tu ? 'vas' : 'se van'} a cambiar ventanas o aislamiento, fotos y presupuesto.`,
-];
+].filter(Boolean);
 
 // `titular`: solo cuando lo recibe la PERSONA DE CONTACTO del cliente (o el partner
 // que lleva la relación): entonces la propuesta aceptada es la de ese titular.
-const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente, uploadLink, titular = null }) => {
+const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente, uploadLink, titular = null, caldera = null }) => {
     const subject = `Aceptación recibida [Exp ${numeroExpediente || ''}] — Brokergy`;
 
     const whatsAppLink = `https://wa.me/34623926179?text=${encodeURIComponent(titular
@@ -616,7 +629,7 @@ const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente,
             ) +
             emailBox(
                 emailP('📁 Para poder hacer el CEE inicial necesitamos', { size: 14, bold: true, color: BRAND.orangeDark, mb: 12 }) +
-                emailList(documentacionAceptacion(!titular), { mb: 0 }),
+                emailList(documentacionAceptacion(!titular, caldera), { mb: 0 }),
                 { mb: 22 }
             ) +
             emailP('No hace falta que nos lo envíes todo de una sola vez; puedes mandarlo poco a poco conforme lo vayas recopilando.', { size: 14, color: BRAND.muted, mb: 15 }) +
@@ -638,7 +651,7 @@ const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente,
         footerNote: `Un saludo, Equipo BROKERGY · <a href="https://brokergy.es" style="color:${BRAND.greenDark};text-decoration:none;">brokergy.es</a>`,
     });
 
-    const text = `¡Hola, ${userName}!\n\nHemos recibido correctamente la aceptación de tu propuesta. Muchas gracias.\n\n${numeroExpediente ? `Tu número de expediente es: ${numeroExpediente}\n\n` : ''}A partir de ahora nos ponemos con el Certificado de Eficiencia Energética (CEE): de prepararlo y presentarlo nos encargamos nosotros. Para poder hacerlo cuanto antes necesitamos la documentación de abajo.\n\nMUY IMPORTANTE ANTES DE EMPEZAR LA OBRA: no dejes que te presenten ninguna factura hasta que te avisemos con un nuevo mensaje confirmando que el CEE ya está presentado — es la condición para no perder la ayuda. Si pasan unos días sin noticias nuestras, o si tenéis prisa por facturar, escríbenos sin problema: preferimos que preguntes antes de que se cuele una factura.\n\nPara poder hacer el CEE inicial necesitamos (puedes enviarlo poco a poco):\n${documentacionAceptacion(!titular).map(l => `- ${l}`).join('\n')}\n\n${uploadLink ? `Puedes subir tu documentación directamente aquí:\n${uploadLink}\n\nO también p` : `P`}uedes enviarlo por:\nEmail: info@brokergy.es\nWhatsApp: 623 926 179\n\nUn saludo,\nEquipo BROKERGY`;
+    const text = `¡Hola, ${userName}!\n\nHemos recibido correctamente la aceptación de tu propuesta. Muchas gracias.\n\n${numeroExpediente ? `Tu número de expediente es: ${numeroExpediente}\n\n` : ''}A partir de ahora nos ponemos con el Certificado de Eficiencia Energética (CEE): de prepararlo y presentarlo nos encargamos nosotros. Para poder hacerlo cuanto antes necesitamos la documentación de abajo.\n\nMUY IMPORTANTE ANTES DE EMPEZAR LA OBRA: no dejes que te presenten ninguna factura hasta que te avisemos con un nuevo mensaje confirmando que el CEE ya está presentado — es la condición para no perder la ayuda. Si pasan unos días sin noticias nuestras, o si tenéis prisa por facturar, escríbenos sin problema: preferimos que preguntes antes de que se cuele una factura.\n\nPara poder hacer el CEE inicial necesitamos (puedes enviarlo poco a poco):\n${documentacionAceptacion(!titular, caldera).map(l => `- ${l}`).join('\n')}\n\n${uploadLink ? `Puedes subir tu documentación directamente aquí:\n${uploadLink}\n\nO también p` : `P`}uedes enviarlo por:\nEmail: info@brokergy.es\nWhatsApp: 623 926 179\n\nUn saludo,\nEquipo BROKERGY`;
 
     return sendMail({ to, subject, html, text });
 };
@@ -1843,6 +1856,7 @@ module.exports = {
     sendLeadSummaryEmail,
     sendProposalEmail,
     sendAcceptanceNotificationEmail,
+    documentacionAceptacion,
     sendAnnexEmail,
     sendAdminNotificationEmail,
     sendCertificadorNotificationEmail,

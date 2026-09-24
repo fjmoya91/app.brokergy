@@ -1634,6 +1634,35 @@ async function faltantesPorDestino(oportunidadUuid, destino = 'CEE', opts = {}) 
     }
 }
 
+/**
+ * ¿Falta la foto de la caldera, o la de su placa? Para no pedírsela al cliente
+ * en el acuse de aceptación si ya la mandó (en la simulación se piden las dos).
+ * Reconcilia con Drive (`buildDocsView`, regla 20). Una vivienda sin
+ * calefacción no tiene esos apartados y sale con nada que pedir.
+ *
+ * @returns {Promise<{caldera: boolean, placa: boolean, esCaldera: boolean} | null>}
+ *   `null` si no se ha podido comprobar: el que llama decide qué hacer ante la duda.
+ */
+async function calderaPendiente(opp) {
+    try {
+        const view = await buildDocsView(opp);
+        const slot = (k) => (view.slots || []).find(s => s.key === k);
+        const cal = slot('FOTO_CALDERA_ANTES');
+        const placa = slot('FOTO_PLACA_CALDERA_ANTES');
+        const falta = (s) => !!s && !s.existing && !s.waived && !(s.items?.length);
+        return {
+            caldera: falta(cal),
+            placa: falta(placa),
+            // Con calefacción eléctrica el apartado no es una caldera (ver
+            // buildDocChecklist): el mensaje no puede pedir "la caldera".
+            esCaldera: !cal || /caldera/i.test(cal.label || ''),
+        };
+    } catch (e) {
+        console.warn('[Docs] calderaPendiente:', e.message);
+        return null;
+    }
+}
+
 async function syncRiteToExpediente(oportunidadId, link) {
     const set = async (field, value) => {
         const { error } = await supabase.rpc('set_expediente_doc_field', {
@@ -1847,6 +1876,7 @@ module.exports = {
     checklistForOportunidad,
     buildDocsView,
     faltantesPorDestino,
+    calderaPendiente,
     docsSubfolder,
     ensureSubfolderId,
     subirFicherosASlot,

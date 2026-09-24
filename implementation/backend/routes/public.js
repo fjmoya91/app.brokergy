@@ -519,6 +519,12 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
                 }
             } catch (e) { console.warn('[Public] resolviendo destinatario del acuse:', e.message); }
 
+            // La foto de la caldera y la de su placa se piden al SIMULAR: si ya
+            // están en Drive no se vuelven a pedir. `null` = no se pudo comprobar
+            // → se pide "si no nos la has enviado ya".
+            const caldera = await reformaUploadService.calderaPendiente(opp);
+            const listaDocs = (tu) => emailService.documentacionAceptacion(tu, caldera).map(l => `• ${l}`).join('\n');
+
             // 3. Email
             if (dest.email) try {
                 await emailService.sendAcceptanceNotificationEmail({
@@ -527,6 +533,7 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
                     numeroExpediente,
                     uploadLink,
                     titular: dest.titular,
+                    caldera,
                 });
                 console.log(`[Public] Email de aceptación enviado${dest.titular ? ' (a la persona de contacto)' : ''}.`);
             } catch (emailErr) {
@@ -546,10 +553,7 @@ El número de expediente asignado es: *${numeroExpediente || 'Pte. confirmar'}*
 A partir de este momento, nuestro equipo técnico comenzará a preparar el *Certificado de Eficiencia Energética (CEE) inicial*. Es fundamental que quede presentado *antes de que se presente ninguna factura de la obra*: os avisaremos en cuanto lo esté.
 
 📁 *Para poder hacer el CEE inicial necesitamos* (se puede enviar poco a poco):
-• Un vídeo corto recorriendo la vivienda o, si no, fotos de las paredes que dan a la calle o al patio, donde se vean las ventanas. Necesitamos saber cuántas hay y a qué lado da cada una.
-• Planos de la vivienda o un croquis de la distribución, si los hay.
-• Foto de la caldera actual y de su placa de características, si no nos la habéis enviado ya.
-• Si se van a cambiar ventanas o aislamiento, fotos y presupuesto.
+${listaDocs(false)}
 
 🔗 *Se puede subir aquí:*
 ${uploadLink}
@@ -569,10 +573,7 @@ Tu número de expediente asignado es: *${numeroExpediente || 'Pte. confirmar'}*
 A partir de este momento, nuestro equipo técnico comenzará a preparar el *Certificado de Eficiencia Energética (CEE) inicial*. Es fundamental que quede presentado *antes de que te presenten ninguna factura de la obra*: te avisaremos en cuanto lo esté.
 
 📁 *Para poder hacer el CEE inicial necesitamos* (puedes enviarlo poco a poco):
-• Un vídeo corto recorriendo la vivienda o, si no, fotos de las paredes que dan a la calle o al patio, donde se vean las ventanas. Necesitamos saber cuántas hay y a qué lado da cada una.
-• Planos de la vivienda o un croquis de la distribución, si los tienes.
-• Foto de la caldera actual y de su placa de características, si no nos la has enviado ya.
-• Si vas a cambiar ventanas o aislamiento, fotos y presupuesto.
+${listaDocs(true)}
 
 🔗 *Puedes subir tu documentación aquí:*
 ${uploadLink}
