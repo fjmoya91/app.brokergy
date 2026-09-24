@@ -40,6 +40,8 @@ import axios from 'axios';
 import { useModal } from '../../../context/ModalContext';
 import { EnvioLoteModal } from '../components/EnvioLoteModal';
 import { abrirCarpetaLocal } from '../../../utils/carpetaLocal';
+import { TecnicoPicker } from '../../expedientes/components/TecnicoPicker';
+import { EncargoCertificadorModal } from '../../expedientes/components/EncargoCertificadorModal';
 
 // Tono por bloque. El color es información: dice cuánto duele, no adorna.
 const TONO = {
@@ -101,6 +103,10 @@ export function SeguimientoView() {
     // esto, no queda ninguna señal de que hayas avanzado: da la sensación de no haber
     // servido de nada y se acaba mandando dos veces lo mismo.
     const [hechos, setHechos] = useState(0);
+    // Encargar el CEE sin salir de la cola: la lista de técnicos (ligera, ver la
+    // ruta) y la fila cuyo encargo se está preparando.
+    const [certificadores, setCertificadores] = useState([]);
+    const [encargo, setEncargo] = useState(null);   // { fila, certificador }
 
     const cargar = useCallback(async () => {
         try {
@@ -116,6 +122,29 @@ export function SeguimientoView() {
     }, []);
 
     useEffect(() => { cargar(); }, [cargar]);
+
+    useEffect(() => {
+        axios.get('/api/seguimiento/certificadores')
+            .then(r => setCertificadores(r.data || []))
+            .catch(() => setCertificadores([]));
+    }, []);
+
+    // Grupo "pedir el material del CEE" en el que está cada expediente, para que la
+    // fila ofrezca pedirlo sin tener que ir a buscarlo a Despachar. Solo existen los
+    // que ya han pasado de plazo: lo reciente no se reclama solo.
+    const grupoPedirDe = useMemo(() => {
+        const m = new Map();
+        for (const g of datos?.por_destinatario || []) {
+            if (g.tipo !== 'pedir-cee') continue;
+            for (const e of [...(g.expedientes || []), ...(g.opcionales || [])]) m.set(e.expediente_id, g);
+        }
+        return m;
+    }, [datos]);
+
+    const abrirEncargo = (fila, certId) => {
+        const certificador = certificadores.find(c => String(c.id_empresa) === String(certId));
+        if (certificador) setEncargo({ fila, certificador });
+    };
 
     const grupos = useMemo(() => {
         const g = datos?.por_destinatario || [];
@@ -274,10 +303,36 @@ export function SeguimientoView() {
                             // desplegado a mano.
                             <BloqueDiagnostico key={b.bloque} b={b} filtrando={!!filtro.trim()}
                                 abierto={bloquesAbiertos.has(b.bloque) || !!filtro.trim()}
-                                onToggle={() => toggleBloque(b.bloque)} />
+                                onToggle={() => toggleBloque(b.bloque)}
+                                certificadores={certificadores}
+                                encargoEnCurso={encargo}
+                                onEncargar={abrirEncargo}
+                                grupoPedirDe={grupoPedirDe}
+                                onPedir={setGrupoAbierto} />
                         ))}
                     </div>
                 )
+            )}
+
+            {encargo && (
+                <EncargoCertificadorModal
+                    key={`${encargo.fila.expediente_id}-${encargo.certificador.id_empresa}`}
+                    expedienteId={encargo.fila.expediente_id}
+                    numExp={encargo.fila.numero_expediente}
+                    clienteNombre={encargo.fila.cliente_nombre || ''}
+                    ceeFolderLink={encargo.fila.cee_folder_link || null}
+                    certificador={encargo.certificador}
+                    certAnterior={encargo.fila.certificador_id || null}
+                    avisoPrevio={encargo.fila.material && !encargo.fila.material.listo
+                        ? `Aún falta: ${encargo.fila.material.faltan.join(', ')}. El técnico no podrá levantar el CEE inicial hasta tenerlo — pídeselo al cliente o avísale de que tendrá que hacerlo en la visita.`
+                        : null}
+                    onCerrar={(confirmado) => {
+                        setEncargo(null);
+                        // Hecho: la fila sale de este bloque y pasa a "Encargados al
+                        // certificador". Se vuelve a escanear para que la cola diga la verdad.
+                        if (confirmado) { setHechos(h => h + 1); cargar(); }
+                    }}
+                />
             )}
 
             {grupoAbierto && (
@@ -480,6 +535,7 @@ function FilaExpediente({ f, enPlazo }) {
                     </span>
                     <span className="block text-[11px] text-white/60 leading-snug mt-0.5">{f.detalle}</span>
                     <span className="block text-[10px] text-white/25 truncate">{f.cliente_nombre || f.municipio || '—'}</span>
+                    {f.material && <MaterialCee m={f.material} className="mt-1.5" />}
                 </span>
                 <span className={`text-[11px] font-black tabular-nums shrink-0 ${enPlazo ? 'text-white/30' : colorDias(f.dias, f.sin_fecha)}`}>
                     {textoDias(f.dias, f.sin_fecha)}
@@ -500,7 +556,15 @@ function FilaExpediente({ f, enPlazo }) {
  * Por eso el contador de la cabecera cuenta lo PARADO —que es lo que duele— y lo que
  * va en plazo se anuncia aparte, atenuado y bajo su propio rótulo.
  */
-function BloqueDiagnostico({ b, abierto, onToggle, filtrando }) {
+function BloqueDiagnostico({ b, abierto, onToggle, filtrando, certificadores, encargoEnCurso, onEncargar, grupoPedirDe, onPedir }) {
+    const esEncargo = b.bloque === 'SIN_ENCARGAR';
+    // Una FUNCIÓN y no un componente definido aquí dentro: un componente nuevo en
+    // cada render desmontaría la fila —y con ella el desplegable abierto— cada vez.
+    const fila = (f, key, enPlazo) => (esEncargo
+        ? <FilaEncargo key={key} f={f} enPlazo={enPlazo} certificadores={certificadores}
+            encargoEnCurso={encargoEnCurso} onEncargar={onEncargar}
+            grupoPedir={grupoPedirDe?.get(f.expediente_id)} onPedir={onPedir} />
+        : <FilaExpediente key={key} f={f} enPlazo={enPlazo} />);
     const t = tono(b.bloque);
     const vencidas = b.filas.filter(f => f.vencida);
     const enPlazo = b.filas.filter(f => !f.vencida);
@@ -528,19 +592,149 @@ function BloqueDiagnostico({ b, abierto, onToggle, filtrando }) {
             {abierto && (
                 <div className="border-t border-white/[0.06]">
                     {b.nota && <p className="px-4 pt-3 text-[11px] text-white/35 leading-relaxed">{b.nota}</p>}
+                    {esEncargo && <ResumenMaterial filas={b.filas} />}
                     <div className="p-2 space-y-0.5">
-                        {vencidas.map((f, i) => <FilaExpediente key={`v-${f.expediente_id}-${i}`} f={f} />)}
+                        {vencidas.map((f, i) => fila(f, `v-${f.expediente_id}-${i}`, false))}
                         {enPlazo.length > 0 && (
                             <>
                                 <p className="px-2.5 pt-3 pb-1 text-[10px] font-black uppercase tracking-widest text-white/25">
                                     En plazo · {b.umbral_dias > 0 ? `menos de ${b.umbral_dias} días` : 'en marcha'}
                                 </p>
-                                {enPlazo.map((f, i) => <FilaExpediente key={`p-${f.expediente_id}-${i}`} f={f} enPlazo />)}
+                                {enPlazo.map((f, i) => fila(f, `p-${f.expediente_id}-${i}`, true))}
                             </>
                         )}
                     </div>
                 </div>
             )}
+        </div>
+    );
+}
+
+// ─── Encargar el CEE desde la cola ───────────────────────────────────────────
+
+/**
+ * ¿Tiene el técnico con qué levantar el CEE inicial? Tres chapas, una por pieza:
+ * la vivienda (vídeo, o fachada + patios), la caldera y su placa. El criterio NO
+ * se decide aquí: lo manda el backend en `f.material` (utils/materialCee.js), que
+ * es el mismo con el que el parte le reclama las fotos al cliente.
+ *
+ * ⚠️ Cuenta lo subido por el enlace (`reforma_uploads`), no la carpeta de Drive:
+ * traer Drive de toda la cartera es una llamada por expediente. Una foto copiada a
+ * mano en la carpeta sale aquí como que falta — el mensaje al cliente sí reconcilia
+ * con Drive y no se la pediría.
+ */
+function MaterialCee({ m, className = '' }) {
+    if (!m) return null;
+    const chapa = (tono, txt, title) => (
+        <span title={title}
+            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold whitespace-nowrap ${
+                tono === 'ok' ? 'bg-emerald-500/10 text-emerald-400'
+                : tono === 'medio' ? 'bg-amber-500/10 text-amber-400'
+                : tono === 'no' ? 'bg-red-500/10 text-red-400'
+                : 'bg-white/[0.04] text-white/35'}`}>
+            {txt}
+        </span>
+    );
+    const v = m.vivienda;
+    const vivienda = v.estado === 'ok'
+        ? chapa('ok', `✓ Vivienda · ${v.video ? 'vídeo' : 'fotos'}`,
+            v.video ? 'Hay vídeo de la vivienda' : `Fachada (${v.fachada}) y patios (${v.patios})`)
+        : v.estado === 'parcial'
+            ? chapa('medio', '✓ Fachada · sin patios',
+                `Hay ${v.fachada} foto(s) de la fachada y ninguna de patios. Si la vivienda no tiene patio, está completo.`)
+            : chapa('no', '✗ Vivienda', 'Ni vídeo de la vivienda ni fotos de la fachada');
+    return (
+        <span className={`flex flex-wrap items-center gap-1 ${className}`}>
+            {vivienda}
+            {m.caldera.aplica ? (
+                <>
+                    {chapa(m.caldera.fotos ? 'ok' : 'no', `${m.caldera.fotos ? '✓' : '✗'} Caldera`,
+                        m.caldera.fotos ? `${m.caldera.fotos} foto(s) de la caldera` : 'Falta la foto de la caldera que se va a cambiar')}
+                    {chapa(m.placa.fotos ? 'ok' : 'no', `${m.placa.fotos ? '✓' : '✗'} Placa`,
+                        m.placa.fotos ? 'Hay foto de la placa de la caldera' : 'Falta la foto de la placa (marca, modelo y potencia)')}
+                </>
+            ) : chapa('gris', 'Sin calefacción', 'La vivienda declara no tener calefacción: no hay caldera que fotografiar')}
+        </span>
+    );
+}
+
+/** El recuento del bloque: cuántos se pueden encargar ya y cuántos esperan al cliente. */
+function ResumenMaterial({ filas }) {
+    const conMaterial = filas.filter(f => f.material);
+    if (!conMaterial.length) return null;
+    const listos = conMaterial.filter(f => f.material.listo).length;
+    const faltan = conMaterial.length - listos;
+    return (
+        <div className="px-4 pt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+            <span className="font-black text-emerald-400">{listos} con el material completo</span>
+            {faltan > 0 && <span className="font-black text-red-400">{faltan} esperando fotos del cliente</span>}
+            <span className="text-white/25">· según lo subido por el enlace de la vivienda</span>
+        </div>
+    );
+}
+
+/**
+ * Una fila de "Aceptados y sin encargar el CEE", con lo necesario para resolverla
+ * SIN SALIR DE LA COLA: qué material hay, a qué técnico se le manda y el encargo.
+ *
+ * Elegir técnico abre el MISMO popup que en el expediente (`EncargoCertificadorModal`),
+ * con su "Solo asignar", su aviso al cliente y su resultado. Cerrarlo sin confirmar
+ * DESHACE la elección: el desplegable vuelve a lo que consta en el expediente, o la
+ * fila diría que lo tiene un técnico al que nadie se lo ha asignado.
+ *
+ * Con técnico ya puesto y el encargo sin mandar (el peor sitio donde esconderse:
+ * en la ficha parece que está en marcha), el botón dice justo eso.
+ */
+function FilaEncargo({ f, enPlazo, certificadores, encargoEnCurso, onEncargar, grupoPedir, onPedir }) {
+    const enEsteEncargo = encargoEnCurso?.fila?.expediente_id === f.expediente_id;
+    const valor = enEsteEncargo ? encargoEnCurso.certificador.id_empresa : (f.certificador_id || '');
+    const faltaMaterial = f.material && !f.material.listo;
+
+    return (
+        <div className={`rounded-xl ${enPlazo ? 'opacity-60' : ''}`}>
+            <div className="flex items-center">
+                <a href={`/?exp=${encodeURIComponent(f.numero_expediente)}`}
+                    className="flex-1 min-w-0 flex items-center gap-2.5 px-2.5 pt-2.5 pb-1.5 rounded-xl active:bg-bkg-hover/50 transition-colors">
+                    <span className="flex-1 min-w-0">
+                        <span className="font-black text-brand text-[11px] tabular-nums">{f.numero_expediente}</span>
+                        <span className="block text-[11px] text-white/60 leading-snug mt-0.5">{f.detalle}</span>
+                        <span className="block text-[10px] text-white/25 truncate">{f.cliente_nombre || f.municipio || '—'}</span>
+                    </span>
+                    <span className={`text-[11px] font-black tabular-nums shrink-0 ${enPlazo ? 'text-white/30' : colorDias(f.dias, f.sin_fecha)}`}>
+                        {textoDias(f.dias, f.sin_fecha)}
+                    </span>
+                </a>
+                <BotonCarpeta f={f} />
+            </div>
+
+            <div className="px-2.5 pb-2.5 flex flex-col md:flex-row md:items-center gap-2">
+                <MaterialCee m={f.material} className="md:flex-1 min-w-0" />
+                <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                    {faltaMaterial && grupoPedir && (
+                        <button type="button" onClick={() => onPedir(grupoPedir)}
+                            title="Mandar al cliente el enlace para subir lo que falta"
+                            className="px-3 py-2 rounded-xl border border-red-500/25 bg-red-500/[0.06] text-red-300 text-[10px] font-black uppercase tracking-wider hover:bg-red-500/10 transition-colors max-md:flex-1">
+                            📩 Pedir al cliente
+                        </button>
+                    )}
+                    <div className="w-full md:w-56">
+                        <TecnicoPicker
+                            certificadores={certificadores}
+                            value={valor}
+                            onChange={(v) => { if (v) onEncargar(f, v); }}
+                            // Desde aquí solo se ENCARGA: quitar un técnico no avisa a
+                            // nadie y se hace, si hace falta, desde el expediente.
+                            permiteVaciar={false}
+                        />
+                    </div>
+                    {f.certificador_id && (
+                        <button type="button" onClick={() => onEncargar(f, f.certificador_id)}
+                            className="px-3 py-2 rounded-xl bg-brand text-bkg-deep text-[10px] font-black uppercase tracking-wider shadow-lg shadow-brand/20 active:scale-95 transition-all max-md:flex-1">
+                            Enviar el encargo
+                        </button>
+                    )}
+                </div>
+            </div>
         </div>
     );
 }

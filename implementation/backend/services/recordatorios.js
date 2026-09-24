@@ -174,7 +174,7 @@ function ceeMaterialMsg({ destinatario, esInstalador, tercero = false, numExp, o
         : '';
     const lista = faltan.map(f => `· *${f}*`).join('\n');
 
-    return `${hola}\n\nPara poder hacer el *certificado energético*${laObra} (expediente *${numExp}*) necesitamos ver cómo es la vivienda por fuera. Con estas fotos el técnico puede calcularlo sin tener que ir a tomar medidas.\n\n*Nos falta:*\n${lista}\n\nSe suben desde el móvil en este enlace, que te lleva directo y te enseña un ejemplo de cada una:\n${url}\n\nNo hace falta hacerlo de una vez: puedes volver al enlace y seguir por donde lo dejes.\n\n¡Gracias!\n${FIRMA}`;
+    return `${hola}\n\nPara poder hacer el *certificado energético*${laObra} (expediente *${numExp}*) necesitamos ver cómo es la vivienda y la caldera que se va a cambiar. Con esto el técnico puede calcularlo sin tener que ir a tomar medidas.\n\n*Nos falta:*\n${lista}\n\nSe suben desde el móvil en este enlace, que te lleva directo y te enseña un ejemplo de cada una:\n${url}\n\nNo hace falta hacerlo de una vez: puedes volver al enlace y seguir por donde lo dejes.\n\n¡Gracias!\n${FIRMA}`;
 }
 
 /**
@@ -399,7 +399,7 @@ function ceeMaterialLoteWa({ destinatario, items, esInstalador = false, tercero 
         : `Para poder hacer el *certificado energético* de ${n === 1 ? 'tu vivienda' : `tus *${n}* viviendas`} nos faltan unas fotos.`;
     return `${hola}
 
-${cuerpo} Con ellas el técnico puede calcularlo sin tener que ir a tomar medidas: basta con la *fachada desde la calle* y las *paredes que dan a patios*.
+${cuerpo} Con ellas el técnico puede calcularlo sin tener que ir a tomar medidas: basta con un *vídeo andando por la vivienda* (o la *fachada desde la calle* y las *paredes que dan a patios*) y la *caldera con su pegatina*.
 
 ${listaExpedientes(items)}
 

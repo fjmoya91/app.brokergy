@@ -105,6 +105,27 @@ async function grupoPorClave(clave) {
     return radar.agruparPorDestinatario(filas).find(g => g.clave === clave) || null;
 }
 
+// ─── GET /api/seguimiento/certificadores ──────────────────────────────────────
+// Lista LIGERA de técnicos para encargar el CEE desde la propia fila del parte.
+// No se reutiliza `GET /api/prescriptores`: hace `select('*')` —los logos son data
+// URL a tamaño de papel, 8 MB en cada llamada— y a quien no es ADMIN le filtra por
+// `representante_legal_id`, así que a un TRABAJADOR le llegaría la lista vacía.
+// Aquí solo va lo que pintan el desplegable y el popup de encargo: nombre y contacto.
+router.get('/certificadores', staffOnly, async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('prescriptores')
+            .select('id_empresa, razon_social, acronimo, cif, municipio, provincia, email, tlf, tipo_empresa, usuarios(email, tlf)')
+            .in('tipo_empresa', ['CERTIFICADOR', 'OTRO'])
+            .order('razon_social', { ascending: true });
+        if (error) throw error;
+        res.json(data || []);
+    } catch (err) {
+        console.error('[seguimiento/certificadores]', err.message);
+        res.status(500).json({ error: 'No se han podido cargar los certificadores' });
+    }
+});
+
 // ─── GET /api/seguimiento/lote/:clave ─────────────────────────────────────────
 // Borrador del mensaje de un grupo, para previsualizarlo antes de mandarlo.
 router.get('/lote/:clave', staffOnly, async (req, res) => {

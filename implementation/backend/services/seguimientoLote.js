@@ -117,7 +117,7 @@ async function prepararLote(grupo) {
             .select('id, oportunidad_id').in('id', grupo.filas.map(f => f.expediente_id));
         for (const e of exps || []) {
             try {
-                const { link } = await reformaUploadService.faltantesPorDestino(e.oportunidad_id, 'CEE');
+                const { link } = await reformaUploadService.faltantesPorDestino(e.oportunidad_id, 'CEE', { materialCee: true });
                 if (link) enlacesCee.set(e.id, link);
             } catch (err) { console.warn('[Lote] enlace del material CEE:', err.message); }
         }

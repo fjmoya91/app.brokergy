@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { createPortal } from 'react-dom';
+import { VistaPreviaA4 } from './VistaPreviaA4';
 import axios from 'axios';
 import { CampoDecimal } from '../../../components/CampoDecimal';
 import { CanalChip } from '../../../components/CanalChip';
@@ -26,7 +26,7 @@ import {
 
 const API = '/api/cee-directos';
 const lbl = 'block text-[10px] font-black text-white/40 uppercase tracking-widest mb-2';
-const inp = 'w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 min-h-[40px] text-base md:text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-brand/40';
+const inp = 'w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 min-h-[44px] text-base md:text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-brand/40';
 
 const CAMPOS_DESTINO = [
     ['razon_social', 'Nombre o razón social', 'col-span-2'],
@@ -36,7 +36,7 @@ const CAMPOS_DESTINO = [
     ['cp', 'C.P.', ''],
     ['municipio', 'Municipio', ''],
     ['provincia', 'Provincia', ''],
-    ['email', 'Email', ''],
+    ['email', 'Email', 'col-span-2'],
 ];
 
 export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
@@ -235,10 +235,10 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
     return (
         <>
             <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-end md:items-center justify-center md:p-6">
-                <div className="bg-bkg-surface border border-white/10 w-full md:max-w-3xl md:rounded-2xl rounded-t-3xl max-h-[92vh] flex flex-col">
+                <div className="bg-bkg-surface border border-white/10 w-full md:max-w-3xl md:rounded-2xl rounded-t-3xl max-h-[92dvh] flex flex-col">
 
-                    <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06] shrink-0">
-                        <div>
+                    <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-white/[0.06] shrink-0">
+                        <div className="min-w-0">
                             <h2 className="text-sm font-black text-white uppercase tracking-widest">
                                 {vista === 'emitida' && actual ? `Factura ${actual.numero}` : 'Nueva factura'}
                                 {datos?.expediente?.numero && <span className="text-white/30 font-mono normal-case tracking-normal"> · {datos.expediente.numero}</span>}
@@ -249,7 +249,7 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
                                     : 'Se numera con la serie del libro de facturas de la hoja de AppSheet, la misma que usa la otra app.'}
                             </p>
                         </div>
-                        <button onClick={onClose} className="w-9 h-9 rounded-lg hover:bg-white/5 text-white/40 hover:text-white transition-colors text-xl leading-none">×</button>
+                        <button onClick={onClose} aria-label="Cerrar" className="shrink-0 w-11 h-11 -mr-2 rounded-lg hover:bg-white/5 text-white/40 hover:text-white transition-colors text-xl leading-none">×</button>
                     </div>
 
                     {!datos ? (
@@ -269,14 +269,14 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
                                         {datos.emitidas.map(f => (
                                             <div key={f.numero}
                                                 className={`flex flex-wrap items-center gap-2 px-3 py-2 rounded-xl border ${actual?.numero === f.numero && vista === 'emitida' ? 'border-brand/40 bg-brand/[0.05]' : 'border-white/10 bg-white/[0.02]'}`}>
-                                                <button onClick={() => { setActual(f); setVista('emitida'); prepararEnvio(datos, f); }} className="font-mono text-brand text-sm font-bold">{f.numero}</button>
+                                                <button onClick={() => { setActual(f); setVista('emitida'); prepararEnvio(datos, f); }} className="min-h-[36px] font-mono text-brand text-sm font-bold">{f.numero}</button>
                                                 <span className="text-[11px] text-white/50">{isoAEs(f.fecha)} · {fmtEur(f.total)} · {f.cliente?.razon_social}</span>
                                                 <span className={`text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border ${f.estado === 'PAGADA' ? 'text-emerald-400 border-emerald-500/25' : 'text-amber-400 border-amber-500/25'}`}>{f.estado === 'PAGADA' ? 'Pagada' : 'Pendiente de pago'}</span>
                                                 {f.envios?.length > 0 && <span className="text-[10px] text-white/30">enviada {f.envios.length}×</span>}
                                                 <div className="ml-auto flex gap-1.5">
                                                     {f.pdf
-                                                        ? <button onClick={() => verPdf(f)} className="text-[10px] font-black uppercase tracking-widest text-white/50 hover:text-white">📄 PDF</button>
-                                                        : <button onClick={() => rehacerPdf(f)} className="text-[10px] font-black uppercase tracking-widest text-amber-300 hover:text-amber-200">⚠ Generar el PDF</button>}
+                                                        ? <button onClick={() => verPdf(f)} className="min-h-[36px] px-2 text-[10px] font-black uppercase tracking-widest text-white/50 hover:text-white">📄 PDF</button>
+                                                        : <button onClick={() => rehacerPdf(f)} className="min-h-[36px] px-2 text-[10px] font-black uppercase tracking-widest text-amber-300 hover:text-amber-200">⚠ Generar el PDF</button>}
                                                 </div>
                                             </div>
                                         ))}
@@ -306,7 +306,7 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
                                                 <div className="flex rounded-lg border border-white/10 overflow-hidden">
                                                     {[['cliente', 'Cliente'], ['partner', 'Partner']].map(([k, t]) => (
                                                         <button key={k} onClick={() => elegirDestino(k)}
-                                                            className={`px-3 py-1 text-[10px] font-black uppercase tracking-widest ${destino === k ? 'bg-brand/15 text-brand' : 'text-white/40 hover:text-white'}`}>{t}</button>
+                                                            className={`px-3 min-h-[36px] text-[10px] font-black uppercase tracking-widest ${destino === k ? 'bg-brand/15 text-brand' : 'text-white/40 hover:text-white'}`}>{t}</button>
                                                     ))}
                                                 </div>
                                             )}
@@ -318,7 +318,7 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
                                                     <div>{cliente.cif ? `NIF ${cliente.cif}` : <span className="text-amber-300">Sin NIF/CIF — obligatorio en una factura</span>}</div>
                                                     <div className="text-white/40">{[cliente.direccion, [cliente.cp, cliente.municipio].filter(Boolean).join(' '), cliente.provincia].filter(Boolean).join(', ') || 'Sin dirección'}</div>
                                                 </div>
-                                                <button onClick={() => setEditCliente(true)} className="shrink-0 text-[10px] font-black uppercase tracking-widest text-brand/70 hover:text-brand">Editar</button>
+                                                <button onClick={() => setEditCliente(true)} className="shrink-0 min-h-[36px] px-2 -mr-2 text-[10px] font-black uppercase tracking-widest text-brand/70 hover:text-brand">Editar</button>
                                             </div>
                                         ) : (
                                             <div className="grid grid-cols-2 gap-2">
@@ -326,6 +326,7 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
                                                     <div key={k} className={cls}>
                                                         <label className="block text-[10px] text-white/35 mb-1">{t}</label>
                                                         <input value={cliente[k] || ''} onChange={e => setCliente(c => ({ ...c, [k]: e.target.value }))}
+                                                            type={k === 'email' ? 'email' : k === 'tlf' ? 'tel' : 'text'} inputMode={k === 'cp' ? 'numeric' : undefined}
                                                             className={`${inp} ${k === 'email' ? 'no-uppercase' : ''}`} />
                                                     </div>
                                                 ))}
@@ -336,29 +337,39 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
 
                                     {/* ── Líneas ──────────────────────── */}
                                     <section>
-                                        <label className={lbl}>Conceptos <span className="text-white/20 normal-case font-normal tracking-normal">— del catálogo de artículos de la hoja</span></label>
+                                        <label className={lbl}>Conceptos <span className="text-white/20 normal-case font-normal tracking-normal">— del catálogo de la hoja · precios sin IVA</span></label>
                                         <div className="space-y-2">
                                             {lineas.map((l, i) => {
                                                 const c = totales.lineas[i];
                                                 return (
                                                     <div key={i} className="rounded-xl border border-white/10 bg-white/[0.02] p-3 space-y-2">
+                                                        {/* El concepto se LEE entero: en un <select> de 300 px se
+                                                            cortaba en "REALIZACIÓN DE CERTIFIC…" y no se sabía cuál era.
+                                                            El select va invisible ENCIMA, así que tocar el texto abre el
+                                                            selector nativo del móvil, que es donde mejor se elige. */}
                                                         <div className="flex gap-2">
-                                                            <select value={l.articulo_id ?? ''} onChange={e => elegirArticulo(i, e.target.value)}
-                                                                className={`${inp} flex-1 min-w-0`}>
-                                                                {!articulos.some(a => String(a.id) === String(l.articulo_id)) && <option value={l.articulo_id ?? ''}>{l.descripcion || '— Elige un artículo —'}</option>}
-                                                                {articulos.map(a => <option key={a.id} value={a.id}>{a.nombre} · {fmtEur(a.importe)}</option>)}
-                                                            </select>
+                                                            <label className="relative flex-1 min-w-0 flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 min-h-[44px] cursor-pointer focus-within:border-brand/40">
+                                                                <span className={`flex-1 min-w-0 text-sm leading-snug normal-case ${l.descripcion ? 'text-white' : 'text-white/35'}`}>
+                                                                    {l.descripcion || 'Elige un concepto del catálogo'}
+                                                                </span>
+                                                                <span className="shrink-0 text-white/35 text-xs" aria-hidden>▾</span>
+                                                                <select value={l.articulo_id ?? ''} onChange={e => elegirArticulo(i, e.target.value)}
+                                                                    aria-label="Concepto" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer">
+                                                                    {!articulos.some(a => String(a.id) === String(l.articulo_id)) && <option value={l.articulo_id ?? ''}>{l.descripcion || '— Elige un artículo —'}</option>}
+                                                                    {articulos.map(a => <option key={a.id} value={a.id}>{a.nombre} · {fmtEur(a.importe)}</option>)}
+                                                                </select>
+                                                            </label>
                                                             <button onClick={() => setLineas(ls => ls.filter((_, j) => j !== i))}
-                                                                className="shrink-0 w-10 rounded-xl border border-white/10 text-white/40 hover:text-red-300" title="Quitar la línea">✕</button>
+                                                                className="shrink-0 w-11 min-h-[44px] rounded-xl border border-white/10 text-white/40 hover:text-red-300" title="Quitar la línea" aria-label="Quitar la línea">✕</button>
                                                         </div>
                                                         <div className="grid grid-cols-4 gap-2">
-                                                            <div><label className="block text-[10px] text-white/35 mb-1">Uds</label>
+                                                            <div><label className="block text-[10px] text-white/35 mb-1 whitespace-nowrap">Uds</label>
                                                                 <CampoDecimal valor={l.uds} onCambio={n => setLinea(i, { uds: n })} className={inp} /></div>
-                                                            <div><label className="block text-[10px] text-white/35 mb-1">Precio (sin IVA)</label>
+                                                            <div><label className="block text-[10px] text-white/35 mb-1 whitespace-nowrap">Precio €</label>
                                                                 <CampoDecimal valor={l.precio} onCambio={n => setLinea(i, { precio: n })} className={inp} /></div>
-                                                            <div><label className="block text-[10px] text-white/35 mb-1">% Dto</label>
+                                                            <div><label className="block text-[10px] text-white/35 mb-1 whitespace-nowrap">% Dto</label>
                                                                 <CampoDecimal valor={l.dtoPct} onCambio={n => setLinea(i, { dtoPct: Math.min(100, n) })} alVaciar={() => setLinea(i, { dtoPct: 0 })} className={inp} /></div>
-                                                            <div><label className="block text-[10px] text-white/35 mb-1">% IVA</label>
+                                                            <div><label className="block text-[10px] text-white/35 mb-1 whitespace-nowrap">% IVA</label>
                                                                 <CampoDecimal valor={l.ivaPct} onCambio={n => setLinea(i, { ivaPct: n })} alVaciar={() => setLinea(i, { ivaPct: 0 })} className={inp} /></div>
                                                         </div>
                                                         <div className="text-right text-[11px] text-white/40 font-mono">{fmtEur(c?.subtotal)} + IVA {fmtEur(c?.iva)} = <span className="text-white/70">{fmtEur((c?.subtotal || 0) + (c?.iva || 0))}</span></div>
@@ -459,20 +470,10 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
                 </div>
             </div>
 
-            {preview && createPortal(
-                <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 md:p-6" onClick={() => setPreview(false)}>
-                    <div className="bg-white w-full max-w-[860px] h-[92vh] rounded-xl overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center justify-between px-4 py-2 bg-bkg-surface border-b border-white/10">
-                            <span className="text-[11px] font-black uppercase tracking-widest text-white/60">
-                                Vista previa · el nº {datos?.proximoNumero ? `(${datos.proximoNumero})` : ''} se reserva al emitir
-                            </span>
-                            <button onClick={() => setPreview(false)} className="text-white/50 hover:text-white text-xl leading-none px-2">×</button>
-                        </div>
-                        <iframe title="Vista previa de la factura" className="flex-1 w-full bg-white"
-                            srcDoc={buildFacturaCeeHtml(payloadPdf(datos?.proximoNumero || 'BORRADOR'))} />
-                    </div>
-                </div>,
-                document.body
+            {preview && (
+                <VistaPreviaA4 titulo="Vista previa de la factura" onClose={() => setPreview(false)}
+                    rotulo={`Vista previa · el nº ${datos?.proximoNumero ? `(${datos.proximoNumero}) ` : ''}se reserva al emitir`}
+                    html={buildFacturaCeeHtml(payloadPdf(datos?.proximoNumero || 'BORRADOR'))} />
             )}
 
             <SendActionOverlay

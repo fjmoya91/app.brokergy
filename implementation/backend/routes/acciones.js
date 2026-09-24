@@ -277,7 +277,7 @@ async function prepararSolicitud(expId, tipo, scope) {
         const reformaUploadService = require('../services/reformaUploadService');
         const { data: ex } = await supabase.from('expedientes')
             .select('oportunidad_id').eq('id', expId).maybeSingle();
-        const { slots, link } = await reformaUploadService.faltantesPorDestino(ex?.oportunidad_id, 'CEE');
+        const { slots, link } = await reformaUploadService.faltantesPorDestino(ex?.oportunidad_id, 'CEE', { materialCee: true });
         if (slots.length && link) {
             // Al CLIENTE: es quien tiene acceso a la vivienda. Al instalador se le
             // ofrece desmarcado — a veces es él quien pasa por la obra.

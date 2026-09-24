@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { createPortal } from 'react-dom';
+import { VistaPreviaA4 } from './VistaPreviaA4';
 import axios from 'axios';
 import { ClientePicker } from './ClientePicker';
 import { PrescriptorPicker } from '../../../components/PrescriptorPicker';
@@ -218,14 +218,14 @@ export function OfertaCeeModal({ isOpen, onClose, onSent, prescriptores = [] }) 
     return (
         <>
             <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-end md:items-center justify-center md:p-6">
-                <div className="bg-bkg-surface border border-white/10 w-full md:max-w-2xl md:rounded-2xl rounded-t-3xl max-h-[92vh] flex flex-col">
+                <div className="bg-bkg-surface border border-white/10 w-full md:max-w-2xl md:rounded-2xl rounded-t-3xl max-h-[92dvh] flex flex-col">
 
-                    <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06] shrink-0">
-                        <div>
+                    <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-white/[0.06] shrink-0">
+                        <div className="min-w-0">
                             <h2 className="text-sm font-black text-white uppercase tracking-widest">Enviar oferta de CEE</h2>
                             <p className="text-[11px] text-white/35 mt-0.5">El cliente recibe el PDF y un enlace para aceptarla. Al aceptar, nace el expediente.</p>
                         </div>
-                        <button onClick={cerrar} className="w-9 h-9 rounded-lg hover:bg-white/5 text-white/40 hover:text-white transition-colors text-xl leading-none">×</button>
+                        <button onClick={cerrar} aria-label="Cerrar" className="shrink-0 w-11 h-11 -mr-2 rounded-lg hover:bg-white/5 text-white/40 hover:text-white transition-colors text-xl leading-none">×</button>
                     </div>
 
                     <div className="overflow-y-auto px-5 py-5 space-y-6">
@@ -246,7 +246,7 @@ export function OfertaCeeModal({ isOpen, onClose, onSent, prescriptores = [] }) 
                                 ))}
                             </div>
 
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-3">
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-3 items-end">
                                 <div>
                                     <label className="block text-[10px] text-white/35 mb-1">Honorarios (sin IVA)</label>
                                     <div className="relative">
@@ -288,7 +288,7 @@ export function OfertaCeeModal({ isOpen, onClose, onSent, prescriptores = [] }) 
                                 <label className={`${lbl} mb-0`}>Cliente <span className="text-brand">·</span> obligatorio</label>
                                 <button type="button"
                                     onClick={() => { setModoCliente(m => (m === 'rapido' ? 'existente' : 'rapido')); setCliente(null); }}
-                                    className="text-[10px] font-black uppercase tracking-widest text-brand/70 hover:text-brand">
+                                    className="min-h-[36px] px-2 -mr-2 text-[10px] font-black uppercase tracking-widest text-brand/70 hover:text-brand">
                                     {modoCliente === 'rapido' ? 'Buscar uno que ya existe' : 'Es nuevo: solo nombre'}
                                 </button>
                             </div>
@@ -317,11 +317,11 @@ export function OfertaCeeModal({ isOpen, onClose, onSent, prescriptores = [] }) 
                                     <label className={lbl}>El inmueble <span className="text-white/20 normal-case font-normal tracking-normal">— sale en la oferta y lo hereda el expediente</span></label>
                                     <div className="flex gap-2">
                                         <input value={refCatastral} onChange={e => setRefCatastral(e.target.value.toUpperCase())}
-                                            placeholder="Ref. catastral (opcional)" className={`${inp} font-mono`} />
+                                            placeholder="Ref. catastral (opcional)" className={`${inp} min-w-0 font-mono`} />
                                         <button type="button" onClick={traerDelCatastro}
                                             disabled={catastro.cargando || !refCatastralValida(refCatastral)}
                                             className="shrink-0 min-h-[44px] px-4 rounded-xl border border-brand/30 bg-brand/10 text-brand text-[10px] font-black uppercase tracking-widest hover:bg-brand/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
-                                            {catastro.cargando ? '…' : 'Traer dirección'}
+                                            {catastro.cargando ? '…' : <><span className="md:hidden">Traer</span><span className="hidden md:inline">Traer dirección</span></>}
                                         </button>
                                     </div>
                                     {catastro.msg && <div className="mt-2 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.05] px-4 py-3 text-[11px] text-emerald-300">{catastro.msg}</div>}
@@ -401,18 +401,10 @@ export function OfertaCeeModal({ isOpen, onClose, onSent, prescriptores = [] }) 
                 </div>
             </div>
 
-            {preview && createPortal(
-                <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 md:p-6" onClick={() => setPreview(false)}>
-                    <div className="bg-white w-full max-w-[860px] h-[92vh] rounded-xl overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center justify-between px-4 py-2 bg-bkg-surface border-b border-white/10">
-                            <span className="text-[11px] font-black uppercase tracking-widest text-white/60">Vista previa · el nº se asigna al enviar</span>
-                            <button onClick={() => setPreview(false)} className="text-white/50 hover:text-white text-xl leading-none px-2">×</button>
-                        </div>
-                        <iframe title="Vista previa de la oferta" className="flex-1 w-full bg-white"
-                            srcDoc={buildOfertaCeeHtml(borrador, { cliente: clientePdf, firmaUrl: '#' })} />
-                    </div>
-                </div>,
-                document.body
+            {preview && (
+                <VistaPreviaA4 titulo="Vista previa de la oferta" onClose={() => setPreview(false)}
+                    rotulo="Vista previa · el nº se asigna al enviar"
+                    html={buildOfertaCeeHtml(borrador, { cliente: clientePdf, firmaUrl: '#' })} />
             )}
 
             <SendActionOverlay

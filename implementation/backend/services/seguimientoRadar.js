@@ -97,10 +97,10 @@ const BLOQUES = {
         // queda parado antes de empezar, sin que nadie lo reclame. Es distinto de
         // SIN_ENCARGAR: allí lo que falta es que mandemos el encargo; aquí falta el
         // material con el que trabajar, y lo tiene que pasar el cliente.
-        orden: 9, emoji: '📐', titulo: 'Sin las fotos para levantar el certificado',
+        orden: 9, emoji: '📐', titulo: 'Sin el material para levantar el CEE inicial',
         dias: num(process.env.RADAR_CEE_MATERIAL_DIAS, 5),
         reinsistir: num(process.env.RADAR_CEE_MATERIAL_REINSISTIR, 7),
-        nota: 'Es lo que el certificador necesita para calcular el CEE: la fachada desde la calle y las paredes que dan a patios.',
+        nota: 'Es lo que el certificador necesita para el CEE inicial: el vídeo de la vivienda (o la fachada y los patios) y la caldera con su placa.',
     },
     SIN_ENCARGAR: {
         // Plazo 0, por el mismo motivo que REVISION: un expediente aceptado sin
@@ -143,12 +143,11 @@ const BLOQUES = {
 const LOTE_EN_PAGO = ['CAE EMITIDO – PTE PAGO BROKERGY', 'CAE EMITIDO - PTE PAGO BROKERGY', 'PTE. PAGO BROKERGY A CLIENTE'];
 
 // Subestados por fase del CEE, agrupados por DE QUIÉN es la pelota.
-// Lo IMPRESCINDIBLE para levantar el certificado. No es toda la lista del destino
-// CEE: el vídeo, los planos y el CEE anterior son `prescindible` —ayudan, pero el
-// certificador puede trabajar sin ellos—, y reclamar lo que da igual que no llegue
-// es lo que enseña a ignorar el parte. Estas dos no: sin ver la fachada y los
-// patios no hay huecos que medir.
-const SLOTS_CEE_MINIMOS = ['FOTO_FACHADA_PRINCIPAL', 'FOTO_PATIOS_INTERIORES'];
+// Lo IMPRESCINDIBLE para levantar el CEE inicial (vivienda por fuera —vídeo o
+// fotos— y la caldera con su placa) lo decide `materialCee`, fuente única que
+// comparten este radar y la petición al cliente. Antes aquí se exigían la fachada
+// Y los patios, y a una casa sin patio se le reclamaba para siempre.
+const { materialCee } = require('../utils/materialCee');
 
 const ESPERANDO_REVISION = ['PRESENTADO', 'PTE_REVISION'];   // la tiene Brokergy
 const EN_CERTIFICADOR    = ['ASIGNADO', 'EN_TRABAJO', 'PTE_PRESENTACION'];
@@ -266,6 +265,10 @@ function detectarSinEncargar(e, out) {
         scope: 'inicial', desde, d,
         detalle: e.certificador_id ? 'Técnico asignado, encargo SIN ENVIAR' : 'Sin certificador asignado',
         responsable: 'BROKERGY',
+        // Con qué va a trabajar el técnico. Viaja en la fila para que la pestaña
+        // Seguimiento diga, antes de encargar, si ya se le puede mandar o si antes
+        // hay que pedirle las fotos al cliente.
+        material: materialCee(e.uploads, e.instalacion),
         accion: { tipo: 'ver', label: e.certificador_id ? 'Enviar el encargo' : 'Encargar el CEE inicial' },
     }));
 }
@@ -291,18 +294,17 @@ function detectarCeeSinMaterial(e, out) {
     if (sub && !['PTE_ENVIO_CERT', 'ASIGNADO', 'EN_TRABAJO'].includes(sub)) return;
     if (rankEstado(e.estado) > rankEstado('PTE. CEE INICIAL')) return;
 
-    const uploads = e.uploads || {};
-    const faltan = SLOTS_CEE_MINIMOS.filter(k => !(uploads[k]?.length));
-    if (!faltan.length) return;
+    const material = materialCee(e.uploads, e.instalacion);
+    if (material.listo) return;
 
     const desde = e.created_at;
     const d = dias(desde);
     const aviso = ultimoAviso(e.recordatorios, 'pedir-cee:CLIENTE');
     out.push(fila(e, 'CEE_SIN_MATERIAL', {
-        scope: 'CLIENTE', desde, d, aviso,
-        detalle: faltan.length === SLOTS_CEE_MINIMOS.length
-            ? 'No ha mandado ninguna foto de la vivienda'
-            : 'Falta parte del material de la vivienda',
+        scope: 'CLIENTE', desde, d, aviso, material,
+        detalle: material.faltan.length === 3
+            ? 'No ha mandado nada de la vivienda ni de la caldera'
+            : `Falta: ${material.faltan.join(', ')}`,
         responsable: 'CLIENTE',
         accion: { tipo: 'pedir-cee', scope: 'CLIENTE', label: 'Pedir las fotos de la vivienda' },
     }));
@@ -581,6 +583,8 @@ function fila(e, bloque, extra) {
         responsable: extra.responsable,
         accion: extra.accion || null,
         aviso: extra.aviso || null,
+        material: extra.material || null,
+        cee_folder_link: e.cee_folder_link || null,
     };
 }
 
@@ -605,6 +609,7 @@ async function escanear(opts = {}) {
             oportunidad_id, lote_id,
             oportunidades(instalador_asociado_id,prescriptor_id,uploads:datos_calculo->reforma_uploads),
             certificador_id:cee->>certificador_id,
+            cee_folder_link:cee->>cee_folder_link,
             fin_obra:documentacion->>fecha_fin_obra_comunicada,
             fecha_registro_ini:documentacion->>fecha_registro_cee_inicial,
             reg_fin:documentacion->>fecha_registro_cee_final,
@@ -664,6 +669,11 @@ async function escanear(opts = {}) {
         // pseudo-partner de Brokergy y no es un instalador real.
         const insId = e.oportunidades?.instalador_asociado_id || e.oportunidades?.prescriptor_id || null;
         e.instalador_id = (insId && String(insId) !== '1') ? insId : null;
+
+        // Las fotos también viven en la oportunidad. ⚠️ Antes los detectores leían
+        // `e.uploads` sin que nadie lo rellenara, así que el bloque de material del
+        // CEE daba por vacía TODA vivienda, mandase lo que mandase.
+        e.uploads = e.oportunidades?.uploads || {};
 
         // `rechazoBorrador` espera el objeto `documentacion`; se le reconstruye el
         // trocito que necesita a partir de los campos planos que sí hemos traído.

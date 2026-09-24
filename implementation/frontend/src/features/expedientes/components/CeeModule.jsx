@@ -9,14 +9,14 @@ import { EfficiencyTable, CATEGORIES_SIMPLIFICADO } from '../../calculator/compo
 import { CeeDocumentsGrid } from './CeeDocumentsGrid';
 import { AvisoIrpfEpnr } from './AvisoIrpfEpnr';
 import { TecnicoPicker } from './TecnicoPicker';
+import { EncargoCertificadorModal } from './EncargoCertificadorModal';
 import { Ce3xAyudasModal } from './Ce3xAyudasModal';
 import { telefonoDe, emailDe } from '../../../utils/contactoPrescriptor';
 import { MensajeEditable } from './MensajeEditable';
-import { buildCertApproveMessage, buildCertDefaultMessage } from '../logic/certMessages';
+import { buildCertApproveMessage } from '../logic/certMessages';
 import { demandaPropuesta, compararDemanda, esperaDemandaMenor } from '../logic/demandaPropuesta';
 import { DemandaPropuestaPanel } from './DemandaPropuestaInfo';
 import { fireSuccessConfetti } from '../utils/successConfetti';
-import { SendActionOverlay } from '../../../components/SendActionOverlay';
 // Canal de envío de la barra inferior — COMPARTIDO con los popups de envío.
 import { CanalChip } from '../../../components/CanalChip';
 import { useAuth } from '../../../context/AuthContext';
@@ -218,29 +218,10 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
     const editMode = true;
     const [xmlWarning, setXmlWarning] = useState(null);
 
-    // ─── Estado para popup de notificación al certificador ─────────────────
+    // ─── Popup de notificación al certificador ─────────────────────────────
+    // El formulario, el aviso al cliente y el envío viven en
+    // `EncargoCertificadorModal` (compartido con la pestaña Seguimiento).
     const [showCertPopup, setShowCertPopup] = useState(false);
-    const [certNotifLoading, setCertNotifLoading] = useState(false);
-    const [certNotifResult, setCertNotifResult] = useState(null);
-    const [certPriority, setCertPriority] = useState('normal');
-    const [certAdminMessage, setCertAdminMessage] = useState('');
-    // Mensaje de encargo editable (previsualización), homogéneo con el popup de la campana.
-    const [certAssignMessage, setCertAssignMessage] = useState('');
-    const [certChannels, setCertChannels] = useState(['email']); // 'email' | 'whatsapp'
-    // Si la pulsación fue "Asignar y notificar" o "Solo asignar": el overlay no puede
-    // decir "Enviando encargo…" cuando no se manda nada (comparte carpeta y guarda).
-    const [certNotifyMode, setCertNotifyMode] = useState(true);
-    // ─── Aviso al CLIENTE, que sale por el MISMO botón ─────────────────────
-    // Encargar el CEE es el primer movimiento del expediente y hasta ahora el
-    // cliente no se enteraba: firmaba la propuesta y la siguiente noticia era la
-    // llamada de un técnico al que nadie le había anunciado. El texto lo redacta
-    // el BACKEND (fuente única en recordatorios.js) y aquí solo se enseña y se
-    // puede retocar antes de mandarlo.
-    const [avisoCliente, setAvisoCliente] = useState(null);
-    const [avisarCliente, setAvisarCliente] = useState(false);
-    const [clienteMessage, setClienteMessage] = useState('');
-    const [clienteChannels, setClienteChannels] = useState(['whatsapp']);
-    const [verMsgCliente, setVerMsgCliente] = useState(false);
     const savedCertId = useRef(expediente?.cee?.certificador_id || null);
 
     // ─── Estado para popup de validación (approve-cee) ─────────────────────
@@ -460,42 +441,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
         const nextLocal = { ...local, certificador_id: newCertId };
         setLocal(nextLocal);
         if (newCertId) {
-            const certObj = certificadores.find(c => String(c.id_empresa) === String(newCertId));
-            const certName = certObj ? (certObj.razon_social || certObj.acronimo) : '';
             setShowCertPopup(true);
-            setCertNotifResult(null);
-            setCertPriority('normal');
-            setCertAdminMessage('');
-            setCertChannels(['email']);
-            // Previsualización editable del mensaje de encargo (igual que el popup de la campana).
-            setCertAssignMessage(buildCertDefaultMessage('standard', 'inicial', certName, clienteNombre, numExp, ceeFolderLink, expedienteId, { ctx: msgCtx }));
-            // Borrador del aviso al cliente: destinatario, canales y texto. Se pide
-            // al backend (mismo patrón que `approve-cee-links`) para que lo que se
-            // revisa en pantalla sea EXACTAMENTE lo que se va a enviar.
-            setAvisoCliente(null);
-            setClienteMessage('');
-            setVerMsgCliente(false);
-            setAvisarCliente(false);
-            setClienteChannels(['whatsapp']);
-            // En los DOS negocios: cada ruta redacta SU texto (el de un CEE suelto
-            // no habla de obra ni de ayudas). Se pasa el técnico elegido porque en
-            // un CEE directo el aviso lo nombra, y aún no está guardado.
-            if (expediente?.id) {
-                axios.get(`${apiBase}/${expediente.id}/aviso-cliente-cee?phase=initial&certificador_id=${encodeURIComponent(newCertId)}`)
-                    .then(r => {
-                        const d = r.data || {};
-                        setAvisoCliente(d);
-                        setClienteMessage(d.mensaje || '');
-                        // Por WhatsApp, que es donde el cliente lee; si no consta
-                        // teléfono, por email.
-                        setClienteChannels(d.tlf ? ['whatsapp'] : (d.email ? ['email'] : []));
-                        // Viene marcado salvo que no haya por dónde escribirle o que ya
-                        // se le avisara: reasignar técnico es el caso normal y el cliente
-                        // no puede enterarse dos veces de que su trámite acaba de empezar.
-                        setAvisarCliente(!!(d.tlf || d.email) && !d.avisadoEn);
-                    })
-                    .catch(() => setAvisoCliente(null));
-            }
         } else {
             onSave({ cee: nextLocal });
         }
@@ -519,128 +465,6 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
             }
         }
         setShowCertPopup(false);
-        setCertNotifResult(null);
-    };
-
-    const handleCertConfirm = async (notify) => {
-        // ⚠️ QUIÉN ESTABA ANTES, capturado AQUÍ y no en el backend.
-        //
-        // Justo debajo se hace un `onSave` que ya persiste el certificador nuevo,
-        // así que para cuando la petición de notificación llega al servidor, el
-        // expediente guardado YA tiene al nuevo y el backend no puede saber que ha
-        // habido un cambio. Medido: reasignar a otro técnico dejaba la fase en
-        // "encargo enviado" apuntando a quien no había recibido nada.
-        const certAnteriorAlCambio = expediente?.cee?.certificador_id || null;
-        setCertNotifyMode(!!notify);
-
-        // Persistir el resto del CEE (XML, fechas, ACS, etc) — el backend del endpoint
-        // se encargará de persistir cert_id, dar acceso Drive y enviar el email si aplica.
-        try {
-            const maybePromise = onSave({ cee: local });
-            if (maybePromise && typeof maybePromise.then === 'function') {
-                await maybePromise;
-            }
-        } catch (_) {
-            setCertNotifResult({ type: 'error', text: 'No se pudo guardar el módulo. Inténtalo de nuevo.' });
-            return;
-        }
-        savedCertId.current = local.certificador_id;
-
-        if (!expediente?.id) {
-            setCertNotifResult({ type: 'error', text: 'Expediente no disponible.' });
-            return;
-        }
-
-        // Pre-validación del email del cert (solo si vamos a notificar por email)
-        const localCert = certificadores.find(c => String(c.id_empresa) === String(local.certificador_id));
-        const knownEmail = localCert?.email;
-        const knownPhone = localCert?.telefono || localCert?.movil || localCert?.tlf || null;
-
-        const wantsEmail = notify && certChannels.includes('email');
-        const wantsWA = notify && certChannels.includes('whatsapp');
-
-        if (wantsEmail && !knownEmail) {
-            setCertNotifResult({
-                type: 'error',
-                text: `${localCert?.razon_social || 'El certificador'} no tiene email registrado en su ficha. Edítalo desde Prescriptores.`
-            });
-            return;
-        }
-        if (wantsWA && !knownPhone) {
-            setCertNotifResult({
-                type: 'error',
-                text: `${localCert?.razon_social || 'El certificador'} no tiene teléfono registrado en su ficha. Edítalo desde Prescriptores.`
-            });
-            return;
-        }
-        if (notify && !wantsEmail && !wantsWA) {
-            setCertNotifResult({
-                type: 'error',
-                text: 'Selecciona al menos un canal (Email o WhatsApp).'
-            });
-            return;
-        }
-
-        setCertNotifLoading(true);
-        try {
-            const { data } = await axios.post(`${apiBase}/${expediente.id}/notify-certificador`, {
-                certificador_id: local.certificador_id,
-                certificador_anterior: certAnteriorAlCambio,
-                sendEmail: wantsEmail,
-                sendWhatsApp: wantsWA,
-                phase: 'initial',
-                template: 'standard',
-                priority: certPriority,
-                adminMessage: certAdminMessage.trim() || null,
-                // Cuerpo editable del encargo (previsualización). Solo aplica si se notifica.
-                customMessage: notify ? (certAssignMessage.trim() || null) : null,
-                // El aviso al cliente solo sale si de verdad sale el encargo: el texto
-                // le dice que ya le hemos mandado las instrucciones al técnico.
-                avisarCliente: !!notify && avisarCliente && clienteChannels.length > 0,
-                clienteChannels,
-                clienteMessage: clienteMessage.trim() || null,
-                clienteAsunto: avisoCliente?.asunto || null
-            });
-
-            const driveOk = data?.driveAccessGranted;
-            // El resultado se pinta con el overlay ESTÁNDAR de envío, que enseña UNA
-            // LÍNEA POR HECHO en vez de un párrafo corrido: lo que se comprueba de un
-            // vistazo es «por dónde ha salido, a quién y si ya tiene la carpeta», y
-            // eso en una frase seguida hay que leerlo entero para encontrarlo.
-            const driveItem = driveOk ? 'Acceso de edición a la carpeta CEE' : null;
-            if (notify) {
-                const chans = data?.channels || [];
-                const items = chans.map(c => {
-                    const low = String(c).toLowerCase();
-                    if (low.includes('mail')) return `Email · ${data?.sentTo || knownEmail || ''}`.trim();
-                    if (low.includes('whats')) return `WhatsApp · ${knownPhone || ''}`.trim();
-                    return String(c);
-                });
-                if (!items.length) items.push('Notificación enviada');
-                if (data?.avisoCliente?.canales?.length) {
-                    items.push(`Aviso al cliente${data.avisoCliente.nombre ? ` · ${data.avisoCliente.nombre}` : ''} · ${data.avisoCliente.canales.join(' + ')}`);
-                }
-                if (driveItem) items.push(driveItem);
-                setCertNotifResult({
-                    type: 'ok',
-                    title: certPriority === 'urgent' ? '¡Encargo urgente enviado!' : '¡Encargo enviado!',
-                    items
-                });
-            } else {
-                setCertNotifResult({
-                    type: 'ok',
-                    title: 'Certificador asignado',
-                    items: [`${localCert?.razon_social || 'Certificador'} asignado al expediente`, ...(driveItem ? [driveItem] : [])]
-                });
-            }
-            // Refrescar para que cee_folder_link aparezca en la UI (botón "Carpeta CEE")
-            if (onRefresh) onRefresh();
-        } catch (err) {
-            const msg = err.response?.data?.error || (notify ? 'Error al enviar la notificación' : 'Error al asignar el certificador');
-            setCertNotifResult({ type: 'error', text: msg });
-        } finally {
-            setCertNotifLoading(false);
-        }
     };
 
     // Nombre del cliente y enlace a la carpeta CEE, para prerellenar el mensaje de visto bueno
@@ -1556,258 +1380,29 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 </div>
             )}
 
-            {/* ─── Popup de notificación al certificador ─────────────────── */}
-            {showCertPopup && (
-                <>
-                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in p-4 max-md:items-end max-md:p-0" onClick={() => { if (!certNotifLoading && !certNotifResult) cerrarCertPopup(false); }}>
-                    {/* En móvil es una hoja inferior: cabecera fija con el técnico al que
-                        asignas, UN solo eje de scroll y los dos botones pegados abajo
-                        respetando el área segura. Con el popup centrado, el teclado al
-                        editar el mensaje dejaba el botón de enviar fuera de la pantalla. */}
-                    <div className="bg-bkg-deep border border-white/10 rounded-2xl p-6 max-w-md md:max-w-3xl w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto max-md:mx-0 max-md:p-0 max-md:rounded-b-none max-md:rounded-t-3xl max-md:max-h-[92dvh] max-md:flex max-md:flex-col max-md:overflow-hidden" onClick={e => e.stopPropagation()}>
-                                <div className="flex items-center gap-3 mb-5 max-md:shrink-0 max-md:mb-0 max-md:px-5 max-md:pt-4 max-md:pb-3 max-md:border-b max-md:border-white/[0.06]">
-                                    <div className="w-10 h-10 rounded-full bg-brand/20 flex items-center justify-center shrink-0">
-                                        <svg className="w-5 h-5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                                    </div>
-                                    <div>
-                                        <h4 className="text-sm font-black text-white uppercase tracking-widest">Notificar Certificador</h4>
-                                        <p className="text-[10px] text-white/40">Se asignará <span className="text-brand font-bold">{selectedCertName}</span> al expediente</p>
-                                    </div>
-                                </div>
-                                <div className="max-md:flex-1 max-md:overflow-y-auto max-md:overscroll-contain max-md:px-5 max-md:py-4">
-                                <p className="text-xs text-white/60 mb-5">¿Deseas enviar un email de notificación al certificador con los datos del expediente y el enlace a la documentación?</p>
-
-                                {/* Prioridad */}
-                                <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Prioridad</p>
-                                <div className="flex gap-2 mb-4">
-                                    <button
-                                        type="button"
-                                        onClick={() => setCertPriority('normal')}
-                                        disabled={certNotifLoading}
-                                        className={`flex-1 py-2 max-md:py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
-                                            certPriority === 'normal'
-                                                ? 'bg-brand/10 border-brand/30 text-brand'
-                                                : 'border-white/5 text-white/20 hover:text-white/40'
-                                        }`}
-                                    >📋 Normal</button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setCertPriority('urgent')}
-                                        disabled={certNotifLoading}
-                                        className={`flex-1 py-2 max-md:py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
-                                            certPriority === 'urgent'
-                                                ? 'bg-red-500/10 border-red-500/40 text-red-400'
-                                                : 'border-white/5 text-white/20 hover:text-white/40'
-                                        }`}
-                                    >🚨 Urgente</button>
-                                </div>
-
-                                {/* Los CANALES viven en la barra inferior, junto al botón:
-                                    mismo criterio que el popup de validar, y son los dos
-                                    popups del mismo interlocutor. */}
-
-                                {/* Mensaje al certificador (previsualización editable, homogéneo con el popup de la campana) */}
-                                <div className="flex items-center justify-between mb-2">
-                                    <p className="text-[9px] font-black text-white/30 uppercase tracking-widest">Mensaje al certificador</p>
-                                    <button
-                                        type="button"
-                                        onClick={() => setCertAssignMessage(buildCertDefaultMessage('standard', 'inicial', selectedCertName, clienteNombre, numExp, ceeFolderLink, expedienteId))}
-                                        disabled={certNotifLoading}
-                                        className="text-[9px] font-black uppercase tracking-widest text-white/30 hover:text-brand transition-colors disabled:opacity-40"
-                                        title="Restaurar el texto por defecto"
-                                    >↺ Restaurar plantilla</button>
-                                </div>
-                                <MensajeEditable
-                                    value={certAssignMessage}
-                                    onChange={setCertAssignMessage}
-                                    disabled={certNotifLoading}
-                                    placeholder="Mensaje que se enviará al certificador…"
-                                    rows={8}
-                                    maxLength={2000}
-                                    focusClass="focus:border-brand/40"
-                                    className="mb-1"
-                                />
-                                <div className="flex items-center justify-between mb-4">
-                                    <p className="text-[9px] text-white/25 leading-snug">Puedes editarlo libremente. Solo se envía si pulsas «Asignar y notificar».</p>
-                                    <p className="text-[9px] text-white/20 shrink-0 ml-3">{certAssignMessage.length}/2000</p>
-                                </div>
-
-                                {/* Notas internas adicionales (se añaden al mensaje y al historial).
-                                    Van con `case-sensitive` (index.css, con !important): la regla
-                                    global pone en MAYÚSCULAS todo `textarea`, y aquí se le escribe
-                                    a una persona, no se rellena un dato de formulario. */}
-                                <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Mensaje adicional (opcional)</p>
-                                <textarea
-                                    value={certAdminMessage}
-                                    onChange={e => setCertAdminMessage(e.target.value)}
-                                    disabled={certNotifLoading}
-                                    placeholder="Indicaciones específicas para el certificador (se incluyen en el email/WhatsApp y se registran en el historial)…"
-                                    rows={3}
-                                    className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-xs text-white case-sensitive placeholder:text-white/20 focus:outline-none focus:border-brand/40 resize-none mb-5"
-                                />
-
-                                {/* ── Aviso al CLIENTE, por el MISMO botón ──────────────────
-                                    Encargar el CEE es el primer movimiento del expediente y el
-                                    cliente no se enteraba: la primera noticia que tenía era la
-                                    llamada de un técnico que nadie le había anunciado.
-                                    El mensaje viene PLEGADO — casi nunca se edita, y enseñarlo
-                                    entero solo aleja el botón de enviar. */}
-                                {avisoCliente && (
-                                    <div className={`rounded-xl border p-3 mb-5 transition-colors ${avisarCliente ? 'border-emerald-500/30 bg-emerald-500/[0.04]' : 'border-white/[0.07] bg-black/20'}`}>
-                                        <label className="flex items-start gap-3 cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                checked={avisarCliente}
-                                                disabled={certNotifLoading || (!avisoCliente.tlf && !avisoCliente.email)}
-                                                onChange={e => setAvisarCliente(e.target.checked)}
-                                                className="mt-0.5 w-4 h-4 shrink-0 accent-emerald-500 disabled:opacity-40"
-                                            />
-                                            <span className="min-w-0">
-                                                <span className="block text-[11px] font-black text-white uppercase tracking-widest">Avisar también al cliente</span>
-                                                <span className="block text-[10px] text-white/40 leading-snug mt-0.5">
-                                                    {(!avisoCliente.tlf && !avisoCliente.email)
-                                                        ? 'El cliente no tiene teléfono ni email en su ficha.'
-                                                        : `Le decimos que el trámite ha arrancado y que le avisaremos cuando el CEE esté registrado${avisoCliente.nombre ? ` · ${avisoCliente.nombre}` : ''}`}
-                                                </span>
-                                            </span>
-                                        </label>
-
-                                        {/* Ya avisado: no se bloquea (puede hacer falta reenviarlo),
-                                            pero se dice — y por eso no viene marcado. */}
-                                        {avisoCliente.avisadoEn && (
-                                            <p className="text-[10px] text-amber-400/80 mt-2 ml-7 leading-snug">
-                                                ⚠️ Ya se le avisó el {new Date(avisoCliente.avisadoEn).toLocaleDateString('es-ES')}
-                                                {avisoCliente.avisadoA ? ` a ${avisoCliente.avisadoA}` : ''}. Márcalo solo si quieres repetirlo.
-                                            </p>
-                                        )}
-
-                                        {avisarCliente && (
-                                            <div className="mt-3 ml-7">
-                                                <div className="flex items-center gap-2 mb-2 flex-wrap">
-                                                    <CanalChip
-                                                        canal="whatsapp" nombre="WhatsApp"
-                                                        activo={clienteChannels.includes('whatsapp')}
-                                                        disponible={!!avisoCliente.tlf}
-                                                        detalle={avisoCliente.tlf}
-                                                        motivo="no consta en su ficha"
-                                                        bloqueado={certNotifLoading}
-                                                        onClick={() => setClienteChannels(prev => prev.includes('whatsapp') ? prev.filter(c => c !== 'whatsapp') : [...prev, 'whatsapp'])}
-                                                    />
-                                                    <CanalChip
-                                                        canal="email" nombre="Email"
-                                                        activo={clienteChannels.includes('email')}
-                                                        disponible={!!avisoCliente.email}
-                                                        detalle={avisoCliente.email}
-                                                        motivo="no consta en su ficha"
-                                                        bloqueado={certNotifLoading}
-                                                        onClick={() => setClienteChannels(prev => prev.includes('email') ? prev.filter(c => c !== 'email') : [...prev, 'email'])}
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setVerMsgCliente(v => !v)}
-                                                        className="ml-auto text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-brand transition-colors"
-                                                    >{verMsgCliente ? 'Ocultar mensaje' : '👁 Ver el mensaje'}</button>
-                                                </div>
-                                                {clienteChannels.length === 0 && (
-                                                    <p className="text-[10px] text-amber-400/80 mb-2">Elige un canal o desmarca el aviso.</p>
-                                                )}
-                                                {verMsgCliente && (
-                                                    <>
-                                                        <MensajeEditable
-                                                            value={clienteMessage}
-                                                            onChange={setClienteMessage}
-                                                            disabled={certNotifLoading}
-                                                            placeholder="Mensaje que recibirá el cliente…"
-                                                            rows={10}
-                                                            maxLength={2000}
-                                                            focusClass="focus:border-emerald-500/40"
-                                                        />
-                                                        <div className="flex items-center justify-between mt-1">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setClienteMessage(avisoCliente.mensaje || '')}
-                                                                disabled={certNotifLoading}
-                                                                className="text-[9px] font-black uppercase tracking-widest text-white/30 hover:text-brand transition-colors disabled:opacity-40"
-                                                            >↺ Restaurar plantilla</button>
-                                                            <p className="text-[9px] text-white/20 shrink-0 ml-3">{clienteMessage.length}/2000</p>
-                                                        </div>
-                                                    </>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-
-                                </div>
-
-                                {/* Barra inferior: los canales y, pegado a ellos, lo único
-                                    irreversible. El email y el teléfono se leen DENTRO de
-                                    la píldora de cada canal. */}
-                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between max-md:shrink-0 max-md:px-5 max-md:pt-3 max-md:pb-4 max-md:border-t max-md:border-white/[0.06] max-md:pb-[calc(1rem+env(safe-area-inset-bottom))]">
-                                    <div className="flex items-center gap-2">
-                                        <CanalChip
-                                            canal="email" nombre="Email"
-                                            activo={certChannels.includes('email')}
-                                            disponible={!!selectedCertEmail}
-                                            detalle={selectedCertEmail}
-                                            motivo="no consta en su ficha"
-                                            bloqueado={certNotifLoading}
-                                            onClick={() => setCertChannels(prev => prev.includes('email') ? prev.filter(c => c !== 'email') : [...prev, 'email'])}
-                                        />
-                                        <CanalChip
-                                            canal="whatsapp" nombre="WhatsApp"
-                                            activo={certChannels.includes('whatsapp')}
-                                            disponible={!!selectedCertTel}
-                                            detalle={selectedCertTel}
-                                            motivo="no consta en su ficha"
-                                            bloqueado={certNotifLoading}
-                                            onClick={() => setCertChannels(prev => prev.includes('whatsapp') ? prev.filter(c => c !== 'whatsapp') : [...prev, 'whatsapp'])}
-                                        />
-                                    </div>
-                                    <div className="flex gap-3 shrink-0">
-                                    <button
-                                        onClick={() => handleCertConfirm(false)}
-                                        disabled={certNotifLoading}
-                                        className="flex-1 sm:flex-none px-4 py-2.5 max-md:py-3.5 rounded-xl border border-white/10 text-white/50 text-[11px] font-black uppercase tracking-widest hover:text-white hover:border-white/20 transition-all"
-                                    >Solo asignar</button>
-                                    <button
-                                        onClick={() => handleCertConfirm(true)}
-                                        disabled={certNotifLoading}
-                                        className={`flex-1 sm:flex-none px-5 py-2.5 max-md:py-3.5 rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 ${
-                                            certPriority === 'urgent'
-                                                ? 'bg-red-500 text-white shadow-red-500/30'
-                                                : 'bg-brand text-black'
-                                        }`}
-                                    >
-                                        {certNotifLoading ? (
-                                            <><div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin"></div> Enviando...</>
-                                        ) : (certPriority === 'urgent' ? '🚨 Asignar y avisar URGENTE' : 'Asignar y notificar')}
-                                    </button>
-                                    </div>
-                                </div>
-                    </div>
-                </div>
-                {/* Resultado del encargo — overlay ESTÁNDAR de la app (enviando → ✓/✗
-                    con confeti y filete de marca). Es el MISMO que usan «Solicitar lo
-                    que falta» y el reenvío de notificaciones: un envío no puede
-                    contarse de una manera aquí y de otra allí. Va POR ENCIMA del
-                    formulario (z-[600]) para que, al fallar, «Volver e intentar de
-                    nuevo» devuelva lo escrito intacto en vez de cerrarlo todo. */}
-                <SendActionOverlay
-                    phase={certNotifLoading ? 'sending' : (certNotifResult ? 'done' : null)}
-                    ok={certNotifResult?.type === 'ok'}
-                    subtitle={[numExp, selectedCertName].filter(Boolean).join(' · ')}
-                    items={certNotifResult?.items || []}
-                    errorText={certNotifResult?.type === 'error' ? certNotifResult.text : ''}
-                    sendingTitle={certNotifyMode ? 'Enviando encargo…' : 'Asignando certificador…'}
-                    okTitle={certNotifResult?.title || '¡Encargo enviado!'}
-                    errorTitle={certNotifyMode ? 'No se pudo enviar el encargo' : 'No se pudo asignar'}
-                    onClose={() => {
-                        if (certNotifResult?.type === 'ok') cerrarCertPopup(true);
-                        else setCertNotifResult(null);
+            {/* ─── Popup de notificación al certificador ───────────────────
+                Componente COMPARTIDO con la pestaña Seguimiento: el encargo que sale
+                desde la cola de trabajo es el mismo que sale desde aquí. */}
+            {showCertPopup && selectedCert && (
+                <EncargoCertificadorModal
+                    key={selectedCert.id_empresa}
+                    expedienteId={expedienteId}
+                    numExp={numExp}
+                    clienteNombre={clienteNombre}
+                    ceeFolderLink={ceeFolderLink}
+                    certificador={selectedCert}
+                    certAnterior={expediente?.cee?.certificador_id || null}
+                    apiBase={apiBase}
+                    msgCtx={msgCtx}
+                    onAntesDeEnviar={async () => {
+                        // Persistir el resto del CEE (XML, fechas, ACS…). El certificador
+                        // lo persiste el propio endpoint de notificación.
+                        await onSave({ cee: local });
+                        savedCertId.current = local.certificador_id;
                     }}
+                    onHecho={() => { if (onRefresh) onRefresh(); }}
+                    onCerrar={cerrarCertPopup}
                 />
-                </>
             )}
             {/* Cabecera. En MÓVIL se apila y el selector de técnico sube a lo primero
                 (`max-md:order-first`): en una sola fila quedaba empujado fuera de la

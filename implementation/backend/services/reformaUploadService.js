@@ -1587,7 +1587,7 @@ async function buildDocsView(opp, opts = {}) {
  *
  * @returns {Promise<{slots: Array, link: string|null}>}
  */
-async function faltantesPorDestino(oportunidadUuid, destino = 'CEE') {
+async function faltantesPorDestino(oportunidadUuid, destino = 'CEE', opts = {}) {
     try {
         if (!oportunidadUuid) return { slots: [], link: null };
         const { data: opp } = await supabase
@@ -1598,8 +1598,17 @@ async function faltantesPorDestino(oportunidadUuid, destino = 'CEE') {
         if (!opp) return { slots: [], link: null };
 
         const view = await buildDocsView(opp);
+        // `materialCee`: lo que el certificador necesita para el CEE INICIAL, que
+        // no es solo el destino CEE — también la caldera y su placa (de ahí salen el
+        // generador y la potencia). Y si ya mandó el VÍDEO, la fachada y los patios
+        // sobran: salen en él. Criterio: utils/materialCee.js.
+        const mat = opts.materialCee ? require('../utils/materialCee') : null;
+        const tieneVideo = !!mat && (view.slots || []).some(s => s.key === mat.SLOT.VIDEO
+            && (s.existing || s.items?.length));
         const slots = (view.slots || []).filter(s =>
-            (s.destino || DESTINO.EXPEDIENTE) === destino
+            ((s.destino || DESTINO.EXPEDIENTE) === destino
+                || (mat && mat.SLOTS_CALDERA.includes(s.key)))
+            && !(tieneVideo && mat.SUSTITUYE_VIDEO.includes(s.key))
             && !s.existing && !s.waived && !(s.items?.length)
             // Un apartado PRESCINDIBLE (vídeo, planos, "Otros") no se reclama: no
             // alimenta ningún documento y alargaría el mensaje con cosas que da
