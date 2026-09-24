@@ -40,6 +40,8 @@ import { demandaDeCalculo } from '../../cee/ceeAvisos';
 import { calculateRes060FC } from '../logic/res060fc';
 import { Res060FCModal } from '../components/Res060FCModal';
 import axios from 'axios';
+import { LogoEmpresa } from '../../../components/LogoEmpresa';
+import { nombrePartner, tipoEmpresaLabel } from '../../../utils/tiposEmpresa';
 
 const INITIAL_INPUTS = {
     // Datos Edificio
@@ -430,6 +432,21 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             setAssociatedExpediente(null);
         }
     }, [inputs.id_oportunidad, user?.rol]);
+
+    // De quién viene la oportunidad: el PRESCRIPTOR, a la vista en la cabecera.
+    // Solo el staff: un partner solo ve sus propias oportunidades y la chapa le
+    // diría su propio nombre. La ficha trae el logo (data URL), pero es UNA.
+    const [prescriptor, setPrescriptor] = useState(null);
+    useEffect(() => {
+        const rol = user?.rol?.toUpperCase();
+        const pid = inputs.prescriptor_id;
+        if (!pid || (rol !== 'ADMIN' && rol !== 'TRABAJADOR')) { setPrescriptor(null); return; }
+        let cancelado = false;
+        axios.get(`/api/prescriptores/${pid}`)
+            .then(r => { if (!cancelado) setPrescriptor(r.data || null); })
+            .catch(() => { if (!cancelado) setPrescriptor(null); });
+        return () => { cancelado = true; };
+    }, [inputs.prescriptor_id, user?.rol]);
 
     // Cálculos en tiempo real cada vez que cambian los inputs o se cargan los modelos.
     // Recalculamos TAMBIÉN al cargar (no solo tras interacción) para que el resultado
@@ -1131,6 +1148,25 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 </div>
 
                 <div className="hidden md:flex items-center gap-3">
+                    {prescriptor && (() => {
+                        const { titulo, sub } = nombrePartner(prescriptor);
+                        return (
+                            <span
+                                className="flex items-center gap-2 pl-1 pr-3 py-0.5 rounded-full border border-violet-500/30 bg-violet-500/10 max-w-[260px]"
+                                title={`Prescriptor: ${[titulo, sub].filter(Boolean).join(' · ')} (${tipoEmpresaLabel(prescriptor.tipo_empresa)})`}
+                            >
+                                <LogoEmpresa p={prescriptor} size={20} className="rounded-full" />
+                                <span className="flex flex-col leading-tight min-w-0">
+                                    <span className="text-[8px] font-bold text-violet-300/70 uppercase tracking-widest">
+                                        {tipoEmpresaLabel(prescriptor.tipo_empresa)}
+                                    </span>
+                                    <span className="text-[10px] font-bold text-violet-300 uppercase tracking-wide truncate">
+                                        {titulo}
+                                    </span>
+                                </span>
+                            </span>
+                        );
+                    })()}
                     {inputs.referenciaCliente && (
                         <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
                             {inputs.referenciaCliente}
