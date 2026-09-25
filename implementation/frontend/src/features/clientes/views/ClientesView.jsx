@@ -1,21 +1,93 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { ClienteFormModal } from '../components/ClienteFormModal';
 import { ClienteDetailModal } from '../components/ClienteDetailModal';
 import { ExpedienteAccesos } from '../../expedientes/components/ExpedienteAccesos';
+import { fichaColor } from '../../expedientes/logic/expedienteTaxonomia';
+import {
+    TIPOS_CLIENTE, ESTADOS_CLIENTE, ORDEN_ESTADOS_CLIENTE,
+    etiquetasCliente, estadoCliente, detalleEstado, puntoCliente,
+} from '../logic/clientesEtiquetas';
+
+// El CEE directo es el otro negocio: color propio, que no se confunda con
+// ninguna ficha (TER100 ya es cian).
+const CEE_COLOR = 'bg-violet-500/10 text-violet-400 border-violet-500/20';
+const colorTipo = (t) => (t === 'CEE' ? CEE_COLOR : fichaColor(t).badge);
+
+function TipoChip({ etiqueta }) {
+    const { tipo, propuesta, abiertos } = etiqueta;
+    const title = propuesta
+        ? `${tipo}: solo presupuestado (oportunidad sin expediente)`
+        : abiertos > 0 ? `${tipo}: ${abiertos} en curso` : `${tipo}: cerrado`;
+    return (
+        <span title={title}
+            className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest border ${colorTipo(tipo)} ${propuesta ? 'border-dashed opacity-70' : ''}`}>
+            {tipo}
+        </span>
+    );
+}
+
+function FiltroChip({ activo, onClick, children, className = '' }) {
+    return (
+        <button type="button" onClick={onClick}
+            className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border transition-all ${
+                activo ? `${className || 'bg-brand/15 text-brand border-brand/40'} ring-1 ring-white/20`
+                       : 'bg-white/[0.02] text-white/40 border-white/[0.06] hover:text-white/70 hover:border-white/20'}`}>
+            {children}
+        </button>
+    );
+}
 
 function Badge({ children, color = 'default' }) {
     const colors = {
         default: 'bg-white/5 text-white/50 border-white/10',
         brand: 'bg-brand/10 text-brand border-brand/20',
         green: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+        violet: CEE_COLOR,
     };
     return (
         <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest border ${colors[color]}`}>
             {children}
         </span>
     );
+}
+
+const CLAVE_FILTROS = 'brokergy.clientes.filtros';
+const SIN_PARTNER = '__directo__';
+const partnerDe = (c) => c.prescriptor_id
+    ? { id: c.prescriptor_id, label: c.prescriptores?.acronimo || c.prescriptores?.razon_social || 'Partner' }
+    : { id: SIN_PARTNER, label: 'Directo (sin partner)' };
+
+// Exporta a CSV EXACTAMENTE lo que se está viendo (filtros y búsqueda incluidos):
+// un botón que exporta "todo" mientras la pantalla enseña otra cosa es la forma
+// más fácil de mandar el fichero equivocado. `;` y BOM, o Excel en español abre
+// una sola columna y se come los acentos.
+function exportarCsv(filas) {
+    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const cab = ['Nombre', 'Apellidos', 'DNI/CIF', 'Email', 'Teléfono', 'Municipio', 'Provincia',
+        'Partner', 'Estado', 'Estado del expediente', 'Tipos', 'Expedientes', 'CEE directos', 'Oportunidades sin expediente', 'Alta'];
+    const lineas = [cab.map(esc).join(';')];
+    for (const c of filas) {
+        const conExp = new Set((c.expedientes || []).map(e => e.oportunidad_id).filter(Boolean));
+        lineas.push([
+            c.nombre_razon_social, c.apellidos, c.dni, c.email, c.tlf, c.municipio, c.provincia,
+            c.prescriptor_id ? partnerDe(c).label : '',
+            ESTADOS_CLIENTE[c._estado]?.label || '',
+            c._punto ? `${c._punto.numero} · ${c._punto.estado || '—'}` : '',
+            c._tipos.map(t => t.propuesta ? `${t.tipo} (propuesta)` : t.tipo).join(', '),
+            (c.expedientes || []).map(e => `${e.numero_expediente} (${e.estado || '—'})`).join(', '),
+            (c.cee_directos || []).map(x => `${x.numero_expediente} (${x.estado || '—'})`).join(', '),
+            (c.oportunidades || []).filter(o => !conExp.has(o.id)).map(o => `${o.id_oportunidad} (${o.estado || '—'})`).join(', '),
+            c.created_at ? new Date(c.created_at).toLocaleDateString('es-ES') : '',
+        ].map(esc).join(';'));
+    }
+    const blob = new Blob(['\uFEFF' + lineas.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `clientes-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
 }
 
 export function ClientesView({ 
@@ -40,6 +112,23 @@ export function ClientesView({
     const [currentPage, setCurrentPage] = useState(1);
     // Fallo al abrir la carpeta (Drive o local) de un expediente desde la fila.
     const [accesoError, setAccesoError] = useState(null);
+    // Filtros de tipo (ficha / CEE) y de estado del cliente. null = todos.
+    // Se RECUERDAN en este navegador (un filtro que se pierde al cambiar de
+    // pestaña hay que volver a ponerlo cada vez). Es una comodidad de pantalla:
+    // si el almacenamiento falla, se arranca sin filtros y ya está.
+    const filtrosGuardados = useMemo(() => {
+        try { return JSON.parse(localStorage.getItem(CLAVE_FILTROS) || '{}') || {}; } catch { return {}; }
+    }, []);
+    const [filtroTipo, setFiltroTipo] = useState(filtrosGuardados.tipo || null);
+    const [filtroEstado, setFiltroEstado] = useState(filtrosGuardados.estado || null);
+    const [filtroPartner, setFiltroPartner] = useState(filtrosGuardados.partner || null);
+    useEffect(() => {
+        try {
+            localStorage.setItem(CLAVE_FILTROS, JSON.stringify({ tipo: filtroTipo, estado: filtroEstado, partner: filtroPartner }));
+        } catch { /* navegador sin almacenamiento */ }
+    }, [filtroTipo, filtroEstado, filtroPartner]);
+    const hayFiltro = !!(filtroTipo || filtroEstado || filtroPartner);
+    const limpiarFiltros = () => { setFiltroTipo(null); setFiltroEstado(null); setFiltroPartner(null); setCurrentPage(1); };
     const itemsPerPage = 15;
 
     const fetchClientes = async () => {
@@ -91,11 +180,47 @@ export function ClientesView({
     // en qué campo esté cada palabra (nombre, apellidos, municipio…).
     const norm = s => (s ?? '').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
     const tokens = norm(searchTerm).split(/\s+/).filter(Boolean);
-    const filtered = clientes.filter(c => {
+    // Etiquetas y estado se calculan UNA vez por cliente y se usan para las dos
+    // cosas: pintar la fila y filtrar. Así el filtro no puede traer una fila que
+    // en pantalla diga otra cosa.
+    const enriquecidos = useMemo(() => clientes.map(c => ({
+        ...c,
+        _tipos: etiquetasCliente(c),
+        _estado: estadoCliente(c),
+        _punto: puntoCliente(c),
+    })), [clientes]);
+
+    // ¿Pasa el cliente los filtros, salvo el de la dimensión que se está
+    // contando? Así cada recuento dice cuántos saldrían al pulsar ESE chip con
+    // los otros dos filtros tal y como están.
+    const pasa = (c, salvo) =>
+        (salvo === 'tipo' || !filtroTipo || c._tipos.some(t => t.tipo === filtroTipo))
+        && (salvo === 'estado' || !filtroEstado || c._estado === filtroEstado)
+        && (salvo === 'partner' || !filtroPartner || partnerDe(c).id === filtroPartner);
+
+    const cuentaTipos = {}, cuentaEstados = {}, cuentaPartners = {};
+    const partners = new Map(); // id -> etiqueta
+    for (const c of enriquecidos) {
+        if (pasa(c, 'tipo')) for (const t of c._tipos) cuentaTipos[t.tipo] = (cuentaTipos[t.tipo] || 0) + 1;
+        if (pasa(c, 'estado')) cuentaEstados[c._estado] = (cuentaEstados[c._estado] || 0) + 1;
+        const pa = partnerDe(c);
+        partners.set(pa.id, pa.label);
+        if (pasa(c, 'partner')) cuentaPartners[pa.id] = (cuentaPartners[pa.id] || 0) + 1;
+    }
+    // Directo (sin partner) al final; los demás por orden alfabético.
+    const opcionesPartner = [...partners.entries()]
+        .sort(([a, la], [b, lb]) => (a === SIN_PARTNER) - (b === SIN_PARTNER) || la.localeCompare(lb, 'es'));
+
+    const filtered = enriquecidos.filter(c => {
+        if (!pasa(c, null)) return false;
         if (!tokens.length) return true;
         const hay = norm([
             c.nombre_razon_social, c.apellidos, c.email, c.dni, c.tlf,
             c.municipio, c.provincia, c.prescriptores?.acronimo,
+            // Buscar también por nº de expediente, de CEE o de oportunidad.
+            ...(c.expedientes || []).map(e => e.numero_expediente),
+            ...(c.cee_directos || []).map(x => x.numero_expediente),
+            ...(c.oportunidades || []).map(o => o.id_oportunidad),
         ].filter(Boolean).join(' '));
         // Los teléfonos se guardan con o sin espacios ("677 052 554"): para un
         // token puramente numérico se compara también contra el texto sin separadores.
@@ -162,6 +287,63 @@ export function ClientesView({
                 </div>
             </div>
 
+            {/* ── Filtros por estado y por tipo ── */}
+            {!loading && clientes.length > 0 && (
+                <div className="px-6 sm:px-10 pb-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[9px] text-white/30 font-black uppercase tracking-[0.2em] mr-1">Estado</span>
+                        <FiltroChip activo={!filtroEstado} onClick={() => { setFiltroEstado(null); setCurrentPage(1); }}>Todos</FiltroChip>
+                        {ORDEN_ESTADOS_CLIENTE.filter(e => cuentaEstados[e] || filtroEstado === e).map(e => (
+                            <FiltroChip key={e} activo={filtroEstado === e} className={ESTADOS_CLIENTE[e].pill}
+                                onClick={() => { setFiltroEstado(filtroEstado === e ? null : e); setCurrentPage(1); }}>
+                                {ESTADOS_CLIENTE[e].label} <span className="opacity-60">{cuentaEstados[e] || 0}</span>
+                            </FiltroChip>
+                        ))}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[9px] text-white/30 font-black uppercase tracking-[0.2em] mr-1">Tipo</span>
+                        <FiltroChip activo={!filtroTipo} onClick={() => { setFiltroTipo(null); setCurrentPage(1); }}>Todos</FiltroChip>
+                        {TIPOS_CLIENTE.filter(t => cuentaTipos[t] || filtroTipo === t).map(t => (
+                            <FiltroChip key={t} activo={filtroTipo === t} className={colorTipo(t)}
+                                onClick={() => { setFiltroTipo(filtroTipo === t ? null : t); setCurrentPage(1); }}>
+                                {t} <span className="opacity-60">{cuentaTipos[t] || 0}</span>
+                            </FiltroChip>
+                        ))}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] text-white/30 font-black uppercase tracking-[0.2em] mr-1">Partner</span>
+                        <select
+                            value={filtroPartner || ''}
+                            onChange={e => { setFiltroPartner(e.target.value || null); setCurrentPage(1); }}
+                            className={`bg-bkg-surface border rounded-lg px-2 py-1 text-[10px] font-black uppercase tracking-widest focus:outline-none ${
+                                filtroPartner ? 'border-brand/40 text-brand' : 'border-white/[0.06] text-white/50'}`}>
+                            <option value="">Todos</option>
+                            {opcionesPartner.map(([id, label]) => (
+                                <option key={id} value={id}>{label} · {cuentaPartners[id] || 0}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="flex items-center gap-3 ml-auto">
+                        {hayFiltro && (
+                            <>
+                                <span className="text-[10px] text-white/30 font-bold uppercase tracking-widest">
+                                    {filtered.length} cliente{filtered.length !== 1 ? 's' : ''}
+                                </span>
+                                <button type="button" onClick={limpiarFiltros}
+                                    className="text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white/80">
+                                    ✕ Quitar filtros
+                                </button>
+                            </>
+                        )}
+                        <button type="button" onClick={() => exportarCsv(filtered)} disabled={!filtered.length}
+                            title="Descarga en CSV los clientes que se están viendo (con los filtros y la búsqueda aplicados)"
+                            className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border border-white/[0.08] text-white/50 hover:text-white hover:border-white/25 transition-all disabled:opacity-30">
+                            ⬇ Exportar {filtered.length}
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* ── Contenido ── */}
             <div className="flex-1 overflow-y-auto px-6 sm:px-10 pt-1 pb-6">
                 {loading && (
@@ -195,9 +377,9 @@ export function ClientesView({
                             </svg>
                         </div>
                         <p className="text-white/30 text-xs uppercase tracking-widest font-bold">
-                            {searchTerm ? 'Sin resultados para tu búsqueda' : 'No hay clientes registrados'}
+                            {searchTerm || hayFiltro ? 'Sin resultados para tu búsqueda' : 'No hay clientes registrados'}
                         </p>
-                        {!searchTerm && (
+                        {!searchTerm && !hayFiltro && (
                             <button
                                 onClick={() => setShowForm(true)}
                                 className="mt-4 px-4 py-2 bg-brand/10 border border-brand/20 text-brand text-xs font-black uppercase tracking-widest rounded-lg hover:bg-brand/20 transition-all"
@@ -236,9 +418,14 @@ export function ClientesView({
                                             {cliente.prescriptores?.acronimo && (
                                                 <Badge color="brand">{cliente.prescriptores.acronimo}</Badge>
                                             )}
+                                            {cliente._tipos.map(t => <TipoChip key={t.tipo} etiqueta={t} />)}
                                             {cliente.oportunidades?.length > 0 ? (
                                                 <Badge color="green">
                                                     {cliente.oportunidades[0].id_oportunidad} · {cliente.oportunidades[0].referencia_cliente}
+                                                </Badge>
+                                            ) : cliente.cee_directos?.length > 0 ? (
+                                                <Badge color="violet">
+                                                    {cliente.cee_directos[0].numero_expediente} · {cliente.cee_directos[0].nombre}
                                                 </Badge>
                                             ) : (
                                                 <Badge>SIN ASIGNAR</Badge>
@@ -265,6 +452,38 @@ export function ClientesView({
                                             onError={setAccesoError}
                                             className="flex-shrink-0"
                                         />
+                                    )}
+                                    {/* Los mismos tres accesos para su CEE directo más reciente,
+                                        contra SUS rutas (/api/cee-directos): son otra tabla y el
+                                        mismo UUID no vale en las dos. Con los dos negocios a la
+                                        vez van los dos grupos, separados y rotulados. */}
+                                    {isAdmin && cliente.cee_directos?.length > 0 && (
+                                        <div className={`flex items-center gap-1.5 flex-shrink-0 ${cliente.expedientes?.length ? 'sm:pl-2 sm:border-l sm:border-white/[0.06]' : ''}`}>
+                                            <span className="text-[8px] font-black uppercase tracking-widest text-violet-400/70">CEE</span>
+                                            <ExpedienteAccesos
+                                                apiBase="/api/cee-directos"
+                                                expedienteId={cliente.cee_directos[0].id}
+                                                numero={cliente.cee_directos[0].numero_expediente}
+                                                onAbrirApp={() => onNavigate('cee-directos', { cee_id: cliente.cee_directos[0].id })}
+                                                onError={setAccesoError}
+                                            />
+                                        </div>
+                                    )}
+
+                                    {/* Estado del cliente, con el detalle de cada cosa al pasar el ratón. */}
+                                    {cliente._estado !== 'SIN_ASIGNAR' && (
+                                        <span title={detalleEstado(cliente)}
+                                            className={`inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest border flex-shrink-0 ${ESTADOS_CLIENTE[cliente._estado].pill}`}>
+                                            {ESTADOS_CLIENTE[cliente._estado].label}
+                                            {/* En qué punto está lo que se le tramita: el estado del
+                                                expediente (o de la oportunidad, si es una propuesta). */}
+                                            {cliente._punto?.estado && (
+                                                <span className="ml-1.5 pl-1.5 border-l border-white/20 opacity-80 normal-case tracking-normal font-bold">
+                                                    {cliente._punto.estado}
+                                                    {cliente._punto.otros > 0 && <span className="opacity-70"> +{cliente._punto.otros}</span>}
+                                                </span>
+                                            )}
+                                        </span>
                                     )}
 
                                     {/* Fecha */}

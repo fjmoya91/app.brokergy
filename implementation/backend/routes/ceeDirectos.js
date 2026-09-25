@@ -2070,6 +2070,24 @@ router.post('/:id/entrega', staffOnly, async (req, res) => {
     }
 });
 
+// ─── GET /:id/drive-link ────────────────────────────────────────────────────
+// Gemelo de /api/expedientes/:id/drive-link: el enlace a la carpeta RAÍZ del
+// encargo, para el botón "Drive" del listado de clientes sin cargar la ficha
+// entera. Solo staff: la raíz lleva "3. PRESUPUESTO Y FACTURAS" y al
+// certificador no se le enlaza nunca (ver "Qué ve el certificador").
+router.get('/:id/drive-link', staffOnly, async (req, res) => {
+    try {
+        const { data: row, error } = await supabase.from('cee_directos')
+            .select('id, drive_folder_link').eq('id', req.params.id).maybeSingle();
+        if (error) throw error;
+        if (!row) return res.status(404).json({ error: 'Expediente no encontrado' });
+        if (!row.drive_folder_link) return res.status(404).json({ error: 'El CEE no tiene carpeta de Drive' });
+        res.json({ drive_folder_link: row.drive_folder_link });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ─── GET /:id/local-path ────────────────────────────────────────────────────
 // Ruta LOCAL de Windows (espejo de Drive Desktop) para el botón "Carpeta Local".
 router.get('/:id/local-path', staffOnly, async (req, res) => {

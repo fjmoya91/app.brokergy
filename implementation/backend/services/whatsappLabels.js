@@ -116,6 +116,30 @@ async function deChat(chatId) {
 }
 
 /**
+ * El id del chat YA ABIERTO con ese número, o null si nunca se ha hablado con
+ * él. No pregunta a WhatsApp ni crea nada: es la consulta barata, la que usa
+ * quien solo quiere tocar conversaciones que ya existen (etiquetar clientes).
+ */
+async function chatAbierto(telefono) {
+    const client = cliente();
+    const nueve = String(telefono || '').replace(/\D/g, '').slice(-9);
+    if (nueve.length < 9) throw deDato('Ese número no parece un teléfono.');
+    const completo = `34${nueve}@c.us`;
+    return conPlazo(client.pupPage.evaluate((clasico) => {
+        const C = window.require('WAWebCollections');
+        if (!C || !C.Chat) return null;
+        if (C.Chat.get(clasico)) return clasico;
+        // Puede estar abierto bajo su `@lid`: se busca por el número dentro del id.
+        const nueve = clasico.replace(/\D/g, '').slice(-9);
+        const hit = C.Chat.getModelsArray().find(ch => {
+            const u = ch.id && ch.id.user ? String(ch.id.user) : '';
+            return u.slice(-9) === nueve;
+        });
+        return hit ? hit.id._serialized : null;
+    }, completo), PLAZO_MS, 'buscar chat abierto');
+}
+
+/**
  * El id con el que WhatsApp conoce a este número, preguntándoselo a WhatsApp.
  *
  * No se puede componer a mano por dos motivos: WhatsApp está migrando de
@@ -132,18 +156,7 @@ async function widDeTelefono(telefono) {
     const completo = `34${nueve}@c.us`;
 
     // Si ya hay conversación, ese es el id bueno y nos ahorramos preguntar.
-    const yaAbierto = await conPlazo(client.pupPage.evaluate((clasico) => {
-        const C = window.require('WAWebCollections');
-        if (!C || !C.Chat) return null;
-        if (C.Chat.get(clasico)) return clasico;
-        // Puede estar abierto bajo su `@lid`: se busca por el número dentro del id.
-        const nueve = clasico.replace(/\D/g, '').slice(-9);
-        const hit = C.Chat.getModelsArray().find(ch => {
-            const u = ch.id && ch.id.user ? String(ch.id.user) : '';
-            return u.slice(-9) === nueve;
-        });
-        return hit ? hit.id._serialized : null;
-    }, completo), PLAZO_MS, 'buscar chat abierto');
+    const yaAbierto = await chatAbierto(telefono);
     if (yaAbierto) return yaAbierto;
 
     // Y si no, se le pregunta a WhatsApp si ese número existe.
@@ -270,4 +283,4 @@ async function alternar(chatId, labelId, { quitar = false } = {}) {
     return destino;
 }
 
-module.exports = { listar, deChat, poner, alternar, chatIdDeTelefono, widDeTelefono, asegurarChat, _conPlazo: conPlazo };
+module.exports = { listar, deChat, poner, alternar, chatIdDeTelefono, widDeTelefono, chatAbierto, asegurarChat, _conPlazo: conPlazo };

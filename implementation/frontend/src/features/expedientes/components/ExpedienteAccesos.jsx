@@ -38,6 +38,10 @@ export function ExpedienteAccesos({
     onAbrirApp = null,   // si no se pasa, no se pinta el botón de abrir en la app
     onError = null,
     className = '',
+    // Los CEE directos viven en OTRA tabla con sus propias rutas
+    // (`/api/cee-directos/:id/local-path` y `/drive-link`): el mismo UUID no
+    // vale en las dos, así que quien llama dice a qué negocio pertenece.
+    apiBase = '/api/expedientes',
 }) {
     const [busy, setBusy] = useState(null); // 'local' | 'drive' | null
 
@@ -53,7 +57,7 @@ export function ExpedienteAccesos({
         if (busy) return;
         setBusy('local');
         try {
-            const { data } = await axios.get(`/api/expedientes/${expedienteId}/local-path`);
+            const { data } = await axios.get(`${apiBase}/${expedienteId}/local-path`);
             const path = data?.path;
             if (!path) { fallo('No se pudo obtener la ruta local.'); return; }
             try { await navigator.clipboard.writeText(path); } catch (_) { /* contexto no seguro */ }
@@ -77,7 +81,7 @@ export function ExpedienteAccesos({
         if (busy) return;
         setBusy('drive');
         try {
-            const { data } = await axios.get(`/api/expedientes/${expedienteId}/drive-link`);
+            const { data } = await axios.get(`${apiBase}/${expedienteId}/drive-link`);
             const link = data?.drive_folder_link;
             if (!link) { fallo('El expediente no tiene carpeta de Drive.'); return; }
             window.open(link, '_blank', 'noopener,noreferrer');

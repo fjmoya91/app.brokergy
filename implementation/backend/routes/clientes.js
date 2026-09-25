@@ -3,7 +3,7 @@ const router = express.Router();
 const supabase = require('../services/supabaseClient');
 const { enforceAuth, adminOnly, isStaff } = require('../middleware/auth');
 const { normalizeData, normalizeCliente } = require('../utils/normalization');
-const { enLotes } = require('../utils/consultaLotes');
+const { cargarRelaciones } = require('../services/clientesRelaciones');
 const { PARTNER_CONTACT_FIELDS, contactoClienteDesdePartner } = require('../services/notifyContacts');
 
 const esSi = v => v === true || v === 'true';
@@ -70,62 +70,11 @@ router.get('/', enforceAuth, async (req, res) => {
             return c;
         });
 
-        // 2. Obtener TODAS las oportunidades vinculadas a estos clientes para evitar N+1
-        // ⚠️ El filtro por ids viaja en la URL, así que va POR LOTES: con la
-        // lista entera, PostgREST corta por cabeceras y la consulta falla (ver
-        // utils/consultaLotes.js). Un fallo aquí LANZA: pintar "SIN ASIGNAR"
-        // en un cliente que sí tiene oportunidad es afirmar algo falso.
-        const clienteIds = processedClientes.map(c => c.id_cliente);
-        if (clienteIds.length > 0) {
-            const ops = await enLotes(clienteIds, trozo => supabase
-                .from('oportunidades')
-                .select('id, id_oportunidad, referencia_cliente, cliente_id')
-                .in('cliente_id', trozo));
-
-            // Expedientes de cada cliente, para los accesos directos del listado
-            // (abrir el expediente, su carpeta de Drive y la local). Se buscan por
-            // LOS DOS caminos y se fusionan, igual que en la ficha del cliente: por
-            // la oportunidad y por el propio expediente, que no siempre coinciden
-            // (un migrado puede tener ya el cliente real mientras su oportunidad
-            // sigue apuntando al placeholder de la migracion).
-            //
-            // INTERNOS: solo staff. Y SIN columnas JSONB (regla 22) — aqui son
-            // cientos de filas y `datos_calculo` pesa 86 KB de media.
-            const expsPorCliente = new Map(); // id_cliente -> [expediente]
-            if (isStaff(req)) {
-                const CAMPOS_EXP = 'id, numero_expediente, created_at, cliente_id, oportunidad_id';
-                const opIds = ops.map(o => o.id).filter(Boolean);
-                const [porCli, porOp] = await Promise.all([
-                    enLotes(clienteIds, t => supabase.from('expedientes').select(CAMPOS_EXP).in('cliente_id', t)),
-                    enLotes(opIds, t => supabase.from('expedientes').select(CAMPOS_EXP).in('oportunidad_id', t)),
-                ]);
-                const opACliente = new Map(ops.map(o => [o.id, o.cliente_id]));
-                const porExpId = new Map();
-                for (const e of [...porCli, ...porOp]) {
-                    if (!e?.id || porExpId.has(e.id)) continue;
-                    const dueno = e.cliente_id || opACliente.get(e.oportunidad_id) || null;
-                    if (!dueno) continue;
-                    porExpId.set(e.id, true);
-                    const lista = expsPorCliente.get(dueno) || [];
-                    lista.push(e);
-                    expsPorCliente.set(dueno, lista);
-                }
-                // El mas reciente primero: es al que apuntan los accesos directos.
-                for (const lista of expsPorCliente.values()) {
-                    lista.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-                }
-            }
-
-            // Mapear oportunidades a sus respectivos clientes
-            const dataConOps = processedClientes.map(c => ({
-                ...c,
-                oportunidades: ops.filter(o => o.cliente_id === c.id_cliente),
-                expedientes: expsPorCliente.get(c.id_cliente) || []
-            }));
-            return res.json(dataConOps);
-        }
- 
-        res.json(processedClientes.map(c => ({ ...c, oportunidades: [], expedientes: [] })));
+        // 2. Lo que se le tramita a cada cliente (oportunidades, y —solo para el
+        // equipo— expedientes CAE y CEE directos). Fuente única con la
+        // sincronización de etiquetas de WhatsApp: ver services/clientesRelaciones.
+        const rel = await cargarRelaciones(processedClientes.map(c => c.id_cliente), { internos: isStaff(req) });
+        res.json(processedClientes.map(c => ({ ...c, ...(rel.get(c.id_cliente) || { oportunidades: [], expedientes: [], cee_directos: [] }) })));
     } catch (err) {
         console.error('Error GET clientes:', err);
         res.status(500).json({ error: 'Error al recuperar clientes' });

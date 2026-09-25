@@ -133,6 +133,7 @@ router.post('/send-media', requireAuth, requireService, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 const waLabels = require('../services/whatsappLabels');
 const waSync = require('../services/whatsappInstaladoresSync');
+const waClientesSync = require('../services/whatsappClientesSync');
 
 // Un fallo de dato o de estado (WhatsApp caído, chat inexistente, cuenta que no
 // es Business) NO es una avería del servidor: su mensaje ya está escrito para
@@ -214,6 +215,21 @@ router.post('/etiquetas/sincronizar-instaladores', adminOInterno, async (req, re
         const ids = Array.isArray(req.body?.ids) && req.body.ids.length ? req.body.ids : null;
         const informe = await waSync.sincronizar({ dryRun, ids });
         res.json(informe);
+    } catch (e) { errorLabels(res, e); }
+});
+
+// POST /api/whatsapp/etiquetas/sincronizar-clientes  { dryRun?, desde? }
+//
+// Deja el chat de cada cliente con las etiquetas de su TIPO (RES060…CEE) y su
+// ESTADO (EN CURSO · PROPUESTA · CERRADO), las mismas que pinta el listado de
+// Clientes. Solo chats que ya existen, solo etiquetas que ya existen, y nunca
+// sobre un teléfono de partner ni compartido (ver whatsappClientesSync). Va a
+// trozos: devuelve `siguiente` hasta que es null. `dryRun` por defecto.
+router.post('/etiquetas/sincronizar-clientes', adminOInterno, async (req, res) => {
+    try {
+        const dryRun = req.body?.dryRun !== false;
+        const desde = Math.max(0, Number(req.body?.desde) || 0);
+        res.json(await waClientesSync.sincronizar({ dryRun, desde }));
     } catch (e) { errorLabels(res, e); }
 });
 

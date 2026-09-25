@@ -1073,6 +1073,12 @@ function App() {
       }
       // Filtro de estados precargado (lo usa el cuadro de mando al abrir una fase).
       if (payload?.estados) setPendingExpEstados(payload.estados);
+    } else if (tab === 'cee-directos') {
+      // Abrir un CEE directo concreto (desde el listado de clientes): el detalle
+      // vive dentro de CeeDirectosView y se le pasa cuál abrir.
+      setActiveTab('cee-directos');
+      setStep('ADMIN');
+      if (payload?.cee_id) setPendingCeeDirecto(payload.cee_id);
     } else if (tab === 'oportunidades') {
       if (payload?.ref_catastral) {
         loadOpportunity(payload);

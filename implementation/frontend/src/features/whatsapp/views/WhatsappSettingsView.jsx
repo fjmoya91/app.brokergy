@@ -22,6 +22,9 @@ export function WhatsappSettingsView() {
     // Sincronización de la cartera de instaladores con su etiqueta de WhatsApp.
     const [sync, setSync] = useState(null);
     const [syncing, setSyncing] = useState(false);
+    // Lo mismo para los CLIENTES: etiquetas de tipo (RES060…CEE) y estado.
+    const [syncCli, setSyncCli] = useState(null);
+    const [syncingCli, setSyncingCli] = useState(false);
 
     const fetchStatus = useCallback(async () => {
         try {
@@ -101,6 +104,45 @@ export function WhatsappSettingsView() {
             showAlert(err.response?.data?.error || err.message, 'No se ha podido sincronizar', 'error');
         } finally {
             setSyncing(false);
+        }
+    };
+
+    // Deja el chat de cada cliente con su TIPO y su ESTADO, los mismos que pinta
+    // el listado de Clientes. En seco por defecto; va a trozos (`siguiente`) por
+    // el mismo motivo que la de instaladores.
+    const sincronizarClientes = async (dryRun) => {
+        if (!dryRun) {
+            const confirmado = await showConfirm(
+                `Se cambiarán las etiquetas de ${syncCli?.cambiados ?? ''} chats de clientes. `
+                + 'Solo se añaden sus tipos y se pone su estado (quitando los otros estados); '
+                + 'ninguna otra etiqueta se pierde, no se crean chats y no se envía ningún mensaje.',
+                'Etiquetar clientes en WhatsApp',
+                'warning'
+            );
+            if (!confirmado) return;
+        }
+        setSyncingCli(true);
+        const total = { cambiados: 0, yaAlDia: 0, sinConversacion: 0, errores: [], detalle: [], dryRun };
+        try {
+            let desde = 0;
+            do {
+                const { data } = await axios.post('/api/whatsapp/etiquetas/sincronizar-clientes', { dryRun, desde });
+                ['cambiados', 'yaAlDia', 'sinConversacion'].forEach(k => { total[k] += data[k]; });
+                total.errores.push(...(data.errores || []));
+                total.detalle.push(...(data.detalle || []));
+                Object.assign(total, {
+                    candidatos: data.candidatos, vetados: data.vetados, faltanEtiquetas: data.faltanEtiquetas,
+                });
+                if (data.abortado) { total.abortado = data.abortado; break; }
+                desde = data.siguiente;
+                total.pendientes = desde != null ? data.candidatos - desde : 0;
+                setSyncCli({ ...total, enCurso: desde != null });
+            } while (desde != null);
+            setSyncCli({ ...total, enCurso: false });
+        } catch (err) {
+            showAlert(err.response?.data?.error || err.message, 'No se ha podido sincronizar', 'error');
+        } finally {
+            setSyncingCli(false);
         }
     };
 
@@ -370,6 +412,75 @@ export function WhatsappSettingsView() {
                                 </p>
                             )}
                             {sync.abortado && <p className="text-red-300/90 text-xs">{sync.abortado}</p>}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {status?.ready && (
+                <div className="bg-bkg-surface border border-white/5 rounded-2xl p-6">
+                    <h2 className="text-sm font-bold uppercase tracking-widest text-white/60 mb-1">Clientes en WhatsApp</h2>
+                    <p className="text-xs text-white/40 leading-relaxed mb-4">
+                        Pone en el chat de cada cliente las etiquetas de lo que se le tramita
+                        (<span className="font-mono text-white/60">RES060 · RES080 · RES093 · TER100 · TER173 · CEE</span>) y de
+                        en qué punto está (<span className="font-mono text-white/60">EN CURSO · PROPUESTA · CERRADO</span>), las mismas
+                        que ves en el listado de Clientes. Solo en chats que ya existen, solo con etiquetas que ya tengas creadas,
+                        y nunca en un teléfono que sea de un partner o que compartan varios clientes. No se envía ningún mensaje.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                        <button onClick={() => sincronizarClientes(true)} disabled={syncingCli}
+                            className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-sm text-white/80 disabled:opacity-50">
+                            {syncingCli ? 'Mirando…' : 'Ver qué haría'}
+                        </button>
+                        <button onClick={() => sincronizarClientes(false)} disabled={syncingCli || !syncCli || !syncCli.cambiados}
+                            title={!syncCli ? 'Primero mira qué haría' : ''}
+                            className="px-4 py-2 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/30 text-sm text-emerald-200 disabled:opacity-40">
+                            Etiquetar ahora
+                        </button>
+                    </div>
+                    {syncCli && (
+                        <div className="mt-4 text-sm text-white/70 space-y-1.5">
+                            <p>
+                                <span className="text-white/40">
+                                    {syncCli.enCurso ? `En marcha (quedan ${syncCli.pendientes}): ` : (syncCli.dryRun ? 'Se cambiarían: ' : 'Hecho: ')}
+                                </span>
+                                <span className="text-white font-semibold">{syncCli.cambiados}</span> chats
+                                <span className="text-white/40"> (de {syncCli.candidatos} clientes con algo que etiquetar; {syncCli.yaAlDia} ya al día, {syncCli.sinConversacion} sin conversación)</span>
+                            </p>
+                            {syncCli.faltanEtiquetas?.length > 0 && (
+                                <p className="text-amber-300/80 text-xs">
+                                    No existen en WhatsApp y se saltan: <span className="font-mono">{syncCli.faltanEtiquetas.join(', ')}</span>.
+                                    Créalas en el móvil (Herramientas para empresas → Etiquetas) si las quieres.
+                                </p>
+                            )}
+                            {syncCli.vetados?.length > 0 && (
+                                <details className="text-xs text-white/40">
+                                    <summary className="cursor-pointer">{syncCli.vetados.length} clientes saltados por teléfono dudoso</summary>
+                                    <ul className="mt-1 space-y-0.5">
+                                        {syncCli.vetados.map((v, i) => <li key={i}>{v.cliente} ({v.tlf}): {v.motivo}</li>)}
+                                    </ul>
+                                </details>
+                            )}
+                            {syncCli.detalle?.length > 0 && (
+                                <details className="text-xs text-white/50">
+                                    <summary className="cursor-pointer">Ver chat a chat</summary>
+                                    <ul className="mt-1 space-y-0.5 max-h-64 overflow-y-auto">
+                                        {syncCli.detalle.map((d, i) => (
+                                            <li key={i}>
+                                                {d.cliente} <span className="text-white/30">({d.tlf})</span>
+                                                {d.añadir.length > 0 && <span className="text-emerald-300/80"> + {d.añadir.join(', ')}</span>}
+                                                {d.quitar.length > 0 && <span className="text-red-300/80"> − {d.quitar.join(', ')}</span>}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </details>
+                            )}
+                            {syncCli.errores?.length > 0 && (
+                                <p className="text-red-300/80 text-xs">
+                                    Errores: {syncCli.errores.map(x => `${x.cliente}: ${x.error}`).join(' · ')}
+                                </p>
+                            )}
+                            {syncCli.abortado && <p className="text-red-300/90 text-xs">{syncCli.abortado}</p>}
                         </div>
                     )}
                 </div>
