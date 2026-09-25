@@ -6924,6 +6924,15 @@ está de verdad, y eso es un plano. El trazo enseña **la medida mientras se
 arrastra** —dibujar a ojo sin verla es lo mismo que teclear a ojo— y el punto de
 llegada se pinta lleno cuando ha pegado.
 
+⚠️ **Las paredes DIBUJADAS entran en el mapa ANTES de aplicarles el trabajo
+guardado** ([trabajoGuardado.js](implementation/frontend/src/features/cee-envolvente/logic/trabajoGuardado.js),
+`aplicarTrabajo`). Se añadían al final de la siembra, y como cada paso comprueba
+`nuevo[k]`, a una pared dibujada no le llegaba ni su tipo, ni su nombre, ni su U, ni su
+rumbo, ni sus pilares, ni su «revisada» — y el autoguardado siguiente lo borraba de la
+BD. Medido en 26RES093_9 (25/09/2026): PBX1 pasada a fachada volvía como partición con
+sus tres ventanas, y el `.cex` dejaba de poder escribirse. Tras tocarlo:
+`node implementation/backend/scripts/test_trabajo_guardado.mjs`.
+
 ⚠️ **La geometría corregida va en SU PROPIO estado, no dentro de `muros`.** De
 `plantas` cuelga el encuadre del plano, así que si dependiera del estado de los
 huecos, **poner una ventana devolvería el plano a su zoom de partida a media
@@ -8037,6 +8046,19 @@ sustituido ya no está en Drive, generar en silencio con otra imagen es peor que
 decirlo. Y `cee.envolvente_imagenes` va en clave APARTE del trabajo: el trabajo lo
 reemplaza entero el navegador en cada autoguardado, y una imagen subida entre dos
 guardados se perdería.
+
+**REGLA — solo se cachea una RESPUESTA de Catastro, nunca un corte de conexión**
+(2026-09-25). `imagenesDeCatastro` guardaba el resultado entero por RC pasara lo que
+pasara, así que un `ECONNRESET` pasajero del WAF dejaba el expediente sin fachada ni
+croquis **para toda la vida del proceso**: ni reabrir ni «Refrescar» volvían a
+preguntar. Medido en 26RES093_9: la envolvente decía «Catastro no la tiene» y la ficha
+de la oportunidad, quince minutos después, traía las dos. Ahora la caché es POR IMAGEN
+y guarda solo la imagen o el «no la tiene»; un corte se reintenta UNA vez en serie y
+sale marcado en `fallos`, que la pantalla dice con otras palabras («no ha respondido,
+pulsa Refrescar»). `getFacadeImage` / `getParcelImage` / `getCoordinatesByRC` aceptan
+`{ conFallos: true }` para LANZAR el corte en vez de devolver `null` (por defecto, lo de
+siempre). ⚠️ Sin foto registrada Catastro contesta **200 con el cuerpo VACÍO y sin
+tipo**: eso es «no la tiene», no un fallo — solo lo es un cuerpo que no sea imagen.
 
 ```bash
 node implementation/backend/scripts/test_imagenes_cex.mjs

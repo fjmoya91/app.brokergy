@@ -153,7 +153,11 @@ function extractFloor(loint) {
 /**
  * Obtener coordenadas UTM reales desde Consulta_CPMRC (WCF JSON)
  */
-async function getCoordinatesByRC(rc) {
+//: `conFallos`: un corte de conexión se LANZA en vez de devolverse como `null`.
+//: Por defecto no, que es lo que esperan todos los que ya la usan; lo pide quien
+//: necesita distinguir «Catastro no tiene el dato» de «Catastro no ha
+//: respondido» — que no pueden tratarse igual (ver `imagenesDeCatastro`).
+async function getCoordinatesByRC(rc, { conFallos = false } = {}) {
     try {
         const cleanRC = rc.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
         const parcelRC = cleanRC.substring(0, 14);
@@ -182,6 +186,7 @@ async function getCoordinatesByRC(rc) {
         };
     } catch (error) {
         console.error(`Catastro Coordinates Error [${rc}]:`, error.message);
+        if (conFallos) throw error;
         return null;
     }
 }
@@ -998,7 +1003,7 @@ function fachadaCompleta(buf) {
     return buf.lastIndexOf(Buffer.from([0xFF, 0xD9])) > sos;
 }
 
-async function getFacadeImage(rc) {
+async function getFacadeImage(rc, { conFallos = false } = {}) {
     const cleanRC = rc.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
     const imageUrl = `https://ovc.catastro.meh.es/OVCServWeb/OVCWcfLibres/OVCFotoFachada.svc/RecuperarFotoFachadaGet?ReferenciaCatastral=${cleanRC}`;
     try {
@@ -1025,9 +1030,18 @@ async function getFacadeImage(rc) {
                      // La misma foto, en pequeño, para enseñarla sin esperar.
                      miniatura: miniaturaExif(grande) };
         }
+        // Sin foto registrada, Catastro contesta 200 con el cuerpo VACÍO y sin
+        // tipo (medido: es lo mismo que devuelve con una referencia que no
+        // existe): eso es una respuesta — «no la tiene» —, no un fallo. Lo que
+        // sí es un fallo es un cuerpo que no es una imagen: una página del WAF.
+        const cuerpo = response.data?.byteLength ?? response.data?.length ?? 0;
+        if (conFallos && cuerpo > 0) {
+            throw new Error(`Catastro no ha devuelto una imagen (${response.headers['content-type'] || 'sin tipo'})`);
+        }
         return null;
     } catch (error) {
         console.error(`Facade Image Error for ${rc}:`, error.message);
+        if (conFallos) throw error;
         return null;
     }
 }
@@ -1090,9 +1104,9 @@ async function getWmsImage(bbox, { crs = 'EPSG:25830', ladoMax = 1600,
     return { data: Buffer.from(response.data), contentType: tipo, ancho, alto };
 }
 
-async function getParcelImage(rc) {
+async function getParcelImage(rc, { conFallos = false } = {}) {
     try {
-        const coords = await getCoordinatesByRC(rc);
+        const coords = await getCoordinatesByRC(rc, { conFallos });
         if (!coords) return null;
         const x = parseFloat(coords.x);
         const y = parseFloat(coords.y);
@@ -1101,6 +1115,7 @@ async function getParcelImage(rc) {
                                  { formato: 'image/jpeg', px: [800, 600] });
     } catch (error) {
         console.error(`Parcel Image Error for ${rc}:`, error.message);
+        if (conFallos) throw error;
         return null;
     }
 }

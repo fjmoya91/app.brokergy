@@ -4,6 +4,7 @@ import { lectorDeIds } from './identidadParedes.js';
 import { esFuera, esMedianera, esParticion, tipoDe } from './tiposPared.js';
 import { mudarHueco, paredesParaHueco } from './huecosEnParedes.js';
 import { huecosDefecto } from './ventanasVivienda';
+import { aplicarTrabajo } from './trabajoGuardado.js';
 
 import { SUFIJO_CAMBIA, nombreHueco } from './reforma.js';
 export { SUFIJO_CAMBIA, nombreHueco };
@@ -91,80 +92,15 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
             const local = conLocal ? JSON.parse(localStorage.getItem(clave) || 'null') : null;
             const g = guardadoAhora || local;
             if (g) {
-                setEntrada(g.entrada ? id(g.entrada) : null);
-                setSel(g.sel ? id(g.sel) : null);
-                for (const [k0, v] of Object.entries(g.huecos || {})) {
-                    const k = id(k0);
-                    if (k && nuevo[k]) nuevo[k].huecos = (v || []).map(rescatarHueco);
-                }
-                for (const k0 of g.particiones || []) {
-                    const k = id(k0);
-                    if (k && nuevo[k]) nuevo[k].como_particion = true;
-                }
-                for (const k0 of g.excluidas || []) {
-                    const k = id(k0);
-                    if (k && nuevo[k]) nuevo[k].excluida = true;
-                }
-                for (const k0 of g.revisadas || []) {
-                    const k = id(k0);
-                    if (k && nuevo[k]) nuevo[k].revisada = true;
-                }
-                for (const k0 of g.cambian || []) {
-                    const k = id(k0);
-                    if (k && nuevo[k]) nuevo[k].cambia = true;
-                }
-                for (const [k0, t] of Object.entries(g.tipos || {})) {
-                    const k = id(k0);
-                    if (k && nuevo[k]) nuevo[k].tipo_manual = t;
-                }
-                for (const [k0, n] of Object.entries(g.nombres || {})) {
-                    const k = id(k0);
-                    if (k && nuevo[k]) nuevo[k].nombre_manual = n;
-                }
-                for (const [k0, u] of Object.entries(g.us || {})) {
-                    const k = id(k0);
-                    if (k && nuevo[k]) nuevo[k].u_manual = u;
-                }
-                for (const [k0, o] of Object.entries(g.orientaciones || {})) {
-                    const k = id(k0);
-                    if (k && nuevo[k]) nuevo[k].orientacion_manual = o;
-                }
-                for (const [k0, n] of Object.entries(g.pilares || {})) {
-                    const k = id(k0);
-                    if (k && nuevo[k]) nuevo[k].pilares = n;
-                }
-                // Las paredes movidas y las dibujadas. Las dibujadas ENTRAN en
-                // el mapa de muros: para la vista son una pared más —se pulsan,
-                // llevan huecos y se reclasifican— y lo único que las separa es
-                // que las puso una persona.
-                const geoGuardada = { movidas: { ...(g.paredes?.movidas || {}) },
-                                      dibujadas: [] };
-                for (const d of g.paredes?.dibujadas || []) {
-                    if (!d?.id || nuevo[d.id]) continue;
-                    geoGuardada.dibujadas.push(d);
-                    nuevo[d.id] = paredDibujada(d, g.huecos?.[d.id]);
-                }
-                for (const [k0, pts] of Object.entries({ ...geoGuardada.movidas })) {
-                    const k = id(k0);
-                    if (k !== k0) {
-                        delete geoGuardada.movidas[k0];
-                        if (k) geoGuardada.movidas[k] = pts;
-                    }
-                    if (!k || !nuevo[k]) { delete geoGuardada.movidas[k0]; continue; }
-                    // La marca y la medida de Catastro se rehacen AQUÍ, no solo
-                    // al arrastrar: si no, al recargar la pared aparecía movida
-                    // pero sin decirlo, que es justo lo que no puede pasar con
-                    // una superficie que va al certificado.
-                    Object.assign(nuevo[k], {
-                        movida: true, svg: pts,
-                        largo_catastro: nuevo[k].largo,
-                        superficie_catastro: nuevo[k].superficie,
-                    }, medirPared(pts, nuevo[k].alto));
-                }
-                setGeometria(geoGuardada);
-                setCuerposFuera(Array.isArray(g.cuerpos_fuera) ? g.cuerpos_fuera : []);
-                setCubiertas(g.cubierta_reforma && typeof g.cubierta_reforma === 'object'
-                             ? g.cubierta_reforma : {});
+                // Las dibujadas entran ANTES de aplicarles el trabajo: ver
+                // `aplicarTrabajo` (se perdía su reclasificación al recargar).
+                const r = aplicarTrabajo(nuevo, g, id,
+                                         { paredDibujada, rescatarHueco, medirPared });
+                setEntrada(r.entrada);
+                setSel(r.sel);
+                setGeometria(r.geometria);
+                setCuerposFuera(r.cuerposFuera);
+                setCubiertas(r.cubiertas);
             }
         } catch { /* almacenamiento bloqueado: se empieza limpio */ }
         murosRef.current = nuevo;

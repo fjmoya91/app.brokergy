@@ -54,7 +54,8 @@ drive.saveFileToFolder = async (carpeta, nombre, tipo, buffer) => {
     subidos.push({ carpeta, nombre, tipo });
     return { id, webViewLink: `https://drive/${id}` };
 };
-require('../services/ceeUploadService').ensureCeeSectionFolder = async () => 'carpeta-cee';
+// Devuelve { id, link }, como la de verdad (`carpetaFase` desestructura).
+require('../services/ceeUploadService').ensureCeeSectionFolder = async () => ({ id: 'carpeta-cee', link: 'https://drive/carpeta-cee' });
 supabase.rpc = async (_fn, args) => { escrito = args; return { error: null }; };
 
 const cex = require('../services/ceeEnvolventeCex');
@@ -145,6 +146,85 @@ console.log('\n6. Lo que no es una imagen NO entra en el .cex');
     try { await cex.sustituirImagen(ctxCon(null), 'inventada', { buffer: MIA, mimetype: 'image/png' }); }
     catch { falló = true; }
     ok(falló, 'y una imagen que no existe en el .cex, también');
+}
+
+console.log('\n7. Un corte de conexión NO se cachea; «no la tiene», sí');
+{
+    // 26RES093_9 (25/09/2026): un ECONNRESET del WAF se quedaba cacheado para
+    // toda la vida del proceso, y ni reabrir ni «Refrescar» volvían a pedirla.
+    const RC = '8720315VJ8682S0001OJ';
+    const ctx = { expediente: { id: 'exp-9', numero_expediente: '26RES093_9',
+                                instalacion: { ref_catastral: RC }, cee: {} } };
+    let pedidasFachada = 0, pedidasCroquis = 0, caido = true;
+    const corte = () => { const e = new Error('read ECONNRESET'); e.code = 'ECONNRESET'; return e; };
+    catastro.getFacadeImage = async (rc, o = {}) => {
+        pedidasFachada++;
+        if (caido) { if (o.conFallos) throw corte(); return null; }
+        return { data: FACHADA_CATASTRO, miniatura: MINI };
+    };
+    catastro.getParcelImage = async (rc, o = {}) => {
+        pedidasCroquis++;
+        if (caido) { if (o.conFallos) throw corte(); return null; }
+        return { data: CROQUIS_CATASTRO };
+    };
+
+    const a = await cex.imagenesDelCex(ctx, null);
+    ok(!a.foto_edificio && !a.plano_situacion, 'con Catastro caído no hay imágenes');
+    ok(a.fallos?.fachada && a.fallos?.croquis, 'y se marca como FALLO, no como «no la tiene»');
+    ok(a.avisos.some(a2 => a2.includes('no ha respondido')), 'el aviso dice que no ha respondido');
+    ok(pedidasFachada === 2 && pedidasCroquis === 2, 'se reintenta UNA vez cada una, no más');
+
+    caido = false;
+    const b = await cex.imagenesDelCex(ctx, null);
+    ok(b.foto_edificio === b64(FACHADA_CATASTRO) && b.plano_situacion === b64(CROQUIS_CATASTRO),
+       'al volver Catastro, «Refrescar» SÍ las trae (no se había cacheado el fallo)');
+    ok(!b.fallos?.fachada && !b.fallos?.croquis, 'y ya no hay fallos');
+
+    const antes = pedidasFachada + pedidasCroquis;
+    await cex.imagenesDelCex(ctx, null);
+    ok(pedidasFachada + pedidasCroquis === antes, 'lo que llegó bien sí se cachea: cero peticiones más');
+
+    // «No la tiene» es una respuesta de Catastro: se cachea y no es un fallo.
+    const RC2 = '0000000XX0000X0001XX';
+    const ctx2 = { expediente: { ...ctx.expediente, instalacion: { ref_catastral: RC2 } } };
+    catastro.getFacadeImage = async () => { pedidasFachada++; return null; };
+    const c = await cex.imagenesDelCex(ctx2, null);
+    ok(!c.fallos?.fachada && c.avisos.some(x => x.includes('no tiene la foto de fachada')),
+       'una fachada que Catastro no tiene se dice como tal');
+    const n = pedidasFachada;
+    await cex.imagenesDelCex(ctx2, null);
+    ok(pedidasFachada === n, 'y esa respuesta sí se cachea');
+
+    // Solo se reintenta lo que falló: si la foto llegó y el croquis no, al
+    // refrescar no se vuelve a pedir la foto.
+    const RC3 = '1111111YY1111Y0001YY';
+    const ctx3 = { expediente: { ...ctx.expediente, instalacion: { ref_catastral: RC3 } } };
+    let croquisCaido = true, f3 = 0, c3 = 0;
+    catastro.getFacadeImage = async () => { f3++; return { data: FACHADA_CATASTRO }; };
+    catastro.getParcelImage = async (rc, o = {}) => {
+        c3++; if (croquisCaido) throw corte(); return { data: CROQUIS_CATASTRO };
+    };
+    const d = await cex.imagenesDelCex(ctx3, null);
+    ok(d.foto_edificio && !d.plano_situacion && d.fallos?.croquis && !d.fallos?.fachada,
+       'la foto llega, el croquis se marca como fallo');
+    croquisCaido = false;
+    const e = await cex.imagenesDelCex(ctx3, null);
+    ok(e.plano_situacion && f3 === 1, 'al refrescar llega el croquis sin volver a pedir la foto');
+}
+
+console.log('\n8. Con el monitor en BLOQUEADO no se pide nada, y tampoco se cachea');
+{
+    const RC4 = '2222222ZZ2222Z0001ZZ';
+    const ctx4 = { expediente: { id: 'e4', numero_expediente: 'X', instalacion: { ref_catastral: RC4 }, cee: {} } };
+    let pedidas = 0;
+    catastro.getFacadeImage = async () => { pedidas++; return { data: FACHADA_CATASTRO }; };
+    catastro.getParcelImage = async () => { pedidas++; return { data: CROQUIS_CATASTRO }; };
+    monitor.shouldSkipRequest = () => true;
+    const a = await cex.imagenesDelCex(ctx4, null);
+    ok(pedidas === 0 && a.fallos?.fachada && a.fallos?.croquis, 'bloqueado: ninguna petición y marcado como fallo');
+    monitor.shouldSkipRequest = () => false;
+    const b = await cex.imagenesDelCex(ctx4, null);
+    ok(b.foto_edificio && b.plano_situacion && pedidas === 2, 'desbloqueado: se piden y llegan');
 }
 
 console.log(fallos ? `\n${fallos} FALLOS\n` : '\nTodo correcto\n');

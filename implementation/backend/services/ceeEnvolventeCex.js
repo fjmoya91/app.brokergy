@@ -706,7 +706,19 @@ async function componerFicha(ctx, { geometria, envolvente, ajustes, medidas = nu
 //: Se cachean por RC mientras viva el proceso: la foto de fachada de un
 //: inmueble no cambia, y regenerar el .cex tres veces no puede costar nueve
 //: peticiones.
-const _imagenes = new Map();
+//:
+//: ⚠️ Pero solo se cachea una RESPUESTA de Catastro —la imagen, o que no la
+//: tiene—, NUNCA un fallo de conexión. Se cacheaba el resultado entero pasara
+//: lo que pasara, y un `ECONNRESET` pasajero del WAF dejaba el expediente sin
+//: fachada ni croquis para toda la vida del proceso: ni reabrir la ventana ni
+//: «Refrescar» volvían a preguntar. Medido en 26RES093_9 (25/09/2026): la
+//: envolvente se quedó con «Catastro no la tiene» mientras la ficha de la
+//: oportunidad, quince minutos después, traía las dos sin problema.
+const _imagenes = new Map();   // rc -> { fachada?: {grande, vista} | false, croquis?: {grande} | false }
+
+//: Un corte de conexión se reintenta UNA vez, en serie y tras una pausa. Más
+//: sería insistirle al WAF del que depende el buscador de la app.
+const PAUSA_REINTENTO_MS = 2000;
 
 /**
  * REGLA — al Catastro NUNCA en ráfaga: las dos van EN SERIE y con pausa, y si
@@ -716,19 +728,40 @@ const _imagenes = new Map();
  * REGLA — que falte una imagen NO impide generar. Muchos inmuebles no tienen
  * foto de fachada registrada y el `.cex` es igual de válido sin ella: se dice
  * en los avisos y el certificador la pone en CE3X si la tiene.
+ *
+ * REGLA — «Catastro no la tiene» y «Catastro no ha respondido» NO son lo
+ * mismo, y se dicen distinto (`fallos`): uno es definitivo y el otro se arregla
+ * pulsando Refrescar un rato después.
  */
 async function imagenesDeCatastro(rc) {
     if (!rc) return { avisos: ['Sin referencia catastral: el .cex sale sin foto ni croquis.'] };
-    if (_imagenes.has(rc)) return _imagenes.get(rc);
 
-    const salida = { avisos: [] };
-    if (catastroMonitor.shouldSkipRequest()) {
-        salida.avisos.push('Catastro está limitando peticiones ahora mismo: el .cex sale '
-                           + 'sin foto de fachada ni croquis. Vuelve a generarlo más tarde.');
-        return salida;   // sin cachear: es una situación pasajera
+    const guardado = { ...(_imagenes.get(rc) || {}) };
+    const salida = { avisos: [], fallos: {} };
+    const falta = cual => guardado[cual] === undefined;
+
+    if ((falta('fachada') || falta('croquis')) && catastroMonitor.shouldSkipRequest()) {
+        // No se pide nada, y tampoco se cachea: es una situación pasajera.
+        if (falta('fachada')) salida.fallos.fachada = true;
+        if (falta('croquis')) salida.fallos.croquis = true;
+        salida.avisos.push('Catastro está limitando peticiones ahora mismo: la foto de fachada '
+                           + 'y el croquis no se han podido pedir. Pulsa «Refrescar» más tarde.');
+    } else {
+        let pedidas = 0;
+        if (falta('fachada')) {
+            const r = await pedirImagen(o => catastroService.getFacadeImage(rc, o));
+            pedidas++;
+            if (r !== undefined) guardado.fachada = r || false;
+        }
+        if (falta('croquis')) {
+            if (pedidas) await sleep(800);   // en serie y espaciadas, nunca las dos a la vez
+            const r = await pedirImagen(o => catastroService.getParcelImage(rc, o));
+            if (r !== undefined) guardado.croquis = r || false;
+        }
+        _imagenes.set(rc, guardado);
     }
 
-    const fachada = await pedirImagen(() => catastroService.getFacadeImage(rc));
+    const fachada = guardado.fachada;
     if (fachada) {
         salida.foto_edificio = fachada.grande;
         // La misma foto en 640×480 (58 KB en vez de 322), para ENSEÑARLA: la
@@ -736,18 +769,25 @@ async function imagenesDeCatastro(rc) {
         // para eso es lo que hacía que tardara en aparecer. Al `.cex` va la
         // grande, que es lo verificado contra un fichero real.
         salida.foto_edificio_vista = fachada.vista;
+    } else if (fachada === false) {
+        salida.avisos.push('Catastro no tiene la foto de fachada de esta referencia: '
+                           + 'el .cex sale sin ella (se puede poner en CE3X).');
+    } else if (!salida.fallos.fachada) {
+        salida.fallos.fachada = true;
+        salida.avisos.push('Catastro no ha respondido al pedirle la foto de fachada (corte de '
+                           + 'conexión). No es que no la tenga: pulsa «Refrescar» en un rato.');
     }
-    else salida.avisos.push('Catastro no tiene foto de fachada de esta referencia: '
-                            + 'el .cex sale sin ella (se puede poner en CE3X).');
 
-    await sleep(800);   // en serie y espaciadas, nunca las dos a la vez
-
-    const parcela = await pedirImagen(() => catastroService.getParcelImage(rc));
-    if (parcela) salida.plano_situacion = parcela.grande;
-    else salida.avisos.push('No se ha podido traer el croquis de parcela de Catastro: '
-                            + 'el .cex sale sin plano de situación.');
-
-    _imagenes.set(rc, salida);
+    const croquis = guardado.croquis;
+    if (croquis) salida.plano_situacion = croquis.grande;
+    else if (croquis === false) {
+        salida.avisos.push('Catastro no tiene el croquis de parcela de esta referencia: '
+                           + 'el .cex sale sin plano de situación.');
+    } else if (!salida.fallos.croquis) {
+        salida.fallos.croquis = true;
+        salida.avisos.push('Catastro no ha respondido al pedirle el croquis de parcela (corte de '
+                           + 'conexión). No es que no lo tenga: pulsa «Refrescar» en un rato.');
+    }
     return salida;
 }
 
@@ -756,20 +796,27 @@ async function imagenesDeCatastro(rc) {
  *
  * Devuelve la grande —la que va al fichero— y, si el original trae una
  * miniatura dentro, también esa: es la que se enseña.
+ *
+ * Tres respuestas, y no dos: la imagen · `null` (Catastro ha contestado que no
+ * la tiene) · `undefined` (Catastro NO ha contestado — un corte de conexión,
+ * tras un reintento). Solo las dos primeras se pueden cachear.
  */
 async function pedirImagen(traer) {
-    try {
-        const img = await traer();
-        const bytes = img?.data;
-        if (!bytes) return null;
-        const grande = Buffer.from(bytes).toString('base64');
-        return { grande,
-                 vista: img.miniatura ? Buffer.from(img.miniatura).toString('base64')
-                                      : grande };
-    } catch (e) {
-        console.warn('[ceeEnvolventeCex] imagen de Catastro:', e.message);
-        return null;
+    for (let intento = 0; intento < 2; intento++) {
+        if (intento) await sleep(PAUSA_REINTENTO_MS);
+        try {
+            const img = await traer({ conFallos: true });
+            const bytes = img?.data;
+            if (!bytes) return null;
+            const grande = Buffer.from(bytes).toString('base64');
+            return { grande,
+                     vista: img.miniatura ? Buffer.from(img.miniatura).toString('base64')
+                                          : grande };
+        } catch (e) {
+            console.warn(`[ceeEnvolventeCex] imagen de Catastro (intento ${intento + 1}):`, e.message);
+        }
     }
+    return undefined;
 }
 
 function rcDe(ctx, geometria) {
@@ -955,6 +1002,7 @@ async function imagenesDelCex(ctx, geometria) {
             // decir que no hay foto de fachada cuando se ha puesto una es
             // contarle al certificador un problema que él mismo resolvió.
             salida.avisos = salida.avisos.filter(a => !a.includes(def.etiqueta));
+            if (salida.fallos) delete salida.fallos[cual];
         } catch (e) {
             // El enlace apunta a un fichero que ya no está: se dice y se cae a
             // la de Catastro. Callarlo sería generar el .cex con otra imagen.

@@ -506,10 +506,12 @@ function Imagenes({ imagenes, trayendo, onTraer, onSustituir, onQuitar }) {
                 <Foto titulo="Imagen del edificio" cual="fachada"
                       b64={imagenes?.foto_edificio} cargando={trayendo && !imagenes}
                       puesta={imagenes?.sustituidas?.fachada}
+                      fallo={!!imagenes?.fallos?.fachada}
                       onSustituir={onSustituir} onQuitar={onQuitar} />
                 <Foto titulo="Plano de situación" cual="croquis"
                       b64={imagenes?.plano_situacion} cargando={trayendo && !imagenes}
                       puesta={imagenes?.sustituidas?.croquis}
+                      fallo={!!imagenes?.fallos?.croquis}
                       onSustituir={onSustituir} onQuitar={onQuitar} />
             </div>
 
@@ -538,7 +540,7 @@ function aDataUrl(b64) {
  * vista pidiendo la de Catastro y el `.cex` escribiendo otra, la comprobación no
  * comprueba nada: las dos salen de `imagenesDelCex`.
  */
-function Foto({ titulo, cual, b64, puesta, cargando, onSustituir, onQuitar }) {
+function Foto({ titulo, cual, b64, puesta, cargando, fallo, onSustituir, onQuitar }) {
     const [subiendo, setSubiendo] = useState(false);
     const src = aDataUrl(b64);
 
@@ -570,11 +572,21 @@ function Foto({ titulo, cual, b64, puesta, cargando, onSustituir, onQuitar }) {
                 : cargando
                     ? <p className="rounded-lg border border-white/10 px-2.5 py-3
                                     text-[11px] text-white/35">Trayéndola…</p>
-                    : <p className="rounded-lg border border-amber-500/25 bg-amber-500/[0.05]
-                                    px-2.5 py-3 text-[11px] leading-relaxed text-amber-200/80">
-                          Catastro no la tiene. El certificado vale igual sin ella — o pon
-                          la tuya aquí abajo.
-                      </p>}
+                    // «No la tiene» y «no ha respondido» son cosas distintas: una
+                    // es definitiva y la otra se arregla pulsando Refrescar. Con
+                    // el mismo texto, un corte pasajero del WAF se leía como que
+                    // la vivienda no tenía foto en Catastro.
+                    : fallo
+                        ? <p className="rounded-lg border border-amber-500/25 bg-amber-500/[0.05]
+                                        px-2.5 py-3 text-[11px] leading-relaxed text-amber-200/80">
+                              Catastro no ha respondido ahora mismo. Pulsa <b>↻ Refrescar</b>
+                              en un rato — o pon la tuya aquí abajo.
+                          </p>
+                        : <p className="rounded-lg border border-amber-500/25 bg-amber-500/[0.05]
+                                        px-2.5 py-3 text-[11px] leading-relaxed text-amber-200/80">
+                              Catastro no la tiene. El certificado vale igual sin ella — o pon
+                              la tuya aquí abajo.
+                          </p>}
 
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
                 <label className={`cursor-pointer rounded-lg border border-white/10 px-2 py-1
