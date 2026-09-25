@@ -26,7 +26,10 @@ export const FICHA_TITULO = {
 // quedado atrás sin fallar — devolviendo RES060 para un terciario.
 export const fichaDe = (numero) => getFicha({ numero_expediente: numero });
 
-const vidaUtilDe = (ficha) => (ficha === 'RES080' ? 25 : 15);
+// RES080 se imprime "15/25", igual que su ficha (fichaRes080Html · DI) y que el
+// convenio de cesión: 15 años la bomba de calor y 25 la envolvente. Un "25" a
+// secas le atribuye 25 años también al equipo, y no cuadra con la ficha firmada.
+const vidaUtilDe = (ficha) => (ficha === 'RES080' ? '15/25' : 15);
 
 function fmtDate(d) {
     if (!d) return '';
