@@ -42,6 +42,8 @@ import { DocsAdminModal } from '../../calculator/components/DocsAdminModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
 import { LoteDetailModal } from '../../lotes/components/LoteDetailModal';
 import { FechasPrevistasEjecucion } from '../components/FechasPrevistasEjecucion';
+import { LogoEmpresa } from '../../../components/LogoEmpresa';
+import { nombrePartner, tipoEmpresaLabel } from '../../../utils/tiposEmpresa';
 
 // Pausa de inactividad antes de persistir los cambios de "Instalación". Los
 // campos de texto emiten en cada pulsación: sin este margen saldría un PUT
@@ -265,6 +267,9 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
         try { return sessionStorage.getItem('brokergy-exp-tab') || 'checklist'; } catch { return 'checklist'; }
     });
     const [certificadores, setCertificadores] = useState([]);
+    // Todos los partners: de aquí sale también el PRESCRIPTOR de la oportunidad
+    // (de quién viene el expediente) sin pedir su ficha aparte.
+    const [partners, setPartners] = useState([]);
 
     // Estado "Live" para monitorización en tiempo real sin guardar
     const [liveCee, setLiveCee] = useState(null);
@@ -310,6 +315,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
     useEffect(() => {
         axios.get('/api/prescriptores')
             .then(res => {
+                setPartners(res.data || []);
                 const list = (res.data || []).filter(p => p.tipo_empresa === 'CERTIFICADOR' || p.tipo_empresa === 'OTRO');
                 setCertificadores(list);
             })
@@ -1350,6 +1356,31 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                                     <span className="text-white/30 text-[10px] font-black uppercase tracking-wider">
                                         Creado: {expediente.created_at ? new Date(expediente.created_at).toLocaleDateString('es-ES') : '—'}
                                     </span>
+                                    {(() => {
+                                        // De quién viene: el prescriptor de la oportunidad.
+                                        const pres = op.prescriptor_id
+                                            ? partners.find(p => String(p.id_empresa) === String(op.prescriptor_id))
+                                            : null;
+                                        if (!pres) return null;
+                                        const { titulo, sub } = nombrePartner(pres);
+                                        return (
+                                            <>
+                                                <span className="text-white/20 text-xs">·</span>
+                                                <span
+                                                    className="flex items-center gap-1.5 pl-0.5 pr-2.5 py-0.5 rounded-full border border-violet-500/30 bg-violet-500/10 max-w-[260px]"
+                                                    title={`Prescriptor: ${[titulo, sub].filter(Boolean).join(' · ')} (${tipoEmpresaLabel(pres.tipo_empresa)})`}
+                                                >
+                                                    <LogoEmpresa p={pres} size={16} className="rounded-full" />
+                                                    <span className="text-[9px] font-bold text-violet-300/70 uppercase tracking-widest">
+                                                        {tipoEmpresaLabel(pres.tipo_empresa)}
+                                                    </span>
+                                                    <span className="text-[10px] font-bold text-violet-300 uppercase tracking-wide truncate">
+                                                        {titulo}
+                                                    </span>
+                                                </span>
+                                            </>
+                                        );
+                                    })()}
                                 </div>
                             )}
                         </div>
