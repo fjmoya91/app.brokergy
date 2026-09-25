@@ -2171,8 +2171,12 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                     )}
                 </div>
 
-                {/* ── ACS EXISTENTE (cuando NO se actúa sobre el ACS) ── */}
-                {!local.cambio_acs && (
+                {/* ── ACS EXISTENTE (cuando NO se actúa sobre el ACS) ──
+                    Con el ACS fuera del alcance no se pinta: no entra en la fórmula
+                    de ahorro y ocupaba media pantalla. Los datos ya guardados no se
+                    tocan. Solo se enseña si ya se declaró un termo eléctrico nuevo,
+                    para no esconder un equipo que alguien escribió. */}
+                {!local.cambio_acs && tipoEquipoNuevo(local.aerotermia_acs) === EQUIPO_NUEVO.TERMO && (
                     <div className="space-y-2">
                         <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-[10px] font-black text-brand/70 uppercase tracking-widest px-2 py-0.5 rounded bg-brand/10 border border-brand/20">ACS — no se actúa</span>
