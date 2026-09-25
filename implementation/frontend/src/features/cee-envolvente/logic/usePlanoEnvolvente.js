@@ -50,6 +50,13 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
     //: ningún muro del que leerlo después.
     const [cuerposFuera, setCuerposFuera] = useState([]);
 
+    //: El CONTORNO DE LA VIVIENDA dibujado a mano, cuando la parcela es una
+    //: comunidad de adosados y Catastro no dice dónde acaba cada casa. Va en
+    //: coordenadas del MUNDO (EPSG:25830), no del lienzo: al recortar, el motor
+    //: vuelve a encuadrar la casa y el lienzo cambia de origen. Como los
+    //: cuerpos, se guarda porque hay que volver a PEDIR la geometría con él.
+    const [recorte, setRecorte] = useState(null);
+
     //: La CUBIERTA que se reforma, por planta: entera, o la parte que encierra
     //: un polígono dibujado sobre el plano. Va en su propio estado porque la
     //: cubierta NO es un muro —no está en `muros`, es una superficie horizontal
@@ -100,6 +107,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                 setSel(r.sel);
                 setGeometria(r.geometria);
                 setCuerposFuera(r.cuerposFuera);
+                setRecorte(r.recorte);
                 setCubiertas(r.cubiertas);
             }
         } catch { /* almacenamiento bloqueado: se empieza limpio */ }
@@ -159,7 +167,9 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         // a PEDIR la geometría con ellos: si no, al recargar el aparcamiento
         // volvería a la envolvente y nadie se enteraría.
         cuerpos_fuera: cuerposFuera,
-    } : null), [muros, entrada, sel, geometria, cuerposFuera, cubiertas]);
+        // El contorno de la vivienda (adosados). Mismo motivo que los cuerpos.
+        recorte_vivienda: recorte,
+    } : null), [muros, entrada, sel, geometria, cuerposFuera, cubiertas, recorte]);
 
     useEffect(() => {
         if (!Object.keys(muros).length) return;
@@ -962,6 +972,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         cubiertas, ponCubierta, quitaCubierta,
         apartaDeLaEnvolvente, reclasifica, renombra, ponU, orienta, ponPilares,
         cuerposFuera, sacaCuerpo, apartaParedesDe,
+        recorte,
         loSenalado, restaurar,
         esCandidata, esMedianera, esParticion, esFuera, tipoDe, nombreDe, estadoDe,
         rumboDe, necesitaRumbo, rumbosDe,

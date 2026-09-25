@@ -61,11 +61,25 @@ class Modelo:
     catastro: dict = field(default_factory=dict)
     diagnostics: Diagnostics = field(default_factory=Diagnostics)
 
+    #: El contorno de la VIVIENDA dibujado por el certificador, cuando la
+    #: parcela es la comunidad entera (una hilera de adosados, dos hileras y
+    #: su calle privada). Catastro no dibuja donde acaba cada casa, asi que sin
+    #: esto se mide el bloque entero. Ver `pipeline.recortar_vivienda`.
+    recorte: BaseGeometry | None = None
+    #: Lo construido que queda FUERA del contorno, por nivel. Son las casas de
+    #: al lado: se tratan como edificio colindante, y por eso la pared contra
+    #: ellas sale como MEDIANERA y no como fachada al aire.
+    recorte_resto: dict = field(default_factory=dict)
+
     def huella(self) -> BaseGeometry | None:
         from .gis.adjacency import unir
         g = unir([b.geometry for b in self.buildings])
         if g is None:
             g = unir([p.geometry for p in self.building_parts])
+        if g is not None and self.recorte is not None:
+            g = g.intersection(self.recorte)
+            if g.is_empty:
+                return None
         return g
 
     def vecinos_geom(self) -> BaseGeometry | None:

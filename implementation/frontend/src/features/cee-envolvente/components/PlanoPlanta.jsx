@@ -7,6 +7,7 @@ import { areaPoligono, at, caja, centro, centroide, cota, CAMARA_ISO, ESCALA_AXO
 import { TIPOS_PARED, nombreHueco } from '../logic/usePlanoEnvolvente';
 import { cuerposDeLaPlanta } from '../logic/cuerposEnvolvente';
 import { CubiertaControl } from './PanelCubierta';
+import { RecorteControl } from './PanelRecorte';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // El plano del certificador. Cada pared se pulsa.
@@ -55,7 +56,7 @@ import { CubiertaControl } from './PanelCubierta';
 //: los dos modos (4,6:1 sobre el fondo claro, 5,1:1 sobre el oscuro) y que no se
 //: confunda con el ámbar de «por confirmar» ni con el rojo de error.
 const COLOR_TIPO = {
-    FACHADA: 'var(--brand-primary)',
+    FACHADA: 'var(--success)',
     MEDIANERA: 'var(--info)',
     PARTICION_VERTICAL: '#e0559b',
 };
@@ -194,6 +195,15 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                               cubierta = null, dibujarCubierta = false, onCubierta = null,
                               onCubiertaModo = null, onCubiertaEntera = null,
                               onCubiertaQuitar = null,
+                              //: El CONTORNO DE LA VIVIENDA (en coordenadas de
+                              //: este lienzo) cuando la parcela es una comunidad
+                              //: de adosados, y el modo de dibujarlo. Usa el MISMO
+                              //: gesto que la cubierta: pulsar vértice a vértice.
+                              //: `onRecorteModo` solo llega al plano en el que se
+                              //: ofrece (la planta baja).
+                              recorte = null, dibujarRecorte = false, onRecorte = null,
+                              onRecorteModo = null, onRecorteQuitar = null,
+                              recorteSugerido = false, midiendo = false,
                               catastro, quiereCatastro, onCatastro,
                               trayendoCatastro, falloCatastro,
                               // Los CUERPOS del edificio (la casa, el garaje
@@ -211,6 +221,10 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
     //: aquí: no se guarda ni viaja a ninguna parte.
     const [cuerpoSobre, setCuerpoSobre] = useState(null);
     const es3d = modo === '3d';
+    //: Dibujando un POLÍGONO —la cubierta que se reforma o el contorno de la
+    //: vivienda—: el gesto es el mismo, lo que cambia es a quién se entrega.
+    const dibujarPoligono = dibujarCubierta || dibujarRecorte;
+    const entregarPoligono = dibujarRecorte ? onRecorte : onCubierta;
     const svgRef = useRef(null);
     const cajaRef = useRef(null);
 
@@ -407,7 +421,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
     //: de ese modo, arrastrar ya mueve el plano y robarle el espacio a la
     //: página no tendría sentido.
     useEffect(() => {
-        if (!dibujando && !dibujarCubierta) { espacio.current = false; setEspacioPulsado(false); return undefined; }
+        if (!dibujando && !dibujarPoligono) { espacio.current = false; setEspacioPulsado(false); return undefined; }
         const abajo = (e) => {
             if (e.code !== 'Space' || e.repeat) return;
             const t = e.target;
@@ -423,7 +437,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
         window.addEventListener('keyup', arriba);
         return () => { window.removeEventListener('keydown', abajo);
                        window.removeEventListener('keyup', arriba); };
-    }, [dibujando, dibujarCubierta]);
+    }, [dibujando, dibujarPoligono]);
     //: El polígono de la CUBIERTA que se está dibujando: sus vértices, y dónde
     //: está el ratón para la goma elástica hasta el siguiente. Es un MODO igual
     //: que la pared nueva —un clic sobre el plano no puede significar dos
@@ -435,16 +449,16 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
     // Salir del modo (desde el panel, o al cerrar) tira lo que hubiera a
     // medias, y Esc cancela desde el teclado: es lo que uno prueba primero.
     useEffect(() => {
-        if (dibujarCubierta) return undefined;
+        if (dibujarPoligono) return undefined;
         setVertices([]); setCursor(null);
         return undefined;
-    }, [dibujarCubierta]);
+    }, [dibujarPoligono]);
     useEffect(() => {
-        if (!dibujarCubierta) return undefined;
-        const esc = (e) => { if (e.key === 'Escape') { setVertices([]); onCubierta?.(null); } };
+        if (!dibujarPoligono) return undefined;
+        const esc = (e) => { if (e.key === 'Escape') { setVertices([]); entregarPoligono?.(null); } };
         window.addEventListener('keydown', esc);
         return () => window.removeEventListener('keydown', esc);
-    }, [dibujarCubierta, onCubierta]);
+    }, [dibujarPoligono, entregarPoligono]);
 
     /** Cerrar el polígono y entregarlo. Un vértice repetido al final —el
      *  segundo clic de un doble clic— no es un vértice. */
@@ -456,7 +470,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
         }
         if (limpio.length < 3) return;
         setVertices([]);
-        onCubierta?.(limpio);
+        entregarPoligono?.(limpio);
     };
     const arrastre = useRef(null);
     // El asa de hueco que acaba de recibir el `pointerdown`. Va por `ref` y no
@@ -545,7 +559,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
         asaPulsada.current = null;
         // Dibujar la parte de la CUBIERTA que se reforma: un clic (sin
         // arrastrar) pone un vértice; arrastrar sigue moviendo el plano.
-        if (dibujarCubierta && !es3d && e.button === 0) {
+        if (dibujarPoligono && !es3d && e.button === 0) {
             arrastre.current = { gesto: 'vertice', cam: camara,
                                  ...aDibujo(e.clientX, e.clientY), vb: vista,
                                  x0: e.clientX, y0: e.clientY, movido: false };
@@ -555,7 +569,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
         // dibujando: en modo dibujo el botón izquierdo traza, así que sin esto
         // la única forma de llegar a otra parte del plano era alejarse con la
         // rueda y volver — que es justo lo que hace que dibujar «cueste».
-        if ((dibujando || dibujarCubierta) && espacio.current && e.button === 0) {
+        if ((dibujando || dibujarPoligono) && espacio.current && e.button === 0) {
             arrastre.current = { gesto: 'mover', cam: camara,
                                  ...aDibujo(e.clientX, e.clientY), vb: vista,
                                  x0: e.clientX, y0: e.clientY, movido: false };
@@ -593,7 +607,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                              x0: e.clientX, y0: e.clientY, movido: false };
     };
     const onMove = (e) => {
-        if (dibujarCubierta && !es3d) setCursor(aDibujo(e.clientX, e.clientY));
+        if (dibujarPoligono && !es3d) setCursor(aDibujo(e.clientX, e.clientY));
         const d = arrastre.current;
         if (!d) return;
         // El puntero se CAPTURA al empezar a mover de verdad, nunca al pulsar:
@@ -635,7 +649,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
             // Pulsar el PRIMER vértice cierra el polígono: es el gesto de
             // cualquier programa de dibujo, y no hace falta explicarlo.
             if (primero && vertices.length >= 3
-                && Math.hypot(p.x - primero[0], p.y - primero[1]) < 0.6) {
+                && Math.hypot(p.x - primero[0], p.y - primero[1]) < Math.max(0.6, tam * 1.2)) {
                 cerrarCubierta();
             } else {
                 setVertices(v => [...v, [Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100]]);
@@ -733,7 +747,17 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
             {/* LA CUBIERTA de esta planta. Va aquí —bajo la barra de SU plano y
                 encima del dibujo— porque se marca dibujándola: el mando tiene
                 que estar donde está el gesto. En 3D no: ahí no se dibuja. */}
-            {!es3d && onCubiertaModo && (
+            {!es3d && onRecorteModo && (
+                <RecorteControl recorte={recorte} dibujando={dibujarRecorte}
+                                vertices={vertices} midiendo={midiendo}
+                                sugerir={recorteSugerido}
+                                onDibujar={() => onRecorteModo(true)}
+                                onQuitar={onRecorteQuitar}
+                                onCerrar={cerrarCubierta}
+                                onCancelar={() => { setVertices([]); onRecorte?.(null); }} />
+            )}
+
+            {!es3d && onCubiertaModo && !dibujarRecorte && (
                 <CubiertaControl reforma={cubierta} dibujando={dibujarCubierta}
                                  vertices={vertices}
                                  onDibujar={() => onCubiertaModo(true)}
@@ -759,7 +783,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                      style={{ touchAction: 'none', height: 'clamp(360px, 68vh, 900px)' }}
                      onPointerDown={onDown} onPointerMove={onMove}
                      onPointerUp={onUp} onPointerCancel={onUp}
-                     onDoubleClick={() => { if (dibujarCubierta) cerrarCubierta(); }}
+                     onDoubleClick={() => { if (dibujarPoligono) cerrarCubierta(); }}
                      onPointerLeave={() => { arrastre.current = null; setTip(null); setCursor(null); }}>
                     <defs>
                         {/* La trama de lo que SE REFORMA: ámbar y más abierta que
@@ -883,9 +907,16 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                             {/* La parte de la CUBIERTA que se reforma: la ya
                                 dibujada, con su trama y su m², y la que se está
                                 dibujando con la goma elástica hasta el ratón. */}
-                            <Cubierta reforma={cubierta} vertices={vertices}
+                            <Cubierta reforma={cubierta}
+                                      vertices={dibujarCubierta ? vertices : []}
                                       cursor={dibujarCubierta ? cursor : null}
                                       uid={uid} tam={tam} />
+
+                            {/* El CONTORNO DE LA VIVIENDA: el ya medido y el que
+                                se está dibujando. */}
+                            <Recorte recorte={recorte}
+                                     vertices={dibujarRecorte ? vertices : []}
+                                     cursor={dibujarRecorte ? cursor : null} tam={tam} />
 
                             {rotulos.map(r => (
                                 <g key={r.id} style={{ pointerEvents: 'none' }}>
@@ -1001,7 +1032,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                 ))}
             </div>
 
-            <Leyenda es3d={es3d} dibujando={dibujando} dibujandoCubierta={dibujarCubierta && !es3d} />
+            <Leyenda es3d={es3d} dibujando={dibujando} dibujandoCubierta={dibujarPoligono && !es3d} />
         </div>
     );
 }
@@ -1114,7 +1145,7 @@ function Muro({ m, uid, grosor, color, trama, estado, seleccionada, candidata,
                           strokeLinecap="round" strokeLinejoin="round" opacity={0.75} />
             )}
             {(seleccionada || candidata || entrada || enfocada) && (
-                <polyline points={pts} fill="none" stroke="var(--brand-primary)"
+                <polyline points={pts} fill="none" stroke="var(--success)"
                           strokeWidth={grosor + 0.55}
                           opacity={seleccionada ? 0.3 : enfocada ? 0.45 : 0.22}
                           strokeLinecap="round" strokeLinejoin="round" />
@@ -1295,7 +1326,7 @@ function Cuerpos({ cuerpos, sobre, onSobre, onPulsar, tam }) {
                 const fuera = c.fueraAqui;
                 const sospechoso = c.sospechosoAqui;
                 const color = fuera ? 'var(--text-secondary)'
-                    : sospechoso ? 'var(--warning)' : 'var(--brand-primary)';
+                    : sospechoso ? 'var(--warning)' : 'var(--success)';
                 return (
                     <g key={c.id} className="cursor-pointer"
                        onPointerEnter={() => onSobre?.(c.id)}
@@ -1494,14 +1525,14 @@ function Tiradores({ muro, onCoger, r = 0.3 }) {
         <g>
             {[0, pts.length - 1].map(i => (
                 <circle key={i} cx={pts[i][0]} cy={pts[i][1]} r={radio}
-                        fill={PAPEL} stroke="var(--brand-primary)"
+                        fill={PAPEL} stroke="var(--success)"
                         strokeWidth={radio * 0.3}
                         className="cursor-move" onPointerDown={agarre(i)}>
                     <title>Arrastra este extremo</title>
                 </circle>
             ))}
             <circle cx={medio[0]} cy={medio[1]} r={radio * 0.8}
-                    fill="var(--brand-primary)" opacity={0.85}
+                    fill="var(--success)" opacity={0.85}
                     className="cursor-move" onPointerDown={agarre(null)}>
                 <title>Arrastra la pared entera</title>
             </circle>
@@ -1678,9 +1709,9 @@ function Brujula({ proy, onNorte }) {
                 <ellipse cx="0" cy="0" rx={R} ry={Math.max(1.2, R * proy.aplanado)}
                          fill="none" stroke="var(--border-subtle)" strokeWidth="1" />
                 <polygon points={aguja(sx, sy)} fill={APAGADO} opacity={0.7} />
-                <polygon points={aguja(nx, ny)} fill="var(--brand-primary)" />
+                <polygon points={aguja(nx, ny)} fill="var(--success)" />
                 <text x={lx} y={ly} fontSize="11" fontWeight="900" textAnchor="middle"
-                      dominantBaseline="central" fill="var(--brand-primary)">N</text>
+                      dominantBaseline="central" fill="var(--success)">N</text>
             </svg>
         </button>
     );
@@ -1768,6 +1799,36 @@ function Cubierta({ reforma, vertices, cursor, uid, tam }) {
                                 stroke="var(--warning)" strokeWidth={0.08} />
                     ))}
                     {vertices.length >= 3 && rotulo(vertices, `≈${fmt(areaPoligono(vertices))} m²`)}
+                </>
+            )}
+        </g>
+    );
+}
+
+/** El contorno de la VIVIENDA delimitada a mano, y el que se está dibujando. */
+function Recorte({ recorte, vertices, cursor, tam }) {
+    const puntos = (pts) => pts.map(([x, y]) => `${x},${y}`).join(' ');
+    const poli = recorte?.lienzo;
+    const trazo = cursor ? [...vertices, [cursor.x, cursor.y]] : vertices;
+    return (
+        <g style={{ pointerEvents: 'none' }}>
+            {poli?.length >= 3 && (
+                <polygon points={puntos(poli)} fill="none" stroke="var(--success)"
+                         strokeWidth={tam * 0.14} strokeDasharray={`${tam * 0.8} ${tam * 0.4}`} strokeLinejoin="round"
+                         opacity={0.9} />
+            )}
+            {vertices.length > 0 && (
+                <>
+                    <polyline points={puntos(trazo)}
+                              fill={vertices.length >= 2 ? 'var(--success)' : 'none'}
+                              fillOpacity={0.08}
+                              stroke="var(--success)" strokeWidth={tam * 0.12}
+                              strokeDasharray={`${tam * 0.5} ${tam * 0.3}`} strokeLinejoin="round" />
+                    {vertices.map(([x, y], i) => (
+                        <circle key={i} cx={x} cy={y} r={i === 0 ? tam * 0.45 : tam * 0.22}
+                                fill={i === 0 ? 'var(--success)' : PAPEL}
+                                stroke="var(--success)" strokeWidth={tam * 0.08} />
+                    ))}
                 </>
             )}
         </g>

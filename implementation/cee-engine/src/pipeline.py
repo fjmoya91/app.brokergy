@@ -321,17 +321,115 @@ def construir_modelo(o: Opciones, rc: refcat_mod.ReferenciaCatastral,
 
 
 def _vecinos_en_nivel(modelo: Modelo, nivel: int):
-    """Huella de los colindantes A LA ALTURA de la planta `nivel`."""
+    """Huella de los colindantes A LA ALTURA de la planta `nivel`.
+
+    Con la vivienda delimitada a mano, lo construido fuera de su contorno EN
+    ESE NIVEL (las casas de al lado) es colindante tambien. Por nivel y no
+    junto: donde la casa de al lado solo tiene planta baja, la pared de la
+    primera planta de esta da al aire, no a una medianera.
+    """
+    resto = (modelo.recorte_resto or {}).get(nivel)
     completo = modelo.vecinos_geom()
     if not modelo.neighbour_partes:
-        return completo
+        return unir([completo, resto])
     if nivel >= 0:
         trozos = [p.geometry for p in modelo.neighbour_partes
                   if (p.plantas_sobre_rasante or 1) >= nivel + 1]
     else:
         trozos = [p.geometry for p in modelo.neighbour_partes
                   if (p.plantas_bajo_rasante or 0) >= abs(nivel)]
-    return unir(trozos)
+    return unir([*trozos, resto])
+
+
+# ------------------------------------------------ delimitar la VIVIENDA a mano
+#: Por debajo de esto un contorno no es una vivienda: es un clic de mas.
+AREA_MINIMA_RECORTE_M2 = 4.0
+
+
+class RecorteInvalido(ValueError):
+    """El contorno dibujado no sirve para delimitar la vivienda."""
+
+
+def recortar_vivienda(modelo: Modelo, poligono) -> str | None:
+    """Deja la envolvente en la VIVIENDA que el certificador ha dibujado.
+
+    POR QUE EXISTE: en una comunidad de adosados la parcela es la del conjunto
+    —dos hileras y su calle privada, medido en 3677802WJ3437F (26RES060_205):
+    188 paredes— y Catastro NO dibuja donde acaba cada casa: sus BuildingParts
+    se parten por numero de plantas, no por vivienda. La envolvente de un
+    certificado es la de UNA casa, y apartar a mano las paredes de las demas no
+    la cierra: la linea que la separa de la de al lado no existe en el modelo.
+
+    REGLA — lo de fuera del contorno SIGUE CONSTRUIDO y es otra vivienda. No se
+    borra: se guarda por nivel en `recorte_resto` y entra como colindante, asi
+    que la pared contra la casa de al lado sale como MEDIANERA (adiabatica en
+    CE3X) y la que da a la calle, al patio o al jardin sigue siendo FACHADA.
+
+    REGLA — el contorno es un PRISMA: vale para todas las plantas. Es lo que es
+    una vivienda adosada, y en la planta de arriba el diente de la casa de al
+    lado se resuelve solo al cortar su huella con el.
+
+    `poligono` son los vertices EN EL CRS DEL MODELO (metros, EPSG:25830), no
+    en el lienzo: el lienzo cambia al recortar —se encuadra la casa— y un
+    contorno guardado en sus coordenadas se descolocaria al volver a abrir.
+    """
+    if not poligono:
+        return None
+    from shapely.geometry import Polygon
+    try:
+        pts = [(float(x), float(y)) for x, y in poligono]
+    except (TypeError, ValueError):
+        raise RecorteInvalido("el contorno de la vivienda no son pares de coordenadas")
+    if len(pts) < 3:
+        raise RecorteInvalido("el contorno de la vivienda necesita al menos 3 vertices")
+    poly = Polygon(pts)
+    if not poly.is_valid:
+        poly = poly.buffer(0)          # un contorno que se cruza consigo mismo
+    if poly.is_empty or poly.area < AREA_MINIMA_RECORTE_M2:
+        raise RecorteInvalido("el contorno de la vivienda no encierra superficie")
+
+    originales = list(modelo.partes)
+    if not originales:
+        raise RecorteInvalido("sin BuildingParts de Catastro no hay edificio que delimitar")
+
+    # Lo de FUERA, planta a planta, sacado de lo que hay construido de verdad.
+    resto: dict[int, object] = {}
+    for pl in floors_mod.plantas_desde_partes(originales):
+        r = floors_mod._limpia(pl.huella.difference(poly))
+        if r is not None:
+            resto[pl.nivel] = r
+
+    from dataclasses import replace
+    recortadas = []
+    for p in originales:
+        g = floors_mod._limpia(p.geometry.intersection(poly))
+        if g is not None:
+            recortadas.append(replace(p, geometry=g))
+    if not recortadas:
+        raise RecorteInvalido("el contorno dibujado no toca el edificio: dibujalo "
+                              "sobre la vivienda, en el plano de la planta baja")
+
+    total = sum(p.geometry.area for p in originales)
+    modelo.partes = recortadas
+    modelo.recorte = poly
+    modelo.recorte_resto = resto
+
+    plantas = floors_mod.plantas_desde_partes(recortadas)
+    datos = modelo.catastro.get("_datos")
+    if datos is not None:
+        floors_mod.asignar_usos(plantas, datos.usos_por_planta())
+    modelo.floors = plantas
+
+    dentro = sum(p.geometry.area for p in recortadas)
+    por_planta = ", ".join(f"{_nombre_nivel(p.nivel)} {p.area_m2:.1f} m2"
+                           for p in plantas)
+    dicho = (f"la envolvente se ha DELIMITADO A MANO a la vivienda ({por_planta}) "
+             f"dentro de un edificio de {total:.0f} m2 de huella por partes; "
+             f"lo construido fuera del contorno ({total - dentro:.0f} m2) se trata "
+             "como las viviendas de al lado: la pared contra ellas sale como "
+             "MEDIANERA y la que da a la calle, al patio o al jardin, como fachada")
+    modelo.diagnostics.add("RECORTE_VIVIENDA", dicho)
+    return dicho
 
 
 # ------------------------------------------ que construcciones CUENTAN
@@ -537,7 +635,9 @@ def analizar(o: Opciones, modelo: Modelo) -> Resultado:
                             "hay geometria que clasificar")
 
     parcela = modelo.parcel.geometry if modelo.parcel else None
-    vecinos = modelo.vecinos_geom()
+    # Con la vivienda delimitada, las casas de al lado (lo que quedo fuera del
+    # contorno, en cualquier nivel) son colindantes para todo lo global.
+    vecinos = unir([modelo.vecinos_geom(), *(modelo.recorte_resto or {}).values()])
 
     # huellas de espacios no habitables de la MISMA parcela (solo si hay DXF)
     no_hab = unir([s.geometry for s in modelo.spaces

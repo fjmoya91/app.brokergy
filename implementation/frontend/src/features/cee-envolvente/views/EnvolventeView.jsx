@@ -5,7 +5,7 @@ import { getRoleFlags } from '../../../utils/roleFlags';
 import { PlanoPlanta } from '../components/PlanoPlanta';
 import { PanelPared } from '../components/PanelPared';
 import { usePlanoEnvolvente } from '../logic/usePlanoEnvolvente';
-import { lienzoAMundo } from '../logic/geometriaPlano';
+import { lienzoAMundo, areaPoligono } from '../logic/geometriaPlano';
 import { CampoDecimal } from '../../../components/CampoDecimal';
 import { dondeSobra, dondeSigue } from '../logic/cuerposEnvolvente';
 import { claveInstalacion } from '../logic/fichaCe3x';
@@ -67,6 +67,8 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     //: `ref` y no estado porque solo sirve para no volver a pedir lo mismo: con
     //: estado, cada medición dispararía un render que dispararía otra medición.
     const cuerposPedidos = useRef([]);
+    //: Con qué CONTORNO DE VIVIENDA se pidió (adosados). Mismo motivo.
+    const recortePedido = useRef(null);
     const [cargando, setCargando] = useState(false);
     const [error, setError] = useState(null);
     const [generando, setGenerando] = useState(false);
@@ -101,7 +103,8 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         yaTraido.current = true;
         // Con los cuerpos que ya se habían dejado fuera: si no, al recargar el
         // aparcamiento volvería a la envolvente y nadie se enteraría.
-        traerGeometria(trabajoPrevio.cuerpos_fuera || []);
+        traerGeometria(trabajoPrevio.cuerpos_fuera || [],
+                       trabajoPrevio.recorte_vivienda || null);
     }, [trabajoPrevio, geo, cargando, rc]);   // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
@@ -149,6 +152,8 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     //: reforma (`null`: ninguna). Es de la pantalla, no del plano: lo enciende
     //: el panel de la cubierta y lo apaga cerrar el polígono o cancelar.
     const [dibujandoCubierta, setDibujandoCubierta] = useState(null);
+    //: La planta sobre cuyo plano se DIBUJA EL CONTORNO DE LA VIVIENDA.
+    const [dibujandoRecorte, setDibujandoRecorte] = useState(null);
 
     //: QUÉ PLANTAS se ven a la vez. `null` es la vista dividida —todas, una al
     //: lado de otra—; un índice es ver esa sola a todo el ancho. Las dos hacen
@@ -212,9 +217,16 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
      * comprobación va AQUÍ y no en el sitio que llama, o el próximo que enganche
      * esta función a un `onClick` vuelve a romperlo sin enterarse.
      */
-    async function traerGeometria(cuerposFuera = null) {
-        if (!rc) { setError('Este expediente no tiene referencia catastral.'); return; }
+    async function traerGeometria(cuerposFuera = null, recorte = undefined) {
+        if (!rc) { setError('Este expediente no tiene referencia catastral.'); return false; }
         setCargando(true); setError(null);
+        // El contorno de la vivienda: `undefined` es «el mismo de antes», `null`
+        // es «sin contorno». Lo que no traiga sus vértices no viaja.
+        const antes = recortePedido.current;
+        if (recorte !== undefined) {
+            recortePedido.current = Array.isArray(recorte?.poligono) && recorte.poligono.length >= 3
+                ? recorte : null;
+        }
         try {
             // Los CUERPOS que se dejan fuera viajan con la petición: el motor
             // vuelve a MEDIR el edificio sin ellos —la pared que separaba el
@@ -223,16 +235,22 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             const fuera = soloLista(cuerposFuera) ?? cuerposPedidos.current;
             cuerposPedidos.current = fuera || [];
             const data = await postEnvolvente(api(id, 'geometria'),
-                { referencia_catastral: rc, cuerpos_excluidos: fuera || [] },
+                { referencia_catastral: rc, cuerpos_excluidos: fuera || [],
+                  recorte_vivienda: recortePedido.current },
                 // Repetible: medir NO escribe nada —lee Catastro, y el motor lo
                 // tiene cacheado—, así que una petición que no ha llegado se
                 // puede volver a mandar sin consecuencias.
                 { haciendo: 'construir la envolvente', repetible: true });
             setGeo(data);
+            return true;
         } catch (e) {
             // Ya viene redactado: qué ha fallado y qué hacer con ello. El
             // respaldo es por si algo revienta antes de llegar a la petición.
             setError(e.mensaje || e.message || 'No se pudo construir la envolvente.');
+            // Un contorno que el motor rechaza no se queda como «el pedido»:
+            // la siguiente medición volvería a mandarlo y a fallar igual.
+            recortePedido.current = antes;
+            return false;
         } finally {
             setCargando(false);
         }
@@ -256,9 +274,39 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         // Hoy nadie la engancha a un `onClick`; esto es para que el día que lo
         // hagan no se repita el fallo del 16/09/2026.
         const limpio = (cambios && !cambios.nativeEvent && !cambios.target) ? cambios : {};
-        const actual = { ...(plano.trabajo || trabajoPrevio || {}), ...limpio };
+        const previo = plano.trabajo || trabajoPrevio || {};
+        const actual = { ...previo, ...limpio };
         setTrabajoPrevio(actual);
-        await traerGeometria(actual.cuerpos_fuera || []);
+        const ok = await traerGeometria(actual.cuerpos_fuera || [],
+                                        actual.recorte_vivienda || null);
+        // Si no se ha podido medir, lo pedido NO se queda guardado: el plano
+        // en pantalla sigue siendo el de antes y el trabajo tiene que decir lo
+        // mismo que él.
+        if (!ok) setTrabajoPrevio(previo);
+        return ok;
+    }
+
+    // ── DELIMITAR LA VIVIENDA (adosados en una comunidad) ────────────────────
+    // Se dibuja en el lienzo y se guarda en el MUNDO: al recortar, el motor
+    // encuadra la casa y el lienzo cambia de origen. La traslación la da el
+    // propio `georef` de la geometría que hay en pantalla.
+    async function cerrarRecorte(poly) {
+        setDibujandoRecorte(null);
+        if (!poly || poly.length < 3) return;
+        const t = lienzoAMundo(geo?.georef);
+        if (!t) { setError('No se puede situar el contorno: falta la georreferencia del plano.'); return; }
+        const r2 = v => Math.round(v * 100) / 100;
+        const poligono = poly.map(([x, y]) => [r2(x + t.dx), r2(t.y0 - y)]);
+        const ok = await volverAMedir({
+            recorte_vivienda: { poligono, area_m2: Math.round(areaPoligono(poly) * 10) / 10 },
+        });
+        if (ok) onAviso?.('Vivienda delimitada: el edificio se ha vuelto a medir y lo de '
+                          + 'fuera del contorno cuenta como las casas de al lado (medianera).');
+    }
+    async function quitarRecorte() {
+        setDibujandoRecorte(null);
+        const ok = await volverAMedir({ recorte_vivienda: null });
+        if (ok) onAviso?.('Contorno quitado: se vuelve a medir todo lo construido de la parcela.');
     }
 
     // ── La cartografía del Catastro DEBAJO del plano ─────────────────────────
@@ -631,6 +679,24 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     //: por la de arriba no tiene cubierta que reformar, y ofrecer marcarla
     //: sería ofrecer algo que el .cex no va a escribir. Va aquí arriba, por
     //: encima del `return` de «todavía no hay geometría» (regla de los hooks).
+    //: El contorno de la vivienda, en el lienzo de la geometría que hay en
+    //: pantalla (se guarda en el mundo). Y si conviene SUGERIRLO: un plano con
+    //: decenas de paredes es casi seguro una comunidad medida entera.
+    const recorteLienzo = useMemo(() => {
+        const t = lienzoAMundo(geo?.georef);
+        const pol = plano.recorte?.poligono;
+        if (!t || !Array.isArray(pol) || pol.length < 3) return null;
+        return { ...plano.recorte, lienzo: pol.map(([x, y]) => [x - t.dx, t.y0 - y]) };
+    }, [geo?.georef, plano.recorte]);
+    const muchasParedes = useMemo(
+        () => (geo?.plantas || []).reduce((a, p) => a + (p.muros?.length || 0), 0) > 40,
+        [geo?.plantas]);
+    //: En qué plano se ofrece delimitar: la planta baja (o la más baja que haya).
+    const plantaRecorte = useMemo(() => {
+        const ps = geo?.plantas || [];
+        return (ps.find(p => p.nivel === 0) || ps[0])?.id ?? null;
+    }, [geo?.plantas]);
+
     const conCubierta = useMemo(() => new Set(
         (geo?.geometria?.elementos || [])
             .filter(e => e.tipo === 'CUBIERTA').map(e => e.planta)),
@@ -841,6 +907,16 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                                                    plano.ponCubierta(p.id, { entera: true }); }}
                                          onCubiertaQuitar={() => { setDibujandoCubierta(null);
                                                                    plano.quitaCubierta(p.id); }}
+                                         recorte={recorteLienzo}
+                                         dibujarRecorte={dibujandoRecorte === p.id}
+                                         onRecorte={cerrarRecorte}
+                                         onRecorteModo={p.id === plantaRecorte
+                                             ? (si => { setDibujandoCubierta(null);
+                                                        setDibujandoRecorte(si ? p.id : null); })
+                                             : null}
+                                         onRecorteQuitar={quitarRecorte}
+                                         recorteSugerido={muchasParedes && !recorteLienzo}
+                                         midiendo={cargando}
                                          catastro={quiereCatastro ? catastro : null}
                                          quiereCatastro={quiereCatastro}
                                          onCatastro={verCatastro}

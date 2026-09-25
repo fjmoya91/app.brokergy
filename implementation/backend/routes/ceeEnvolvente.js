@@ -160,9 +160,19 @@ router.get('/:expedienteId/oportunidad', staffOnly, async (req, res) => {
     }
 });
 
+/** El contorno de la vivienda tal y como puede viajar al motor, o `null`. */
+function recorteSaneado(r) {
+    const pts = Array.isArray(r?.poligono) ? r.poligono : null;
+    if (!pts || pts.length < 3 || pts.length > 100) return null;
+    const limpio = pts.map(p => (Array.isArray(p) && p.length >= 2
+        ? [Number(p[0]), Number(p[1])] : null));
+    if (limpio.some(p => !p || !Number.isFinite(p[0]) || !Number.isFinite(p[1]))) return null;
+    return { poligono: limpio };
+}
+
 /**
  * POST /api/cee-envolvente/:expedienteId/geometria
- * Body: { referencia_catastral, altura_planta? }
+ * Body: { referencia_catastral, altura_planta?, cuerpos_excluidos?, recorte_vivienda? }
  *
  * De la RC a la envolvente medida y clasificada, más el plan de fotos.
  * La RC sale del expediente si no viene en el cuerpo: cada consulta a Catastro
@@ -193,6 +203,11 @@ router.post('/:expedienteId/geometria', internalOnly, staffSiOportunidad, async 
             cuerpos_excluidos: Array.isArray(req.body?.cuerpos_excluidos)
                 ? req.body.cuerpos_excluidos.filter(x => typeof x === 'string').slice(0, 50)
                 : null,
+            // El CONTORNO de la vivienda cuando la parcela es una comunidad de
+            // adosados: Catastro no dibuja dónde acaba cada casa, así que lo
+            // dibuja el certificador. Vértices en el CRS métrico (EPSG:25830);
+            // lo que no sean pares de números no viaja.
+            recorte_vivienda: recorteSaneado(req.body?.recorte_vivienda),
         }, ESPERA_ENVOLVENTE_MS);
 
         const datos = await r.json();

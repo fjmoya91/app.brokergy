@@ -73,6 +73,8 @@ export function aplicarTrabajo(nuevo, g, id, { paredDibujada, rescatarHueco, med
         sel: g.sel ? id(g.sel) : null,
         geometria,
         cuerposFuera: Array.isArray(g.cuerpos_fuera) ? g.cuerpos_fuera : [],
+        recorte: Array.isArray(g.recorte_vivienda?.poligono)
+            && g.recorte_vivienda.poligono.length >= 3 ? g.recorte_vivienda : null,
         cubiertas: g.cubierta_reforma && typeof g.cubierta_reforma === 'object'
             ? g.cubierta_reforma : {},
     };

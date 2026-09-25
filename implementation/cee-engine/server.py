@@ -178,6 +178,16 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
         # Una finca en la que Catastro no declara ninguna vivienda (todo
         # «ALMACEN») se queda sin plano: se mide entera y se dice.
         pipeline.sin_vivienda_mide_todo(modelo)
+        # En una comunidad de adosados la parcela es el conjunto entero y
+        # Catastro no dibuja donde acaba cada casa: el certificador DIBUJA el
+        # contorno de la vivienda y lo de fuera pasa a ser la casa de al lado
+        # (medianera). Va ANTES de los cuerpos: sus BuildingParts se recortan.
+        recorte = payload.get("recorte_vivienda") or {}
+        try:
+            pipeline.recortar_vivienda(
+                modelo, recorte.get("poligono") if isinstance(recorte, dict) else None)
+        except pipeline.RecorteInvalido as exc:
+            raise HTTPException(422, f"Contorno de la vivienda: {exc}")
         # Los CUERPOS del edificio, ANTES de quitar ninguno: la lista tiene que
         # seguir enseñando el que se ha dejado fuera, o no habria forma de
         # volver a meterlo — desapareceria del plano y del popup a la vez.
