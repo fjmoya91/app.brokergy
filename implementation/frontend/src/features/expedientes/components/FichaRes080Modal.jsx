@@ -7,6 +7,7 @@ import { postEmail } from '../../../utils/emailFallback';
 // maqueta HTML de este fichero se conserva como formato CLÁSICO para poder
 // comparar los dos y como salida si el impreso cambiara.
 import { fichaFormulario } from '../logic/fichasFormulario';
+import { RES080_VIDA_UTIL } from '../logic/fichaRes080Html.js';
 import { DocumentoOficialPreview, FormatoDocumentoSwitch } from './DocumentoOficialPreview';
 // Los nombres van en MAYÚSCULAS en la ficha: en el saludo se escriben bien y
 // sin cortar los compuestos ("MARIA JOSÉ" no es "Maria").
@@ -249,7 +250,7 @@ export function FichaRes080Modal({ isOpen, onClose, expediente, results, onSaveD
     </table>
     <table class="calc-table" style="width: 8%">
         <thead><tr><th><em>D<sub>i</sub></em></th></tr></thead>
-        <tbody><tr><td>15/25</td></tr></tbody>
+        <tbody><tr><td>{RES080_VIDA_UTIL}</td></tr></tbody>
     </table>
 </div>
 
@@ -533,7 +534,7 @@ export function FichaRes080Modal({ isOpen, onClose, expediente, results, onSaveD
                                     </table>
                                     <table className="calc-table" style={{ width: '8%' }}>
                                         <thead><tr><th><em>D<sub>i</sub></em></th></tr></thead>
-                                        <tbody><tr><td>15/25</td></tr></tbody>
+                                        <tbody><tr><td>{RES080_VIDA_UTIL}</td></tr></tbody>
                                     </table>
                                 </div>
 

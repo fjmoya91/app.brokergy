@@ -53,11 +53,12 @@ td.lbl { background-color: #f2f2f2; }
 // Representante por defecto (compatibilidad). En producción se inyecta el del S.O.
 const REPRESENTANTE_DEFAULT = { nombre: 'Pedro José López Montero', nif: '06239730-Z' };
 
-// Constantes de la ficha. La duración indicativa se imprime "15/25" —es lo que
-// declara el modelo para esta ficha, según el alcance de la rehabilitación— y la
-// escriben los DOS documentos (HTML clásico e impreso oficial).
+// Constantes de la ficha. La duración indicativa se imprime "25" FIJO (decisión
+// 2026-09-25: antes "15/25"). La escriben los DOS documentos (HTML clásico e
+// impreso oficial) y tiene que coincidir con el Anexo I del lote (anexoListado).
 const FP = '1';
-const DI = '15/25';
+export const RES080_VIDA_UTIL = '25';
+const DI = RES080_VIDA_UTIL;
 
 /**
  * Valores YA FORMATEADOS del apartado 4. Fuente única para el HTML clásico y para

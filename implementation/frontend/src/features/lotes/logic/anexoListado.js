@@ -9,6 +9,7 @@ import { buildInstalacionAddress } from '../../expedientes/utils/docGenerators';
 import { computeExpedienteFinancials } from '../../expedientes/logic/expedienteFinancials';
 import { calcCifo } from '../../expedientes/logic/calcCifo';
 import { getFicha } from '../../expedientes/logic/expedienteTaxonomia';
+import { RES080_VIDA_UTIL } from '../../expedientes/logic/fichaRes080Html.js';
 
 // Fecha del convenio de compraventa con el S.O. (fija; editable en el popup).
 export const CONVENIO_FECHA_DEFAULT = '27/02/2026';
@@ -26,10 +27,9 @@ export const FICHA_TITULO = {
 // quedado atrás sin fallar — devolviendo RES060 para un terciario.
 export const fichaDe = (numero) => getFicha({ numero_expediente: numero });
 
-// RES080 se imprime "15/25", igual que su ficha (fichaRes080Html · DI) y que el
-// convenio de cesión: 15 años la bomba de calor y 25 la envolvente. Un "25" a
-// secas le atribuye 25 años también al equipo, y no cuadra con la ficha firmada.
-const vidaUtilDe = (ficha) => (ficha === 'RES080' ? '15/25' : 15);
+// RES080 imprime 25 años fijos: el MISMO valor que su ficha (RES080_VIDA_UTIL),
+// o el Anexo I y la ficha firmada dirían cosas distintas.
+const vidaUtilDe = (ficha) => (ficha === 'RES080' ? RES080_VIDA_UTIL : 15);
 
 function fmtDate(d) {
     if (!d) return '';
