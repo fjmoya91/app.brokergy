@@ -250,7 +250,7 @@ ${VUELO.map((v, i) => `
  * y todavía no es un certificado: hay que abrirlo con CE3X y comprobarlo. Es el
  * único sitio donde eso se lee seguro, porque es la pantalla que sale sola.
  */
-export function CexGenerado({ g, avisos = [], onCerrar, onVerAvisos }) {
+export function CexGenerado({ g, avisos = [], onCerrar, onVerAvisos, onRegenerar }) {
     const [copiado, setCopiado] = useState(null);
     const enlace = g?.carpeta_link || g?.link;
 
@@ -336,6 +336,33 @@ export function CexGenerado({ g, avisos = [], onCerrar, onVerAvisos }) {
                     </div>
                 )}
 
+                {/* Lo que ha salido SIN imagen porque el Catastro no ha respondido.
+                    Va en grande y antes que nada más: el .cex de 26RES093_9 salió
+                    sin croquis con el aviso enterrado en la lista de avisos, y no
+                    se vio hasta abrirlo en CE3X. No es que no la tenga — volver a
+                    generarlo en un rato suele bastar. */}
+                {g?.sin_imagenes?.length > 0 && (
+                    <div className="mt-4 rounded-xl border border-red-400/35 bg-red-500/[0.08]
+                                    px-3 py-2.5">
+                        <p className="text-[12px] font-black text-red-300">
+                            ⚠ Ha salido SIN {faltanImagenes(g.sin_imagenes)}
+                        </p>
+                        <p className="mt-1 text-[11px] leading-relaxed text-red-200/80">
+                            El Catastro no ha respondido al pedirlo (un corte de conexión,
+                            no es que no lo tenga). Vuelve a generarlo en un momento: no
+                            hace falta tocar nada más.
+                        </p>
+                        {onRegenerar && (
+                            <button onClick={() => { onCerrar?.(); onRegenerar(g.fase); }}
+                                    className="mt-2 rounded-lg border border-red-300/40 px-3 py-1.5
+                                               text-[11px] font-bold text-red-200
+                                               hover:border-red-200 hover:text-white">
+                                ↻ Volver a generar
+                            </button>
+                        )}
+                    </div>
+                )}
+
                 {g?.archivado && (
                     <p className="mt-3 text-[11px] text-white/40">
                         Había otro con ese nombre: se ha archivado en <b>OLD</b>, no se ha
@@ -370,3 +397,10 @@ export function CexGenerado({ g, avisos = [], onCerrar, onVerAvisos }) {
 }
 
 export default EscribiendoElCex;
+
+//: Cómo se nombra lo que falta, en el orden en que CE3X enseña los dos botones.
+const NOMBRE_IMAGEN = { fachada: 'la foto de fachada', croquis: 'el plano de situación' };
+function faltanImagenes(claves) {
+    const n = ['fachada', 'croquis'].filter(k => claves.includes(k)).map(k => NOMBRE_IMAGEN[k]);
+    return n.length ? n.join(' ni ') : 'alguna imagen';
+}

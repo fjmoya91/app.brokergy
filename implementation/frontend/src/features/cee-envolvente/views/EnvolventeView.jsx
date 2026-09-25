@@ -1033,7 +1033,8 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             {reciénGenerado && (
                 <CexGenerado g={reciénGenerado} avisos={avisos || []}
                              onCerrar={() => setReciénGenerado(null)}
-                             onVerAvisos={() => ir('cex')} />
+                             onVerAvisos={() => ir('cex')}
+                             onRegenerar={(fase) => generarCex(fase || 'inicial')} />
             )}
         </div>
     );

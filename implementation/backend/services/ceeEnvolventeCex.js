@@ -694,8 +694,14 @@ async function componerFicha(ctx, { geometria, envolvente, ajustes, medidas = nu
     // escribir: lo que se corrige son las columnas de `clientes` y
     // `prescriptores`. Viaja FUERA de `ficha`, que es lo que se le manda al
     // motor.
+    //
+    // `imagenesFallidas`: las que NO van en el fichero porque Catastro no ha
+    // respondido (no porque no las tenga). Viaja aparte de los avisos porque
+    // el popup de «generado» lo tiene que decir en grande: enterrado en la
+    // lista de avisos, el .cex de 26RES093_9 salió sin croquis y nadie lo vio.
     return { ficha, catalogo, faltan, fuente: fuenteEditable(ctx),
-             avisos: [...avisos, ...imagenes.avisos] };
+             avisos: [...avisos, ...imagenes.avisos],
+             imagenesFallidas: Object.keys(imagenes.fallos || {}) };
 }
 
 //: Las dos imágenes del pickle 2 del `.cex`: la foto de fachada y el croquis de
@@ -716,9 +722,13 @@ async function componerFicha(ctx, { geometria, envolvente, ajustes, medidas = nu
 //: oportunidad, quince minutos después, traía las dos sin problema.
 const _imagenes = new Map();   // rc -> { fachada?: {grande, vista} | false, croquis?: {grande} | false }
 
-//: Un corte de conexión se reintenta UNA vez, en serie y tras una pausa. Más
-//: sería insistirle al WAF del que depende el buscador de la app.
-const PAUSA_REINTENTO_MS = 2000;
+//: Las pausas ANTES de cada reintento tras un corte de conexión: tres intentos
+//: en total, en serie y cada vez más espaciados. El WAF del Catastro corta a
+//: ratos las peticiones del VPS (medido el 25/09/2026: 1 de cada 8 con la
+//: conexión nueva, y el croquis de 26RES093_9 falló dos veces seguidas en la
+//: generación). Más intentos sería insistirle al WAF del que depende el
+//: buscador de la app.
+const PAUSAS_REINTENTO_MS = [2000, 5000];
 
 /**
  * REGLA — al Catastro NUNCA en ráfaga: las dos van EN SERIE y con pausa, y si
@@ -731,7 +741,7 @@ const PAUSA_REINTENTO_MS = 2000;
  *
  * REGLA — «Catastro no la tiene» y «Catastro no ha respondido» NO son lo
  * mismo, y se dicen distinto (`fallos`): uno es definitivo y el otro se arregla
- * pulsando Refrescar un rato después.
+ * pulsando Refrescar —o volviendo a generar— un rato después.
  */
 async function imagenesDeCatastro(rc) {
     if (!rc) return { avisos: ['Sin referencia catastral: el .cex sale sin foto ni croquis.'] };
@@ -799,11 +809,11 @@ async function imagenesDeCatastro(rc) {
  *
  * Tres respuestas, y no dos: la imagen · `null` (Catastro ha contestado que no
  * la tiene) · `undefined` (Catastro NO ha contestado — un corte de conexión,
- * tras un reintento). Solo las dos primeras se pueden cachear.
+ * tras los reintentos). Solo las dos primeras se pueden cachear.
  */
 async function pedirImagen(traer) {
-    for (let intento = 0; intento < 2; intento++) {
-        if (intento) await sleep(PAUSA_REINTENTO_MS);
+    for (let intento = 0; intento <= PAUSAS_REINTENTO_MS.length; intento++) {
+        if (intento) await sleep(PAUSAS_REINTENTO_MS[intento - 1]);
         try {
             const img = await traer({ conFallos: true });
             const bytes = img?.data;

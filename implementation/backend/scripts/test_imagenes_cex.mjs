@@ -172,7 +172,7 @@ console.log('\n7. Un corte de conexión NO se cachea; «no la tiene», sí');
     ok(!a.foto_edificio && !a.plano_situacion, 'con Catastro caído no hay imágenes');
     ok(a.fallos?.fachada && a.fallos?.croquis, 'y se marca como FALLO, no como «no la tiene»');
     ok(a.avisos.some(a2 => a2.includes('no ha respondido')), 'el aviso dice que no ha respondido');
-    ok(pedidasFachada === 2 && pedidasCroquis === 2, 'se reintenta UNA vez cada una, no más');
+    ok(pedidasFachada === 3 && pedidasCroquis === 3, 'tres intentos cada una, en serie, no más');
 
     caido = false;
     const b = await cex.imagenesDelCex(ctx, null);

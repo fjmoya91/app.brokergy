@@ -499,7 +499,7 @@ router.post('/:expedienteId/cex', internalOnly, staffSiOportunidad, async (req, 
 
         // Con imágenes solo al generar el INICIAL: son peticiones al mismo WAF
         // del que depende el buscador, y el final las hereda del fichero copiado.
-        const { ficha, avisos: avisosFicha } = await cex.componerFicha(ctx, {
+        const { ficha, avisos: avisosFicha, imagenesFallidas = [] } = await cex.componerFicha(ctx, {
             geometria, envolvente: req.body?.envolvente, ajustes: req.body?.ajustes,
             medidas: req.body?.medidas, conImagenes: !esFinal, fase,
         });
@@ -540,7 +540,11 @@ router.post('/:expedienteId/cex', internalOnly, staffSiOportunidad, async (req, 
                 avisos, contraste,
             });
         }
-        res.json({ ...guardado, fase, avisos, contraste, ficha });
+        // `sin_imagenes`: lo que ha salido SIN foto o croquis porque el
+        // Catastro no ha respondido. El popup lo dice en grande y ofrece volver
+        // a generar.
+        res.json({ ...guardado, fase, avisos, contraste, ficha,
+                   sin_imagenes: imagenesFallidas });
     } catch (e) {
         console.error('[ceeEnvolvente] cex:', e.message);
         res.status(e.status || 500).json({ error: e.message });
