@@ -211,8 +211,7 @@ export function ClientesView({
     const opcionesPartner = [...partners.entries()]
         .sort(([a, la], [b, lb]) => (a === SIN_PARTNER) - (b === SIN_PARTNER) || la.localeCompare(lb, 'es'));
 
-    const filtered = enriquecidos.filter(c => {
-        if (!pasa(c, null)) return false;
+    const coincide = (c) => {
         if (!tokens.length) return true;
         const hay = norm([
             c.nombre_razon_social, c.apellidos, c.email, c.dni, c.tlf,
@@ -226,7 +225,15 @@ export function ClientesView({
         // token puramente numérico se compara también contra el texto sin separadores.
         const hayPlano = hay.replace(/[\s.\-/]/g, '');
         return tokens.every(t => hay.includes(t) || (/^[\d+]+$/.test(t) && hayPlano.includes(t)));
-    });
+    };
+    const filtered = enriquecidos.filter(c => pasa(c, null) && coincide(c));
+    // Los filtros se RECUERDAN entre visitas, así que uno puesto hace días puede
+    // estar escondiendo justo al cliente que se busca por su nombre. Se cuenta
+    // cuántas coincidencias deja fuera el filtro y se dice, con la salida al lado:
+    // un buscador que no encuentra a alguien que existe se lee como que no está.
+    const ocultosPorFiltro = (tokens.length && hayFiltro)
+        ? enriquecidos.filter(c => coincide(c) && !pasa(c, null)).length
+        : 0;
 
     // Paginación
     const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
@@ -366,6 +373,19 @@ export function ClientesView({
                     <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-400 text-xs mb-4 flex items-center justify-between gap-3">
                         <span>{accesoError}</span>
                         <button onClick={() => setAccesoError(null)} className="text-amber-400/60 hover:text-amber-300 font-black">✕</button>
+                    </div>
+                )}
+
+                {!loading && ocultosPorFiltro > 0 && (
+                    <div className="p-3 mb-3 bg-amber-500/10 border border-amber-500/25 rounded-xl text-amber-300 text-xs flex items-center justify-between gap-3">
+                        <span>
+                            {ocultosPorFiltro} cliente{ocultosPorFiltro !== 1 ? 's' : ''}{filtered.length ? ' más' : ''} coincide{ocultosPorFiltro !== 1 ? 'n' : ''} con «{searchTerm.trim()}»
+                            pero no se {ocultosPorFiltro !== 1 ? 'ven' : 've'} por los filtros activos.
+                        </span>
+                        <button type="button" onClick={limpiarFiltros}
+                            className="shrink-0 px-2.5 py-1 rounded-lg border border-amber-400/40 font-black uppercase tracking-widest text-[10px] hover:bg-amber-500/20">
+                            Quitar filtros
+                        </button>
                     </div>
                 )}
 
