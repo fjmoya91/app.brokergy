@@ -15,6 +15,7 @@ import { CertificadoCifoModal } from './CertificadoCifoModal';
 import { CertificadoRes080Modal } from './CertificadoRes080Modal';
 import { AnexoFotograficoModal } from './AnexoFotograficoModal';
 import { EnviarBorradorRiteModal } from './EnviarBorradorRiteModal';
+import LocalesRiteModal from './LocalesRiteModal';
 import { estadoInstalador, memoriaRiteDocxLink } from '../logic/instaladorPendientes';
 import { EnviarAnexosModal } from './EnviarAnexosModal';
 import { PLAZO_REQUERIMIENTO_DIAS, fechaLimite, fechaLarga, eur, refirmaPendienteDoc, requerimientoPendiente, resultsParaDocumento, importesRequerimiento, REFIRMA_CAMPOS } from '../logic/requerimientoFirma';
@@ -1446,6 +1447,8 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             // Fecha de pruebas ambigua → su propio popup (tampoco es un "dato faltante").
             fechaPruebasRef.current = data?.fechaPruebas || null;
             setFechaPruebasInfo(data?.fechaPruebas || null);
+            // Estancias de la vivienda → último popup antes de generar.
+            localesInfoRef.current = data?.locales || null;
             return Array.isArray(data?.missing) ? data.missing : [];
         } catch (e) {
             console.warn('[memoria-rite] No se pudo validar en el servidor:', e?.message);
@@ -1455,6 +1458,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             setSituadoEnOpciones([]);
             fechaPruebasRef.current = null;
             setFechaPruebasInfo(null);
+            localesInfoRef.current = null;
             return [];
         }
     };
@@ -1728,6 +1732,19 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     // Cadena de popups previos a generar: fecha de pruebas → potencia frigorífica
     // → titular (sexo / jurídica) → modal de generación. Cada paso se salta solo
     // si su dato ya está resuelto.
+    // Estancias de la vivienda por planta (tabla de cargas térmicas de la memoria).
+    // Es el ÚLTIMO eslabón de la cadena: se abre SIEMPRE antes de generar, relleno
+    // con lo guardado o con una propuesta, y al confirmar se guarda en
+    // `documentacion.rite_locales` y se abre el modal de generación.
+    const localesInfoRef = useRef(null);
+    const [localesPopup, setLocalesPopup] = useState({ isOpen: false, info: null, n: 0 });
+    const abrirLocales = () => setLocalesPopup(p => ({ isOpen: true, info: localesInfoRef.current, n: p.n + 1 }));
+    const confirmarLocales = async (datos) => {
+        await axios.put(`/api/expedientes/${expediente.id}/memoria-rite/locales`, datos);
+        setLocalesPopup(p => ({ ...p, isOpen: false }));
+        setShowEnviarBorrador(true);
+    };
+
     const abrirSexoThenBorrador = () => {
         const pendiente = fechaPruebasRef.current;
         if (pendiente) {
@@ -1741,7 +1758,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         // Si el cliente ya consta como persona jurídica no hay nada que preguntar:
         // la memoria marca "Jurídica" y una sociedad no tiene sexo.
         if (expediente?.clientes?.es_empresa) {
-            setShowEnviarBorrador(true);
+            abrirLocales();
             return;
         }
         setSexoPopup({ isOpen: true, saving: null, error: null });
@@ -1795,7 +1812,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             situadoEnRef.current = null;
             setPotFrioPendiente([]);
             setPotFrioPopup({ isOpen: false, values: {}, saving: false, error: null });
-            if (expediente?.clientes?.es_empresa) setShowEnviarBorrador(true);
+            if (expediente?.clientes?.es_empresa) abrirLocales();
             else setSexoPopup({ isOpen: true, saving: null, error: null });
         } catch (e) {
             setPotFrioPopup(p => ({ ...p, saving: false, error: e.response?.data?.error || 'No se pudieron guardar los datos del generador de frío' }));
@@ -1819,7 +1836,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
             setFechaPruebasPopup({ isOpen: false, value: null, saving: false, error: null });
             // Siguiente eslabón de la cadena (potencia frigorífica → titular).
             if (potFrioRef.current.length || situadoEnRef.current) setPotFrioPopup({ isOpen: true, values: {}, saving: false, error: null });
-            else if (expediente?.clientes?.es_empresa) setShowEnviarBorrador(true);
+            else if (expediente?.clientes?.es_empresa) abrirLocales();
             else setSexoPopup({ isOpen: true, saving: null, error: null });
         } catch (e) {
             setFechaPruebasPopup(p => ({ ...p, saving: false, error: e.response?.data?.error || 'No se pudo guardar la fecha de pruebas' }));
@@ -1845,7 +1862,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 if (expediente?.clientes) expediente.clientes.sexo = value;
             }
             setSexoPopup({ isOpen: false, saving: null, error: null });
-            setShowEnviarBorrador(true);
+            abrirLocales();
         } catch (e) {
             setSexoPopup(p => ({ ...p, saving: null, error: e.response?.data?.error || 'No se pudo guardar el sexo del titular' }));
         }
@@ -3121,6 +3138,17 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                     </div>
                 );
             })()}
+
+            {localesPopup.isOpen && (
+                <LocalesRiteModal
+                    key={localesPopup.n}
+                    isOpen
+                    info={localesPopup.info}
+                    emisor={expediente?.instalacion?.tipo_emisor}
+                    onCancel={() => setLocalesPopup(p => ({ ...p, isOpen: false }))}
+                    onConfirm={confirmarLocales}
+                />
+            )}
 
             <EnviarBorradorRiteModal
                 isOpen={showEnviarBorrador}

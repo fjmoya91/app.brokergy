@@ -5756,10 +5756,64 @@ router.get('/:id/memoria-rite/check', enforceAuth, async (req, res) => {
             // facturas y ninguna identificada como térmica) devuelve la propuesta
             // y las facturas para que el usuario ELIJA en vez de adivinar.
             fechaPruebas: fechaPruebasPendiente(exp.documentacion || {}),
+            // Estancias por planta para la tabla de cargas térmicas: la superficie y
+            // las plantas son las MISMAS que usa el generador (inputs resueltos por
+            // loadRiteContext), y `guardado` lo que se confirmó la última vez.
+            locales: {
+                superficie: parseFloat(normalizedDatos?.inputs?.superficie) || null,
+                plantas: parseInt(normalizedDatos?.inputs?.plantas, 10) || 1,
+                guardado: exp.documentacion?.rite_locales || null,
+            },
         });
     } catch (err) {
         console.error('Error GET expedientes/:id/memoria-rite/check:', err);
         res.status(500).json({ error: 'Error al validar la Memoria RITE', details: err.message });
+    }
+});
+
+// ─── PUT /api/expedientes/:id/memoria-rite/locales ─────────────────────────────
+// Guarda las ESTANCIAS por planta que se confirman en el popup previo a generar la
+// Memoria RITE. De aquí sale la tabla de cargas térmicas: el nombre, la orientación
+// y los m² ya vienen resueltos (fuente única en frontend logic/localesRite.js) y el
+// generador solo aplica el factor de la zona. Se escribe con la RPC de MERGE y la
+// clave está en CLAVES_PROTEGIDAS: el autoguardado de la ficha no la toca.
+const MAX_LOCALES_RITE = 25; // filas de la tabla de la plantilla oficial de la JCCM
+router.put('/:id/memoria-rite/locales', staffOnly, async (req, res) => {
+    try {
+        const body = req.body || {};
+        const plantas = Array.isArray(body.plantas) ? body.plantas : null;
+        if (!plantas) return res.status(400).json({ error: 'Faltan las plantas' });
+        const limpias = plantas.map(p => ({
+            planta: String(p?.planta ?? '0').slice(0, 4),
+            locales: (Array.isArray(p?.locales) ? p.locales : []).map(l => ({
+                tipo: String(l?.tipo || '').toLowerCase().slice(0, 20),
+                nombre: String(l?.nombre || '').toUpperCase().slice(0, 40),
+                orientacion: String(l?.orientacion || '-').toUpperCase().slice(0, 3),
+                m2: Math.max(0, Number(l?.m2) || 0),
+                manual: !!l?.manual,
+            })).filter(l => l.nombre),
+        }));
+        const n = limpias.reduce((s, p) => s + p.locales.length, 0);
+        if (!n) return res.status(400).json({ error: 'No hay ninguna estancia' });
+        if (n > MAX_LOCALES_RITE) {
+            return res.status(400).json({ error: `La tabla de la memoria admite ${MAX_LOCALES_RITE} estancias y hay ${n}` });
+        }
+        const { data: exp } = await supabase.from('expedientes').select('id').eq('id', req.params.id).maybeSingle();
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const valor = {
+            superficie: Number(body.superficie) || null,
+            plantas: limpias,
+            at: new Date().toISOString(),
+            por: req.user?.email || req.user?.nombre || null,
+        };
+        const { error } = await supabase.rpc('merge_expediente_doc_json', {
+            p_expediente_id: exp.id, p_field: 'rite_locales', p_value: valor,
+        });
+        if (error) throw error;
+        res.json({ ok: true, rite_locales: valor });
+    } catch (err) {
+        console.error('Error PUT expedientes/:id/memoria-rite/locales:', err);
+        res.status(500).json({ error: 'No se pudieron guardar las estancias', details: err.message });
     }
 });
 

@@ -44,6 +44,10 @@ const CLAVES_PROTEGIDAS = [
     // sin protegerlo el primer autoguardado lo borraría y el siguiente envío
     // volvería a proponer la habilitada — mismo fallo que el `refirma_at`.
     'cert_cifo_firmante_rol',
+    // Estancias por planta de la Memoria RITE (tabla de cargas térmicas). Solo la
+    // escribe PUT /memoria-rite/locales; una copia vieja del navegador no puede
+    // devolver la tabla a lo que había antes de confirmar el popup.
+    'rite_locales',
 ];
 
 const { DOCUMENTO_VALIDABLE_LABELS, BORRADORES_CLIENTE, invalidarValidacionDocs } = require('./docValidacion');

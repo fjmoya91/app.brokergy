@@ -16,7 +16,7 @@ try:
 except ImportError:  # permite usar normalizar() sin psycopg (modo from-json)
     psycopg = None
 
-from lib.cargas_termicas import estimar_cargas
+from lib.cargas_termicas import estimar_cargas, cargas_desde_locales
 
 
 def _conn():
@@ -368,8 +368,11 @@ def normalizar(raw: dict, fecha_firma: str = None, fecha_pruebas: str = None) ->
                                else "bdc_acs" if acs_distinto else "interacumulador")},
     }
 
-    # OPCIÓN B: estimar cargas térmicas
-    datos["cargas_termicas"] = estimar_cargas(superficie, plantas, zona, emisor)
+    # Cargas térmicas por estancia. Desde la app se confirman las estancias REALES
+    # de la vivienda por planta (popup previo a generar → documentacion.rite_locales);
+    # sin ellas (modo CLI, expedientes antiguos) se cae a la plantilla estimada.
+    cargas = cargas_desde_locales(doc.get("rite_locales"), zona, emisor)
+    datos["cargas_termicas"] = cargas or estimar_cargas(superficie, plantas, zona, emisor)
     return datos
 
 
