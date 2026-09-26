@@ -564,6 +564,25 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     // ⚠️ Se mira `mode`, no `clientView`: esa constante se declara MÁS ABAJO y
     // leerla aquí revienta el componente entero ("Cannot access 'clientView'
     // before initialization") — pantalla en rojo, no un fallo discreto.
+    // ⚠️ El velo se ENCIENDE al arrastrar por el hueco entre casillas, pero si el
+    // fichero se suelta SOBRE una casilla, su onDrop corta la propagación y el de
+    // aquí nunca llega: el velo se quedaba puesto para siempre, tapando el modal
+    // y pareciendo que la subida se había colgado. Por eso se apaga también desde
+    // la ventana (drop / dragend / salir del navegador), pase lo que pase dentro.
+    useEffect(() => {
+        if (mode === 'token') return undefined;
+        const apagar = () => setBuzonDrag(false);
+        const alSalir = (e) => { if (!e.relatedTarget) apagar(); };
+        window.addEventListener('drop', apagar, true);
+        window.addEventListener('dragend', apagar, true);
+        window.addEventListener('dragleave', alSalir, true);
+        return () => {
+            window.removeEventListener('drop', apagar, true);
+            window.removeEventListener('dragend', apagar, true);
+            window.removeEventListener('dragleave', alSalir, true);
+        };
+    }, [mode]);
+
     const buzonHandlers = mode === 'token' ? {} : {
         onDragOver: (e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); if (!buzonDrag) setBuzonDrag(true); } },
         onDragLeave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setBuzonDrag(false); },
@@ -964,8 +983,10 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         const isDragOver = !slot.existing && !busy && dragOver === slot.key;
 
         const dragHandlers = slot.existing ? {} : {
-            onDragOver: (e) => { e.preventDefault(); e.stopPropagation(); if (dragOver !== slot.key) setDragOver(slot.key); },
-            onDragEnter: (e) => { e.preventDefault(); e.stopPropagation(); setDragOver(slot.key); },
+            // Sobre una casilla manda ELLA: el velo del buzón (z-30, encima de todo)
+            // taparía su "Suelta para subir" y diría que va al repartidor.
+            onDragOver: (e) => { e.preventDefault(); e.stopPropagation(); if (dragOver !== slot.key) setDragOver(slot.key); if (buzonDrag) setBuzonDrag(false); },
+            onDragEnter: (e) => { e.preventDefault(); e.stopPropagation(); setDragOver(slot.key); setBuzonDrag(false); },
             onDragLeave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(null); },
             onDrop: (e) => {
                 e.preventDefault(); e.stopPropagation();
