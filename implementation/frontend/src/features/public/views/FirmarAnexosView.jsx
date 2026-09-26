@@ -154,7 +154,21 @@ export function FirmarAnexosView({ expedienteId }) {
     const setDato = (k, v) => setDatos(prev => ({ ...prev, [k]: v }));
     // Fase 3 (firma): en cuanto los anexos se han ENVIADO al cliente (o generado en Drive).
     const anexosListos = !!(info?.anexo_i_enviado || info?.anexo_cesion_enviado || info?.anexo_i_disponible || info?.anexo_cesion_disponible);
-    const hayDescarga = !!(info?.anexo_i_disponible || info?.anexo_cesion_disponible);
+    // Qué se firma AQUÍ: solo lo que sigue pendiente. Si reenviamos solo el Anexo I
+    // (por un error suyo o un requerimiento), el Convenio ya firmado —y vigente— no
+    // puede volver a pedirse: `anexo_*_firmado` ya descuenta la firma anulada por un
+    // rechazo o una re-firma. Solo si no queda NADA pendiente (el cliente vuelve al
+    // enlace con todo entregado) se ofrecen todos, para poder reemplazar uno.
+    const pendI = !!(info?.anexo_i_disponible && !info?.anexo_i_firmado);
+    const pendC = !!(info?.anexo_cesion_disponible && !info?.anexo_cesion_firmado);
+    const hayPendiente = pendI || pendC;
+    const firmarI = hayPendiente ? pendI : !!info?.anexo_i_disponible;
+    const firmarC = hayPendiente ? pendC : !!info?.anexo_cesion_disponible;
+    const nFirmar = (firmarI ? 1 : 0) + (firmarC ? 1 : 0);
+    const nombresFirmar = [firmarI && 'Anexo I', firmarC && 'Anexo de Cesión'].filter(Boolean);
+    // El asistente de firma a mano decide sus documentos por `*_disponible`.
+    const infoFirma = info ? { ...info, anexo_i_disponible: firmarI, anexo_cesion_disponible: firmarC } : info;
+    const hayDescarga = firmarI || firmarC;
     const descargarUrl = (which) => `${API_URL}/anexos-upload/${expedienteId}/descargar/${which}`;
     // Anexos que hemos rechazado. `preparando` = todavía no está la versión
     // corregida, así que ese anexo no se ofrece (ni descarga ni firma digital):
@@ -252,8 +266,8 @@ export function FirmarAnexosView({ expedienteId }) {
 
     const startDigital = async () => {
         const q = [];
-        if (info.anexo_i_disponible) q.push({ which: 'anexo_i', label: 'Anexo I', anchor: ['fdo.:^above', 'fdo.^above', 'firma del propietario'], fixedBox: anexoISignBox });
-        if (info.anexo_cesion_disponible) q.push({ which: 'cesion', label: 'Anexo de Cesión de Ahorros', anchor: ['el cedente@2', 'cedente@2', 'el cedente', 'cedente'], fixedBox: SIGN_BOXES.anexo_cesion });
+        if (firmarI) q.push({ which: 'anexo_i', label: 'Anexo I', anchor: ['fdo.:^above', 'fdo.^above', 'firma del propietario'], fixedBox: anexoISignBox });
+        if (firmarC) q.push({ which: 'cesion', label: 'Anexo de Cesión de Ahorros', anchor: ['el cedente@2', 'cedente@2', 'el cedente', 'cedente'], fixedBox: SIGN_BOXES.anexo_cesion });
         if (!q.length) { setPrepError('No hay anexos disponibles para firmar todavía.'); return; }
         setSignedFiles({});
         setSignQueue(q);
@@ -368,12 +382,12 @@ export function FirmarAnexosView({ expedienteId }) {
                                     ) : requerimiento.importe_nuevo != null ? (
                                         <>: <strong className="text-white">el expediente sigue adelante</strong>, con la ayuda en {eurCli(requerimiento.importe_nuevo)}.</>
                                     ) : <>, y <strong className="text-white">el expediente sigue adelante</strong>.</>}
-                                    {' '}Para cerrar la contestación necesitamos que nos <strong className="text-white">vuelvas a firmar</strong> los dos anexos actualizados: los que firmaste antes ya no son válidos.
+                                    {' '}Para cerrar la contestación necesitamos que nos <strong className="text-white">vuelvas a firmar</strong> {nFirmar === 1 ? <>el <strong className="text-white">{nombresFirmar[0]}</strong> actualizado: el que firmaste antes ya no es válido</> : <>los dos anexos actualizados: los que firmaste antes ya no son válidos</>}.
                                     {requerimiento.fecha_limite && fechaCli(requerimiento.fecha_limite)
                                         ? <> Tenemos plazo <strong className="text-white">hasta el {fechaCli(requerimiento.fecha_limite)}</strong>.</>
                                         : requerimiento.plazo_dias ? <> Tenemos un plazo de <strong className="text-white">{requerimiento.plazo_dias} días</strong>.</> : null}
                                 </p>
-                                <p className="text-white/35 text-[12px] leading-relaxed mt-2">No has hecho nada mal: es un trámite del procedimiento. Con estas dos firmas lo cerramos; del resto nos ocupamos nosotros.</p>
+                                <p className="text-white/35 text-[12px] leading-relaxed mt-2">No has hecho nada mal: es un trámite del procedimiento. {nFirmar === 1 ? 'Con esta firma lo cerramos' : 'Con estas dos firmas lo cerramos'}; del resto nos ocupamos nosotros.</p>
                             </div>
                         )}
                         {!done && rechazos.map(r => (
@@ -495,7 +509,7 @@ export function FirmarAnexosView({ expedienteId }) {
                                     <div className="space-y-4 animate-fade-in">
                                         <div className="rounded-2xl border border-brand/20 bg-brand/[0.05] p-5">
                                             <p className="text-[11px] font-black uppercase tracking-[0.15em] text-brand mb-2">Firma digital con certificado</p>
-                                            <p className="text-white/50 text-sm leading-relaxed">Se abrirá tu <strong className="text-white">Anexo I</strong> y tu <strong className="text-white">Anexo de Cesión</strong>, uno tras otro. En cada uno te <strong className="text-white">marcamos con un destello dónde firmar</strong>. Solo pulsa <strong className="text-white">Firmar con Autofirma</strong> y elige tu certificado. Necesitas tener Autofirma instalado.</p>
+                                            <p className="text-white/50 text-sm leading-relaxed">{nFirmar === 1 ? <>Se abrirá tu <strong className="text-white">{nombresFirmar[0]}</strong>.</> : <>Se abrirá tu <strong className="text-white">Anexo I</strong> y tu <strong className="text-white">Anexo de Cesión</strong>, uno tras otro.</>} En cada uno te <strong className="text-white">marcamos con un destello dónde firmar</strong>. Solo pulsa <strong className="text-white">Firmar con Autofirma</strong> y elige tu certificado. Necesitas tener Autofirma instalado.</p>
                                         </div>
                                         {prepError && <p className="text-[12px] text-red-400 text-center">⚠️ {prepError}</p>}
                                         <button onClick={startDigital} disabled={preparing || uploading}
@@ -513,7 +527,7 @@ export function FirmarAnexosView({ expedienteId }) {
                                 {modo === 'manual' && (
                                     <AsistenteFirmaManuscrita
                                         expedienteId={expedienteId}
-                                        info={info}
+                                        info={infoFirma}
                                         apiUrl={API_URL}
                                         onHecho={() => setDone(true)}
                                         onSalir={() => setModo(null)}
@@ -535,13 +549,13 @@ export function FirmarAnexosView({ expedienteId }) {
                                     </div>
                                     {hayDescarga && (
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                            {info.anexo_i_disponible && (
+                                            {firmarI && (
                                                 <a href={descargarUrl('anexo_i')} className="flex items-center justify-center gap-2 py-3 rounded-xl border border-white/10 bg-white/[0.02] text-white/80 text-[11px] font-black uppercase tracking-wider hover:border-brand/40 hover:bg-brand/5 transition-all">
                                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" /></svg>
                                                     Anexo I
                                                 </a>
                                             )}
-                                            {info.anexo_cesion_disponible && (
+                                            {firmarC && (
                                                 <a href={descargarUrl('cesion')} className="flex items-center justify-center gap-2 py-3 rounded-xl border border-white/10 bg-white/[0.02] text-white/80 text-[11px] font-black uppercase tracking-wider hover:border-brand/40 hover:bg-brand/5 transition-all">
                                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" /></svg>
                                                     Anexo Cesión
@@ -555,9 +569,13 @@ export function FirmarAnexosView({ expedienteId }) {
                                     <strong className="text-white">2 · Sube los anexos firmados</strong> y la foto de tu DNI por ambas caras. Vale el PDF firmado o una foto/escaneo nítido.
                                 </p>
 
+                                {(firmarI || !info.anexo_i_disponible) && (
                                 <DropZone file={anexoI} onPick={f => pickFile(f, setAnexoI)} alreadyUploaded={info.anexo_i_firmado} title="Anexo I firmado" desc="La Declaración Responsable que te enviamos, firmada." />
+                                )}
 
+                                {(firmarC || !info.anexo_cesion_disponible) && (
                                 <DropZone file={cesion} onPick={f => pickFile(f, setCesion)} alreadyUploaded={info.anexo_cesion_firmado} title="Anexo de Cesión de Ahorros firmado" desc="El Convenio de Cesión que te enviamos, firmado." />
+                                )}
 
                                 {/* Tipo de firma de la Cesión */}
                                 {cesion && (
