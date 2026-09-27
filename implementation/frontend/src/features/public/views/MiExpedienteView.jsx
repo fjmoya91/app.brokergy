@@ -88,8 +88,13 @@ export function MiExpedienteView({ uuid, token }) {
     const documentosBloqueados = info?.documentosBloqueados || [];
     const queFalta = info?.queFalta || [];
     const hitoIndex = estado.hitoIndex || 1;
+    // Expediente RECHAZADO: está cerrado y no es un paso de los seis, así que no
+    // se pinta la barra de progreso (diría "paso 1 de 6").
+    const cerrado = estado.subestado === 'cerrado';
 
-    const pendMsg = estado.subestado === 'finalizado'
+    const pendMsg = cerrado
+        ? 'Tu expediente está cerrado.'
+        : estado.subestado === 'finalizado'
         ? 'Tu expediente está finalizado.'
         : estado.responsable === 'CERTIFICADOR'
             ? 'El certificador está trabajando en tu certificado. No necesitas hacer nada ahora.'
@@ -148,13 +153,15 @@ export function MiExpedienteView({ uuid, token }) {
                         <div className="bg-bkg-surface border border-white/10 rounded-2xl p-5 mb-4">
                             <div className="flex items-center justify-between mb-3">
                                 <h3 className="text-white font-bold text-sm flex items-center gap-2"><span className="text-brand">●</span>Estado de tu expediente</h3>
-                                <span className="text-white/40 text-xs">Paso {hitoIndex} de 6</span>
+                                {!cerrado && <span className="text-white/40 text-xs">Paso {hitoIndex} de 6</span>}
                             </div>
+                            {!cerrado && (
                             <div className="flex gap-1 mb-4">
                                 {HITOS.map((_, i) => (
                                     <div key={i} className={`flex-1 h-1.5 rounded-full ${i + 1 < hitoIndex ? 'bg-emerald-500' : i + 1 === hitoIndex ? 'bg-brand' : 'bg-white/10'}`} />
                                 ))}
                             </div>
+                            )}
                             <div className="text-white font-semibold text-sm">{estado.hitoLabel}</div>
                             <div className="text-white/55 text-xs leading-relaxed mt-1">{estado.microcopy}</div>
 

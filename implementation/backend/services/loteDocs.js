@@ -336,7 +336,9 @@ async function sincronizarEstadoLote(loteId, opts = {}) {
         if (ESTADOS_TAMBIEN_DE_EXPEDIENTE.includes(nuevo)) {
             await supabase.from('expedientes')
                 .update({ estado: nuevo, updated_at: new Date().toISOString() })
-                .eq('lote_id', lote.id);
+                .eq('lote_id', lote.id)
+                // Un RECHAZADO no lo reabre el lote: solo sale de ahí con «Reabrir».
+                .or('estado.is.null,estado.neq.RECHAZADO');
         }
 
         // La carpeta solo se mueve si el estado nuevo cambia de destino; los estados

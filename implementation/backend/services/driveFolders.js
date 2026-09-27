@@ -132,6 +132,10 @@ function carpetaObjetivoExpediente(exp, opts = {}) {
     if (exp.lote_id && !opts.ignorarLote) return null;
 
     const estado = exp.estado;
+    // RECHAZADO no tiene rango (es una salida, no un paso): va a la misma carpeta
+    // que las oportunidades rechazadas. Al reabrirlo, el sincronizador lo devuelve
+    // a la de su estado restaurado.
+    if (estado === 'RECHAZADO')              return FOLDERS.RECHAZADOS;
     if (estado === 'DOC. COMPLETA APPSHEET') return FOLDERS.DOC_COMPLETA_APPSHEET;
     if (estado === 'DOC. COMPLETA')          return FOLDERS.DOC_COMPLETA;
 

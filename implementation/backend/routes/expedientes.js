@@ -34,7 +34,7 @@ const { capitalizar: capitalizarNombre } = require('../services/recordatorios');
 const { buildCertClienteData } = require('../services/certClienteData');
 const cobroService = require('../services/cobroService');
 const { getCertificadorNombre } = require('../services/certificadorLookup');
-const { avanzarEstado } = require('../utils/expedienteEstados');
+const { avanzarEstado, ESTADO_RECHAZADO, RECHAZADO_POR, MOTIVOS_RECHAZO, MOTIVO_RECHAZO_MIN } = require('../utils/expedienteEstados');
 const { FICHAS } = require('../utils/fichas');
 const { syncExpedienteFolderAsync } = require('../services/expedienteFolderSync');
 
@@ -638,6 +638,24 @@ router.get('/', enforceAuth, async (req, res) => {
         if (rpcErr) throw rpcErr;
 
         let data = rpcData || [];
+
+        // ── Rechazados: el motivo del tooltip ────────────────────────────────
+        // La RPC no trae las columnas del rechazo (se añadieron después y
+        // cambiar su firma obliga a un DROP). Son pocas filas, así que va una
+        // consulta aparte, solo de escalares y solo de los RECHAZADO.
+        if (data.some(r => r.estado === ESTADO_RECHAZADO)) {
+            const { data: rech, error: rechErr } = await supabase
+                .from('expedientes')
+                .select('id, rechazado_por, motivo_rechazo_cat, motivo_rechazo, rechazo_adjunto_url, fecha_rechazo, estado_previo_rechazo')
+                .eq('estado', ESTADO_RECHAZADO);
+            if (rechErr) {
+                // Sin el motivo el badge sigue diciendo RECHAZADO: no tumba el listado.
+                console.warn('[GET expedientes] rechazos:', rechErr.message);
+            } else {
+                const porId = new Map((rech || []).map(r => [r.id, r]));
+                data = data.map(r => (porId.has(r.id) ? { ...r, ...porId.get(r.id) } : r));
+            }
+        }
 
         // ── Filtros por rol ──────────────────────────────────────────────────
         if (isCertificador) {
@@ -3166,10 +3184,87 @@ router.post('/migrate-from-xml', enforceAuth, async (req, res) => {
 });
 
 // Actualizar parcialmente un expediente (cee, instalacion, documentacion)
+// ─── RECHAZADO: entrar y salir ────────────────────────────────────────────────
+// Un rechazo es una SALIDA del ciclo, desde cualquier estado. Se escribe en UNA
+// sentencia (RPC `expediente_rechazar`, scripts/expedientes_rechazo.sql): estado,
+// quién, por qué, cuándo, el estado del que venía y el asiento del historial, a
+// la vez o nada. Reabrir hace lo contrario con `expediente_reabrir`.
+const usuarioEstado = (req) => (req.user?.rol_nombre === 'ADMIN'
+    ? 'ADMINISTRADOR'
+    : (req.user?.acronimo || req.user?.razon_social || req.user?.nombre || 'STAFF'));
+
+router.post('/:id/rechazar', staffOnly, async (req, res) => {
+    try {
+        const b = req.body || {};
+        const rechazadoPor = String(b.rechazado_por || '').trim().toUpperCase();
+        const motivoCat = String(b.motivo_rechazo_cat || '').trim().toUpperCase();
+        const motivo = String(b.motivo_rechazo || '').trim();
+        const adjunto = String(b.rechazo_adjunto_url || '').trim();
+
+        if (!RECHAZADO_POR.includes(rechazadoPor)) {
+            return res.status(400).json({ error: 'Indica quién rechaza el expediente.' });
+        }
+        if (!MOTIVOS_RECHAZO.includes(motivoCat)) {
+            return res.status(400).json({ error: 'Indica la categoría del motivo.' });
+        }
+        if (motivo.length < MOTIVO_RECHAZO_MIN) {
+            return res.status(400).json({ error: `Explica el motivo con al menos ${MOTIVO_RECHAZO_MIN} caracteres.` });
+        }
+        if (adjunto && !/^https?:\/\/\S+$/i.test(adjunto)) {
+            return res.status(400).json({ error: 'El adjunto tiene que ser un enlace (http/https).' });
+        }
+
+        const { data: rows, error } = await supabase.rpc('expediente_rechazar', {
+            p_id: req.params.id,
+            p_rechazado_por: rechazadoPor,
+            p_motivo_cat: motivoCat,
+            p_motivo: motivo,
+            p_adjunto_url: adjunto || null,
+            p_usuario: usuarioEstado(req),
+        });
+        if (error) throw error;
+        const data = Array.isArray(rows) ? rows[0] : rows;
+        if (!data) {
+            const { data: ex } = await supabase.from('expedientes').select('estado').eq('id', req.params.id).maybeSingle();
+            if (!ex) return res.status(404).json({ error: 'Expediente no encontrado' });
+            return res.status(409).json({ error: 'El expediente ya estaba RECHAZADO.' });
+        }
+
+        syncExpedienteFolderAsync(data, { motivo: 'expediente rechazado' });
+        res.json(data);
+    } catch (err) {
+        console.error('[POST /expedientes/:id/rechazar]', err.message);
+        res.status(500).json({ error: 'No se pudo rechazar el expediente.' });
+    }
+});
+
+router.post('/:id/reabrir', staffOnly, async (req, res) => {
+    try {
+        const { data: rows, error } = await supabase.rpc('expediente_reabrir', {
+            p_id: req.params.id,
+            p_usuario: usuarioEstado(req),
+        });
+        if (error) throw error;
+        const data = Array.isArray(rows) ? rows[0] : rows;
+        if (!data) {
+            const { data: ex } = await supabase.from('expedientes').select('estado').eq('id', req.params.id).maybeSingle();
+            if (!ex) return res.status(404).json({ error: 'Expediente no encontrado' });
+            return res.status(409).json({ error: 'El expediente no está RECHAZADO.' });
+        }
+
+        syncExpedienteFolderAsync(data, { motivo: 'expediente reabierto' });
+        res.json(data);
+    } catch (err) {
+        console.error('[POST /expedientes/:id/reabrir]', err.message);
+        res.status(500).json({ error: 'No se pudo reabrir el expediente.' });
+    }
+});
+
 router.put('/:id', enforceAuth, async (req, res) => {
     try {
         const body = normalizeData(req.body);
-        const { cee, instalacion, documentacion, estado, seguimiento } = body;
+        const { cee, instalacion, documentacion, seguimiento } = body;
+        let { estado } = body;
 
         const { data: existing, error: fetchErr } = await supabase
             .from('expedientes')
@@ -3179,6 +3274,22 @@ router.put('/:id', enforceAuth, async (req, res) => {
             .single();
 
         if (fetchErr || !existing) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+        // RECHAZADO solo se pone y se quita por sus rutas (/rechazar, /reabrir):
+        // exigen quién, por qué y guardan el estado previo, y nada de eso llega
+        // por aquí. Ponerlo por el PUT es un error (400). Sacarlo por el PUT se
+        // IGNORA en silencio, sin tumbar el resto del guardado: lo intentan los
+        // automatismos (el registro del CEE manda `estado` junto a su fecha) y
+        // esos datos sí tienen que guardarse. Mismo blindaje que `cee.estado`.
+        if (estado !== undefined && estado !== existing.estado) {
+            if (estado === ESTADO_RECHAZADO) {
+                return res.status(400).json({ error: 'Para rechazar un expediente usa el botón de rechazo: hay que indicar quién lo rechaza y por qué.' });
+            }
+            if (existing.estado === ESTADO_RECHAZADO) {
+                console.warn(`[PUT expediente ${req.params.id}] Ignorado cambio de estado sobre un RECHAZADO → ${estado}. Se sale con /reabrir.`);
+                estado = undefined;
+            }
+        }
 
         const updates = { updated_at: new Date().toISOString() };
         if (cee !== undefined) {

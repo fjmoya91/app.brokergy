@@ -23,6 +23,8 @@ import { LogoEmpresa } from '../../../components/LogoEmpresa';
 import { getCCAA, getCifoYear, fichaColor, FICHAS } from './expedienteTaxonomia';
 import { SUBESTADO_LABELS, daysSince, fmtDate } from './seguimientoTime';
 import { dentroDelRango, delEs } from './rangoFecha';
+import { esRechazado, claseEstado } from './rechazoExpediente';
+import EstadoRechazado from '../components/EstadoRechazado';
 
 const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
@@ -373,24 +375,30 @@ export const COLUMNAS = [
         grupo: 'Estado y fases',
         ancho: 156,
         valor: (exp) => exp.estado || 'PTE. CEE INICIAL',
-        render: (exp, ctx) => (
+        render: (exp, ctx) => (esRechazado(exp) ? (
+            // De RECHAZADO solo se sale reabriendo: badge con el motivo en el
+            // tooltip y botón "Reabrir", no un desplegable con opciones que el
+            // backend ignoraría.
+            <EstadoRechazado
+                expediente={exp}
+                onReabrir={ctx.onReabrir}
+                reabriendo={ctx.reabriendoId === exp.id}
+                puedeReabrir={!!ctx.onReabrir}
+                className="max-w-[170px]"
+            />
+        ) : (
             <select
                 value={exp.estado || 'PTE. CEE INICIAL'}
                 onClick={e => e.stopPropagation()}
                 onChange={e => ctx.onStatusChange(exp.id, e.target.value, e)}
-                className={`text-[9px] font-black uppercase tracking-wider border cursor-pointer focus:outline-none transition-colors appearance-none text-center w-full max-w-[170px] rounded-lg px-2 py-1 leading-tight ${
-                    exp.estado === 'FINALIZADO' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                    exp.estado?.includes('REQUERIMIENTO') ? 'bg-red-500/10 text-red-400 border-red-500/20' :
-                    exp.estado?.startsWith('ENVIADO') ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
-                    'bg-white/5 text-white/50 border-white/10'
-                }`}
+                className={`text-[9px] font-black uppercase tracking-wider border cursor-pointer focus:outline-none transition-colors appearance-none text-center w-full max-w-[170px] rounded-lg px-2 py-1 leading-tight ${claseEstado(exp.estado)}`}
             >
                 {/* Estado no listado: lo pintamos igual, para que el <select> no caiga
                     a su primera opción y muestre 'PTE. CEE INICIAL' en un avanzado. */}
                 {exp.estado && !ctx.estados.includes(exp.estado) && <Opt value={exp.estado}>{exp.estado}</Opt>}
-                {ctx.estados.map(st => <Opt key={st} value={st}>{st}</Opt>)}
+                {(ctx.estadosSelector || ctx.estados).map(st => <Opt key={st} value={st}>{st}</Opt>)}
             </select>
-        ),
+        )),
         filtro: (ctx) => (
             <div className="relative group">
                 <select

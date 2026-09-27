@@ -75,6 +75,13 @@ function mapEstadoToHito(estadoActual) {
     const e = String(estadoActual || '').toUpperCase();
     const h = (hitoIndex, hitoLabel, microcopy, subestado) => ({ hitoIndex, hitoLabel, microcopy, subestado });
 
+    // RECHAZADO no es un paso de los 6 hitos: el expediente se ha cerrado sin
+    // llegar al final. Al cliente se le dice "Expediente cerrado", sin el motivo
+    // interno ni una barra de progreso que diga que va por el paso 1. Sin
+    // `hitoIndex`, el portal no pinta los pasos (MiExpedienteView).
+    if (e === 'RECHAZADO')
+        return h(null, 'Expediente cerrado', 'Tu expediente está cerrado. Si tienes cualquier duda, escríbenos y te lo explicamos.', 'cerrado');
+
     // Hito 6 — Cobro
     if (e.includes('FINALIZADO'))
         return h(6, 'Finalizado', 'Tu expediente está cerrado. ¡Gracias por confiar en nosotros!', 'finalizado');

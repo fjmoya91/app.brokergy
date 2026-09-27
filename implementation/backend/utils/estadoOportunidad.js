@@ -20,19 +20,22 @@
 const { rankEstado } = require('./expedienteEstados');
 
 /** Los tres estados que puede tomar una oportunidad YA ACEPTADA. */
-const ESTADOS_POST_ACEPTACION = ['ACEPTADA', 'EN CURSO', 'FINALIZADO'];
+const ESTADOS_POST_ACEPTACION = ['ACEPTADA', 'EN CURSO', 'FINALIZADO', 'RECHAZADA'];
 
 /**
  * Estado visible de una oportunidad que ya tiene expediente.
  *
  * @param {{ estado?: string, cee?: { certificador_id?: string|null } }} exp
- * @returns {'ACEPTADA'|'EN CURSO'|'FINALIZADO'}
+ * @returns {'ACEPTADA'|'EN CURSO'|'FINALIZADO'|'RECHAZADA'}
  */
 function estadoDesdeExpediente(exp) {
     if (!exp) return 'ACEPTADA';
 
     const estado = exp.estado;
     if (estado === 'FINALIZADO') return 'FINALIZADO';
+    // El expediente se cayó después de aceptarse: la oportunidad tampoco sigue
+    // viva. Mismo nombre que el estado de captación RECHAZADA, que la lista ya pinta.
+    if (estado === 'RECHAZADO') return 'RECHAZADA';
 
     // Un estado que no está en la lista canónica no puede hacer avanzar nada:
     // se queda en ACEPTADA, que es lo único que sabemos seguro (hay expediente).

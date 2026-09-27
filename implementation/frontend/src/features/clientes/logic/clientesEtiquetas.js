@@ -22,9 +22,11 @@ export function fichaDeCodigo(codigo) {
     return FICHAS_EN_CODIGO.find(f => s.includes(f)) || null;
 }
 
-// Un expediente / CEE está cerrado cuando llega a FINALIZADO: es el único estado
-// terminal de las dos tablas (medido el 24/09/2026 en producción).
-export const estaCerrado = (x) => String(x?.estado || '').toUpperCase() === 'FINALIZADO';
+// Un expediente / CEE está cerrado cuando llega a un estado TERMINAL: FINALIZADO
+// o, desde el 27/09/2026, RECHAZADO (solo expedientes; los CEE directos no lo tienen).
+const ESTADOS_CERRADOS = ['FINALIZADO', 'RECHAZADO'];
+export const estaCerrado = (x) => ESTADOS_CERRADOS.includes(String(x?.estado || '').toUpperCase());
+const expRechazado = (x) => String(x?.estado || '').toUpperCase() === 'RECHAZADO';
 
 // Estados de la oportunidad en los que todavía es una propuesta viva. ACEPTADA
 // no lo es (tiene —o va a tener— expediente) y RECHAZADA tampoco.
@@ -85,6 +87,8 @@ export function estadoCliente(c) {
     const opsSinExp = ops.filter(o => !opsConExp.has(o.id));
     if (!exps.length && opsSinExp.some(o => String(o.estado || '').toUpperCase() === 'ACEPTADA')) return 'EN_CURSO';
     if (opsSinExp.some(opViva)) return 'PROPUESTA';
+    // Todo lo que tuvo se rechazó: no es un cliente "cerrado" con su obra hecha.
+    if (exps.length && !cees.length && exps.every(expRechazado)) return 'RECHAZADO';
     if (exps.length || cees.length) return 'CERRADO';
     if (ops.length) return 'RECHAZADO';
     return 'SIN_ASIGNAR';

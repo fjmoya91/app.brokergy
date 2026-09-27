@@ -21,6 +21,7 @@ import {
     eur, num, energiaCorta, PRECIO_SO_DEFAULT
 } from '../logic/dashboardAgg';
 import { FICHAS } from '../../expedientes/logic/expedienteTaxonomia';
+import { esRechazado } from '../../expedientes/logic/rechazoExpediente';
 import { KpiCard, EmbudoFases, Ranking, Panel, TONOS, FiltroBuscable, BandejaAccion } from '../components/DashboardWidgets';
 
 const PRECIO_STORAGE_KEY = 'brokergy-dashboard-precio-so';
@@ -152,7 +153,10 @@ export function DashboardView() {
     }, [partners]);
 
     // Coste alto (reejecuta el motor de cálculo por expediente) → una sola vez.
-    const rows = useMemo(() => expedientes.map(buildRow), [expedientes]);
+    // Un expediente RECHAZADO ya no promete GWh ni margen: fuera del embudo y de
+    // los KPIs. (Sigue contando abajo como "con expediente" para no reaparecer
+    // como captación viva.)
+    const rows = useMemo(() => expedientes.filter(e => !esRechazado(e)).map(buildRow), [expedientes]);
 
     // Captación: oportunidades que aún NO son expediente. Se descartan las que ya
     // tienen uno creado para no contar el mismo negocio dos veces.

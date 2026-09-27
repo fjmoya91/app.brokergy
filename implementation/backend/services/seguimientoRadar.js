@@ -592,7 +592,7 @@ function fila(e, bloque, extra) {
 
 // Estados en los que ya no hay nada que vigilar aquí: el expediente está cerrado o en
 // manos del verificador / del S.O. (ese tramo es otro problema, con otros plazos).
-const ESTADOS_FUERA = ['FINALIZADO', 'PTE. PAGO BROKERGY A CLIENTE', 'CAE EMITIDO – PTE PAGO BROKERGY'];
+const ESTADOS_FUERA = ['FINALIZADO', 'RECHAZADO', 'PTE. PAGO BROKERGY A CLIENTE', 'CAE EMITIDO – PTE PAGO BROKERGY'];
 
 /**
  * Escanea la cartera y devuelve todo lo atascado.

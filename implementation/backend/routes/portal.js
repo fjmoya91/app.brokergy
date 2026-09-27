@@ -150,7 +150,9 @@ router.get('/expediente/:uuid', async (req, res) => {
                 loteEstado,
             },
             requerimiento,
-            queFalta: portal.clientPendings(lc?.campos_pendientes),
+            // Con el expediente cerrado no se le pide nada: la vista seguiría
+            // listando lo que faltaba cuando se rechazó.
+            queFalta: hito.subestado === 'cerrado' ? [] : portal.clientPendings(lc?.campos_pendientes),
             // Los CERTIFICADOS no se entregan hasta 'DOC. COMPLETA': `documentos`
             // es lo descargable y `documentosBloqueados` lo que ya existe pero
             // aún no se suelta (el portal lo enseña con candado y explicación).

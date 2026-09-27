@@ -74,6 +74,22 @@ const ORDEN_ESTADOS = [
     'FINALIZADO'
 ];
 
+// ─── RECHAZADO: el otro estado TERMINAL ──────────────────────────────────────
+// No está en ORDEN_ESTADOS a propósito: no es un paso más del ciclo sino una
+// SALIDA, y se puede llegar a él desde cualquier punto. Tampoco se alcanza por
+// el PUT general ni por ningún automatismo: solo por POST /:id/rechazar, que
+// exige quién lo rechaza, por qué y deja el estado anterior guardado para poder
+// reabrirlo (POST /:id/reabrir). Ver scripts/expedientes_rechazo.sql.
+const ESTADO_RECHAZADO = 'RECHAZADO';
+const ESTADOS_TERMINALES = ['FINALIZADO', ESTADO_RECHAZADO];
+
+const RECHAZADO_POR = ['VERIFICADOR', 'MITECO', 'SO', 'CLIENTE', 'INSTALADOR', 'BROKERGY'];
+const MOTIVOS_RECHAZO = [
+    'DOC_INSUFICIENTE', 'AHORRO_NO_JUSTIFICADO', 'EQUIPO_NO_VALIDO', 'FUERA_PLAZO',
+    'DUPLICADO', 'CLIENTE_DESISTE', 'INSTALACION_NO_CONFORME', 'OTRO',
+];
+const MOTIVO_RECHAZO_MIN = 20;
+
 // Posición en el ciclo de vida. -1 = estado desconocido (o null).
 function rankEstado(estado) {
     if (!estado) return -1;
@@ -87,6 +103,11 @@ function rankEstado(estado) {
  * - en el resto, gana el más avanzado.
  */
 function avanzarEstado(actual, destino) {
+    // Un expediente RECHAZADO no lo reabre un automatismo (un recordatorio al
+    // certificador, el registro de un CEE, un lote que cambia de estado…). Sin
+    // esta salida, como RECHAZADO no tiene rango, se trataría como "desconocido"
+    // y el primer aviso que pasara por aquí sellaría encima su destino.
+    if (actual === ESTADO_RECHAZADO) return actual;
     const rDestino = rankEstado(destino);
     if (rDestino === -1) return actual;
     const rActual = rankEstado(actual);
@@ -94,4 +115,7 @@ function avanzarEstado(actual, destino) {
     return rDestino > rActual ? destino : actual;
 }
 
-module.exports = { ORDEN_ESTADOS, rankEstado, avanzarEstado };
+module.exports = {
+    ORDEN_ESTADOS, rankEstado, avanzarEstado,
+    ESTADO_RECHAZADO, ESTADOS_TERMINALES, RECHAZADO_POR, MOTIVOS_RECHAZO, MOTIVO_RECHAZO_MIN,
+};

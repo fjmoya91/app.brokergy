@@ -36,6 +36,9 @@ import { driveFolderLink } from '../../../utils/driveFolder';
 import { SeguimientoModule } from '../components/SeguimientoModule';
 import { ComunicacionesCertificador } from '../components/ComunicacionesCertificador';
 import { HistorialModal } from '../../../components/HistorialModal';
+import RechazoExpedienteModal from '../components/RechazoExpedienteModal';
+import EstadoRechazado from '../components/EstadoRechazado';
+import { ESTADO_RECHAZADO, esRechazado } from '../logic/rechazoExpediente';
 import { IncidenciasModal } from '../components/IncidenciasModal';
 import { AnexoFotograficoModal } from '../components/AnexoFotograficoModal';
 import { DocsAdminModal } from '../../calculator/components/DocsAdminModal';
@@ -113,7 +116,11 @@ export const EXPEDIENTE_ESTADOS = [
     'REQUERIMIENTO G.A.',
     'CAE EMITIDO – PTE PAGO BROKERGY',
     'PTE. PAGO BROKERGY A CLIENTE',
-    'FINALIZADO'
+    'FINALIZADO',
+    // Terminal como FINALIZADO, pero es una SALIDA desde cualquier estado, no un
+    // paso más: elegirlo abre el modal de rechazo (quién, por qué) en vez de
+    // guardarse directo. Ver logic/rechazoExpediente.js.
+    'RECHAZADO'
 ];
 
 // ─── Iconos de los módulos ────────────────────────────────────────────────────
@@ -436,6 +443,37 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
             }, 2000);
         }
     }, [expedienteId, fetchExpediente]);
+
+    // ── RECHAZADO: elegirlo en el selector no guarda nada todavía; abre el modal.
+    // Cancelar lo deja todo como estaba (el <select> es controlado y vuelve solo).
+    const [rechazoAbierto, setRechazoAbierto] = useState(false);
+    const [reabriendo, setReabriendo] = useState(false);
+    const cambiarEstado = useCallback((nuevo) => {
+        if (nuevo === ESTADO_RECHAZADO) { setRechazoAbierto(true); return; }
+        handleSave({ estado: nuevo });
+    }, [handleSave]);
+    const confirmarRechazo = useCallback(async (datos) => {
+        await axios.post(`/api/expedientes/${expedienteId}/rechazar`, datos);
+        setRechazoAbierto(false);
+        await fetchExpediente(true);
+    }, [expedienteId, fetchExpediente]);
+    const reabrir = useCallback(async () => {
+        const destino = expediente?.estado_previo_rechazo || 'PTE. CEE INICIAL';
+        const ok = await showConfirm(
+            `El expediente volverá a «${destino}», el estado en el que estaba al rechazarlo. El rechazo queda en el historial.`,
+            'Reabrir expediente'
+        );
+        if (!ok) return;
+        setReabriendo(true);
+        try {
+            await axios.post(`/api/expedientes/${expedienteId}/reabrir`);
+            await fetchExpediente(true);
+        } catch (err) {
+            showAlert(err.response?.data?.error || 'No se pudo reabrir el expediente.', 'Reabrir', 'error');
+        } finally {
+            setReabriendo(false);
+        }
+    }, [expediente?.estado_previo_rechazo, expedienteId, fetchExpediente, showAlert, showConfirm]);
 
     // Al cambiar de expediente se descarta cualquier guardado en vuelo y se pierde
     // la línea base: el módulo volverá a emitirla al montarse con el nuevo.
@@ -1150,9 +1188,18 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                                  </svg>
                               </div>
+                              {esRechazado(expediente) ? (
+                              <EstadoRechazado
+                                 expediente={expediente}
+                                 onReabrir={reabrir}
+                                 reabriendo={reabriendo}
+                                 puedeReabrir={isStaff}
+                                 className="pr-1"
+                              />
+                              ) : (
                               <select
                                  value={expediente.estado || 'PTE. CEE INICIAL'}
-                                 onChange={(e) => handleSave({ estado: e.target.value })}
+                                 onChange={(e) => cambiarEstado(e.target.value)}
                                  className={`bg-transparent text-[10px] font-black uppercase tracking-widest focus:outline-none pr-4 py-1.5 appearance-none cursor-pointer transition-colors max-md:flex-1 max-md:min-w-0 max-md:w-full max-md:truncate ${
                                      expediente.estado === 'FINALIZADO' ? 'text-emerald-400' : 
                                      expediente.estado?.includes('REQUERIMIENTO') ? 'text-red-400' : 'text-brand'
@@ -1166,13 +1213,24 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                                          {expediente.estado}
                                      </option>
                                  )}
-                                 {EXPEDIENTE_ESTADOS.map(st => (
+                                 {EXPEDIENTE_ESTADOS
+                                     // Rechazar es cosa del equipo interno (la ruta es staffOnly).
+                                     .filter(st => st !== ESTADO_RECHAZADO || isStaff)
+                                     .map(st => (
                                      <option key={st} value={st} className="bg-bkg-deep text-white">
                                          {st}
                                      </option>
                                  ))}
                               </select>
+                              )}
                          </div>
+                         {rechazoAbierto && (
+                            <RechazoExpedienteModal
+                                expediente={expediente}
+                                onCancel={() => setRechazoAbierto(false)}
+                                onConfirm={confirmarRechazo}
+                            />
+                         )}
 
                          {/* Lote: chip clicable que abre el modal del lote */}
                          {expediente.lote && (

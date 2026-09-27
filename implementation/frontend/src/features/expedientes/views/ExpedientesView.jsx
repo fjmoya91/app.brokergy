@@ -11,6 +11,9 @@ import { parseCeeXml } from '../../calculator/logic/xmlCeeParser';
 import { acsComputaAhorro } from '../logic/aerotermiaUnits';
 import { ClienteFormModal } from '../../clientes/components/ClienteFormModal';
 import { IncidenciasModal } from '../components/IncidenciasModal';
+import RechazoExpedienteModal from '../components/RechazoExpedienteModal';
+import EstadoRechazado from '../components/EstadoRechazado';
+import { ESTADO_RECHAZADO, ESTADOS_TERMINALES, esRechazado, claseEstado } from '../logic/rechazoExpediente';
 import {
     calculateSavings,
     calculateFinancials,
@@ -1061,8 +1064,47 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
         }
     };
 
+    // ── RECHAZADO ─────────────────────────────────────────────────────────────
+    // Elegirlo en un selector NO guarda: abre el modal. Cancelar no toca nada
+    // (el <select> es controlado por `exp.estado` y vuelve solo a su valor).
+    const [rechazoExp, setRechazoExp] = useState(null);
+    const [reabriendoId, setReabriendoId] = useState(null);
+    // Solo lo que cambia: la fila del listado no lleva `documentacion` y no hay
+    // que colársela con la respuesta completa del expediente.
+    const CAMPOS_RECHAZO = ['estado', 'rechazado_por', 'motivo_rechazo_cat', 'motivo_rechazo',
+        'rechazo_adjunto_url', 'fecha_rechazo', 'estado_previo_rechazo', 'updated_at'];
+    const aplicarFila = (id, data) => setExpedientes(prev => prev.map(exp => (
+        exp.id === id ? { ...exp, ...Object.fromEntries(CAMPOS_RECHAZO.map(k => [k, data?.[k] ?? null])) } : exp
+    )));
+    const confirmarRechazo = async (datos) => {
+        const { data } = await axios.post(`/api/expedientes/${rechazoExp.id}/rechazar`, datos);
+        aplicarFila(rechazoExp.id, data);
+        setRechazoExp(null);
+    };
+    const reabrirExpediente = async (exp) => {
+        const destino = exp.estado_previo_rechazo || 'PTE. CEE INICIAL';
+        const ok = await showConfirm(
+            `${exp.numero_expediente || 'El expediente'} volverá a «${destino}», el estado en el que estaba al rechazarlo. El rechazo queda en el historial.`,
+            'Reabrir expediente'
+        );
+        if (!ok) return;
+        setReabriendoId(exp.id);
+        try {
+            const { data } = await axios.post(`/api/expedientes/${exp.id}/reabrir`);
+            aplicarFila(exp.id, data);
+        } catch (err) {
+            showAlert(err.response?.data?.error || 'No se pudo reabrir el expediente.', 'Reabrir', 'error');
+        } finally {
+            setReabriendoId(null);
+        }
+    };
+
     const handleStatusChange = async (id, newStatus, e) => {
         if (e) e.stopPropagation();
+        if (newStatus === ESTADO_RECHAZADO) {
+            setRechazoExp(expedientes.find(x => x.id === id) || { id });
+            return;
+        }
         try {
             const res = await axios.put(`/api/expedientes/${id}`, { estado: newStatus });
             // Actualizar con la respuesta completa que trae el historial actualizado
@@ -1170,6 +1212,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
     const getStatusColor = (status) => {
         const s = (status || '').toUpperCase();
         if (s.includes('PTE') || s.includes('SOLICITADO')) return 'bg-white/5 text-white/40 border-white/10';
+        if (s === 'RECHAZADO') return claseEstado('RECHAZADO');
         if (s.includes('ACEPTADA') || s.includes('FINALIZADO')) return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
         if (s.includes('ENVIADO')) return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
         if (s.includes('REQUERIMIENTO')) return 'bg-red-500/10 text-red-400 border-red-500/20';
@@ -1320,6 +1363,11 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
             creadoDesde: setCreadoDesde, creadoHasta: setCreadoHasta,
         }[key]?.(val)),
         onStatusChange: (id, val, e) => handleStatusChange(id, val, e),
+        // Rechazar es del equipo interno (la ruta es staffOnly): a los demás no se
+        // les ofrece la opción en el desplegable.
+        estadosSelector: isStaff ? EXPEDIENTE_ESTADOS : EXPEDIENTE_ESTADOS.filter(st => st !== ESTADO_RECHAZADO),
+        onReabrir: isStaff ? reabrirExpediente : null,
+        reabriendoId,
     };
 
     // Columnas que este usuario tiene encendidas Y puede ver. El rol se comprueba
@@ -1499,7 +1547,10 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
     // Cálculos financieros dinámicos (CÁLCULO REAL DE EXPEDIENTE).
     // Con selección activa, el resumen suma SOLO los expedientes seleccionados.
     const useSelectionSummary = selectMode && selectedCount > 0;
-    const summarySource = useSelectionSummary ? selectedExps : filtered;
+    // Un RECHAZADO no aporta CAE, margen ni MWh: fuera de las cifras. Solo cuenta
+    // si se ha pedido expresamente con su chip (entonces es lo que se quiere ver).
+    const summarySource = (useSelectionSummary ? selectedExps : filtered)
+        .filter(e => !esRechazado(e) || statusSel.has(ESTADO_RECHAZADO));
     const summaryCount = summarySource.length;
     const financialStats = summarySource.reduce((acc, exp) => {
         const fin = getExpedienteFinancials(exp);
@@ -1775,7 +1826,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                     }`}
                                 >
                                     <div className="flex items-center gap-2">
-                                        <span className={`w-1.5 h-1.5 rounded-full ${st === 'FINALIZADO' ? 'bg-emerald-400' : st.includes('REQUERIMIENTO') ? 'bg-red-400' : 'bg-brand'} ${active ? 'animate-pulse' : 'opacity-80'}`}></span>
+                                        <span className={`w-1.5 h-1.5 rounded-full ${st === 'FINALIZADO' ? 'bg-emerald-400' : st === ESTADO_RECHAZADO ? 'bg-red-500' : st.includes('REQUERIMIENTO') ? 'bg-red-400' : 'bg-brand'} ${active ? 'animate-pulse' : 'opacity-80'}`}></span>
                                         <span className={`text-[9px] uppercase tracking-wider font-bold transition-colors truncate max-w-[120px] ${active ? 'text-white' : 'text-white/40'}`}>
                                             {st}
                                         </span>
@@ -1795,10 +1846,11 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                 Sumando {statusSel.size} estado{statusSel.size > 1 ? 's' : ''}
                             </span>
                             <button
-                                onClick={() => setStatusSel(new Set(EXPEDIENTE_ESTADOS.filter(s => s !== 'FINALIZADO')))}
+                                onClick={() => setStatusSel(new Set(EXPEDIENTE_ESTADOS.filter(s => !ESTADOS_TERMINALES.includes(s))))}
+                                title="Todos los estados salvo los cerrados: FINALIZADO y RECHAZADO"
                                 className="px-2 py-1 rounded-lg border border-white/10 hover:border-brand text-white/60 hover:text-white uppercase tracking-wider font-bold transition-colors"
                             >
-                                Todos menos finalizado
+                                Todos menos finalizado y rechazado
                             </button>
                             <button
                                 onClick={() => setStatusSel(new Set())}
@@ -2221,23 +2273,28 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
 
                             {/* Acciones: estado + historial + borrar */}
                             <div className="mt-3 pt-3 border-t border-white/[0.06] flex items-center gap-2 flex-wrap" onClick={e => e.stopPropagation()}>
+                                {esRechazado(exp) ? (
+                                    <EstadoRechazado
+                                        expediente={exp}
+                                        onReabrir={colCtx.onReabrir}
+                                        reabriendo={reabriendoId === exp.id}
+                                        puedeReabrir={isStaff}
+                                        className="flex-1 min-w-[150px]"
+                                    />
+                                ) : (
                                 <select
                                     value={estado}
                                     onChange={e => handleStatusChange(exp.id, e.target.value, e)}
-                                    className={`flex-1 min-w-[150px] text-[10px] font-black uppercase tracking-wider border cursor-pointer focus:outline-none transition-colors appearance-none rounded-lg px-2.5 py-2 leading-tight ${
-                                        estado === 'FINALIZADO' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                                            : estado.includes('REQUERIMIENTO') ? 'bg-red-500/10 text-red-400 border-red-500/20'
-                                                : estado.startsWith('ENVIADO') ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-                                                    : 'bg-white/5 text-white/50 border-white/10'
-                                    }`}
+                                    className={`flex-1 min-w-[150px] text-[10px] font-black uppercase tracking-wider border cursor-pointer focus:outline-none transition-colors appearance-none rounded-lg px-2.5 py-2 leading-tight ${claseEstado(estado)}`}
                                 >
                                     {!EXPEDIENTE_ESTADOS.includes(estado) && (
                                         <option value={estado} className="bg-bkg-deep text-white">{estado}</option>
                                     )}
-                                    {EXPEDIENTE_ESTADOS.map(st => (
+                                    {colCtx.estadosSelector.map(st => (
                                         <option key={st} value={st} className="bg-bkg-deep text-white">{st}</option>
                                     ))}
                                 </select>
+                                )}
                                 <button
                                     onClick={async (e) => {
                                         e.stopPropagation();
@@ -2336,6 +2393,14 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                     </div>
                 </div>
             </div>
+        )}
+
+        {rechazoExp && (
+            <RechazoExpedienteModal
+                expediente={rechazoExp}
+                onCancel={() => setRechazoExp(null)}
+                onConfirm={confirmarRechazo}
+            />
         )}
 
         {showCrearLote && (
