@@ -7128,16 +7128,8 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
         const certId = bodyCertId || dbCertId;
         if (!certId) return res.status(400).json({ error: 'El expediente no tiene certificador asignado' });
 
-        // Automatización de estado
-        // GUARD: un recordatorio al certificador nunca puede hacer retroceder el
-        // expediente (ej: PENDIENTE REVISIÓN → EN CERTIFICADOR). `avanzarEstado`
-        // aplica el orden del ciclo de vida en vez de una lista blanca de estados
-        // que se quedaba corta en cuanto aparecía uno nuevo.
-        const newEstado = phase === 'final' ? 'EN CERTIFICADOR CEE FINAL' : 'EN CERTIFICADOR CEE INICIAL';
-        const estadoTrasAviso = avanzarEstado(exp.estado, newEstado);
-        if (estadoTrasAviso !== exp.estado) {
-            await supabase.from('expedientes').update({ estado: estadoTrasAviso, updated_at: new Date().toISOString() }).eq('id', req.params.id);
-        }
+        // "Solo asignar": se guarda el técnico y no sale nada por ningún canal.
+        const soloAsignar = !sendEmail && !sendWhatsApp;
 
         // Persistir el cert si vino en body y difiere del guardado
         let workingCee = { ...(exp.cee || {}) };
@@ -7160,6 +7152,34 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
             return res.status(400).json({
                 error: `El certificador "${cert.razon_social || cert.acronimo || ''}" no tiene email registrado en su ficha. Edítalo desde Prescriptores.`
             });
+        }
+
+        // ⚠️ "SOLO ASIGNAR" A UN TÉCNICO EXTERNO NO ES UN ENCARGO.
+        //
+        // ASIGNADO significa "encargo ENVIADO" (ciclo de vida del CEE), y el estado
+        // EN CERTIFICADOR, que la pelota ya es del técnico. Marcarlos sin haberle
+        // mandado nada hace que el parte diario lo saque de "Aceptados y sin encargar
+        // el CEE" y lo cuente como "encargado, sin arrancar" con 10 días de plazo: el
+        // técnico no sabe nada y nadie se entera. Medido el 28/09/2026: 26RES060_199 y
+        // _200 asignados a Raquel Moncayo con "Solo asignar" el 25-26/09; ni email ni
+        // WhatsApp ni una línea de historial, y ella los descubrió abriendo la app.
+        // Es la MISMA regla que ya aplicaba la ruta de CEE directos.
+        //
+        // La excepción es el certificador de la CASA (CIF de Brokergy): asignárselo a
+        // uno mismo ES el encargo, y dejarlo "pendiente de enviar" lo tendría a diario
+        // en el parte pidiendo que te escribas a ti mismo.
+        const { esDeBrokergy } = require('../services/ceeFirmaService');
+        const encargoPendiente = template === 'standard' && soloAsignar && !esDeBrokergy(cert);
+
+        // Automatización de estado
+        // GUARD: un recordatorio al certificador nunca puede hacer retroceder el
+        // expediente (ej: PENDIENTE REVISIÓN → EN CERTIFICADOR). `avanzarEstado`
+        // aplica el orden del ciclo de vida en vez de una lista blanca de estados
+        // que se quedaba corta en cuanto aparecía uno nuevo.
+        const newEstado = phase === 'final' ? 'EN CERTIFICADOR CEE FINAL' : 'EN CERTIFICADOR CEE INICIAL';
+        const estadoTrasAviso = encargoPendiente ? exp.estado : avanzarEstado(exp.estado, newEstado);
+        if (estadoTrasAviso !== exp.estado) {
+            await supabase.from('expedientes').update({ estado: estadoTrasAviso, updated_at: new Date().toISOString() }).eq('id', req.params.id);
         }
 
         const ficha = op?.ficha || 'RES060';
@@ -7233,16 +7253,21 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
         }
 
         // ── Token de confirmación (cert-ack) ─────────────────────────────────────
-        const ackToken = crypto.createHash('sha256')
-            .update(`${req.params.id}-${certId}-${Date.now()}`)
-            .digest('hex').slice(0, 32);
-        workingCee.ack_token = ackToken;
-        workingCee.ack_phase = phase;
-        const ackLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/cert-ack/${req.params.id}?token=${ackToken}&phase=${phase}`;
+        // Solo si algo sale: el enlace va dentro del email. Regenerarlo en un "solo
+        // asignar" dejaría muerto el enlace de un encargo que sí se envió antes.
+        let ackLink = null;
+        if (!soloAsignar) {
+            const ackToken = crypto.createHash('sha256')
+                .update(`${req.params.id}-${certId}-${Date.now()}`)
+                .digest('hex').slice(0, 32);
+            workingCee.ack_token = ackToken;
+            workingCee.ack_phase = phase;
+            ackLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/cert-ack/${req.params.id}?token=${ackToken}&phase=${phase}`;
+        }
 
         // Persistir cee actualizado (cert_id + folder ids + ack_token)
         const seguimiento = exp.seguimiento || { cee_inicial: 'PTE_EMITIR', cee_final: 'PTE_EMITIR', anexos: 'PTE_EMITIR' };
-        
+
         // Solo actualizamos el Roadmap a ASIGNADO si es un nuevo encargo (standard).
         // Si es un recordatorio (reminder) o aviso urgente (urgent), no tocamos el Roadmap para no perder la trazabilidad.
         //
@@ -7252,7 +7277,9 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
         // asignarle técnico se le ponía ASIGNADO encima de un justificante de
         // registro y el parte lo contaba como CEE parado del certificador
         // (25RES060_93 y 26RES060_103, 2026-09-26). Mismo blindaje que el PUT.
-        if (template === 'standard') {
+        //
+        // Con el encargo PENDIENTE ("solo asignar" a un externo) tampoco: ver arriba.
+        if (template === 'standard' && !encargoPendiente) {
             const { rankSubestado } = require('../utils/ceeDirectoEstados');
             const clave = phase === 'final' ? 'cee_final' : 'cee_inicial';
             const faseDoc = phase === 'final' ? 'final' : 'inicial';
@@ -7270,9 +7297,14 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
         // va a enviar algo por algún canal — "solo asignar" no cuenta como contacto.
         if (sendEmail || sendWhatsApp) markCertContact(seguimiento, phase);
 
+        // Con el encargo pendiente no se toca `seguimiento`: no ha cambiado nada y,
+        // si el expediente no lo traía, se escribiría el relleno 'PTE_EMITIR', que
+        // el parte NO reconoce como "sin encargar" y lo volvería a esconder.
         const { error: updErr } = await supabase
             .from('expedientes')
-            .update({ cee: workingCee, seguimiento, updated_at: new Date().toISOString() })
+            .update(encargoPendiente
+                ? { cee: workingCee, updated_at: new Date().toISOString() }
+                : { cee: workingCee, seguimiento, updated_at: new Date().toISOString() })
             .eq('id', req.params.id);
         if (updErr) console.error('[notify-certificador] error persistiendo cee:', updErr.message);
 
@@ -7424,7 +7456,10 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
         }
 
         // ── Registro en historial (Trazabilidad) ────────────────────────────────
-        if (channels.length > 0) {
+        // También el "solo asignar": sin esta línea, asignar un técnico sin avisarle
+        // no dejaba NINGÚN rastro, y "¿se lo mandé o no?" no tenía respuesta.
+        const anotarAsignacion = soloAsignar && template === 'standard';
+        if (channels.length > 0 || anotarAsignacion) {
             try {
                 const docObj = exp.documentacion || {};
                 const historial = docObj.historial || [];
@@ -7444,17 +7479,30 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
                     : ` · ${esRegistro ? 'Registro en Industria' : 'Emisión del CEE'}`;
                 const sentBody = customMessage || adminMessage;
                 const msgTag = sentBody ? `\n💬 Mensaje: "${sentBody}"` : '';
-                historial.push({
-                    id: Date.now().toString() + '_certnotif',
-                    tipo: 'notificacion_certificador',
-                    texto: `Notificación ${phaseLabel} (${templateLabels[template] || 'Estándar'}${esperaTag}${priorityTag}) enviada a ${certName} vía ${channels.join(' + ')}${msgTag}`,
-                    fecha: new Date().toISOString(),
-                    usuario: userName,
-                    priority,
-                    espera,
-                    adminMessage,
-                    customMessage
-                });
+                if (channels.length > 0) {
+                    historial.push({
+                        id: Date.now().toString() + '_certnotif',
+                        tipo: 'notificacion_certificador',
+                        texto: `Notificación ${phaseLabel} (${templateLabels[template] || 'Estándar'}${esperaTag}${priorityTag}) enviada a ${certName} vía ${channels.join(' + ')}${msgTag}`,
+                        fecha: new Date().toISOString(),
+                        usuario: userName,
+                        priority,
+                        espera,
+                        adminMessage,
+                        customMessage
+                    });
+                } else {
+                    const tecnico = cert.razon_social || cert.acronimo || certName;
+                    historial.push({
+                        id: Date.now().toString() + '_certasig',
+                        tipo: 'certificador_asignado',
+                        texto: encargoPendiente
+                            ? `Certificador ${tecnico} asignado SIN AVISAR · el encargo del ${phaseLabel} queda PENDIENTE DE ENVIAR`
+                            : `Certificador ${tecnico} asignado (certificador de Brokergy: no se envía aviso)`,
+                        fecha: new Date().toISOString(),
+                        usuario: userName,
+                    });
+                }
 
                 if (avisoCliente) {
                     historial.push({
@@ -7490,8 +7538,12 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
             emailSent: sendEmail,
             whatsAppSent: sendWhatsApp && channels.includes('WhatsApp'),
             channels,
-            newEstado,
+            newEstado: estadoTrasAviso,
             template,
+            // "Solo asignar" a un técnico externo: el encargo sigue sin salir, y
+            // la pantalla tiene que decirlo en vez de dar la tarea por hecha.
+            asignadoSinAviso: soloAsignar,
+            encargoPendiente,
             avisoCliente: avisoCliente
                 ? { canales: avisoCliente.canales, to: avisoCliente.to, nombre: avisoCliente.nombre }
                 : null,

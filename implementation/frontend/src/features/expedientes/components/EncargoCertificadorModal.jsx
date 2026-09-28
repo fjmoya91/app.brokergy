@@ -151,14 +151,30 @@ export function EncargoCertificadorModal({
                     if (low.includes('whats')) return `WhatsApp · ${certTel || ''}`.trim();
                     return String(c);
                 });
-                if (!items.length) items.push('Notificación enviada');
+                // Sin ningún canal NO se ha enviado nada, y no puede contarse como
+                // "¡Encargo enviado!": antes caía en un genérico "Notificación enviada".
+                if (!items.length) {
+                    setCertNotifResult({ type: 'error', text: `No ha salido nada: el encargo no se ha enviado a ${certName || 'el certificador'} por ningún canal. Vuelve a intentarlo.` });
+                    if (onHecho) onHecho({ notificado: false });
+                    return;
+                }
                 if (data?.avisoCliente?.canales?.length) {
                     items.push(`Aviso al cliente${data.avisoCliente.nombre ? ` · ${data.avisoCliente.nombre}` : ''} · ${data.avisoCliente.canales.join(' + ')}`);
                 }
                 if (driveItem) items.push(driveItem);
                 setCertNotifResult({ type: 'ok', title: certPriority === 'urgent' ? '¡Encargo urgente enviado!' : '¡Encargo enviado!', items });
             } else {
-                setCertNotifResult({ type: 'ok', title: 'Certificador asignado', items: [`${certName || 'Certificador'} asignado al expediente`, ...(driveItem ? [driveItem] : [])] });
+                // "Solo asignar" a un técnico externo deja el encargo PENDIENTE: se dice
+                // aquí, en ámbar, porque es justo lo que hace creer que ya está avisado.
+                const items = [`${certName || 'Certificador'} asignado al expediente`];
+                if (data?.encargoPendiente) {
+                    items.push({
+                        texto: `No se le ha avisado: el encargo queda PENDIENTE DE ENVIAR (sale en Seguimiento → «Aceptados y sin encargar el CEE»)`,
+                        tono: 'aviso',
+                    });
+                }
+                if (driveItem) items.push(driveItem);
+                setCertNotifResult({ type: 'ok', title: data?.encargoPendiente ? 'Asignado, sin avisar' : 'Certificador asignado', items });
             }
             if (onHecho) onHecho({ notificado: !!notify });
         } catch (err) {
@@ -385,6 +401,7 @@ export function EncargoCertificadorModal({
                                 <button
                                     onClick={() => confirmar(false)}
                                     disabled={certNotifLoading}
+                                    title="Guarda el técnico SIN avisarle: el encargo queda pendiente de enviar"
                                     className="flex-1 sm:flex-none px-4 py-2.5 max-md:py-3.5 rounded-xl border border-white/10 text-white/50 text-[11px] font-black uppercase tracking-widest hover:text-white hover:border-white/20 transition-all"
                                 >Solo asignar</button>
                                 <button
