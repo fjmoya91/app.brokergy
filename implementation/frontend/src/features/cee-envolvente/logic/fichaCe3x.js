@@ -341,17 +341,21 @@ export function litrosAcsDelExpediente(expediente) {
 //: certificado SIN decir nada, así que lo que no esté verificado no se escribe:
 //: se avisa y lo elige el técnico, que son dos clics. Adivinarla es peor.
 //:
-//: ⚠️ ELECTRICIDAD sigue sin confirmar: `ELECTRICIDAD.cex` es byte a byte
-//: idéntico a `CARBON.cex` (mismo MD5), así que se guardó sin tocar el
-//: desplegable. Puede que una caldera eléctrica no se declare como «Caldera
-//: Estándar» sino por efecto Joule, y entonces no lleva combustible.
+//: ELECTRICIDAD, medida el 2026-09-28 sobre los 1.600 `.cex` del disco: una
+//: caldera eléctrica se declara por EFECTO JOULE con combustible `Electricidad`
+//: (5 mixtos y 66 de solo calefacción; 3 más como «Caldera Estándar») y SIN la
+//: cola de la caldera —ni potencia ni aislamiento: el rendimiento nominal a
+//: secas—. Por eso su generador no es `GENERADOR_CALDERA` (`GENERADOR_ELECTRICO`).
+//: (`ELECTRICIDAD.cex` de los ejemplos no servía: es byte a byte `CARBON.cex`.)
 const COMBUSTIBLE_CE3X = {
     gasoleo: 'Gasóleo-C',
     gas_natural: 'Gas Natural',
     carbon: 'Carbón',
     pellets: 'BiomasaDens',
     glp: 'GLP',
+    electricidad: 'Electricidad',
 };
+const GENERADOR_ELECTRICO = 'Efecto Joule';
 
 //: De qué combustible es cada caldera de la tabla. Ojo: el `boilerId` del
 //: carbón y el de la biomasa es el MISMO (`solid_*`) —lo dice `boilerMapping`—
@@ -431,17 +435,37 @@ export const AISLAMIENTOS_CE3X = [
 //: aquí: el motor solo sabe su forma con el rendimiento CONOCIDO (el de una
 //: bomba de calor), y los escribe la app desde el expediente. Van aparte, en
 //: `TIPOS_BOMBA_FRIO_CE3X`.
+//: `nombre` es con el que NACE el equipo al añadirlo: sin nombre no se escribe,
+//: y pulsar «+ Añadir equipo de ACS» tiene que dejar el agua cubierta de un clic
+//: (un termo eléctrico al 100 %), no una tarjeta que aún no cuenta. Se edita.
 export const TIPOS_EQUIPO_CE3X = [
-    { valor: 'ACS', etiqueta: 'Equipo de ACS', servicios: ['acs'],
+    { valor: 'ACS', etiqueta: 'Equipo de ACS', servicios: ['acs'], nombre: 'TERMO ELÉCTRICO',
       generador: 'Efecto Joule', combustible: 'Electricidad', nominal: '100.0' },
-    { valor: 'calefaccion', etiqueta: 'Equipo de sólo calefacción',
+    { valor: 'calefaccion', etiqueta: 'Equipo de sólo calefacción', nombre: 'EQUIPO DE CALEFACCIÓN',
       servicios: ['calefaccion'], generador: 'Caldera Estándar' },
-    { valor: 'refrigeracion', etiqueta: 'Equipo de sólo refrigeración',
+    { valor: 'refrigeracion', etiqueta: 'Equipo de sólo refrigeración', nombre: 'AIRE ACONDICIONADO',
       servicios: ['refrigeracion'], generador: 'Maquina frigorífica',
       combustible: 'Electricidad', nominal: '250.0' },
-    { valor: 'mixto2', etiqueta: 'Equipo mixto de calefacción y ACS',
+    { valor: 'mixto2', etiqueta: 'Equipo mixto de calefacción y ACS', nombre: 'EQUIPO MIXTO',
       servicios: ['calefaccion', 'acs'], generador: 'Caldera Estándar' },
 ];
+
+//: El aviso del depósito de la aerotermia. Constante y no texto suelto: si en
+//: la pestaña se le cambia el uso y deja de dar el ACS, este aviso ya no aplica
+//: y se retira comparando por IDENTIDAD —nunca leyendo la frase—.
+const AVISO_SIN_DEPOSITO = 'No consta el volumen del depósito de ACS: el equipo sale SIN '
+    + 'acumulación. Si lo lleva, márcalo en CE3X (o ponlo en Instalación).';
+
+/** Los avisos de la derivación que dejan de aplicar si el equipo ya no da ACS. */
+const sinAvisosDeAcs = (avisos, equipo) =>
+    (equipo && !tipoEquipo(equipo.slot).servicios.includes('acs')
+        ? avisos.filter(a => a !== AVISO_SIN_DEPOSITO) : avisos);
+
+/** El equipo recién AÑADIDO: su uso y el nombre con el que nace. */
+export const equipoNuevo = (slot) => {
+    const t = tipoEquipo(slot);
+    return { slot: t.valor, ...(t.nombre ? { nombre: t.nombre } : {}) };
+};
 
 //: Los dos tipos de la AEROTERMIA QUE DA FRÍO. No se ofrecen en «+ Añadir»
 //: porque el motor solo sabe su forma con el rendimiento CONOCIDO (153 mixto3 y
@@ -461,17 +485,71 @@ export const tipoEquipo = (slot) =>
     || TIPOS_BOMBA_FRIO_CE3X.find(t => t.valor === slot)
     || TIPOS_EQUIPO_CE3X[3];
 
-//: Un equipo de caldera necesita potencia y rendimiento de combustión; uno de
-//: ACS o de frío, un rendimiento nominal y ya. Es lo que separa las dos colas
-//: del registro, medidas cada una en su `.cex`.
-export const esDeCaldera = (slot) => slot === 'mixto2' || slot === 'calefaccion';
+const ROTULO_SERV = { calefaccion: 'calefacción', acs: 'ACS', refrigeracion: 'refrigeración' };
+const CON_ARTICULO = { calefaccion: 'la calefacción', acs: 'el ACS',
+                       refrigeracion: 'la refrigeración' };
+
+/**
+ * Si CE3X ESTIMA el rendimiento de este equipo como el de una CALDERA (con su
+ * potencia, su rendimiento de combustión y su aislamiento) o con un rendimiento
+ * nominal a secas.
+ *
+ * REGLA — lo decide el COMBUSTIBLE, no el uso ni el generador. Medido sobre los
+ * 1.600 `.cex` del disco: de los 1.326 equipos ESTIMADOS de calefacción, ACS y
+ * mixtos, TODOS los que queman algo llevan la cola de la caldera y TODOS los de
+ * Electricidad la cola simple — también las calderas eléctricas que se declaran
+ * «Caldera Estándar». Es la misma regla que aplica el motor (`_por_combustion`).
+ *
+ * Antes lo decidía el USO (mixto o calefacción = caldera), y eso es lo que
+ * impedía cambiarlo: una caldera de gasóleo que pasa a dar SOLO el ACS seguía
+ * siendo una caldera (61 equipos de ACS del corpus lo son) y se quedaba sin sus
+ * campos; unos radiadores eléctricos de solo calefacción pedían una potencia y
+ * un aislamiento que no tienen.
+ */
+export function porCombustion(eq) {
+    if (eq?.rendimiento === 'conocido') return false;
+    const comb = eq?.combustible || tipoEquipo(eq?.slot).combustible || '';
+    return comb !== 'Electricidad';
+}
+
+/**
+ * Los USOS que se le pueden dar a un equipo: qué servicios cubre.
+ *
+ * REGLA — solo los que el motor sabe escribir con ESA forma de rendimiento.
+ * Una bomba de calor con el SCOP ensayado («conocido») puede ser cualquiera de
+ * los cinco que dan calor o agua; con el rendimiento ESTIMADO, los de una
+ * caldera o un termo — la calefacción con frío (`climatizacion`, `mixto3`) solo
+ * está medida con el rendimiento conocido, y un registro con la forma
+ * equivocada CE3X lo abre y no lo enseña.
+ *
+ * El equipo PRINCIPAL (el del expediente) no ofrece «solo refrigeración»: la
+ * caldera o la aerotermia de la obra no se convierte en un aire acondicionado.
+ */
+export function usosDeEquipo(eq, { principal = false } = {}) {
+    const conocido = eq?.rendimiento === 'conocido';
+    const claves = conocido
+        ? ['mixto3', 'climatizacion', 'mixto2', 'calefaccion', 'ACS']
+        : ['mixto2', 'calefaccion', 'ACS', ...(principal ? [] : ['refrigeracion'])];
+    return claves.map(tipoEquipo);
+}
+
+//: Los rendimientos ENSAYADOS que pide un equipo «conocido», uno por servicio.
+//: El SCOP va en % (4,34 → 434), que es como lo guarda CE3X.
+const rendimientosConocidos = (servicios) => servicios.map(s => `rend_${s}`);
+
+//: Los que el MOTOR exige para escribirlo, que no son todos: un `mixto2`
+//: conocido se escribe con el de calefacción aunque falte el de ACS (su casilla
+//: queda en blanco, como en el corpus); los demás, todos los de sus servicios.
+const rendObligatorios = (slot) => tipoEquipo(slot).servicios
+    .filter(s => !(slot === 'mixto2' && s === 'acs'));
 
 /**
  * Un equipo AÑADIDO a mano, con lo mínimo que el motor necesita para escribirlo.
  *
  * El caso que lo justifica: la caldera da la calefacción y la MITAD del agua, y
  * un termo eléctrico da la otra mitad. En CE3X son dos equipos, cada uno con su
- * porcentaje; aquí también.
+ * porcentaje; aquí también. Y el otro: la caldera se deja en SOLO calefacción y
+ * el agua la da un aerotermo con su COP ensayado.
  */
 export function equipoAnadido(x, { superficie } = {}) {
     const avisos = [];
@@ -482,6 +560,14 @@ export function equipoAnadido(x, { superficie } = {}) {
     if (!nombre || !generador || !combustible) {
         avisos.push(`Un equipo añadido (${t.etiqueta}) no se escribe: le faltan nombre, `
                     + 'tipo de generador o combustible.');
+        return { equipo: null, avisos };
+    }
+    //: «Solo refrigeración» no se sabe escribir con el rendimiento conocido.
+    const conocido = x?.rendimiento === 'conocido' && t.valor !== 'refrigeracion';
+    if (!usosDeEquipo({ rendimiento: conocido ? 'conocido' : 'estimado' })
+        .some(u => u.valor === t.valor)) {
+        avisos.push(`El equipo «${nombre}» no se escribe: «${t.etiqueta}» solo se sabe `
+                    + `escribir con el rendimiento ${conocido ? 'estimado' : 'conocido (ensayado)'}.`);
         return { equipo: null, avisos };
     }
     const eq = { slot: t.valor, nombre, generador, combustible,
@@ -499,7 +585,19 @@ export function equipoAnadido(x, { superficie } = {}) {
         eq.superficie_refrigeracion = sup('superficie_refrigeracion');
         if (x?.pct_refrigeracion) eq.pct_refrigeracion = String(x.pct_refrigeracion);
     }
-    if (esDeCaldera(t.valor)) {
+    if (conocido) {
+        const faltan = rendObligatorios(t.valor).filter(s => !(Number(x?.[`rend_${s}`]) > 0));
+        if (faltan.length) {
+            avisos.push(`El equipo «${nombre}» no se escribe: con el rendimiento conocido `
+                        + `falta el de ${faltan.map(s => ROTULO_SERV[s]).join(' y ')} `
+                        + '(el SCOP de su ficha, en %).');
+            return { equipo: null, avisos };
+        }
+        eq.rendimiento = 'conocido';
+        for (const k of rendimientosConocidos(t.servicios)) {
+            if (Number(x?.[k]) > 0) eq[k] = String(x[k]);
+        }
+    } else if (porCombustion({ combustible })) {
         const potencia = String(x?.potencia || '').trim();
         if (!potencia) {
             avisos.push(`El equipo «${nombre}» no se escribe: una caldera necesita su `
@@ -560,13 +658,43 @@ export function equipoConAjustes(equipo, ajustes, { superficie } = {}) {
     // generador es justo lo que esta pantalla existe para evitar.
     const conocido = (tocado('rendimiento', a.rendimiento)
                       || equipo?.rendimiento) === 'conocido';
-    const aislamiento = conocido ? null : (tocado('aislamiento', a.aislamiento)
-        || equipo?.aislamiento || AISLAMIENTO_POR_DEFECTO);
+    //: ¿La cola de una CALDERA? Lo decide el combustible (ver `porCombustion`):
+    //: una caldera de gasóleo que se deja en solo ACS sigue necesitando su
+    //: potencia; unos radiadores eléctricos, no.
+    const combustion = !conocido && porCombustion({ combustible });
+    const aislamiento = combustion ? (tocado('aislamiento', a.aislamiento)
+        || equipo?.aislamiento || AISLAMIENTO_POR_DEFECTO) : null;
+
+    //: El USO. Solo se acepta uno que el motor sepa escribir con ESTA forma de
+    //: rendimiento: un `mixto3` estimado CE3X lo abriría y no lo enseñaría.
+    const usos = usosDeEquipo({ rendimiento: conocido ? 'conocido' : 'estimado' },
+                              { principal: true }).map(u => u.valor);
+    const slot = a.slot && usos.includes(a.slot) ? a.slot
+        : (usos.includes(equipo?.slot) ? equipo.slot : usos[0]);
+    //: Por los SERVICIOS del tipo, no por su nombre: un `mixto3` también da ACS
+    //: y con `slot === 'mixto2'` se le borraban el ACS y el depósito.
+    const servicios = tipoEquipo(slot).servicios;
+    const daAcs = servicios.includes('acs');
+    const daCal = servicios.includes('calefaccion');
+    const daFrio = servicios.includes('refrigeracion');
+
+    //: Con el rendimiento ENSAYADO, uno por servicio que dé: el SCOP de su ficha
+    //: en %. Cambiar el uso de un `mixto2` a un `mixto3` pide el de frío (el SEER),
+    //: y sin él el motor no sabe escribir la casilla.
+    const rendConocido = {};
+    for (const k of conocido ? rendimientosConocidos(servicios) : []) {
+        const v = tocado(k, a[k]) || equipo?.[k];
+        if (v) rendConocido[k] = String(v);
+    }
+    const faltaRend = conocido
+        ? rendObligatorios(slot).filter(s => !rendConocido[`rend_${s}`]) : [];
 
     // Sin esto el motor no sabe escribirlo, y no se inventa nada.
     const faltan = [!nombre && 'el nombre', !generador && 'el tipo de generador',
                     !combustible && 'el combustible',
-                    (!conocido && !potencia) && 'la potencia'].filter(Boolean);
+                    (combustion && !potencia) && 'la potencia',
+                    faltaRend.length && `el rendimiento de ${faltaRend
+                        .map(s => ROTULO_SERV[s]).join(' y ')}`].filter(Boolean);
     if (faltan.length) {
         if (Object.keys(a).length) {
             avisos.push(`El equipo sigue sin escribirse: ${faltan.length === 1
@@ -575,44 +703,52 @@ export function equipoConAjustes(equipo, ajustes, { superficie } = {}) {
         return { equipo: null, falta: `falta ${faltan[0]}`, avisos };
     }
 
-    const slot = a.slot === 'calefaccion' || a.slot === 'mixto2'
-        ? a.slot : (equipo?.slot || 'mixto2');
-    //: Por los SERVICIOS del tipo, no por su nombre: un `mixto3` también da ACS
-    //: y con `slot === 'mixto2'` se le borraban el ACS y el depósito.
-    const servicios = tipoEquipo(slot).servicios;
-    const daAcs = servicios.includes('acs');
-    const daFrio = servicios.includes('refrigeracion');
     const litros = Number(a.litros_acumulacion) > 0 ? Number(a.litros_acumulacion) : null;
     const acumula = a.acumulacion === undefined ? !!equipo?.acumulacion : !!a.acumulacion;
+    //: El nominal de un equipo ELÉCTRICO estimado. Una caldera eléctrica llega de
+    //: la oportunidad con su 100 % como `rend_combustion`: es el mismo número.
+    const nominal = !conocido && !combustion
+        ? String(tocado('rend_nominal', a.rend_nominal) || equipo?.rend_nominal
+                 || rend || tipoEquipo(slot).nominal || '100.0')
+        : null;
 
     const nuevo = {
         ...(equipo || {}),
         slot, nombre, generador, combustible,
-        //: Los tres solo cuando CE3X va a estimar: ver arriba.
+        rendimiento: conocido ? 'conocido' : 'estimado',
+        //: Los tres solo cuando CE3X va a estimar como caldera: ver arriba.
         ...(aislamiento ? { aislamiento } : {}),
-        ...(potencia && !conocido ? { potencia: String(potencia) } : {}),
-        ...(rend && !conocido ? { rend_combustion: String(rend) } : {}),
+        ...(potencia && combustion ? { potencia: String(potencia) } : {}),
+        ...(rend && combustion ? { rend_combustion: String(rend) } : {}),
+        ...(nominal ? { rend_nominal: nominal } : {}),
+        ...rendConocido,
         // La superficie servida se puede repartir: en el `.cex` medido la caldera
         // da los 165 m² de calefacción pero solo 82,5 de ACS, porque la otra
         // mitad la da el termo.
-        superficie_calefaccion: Number(a.superficie_calefaccion) > 0
+        ...(daCal ? { superficie_calefaccion: Number(a.superficie_calefaccion) > 0
             ? Number(a.superficie_calefaccion)
-            : (equipo?.superficie_calefaccion ?? superficie),
+            : (equipo?.superficie_calefaccion ?? superficie) } : {}),
         ...(daAcs ? { superficie_acs: Number(a.superficie_acs) > 0
             ? Number(a.superficie_acs) : (equipo?.superficie_acs ?? superficie) } : {}),
         ...(daFrio ? { superficie_refrigeracion: Number(a.superficie_refrigeracion) > 0
             ? Number(a.superficie_refrigeracion)
             : (equipo?.superficie_refrigeracion ?? superficie) } : {}),
-        ...(a.pct_calefaccion ? { pct_calefaccion: String(a.pct_calefaccion) } : {}),
+        ...(daCal && a.pct_calefaccion ? { pct_calefaccion: String(a.pct_calefaccion) } : {}),
         ...(daAcs && a.pct_acs ? { pct_acs: String(a.pct_acs) } : {}),
         ...(daFrio && a.pct_refrigeracion ? { pct_refrigeracion: String(a.pct_refrigeracion) } : {}),
     };
-    // Un equipo de SOLO calefacción no lleva ni ACS ni depósito.
-    if (!daFrio) {
-        delete nuevo.superficie_refrigeracion; delete nuevo.pct_refrigeracion;
-        delete nuevo.rend_refrigeracion;
+    //: Lo que ya no corresponde se QUITA, no se deja colgando: un equipo que ha
+    //: pasado a dar solo el ACS no puede seguir llevando la superficie de
+    //: calefacción, ni una caldera eléctrica la potencia de una de gas.
+    if (!combustion) { delete nuevo.aislamiento; delete nuevo.potencia; delete nuevo.rend_combustion; }
+    if (conocido) delete nuevo.rend_nominal;
+    for (const s of ['calefaccion', 'acs', 'refrigeracion']) {
+        if (servicios.includes(s)) continue;
+        delete nuevo[`superficie_${s}`]; delete nuevo[`pct_${s}`];
+        delete nuevo[`superficie_${s}_cruda`]; delete nuevo[`rend_${s}`];
     }
-    if (!daAcs) { delete nuevo.superficie_acs; delete nuevo.pct_acs; delete nuevo.acumulacion; }
+    // Un equipo que no da ACS no lleva depósito.
+    if (!daAcs) { delete nuevo.acumulacion; delete nuevo.acumulacion_cruda; }
     else if (acumula && litros) nuevo.acumulacion = { volumen: litros };
     else if (!acumula) delete nuevo.acumulacion;
 
@@ -623,7 +759,12 @@ export function equipoConAjustes(equipo, ajustes, { superficie } = {}) {
                                ['superficie_acs', 'la superficie de ACS'],
                                ['combustible', 'el combustible'], ['potencia', 'la potencia'],
                                ['rend_combustion', 'el rendimiento de combustión'],
-                               ['aislamiento', 'el aislamiento'], ['slot', 'el tipo de equipo'],
+                               ['rend_nominal', 'el rendimiento nominal'],
+                               ['rendimiento', 'cómo se da el rendimiento'],
+                               ['rend_calefaccion', 'el rendimiento de calefacción'],
+                               ['rend_acs', 'el rendimiento de ACS'],
+                               ['rend_refrigeracion', 'el rendimiento de refrigeración'],
+                               ['aislamiento', 'el aislamiento'], ['slot', 'el uso del equipo'],
                                ['pct_calefaccion', 'el % de calefacción'],
                                ['pct_acs', 'el % de ACS'],
                                ['superficie_refrigeracion', 'la superficie de refrigeración'],
@@ -636,6 +777,12 @@ export function equipoConAjustes(equipo, ajustes, { superficie } = {}) {
         avisos.push(`Instalación «${nombre}»: ${cambios.join(', ')} ${cambios.length === 1
             ? 'lo ha puesto' : 'los ha puesto'} a mano el certificador.`);
     }
+    //: Cambiar el USO no es un retoque más: puede dejar servicios sin equipo, y
+    //: eso es lo que CE3X no deja pasar («la instalación de ACS no está bien
+    //: definida»). Qué deja se devuelve en ESTRUCTURA: si queda sin cubrir lo
+    //: sabe quien ve TODOS los equipos (`avisoCambioDeUso`), no este.
+    const deja = (a.slot && a.slot === slot && equipo?.slot && equipo.slot !== slot)
+        ? tipoEquipo(equipo.slot).servicios.filter(s => !servicios.includes(s)) : null;
     if (!vistoEn(GENERADORES_CE3X, generador)) {
         avisos.push(`El generador «${generador}» no se ha comprobado en ningún .cex real: `
                     + 'ábrelo en CE3X y mira que lo reconozca en Instalaciones.');
@@ -649,14 +796,35 @@ export function equipoConAjustes(equipo, ajustes, { superficie } = {}) {
         const v = Number(nuevo[k]);
         if (v > 0 && v < 100) {
             avisos.push(`El equipo cubre el ${v} % de la demanda de ${rotulo}: el resto lo `
-                        + 'tiene que dar otro equipo, y ese hay que añadirlo en CE3X.');
+                        + 'tiene que dar otro equipo (se añade en Instalaciones).');
         }
     }
-    if (acumula && !litros) {
+    if (daAcs && acumula && !litros && !nuevo.acumulacion) {
         avisos.push('Se ha marcado que lleva acumulación pero no constan los litros: el '
                     + 'equipo sale SIN depósito.');
     }
-    return { equipo: nuevo, avisos };
+    return { equipo: nuevo, avisos,
+             ...(deja ? { cambioDeUso: { nombre, de: equipo.slot, a: slot, deja } } : {}) };
+}
+
+/**
+ * El aviso de un CAMBIO DE USO, dicho con TODOS los equipos delante.
+ *
+ * «La caldera pasa a solo calefacción» es un hecho que se dice siempre (lo ha
+ * cambiado una persona); «queda sin cubrir el ACS» solo si es verdad. Con el
+ * termo ya añadido no lo es, y un aviso que sale aunque esté resuelto enseña a
+ * no leer los avisos.
+ */
+export function avisoCambioDeUso(cambio, otros = []) {
+    if (!cambio) return null;
+    const cubren = new Set(otros.flatMap(o => o?.servicios
+        || tipoEquipo(o?.slot).servicios));
+    const sinCubrir = cambio.deja.filter(s => !cubren.has(s));
+    return `«${cambio.nombre}» pasa a ser «${tipoEquipo(cambio.a).etiqueta}»`
+        + (sinCubrir.length
+            ? `: queda sin cubrir ${sinCubrir.map(s => CON_ARTICULO[s]).join(' y ')} — añade `
+              + `en Instalaciones el equipo que ${sinCubrir.length > 1 ? 'los' : 'lo'} da.`
+            : '.');
 }
 
 /**
@@ -728,15 +896,20 @@ export function instalacionExistente({ expediente, superficie, litros = null } =
 
     const daAcs = inst.misma_caldera_acs !== false;
     const nombre = [caldera.marca, caldera.modelo].filter(Boolean).join(' ').trim();
+    //: Una caldera ELÉCTRICA no tiene combustión: su rendimiento es el nominal
+    //: (el 100 % de la tabla) y no declara ni potencia ni aislamiento.
+    const electrica = combustible === 'Electricidad';
 
     const equipo = {
             slot: daAcs ? 'mixto2' : 'calefaccion',
             nombre: (nombre ? `CALDERA ${nombre}` : 'CALDERA EXISTENTE').toUpperCase(),
-            generador: GENERADOR_CALDERA,
+            generador: electrica ? GENERADOR_ELECTRICO : GENERADOR_CALDERA,
             combustible,
-            aislamiento: AISLAMIENTO_POR_DEFECTO,
-            rend_combustion: String(rend),
-            ...(potencia ? { potencia: String(potencia) } : {}),
+            ...(electrica ? { rend_nominal: String(rend || 100) } : {
+                aislamiento: AISLAMIENTO_POR_DEFECTO,
+                rend_combustion: String(rend),
+                ...(potencia ? { potencia: String(potencia) } : {}),
+            }),
             superficie_calefaccion: superficie,
             ...(daAcs ? { superficie_acs: superficie } : {}),
             // El DEPÓSITO es del edificio, no de la caldera: no está en ningún
@@ -744,11 +917,18 @@ export function instalacionExistente({ expediente, superficie, litros = null } =
             // contesta el certificador antes de generar. Sin él, el equipo sale
             // sin acumulación y el CEE final lo hereda así.
             ...(daAcs && litros > 0 ? { acumulacion: { volumen: litros } } : {}),
-            de: `de la oportunidad: ${fila.label}. El aislamiento `
+            de: electrica ? `de la oportunidad: ${fila.label}.`
+                : `de la oportunidad: ${fila.label}. El aislamiento `
                 + `«${AISLAMIENTO_POR_DEFECTO}» es la hipótesis desfavorable — `
                 + 'CONFIRMAR EN VISITA.',
     };
 
+    if (electrica) {
+        avisos.push(`Instalación existente: ${fila.label} → efecto Joule, electricidad, `
+            + `${rend || 100} % de rendimiento nominal. Sale de lo que se puso en la `
+            + 'oportunidad: compruébalo con la placa.');
+        return { equipo, avisos };
+    }
     if (!potenciaDeclarada) {
         avisos.push(`No consta la potencia de la caldera actual: va con ${
             POTENCIA_CALDERA_POR_DEFECTO} kW, la que CE3X pone por defecto. La buena `
@@ -870,10 +1050,7 @@ export function instalacionNueva({ expediente, superficie, modelos = {},
     // depósito es SUYO (lo pone `equipoDeAcs`), no del equipo de calefacción —
     // que además es un slot de 9 campos, sin sitio donde escribirlo.
     const acumulacion = (d.litros > 0 && !d.acsAparte) ? { volumen: d.litros } : null;
-    if (mixto && !acumulacion) {
-        avisos.push('No consta el volumen del depósito de ACS: el equipo sale SIN '
-                    + 'acumulación. Si lo lleva, márcalo en CE3X (o ponlo en Instalación).');
-    }
+    if (mixto && !acumulacion) avisos.push(AVISO_SIN_DEPOSITO);
 
     avisos.push(`Instalación nueva: ${d.nombre} → ${rendCal} % en calefacción`
         + (mixto ? ` y ${rendAcs} % en ACS` : '')
@@ -1174,7 +1351,7 @@ export const AUTOCONSUMO_DECLARABLE = 0.9;
  */
 export function medidasCe3x({ expediente, superficie, fase = 'inicial',
                               elegidas = null, textos = null, modelos = {},
-                              existentes = null } = {}) {
+                              existentes = null, final = null } = {}) {
     const esFinal = fase === 'final';
     const catalogo = [];
     const avisos = [];
@@ -1187,8 +1364,18 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
     const ceeSuelto = esCeeDirecto(expediente);
 
     // ── 1. La AEROTERMIA: la actuación de este expediente ────────────────────
-    const { equipo, extras = [], avisos: avEquipo } =
-        instalacionNueva({ expediente, superficie, modelos, existentes });
+    const nueva = instalacionNueva({ expediente, superficie, modelos, existentes });
+    const { extras = [] } = nueva;
+    //: Lo tecleado en la cara del CEE FINAL (el uso de la aerotermia, sus
+    //: rendimientos) y los equipos añadidos allí. Solo si hay algo: sin
+    //: retoques la medida es exactamente la de siempre.
+    let equipo = nueva.equipo;
+    if (equipo && final?.ajustes && Object.keys(final.ajustes).length) {
+        equipo = equipoConAjustes(equipo, final.ajustes, { superficie }).equipo || equipo;
+    }
+    const avEquipo = sinAvisosDeAcs(nueva.avisos || [], equipo);
+    const extrasFinal = (final?.extras || [])
+        .map(x => equipoAnadido(x, { superficie }).equipo).filter(Boolean);
     const texto = equipo ? (buildMedidaMejora(expediente, { modelos }) || {}) : {};
     const invers = inversionDeLaObra(expediente);
     //: En una hibridación NO se sustituye nada: la caldera se queda y la bomba
@@ -1223,7 +1410,7 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
             // TODO lo que se instala, no solo el generador: si el ACS lo
             // resuelve otra máquina, esa máquina forma parte de la medida —y
             // sin ella CE3X se niega a calcularla entera.
-            instalaciones: [equipo, ...extras],
+            instalaciones: [equipo, ...extras, ...extrasFinal],
         } : null,
     };
     if (aero.disponible) {
@@ -1461,6 +1648,9 @@ export function faltaPorPreguntar(cfg = {}, { fase = 'inicial', expediente = nul
 function acumulacionYaDicha(cfg) {
     const i = cfg?.instalacion;
     if (!i) return false;
+    //: Si la caldera se ha dejado en SOLO calefacción, su depósito de ACS no es
+    //: una pregunta: el agua la da otro equipo, y sus litros van en ESE equipo.
+    if (i.slot && !tipoEquipo(i.slot).servicios.includes('acs')) return true;
     if (i.acumulacion === false) return true;
     return i.acumulacion === true && Number(i.litros_acumulacion) > 0;
 }
@@ -1476,6 +1666,64 @@ export const claveInstalacion = (fase) =>
     (fase === 'final' ? 'instalacion_final' : 'instalacion');
 
 const ajustesDeFase = (cfg, fase) => cfg?.[claveInstalacion(fase)];
+
+//: Y los equipos AÑADIDOS, también por fase. Eran una sola lista para las dos, y
+//: el CEE final COPIA el inicial —que ya los lleva escritos—: un termo añadido
+//: en el inicial se volvía a escribir en el final encima del suyo, y junto a una
+//: aerotermia que ya da el ACS salía el agua caliente cubierta al 200 %. En el
+//: final se añade lo que instala la OBRA; lo del inicial lo conserva (o lo
+//: retira) el motor al copiar el fichero, según lo que asuma el equipo nuevo.
+export const claveExtras = (fase) =>
+    (fase === 'final' ? 'equipos_extra_final' : 'equipos_extra');
+
+const extrasDeFase = (cfg, fase) => {
+    const l = cfg?.[claveExtras(fase)];
+    return Array.isArray(l) ? l : [];
+};
+
+/**
+ * Lo que el CEE FINAL CONSERVA del inicial, servicio a servicio.
+ *
+ * El final se hace COPIANDO el `.cex` inicial, y el motor retira de él solo los
+ * servicios que asume el equipo nuevo: si la aerotermia se deja en SOLO
+ * calefacción, la caldera del inicial se queda para el ACS. Sin esto la pestaña
+ * del final contaría el ACS al 0 % —y mandaría a añadir un equipo que ya está—.
+ *
+ * Es la MISMA regla que `construir_instalaciones` (retirar / `_sin_servicios`),
+ * calculada sobre la cara INICIAL de esta pantalla. Lo que manda al generar es
+ * el fichero inicial que haya en Drive: si alguien lo corrigió en CE3X, el
+ * motor ve lo suyo.
+ */
+function conservadosDelInicial({ expediente, superficie, cfg, finales, hibridacion }) {
+    const ini = instalacionExistente({ expediente, superficie,
+                                       litros: positivo(cfg.acumulacion_litros) });
+    const principal = equipoConAjustes(ini.equipo || ini.parcial || null,
+                                       ajustesDeFase(cfg, 'inicial'), { superficie }).equipo;
+    const iniciales = [principal,
+        ...extrasDeFase(cfg, 'inicial').map(x => equipoAnadido(x, { superficie }).equipo)]
+        .filter(Boolean);
+    // La refrigeración nunca retira nada: los aires que ya hay se quedan.
+    const asumidos = new Set(finales.flatMap(e => tipoEquipo(e.slot).servicios)
+        .filter(s => s !== 'refrigeracion'));
+    const conservados = [];
+    for (const e of iniciales) {
+        const serv = tipoEquipo(e.slot).servicios;
+        const pct = (s) => Number(e[`pct_${s}`] ?? 100);
+        if (hibridacion && serv.some(s => asumidos.has(s))) {
+            // HIBRIDACIÓN: no se retira; se queda con su parte de cada servicio.
+            const parte = Number(hibridacion.pct_generador_previo) / 100;
+            conservados.push({ nombre: e.nombre, slot: e.slot, hibridacion: true,
+                               pct: Object.fromEntries(serv.map(s =>
+                                   [s, Math.round(pct(s) * parte * 10) / 10])) });
+            continue;
+        }
+        const resto = serv.filter(s => !asumidos.has(s));
+        if (!resto.length) continue;
+        conservados.push({ nombre: e.nombre, slot: e.slot,
+                           pct: Object.fromEntries(resto.map(s => [s, pct(s)])) });
+    }
+    return conservados;
+}
 
 /** El nombre del conjunto de medidas, con el equipo de ACS si va aparte. */
 function nombreDelConjunto(expediente, equipo, modelos) {
@@ -1580,7 +1828,18 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
                                      ajustesDeFase(cfg, fase), { superficie });
     // Y los que se hayan AÑADIDO: un termo para el ACS, un aire acondicionado.
     // En CE3X son equipos aparte, cada uno con el % de demanda que cubre.
-    const anadidos = (cfg.equipos_extra || []).map(x => equipoAnadido(x, { superficie }));
+    const anadidos = extrasDeFase(cfg, fase).map(x => equipoAnadido(x, { superficie }));
+    // Lo que el FINAL conserva del inicial (el motor lo deja al copiar el fichero).
+    const conservados = esFinal
+        ? conservadosDelInicial({ expediente, superficie, cfg,
+                                  finales: [conMano.equipo, ...(derivada.extras || []),
+                                            ...anadidos.map(a => a.equipo)].filter(Boolean),
+                                  hibridacion: derivada.hibridacion })
+        : [];
+    const avisoUso = avisoCambioDeUso(conMano.cambioDeUso, [
+        ...(derivada.extras || []), ...anadidos.map(a => a.equipo).filter(Boolean),
+        ...conservados.map(c => ({ servicios: Object.keys(c.pct || {}) })),
+    ]);
     const instalacion = {
         equipo: conMano.equipo,
         // Los EXTRAS son los equipos que la propia derivación necesita además
@@ -1591,13 +1850,20 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
         equipos: [conMano.equipo, ...(derivada.extras || []),
                   ...anadidos.map(a => a.equipo)].filter(Boolean),
         falta: conMano.equipo ? null : (conMano.falta || derivada.falta),
-        avisos: [...derivada.avisos, ...conMano.avisos,
+        avisos: [...sinAvisosDeAcs(derivada.avisos, conMano.equipo), ...conMano.avisos,
+                 ...(avisoUso ? [avisoUso] : []),
                  ...anadidos.flatMap(a => a.avisos)],
     };
     // Las MEDIDAS DE MEJORA que el certificador haya marcado en su pestaña. Sin
     // elección manda lo que describe la fase (ver `medidasCe3x`).
     const mejora = medidasCe3x({ expediente, superficie, fase, elegidas: medidas, modelos,
                                  textos: cfg.medidas_texto,
+                                 // La medida es «el edificio con la instalación
+                                 // del CEE FINAL»: si en la cara del final se ha
+                                 // cambiado el uso de la aerotermia o se ha
+                                 // añadido un equipo, la medida dice lo mismo.
+                                 final: { ajustes: ajustesDeFase(cfg, 'final'),
+                                          extras: extrasDeFase(cfg, 'final') },
                                  // Los equipos de ESTA fase, para que una medida
                                  // de hibridación copie la caldera tal y como se
                                  // escribe aquí. Solo en el INICIAL: en el final
@@ -1756,8 +2022,11 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
         avisos.push(`Transmitancia cambiada por el certificador — ${t}`);
     }
     if (!ficha.tecnico) {
-        avisos.push('El expediente no tiene certificador asignado: el .cex sale sin '
-                    + 'los datos del técnico (se ponen en CE3X).');
+        avisos.push(expediente?.es_oportunidad
+            ? 'Es una OPORTUNIDAD: aún no hay técnico certificador, así que el .cex sale sin '
+              + 'sus datos. Al aceptarla, vuelve a generarlo desde el expediente (o ponlos en CE3X).'
+            : 'El expediente no tiene certificador asignado: el .cex sale sin '
+              + 'los datos del técnico (se ponen en CE3X).');
     } else {
         if (!ficha.tecnico.titulacion) {
             avisos.push(`${ficha.tecnico.nombre}: no consta su titulación habilitante en su `
@@ -1798,6 +2067,14 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
         }
     }
     return { ficha, avisos, medidas: mejora.catalogo,
+             // Los equipos TAL Y COMO los enseña la pestaña de Instalaciones: el
+             // principal aunque aún no se pueda escribir (le falta la potencia,
+             // p. ej.) —para poder completarlo ahí—, y en el FINAL lo que se
+             // conserva del inicial. No viaja al motor: va fuera de `ficha`.
+             equipos: {
+                 principal: conMano.equipo || derivada.equipo || derivada.parcial || null,
+                 conservados,
+             },
              // El programa de CE3X y si lo ha elegido alguien: sin elegir, la
              // ventana lo pregunta como CE3X al crear un fichero.
              tipo_ce3x: { tipo: tipoCe3x, elegido: tipoElegido },

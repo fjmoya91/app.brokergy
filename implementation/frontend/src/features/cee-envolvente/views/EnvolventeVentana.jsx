@@ -249,8 +249,9 @@ export function EnvolventeVentana({ expedienteId }) {
                         <b>Oportunidad todavía sin aceptar.</b> Todo lo que señales aquí —la
                         entrada, las ventanas, las fotos de cada pared— se guarda en la
                         oportunidad y <b>pasa al expediente al aceptarla</b>, para seguir
-                        donde lo dejes. El <b>.cex</b> se genera desde el expediente, cuando
-                        ya tenga número y técnico certificador.
+                        donde lo dejes. El <b>.cex</b> ya se puede generar: sale con el número
+                        de la oportunidad y sin técnico, y al aceptarla se regenera desde el
+                        expediente.
                     </div>
                 )}
                 <EnvolventeView expediente={expediente} onAviso={setAviso}

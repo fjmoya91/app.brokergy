@@ -125,6 +125,41 @@ def _limpia(g: BaseGeometry | None) -> BaseGeometry | None:
     return unary_union(trozos)
 
 
+#: Grosor por debajo del cual lo que queda al restar una zona DIBUJADA es una
+#: aguja, no un trozo de vivienda (ver `_abrir`).
+AGUJA_M = 0.02
+
+
+def _abrir(g: BaseGeometry | None, eps: float = AGUJA_M) -> BaseGeometry | None:
+    """Quita las AGUJAS que deja restar un poligono dibujado a mano.
+
+    Un vertice que se suelta sobre una pared nunca cae EXACTAMENTE en ella: en
+    26RES080_85 el garaje dibujado arrancaba 3 mm fuera de la fachada, y al
+    restarlo quedaba una aguja de 3 mm de ancho y 2,9 m de largo pegada a la
+    vivienda — que salia como DOS paredes fantasma de 2,9 m (una a cada lado de
+    la aguja). Una apertura morfologica (encoger y volver a crecer) con juntas
+    a inglete se lleva lo que sea mas fino que dos veces `eps` y deja las
+    esquinas en su sitio.
+
+    Solo se aplica a lo que se ha recortado con una zona DIBUJADA: la huella de
+    Catastro y los cuerpos que se quitan enteros comparten las coordenadas
+    exactas y no dejan agujas, y tocarlos moveria medidas ya verificadas.
+    """
+    if g is None or g.is_empty:
+        return g
+    try:
+        r = g.buffer(-eps, join_style=2, mitre_limit=10.0).buffer(
+            eps, join_style=2, mitre_limit=10.0)
+    except Exception:                                          # noqa: BLE001
+        return g
+    r = _limpia(r)
+    # Una apertura que se come mas de un par de m2 no ha quitado una aguja: ha
+    # quitado vivienda. Ante la duda, se deja como estaba.
+    if r is None or abs(r.area - g.area) > max(0.5, 0.01 * g.area):
+        return g
+    return r
+
+
 def plantas_desde_partes(partes: list[ParteEdificio],
                          plantas_por_defecto: int = 1,
                          fuera_por_nivel: dict[int, list[dict]] | None = None,
@@ -162,6 +197,7 @@ def plantas_desde_partes(partes: list[ParteEdificio],
         if g is None:
             continue
         partes_fuera = []
+        dibujada = False
         for cuerpo in fuera_por_nivel.get(nivel) or []:
             fuera = cuerpo.get("geom")
             if fuera is None or fuera.is_empty:
@@ -175,6 +211,9 @@ def plantas_desde_partes(partes: list[ParteEdificio],
             recortada = _limpia(g.difference(fuera))
             if recortada is not None:
                 g = recortada
+                dibujada = dibujada or bool(cuerpo.get("dibujada"))
+        if dibujada:
+            g = _abrir(g) or g
         plantas.append(Planta(nivel=nivel, huella=g, area_m2=round(g.area, 2),
                               no_habitable_partes=partes_fuera))
     return sorted(plantas, key=lambda p: p.nivel)

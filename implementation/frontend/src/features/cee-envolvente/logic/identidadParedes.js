@@ -60,6 +60,13 @@ export function traduccionDeIds(viejos, nuevos) {
 
     const libres = Object.values(nuevos || {}).filter(m => !deLaApp(m));
     const anteriores = Object.values(viejos || {}).filter(m => !deLaApp(m));
+    // REGLA — solo se casa dentro de la MISMA planta. La fachada de una casa de
+    // dos plantas tiene EL MISMO trazado en la baja y en la primera (una encima
+    // de otra), así que comparando solo trazados, al recortar la de la baja su
+    // trabajo saltaba a la de ARRIBA: medido en 26RES080_85, la ventana de la
+    // fachada de la calle de la planta baja acababa en F1SE1 («se vuelven a
+    // pillar todos los muros de planta baja, de planta primera, las ventanas»).
+    const misma = (a, b) => (a?.planta ?? null) === (b?.planta ?? null);
 
     for (const [id, viejo] of Object.entries(viejos || {})) {
         // Las que dibujó una persona llevan su propio id y no las numera el
@@ -69,7 +76,8 @@ export function traduccionDeIds(viejos, nuevos) {
         if (enSuNombre && mismoTrazado(trazado(viejo), trazado(enSuNombre))) continue;
 
         // ¿Está esta pared, tal cual, con otro nombre?
-        const iguales = libres.filter(m => mismoTrazado(trazado(viejo), trazado(m)));
+        const iguales = libres.filter(m => misma(m, viejo)
+                                           && mismoTrazado(trazado(viejo), trazado(m)));
         if (iguales.length === 1) {
             if (iguales[0].id !== id) traduce[id] = iguales[0].id;
             continue;
@@ -86,10 +94,62 @@ export function traduccionDeIds(viejos, nuevos) {
         //           se recorta al sacar el garaje sigue siendo esa fachada, y
         //           su trabajo se queda con ella.
         const reciclado = anteriores.some(
-            m => m.id !== id && mismoTrazado(trazado(m), trazado(enSuNombre)));
+            m => m.id !== id && misma(m, enSuNombre)
+                 && mismoTrazado(trazado(m), trazado(enSuNombre)));
         if (reciclado) perdidos.push(id);
     }
-    return { traduce, perdidos };
+
+    // Lo que ha cambiado de nombre Y de forma a la vez. Al quitar el garaje de
+    // una casa, la fachada de la calle pasa de 13,38 a 10,48 m y además se
+    // renumera: ninguna de las dos reglas de arriba la reconoce, y sus ventanas
+    // se perdían («las ventanas desaparecían», 26RES080_85). Si en la MISMA
+    // planta hay UNA sola pared nueva que va por la misma línea y comparte con
+    // ella al menos `SOLAPE_MIN` de la MÁS LARGA de las dos, es esa pared
+    // recortada. De la más larga, no de la más corta: el trocito de 1,03 m que
+    // queda de una fachada de 7,30 m que se fue con el garaje (26RES060_195)
+    // es otra pared, y no puede heredar las ventanas del garaje.
+    const reconocidos = [];
+    for (const id of perdidos) {
+        const viejo = viejos[id];
+        const candidatas = libres.filter(m => misma(m, viejo)
+            && solape(trazado(viejo), trazado(m)) >= SOLAPE_MIN);
+        if (candidatas.length === 1) {
+            if (candidatas[0].id !== id) traduce[id] = candidatas[0].id;
+            reconocidos.push(id);
+        }
+    }
+    return { traduce, perdidos: perdidos.filter(id => !reconocidos.includes(id)) };
+}
+
+//: Cuánto tienen que compartir dos paredes COLINEALES, en tanto por uno de la
+//: más LARGA, para darlas por la misma pared recortada. Medido: la fachada que
+//: pierde el garaje comparte el 78 % (10,48 de 13,38), dos tramos que se funden
+//: el 84 %, y el resto de una fachada que se fue con el garaje, el 14 %.
+export const SOLAPE_MIN = 0.5;
+//: Lo que pueden desviarse de la misma línea: dos centímetros de redondeo y el
+//: grosor de una aguja; una pared paralela a medio metro es otra pared.
+const FUERA_DE_LINEA = 0.10;
+const NO_PARALELAS = 0.05;          // seno del ángulo entre las dos (≈3°)
+
+/**
+ * Qué parte de la MÁS LARGA de las dos comparten, si van por la misma línea
+ * (0 si no). Se miden los extremos: las paredes del motor son rectas.
+ */
+export function solape(a, b) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length < 2 || b.length < 2) return 0;
+    const [a1, a2] = [a[0], a[a.length - 1]];
+    const [b1, b2] = [b[0], b[b.length - 1]];
+    const ax = a2[0] - a1[0], ay = a2[1] - a1[1];
+    const bx = b2[0] - b1[0], by = b2[1] - b1[1];
+    const La = Math.hypot(ax, ay), Lb = Math.hypot(bx, by);
+    if (!La || !Lb) return 0;
+    if (Math.abs(ax * by - ay * bx) / (La * Lb) > NO_PARALELAS) return 0;
+    const aLinea = p => Math.abs((p[0] - a1[0]) * ay - (p[1] - a1[1]) * ax) / La;
+    if (aLinea(b1) > FUERA_DE_LINEA || aLinea(b2) > FUERA_DE_LINEA) return 0;
+    const t = p => ((p[0] - a1[0]) * ax + (p[1] - a1[1]) * ay) / La;
+    const lo = Math.max(0, Math.min(t(b1), t(b2)));
+    const hi = Math.min(La, Math.max(t(b1), t(b2)));
+    return Math.max(0, hi - lo) / Math.max(La, Lb);
 }
 
 /**

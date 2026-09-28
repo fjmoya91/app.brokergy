@@ -149,6 +149,21 @@ export function PanelPared({ plano, transmitancias, expedienteId,
                 )}
             </div>
 
+            {/* Una pared dibujada SEPARA, pero no quita superficie: el suelo y la
+                cubierta siguen siendo los de toda la planta. Es justo lo que le
+                pasó al certificador de 26RES080_85 con el garaje («me seguía
+                sumando la superficie de suelo»), así que se dice aquí, donde
+                se comete. */}
+            {esDibujada(m) && (
+                <p className="-mt-1 rounded-md border border-sky-400/30 bg-sky-400/[0.06] px-2 py-1.5
+                              text-[10.5px] leading-snug text-white/65">
+                    Una pared dibujada separa, pero <b className="text-white/85">no quita superficie</b>.
+                    Si lo que hay al otro lado no es vivienda (garaje, almacén), usa{' '}
+                    <b className="text-sky-300">✂ Quitar una zona</b> en el plano de esta planta:
+                    se resta solo de ella y la pared contra la zona sale sola como partición.
+                </p>
+            )}
+
             {/* Lo que se va a ESCRIBIR de esta pared, cuando no es su nombre a
                 secas: con «- CAMBIA» detrás se ve aquí antes que en CE3X. */}
             {!fuera && m.cambia && (

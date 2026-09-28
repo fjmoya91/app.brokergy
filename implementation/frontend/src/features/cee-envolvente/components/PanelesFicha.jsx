@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { CampoDecimal } from '../../../components/CampoDecimal';
 import { ACTIVIDADES_ILUMINACION_CE3X, AISLAMIENTOS_CE3X, AMBITOS_CE3X, COMBUSTIBLES_CE3X,
-         esDeCaldera, esTerciarioCe3x, etiquetaTipoCe3x, GENERADORES_CE3X, LAMPARAS_CE3X,
-         PERFILES_USO_CE3X, TIPOS_EQUIPO_CE3X, TIPOS_RESIDENCIAL_CE3X, tipoEquipo }
+         esTerciarioCe3x, etiquetaTipoCe3x, GENERADORES_CE3X, LAMPARAS_CE3X,
+         PERFILES_USO_CE3X, porCombustion, TIPOS_EQUIPO_CE3X, TIPOS_RESIDENCIAL_CE3X,
+         tipoEquipo, usosDeEquipo }
     from '../logic/fichaCe3x';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -673,66 +674,71 @@ function Foto({ titulo, cual, b64, puesta, cargando, fallo, onSustituir, onQuita
 export function PanelInstalaciones({ fase = 'inicial', onFase, equipo, superficie,
                                      ajustes = {}, onAjuste, extras = [], onExtra,
                                      onAnadir, onBorrar, dosFases = true, iluminacion = null,
-                                     children }) {
+                                     conservados = [], children }) {
     const esFinal = fase === 'final';
     const [abierta, setAbierta] = useState('principal');
 
     // El del expediente, con lo tecleado encima; y los añadidos a mano.
     const principal = { ...(equipo || {}), ...limpio(ajustes) };
     const todos = [{ eq: principal, propio: true }, ...extras.map(x => ({ eq: x }))];
+    //: El que se acaba de añadir se abre solo: si no, pulsar «+ Añadir» deja una
+    //: línea plegada que pone «sin datos» y parece que no ha pasado nada.
+    const anadir = (slot) => { setAbierta(extras.length); onAnadir?.(slot); };
 
     return (
         <Ventana titulo="Instalaciones">
             <SelectorFase fase={fase} onFase={onFase} dosFases={dosFases} />
             {children}
 
-            {esFinal ? (
-                <p className="text-[11.5px] leading-relaxed text-white/40">
-                    En el CEE final el equipo es la <b className="text-white/70">aerotermia del
-                    expediente</b>, con su SCOP ensayado: sale del catálogo y no se teclea aquí.
-                    Si algo no cuadra, se corrige en la pestaña Instalación del expediente.
+            <div className="flex flex-col gap-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">
+                    {esFinal ? 'Instalaciones después de la obra' : 'Instalaciones del edificio'}
                 </p>
-            ) : (
-                <>
-                    <div className="flex flex-col gap-2">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">
-                            Instalaciones del edificio
-                        </p>
 
-                        {/* PLEGADAS por defecto: una vivienda puede tener tres
-                            equipos, y tres formularios abiertos a la vez son una
-                            pantalla por la que hay que bajar para ver qué hay. El
-                            resumen dice lo que se pregunta de un vistazo: qué es,
-                            cómo se llama y con qué anda. */}
-                        <Equipo eq={principal} abierta={abierta === 'principal'}
-                                onAbrir={() => setAbierta(abierta === 'principal' ? null : 'principal')}
-                                origen="del expediente">
-                            <FormularioEquipo eq={principal} superficie={superficie}
-                                              puesto={ajustes} onCampo={onAjuste} />
-                        </Equipo>
+                {/* En el FINAL el equipo es la aerotermia del expediente, con su
+                    SCOP ensayado. Se puede cambiar su USO —dejarla en solo
+                    calefacción y que el agua la dé otro equipo— y añadir lo que
+                    instale la obra; el SCOP bueno se corrige en el expediente. */}
+                {esFinal && (
+                    <p className="text-[11.5px] leading-relaxed text-white/40">
+                        El equipo es la <b className="text-white/70">aerotermia del
+                        expediente</b>, con su SCOP ensayado. Aquí se cambia su uso y se añade lo
+                        que instale la obra; lo demás del CEE inicial lo conserva el motor al
+                        copiarlo.
+                    </p>
+                )}
 
-                        {extras.map((x, i) => (
-                            <Equipo key={i} eq={x} abierta={abierta === i}
-                                    onAbrir={() => setAbierta(abierta === i ? null : i)}
-                                    onBorrar={() => onBorrar?.(i)} origen="añadido a mano">
-                                <FormularioEquipo eq={x} superficie={superficie}
-                                                  puesto={x}
-                                                  onCampo={(k, v) => onExtra?.(i, k, v)} />
-                            </Equipo>
-                        ))}
+                {/* PLEGADAS por defecto: una vivienda puede tener tres
+                    equipos, y tres formularios abiertos a la vez son una
+                    pantalla por la que hay que bajar para ver qué hay. El
+                    resumen dice lo que se pregunta de un vistazo: qué es,
+                    cómo se llama y con qué anda. */}
+                <Equipo eq={principal} abierta={abierta === 'principal'}
+                        onAbrir={() => setAbierta(abierta === 'principal' ? null : 'principal')}
+                        origen="del expediente">
+                    <FormularioEquipo eq={principal} superficie={superficie} principal
+                                      puesto={ajustes} onCampo={onAjuste} />
+                </Equipo>
 
-                        {/* El que se acaba de añadir se abre solo: si no, pulsar
-                            «+ Añadir» deja una línea plegada que pone «sin datos»
-                            y parece que no ha pasado nada. */}
-                        <Anadir onAnadir={(slot) => {
-                            setAbierta(extras.length);
-                            onAnadir?.(slot);
-                        }} />
-                    </div>
+                {extras.map((x, i) => (
+                    <Equipo key={i} eq={x} abierta={abierta === i}
+                            onAbrir={() => setAbierta(abierta === i ? null : i)}
+                            onBorrar={() => onBorrar?.(i)} origen="añadido a mano">
+                        <FormularioEquipo eq={x} superficie={superficie}
+                                          puesto={x}
+                                          onCampo={(k, v) => onExtra?.(i, k, v)} />
+                    </Equipo>
+                ))}
 
-                    <Reparto equipos={todos.map(t => t.eq)} />
-                </>
-            )}
+                {esFinal && conservados.length > 0 && (
+                    <Conservados lista={conservados} />
+                )}
+
+                <Anadir onAnadir={anadir} />
+            </div>
+
+            <Reparto equipos={todos.map(t => t.eq)} conservados={esFinal ? conservados : []}
+                     onAnadir={anadir} />
 
             {/* La ILUMINACIÓN de un terciario. En el FINAL no se escribe: el
                 final COPIA el inicial y la obra (el generador) no la toca, así
@@ -930,18 +936,42 @@ function resumen(eq) {
     return `${eq.nombre}${con}${pot}`;
 }
 
-/** Los campos de UN equipo, los que su tipo necesita y ninguno más. */
-function FormularioEquipo({ eq, superficie, puesto = {}, onCampo }) {
+/**
+ * Los campos de UN equipo, los que su tipo necesita y ninguno más.
+ *
+ * REGLA — el USO se cambia aquí, en cualquier equipo: el del expediente y los
+ * añadidos, en las dos caras. Lo que sale por defecto (una caldera mixta que da
+ * calefacción y ACS) casi siempre es lo que hay, pero no siempre: la caldera
+ * puede dar solo la calefacción y el agua un termo. Antes eso obligaba a montar
+ * el equipo a mano en CE3X; ahora se elige el uso y se añade el otro equipo.
+ *
+ * Qué campos se piden lo deciden el RENDIMIENTO y el COMBUSTIBLE, no el uso:
+ * una caldera de gasóleo que se deja en solo ACS sigue pidiendo su potencia, y
+ * unos radiadores eléctricos no (ver `porCombustion`, medido en el corpus).
+ */
+function FormularioEquipo({ eq, superficie, puesto = {}, onCampo, principal = false }) {
     const t = tipoEquipo(eq?.slot);
-    const caldera = esDeCaldera(t.valor);
+    const conocido = eq?.rendimiento === 'conocido' && t.valor !== 'refrigeracion';
+    const combustion = !conocido && porCombustion(eq);
+    const usos = usosDeEquipo({ rendimiento: conocido ? 'conocido' : 'estimado' }, { principal });
     const suyo = (k) => puesto[k] !== undefined && puesto[k] !== null && puesto[k] !== '';
     const v = (k, pd) => (eq?.[k] ?? pd ?? '');
     const acumula = puesto.acumulacion === undefined ? !!eq?.acumulacion : !!puesto.acumulacion;
 
-    const num = (k, rotulo, unidad, extra = {}) => (
-        <Editable rotulo={rotulo} unidad={unidad} suyo={suyo(k)}
+    //: Cambiar cómo se da el rendimiento puede dejar el uso fuera de lo que el
+    //: motor sabe escribir (un `mixto3` solo existe ensayado): entonces el uso
+    //: se lleva al primero que sí vale, en el mismo gesto.
+    const cambiaRendimiento = (r) => {
+        onCampo('rendimiento', r);
+        const validos = usosDeEquipo({ rendimiento: r }, { principal })
+            .map(u => u.valor);
+        if (!validos.includes(t.valor)) onCampo('slot', validos[0]);
+    };
+
+    const num = (k, rotulo, unidad, pd) => (
+        <Editable key={k} rotulo={rotulo} unidad={unidad} suyo={suyo(k)}
                   onDeshacer={() => onCampo(k, null)}>
-            <CampoDecimal valor={v(k)} aria-label={rotulo} {...extra}
+            <CampoDecimal valor={v(k, pd)} aria-label={rotulo}
                           onCambio={n => onCampo(k, n)}
                           alVaciar={() => onCampo(k, '')}
                           className={caja(suyo(k), 'w-[92px]')} />
@@ -955,6 +985,17 @@ function FormularioEquipo({ eq, superficie, puesto = {}, onCampo }) {
                 <input value={v('nombre')} aria-label="Nombre del equipo"
                        onChange={e => onCampo('nombre', e.target.value)}
                        className={caja(suyo('nombre'), 'w-full')} />
+            </Editable>
+
+            {/* El USO: qué servicios cubre este equipo. Es el «tipo de equipo»
+                de CE3X —mixto, solo calefacción, solo ACS…—. */}
+            <Editable rotulo="Uso (qué cubre)" ancho suyo={suyo('slot')}
+                      onDeshacer={() => onCampo('slot', null)}>
+                <select value={t.valor} aria-label="Uso del equipo"
+                        onChange={e => onCampo('slot', e.target.value)}
+                        className={caja(suyo('slot'), 'w-full')}>
+                    {usos.map(u => <option key={u.valor} value={u.valor}>{u.etiqueta}</option>)}
+                </select>
             </Editable>
 
             {/* Con el valor que le toca a su tipo ya puesto: un equipo de ACS
@@ -974,11 +1015,30 @@ function FormularioEquipo({ eq, superficie, puesto = {}, onCampo }) {
                              onCambio={x => onCampo('combustible', x)} />
             </Editable>
 
-            {caldera ? (
+            {/* La casilla de CE3X del RENDIMIENTO: lo ESTIMA CE3X (una caldera,
+                un termo) o viene ENSAYADO en la ficha (una bomba de calor con su
+                SCOP). Decide qué se pide debajo. «Solo refrigeración» solo se
+                sabe escribir estimado. */}
+            {t.valor !== 'refrigeracion' && (
+                <Editable rotulo="Rendimiento" suyo={suyo('rendimiento')}
+                          onDeshacer={() => onCampo('rendimiento', null)}>
+                    <select value={conocido ? 'conocido' : 'estimado'} aria-label="Rendimiento"
+                            onChange={e => cambiaRendimiento(e.target.value)}
+                            className={caja(suyo('rendimiento'), '')}>
+                        <option value="estimado">Estimado según instalación</option>
+                        <option value="conocido">Conocido (ensayado / ficha)</option>
+                    </select>
+                </Editable>
+            )}
+
+            {conocido ? (
+                // El SCOP/COP de la ficha, en % — como lo guarda CE3X (4,34 → 434).
+                t.servicios.map(s => num(`rend_${s}`,
+                    `Rendimiento de ${ROTULO_SERVICIO[s].toLowerCase()}`, '%'))
+            ) : combustion ? (
                 <>
-                    {num('potencia', 'Potencia nominal', 'kW', { step: '0.1', min: '0' })}
-                    {num('rend_combustion', 'Rendimiento de combustión', '%',
-                         { step: '1', min: '0', max: '120' })}
+                    {num('potencia', 'Potencia nominal', 'kW')}
+                    {num('rend_combustion', 'Rendimiento de combustión', '%')}
                     <Editable rotulo="Aislamiento de la caldera" suyo={suyo('aislamiento')}
                               onDeshacer={() => onCampo('aislamiento', null)}>
                         <select value={v('aislamiento', 'Sin aislamiento')}
@@ -991,7 +1051,7 @@ function FormularioEquipo({ eq, superficie, puesto = {}, onCampo }) {
                 </>
             ) : (
                 num('rend_nominal', 'Rendimiento nominal', '%',
-                    { step: '1', min: '0', value: v('rend_nominal', t.nominal) })
+                    eq?.rend_combustion ?? t.nominal ?? '100.0')
             )}
 
             {/* DEMANDA CUBIERTA, servicio a servicio. La superficie también se
@@ -1071,18 +1131,33 @@ function Servicio({ serv, eq, superficie, suyo, onCampo }) {
  * un equipo por añadir. El motor lo repite en sus avisos —esa es la comprobación
  * que manda, porque la hace sobre lo que de verdad se escribe— y aquí se dice
  * mientras se teclea, que es cuando se puede arreglar.
+ *
+ * REGLA — el ACS sale SIEMPRE, aunque ningún equipo lo dé: es justo el caso de
+ * dejar la caldera en solo calefacción, y CE3X no calcula nada con el agua
+ * caliente sin cubrir al 100 % («la instalación de ACS no está bien definida»).
+ * Por eso lleva ahí mismo el botón para añadir el equipo que falta.
  */
-function Reparto({ equipos }) {
-    const suma = {};
+function Reparto({ equipos, conservados = [], onAnadir }) {
+    const suma = { acs: 0 };
     for (const eq of equipos) {
+        if (!eq?.nombre) continue;
         for (const serv of tipoEquipo(eq?.slot).servicios) {
-            if (!eq?.nombre) continue;
             const p = Number(eq[`pct_${serv}`] ?? 100);
             suma[serv] = (suma[serv] || 0) + (Number.isFinite(p) ? p : 100);
         }
     }
-    const filas = Object.entries(suma);
-    if (!filas.length) return null;
+    // Lo que el CEE final conserva del inicial también cubre su parte.
+    for (const c of conservados) {
+        for (const [serv, p] of Object.entries(c.pct || {})) {
+            suma[serv] = (suma[serv] || 0) + (Number(p) || 0);
+        }
+    }
+    const filas = ['calefaccion', 'acs', 'refrigeracion']
+        .filter(s => suma[s] !== undefined).map(s => [s, suma[s]]);
+    const redondo = (x) => Math.round(x * 10) / 10;
+    //: Lo que falta y se puede añadir desde aquí. El frío no: quedarse corto de
+    //: refrigeración es lo normal (no toda la casa tiene aire).
+    const cortos = filas.filter(([s, t]) => t < 100 && s !== 'refrigeracion').map(([s]) => s);
     return (
         <div className="rounded-xl border border-white/[0.07] px-4 py-2.5">
             <p className="mb-1.5 text-[11px] font-bold text-brand">Demanda cubierta en total</p>
@@ -1091,8 +1166,9 @@ function Reparto({ equipos }) {
                     <span key={serv} className="text-[12px] text-white/60">
                         {ROTULO_SERVICIO[serv]}{' '}
                         <b className={`tabular-nums ${total > 100 ? 'text-red-400'
+                            : total === 0 && serv === 'acs' ? 'text-red-400'
                             : total < 100 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                            {Math.round(total * 10) / 10} %
+                            {redondo(total)} %
                         </b>
                     </span>
                 ))}
@@ -1103,12 +1179,57 @@ function Reparto({ equipos }) {
                     hay. Repasa los porcentajes.
                 </p>
             )}
-            {filas.some(([, t]) => t < 100) && (
-                <p className="mt-1.5 text-[11px] leading-relaxed text-amber-200/80">
-                    Queda demanda sin cubrir. Si hay otro aparato —un termo, un aire
-                    acondicionado—, añádelo aquí.
+            {cortos.includes('acs') && (
+                <p className="mt-1.5 text-[11px] leading-relaxed text-amber-200/85">
+                    El ACS no está cubierto al 100 %, y CE3X no calcula así. Añade el equipo que
+                    da el agua caliente —un termo, un aerotermo— o ajusta los porcentajes.
                 </p>
             )}
+            {cortos.includes('calefaccion') && (
+                <p className="mt-1.5 text-[11px] leading-relaxed text-amber-200/80">
+                    Queda calefacción sin cubrir. Si hay otro aparato —unos radiadores
+                    eléctricos, una estufa—, añádelo aquí.
+                </p>
+            )}
+            {onAnadir && cortos.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                    {cortos.map(s => (
+                        <button key={s} onClick={() => onAnadir(s === 'acs' ? 'ACS' : 'calefaccion')}
+                                className="rounded-lg border border-brand/40 px-2.5 py-1.5 text-[11px]
+                                           font-bold text-brand hover:bg-brand/10">
+                            + Añadir equipo de {s === 'acs' ? 'ACS' : 'calefacción'}
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+/**
+ * Lo que el CEE FINAL conserva del inicial: el motor copia ese fichero y solo
+ * retira los servicios que asume el equipo nuevo. Se enseña para que el reparto
+ * no mande a añadir un equipo que ya está.
+ */
+function Conservados({ lista }) {
+    return (
+        <div className="rounded-xl border border-dashed border-white/[0.1] px-3 py-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-white/35">
+                Se conserva del CEE inicial
+            </p>
+            {lista.map((c, i) => (
+                <p key={i} className="mt-1 text-[12px] text-white/60">
+                    <b className="text-white/75">{c.nombre}</b>
+                    {' · '}
+                    {Object.entries(c.pct || {}).map(([s, p]) =>
+                        `${ROTULO_SERVICIO[s]} ${String(p).replace('.', ',')} %`).join(' · ')}
+                    {c.hibridacion && <span className="text-white/35"> (hibridación)</span>}
+                </p>
+            ))}
+            <p className="mt-1 text-[10.5px] leading-relaxed text-white/30">
+                Calculado sobre la cara «CEE inicial». Al generar manda el .cex inicial que haya
+                en la carpeta, con lo que se corrigiera en CE3X.
+            </p>
         </div>
     );
 }

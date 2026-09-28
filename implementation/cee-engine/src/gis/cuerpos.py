@@ -93,6 +93,76 @@ def _casar(partes, construcciones) -> dict[str, dict]:
     return salida
 
 
+def _casar_por_eliminacion(partes, construcciones, casadas) -> dict[str, dict]:
+    """Los cuerpos que se quedan sin casar, cuando el RESTO ya es la vivienda.
+
+    POR QUE EXISTE — 8919709VJ8681N (26RES080_85, CL Sol 20, Campo de
+    Criptana): una casa de dos plantas (117 m2) con dos almacenes de una planta
+    al fondo (47 y 28 m2). Catastro declara en la baja VIVIENDA 119 y ALMACEN
+    106, pero el ALMACEN son DOS partes y ninguna de las dos se parece a 106 por
+    separado: la casacion 1:1 no daba con nada y los dos almacenes se quedaban
+    como "Catastro no dice que hay aqui". El certificador se paso una hora
+    intentando separarlos a mano con paredes dibujadas, que no quitan
+    superficie, y acabo haciendo el CEE a mano.
+
+    Y sin embargo la respuesta esta en las cifras: en esa planta la vivienda ya
+    la cubre el cuerpo de dos plantas (117 frente a 119), asi que lo que queda
+    construido de UNA planta solo puede ser lo que Catastro declara aparte, que
+    es ALMACEN. Eso es lo que se hace aqui, y con estas condiciones — todas ellas
+    para no afirmar nada que no salga de las cifras:
+
+      · el cuerpo esta en UN solo nivel (un anexo de una planta). Uno de varias
+        plantas sin casar es ambiguo: arriba podria ser la casa;
+      · en ese nivel, lo HABITABLE que declara Catastro ya lo cubren los cuerpos
+        que casaron con vivienda (con la misma tolerancia que la casacion);
+      · en ese nivel hay una construccion NO habitable que nadie ha casado;
+      · y lo que queda sin casar no pasa de lo no habitable declarado — si
+        pasara, parte de ello seria vivienda.
+
+    Varios cuerpos pueden ser la MISMA construccion (el almacen son dos partes),
+    asi que aqui no es 1:1. Van marcados `por_eliminacion`: la pantalla lo dice
+    con esas palabras, y como siempre se PROPONE, no se aplica solo.
+    """
+    salida: dict[str, dict] = {}
+    usadas = {c.get("codigo") for c in casadas.values()}
+    area = {_codigo(p): p.geometry.area for p in partes}
+    habitables_casados = {pid for pid, c in casadas.items() if c.get("habitable") is True}
+
+    niveles = sorted({c["nivel"] for c in construcciones if c["nivel"] is not None})
+    for n in niveles:
+        aqui = [c for c in construcciones if c["nivel"] == n]
+        declarado_hab = sum(c["superficie"] for c in aqui if c["habitable"] is True)
+        libres_nh = [c for c in aqui if c["habitable"] is False and c["codigo"] not in usadas]
+        if not libres_nh:
+            continue
+        en_nivel = [p for p in partes if n in niveles_de(p)]
+        cubierto = sum(area[_codigo(p)] for p in en_nivel
+                       if _codigo(p) in habitables_casados)
+        if declarado_hab > 0 and cubierto < declarado_hab * (1 - TOLERANCIA):
+            continue                    # falta vivienda: algun libre puede serlo
+        sueltos = [p for p in en_nivel
+                   if _codigo(p) and _codigo(p) not in casadas
+                   and _codigo(p) not in salida and niveles_de(p) == [n]]
+        if not sueltos:
+            continue
+        declarado_nh = sum(c["superficie"] for c in libres_nh)
+        suma = sum(area[_codigo(p)] for p in sueltos)
+        if suma > declarado_nh * (1 + TOLERANCIA):
+            continue                    # sobra construido: no todo es almacen
+        destino = max(libres_nh, key=lambda c: c["superficie"])
+        for p in sueltos:
+            salida[_codigo(p)] = {
+                **destino,
+                # Cuanto de lo que Catastro declara en esa construccion suman
+                # los cuerpos que se le atribuyen: es la prueba que se enseña.
+                "parecido": round(min(1.0, suma / max(destino["superficie"], 1e-6)), 4),
+                "por_eliminacion": True,
+                "vivienda_cubierta": round(cubierto, 2),
+                "vivienda_declarada": round(declarado_hab, 2),
+            }
+    return salida
+
+
 def _usos_del_nivel(cons, niveles) -> list[dict]:
     """Lo que Catastro declara en las plantas de este cuerpo, de mayor a menor.
 
@@ -140,6 +210,7 @@ def inventario(modelo, excluidos=()) -> list[dict]:
     fuera = set(excluidos or ())
     cons = _construcciones(modelo)
     casadas = _casar(modelo.partes, cons)
+    casadas.update(_casar_por_eliminacion(modelo.partes, cons, casadas))
 
     out = []
     for p in modelo.partes:

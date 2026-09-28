@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { largo as largoDe, LARGO_MINIMO_PARED, rumbosDeLaPared } from './geometriaPlano';
-import { lectorDeIds } from './identidadParedes.js';
+import { largo as largoDe, LARGO_MINIMO_PARED, lienzoAMundo, rumbosDeLaPared } from './geometriaPlano';
+import { traduccionDeIds } from './identidadParedes.js';
 import { esFuera, esMedianera, esParticion, tipoDe } from './tiposPared.js';
 import { mudarHueco, paredesParaHueco } from './huecosEnParedes.js';
 import { huecosDefecto } from './ventanasVivienda';
-import { aplicarTrabajo } from './trabajoGuardado.js';
+import { aplicarTrabajo, deltaLienzo, trasladarMuros, trasladarTrabajo } from './trabajoGuardado.js';
 
 import { SUFIJO_CAMBIA, nombreHueco } from './reforma.js';
 export { SUFIJO_CAMBIA, nombreHueco };
@@ -64,6 +64,26 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
     //: tal cual se soltaron: la superficie la mide el motor.
     const [cubiertas, setCubiertas] = useState({});
 
+    //: Las ZONAS que NO son vivienda dentro de una planta: el garaje que hay en
+    //: la planta baja de una casa de dos plantas, con la vivienda encima.
+    //: Catastro no dibuja esa línea; se dibuja aquí y el motor la resta SOLO de
+    //: su planta. Va en el MUNDO, como el contorno, y se guarda porque hay que
+    //: volver a PEDIR la geometría con ellas.
+    const [zonasFuera, setZonasFuera] = useState([]);
+
+    //: Los huecos que se han quedado SIN PARED al volver a medir: estaban en un
+    //: cerramiento que ya no existe (se fue con el cuerpo o la zona que se
+    //: acaba de quitar). Antes desaparecían sin decir nada; ahora se enseñan y
+    //: se pueden volver a poner en otra pared.
+    const [huerfanos, setHuerfanos] = useState([]);
+
+    //: En qué LIENZO está lo que hay en pantalla: la traslación al mundo que da
+    //: el propio motor. Viaja con el trabajo (`lienzo_ref`) porque el motor
+    //: vuelve a encuadrar al volver a medir, y todo lo guardado en coordenadas
+    //: del lienzo hay que llevarlo al nuevo (ver `trasladarTrabajo`).
+    const refLienzo = useMemo(() => lienzoAMundo(geo?.georef), [geo?.georef]);
+    const refMurosRef = useRef(null);
+
     /**
      * Monta el estado del plano desde la geometría y le pone encima un TRABAJO.
      *
@@ -91,14 +111,25 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         // forma. Al volver a medir con un cuerpo menos, el motor recicla los
         // nombres —`FBS1` pasaba de la pared de 6,90 m a una de 1,03— y con
         // ellos se mudaban las ventanas, las medidas confirmadas y la entrada.
-        const id = lectorDeIds(murosRef.current, nuevo);
+        // Las de antes se llevan PRIMERO al lienzo de hoy: el motor lo
+        // re-encuadra al volver a medir, y comparando en lienzos distintos no
+        // casaba ninguna (26RES080_85).
+        const viejos = trasladarMuros(murosRef.current,
+                                      deltaLienzo(refMurosRef.current, refLienzo));
+        const { traduce, perdidos } = traduccionDeIds(viejos, nuevo);
+        const sinSitio = new Set(perdidos);
+        const id = (k) => (sinSitio.has(k) ? null : (traduce[k] || k));
         try {
             // Manda lo guardado en el EXPEDIENTE; el localStorage es el
             // respaldo de lo que aún no se ha llegado a guardar (o de un
             // guardado que falló).
             const local = conLocal ? JSON.parse(localStorage.getItem(clave) || 'null') : null;
-            const g = guardadoAhora || local;
-            if (g) {
+            const g0 = guardadoAhora || local;
+            if (g0) {
+                // Lo guardado, llevado al lienzo de hoy. Un trabajo de antes de
+                // `lienzo_ref` se da por dibujado en ESTE lienzo, que es lo que
+                // se hacía hasta ahora.
+                const g = trasladarTrabajo(g0, deltaLienzo(g0.lienzo_ref || refLienzo, refLienzo));
                 // Las dibujadas entran ANTES de aplicarles el trabajo: ver
                 // `aplicarTrabajo` (se perdía su reclasificación al recargar).
                 const r = aplicarTrabajo(nuevo, g, id,
@@ -108,12 +139,29 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                 setGeometria(r.geometria);
                 setCuerposFuera(r.cuerposFuera);
                 setRecorte(r.recorte);
+                setZonasFuera(r.zonasFuera);
                 setCubiertas(r.cubiertas);
+                // Los huecos cuya pared ya no existe NO desaparecen en silencio:
+                // se guardan aparte y la ventana los enseña para ponerlos en
+                // otra pared (o descartarlos, que es decirlo).
+                const nuevos = perdidos
+                    .filter(k => (g.huecos?.[k] || []).length)
+                    .map(k => ({ pared: nombreDe(viejos[k]) || k, planta: viejos[k]?.planta ?? null,
+                                 huecos: g.huecos[k].map(rescatarHueco) }));
+                const previos = Array.isArray(g.huecos_sin_pared) ? g.huecos_sin_pared : [];
+                const vistos = new Set();
+                setHuerfanos([...previos, ...nuevos].filter((o) => {
+                    const clave2 = (o.huecos || []).map(h => h.uid).join(',');
+                    if (!o.huecos?.length || vistos.has(clave2)) return false;
+                    vistos.add(clave2);
+                    return true;
+                }));
             }
         } catch { /* almacenamiento bloqueado: se empieza limpio */ }
         murosRef.current = nuevo;
+        refMurosRef.current = refLienzo;
         setMuros(nuevo);
-    }, [geo, clave]);
+    }, [geo, clave, refLienzo]);
 
     useEffect(() => { sembrar(guardado); }, [sembrar, guardado]);
 
@@ -169,7 +217,17 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         cuerpos_fuera: cuerposFuera,
         // El contorno de la vivienda (adosados). Mismo motivo que los cuerpos.
         recorte_vivienda: recorte,
-    } : null), [muros, entrada, sel, geometria, cuerposFuera, cubiertas, recorte]);
+        // Lo que no es vivienda dentro de una planta (el garaje). Idem.
+        zonas_fuera: zonasFuera,
+        // Los huecos que se quedaron sin pared al volver a medir, hasta que se
+        // pongan en otra o se descarten: cerrar la ventana no puede perderlos.
+        ...(huerfanos.length ? { huecos_sin_pared: huerfanos } : {}),
+        // En qué lienzo están las coordenadas de arriba (paredes dibujadas y
+        // movidas, cubierta): sin esto, al volver a medir se quedaban en otro
+        // sitio del edificio.
+        lienzo_ref: refLienzo,
+    } : null), [muros, entrada, sel, geometria, cuerposFuera, cubiertas, recorte,
+                zonasFuera, huerfanos, refLienzo]);
 
     useEffect(() => {
         if (!Object.keys(muros).length) return;
@@ -196,9 +254,10 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                 orientaciones: Object.fromEntries(Object.values(muros)
                     .filter(m => m.orientacion_manual).map(m => [m.id, m.orientacion_manual])),
                 paredes: geometria,
+                lienzo_ref: refLienzo,
             }));
         } catch { /* idem */ }
-    }, [muros, entrada, sel, clave, geometria, cubiertas]);
+    }, [muros, entrada, sel, clave, geometria, cubiertas, refLienzo]);
 
     const plantas = useMemo(() => {
         if (!geo) return [];
@@ -413,6 +472,34 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
 
     /** A qué paredes se puede mudar un hueco que hoy está en `id`. */
     function destinosDeHueco(id) { return paredesParaHueco(muros, id); }
+
+    /**
+     * Pone en `destino` los huecos que se quedaron sin pared al volver a medir.
+     *
+     * Llegan enteros —medidas, carpintería, lo que dijo su foto— y con su
+     * nombre salvo que ya lo tenga otro en el edificio. El sitio a lo largo del
+     * muro NO viaja: era del muro que ya no existe.
+     */
+    function recuperaHuerfanos(destino) {
+        if (!destino) return;
+        setMuros(v => {
+            if (!v[destino]) return v;
+            const usados = new Set(Object.values(v).flatMap(m => (m.huecos || []).map(h => h.nombre)));
+            const llegan = huerfanos.flatMap(o => o.huecos || []).map((h) => {
+                const nombre = usados.has(h.nombre) ? nuevoHueco(h.tipo, v).nombre : h.nombre;
+                usados.add(nombre);
+                return { ...h, nombre, pos: undefined,
+                         por_que: `${h.por_que ? `${h.por_que} · ` : ''}recuperado tras volver a medir` };
+            });
+            return { ...v, [destino]: { ...v[destino],
+                                        huecos: [...(v[destino].huecos || []), ...llegan] } };
+        });
+        setHuerfanos([]);
+        setSel(destino);
+    }
+
+    /** Dar por perdidos los huecos sin pared: es decirlo, no dejarlos flotando. */
+    function descartaHuerfanos() { setHuerfanos([]); }
 
     function quitaHueco(id, i) {
         setMuros(v => {
@@ -972,7 +1059,8 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         cubiertas, ponCubierta, quitaCubierta,
         apartaDeLaEnvolvente, reclasifica, renombra, ponU, orienta, ponPilares,
         cuerposFuera, sacaCuerpo, apartaParedesDe,
-        recorte,
+        recorte, zonasFuera, setZonasFuera, refLienzo,
+        huerfanos, recuperaHuerfanos, descartaHuerfanos,
         loSenalado, restaurar,
         esCandidata, esMedianera, esParticion, esFuera, tipoDe, nombreDe, estadoDe,
         rumboDe, necesitaRumbo, rumbosDe,

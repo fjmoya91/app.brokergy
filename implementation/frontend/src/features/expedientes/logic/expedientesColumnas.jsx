@@ -166,6 +166,156 @@ const RangoFecha = ({ desde, hasta, onChange, titulo }) => {
     );
 };
 
+// ─── Filtro por EMPRESA, con BUSCADOR ────────────────────────────────────────
+// Instalador y certificador: con decenas de empresas un `<select>` nativo obliga
+// a recorrer la lista entera con la rueda, y no deja escribir "insto" para
+// encontrar INSTOTERMA. El popover se PORTALEA por lo mismo que `RangoFecha`: la
+// tabla tiene scroll horizontal y recortaría un desplegable `absolute`.
+//
+// Busca sin tildes y en todos los nombres de la empresa (acrónimo, razón social,
+// la del técnico y la de su sociedad): quien escribe "fessa" busca a Félix.
+// Cada opción dice CUÁNTOS expedientes tiene: es lo que decide si merece la pena
+// filtrar por ella, y una empresa a 0 en el listado filtrado no engaña a nadie.
+const textoEmpresa = (p) => norm([
+    p.acronimo, p.razon_social, p.nombre_responsable, p.apellidos_responsable, p.empresa_razon_social,
+].filter(Boolean).join(' '));
+
+const FiltroEmpresa = ({ value, onChange, opciones, conteo = {}, todos, ninguno, titulo }) => {
+    const [abierto, setAbierto] = React.useState(false);
+    const [pos, setPos] = React.useState(null);
+    const [q, setQ] = React.useState('');
+    const [marcado, setMarcado] = React.useState(0);
+    const btnRef = React.useRef(null);
+    const inputRef = React.useRef(null);
+    const listaRef = React.useRef(null);
+    const activo = value !== 'ALL';
+
+    const abrir = () => {
+        const r = btnRef.current?.getBoundingClientRect();
+        if (r) setPos({ top: r.bottom + 6, left: Math.max(8, Math.min(r.left, window.innerWidth - 308)) });
+        setQ('');
+        setMarcado(0);
+        setAbierto(v => !v);
+    };
+
+    React.useEffect(() => {
+        if (!abierto) return undefined;
+        const fuera = (e) => { if (!e.target.closest?.('[data-filtro-empresa]')) setAbierto(false); };
+        document.addEventListener('mousedown', fuera);
+        // El foco va al buscador: se abre para escribir.
+        const t = setTimeout(() => inputRef.current?.focus(), 0);
+        return () => { document.removeEventListener('mousedown', fuera); clearTimeout(t); };
+    }, [abierto]);
+
+    // Lo que se ofrece: las dos opciones fijas arriba (solo sin búsqueda — con
+    // texto escrito se busca una empresa, no "todos") y las empresas que casan.
+    const items = React.useMemo(() => {
+        const nq = norm(q.trim());
+        const empresas = opciones
+            .filter(p => !nq || textoEmpresa(p).includes(nq))
+            .map(p => ({ v: String(p.id_empresa), p, n: conteo[String(p.id_empresa)] || 0 }));
+        if (nq) return empresas;
+        return [
+            { v: 'ALL', label: todos },
+            { v: 'NONE', label: ninguno, n: conteo.NONE || 0 },
+            ...empresas,
+        ];
+    }, [q, opciones, conteo, todos, ninguno]);
+
+    const elegir = (v) => { onChange(v); setAbierto(false); };
+
+    const onKey = (e) => {
+        if (e.key === 'Escape') { setAbierto(false); return; }
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            setMarcado(i => {
+                const n = e.key === 'ArrowDown' ? Math.min(items.length - 1, i + 1) : Math.max(0, i - 1);
+                listaRef.current?.children[n]?.scrollIntoView({ block: 'nearest' });
+                return n;
+            });
+        }
+        if (e.key === 'Enter' && items[marcado]) { e.preventDefault(); elegir(items[marcado].v); }
+    };
+
+    const actual = value === 'ALL' ? todos
+        : value === 'NONE' ? ninguno
+            : (nombrePrescriptor(opciones.find(p => String(p.id_empresa) === String(value))) || value);
+
+    return (
+        <div data-filtro-empresa className="w-full">
+            <button
+                ref={btnRef}
+                type="button"
+                onClick={abrir}
+                title={titulo}
+                className={`w-full flex items-center gap-1 text-left text-[10px] font-black uppercase tracking-wider transition-colors ${
+                    activo ? 'text-brand' : 'text-white/40 hover:text-brand'
+                }`}
+            >
+                <span className="truncate">{actual}</span>
+                <svg className="w-2.5 h-2.5 shrink-0 opacity-60" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <circle cx="8.5" cy="8.5" r="5.5" /><path d="M13 13l4.5 4.5" strokeLinecap="round" />
+                </svg>
+            </button>
+
+            {abierto && pos && createPortal(
+                <div
+                    data-filtro-empresa
+                    style={{ top: pos.top, left: pos.left }}
+                    className="fixed z-[200] w-[300px] rounded-xl bg-bkg-deep border border-white/10 shadow-2xl overflow-hidden"
+                >
+                    <div className="p-2 border-b border-white/[0.06]">
+                        <input
+                            ref={inputRef}
+                            value={q}
+                            onChange={e => { setQ(e.target.value); setMarcado(0); }}
+                            onKeyDown={onKey}
+                            placeholder="Buscar empresa…"
+                            className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-brand no-uppercase"
+                        />
+                    </div>
+                    <div ref={listaRef} className="max-h-[320px] overflow-y-auto py-1">
+                        {items.length === 0 && (
+                            <div className="px-3 py-3 text-[11px] text-white/40">Ninguna empresa coincide con «{q}».</div>
+                        )}
+                        {items.map((it, i) => {
+                            const sel = String(value) === it.v;
+                            return (
+                                <button
+                                    key={it.v}
+                                    type="button"
+                                    onMouseEnter={() => setMarcado(i)}
+                                    onClick={() => elegir(it.v)}
+                                    className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${
+                                        i === marcado ? 'bg-white/[0.06]' : ''
+                                    } ${sel ? 'text-brand' : 'text-white/75'}`}
+                                >
+                                    {it.p
+                                        ? <LogoEmpresa p={it.p} size={20} />
+                                        : <span className="w-5 h-5 shrink-0" />}
+                                    <span className="flex flex-col min-w-0 flex-1 leading-tight">
+                                        <span className="text-[11px] font-bold uppercase tracking-wide truncate">
+                                            {it.p ? (it.p.acronimo || it.p.razon_social) : it.label}
+                                        </span>
+                                        {it.p?.acronimo && it.p?.razon_social && (
+                                            <span className="text-[9px] uppercase tracking-wide text-white/30 truncate">{it.p.razon_social}</span>
+                                        )}
+                                    </span>
+                                    {it.n != null && (
+                                        <span className={`text-[10px] font-mono shrink-0 ${it.n ? 'text-white/45' : 'text-white/20'}`}>{it.n}</span>
+                                    )}
+                                    {sel && <span className="text-brand text-xs shrink-0">✓</span>}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>,
+                document.body
+            )}
+        </div>
+    );
+};
+
 /**
  * Las cuatro piezas del filtro de una columna de FECHA, para no escribirlas en
  * cada una: el control, el descarte de filas, la chapa de "filtro activo" y el
@@ -581,13 +731,15 @@ export const COLUMNAS = [
             );
         },
         filtro: (ctx) => (
-            <Sel value={ctx.filtros.certificador} onChange={v => ctx.setFiltro('certificador', v)} activo={ctx.filtros.certificador !== 'ALL'}>
-                <Opt value="ALL">TODOS LOS TÉCNICOS</Opt>
-                <Opt value="NONE">SIN ASIGNAR</Opt>
-                {ctx.listas.certificadores.map(c => (
-                    <Opt key={c.id_empresa} value={c.id_empresa}>{c.razon_social || c.acronimo}</Opt>
-                ))}
-            </Sel>
+            <FiltroEmpresa
+                value={ctx.filtros.certificador}
+                onChange={v => ctx.setFiltro('certificador', v)}
+                opciones={ctx.listas.certificadores}
+                conteo={ctx.listas.conteoCertificador}
+                todos="TODOS LOS TÉCNICOS"
+                ninguno="SIN ASIGNAR"
+                titulo="Filtrar por certificador"
+            />
         ),
         match: (exp, ctx) => {
             const v = ctx.filtros.certificador;
@@ -640,13 +792,15 @@ export const COLUMNAS = [
             );
         },
         filtro: (ctx) => (
-            <Sel value={ctx.filtros.instalador} onChange={v => ctx.setFiltro('instalador', v)} activo={ctx.filtros.instalador !== 'ALL'}>
-                <Opt value="ALL">TODOS LOS INSTALADORES</Opt>
-                <Opt value="NONE">SIN INSTALADOR</Opt>
-                {ctx.listas.instaladores.map(i => (
-                    <Opt key={i.id_empresa} value={i.id_empresa}>{i.acronimo || i.razon_social}</Opt>
-                ))}
-            </Sel>
+            <FiltroEmpresa
+                value={ctx.filtros.instalador}
+                onChange={v => ctx.setFiltro('instalador', v)}
+                opciones={ctx.listas.instaladores}
+                conteo={ctx.listas.conteoInstalador}
+                todos="TODOS LOS INSTALADORES"
+                ninguno="SIN INSTALADOR"
+                titulo="Filtrar por instalador"
+            />
         ),
         match: (exp, ctx) => {
             const v = ctx.filtros.instalador;

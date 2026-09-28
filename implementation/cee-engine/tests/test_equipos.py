@@ -472,3 +472,124 @@ def test_un_split_que_tambien_calentaba_se_queda_solo_para_el_frio():
     [split] = slots[G.SLOTS.index("climatizacion")]
     assert _plano(split[5]) == [["", ""], ["0.0", "0"], ["41.05", "15"]]
     assert _plano(slots[G.SLOTS.index("mixto3")][0][5])[2][1] == "85"
+
+
+# --------------------------------------------------------------------------
+# CAMBIAR EL USO de un equipo: la forma la decide el COMBUSTIBLE.
+#
+# Medido sobre los 1.600 .cex del disco (1.326 equipos ESTIMADOS de los slots
+# calefaccion, ACS y mixto2): con un combustible que se quema, SIEMPRE la cola
+# de la caldera; con Electricidad, SIEMPRE la cola simple. Es lo que permite que
+# una caldera pase a dar solo el ACS, o que unos radiadores electricos se
+# declaren como equipo de solo calefaccion, sin escribir una forma que CE3X no
+# reconoce.
+# --------------------------------------------------------------------------
+
+def test_una_caldera_que_da_solo_el_acs_lleva_la_cola_de_caldera():
+    """Forma de «CEE APORTADO Puebla Almoradiel», con los nombres cambiados."""
+    registro, avisos = G.equipo_acs({
+        "nombre": "Equipo ACS",
+        "generador": "Caldera Estándar",
+        "combustible": "Gasóleo-C",
+        "superficie_acs": 257.86,
+        "pct_acs": "100",
+        "aislamiento": "Bien aislada y mantenida",
+        "rend_combustion": "100",
+        "potencia": "24.0",
+    }, ZONA)
+
+    assert _plano(registro) == [
+        "Equipo ACS",
+        "ACS",
+        [87.2, "", ""],
+        "Caldera Estándar",
+        "Gasóleo-C",
+        [["257.86", "100"], ["", ""], ["", ""]],
+        "Estimado según Instalación",
+        ["Bien aislada y mantenida", "100", "0.2", "24.0",
+         [False, False, True, False, False, True, False], [1.0, 0.0]],
+        [False],
+        ZONA,
+    ]
+    assert any("NO es un dato" in a for a in avisos)
+
+
+def test_una_caldera_de_solo_acs_sin_potencia_no_se_escribe():
+    """La cola de la caldera EXIGE la potencia: sin ella no se inventa."""
+    import pytest
+    with pytest.raises(G.GeneracionError):
+        G.equipo_acs({"nombre": "CALDERA", "generador": "Caldera Estándar",
+                      "combustible": "Gas Natural", "superficie_acs": 90,
+                      "aislamiento": "Sin aislamiento", "rend_combustion": "90"}, ZONA)
+
+
+def test_radiadores_electricos_de_solo_calefaccion():
+    """Forma de «CEE Calle Coruña, 36»: efecto Joule, la cola simple."""
+    registro, avisos = G.equipo_calefaccion({
+        "nombre": "Radiadores eléctricos",
+        "generador": "Efecto Joule",
+        "combustible": "Electricidad",
+        "superficie_calefaccion": 112.79,
+        "pct_calefaccion": "100",
+        "rend_nominal": "100.0",
+    }, ZONA)
+
+    assert _plano(registro) == [
+        "Radiadores eléctricos",
+        "calefaccion",
+        ["", 100.0, ""],
+        "Efecto Joule",
+        "Electricidad",
+        [["", ""], ["112.79", "100"], ["", ""]],
+        "Estimado según Instalación",
+        [["", "100.0", ""], [False, False, True], [False, "1.0", "0.0"]],
+        ZONA,
+    ]
+    # Sin potencia, sin aislamiento: un electrico no los declara.
+    assert any("lo calcula" in a for a in avisos)
+
+
+def test_una_caldera_electrica_de_solo_calefaccion_tambien_va_simple():
+    """«CALDERA ELECTRICA» declarada como Caldera Estandar: 3 del corpus, simple.
+
+    Y su rendimiento llega de la oportunidad como `rend_combustion` (el 100 %
+    de la tabla): es el mismo numero que el nominal.
+    """
+    registro, _ = G.equipo_calefaccion({
+        "nombre": "CALDERA ELECTRICA", "generador": "Caldera Estándar",
+        "combustible": "Electricidad", "superficie_calefaccion": 24.4,
+        "pct_calefaccion": "10", "rend_combustion": "100",
+    }, ZONA)
+    assert _plano(registro)[2] == ["", 100.0, ""]
+    assert _plano(registro)[7] == [["", "100.0", ""], [False, False, True],
+                                   [False, "1.0", "0.0"]]
+
+
+def test_una_caldera_de_gas_de_solo_calefaccion_no_cambia():
+    """La que ya se escribia (92 del corpus): la cola de la caldera, intacta."""
+    registro, _ = G.equipo_calefaccion({
+        "nombre": "CALDERA PELLETS", "generador": "Caldera Estándar",
+        "combustible": "BiomasaDens", "superficie_calefaccion": 244.0,
+        "aislamiento": "Sin aislamiento", "rend_combustion": "55", "potencia": "24.0",
+    }, ZONA)
+    assert _plano(registro)[2] == ["", 19.9, ""]
+    assert _plano(registro)[7] == ["Sin aislamiento", "55", "0.2", "24.0",
+                                   [False, False, True, False, False, True, False],
+                                   [1.0, 0.0]]
+
+
+def test_una_caldera_electrica_mixta_va_simple():
+    """Forma de los 5 mixtos por efecto Joule del corpus: la cola simple con el
+    nominal en los DOS servicios y una lista vacia al final."""
+    registro, _ = G.equipo_mixto({
+        "nombre": "CALDERA ELECTRICA", "generador": "Efecto Joule",
+        "combustible": "Electricidad", "superficie_acs": 160.0,
+        "superficie_calefaccion": 160.0, "rend_nominal": "100",
+    }, ZONA)
+    assert _plano(registro) == [
+        "CALDERA ELECTRICA", "mixto2", [100.0, 100.0, ""], "Efecto Joule",
+        "Electricidad", [["160", "100"], ["160", "100"], ["", ""]],
+        "Estimado según Instalación",
+        [["100.0", "100.0", ""], [False, False, True], []],
+        [False], ZONA,
+    ]

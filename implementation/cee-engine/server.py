@@ -201,8 +201,12 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
         # el CUERPO y se vuelve a medir: la pared que lo separaba de la casa
         # aparece entonces como lo que es, en vez de quedarse la casa abierta
         # por ahi (que es lo que pasa tachando paredes una a una).
+        # Las ZONAS que no cuentan en UNA planta (el garaje dentro de la casa,
+        # con la vivienda encima). Se leen ANTES de quitar nada: se miden
+        # contra lo construido en su nivel.
+        zonas = pipeline.leer_zonas(modelo, payload.get("zonas_fuera"))
         pipeline.excluir_cuerpos(modelo, payload.get("cuerpos_excluidos"),
-                                 inventario=inventario)
+                                 inventario=inventario, zonas=zonas)
         res = pipeline.analizar(o, modelo)
         pipeline.escribir_salidas(o, res, rc)
 
@@ -252,6 +256,11 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
             # construccion que les corresponde. Es lo que permite decir «esta
             # edificacion no cuenta» de una vez, en vez de pared por pared.
             "cuerpos": dibujo["cuerpos"],
+            # Las zonas dibujadas que se han APLICADO, con lo que de verdad
+            # restan de su planta (`indice` es su posicion en lo pedido). Las
+            # que no sirven no vienen y el diagnostico dice por que.
+            "zonas_fuera": [{"indice": z["indice"], "nivel": z["nivel"], "uso": z["uso"],
+                             "area_m2": z["area_m2"]} for z in zonas],
             "resumen": export.resumen(res.elementos),
             # Lo que NO se ha podido saber. Va al primer plano a propósito: es
             # lo que el certificador tiene que mirar.

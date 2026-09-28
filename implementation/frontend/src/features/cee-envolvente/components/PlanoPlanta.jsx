@@ -8,6 +8,8 @@ import { TIPOS_PARED, nombreHueco } from '../logic/usePlanoEnvolvente';
 import { cuerposDeLaPlanta } from '../logic/cuerposEnvolvente';
 import { CubiertaControl } from './PanelCubierta';
 import { RecorteControl } from './PanelRecorte';
+import { ViviendaPlantaControl } from './PanelZonas';
+import { ETIQUETA_USO_ZONA } from '../logic/zonasFuera';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // El plano del certificador. Cada pared se pulsa.
@@ -204,6 +206,13 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                               recorte = null, dibujarRecorte = false, onRecorte = null,
                               onRecorteModo = null, onRecorteQuitar = null,
                               recorteSugerido = false, midiendo = false,
+                              //: Lo que NO es vivienda dentro de ESTA planta (el
+                              //: garaje de la baja con la vivienda encima), ya en
+                              //: este lienzo, y el modo de dibujar otra zona. El
+                              //: gesto es el mismo que el de la cubierta.
+                              zonas = [], dibujarZona = false, usoZona = 'GARAJE',
+                              onUsoZona = null, onZona = null, onZonaModo = null,
+                              onZonaQuitar = null,
                               catastro, quiereCatastro, onCatastro,
                               trayendoCatastro, falloCatastro,
                               // Los CUERPOS del edificio (la casa, el garaje
@@ -223,8 +232,8 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
     const es3d = modo === '3d';
     //: Dibujando un POLÍGONO —la cubierta que se reforma o el contorno de la
     //: vivienda—: el gesto es el mismo, lo que cambia es a quién se entrega.
-    const dibujarPoligono = dibujarCubierta || dibujarRecorte;
-    const entregarPoligono = dibujarRecorte ? onRecorte : onCubierta;
+    const dibujarPoligono = dibujarCubierta || dibujarRecorte || dibujarZona;
+    const entregarPoligono = dibujarZona ? onZona : dibujarRecorte ? onRecorte : onCubierta;
     const svgRef = useRef(null);
     const cajaRef = useRef(null);
 
@@ -498,6 +507,26 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
         }
         return q;
     };
+    /**
+     * El imán de los VÉRTICES de una zona: primero las esquinas (los extremos
+     * de las paredes), que es donde se dibuja un garaje; si no hay una cerca,
+     * la pared más cercana. Fuera del imán el punto se queda donde se suelta:
+     * por fuera del edificio da igual, lo que sobresale no cuenta.
+     */
+    const pegarVertice = (x, y) => {
+        let mejor = null;
+        for (const m of murosDe(planta)) {
+            const pts = m.svg || [];
+            for (const q of [pts[0], pts[pts.length - 1]]) {
+                if (!q) continue;
+                const d = Math.hypot(q[0] - x, q[1] - y);
+                if (d <= iman && (!mejor || d < mejor.d)) mejor = { x: q[0], y: q[1], d };
+            }
+        }
+        if (mejor) return mejor;
+        const q = pegarAPared(murosDe(planta), x, y, iman, null);
+        return q ? { x: q.x, y: q.y } : { x, y };
+    };
     // Un arrastre NO es una pulsación: sin esto, mover el plano cambia de pared
     // cada vez que el ratón se suelta encima de una.
     const arrastrado = useRef(false);
@@ -644,7 +673,11 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                 setTimeout(() => { arrastrado.current = false; }, 0);
                 return;
             }
-            const p = aDibujo(e.clientX, e.clientY);
+            const p0 = aDibujo(e.clientX, e.clientY);
+            // Los vértices de una ZONA se pegan a las paredes (y a sus
+            // esquinas, antes que a nada): un punto que cae unos centímetros
+            // dentro de la casa deja una tira de vivienda pegada al garaje.
+            const p = dibujarZona ? pegarVertice(p0.x, p0.y) : p0;
             const primero = vertices[0];
             // Pulsar el PRIMER vértice cierra el polígono: es el gesto de
             // cualquier programa de dibujo, y no hace falta explicarlo.
@@ -747,8 +780,11 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
             {/* LA CUBIERTA de esta planta. Va aquí —bajo la barra de SU plano y
                 encima del dibujo— porque se marca dibujándola: el mando tiene
                 que estar donde está el gesto. En 3D no: ahí no se dibuja. */}
-            {!es3d && onRecorteModo && (
-                <RecorteControl recorte={recorte} dibujando={dibujarRecorte}
+            {/* QUÉ ES VIVIENDA EN ESTA PLANTA: las zonas que no cuentan (el
+                garaje de la baja) y, en la planta baja, el contorno del adosado.
+                Dibujando el contorno se enseña su propio mando. */}
+            {!es3d && dibujarRecorte && onRecorteModo && (
+                <RecorteControl recorte={recorte} dibujando
                                 vertices={vertices} midiendo={midiendo}
                                 sugerir={recorteSugerido}
                                 onDibujar={() => onRecorteModo(true)}
@@ -756,8 +792,20 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                                 onCerrar={cerrarCubierta}
                                 onCancelar={() => { setVertices([]); onRecorte?.(null); }} />
             )}
+            {!es3d && !dibujarRecorte && (onZonaModo || onRecorteModo) && (
+                <ViviendaPlantaControl planta={planta} zonas={zonas}
+                                       dibujandoZona={dibujarZona} vertices={vertices}
+                                       uso={usoZona} onUso={onUsoZona}
+                                       onZonaModo={onZonaModo}
+                                       onZonaCerrar={cerrarCubierta}
+                                       onZonaCancelar={() => { setVertices([]); onZona?.(null); }}
+                                       onZonaQuitar={onZonaQuitar}
+                                       recorte={recorte} onRecorteModo={onRecorteModo}
+                                       onRecorteQuitar={onRecorteQuitar}
+                                       recorteSugerido={recorteSugerido} midiendo={midiendo} />
+            )}
 
-            {!es3d && onCubiertaModo && !dibujarRecorte && (
+            {!es3d && onCubiertaModo && !dibujarRecorte && !dibujarZona && (
                 <CubiertaControl reforma={cubierta} dibujando={dibujarCubierta}
                                  vertices={vertices}
                                  onDibujar={() => onCubiertaModo(true)}
@@ -917,6 +965,12 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                             <Recorte recorte={recorte}
                                      vertices={dibujarRecorte ? vertices : []}
                                      cursor={dibujarRecorte ? cursor : null} tam={tam} />
+
+                            {/* Lo que NO es vivienda en esta planta: las zonas
+                                ya restadas y la que se está dibujando. */}
+                            <Zonas zonas={zonas}
+                                   vertices={dibujarZona ? vertices : []}
+                                   cursor={dibujarZona ? cursor : null} uid={uid} tam={tam} />
 
                             {rotulos.map(r => (
                                 <g key={r.id} style={{ pointerEvents: 'none' }}>
@@ -1799,6 +1853,49 @@ function Cubierta({ reforma, vertices, cursor, uid, tam }) {
                                 stroke="var(--warning)" strokeWidth={0.08} />
                     ))}
                     {vertices.length >= 3 && rotulo(vertices, `≈${fmt(areaPoligono(vertices))} m²`)}
+                </>
+            )}
+        </g>
+    );
+}
+
+/**
+ * Lo que NO es vivienda en esta planta (el garaje de la baja): las zonas ya
+ * restadas, con el mismo lenguaje que un cuerpo que no cuenta —gris, a trazos y
+ * con su rótulo—, y la que se está dibujando.
+ */
+function Zonas({ zonas, vertices, cursor, tam }) {
+    const puntos = (pts) => pts.map(([x, y]) => `${x},${y}`).join(' ');
+    const trazo = cursor ? [...vertices, [cursor.x, cursor.y]] : vertices;
+    return (
+        <g style={{ pointerEvents: 'none' }}>
+            {(zonas || []).filter(z => z.lienzo?.length >= 3).map((z) => {
+                const color = z.aplicada ? 'var(--text-secondary)' : 'var(--warning)';
+                const c = caja(z.lienzo, 0);
+                const texto = `${(ETIQUETA_USO_ZONA[z.uso] || 'No habitable').toUpperCase()} · NO CUENTA`
+                    + ` · ${fmt(z.area_real ?? z.area_m2 ?? 0)} m²`;
+                return (
+                    <g key={z.indice}>
+                        <polygon points={puntos(z.lienzo)} fill={color} fillOpacity={0.08}
+                                 stroke={color} strokeWidth={tam * 0.1}
+                                 strokeDasharray={`${tam * 0.6} ${tam * 0.35}`} strokeLinejoin="round" />
+                        <text x={c.x + c.ancho / 2} y={c.y + c.alto / 2}
+                              fontSize={tam * 0.8} fontWeight={900} fill={color}
+                              textAnchor="middle">{texto}</text>
+                    </g>
+                );
+            })}
+            {vertices.length > 0 && (
+                <>
+                    <polyline points={puntos(trazo)}
+                              fill={vertices.length >= 2 ? 'var(--info)' : 'none'} fillOpacity={0.1}
+                              stroke="var(--info)" strokeWidth={tam * 0.12}
+                              strokeDasharray={`${tam * 0.5} ${tam * 0.3}`} strokeLinejoin="round" />
+                    {vertices.map(([x, y], i) => (
+                        <circle key={i} cx={x} cy={y} r={i === 0 ? tam * 0.45 : tam * 0.22}
+                                fill={i === 0 ? 'var(--info)' : PAPEL}
+                                stroke="var(--info)" strokeWidth={tam * 0.08} />
+                    ))}
                 </>
             )}
         </g>

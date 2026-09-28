@@ -281,12 +281,19 @@ router.put('/:id', enforceAuth, requireAdmin, async (req, res) => {
     try {
         const { data: existing, error: fetchErr } = await supabase
             .from('aerotermia')
-            .select('id')
+            .select('id, ficha_tecnica')
             .eq('id', req.params.id)
             .single();
         if (fetchErr || !existing) return res.status(404).json({ error: 'Equipo no encontrado' });
 
         const payload = buildPayload(req.body);
+        // `ficha_tecnica_partes` describe QUÉ TRAE DENTRO la ficha guardada (un
+        // conjunto unido en un expediente). Si aquí se pone OTRA ficha, esa nota
+        // ya no la describe: se retira, o el gestor de anexos seguiría anunciando
+        // "Conjunto de 3 documentos · 12 págs" sobre un PDF de 2 (BAXI IRIDIUM 12).
+        if ((payload.ficha_tecnica || null) !== (existing.ficha_tecnica || null)) {
+            payload.ficha_tecnica_partes = null;
+        }
         if (payload.marca) {
             await supabase.from('aerotermia_marcas').upsert({ nombre: payload.marca }, { onConflict: 'nombre', ignoreDuplicates: true });
         }

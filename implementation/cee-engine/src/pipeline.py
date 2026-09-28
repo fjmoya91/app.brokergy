@@ -582,7 +582,80 @@ def sin_vivienda_mide_todo(modelo: Modelo) -> list[str]:
     return cambios
 
 
-def excluir_cuerpos(modelo: Modelo, ids, inventario=None) -> list[str]:
+#: Por debajo de esto una zona dibujada no es un garaje: es un clic de mas.
+AREA_MINIMA_ZONA_M2 = 1.0
+
+#: Como puede llamarse una zona que no cuenta. Solo sirve para el nombre y las
+#: notas: en CE3X las tres se escriben igual (particion con espacio no
+#: habitable).
+USOS_ZONA = ("GARAJE", "ALMACEN", floors_mod.NO_HABITABLE)
+
+
+def leer_zonas(modelo: Modelo, zonas) -> list[dict]:
+    """Las ZONAS que no cuentan, dibujadas planta a planta, ya validadas.
+
+    POR QUE EXISTE — 8919709VJ8681N (26RES080_85): la casa es UN BuildingPart
+    de dos plantas, y en la BAJA hay un garaje dentro de el, con la vivienda
+    encima. Catastro no dibuja esa linea, y las dos herramientas que habia no
+    servian: una pared dibujada separa pero no quita superficie («me seguia
+    sumando la superficie de suelo»), y delimitar la vivienda es un PRISMA que
+    recortaba tambien la planta primera («esa misma planta se copia en planta
+    primera»).
+
+    Una zona es un poligono en el CRS del modelo (EPSG:25830, como el contorno
+    de la vivienda: el lienzo cambia al volver a medir) y el NIVEL en el que no
+    cuenta. Entra por el MISMO camino que un cuerpo excluido
+    (`plantas_desde_partes(fuera_por_nivel=…)`), asi que sale lo mismo: la pared
+    de la casa contra el garaje es una PARTICION con espacio no habitable, la
+    fachada del garaje deja de ser de la vivienda y el forjado de la planta de
+    arriba es un suelo sobre espacio no habitable — no un voladizo.
+
+    REGLA — una zona que no sirve NO tumba la medicion: se dice y se salta. Un
+    poligono guardado hace meses no puede dejar el expediente sin plano.
+    """
+    if not zonas:
+        return []
+    from shapely.geometry import Polygon
+    huellas = {pl.nivel: pl.huella for pl in floors_mod.plantas_desde_partes(modelo.partes)}
+    salida: list[dict] = []
+    dichos: list[str] = []
+    for i, z in enumerate(zonas if isinstance(zonas, list) else []):
+        if not isinstance(z, dict):
+            continue
+        try:
+            nivel = int(z.get("nivel"))
+            pts = [(float(x), float(y)) for x, y in (z.get("poligono") or [])]
+        except (TypeError, ValueError):
+            dichos.append(f"la zona {i + 1} no trae un nivel y unos vertices legibles")
+            continue
+        if len(pts) < 3:
+            dichos.append(f"la zona {i + 1} tiene menos de 3 vertices")
+            continue
+        poly = Polygon(pts)
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+        huella = huellas.get(nivel)
+        if huella is None:
+            dichos.append(f"la zona {i + 1} es de {_nombre_nivel(nivel)}, que no existe")
+            continue
+        dentro = floors_mod._limpia(huella.intersection(poly))
+        if dentro is None or dentro.area < AREA_MINIMA_ZONA_M2:
+            dichos.append(f"la zona {i + 1} ({_nombre_nivel(nivel)}) no toca lo construido")
+            continue
+        if dentro.area >= huella.area - AREA_MINIMA_ZONA_M2:
+            dichos.append(f"la zona {i + 1} cubre {_nombre_nivel(nivel)} entera: no se aplica "
+                          "(no quedaria vivienda en esa planta)")
+            continue
+        uso = str(z.get("uso") or "").strip().upper()
+        salida.append({"indice": i, "nivel": nivel, "geom": poly,
+                       "uso": uso if uso in USOS_ZONA else floors_mod.NO_HABITABLE,
+                       "area_m2": round(dentro.area, 2)})
+    if dichos:
+        modelo.diagnostics.add("ZONAS_FUERA", "; ".join(dichos))
+    return salida
+
+
+def excluir_cuerpos(modelo: Modelo, ids, inventario=None, zonas=None) -> list[str]:
     """Saca de la envolvente los CUERPOS que el certificador dice que no cuentan.
 
     POR QUE EXISTE: Catastro dibuja el edificio en partes —la casa, el garaje
@@ -606,7 +679,10 @@ def excluir_cuerpos(modelo: Modelo, ids, inventario=None) -> list[str]:
     particion con espacio no habitable —no un voladizo—.
     """
     fuera = {str(i).strip() for i in (ids or []) if str(i).strip()}
-    if not fuera:
+    #: `zonas` son las de `leer_zonas` (ya validadas): trozos dibujados a mano
+    #: que no cuentan EN UN NIVEL. Van por el mismo `fuera_por_nivel`.
+    zonas = zonas or []
+    if not fuera and not zonas:
         return []
 
     from .gis import cuerpos as cuerpos_mod
@@ -646,6 +722,12 @@ def excluir_cuerpos(modelo: Modelo, ids, inventario=None) -> list[str]:
             + (f"; en {', '.join(_nombre_nivel(n) for n in resto)} SIGUE contando"
                if resto else ""))
 
+    dichas_zonas: list[str] = []
+    for z in zonas:
+        fuera_por_nivel.setdefault(z["nivel"], []).append(
+            {"geom": z["geom"], "uso": z["uso"], "dibujada": True})
+        dichas_zonas.append(f"{z['uso']} de {z['area_m2']:.0f} m2 en {_nombre_nivel(z['nivel'])}")
+
     if not fuera_por_nivel:
         return []
 
@@ -659,14 +741,23 @@ def excluir_cuerpos(modelo: Modelo, ids, inventario=None) -> list[str]:
         floors_mod.asignar_usos(plantas, datos.usos_por_planta())
     modelo.floors = plantas
 
-    modelo.diagnostics.add(
-        "CUERPOS_EXCLUIDOS",
-        "el certificador deja FUERA de la envolvente " + "; ".join(dichos)
-        + ". Sus paredes no se miden y el edificio se ha vuelto a medir sin ellas, "
-        "pero lo que hay al otro lado sigue construido: la pared que da contra el "
-        "sale como PARTICION y el forjado de encima, como particion con espacio "
-        "no habitable")
-    return dichos
+    if dichos:
+        modelo.diagnostics.add(
+            "CUERPOS_EXCLUIDOS",
+            "el certificador deja FUERA de la envolvente " + "; ".join(dichos)
+            + ". Sus paredes no se miden y el edificio se ha vuelto a medir sin ellas, "
+            "pero lo que hay al otro lado sigue construido: la pared que da contra el "
+            "sale como PARTICION y el forjado de encima, como particion con espacio "
+            "no habitable")
+    if dichas_zonas:
+        modelo.diagnostics.add(
+            "ZONAS_FUERA",
+            "el certificador ha dibujado lo que NO es vivienda en una planta: "
+            + "; ".join(dichas_zonas) + ". Se resta SOLO de esa planta —la de arriba "
+            "no se toca—; la pared de la casa contra la zona sale como PARTICION con "
+            "espacio no habitable y el forjado de encima, como suelo sobre espacio no "
+            "habitable")
+    return dichos + dichas_zonas
 
 
 def _nombre_nivel(n: int) -> str:

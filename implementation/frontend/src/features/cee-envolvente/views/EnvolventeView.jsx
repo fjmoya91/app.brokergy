@@ -8,10 +8,13 @@ import { usePlanoEnvolvente } from '../logic/usePlanoEnvolvente';
 import { lienzoAMundo, areaPoligono } from '../logic/geometriaPlano';
 import { CampoDecimal } from '../../../components/CampoDecimal';
 import { dondeSobra, dondeSigue } from '../logic/cuerposEnvolvente';
-import { claveInstalacion, esTerciarioCe3x, etiquetaTipoCe3x, tipoCe3xDe } from '../logic/fichaCe3x';
+import { claveExtras, claveInstalacion, equipoNuevo, esTerciarioCe3x, etiquetaTipoCe3x,
+         tipoCe3xDe } from '../logic/fichaCe3x';
 import { TipoEdificioModal } from '../components/TipoEdificioModal';
 import { useDeshacer } from '../logic/useDeshacer';
 import { MidiendoElEdificio } from '../components/MidiendoElEdificio';
+import { ETIQUETA_USO_ZONA } from '../logic/zonasFuera';
+import { admiteHuecos } from '../logic/tiposPared';
 import { VentanasViviendaModal } from '../components/VentanasViviendaModal';
 import { PERSIANA_DEFECTO_NUEVOS, huecosDefecto, resumenVentanas, ventanasContestadas }
     from '../logic/ventanasVivienda';
@@ -70,6 +73,8 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     const cuerposPedidos = useRef([]);
     //: Con qué CONTORNO DE VIVIENDA se pidió (adosados). Mismo motivo.
     const recortePedido = useRef(null);
+    //: Con qué ZONAS que no cuentan (el garaje de la planta baja). Mismo motivo.
+    const zonasPedidas = useRef([]);
     const [cargando, setCargando] = useState(false);
     const [error, setError] = useState(null);
     const [generando, setGenerando] = useState(false);
@@ -117,7 +122,8 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         // Con los cuerpos que ya se habían dejado fuera: si no, al recargar el
         // aparcamiento volvería a la envolvente y nadie se enteraría.
         traerGeometria(trabajoPrevio.cuerpos_fuera || [],
-                       trabajoPrevio.recorte_vivienda || null);
+                       trabajoPrevio.recorte_vivienda || null, undefined,
+                       trabajoPrevio.zonas_fuera || []);
     }, [trabajoPrevio, geo, cargando, rc]);   // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
@@ -167,6 +173,11 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     const [dibujandoCubierta, setDibujandoCubierta] = useState(null);
     //: La planta sobre cuyo plano se DIBUJA EL CONTORNO DE LA VIVIENDA.
     const [dibujandoRecorte, setDibujandoRecorte] = useState(null);
+    //: La planta sobre cuyo plano se dibuja una ZONA QUE NO ES VIVIENDA (el
+    //: garaje de la baja), y qué es. El uso solo pone nombre: en CE3X las tres
+    //: se escriben igual, como partición con espacio no habitable.
+    const [dibujandoZona, setDibujandoZona] = useState(null);
+    const [usoZona, setUsoZona] = useState('GARAJE');
 
     //: QUÉ PLANTAS se ven a la vez. `null` es la vista dividida —todas, una al
     //: lado de otra—; un índice es ver esa sola a todo el ancho. Las dos hacen
@@ -230,7 +241,8 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
      * comprobación va AQUÍ y no en el sitio que llama, o el próximo que enganche
      * esta función a un `onClick` vuelve a romperlo sin enterarse.
      */
-    async function traerGeometria(cuerposFuera = null, recorte = undefined, tipo = undefined) {
+    async function traerGeometria(cuerposFuera = null, recorte = undefined, tipo = undefined,
+                                  zonas = undefined) {
         if (!rc) { setError('Este expediente no tiene referencia catastral.'); return false; }
         // El TIPO decide qué se mide: en un terciario cuentan los usos del
         // terciario (un hotel es «HOTELERO» en Catastro). Lo pasa quien acaba
@@ -244,6 +256,9 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             recortePedido.current = Array.isArray(recorte?.poligono) && recorte.poligono.length >= 3
                 ? recorte : null;
         }
+        // Las zonas, igual: `undefined` es «las mismas de antes».
+        const zonasAntes = zonasPedidas.current;
+        if (zonas !== undefined) zonasPedidas.current = soloLista(zonas) || [];
         try {
             // Los CUERPOS que se dejan fuera viajan con la petición: el motor
             // vuelve a MEDIR el edificio sin ellos —la pared que separaba el
@@ -254,6 +269,8 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             const data = await postEnvolvente(api(id, 'geometria'),
                 { referencia_catastral: rc, cuerpos_excluidos: fuera || [],
                   recorte_vivienda: recortePedido.current,
+                  zonas_fuera: zonasPedidas.current.map(({ nivel, poligono, uso }) =>
+                      ({ nivel, poligono, uso })),
                   tipo_edificio_ce3x: tipoMedir },
                 // Repetible: medir NO escribe nada —lee Catastro, y el motor lo
                 // tiene cacheado—, así que una petición que no ha llegado se
@@ -268,6 +285,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             // Un contorno que el motor rechaza no se queda como «el pedido»:
             // la siguiente medición volvería a mandarlo y a fallar igual.
             recortePedido.current = antes;
+            zonasPedidas.current = zonasAntes;
             return false;
         } finally {
             setCargando(false);
@@ -296,7 +314,8 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         const actual = { ...previo, ...limpio };
         setTrabajoPrevio(actual);
         const ok = await traerGeometria(actual.cuerpos_fuera || [],
-                                        actual.recorte_vivienda || null);
+                                        actual.recorte_vivienda || null, undefined,
+                                        actual.zonas_fuera || []);
         // Si no se ha podido medir, lo pedido NO se queda guardado: el plano
         // en pantalla sigue siendo el de antes y el trabajo tiene que decir lo
         // mismo que él.
@@ -325,6 +344,34 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         setDibujandoRecorte(null);
         const ok = await volverAMedir({ recorte_vivienda: null });
         if (ok) onAviso?.('Contorno quitado: se vuelve a medir todo lo construido de la parcela.');
+    }
+
+    // ── LO QUE NO ES VIVIENDA DENTRO DE UNA PLANTA (el garaje de la baja) ─────
+    // Al contrario que el contorno —un prisma que vale para todas las plantas—,
+    // la zona se resta SOLO de la planta en la que se dibuja: el garaje de la
+    // planta baja con la vivienda encima. Se guarda en el MUNDO por lo mismo
+    // que el contorno: al volver a medir, el lienzo cambia de origen.
+    async function cerrarZona(planta, poly) {
+        setDibujandoZona(null);
+        if (!poly || poly.length < 3 || !planta) return;
+        const t = lienzoAMundo(geo?.georef);
+        if (!t) { setError('No se puede situar la zona: falta la georreferencia del plano.'); return; }
+        const r2 = v => Math.round(v * 100) / 100;
+        const zona = {
+            nivel: planta.nivel, planta: planta.id, uso: usoZona,
+            poligono: poly.map(([x, y]) => [r2(x + t.dx), r2(t.y0 - y)]),
+            area_m2: Math.round(areaPoligono(poly) * 10) / 10,
+        };
+        const siguiente = [...(plano.zonasFuera || []), zona];
+        const ok = await volverAMedir({ zonas_fuera: siguiente });
+        if (ok) onAviso?.(`${ETIQUETA_USO_ZONA[usoZona]} fuera de ${planta.nombre || 'la planta'}: `
+                          + 'se ha vuelto a medir solo esa planta. La pared contra ella pasa a ser '
+                          + 'una partición y la planta de encima no se toca.');
+    }
+    async function quitarZona(i) {
+        const siguiente = (plano.zonasFuera || []).filter((_, k) => k !== i);
+        const ok = await volverAMedir({ zonas_fuera: siguiente });
+        if (ok) onAviso?.('Zona quitada: vuelve a contar como vivienda.');
     }
 
     // ── La cartografía del Catastro DEBAJO del plano ─────────────────────────
@@ -713,6 +760,22 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         if (!t || !Array.isArray(pol) || pol.length < 3) return null;
         return { ...plano.recorte, lienzo: pol.map(([x, y]) => [x - t.dx, t.y0 - y]) };
     }, [geo?.georef, plano.recorte]);
+    //: Las zonas que no cuentan, en el lienzo de la geometría que hay en
+    //: pantalla, con lo que el MOTOR dice que restan de verdad (`geo.zonas_fuera`,
+    //: por su posición en lo pedido). Una zona que el motor no ha aplicado —no
+    //: toca la casa, o es de una planta que ya no existe— sale marcada: el
+    //: diagnóstico dice por qué.
+    const zonasLienzo = useMemo(() => {
+        const t = lienzoAMundo(geo?.georef);
+        if (!t) return [];
+        const aplicadas = new Map((geo?.zonas_fuera || []).map(z => [z.indice, z]));
+        return (plano.zonasFuera || []).map((z, i) => ({
+            ...z, indice: i,
+            lienzo: (z.poligono || []).map(([x, y]) => [x - t.dx, t.y0 - y]),
+            aplicada: aplicadas.has(i),
+            area_real: aplicadas.get(i)?.area_m2 ?? null,
+        }));
+    }, [geo?.georef, geo?.zonas_fuera, plano.zonasFuera]);
     const muchasParedes = useMemo(
         () => (geo?.plantas || []).reduce((a, p) => a + (p.muros?.length || 0), 0) > 40,
         [geo?.plantas]);
@@ -770,7 +833,8 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         if (geo && esTerciarioCe3x(nuevo) !== esTerciarioCe3x(tipoInfo.tipo)) {
             const previo = plano.trabajo || trabajoPrevio || {};
             setTrabajoPrevio(previo);
-            traerGeometria(previo.cuerpos_fuera || [], previo.recorte_vivienda || null, nuevo);
+            traerGeometria(previo.cuerpos_fuera || [], previo.recorte_vivienda || null, nuevo,
+                           previo.zonas_fuera || []);
         }
     }
     function cerrarTipo() {
@@ -841,21 +905,26 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     //: Los equipos AÑADIDOS a mano — un termo para el ACS, un aire
     //: acondicionado—. Van en el mismo sitio que el resto de ajustes, así que se
     //: guardan con el trabajo y viajan al `.cex` igual que lo demás.
-    const anadirEquipo = (slot) => setAjustes(a => ({
-        ...a, equipos_extra: [...(a.equipos_extra || []), { slot }],
-    }));
+    //: POR FASE, como lo tecleado: el CEE final COPIA el inicial, que ya los
+    //: lleva escritos, y repetirlos ahí contaba el mismo termo dos veces.
+    const anadirEquipo = (slot) => setAjustes(a => {
+        const clave = claveExtras(fichaFase);
+        return { ...a, [clave]: [...(a[clave] || []), equipoNuevo(slot)] };
+    });
     const borrarEquipo = (i) => setAjustes(a => {
-        const lista = (a.equipos_extra || []).filter((_, j) => j !== i);
-        const n = { ...a, equipos_extra: lista };
-        if (!lista.length) delete n.equipos_extra;
+        const clave = claveExtras(fichaFase);
+        const lista = (a[clave] || []).filter((_, j) => j !== i);
+        const n = { ...a, [clave]: lista };
+        if (!lista.length) delete n[clave];
         return n;
     });
     const cambiarEquipoExtra = (i, campo, valor) => setAjustes(a => {
-        const lista = [...(a.equipos_extra || [])];
+        const clave = claveExtras(fichaFase);
+        const lista = [...(a[clave] || [])];
         const eq = { ...(lista[i] || {}) };
         if (valor === null || valor === '') delete eq[campo]; else eq[campo] = valor;
         lista[i] = eq;
-        return { ...a, equipos_extra: lista };
+        return { ...a, [clave]: lista };
     });
 
     //: La superficie del edificio: es la que sirve de punto de partida a cada
@@ -910,6 +979,18 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             : 'Vuelve a contar: el edificio se ha medido otra vez con él.');
     }
 
+    // Los que Catastro dice que no son vivienda, DE UNA VEZ. En 26RES080_85 eran
+    // dos almacenes al fondo, y quitarlos uno a uno eran dos mediciones.
+    async function quitarCuerpos(ids) {
+        if (!ids?.length) return;
+        setCuerpoSel(null);
+        for (const id of ids) plano.sacaCuerpo(id, true);
+        const siguiente = [...new Set([...plano.cuerposFuera, ...ids])];
+        const ok = await volverAMedir({ cuerpos_fuera: siguiente });
+        if (ok) onAviso?.(`${ids.length} cuerpos fuera de la envolvente: el edificio se ha vuelto `
+                          + 'a medir sin ellos, y la pared de la casa contra ellos es ya una partición.');
+    }
+
     // La otra salida: apartar sus paredes sin volver a medir. Instantáneo, pero
     // la pared que lo separaba del resto NO existe en el modelo, así que la casa
     // se queda abierta por ahí y hay que dibujarla.
@@ -958,7 +1039,17 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                 {!!cuerposSospechosos.length && (
                     <AvisoCuerpos cuerpos={cuerposSospechosos}
                                   onQuitar={(id) => cambiarCuerpo(id, true)}
+                                  onQuitarTodos={() => quitarCuerpos(cuerposSospechosos.map(c => c.id))}
                                   ocupado={cargando} />
+                )}
+
+                {/* Huecos que se han quedado SIN PARED al volver a medir: antes
+                    desaparecían sin decir nada. */}
+                {!!plano.huerfanos?.length && (
+                    <AvisoHuerfanos huerfanos={plano.huerfanos} muros={plano.muros}
+                                    nombreDe={plano.nombreDe}
+                                    onRecuperar={plano.recuperaHuerfanos}
+                                    onDescartar={plano.descartaHuerfanos} />
                 )}
 
                 <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-4 items-start">
@@ -991,7 +1082,10 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                              setDibujandoCubierta(null);
                                          }}
                                          onCubiertaModo={conCubierta.has(p.id)
-                                             ? (si => setDibujandoCubierta(si ? p.id : null)) : null}
+                                             ? (si => { setDibujandoZona(null);
+                                                        setDibujandoRecorte(null);
+                                                        setDibujandoCubierta(si ? p.id : null); })
+                                             : null}
                                          onCubiertaEntera={() => { setDibujandoCubierta(null);
                                                                    plano.ponCubierta(p.id, { entera: true }); }}
                                          onCubiertaQuitar={() => { setDibujandoCubierta(null);
@@ -1001,10 +1095,19 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                          onRecorte={cerrarRecorte}
                                          onRecorteModo={p.id === plantaRecorte
                                              ? (si => { setDibujandoCubierta(null);
+                                                        setDibujandoZona(null);
                                                         setDibujandoRecorte(si ? p.id : null); })
                                              : null}
+                                         zonas={zonasLienzo.filter(z => z.nivel === p.nivel)}
+                                         dibujarZona={dibujandoZona === p.id}
+                                         usoZona={usoZona} onUsoZona={setUsoZona}
+                                         onZona={(poly) => cerrarZona(p, poly)}
+                                         onZonaModo={si => { setDibujandoCubierta(null);
+                                                             setDibujandoRecorte(null);
+                                                             setDibujandoZona(si ? p.id : null); }}
+                                         onZonaQuitar={quitarZona}
                                          onRecorteQuitar={quitarRecorte}
-                                         recorteSugerido={muchasParedes && !recorteLienzo}
+                                         recorteSugerido={p.id === plantaRecorte && muchasParedes && !recorteLienzo}
                                          midiendo={cargando}
                                          catastro={quiereCatastro ? catastro : null}
                                          quiereCatastro={quiereCatastro}
@@ -1094,11 +1197,18 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                     : <Cargando />)}
 
             {activa === 'instalaciones' && (
-                <PanelInstalaciones {...fase} equipo={ficha?.ficha?.instalaciones?.[0]}
+                <PanelInstalaciones {...fase}
+                                    // El PRINCIPAL aunque aún no se pueda escribir
+                                    // (sin potencia, p. ej.): `instalaciones[0]`
+                                    // sería entonces el primer añadido, y la
+                                    // tarjeta «del expediente» enseñaría el termo.
+                                    equipo={ficha?.equipos?.principal
+                                            ?? ficha?.ficha?.instalaciones?.[0]}
+                                    conservados={ficha?.equipos?.conservados || []}
                                     superficie={superficieDelEdificio}
                                     ajustes={ajustes[claveInstalacion(fichaFase)] || {}}
                                     onAjuste={cambiarInstalacion}
-                                    extras={ajustes.equipos_extra || []}
+                                    extras={ajustes[claveExtras(fichaFase)] || []}
                                     onExtra={cambiarEquipoExtra}
                                     onAnadir={anadirEquipo} onBorrar={borrarEquipo}
                                     // Solo en un TERCIARIO: ahí la iluminación
@@ -1128,17 +1238,19 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
 
             {activa === 'cex' && (
                 <Ventana titulo="Generar el .cex">
-                    {/* En una OPORTUNIDAD no se genera: aún no hay técnico que lo
-                        firme ni número de expediente con el que nombrarlo. Lo
-                        señalado ya está guardado y pasa al expediente al aceptar.
-                        El backend lo repite (409). */}
-                    {enOportunidad ? (
-                        <p className="text-[12px] leading-snug text-white/55">
-                            Esto es todavía una <b>oportunidad</b>: el .cex se genera desde el
-                            expediente, cuando se acepte y tenga técnico certificador. Todo lo
-                            que señales aquí ya está guardado y pasa al expediente al aceptarla.
+                    {/* En una OPORTUNIDAD también se genera (decisión del
+                        2026-09-28): va a la carpeta de la oportunidad —que es la
+                        del futuro expediente— con el número de la oportunidad, y
+                        sin técnico, que aún no lo hay. Se dice aquí, al lado del
+                        botón, para que nadie lo tome por el definitivo. */}
+                    {enOportunidad && (
+                        <p className="text-[12px] leading-snug text-sky-200/85">
+                            Es todavía una <b>oportunidad</b>: el .cex sale con su número y
+                            <b> sin los datos del técnico</b> (aún no hay certificador). Al
+                            aceptarla, vuelve a generarlo desde el expediente y el de la
+                            oportunidad pasa solo a OLD.
                         </p>
-                    ) : (<>
+                    )}
                     {/* Con qué PROGRAMA de CE3X se escribe, al lado del botón: es
                         lo primero que se ve al abrir el fichero, y equivocarlo
                         obliga a rehacerlo entero. Sin elegir, se pregunta al pulsar. */}
@@ -1192,7 +1304,6 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                         : ficha?.avisos?.length > 0 && (
                             <Avisos lista={ficha.avisos}
                                     titulo="Lo que hay que mirar antes de generar" />)}
-                    </>)}
                 </Ventana>)}
 
             {preguntando && (
@@ -1417,7 +1528,11 @@ function Pildora({ tono, fuerte, onClick, title, children }) {
  * forman parte de la vivienda y porches cerrados que son un estar, y quien lo
  * sabe es quien ha estado delante del edificio.
  */
-function AvisoCuerpos({ cuerpos, onQuitar, ocupado }) {
+function AvisoCuerpos({ cuerpos, onQuitar, onQuitarTodos, ocupado }) {
+    // Los que se reconocen POR ELIMINACIÓN (el almacén que Catastro no separa
+    // por superficie, 26RES080_85) lo dicen con sus cifras: es una deducción,
+    // y quien decide tiene que poder comprobarla sin abrir nada.
+    const deducido = cuerpos.find(c => c.construccion?.por_eliminacion)?.construccion;
     return (
         <Franja tono="amber">
             <b>
@@ -1426,7 +1541,24 @@ function AvisoCuerpos({ cuerpos, onQuitar, ocupado }) {
                     : `Hay ${cuerpos.length} cuerpos que Catastro no cuenta como vivienda.`}
             </b>{' '}
             En un certificado la envolvente es la de la vivienda: lo normal es dejarlos fuera.
+            {deducido && (
+                <span className="mt-1 block text-[11.5px] text-white/60">
+                    Catastro declara en esa planta {fmtM2(deducido.vivienda_declarada)} de vivienda,
+                    que ya son el cuerpo de la casa ({fmtM2(deducido.vivienda_cubierta)}), y aparte{' '}
+                    {deducido.uso} de {fmtM2(deducido.superficie)}: por eliminación, lo que queda
+                    construido de una sola planta es {String(deducido.uso).toLowerCase()}.
+                </span>
+            )}
             <div className="mt-2 flex flex-wrap gap-2">
+                {cuerpos.length > 1 && onQuitarTodos && (
+                    <button onClick={onQuitarTodos} disabled={ocupado}
+                            className="rounded-lg border border-amber-400/70 bg-amber-400/25
+                                       px-3 py-1.5 text-[11px] font-black uppercase
+                                       tracking-widest text-amber-100 disabled:opacity-40
+                                       hover:bg-amber-400/35">
+                        Quitar los {cuerpos.length} · {fmtM2(cuerpos.reduce((a, c) => a + (c.superficie || 0), 0))}
+                    </button>
+                )}
                 {cuerpos.map(c => (
                     <button key={c.id} onClick={() => onQuitar(c.id)} disabled={ocupado}
                             className="rounded-lg border border-amber-400/40 bg-amber-400/10
@@ -1452,6 +1584,62 @@ function AvisoCuerpos({ cuerpos, onQuitar, ocupado }) {
         </Franja>
     );
 }
+
+/**
+ * Los huecos que se han quedado SIN PARED al volver a medir.
+ *
+ * POR QUÉ EXISTE — 26RES080_85: «las paredes iban a la mierda, las ventanas
+ * desaparecían». Al quitar un cuerpo o una zona, los huecos de un cerramiento
+ * que ya no existe se perdían sin decir nada. A veces es lo correcto —era la
+ * ventana del garaje— y a veces no —la pared se ha partido y el hueco es de la
+ * vivienda—: eso lo sabe quien las puso, así que se enseñan y se deja elegir
+ * a qué pared van.
+ */
+function AvisoHuerfanos({ huerfanos, muros, nombreDe, onRecuperar, onDescartar }) {
+    const [destino, setDestino] = useState('');
+    const huecos = huerfanos.flatMap(o => o.huecos || []);
+    const plantas = new Set(huerfanos.map(o => o.planta));
+    // Solo cerramientos que pueden llevar huecos (fachadas al exterior), de las
+    // mismas plantas primero.
+    const opciones = Object.values(muros || {}).filter(m => admiteHuecos(m))
+        .sort((a, b) => (plantas.has(b.planta) - plantas.has(a.planta))
+                        || nombreDe(a).localeCompare(nombreDe(b)));
+    return (
+        <Franja tono="amber">
+            <b>{huecos.length === 1 ? 'Un hueco se ha quedado sin pared'
+                                    : `${huecos.length} huecos se han quedado sin pared`}</b>{' '}
+            al volver a medir: su cerramiento ya no existe (
+            {huerfanos.map(o => o.pared).join(', ')}).
+            <span className="mt-1 block text-[11.5px] text-white/60">
+                {huecos.map(h => `${h.nombre} (${fmtMed(h.ancho)} × ${fmtMed(h.alto)} m)`).join(' · ')}
+            </span>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+                <select value={destino} onChange={e => setDestino(e.target.value)}
+                        className="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 text-[11px]">
+                    <option value="">¿A qué pared van?</option>
+                    {opciones.map(m => (
+                        <option key={m.id} value={m.id}>
+                            {nombreDe(m)} · {m.planta} · {fmtMed(m.largo)} m
+                        </option>
+                    ))}
+                </select>
+                <button onClick={() => onRecuperar(destino)} disabled={!destino}
+                        className="rounded-lg border border-amber-400/50 bg-amber-400/15 px-3 py-1.5
+                                   text-[11px] font-black uppercase tracking-widest text-amber-200
+                                   disabled:opacity-40 hover:bg-amber-400/25">
+                    Ponerlos ahí
+                </button>
+                <button onClick={onDescartar}
+                        className="ml-auto text-[11px] font-bold uppercase tracking-widest
+                                   text-white/40 hover:text-white">
+                    Eran de lo que se ha quitado: descartarlos
+                </button>
+            </div>
+        </Franja>
+    );
+}
+
+const fmtMed = n => (Number(n) || 0).toFixed(2).replace('.', ',');
 
 /**
  * Un CUERPO del edificio, y que hacer con el.
@@ -1493,8 +1681,13 @@ function CuerpoModal({ cuerpo, onCerrar, onQuitar, onDevolver, onApartarParedes,
                                 ? <>, y <b className="text-amber-300">no lo cuenta como vivienda</b>.</>
                                 : <>, de uso habitable.</>}{' '}
                             <span className="text-white/40">
-                                (se reconoce por la superficie: se parecen al{' '}
-                                {Math.round((c.parecido || 0) * 100)} %)
+                                {c.por_eliminacion
+                                    ? <>(se deduce por eliminación: la vivienda de esa planta
+                                        ya son los {fmtM2(c.vivienda_cubierta)} de la casa, y lo que
+                                        queda de una sola planta suma el{' '}
+                                        {Math.round((c.parecido || 0) * 100)} % del {c.uso})</>
+                                    : <>(se reconoce por la superficie: se parecen al{' '}
+                                        {Math.round((c.parecido || 0) * 100)} %)</>}
                             </span>
                         </>
                     ) : (

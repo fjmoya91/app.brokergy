@@ -681,7 +681,7 @@ async function componerFicha(ctx, { geometria, envolvente, ajustes, medidas = nu
     const imagenes = conImagenes
         ? await imagenesDelCex(ctx, geometria)
         : { avisos: [] };
-    const { ficha, avisos, medidas: catalogo, faltan } = fichaCe3x({
+    const { ficha, avisos, medidas: catalogo, faltan, equipos } = fichaCe3x({
         expediente: ctx.expediente, cliente: ctx.cliente,
         certificador: ctx.certificador, modelos: ctx.modelos,
         geo: { geometria }, envolvente, ajustes, imagenes, fase, medidas,
@@ -699,7 +699,11 @@ async function componerFicha(ctx, { geometria, envolvente, ajustes, medidas = nu
     // respondido (no porque no las tenga). Viaja aparte de los avisos porque
     // el popup de «generado» lo tiene que decir en grande: enterrado en la
     // lista de avisos, el .cex de 26RES093_9 salió sin croquis y nadie lo vio.
-    return { ficha, catalogo, faltan, fuente: fuenteEditable(ctx),
+    //
+    // `equipos`: los de la pestaña de Instalaciones tal y como se enseñan (el
+    // principal aunque aún no se pueda escribir, y en el final lo que conserva
+    // del inicial). Tampoco va al motor.
+    return { ficha, catalogo, faltan, equipos, fuente: fuenteEditable(ctx),
              avisos: [...avisos, ...imagenes.avisos],
              imagenesFallidas: Object.keys(imagenes.fallos || {}) };
 }
@@ -871,11 +875,21 @@ async function guardarEnDrive(ctx, buffer, fase = 'inicial') {
             carpeta, nombre, 'application/octet-stream', buffer, { throwOnError: true });
         if (!guardado?.id) throw new Error('Drive no ha devuelto el fichero');
 
+        // El de la MISMA fase con OTRO número también se archiva: es el que se
+        // generó cuando aún era una oportunidad (`26RES060_OP235 - CEE
+        // INICIAL_REVISAR.cex`). Dejarlo al lado son dos «iniciales» en la misma
+        // carpeta, y a la semana nadie sabe cuál es el bueno. Nunca se borra.
+        const otros = [];
+        for (const f of await otrosCexDeFase(carpeta, expediente, fase, nombre)) {
+            const a = await driveService.archiveExistingToOld(carpeta, f.id, f.name);
+            if (a) otros.push(f.name);
+        }
+
         return { ok: true, nombre, link: guardado.link, driveId: guardado.id,
                  carpeta: dondeCae,
                  carpeta_link: carpetaLink
                      || `https://drive.google.com/drive/folders/${carpeta}`,
-                 archivado, bytes: buffer.length };
+                 archivado, archivados_otros: otros, bytes: buffer.length };
     } catch (e) {
         return { ok: false, error: e.message };
     }
@@ -895,11 +909,31 @@ async function leerCexDeFase(ctx, fase = 'inicial') {
     if (!driveFolderId) return null;
     const carpeta = await carpetaFase(ctx, fase);
     if (!carpeta?.id) return null;
-    const nombre = nombreDelCex(expediente, fase);
-    const id = await driveService.findFileByName(carpeta.id, nombre);
+    let nombre = nombreDelCex(expediente, fase);
+    let id = await driveService.findFileByName(carpeta.id, nombre);
+    if (!id) {
+        // El inicial puede llevar OTRO número: el de la oportunidad, si se
+        // generó antes de aceptarla. Es el mismo edificio y la misma carpeta, y
+        // el final se hace sobre él igual — se dice con su nombre en los avisos.
+        const [otro] = await otrosCexDeFase(carpeta.id, expediente, fase, nombre);
+        if (otro) { id = otro.id; nombre = otro.name; }
+    }
     if (!id) return null;
     const bytes = await driveService.getFileContent(id);
     return bytes?.length ? { bytes, nombre, driveId: id } : null;
+}
+
+/**
+ * Los `.cex` generados de ESTA fase en la carpeta que no se llaman como el del
+ * número actual: los que se generaron cuando era una oportunidad. Se reconocen
+ * por el final del nombre (` - CEE INICIAL_REVISAR.cex`), que es el que pone
+ * `nombreDelCex` — nunca por el del técnico, que no lleva `_REVISAR`.
+ */
+async function otrosCexDeFase(carpetaId, expediente, fase, salvo) {
+    const cola = ` - ${sufijoCex(expediente, fase)}.cex`.toLowerCase();
+    const todos = await driveService.listFiles(carpetaId);
+    return (todos || []).filter(f => f?.id && f.name !== salvo
+        && String(f.name || '').toLowerCase().endsWith(cola));
 }
 
 // ─── Lo que el certificador señala, guardado en el expediente ────────────────

@@ -171,8 +171,27 @@ function recorteSaneado(r) {
 }
 
 /**
+ * Las ZONAS que no cuentan en UNA planta (el garaje dentro de la casa, con la
+ * vivienda encima), tal y como pueden viajar al motor. Vértices en el CRS
+ * métrico, como el contorno de la vivienda; lo que no sean pares de números, o
+ * un nivel que no sea un entero, no viaja. El uso solo pone nombre: en CE3X las
+ * tres se escriben igual.
+ */
+const USOS_ZONA = ['GARAJE', 'ALMACEN', 'ESPACIO NO HABITABLE'];
+function zonasSaneadas(zs) {
+    if (!Array.isArray(zs)) return [];
+    return zs.slice(0, 20).map((z) => {
+        const r = recorteSaneado(z);
+        const nivel = Number(z?.nivel);
+        if (!r || !Number.isInteger(nivel)) return null;
+        const uso = String(z?.uso || '').toUpperCase();
+        return { nivel, poligono: r.poligono, uso: USOS_ZONA.includes(uso) ? uso : null };
+    }).filter(Boolean);
+}
+
+/**
  * POST /api/cee-envolvente/:expedienteId/geometria
- * Body: { referencia_catastral, altura_planta?, cuerpos_excluidos?, recorte_vivienda? }
+ * Body: { referencia_catastral, altura_planta?, cuerpos_excluidos?, recorte_vivienda?, zonas_fuera? }
  *
  * De la RC a la envolvente medida y clasificada, más el plan de fotos.
  * La RC sale del expediente si no viene en el cuerpo: cada consulta a Catastro
@@ -208,6 +227,11 @@ router.post('/:expedienteId/geometria', internalOnly, staffSiOportunidad, async 
             // dibuja el certificador. Vértices en el CRS métrico (EPSG:25830);
             // lo que no sean pares de números no viaja.
             recorte_vivienda: recorteSaneado(req.body?.recorte_vivienda),
+            // Lo que NO es vivienda dentro de una planta —el garaje dentro de la
+            // casa de dos plantas—, dibujado por el certificador. Al contrario
+            // que el contorno (un prisma para todas las plantas), se resta SOLO
+            // de su nivel: la vivienda de encima sigue entera.
+            zonas_fuera: zonasSaneadas(req.body?.zonas_fuera),
             // El PROGRAMA de CE3X (residencial / pequeño / gran terciario). De
             // él cuelga QUÉ SE MIDE: en un terciario cuentan también los usos
             // del terciario que Catastro no da por habitables (un hotel es
@@ -279,7 +303,7 @@ router.post('/:expedienteId/ficha', internalOnly, staffSiOportunidad, async (req
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
 
         const fase = req.body?.fase || 'inicial';
-        const { ficha, catalogo, faltan, avisos, fuente } = await cex.componerFicha(ctx, {
+        const { ficha, catalogo, faltan, avisos, fuente, equipos } = await cex.componerFicha(ctx, {
             geometria, envolvente: req.body?.envolvente, ajustes: req.body?.ajustes,
             medidas: req.body?.medidas, fase,
         });
@@ -289,7 +313,7 @@ router.post('/:expedienteId/ficha', internalOnly, staffSiOportunidad, async (req
         // `fuente` son las COLUMNAS en crudo del cliente y del técnico: es lo
         // que edita el formulario de administrativos, porque sobre el valor
         // compuesto de la ficha no se puede escribir.
-        res.json({ ficha, avisos, fase, medidas: catalogo, faltan, fuente,
+        res.json({ ficha, avisos, fase, medidas: catalogo, faltan, fuente, equipos,
                    nombre: cex.nombreDelCex(ctx.expediente, fase) });
     } catch (e) {
         console.error('[ceeEnvolvente] ficha:', e.message);
@@ -481,14 +505,21 @@ router.post('/:expedienteId/cex', internalOnly, staffSiOportunidad, async (req, 
         const fase = req.body?.fase || 'inicial';
         const esFinal = fase === 'final';
 
-        // En una OPORTUNIDAD no se escribe el .cex: todavía no hay técnico que
-        // lo firme ni número de expediente con el que nombrarlo (el fichero lo
-        // lleva, y el CEE final se busca por él). Todo lo señalado ya está
-        // guardado y pasa al expediente al aceptar: se genera desde allí.
-        if (cex.esOportunidad(ctx.expediente)) {
+        // En una OPORTUNIDAD también se escribe (decisión del 2026-09-28). Va a
+        // SU carpeta de Drive —que es la del futuro expediente: no se mueve al
+        // aceptarla— con el número de la oportunidad, y sin técnico, que aún no
+        // lo hay (la ficha lo avisa). Al aceptarla, el expediente encuentra ese
+        // inicial para el final (`leerCexDeFase`) y, al regenerarlo, lo archiva
+        // en OLD (`guardarEnDrive`).
+        //
+        // Sin carpeta no hay dónde dejarlo: se dice ANTES de pedirle nada al
+        // motor, no después de escribir un fichero que no tiene sitio.
+        if (!ctx.driveFolderId) {
             return res.status(409).json({
-                error: 'Esto es todavía una oportunidad: el .cex se genera cuando sea '
-                     + 'expediente. Lo señalado ya está guardado y pasa a él al aceptarla.',
+                error: cex.esOportunidad(ctx.expediente)
+                    ? 'Esta oportunidad todavía no tiene carpeta de Drive: guárdala desde la '
+                      + 'calculadora para que se cree, y vuelve a generar.'
+                    : 'Este expediente no tiene carpeta de Drive: no hay dónde dejar el .cex.',
             });
         }
 
@@ -514,8 +545,9 @@ router.post('/:expedienteId/cex', internalOnly, staffSiOportunidad, async (req, 
         const partida = esFinal ? await cex.leerCexDeFase(ctx, 'inicial') : null;
         if (esFinal && !partida) {
             return res.status(409).json({
-                error: 'El CEE final se hace sobre el inicial, y este expediente todavía '
-                     + 'no tiene ninguno en «1. CEE / CEE INICIAL». Genera primero el inicial.',
+                error: `El CEE final se hace sobre el inicial, y ${cex.esOportunidad(ctx.expediente)
+                    ? 'esta oportunidad' : 'este expediente'} todavía no tiene ninguno en `
+                     + '«1. CEE / CEE INICIAL». Genera primero el inicial.',
             });
         }
 
@@ -561,6 +593,10 @@ router.post('/:expedienteId/cex', internalOnly, staffSiOportunidad, async (req, 
                 error: `El .cex se ha generado pero no se ha podido guardar en Drive: ${guardado.error}`,
                 avisos, contraste,
             });
+        }
+        if (guardado.archivados_otros?.length) {
+            avisos.unshift(`Se ha archivado en OLD ${guardado.archivados_otros.map(n => `«${n}»`)
+                .join(', ')}: es el que se generó cuando era una oportunidad.`);
         }
         // `sin_imagenes`: lo que ha salido SIN foto o croquis porque el
         // Catastro no ha respondido. El popup lo dice en grande y ofrece volver

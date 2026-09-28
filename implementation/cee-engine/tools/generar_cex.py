@@ -417,9 +417,61 @@ def _rendimientos(eq: dict) -> tuple[list, list, list[str]]:
     return [estacional, estacional, ""], cola, [aviso]
 
 
+def _por_combustion(eq: dict) -> bool:
+    """Si CE3X ESTIMA el rendimiento de este equipo con la cola de una CALDERA.
+
+    Lo decide el COMBUSTIBLE, no el tipo de equipo ni el generador. Medido sobre
+    los 1.600 .cex del disco: de los 1.326 equipos ESTIMADOS de los slots
+    calefaccion, ACS y mixto2, TODOS los que queman algo llevan la cola de la
+    caldera —aislamiento, rendimiento de combustion, carga media, potencia— y
+    TODOS los de Electricidad la cola SIMPLE, con el rendimiento nominal. Sin
+    una sola excepcion, y tambien los electricos que se declaran «Caldera
+    Estandar» (38: calderas electricas).
+
+    Es lo que hace posible CAMBIAR EL USO de un equipo: una caldera de gasoleo
+    que pasa a dar solo el ACS sigue siendo una caldera (61 equipos de ACS del
+    corpus lo son), y unos radiadores electricos de solo calefaccion no tienen
+    ni aislamiento ni potencia que declarar (68).
+    """
+    return (eq.get("rendimiento", "estimado") == "estimado"
+            and str(eq.get("combustible") or "") != "Electricidad")
+
+
+def _nominal(eq: dict, defecto: str = "100.0") -> str:
+    """El rendimiento NOMINAL de un equipo electrico, en el formato de CE3X.
+
+    Una caldera electrica que llega de la oportunidad trae su rendimiento como
+    `rend_combustion` (el 100 % de la tabla); un equipo tecleado, como
+    `rend_nominal`. Es el mismo numero. CE3X lo guarda con su decimal: "100.0".
+    """
+    crudo = eq.get("rend_nominal") or eq.get("rend_combustion") or defecto
+    n = _numf(crudo)
+    return str(float(n)) if n is not None else str(defecto)
+
+
+def _aviso_nominal(eq: dict, nominal: str) -> str:
+    return (f"instalacion {eq['nombre']}: el rendimiento medio estacional lo calcula "
+            f"CE3X. Aqui va el nominal ({nominal} %). Abre Instalaciones y dale a "
+            f"Modificar para que ponga el suyo.")
+
+
 def equipo_mixto(eq: dict, espacio: str) -> tuple[list, list[str]]:
-    """Un equipo mixto de calefaccion y ACS (el slot 'mixto2'): 10 campos."""
-    rend, cola, avisos = _rendimientos(eq)
+    """Un equipo mixto de calefaccion y ACS (el slot 'mixto2'): 10 campos.
+
+    Con un combustible, la cola de la caldera (698 equipos del corpus). Con
+    ELECTRICIDAD, la cola simple con el nominal repetido en los dos servicios y
+    una lista VACIA donde los otros llevan sus parametros — medido en los 5
+    mixtos por efecto Joule del corpus («CALDERA ELECTRICA GOBORRON C-83»):
+
+        [['100.0', '100.0', ''], [False, False, True], []]
+    """
+    if eq.get("rendimiento", "estimado") == "estimado" and not _por_combustion(eq):
+        nominal = _nominal(eq)
+        rend = [_numf(nominal), _numf(nominal), ""]
+        cola = [[nominal, nominal, ""], [False, False, True], []]
+        avisos = [_aviso_nominal(eq, nominal)]
+    else:
+        rend, cola, avisos = _rendimientos(eq)
 
     sup_acs = _sup(eq, "superficie_acs")
     sup_cal = _sup(eq, "superficie_calefaccion")
@@ -460,7 +512,17 @@ def equipo_calefaccion(eq: dict, espacio: str) -> tuple[list, list[str]]:
     en los rendimientos como en la superficie. Medido sobre 226 equipos reales
     del corpus, todos con el rendimiento declarado como CONOCIDO.
     """
-    rend, cola, avisos = _rendimientos(eq)
+    if eq.get("rendimiento", "estimado") == "estimado" and not _por_combustion(eq):
+        # ELECTRICO (radiadores, estufas, una caldera electrica): la cola simple
+        # con el nominal en el hueco de la calefaccion. Medido sobre los 71
+        # equipos electricos de solo calefaccion del corpus:
+        #   ['', '100.0', ''], [False, False, True], [False, '1.0', '0.0']
+        nominal = _nominal(eq)
+        rend = ["", _numf(nominal), ""]
+        cola = [["", nominal, ""], [False, False, True], list(_COLA_SIMPLE)]
+        avisos = [_aviso_nominal(eq, nominal)]
+    else:
+        rend, cola, avisos = _rendimientos(eq)
     sup_cal = _sup(eq, "superficie_calefaccion")
     return [
         str(eq["nombre"]),
@@ -610,7 +672,7 @@ def equipo_acs(eq: dict, espacio: str) -> tuple[list, list[str]]:
     casilla en «Conocido» deja el equipo mal definido, y entonces CE3X se niega
     a calcular la medida entera.
     """
-    nominal = str(eq.get("rend_nominal", "100.0"))
+    nominal = _nominal(eq)
     acum = eq.get("acumulacion")
     crudo_acum = eq.get("acumulacion_cruda")
     if crudo_acum:
@@ -632,6 +694,15 @@ def equipo_acs(eq: dict, espacio: str) -> tuple[list, list[str]]:
         # por eso no hay aviso: esto SI es un dato.
         rend = str(_v(eq.get("rend_acs"), "instalaciones.rend_acs"))
         campo2, cola, avisos = [rend, "", ""], [rend, "", ""], []
+    elif _por_combustion(eq):
+        # Una CALDERA que da SOLO el ACS (la calefaccion va por otro lado, o no
+        # la hay): la cola de la caldera, igual que en el mixto. Medido sobre
+        # los 61 equipos de ACS con combustible del corpus, p. ej.:
+        #   [87.2, '', ''] ... ['Bien aislada y mantenida', '100', '0.2',
+        #                       '24.0', [False,False,True,False,False,True,False],
+        #                       [1.0, 0.0]]
+        rend, cola, avisos = _rendimientos(eq)
+        campo2 = [rend[0], "", ""]
     else:
         # El estacional lo RECALCULA CE3X al abrir. En el medido coincide con el
         # nominal (un efecto Joule no tiene perdidas que descontar), asi que se

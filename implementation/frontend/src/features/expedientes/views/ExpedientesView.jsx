@@ -1241,6 +1241,20 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
             .sort((a, b) => (a.acronimo || a.razon_social || '').localeCompare(b.acronimo || b.razon_social || ''));
     }, [expedientes, prescriptores]);
 
+    // Cuántos expedientes tiene cada empresa, para el buscador de la cabecera:
+    // es lo que dice si merece la pena filtrar por ella. Sobre la cartera entera,
+    // no sobre lo ya filtrado — si no, al elegir una las demás se irían a 0.
+    const conteoInstalador = useMemo(() => {
+        const c = {};
+        for (const e of expedientes) { const k = instaladorDe(e).id || 'NONE'; c[k] = (c[k] || 0) + 1; }
+        return c;
+    }, [expedientes]);
+    const conteoCertificador = useMemo(() => {
+        const c = {};
+        for (const e of expedientes) { const k = e.cee?.certificador_id ? String(e.cee.certificador_id) : 'NONE'; c[k] = (c[k] || 0) + 1; }
+        return c;
+    }, [expedientes]);
+
     const availableLotes = useMemo(() => {
         const set = new Set(expedientes.map(e => e.lote?.codigo).filter(Boolean));
         return Array.from(set).sort().reverse();
@@ -1338,6 +1352,8 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
             anios: availableYears,
             certificadores,
             instaladores: availableInstaladores,
+            conteoInstalador,
+            conteoCertificador,
             lotes: availableLotes,
             municipios: availableMunicipios,
         },

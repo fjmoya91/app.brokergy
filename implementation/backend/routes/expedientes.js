@@ -7245,11 +7245,24 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
         
         // Solo actualizamos el Roadmap a ASIGNADO si es un nuevo encargo (standard).
         // Si es un recordatorio (reminder) o aviso urgente (urgent), no tocamos el Roadmap para no perder la trazabilidad.
+        //
+        // Y NUNCA hacia atrás: un encargo solo marca ASIGNADO si la fase aún no
+        // tiene nada entregado (por debajo de PRESENTADO) ni consta registrada. Un
+        // migrado llega con el CEE REGISTRADO y la clave del subestado VACÍA; al
+        // asignarle técnico se le ponía ASIGNADO encima de un justificante de
+        // registro y el parte lo contaba como CEE parado del certificador
+        // (25RES060_93 y 26RES060_103, 2026-09-26). Mismo blindaje que el PUT.
         if (template === 'standard') {
-            if (phase === 'final') {
-                applyStatus(seguimiento, 'cee_final', 'ASIGNADO');
+            const { rankSubestado } = require('../utils/ceeDirectoEstados');
+            const clave = phase === 'final' ? 'cee_final' : 'cee_inicial';
+            const faseDoc = phase === 'final' ? 'final' : 'inicial';
+            const registrada = !!exp.documentacion?.[`fecha_registro_cee_${faseDoc}`]
+                || !!seguimiento[`${clave}_ts`]?.REGISTRADO;
+            if (!registrada && rankSubestado(seguimiento[clave]) < rankSubestado('PRESENTADO')) {
+                applyStatus(seguimiento, clave, 'ASIGNADO');
             } else {
-                applyStatus(seguimiento, 'cee_inicial', 'ASIGNADO');
+                console.warn(`[notify-certificador ${req.params.id}] ${clave} ya entregado/registrado `
+                             + `(${seguimiento[clave] || 'sin subestado'}) — no se retrocede a ASIGNADO`);
             }
         }
         // Constancia de la última comunicación al certificador (incluye recordatorios/urgentes,

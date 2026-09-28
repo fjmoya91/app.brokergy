@@ -76,6 +76,28 @@
       ],
       "port": 4321,
       "autoPort": true
+    },
+    {
+      "name": "backend-alt",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "-e",
+        "process.env.PORT='3010';process.env.WHATSAPP_ENABLED='false';process.argv[1]=require('path').resolve('server.js');require('module').runMain()"
+      ],
+      "cwd": "implementation/backend",
+      "port": 3010,
+      "autoPort": false
+    },
+    {
+      "name": "frontend-alt",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "-e",
+        "process.env.BACKEND_PORT='3010';process.argv.splice(1,process.argv.length-1,'vite','--port','5180','--strictPort');import('./node_modules/vite/bin/vite.js')"
+      ],
+      "cwd": "implementation/frontend",
+      "port": 5180,
+      "autoPort": false
     }
   ]
 }
