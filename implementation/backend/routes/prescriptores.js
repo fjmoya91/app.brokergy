@@ -1098,7 +1098,8 @@ router.patch('/:id', enforceAuth, async (req, res) => {
                 if (!Number.isFinite(v) || v < 0) {
                     return res.status(400).json({ error: 'La comisión no puede ser negativa.', code: 'INVALID_COMISION_VALOR' });
                 }
-                // Un % por encima de 100 se llevaría más de lo que paga el S.O.
+                // El % es sobre lo que se le ofrece al CLIENTE (logic/comisionPartner.js):
+                // por encima de 100 se llevaría más que el propio bono del cliente.
                 const tipoFinal = prescriptorPayload.comision_tipo || payload.comision_tipo || 'eur';
                 if (tipoFinal === 'pct' && v > 100) {
                     return res.status(400).json({ error: 'El porcentaje de comisión no puede superar el 100 %.', code: 'INVALID_COMISION_VALOR' });

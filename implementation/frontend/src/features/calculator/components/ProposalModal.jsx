@@ -13,6 +13,7 @@ import { estadoFc, lineaFactorCorreccion } from '../logic/avisoFc';
 // se factura hasta un mensaje nuevo confirmándolo. Fuente única — ver
 // `logic/avisoCeeInicial.js`. Va SIEMPRE, no depende de ningún caso.
 import { lineaAvisoCeeInicial } from '../logic/avisoCeeInicial';
+import { comisionEurMwh, pctDeComision, lineaComisionPartner } from '../logic/comisionPartner';
 import { getRoleFlags } from '../../../utils/roleFlags';
 import { postEmail } from '../../../utils/emailFallback';
 // Los nombres se guardan en MAYÚSCULAS (el formulario las fuerza): en el saludo
@@ -1874,6 +1875,44 @@ info@brokergy.es · 623 926 179`;
     }, [inputs, result, displayId, urlId, ceeComparison]);
 
     /**
+     * Qué comisión le toca al partner en CADA opción que se le presenta al
+     * cliente. Sale de los mismos financieros que las cifras del mensaje
+     * (`totalPrescriptor` = MWh × €/MWh), así que no puede contradecir el panel de
+     * margen. En la variante del CEE aportado no hay financieros por opción, pero
+     * sí el ahorro de cada una, y la comisión es ese ahorro × €/MWh.
+     *
+     * Al partner solo le llegan el IMPORTE y su % — nunca los MWh ni los €/MWh
+     * (ver `lineaComisionPartner`).
+     */
+    const opcionesComision = useCallback((opts = {}) => {
+        const eurMwh = comisionEurMwh(inputs);
+        if (eurMwh <= 0) return { pct: 0, opciones: [] };
+        const pct = pctDeComision(eurMwh, inputs?.caePriceClient);
+        const fAero = result?.financials || {};
+        const fReforma = result?.financialsRes080 || {};
+        const isReforma = !!inputs?.isReforma;
+        const isOnlyReforma = isReforma && inputs?.comparativaReforma === false;
+        const isBoth = isReforma && inputs?.comparativaReforma !== false;
+        const op = (etiqueta, f) => ({ etiqueta, importe: f?.totalPrescriptor || 0 });
+
+        let opciones;
+        if (opts.cee && ceeComparison) {
+            const kwhNuevo = ceeComparison.ceeNuevo?.ahorroKwh || 0;
+            const kwhCee = ceeComparison.conCee?.ahorroKwh ?? kwhNuevo;
+            const a = { etiqueta: 'Con el CEE aportado', importe: (kwhCee / 1000) * eurMwh };
+            const b = { etiqueta: 'Emitiendo un CEE inicial nuevo', importe: (kwhNuevo / 1000) * eurMwh };
+            opciones = Math.round(a.importe) === Math.round(b.importe) ? [b] : [a, b];
+        } else if (isOnlyReforma) {
+            opciones = [op(null, fReforma)];
+        } else if (isBoth) {
+            opciones = [op('Opción 1 — solo aerotermia', fAero), op('Opción 2 — aerotermia + envolvente', fReforma)];
+        } else {
+            opciones = [op(null, fAero)];
+        }
+        return { pct, opciones };
+    }, [inputs, result, ceeComparison]);
+
+    /**
      * El mensaje de envío, con los avisos fijos PEGADOS al final.
      *
      * Se añaden fuera de las quince ramas de `buildCaptionBase` (cliente/partner/
@@ -1898,6 +1937,15 @@ info@brokergy.es · 623 926 179`;
     const buildCaption = useCallback((mode, targetName, opts = {}) => {
         let txt = buildCaptionBase(mode, targetName, opts) || '';
         if (!txt) return txt;
+        // La COMISIÓN, solo al PARTNER (el prescriptor, que es a quien se le paga) y
+        // solo si esta simulación la lleva. Nunca al INSTALADOR asociado cuando es
+        // otra empresa, ni al cliente: es el margen de un tercero. Va la primera de
+        // las notas porque es lo que el partner busca en el mensaje; las otras son
+        // matices de la cifra del cliente.
+        if (mode === 'PARTNER') {
+            const linea = lineaComisionPartner(opcionesComision(opts));
+            if (linea) txt = `${txt}\n\n${linea}`;
+        }
         txt = `${txt}\n\n${lineaAvisoCeeInicial({
             tuteo: mode !== 'PARTNER' && mode !== 'INSTALADOR',
         })}`;
@@ -1918,7 +1966,7 @@ info@brokergy.es · 623 926 179`;
             })}`;
         }
         return txt;
-    }, [buildCaptionBase, presInfo, fcInfo]);
+    }, [buildCaptionBase, presInfo, fcInfo, opcionesComision]);
 
     const sendToMultiple = useCallback(async (selectedModes, customMessages = {}) => {
         setRecipientChoice(false);

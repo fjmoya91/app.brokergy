@@ -23,6 +23,7 @@ import { PROVINCE_CLIMATE_MAP } from '../data/provinceMapping';
 import { fichaDesdeInputs, SECTORES, fichaColor } from '../../expedientes/logic/expedienteTaxonomia';
 import { ACS_METHOD, resolveDacs } from '../../expedientes/logic/demandaAcs';
 // El OBJETO de la simulación: una vivienda o el EDIFICIO completo.
+import { pctDeComision, comisionDePct } from '../logic/comisionPartner';
 import { esBloque, TIPO_INMUEBLE, clasificarTipoEdificio, etiquetaTipoEdificio, avisoTipoEdificio, IRPF_EDIFICIO_REQUISITO } from '../logic/tipoInmueble';
 import { FV, FV_OPCIONES, normalizarFotovoltaica, potenciaTexto, etiquetaFotovoltaica } from '../../expedientes/logic/fotovoltaica';
 import { produceAcs, litrosAcsCatalogo, esConjuntoAcs } from '../../expedientes/logic/acsCatalogo';
@@ -65,7 +66,8 @@ export function CalculatorForm({
     // simulación arranca ya con su comisión, descontada del CLIENTE. A partir de
     // ahí manda el usuario: puede quitarla o cambiar el importe, y no se le
     // vuelve a imponer mientras siga el mismo prescriptor (por eso el ref).
-    // Si se pactó en %, se traduce con el precio del S.O. de ESTA simulación.
+    // Si se pactó en %, se traduce con el precio que se le ofrece al CLIENTE en
+    // ESTA simulación (logic/comisionPartner.js).
     const comisionAplicadaRef = useRef(null);
     useEffect(() => {
         const pid = inputs?.prescriptor_id;
@@ -80,9 +82,8 @@ export function CalculatorForm({
                 const valor = parseFloat(p.comision_valor) || 0;
                 if (cancelado || !p.comision_activa || valor <= 0) return;
                 onInputChange(prev => {
-                    const precioSO = parseFloat(prev.caePriceSO) || 0;
                     const eurMwh = p.comision_tipo === 'pct'
-                        ? Math.round(precioSO * valor) / 100
+                        ? comisionDePct(valor, prev.caePriceClient)
                         : valor;
                     if (!eurMwh) return prev;
                     return { ...prev, includeCommission: true, caePricePrescriptor: eurMwh, prescriptorMode: 'client' };
@@ -3379,14 +3380,16 @@ export function CalculatorForm({
                                             {inputs.includeCommission && (
                                                 <div className="animate-fade-in space-y-6 mb-6 p-4 rounded-xl bg-slate-950/40 border border-orange-500/20">
                                                     {/* La comisión se pacta de las dos maneras: unos partners la
-                                                        piden en €/MWh y otros como un % del precio que paga el
-                                                        S.O. Se guarda SIEMPRE en €/MWh (es lo que consume el
-                                                        cálculo); el % es solo otra forma de teclear lo mismo, y
-                                                        por eso al escribir en un lado se recalcula el otro. */}
+                                                        piden en €/MWh y otros como un % de LO QUE SE LE OFRECE
+                                                        AL CLIENTE (su precio CAE, antes de restarle la comisión).
+                                                        Se guarda SIEMPRE en €/MWh (es lo que consume el cálculo);
+                                                        el % es solo otra forma de teclear lo mismo, y por eso al
+                                                        escribir en un lado se recalcula el otro. Fuente única del
+                                                        criterio: logic/comisionPartner.js. */}
                                                     {(() => {
-                                                        const precioSO = parseFloat(inputs.caePriceSO) || 0;
+                                                        const precioCliente = parseFloat(inputs.caePriceClient) || 0;
                                                         const comision = parseFloat(inputs.caePricePrescriptor) || 0;
-                                                        const pct = precioSO > 0 ? (comision / precioSO) * 100 : 0;
+                                                        const pct = pctDeComision(comision, precioCliente);
                                                         return (
                                                             <div className="grid grid-cols-2 gap-3">
                                                                 <div className="space-y-2">
@@ -3401,22 +3404,19 @@ export function CalculatorForm({
                                                                 </div>
                                                                 <div className="space-y-2">
                                                                     <Label htmlFor="private-cae-prescriptor-pct">
-                                                                        Comisión (%) <span className="text-slate-500 font-normal normal-case">s/ {precioSO || '—'} €/MWh</span>
+                                                                        Comisión (%) <span className="text-slate-500 font-normal normal-case">s/ {precioCliente || '—'} €/MWh cliente</span>
                                                                     </Label>
                                                                     <Input
                                                                         id="private-cae-prescriptor-pct"
                                                                         type="number"
                                                                         step="0.1"
                                                                         min="0"
-                                                                        disabled={precioSO <= 0}
-                                                                        title={precioSO > 0 ? 'Porcentaje sobre el precio CAE del Sujeto Obligado' : 'Introduce antes el precio CAE del S.O.'}
+                                                                        disabled={precioCliente <= 0}
+                                                                        title={precioCliente > 0 ? 'Porcentaje sobre el precio CAE que se le ofrece al cliente' : 'Introduce antes el precio CAE del cliente'}
                                                                         className="bg-slate-900 border-orange-500/40 text-orange-100 focus:border-orange-500 h-9 disabled:opacity-40"
-                                                                        // Se redondea a 2 decimales para que no salga 6.2500000001
-                                                                        // al teclear en el campo de euros.
-                                                                        value={pct ? Math.round(pct * 100) / 100 : (comision ? 0 : '')}
+                                                                        value={pct || (comision ? 0 : '')}
                                                                         onChange={e => {
-                                                                            const p = parseFloat(e.target.value) || 0;
-                                                                            handleChange('caePricePrescriptor', Math.round(precioSO * p) / 100);
+                                                                            handleChange('caePricePrescriptor', comisionDePct(e.target.value, precioCliente));
                                                                         }}
                                                                     />
                                                                 </div>

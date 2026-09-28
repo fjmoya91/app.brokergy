@@ -6,6 +6,8 @@ import { useAuth } from '../../../context/AuthContext';
 import { CertificadorResumenModal } from './CertificadorResumenModal';
 import TarifasVerificacionPanel from './TarifasVerificacionPanel';
 import { nombrePartner } from '../../../utils/tiposEmpresa';
+import { CAE_PRECIO_CLIENTE_NUEVAS } from '../../calculator/logic/calculation';
+import { pctDeComision, comisionDePct } from '../../calculator/logic/comisionPartner';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 // Iniciales para el avatar cuando la empresa no tiene logo. Dos letras (las de
@@ -2095,15 +2097,16 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                             </label>
 
                                             {form.comision_activa && (() => {
-                                                // El % se pacta sobre el precio que paga el Sujeto Obligado.
-                                                // Aquí no hay simulación, así que se enseña el equivalente
-                                                // sobre el precio de referencia; en cada propuesta se
-                                                // recalcula con el precio real de esa simulación.
-                                                const REF_SO = 160;
+                                                // El % se pacta sobre lo que se le OFRECE AL CLIENTE (su precio
+                                                // CAE), no sobre lo que paga el S.O. Aquí no hay simulación, así
+                                                // que se enseña el equivalente sobre la tarifa vigente de
+                                                // propuestas nuevas; en cada propuesta se recalcula con el precio
+                                                // de esa simulación (logic/comisionPartner.js).
+                                                const REF_CLIENTE = CAE_PRECIO_CLIENTE_NUEVAS;
                                                 const v = parseFloat(form.comision_valor) || 0;
                                                 const esPct = form.comision_tipo === 'pct';
-                                                const eur = esPct ? Math.round(REF_SO * v) / 100 : v;
-                                                const pct = esPct ? v : Math.round((v / REF_SO) * 10000) / 100;
+                                                const eur = esPct ? comisionDePct(v, REF_CLIENTE) : v;
+                                                const pct = esPct ? v : pctDeComision(v, REF_CLIENTE);
                                                 const marca = activo => activo
                                                     ? 'ring-1 ring-orange-500/60 rounded-lg'
                                                     : 'opacity-70';
@@ -2117,14 +2120,14 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                                                 </FI>
                                                             </div>
                                                             <div className={marca(esPct)}>
-                                                                <FI label={`Comisión (%) s/ ${REF_SO} €/MWh`}>
+                                                                <FI label={`Comisión (%) s/ ${REF_CLIENTE} €/MWh cliente`}>
                                                                     <Inp type="number" value={pct || ''} placeholder="Ej: 10"
                                                                         onChange={e => upd({ comision_tipo: 'pct', comision_valor: e.target.value })} />
                                                                 </FI>
                                                             </div>
                                                         </div>
                                                         <p className="text-[10px] text-white/30 leading-relaxed">
-                                                            Se guarda como <strong className="text-white/60">{esPct ? `${pct} % del precio del S.O.` : `${eur} €/MWh fijos`}</strong> (el campo con borde). Si se pacta en %, la comisión sigue al precio del S.O. de cada simulación; si se pacta en €/MWh, no se mueve.
+                                                            Se guarda como <strong className="text-white/60">{esPct ? `${pct} % del precio ofrecido al cliente` : `${eur} €/MWh fijos`}</strong> (el campo con borde). Si se pacta en %, la comisión sigue al precio CAE que se le ofrece al cliente en cada simulación; si se pacta en €/MWh, no se mueve.
                                                         </p>
                                                     </>
                                                 );
