@@ -498,6 +498,56 @@ def aplicar_seleccion(modelo: Modelo, incluidas) -> list[str]:
     return cambios
 
 
+#: Los tipos de edificio de CE3X que son TERCIARIO. Las cadenas son las mismas
+#: que `tools/terciario.py` y que la app (`fichaCe3x.js`).
+TIPOS_TERCIARIO = ("pequeno_terciario", "gran_terciario")
+
+
+def es_terciario(tipo: str | None) -> bool:
+    return tipo in TIPOS_TERCIARIO
+
+
+def aplicar_tipo_edificio(modelo: Modelo, tipo: str | None) -> list[str]:
+    """En un TERCIARIO cuentan los usos del terciario, no solo la vivienda.
+
+    POR QUE EXISTE: el motor mide lo HABITABLE, y hasta ahora eso era VIVIENDA y
+    LOCAL. Un hotel es 'HOTELERO' en Catastro, una iglesia 'RELIGIOSO' y
+    'ENSEÑANZA', una residencia 'SANIDAD': ninguno contaba. Medido sobre los
+    ejemplos del 2026-09-28 —la parroquia de 25TER100_1 se habria medido solo
+    por la vivienda de su segunda planta (302 de 1.272 m²), y la residencia de
+    Socuéllamos, como no tiene nada «habitable», ENTERA: almacen y aparcamiento
+    incluidos—.
+
+    Solo se tocan los espacios que Catastro no decide (`habitable` a None): un
+    almacen, un garaje o unos comunes siguen fuera, y lo que no se reconoce (un
+    porche) tambien. Va ANTES de `aplicar_seleccion`: si una persona marco en
+    la oportunidad que construcciones cuentan, eso sigue mandando.
+
+    Se deja escrito en el modelo (`tipo_edificio_ce3x`) porque de el cuelga
+    tambien que forjados se escriben (ver `floors.elementos_horizontales`).
+    """
+    modelo.catastro["tipo_edificio_ce3x"] = tipo if es_terciario(tipo) else "residencial"
+    if not es_terciario(tipo):
+        return []
+    cambios = []
+    for s in modelo.spaces:
+        a = s.attrs if s.attrs is not None else {}
+        if s.use in alphanumeric.ACONDICIONADOS_TERCIARIO and a.get("habitable") is None:
+            a["habitable"] = True
+            a["cuenta"] = True
+            a["habitable_por_tipo"] = True
+            s.attrs = a
+            cambios.append(f"{a.get('codigo') or '?'} ({a.get('uso_literal') or s.use}, "
+                           f"{a.get('planta_literal') or s.floor}, {s.area} m2)")
+    if cambios:
+        modelo.diagnostics.add(
+            "USOS_TERCIARIOS",
+            "es un TERCIARIO: cuentan tambien los usos del terciario que Catastro no "
+            f"da por habitables ({'; '.join(cambios)}). Almacen, garaje y comunes "
+            "siguen fuera. Desmarca en el desglose lo que no se acondicione.")
+    return cambios
+
+
 def sin_vivienda_mide_todo(modelo: Modelo) -> list[str]:
     """Si NADA cuenta como habitable, se mide el edificio ENTERO, y se dice.
 
@@ -731,7 +781,14 @@ def analizar(o: Opciones, modelo: Modelo) -> Resultado:
             "tramos": tramos})
 
     # -- horizontales ---------------------------------------------------------
-    horizontales = floors_mod.elementos_horizontales(modelo.floors)
+    # En un TERCIARIO el forjado entre dos plantas acondicionadas de distinto
+    # uso (las aulas bajo la vivienda del sacerdote) no se escribe: a los dos
+    # lados hay la misma temperatura. En el residencial no cambia nada.
+    horizontales = floors_mod.elementos_horizontales(
+        modelo.floors,
+        acondicionados=(alphanumeric.ACONDICIONADOS_TERCIARIO
+                        if es_terciario(modelo.catastro.get("tipo_edificio_ce3x"))
+                        else None))
     elementos.extend(classifier.horizontales(horizontales, contador))
 
     _cruzar_superficies(modelo)

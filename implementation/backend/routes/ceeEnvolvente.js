@@ -208,6 +208,13 @@ router.post('/:expedienteId/geometria', internalOnly, staffSiOportunidad, async 
             // dibuja el certificador. Vértices en el CRS métrico (EPSG:25830);
             // lo que no sean pares de números no viaja.
             recorte_vivienda: recorteSaneado(req.body?.recorte_vivienda),
+            // El PROGRAMA de CE3X (residencial / pequeño / gran terciario). De
+            // él cuelga QUÉ SE MIDE: en un terciario cuentan también los usos
+            // del terciario que Catastro no da por habitables (un hotel es
+            // «HOTELERO», una parroquia «RELIGIOSO»). Solo los tres valores de
+            // CE3X; cualquier otra cosa se mide como siempre.
+            tipo_edificio_ce3x: ['residencial', 'pequeno_terciario', 'gran_terciario']
+                .includes(req.body?.tipo_edificio_ce3x) ? req.body.tipo_edificio_ce3x : null,
         }, ESPERA_ENVOLVENTE_MS);
 
         const datos = await r.json();

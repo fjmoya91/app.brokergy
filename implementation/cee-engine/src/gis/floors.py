@@ -230,9 +230,25 @@ def _uso(pl: Planta | None) -> str:
 NO_HABITABLES = {"GARAJE", "ALMACEN", "COMUN"}
 
 
-def elementos_horizontales(plantas: list[Planta]) -> list[ElementoHorizontal]:
-    """Suelos, cubiertas y particiones horizontales por interseccion vertical."""
+def elementos_horizontales(plantas: list[Planta],
+                           acondicionados: set[str] | None = None) -> list[ElementoHorizontal]:
+    """Suelos, cubiertas y particiones horizontales por interseccion vertical.
+
+    `acondicionados` es el caso del TERCIARIO: el forjado entre dos plantas de
+    uso distinto pero las DOS acondicionadas —las aulas de la parroquia bajo la
+    vivienda del sacerdote— no es un cerramiento de la envolvente, porque a los
+    dos lados hay la misma temperatura. Sin él, manda el criterio de siempre
+    (uso distinto = se escribe), y el residencial no cambia.
+    """
     salida: list[ElementoHorizontal] = []
+
+    def relevante(origen: str, destino: str, no_hab: bool) -> bool:
+        if no_hab:
+            return True
+        if origen == destino:
+            return False
+        return not (acondicionados and origen in acondicionados
+                    and destino in acondicionados)
     por_nivel = {p.nivel: p for p in plantas}
     if not plantas:
         return salida
@@ -284,7 +300,7 @@ def elementos_horizontales(plantas: list[Planta]) -> list[ElementoHorizontal]:
                     espacio_origen=_uso(pl), espacio_destino=destino,
                     confianza=round(min(pl.confianza_uso or 0.5, abajo.confianza_uso or 0.5), 2),
                     nota=f"suelo de {pl.etiqueta} sobre {abajo.etiqueta}",
-                    relevante_ce3x=no_hab or _uso(pl) != destino)
+                    relevante_ce3x=relevante(_uso(pl), destino, no_hab))
             for poli in _polis(volado):
                 add(nivel=pl.nivel, planta=pl.etiqueta, tipo="SUELO",
                     subtipo="AIRE_EXTERIOR", poligono=poli, area_m2=round(poli.area, 2),
@@ -330,5 +346,5 @@ def elementos_horizontales(plantas: list[Planta]) -> list[ElementoHorizontal]:
                     espacio_origen=_uso(pl), espacio_destino=destino,
                     confianza=round(min(pl.confianza_uso or 0.5, arriba.confianza_uso or 0.5), 2),
                     nota=f"techo de {pl.etiqueta} bajo {arriba.etiqueta}",
-                    relevante_ce3x=no_hab or _uso(pl) != destino)
+                    relevante_ce3x=relevante(_uso(pl), destino, no_hab))
     return salida

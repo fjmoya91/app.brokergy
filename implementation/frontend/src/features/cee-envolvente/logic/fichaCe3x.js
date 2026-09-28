@@ -8,6 +8,7 @@ import { EQUIPO_NUEVO, RENDIMIENTO_JOULE }
     from '../../expedientes/logic/aerotermiaUnits.js';
 import { contactoCliente, deQuienEs } from '../../../utils/contactoCliente.js';
 import { esCeeDirecto } from './ceeDirecto.js';
+import { resolveDacs, CTE_ACS, ACS_METHOD } from '../../expedientes/logic/demandaAcs.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // La ficha del certificador: lo que el `.cex` necesita ALREDEDOR de la
@@ -142,6 +143,191 @@ export const AJUSTES_POR_DEFECTO = {
     masa_particiones: 'Pesada',
     tipo_edificio: 'Unifamiliar',
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// El PROGRAMA de CE3X: residencial, pequeño terciario o gran terciario.
+//
+// CE3X lo pregunta lo primero, al crear el fichero, y es lo que decide con qué
+// programa se abre: va en la CABECERA del `.cex`. Medido sobre los 43 `.cex` de
+// terciario del disco (29 pequeño, 14 gran) contra el residencial, lo que cambia
+// es MUY poco —el motor lo resume en `tools/terciario.py`—:
+//   · Datos generales: el PERFIL DE USO donde el residencial dice «Unifamiliar»,
+//     y si se certifica el edificio entero o un local.
+//   · La ILUMINACIÓN, que en un terciario es una instalación más, por zona.
+// La envolvente, los equipos y las medidas de mejora tienen las MISMAS formas.
+//
+// Pequeño o gran terciario no cambia nada de lo que escribe la app: el gran
+// terciario deja definir además bombas, ventiladores y torres de refrigeración
+// (instalaciones complejas), que pone el certificador en CE3X.
+// ─────────────────────────────────────────────────────────────────────────────
+export const TIPOS_CE3X = [
+    { valor: 'residencial', etiqueta: 'Residencial',
+      ayuda: 'Viviendas: unifamiliares, bloques de viviendas y viviendas individuales en bloque.' },
+    { valor: 'pequeno_terciario', etiqueta: 'Pequeño terciario',
+      ayuda: 'Locales y edificios de servicios con instalaciones sencillas: calderas, '
+           + 'bombas de calor, splits, termos. Hoteles, casas rurales, oficinas, comercios.' },
+    { valor: 'gran_terciario', etiqueta: 'Gran terciario',
+      ayuda: 'Edificios con instalaciones complejas: climatizadoras, fan-coils, bombas y '
+           + 'ventiladores de circulación, torres de refrigeración. Hospitales, residencias grandes.' },
+];
+
+export const esTerciarioCe3x = (t) => t === 'pequeno_terciario' || t === 'gran_terciario';
+export const etiquetaTipoCe3x = (t) => (TIPOS_CE3X.find(x => x.valor === t) || {}).etiqueta || t;
+
+/**
+ * El tipo que PROPONE la app, a falta de que lo diga una persona.
+ *
+ * Un expediente de ficha terciaria (TER100 / TER173) o una oportunidad con el
+ * sector terciario declarado → pequeño terciario, que es lo que son los
+ * expedientes que hay (hoteles, casas rurales, iglesias). Lo demás, residencial.
+ * Es una PROPUESTA: el popup la marca y quien decide pulsa.
+ */
+export function tipoCe3xSugerido(expediente) {
+    const num = String(expediente?.numero_expediente || '');
+    const inputs = expediente?.oportunidades?.datos_calculo?.inputs
+        || expediente?.oportunidad?.datos_calculo?.inputs || {};
+    if (/TER\d{3}/.test(num) || inputs.sector === 'terciario') return 'pequeno_terciario';
+    return 'residencial';
+}
+
+/**
+ * El tipo con el que se escribe, y si lo ha ELEGIDO alguien.
+ *
+ * `elegido: false` es lo que hace saltar el popup. Un expediente RESIDENCIAL
+ * que ya tenía trabajo guardado de antes de existir esta pregunta sigue siendo
+ * residencial sin preguntar: sus `.cex` ya se generaron así y no cambian por
+ * abrir la ventana.
+ */
+export function tipoCe3xDe(ajustes, expediente) {
+    const t = ajustes?.tipo_ce3x;
+    if (TIPOS_CE3X.some(x => x.valor === t)) return { tipo: t, elegido: true };
+    return { tipo: tipoCe3xSugerido(expediente), elegido: false };
+}
+
+//: Las tres del desplegable «Tipo de edificio» del residencial, con sus
+//: cadenas EXACTAS: medido sobre 701 `.cex` (643 · 57 · 1).
+export const TIPOS_RESIDENCIAL_CE3X = ['Unifamiliar', 'Vivienda Individual', 'Bloque de Viviendas'];
+
+//: El PERFIL DE USO del terciario: las doce cadenas del desplegable de CE3X,
+//: tal cual (están en el programa; en el corpus han salido siete). Es la
+//: intensidad de las cargas internas y las horas de funcionamiento.
+export const PERFILES_USO_CE3X = ['Baja', 'Media', 'Alta'].flatMap(
+    i => ['8h', '12h', '16h', '24h'].map(h => `Intensidad ${i} - ${h}`));
+
+//: Si se certifica el edificio entero o un local dentro de él. 32 y 11 en el
+//: corpus; en el residencial este campo va vacío.
+export const AMBITOS_CE3X = ['Edificio completo', 'Local'];
+
+//: Las ACTIVIDADES de la iluminación vistas en el corpus, con su casilla «Zona
+//: de representación» —CE3X filtra el desplegable con ella, y en el corpus va
+//: siempre igual para cada actividad (87 de 87)— y la iluminancia media que
+//: llevan (la que CE3X propone: 200 lux en 36 de 36 habitaciones de hotel, 500
+//: en 18 de 18 aulas…). La de espacios deportivos sale de UN solo registro.
+//:
+//: ⚠ La doble coma-espacio de «hoteles,  hostales» es de CE3X: está así en el
+//: programa. Es la misma lista que `ACTIVIDADES` del motor
+//: (`tools/terciario.py`), y un test lo comprueba.
+export const ACTIVIDADES_ILUMINACION_CE3X = [
+    { valor: 'Habitaciones de hoteles,  hostales...', representacion: true, lux: 200,
+      etiqueta: 'Habitaciones de hoteles, hostales…' },
+    { valor: 'Hostelería y restauración', representacion: true, lux: 200 },
+    { valor: 'Religioso en general', representacion: true, lux: 200 },
+    { valor: 'Tiendas y pequeño comercio', representacion: true, lux: 300 },
+    { valor: 'Administrativo en general', representacion: false, lux: 500 },
+    { valor: 'Aulas y laboratorios', representacion: false, lux: 500 },
+    { valor: 'Habitaciones de hospital', representacion: false, lux: 100 },
+    { valor: 'Salas de diagnóstico', representacion: false, lux: 500 },
+    { valor: 'Espacios deportivos', representacion: false, lux: 700 },
+];
+
+//: El VEEI (W/m²·100 lux) que CE3X pone a cada lámpara en modo «Estimado».
+//: Leídos del corpus, no calculados; solo las lámparas VISTAS. Es la misma
+//: tabla que `LAMPARAS` del motor, y un test lo comprueba: si no, la pantalla
+//: diría una potencia y el `.cex` llevaría otra.
+export const LAMPARAS_CE3X = [
+    { valor: 'LED', veei: 1.7543859649122806 },
+    { valor: 'LED Tube (lineal)', veei: 1.238390092879257 },
+    { valor: 'Fluorescencia lineal de 16 mm', veei: 1.2658227848101267 },
+    { valor: 'Fluorescencia lineal de 26 mm', veei: 1.5220700152207 },
+    { valor: 'Fluorescencia compacta', veei: 1.7857142857142858 },
+    { valor: 'Incandescentes halógenas', veei: 7.507507507507508 },
+    { valor: 'Incandescente', veei: 16.666666666666668 },
+];
+
+export const LAMPARA_POR_DEFECTO = 'LED';
+
+//: La ventilación del inmueble (ren/h) de un TERCIARIO: fija, no por año.
+export const VENTILACION_TERCIARIO = 0.8;
+
+const actividadIlum = (v) => ACTIVIDADES_ILUMINACION_CE3X.find(a => a.valor === v) || null;
+const veeiDe = (v) => (LAMPARAS_CE3X.find(l => l.valor === v) || {}).veei || null;
+
+/**
+ * La iluminación de un terciario: la del edificio y la de cada planta.
+ *
+ * Se guarda PLANA en los ajustes (`ilum_actividad`, `ilum_lampara`,
+ * `ilum_iluminancia`) para que el popup de «antes de generar» pueda contestarla
+ * igual que el resto; lo de una planta concreta, en `ilum_por_nivel` por su
+ * NIVEL —el nombre de la zona lo pone el motor, que es quien la declara—.
+ *
+ * Devuelve lo que viaja al motor (`defecto` + `por_nivel`) y, aparte, las filas
+ * que enseña la pantalla con la potencia ya calculada: P = VEEI · S · E / 100,
+ * la MISMA cuenta que hace CE3X (comprobada en 80 de 80 registros).
+ */
+export function iluminacionCe3x(cfg, plantas = []) {
+    const actividad = cfg?.ilum_actividad || null;
+    const lampara = cfg?.ilum_lampara || LAMPARA_POR_DEFECTO;
+    const iluminancia = Number(cfg?.ilum_iluminancia) > 0
+        ? Number(cfg.ilum_iluminancia) : (actividadIlum(actividad)?.lux || null);
+    const defecto = actividad ? { actividad, lampara, iluminancia } : null;
+
+    const por_nivel = {};
+    for (const [nivel, x] of Object.entries(cfg?.ilum_por_nivel || {})) {
+        if (!x || typeof x !== 'object') continue;
+        const act = x.actividad || actividad;
+        const lamp = x.lampara || lampara;
+        const lux = Number(x.iluminancia) > 0 ? Number(x.iluminancia)
+            : (x.actividad ? actividadIlum(x.actividad)?.lux : iluminancia) || null;
+        if (act && lamp && lux) por_nivel[nivel] = { actividad: act, lampara: lamp, iluminancia: lux };
+    }
+
+    const filas = plantas.map(p => {
+        const propia = por_nivel[String(p.nivel)];
+        const s = propia || defecto;
+        const veei = s ? veeiDe(s.lampara) : null;
+        return {
+            nivel: p.nivel, planta: p.planta, superficie: p.area,
+            propia: !!propia,
+            ...(s || {}),
+            potencia: s && veei ? Math.round(veei * p.area * s.iluminancia / 100) : null,
+        };
+    });
+    return { defecto, por_nivel, filas };
+}
+
+/**
+ * Los litros/día de ACS de un TERCIARIO, sacados de la D_ACS del expediente.
+ *
+ * En el terciario no hay un «140 por defecto»: la demanda va por plaza o por
+ * servicio (Anexo V de la ficha) o la fija el proyecto. Pero el expediente YA la
+ * tiene —es la D_ACS del CIFO, en kWh/año—, y los litros/día a 60 °C que pide
+ * CE3X son esa misma cifra deshecha con la fórmula del Anejo F, sin el tramo de
+ * ocupación: D = L · C_e · 365 · ΔT. Así el `.cex` y el CIFO no cuentan dos
+ * demandas distintas del mismo edificio.
+ *
+ * El modo CTE (por dormitorios) NO sirve: es la fórmula de UNA vivienda. Ahí
+ * no se deduce nada y se pregunta.
+ */
+export function litrosAcsDelExpediente(expediente) {
+    const cee = expediente?.cee || {};
+    if (Number(cee.dacs_litros_dia) > 0) return Number(cee.dacs_litros_dia);
+    const modo = cee.acs_method || ACS_METHOD.XML;
+    if (modo !== ACS_METHOD.MANUAL && modo !== ACS_METHOD.XML) return null;
+    const r = resolveDacs(cee, cee.cee_final || cee.cee_inicial || {});
+    if (!(r.value > 0)) return null;
+    const { CALOR_ESPECIFICO, DIAS, SALTO_TERMICO } = CTE_ACS;
+    return Math.round(r.value / (CALOR_ESPECIFICO * DIAS * SALTO_TERMICO));
+}
 
 // ─── La instalación que YA HAY: la caldera que se va a sustituir ─────────────
 
@@ -1186,9 +1372,38 @@ function inversionDeLaObra(expediente) {
  * La zona climática HE4 NO está aquí: CE3X la propone sola al elegir la
  * provincia, y la app la trae medida para las provincias comprobadas.
  */
-export function faltaPorPreguntar(cfg = {}, { fase = 'inicial', expediente = null } = {}) {
+export function faltaPorPreguntar(cfg = {}, { fase = 'inicial', expediente = null,
+                                             tipo = 'residencial' } = {}) {
     const preguntas = [];
     if (fase === 'final') return preguntas;   // el final lo hereda del inicial
+    const terciario = esTerciarioCe3x(tipo);
+
+    // ── Lo que un TERCIARIO no puede llevar por defecto ─────────────────────
+    // Se pregunta al elegir el tipo, en el popup de arranque; esto es la red
+    // por si se llegó aquí sin contestarlo (un expediente con trabajo de antes).
+    if (terciario && !PERFILES_USO_CE3X.includes(cfg.perfil_uso)) {
+        preguntas.push({
+            clave: 'perfil_uso',
+            titulo: 'Perfil de uso del edificio',
+            ayuda: 'La intensidad de las cargas internas y las horas que funciona. Es el '
+                 + 'dato que define un terciario en CE3X: sin él no se escribe el fichero.',
+            tipo: 'opciones',
+            opciones: PERFILES_USO_CE3X,
+            propuesto: null,
+        });
+    }
+    if (terciario && !actividadIlum(cfg.ilum_actividad)) {
+        preguntas.push({
+            clave: 'ilum_actividad',
+            titulo: 'Actividad principal (iluminación)',
+            ayuda: 'En un terciario la iluminación es una instalación más. Se estima con la '
+                 + 'actividad, lámpara LED y la iluminancia que CE3X propone para ella; se '
+                 + 'cambia planta a planta en Instalaciones.',
+            tipo: 'opciones',
+            opciones: ACTIVIDADES_ILUMINACION_CE3X.map(a => a.valor),
+            propuesto: null,
+        });
+    }
 
     // REGLA — «contestado» NO es solo «contestado EN ESTE POPUP». El mismo dato
     // se teclea en la pestaña de INSTALACIONES («Con acumulación» + los litros),
@@ -1212,16 +1427,24 @@ export function faltaPorPreguntar(cfg = {}, { fase = 'inicial', expediente = nul
     }
     // Y la demanda de ACS puede venir dicha del propio CERTIFICADO: es el toggle
     // L/D de la rejilla del CEE, los mismos litros/día y con el mismo sentido.
-    if (!litrosDiaDelCee(expediente)
+    // En un terciario, si el expediente ya tiene su D_ACS (la del CIFO), ESA es la
+    // respuesta y no se pregunta; si no la hay, no se propone nada: el 140 es de
+    // una vivienda.
+    const ter = terciario ? litrosAcsDelExpediente(expediente) : null;
+    if (!litrosDiaDelCee(expediente) && !ter
         && (cfg.demanda_acs === undefined || cfg.demanda_acs === null)) {
         preguntas.push({
             clave: 'demanda_acs',
             titulo: 'Demanda de ACS',
-            ayuda: 'Los litros/día que CE3X pide en Datos generales. 140 es el valor con '
-                 + 'el que salen los expedientes ya emitidos.',
+            ayuda: terciario
+                ? 'Los litros/día a 60 °C que CE3X pide en Datos generales. En un terciario '
+                  + 'va por uso y ocupación (CTE HE-4), y el expediente no tiene su D_ACS: '
+                  + 'sin ella no se escribe el fichero.'
+                : 'Los litros/día que CE3X pide en Datos generales. 140 es el valor con '
+                  + 'el que salen los expedientes ya emitidos.',
             tipo: 'numero',
             unidad: 'litros/día',
-            propuesto: AJUSTES_POR_DEFECTO.demanda_acs,
+            propuesto: terciario ? null : AJUSTES_POR_DEFECTO.demanda_acs,
         });
     }
     return preguntas;
@@ -1272,13 +1495,17 @@ function nombreDelConjunto(expediente, equipo, modelos) {
  * después del inicial). La de FIRMA es la de emisión del certificado. Lo que no
  * conste se deja en blanco: una fecha inventada se imprime en el certificado.
  */
-export function informeCe3x(expediente, fase = 'inicial') {
+export function informeCe3x(expediente, fase = 'inicial', { terciario = false } = {}) {
     const cee = expediente?.cee || {};
     const doc = expediente?.documentacion || {};
     const suf = fase === 'final' ? 'final' : 'inicial';
     const de = (clave) => cee[clave] || doc[clave] || null;
     return {
-        pruebas: PRUEBAS_CERTIFICADOR,
+        // El párrafo habla del «inmueble» en todo menos en una frase, que dice
+        // «la vivienda analizada»: en un hotel o una iglesia eso es falso.
+        pruebas: terciario
+            ? PRUEBAS_CERTIFICADOR.replace('de la vivienda analizada', 'del edificio analizado')
+            : PRUEBAS_CERTIFICADOR,
         fecha_emision: de(`fecha_firma_cee_${suf}`),
         fecha_visita: de(`fecha_visita_cee_${suf}`),
     };
@@ -1292,6 +1519,15 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
     const inmueble = g.modelo?.catastro?.inmueble || {};
     const cfg = { ...AJUSTES_POR_DEFECTO, ...(ajustes || {}) };
     const avisos = [];
+    //: Con qué PROGRAMA de CE3X se escribe (residencial, pequeño o gran
+    //: terciario). Va en la cabecera del fichero y cambia dos campos de los
+    //: datos generales y la iluminación; nada más.
+    const { tipo: tipoCe3x, elegido: tipoElegido } = tipoCe3xDe(ajustes, expediente);
+    const terciario = esTerciarioCe3x(tipoCe3x);
+    if (!tipoElegido && terciario) {
+        avisos.push('Se propone PEQUEÑO TERCIARIO porque el expediente es de una ficha del '
+                    + 'terciario: confírmalo (o elige gran terciario) antes de generar.');
+    }
 
     // Cada dato derivado se puede corregir a mano: el certificador tiene el
     // edificio delante y Catastro se equivoca —una ampliación sin declarar, una
@@ -1374,9 +1610,35 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
                     + 'es la de radiación solar (ACS) y hay que ponerla a mano.');
     }
 
+    // En un terciario el «tipo de edificio» es el perfil de uso, que no sirve
+    // para nombrarlo («INTENSIDAD BAJA - 24H EN …» no es un nombre): se dice
+    // si es un edificio o un local.
+    const ambito = AMBITOS_CE3X.includes(cfg.ambito) ? cfg.ambito : 'Edificio completo';
+    const rotuloEdificio = terciario
+        ? (ambito === 'Local' ? 'LOCAL' : 'EDIFICIO')
+        : (cfg.tipo_edificio || '').toUpperCase();
+    // La demanda de ACS del terciario: lo tecleado, los litros del propio
+    // certificado o la D_ACS del expediente deshecha a litros. NUNCA el 140 de
+    // una vivienda: en un hotel son miles.
+    const litrosTer = terciario ? litrosAcsDelExpediente(expediente) : null;
+    const demandaAcs = ajustes?.demanda_acs > 0
+        ? dato(Number(ajustes.demanda_acs), 'DECISIÓN del certificador')
+        : (Number(expediente?.cee?.dacs_litros_dia) > 0
+            ? dato(Number(expediente.cee.dacs_litros_dia),
+                   'los litros/día que declara el Certificado de Eficiencia Energética')
+            : terciario
+                ? dato(litrosTer, litrosTer
+                    ? 'la D_ACS del expediente (la del CIFO) en litros/día a 60 °C'
+                    : 'SIN DETERMINAR: en un terciario va por uso y ocupación (CTE HE-4)')
+                : dato(cfg.demanda_acs, 'DECISIÓN del certificador (valor por defecto)'));
+    const ilum = terciario ? iluminacionCe3x(ajustes || {}, plantasHabitables(g)) : null;
+
     const ficha = {
+        //: El PROGRAMA de CE3X. Lo lee el motor para la cabecera, los datos
+        //: generales y la iluminación.
+        tipo_edificio_ce3x: tipoCe3x,
         administrativos: {
-            nombre_edificio: dato(`${(cfg.tipo_edificio || '').toUpperCase()} EN ${dir.calle}`.trim(),
+            nombre_edificio: dato(`${rotuloEdificio} EN ${dir.calle}`.trim(),
                                   'compuesto con la dirección de Catastro'),
             direccion: dato(dir.calle, 'CATASTRO'),
             // ⚠️ SIEMPRE por `provinciaCe3x`, aunque venga bien: es un
@@ -1404,7 +1666,17 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
         generales: {
             normativa: puesto('normativa', anio ? normativaCe3x(anio) : null,
                               `año de construcción ${anio}`),
-            tipo_edificio: dato(cfg.tipo_edificio, 'DECISIÓN del certificador'),
+            // El campo [1] del pickle 2: el tipo de vivienda en un residencial,
+            // el PERFIL DE USO en un terciario. Con claves distintas para que
+            // la pantalla y el motor no los confundan.
+            ...(terciario ? {
+                perfil_uso: dato(PERFILES_USO_CE3X.includes(cfg.perfil_uso) ? cfg.perfil_uso : null,
+                                 'DECISIÓN del certificador: intensidad y horas de uso'),
+                ambito: dato(ambito, cfg.ambito ? 'DECISIÓN del certificador'
+                                                : 'por defecto: se certifica el edificio entero'),
+            } : {
+                tipo_edificio: dato(cfg.tipo_edificio, 'DECISIÓN del certificador'),
+            }),
             zona_climatica_he1: puesto('zona', zona, 'zona climática del expediente'),
             zona_climatica_he4: dato(he4.valor, he4.de),
             superficie_util_habitable: puesto('superficie_util_habitable', superficie,
@@ -1421,15 +1693,17 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
             // CERTIFICADO los declara (el toggle L/D de la rejilla del CEE) son
             // ESOS: es un dato del certificado, no una estimación nuestra. Lo
             // tecleado a mano en el popup manda sobre él, que para eso se teclea.
-            demanda_acs: ajustes?.demanda_acs > 0
-                ? dato(Number(ajustes.demanda_acs), 'DECISIÓN del certificador')
-                : (Number(expediente?.cee?.dacs_litros_dia) > 0
-                    ? dato(Number(expediente.cee.dacs_litros_dia),
-                           'los litros/día que declara el Certificado de Eficiencia Energética')
-                    : dato(cfg.demanda_acs, 'DECISIÓN del certificador (valor por defecto)')),
+            demanda_acs: demandaAcs,
             masa_particiones: dato(cfg.masa_particiones, 'DECISIÓN del certificador (valor por defecto)'),
-            ventilacion: puesto('ventilacion', anio ? getVentanaYACHByYear(anio, zona).ach : null,
-                                'la MISMA renovación/hora que usó la simulación'),
+            // En un TERCIARIO, 0,8 ren/h FIJO (decisión del 2026-09-28): es la
+            // que llevan los terciarios de Brokergy (la hospedería y la casa
+            // rural) y la más repetida del corpus (22 de 43). La tabla por año
+            // es la de la simulación de una VIVIENDA. Se puede cambiar a mano.
+            ventilacion: terciario
+                ? puesto('ventilacion', VENTILACION_TERCIARIO,
+                         'valor fijo de Brokergy para el terciario (0,8 ren/h)')
+                : puesto('ventilacion', anio ? getVentanaYACHByYear(anio, zona).ach : null,
+                         'la MISMA renovación/hora que usó la simulación'),
             ano_construccion: puesto('anio', anio, 'CATASTRO'),
             // Las dos imágenes del `.cex`, en base64. Las baja el BACKEND del
             // Catastro (son las mismas que la app ya enseña en la ficha
@@ -1458,7 +1732,12 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
         ...(!instalacion.equipo && instalacion.falta
             ? { instalaciones_falta: instalacion.falta } : {}),
         ...(mejora.medidas.length ? { medidas: mejora.medidas } : {}),
-        informe: informeCe3x(expediente, fase),
+        //: La ILUMINACIÓN de un terciario: la del edificio y la de cada planta
+        //: que sea otra cosa. El motor la escribe por zona, con la superficie de
+        //: cada una; `filas` es solo para la pantalla (no la lee el motor).
+        ...(ilum ? { iluminacion: { defecto: ilum.defecto, por_nivel: ilum.por_nivel,
+                                    filas: ilum.filas } } : {}),
+        informe: informeCe3x(expediente, fase, { terciario }),
         envolvente: {
             espacio: 'auto',
             incluir_plantas: habitables.map(p => p.planta),
@@ -1505,24 +1784,43 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
                                                     generales: ficha.generales })) {
         for (const [campo, v] of Object.entries(campos)) {
             if (v && v.valor === null && OBLIGATORIOS[bloque]?.includes(campo)) {
-                avisos.push(`Falta ${campo.replace(/_/g, ' ')} (${bloque}).`);
+                avisos.push(`Falta ${ROTULO_OBLIGATORIO[campo] || campo.replace(/_/g, ' ')} `
+                            + `(${bloque}).`);
             }
         }
     }
+    // El tipo NO va a los avisos: se enseña en la ventana de generar, al lado
+    // del botón. Un aviso que sale en cada generación enseña a no leerlos.
+    if (terciario) {
+        if (!ilum?.defecto && !Object.keys(ilum?.por_nivel || {}).length) {
+            avisos.push('Es un TERCIARIO y no está definida la iluminación: CE3X no calcula un '
+                        + 'terciario sin ella. Elige la actividad en Instalaciones.');
+        }
+    }
     return { ficha, avisos, medidas: mejora.catalogo,
+             // El programa de CE3X y si lo ha elegido alguien: sin elegir, la
+             // ventana lo pregunta como CE3X al crear un fichero.
+             tipo_ce3x: { tipo: tipoCe3x, elegido: tipoElegido },
              // Con los ajustes EN CRUDO, no con `cfg`: ahí los valores por
              // defecto ya están fusionados y `demanda_acs` nunca estaría sin
              // contestar — el popup no preguntaría lo que existe para preguntar.
-             faltan: faltaPorPreguntar(ajustes || {}, { fase, expediente }) };
+             faltan: faltaPorPreguntar(ajustes || {}, { fase, expediente, tipo: tipoCe3x }) };
 }
 
-//: Los que el motor exige con valor; el resto puede ir vacío.
+//: Los que el motor exige con valor; el resto puede ir vacío. El residencial
+//: pide el tipo de vivienda y el terciario, en ese mismo campo, el perfil de uso.
 const OBLIGATORIOS = {
     administrativos: ['nombre_edificio', 'direccion', 'provincia', 'localidad_lista',
                       'referencia_catastral'],
-    generales: ['normativa', 'tipo_edificio', 'zona_climatica_he1', 'zona_climatica_he4',
-                'superficie_util_habitable', 'altura_libre_planta', 'n_plantas_habitables',
-                'demanda_acs', 'masa_particiones', 'ventilacion', 'ano_construccion'],
+    generales: ['normativa', 'tipo_edificio', 'perfil_uso', 'zona_climatica_he1',
+                'zona_climatica_he4', 'superficie_util_habitable', 'altura_libre_planta',
+                'n_plantas_habitables', 'demanda_acs', 'masa_particiones', 'ventilacion',
+                'ano_construccion'],
+};
+
+const ROTULO_OBLIGATORIO = {
+    perfil_uso: 'el perfil de uso (intensidad y horas)',
+    demanda_acs: 'la demanda diaria de ACS (litros/día)',
 };
 
 // ─── De dónde sale cada cosa ─────────────────────────────────────────────────
@@ -1601,8 +1899,13 @@ function zonaHe4(provincia, cfg) {
  * mentir sobre el único campo que explica de dónde salen los metros.
  */
 function deQuienSaleLoQueCuenta(g, que) {
+    //: En un TERCIARIO no es «de uso VIVIENDA»: cuentan también los usos del
+    //: terciario (hotelero, religioso, enseñanza…). Decir «vivienda» al lado
+    //: de la superficie de un hotel es mentir sobre de dónde salen los metros.
+    const terciario = (g.modelo?.spaces || []).some(s => s.attrs?.habitable_por_tipo);
     const base = que === 'superficie'
-        ? 'CATASTRO: superficie de uso VIVIENDA'
+        ? (terciario ? 'CATASTRO: usos acondicionados del terciario (sin almacén, garaje ni comunes)'
+                     : 'CATASTRO: superficie de uso VIVIENDA')
         : 'CATASTRO: plantas con uso habitable';
     if ((g.modelo?.spaces || []).some(s => s.attrs?.habitable_por_defecto)) {
         return 'el edificio ENTERO: Catastro no declara ninguna vivienda en la finca';

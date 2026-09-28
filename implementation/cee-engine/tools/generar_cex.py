@@ -45,6 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import leer_cex as L        # noqa: E402
 import pickle0 as P         # noqa: E402
 import puentes as PT        # noqa: E402
+import terciario as TER     # noqa: E402
 from errores import GeneracionError  # noqa: E402
 from pickle0 import Cadena  # noqa: E402
 from puentes import _num    # noqa: E402
@@ -1949,11 +1950,21 @@ def imagen(ruta: Any) -> str:
 
 
 def construir_generales(datos: dict, plantilla: list) -> list:
-    """Los 21 campos del pickle 2, sobre lo que ya trajera la plantilla."""
+    """Los 21 campos del pickle 2, sobre lo que ya trajera la plantilla.
+
+    El residencial y el terciario comparten los 21 campos y solo se separan en
+    dos: el [1] —«Unifamiliar» en una vivienda, el PERFIL DE USO en un
+    terciario— y el [20], que en el terciario dice si se certifica el edificio
+    entero o un local y en el residencial va vacio (701 de 701 en el corpus).
+    """
     g = datos["generales"]
     out = list(plantilla) if len(plantilla) == 21 else [""] * 21
     out[0] = _v(g["normativa"], "generales.normativa")
-    out[1] = _v(g["tipo_edificio"], "generales.tipo_edificio")
+    if TER.es_terciario(TER.tipo_de(datos)):
+        out[1], out[20] = TER.generales_terciario(g, _v)
+    else:
+        out[1] = _v(g["tipo_edificio"], "generales.tipo_edificio")
+        out[20] = ""
     out[2] = _v(datos["administrativos"]["provincia"], "administrativos.provincia")
     out[3] = _v(datos["administrativos"]["localidad_lista"], "administrativos.localidad_lista")
     out[4] = _v(g["zona_climatica_he1"], "generales.zona_climatica_he1")
@@ -1972,7 +1983,6 @@ def construir_generales(datos: dict, plantilla: list) -> list:
     out[17] = imagen(g.get("foto_edificio"))      # foto de fachada
     out[18] = imagen(g.get("plano_situacion"))    # plano/croquis de Catastro
     out[19] = str(_v(g["ano_construccion"], "generales.ano_construccion"))
-    out[20] = ""
     return out
 
 
@@ -2241,8 +2251,18 @@ def construir_informe(datos: dict, plantilla: Any) -> tuple[list, list[str]]:
 # Montaje
 # --------------------------------------------------------------------------
 
-def montar(plantilla: Path, nuevos: dict[int, Any]) -> bytes:
-    """Sustituye los pickles indicados y copia los demas byte a byte."""
+def montar(plantilla: Path, nuevos: dict[int, Any], tipo: str | None = None) -> bytes:
+    """Sustituye los pickles indicados y copia los demas byte a byte.
+
+    `tipo` es el PROGRAMA de CE3X con el que se abre el fichero (residencial,
+    pequeño o gran terciario), y lo decide la cabecera: el pickle 0. La
+    plantilla es una sola —la virgen del residencial— porque de ella solo se
+    copian pickles que en los tres programas son IDENTICOS (medido sobre los 43
+    `.cex` de terciario del disco: 5, 7, 8, 9 y 12 vacios, el 10 con su
+    'Sin patrón', el 13 a True, y el ultimo, el HMAC, que CE3X no comprueba al
+    abrir y recalcula al guardar). Lo que cambia es la cabecera, y esa se
+    escribe aqui.
+    """
     cex = L.trocear(plantilla)
     if not cex.version_conocida:
         raise GeneracionError(
@@ -2251,11 +2271,55 @@ def montar(plantilla: Path, nuevos: dict[int, Any]) -> bytes:
 
     trozos: list[bytes] = []
     for p in cex.pickles:
-        if p.indice in nuevos:
+        if p.indice == 0 and tipo is not None:
+            if tipo not in TER.CABECERA:
+                raise GeneracionError(f"tipo de edificio {tipo!r} no contemplado")
+            trozos.append(TER.CABECERA[tipo])
+        elif p.indice in nuevos:
             trozos.append(P.volcar(nuevos[p.indice]).encode("raw_unicode_escape"))
         else:
             trozos.append(data[p.offset:p.offset + p.tam])
     return b"".join(trozos).replace(L.LF, L.CRLF)
+
+
+def con_iluminacion(instalaciones: list, datos: dict,
+                    zonas: list) -> tuple[list, list[str]]:
+    """El pickle 4 con la iluminacion de un TERCIARIO puesta, si no la tiene.
+
+    En un terciario la iluminacion es una instalacion mas, y CE3X la pide por
+    zona. En un residencial no se toca nada.
+
+    Solo se escribe si el slot esta VACIO: el CEE final copia el inicial, y ahi
+    la iluminacion ya viene —con lo que el certificador haya corregido en CE3X—
+    y la obra (cambiar una caldera) no la toca.
+
+    `zonas` son las `claseZona` del pickle 3 de ESTE fichero: la iluminacion
+    cuelga de una zona como un cerramiento, y si apunta a una que no existe, CE3X
+    abre el fichero y no la enseña. Sin zonas, una sola a la raiz con la
+    superficie util.
+    """
+    if not TER.es_terciario(TER.tipo_de(datos)):
+        return instalaciones, []
+    slots = [list(x) if isinstance(x, list) else [] for x in instalaciones]
+    i = SLOTS.index("iluminacion")
+    if slots[i]:
+        return slots, []
+    pares = []
+    for z in zonas or []:
+        # Vale igual para una zona recien escrita (`Instancia`, claves `Cadena`)
+        # que para una leida de un fichero (`Opaco`, claves `str`): `Cadena` es
+        # un `str` y hashea igual.
+        est = getattr(z, "estado", None) or {}
+        nombre = est.get("nombre")
+        if nombre:
+            pares.append((str(nombre), _numf(est.get("superficie")) or 0.0))
+    if not pares:
+        util = _numf(((datos.get("generales") or {}).get("superficie_util_habitable") or {})
+                     .get("valor")) or 0.0
+        pares = [("Edificio Objeto", util)]
+    registros, avisos = TER.construir_iluminacion(datos, pares, nombre_zona)
+    slots[i] = registros
+    return slots, avisos
 
 
 # --------------------------------------------------------------------------
@@ -2333,12 +2397,17 @@ def _comparable(x: Any) -> Any:
     return x
 
 
-def comprobar(salida: Path, esperado: dict[int, Any]) -> list[str]:
+def comprobar(salida: Path, esperado: dict[int, Any],
+              tipo: str | None = None) -> list[str]:
     """Relee lo escrito y comprueba que dice lo que se queria decir."""
     cex = L.trocear(salida)
     problemas = []
     if len(cex.pickles) != 15:
         problemas.append(f"han salido {len(cex.pickles)} pickles y CE3X espera 15")
+    # La cabecera decide con QUE PROGRAMA lo abre CE3X: un terciario que se
+    # releyera como residencial abriria con la pestaña de otro edificio.
+    if tipo is not None and cex.version != TER.VERSION.get(tipo):
+        problemas.append(f"la cabecera dice {cex.version!r} y se pidio {TER.VERSION.get(tipo)!r}")
     for i, valor in esperado.items():
         if _comparable(L.leer(cex, i)) != _comparable(valor):
             problemas.append(f"el pickle {i} no se relee igual que se escribio")

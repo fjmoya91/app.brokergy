@@ -42,11 +42,38 @@ _USOS = {
     "OFICINA": "LOCAL",
     "ELEMENTOS COMUNES": "COMUN",
     "SUELO": "SUELO",
+    # Los usos del TERCIARIO. Leidos de Catastro en los cuatro ejemplos de
+    # 2026-09-28: la hospederia es 'HOTELERO' entera, la iglesia 'RELIGIOSO' y
+    # 'ENSEÑANZA', la residencia 'SANIDAD', y la casa rural lleva un
+    # 'COMERCIO'. Antes caian todos en 'OTROS' —como un porche— y un terciario
+    # se medía mal: la iglesia, solo la vivienda de la segunda planta.
+    #
+    # NO son habitables por si solos (ver `HABITABLES`): en un RESIDENCIAL el
+    # bar de la planta baja no es la vivienda. Cuentan cuando el edificio se
+    # certifica como terciario (`pipeline.aplicar_tipo_edificio`).
+    "HOTEL": "TERCIARIO",
+    "HOSTEL": "TERCIARIO",
+    "OCIO": "TERCIARIO",
+    "RELIGIOS": "TERCIARIO",
+    "ENSEÑANZA": "TERCIARIO",
+    "ENSENANZA": "TERCIARIO",
+    "DOCENTE": "TERCIARIO",
+    "SANIDAD": "TERCIARIO",
+    "SANITARI": "TERCIARIO",
+    "BENEFICENCIA": "TERCIARIO",
+    "CULTURAL": "TERCIARIO",
+    "DEPORTIV": "TERCIARIO",
+    "ESPECTACUL": "TERCIARIO",
+    "COMERCIO": "TERCIARIO",
 }
 
 #: Que espacios son NO HABITABLES a efectos de CE3X (particiones interiores).
 NO_HABITABLES = {"GARAJE", "ALMACEN", "COMUN"}
 HABITABLES = {"VIVIENDA", "LOCAL"}
+#: Lo que se ACONDICIONA en un edificio TERCIARIO: la vivienda, el local y los
+#: usos del terciario. Almacen, garaje, comunes y lo que no se reconoce (un
+#: porche, una terraza) se quedan fuera, igual que en el residencial.
+ACONDICIONADOS_TERCIARIO = {"VIVIENDA", "LOCAL", "TERCIARIO"}
 
 
 def normaliza_uso(literal: str | None) -> str:

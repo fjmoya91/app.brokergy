@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { CampoDecimal } from '../../../components/CampoDecimal';
-import { AISLAMIENTOS_CE3X, COMBUSTIBLES_CE3X, esDeCaldera, GENERADORES_CE3X,
-         TIPOS_EQUIPO_CE3X, tipoEquipo } from '../logic/fichaCe3x';
+import { ACTIVIDADES_ILUMINACION_CE3X, AISLAMIENTOS_CE3X, AMBITOS_CE3X, COMBUSTIBLES_CE3X,
+         esDeCaldera, esTerciarioCe3x, etiquetaTipoCe3x, GENERADORES_CE3X, LAMPARAS_CE3X,
+         PERFILES_USO_CE3X, TIPOS_EQUIPO_CE3X, TIPOS_RESIDENCIAL_CE3X, tipoEquipo }
+    from '../logic/fichaCe3x';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Los apartados de la ficha, cada uno en SU ventana — como en CE3X.
@@ -33,7 +35,15 @@ const GENERALES = [
     { k: 'normativa', etiqueta: 'Normativa vigente', campo: 'normativa',
       opciones: ['Anterior', 'NBE-CT-79', 'C.T.E.', 'CTE 2013'] },
     { k: 'anio', etiqueta: 'Año construcción', campo: 'ano_construccion', tipo: 'number' },
-    { k: 'tipo_edificio', etiqueta: 'Tipo de edificio', campo: 'tipo_edificio' },
+    // El campo [1] del .cex: el tipo de vivienda en un residencial, y en un
+    // terciario el PERFIL DE USO y si es el edificio entero o un local. Sale
+    // uno u otro según el programa (`soloRes` / `soloTer`).
+    { k: 'tipo_edificio', etiqueta: 'Tipo de edificio', campo: 'tipo_edificio',
+      opciones: TIPOS_RESIDENCIAL_CE3X, soloRes: true },
+    { k: 'perfil_uso', etiqueta: 'Perfil de uso', campo: 'perfil_uso',
+      opciones: PERFILES_USO_CE3X, soloTer: true },
+    { k: 'ambito', etiqueta: 'Se certifica', campo: 'ambito',
+      opciones: AMBITOS_CE3X, soloTer: true },
     { k: 'zona', etiqueta: 'Zona climática HE-1', campo: 'zona_climatica_he1' },
     { k: 'zona_climatica_he4', etiqueta: 'Zona climática HE-4', campo: 'zona_climatica_he4',
       opciones: ['I', 'II', 'III', 'IV', 'V'] },
@@ -282,6 +292,7 @@ function CampoFuente({ c, valor, onCambiar }) {
 
 /** DATOS GENERALES: la normativa, la zona y lo que mide el edificio. */
 export function PanelGenerales({ datos, puestos = {}, retocadas = {},
+                                 tipoCe3x, onCambiarTipo,
                                  onCambiarDato, onCambiarU, construcciones,
                                  onCambiarConstrucciones, guardandoConstrucciones,
                                  imagenes, traendoImagenes, onTraerImagenes,
@@ -289,6 +300,8 @@ export function PanelGenerales({ datos, puestos = {}, retocadas = {},
     const g = datos?.ficha?.generales || {};
     const a = datos?.ficha?.administrativos || {};
     const t = datos?.ficha?.termicas || {};
+    const terciario = esTerciarioCe3x(tipoCe3x?.tipo);
+    const generales = GENERALES.filter(c => (terciario ? !c.soloRes : !c.soloTer));
     //: Las que el certificador puede retocar. La medianera no está: es
     //: adiabática (U = 0) por definición, y si al otro lado hay un local, lo
     //: que se cambia es el TIPO de la pared, no su transmitancia.
@@ -302,8 +315,32 @@ export function PanelGenerales({ datos, puestos = {}, retocadas = {},
     );
     return (
         <Ventana titulo="Datos generales">
+            {/* El PROGRAMA de CE3X: lo primero que pregunta al crear un
+                certificado. Va arriba del todo porque de él cuelga qué se pide
+                debajo (tipo de vivienda o perfil de uso) y la iluminación. */}
+            {tipoCe3x && (
+                <div className="flex flex-wrap items-center gap-3 rounded-xl border
+                                border-white/[0.07] px-4 py-2.5">
+                    <p className="text-[11px] font-bold text-brand">Tipo de edificio (CE3X)</p>
+                    <b className={`rounded-md border px-2 py-0.5 text-[11.5px] font-black uppercase
+                                   tracking-wider ${tipoCe3x.elegido ? 'border-brand/40 text-brand'
+                                                                    : 'border-amber-500/40 text-amber-200'}`}>
+                        {etiquetaTipoCe3x(tipoCe3x.tipo)}
+                    </b>
+                    {!tipoCe3x.elegido && (
+                        <span className="text-[11px] text-amber-200/80">propuesto, sin confirmar</span>
+                    )}
+                    <button onClick={onCambiarTipo}
+                            className="ml-auto rounded-lg border border-white/10 px-2.5 py-1
+                                       text-[10px] font-bold uppercase tracking-wider text-white/45
+                                       hover:border-white/30 hover:text-white">
+                        {tipoCe3x.elegido ? 'Cambiar' : 'Elegir'}
+                    </button>
+                </div>
+            )}
+
             <Grupo titulo="Datos generales">
-                {GENERALES.map(campo)}
+                {generales.map(campo)}
                 {/* CE3X los repite aquí y salen de los administrativos: se
                     enseñan para poder comprobarlos, no para teclearlos dos veces. */}
                 <Fila rotulo="Provincia" v={a.provincia?.valor} />
@@ -452,6 +489,14 @@ function Construcciones({ lista, onCambiar, guardando }) {
                 </table>
             </div>
 
+            {lista.some(c => c.por_tipo) && (
+                <p className="mt-2 text-[10.5px] leading-relaxed text-white/50">
+                    Es un <b className="text-white/70">terciario</b>: cuentan también los usos que
+                    Catastro no da por vivienda ({[...new Set(lista.filter(c => c.por_tipo)
+                        .map(c => c.uso).filter(Boolean))].join(', ')}). Almacén, garaje y comunes
+                    siguen fuera. Desmarca lo que no se acondicione.
+                </p>
+            )}
             {porDefecto && (
                 <p className="mt-2 text-[10.5px] leading-relaxed text-amber-200/80">
                     ⚠ Catastro no declara ninguna vivienda en esta finca (todo consta como{' '}
@@ -627,7 +672,8 @@ function Foto({ titulo, cual, b64, puesta, cargando, fallo, onSustituir, onQuita
 // ─────────────────────────────────────────────────────────────────────────────
 export function PanelInstalaciones({ fase = 'inicial', onFase, equipo, superficie,
                                      ajustes = {}, onAjuste, extras = [], onExtra,
-                                     onAnadir, onBorrar, dosFases = true, children }) {
+                                     onAnadir, onBorrar, dosFases = true, iluminacion = null,
+                                     children }) {
     const esFinal = fase === 'final';
     const [abierta, setAbierta] = useState('principal');
 
@@ -687,7 +733,151 @@ export function PanelInstalaciones({ fase = 'inicial', onFase, equipo, superfici
                     <Reparto equipos={todos.map(t => t.eq)} />
                 </>
             )}
+
+            {/* La ILUMINACIÓN de un terciario. En el FINAL no se escribe: el
+                final COPIA el inicial y la obra (el generador) no la toca, así
+                que va la que lleve el inicial — con lo que se corrigiera en CE3X. */}
+            {iluminacion && (esFinal ? (
+                <p className="text-[11.5px] leading-relaxed text-white/40">
+                    <b className="text-white/70">Iluminación:</b> el CEE final copia la del inicial
+                    —la obra no la toca—. Se cambia en la cara «CEE inicial».
+                </p>
+            ) : <IluminacionTerciario {...iluminacion} />)}
         </Ventana>
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ILUMINACIÓN — solo en un terciario.
+//
+// En CE3X terciario la iluminación es una instalación más, una por zona (aquí,
+// por planta), y sin ella no calcula. Se estima como la estima CE3X («Estimado»):
+// una actividad del CTE HE-3, un tipo de lámpara y la iluminancia media; la
+// potencia sale sola, P = VEEI · S · E / 100, que es la cuenta que hace CE3X
+// (comprobada en los 80 registros «Estimado» del corpus).
+//
+// Lo del EDIFICIO manda en todas las plantas; una planta que sea otra cosa —la
+// iglesia con aulas en el primero— lleva su propia actividad.
+// ─────────────────────────────────────────────────────────────────────────────
+function IluminacionTerciario({ datos, ajustes = {}, onCambiar, onCambiarNivel }) {
+    const filas = datos?.filas || [];
+    const defecto = datos?.defecto;
+    const propio = (nivel) => ajustes.ilum_por_nivel?.[nivel] || {};
+    const opcionesAct = ACTIVIDADES_ILUMINACION_CE3X;
+    const lux = (v) => opcionesAct.find(a => a.valor === v)?.lux;
+
+    return (
+        <div className="rounded-xl border border-white/[0.07] px-4 pb-3 pt-2.5">
+            <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <p className="text-[11px] font-bold text-brand">Iluminación (terciario)</p>
+                <span className="text-[10.5px] text-white/35">
+                    estimada como CE3X: actividad, lámpara e iluminancia
+                </span>
+            </div>
+
+            <div className="grid gap-2 md:grid-cols-3">
+                <label className="flex flex-col gap-1 text-[11px] text-white/45">
+                    Actividad del edificio
+                    <select value={ajustes.ilum_actividad || ''} aria-label="Actividad del edificio"
+                            onChange={e => onCambiar?.('ilum_actividad', e.target.value || null)}
+                            className={caja(!!ajustes.ilum_actividad, 'w-full')}>
+                        <option value="">— Elegir —</option>
+                        {opcionesAct.map(a => (
+                            <option key={a.valor} value={a.valor}>{a.etiqueta || a.valor}</option>
+                        ))}
+                    </select>
+                </label>
+                <label className="flex flex-col gap-1 text-[11px] text-white/45">
+                    Tipo de lámpara
+                    <select value={ajustes.ilum_lampara || defecto?.lampara || 'LED'}
+                            aria-label="Tipo de lámpara"
+                            onChange={e => onCambiar?.('ilum_lampara', e.target.value || null)}
+                            className={caja(!!ajustes.ilum_lampara, 'w-full')}>
+                        {LAMPARAS_CE3X.map(l => <option key={l.valor} value={l.valor}>{l.valor}</option>)}
+                    </select>
+                </label>
+                <label className="flex flex-col gap-1 text-[11px] text-white/45">
+                    Iluminancia media (lux)
+                    <CampoDecimal valor={ajustes.ilum_iluminancia ?? defecto?.iluminancia ?? ''}
+                                  aria-label="Iluminancia media"
+                                  onCambio={n => onCambiar?.('ilum_iluminancia', n)}
+                                  alVaciar={() => onCambiar?.('ilum_iluminancia', null)}
+                                  className={caja(ajustes.ilum_iluminancia !== undefined, 'w-full')} />
+                </label>
+            </div>
+
+            {!defecto && (
+                <p className="mt-2 text-[11px] leading-relaxed text-amber-200/85">
+                    ⚠ Sin actividad no se escribe la iluminación, y CE3X no calcula un terciario
+                    sin ella.
+                </p>
+            )}
+
+            {filas.length > 0 && (
+                <div className="mt-3 overflow-x-auto">
+                    <table className="w-full min-w-[520px] text-[11.5px]">
+                        <thead>
+                            <tr className="text-[9.5px] uppercase tracking-wider text-white/30">
+                                <th className="py-1 text-left">Planta</th>
+                                <th className="py-1 text-right">m²</th>
+                                <th className="py-1 pl-3 text-left">Actividad</th>
+                                <th className="py-1 text-right">lux</th>
+                                <th className="py-1 text-right">Potencia</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {filas.map(f => {
+                                const suyo = propio(String(f.nivel));
+                                return (
+                                    <tr key={f.nivel} className="border-t border-white/[0.05] text-white/80">
+                                        <td className="py-1 font-semibold">{f.planta}</td>
+                                        <td className="py-1 text-right tabular-nums">
+                                            {Math.round(Number(f.superficie) || 0)}
+                                        </td>
+                                        <td className="py-1 pl-3">
+                                            <select value={suyo.actividad || ''}
+                                                    aria-label={`actividad de ${f.planta}`}
+                                                    onChange={e => onCambiarNivel?.(String(f.nivel),
+                                                        'actividad', e.target.value || null)}
+                                                    className={caja(!!suyo.actividad, 'max-w-[230px]')}>
+                                                <option value="">
+                                                    = la del edificio{defecto ? '' : ' (sin elegir)'}
+                                                </option>
+                                                {opcionesAct.map(a => (
+                                                    <option key={a.valor} value={a.valor}>
+                                                        {a.etiqueta || a.valor}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </td>
+                                        <td className="py-1 text-right">
+                                            <CampoDecimal
+                                                valor={suyo.iluminancia ?? f.iluminancia
+                                                       ?? lux(suyo.actividad) ?? ''}
+                                                aria-label={`iluminancia de ${f.planta}`}
+                                                onCambio={n => onCambiarNivel?.(String(f.nivel),
+                                                    'iluminancia', n)}
+                                                alVaciar={() => onCambiarNivel?.(String(f.nivel),
+                                                    'iluminancia', null)}
+                                                className={caja(suyo.iluminancia !== undefined, 'w-[64px] text-right')} />
+                                        </td>
+                                        <td className="py-1 text-right tabular-nums text-white/55">
+                                            {f.potencia ? `${miles(f.potencia)} W` : '—'}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            <p className="mt-2 text-[10.5px] leading-relaxed text-white/35">
+                Va una por planta, con su superficie. La potencia la recalcula CE3X al abrir
+                Instalaciones; si en la visita consta la potencia real de las luminarias, se
+                cambia allí a «Conocido».
+            </p>
+        </div>
     );
 }
 

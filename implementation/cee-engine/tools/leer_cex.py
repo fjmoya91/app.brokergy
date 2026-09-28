@@ -47,7 +47,11 @@ LF = b"\n"
 
 # Cabeceras que este lector reconoce. La version esta dentro del fichero a
 # proposito (docs/11): si CE3X cambia el formato, se ve aqui y no mas adelante.
-VERSIONES_CONOCIDAS = ("CEXv2.3 Residencial",)
+#: Los TRES programas de CE3X comparten formato: medido sobre los 43 `.cex` de
+#: terciario del disco, sus envolventes, equipos y medidas tienen exactamente
+#: las mismas formas que las del residencial (ver tools/terciario.py).
+VERSIONES_CONOCIDAS = ("CEXv2.3 Residencial", "CEXv2.3 PequeñoTerciario",
+                       "CEXv2.3 GranTerciario")
 
 # El pickle 2 lleva la imagen del plano embebida y ocupa ~100 KB. En el volcado
 # los textos largos se cortan; para verlos enteros esta --largo.

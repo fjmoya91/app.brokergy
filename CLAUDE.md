@@ -10646,6 +10646,94 @@ pantallas. En **tema claro no cambia nada**: ahí se declara `light`.
 
 ---
 
+## La envolvente en TERCIARIO: pequeño y gran terciario (2026-09-28)
+
+CE3X tiene tres programas en uno y lo pregunta lo primero, al crear un certificado:
+**Residencial · Pequeño terciario · Gran terciario**. La ventana de la envolvente
+hace lo mismo: al pulsar «Traer la envolvente» sin tipo elegido sale el popup
+([TipoEdificioModal.jsx](implementation/frontend/src/features/cee-envolvente/components/TipoEdificioModal.jsx)),
+con uno PROPUESTO (ficha TER100/TER173 o sector terciario → pequeño terciario; lo
+demás, residencial). Si es terciario, en el mismo popup se contesta el **perfil de
+uso** (intensidad + horas), si se certifica el **edificio completo o un local** y
+la **actividad principal** de la iluminación. Se cambia después en Datos generales
+y junto a los botones de generar.
+
+**Medido sobre los 43 `.cex` de terciario del disco** (29 pequeño, 14 gran,
+incluidos los ejemplos oficiales de CE3X) contra el residencial, lo que cambia es
+MUY poco, y por eso es un módulo pequeño y no otro generador
+([tools/terciario.py](implementation/cee-engine/tools/terciario.py)):
+
+| Qué | Residencial | Terciario |
+|---|---|---|
+| Pickle 0 (cabecera) | `CEXv2.3 Residencial` | `CEXv2.3 PequeñoTerciario` (la ñ escapada, `\xf1`) · `CEXv2.3 GranTerciario` |
+| Pickle 2 [1] | tipo de vivienda (`Unifamiliar`…) | **perfil de uso** (`Intensidad Baja - 24h`…, 12 cadenas) |
+| Pickle 2 [20] | vacío (701 de 701) | `Edificio completo` / `Local` |
+| Pickle 4 slot 7 | — | **iluminación**, una por zona |
+
+La envolvente, los huecos, los puentes, las zonas, los equipos y las medidas de
+mejora tienen **exactamente las mismas formas** (1.100 cerramientos de terciario
+medidos, ninguna forma nueva). Pequeño o gran terciario **no cambia nada de lo que
+escribe la app**: el gran terciario deja definir además bombas, ventiladores y
+torres (instalaciones complejas), que pone el certificador.
+
+**REGLA — la plantilla es UNA y la cabecera se escribe.** `montar(..., tipo)` pone
+el pickle 0 del programa pedido; lo demás que se copia de la plantilla virgen es
+idéntico en los tres programas. `/cex/instalaciones` (el FINAL) no toca la
+cabecera: si el expediente dice ahora otro tipo del que tiene el inicial,
+responde **422** y hay que regenerar el inicial.
+
+**REGLA — en un TERCIARIO se miden los usos del terciario.** El motor medía solo
+lo habitable, que era VIVIENDA y LOCAL, y Catastro llama a un hotel «HOTELERO», a
+una parroquia «RELIGIOSO» y «ENSEÑANZA», a una residencia «SANIDAD»: medido sobre
+los ejemplos, la parroquia de 25TER100_1 se habría medido solo por la vivienda de
+su 2ª planta (302 de 1.272 m²) y la residencia de Socuéllamos, entera, almacén y
+aparcamiento incluidos. Esos literales se normalizan a `TERCIARIO`
+(`alphanumeric._USOS`), que **no es habitable por sí solo** —en un residencial el
+bar de abajo no es la vivienda— y **cuenta cuando el edificio es terciario**
+(`pipeline.aplicar_tipo_edificio`, antes de la selección de la oportunidad, que
+sigue mandando). El tipo viaja en `POST /geometria` → `/envolvente`, y **cambiar de
+residencial a terciario con el plano medido vuelve a medir**. Y el forjado entre
+dos plantas acondicionadas de distinto uso (aulas bajo la vivienda del cura) **no
+se escribe** (`elementos_horizontales(acondicionados=…)`). Medido con la
+parroquia: 1.205 m² en 3 plantas como terciario; 302 m² en 1, como siempre, como
+residencial.
+
+**REGLA — la iluminación se ESTIMA como CE3X**: actividad del CTE HE-3, lámpara y
+iluminancia, y la potencia sale `P = VEEI · S · E / 100` (comprobado en los 80
+registros «Estimado» del corpus). La casilla **«Zona de representación» va con la
+actividad** (87 de 87) y la iluminancia por defecto es la que propone CE3X (200 lux
+un hotel, 500 un aula…). Solo se ofrecen actividades y lámparas VISTAS en el corpus,
+y la lista de la pantalla y la del motor son la misma (lo comprueba un test que lee
+el JS). ⚠️ La doble coma-espacio de «Habitaciones de hoteles,  hostales...» es de
+CE3X. Una planta que sea otra cosa lleva su propia actividad (`ilum_por_nivel`, por
+NIVEL: el nombre de la zona lo pone el motor). Solo se escribe si el slot está
+vacío: el CEE final copia la del inicial.
+
+**REGLA — la ACS de un terciario NO es el 140 de una vivienda.** Sale de lo
+tecleado, de los litros del certificado o de la **D_ACS del expediente** (la del
+CIFO) deshecha a litros/día a 60 °C (`litrosAcsDelExpediente`); en modo CTE —la
+fórmula de UNA vivienda— no se deduce nada y se pregunta, **sin proponer** el 140.
+
+**REGLA — la VENTILACIÓN de un terciario es 0,8 ren/h FIJA** (decisión del usuario,
+2026-09-28, `VENTILACION_TERCIARIO`). La del residencial sale de la tabla por año
+(`getVentanaYACHByYear`), que describe las infiltraciones de UNA VIVIENDA y no tiene
+sentido en un hotel o una parroquia. Sigue siendo editable en Datos generales y lo
+tecleado manda; el residencial no cambia.
+
+| Qué | Dónde |
+|---|---|
+| Listas de CE3X, tipo propuesto, iluminación, ACS | [fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js) — `TIPOS_CE3X`, `tipoCe3xDe`, `iluminacionCe3x`, `litrosAcsDelExpediente` |
+| Cabecera, datos generales e iluminación en el `.cex` | [tools/terciario.py](implementation/cee-engine/tools/terciario.py) + `montar` / `con_iluminacion` en `generar_cex.py` |
+| Qué se mide de un terciario | `aplicar_tipo_edificio` en [pipeline.py](implementation/cee-engine/src/pipeline.py) |
+| Popup del tipo | `TipoEdificioModal.jsx` |
+| Pruebas | `python -m pytest implementation/cee-engine/tests/test_terciario.py` · `node implementation/backend/scripts/test_tipo_ce3x.mjs` |
+
+⚠️ **Nada de esto se ha podido abrir en CE3X desde aquí**: lo verificado es que cada
+pickle tiene la forma de los `.cex` reales de terciario. La primera vez, abrir el
+fichero en CE3X y pulsar calcular.
+
+---
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -10864,6 +10952,8 @@ pantallas. En **tema claro no cambia nada**: ahí se declara `light`.
 75. **Un ADOSADO dentro de una comunidad se DELIMITA a mano: el contorno corta el edificio y lo de fuera es la casa de al lado.** La parcela de una comunidad de adosados es el CONJUNTO (dos hileras y su calle privada) y Catastro no dibuja dónde acaba cada casa: sus BuildingParts se parten por nº de plantas, no por vivienda — medido en 3677802WJ3437F (26RES060_205): **188 paredes** y 2.955 m² de huella para una vivienda de 62 m². Botón **✂ Delimitar la vivienda** bajo la barra del plano de la PLANTA BAJA (mismo gesto que la cubierta: pulsar vértices, cerrar en el primero; se puede pasar por la calle y el patio, lo que importa son las dos líneas con las casas de al lado). El motor (`pipeline.recortar_vivienda`) **recorta los BuildingParts** con el contorno —un PRISMA, vale para todas las plantas— y guarda **lo de fuera POR NIVEL** en `modelo.recorte_resto`, que entra como COLINDANTE en `_vecinos_en_nivel`: la pared contra la casa de al lado sale **MEDIANERA** y, donde la vecina no llega a esa planta, fachada. **Lo de fuera NO se borra** (mismo criterio que los cuerpos, regla 48.j). **El contorno se guarda en el MUNDO (EPSG:25830)**, en `cee.envolvente.recorte_vivienda`, nunca en el lienzo: al recortar el motor encuadra la casa y el lienzo cambia de origen (`lienzoAMundo(geo.georef)` en los dos sentidos). Viaja como `recorte_vivienda` en `/geometria` (saneado en el backend) y se vuelve a pedir con él al reabrir, igual que `cuerpos_fuera`; un contorno que el motor rechaza (422 `RecorteInvalido`) **no se queda como el pedido**. Se SUGIERE (ámbar) cuando el plano pasa de 40 paredes. Verificado sobre la parcela real: de 188 paredes a 12, con las dos laterales como medianera de 14,06 m. Tras tocarlo: `python -m pytest implementation/cee-engine/tests/test_recorte_vivienda.py`.
 
 76. **Un expediente puede estar RECHAZADO, y es una SALIDA, no un paso del ciclo.** Terminal como FINALIZADO (color rojo), pero se llega desde CUALQUIER estado, así que **no está en `ORDEN_ESTADOS`** y se guarda de dónde venía. **Se entra y se sale solo por dos RPC de UNA sentencia** (`expediente_rechazar` / `expediente_reabrir`, `scripts/expedientes_rechazo.sql`, ya en producción): estado, `rechazado_por`, `motivo_rechazo_cat`, `motivo_rechazo` (≥ 20 car.), `rechazo_adjunto_url`, `fecha_rechazo`, `estado_previo_rechazo` y el asiento `{tipo:'estado', estado, fecha, usuario, motivo}` de `documentacion.historial`, a la vez o nada; un CHECK impide un RECHAZADO sin quién/por qué/cuándo. Rutas `POST /api/expedientes/:id/rechazar` y `/reabrir` (**staffOnly**). Elegir RECHAZADO en un selector (fila, tarjeta móvil o detalle) **no guarda**: abre `RechazoExpedienteModal`, y cancelar no toca nada. Un rechazado se pinta con `EstadoRechazado` (badge con el motivo en el tooltip + «Reabrir», que devuelve `estado_previo_rechazo`) y no con un desplegable. **REGLA — nada lo reabre por la espalda**: `avanzarEstado` devuelve RECHAZADO tal cual (sin eso, como no tiene rango, el primer automatismo sellaba su destino), el PUT general da 400 al intentar ponerlo e **ignora** —sin tumbar el resto del guardado— el intento de sacarlo, y el cambio de estado de un LOTE no lo arrastra (`.or('estado.is.null,estado.neq.RECHAZADO')`). Fuera de: "Todos menos finalizado y rechazado", las cifras del resumen del listado (salvo con su chip marcado), el cuadro de mando y el parte diario (`ESTADOS_FUERA`). Su carpeta va a `12. RECHAZADOS` (si no está loteado) y vuelve sola al reabrir; su oportunidad se ve RECHAZADA; y un cliente cuyos expedientes están todos rechazados sale «Rechazado», no «En curso». El listado trae los campos del rechazo con una consulta aparte (la RPC v4 no los tiene). Fuente única del front: [logic/rechazoExpediente.js](implementation/frontend/src/features/expedientes/logic/rechazoExpediente.js), espejo de `utils/expedienteEstados.js` y de los CHECK. En el portal del cliente sale como **«Expediente cerrado»** (`mapEstadoToHito`, subestado `cerrado`): sin barra de pasos, sin el motivo interno y sin pedirle nada (`queFalta` vacío). ⚠️ Pendiente: el bloque del bono del portal sigue enseñando el importe estimado.
+
+77. **El `.cex` se escribe como RESIDENCIAL, PEQUEÑO o GRAN TERCIARIO, y se pregunta como CE3X antes de medir.** Popup al pulsar «Traer la envolvente» sin tipo elegido (propone pequeño terciario en una ficha TER; lo demás, residencial) y, si es terciario, perfil de uso, edificio completo/local y actividad de la iluminación. Se guarda en `ajustes.tipo_ce3x` y lo lee todo: la **cabecera** del fichero (`montar(..., tipo)`), el campo [1]/[20] de los datos generales, la **iluminación por zona** (obligatoria en terciario, estimada `P = VEEI·S·E/100`) y **qué se mide** —en un terciario cuentan los usos terciarios de Catastro (HOTELERO, RELIGIOSO, ENSEÑANZA, SANIDAD, COMERCIO…), que antes caían en «OTROS» y no se medían—. El residencial no cambia ni un byte sin tipo. Un expediente residencial con trabajo previo no ve el popup; uno terciario sin tipo, sí. Generar el FINAL con otro tipo que el inicial → 422. La ACS de un terciario sale de la D_ACS del expediente, nunca del 140, y la ventilación es **0,8 ren/h fija** (`VENTILACION_TERCIARIO`, editable), no la tabla por año de una vivienda. Tras tocarlo: `pytest implementation/cee-engine/tests/test_terciario.py` y `node implementation/backend/scripts/test_tipo_ce3x.mjs`. Ver "La envolvente en TERCIARIO".
 
 ---
 

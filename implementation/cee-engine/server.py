@@ -174,6 +174,10 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
         # oportunidad, y de ahi salio la superficie que se le presupuesto al
         # cliente. Se aplica ANTES de clasificar: de `habitable` cuelgan que
         # plantas se miden, la superficie del .cex y el plan de fotos.
+        # En un TERCIARIO cuentan también los usos del terciario (hotelero,
+        # religioso, enseñanza, sanidad…), que Catastro no da por habitables.
+        # Va ANTES de la selección: lo que marcó una persona sigue mandando.
+        pipeline.aplicar_tipo_edificio(modelo, payload.get("tipo_edificio_ce3x"))
         pipeline.aplicar_seleccion(modelo, payload.get("construcciones"))
         # Una finca en la que Catastro no declara ninguna vivienda (todo
         # «ALMACEN») se queda sin plano: se mide entera y se dice.
@@ -289,6 +293,9 @@ def _construcciones(modelo: Modelo) -> list[dict]:
             # Cuenta porque Catastro no declara NINGUNA vivienda y se mide todo
             # (`sin_vivienda_mide_todo`), no porque la haya marcado nadie.
             "por_defecto": bool(a.get("habitable_por_defecto")),
+            # Cuenta porque el edificio es TERCIARIO y este es uno de sus usos
+            # (`aplicar_tipo_edificio`): un hotel, un aula, una capilla.
+            "por_tipo": bool(a.get("habitable_por_tipo")),
         })
     return sorted(out, key=lambda c: (c["nivel"] if c["nivel"] is not None else 99,
                                       c["codigo"]))
@@ -356,12 +363,21 @@ def cex(payload: dict = Body(...)) -> Response:
         # expediente saldría con los avisos de todos los anteriores — con fotos
         # de OTROS clientes nombradas dentro.
         G.AVISOS_IMAGEN.clear()
+        # El PROGRAMA de CE3X (residencial, pequeño o gran terciario). Se valida
+        # lo primero: un tipo que no existe no puede acabar a medias en un
+        # fichero.
+        tipo = G.TER.tipo_de(datos)
         envolvente_, avisos = G.construir_envolvente(geometria, datos)
         zonas = {str(z.estado[G.Cadena("nombre")]) for z in envolvente_[3]}
         base = L.trocear(PLANTILLA)
         instalaciones, av_ins = G.construir_instalaciones(
             datos, L.leer(base, G.INSTALACIONES), zonas)
         avisos.extend(av_ins)
+        # En un TERCIARIO la iluminación es una instalación más, por zona. Va
+        # ANTES de las medidas: cada medida es este mismo edificio con su
+        # cambio, y sin esto saldrían sin iluminación.
+        instalaciones, av_il = G.con_iluminacion(instalaciones, datos, envolvente_[3])
+        avisos.extend(av_il)
 
         # Cada MEDIDA DE MEJORA es el mismo edificio con el cambio que ella
         # propone, así que su instalación se construye con los mismos escritores
@@ -418,18 +434,21 @@ def cex(payload: dict = Body(...)) -> Response:
             filas, L.leer(base, G.RESUMEN_MEDIDAS))
         if grupos:
             nuevos[G.MEDIDAS] = grupos
-        salida.write_bytes(G.montar(PLANTILLA, nuevos))
+        salida.write_bytes(G.montar(PLANTILLA, nuevos, tipo))
 
         # Releer SIEMPRE antes de devolver. Un .cex que no se relee igual que se
         # escribio es un .cex que CE3X puede abrir a medias, y eso no se ve.
-        problemas = G.comprobar(salida, nuevos)
+        problemas = G.comprobar(salida, nuevos, tipo)
         if problemas:
             raise HTTPException(500, "el .cex no se relee igual que se escribió: "
                                      + " | ".join(problemas))
 
         avisos.extend(G.AVISOS_IMAGEN)
         util = G._numf(datos["generales"]["superficie_util_habitable"]["valor"])
-        fuera = G.contrastar(envolvente_, util)
+        # Las bandas de contraste son de 327 UNIFAMILIARES reales: contra un
+        # hotel o una iglesia no dicen nada, y un aviso que sale siempre sin
+        # motivo es el que enseña a no leer los demás.
+        fuera = [] if G.TER.es_terciario(tipo) else G.contrastar(envolvente_, util)
 
         return Response(
             content=salida.read_bytes(),
@@ -524,6 +543,17 @@ async def cex_instalaciones(fichero: UploadFile = File(...),
         base = L.trocear_bytes(crudo)
         if not base.version_conocida:
             raise HTTPException(422, f"versión de .cex no probada: {base.version!r}")
+        # El FINAL es el inicial con otro generador, y el PROGRAMA de CE3X
+        # (residencial / pequeño / gran terciario) viaja en su cabecera, que
+        # aquí no se toca. Si el expediente dice ahora otro tipo del que se usó
+        # para el inicial, copiarlo daría un final escrito con el programa
+        # equivocado: se dice, y se regenera el inicial.
+        tipo = G.TER.tipo_de(ficha)
+        if base.version != G.TER.VERSION[tipo]:
+            raise HTTPException(
+                422, f"El CEE inicial está hecho como «{base.version}» y el expediente "
+                     f"dice ahora «{G.TER.VERSION[tipo]}». El final se hace COPIANDO el "
+                     f"inicial: vuelve a generar primero el inicial con el tipo bueno.")
 
         # Las zonas declaradas salen del fichero que entra, no de la ficha: si el
         # equipo dijera estar en una zona que ese .cex no tiene, CE3X lo abriría

@@ -8,7 +8,8 @@ import { usePlanoEnvolvente } from '../logic/usePlanoEnvolvente';
 import { lienzoAMundo, areaPoligono } from '../logic/geometriaPlano';
 import { CampoDecimal } from '../../../components/CampoDecimal';
 import { dondeSobra, dondeSigue } from '../logic/cuerposEnvolvente';
-import { claveInstalacion } from '../logic/fichaCe3x';
+import { claveInstalacion, esTerciarioCe3x, etiquetaTipoCe3x, tipoCe3xDe } from '../logic/fichaCe3x';
+import { TipoEdificioModal } from '../components/TipoEdificioModal';
 import { useDeshacer } from '../logic/useDeshacer';
 import { MidiendoElEdificio } from '../components/MidiendoElEdificio';
 import { VentanasViviendaModal } from '../components/VentanasViviendaModal';
@@ -91,6 +92,18 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     const [trabajoPrevio, setTrabajoPrevio] = useState(undefined);
     const [estadoGuardado, setEstadoGuardado] = useState(null);
     const ultimo = useRef(null);
+
+    // ── El TIPO DE EDIFICIO, como lo pregunta CE3X al crear un fichero ───────
+    // Residencial, pequeño o gran terciario: decide con qué programa abre CE3X
+    // el `.cex`. `verTipo` es POR QUÉ está abierto el popup: 'traer' mide el
+    // edificio al contestar (se pregunta antes de medir, como CE3X), 'cambiar'
+    // solo cambia el tipo. `null`, cerrado.
+    const [verTipo, setVerTipo] = useState(null);
+    //: Cerrar sin contestar el popup que sale SOLO no puede volver a abrirlo en
+    //: el render siguiente: se deja estar hasta la próxima vez que se abra la
+    //: ventana, y la ficha lo sigue proponiendo.
+    const [tipoPospuesto, setTipoPospuesto] = useState(false);
+    const tipoInfo = tipoCe3xDe(ajustes, expediente);
 
     // Si el expediente YA tiene trabajo, se trae la geometría sola: volver a la
     // pantalla de «traer la envolvente» es un paso de más cuando ya se estuvo
@@ -217,8 +230,12 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
      * comprobación va AQUÍ y no en el sitio que llama, o el próximo que enganche
      * esta función a un `onClick` vuelve a romperlo sin enterarse.
      */
-    async function traerGeometria(cuerposFuera = null, recorte = undefined) {
+    async function traerGeometria(cuerposFuera = null, recorte = undefined, tipo = undefined) {
         if (!rc) { setError('Este expediente no tiene referencia catastral.'); return false; }
+        // El TIPO decide qué se mide: en un terciario cuentan los usos del
+        // terciario (un hotel es «HOTELERO» en Catastro). Lo pasa quien acaba
+        // de elegirlo; si no, el de este render.
+        const tipoMedir = typeof tipo === 'string' ? tipo : tipoInfo.tipo;
         setCargando(true); setError(null);
         // El contorno de la vivienda: `undefined` es «el mismo de antes», `null`
         // es «sin contorno». Lo que no traiga sus vértices no viaja.
@@ -236,7 +253,8 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
             cuerposPedidos.current = fuera || [];
             const data = await postEnvolvente(api(id, 'geometria'),
                 { referencia_catastral: rc, cuerpos_excluidos: fuera || [],
-                  recorte_vivienda: recortePedido.current },
+                  recorte_vivienda: recortePedido.current,
+                  tipo_edificio_ce3x: tipoMedir },
                 // Repetible: medir NO escribe nada —lee Catastro, y el motor lo
                 // tiene cacheado—, así que una petición que no ha llegado se
                 // puede volver a mandar sin consecuencias.
@@ -596,6 +614,13 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     const [preguntando, setPreguntando] = useState(null);
 
     function pedirGenerar(fase) {
+        // Un tipo PROPUESTO como terciario y sin confirmar no se escribe a
+        // ciegas: equivocar el programa obliga a rehacer el fichero entero. Se
+        // pregunta, y con él contestado se vuelve a pulsar.
+        if (!tipoInfo.elegido && tipoInfo.tipo !== 'residencial') {
+            setVerTipo('cambiar');
+            return;
+        }
         // Solo se pregunta lo de la fase que se está previsualizando: `faltan` se
         // calcula con esos ajustes, y en el final no hay nada que preguntar
         // porque lo hereda del fichero que copia.
@@ -718,7 +743,46 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     // el primer hueco y se perdería al cerrar la pestaña.
     const primeraVez = !ventanasContestadas(ajustes) && !ajustes.ventanas_luego
                        && !Object.keys(trabajoPrevio?.huecos || {}).length;
-    const verVentanasAhora = verVentanas || (primeraVez && !preguntando && !generando);
+
+    // El popup del TIPO sale SOLO en un caso: un expediente que la app propone
+    // como TERCIARIO, con trabajo de antes y sin tipo elegido. Un residencial
+    // con trabajo de antes sigue siéndolo sin preguntar —sus `.cex` ya se
+    // generaron así—; y uno sin trabajo lo pregunta al pulsar «Traer».
+    const tipoSolo = !!geo && !tipoInfo.elegido && tipoInfo.tipo !== 'residencial'
+                     && !tipoPospuesto && !generando;
+    const tipoAbierto = !!verTipo || tipoSolo;
+    // El de las ventanas espera a que se conteste el del tipo: dos popups a la
+    // vez son una pared.
+    const verVentanasAhora = !tipoAbierto
+        && (verVentanas || (primeraVez && !preguntando && !generando));
+
+    function elegirTipo(cambios) {
+        const traer = verTipo === 'traer';
+        const nuevo = cambios.tipo_ce3x;
+        setAjustes(a => ({ ...a, ...cambios }));
+        setVerTipo(null);
+        onAviso?.(`Tipo de edificio: ${etiquetaTipoCe3x(nuevo)}.`);
+        if (traer) { traerGeometria(null, undefined, nuevo); return; }
+        // Pasar de residencial a terciario (o al revés) con el plano ya medido
+        // cambia QUÉ SE MIDE —las aulas de una parroquia cuentan en un
+        // terciario y no en una vivienda—, así que se vuelve a medir con lo que
+        // ya se lleva hecho. Entre pequeño y gran terciario no cambia nada.
+        if (geo && esTerciarioCe3x(nuevo) !== esTerciarioCe3x(tipoInfo.tipo)) {
+            const previo = plano.trabajo || trabajoPrevio || {};
+            setTrabajoPrevio(previo);
+            traerGeometria(previo.cuerpos_fuera || [], previo.recorte_vivienda || null, nuevo);
+        }
+    }
+    function cerrarTipo() {
+        if (!verTipo) setTipoPospuesto(true);
+        setVerTipo(null);
+    }
+    const modalTipo = tipoAbierto && (
+        <TipoEdificioModal actual={tipoInfo.elegido ? tipoInfo.tipo : null}
+                           sugerido={tipoInfo.tipo} ajustes={ajustes}
+                           expediente={expediente?.numero_expediente}
+                           onElegir={elegirTipo} onCerrar={cerrarTipo} />
+    );
 
     if (!geo) {
         // Mientras se mide, el popup: son entre veinte segundos y un minuto, y
@@ -729,15 +793,17 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         if (cargando) {
             return <MidiendoElEdificio expediente={expediente?.numero_expediente} />;
         }
-        return (
-            // `onTraer` va ENVUELTO: sin el envoltorio, React le pasa su EVENTO
-            // como primer argumento y acaba dentro del cuerpo del POST —que es
-            // lo que rompió este botón del 16 al 18/09/2026—. `traerGeometria`
-            // ya se defiende sola, pero aquí tampoco se le manda.
+        return (<>
+            {/* `onTraer` va ENVUELTO: sin el envoltorio, React le pasa su EVENTO
+                como primer argumento y acaba dentro del cuerpo del POST —que es
+                lo que rompió este botón del 16 al 18/09/2026—. `traerGeometria`
+                ya se defiende sola, pero aquí tampoco se le manda.
+                Sin tipo elegido, antes de medir se pregunta como CE3X. */}
             <Arranque rc={rc} cargando={cargando} error={error}
-                      onTraer={() => traerGeometria()}
+                      onTraer={() => (tipoInfo.elegido ? traerGeometria() : setVerTipo('traer'))}
                       retomando={!!trabajoPrevio && !error} />
-        );
+            {modalTipo}
+        </>);
     }
 
     const cambiarAjuste = (clave, valor) => setAjustes(a => {
@@ -801,6 +867,29 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         const t = { ...(a.transmitancias || {}) };
         if (valor === null) delete t[elemento]; else t[elemento] = valor;
         return { ...a, transmitancias: t };
+    });
+
+    //: La iluminación de UNA planta que es otra cosa que el resto (la iglesia
+    //: con las aulas en el primero). Va por NIVEL: el nombre de la zona lo pone
+    //: el motor, que es quien la declara. Un campo vacío vuelve a heredar la del
+    //: edificio; una planta sin nada propio deja de estar en la lista.
+    const cambiarIluminacionNivel = (nivel, campo, valor) => setAjustes(a => {
+        const todos = { ...(a.ilum_por_nivel || {}) };
+        const suyo = { ...(todos[nivel] || {}) };
+        if (valor === null || valor === '') delete suyo[campo]; else suyo[campo] = valor;
+        // Cambiar la actividad de una planta arrastra la iluminancia que CE3X
+        // propone para ella, salvo que se haya tecleado otra.
+        if (campo === 'actividad') delete suyo.iluminancia;
+        if (Object.keys(suyo).length) todos[nivel] = suyo; else delete todos[nivel];
+        const n = { ...a, ilum_por_nivel: todos };
+        if (!Object.keys(todos).length) delete n.ilum_por_nivel;
+        return n;
+    });
+    const cambiarIluminacion = (campo, valor) => setAjustes(a => {
+        const n = { ...a };
+        if (valor === null || valor === '') delete n[campo]; else n[campo] = valor;
+        if (campo === 'ilum_actividad') delete n.ilum_iluminancia;
+        return n;
     });
 
     // Quitar o devolver un cuerpo obliga a volver a MEDIR: la pared que lo
@@ -986,9 +1075,13 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                               'tecnico', 'Datos del técnico actualizados.')} />
                     : <Cargando />)}
 
+            {modalTipo}
+
             {activa === 'generales' && (
                 ficha
                     ? <PanelGenerales datos={ficha} puestos={ajustes}
+                                      tipoCe3x={tipoInfo}
+                                      onCambiarTipo={() => setVerTipo('cambiar')}
                                       retocadas={ajustes.transmitancias || {}}
                                       onCambiarDato={cambiarAjuste} onCambiarU={cambiarU}
                                       construcciones={geo?.construcciones}
@@ -1007,7 +1100,15 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                     onAjuste={cambiarInstalacion}
                                     extras={ajustes.equipos_extra || []}
                                     onExtra={cambiarEquipoExtra}
-                                    onAnadir={anadirEquipo} onBorrar={borrarEquipo}>
+                                    onAnadir={anadirEquipo} onBorrar={borrarEquipo}
+                                    // Solo en un TERCIARIO: ahí la iluminación
+                                    // es una instalación más, por planta.
+                                    iluminacion={esTerciarioCe3x(tipoInfo.tipo) ? {
+                                        datos: ficha?.ficha?.iluminacion,
+                                        ajustes,
+                                        onCambiar: cambiarIluminacion,
+                                        onCambiarNivel: cambiarIluminacionNivel,
+                                    } : null}>
                     {/* `puedeLeerPlaca`: en un CEE directo no hay `instalacion`
                         donde escribir lo leído —ese es justo el motivo de que sea
                         otra tabla—, así que el equipo se teclea. Un botón que da
@@ -1038,6 +1139,10 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                             que señales aquí ya está guardado y pasa al expediente al aceptarla.
                         </p>
                     ) : (<>
+                    {/* Con qué PROGRAMA de CE3X se escribe, al lado del botón: es
+                        lo primero que se ve al abrir el fichero, y equivocarlo
+                        obliga a rehacerlo entero. Sin elegir, se pregunta al pulsar. */}
+                    <TipoAlGenerar tipo={tipoInfo} onCambiar={() => setVerTipo('cambiar')} />
                     {/* El FINAL no se levanta de cero: se COPIA el inicial y se le
                         cambia el generador, que es como se hace a mano. Verificado
                         sobre 26RES060_186 contra el .cex que guardó el certificador
@@ -1117,6 +1222,30 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
 }
 
 // ─── Trozos de pantalla ──────────────────────────────────────────────────────
+
+/** Con qué programa de CE3X se va a escribir, junto a los botones de generar. */
+function TipoAlGenerar({ tipo, onCambiar }) {
+    return (
+        <div className="flex flex-wrap items-center gap-2 text-[12px]">
+            <span className="text-white/45">Se genera como</span>
+            <b className={`rounded-md border px-2 py-0.5 text-[11.5px] font-black uppercase
+                           tracking-wider ${tipo.elegido ? 'border-brand/40 text-brand'
+                                                         : 'border-amber-500/40 text-amber-200'}`}>
+                {etiquetaTipoCe3x(tipo.tipo)}
+            </b>
+            {!tipo.elegido && (
+                <span className="text-[11px] text-amber-200/80">
+                    propuesto, sin confirmar
+                </span>
+            )}
+            <button onClick={onCambiar}
+                    className="text-[11px] text-white/40 underline-offset-2 hover:text-white/80
+                               hover:underline">
+                {tipo.elegido ? 'cambiar' : 'elegir'}
+            </button>
+        </div>
+    );
+}
 
 function Arranque({ rc, cargando, error, onTraer, retomando }) {
     return (
@@ -1648,6 +1777,16 @@ function PreguntasPrevias({ preguntas, onGenerar, onCerrar }) {
                             </p>
                             {p.tipo === 'sino_numero' ? (
                                 <SiNoNumero p={p} valor={resp[p.clave]} onPon={v => pon(p.clave, v)} />
+                            ) : p.tipo === 'opciones' ? (
+                                <select value={resp[p.clave] ?? p.propuesto ?? ''}
+                                        aria-label={p.titulo}
+                                        onChange={e => pon(p.clave, e.target.value || undefined)}
+                                        className="mt-2.5 w-full rounded-lg border border-white/10
+                                                   bg-white/[0.04] px-2.5 py-2 text-[12.5px]
+                                                   font-semibold text-white/85">
+                                    <option value="">— Elegir —</option>
+                                    {p.opciones.map(o => <option key={o} value={o}>{o}</option>)}
+                                </select>
                             ) : (
                                 <Numero p={p} valor={resp[p.clave]} onPon={v => pon(p.clave, v)} />
                             )}
@@ -1971,7 +2110,12 @@ function construirPestanas({ ficha, resumen, entrada, medidas }) {
 
     // QUÉ falta viene en ESTRUCTURA desde la ficha (`instalaciones_falta`), no
     // de leer el aviso: eso se rompe la primera vez que alguien lo redacte mejor.
+    //: En un TERCIARIO la iluminación es una instalación más, y sin ella CE3X no
+    //: calcula: cuenta como lo que falta aunque el generador esté completo.
+    const sinIluminacion = !!f && esTerciarioCe3x(f.tipo_edificio_ce3x)
+        && !f.iluminacion?.defecto && !Object.keys(f.iluminacion?.por_nivel || {}).length;
     const instalaciones = !f ? esperando
+        : sinIluminacion ? { estado: '! falta la iluminación', tono: 'aviso' }
         : f.instalaciones?.[0] ? { estado: '✓ completo', tono: 'ok' }
         : { estado: `! ${f.instalaciones_falta || 'falta un dato'}`, tono: 'aviso' };
 
