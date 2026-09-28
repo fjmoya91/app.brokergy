@@ -285,13 +285,21 @@ async function encajarPortadas(page) {
                 };
                 let m = medir();
                 if (m.alto <= m.libre) continue;
-                let zoom = 1;
+                // Se parte del zoom que YA trae la portada: desde el 28/09/2026 la
+                // vista previa lo pone ella cuando ni los huecos ni el compacto
+                // bastan. Partiendo de 1 se le SUSTITUÍA por uno mayor (la cuenta
+                // es relativa a lo que se mide ahora) y la hoja volvía a salirse.
+                let zoom = parseFloat(body.style.zoom) || 1;
+                // El suelo es relativo a ese zoom: aquí solo se corrige lo que la
+                // vista previa no pudo ver (la tipografía de este Chrome), que es
+                // poco. Nunca por debajo del suelo de la vista previa (0,72).
+                const piso = Math.max(0.72, Math.min(MIN_ZOOM, zoom * 0.92));
                 // Iterativo: al reducir, el texto reparte las líneas de otra forma.
                 for (let i = 0; i < 5 && m.alto > m.libre; i++) {
-                    zoom = Math.max(MIN_ZOOM, zoom * (m.libre / m.alto) - 0.002);
+                    zoom = Math.max(piso, zoom * (m.libre / m.alto) - 0.002);
                     body.style.zoom = String(zoom);
                     m = medir();
-                    if (zoom <= MIN_ZOOM) break;
+                    if (zoom <= piso) break;
                 }
                 out.push({ zoom: Math.round(zoom * 1000) / 1000, cabe: m.alto <= m.libre });
             }

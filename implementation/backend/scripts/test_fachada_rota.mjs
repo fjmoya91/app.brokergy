@@ -25,7 +25,7 @@
  */
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
-const { fachadaCompleta, miniaturaExif } = require('../services/catastroService');
+const { fachadaCompleta, miniaturaExif, cerrarFachada } = require('../services/catastroService');
 
 const seg = (marca, cuerpo) => Buffer.concat([
     Buffer.from([0xFF, marca]), (() => { const b = Buffer.alloc(2); b.writeUInt16BE(cuerpo.length + 2); return b; })(), cuerpo,
@@ -85,5 +85,28 @@ comprobar('sin miniatura dentro, no se rescata nada',
 comprobar('lo que no empieza por SOI no es una foto',
     !fachadaCompleta(Buffer.from('<html>no soy una foto</html>')));
 
-console.log(fallos ? '\nRevisa lo de arriba.' : '\nLa foto rota de Catastro se detecta y se rescata su miniatura.');
+// 8. Lo que de verdad hace Catastro (medido el 28/09/2026 en las cuatro "rotas"
+//    que había a mano): la imagen está ENTERA y el fichero termina en `FF 00`
+//    donde iba el `FF D9`. Se restaura el cierre y la foto vuelve a pintarse.
+const mutilada = Buffer.concat([SOI, app1ConMiniatura(mini), SOF0, SOS, datos, Buffer.from([0xFF, 0x00])]);
+comprobar('la de cierre mutilado (…FF 00) NO se da por buena tal cual',
+    !fachadaCompleta(mutilada));
+const cerrada = cerrarFachada(mutilada);
+comprobar('se le restaura el cierre y pasa a ser una foto completa',
+    fachadaCompleta(cerrada) && cerrada.length === mutilada.length + 2);
+comprobar('restaurar AÑADE el cierre: no se pierde ni un byte de los datos',
+    cerrada.subarray(0, mutilada.length).equals(mutilada));
+
+// 9. Una cortada de verdad, por cualquier otro sitio, sigue siendo lo que era.
+comprobar('una cortada que NO termina en FF 00 no se "arregla"',
+    cerrarFachada(cortadaConMini) === cortadaConMini && !fachadaCompleta(cerrarFachada(cortadaConMini)));
+
+// 10. Y a una foto buena no se le toca nada.
+const buena = Buffer.concat([SOI, SOF0, SOS, datos, EOI]);
+comprobar('a una foto completa no se le toca ni un byte',
+    cerrarFachada(buena) === buena);
+comprobar('lo que no es un JPEG no se toca',
+    cerrarFachada(Buffer.from('<html>no soy</html>')).toString() === '<html>no soy</html>');
+
+console.log(fallos ? '\nRevisa lo de arriba.' : '\nLa foto de Catastro sin cierre se restaura, y de la cortada de verdad se rescata su miniatura.');
 process.exit(fallos ? 1 : 0);

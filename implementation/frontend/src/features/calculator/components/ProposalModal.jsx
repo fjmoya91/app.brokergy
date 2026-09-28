@@ -448,6 +448,13 @@ const baseCss = `
         .prop-compact .prop-cta-btn { font-size: 13px; padding: 9px 16px 9px 22px; }
         .prop-compact .prop-cta-arrow { width: 23px; height: 23px; font-size: 13px; }
         .prop-compact .prop-cfn { margin-top: 6px; }
+        /* Los dos recuadros de texto largo bajo la tabla (presupuesto estimado e
+           hipótesis del IRPF) son lo que más pesa en las portadas que no caben:
+           en compacto se aprietan como el resto antes de tener que recurrir al zoom. */
+        .prop-compact .prop-est, .prop-compact .prop-hip { margin-top: 8px; padding: 9px 14px; }
+        .prop-compact .prop-est h4, .prop-compact .prop-hip h4 { font-size: 10.5px; margin-bottom: 4px; }
+        .prop-compact .prop-est p, .prop-compact .prop-hip p { font-size: 9.5px; line-height: 1.45; }
+        .prop-compact .prop-est p + p, .prop-compact .prop-hip p + p { margin-top: 3px; }
 
         /* En pantalla las páginas se separan 24px y llevan sombra para que se lean
            como hojas sueltas. Al imprimir (puppeteer usa media print) esos márgenes
@@ -501,6 +508,9 @@ const isBudgetOldFileName = (name) => {
     return n.startsWith(BUDGET_LABEL) && n.endsWith('_OLD');
 };
 
+// Estado de partida del ajuste de la portada (ver `fit` dentro del componente).
+const FIT_INICIAL = { pass: 0, compact: false, vars: null, reposo: null, zoom: null, zoomOk: null, zoomKo: null, listo: false };
+
 export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }) {
     const { showAlert, showConfirm } = useModal();
     const { user } = useAuth();
@@ -519,10 +529,16 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     // 224px en blanco al final. El compacto sigue existiendo, pero solo como
     // último recurso cuando estirar/encoger no alcanza.
     //
-    // `pass`: 0 = pendiente de medir · 1 = medir ya en compacto · 2 = fijado.
-    // Nunca vuelve atrás, así que no hay bucle de medición. Los estilos van en el
-    // DOM, de modo que el PDF hereda exactamente la misma portada que la vista.
-    const [fit, setFit] = useState({ pass: 0, compact: false, vars: null, reposo: null });
+    // `pass` cuenta las pasadas de medición y `listo` cierra el ajuste. Nunca
+    // vuelve atrás, así que no hay bucle de medición. Los estilos van en el DOM,
+    // de modo que el PDF y la vista web heredan exactamente la misma portada.
+    //
+    // `zoom` es el TERCER escalón, cuando ni los huecos ni el compacto bastan
+    // (ver más abajo). Sin él la portada se rendía y el texto se quedaba debajo
+    // del pie negro: medido el 28/09/2026 sobre las propuestas ya enviadas,
+    // 26RES060_OP208 perdía bajo el pie TODAS sus notas y el aviso de
+    // presupuesto estimado, y así le llegó al cliente en la vista web.
+    const [fit, setFit] = useState(FIT_INICIAL);
     const [fontsReady, setFontsReady] = useState(false);
     const [brokergyLogo, setBrokergyLogo] = useState(`${APP_URL}${BROKERGY_LOGO_PATH}`);
     // Foto oficial de FACHADA del Catastro (API RecuperarFotoFachada, vía proxy).
@@ -933,7 +949,7 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     // rearmar el cálculo la portada se desbordaría por debajo del pie negro.
     // `fachadaFoto` igual: llega del Catastro y estrecha el titular.
     useLayoutEffect(() => {
-        setFit({ pass: 0, compact: false, vars: null, reposo: null });
+        setFit(FIT_INICIAL);
     }, [isOpen, includeCeeComp, cobrand, marcaVersion, fachadaFoto]);
 
     // Huecos que se estiran o encogen, en orden de aparición. `encoge` es la
@@ -961,6 +977,16 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     const AIRE = 24;
     const TOLERANCIA = 14;    // sobra aceptable: por debajo, se da por bueno
     const MAX_PASADAS = 4;
+    // Tercer escalón: `zoom` sobre el cuerpo de la hoja, lo mismo que ya hacía el
+    // servidor al imprimir (pdfService.encajarPortadas). Reduce todo el cuerpo en
+    // la misma proporción, así que no se pierde ni una línea y conserva el ancho.
+    // Se hace AQUÍ y no solo en el servidor porque la vista previa y la vista web
+    // que abre el cliente desde el enlace no pasan por el servidor: allí se veía
+    // cortado aunque el PDF saliera bien. El suelo solo está para no dejar un
+    // cuerpo ilegible si algún día entra algo desmesurado: sobre las propuestas
+    // que se cortaban, el peor caso (26RES060_OP208) queda en 0,906.
+    const ZOOM_MIN = 0.72;
+    const MAX_PASADAS_ZOOM = 7;
 
     // Se mide en píxeles de maquetación (offsetTop / offsetHeight, no
     // getBoundingClientRect) porque la vista previa va dentro de un
@@ -972,11 +998,71 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     // se queda corto. Medir → corregir → volver a medir no necesita saber nada
     // de la maquetación. Converge en 2-3 pasadas y está topado por MAX_PASADAS.
     useLayoutEffect(() => {
-        if (!isOpen || !fontsReady || fit.pass >= MAX_PASADAS) return;
+        if (!isOpen || !fontsReady || fit.listo) return;
         const page = page1Ref.current;
         const body = page?.querySelector('.prop-pb');
         const cta = page?.querySelector('.prop-cta');
         if (!body || !cta) return;
+
+        const cerrar = () => setFit(prev => ({ ...prev, listo: true }));
+
+        // Medida con el zoom puesto. Con `zoom` en el cuerpo, offsetHeight no dice
+        // de forma fiable cuánto ocupa en la hoja (depende de la versión del
+        // navegador), así que se usan los rectángulos pintados y se deshace la
+        // escala de la vista previa (`transform: scale`) con la del propio folio,
+        // que mide 1123 de maquetación.
+        const medirPintado = () => {
+            const escala = page.getBoundingClientRect().height / (page.offsetHeight || 1123) || 1;
+            const b = body.getBoundingClientRect();
+            const c = cta.getBoundingClientRect();
+            return { alto: b.height / escala, libre: (c.top - b.top) / escala - AIRE };
+        };
+        // Zoom que haría caber el cuerpo, partiendo del que tiene ahora. El alto
+        // escala casi en proporción al zoom; lo que no, lo corrige la pasada
+        // siguiente, que vuelve a medir con el texto ya repartido en líneas.
+        const zoomProporcional = (zActual, m) => {
+            const z = Math.floor((zActual * (m.libre / m.alto) - 0.003) * 1000) / 1000;
+            return Math.max(ZOOM_MIN, Math.min(zActual - 0.005, z));
+        };
+        // Entrada al escalón 3 desde los huecos: con zoom 1 no cabe.
+        const aZoom = () => {
+            const m = medirPintado();
+            if (m.alto <= m.libre) { cerrar(); return; }
+            setFit(prev => ({ ...prev, pass: prev.pass + 1, zoom: zoomProporcional(1, m), zoomOk: null, zoomKo: 1 }));
+        };
+
+        // ── Escalón 3: ya hay zoom. Se busca el MAYOR que cabe, por bisección
+        // entre el mayor que ya ha cabido (`zoomOk`) y el menor que no (`zoomKo`).
+        // La proporción sola se pasa de frenada —al reducir, el texto gana
+        // caracteres por línea y se come renglones enteros— y dejaba la hoja con
+        // un hueco blanco encima del pie y el texto más pequeño de lo necesario.
+        if (fit.zoom) {
+            const m = medirPintado();
+            const cabe = m.alto <= m.libre;
+            const ok = cabe ? Math.max(fit.zoomOk || 0, fit.zoom) : fit.zoomOk;
+            const ko = cabe ? (fit.zoomKo ?? 1) : Math.min(fit.zoomKo ?? 1, fit.zoom);
+            const agotado = fit.pass >= MAX_PASADAS + MAX_PASADAS_ZOOM;
+            if (ok) {
+                const afinado = ko - ok < 0.01 || (cabe && m.libre - m.alto <= TOLERANCIA);
+                if (afinado || agotado) {
+                    // Se queda el mayor que ha cabido; si el que está puesto no es
+                    // ése, se vuelve a él (ya se midió: no hace falta otra pasada).
+                    setFit(prev => ({ ...prev, zoom: ok, zoomOk: ok, zoomKo: ko, listo: true }));
+                    return;
+                }
+                const z = Math.round(((ok + ko) / 2) * 1000) / 1000;
+                setFit(prev => ({ ...prev, pass: prev.pass + 1, zoom: z, zoomOk: ok, zoomKo: ko }));
+                return;
+            }
+            // Todavía no ha cabido con ninguno.
+            if (fit.zoom <= ZOOM_MIN || agotado) {
+                console.warn(`[Propuesta] La portada no cabe ni con zoom ${fit.zoom}: sobran ${Math.round(m.alto - m.libre)} px.`);
+                cerrar();
+                return;
+            }
+            setFit(prev => ({ ...prev, pass: prev.pass + 1, zoom: zoomProporcional(fit.zoom, m), zoomKo: ko }));
+            return;
+        }
 
         const sobra = cta.offsetTop - (body.offsetTop + body.offsetHeight) - AIRE;
         // Una portada que CABE no se toca: se queda exactamente como está. El
@@ -987,7 +1073,13 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
         // golpe y se pasa de frenada (medido: -93px de partida acababan en 136px
         // de hueco). Ahí sí se devuelve el sobrante a los huecos.
         if (sobra >= 0 && (!fit.compact || sobra <= TOLERANCIA)) {
-            setFit(prev => ({ ...prev, pass: MAX_PASADAS }));
+            cerrar();
+            return;
+        }
+        // Se acabaron las pasadas de huecos: si aún se sale, al zoom.
+        if (fit.pass >= MAX_PASADAS) {
+            if (sobra < 0) aZoom();
+            else cerrar();
             return;
         }
 
@@ -1012,9 +1104,13 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
         // cargada). `vars: null` es imprescindible al escalar: los valores inline
         // ganan a las variables que redefine .prop-compact y lo dejarían sin efecto.
         if (margen < 1 || (sobra < 0 && -sobra > margen)) {
-            if (sobra < 0 && !fit.compact) setFit({ pass: fit.pass + 1, compact: true, vars: null, reposo: null });
-            else setFit(prev => ({ ...prev, pass: MAX_PASADAS }));
-            return;
+            if (sobra < 0 && !fit.compact) { setFit({ ...FIT_INICIAL, pass: fit.pass + 1, compact: true }); return; }
+            if (sobra >= 0) { cerrar(); return; }
+            // Ya en compacto y sin nada que apretar: al zoom.
+            if (margen < 1) { aZoom(); return; }
+            // En compacto apretar no basta, pero algo da: se aprieta del todo
+            // (t = 1 abajo) y lo que falte lo pone el zoom en la pasada
+            // siguiente. Así el zoom necesario es el menor posible.
         }
 
         const t = Math.min(1, Math.abs(sobra) / margen);
@@ -1023,7 +1119,7 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
             const delta = Math.max(0, holgura(h)) * t * (sobra >= 0 ? 1 : -1);
             vars[h.v] = `${Math.round((actual[h.v] + delta) * 10) / 10}px`;
         }
-        setFit(prev => ({ pass: prev.pass + 1, compact: prev.compact, vars, reposo }));
+        setFit(prev => ({ ...prev, pass: prev.pass + 1, vars, reposo }));
     });
 
     // -- ANEXOS LOGIC --
@@ -2927,7 +3023,7 @@ info@brokergy.es · 623 926 179`;
                                     </div>
                                 </div>
 
-                                <div className="prop-pb" style={{ paddingTop: 'var(--e-top)' }}>
+                                <div className="prop-pb" style={fit.zoom ? { paddingTop: 'var(--e-top)', zoom: fit.zoom } : { paddingTop: 'var(--e-top)' }}>
                                     {/* Sin foto de fachada el titular va suelto, exactamente como
                                         siempre: no se envuelve en la fila ni se reserva el hueco. */}
                                     {fachadaFoto ? (
@@ -3163,7 +3259,10 @@ info@brokergy.es · 623 926 179`;
                                             'La ayuda Bono Energético CAE está garantizada por Brokergy. El importe es una estimación técnica que se ajustará tras emitir los CEE inicial y final.',
                                             f.irpfCap > 0 ? 'Las deducciones en el IRPF no suponen un descuento directo, sino un derecho a deducción en la renta. El ahorro dependerá de la situación fiscal del contribuyente.' : null,
                                             hideBudget ? 'Esta propuesta no recoge el coste de la obra. El importe del Bono Energético CAE no depende de él, así que se mantiene sea cual sea el presupuesto final de la instalación.' : null,
-                                            presEstimado ? `El importe de la obra que figura en esta propuesta es una ESTIMACIÓN de referencia, no un presupuesto cotizado. El Bono Energético CAE se mantiene${presConIrpf ? '; la deducción en el IRPF y la inversión neta se recalcularán con el presupuesto definitivo' : ''}.` : null,
+                                            // El presupuesto ESTIMADO ya no lleva nota al pie: la
+                                            // decía palabra por palabra el recuadro naranja que hay
+                                            // justo encima, y esas dos líneas repetidas eran parte de
+                                            // lo que empujaba las notas debajo del pie negro.
                                             showAnnualSavings ? 'El análisis de ahorro anual es un cálculo teórico basado en datos climáticos zonales. Los resultados reales dependerán de los hábitos de uso.' : null,
                                         ].filter(Boolean).map((txt, i) => (
                                             <p key={i}><b>NOTA {i + 1}:</b> {txt}</p>

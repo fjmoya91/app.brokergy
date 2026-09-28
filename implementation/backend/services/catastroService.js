@@ -1003,6 +1003,55 @@ function fachadaCompleta(buf) {
     return buf.lastIndexOf(Buffer.from([0xFF, 0xD9])) > sos;
 }
 
+/** Posición del inicio del scan (SOS), o -1. Mismo recorrido que `fachadaCompleta`. */
+function _inicioScan(buf) {
+    if (!buf || buf.length < 4 || buf[0] !== 0xFF || buf[1] !== 0xD8) return -1;
+    let i = 2;
+    while (i + 3 < buf.length && buf[i] === 0xFF) {
+        const marca = buf[i + 1];
+        if (marca === 0xDA) return i;
+        if (marca === 0xD8 || (marca >= 0xD0 && marca <= 0xD9)) { i += 2; continue; }
+        const largo = buf.readUInt16BE(i + 2);
+        if (largo < 2) return -1;
+        i += 2 + largo;
+    }
+    return -1;
+}
+
+/**
+ * Devuelve la foto con su FIN DE JPEG restaurado, si Catastro se lo ha mutilado.
+ *
+ * Lo que el 16/09/2026 se tomó por fotos "cortadas a media línea" NO lo están:
+ * el 28/09/2026 se vio que TODAS terminan exactamente en `FF 00`, justo donde
+ * va el `FF D9` que cierra un JPEG (la foto buena de al lado termina en `FF D9`).
+ * La imagen está entera y lo único estropeado es ese último byte. Probado en
+ * Chrome sobre las cuatro que había a mano —26RES080_OP62 (2156802WK1225N0001ZY,
+ * la que motivó la regla), 26RES060_OP240 (2399338VJ8529N0001GU),
+ * 8973004VH9887S0001UW y 3894512VH9739S0001ZA—: tal cual, `createImageBitmap`
+ * lanza "could not be decoded"; con el cierre añadido se pintan ENTERAS, sin
+ * franja gris abajo. Y la prueba dura: 8973004VH9887S0001UW lleva marcadores de
+ * reinicio cada 320 bloques y trae los 7 que le tocan a una imagen de 640×480,
+ * o sea que sus datos llegan completos. Sin esto, dos de esas cuatro se quedaban
+ * SIN foto (no traen miniatura EXIF) y las otras dos con la miniatura, que a
+ * veces es de 160×120.
+ *
+ * REGLA — se AÑADE el cierre, nunca se quita un byte: si el `FF 00` fuera un
+ * 0xFF legítimo de los datos, el decodificador lo lee y termina donde toca.
+ *
+ * REGLA — solo con esa FIRMA exacta (datos después del scan que terminan en
+ * `FF 00` y ningún fin de JPEG detrás del scan). Un fichero cortado de verdad,
+ * por cualquier otro sitio, sigue siendo lo que era y la ruta decide como
+ * siempre: su miniatura o un 404.
+ */
+function cerrarFachada(buf) {
+    if (!buf || buf.length < 6 || fachadaCompleta(buf)) return buf;
+    const sos = _inicioScan(buf);
+    if (sos < 0 || buf.length - 2 <= sos) return buf;
+    if (buf[buf.length - 2] !== 0xFF || buf[buf.length - 1] !== 0x00) return buf;
+    const cerrada = Buffer.concat([buf, Buffer.from([0xFF, 0xD9])]);
+    return fachadaCompleta(cerrada) ? cerrada : buf;
+}
+
 async function getFacadeImage(rc, { conFallos = false } = {}) {
     const cleanRC = rc.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
     const imageUrl = `https://ovc.catastro.meh.es/OVCServWeb/OVCWcfLibres/OVCFotoFachada.svc/RecuperarFotoFachadaGet?ReferenciaCatastral=${cleanRC}`;
@@ -1025,7 +1074,12 @@ async function getFacadeImage(rc, { conFallos = false } = {}) {
                 console.warn(`Facade Image [${rc}]: placeholder descartado (${byteLength} bytes)`);
                 return null;
             }
-            const grande = Buffer.from(response.data);
+            // Catastro sirve muchas con el fin de JPEG estropeado: se restaura
+            // aquí, en origen, para que lo reciban igual la portada de la
+            // propuesta, la ficha catastral y el `.cex` (ver `cerrarFachada`).
+            const recibida = Buffer.from(response.data);
+            const grande = cerrarFachada(recibida);
+            if (grande !== recibida) console.log(`Facade Image [${rc}]: Catastro la sirve sin fin de JPEG; se restaura el cierre`);
             return { data: grande, contentType: response.headers['content-type'],
                      // La misma foto, en pequeño, para enseñarla sin esperar.
                      miniatura: miniaturaExif(grande) };
@@ -1122,4 +1176,4 @@ async function getParcelImage(rc, { conFallos = false } = {}) {
 
 async function getDetails(rc) { return await getByRC(rc); }
 
-module.exports = { getByRC, getRCByCoords, getDetails, getFacadeImage, getCoordinatesByRC, getParcelImage, getDwellingsByParcel, fachadaCompleta, extraerInmuebles, resumirParcela, miniaturaExif, getWmsImage };
+module.exports = { getByRC, getRCByCoords, getDetails, getFacadeImage, getCoordinatesByRC, getParcelImage, getDwellingsByParcel, fachadaCompleta, cerrarFachada, extraerInmuebles, resumirParcela, miniaturaExif, getWmsImage };

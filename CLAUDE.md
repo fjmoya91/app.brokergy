@@ -205,6 +205,24 @@ Para la ficha catastral sobran (se mira para reconocer la casa); en la **portada
 de la propuesta** se descartan por debajo de 400 px de ancho — estirada a 218 px
 se ve peor que el hueco que deja no ponerla.
 
+**⚠️ CORRECCIÓN (2026-09-28): no están CORTADAS, tienen el CIERRE ESTROPEADO.**
+Todas las "rotas" terminan exactamente en `FF 00`, justo donde va el `FF D9` que
+cierra un JPEG; la foto sana de al lado termina en `FF D9`. La imagen llega
+ENTERA. Probado en Chrome sobre cuatro —26RES080_OP62 (la que motivó la regla),
+26RES060_OP240, 8973004VH9887S0001UW y 3894512VH9739S0001ZA—: tal cual,
+`createImageBitmap` falla; con el cierre añadido se pintan enteras y sin franja
+gris. La prueba dura: 8973004VH9887S0001UW lleva marcadores de reinicio cada 320
+bloques y trae los 7 que le tocan a una imagen de 640×480. Con la regla de arriba,
+dos de esas cuatro se quedaban SIN foto (no traen miniatura) y las otras dos con
+la miniatura de 160×120 — la portada de 26RES060_OP240 salía sin su fachada.
+
+**REGLA — el cierre se RESTAURA en origen** (`cerrarFachada`, dentro de
+`getFacadeImage`): así lo reciben igual la portada, la ficha catastral y el `.cex`.
+Se AÑADE `FF D9`, nunca se quita un byte, y **solo con esa firma exacta** (datos
+después del scan que acaban en `FF 00`, sin fin de JPEG detrás del scan). Un
+fichero cortado de verdad, por cualquier otro sitio, sigue siendo lo que era y la
+ruta hace lo de siempre: su miniatura o un 404.
+
 ```bash
 node implementation/backend/scripts/test_fachada_rota.mjs
 ```
@@ -4771,10 +4789,12 @@ Fuente única del concepto, de la cifra y del texto:
 
 `funnelToInputs` sella `inputs.presupuestoEstimado`, y **cualquiera que teclee un
 presupuesto en la calculadora lo levanta** (los tres campos de `CalculatorForm`). Se
-enseña en cinco sitios, todos desde el mismo texto: la chapa de la portada, el
-"(ESTIMADA)" de la fila de inversión, un recuadro naranja bajo la tabla, la nota al pie
-y el **mensaje de envío** (WhatsApp/email), que se pega al final de `buildCaption` en
-vez de repetirse en sus quince ramas.
+enseña en cuatro sitios, todos desde el mismo texto: la chapa de la portada, el
+"(ESTIMADA)" de la fila de inversión, un recuadro naranja bajo la tabla y el **mensaje
+de envío** (WhatsApp/email), que se pega al final de `buildCaption` en vez de repetirse
+en sus quince ramas. La **nota al pie se retiró el 28/09/2026**: repetía palabra por
+palabra el recuadro que tiene justo encima, y era parte de lo que empujaba las notas
+debajo del pie negro (ver "La portada de la propuesta NUNCA esconde texto").
 
 **REGLA — el bono CAE NO cambia y la deducción SÍ, y hay que decir las dos cosas.** El
 CAE sale del ahorro de energía CERTIFICADO (kWh), así que el importe prometido se
@@ -4797,6 +4817,40 @@ y `buildProposalPdfHtml` son ahora `async`.
 
 ⚠️ De paso, las **notas al pie de la propuesta se numeran solas**: escritas a mano, la
 del coste de obra y la del ahorro anual eran las dos "NOTA 3" y podían salir juntas.
+
+### La portada de la propuesta NUNCA esconde texto (2026-09-28)
+
+La hoja 1 es un A4 de alto FIJO con el pie negro (`.prop-cta`) anclado abajo: lo que no
+cabe no empuja a otra hoja, se queda DEBAJO del pie. El ajuste de `ProposalModal` tenía
+dos escalones —estirar/encoger los huecos elásticos y el modo compacto— y, si ni con los
+dos cabía, **se rendía**. Medido sobre las 54 últimas propuestas enviadas (su
+`html_propuesta`, que es lo que abre el cliente): 4 tenían la portada cortada, **todas
+con el recuadro de presupuesto ESTIMADO**, y en 26RES060_OP208 no se veía ni una de sus
+notas. Las hojas 2-4 no se cortaban en ninguna.
+
+**REGLA — hay un TERCER escalón: `zoom` sobre el cuerpo de la hoja (`.prop-pb`).** El
+mismo mecanismo que ya aplicaba el servidor al imprimir, pero ahora en la VISTA PREVIA,
+porque la vista web del enlace no pasa por el servidor. Reduce el cuerpo entero en la
+misma proporción —no se pierde ni una línea y conserva el ancho—, y se busca el MAYOR
+zoom que cabe por **bisección** (la proporción sola se pasa de frenada: al reducir, el
+texto gana caracteres por línea y se come renglones). Antes de llegar ahí, en compacto
+se aprieta del todo, y el recuadro del presupuesto estimado y el de la hipótesis del
+IRPF se compactan también. Resultado sobre las que se cortaban: zoom entre **0,906**
+(OP208) y **0,994** (OP240). Suelo `ZOOM_MIN` = 0,72.
+
+**REGLA — el servidor PARTE del zoom que ya trae la portada.** `encajarPortadas` empezaba
+en 1 y, como la cuenta es relativa a lo que mide, SUSTITUÍA un 0,9 de la vista previa
+por uno mayor y la hoja volvía a salirse. Su suelo es relativo a ese zoom (solo corrige
+la diferencia de tipografía de su Chrome).
+
+Para comprobar las ya enviadas (solo lee):
+
+```bash
+node implementation/backend/scripts/revisar_portadas_propuestas.js 60
+```
+
+⚠️ Las propuestas enviadas ANTES de esto conservan su `html_propuesta` cortado: la vista
+web del cliente no se arregla hasta que se le reenvía (o se vuelve a copiar el enlace).
 
 ---
 
@@ -10939,7 +10993,7 @@ fichero en CE3X y pulsar calcular.
 29.b **`SendActionOverlay` se PORTALEA a `document.body`**: un `position: fixed` se ancla al ancestro más cercano con `backdrop-filter` (o `transform`) — es lo que hace `LoteDetailModal` —, así que el overlay se recortaba a la caja del modal y la pantalla se veía a parches, una zona negra y otra difuminada. `createPortal` lo saca de ahí. Por el mismo motivo el velo va casi opaco (93 %) y con blur fuerte: abierto sobre otro modal de fondo claro, uno más ligero lo deja traslucir y el fondo vuelve a verse desigual.
 30. **Al Sujeto Obligado se le pide UNA vez por VARIOS lotes**: el botón vive en el cuadro de mando de Lotes (actúa sobre lo filtrado), dice qué pide y por cuánto, y no existe si no hay nada que pedir. Hay DOS peticiones —**firmar las ofertas** de verificación y **pagar** las facturas del verificador— y se pintan todas las aplicables, la firma primero porque bloquea el arranque. **Un lote al que todavía no le toca no se cuenta ni se nombra** (`hastaEstado` para la firma, `haVerificado` para el pago): listar como "se queda fuera" un lote ya cobrado, o pedir la firma de la oferta de uno ya subido a MITECO, es lo que enseña a ignorar la lista. El popup y la ruta son UNO para las dos (`PETICIONES_SO`); lo que cambia —qué se adjunta, cómo se llama, quién queda fuera— lo aporta la petición. Fuente única: [peticionesSo.js](implementation/frontend/src/features/lotes/logic/peticionesSo.js); el envío, `POST /api/lotes/peticion-so`, que prepara TODOS los adjuntos antes de mandar nada y sella su marca. La **oferta se sube arrastrándola** a la fase 3. Tras tocarlo: `node implementation/backend/scripts/test_peticiones_so.mjs`. Ver "Pedirle cosas al SUJETO OBLIGADO desde el cuadro de mando".
 
-31. **Una propuesta con presupuesto ESTIMADO lo dice, y dice a qué afecta**: el flujo interno pregunta el dinero UNA vez (`StepDocsObra`: documento · importe a mano · estimar 15.000 €) y la marca viaja en `inputs.presupuestoEstimado` hasta la portada, la tabla, el recuadro, la nota al pie y el mensaje de envío. El **bono CAE no cambia** (sale del ahorro certificado) y **la deducción del IRPF sí** (es un % del coste con IVA); sin deducción en juego, ese párrafo no se escribe. Fuente única del texto y de la cifra: [logic/presupuestoEstimado.js](implementation/frontend/src/features/calculator/logic/presupuestoEstimado.js), que carga también el backend (`leadMessages`) por import() ESM. Cualquier presupuesto tecleado en la calculadora LEVANTA la marca. Ver "Presupuesto ESTIMADO".
+31. **Una propuesta con presupuesto ESTIMADO lo dice, y dice a qué afecta**: el flujo interno pregunta el dinero UNA vez (`StepDocsObra`: documento · importe a mano · estimar 15.000 €) y la marca viaja en `inputs.presupuestoEstimado` hasta la portada, la tabla, el recuadro y el mensaje de envío (la nota al pie que lo repetía se retiró). El **bono CAE no cambia** (sale del ahorro certificado) y **la deducción del IRPF sí** (es un % del coste con IVA); sin deducción en juego, ese párrafo no se escribe. Fuente única del texto y de la cifra: [logic/presupuestoEstimado.js](implementation/frontend/src/features/calculator/logic/presupuestoEstimado.js), que carga también el backend (`leadMessages`) por import() ESM. Cualquier presupuesto tecleado en la calculadora LEVANTA la marca. **La portada nunca esconde texto bajo el pie**: si ni los huecos ni el compacto bastan, el cuerpo se reduce con `zoom` (bisección, suelo 0,72) ya en la vista previa, y el servidor parte de ese zoom. Tras tocar la portada: `node implementation/backend/scripts/revisar_portadas_propuestas.js`. Ver "Presupuesto ESTIMADO" y "La portada de la propuesta NUNCA esconde texto".
 
 32. **El CEE que MANDA es el FINAL si está cargado, y si no el INICIAL — en TODOS los documentos**: fuente única [ceeFases.js](implementation/frontend/src/features/expedientes/logic/ceeFases.js) (`ceeBaseDocumento`), que sustituye a las cuatro copias de la regla y a las cuatro superficies que no la aplicaban (las fichas RES060/RES093 imprimían 0,00 sin CEE final). Retirar un certificado se hace desde la rejilla del CEE, **solo ADMIN y preguntando**: borrar el `.xml` de Drive no borraba la demanda, que seguía mandando en el CIFO y en la economía. ⚠️ **La demanda de ACS va por el criterio CONTRARIO: manda la del INICIAL** (regla 12.f) — es del uso del edificio y la actuación no la mueve. Antes de generar el CIFO / la ficha, la puerta AVISA (ámbar, separado de lo que falta) si no hay CEE final, si las dos demandas no coinciden (diciendo cuál se usa y por qué) o si el inicial no declara su D_ACS; con el ACS fuera de alcance no se avisa: ya se imprime "no aplica" (regla 12.b). Ver "El CEE que MANDA, y qué se avisa antes de generar".
 
