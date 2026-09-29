@@ -907,9 +907,16 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     //: guardan con el trabajo y viajan al `.cex` igual que lo demás.
     //: POR FASE, como lo tecleado: el CEE final COPIA el inicial, que ya los
     //: lleva escritos, y repetirlos ahí contaba el mismo termo dos veces.
-    const anadirEquipo = (slot) => setAjustes(a => {
+    //: `x` es el USO del equipo que se añade (un termo, un aire), o una FUNCIÓN
+    //: que recibe la lista y devuelve la nueva: así el bloque de aires
+    //: acondicionados sustituye los suyos en un solo paso, sin tocar el resto.
+    const anadirEquipo = (x) => setAjustes(a => {
         const clave = claveExtras(fichaFase);
-        return { ...a, [clave]: [...(a[clave] || []), equipoNuevo(slot)] };
+        const previos = a[clave] || [];
+        const lista = typeof x === 'function' ? x(previos) : [...previos, equipoNuevo(x)];
+        const n = { ...a, [clave]: lista };
+        if (!lista.length) delete n[clave];
+        return n;
     });
     const borrarEquipo = (i) => setAjustes(a => {
         const clave = claveExtras(fichaFase);
@@ -1205,6 +1212,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                     equipo={ficha?.equipos?.principal
                                             ?? ficha?.ficha?.instalaciones?.[0]}
                                     conservados={ficha?.equipos?.conservados || []}
+                                    aires={ficha?.aires || null}
                                     superficie={superficieDelEdificio}
                                     ajustes={ajustes[claveInstalacion(fichaFase)] || {}}
                                     onAjuste={cambiarInstalacion}

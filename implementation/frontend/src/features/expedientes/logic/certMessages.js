@@ -164,9 +164,11 @@ export function buildCertEncargoMessage(fase, certName, clienteNombre, numExp, c
         ? (esCae
             ? `¡Hola ${tecnico}!\n\nYa puedes presentar el CEE Final del expediente ${numExp}${cli}.\n\nToda la documentación de obra (facturas, memorias de instalación y fotos de fin de obra) ya está disponible en la carpeta compartida.${bloque}\n\n¡Gracias!`
             : `¡Hola ${tecnico}!\n\nTe encargamos el CEE Final del expediente ${numExp}${cli}.\n\nTienes la documentación en las carpetas compartidas.${bloque}\n\n¡Gracias!`)
+        // En el INICIAL el bloque es lo que confirmó el cliente al aceptar
+        // (emisores, placas, aires): lo que hay que declarar como existente.
         : (esCae
-            ? `¡Hola ${tecnico}!\n\nTe hemos asignado el expediente ${numExp}${cli} para la emisión del CEE Inicial.\n\nTienes toda la documentación del cliente en la carpeta compartida y en el portal.\n\n¡Gracias!`
-            : `¡Hola ${tecnico}!\n\nTe encargamos el ${ctx.faseLabel || 'CEE'} del expediente ${numExp}${cli}.\n\nTienes la documentación en las carpetas compartidas.\n\n¡Gracias!`);
+            ? `¡Hola ${tecnico}!\n\nTe hemos asignado el expediente ${numExp}${cli} para la emisión del CEE Inicial.\n\nTienes toda la documentación del cliente en la carpeta compartida y en el portal.${bloque}\n\n¡Gracias!`
+            : `¡Hola ${tecnico}!\n\nTe encargamos el ${ctx.faseLabel || 'CEE'} del expediente ${numExp}${cli}.\n\nTienes la documentación en las carpetas compartidas.${bloque}\n\n¡Gracias!`);
     return body + expedienteLine(expedienteId, ctx) + carpetaLine(ceeFolderLink);
 }
 

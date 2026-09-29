@@ -70,6 +70,19 @@ function loadInstaladorPendientes() {
     return _instaladorPendientesPromise;
 }
 
+// Lo que confirmó el cliente al aceptar (emisores, placas, aires): el encargo del
+// CEE se lo cuenta al certificador. Fuente única con la página de aceptación.
+let _confirmacionPromise = null;
+function loadConfirmacionCliente() {
+    if (!_confirmacionPromise) {
+        const url = require('url').pathToFileURL(
+            require('path').join(__dirname, '../../frontend/src/features/expedientes/logic/confirmacionCliente.js')
+        ).href;
+        _confirmacionPromise = import(url);
+    }
+    return _confirmacionPromise;
+}
+
 // ─── Guard global del módulo Expedientes (INTERNO de Brokergy) ────────────────
 // Los expedientes son datos internos: VER y gestionar expedientes está reservado a
 // ADMIN y CERTIFICADOR (sus asignados). Los partners (PRESCRIPTOR / INSTALADOR /
@@ -1616,10 +1629,22 @@ async function buildAvisoClienteCee(exp, phase) {
 router.get('/:id/aviso-cliente-cee', staffOnly, async (req, res) => {
     try {
         const { data: exp, error } = await supabase.from('expedientes')
-            .select('id, numero_expediente, cliente_id, oportunidad_id, documentacion')
+            .select('id, numero_expediente, cliente_id, oportunidad_id, documentacion, '
+                    + 'confirmacion:instalacion->confirmacion_cliente, '
+                    + 'oportunidades(confirmacion:datos_calculo->confirmacion_cliente)')
             .eq('id', req.params.id).single();
         if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
-        res.json(await buildAvisoClienteCee(exp, req.query.phase));
+        // Lo que confirmó el cliente al aceptar, para el mensaje del ENCARGO al
+        // certificador (el popup lo añade a su plantilla). Un fallo aquí no puede
+        // dejar el popup sin su aviso al cliente.
+        let bloqueCertificador = '';
+        try {
+            const { bloqueConfirmacionCertificador } = await loadConfirmacionCliente();
+            bloqueCertificador = bloqueConfirmacionCertificador({
+                confirmacion: exp.confirmacion || exp.oportunidades?.confirmacion || null, cae: true });
+        } catch (e) { console.warn('[aviso-cliente-cee] confirmación:', e.message); }
+        res.json({ ...(await buildAvisoClienteCee(exp, req.query.phase)),
+                   bloque_certificador: bloqueCertificador });
     } catch (err) {
         console.error('[aviso-cliente-cee]', err.message);
         res.status(500).json({ error: 'Error preparando el aviso al cliente' });

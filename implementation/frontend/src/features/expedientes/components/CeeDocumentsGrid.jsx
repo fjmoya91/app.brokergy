@@ -13,6 +13,7 @@ import { DemandaPropuestaInfo } from './DemandaPropuestaInfo';
 import { autoconsumoMaximo } from '../logic/autoconsumoMaximo';
 import { parseEmisionesTotalesFromXml } from '../../calculator/logic/xmlCeeParser';
 import { buildCe3xFinal, CE3X_FALTA } from '../logic/ce3xFinal';
+import { bloqueConfirmacionCertificador } from '../logic/confirmacionCliente';
 import { getUnidades } from '../logic/aerotermiaUnits';
 import { hayCee, patchVaciarCee, textoVaciarCee } from '../logic/ceeFases';
 import { resolveDacs, ACS_METHOD } from '../logic/demandaAcs';
@@ -446,6 +447,15 @@ Según el documento:
     const ceeFolderLink = expediente?.cee?.cee_folder_link || null;
     // Deep-link al expediente para incrustarlo en los mensajes al certificador.
     const expedienteId = expediente?.id || null;
+    // Lo que el cliente confirmó al aceptar, para el encargo del CEE INICIAL. En
+    // un CEE directo es su cuestionario de la oferta; en el CAE, lo que confirmó
+    // al aceptar la propuesta. Misma función que el popup de encargo.
+    const bloqueClienteInicial = bloqueConfirmacionCertificador({
+        confirmacion: expediente?.instalacion?.confirmacion_cliente
+            || expediente?.oportunidades?.datos_calculo?.confirmacion_cliente || null,
+        cuestionario: expediente?.documentacion?.cuestionario || null,
+        cae: apiBase !== '/api/cee-directos',
+    });
 
     // ─── Dos ejes del mensaje de seguimiento ────────────────────────────────────
     // El subestado de la fase dice QUÉ esperamos (emitir vs registrar) y los días
@@ -470,9 +480,11 @@ Según el documento:
         }
         if (template === 'standard') {
             // El bloque CE3X solo tiene sentido en el encargo del CEE FINAL: es
-            // lo que el certificador copia para emitirlo él.
+            // lo que el certificador copia para emitirlo él. En el INICIAL va lo
+            // que confirmó el cliente al aceptar (emisores, placas, aires), que
+            // es lo que hay que declarar como existente.
             return buildCertEncargoMessage(section, certName, clienteNombre, numExp, ceeFolderLink, expedienteId,
-                section === 'final' ? ce3x.bloque : '');
+                section === 'final' ? ce3x.bloque : bloqueClienteInicial);
         }
         return buildCertMessage({ espera, tono, fase: section, certName, clienteNombre, numExp, expedienteId, dias });
     };

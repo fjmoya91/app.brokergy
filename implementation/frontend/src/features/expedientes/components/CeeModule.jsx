@@ -8,6 +8,7 @@ import { ceeToXmlShape } from '../../cee/ceeExtract';
 import { EfficiencyTable, CATEGORIES_SIMPLIFICADO } from '../../calculator/components/EfficiencyTable';
 import { CeeDocumentsGrid } from './CeeDocumentsGrid';
 import { AvisoIrpfEpnr } from './AvisoIrpfEpnr';
+import { ConfirmadoPorCliente } from './ConfirmadoPorCliente';
 import { TecnicoPicker } from './TecnicoPicker';
 import { EncargoCertificadorModal } from './EncargoCertificadorModal';
 import { Ce3xAyudasModal } from './Ce3xAyudasModal';
@@ -1519,6 +1520,11 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                     <span className="text-[10px] font-black uppercase tracking-widest text-white/30">Guardando…</span>
                 )}
             </div>
+
+            {/* Lo que el cliente confirmó al aceptar: es lo que el CEE inicial tiene
+                que recoger como existente (aires, placas) y el emisor real. */}
+            <ConfirmadoPorCliente confirmacion={(instalacionViva || expediente?.instalacion)?.confirmacion_cliente
+                || expediente?.oportunidades?.datos_calculo?.confirmacion_cliente || null} />
 
             {isReforma ? renderRes080() : renderRes060()}
 

@@ -981,7 +981,18 @@ router.get('/:id/aviso-cliente-cee', staffOnly, async (req, res) => {
     try {
         const row = await svc.cargar(req.params.id);
         if (!row) return res.status(404).json({ error: 'Expediente no encontrado' });
-        res.json(await buildAvisoClienteCeeDirecto(row, req.query.phase === 'final' ? 'final' : 'inicial', req.query.certificador_id || null));
+        // Lo que contestó el cliente al aceptar la oferta (cuestionario de
+        // climatización), para el mensaje del ENCARGO al certificador.
+        let bloqueCertificador = '';
+        try {
+            const url = require('url').pathToFileURL(require('path').join(__dirname,
+                '../../frontend/src/features/expedientes/logic/confirmacionCliente.js')).href;
+            const { bloqueConfirmacionCertificador } = await import(url);
+            bloqueCertificador = bloqueConfirmacionCertificador({
+                cuestionario: row.documentacion?.cuestionario || null, cae: false });
+        } catch (e) { console.warn('[cee-directo aviso-cliente-cee] cuestionario:', e.message); }
+        res.json({ ...(await buildAvisoClienteCeeDirecto(row, req.query.phase === 'final' ? 'final' : 'inicial', req.query.certificador_id || null)),
+                   bloque_certificador: bloqueCertificador });
     } catch (err) {
         console.error('[cee-directo aviso-cliente-cee]', err.message);
         res.status(500).json({ error: 'Error preparando el aviso al cliente' });

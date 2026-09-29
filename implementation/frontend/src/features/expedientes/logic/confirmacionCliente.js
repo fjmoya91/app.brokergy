@@ -35,6 +35,7 @@
 // ============================================================================
 
 import { FV, FV_OPCIONES, normalizarEstado, normalizarFotovoltaica, etiquetaFotovoltaica } from './fotovoltaica.js';
+import { resumenCuestionario } from '../../cee-directo/logic/cuestionarioCee.js';
 
 /** Versión de las preguntas: se sella con la respuesta. Súbela si cambia su texto. */
 export const CONFIRMACION_VERSION = '1';
@@ -270,6 +271,97 @@ export function resumenConfirmacion(conf) {
     const aires = etiquetaAires(c);
     if (aires) l.push({ tema: 'Aire acondicionado', valor: aires, aviso: null });
     return l;
+}
+
+// ─── Para el CERTIFICADOR (encargo del CEE) ──────────────────────────────────
+
+/**
+ * Los aires acondicionados que declaró el cliente, vengan de donde vengan.
+ * CAE: `confirmacion_cliente` (al aceptar la propuesta). CEE directo: su
+ * cuestionario (al aceptar la oferta). Preguntan lo mismo con otra forma.
+ * @returns {{ tiene: boolean, num: number|null } | null}  null = no contestado
+ */
+export function airesDeclarados({ confirmacion = null, cuestionario = null } = {}) {
+    const c = sanearConfirmacion(confirmacion);
+    if (c?.aire_acondicionado != null) {
+        return { tiene: c.aire_acondicionado, num: c.num_aires || null };
+    }
+    const q = cuestionario || {};
+    const aa = q.aire_acondicionado === true ? true : (q.aire_acondicionado === false ? false : null);
+    if (aa == null) return null;
+    const n = Math.round(Number(q.num_aires));
+    return { tiene: aa, num: aa && Number.isFinite(n) && n > 0 ? n : null };
+}
+
+/** Enteros que suman 100, repartidos entre `n` aparatos (5 → 20 · 20 · 20 · 20 · 20). */
+export function repartoCien(n) {
+    const k = Math.max(1, Math.round(Number(n) || 1));
+    const base = Math.floor(100 / k);
+    let resto = 100 - base * k;
+    return Array.from({ length: k }, () => base + (resto-- > 0 ? 1 : 0));
+}
+
+/** "20 % cada uno" / "34, 33 y 33 %". */
+export function textoReparto(n) {
+    const r = repartoCien(n);
+    if (r.every(p => p === r[0])) return `${r[0]} % cada uno`;
+    return `${r.slice(0, -1).join(', ')} y ${r[r.length - 1]} %`;
+}
+
+/**
+ * Lo que confirmó el cliente, dicho para el CERTIFICADOR en el encargo del CEE.
+ *
+ * POR QUÉ: el técnico llega a la visita sabiendo qué va a encontrar, y sobre
+ * todo sabe cómo DECLARARLO. Los aires y las placas que ya tiene la vivienda son
+ * instalaciones EXISTENTES que el CEE inicial tiene que recoger — y el final las
+ * conserva al copiarlo—; si nadie se lo dice, se descubren en la visita o no se
+ * descubren.
+ *
+ * REGLA — en un expediente CAE los aires van como SOLO FRÍO (máquina
+ * frigorífica), repartiéndose el 100 % de la refrigeración: así los declaró el
+ * certificador en 26RES060_206. En un CEE directo depende de para qué es: si es
+ * para una deducción del IRPF (por los propios aires o por las placas) van como
+ * calefacción Y refrigeración con bomba de calor (2026CEE_60); si no, solo frío.
+ *
+ * @returns {string} '' si no hay nada que decir
+ */
+export function bloqueConfirmacionCertificador({ confirmacion = null, cuestionario = null,
+                                                 cae = true } = {}) {
+    const filas = [];
+    if (cae) {
+        for (const r of resumenConfirmacion(confirmacion)) filas.push([r.tema, r.valor]);
+    } else if (cuestionario) {
+        filas.push(...resumenCuestionario(cuestionario));
+    }
+    if (!filas.length) return '';
+
+    const l = [cae ? '🏠 *LO QUE HA CONFIRMADO EL CLIENTE AL ACEPTAR*'
+                   : '🏠 *LO QUE HA CONTESTADO EL CLIENTE AL ACEPTAR*'];
+    for (const [tema, valor] of filas) l.push(`• ${tema}: ${valor}`);
+
+    const aires = airesDeclarados({ confirmacion, cuestionario });
+    if (aires?.tiene) {
+        const cuantos = aires.num ? `${aires.num} ${aires.num === 1 ? 'aparato' : 'aparatos'}` : 'los aparatos';
+        const reparto = aires.num && aires.num > 1 ? ` (${textoReparto(aires.num)})` : '';
+        l.push('');
+        if (cae) {
+            l.push(`❄️ Los aires acondicionados son equipos EXISTENTES: declara ${cuantos} en el CEE `
+                   + 'como «Equipo de sólo refrigeración» (máquina frigorífica), repartiéndose entre '
+                   + `todos el 100 % de la demanda de refrigeración${reparto}.`);
+        } else {
+            l.push(`❄️ Los aires acondicionados (${cuantos}) son equipos EXISTENTES. Si el CEE es para `
+                   + 'una deducción del IRPF (por los propios aires o por las placas), decláralos como '
+                   + '«Equipo de calefacción y refrigeración» con bomba de calor; si no, como «Equipo de '
+                   + `sólo refrigeración» (máquina frigorífica). Entre todos, el 100 %${reparto}.`);
+        }
+    }
+    const fv = cae ? sanearConfirmacion(confirmacion)?.fotovoltaica : null;
+    if (fv?.estado === FV.SI || (!cae && cuestionario?.placas === 'si')) {
+        if (!aires?.tiene) l.push('');
+        l.push('☀️ Las placas fotovoltaicas son una instalación EXISTENTE: decláralas como '
+               + 'contribución de autoconsumo, no como medida de mejora.');
+    }
+    return l.join('\n');
 }
 
 export { labelEmisor };

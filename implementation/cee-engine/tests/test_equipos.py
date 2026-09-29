@@ -19,6 +19,8 @@ cambiados por otros neutros.
 import sys
 from pathlib import Path
 
+import pytest
+
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ / "tools"))
 
@@ -371,6 +373,97 @@ def test_climatizacion_tiene_la_forma_medida():
         [["", ""], ["120", "100"], ["120", "100"]],
         "Conocido (Ensayado/justificado)", ["", "623", "416"], ZONA,
     ]
+
+
+# ---------------------------------------------------------------------------
+# Los AIRES ACONDICIONADOS existentes (2026-09-29)
+#
+# Dos formas, y cada una con su .cex de referencia:
+#   - CAE (RES060): SOLO frio, maquina frigorifica — los cinco aires del CEE
+#     inicial de 26RES060_206, hechos a mano por el certificador (20 % cada uno).
+#   - Deduccion (CEE directo 2026CEE_60): calefaccion Y refrigeracion, bomba de
+#     calor con el rendimiento ESTIMADO, 270 % / 250 % → 204,3 / 163,3.
+# ---------------------------------------------------------------------------
+
+def test_aire_solo_frio_es_el_de_26RES060_206():
+    registro, avisos = G.equipo_refrigeracion({
+        "nombre": "AIRE ACONDICIONADO 1", "generador": "Maquina frigorífica",
+        "combustible": "Electricidad", "superficie_refrigeracion": "28.4",
+        "pct_refrigeracion": "20", "rend_nominal": "250.0",
+    }, "Edificio Objeto")
+    assert _plano(registro) == [
+        "AIRE ACONDICIONADO 1", "refrigeracion", ["", "", 157.5],
+        "Maquina frigorífica", "Electricidad",
+        [["", ""], ["", ""], ["28.4", "20"]], "Estimado según Instalación",
+        [["", "", "250.0"], [True, False, False], [False, "1.0", "0.0"], 0],
+        "Edificio Objeto",
+    ]
+    assert any("aproximado" in a for a in avisos)
+
+
+def test_aire_frio_y_calor_estimado_es_el_de_2026CEE_60():
+    registro, avisos = G.equipo_climatizacion({
+        "nombre": "AIRE ACONDICIONADO 6", "slot": "climatizacion",
+        "generador": "Bomba de Calor - Caudal Ref. Variable", "combustible": "Electricidad",
+        "rend_nominal_calefaccion": "270.0", "rend_nominal_refrigeracion": "250.0",
+        "superficie_calefaccion": "142.0", "pct_calefaccion": "100",
+        "superficie_refrigeracion": "142.0", "pct_refrigeracion": "100",
+    }, "Edificio Objeto")
+    assert _plano(registro) == [
+        "AIRE ACONDICIONADO 6", "climatizacion", ["", 204.3, 163.3],
+        "Bomba de Calor - Caudal Ref. Variable", "Electricidad",
+        # `_num` quita el ".0": es el formato de siempre en todo el fichero.
+        [["", ""], ["142", "100"], ["142", "100"]], "Estimado según Instalación",
+        [["", "270.0", "250.0"], [True, False, False], []], "Edificio Objeto",
+    ]
+    assert any("aproximado" in a for a in avisos)
+
+
+def test_aire_frio_y_calor_con_combustible_no_se_escribe():
+    with pytest.raises(G.GeneracionError):
+        G.equipo_climatizacion({"nombre": "RARO", "generador": "Caldera Estándar",
+                                "combustible": "Gas Natural"}, ZONA)
+
+
+def test_los_aires_se_escriben_en_un_cex_de_verdad_y_se_releen(tmp_path):
+    """La leccion de los puentes termicos: escribir el FICHERO y leerlo.
+
+    La caldera y cinco aires solo frio (lo de 26RES060_206), mas uno que tambien
+    calienta (2026CEE_60), montados en la plantilla y releidos con `leer_cex`.
+    """
+    import leer_cex as L
+    aires = [{"slot": "refrigeracion", "nombre": f"AIRE ACONDICIONADO {i}",
+              "generador": "Maquina frigorífica", "combustible": "Electricidad",
+              "superficie_refrigeracion": 28.4, "pct_refrigeracion": "20",
+              "rend_nominal": "250.0"} for i in range(1, 6)]
+    split = {"slot": "climatizacion", "nombre": "SPLIT SALON",
+             "generador": "Bomba de Calor - Caudal Ref. Variable", "combustible": "Electricidad",
+             "rend_nominal_calefaccion": "270.0", "rend_nominal_refrigeracion": "250.0",
+             "superficie_calefaccion": 20, "pct_calefaccion": "10",
+             "superficie_refrigeracion": 20, "pct_refrigeracion": "10"}
+    slots, avisos = G.construir_instalaciones(
+        {"instalaciones": aires + [split], "envolvente": {"espacio": ZONA}},
+        [[] for _ in G.SLOTS], {ZONA})
+    salida = tmp_path / "aires.cex"
+    salida.write_bytes(G.montar(RAIZ / "assets" / "plantilla-virgen.cex",
+                                {G.INSTALACIONES: slots}))
+    releidos = L.leer(L.trocear(salida), G.INSTALACIONES)
+    frio = releidos[G.SLOTS.index("refrigeracion")]
+    assert [e[0] for e in frio] == [f"AIRE ACONDICIONADO {i}" for i in range(1, 6)]
+    assert all(e[2] == ["", "", 157.5] and e[5][2] == ["28.4", "20"] for e in frio)
+    [clima] = releidos[G.SLOTS.index("climatizacion")]
+    assert clima[2] == ["", 204.3, 163.3]
+    assert clima[7] == [["", "270.0", "250.0"], [True, False, False], []]
+    # Refrigeracion: 5 x 20 + 10 = 110 % -> el reparto lo dice.
+    assert any("refrigeracion" in a and "pasan del" in a for a in avisos)
+
+
+def test_el_estacional_sale_del_factor_medido():
+    """Las otras cifras del corpus, para que el factor no sea de un solo caso."""
+    assert G._estacional("Maquina frigorífica", "refrigeracion", "200.0") == 126.0
+    assert G._estacional("Bomba de Calor - Caudal Ref. Variable", "calefaccion", "220.0") == 166.5
+    # Un generador sin factor medido deja el nominal: no se inventa uno.
+    assert G._estacional("Equipo de Rendimiento Constante", "refrigeracion", "300") == 300.0
 
 
 def test_con_otro_deposito_manda_el_declarado():

@@ -681,7 +681,7 @@ async function componerFicha(ctx, { geometria, envolvente, ajustes, medidas = nu
     const imagenes = conImagenes
         ? await imagenesDelCex(ctx, geometria)
         : { avisos: [] };
-    const { ficha, avisos, medidas: catalogo, faltan, equipos } = fichaCe3x({
+    const { ficha, avisos, medidas: catalogo, faltan, equipos, aires } = fichaCe3x({
         expediente: ctx.expediente, cliente: ctx.cliente,
         certificador: ctx.certificador, modelos: ctx.modelos,
         geo: { geometria }, envolvente, ajustes, imagenes, fase, medidas,
@@ -703,7 +703,7 @@ async function componerFicha(ctx, { geometria, envolvente, ajustes, medidas = nu
     // `equipos`: los de la pestaña de Instalaciones tal y como se enseñan (el
     // principal aunque aún no se pueda escribir, y en el final lo que conserva
     // del inicial). Tampoco va al motor.
-    return { ficha, catalogo, faltan, equipos, fuente: fuenteEditable(ctx),
+    return { ficha, catalogo, faltan, equipos, aires, fuente: fuenteEditable(ctx),
              avisos: [...avisos, ...imagenes.avisos],
              imagenesFallidas: Object.keys(imagenes.fallos || {}) };
 }

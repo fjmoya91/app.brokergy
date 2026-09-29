@@ -537,14 +537,47 @@ def equipo_calefaccion(eq: dict, espacio: str) -> tuple[list, list[str]]:
     ], avisos
 
 
+#: El rendimiento medio ESTACIONAL que CE3X calcula a partir del NOMINAL, por
+#: tipo de generador, para los equipos de frio (y la calefaccion de un aire que
+#: tambien calienta). CE3X no lo guarda como dato: lo recalcula al abrir. Pero la
+#: cuenta se puede medir, y sale limpia — medido sobre los 1.597 .cex de
+#: «Mi unidad» (2026-09-29):
+#:
+#:   generador                                    servicio  ratio    n
+#:   Maquina frigorifica                          frio      0,63     283
+#:   Maquina frigorifica - Caudal Ref. Variable   frio      0,6535   4
+#:   Bomba de Calor - Caudal Ref. Variable        calor     0,7567   257
+#:   Bomba de Calor - Caudal Ref. Variable        frio      0,6533   257
+#:   Bomba de Calor                               calor     0,5918   209
+#:   Bomba de Calor                               frio      0,63     209
+#:
+#: Contrastado con los dos casos que dieron origen a esto: 26RES060_206 (cinco
+#: aires, 250 % nominal → 157,5) y 2026CEE_60 (270 % / 250 % → 204,3 / 163,3).
+#: Es una APROXIMACION de lo que CE3X pondra, y se dice.
+FACTOR_ESTACIONAL = {
+    "Maquina frigorífica": {"refrigeracion": 0.63},
+    "Máquina frigorífica - Caudal Ref. Variable": {"refrigeracion": 0.6535},
+    "Bomba de Calor - Caudal Ref. Variable": {"calefaccion": 0.7567,
+                                              "refrigeracion": 0.6533},
+    "Bomba de Calor": {"calefaccion": 0.5918, "refrigeracion": 0.63},
+}
+
+
+def _estacional(generador: str, servicio: str, nominal) -> float:
+    """El estacional que CE3X calculara para ese nominal (o el nominal, si no se sabe)."""
+    n = _numf(nominal) or 0.0
+    f = FACTOR_ESTACIONAL.get(str(generador or ""), {}).get(servicio)
+    return round(n * f, 1) if f else n
+
+
 def _solo_conocido(eq: dict, slot: str) -> None:
-    """Estos dos escritores solo saben la forma del rendimiento CONOCIDO.
+    """El 'mixto3' solo sabe la forma del rendimiento CONOCIDO.
 
     Es la de una bomba de calor, cuyo SCOP/SEER vienen ensayados: 153 de los 164
-    'mixto3' y 237 de los 441 'climatizacion' del corpus. La forma ESTIMADA
-    existe (su cola lleva los nominales, interruptores y una lista mas) pero no
-    se ha medido lo bastante para escribirla, y un registro con la forma
-    equivocada CE3X lo abre y no lo enseña.
+    'mixto3' del corpus. La forma ESTIMADA existe pero no se ha medido lo
+    bastante para escribirla, y un registro con la forma equivocada CE3X lo abre
+    y no lo enseña. (El 'climatizacion' ESTIMADO si esta medido: ver
+    `equipo_climatizacion`.)
     """
     if eq.get("rendimiento") != "conocido":
         raise GeneracionError(
@@ -600,19 +633,61 @@ def equipo_climatizacion(eq: dict, espacio: str) -> tuple[list, list[str]]:
          'Bomba de Calor - Caudal Ref. Variable', 'Electricidad',
          [['', ''], ['163.0', '100'], ['163.0', '100']],
          'Conocido (Ensayado/justificado)', ['', '673', '519'], 'Edificio Objeto']
+
+    Y el AIRE ACONDICIONADO que tambien calienta (un split bomba de calor) con el
+    rendimiento ESTIMADO, que es como se declara cuando los aires son la
+    calefaccion de la vivienda —la deduccion del IRPF por los propios aires o
+    por las placas, p. ej. 2026CEE_60—. Medido sobre 258 equipos del corpus
+    (211 con esta misma forma exacta):
+
+        ['AACC1', 'climatizacion', ['', 204.3, 163.3],
+         'Bomba de Calor - Caudal Ref. Variable', 'Electricidad',
+         [['', ''], ['18.4', '10'], ['18.4', '10']], 'Estimado según Instalación',
+         [['', '270.0', '250.0'], [True, False, False], []], 'Edificio Objeto']
+
+    La cola son los dos NOMINALES, los interruptores y una lista vacia. Los
+    interruptores no mueven el estacional (medido: el mismo 0,7567 / 0,6533 con
+    cualquiera de los tres), asi que van los de la forma mas comun.
     """
-    _solo_conocido(eq, "climatizacion")
+    generador = str(_v(eq.get("generador"), "instalaciones.generador"))
+    combustible = str(_v(eq.get("combustible"), "instalaciones.combustible"))
+    sup = [["", ""],
+           [_sup(eq, "superficie_calefaccion"), _pct(eq.get("pct_calefaccion"))],
+           [_sup(eq, "superficie_refrigeracion"), _pct(eq.get("pct_refrigeracion"))]]
+
+    if eq.get("rendimiento", "estimado") != "conocido":
+        if _por_combustion(eq):
+            raise GeneracionError(
+                f"el equipo {eq.get('nombre')!r} (calefaccion y refrigeracion) solo se "
+                f"sabe escribir ESTIMADO si es electrico (una bomba de calor)")
+        nc = str(float(_numf(eq.get("rend_nominal_calefaccion") or "270.0") or 270.0))
+        nr = str(float(_numf(eq.get("rend_nominal_refrigeracion") or "250.0") or 250.0))
+        aviso = (f"instalacion {eq['nombre']}: el rendimiento medio estacional lo calcula "
+                 f"CE3X. Aqui va aproximado a partir de los nominales ({nc} % de "
+                 f"calefaccion y {nr} % de refrigeracion). Abre Instalaciones y dale a "
+                 f"Modificar para que ponga el suyo.")
+        return [
+            str(eq["nombre"]),
+            Cadena("climatizacion"),
+            ["", _estacional(generador, "calefaccion", nc),
+             _estacional(generador, "refrigeracion", nr)],
+            generador,
+            combustible,
+            sup,
+            RENDIMIENTO["estimado"],
+            [["", nc, nr], [True, False, False], []],
+            espacio,
+        ], [aviso]
+
     cal = str(_v(eq.get("rend_calefaccion"), "instalaciones.rend_calefaccion"))
     ref = str(_v(eq.get("rend_refrigeracion"), "instalaciones.rend_refrigeracion"))
     return [
         str(eq["nombre"]),
         Cadena("climatizacion"),
         ["", cal, ref],
-        str(_v(eq.get("generador"), "instalaciones.generador")),
-        str(_v(eq.get("combustible"), "instalaciones.combustible")),
-        [["", ""],
-         [_sup(eq, "superficie_calefaccion"), _pct(eq.get("pct_calefaccion"))],
-         [_sup(eq, "superficie_refrigeracion"), _pct(eq.get("pct_refrigeracion"))]],
+        generador,
+        combustible,
+        sup,
         RENDIMIENTO["conocido"],
         ["", cal, ref],
         espacio,
@@ -741,16 +816,22 @@ def equipo_refrigeracion(eq: dict, espacio: str) -> tuple[list, list[str]]:
 
     El `0` del final de la cola es la ANTIGUEDAD del equipo («Posterior a 2013»
     en el fichero medido). Va como esta: no se sabe que mas valores admite.
+
+    Es la forma exacta de los cinco aires del CEE inicial de 26RES060_206, hecho
+    a mano por el certificador (250 % nominal → 157,5 estacional, al 20 % cada
+    uno): la forma que se usa en un expediente CAE, donde los aires existentes
+    se declaran como SOLO frio.
     """
     nominal = str(eq.get("rend_nominal", "250.0"))
+    generador = str(_v(eq.get("generador"), "instalaciones.generador"))
     aviso = (f"instalacion {eq['nombre']}: el rendimiento medio estacional lo calcula "
-             f"CE3X. Aqui va el nominal ({nominal} %), y la antiguedad queda como "
-             f"«Posterior a 2013». Comprobalo en Instalaciones.")
+             f"CE3X. Aqui va aproximado a partir del nominal ({nominal} %), y la "
+             f"antiguedad queda como «Posterior a 2013». Comprobalo en Instalaciones.")
     return [
         str(eq["nombre"]),
         Cadena("refrigeracion"),
-        ["", "", _numf(nominal) or 0.0],
-        str(_v(eq.get("generador"), "instalaciones.generador")),
+        ["", "", _estacional(generador, "refrigeracion", nominal)],
+        generador,
         str(_v(eq.get("combustible"), "instalaciones.combustible")),
         [["", ""], ["", ""],
          [_sup(eq, "superficie_refrigeracion"), _pct(eq.get("pct_refrigeracion"))]],

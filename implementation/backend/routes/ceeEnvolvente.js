@@ -303,7 +303,7 @@ router.post('/:expedienteId/ficha', internalOnly, staffSiOportunidad, async (req
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
 
         const fase = req.body?.fase || 'inicial';
-        const { ficha, catalogo, faltan, avisos, fuente, equipos } = await cex.componerFicha(ctx, {
+        const { ficha, catalogo, faltan, avisos, fuente, equipos, aires } = await cex.componerFicha(ctx, {
             geometria, envolvente: req.body?.envolvente, ajustes: req.body?.ajustes,
             medidas: req.body?.medidas, fase,
         });
@@ -313,7 +313,9 @@ router.post('/:expedienteId/ficha', internalOnly, staffSiOportunidad, async (req
         // `fuente` son las COLUMNAS en crudo del cliente y del técnico: es lo
         // que edita el formulario de administrativos, porque sobre el valor
         // compuesto de la ficha no se puede escribir.
-        res.json({ ficha, avisos, fase, medidas: catalogo, faltan, fuente, equipos,
+        // ires: los que dijo tener el cliente al aceptar, para el bloque de
+        // Instalaciones que los declara de un clic.
+        res.json({ ficha, avisos, fase, medidas: catalogo, faltan, fuente, equipos, aires,
                    nombre: cex.nombreDelCex(ctx.expediente, fase) });
     } catch (e) {
         console.error('[ceeEnvolvente] ficha:', e.message);

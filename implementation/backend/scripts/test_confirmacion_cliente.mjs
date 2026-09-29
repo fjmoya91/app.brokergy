@@ -180,5 +180,46 @@ const sinConf = [
 t('sin confirmación (página antigua) o basura: null, y se acepta igual', () => {
     assert.deepEqual(sinConf, [null, null, null]);
 });
+
+// ─── El ENCARGO del CEE al certificador (2026-09-29) ─────────────────────────
+console.log('\nPara el certificador');
+const { bloqueConfirmacionCertificador, airesDeclarados, repartoCien, textoReparto } = mod;
+const conf206 = { emisor: 'radiadores', fotovoltaica: { estado: 'si', potencia_kwp: 6 },
+                  aire_acondicionado: true, num_aires: 5 };
+t('el reparto de 100 entre N aparatos suma siempre 100', () => {
+    assert.deepEqual(repartoCien(5), [20, 20, 20, 20, 20]);
+    assert.deepEqual(repartoCien(3), [34, 33, 33]);
+    for (let n = 1; n <= 20; n++) assert.equal(repartoCien(n).reduce((a, b) => a + b, 0), 100);
+    assert.equal(textoReparto(5), '20 % cada uno');
+    assert.equal(textoReparto(3), '34, 33 y 33 %');
+});
+t('CAE (26RES060_206): radiadores, 6 kWp y 5 aires, con cómo declararlos', () => {
+    const b = bloqueConfirmacionCertificador({ confirmacion: conf206, cae: true });
+    assert.match(b, /CONFIRMADO EL CLIENTE/);
+    assert.match(b, /Calefacción: Radiadores/);
+    assert.match(b, /Aire acondicionado: Sí · 5 aparatos/);
+    assert.match(b, /sólo refrigeración/);
+    assert.match(b, /20 % cada uno/);
+    assert.match(b, /autoconsumo/);
+});
+t('CEE directo (2026CEE_60): el cuestionario, y frío y calor si es para la deducción', () => {
+    const q = { calefaccion: 'gas', acs: 'misma_caldera', termo_extra: false,
+                aire_acondicionado: true, num_aires: 6, placas: 'no' };
+    const b = bloqueConfirmacionCertificador({ cuestionario: q, cae: false });
+    assert.match(b, /CONTESTADO EL CLIENTE/);
+    assert.match(b, /6 aparatos/);
+    assert.match(b, /calefacción y refrigeración/);
+    assert.deepEqual(airesDeclarados({ cuestionario: q }), { tiene: true, num: 6 });
+});
+t('sin nada contestado, el bloque va vacío (el encargo no cambia)', () => {
+    assert.equal(bloqueConfirmacionCertificador({ confirmacion: null, cae: true }), '');
+    assert.equal(bloqueConfirmacionCertificador({ cuestionario: null, cae: false }), '');
+});
+t('sin aires, no se habla de aires', () => {
+    const b = bloqueConfirmacionCertificador({ confirmacion: { ...conf206, aire_acondicionado: false,
+                                                                 num_aires: null }, cae: true });
+    assert.doesNotMatch(b, /refrigeración/);
+    assert.match(b, /Aire acondicionado: No/);
+});
 console.log(`\n${ok} comprobaciones correctas`);
 process.exit(0);

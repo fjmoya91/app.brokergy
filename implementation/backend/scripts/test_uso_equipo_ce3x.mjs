@@ -52,8 +52,10 @@ console.log('\n2. Los usos que se ofrecen son los que el motor sabe escribir');
 const usos = (eq, o) => F.usosDeEquipo(eq, o).map(u => u.valor);
 comprueba('una caldera (estimada) del expediente',
           usos({}, { principal: true }), ['mixto2', 'calefaccion', 'ACS']);
+//: … solo frío o frío y calor: el `climatizacion` ESTIMADO está medido (258 del
+//: corpus) desde 2026-09-29 — es el aire que también calienta (2026CEE_60).
 comprueba('un equipo añadido estimado puede ser además un aire acondicionado',
-          usos({}), ['mixto2', 'calefaccion', 'ACS', 'refrigeracion']);
+          usos({}), ['mixto2', 'calefaccion', 'ACS', 'refrigeracion', 'climatizacion']);
 comprueba('una bomba de calor ensayada, también con frío',
           usos({ rendimiento: 'conocido' }, { principal: true }),
           ['mixto3', 'climatizacion', 'mixto2', 'calefaccion', 'ACS']);

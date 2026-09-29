@@ -47,14 +47,17 @@ export function EncargoCertificadorModal({
     const certTel = telefonoDe(certificador);
     const certEmail = emailDe(certificador);
 
-    const plantilla = () => buildCertDefaultMessage('standard', 'inicial', certName, clienteNombre,
-        numExp, ceeFolderLink, expedienteId, { ctx: msgCtx });
+    //: `bloque` = lo que confirmó el cliente al aceptar (emisores, placas, aires),
+    //: que llega con el borrador del aviso al cliente. Lo redacta el backend.
+    const plantilla = (bloque = '') => buildCertDefaultMessage('standard', 'inicial', certName,
+        clienteNombre, numExp, ceeFolderLink, expedienteId, { ctx: msgCtx, ce3xBlock: bloque });
 
     const [certNotifLoading, setCertNotifLoading] = useState(false);
     const [certNotifResult, setCertNotifResult] = useState(null);
     const [certPriority, setCertPriority] = useState('normal');
     const [certAdminMessage, setCertAdminMessage] = useState('');
-    const [certAssignMessage, setCertAssignMessage] = useState(plantilla);
+    const [certAssignMessage, setCertAssignMessage] = useState(() => plantilla());
+    const [bloqueCliente, setBloqueCliente] = useState('');
     const [certChannels, setCertChannels] = useState(['email']);
     // Si la pulsación fue "Asignar y notificar" o "Solo asignar": el overlay no puede
     // decir "Enviando encargo…" cuando no se manda nada.
@@ -78,6 +81,14 @@ export function EncargoCertificadorModal({
                 const d = r.data || {};
                 setAvisoCliente(d);
                 setClienteMessage(d.mensaje || '');
+                // Lo que confirmó el cliente va DENTRO del encargo: el técnico
+                // tiene que declarar como existentes los aires y las placas.
+                // Solo si el mensaje sigue siendo la plantilla: lo ya retocado
+                // no se pisa.
+                if (d.bloque_certificador) {
+                    setBloqueCliente(d.bloque_certificador);
+                    setCertAssignMessage(m => (m === plantilla() ? plantilla(d.bloque_certificador) : m));
+                }
                 // Por WhatsApp, que es donde el cliente lee; si no consta teléfono, por email.
                 setClienteChannels(d.tlf ? ['whatsapp'] : (d.email ? ['email'] : []));
                 // Viene marcado salvo que no haya por dónde escribirle o que ya se le
@@ -87,6 +98,9 @@ export function EncargoCertificadorModal({
             })
             .catch(() => { if (vivo) setAvisoCliente(null); });
         return () => { vivo = false; };
+        // `plantilla` depende de lo mismo que este efecto (el técnico elegido):
+        // meterla en las dependencias volvería a pedir el borrador en cada render.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [apiBase, expedienteId, certId]);
 
     const confirmar = async (notify) => {
@@ -244,7 +258,7 @@ export function EncargoCertificadorModal({
                                 <p className="text-[9px] font-black text-white/30 uppercase tracking-widest">Mensaje al certificador</p>
                                 <button
                                     type="button"
-                                    onClick={() => setCertAssignMessage(plantilla())}
+                                    onClick={() => setCertAssignMessage(plantilla(bloqueCliente))}
                                     disabled={certNotifLoading}
                                     className="text-[9px] font-black uppercase tracking-widest text-white/30 hover:text-brand transition-colors disabled:opacity-40"
                                     title="Restaurar el texto por defecto"

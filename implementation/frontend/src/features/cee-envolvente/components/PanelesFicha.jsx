@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { CampoDecimal } from '../../../components/CampoDecimal';
-import { ACTIVIDADES_ILUMINACION_CE3X, AISLAMIENTOS_CE3X, AMBITOS_CE3X, COMBUSTIBLES_CE3X,
-         esTerciarioCe3x, etiquetaTipoCe3x, GENERADORES_CE3X, LAMPARAS_CE3X,
-         PERFILES_USO_CE3X, porCombustion, TIPOS_EQUIPO_CE3X, TIPOS_RESIDENCIAL_CE3X,
-         tipoEquipo, usosDeEquipo }
+import { ACTIVIDADES_ILUMINACION_CE3X, airesAcondicionados, AISLAMIENTOS_CE3X, AMBITOS_CE3X,
+         COMBUSTIBLES_CE3X, esAire, esTerciarioCe3x, etiquetaTipoCe3x, GENERADORES_CE3X,
+         LAMPARAS_CE3X, MAX_AIRES_CE3X, MODOS_AIRES, PERFILES_USO_CE3X, porCombustion,
+         repartoAires, TIPOS_EQUIPO_CE3X, TIPOS_RESIDENCIAL_CE3X, tipoEquipo, usosDeEquipo }
     from '../logic/fichaCe3x';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -674,7 +674,7 @@ function Foto({ titulo, cual, b64, puesta, cargando, fallo, onSustituir, onQuita
 export function PanelInstalaciones({ fase = 'inicial', onFase, equipo, superficie,
                                      ajustes = {}, onAjuste, extras = [], onExtra,
                                      onAnadir, onBorrar, dosFases = true, iluminacion = null,
-                                     conservados = [], children }) {
+                                     conservados = [], aires = null, children }) {
     const esFinal = fase === 'final';
     const [abierta, setAbierta] = useState('principal');
 
@@ -723,7 +723,8 @@ export function PanelInstalaciones({ fase = 'inicial', onFase, equipo, superfici
                 {extras.map((x, i) => (
                     <Equipo key={i} eq={x} abierta={abierta === i}
                             onAbrir={() => setAbierta(abierta === i ? null : i)}
-                            onBorrar={() => onBorrar?.(i)} origen="añadido a mano">
+                            onBorrar={() => onBorrar?.(i)}
+                            origen={esAire(x) ? 'aire existente' : 'añadido a mano'}>
                         <FormularioEquipo eq={x} superficie={superficie}
                                           puesto={x}
                                           onCampo={(k, v) => onExtra?.(i, k, v)} />
@@ -732,6 +733,14 @@ export function PanelInstalaciones({ fase = 'inicial', onFase, equipo, superfici
 
                 {esFinal && conservados.length > 0 && (
                     <Conservados lista={conservados} />
+                )}
+
+                {/* Los AIRES existentes van en el INICIAL: el final los conserva
+                    al copiarlo (regla 72), y declararlos solo en el final dejaría
+                    los dos certificados describiendo viviendas distintas. */}
+                {!esFinal && (
+                    <AiresAcondicionados aires={aires} extras={extras} superficie={superficie}
+                                         onPoner={onAnadir} />
                 )}
 
                 <Anadir onAnadir={anadir} />
@@ -1049,6 +1058,15 @@ function FormularioEquipo({ eq, superficie, puesto = {}, onCampo, principal = fa
                         </select>
                     </Editable>
                 </>
+            ) : t.valor === 'climatizacion' ? (
+                // El aire que también calienta: un nominal por servicio (los de
+                // 2026CEE_60, mientras nadie diga otra cosa).
+                <>
+                    {num('rend_nominal_calefaccion', 'Nominal de calefacción', '%',
+                         t.nominal_calefaccion)}
+                    {num('rend_nominal_refrigeracion', 'Nominal de refrigeración', '%',
+                         t.nominal_refrigeracion)}
+                </>
             ) : (
                 num('rend_nominal', 'Rendimiento nominal', '%',
                     eq?.rend_combustion ?? t.nominal ?? '100.0')
@@ -1230,6 +1248,139 @@ function Conservados({ lista }) {
                 Calculado sobre la cara «CEE inicial». Al generar manda el .cex inicial que haya
                 en la carpeta, con lo que se corrigiera en CE3X.
             </p>
+        </div>
+    );
+}
+
+/**
+ * Los AIRES ACONDICIONADOS de la vivienda, de un clic: cuántos y cómo se
+ * declaran. Crea uno por aparato con el 100 % de la refrigeración repartido
+ * entre todos (y la superficie en la misma proporción).
+ *
+ * REGLA — el número y el modo se PROPONEN (lo que dijo el cliente al aceptar, y
+ * el negocio) y se cambian aquí. Volver a pulsar SUSTITUYE los aires que puso
+ * este bloque, nunca los suma: sumarlos pasaría del 100 % sin que nadie lo
+ * quisiera. Los equipos añadidos a mano no se tocan.
+ */
+function AiresAcondicionados({ aires, extras = [], superficie, onPoner }) {
+    const puestos = extras.filter(esAire);
+    const [abierto, setAbierto] = useState(false);
+    const [ahoraNo, setAhoraNo] = useState(false);
+    const [n, setN] = useState(() => puestos.length || aires?.num || 1);
+    const [modo, setModo] = useState(() => puestos[0]?.slot
+        || (aires?.modo === 'climatizacion' ? 'climatizacion' : 'refrigeracion'));
+
+    //: El cliente dijo que tiene aires y aún no hay ninguno: el bloque se abre
+    //: solo y en ámbar. Es la única forma de que no se quede sin declarar.
+    const pendiente = aires?.tiene && puestos.length === 0
+        && !extras.some(x => tipoEquipo(x?.slot).servicios.includes('refrigeracion'));
+    const visible = abierto || (pendiente && !ahoraNo);
+    const reparto = repartoAires(n);
+    const iguales = reparto.every(p => p === reparto[0]);
+
+    const poner = () => {
+        const nuevos = airesAcondicionados({ n, modo, superficie });
+        onPoner?.((previos) => [...previos.filter(x => !esAire(x)), ...nuevos]);
+        setAbierto(false);
+    };
+    const quitar = () => onPoner?.((previos) => previos.filter(x => !esAire(x)));
+
+    const dijo = aires?.tiene === true
+        ? `El cliente dijo al aceptar que tiene ${aires.num
+            ? `${aires.num} ${aires.num === 1 ? 'aparato' : 'aparatos'}` : 'aire acondicionado'}.`
+        : aires?.tiene === false ? 'El cliente dijo al aceptar que NO tiene aire acondicionado.' : null;
+
+    if (!visible) {
+        return (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border
+                            border-white/[0.07] px-3 py-2">
+                <span className="text-[12px] text-white/70">
+                    ❄️ <b className="text-white/85">Aires acondicionados</b>
+                    {puestos.length > 0
+                        ? ` · ${puestos.length} declarados (${
+                            puestos[0].slot === 'climatizacion' ? 'frío y calor' : 'solo frío'})`
+                        : dijo ? ` · ${dijo}` : ''}
+                </span>
+                <button onClick={() => setAbierto(true)}
+                        className="ml-auto rounded-md border border-white/10 px-2 py-1 text-[10px]
+                                   font-bold uppercase tracking-wider text-white/55
+                                   hover:border-brand/50 hover:text-brand">
+                    {puestos.length ? 'Cambiar' : '+ Añadir aires'}
+                </button>
+            </div>
+        );
+    }
+
+    return (
+        <div className={`rounded-xl border px-3 py-3 ${pendiente
+            ? 'border-amber-400/50 bg-amber-400/[0.06]' : 'border-white/[0.1] bg-white/[0.02]'}`}>
+            <p className="text-[12.5px] font-bold text-white/85">❄️ Aires acondicionados existentes</p>
+            {dijo && (
+                <p className={`mt-0.5 text-[11.5px] ${pendiente ? 'text-amber-200' : 'text-white/60'}`}>
+                    {dijo}{pendiente ? ' Aún no están declarados.' : ''}
+                </p>
+            )}
+
+            <div className="mt-2.5 flex flex-wrap items-center gap-x-5 gap-y-2">
+                <div className="flex items-center gap-2 text-[12px]">
+                    <span className="text-white/55">Aparatos</span>
+                    <button onClick={() => setN(v => Math.max(1, v - 1))} aria-label="uno menos"
+                            className="h-7 w-7 rounded-md border border-white/15 text-white/70
+                                       hover:border-brand/50">−</button>
+                    <span className="w-6 text-center text-[14px] font-black tabular-nums text-white">{n}</span>
+                    <button onClick={() => setN(v => Math.min(MAX_AIRES_CE3X, v + 1))} aria-label="uno más"
+                            className="h-7 w-7 rounded-md border border-white/15 text-white/70
+                                       hover:border-brand/50">+</button>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                    {MODOS_AIRES.map(m => (
+                        <button key={m.valor} onClick={() => setModo(m.valor)} title={m.sub}
+                                className={`rounded-lg border px-2.5 py-1.5 text-left text-[11px] ${
+                                    modo === m.valor ? 'border-brand/60 bg-brand/10 text-brand'
+                                                     : 'border-white/10 text-white/65 hover:border-white/30'}`}>
+                            <b>{m.etiqueta}</b>
+                            <span className="block text-[10px] opacity-80">{m.sub}</span>
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            <p className="mt-2 text-[11px] leading-relaxed text-white/50">
+                Uno por aparato, «{modo === 'climatizacion'
+                    ? 'Equipo de calefacción y refrigeración' : 'Equipo de sólo refrigeración'}»,
+                {' '}{modo === 'climatizacion'
+                    ? 'bomba de calor con 270 % de calefacción y 250 % de refrigeración'
+                    : 'máquina frigorífica con 250 % nominal'}, estimado y posterior a 2013. Entre
+                todos cubren el 100 % de la refrigeración
+                ({iguales ? `${reparto[0]} % cada uno` : reparto.join(' · ') + ' %'})
+                {modo === 'climatizacion' ? ' y de la calefacción' : ''}. Se cambia después en cada
+                tarjeta.
+            </p>
+            {modo === 'climatizacion' && (
+                <p className="mt-1 text-[11px] leading-relaxed text-amber-200/85">
+                    Con frío y calor los aires cubren también la calefacción: si la vivienda tiene
+                    además caldera, repasa los porcentajes de calefacción (el total de abajo lo marca).
+                </p>
+            )}
+
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                <button onClick={poner}
+                        className="rounded-lg bg-brand px-3 py-1.5 text-[11.5px] font-black
+                                   text-bkg-deep hover:opacity-90">
+                    {puestos.length ? `Rehacer con ${n}` : `Añadir ${n} ${n === 1 ? 'aire' : 'aires'}`}
+                </button>
+                {puestos.length > 0 && (
+                    <button onClick={quitar}
+                            className="text-[11px] text-white/45 hover:text-red-400">
+                        quitar los {puestos.length}
+                    </button>
+                )}
+                <button onClick={() => { setAbierto(false); setAhoraNo(true); }}
+                        className="ml-auto text-[10px] uppercase tracking-wider text-white/35
+                                   hover:text-white/70">
+                    {pendiente ? 'ahora no' : 'cerrar'}
+                </button>
+            </div>
         </div>
     );
 }

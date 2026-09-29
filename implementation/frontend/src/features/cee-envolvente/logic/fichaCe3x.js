@@ -467,14 +467,118 @@ export const equipoNuevo = (slot) => {
     return { slot: t.valor, ...(t.nombre ? { nombre: t.nombre } : {}) };
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Los AIRES ACONDICIONADOS que ya tiene la vivienda.
+//
+// Son equipos EXISTENTES: el CEE inicial los recoge y el final los conserva al
+// copiarlo (la refrigeración nunca retira nada, regla 72). El cliente dice
+// cuántos tiene al aceptar, así que se crean de un clic: uno por aparato, con
+// el 100 % de la demanda de refrigeración repartido entre todos —y la
+// superficie en la misma proporción—, que es como los declara el certificador.
+//
+// REGLA — CÓMO se declaran depende del negocio, y lo decide una persona:
+//   · CAE (RES060…): SOLO FRÍO, máquina frigorífica, 250 % nominal — el CEE
+//     inicial de 26RES060_206, hecho a mano (5 × 20 %).
+//   · Deducción del IRPF (CEE directo, 2026CEE_60): CALEFACCIÓN Y
+//     REFRIGERACIÓN, bomba de calor, 270 % / 250 % — ahí los aires son parte de
+//     la calefacción de la vivienda.
+// Se propone por el negocio y se cambia en el propio bloque.
+// ─────────────────────────────────────────────────────────────────────────────
+export const MODOS_AIRES = [
+    { valor: 'refrigeracion', etiqueta: 'Solo frío',
+      sub: 'Máquina frigorífica — lo de un expediente CAE' },
+    { valor: 'climatizacion', etiqueta: 'Frío y calor',
+      sub: 'Bomba de calor — deducción del IRPF (por los aires o las placas)' },
+];
+
+export const MAX_AIRES_CE3X = 20;
+
+/** ¿Este equipo añadido es uno de los aires creados por el bloque? */
+export const esAire = (x) => x?.aire === true;
+
+/** Enteros que suman 100 entre `n` aparatos (3 → 34 · 33 · 33). */
+export function repartoAires(n) {
+    const k = Math.max(1, Math.min(MAX_AIRES_CE3X, Math.round(Number(n) || 1)));
+    const base = Math.floor(100 / k);
+    let resto = 100 - base * k;
+    return Array.from({ length: k }, () => base + (resto-- > 0 ? 1 : 0));
+}
+
+/**
+ * Los `n` aires, listos para ir a los equipos añadidos de la fase.
+ * @param {{ n: number, modo: 'refrigeracion'|'climatizacion', superficie: number }} o
+ */
+export function airesAcondicionados({ n, modo = 'refrigeracion', superficie } = {}) {
+    const t = tipoEquipo(modo === 'climatizacion' ? 'climatizacion' : 'refrigeracion');
+    const pcts = repartoAires(n);
+    const sup = Number(superficie) > 0 ? Number(superficie) : null;
+    const parte = (p) => (sup ? String(Math.round(sup * p) / 100) : undefined);
+    return pcts.map((p, i) => {
+        const eq = {
+            aire: true,
+            slot: t.valor,
+            nombre: pcts.length > 1 ? `AIRE ACONDICIONADO ${i + 1}` : 'AIRE ACONDICIONADO',
+            generador: t.generador,
+            combustible: 'Electricidad',
+            pct_refrigeracion: String(p),
+            ...(sup ? { superficie_refrigeracion: parte(p) } : {}),
+        };
+        if (t.valor === 'climatizacion') {
+            Object.assign(eq, {
+                rend_nominal_calefaccion: t.nominal_calefaccion,
+                rend_nominal_refrigeracion: t.nominal_refrigeracion,
+                pct_calefaccion: String(p),
+                ...(sup ? { superficie_calefaccion: parte(p) } : {}),
+            });
+        } else {
+            eq.rend_nominal = t.nominal;
+        }
+        return eq;
+    });
+}
+
+/**
+ * Los aires que el cliente dijo tener, y cómo se propone declararlos.
+ * CAE: `confirmacion_cliente` (del expediente o de su oportunidad). CEE
+ * directo: el cuestionario de la oferta.
+ * @returns {{ tiene: boolean, num: number|null, modo: string, de: string } | null}
+ */
+export function airesDelCliente(expediente) {
+    const directo = esCeeDirecto(expediente);
+    const conf = expediente?.instalacion?.confirmacion_cliente
+        || expediente?.oportunidades?.datos_calculo?.confirmacion_cliente || null;
+    const q = directo ? expediente?.documentacion?.cuestionario : null;
+    let tiene = null;
+    let num = null;
+    if (!directo && conf && (conf.aire_acondicionado === true || conf.aire_acondicionado === false)) {
+        tiene = conf.aire_acondicionado;
+        num = Number(conf.num_aires) || null;
+    } else if (q && (q.aire_acondicionado === true || q.aire_acondicionado === false)) {
+        tiene = q.aire_acondicionado;
+        num = Number(q.num_aires) || null;
+    }
+    if (tiene == null) return null;
+    return {
+        tiene,
+        num: tiene && num > 0 ? Math.min(MAX_AIRES_CE3X, Math.round(num)) : null,
+        modo: directo ? 'climatizacion' : 'refrigeracion',
+        de: directo ? 'lo que contestó el cliente al aceptar la oferta'
+                    : 'lo que confirmó el cliente al aceptar la propuesta',
+    };
+}
+
 //: Los dos tipos de la AEROTERMIA QUE DA FRÍO. No se ofrecen en «+ Añadir»
 //: porque el motor solo sabe su forma con el rendimiento CONOCIDO (153 mixto3 y
 //: 237 climatizacion del corpus): son los que escribe la app desde el
 //: expediente, y aquí solo hace falta saber cómo se llaman y qué servicios dan.
+//: Excepción: el `climatizacion` ESTIMADO sí está medido (258 del corpus) — es el
+//: AIRE ACONDICIONADO que también calienta, y lo crea el bloque de aires
+//: (`airesAcondicionados`). Sus dos nominales son los de 2026CEE_60.
 export const TIPOS_BOMBA_FRIO_CE3X = [
     { valor: 'climatizacion', etiqueta: 'Equipo de calefacción y refrigeración',
+      nombre: 'AIRE ACONDICIONADO',
       servicios: ['calefaccion', 'refrigeracion'], generador: 'Bomba de Calor - Caudal Ref. Variable',
-      combustible: 'Electricidad' },
+      combustible: 'Electricidad', nominal_calefaccion: '270.0', nominal_refrigeracion: '250.0' },
     { valor: 'mixto3', etiqueta: 'Equipo mixto de calefacción, refrigeración y ACS',
       servicios: ['calefaccion', 'refrigeracion', 'acs'],
       generador: 'Bomba de Calor - Caudal Ref. Variable', combustible: 'Electricidad' },
@@ -527,9 +631,13 @@ export function porCombustion(eq) {
  */
 export function usosDeEquipo(eq, { principal = false } = {}) {
     const conocido = eq?.rendimiento === 'conocido';
+    //: El `climatizacion` ESTIMADO (un aire que también calienta) solo en los
+    //: AÑADIDOS: está medido para una bomba de calor eléctrica, y el principal es
+    //: la caldera o la aerotermia de la obra, no un split.
     const claves = conocido
         ? ['mixto3', 'climatizacion', 'mixto2', 'calefaccion', 'ACS']
-        : ['mixto2', 'calefaccion', 'ACS', ...(principal ? [] : ['refrigeracion'])];
+        : ['mixto2', 'calefaccion', 'ACS',
+           ...(principal ? [] : ['refrigeracion', 'climatizacion'])];
     return claves.map(tipoEquipo);
 }
 
@@ -597,6 +705,17 @@ export function equipoAnadido(x, { superficie } = {}) {
         for (const k of rendimientosConocidos(t.servicios)) {
             if (Number(x?.[k]) > 0) eq[k] = String(x[k]);
         }
+    } else if (t.valor === 'climatizacion') {
+        // El AIRE que también calienta, ESTIMADO: dos nominales, uno por
+        // servicio. Solo se sabe escribir eléctrico (una bomba de calor).
+        if (porCombustion({ combustible })) {
+            avisos.push(`El equipo «${nombre}» no se escribe: «${t.etiqueta}» estimado solo se `
+                        + 'sabe escribir eléctrico (una bomba de calor).');
+            return { equipo: null, avisos };
+        }
+        eq.rend_nominal_calefaccion = String(x?.rend_nominal_calefaccion || t.nominal_calefaccion);
+        eq.rend_nominal_refrigeracion = String(x?.rend_nominal_refrigeracion
+                                               || t.nominal_refrigeracion);
     } else if (porCombustion({ combustible })) {
         const potencia = String(x?.potencia || '').trim();
         if (!potencia) {
@@ -1854,6 +1973,17 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
                  ...(avisoUso ? [avisoUso] : []),
                  ...anadidos.flatMap(a => a.avisos)],
     };
+    // Los aires que el cliente dijo tener. En el INICIAL, si no hay ningún
+    // equipo de frío declarado, se dice: son equipos existentes y el CEE los
+    // tiene que recoger. En el final no: los conserva del inicial al copiarlo.
+    const aires = airesDelCliente(expediente);
+    if (!esFinal && aires?.tiene
+        && !instalacion.equipos.some(e => tipoEquipo(e?.slot).servicios.includes('refrigeracion'))) {
+        instalacion.avisos.push(`El cliente dijo al aceptar que tiene aire acondicionado`
+            + `${aires.num ? ` (${aires.num} ${aires.num === 1 ? 'aparato' : 'aparatos'})` : ''} `
+            + 'y no hay ningún equipo de refrigeración: añádelos en Instalaciones '
+            + '(«Aires acondicionados»).');
+    }
     // Las MEDIDAS DE MEJORA que el certificador haya marcado en su pestaña. Sin
     // elección manda lo que describe la fase (ver `medidasCe3x`).
     const mejora = medidasCe3x({ expediente, superficie, fase, elegidas: medidas, modelos,
@@ -2075,6 +2205,9 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
                  principal: conMano.equipo || derivada.equipo || derivada.parcial || null,
                  conservados,
              },
+             // Los aires que el cliente dijo tener, para el bloque de
+             // Instalaciones que los crea de un clic. Tampoco viaja al motor.
+             aires,
              // El programa de CE3X y si lo ha elegido alguien: sin elegir, la
              // ventana lo pregunta como CE3X al crear un fichero.
              tipo_ce3x: { tipo: tipoCe3x, elegido: tipoElegido },
