@@ -208,6 +208,25 @@ comprueba('si el ACS es la MISMA máquina, no se repite en el nombre',
               .find(m => m.id === 'aerotermia')?.datos?.nombre || '').includes(' + '),
           false);
 
+// Un CONJUNTO (la misma máquina lleva el depósito dentro) SÍ nombra su ACS, y el
+// párrafo empareja cada uso con su rendimiento y no menciona el depósito. Es la
+// medida que Brokergy escribió a mano en 26RES060_202 (DAIKIN, 230 l).
+const conjunto = () => {
+    const e = mismaMaquinaAcs();
+    e.instalacion.aerotermia_acs = { ...e.instalacion.aerotermia_cal, scop: 3.78, litros: 230 };
+    return e;
+};
+const medidaConjunto = (medidasCe3x({ expediente: conjunto(), superficie: 120, fase: 'inicial',
+                                      modelos: CATALOGO }).catalogo || []).find(m => m.id === 'aerotermia');
+comprueba('un CONJUNTO lleva «+ BOMBA DE CALOR PARA ACS» en el nombre',
+          (medidaConjunto?.datos?.nombre || '').endsWith(' + BOMBA DE CALOR PARA ACS'), true);
+comprueba('y cada uso va con SU rendimiento',
+          /para uso de calefacción con SCOP de [\d,]+, refrigeración con SEER de 3,66 y ACS con SCOPdhw de 3,78/.test(medidaConjunto?.datos?.caracteristicas || ''), true);
+comprueba('y el depósito integrado no se menciona en el párrafo',
+          /acumulación/.test(medidaConjunto?.datos?.caracteristicas || ''), false);
+comprueba('pero el equipo sigue declarando sus 230 l',
+          medidaConjunto?.datos?.instalaciones?.[0]?.acumulacion?.volumen, 230);
+
 
 console.log(fallos ? `\n${fallos} FALLAN` : '\nTodo correcto.');
 process.exit(fallos ? 1 : 0);

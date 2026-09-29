@@ -119,8 +119,13 @@ export function nombreAcsCe3x({ acsTipo, acsNode } = {}) {
  * aparato. Solo cuando va APARTE: si es la misma máquina ya está nombrada, y
  * repetirla daría «AEROTERMIA X + AEROTERMIA X».
  */
-function sufijoConjunto({ acsAparte, acsTipo, acsNode }) {
-    return acsAparte ? ` + ${nombreAcsCe3x({ acsTipo, acsNode })}` : '';
+function sufijoConjunto({ acsAparte, acsTipo, acsNode, acsConjunto }) {
+    if (acsAparte) return ` + ${nombreAcsCe3x({ acsTipo, acsNode })}`;
+    //: Un CONJUNTO (el depósito de ACS va dentro de la propia máquina) también
+    //: se nombra con su ACS: es como lo escribe Brokergy en CE3X (26RES060_202,
+    //: DAIKIN ERLA11DAV3 + EBVX11S23DJ6V con 230 l integrados). Sin él, el
+    //: título parece una bomba de solo calefacción.
+    return acsConjunto ? ' + BOMBA DE CALOR PARA ACS' : '';
 }
 
 /**
@@ -272,6 +277,10 @@ export function resolverCe3x(exp, { modelos = {} } = {}) {
     if (hayAcs && llevaAcumulacionAcs(inst) && !(litros > 0)) {
         faltantes.push({ tipo: CE3X_FALTA.LITROS_ACS });
     }
+    // Un CONJUNTO: el ACS lo da la MISMA máquina y el depósito va dentro de ella
+    // (el catálogo precarga sus litros). Un acumulador aparte, aunque lo caliente
+    // la misma bomba, no lo es.
+    const acsConjunto = hayAcs && mismoEquipoAcs && litros > 0;
 
     // ── Superficie y demanda (del CEE INICIAL: es la referencia que no debe variar) ──
     const ceeIni = cee.cee_inicial || {};
@@ -317,7 +326,7 @@ export function resolverCe3x(exp, { modelos = {} } = {}) {
     return {
         faltantes, hibridacion: hib,
         conFrio, aireAire, generadorBdc, prefijoNombre,
-        hayAcs, acsEnMismoEquipo, acsAparte, acsTipo, acsNode, acsFlagContradice,
+        hayAcs, acsEnMismoEquipo, acsAparte, acsConjunto, acsTipo, acsNode, acsFlagContradice,
         scopCal, scopAcs, seer, litros,
         superficie, demandaCal,
         coberturaBdc, cbPct, repartoValido, pctCal,
@@ -330,7 +339,7 @@ export function resolverCe3x(exp, { modelos = {} } = {}) {
         // IRIDIUM» en una obra que monta además una BAXI BC ACS 150 IN — y el
         // párrafo de características, dos líneas más abajo, sí la nombraba.
         nombreConjunto: nombreEquipo(cal, prefijoNombre)
-            + sufijoConjunto({ acsAparte, acsTipo, acsNode: inst.aerotermia_acs }),
+            + sufijoConjunto({ acsAparte, acsTipo, acsNode: inst.aerotermia_acs, acsConjunto }),
         //: Cómo se llama el aparato del ACS cuando va aparte. El MISMO nombre
         //: que el título del conjunto, para que el .cex no nombre una máquina
         //: en el título y otra en Instalaciones.
@@ -678,7 +687,14 @@ export function buildMedidaMejora(exp, { modelos = {} } = {}) {
     }
 
     let texto = apertura;
-    if (usos.length) texto += ` para uso de ${enumerar(usos)} con ${enumerar(rends)}`;
+    if (d.acsConjunto && usos.length) {
+        // En un CONJUNTO cada uso va con SU rendimiento («calefacción con SCOP de
+        // 4,23 y ACS con SCOPdhw de 3,78») y el depósito no se menciona: va dentro
+        // de la máquina. Es la redacción de Brokergy en 26RES060_202.
+        texto += ` para uso de ${enumerar(usos.map((u, i) => `${u} con ${rends[i]}`))}`;
+    } else if (usos.length) {
+        texto += ` para uso de ${enumerar(usos)} con ${enumerar(rends)}`;
+    }
 
     // ── El ACS, cuando lo resuelve otro aparato ──────────────────────────────
     if (d.acsAparte) {
@@ -694,7 +710,7 @@ export function buildMedidaMejora(exp, { modelos = {} } = {}) {
                 + ` con SCOPdhw de ${d.scopAcs > 0 ? num2(d.scopAcs) : hueco('el SCOP dhw')}`;
         }
     }
-    if (d.litros > 0) texto += `, con acumulación de ${String(d.litros).replace('.', ',')} litros`;
+    if (d.litros > 0 && !d.acsConjunto) texto += `, con acumulación de ${String(d.litros).replace('.', ',')} litros`;
 
     // ── Aviso: en un RES080 la actuación no es solo el generador ─────────────
     // El párrafo describe el CAMBIO DE EQUIPO. Si además hay obra de envolvente,
