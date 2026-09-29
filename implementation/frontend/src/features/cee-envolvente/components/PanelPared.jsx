@@ -615,7 +615,7 @@ function m2Hueco(huecos) {
     return total ? `${fmt(total)} m² de hueco` : null;
 }
 
-function Hueco({ h, onCambio, onCambia, onDuplica, onQuita, onConfirma, defecto,
+export function Hueco({ h, onCambio, onCambia, onDuplica, onQuita, onConfirma, defecto,
                 expedienteId, paredId, cerramiento, muro, nombreDe, onLeido,
                 destinos = [], onMuda }) {
     const [verFoto, setVerFoto] = useState(false);
@@ -670,11 +670,12 @@ function Hueco({ h, onCambio, onCambia, onDuplica, onQuita, onConfirma, defecto,
                     hueco. Va como icono y no como texto porque en la fila no
                     cabe más, y se enciende cuando el hueco tiene lo suyo. */}
                 <span className="ml-auto flex shrink-0 items-center gap-0.5">
-                <IconoBoton activo={editar || carpinteriaDe(h, defecto).propia}
+                <IconoBoton activo={editar || carpinteriaDe(h, defecto).propia
+                                     || carpinteriaDe(h, defecto).porcPropio}
                             onClick={() => setEditar(v => !v)}
                             pressed={editar}
                             etiqueta="editar la carpintería de este hueco"
-                            title={editar ? 'Cerrar' : 'Marco, vidrio y persiana de este hueco'}>
+                            title={editar ? 'Cerrar' : 'Marco, vidrio, % de marco y persiana de este hueco'}>
                     ✎
                 </IconoBoton>
                 {/* Su FOTO. Va plegada tras un icono y no abierta: en una fachada
@@ -834,6 +835,9 @@ function MoverAOtraPared({ destinos, onMuda }) {
 
 const fmtM = n => Number(n).toFixed(2).replace('.', ',');
 
+/** Un % como se lee: 20, 41,5. */
+const fmtPct = n => String(Number(n)).replace('.', ',');
+
 
 /**
  * El marco, el vidrio y la persiana de UN hueco.
@@ -849,8 +853,15 @@ const fmtM = n => Number(n).toFixed(2).replace('.', ',');
  */
 function Carpinteria({ h, defecto, onCambio, abierto, onAbrir }) {
     const esPuerta = h.tipo === 'puerta';
-    const { vidrio: v, marco, persiana, propia: propio } = carpinteriaDe(h, defecto);
+    const esLucernario = h.tipo === 'lucernario';
+    const c = carpinteriaDe(h, defecto);
+    const { vidrio: v, marco, persiana, porc_marco: porc, opaca } = c;
+    const propio = c.propia || c.porcPropio;
     const setAbierto = f => onAbrir?.(typeof f === 'function' ? f(abierto) : f);
+    //: Atajos del % de marco: los valores que de verdad se usan (medidos en
+    //: los .cex del disco), para no teclear el caso corriente. Una puerta de
+    //: patio acristalada a medias es un 30-40 %, y la opaca, el 100 %.
+    const atajos = esPuerta ? [90, 40, 100] : esLucernario ? [10, 20] : [20, 30, 40];
 
     // Lo que dice su FOTO, cuando no es lo que se va a escribir. No se aplica
     // solo: la carpintería la decide quien mira, y una foto no siempre deja ver
@@ -866,39 +877,72 @@ function Carpinteria({ h, defecto, onCambio, abierto, onAbrir }) {
                     className={`text-left text-[10.5px] leading-snug
                         ${propio ? 'text-brand/85' : 'text-white/35'} hover:text-white/70`}>
                 {abierto ? '▾ ' : '▸ '}
-                {esPuerta
-                    ? <>Puerta · marco de madera al 90 % · {persiana ? 'con' : 'sin'} persiana</>
-                    : <>{rotuloVidrio(v)} · {rotuloMarco(marco)} · {persiana ? 'con' : 'sin'} persiana</>}
+                {[opaca ? 'Opaca, sin vidrio' : rotuloVidrio(v),
+                  rotuloMarco(marco),
+                  `${fmtPct(porc)} % de marco`,
+                  !esLucernario && (persiana ? 'con persiana' : 'sin persiana'),
+                 ].filter(Boolean).join(' · ')}
                 {propio ? ' · solo esta' : ''}
             </button>
             {abierto && (
                 <div className="flex flex-wrap items-center gap-1.5 pb-0.5">
-                    {/* Una PUERTA no elige vidrio ni marco: el motor la escribe
-                        con su 90 % de marco de madera, que es lo que hace
-                        puerta a una puerta. Lo único que se decide es la
-                        persiana, que por defecto no lleva. */}
-                    {!esPuerta && (
-                        <>
-                            <Desplegable valor={v} opciones={VIDRIOS}
-                                         etiqueta="vidrio de este hueco"
-                                         onCambio={x => onCambio('vidrio', x)} />
-                            <Desplegable valor={marco} opciones={MARCOS}
-                                         etiqueta="marco de este hueco"
-                                         onCambio={x => onCambio('marco', x)} />
-                        </>
+                    {/* Vidrio y marco, también en una PUERTA: la de entrada es de
+                        madera al 90 % (lo que sale si no se toca), pero una
+                        puerta de patio de aluminio acristalada a medias es un
+                        40 % de marco metálico — y había que meterla como ventana
+                        y corregir el porcentaje en CE3X. Con el 100 % de marco
+                        no hay vidrio que elegir: CE3X lo deja en blanco. */}
+                    {!opaca && (
+                        <Desplegable valor={v} opciones={VIDRIOS}
+                                     etiqueta="vidrio de este hueco"
+                                     onCambio={x => onCambio('vidrio', x)} />
                     )}
-                    <button onClick={() => onCambio('persiana', !persiana)}
-                            className={`rounded-md border px-2 py-1 text-[10.5px] font-bold
-                                ${persiana ? 'border-brand/60 bg-brand/10 text-brand'
-                                           : 'border-white/12 text-white/45'}`}>
-                        {persiana ? '✓ persiana' : 'sin persiana'}
-                    </button>
+                    <Desplegable valor={marco} opciones={MARCOS}
+                                 etiqueta="marco de este hueco"
+                                 onCambio={x => onCambio('marco', x)} />
+                    {/* El % de MARCO: lo que es marco (opaco) de todo el hueco.
+                        Es lo que distingue en CE3X una ventana (20 %) de una
+                        puerta de entrada (90 %) — el `tipo` no lo hace. */}
+                    <span className="flex items-center gap-1 rounded-md border border-white/12
+                                     bg-white/[0.04] pl-1.5 pr-1 py-0.5"
+                          title={'Qué parte del hueco es marco (opaco). Ventana 20 %, puerta de '
+                                 + 'entrada 90 %, puerta de patio acristalada 30-40 %, puerta '
+                                 + 'opaca 100 %.'}>
+                        <CampoDecimal
+                            valor={porc} size={3} aria-label="porcentaje de marco de este hueco"
+                            // Fuera de 0-100 no es un porcentaje: no se guarda, y
+                            // al salir del campo vuelve a enseñar el que vale.
+                            onCambio={n => { if (n > 0 && n <= 100) onCambio('porc_marco', n); }}
+                            alVaciar={() => onCambio('porc_marco', undefined)}
+                            className="w-[34px] bg-transparent text-right text-[11px] font-bold
+                                       tabular-nums outline-none" />
+                        <span className="text-[10.5px] text-white/45">% marco</span>
+                        {atajos.filter(a => a !== porc).map(a => (
+                            <button key={a} onClick={() => onCambio('porc_marco', a)}
+                                    title={a >= 100 ? 'Opaca: todo marco, sin vidrio' : `${a} % de marco`}
+                                    className="rounded px-1 text-[10px] font-bold text-white/35
+                                               hover:bg-white/[0.07] hover:text-brand">
+                                {a}
+                            </button>
+                        ))}
+                    </span>
+                    {/* Un LUCERNARIO no lleva persiana: no tiene caja. */}
+                    {!esLucernario && (
+                        <button onClick={() => onCambio('persiana', !persiana)}
+                                className={`rounded-md border px-2 py-1 text-[10.5px] font-bold
+                                    ${persiana ? 'border-brand/60 bg-brand/10 text-brand'
+                                               : 'border-white/12 text-white/45'}`}>
+                            {persiana ? '✓ persiana' : 'sin persiana'}
+                        </button>
+                    )}
                     {propio && (
                         <button onClick={() => { onCambio('vidrio', undefined);
                                                  onCambio('marco', undefined);
+                                                 onCambio('porc_marco', undefined);
                                                  onCambio('persiana', undefined); }}
                                 className="text-[10px] text-white/35 hover:text-white/70">
-                            como el resto de la vivienda
+                            {esPuerta ? 'como una puerta de entrada (madera al 90 %)'
+                                      : 'como el resto de la vivienda'}
                         </button>
                     )}
                 </div>

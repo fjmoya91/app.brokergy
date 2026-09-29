@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { areaPoligono } from '../logic/geometriaPlano';
+import { Hueco } from './PanelPared';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // La CUBIERTA que se reforma, EN EL PLANO DE SU PLANTA.
@@ -82,6 +84,95 @@ export function CubiertaControl({ reforma, dibujando, vertices = [],
         </div>
     );
 }
+
+/**
+ * Los LUCERNARIOS de la cubierta de esta planta.
+ *
+ * POR QUÉ EXISTE: la cubierta no se podía editar desde la app, así que un
+ * lucernario había que meterlo después a mano en CE3X. Aquí se añade como
+ * cualquier otro hueco —nombre, medidas, vidrio, marco y % de marco— y el
+ * motor lo escribe como lo guarda CE3X: `Lucernario`, colgado de la cubierta y
+ * con orientación «Techo» (19 de 19 en los .cex de producción).
+ *
+ * Va PLEGADO en una línea que ya dice cuántos hay y cuánto miden: la tira está
+ * encima del plano, y abierta empujaría el dibujo hacia abajo. Se abre sola al
+ * añadir uno, que es cuando hay que teclear.
+ *
+ * La tarjeta es la MISMA que la de un hueco de fachada (`Hueco`): dos
+ * versiones del mismo formulario acabarían pidiendo cosas distintas.
+ */
+export function LucernariosCubierta({ planta, plano, defecto }) {
+    const [abierto, setAbierto] = useState(false);
+    const hs = plano?.lucernarios?.[planta] || [];
+    const cubiertas = plano?.cubiertasDePlanta?.[planta] || [];
+    const porConfirmar = hs.filter(h => h.estado !== 'medido').length;
+    const anade = () => { plano.anadeLucernario(planta); setAbierto(true); };
+
+    return (
+        <div className="mb-2 flex flex-col gap-1.5">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border
+                            border-white/[0.06] bg-white/[0.02] px-3 py-1.5">
+                <button onClick={() => hs.length && setAbierto(a => !a)}
+                        disabled={!hs.length}
+                        className="text-[9.5px] font-black uppercase tracking-[0.12em] text-white/45
+                                   enabled:hover:text-white/75"
+                        title="Ventanas en el tejado. En CE3X salen como «Lucernario» de la cubierta">
+                    {hs.length ? (abierto ? '▾ ' : '▸ ') : ''}Lucernarios
+                </button>
+                {hs.length ? (
+                    <span className="text-[10.5px] tabular-nums text-white/55">
+                        {hs.map(h => `${h.nombre} ${fmt2(h.ancho)}×${fmt2(h.alto)}`).join(' · ')}
+                        {porConfirmar ? (
+                            <span className="text-amber-300/85"> · {porConfirmar} por confirmar</span>
+                        ) : null}
+                    </span>
+                ) : (
+                    <span className="text-[10.5px] text-white/30">ninguno</span>
+                )}
+                <button onClick={anade}
+                        className="ml-auto rounded-md border border-white/12 px-2 py-0.5 text-[10.5px]
+                                   font-bold text-white/60 hover:border-brand/50 hover:text-brand">
+                    + Lucernario
+                </button>
+            </div>
+            {abierto && !!hs.length && (
+                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                    {hs.map((h, i) => (
+                        <div key={h.uid || i} className="flex flex-col gap-1">
+                            <Hueco h={h} defecto={defecto}
+                                     onCambio={(c, v) => plano.cambiaLucernario(planta, i, c, v)}
+                                     onCambia={si => plano.cambiaLucernario(planta, i, 'cambia', si)}
+                                     onDuplica={() => plano.duplicaLucernario(planta, i)}
+                                     onConfirma={() => plano.confirmaLucernario(planta, i)}
+                                     onQuita={() => plano.quitaLucernario(planta, i)} />
+                            {/* Si la planta tiene VARIOS tejados (una parte de la
+                                baja que la primera no cubre, dos cuerpos), se
+                                dice en cuál está. Con uno solo no se pregunta. */}
+                            {cubiertas.length > 1 && (
+                                <label className="flex items-center gap-1.5 text-[10.5px] text-white/45">
+                                    en la cubierta
+                                    <select value={h.cubierta || cubiertas[0].id}
+                                            onChange={e => plano.cambiaLucernario(planta, i, 'cubierta',
+                                                                                  e.target.value)}
+                                            className="rounded-md border border-white/12 bg-bkg-surface
+                                                       px-1 py-0.5 text-[10.5px] font-bold">
+                                        {cubiertas.map(c => (
+                                            <option key={c.id} value={c.id}>
+                                                {c.id}{c.superficie ? ` · ${fmt(c.superficie)} m²` : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+const fmt2 = n => (Number(n) || 0).toFixed(2).replace('.', ',');
 
 function Opcion({ activa, onClick, title, children }) {
     return (

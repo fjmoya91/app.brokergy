@@ -242,6 +242,44 @@ export function reparto(huecos) {
     }));
 }
 
+// ─── A qué ALTURA va un hueco en el 3D ──────────────────────────────────────
+//
+// Es COSMÉTICO, como `pos`: CE3X no coloca los huecos en vertical, quiere su
+// ancho y su alto. Pero el 3D se mira para reconocer la fachada, y una ventana
+// que atraviesa el tejado no se parece a ninguna.
+
+//: El alféizar de una ventana corriente. Con 1,20 m de alto su dintel queda a
+//: 2,15 m, el mismo que el de una puerta.
+export const ALFEIZAR_VENTANA = 0.95;
+
+//: A partir de este alto una «ventana» es una PUERTA-VENTANA (balconera): llega
+//: al suelo. Nadie pone un hueco de 1,80 m sobre un alféizar de 0,95.
+export const ALTO_BALCONERA = 1.8;
+
+//: Lo que se deja libre bajo el techo: el canto del forjado.
+const HOLGURA_TECHO = 0.05;
+
+/**
+ * Desde dónde y hasta dónde va un hueco, en metros sobre el suelo de su planta.
+ *
+ * - La PUERTA, desde el suelo y con SU alto (antes se dibujaba siempre de
+ *   2,10 m, midiera lo que midiera).
+ * - La VENTANA, sobre su alféizar de 0,95 — salvo que sea alta: una de 2,10 o
+ *   2,20 es una balconera y va DESDE EL SUELO. Antes se le sumaba el alféizar y
+ *   con 2,10 m llegaba a 3,05, atravesando el tejado de una planta de 2,80.
+ * - Y si aun así no cabe, se baja lo justo para que no pase del techo; nada se
+ *   dibuja por encima de su planta.
+ */
+export function alturaHueco(h, alturaPlanta) {
+    const techo = Math.max(0, (Number(alturaPlanta) || 0) - HOLGURA_TECHO);
+    const esPuerta = h?.tipo === 'puerta';
+    const alto = Number(h?.alto) > 0 ? Number(h.alto) : (esPuerta ? 2.1 : 1.2);
+    let desde = esPuerta || alto >= ALTO_BALCONERA ? 0 : ALFEIZAR_VENTANA;
+    if (techo > 0 && desde + alto > techo) desde = Math.max(0, techo - alto);
+    const hasta = techo > 0 ? Math.min(desde + alto, techo) : desde + alto;
+    return { desde, hasta };
+}
+
 // ─── Hacia dónde MIRA una pared ──────────────────────────────────────────────
 
 //: Las ocho orientaciones que admite CE3X, en el orden del sector: 0° es el

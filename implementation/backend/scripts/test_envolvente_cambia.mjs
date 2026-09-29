@@ -20,9 +20,10 @@
 
 import { nombreHueco, SUFIJO_CAMBIA }
     from '../../frontend/src/features/cee-envolvente/logic/reforma.js';
-import { carpinteriaDe, huecosDefecto, persianaDefecto, VENTANAS_POR_DEFECTO }
+import { carpinteriaAlMotor, carpinteriaDe, huecosDefecto, leerPorcMarco, persianaDefecto,
+         VENTANAS_POR_DEFECTO }
     from '../../frontend/src/features/cee-envolvente/logic/ventanasVivienda.js';
-import { areaPoligono, claveEncuadre, IMAN, LARGO_MINIMO_PARED, lienzoAMundo,
+import { alturaHueco, areaPoligono, claveEncuadre, IMAN, LARGO_MINIMO_PARED, lienzoAMundo,
          tamanosDeDibujo }
     from '../../frontend/src/features/cee-envolvente/logic/geometriaPlano.js';
 
@@ -44,7 +45,8 @@ ok(nombreHueco({ nombre: '  PE ', cambia: true }) === 'PE - CAMBIA', 'se recorta
 console.log('\n2. La carpintería efectiva de un hueco');
 const viv = { vidrio: 'Doble bajo emisivo', marco: 'PVC', persiana: true };
 ok(igual(carpinteriaDe({ tipo: 'ventana' }, viv),
-         { vidrio: 'Doble bajo emisivo', marco: 'PVC', persiana: true, propia: false }),
+         { vidrio: 'Doble bajo emisivo', marco: 'PVC', porc_marco: 20, opaca: false,
+           persiana: true, propia: false, porcPropio: false }),
    'una ventana sin nada suyo hereda la vivienda entera');
 ok(carpinteriaDe({ tipo: 'ventana', vidrio: 'Simple' }, viv).vidrio === 'Simple'
    && carpinteriaDe({ tipo: 'ventana', vidrio: 'Simple' }, viv).propia === true,
@@ -57,8 +59,41 @@ ok(carpinteriaDe({ tipo: 'ventana', persiana: false }, viv).persiana === false
    && carpinteriaDe({ tipo: 'ventana', persiana: false }, viv).propia === true,
    'un «sin persiana» explícito cuenta como propio');
 ok(igual(carpinteriaDe({ tipo: 'ventana' }, null),
-         { ...VENTANAS_POR_DEFECTO, propia: false }),
+         { vidrio: VENTANAS_POR_DEFECTO.vidrio, marco: VENTANAS_POR_DEFECTO.marco,
+           porc_marco: 20, opaca: false, persiana: VENTANAS_POR_DEFECTO.persiana,
+           propia: false, porcPropio: false }),
    'sin vivienda contestada cae al defecto de siempre');
+
+console.log('\n2.b Puertas, % de marco y lucernarios (2026-09-29)');
+ok(carpinteriaDe({ tipo: 'puerta' }, viv).marco === 'Madera'
+   && carpinteriaDe({ tipo: 'puerta' }, viv).porc_marco === 90,
+   'una puerta sin tocar sigue siendo de madera al 90 %, no el marco de las ventanas');
+ok(carpinteriaDe({ tipo: 'puerta', marco: 'Metálico sin RPT', porc_marco: 40 }, viv).marco
+       === 'Metálico sin RPT'
+   && carpinteriaDe({ tipo: 'puerta', marco: 'Metálico sin RPT', porc_marco: 40 }, viv).porc_marco === 40,
+   'una puerta de patio metálica al 40 % se declara tal cual');
+ok(carpinteriaDe({ tipo: 'puerta', porc_marco: 100 }, viv).opaca === true,
+   'al 100 % de marco es opaca (sin vidrio)');
+ok(carpinteriaDe({ tipo: 'ventana', porc_marco: 30 }, viv).porcPropio === true
+   && carpinteriaDe({ tipo: 'ventana', porc_marco: 30 }, viv).propia === false,
+   'el % de una ventana cuenta aparte: NO es una excepción de «cambiar en bloque»');
+ok(carpinteriaDe({ tipo: 'lucernario' }, viv).persiana === false
+   && carpinteriaDe({ tipo: 'lucernario', persiana: true }, viv).persiana === false,
+   'un lucernario no lleva persiana nunca, diga lo que diga');
+ok(carpinteriaDe({ tipo: 'lucernario' }, viv).vidrio === 'Doble bajo emisivo',
+   'un lucernario hereda el vidrio de la vivienda');
+ok(leerPorcMarco('41,5') === 41.5 && leerPorcMarco('0') === null
+   && leerPorcMarco(120) === null && leerPorcMarco('') === null,
+   'leerPorcMarco: coma vale; 0, >100 y vacío no son porcentajes');
+ok(igual(carpinteriaAlMotor({ tipo: 'puerta' }), { marco: 'Madera', porc_marco: '90' }),
+   'al motor, una puerta sin tocar manda LO MISMO que antes (madera, 90)');
+ok(igual(carpinteriaAlMotor({ tipo: 'puerta', marco: 'PVC', porc_marco: 40, vidrio: 'Doble' }),
+         { marco: 'PVC', porc_marco: '40', vidrio: 'Doble' }),
+   'al motor, la puerta de patio manda su marco, su % y su vidrio');
+ok(igual(carpinteriaAlMotor({ tipo: 'ventana' }), {}),
+   'al motor, una ventana sin nada suyo no manda nada (hereda huecos_defecto)');
+ok(igual(carpinteriaAlMotor({ tipo: 'ventana', porc_marco: 30 }), { porc_marco: '30' }),
+   'al motor, una ventana con su % lo manda');
 
 console.log('\n3. La persiana por defecto: solo en expedientes NUEVOS');
 ok(persianaDefecto({}) === false, 'un expediente ya modelado (sin la marca) sigue sin persiana');
@@ -138,6 +173,29 @@ ok(claveEncuadre(false, false, base2d)
    'y traer otra geometría, con otro lienzo, también');
 ok(typeof claveEncuadre(false, false, null) === 'string',
    'sin encuadre no revienta: devuelve una clave igualmente');
+
+console.log('\n7. A qué altura va cada hueco en el 3D');
+const igualM = (x, y) => Math.abs(x - y) < 1e-9;
+const alt = (h, H = 2.8) => alturaHueco(h, H);
+ok(igualM(alt({ tipo: 'ventana', alto: 1.2 }).desde, 0.95)
+   && igualM(alt({ tipo: 'ventana', alto: 1.2 }).hasta, 2.15),
+   'una ventana corriente sobre su alféizar de 0,95 (dintel a 2,15)');
+ok(igualM(alt({ tipo: 'ventana', alto: 2.1 }).desde, 0)
+   && igualM(alt({ tipo: 'ventana', alto: 2.1 }).hasta, 2.1),
+   'una ventana de 2,10 es una balconera: desde el suelo, no atraviesa el tejado');
+ok(igualM(alt({ tipo: 'ventana', alto: 2.2 }).desde, 0),
+   'y la de 2,20, también desde el suelo');
+ok(igualM(alt({ tipo: 'ventana', alto: 1.6 }).desde, 0.95),
+   'una de 1,60 en una planta de 2,80 cabe sobre su alféizar: no se mueve');
+ok(igualM(alt({ tipo: 'ventana', alto: 1.6 }, 2.5).hasta, 2.45)
+   && igualM(alt({ tipo: 'ventana', alto: 1.6 }, 2.5).desde, 0.85),
+   'la misma en una planta de 2,50 baja lo justo para no pasar del techo');
+ok(igualM(alt({ tipo: 'puerta', alto: 2.3 }).hasta, 2.3),
+   'la puerta con SU alto (antes siempre 2,10)');
+ok(alt({ tipo: 'ventana', alto: 3.5 }).hasta <= 2.8,
+   'nada se dibuja por encima de su planta');
+ok(igualM(alt({ tipo: 'ventana', alto: 1.2 }, 0).desde, 0.95),
+   'sin altura de planta no revienta: la ventana queda donde siempre');
 
 console.log(fallos ? `\n✗ ${fallos} fallo(s)` : '\n✓ todo en orden');
 process.exit(fallos ? 1 : 0);

@@ -38,6 +38,11 @@ const OFFLINE = !process.argv.includes('--online');
 // planta baja por polígono. Es la prueba del sufijo «- CAMBIA» de punta a
 // punta. `--guardar=<ruta>` deja el .cex en disco para mirarlo.
 const CAMBIA = process.argv.includes('--cambia');
+// `--lucernario` añade un LUCERNARIO de 1 × 1 m en la cubierta más alta y una
+// PUERTA DE PATIO metálica acristalada al 40 % de marco: las dos cosas que la
+// vista no sabía declarar hasta 2026-09-29. En CE3X tienen que salir como las
+// guarda el propio programa (`Lucernario` · «Techo»; `porcMarco` 40).
+const LUCERNARIO = process.argv.includes('--lucernario');
 const GUARDAR = (process.argv.find(a => a.startsWith('--guardar=')) || '').slice(10);
 const CLAVE = process.argv[2];
 
@@ -175,6 +180,17 @@ function senaladoDeMentira(geo) {
         entrada: { valor: entrada.id, de: 'PRUEBA' },
         medianeras_como_particion: [],
     };
+    if (LUCERNARIO) {
+        const cubs = geo.geometria.elementos.filter(e => e.tipo === 'CUBIERTA');
+        const alta = cubs.sort((x, y) => (y.nivel ?? 0) - (x.nivel ?? 0))[0];
+        base.huecos.push(
+            { id: 'PE2', cerramiento: entrada.id, ancho: 1.6, alto: 2.1, tipo: 'Hueco',
+              porc_marco: '40', marco: 'Metálico sin RPT', vidrio: 'Doble', persiana: false,
+              de: 'PRUEBA · puerta de patio' },
+            ...(alta ? [{ id: 'L1', cerramiento: alta.id, ancho: 1, alto: 1, tipo: 'Lucernario',
+                          persiana: false, de: 'PRUEBA · lucernario' }] : []));
+        console.log(`   --lucernario: L1 en ${alta?.id || '— NO HAY CUBIERTA'} y PE2 al 40 % en ${entrada.id}`);
+    }
     if (!CAMBIA) return base;
     // La mitad oeste de la planta baja, en coordenadas del LIENZO: la caja de
     // sus paredes, partida por la mitad. La traslación al mundo es la MISMA que

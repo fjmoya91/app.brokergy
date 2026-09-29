@@ -229,30 +229,75 @@ def tipo_de_hueco(valor):
                      f"(una puerta se declara por su % de marco, no por aqui)")
 
 
+def porc_marco(h: dict, defecto: dict) -> str:
+    """El % de MARCO del hueco, como lo teclea el certificador en CE3X.
+
+    Es lo que separa una ventana (20 %) de una puerta de entrada (90 %) o de una
+    puerta de patio acristalada a medias (30-40 %): CE3X no distingue la puerta
+    de la ventana por el `tipo`, sino por cuanto de ella es marco. Medido sobre
+    los .cex del disco: 20 (312), 90 (45), 10 (15), 30 (14), 40 (12), 100 (12)
+    y sueltos 27, 41.5, 60, 85...
+
+    Se admite coma o punto. Fuera de 0-100 no es un porcentaje, y un numero
+    raro aqui es exactamente el tipo de dato que acaba en un requerimiento.
+    """
+    crudo = h.get("porc_marco", defecto.get("porc_marco", "20"))
+    n = _numf(crudo)
+    if n is None or not (0 < n <= 100):
+        raise GeneracionError(
+            f"hueco {h.get('id')!r}: el % de marco {crudo!r} no vale. "
+            f"Tiene que ser un porcentaje entre 0 y 100 (una ventana 20, una "
+            f"puerta de entrada 90).")
+    return _num(n)
+
+
 def hueco(h: dict, cerramiento: list, espacio: str, defecto: dict):
     """Un hueco, como el `INST` que escribe CE3X.
 
     `cerramientoAsociado` enlaza POR EL NOMBRE del muro, y `orientacion` se
     hereda del muro: no se pide aparte, seria una ocasion de contradecirse.
+
+    Un hueco en una CUBIERTA es un LUCERNARIO, y eso no lo decide quien lo
+    manda sino el cerramiento: medido sobre los 19 lucernarios de los .cex de
+    produccion (14 expedientes), los 19 cuelgan de una cubierta, llevan
+    `tipo = 'Lucernario'` y `orientacion = 'Techo'` —la del propio tejado—; y
+    los 138 huecos de fachada de esos mismos ficheros, `Hueco` con el rumbo de
+    su muro.
     """
     ancho = float(_v(h.get("ancho"), f"huecos.{h.get('id')}.ancho"))
     alto = float(_v(h.get("alto"), f"huecos.{h.get('id')}.alto"))
     vidrio = h.get("vidrio", defecto.get("vidrio", "Doble"))
     marco = h.get("marco", defecto.get("marco", "Metálico sin RPT"))
     estanco = h.get("permeabilidad", defecto.get("permeabilidad", "Poco estanco"))
+    porc = porc_marco(h, defecto)
     if vidrio not in VIDRIO:
         raise GeneracionError(f"tipo de vidrio no valido: {vidrio!r}. CE3X usa {list(VIDRIO)}")
     if marco not in MARCO:
         raise GeneracionError(f"tipo de marco no valido: {marco!r}. CE3X usa {list(MARCO)}")
     u_vid, g_vid = VIDRIO[vidrio]
+    # Una puerta OPACA —todo marco— no tiene vidrio, y CE3X lo escribe asi: el
+    # vidrio en blanco y su U y su g a cero. Medido: 12 de 12 huecos del disco
+    # con el 100 % de marco. Dejarle un vidrio "Doble" declara una luna que no
+    # existe (y CE3X la recalcula en cuanto el certificador toca el hueco).
+    if float(porc) >= 100:
+        vidrio, u_vid, g_vid = "", 0.0, 0.0
+
+    en_cubierta = str(cerramiento[1]) == "Cubierta"
+    if en_cubierta:
+        tipo, orientacion = Cadena("Lucernario"), cerramiento[5]
+    else:
+        # Y al reves: un «Lucernario» que no esta en una cubierta no lo es. En
+        # una fachada es un hueco con el rumbo de su muro (lo avisa el bucle).
+        t = tipo_de_hueco(h.get("tipo"))[0]
+        tipo = Cadena("Hueco" if t == "Lucernario" else t)
+        orientacion = str(cerramiento[5]) if cerramiento[1] == "Fachada" else ""
 
     return P.Instancia("Envolvente.objetosEnvolvente", "HuecoEstimadas", {
         Cadena("__tipo__"): Cadena("HuecoEstimadas"),
         Cadena("descripcion"): str(h["id"]),
-        Cadena("tipo"): Cadena(tipo_de_hueco(h.get("tipo"))[0]),
+        Cadena("tipo"): tipo,
         Cadena("cerramientoAsociado"): str(cerramiento[0]),
-        Cadena("orientacion"): (str(cerramiento[5])
-                                if cerramiento[1] == "Fachada" else ""),
+        Cadena("orientacion"): orientacion,
         Cadena("subgrupo"): espacio,
         Cadena("longitud"): _num(ancho),
         Cadena("altura"): _num(alto),
@@ -260,7 +305,7 @@ def hueco(h: dict, cerramiento: list, espacio: str, defecto: dict):
         Cadena("multiplicador"): str(h.get("mult", 1)),
         Cadena("tipoVidrio"): vidrio,
         Cadena("tipoMarco"): marco,
-        Cadena("porcMarco"): str(h.get("porc_marco", defecto.get("porc_marco", "20"))),
+        Cadena("porcMarco"): porc,
         Cadena("Uvidrio"): u_vid,
         Cadena("Gvidrio"): g_vid,
         Cadena("Umarco"): MARCO[marco],
@@ -1901,12 +1946,22 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
     for c in cerramientos:
         por_id.setdefault(str(c[0]).split(" ")[0], []).append(c)
 
-    def _soporte(clave):
+    def _soporte(clave, hueco_cambia=False):
         if clave in por_nombre:
             return por_nombre[clave]
         iguales = por_id.get(str(clave), [])
         if len(iguales) == 1:
             return iguales[0]
+        # Una CUBIERTA que se reforma en parte sale en DOS filas del mismo
+        # tejado —lo que se conserva y «... - CAMBIA»— y las dos empiezan por
+        # su identificador. Un lucernario que tambien se cambia va en la parte
+        # que se rehace; si no, en la que se queda. No es adivinar: son dos
+        # trozos del mismo tejado y el lucernario esta en uno de ellos.
+        if len(iguales) == 2 and all(str(c[1]) == "Cubierta" for c in iguales):
+            nueva = [c for c in iguales if str(c[0]).endswith(SUFIJO_CAMBIA)]
+            vieja = [c for c in iguales if not str(c[0]).endswith(SUFIJO_CAMBIA)]
+            if len(nueva) == 1 and len(vieja) == 1:
+                return nueva[0] if hueco_cambia else vieja[0]
         if len(iguales) > 1:
             raise GeneracionError(
                 f"{clave!r} no dice cual: hay {len(iguales)} cerramientos que "
@@ -1930,8 +1985,13 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
                 f"puentes termicos por el nombre: tiene que ser unico.")
         vistos.add(nombre)
         h = dict(h, id=nombre)
+        soporte = _soporte(h.get("cerramiento"), nombre.endswith(SUFIJO_CAMBIA))
+        if soporte is not None and str(soporte[1]) == "Cubierta":
+            # Un LUCERNARIO no tiene caja de persiana: ninguno de los 19 del
+            # corpus la lleva. Sin esto heredaria la persiana de las ventanas de
+            # la vivienda y saldria un puente termico que no existe.
+            h["persiana"] = False
         entrada_huecos.append(h)
-        soporte = _soporte(h.get("cerramiento"))
         if soporte is None:
             raise GeneracionError(
                 f"el hueco {h.get('id')!r} dice ir en {h.get('cerramiento')!r}, "
@@ -1941,9 +2001,13 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
             raise GeneracionError(
                 f"el hueco {h.get('id')!r} esta en {soporte[0]!r}, que da a "
                 f"{soporte[-1]!r}. Un hueco solo va en un cerramiento al exterior.")
-        _, aviso_tipo = tipo_de_hueco(h.get("tipo"))
+        tipo_pedido, aviso_tipo = tipo_de_hueco(h.get("tipo"))
         if aviso_tipo:
             avisos.append(f"{h.get('id')}: {aviso_tipo}")
+        if tipo_pedido == "Lucernario" and str(soporte[1]) != "Cubierta":
+            avisos.append(
+                f"{h.get('id')}: se pide como LUCERNARIO y esta en {soporte[0]!r}, "
+                f"que no es una cubierta. Se escribe como hueco de fachada.")
         huecos.append(hueco(h, soporte, str(soporte[-2]), defecto))
         if h.get("de"):
             avisos.append(f"hueco {h['id']}: {h['de']}")
@@ -2504,13 +2568,18 @@ def contrastar(envolvente: list, superficie_util: float | None) -> list[str]:
                   if str(c[1]) == "Fachada" and str(c[-1]) != "edificio")
     opaca = sum(_numf(c[2]) or 0 for c in cerr
                 if str(c[1]) in ("Fachada", "Cubierta", "Suelo"))
-    hueco = sum((_numf(h.estado[Cadena("superficie")]) or 0)
-                * (_numf(h.estado[Cadena("multiplicador")]) or 1)
-                for h in huecos)
+    def _m2(h):
+        return ((_numf(h.estado[Cadena("superficie")]) or 0)
+                * (_numf(h.estado[Cadena("multiplicador")]) or 1))
+    hueco = sum(_m2(h) for h in huecos)
+    # Un lucernario esta en el TEJADO: contarlo contra la fachada inflaria el
+    # porcentaje de hueco de una fachada que no lo tiene.
+    hueco_fachada = sum(_m2(h) for h in huecos
+                        if str(h.estado[Cadena("tipo")]) != "Lucernario")
 
     medidos = {"numero de huecos": float(len(huecos))}
     if fachada:
-        medidos["hueco / fachada"] = hueco / fachada
+        medidos["hueco / fachada"] = hueco_fachada / fachada
     if superficie_util:
         medidos["hueco / superficie util"] = hueco / superficie_util
         medidos["envolvente / superficie util"] = opaca / superficie_util

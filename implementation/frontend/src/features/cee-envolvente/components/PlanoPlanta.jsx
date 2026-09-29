@@ -1,12 +1,12 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { areaPoligono, at, caja, centro, centroide, cota, CAMARA_ISO, ESCALA_AXO, fmt,
+import { alturaHueco, areaPoligono, at, caja, centro, centroide, cota, CAMARA_ISO, ESCALA_AXO, fmt,
          claveEncuadre, largo, LARGO_MINIMO_PARED, pegarAPared, proyector,
          recorrido, reparto,
          tamanosDeDibujo, TOPE_ALT }
     from '../logic/geometriaPlano';
 import { TIPOS_PARED, nombreHueco } from '../logic/usePlanoEnvolvente';
 import { cuerposDeLaPlanta } from '../logic/cuerposEnvolvente';
-import { CubiertaControl } from './PanelCubierta';
+import { CubiertaControl, LucernariosCubierta } from './PanelCubierta';
 import { RecorteControl } from './PanelRecorte';
 import { ViviendaPlantaControl } from './PanelZonas';
 import { ETIQUETA_USO_ZONA } from '../logic/zonasFuera';
@@ -197,6 +197,9 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                               cubierta = null, dibujarCubierta = false, onCubierta = null,
                               onCubiertaModo = null, onCubiertaEntera = null,
                               onCubiertaQuitar = null,
+                              //: La carpintería de la vivienda: la heredan los
+                              //: LUCERNARIOS de esta cubierta que no digan otra.
+                              carpinteriaDefecto = null,
                               //: El CONTORNO DE LA VIVIENDA (en coordenadas de
                               //: este lienzo) cuando la parcela es una comunidad
                               //: de adosados, y el modo de dibujarlo. Usa el MISMO
@@ -812,6 +815,13 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                                  onEntera={onCubiertaEntera} onQuitar={onCubiertaQuitar}
                                  onCerrar={cerrarCubierta}
                                  onCancelar={() => { setVertices([]); onCubierta?.(null); }} />
+            )}
+            {/* Sus LUCERNARIOS, justo debajo: son los huecos de ESTA cubierta.
+                Mientras se dibuja no, que la tira pasa a ser la instrucción. */}
+            {!es3d && onCubiertaModo && !dibujarCubierta && !dibujarRecorte && !dibujarZona
+                && plano.anadeLucernario && (
+                <LucernariosCubierta planta={planta.id} plano={plano}
+                                     defecto={carpinteriaDefecto} />
             )}
 
             {/* `position:relative` porque el globo del ratón va colgado del
@@ -1506,8 +1516,8 @@ function construirCaras({ capas, murosDe, alturaPlanta, sel, colorDe, estadoDe, 
                 });
             }
             // Los huecos, como paños sobre el muro: la ventana a 0,95 m del
-            // suelo y la puerta desde el suelo. Es lo que hace reconocible la
-            // fachada de un vistazo, y por dónde se entra.
+            // suelo, y la puerta y la balconera desde el suelo. Es lo que hace
+            // reconocible la fachada de un vistazo, y por dónde se entra.
             const L = largo(pts);
             if (!L) return;
             // El eje del muro YA PROYECTADO: es contra lo que se mide el
@@ -1517,9 +1527,13 @@ function construirCaras({ capas, murosDe, alturaPlanta, sel, colorDe, estadoDe, 
             colocaHuecos(m).forEach(({ h, i, pos, ancho }) => {
                 const a = at(pts, Math.max(0, L * pos - ancho / 2));
                 const b = at(pts, Math.min(L, L * pos + ancho / 2));
-                const esPuerta = h.tipo === 'puerta';
-                const z0 = z + (esPuerta ? 0.02 : 0.95);
-                const z1 = z + (esPuerta ? 2.1 : 0.95 + (Number(h.alto) || 1.2));
+                // Desde dónde y hasta dónde, con SU alto: la puerta y la
+                // balconera (≥ 1,80 m) desde el suelo, y nada por encima del
+                // techo de su planta (`alturaHueco`). Los 2 cm de abajo solo
+                // separan el paño de la línea del suelo.
+                const { desde, hasta } = alturaHueco(h, alturaPlanta);
+                const z0 = z + Math.max(desde, 0.02);
+                const z1 = z + hasta;
                 const color = colorHueco(h);
                 // ⚠️ La lejanía de un hueco es la DE SU TRAMO DE MURO, no la
                 // suya: un hueco es ese muro abierto, así que tiene que

@@ -83,7 +83,24 @@ export function aplicarTrabajo(nuevo, g, id, { paredDibujada, rescatarHueco, med
         zonasFuera: zonasValidas(g.zonas_fuera),
         cubiertas: g.cubierta_reforma && typeof g.cubierta_reforma === 'object'
             ? g.cubierta_reforma : {},
+        // Los LUCERNARIOS, por planta. No llevan coordenadas —CE3X no coloca
+        // los huecos, quiere su superficie y su cubierta— así que no hay nada
+        // que trasladar al volver a medir.
+        lucernarios: lucernariosValidos(g.lucernarios, rescatarHueco),
     };
+}
+
+/** Los lucernarios guardados, por planta, con el `tipo` y el `uid` en regla. */
+export function lucernariosValidos(mapa, rescatarHueco = (h) => h) {
+    const out = {};
+    if (!mapa || typeof mapa !== 'object' || Array.isArray(mapa)) return out;
+    for (const [planta, lista] of Object.entries(mapa)) {
+        const hs = (Array.isArray(lista) ? lista : [])
+            .filter(h => h && typeof h === 'object')
+            .map(h => ({ ...rescatarHueco(h), tipo: 'lucernario' }));
+        if (hs.length) out[planta] = hs;
+    }
+    return out;
 }
 
 /** Las zonas que no cuentan, las que tienen con qué medirse (nivel + vértices). */

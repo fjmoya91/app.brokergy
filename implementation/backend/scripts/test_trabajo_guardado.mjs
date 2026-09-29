@@ -123,5 +123,23 @@ const medidos = () => ({
        'y devuelve estados vacíos');
 }
 
+// ── 5. Los LUCERNARIOS vuelven por planta (2026-09-29) ───────────────────────
+{
+    const nuevo = medidos();
+    const g = { lucernarios: {
+        P1: [{ uid: 'u1', nombre: 'L1', tipo: 'LUCERNARIO', ancho: 1, alto: 1,
+               estado: 'MEDIDO', cubierta: 'CU11', porc_marco: 10 }],
+        PB: [],                 // una planta vacía no se guarda
+        P2: 'basura',           // lo que no es una lista no tumba nada
+    } };
+    const r = aplicarTrabajo(nuevo, g, lectorDeIds(nuevo, nuevo), deps);
+    ok(Object.keys(r.lucernarios).join() === 'P1', 'vuelven los de P1, y solo los que hay');
+    const l1 = r.lucernarios.P1?.[0];
+    ok(l1?.tipo === 'lucernario' && l1?.porc_marco === 10 && l1?.cubierta === 'CU11',
+       'con su tipo en regla, su % de marco y su cubierta');
+    const vacio = aplicarTrabajo(medidos(), {}, lectorDeIds(nuevo, nuevo), deps);
+    ok(JSON.stringify(vacio.lucernarios) === '{}', 'sin lucernarios guardados, ninguno');
+}
+
 console.log(fallos ? `\n${fallos} FALLO(S)` : '\nTodo en orden.');
 process.exit(fallos ? 1 : 0);

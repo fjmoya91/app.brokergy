@@ -98,6 +98,17 @@
       "cwd": "implementation/frontend",
       "port": 5180,
       "autoPort": false
+    },
+    {
+      "name": "frontend-alt-lan",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "-e",
+        "process.env.BACKEND_PORT='3010';process.argv.splice(1,process.argv.length-1,'vite','--port','5181','--strictPort','--host');import('./node_modules/vite/bin/vite.js')"
+      ],
+      "cwd": "implementation/frontend",
+      "port": 5181,
+      "autoPort": false
     }
   ]
 }

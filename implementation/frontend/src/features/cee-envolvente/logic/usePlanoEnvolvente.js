@@ -3,7 +3,7 @@ import { largo as largoDe, LARGO_MINIMO_PARED, lienzoAMundo, rumbosDeLaPared } f
 import { traduccionDeIds } from './identidadParedes.js';
 import { esFuera, esMedianera, esParticion, tipoDe } from './tiposPared.js';
 import { mudarHueco, paredesParaHueco } from './huecosEnParedes.js';
-import { huecosDefecto } from './ventanasVivienda';
+import { carpinteriaAlMotor, huecosDefecto } from './ventanasVivienda';
 import { aplicarTrabajo, deltaLienzo, trasladarMuros, trasladarTrabajo } from './trabajoGuardado.js';
 
 import { SUFIJO_CAMBIA, nombreHueco } from './reforma.js';
@@ -20,7 +20,8 @@ export { SUFIJO_CAMBIA, nombreHueco };
 
 //: Medidas de partida al añadir un hueco a mano. NO son medidas: son el tamaño
 //: corriente, para no arrancar en blanco. Salen en ámbar hasta que se confirmen.
-const POR_DEFECTO = { puerta: [0.90, 2.10], ventana: [1.30, 1.30] };
+//: Un lucernario de 1 × 1 m es la medida más repetida de los 19 del corpus.
+const POR_DEFECTO = { puerta: [0.90, 2.10], ventana: [1.30, 1.30], lucernario: [1.00, 1.00] };
 
 //: Menos de esto no cabe una puerta, así que no se sugiere como entrada.
 const ANCHO_MINIMO_ENTRADA = 1.2;
@@ -63,6 +64,15 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
     //: y el plano de paredes no la dibuja— y lo que se guarda son los vértices
     //: tal cual se soltaron: la superficie la mide el motor.
     const [cubiertas, setCubiertas] = useState({});
+
+    //: Los LUCERNARIOS, por planta: los huecos de la CUBIERTA. La cubierta no es
+    //: un muro (no está en `muros`), así que sus huecos tampoco pueden vivir en
+    //: `muros[id].huecos`. Van aquí, con la misma forma que un hueco de fachada
+    //: —nombre, medidas, estado, carpintería, «cambia»— y `tipo: 'lucernario'`.
+    //: Al .cex salen colgados de la cubierta de su planta, y es el MOTOR quien
+    //: los escribe como `Lucernario` con orientación «Techo» (así los guarda
+    //: CE3X: 19 de 19 en los .cex de producción).
+    const [lucernarios, setLucernarios] = useState({});
 
     //: Las ZONAS que NO son vivienda dentro de una planta: el garaje que hay en
     //: la planta baja de una casa de dos plantas, con la vivienda encima.
@@ -141,6 +151,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                 setRecorte(r.recorte);
                 setZonasFuera(r.zonasFuera);
                 setCubiertas(r.cubiertas);
+                setLucernarios(r.lucernarios || {});
                 // Los huecos cuya pared ya no existe NO desaparecen en silencio:
                 // se guardan aparte y la ventana los enseña para ponerlos en
                 // otra pared (o descartarlos, que es decirlo).
@@ -193,6 +204,9 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
             .filter(m => m.cambia).map(m => m.id),
         // Y la cubierta que se reforma, entera o por el polígono dibujado.
         cubierta_reforma: cubiertas,
+        // Los lucernarios de cada cubierta. Solo si hay: un expediente sin
+        // ninguno se guarda exactamente como antes.
+        ...(Object.keys(lucernarios).length ? { lucernarios } : {}),
         tipos: Object.fromEntries(Object.values(muros)
             .filter(m => m.tipo_manual).map(m => [m.id, m.tipo_manual])),
         nombres: Object.fromEntries(Object.values(muros)
@@ -226,8 +240,8 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         // movidas, cubierta): sin esto, al volver a medir se quedaban en otro
         // sitio del edificio.
         lienzo_ref: refLienzo,
-    } : null), [muros, entrada, sel, geometria, cuerposFuera, cubiertas, recorte,
-                zonasFuera, huerfanos, refLienzo]);
+    } : null), [muros, entrada, sel, geometria, cuerposFuera, cubiertas, lucernarios,
+                recorte, zonasFuera, huerfanos, refLienzo]);
 
     useEffect(() => {
         if (!Object.keys(muros).length) return;
@@ -245,6 +259,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                 cambian: Object.values(muros)
                     .filter(m => m.cambia).map(m => m.id),
                 cubierta_reforma: cubiertas,
+                ...(Object.keys(lucernarios).length ? { lucernarios } : {}),
                 tipos: Object.fromEntries(Object.values(muros)
                     .filter(m => m.tipo_manual).map(m => [m.id, m.tipo_manual])),
                 nombres: Object.fromEntries(Object.values(muros)
@@ -257,7 +272,7 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                 lienzo_ref: refLienzo,
             }));
         } catch { /* idem */ }
-    }, [muros, entrada, sel, clave, geometria, cubiertas, refLienzo]);
+    }, [muros, entrada, sel, clave, geometria, cubiertas, lucernarios, refLienzo]);
 
     const plantas = useMemo(() => {
         if (!geo) return [];
@@ -296,11 +311,12 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
     const resumen = useMemo(() => {
         const lista = Object.values(muros).filter(m => !esFuera(m));
         let medidos = 0, dudosos = 0, m2 = 0;
-        for (const m of lista) {
-            for (const h of m.huecos || []) {
-                if (h.estado === 'medido') medidos++; else dudosos++;
-                m2 += (Number(h.ancho) || 0) * (Number(h.alto) || 0);
-            }
+        // Los lucernarios cuentan como cualquier otro hueco: una medida por
+        // confirmar en el tejado es tan «por confirmar» como una en la fachada.
+        const deLasCubiertas = Object.values(lucernarios || {}).flat();
+        for (const h of [...lista.flatMap(m => m.huecos || []), ...deLasCubiertas]) {
+            if (h.estado === 'medido') medidos++; else dudosos++;
+            m2 += (Number(h.ancho) || 0) * (Number(h.alto) || 0);
         }
         // Una pared DADA POR REVISADA sale de la cuenta aunque no lleve huecos:
         // una fachada ciega no se puede resolver poniéndole una ventana que no
@@ -322,10 +338,41 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         // para que se vea sin recorrer las paredes una a una.
         const cambian = lista.filter(m => m.cambia).length
             + lista.reduce((s, m) => s + (m.huecos || []).filter(h => h.cambia).length, 0)
-            + Object.values(cubiertas || {}).filter(c => c && (c.entera || c.poligono)).length;
+            + Object.values(cubiertas || {}).filter(c => c && (c.entera || c.poligono)).length
+            + deLasCubiertas.filter(h => h.cambia).length;
         return { medidos, dudosos, sinTocar, fuera, sinRumbo, cambian, paredes,
+                 lucernarios: deLasCubiertas.length,
                  m2Hueco: m2.toFixed(1).replace('.', ',') };
-    }, [muros, cubiertas]);
+    }, [muros, cubiertas, lucernarios]);
+
+    //: Las cubiertas que hay en cada planta, por su id de Catastro (`CUB1`,
+    //: `CU21`…) y su superficie. Un lucernario va en UNA de ellas: la que diga,
+    //: o la mayor de su planta.
+    const cubiertasDePlanta = useMemo(() => {
+        const out = {};
+        for (const e of geo?.geometria?.elementos || []) {
+            if (e?.tipo !== 'CUBIERTA' || !e.planta) continue;
+            const sup = Number(e.superficie?.value ?? e.superficie ?? e.area_m2) || 0;
+            (out[e.planta] ||= []).push({ id: e.id, superficie: sup });
+        }
+        for (const k of Object.keys(out)) out[k].sort((a, b) => b.superficie - a.superficie);
+        return out;
+    }, [geo]);
+
+    /** La cubierta en la que va un lucernario hoy, o `null` si ya no hay ninguna. */
+    function cubiertaDeLucernario(planta, h) {
+        const lista = cubiertasDePlanta[planta] || [];
+        return lista.find(c => c.id === h?.cubierta)?.id || lista[0]?.id || null;
+    }
+
+    //: Los lucernarios que se han quedado SIN CUBIERTA: su planta ya no tiene
+    //: tejado en la geometría (se volvió a medir con otro cuerpo, o la planta
+    //: ya no cuenta). No se mandan —un hueco en un cerramiento que no existe
+    //: aborta el .cex entero— pero tampoco desaparecen en silencio.
+    const lucernariosSinCubierta = useMemo(() => Object.entries(lucernarios)
+        .filter(([p, hs]) => hs?.length && !(cubiertasDePlanta[p] || []).length)
+        .map(([planta, huecos]) => ({ planta, huecos })),
+    [lucernarios, cubiertasDePlanta]);
 
     // ── acciones ─────────────────────────────────────────────────────────────
 
@@ -673,6 +720,11 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
     function quitaCarpinteriaPropia() {
         setMuros(v => Object.fromEntries(Object.entries(v).map(([k, m]) => [k, {
             ...m, huecos: (m.huecos || []).map(h => {
+                // Las PUERTAS no entran: «cambiar en bloque» es de las ventanas
+                // (el popup ni las lista), y el marco de una puerta —la de patio
+                // de aluminio al 40 %— no es una excepción a las ventanas de la
+                // casa: es la puerta.
+                if (h.tipo === 'puerta') return h;
                 if (!(h.vidrio || h.marco || typeof h.persiana === 'boolean')) return h;
                 const n = { ...h };
                 delete n.vidrio; delete n.marco; delete n.persiana;
@@ -703,6 +755,96 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
     }
 
     function quitaCubierta(plantaId) { ponCubierta(plantaId, null); }
+
+    // ── LUCERNARIOS: los huecos de la cubierta ──────────────────────────────
+    //
+    // Mismas reglas que un hueco de fachada —nace con la medida por defecto en
+    // ámbar, tocar una medida la confirma, la copia estrena `uid`— pero viven
+    // por PLANTA y no en `muros`, porque la cubierta no es un muro.
+
+    /** Los nombres de hueco que ya hay en el edificio, en fachadas y tejados. */
+    function nombresUsados(extra = {}) {
+        const usados = new Set();
+        for (const m of Object.values(muros)) for (const h of m.huecos || []) usados.add(h.nombre);
+        for (const hs of Object.values({ ...lucernarios, ...extra })) {
+            for (const h of hs || []) usados.add(h.nombre);
+        }
+        return usados;
+    }
+
+    function nuevoLucernario(usados, cubierta) {
+        let n = 1;
+        while (usados.has(`L${n}`)) n++;
+        const [a, b] = POR_DEFECTO.lucernario;
+        return {
+            uid: nuevoUid(), nombre: `L${n}`, tipo: 'lucernario',
+            ancho: a, alto: b, estado: 'dudoso', ...(cubierta ? { cubierta } : {}),
+            por_que: `medida por defecto (${fmt(a)} × ${fmt(b)} m): confírmala`,
+        };
+    }
+
+    function anadeLucernario(planta) {
+        if (!planta) return;
+        const cub = (cubiertasDePlanta[planta] || [])[0]?.id || null;
+        setLucernarios(v => ({ ...v, [planta]: [...(v[planta] || []),
+                                               nuevoLucernario(nombresUsados(v), cub)] }));
+    }
+
+    function cambiaLucernario(planta, i, campo, valor) {
+        setLucernarios(v => {
+            const hs = [...(v[planta] || [])];
+            if (!hs[i]) return v;
+            const h = { ...hs[i] };
+            // «No cambia» y «como el resto» son la AUSENCIA de la clave, no un
+            // `false` ni un `undefined` guardados en cada hueco.
+            if (valor === undefined || (campo === 'cambia' && !valor)) delete h[campo];
+            else h[campo] = valor;
+            if (campo === 'ancho' || campo === 'alto') {
+                h.estado = 'medido';
+                h.por_que = 'confirmado por el certificador';
+            }
+            hs[i] = h;
+            return { ...v, [planta]: hs };
+        });
+    }
+
+    function confirmaLucernario(planta, i) {
+        setLucernarios(v => {
+            const hs = [...(v[planta] || [])];
+            if (!hs[i]) return v;
+            hs[i] = { ...hs[i], estado: 'medido', por_que: 'dada por buena por el certificador' };
+            return { ...v, [planta]: hs };
+        });
+    }
+
+    function duplicaLucernario(planta, i) {
+        setLucernarios(v => {
+            const hs = [...(v[planta] || [])];
+            const h = hs[i];
+            if (!h) return v;
+            const nombre = nuevoLucernario(nombresUsados(v)).nombre;
+            hs.splice(i + 1, 0, {
+                ...h, uid: nuevoUid(), nombre,
+                por_que: h.estado === 'medido' ? `copiado de ${h.nombre}, misma medida` : h.por_que,
+            });
+            return { ...v, [planta]: hs };
+        });
+    }
+
+    function quitaLucernario(planta, i) {
+        setLucernarios(v => {
+            const hs = [...(v[planta] || [])];
+            hs.splice(i, 1);
+            const n = { ...v };
+            if (hs.length) n[planta] = hs; else delete n[planta];
+            return n;
+        });
+    }
+
+    /** Quita TODOS los lucernarios de una planta (los que se quedaron sin tejado). */
+    function quitaLucernariosDe(planta) {
+        setLucernarios(v => { const n = { ...v }; delete n[planta]; return n; });
+    }
 
     /** Una medianera lo es por lo que hay AL OTRO LADO, no por tocar. */
     function marcaComoParticion(id, si) {
@@ -946,15 +1088,13 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                     // Lo que hace puerta a una puerta es su 90 % de marco, que va
                     // aquí debajo; el nombre (PE, V1) ya dice cuál es cuál.
                     tipo: 'Hueco',
-                    // Una puerta de entrada es casi toda opaca: 90% de marco,
-                    // no el 20% de una ventana.
-                    ...(esPuerta ? { porc_marco: '90', marco: 'Madera' } : {}),
-                    // Y la carpintería de ESTE hueco, cuando no es la de la
-                    // vivienda: la cocina que ya se cambió, la ventana del baño
-                    // que sigue siendo simple. Lo que no declare nada hereda el
-                    // `huecos_defecto` de abajo, que es lo normal.
-                    ...(h.vidrio ? { vidrio: h.vidrio } : {}),
-                    ...(h.marco && !esPuerta ? { marco: h.marco } : {}),
+                    // Su carpintería y su % de MARCO: una puerta de entrada es
+                    // casi toda opaca (madera al 90 % si nadie dice otra cosa) y
+                    // una puerta de patio acristalada a medias, un 30-40 % de
+                    // marco metálico. Lo que no declare nada hereda el
+                    // `huecos_defecto` de abajo, que es lo normal. La cascada es
+                    // UNA (`carpinteriaAlMotor`): la misma que enseña el panel.
+                    ...carpinteriaAlMotor(h),
                     // Una PUERTA no lleva persiana salvo que alguien lo diga: el
                     // `huecos_defecto` de la vivienda es de las VENTANAS, y sin
                     // esto la puerta de entrada heredaba su caja de persiana.
@@ -963,6 +1103,29 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
                     de: h.estado === 'medido'
                         ? 'SEÑALADO EN LA VISTA DEL CERTIFICADOR'
                         : 'SEÑALADO EN LA VISTA, medida POR CONFIRMAR',
+                });
+            }
+        }
+        // Los LUCERNARIOS, colgados de la cubierta de su planta por su id de
+        // Catastro (`CUB1`): el motor lo casa con «CUB1 CUBIERTA» —o con la
+        // parte que se conserva o la que se rehace, si la cubierta se parte— y
+        // lo escribe como `Lucernario` con orientación «Techo». Sin persiana:
+        // un lucernario no tiene caja.
+        for (const [planta, hs] of Object.entries(lucernarios)) {
+            for (const h of hs || []) {
+                const cerramiento = cubiertaDeLucernario(planta, h);
+                // Sin tejado en su planta no se manda: el motor abortaría el
+                // .cex entero. La ventana lo enseña (`lucernariosSinCubierta`).
+                if (!cerramiento) continue;
+                huecos.push({
+                    id: nombreHueco(h), cerramiento,
+                    ancho: Number(h.ancho), alto: Number(h.alto),
+                    tipo: 'Lucernario',
+                    ...carpinteriaAlMotor(h),
+                    persiana: false,
+                    de: h.estado === 'medido'
+                        ? 'LUCERNARIO SEÑALADO EN LA VISTA DEL CERTIFICADOR'
+                        : 'LUCERNARIO SEÑALADO EN LA VISTA, medida POR CONFIRMAR',
                 });
             }
         }
@@ -1057,6 +1220,9 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
         marcaComoParticion, marcaRevisada, siguientePorMirar,
         marcaCambia, marcaHuecoCambia, ponCarpinteria, quitaCarpinteriaPropia,
         cubiertas, ponCubierta, quitaCubierta,
+        lucernarios, cubiertasDePlanta, lucernariosSinCubierta,
+        anadeLucernario, cambiaLucernario, confirmaLucernario, duplicaLucernario,
+        quitaLucernario, quitaLucernariosDe,
         apartaDeLaEnvolvente, reclasifica, renombra, ponU, orienta, ponPilares,
         cuerposFuera, sacaCuerpo, apartaParedesDe,
         recorte, zonasFuera, setZonasFuera, refLienzo,

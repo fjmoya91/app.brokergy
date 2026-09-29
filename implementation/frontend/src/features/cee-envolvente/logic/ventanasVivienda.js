@@ -84,23 +84,80 @@ export function huecosDefecto(ajustes) {
     };
 }
 
+//: El % de MARCO de partida. Es lo que separa en CE3X una ventana de una puerta
+//: —el `tipo` del hueco no las distingue: los dos son «Hueco»—. Medido sobre
+//: los .cex del disco: 20 % en 312 huecos, 90 % en 45 (las puertas de
+//: entrada), y en medio las puertas de patio acristaladas a medias (30 % en 14,
+//: 40 % en 12). Una puerta OPACA es el 100 %, y entonces no lleva vidrio.
+export const PORC_MARCO = { ventana: 20, puerta: 90, lucernario: 20 };
+
+//: Una puerta de entrada nace de MADERA: es lo que la app escribía siempre (y lo
+//: que llevan 30 de las 35 puertas al 90 % del corpus). Ahora se puede cambiar.
+export const MARCO_PUERTA = 'Madera';
+
+/** Un % de marco tecleado, o `null` si no es un porcentaje. Admite coma. */
+export function leerPorcMarco(v) {
+    if (v === null || v === undefined || v === '') return null;
+    const n = Number(String(v).replace(',', '.'));
+    return Number.isFinite(n) && n > 0 && n <= 100 ? n : null;
+}
+
 /**
  * La carpintería EFECTIVA de un hueco: lo suyo, y si no dice nada, lo de la
  * vivienda. Es lo que se enseña en el panel y lo que acaba en el .cex, y por
  * eso vive aquí y no en cada pantalla: dos copias de esta cascada acabarían
  * enseñando una cosa y escribiendo otra.
  *
- * Una PUERTA no lleva persiana salvo que alguien lo diga expresamente.
+ * Una PUERTA no lleva persiana salvo que alguien lo diga expresamente, y nace
+ * de madera al 90 % — pero desde 2026-09-29 elige vidrio, marco y % como una
+ * ventana: una puerta de patio de aluminio acristalada a medias es un 40 % de
+ * marco metálico, y había que meterla como ventana y corregirla en CE3X.
+ *
+ * Un LUCERNARIO no lleva persiana nunca: ninguno de los 19 del corpus la tiene.
+ *
+ * `propia` sigue siendo SOLO el material (vidrio, marco, persiana): es lo que
+ * «cambiar en bloque» cuenta y quita como excepción. El % de marco es una
+ * propiedad geométrica del hueco, no de la carpintería de la casa, y va aparte
+ * (`porcPropio`).
  */
 export function carpinteriaDe(h, defecto) {
     const base = defecto || { ...VENTANAS_POR_DEFECTO };
     const esPuerta = h?.tipo === 'puerta';
+    const esLucernario = h?.tipo === 'lucernario';
+    const porcPropio = leerPorcMarco(h?.porc_marco);
+    const porc = porcPropio ?? PORC_MARCO[h?.tipo] ?? PORC_MARCO.ventana;
     return {
         vidrio: h?.vidrio ?? base.vidrio,
-        marco: h?.marco ?? base.marco,
-        persiana: typeof h?.persiana === 'boolean' ? h.persiana
+        marco: h?.marco ?? (esPuerta ? MARCO_PUERTA : base.marco),
+        porc_marco: porc,
+        // Todo marco: no hay vidrio que declarar (CE3X lo deja en blanco).
+        opaca: porc >= 100,
+        persiana: esLucernario ? false
+                : typeof h?.persiana === 'boolean' ? h.persiana
                 : esPuerta ? false : !!base.persiana,
         propia: !!(h?.vidrio || h?.marco || typeof h?.persiana === 'boolean'),
+        porcPropio: porcPropio !== null,
+    };
+}
+
+/**
+ * Lo que un hueco manda al motor de SU carpintería. Solo lo que declara: lo que
+ * no dice nada hereda el `huecos_defecto` de la vivienda, que es lo normal.
+ *
+ * La PUERTA manda siempre su marco y su % —madera al 90 % si nadie ha dicho
+ * otra cosa—, porque el defecto de la vivienda es el de las VENTANAS. Es
+ * exactamente lo que se mandaba antes, así que una puerta que nadie ha tocado
+ * sale igual en el .cex.
+ */
+export function carpinteriaAlMotor(h) {
+    const esPuerta = h?.tipo === 'puerta';
+    const porc = leerPorcMarco(h?.porc_marco);
+    return {
+        ...(esPuerta ? { marco: h.marco || MARCO_PUERTA,
+                         porc_marco: String(porc ?? PORC_MARCO.puerta) }
+                     : { ...(h?.marco ? { marco: h.marco } : {}),
+                         ...(porc !== null ? { porc_marco: String(porc) } : {}) }),
+        ...(h?.vidrio ? { vidrio: h.vidrio } : {}),
     };
 }
 

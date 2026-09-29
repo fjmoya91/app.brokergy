@@ -1059,6 +1059,29 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                     onDescartar={plano.descartaHuerfanos} />
                 )}
 
+                {/* Lucernarios cuya planta ya NO tiene tejado en la geometría:
+                    no se escriben (un hueco en un cerramiento que no existe
+                    abortaría el .cex), pero tampoco desaparecen sin decirlo. */}
+                {(plano.lucernariosSinCubierta || []).map(o => (
+                    <div key={o.planta}
+                         className="flex flex-wrap items-center gap-2 rounded-lg border
+                                    border-amber-400/40 bg-amber-400/[0.07] px-3 py-2 text-[12px]
+                                    text-amber-100/90">
+                        <span>
+                            {o.huecos.length === 1 ? 'El lucernario ' : 'Los lucernarios '}
+                            <b className="font-black">{o.huecos.map(h => h.nombre).join(', ')}</b>
+                            {' '}estaba{o.huecos.length === 1 ? '' : 'n'} en la cubierta de{' '}
+                            <b className="font-black">{o.planta}</b>, que ya no tiene tejado en la
+                            geometría: no se escribe{o.huecos.length === 1 ? '' : 'n'} en el .cex.
+                        </span>
+                        <button onClick={() => plano.quitaLucernariosDe(o.planta)}
+                                className="ml-auto rounded-md border border-amber-400/50 px-2 py-1
+                                           text-[11px] font-bold text-amber-200 hover:bg-amber-400/15">
+                            Quitarlo{o.huecos.length === 1 ? '' : 's'}
+                        </button>
+                    </div>
+                ))}
+
                 <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-4 items-start">
                 <div className="flex flex-col gap-3">
                     <BarraVista plantas={plantas} sel={soloPlanta}
@@ -1083,6 +1106,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                          entorno={entorno} onEntorno={setEntorno}
                                          modo="2d" altura={alturaPlanta}
                                          cubierta={plano.cubiertas?.[p.id] || null}
+                                         carpinteriaDefecto={huecosDefecto(ajustes)}
                                          dibujarCubierta={dibujandoCubierta === p.id}
                                          onCubierta={(poly) => {
                                              if (poly) plano.ponCubierta(p.id, { poligono: poly });
