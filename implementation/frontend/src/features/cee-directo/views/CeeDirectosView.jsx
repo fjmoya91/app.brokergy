@@ -6,6 +6,7 @@ import { CeeDirectoDetailView } from './CeeDirectoDetailView';
 import { OfertaCeeModal } from '../components/OfertaCeeModal';
 import { AccionesOferta } from '../components/AccionesOferta';
 import { fmtEur } from '../logic/ofertaCee';
+import { abrirCarpetaLocal } from '../../../utils/carpetaLocal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CEE directos — los certificados que nos contratan sueltos, fuera del CAE.
@@ -69,6 +70,7 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
     const [prescriptores, setPrescriptores] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [abriendoLocal, setAbriendoLocal] = useState(null); // id cuyo botón de carpeta local está cargando
     const [busqueda, setBusqueda] = useState('');
     // Por defecto se esconde lo terminado: son 28 de 55 y entrar a la pestaña
     // para ver primero el trabajo cerrado de 2024 es empezar por el final.
@@ -357,9 +359,25 @@ export function CeeDirectosView({ initialSelectedId = null, onClearInitialSelect
                                                     : <span className={dias > 30 ? 'text-red-400 font-black' : dias > 10 ? 'text-amber-400' : 'text-white/40'}>{dias} d</span>}
                                             </td>
                                             <td className="px-4 py-3 text-right">
-                                                {r.drive_folder_link && (
-                                                    <a href={r.drive_folder_link} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
-                                                        className="text-white/25 hover:text-brand transition-colors" title="Abrir carpeta de Drive">📁</a>
+                                                {/* Abre la carpeta LOCAL (espejo de Drive Desktop): es de donde
+                                                    se arrastra el .xml a CE3X. La ruta es staffOnly. */}
+                                                {isStaff && r.drive_folder_link && (
+                                                    // Mismo icono que el listado de expedientes CAE.
+                                                    <button type="button"
+                                                        onClick={async e => {
+                                                            e.stopPropagation();
+                                                            setAbriendoLocal(r.id);
+                                                            const res = await abrirCarpetaLocal(`${API}/${r.id}/local-path`);
+                                                            setAbriendoLocal(null);
+                                                            if (!res.ok) setError(res.error);
+                                                        }}
+                                                        disabled={abriendoLocal === r.id}
+                                                        className="text-emerald-400/50 hover:text-emerald-400 transition-colors disabled:opacity-40 disabled:cursor-wait"
+                                                        title="Abrir la carpeta local en el Explorador de Windows">
+                                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+                                                        </svg>
+                                                    </button>
                                                 )}
                                             </td>
                                         </tr>
