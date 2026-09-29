@@ -5,6 +5,7 @@ import { ClienteFormModal } from '../../clientes/components/ClienteFormModal';
 import { useAuth } from '../../../context/AuthContext';
 import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal';
 import { PrescriptorPicker } from '../../../components/PrescriptorPicker';
+import { payloadOportunidad } from '../logic/guardarOportunidad';
 
 // Búsqueda insensible a tildes (la usa aún el desplegable de instaladores).
 const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -150,34 +151,17 @@ export function SaveOpportunityModal({ isOpen, onClose, onSaveSuccess, onClientL
         setLoading(true);
         setError(null);
         try {
-            // Limpiar 'result' e 'inputs' (anidado) del estado de inputs antes de guardar.
-            // Si no se limpia:
-            //  - inputs.result quedó residual de una carga previa y crearía inconsistencia
-            //    con datos_calculo.result (que es el resultado actual / canónico).
-            //  - inputs.inputs causaría recursión tras múltiples saves/loads.
-            const { result: _staleResult, inputs: _staleNested, ...cleanInputs } = inputs;
-
-            const payload = {
-                id_oportunidad: cleanInputs.id_oportunidad, // Pasar el ID para no generar errores 500 o inserciones dobles al editar
-                ref_catastral: cleanInputs.rc || 'MANUAL',
-                prescriptor_id: isAdmin ? (prescriptorId || null) : (user?.prescriptor_id || null),
-                instalador_asociado_id: instaladorId || null,
-                referencia_cliente: referenciaCliente,
-                demanda_calefaccion: result?.q_net || 0,
-                anio: cleanInputs.anio,
-                zona: cleanInputs.zona,
-                cliente_id: cleanInputs.cliente_id || null,
-                datos_calculo: {
-                    ...cleanInputs,
-                    cod_cliente_interno: codClienteInterno,
-                    inputs: {
-                        ...cleanInputs,
-                        cod_cliente_interno: codClienteInterno
-                    },
-                    result
-                },
-                nota: nota.trim() || null
-            };
+            // El cuerpo del guardado es fuente única (logic/guardarOportunidad.js):
+            // lo comparte el guardado automático de ResultsPanel.
+            const payload = payloadOportunidad({
+                inputs,
+                result,
+                prescriptorId: isAdmin ? (prescriptorId || null) : (user?.prescriptor_id || null),
+                instaladorId,
+                referenciaCliente,
+                codClienteInterno,
+                nota,
+            });
 
             console.log('[Frontend] Saving opportunity payload:', payload);
             const response = await axios.post('/api/oportunidades', payload);

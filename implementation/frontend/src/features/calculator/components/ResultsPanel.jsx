@@ -10,6 +10,7 @@ import { SummaryTable } from './SummaryTable';
 import { AerotermiaModal } from './AerotermiaModal';
 import { ProposalModal } from './ProposalModal';
 import { SaveOpportunityModal } from './SaveOpportunityModal';
+import { payloadOportunidad } from '../logic/guardarOportunidad';
 import { ClienteFormModal } from '../../clientes/components/ClienteFormModal';
 import { ClienteDetailModal } from '../../clientes/components/ClienteDetailModal';
 import { generateBrokergyReport } from '../logic/pdfGenerator';
@@ -497,6 +498,73 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
 
     const currentSnapshot = getSnapshot(inputs, result);
     const isDirty = lastSavedSnapshot !== null && currentSnapshot !== null && lastSavedSnapshot !== currentSnapshot;
+
+    // ─── Presupuestos leídos de los PDF adjuntos a la propuesta ─────────────────
+    // La propuesta se abre SIEMPRE con la oportunidad guardada (requestAction). Si
+    // la cifra cambia dentro de ella —al leer el presupuesto que se acaba de
+    // adjuntar—, la oportunidad queda con cambios sin guardar justo antes de
+    // enviarla: la propuesta saldría con un importe y `datos_calculo` diría otro,
+    // que es el que hereda el expediente al aceptarla. Así que se guarda sola.
+    //
+    // Se guarda con el RESULTADO RECALCULADO, no con el de antes: el cambio de
+    // inputs llega a CalculatorView, que recalcula en un efecto y devuelve otro
+    // `result` un render después. Hasta que no llega, no se guarda.
+    const [guardadoLectura, setGuardadoLectura] = React.useState(null); // null | 'guardando' | 'ok' | 'error'
+    const guardadoPendienteRef = useRef(null);
+    const ultimoRef = useRef({ inputs, result });
+    ultimoRef.current = { inputs, result };
+
+    const guardarSinPopup = async (inp, res, nota) => {
+        const esAdmin = user?.rol?.toUpperCase() === 'ADMIN';
+        // Mismo cuerpo que el botón Guardar. El prescriptor, el que YA tiene la
+        // oportunidad: un guardado automático no puede cambiarlo ni vaciarlo.
+        const payload = payloadOportunidad({
+            inputs: inp,
+            result: res,
+            prescriptorId: esAdmin ? inp.prescriptor_id : (user?.prescriptor_id || inp.prescriptor_id),
+            instaladorId: inp.instalador_asociado_id,
+            referenciaCliente: inp.referenciaCliente || '',
+            codClienteInterno: inp.cod_cliente_interno || '',
+            nota,
+        });
+        try {
+            await axios.post('/api/oportunidades', payload);
+            setLastSavedSnapshot(getSnapshot(inp, res));
+            setGuardadoLectura('ok');
+        } catch (err) {
+            console.error('[Presupuesto leído] No se pudo guardar la oportunidad:', err);
+            setGuardadoLectura('error');
+        }
+    };
+
+    // Se llama cuando termina la lectura (~10 s después de soltar el PDF), desde
+    // un cierre de entonces: por eso lee inputs/result del ref y no del cierre.
+    const aplicarPresupuestoLeido = (patch, nota) => {
+        const { inputs: inp, result: res } = ultimoRef.current;
+        if (!patch || !inp?.id_oportunidad) return;
+        const pendiente = { nota, resultAntes: res, patch };
+        guardadoPendienteRef.current = pendiente;
+        setGuardadoLectura('guardando');
+        onInputChange(prev => ({ ...prev, ...patch }));
+        // Red por si el recálculo no produce un resultado nuevo (datos incompletos):
+        // se guarda igual con lo que haya, antes que dejar la cifra sin guardar.
+        setTimeout(() => {
+            if (guardadoPendienteRef.current !== pendiente) return;
+            guardadoPendienteRef.current = null;
+            const { inputs: inp, result: res } = ultimoRef.current;
+            guardarSinPopup(inp, res, nota);
+        }, 4000);
+    };
+
+    React.useEffect(() => {
+        const p = guardadoPendienteRef.current;
+        if (!p || !result || result === p.resultAntes) return;
+        // El cambio ya está en los inputs: cada clave del parche, tal cual (los
+        // objetos llegan por referencia, así que la identidad basta).
+        if (!Object.keys(p.patch).every(k => inputs?.[k] === p.patch[k])) return;
+        guardadoPendienteRef.current = null;
+        guardarSinPopup(inputs, result, p.nota);
+    }, [result, inputs]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // ─── Handlers ──────────────────────────────────────────────────────────────
     const handleAcceptClick = () => {
@@ -1480,6 +1548,8 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                         result={result}
                         inputs={inputs}
                         onSaveRequest={() => setShowSaveOpportunity(true)}
+                        onPresupuestoLeido={aplicarPresupuestoLeido}
+                        guardadoPresupuestoLeido={guardadoLectura}
                     />
                 </ErrorBoundary>
             )}

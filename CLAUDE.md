@@ -4852,6 +4852,60 @@ node implementation/backend/scripts/revisar_portadas_propuestas.js 60
 ⚠️ Las propuestas enviadas ANTES de esto conservan su `html_propuesta` cortado: la vista
 web del cliente no se arregla hasta que se le reenvía (o se vuelve a copiar el enlace).
 
+### Los presupuestos adjuntados a la propuesta rellenan Datos Económicos (2026-09-29)
+
+Al soltar un PDF en un hueco del popup de Anexos de la propuesta, además de archivarse en
+`0. PRESUPUESTO`, se LEE con el mismo lector que la toma de datos
+(`POST /api/factura-ocr/extract`, ~10 s) y su importe va a SU campo:
+
+| Hueco | Campo | Cómo |
+|---|---|---|
+| **Aerotermia** | P. Aerotermia | Sustituye (y quita la marca de estimado) |
+| **Placas solares** (nuevo, siempre visible) | P. Fotovoltaica | Sustituye |
+| **Ventanas · Cubierta · Suelo · Fachada** (los de la reforma activa) | P. Reforma | **SUMA** de todos |
+
+Antes la propuesta podía adjuntar un presupuesto de 14.520 € mientras su tabla decía
+15.000 € (estimado).
+
+| Qué | Dónde |
+|---|---|
+| Huecos, campo de cada uno, IVA y reparto (puro) | [logic/presupuestoLeido.js](implementation/frontend/src/features/calculator/logic/presupuestoLeido.js) — `HUECOS_PRESUPUESTO`, `lecturaAPresupuesto` |
+| El cuerpo del guardado (fuente única con el botón Guardar) | [logic/guardarOportunidad.js](implementation/frontend/src/features/calculator/logic/guardarOportunidad.js) |
+| Lectura, cola y acuse con «Deshacer» | `ProposalModal` (`aplicarLecturaPresupuesto`, `AvisoLecturaPresupuesto`) |
+| Guardado sin popup | `ResultsPanel` (`aplicarPresupuestoLeido`) |
+| Nombres de fichero válidos | `POST /api/oportunidades/:id/anexos` (`SLOTS_VALIDOS`, incluye `FOTOVOLTAICA`) |
+| Pruebas | `node implementation/backend/scripts/test_presupuesto_leido.mjs` |
+| Leer uno real, sin escribir | `node implementation/backend/scripts/probar_presupuesto_leido.js 26RES060_OP228 [HUECO]` |
+
+**REGLA — el IVA lo decide la SIMULACIÓN, no el documento.** Particular → total CON IVA
+(como `StepDocsObra`); empresa/autónomo/terciario → según el conmutador «IVA Incluido /
+Sin IVA», que es lo que rotula `ivaTag`.
+
+**REGLA — P. Reforma es la SUMA** de los huecos de la reforma ACTIVOS (su mejora marcada)
+y CON documento adjunto. Lo leído se recuerda por hueco en `inputs.presupuestos_leidos`
+(solo metadatos), así que sustituir el de ventanas cambia SU sumando; quitar un
+documento lo saca de la suma la próxima vez, sin reescribir nada al quitarlo. Los que ya
+estaban adjuntos y nunca se leyeron se bajan de Drive y se leen en el momento; el que no
+se pueda leer, o el hueco activo sin documento, queda fuera y SE DICE.
+
+**REGLA — las líneas de OTRA partida van a SU campo**, repartidas en proporción por las
+`partida` de las líneas (placas en el de aerotermia → P. Fotovoltaica; envolvente en una
+reforma → P. Reforma; aerotermia en el de placas → P. Aerotermia): el coste final suma
+los tres campos y dejarlas dentro las contaría dos veces. Lo común (obra civil, mano de
+obra) es del documento en el que viene. **El campo del hueco se sustituye; los de las
+líneas ajenas solo se rellenan si están vacíos** (P. Aerotermia cuenta como vacío si es
+la ESTIMADA), y si difieren se dice. Menos de 1 € de diferencia es la misma cifra (17.530
+tecleado frente a 17.530,84 en 26RES060_OP228): entonces solo se guarda la huella.
+
+**REGLA — se GUARDA sola.** La propuesta se abre siempre con la oportunidad guardada; si
+la cifra cambia dentro, sin guardar saldría la propuesta con un importe y `datos_calculo`
+—lo que hereda el expediente— con otro. `ResultsPanel` espera al `result` RECALCULADO y
+hace el MISMO `POST /api/oportunidades` que el botón (`payloadOportunidad`), con una
+línea en el historial y conservando el prescriptor que ya tenía. Las lecturas se aplican
+EN COLA (dos presupuestos de la reforma soltados seguidos se suman, no se pisan). Solo
+**staff**: la ruta del lector es `staffOnly`.
+
+
 ---
 
 ## La D_ACS por LITROS/DÍA del certificado (2026-09-13)
@@ -11185,6 +11239,9 @@ fichero en CE3X y pulsar calcular.
 82. **Al ACEPTAR la propuesta, el cliente confirma sus EMISORES, sus PLACAS y su AIRE ACONDICIONADO**, en neutro, obligatorias y UNA POR PANTALLA (mobile first: el 90 % acepta con el móvil). Se guardan en `datos_calculo.confirmacion_cliente` con lo SUPUESTO al lado, y el expediente las hereda en `instalacion.confirmacion_cliente`. **Las placas se aplican solas** (no mueven cifras); **el emisor se PROPONE**: el expediente conserva el de la simulación y Instalación avisa con un botón que lo aplica por el camino del desplegable (recalcula el SCOP), porque mueve el ahorro. Los aires existentes llegan al encargo CE3X. `/firma/demo` enseña el formulario sin tocar nada. Fuente única: [logic/confirmacionCliente.js](implementation/frontend/src/features/expedientes/logic/confirmacionCliente.js); pantallas en `ConfirmarVivienda.jsx`. Tras tocarlo: `node implementation/backend/scripts/test_confirmacion_cliente.mjs`. Ver "Al ACEPTAR, el cliente confirma sus EMISORES, PLACAS y AIRES".
 
 84. **En la ficha del inmueble del funnel PÚBLICO, las zonas son una PREGUNTA, no una tabla** ([ZonasCalefaccion.jsx](implementation/frontend/src/features/landing/components/ZonasCalefaccion.jsx)): «¿Dónde tienes calefacción?» enseña solo las plantas de VIVIENDA del Catastro y pregunta si es ahí y solo ahí. **«Sí, es correcto» continúa en el mismo toque** (el caso normal); «No, también en otras zonas» abre la lista completa (garaje, almacén…) para marcar y desmarcar, con el total en m² y el aviso de que el Catastro a veces llama «almacén» a una planta que es vivienda. Al cliente tampoco se le enseñan las UTM, la participación ni la zona climática repetida. ⚠️ La selección llega a `handleContinue` POR PARÁMETRO: se elige y se continúa en el mismo toque, y el estado aún no se ha actualizado. El flujo INTERNO (`isInternal`) conserva la tabla y todos los datos.
+
+
+85. **Los PRESUPUESTOS adjuntados a la propuesta rellenan Datos Económicos, cada uno en SU campo**: hueco Aerotermia → P. Aerotermia, hueco **Placas solares** (nuevo, siempre visible, fichero `PRESUPUESTO DE LA INSTALACIÓN_FOTOVOLTAICA.pdf`) → P. Fotovoltaica, huecos de la reforma → P. Reforma como **SUMA** de los activos con documento (recordados por hueco en `inputs.presupuestos_leidos`; los adjuntos nunca leídos se leen en el momento). El IVA lo decide la SIMULACIÓN (particular con IVA; empresa/terciario según el conmutador); las líneas de otra partida van a su campo solo si está vacío (la aerotermia estimada cuenta como vacía); <1 € de diferencia es la misma cifra. **Se guarda sola** con el mismo `payloadOportunidad` del botón Guardar, esperando al `result` recalculado, con línea en el historial y «Deshacer». Solo staff (lector `staffOnly`). Fuente única: [logic/presupuestoLeido.js](implementation/frontend/src/features/calculator/logic/presupuestoLeido.js). Tras tocarlo: `node implementation/backend/scripts/test_presupuesto_leido.mjs`. Ver "Los presupuestos adjuntados a la propuesta rellenan Datos Económicos".
 
 ---
 

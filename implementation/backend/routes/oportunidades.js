@@ -1679,11 +1679,12 @@ router.post('/:id/anexos', async (req, res) => {
 
         // LÓGICA DE PRESUPUESTO
         if (isBudget) {
-            // En una reforma cada partida (aerotermia, ventanas, cubierta…) trae su
-            // propio presupuesto, a menudo de gremios distintos. Se distinguen por
-            // sufijo; AEROTERMIA conserva el nombre de siempre para no romper lo ya
-            // subido ni el reconocimiento en el frontend.
-            const SLOTS_VALIDOS = ['AEROTERMIA', 'VENTANAS', 'CUBIERTA', 'SUELO', 'FACHADA'];
+            // Cada partida (aerotermia, placas solares, y en una reforma ventanas,
+            // cubierta…) trae su propio presupuesto, a menudo de gremios distintos.
+            // Se distinguen por sufijo; AEROTERMIA conserva el nombre de siempre
+            // para no romper lo ya subido ni el reconocimiento en el frontend.
+            // La lista es la de `HUECOS_PRESUPUESTO` (frontend, logic/presupuestoLeido.js).
+            const SLOTS_VALIDOS = ['AEROTERMIA', 'FOTOVOLTAICA', 'VENTANAS', 'CUBIERTA', 'SUELO', 'FACHADA'];
             const slot = SLOTS_VALIDOS.includes(String(budgetSlot || '').toUpperCase())
                 ? String(budgetSlot).toUpperCase()
                 : 'AEROTERMIA';

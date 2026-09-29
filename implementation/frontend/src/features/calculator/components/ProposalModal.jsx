@@ -6,6 +6,7 @@ import AppConfirm from '../../../components/AppConfirm';
 import { EnviarPropuestaModal } from './EnviarPropuestaModal';
 import { computeCeeComparison } from '../logic/ceeComparison';
 import { esPresupuestoEstimado, avisoPresupuestoEstimado, lineaPresupuestoEstimado } from '../logic/presupuestoEstimado';
+import { lecturaAPresupuesto, HUECOS_PRESUPUESTO, CAMPOS_PRESUPUESTO, huecoDe, huecoActivo } from '../logic/presupuestoLeido';
 // Aviso del factor de corrección (ficha RES060FC en consulta pública): decide si
 // procede ofrecerlo y redacta el párrafo. Fuente única — ver `logic/avisoFc.js`.
 import { estadoFc, lineaFactorCorreccion } from '../logic/avisoFc';
@@ -481,16 +482,12 @@ const formatNumber = (val) => {
 const BUDGET_LABEL = 'PRESUPUESTO DE LA INSTALACIÓN';
 
 // En una reforma la obra la presupuestan partidas distintas (a menudo gremios
-// distintos): la aerotermia por un lado y cada mejora de envolvente por otro.
-// Cada una tiene su propio hueco, y su fichero se distingue por el sufijo.
-// AEROTERMIA conserva el nombre de siempre para no romper lo ya subido.
-const BUDGET_SLOTS = [
-    { key: 'AEROTERMIA', label: 'Aerotermia', input: null },
-    { key: 'VENTANAS', label: 'Ventanas', input: 'reformaVentanas' },
-    { key: 'CUBIERTA', label: 'Cubierta', input: 'reformaCubierta' },
-    { key: 'SUELO', label: 'Suelo', input: 'reformaSuelo' },
-    { key: 'FACHADA', label: 'Fachada', input: 'reformaParedes' },
-];
+// distintos): la aerotermia por un lado, las placas por otro y cada mejora de
+// envolvente por otro. Cada una tiene su propio hueco, y su fichero se distingue
+// por el sufijo. AEROTERMIA conserva el nombre de siempre para no romper lo ya
+// subido. La lista es la de logic/presupuestoLeido.js, que además dice a qué
+// campo de Datos Económicos va el importe de cada hueco.
+const BUDGET_SLOTS = HUECOS_PRESUPUESTO;
 const budgetFileLabel = (slot) => (!slot || slot === 'AEROTERMIA') ? BUDGET_LABEL : `${BUDGET_LABEL}_${slot}`;
 
 const stripExt = (name) => (name || '').replace(/\.[^.]+$/, '').trim();
@@ -508,10 +505,75 @@ const isBudgetOldFileName = (name) => {
     return n.startsWith(BUDGET_LABEL) && n.endsWith('_OLD');
 };
 
+// Acuse de la lectura del presupuesto de aerotermia: qué se ha escrito en la
+// oportunidad, si ha quedado guardado y lo que no se ha tocado. Va fuera del
+// componente para no remontarse en cada render (la lectura tarda segundos).
+// Un autoguardado sin acuse no se distingue de no guardar: por eso dice las dos cosas.
+function AvisoLecturaPresupuesto({ lectura, guardado, onDeshacer, onCerrar, flotante = false }) {
+    if (!lectura) return null;
+    const { estado, titular, avisos = [], extras = [], destino = 'Datos Económicos', texto } = lectura;
+    const tono = estado === 'hecho' ? 'border-emerald-500/30 bg-emerald-500/[0.06]'
+        : estado === 'error' ? 'border-amber-500/40 bg-amber-500/[0.07]'
+        : 'border-white/10 bg-white/[0.03]';
+    return (
+        <div className={`rounded-2xl border p-4 text-left ${tono} ${flotante ? 'shadow-2xl backdrop-blur-xl bg-bkg-surface/95' : ''}`}>
+            <div className="flex items-start gap-3">
+                <div className="shrink-0 mt-0.5">
+                    {estado === 'leyendo' ? (
+                        <div className="w-4 h-4 border-2 border-brand/20 border-t-brand rounded-full animate-spin" />
+                    ) : estado === 'hecho' ? (
+                        <span className="text-emerald-400 text-sm font-black">✓</span>
+                    ) : estado === 'error' ? (
+                        <span className="text-amber-400 text-sm font-black">⚠</span>
+                    ) : (
+                        <span className="text-white/40 text-sm font-black">·</span>
+                    )}
+                </div>
+                <div className="flex-1 min-w-0">
+                    <p className="text-[12px] font-bold text-white/85 leading-snug">
+                        {estado === 'leyendo' ? (texto || 'Leyendo el importe del presupuesto…') : titular}
+                    </p>
+                    {estado === 'leyendo' && (
+                        <p className="text-[11px] text-white/40 mt-1">Se escribirá en Datos Económicos → {destino} en cuanto se lea.</p>
+                    )}
+                    {estado === 'hecho' && extras.length > 0 && (
+                        <p className="text-[11px] text-white/55 mt-1">{extras.join(' · ')}</p>
+                    )}
+                    {estado === 'hecho' && (
+                        <p className={`text-[11px] mt-1 font-semibold ${guardado === 'error' ? 'text-amber-400' : 'text-white/45'}`}>
+                            {guardado === 'guardando' ? 'Guardando en la oportunidad…'
+                                : guardado === 'ok' ? 'Guardado en la oportunidad.'
+                                : guardado === 'error' ? 'No se ha podido guardar: guarda la oportunidad desde la calculadora antes de enviar.'
+                                : 'Leído del presupuesto adjunto.'}
+                        </p>
+                    )}
+                    {avisos.map((a, i) => (
+                        <p key={i} className="text-[11px] text-amber-300/90 mt-1 leading-snug">{a}</p>
+                    ))}
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                    {estado === 'hecho' && onDeshacer && (
+                        <button onClick={onDeshacer}
+                            className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-white/50 hover:text-white hover:bg-white/5 rounded-lg transition-all"
+                            title="Volver a los importes que había antes de leer el presupuesto">
+                            Deshacer
+                        </button>
+                    )}
+                    {estado !== 'leyendo' && onCerrar && (
+                        <button onClick={onCerrar} className="p-1 text-white/25 hover:text-white transition-colors" title="Cerrar">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 // Estado de partida del ajuste de la portada (ver `fit` dentro del componente).
 const FIT_INICIAL = { pass: 0, compact: false, vars: null, reposo: null, zoom: null, zoomOk: null, zoomKo: null, listo: false };
 
-export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }) {
+export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest, onPresupuestoLeido, guardadoPresupuestoLeido }) {
     const { showAlert, showConfirm } = useModal();
     const { user } = useAuth();
     const proposalRef = useRef(null);
@@ -575,6 +637,24 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     // Qué hueco de presupuesto tiene el fichero encima (o null). Uno por partida.
     const [budgetDragSlot, setBudgetDragSlot] = useState(null);
     const [draggedIndex, setDraggedIndex] = useState(null);
+
+    // Lectura del PRESUPUESTO recién adjuntado en cualquier hueco: su importe se
+    // vuelca a SU campo de "Datos Económicos" (ver logic/presupuestoLeido.js).
+    // Solo staff: el lector es una llamada de pago y su ruta es `staffOnly`, igual
+    // que en la toma de datos.
+    // { estado: 'leyendo'|'hecho'|'igual'|'error'|'deshecho', destino, titular, avisos, extras, antes, hueco }
+    const [lecturaPres, setLecturaPres] = useState(null);
+    // Las lecturas tardan ~10 s y se aplican desde cierres de entonces: se leen
+    // inputs y adjuntos de refs. `inputsRef` se adelanta con cada parche aplicado
+    // (el render que lo trae llega después), y las aplicaciones van EN COLA: dos
+    // presupuestos de la reforma soltados seguidos tienen que sumarse, no pisarse.
+    const parcheVivoRef = useRef(null);
+    const inputsRef = useRef(inputs);
+    inputsRef.current = { ...inputs, ...(parcheVivoRef.current || {}) };
+    const attachmentsRef = useRef([]);
+    attachmentsRef.current = attachments;
+    const colaLecturasRef = useRef(Promise.resolve());
+    const puedeLeerPresupuesto = !!onPresupuestoLeido && getRoleFlags(user).isStaff && !!inputs?.id_oportunidad;
 
     // Cargar anexos desde Drive al abrir el modal
     useEffect(() => {
@@ -948,9 +1028,13 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
     // de que el ajuste haya convergido: añade una línea a la cabecera y sin
     // rearmar el cálculo la portada se desbordaría por debajo del pie negro.
     // `fachadaFoto` igual: llega del Catastro y estrecha el titular.
+    // Y los importes: al leer el presupuesto adjunto cambia la cifra, puede
+    // aparecer la fila de fotovoltaica y desaparece el recuadro de "presupuesto
+    // estimado" — la portada cambia de alto con la vista previa ya abierta.
     useLayoutEffect(() => {
         setFit(FIT_INICIAL);
-    }, [isOpen, includeCeeComp, cobrand, marcaVersion, fachadaFoto]);
+    }, [isOpen, includeCeeComp, cobrand, marcaVersion, fachadaFoto,
+        inputs?.presupuesto, inputs?.presupuestoFotovoltaica, inputs?.presupuestoEnvolvente, inputs?.presupuestoEstimado]);
 
     // Huecos que se estiran o encogen, en orden de aparición. `encoge` es la
     // fracción del valor de reposo que se puede quitar; `estira`, los píxeles
@@ -1193,8 +1277,117 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
         }
     };
 
+    // Lee el importe del presupuesto con el MISMO lector que la toma de datos
+    // (`/api/factura-ocr/extract`). Nunca lanza: un fallo de lectura no puede
+    // impedir adjuntar el documento, solo deja la cifra para teclearla.
+    const leerPresupuesto = async (file) => {
+        try {
+            const form = new FormData();
+            form.append('files', file);
+            form.append('tipo', 'presupuesto');
+            const { data } = await axios.post('/api/factura-ocr/extract', form, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+                timeout: 120000,
+            });
+            return data;
+        } catch (err) {
+            return { error: err?.response?.data?.error || err?.message || 'Error desconocido' };
+        }
+    };
+
+    // Un presupuesto que YA estaba adjunto (en Drive) y nunca se leyó: se baja y
+    // se lee igual que uno recién soltado.
+    const leerAdjuntoDeDrive = async (adj) => {
+        try {
+            const resp = await axios.get(`/api/oportunidades/${inputs.id_oportunidad}/anexos/${adj.id}`, { responseType: 'arraybuffer' });
+            const nombre = adj.file?.name || 'presupuesto.pdf';
+            return await leerPresupuesto(new File([resp.data], nombre, { type: adj.file?.type || 'application/pdf' }));
+        } catch (err) {
+            return { error: err?.message || 'No se pudo bajar de Drive' };
+        }
+    };
+
+    // Vuelca lo leído a la oportunidad, con los inputs de AHORA (la lectura tarda
+    // unos segundos). Va en cola: cada aplicación parte de la anterior.
+    const aplicarLecturaPresupuesto = (data, hueco) => {
+        colaLecturasRef.current = colaLecturasRef.current
+            .then(() => aplicarLecturaAhora(data, hueco))
+            .catch(err => console.error('[Presupuesto leído]', err));
+        return colaLecturasRef.current;
+    };
+
+    const aplicarLecturaAhora = async (data, hueco) => {
+        const h = huecoDe(hueco);
+        const destino = CAMPOS_PRESUPUESTO[h.campo].etiqueta;
+        if (!data || data.error) {
+            setLecturaPres({
+                estado: 'error', hueco: h.key, destino,
+                titular: `No se ha podido leer el importe del presupuesto de ${h.label.toLowerCase()}.`,
+                avisos: [data?.error, `Ponlo a mano en Datos Económicos → ${destino}.`].filter(Boolean),
+            });
+            return;
+        }
+
+        // Huecos con presupuesto adjunto ahora mismo (el propio siempre: puede no
+        // haberse pintado aún en la lista).
+        const adjuntos = (attachmentsRef.current || []).filter(a => a.isBudget);
+        const huecosConAdjunto = [...new Set([...adjuntos.map(a => a.budgetSlot || 'AEROTERMIA'), h.key])];
+
+        // P. Reforma es la SUMA de los presupuestos de la reforma: los que ya
+        // estaban adjuntos y nunca se leyeron se leen ahora, o la suma los perdería.
+        const otras = {};
+        if (h.campo === 'envolvente') {
+            const memoria = inputsRef.current?.presupuestos_leidos || {};
+            const pendientes = adjuntos.filter(a => {
+                const k = a.budgetSlot || 'AEROTERMIA';
+                const x = huecoDe(k);
+                return k !== h.key && x.campo === 'envolvente' && huecoActivo(x, inputsRef.current) && !memoria[k] && a.id;
+            });
+            if (pendientes.length) {
+                setLecturaPres({ estado: 'leyendo', hueco: h.key, destino, texto: `Leyendo también ${pendientes.map(a => huecoDe(a.budgetSlot).label.toLowerCase()).join(', ')} para sumar P. Reforma…` });
+                const leidas = await Promise.all(pendientes.map(leerAdjuntoDeDrive));
+                pendientes.forEach((a, i) => { if (!leidas[i]?.error) otras[a.budgetSlot] = leidas[i]; });
+            }
+        }
+
+        const r = lecturaAPresupuesto(data, inputsRef.current, { hueco: h.key, huecosConAdjunto, otras });
+        if (!r.patch) { setLecturaPres({ estado: 'error', hueco: h.key, destino, titular: r.titular, avisos: r.avisos }); return; }
+
+        // Adelanta el parche a los inputs que verá la siguiente lectura de la cola.
+        parcheVivoRef.current = { ...(parcheVivoRef.current || {}), ...r.patch };
+        inputsRef.current = { ...inputsRef.current, ...r.patch };
+        // Con las cifras iguales se guarda igual la huella (sin línea en el
+        // historial): P. Reforma la necesita para sumar después.
+        onPresupuestoLeido(r.patch, r.nota);
+        setLecturaPres(r.igual
+            ? { estado: 'igual', hueco: h.key, destino, titular: r.titular, avisos: r.avisos }
+            : { estado: 'hecho', hueco: h.key, destino, titular: r.titular, avisos: r.avisos, extras: r.extras, antes: r.antes });
+    };
+
+    // Vuelve a los valores de antes de la lectura (y lo deja escrito en el historial).
+    const deshacerLecturaPresupuesto = () => {
+        const a = lecturaPres?.antes;
+        if (!a || !onPresupuestoLeido) return;
+        const h = huecoDe(lecturaPres.hueco);
+        const vuelven = Object.values(CAMPOS_PRESUPUESTO)
+            .filter(c => a[c.input] !== undefined)
+            .map(c => `${c.etiqueta} ${formatNumber(a[c.input])} €`)
+            .join(' · ');
+        parcheVivoRef.current = { ...(parcheVivoRef.current || {}), ...a };
+        inputsRef.current = { ...inputsRef.current, ...a };
+        onPresupuestoLeido(a, `↩ Deshecha la lectura del presupuesto de ${h.label.toLowerCase()}: vuelve ${vuelven}`);
+        setLecturaPres({ estado: 'deshecho', hueco: h.key, titular: `Deshecho: vuelve ${vuelven}.`, avisos: [] });
+    };
+
     const handleFileChange = async (targetIdOrIndex, file, isOther = false, isBudget = false, budgetSlot = null) => {
         if (!file) return;
+        // El presupuesto se lee a la vez que se sube: son dos cosas independientes
+        // y leerlo después alargaría la espera lo que tarda Drive. Lo leído solo se
+        // aplica si el fichero llegó a guardarse.
+        const huecoLeido = isBudget ? (budgetSlot || 'AEROTERMIA') : null;
+        const leerEste = !!huecoLeido && puedeLeerPresupuesto;
+        const lectura = leerEste ? leerPresupuesto(file) : null;
+        if (leerEste) setLecturaPres({ estado: 'leyendo', hueco: huecoLeido, destino: CAMPOS_PRESUPUESTO[huecoDe(huecoLeido).campo].etiqueta });
         return new Promise((resolve) => {
             const reader = new FileReader();
             reader.onload = async (rev) => {
@@ -1259,9 +1452,13 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                         // Los presupuestos van delante (portada), los demás detrás.
                         return isBudget ? [newAttachment, ...filtered] : [...filtered, newAttachment];
                     });
+
+                    if (lectura) lectura.then(data => aplicarLecturaPresupuesto(data, huecoLeido));
                 } catch (err) {
                     console.error("Error subiendo anexo:", err);
                     const errorMessage = err.response?.data?.message || err.response?.data?.error || err.message || "Error desconocido";
+                    // Sin fichero guardado no hay presupuesto adjunto: lo leído no se aplica.
+                    if (lectura) setLecturaPres(null);
                     alert(`Error al subir el anexo: ${errorMessage}`);
                 } finally {
                     setGenerating(false);
@@ -1415,6 +1612,21 @@ export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest }
                                     <ZonaPresupuesto key={s.key} slot={s.key} label={s.label} />
                                 ))}
                             </div>
+                            {lecturaPres && (
+                                <div className="mt-3">
+                                    <AvisoLecturaPresupuesto
+                                        lectura={lecturaPres}
+                                        guardado={guardadoPresupuestoLeido}
+                                        onDeshacer={deshacerLecturaPresupuesto}
+                                        onCerrar={() => setLecturaPres(null)}
+                                    />
+                                </div>
+                            )}
+                            {puedeLeerPresupuesto && !lecturaPres && (
+                                <p className="mt-2 text-[10px] text-white/30">
+                                    Al adjuntar un presupuesto se lee su importe y se escribe en Datos Económicos: Aerotermia → P. Aerotermia · Placas solares → P. Fotovoltaica{budgetSlotsActivos.some(s => huecoDe(s.key).campo === 'envolvente') ? ' · los de la reforma, sumados → P. Reforma' : ''}.
+                                </p>
+                            )}
                         </div>
 
                         <div className="w-full h-px bg-white/5 my-2" />
@@ -3857,6 +4069,21 @@ info@brokergy.es · 623 926 179`;
 
             {/* Modal de Gestión de Anexos */}
             {isAnexosOpen && <AnexosModal />}
+
+            {/* La lectura del presupuesto tarda unos segundos y es normal cerrar
+                Anexos antes de que acabe: el acuse sigue a la vista, abajo, para
+                que se sepa qué cifra se ha escrito en la oportunidad. */}
+            {!isAnexosOpen && lecturaPres && (
+                <div className="fixed bottom-6 right-6 z-[250] w-[min(420px,calc(100vw-32px))] animate-fade-in">
+                    <AvisoLecturaPresupuesto
+                        flotante
+                        lectura={lecturaPres}
+                        guardado={guardadoPresupuestoLeido}
+                        onDeshacer={deshacerLecturaPresupuesto}
+                        onCerrar={() => setLecturaPres(null)}
+                    />
+                </div>
+            )}
 
             {/* Popup unificado de envío de la propuesta (homogéneo con anexos / certificador) */}
             <EnviarPropuestaModal
