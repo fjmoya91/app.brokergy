@@ -3,6 +3,7 @@ import { IconCard } from '../components/IconCard';
 import { StepLayout } from '../components/StepLayout';
 import { PRESUPUESTO_ESTIMADO_EUR } from '../../calculator/logic/presupuestoEstimado';
 
+import { IconoFunnel } from '../components/IconosFunnel';
 const eur = (n) => (Number(n) || 0).toLocaleString('es-ES', { maximumFractionDigits: 0 });
 
 export function Step8_Presupuesto({ funnel, updateFunnel, onNext, hideInstalador = false, isInternal = false }) {
@@ -43,14 +44,14 @@ export function Step8_Presupuesto({ funnel, updateFunnel, onNext, hideInstalador
                     : "Si no lo sabes, no te preocupes — usamos una media o te conectamos con un instalador."}
         >
             <IconCard
-                icon="💶"
+                icon={<IconoFunnel n="factura" />}
                 title={isInternal ? "Sí, hay un presupuesto" : "Sí, tengo un presupuesto en mente"}
                 subtitle={isInternal ? "Se pedirá a continuación" : "Te lo pediremos a continuación"}
                 selected={funnel.presupuesto_modo === 'tengo'}
                 onClick={() => selectMode('tengo')}
             />
             <IconCard
-                icon="🤷"
+                icon={<IconoFunnel n="calculadora" />}
                 title={isInternal ? "No, calcular uno orientativo" : "No, calcúlame uno orientativo"}
                 subtitle={`Usamos ${eur(PRESUPUESTO_ESTIMADO_EUR)} € como media nacional de vivienda unifamiliar`}
                 selected={funnel.presupuesto_modo === 'no_se'}
@@ -58,7 +59,7 @@ export function Step8_Presupuesto({ funnel, updateFunnel, onNext, hideInstalador
             />
             {!hideInstalador && (
                 <IconCard
-                    icon="🛠️"
+                    icon={<IconoFunnel n="herramienta" />}
                     title="Quiero presupuesto de un instalador"
                     subtitle="Te conectamos al final con instaladores certificados de tu zona"
                     selected={funnel.presupuesto_modo === 'pide_instalador'}

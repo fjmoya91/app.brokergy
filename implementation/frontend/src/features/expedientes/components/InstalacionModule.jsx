@@ -7,10 +7,11 @@ import { esConjuntoAcs, produceAcs, metodoAcsDelModelo, litrosAcsCatalogo, nodoA
 import { opcionDeEquipo, BUSCAR_EQUIPO } from '../logic/aerotermiaOpciones';
 import SearchableSelect from '../../../components/SearchableSelect';
 import { EMITTER_OPTIONS, getEmitterTemp } from '../logic/cifoDoc';
-import { emisorFinalOptions, emisorInicialOptions, esRes080, EMISOR_NINGUNO } from '../logic/emisores';
+import { emisorFinalOptions, emisorInicialOptions, esRes080, EMISOR_NINGUNO, emisorLabel } from '../logic/emisores';
 import { esTer173, esTerciario } from '../logic/terciario';
 import { ceeBaseDocumento } from '../logic/ceeFases';
-import { FV, FV_OPCIONES, normalizarFotovoltaica, potenciaTexto } from '../logic/fotovoltaica';
+import { FV, FV_OPCIONES, normalizarFotovoltaica, potenciaTexto, etiquetaFotovoltaica } from '../logic/fotovoltaica';
+import { contrasteEmisor, labelEmisor, sanearConfirmacion, etiquetaAires } from '../logic/confirmacionCliente';
 import { useAuth } from '../../../context/AuthContext';
 import { getRoleFlags } from '../../../utils/roleFlags';
 import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal';
@@ -31,6 +32,46 @@ const emitterOptionsFor = emisorFinalOptions;
  * el nodo que ya nombra la máquina de calefacción —la de antes o la de ahora—,
  * que es justamente el conjunto que se está resolviendo.
  */
+/**
+ * Lo que el cliente dijo AL ACEPTAR sobre cómo le llega el calor, frente al
+ * emisor del expediente. Si no casa se DICE, y el botón lo aplica por el mismo
+ * camino que el desplegable (que recalcula el SCOP): el emisor mueve el ahorro,
+ * así que lo decide una persona. Ver logic/confirmacionCliente.js.
+ */
+function ConfirmacionEmisor({ conf, tipoEmisor, onAplicar, readOnly }) {
+    const c = sanearConfirmacion(conf);
+    if (!c?.emisor) return null;
+    const k = contrasteEmisor(c.emisor, tipoEmisor);
+    const fecha = conf?.fecha ? new Date(conf.fecha).toLocaleDateString('es-ES') : null;
+    if (k.estado === 'difiere') {
+        return (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-3 flex items-start gap-3 flex-wrap">
+                <div className="min-w-0 flex-1">
+                    <div className="text-[11px] font-black text-amber-400 uppercase tracking-widest">
+                        El cliente dijo otro emisor al aceptar{fecha ? ` (${fecha})` : ''}
+                    </div>
+                    <p className="text-[11px] text-white/60 normal-case leading-snug mt-1">{k.texto}</p>
+                </div>
+                {!readOnly && k.sugerido && (
+                    <button type="button" onClick={() => onAplicar(k.sugerido)}
+                            className="shrink-0 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest border border-amber-500/40 text-amber-300 hover:bg-amber-500/15 transition-colors">
+                        Usar {emisorLabel(k.sugerido)}
+                    </button>
+                )}
+            </div>
+        );
+    }
+    if (k.estado === 'sin_dato') {
+        return k.texto ? <p className="text-[10px] text-amber-400/80 leading-snug">{k.texto}</p> : null;
+    }
+    return (
+        <p className="text-[10px] text-emerald-400/80 leading-snug">
+            ✓ Confirmado por el cliente al aceptar{fecha ? ` (${fecha})` : ''}: {labelEmisor(c.emisor)}.
+            {k.texto ? ` ${k.texto}` : ''}
+        </p>
+    );
+}
+
 function acsDecididoAparte(prev, nuevoCal) {
     const acs = prev?.aerotermia_acs;
     if (tipoEquipoNuevo(acs) !== EQUIPO_NUEVO.BDC) return true;
@@ -2074,6 +2115,47 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                                     Interesado en instalarlas más adelante — candidato para la propuesta de fotovoltaica al pagarle el bono.
                                 </p>
                             )}
+
+                            {/* Lo que dijo el cliente al aceptar. El expediente nace con
+                                ello; si alguien lo ha cambiado después, se ve qué dijo. */}
+                            {(() => {
+                                const conf = local.confirmacion_cliente || opDatos.confirmacion_cliente;
+                                const fvCli = sanearConfirmacion(conf)?.fotovoltaica;
+                                if (!fvCli?.estado) return null;
+                                const fecha = conf?.fecha ? new Date(conf.fecha).toLocaleDateString('es-ES') : null;
+                                const igual = fvCli.estado === fv.estado;
+                                return (
+                                    <p className={`text-[10px] leading-snug ${igual ? 'text-emerald-400/80' : 'text-amber-400/90'}`}>
+                                        {igual ? '✓ Confirmado por el cliente al aceptar' : 'El cliente dijo al aceptar'}
+                                        {fecha ? ` (${fecha})` : ''}: {etiquetaFotovoltaica(fvCli)}.
+                                    </p>
+                                );
+                            })()}
+                        </div>
+                    );
+                })()}
+
+                {/* ── AIRE ACONDICIONADO que ya tiene la vivienda ──
+                    Lo dice el cliente al aceptar la propuesta y no sale en ninguna
+                    simulación. El CEE tiene que declararlo (regla 72: los aires que
+                    ya hay se QUEDAN como equipos de refrigeración existentes). */}
+                {(() => {
+                    const conf = local.confirmacion_cliente || opDatos.confirmacion_cliente;
+                    const aires = etiquetaAires(conf);
+                    if (!aires) return null;
+                    const tiene = sanearConfirmacion(conf)?.aire_acondicionado === true;
+                    return (
+                        <div className="bg-bkg-surface/60 rounded-xl px-4 py-3 border border-white/[0.06] flex items-start gap-3">
+                            <span className="text-base leading-none mt-0.5" aria-hidden="true">❄️</span>
+                            <div className="min-w-0">
+                                <div className="text-xs font-black text-white uppercase tracking-widest">
+                                    Aire acondicionado: <span className={tiene ? 'text-sky-400' : 'text-white/60'}>{aires}</span>
+                                </div>
+                                <p className="text-[10px] text-white/40 mt-0.5 leading-snug">
+                                    Lo dijo el cliente al aceptar la propuesta.
+                                    {tiene ? ' El CEE tiene que declararlos como equipos de refrigeración existentes.' : ''}
+                                </p>
+                            </div>
                         </div>
                     );
                 })()}
@@ -2235,6 +2317,13 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                                     ? 'La vivienda no tenía emisores de calefacción. El estado final lo declara cada equipo instalado.'
                                     : 'En un RES080 el emisor puede cambiar con la obra. Cada equipo de la cascada declara el suyo abajo.'}
                             </p>
+                            {/* Lo que tiene HOY la vivienda es el emisor de ANTES. */}
+                            <ConfirmacionEmisor
+                                conf={local.confirmacion_cliente || opDatos.confirmacion_cliente}
+                                tipoEmisor={local.tipo_emisor_inicial ?? local.tipo_emisor}
+                                onAplicar={v => setLocal(p => ({ ...p, tipo_emisor_inicial: v }))}
+                                readOnly={readOnly}
+                            />
                         </>
                     ) : (
                         <>
@@ -2249,6 +2338,12 @@ export function InstalacionModule({ expediente, onSave, onLiveUpdate, saving, re
                                 La actuación sustituye el generador: el emisor es el MISMO antes y después,
                                 y es el que justifica la temperatura de impulsión del SCOP declarado.
                             </p>
+                            <ConfirmacionEmisor
+                                conf={local.confirmacion_cliente || opDatos.confirmacion_cliente}
+                                tipoEmisor={local.tipo_emisor}
+                                onAplicar={handleTipoEmisorChange}
+                                readOnly={readOnly}
+                            />
                         </>
                     )}
                 </div>

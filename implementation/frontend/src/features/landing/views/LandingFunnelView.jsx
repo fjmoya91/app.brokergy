@@ -711,6 +711,7 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                     {phase === 'PROPERTY_REVIEW' && catastro && (
                         <LandingPropertyReview
                             catastro={catastro}
+                            isInternal={isInternal}
                             onConfirm={handlePropertyReviewConfirm}
                             onBack={() => { setCatastro(null); setPhase('HOME'); }}
                         />

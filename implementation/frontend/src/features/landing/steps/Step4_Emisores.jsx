@@ -1,6 +1,10 @@
 import React from 'react';
 import { IconCard } from '../components/IconCard';
 import { StepLayout } from '../components/StepLayout';
+import { IconoFunnel } from '../components/IconosFunnel';
+
+// Los MISMOS dibujos que la aceptación de la propuesta (/firma/:id): el emoji
+// del radiador era una escalera (🪜), y el cliente contesta mirando el dibujo.
 
 export function Step4_Emisores({ funnel, updateFunnel, onNext, isInternal = false }) {
     const ej = funnel.obra_estado === 'ejecutada';
@@ -16,14 +20,14 @@ export function Step4_Emisores({ funnel, updateFunnel, onNext, isInternal = fals
             subtitle={ej ? "El sistema que había instalado antes de la reforma." : (isInternal ? "Lo que hay hoy en paredes o suelo. Cuanto mejor, más eficiente será la aerotermia." : "Lo que tienes hoy en paredes o suelo. Cuanto mejor, más eficiente será la aerotermia.")}
         >
             <IconCard
-                icon="🪜"
+                icon={<IconoFunnel n="radiador" />}
                 title="Radiadores tradicionales"
                 subtitle="Los típicos de hierro o aluminio, altos y delgados"
                 selected={funnel.emisor_tipo === 'radiadores_convencionales'}
                 onClick={() => select('radiadores_convencionales')}
             />
             <IconCard
-                icon="♨️"
+                icon={<IconoFunnel n="sueloRadiante" />}
                 title="Suelo radiante"
                 subtitle="Calor que sale del suelo de la vivienda"
                 selected={funnel.emisor_tipo === 'suelo_radiante'}
@@ -31,14 +35,14 @@ export function Step4_Emisores({ funnel, updateFunnel, onNext, isInternal = fals
                 badge="⭐ Ideal"
             />
             <IconCard
-                icon="💨"
+                icon={<IconoFunnel n="aire" />}
                 title="Fancoils / Split"
                 subtitle="Unidades de aire frío/caliente en pared o techo"
                 selected={funnel.emisor_tipo === 'fancoils'}
                 onClick={() => select('fancoils')}
             />
             <IconCard
-                icon="❓"
+                icon={<IconoFunnel n="noSe" />}
                 title="No lo sé"
                 subtitle="Calculamos asumiendo radiadores tradicionales"
                 selected={funnel.emisor_tipo === 'no_se'}

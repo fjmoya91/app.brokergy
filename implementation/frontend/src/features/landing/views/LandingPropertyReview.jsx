@@ -7,10 +7,16 @@
  * qué zonas quiere climatizar.
  *
  * Las fotos (fachada + plano catastral) aparecen al final de la pantalla.
+ *
+ * En el flujo PÚBLICO (el cliente, casi siempre con el móvil) las zonas no son
+ * una tabla sino una pregunta — ver components/ZonasCalefaccion — y no se le
+ * enseña lo técnico que no le dice nada (UTM, participación, la zona repetida).
+ * El flujo INTERNO conserva la tabla y todos los datos.
  */
 
 import React, { useState, useEffect } from 'react';
 import { desgloseConstrucciones } from '../../../utils/construcciones';
+import { ZonasCalefaccion } from '../components/ZonasCalefaccion';
 
 const API_URL = '/api/catastro';
 
@@ -54,7 +60,7 @@ function StatCard({ label, value, highlight = false }) {
     );
 }
 
-export function LandingPropertyReview({ catastro, onConfirm, onBack }) {
+export function LandingPropertyReview({ catastro, onConfirm, onBack, isInternal = false }) {
     const [selectedElements, setSelectedElements] = useState([]);
     const [facadeError, setFacadeError] = useState(false);
     const [parcelError, setParcelError] = useState(false);
@@ -65,12 +71,13 @@ export function LandingPropertyReview({ catastro, onConfirm, onBack }) {
 
     // Default: seleccionar todas las zonas de tipo VIVIENDA.
     // Si no hay VIVIENDA (p.ej. parcela sin tipo explícito), seleccionar todo.
+    const vivIdx = constructions
+        .map((c, i) => (c.type || '').toUpperCase().includes('VIVIENDA') ? i : null)
+        .filter(i => i !== null);
+    const porDefecto = vivIdx.length > 0 ? vivIdx : constructions.map((_, i) => i);
     useEffect(() => {
         if (constructions.length === 0) return;
-        const vivIdx = constructions
-            .map((c, i) => (c.type || '').toUpperCase().includes('VIVIENDA') ? i : null)
-            .filter(i => i !== null);
-        setSelectedElements(vivIdx.length > 0 ? vivIdx : constructions.map((_, i) => i));
+        setSelectedElements(porDefecto);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [catastro?.rc]);
 
@@ -90,17 +97,24 @@ export function LandingPropertyReview({ catastro, onConfirm, onBack }) {
 
     const canContinue = constructions.length === 0 || selectedElements.length > 0;
 
-    const handleContinue = () => {
+    // La selección llega por parámetro desde la pregunta del flujo público: allí
+    // se elige y se continúa en el MISMO toque, y el estado aún no se ha
+    // actualizado cuando se llama.
+    const handleContinue = (sel = selectedElements) => {
+        const seleccion = Array.isArray(sel) ? sel : selectedElements;
+        const surface = constructions
+            .filter((_, i) => seleccion.includes(i))
+            .reduce((acc, c) => acc + (c.surface || 0), 0);
         // Si no hay desglose de construcciones, usar la superficie VIVIENDA del catastro
         const fallbackSurface = catastro?.summaryByType?.VIVIENDA
             || catastro?.summaryByType?.['VIVIENDA']
             || catastro?.totalSurface
             || 120;
         onConfirm({
-            selectedConstructions: selectedElements,
-            ...desgloseConstrucciones(constructions, selectedElements),
-            superficieCalefactable: selectedSurface || fallbackSurface,
-            superficieUtil: selectedUsefulSurface || Math.round((selectedSurface || fallbackSurface) * 0.8),
+            selectedConstructions: seleccion,
+            ...desgloseConstrucciones(constructions, seleccion),
+            superficieCalefactable: surface || fallbackSurface,
+            superficieUtil: Math.round(surface * 0.8) || Math.round((surface || fallbackSurface) * 0.8),
         });
     };
 
@@ -137,15 +151,23 @@ export function LandingPropertyReview({ catastro, onConfirm, onBack }) {
             </div>
 
             {/* ── Stats rápidas ─────────────────────────────────────────────── */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-                <StatCard label="Año construcción" value={catastro?.yearBuilt || '—'} />
-                <StatCard label="Sup. total"       value={catastro?.totalSurface ? `${catastro.totalSurface} m²` : '—'} />
-                <StatCard label="Zona CTE"         value={catastro?.climateInfo?.climateZone || '—'} highlight />
-                <StatCard label="Participación"    value={`${(catastro?.participation || '100,00').replace('%', '')}%`} />
-            </div>
+            {isInternal ? (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+                    <StatCard label="Año construcción" value={catastro?.yearBuilt || '—'} />
+                    <StatCard label="Sup. total"       value={catastro?.totalSurface ? `${catastro.totalSurface} m²` : '—'} />
+                    <StatCard label="Zona CTE"         value={catastro?.climateInfo?.climateZone || '—'} highlight />
+                    <StatCard label="Participación"    value={`${(catastro?.participation || '100,00').replace('%', '')}%`} />
+                </div>
+            ) : (
+                <div className="grid grid-cols-3 gap-2 mb-7">
+                    <StatCard label="Año" value={catastro?.yearBuilt || '—'} />
+                    <StatCard label="Superficie" value={catastro?.totalSurface ? `${catastro.totalSurface} m²` : '—'} />
+                    <StatCard label="Zona clima" value={catastro?.climateInfo?.climateZone || '—'} highlight />
+                </div>
+            )}
 
-            {/* ── UTM + Datos climáticos ────────────────────────────────────── */}
-            {(catastro?.utm || catastro?.climateInfo) && (
+            {/* ── UTM + Datos climáticos (solo el equipo) ──────────────────── */}
+            {isInternal && (catastro?.utm || catastro?.climateInfo) && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
                     {catastro?.utm && (
                         <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
@@ -192,8 +214,21 @@ export function LandingPropertyReview({ catastro, onConfirm, onBack }) {
                 </div>
             )}
 
-            {/* ── Tabla de zonas a climatizar ───────────────────────────────── */}
-            {constructions.length > 0 && (
+            {/* ── Zonas con calefacción: pregunta (cliente) ──────────────────── */}
+            {!isInternal && constructions.length > 0 && (
+                <div className="mb-10">
+                    <ZonasCalefaccion
+                        constructions={constructions}
+                        seleccion={selectedElements}
+                        setSeleccion={setSelectedElements}
+                        porDefecto={porDefecto}
+                        onContinuar={handleContinue}
+                    />
+                </div>
+            )}
+
+            {/* ── Tabla de zonas a climatizar (equipo) ──────────────────────── */}
+            {isInternal && constructions.length > 0 && (
                 <div className="mb-7">
                     <div className="flex items-center justify-between mb-3">
                         <h2 className="text-white font-black text-sm uppercase tracking-widest flex items-center gap-2">
@@ -303,9 +338,11 @@ export function LandingPropertyReview({ catastro, onConfirm, onBack }) {
             )}
 
             {/* ── CTA principal ─────────────────────────────────────────────── */}
+            {/* En el público, con zonas, el botón ES la respuesta a la pregunta. */}
+            {(isInternal || constructions.length === 0) && (
             <button
                 type="button"
-                onClick={handleContinue}
+                onClick={() => handleContinue()}
                 disabled={!canContinue}
                 className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-bkg-deep font-black uppercase tracking-widest text-sm shadow-lg shadow-amber-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-3 mb-10"
             >
@@ -314,6 +351,7 @@ export function LandingPropertyReview({ catastro, onConfirm, onBack }) {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M9 5l7 7-7 7" />
                 </svg>
             </button>
+            )}
 
             {/* ── Imágenes (al final) ───────────────────────────────────────── */}
             <div className="mb-8">

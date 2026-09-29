@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { IconCard } from '../components/IconCard';
 import { StepLayout } from '../components/StepLayout';
 
+import { IconoFunnel } from '../components/IconosFunnel';
 /**
  * Paso 5 — ACS (agua caliente sanitaria).
  *
@@ -57,7 +58,7 @@ export function Step5_ACS({ funnel, updateFunnel, onNext, isInternal = false }) 
             >
                 {mismaInstalacion && (
                     <IconCard
-                        icon="🔁"
+                        icon={<IconoFunnel n="caldera" />}
                         title={mismaInstalacion.title}
                         subtitle={mismaInstalacion.subtitle}
                         selected={funnel.boiler_acs_type === 'misma_caldera'}
@@ -65,28 +66,28 @@ export function Step5_ACS({ funnel, updateFunnel, onNext, isInternal = false }) 
                     />
                 )}
                 <IconCard
-                    icon="⚡"
+                    icon={<IconoFunnel n="termo" />}
                     title="Termo eléctrico"
                     subtitle="Depósito con resistencia"
                     selected={funnel.boiler_acs_type === 'termo'}
                     onClick={() => selectAcs('termo')}
                 />
                 <IconCard
-                    icon="🛢️"
+                    icon={<IconoFunnel n="bombona" />}
                     title="Calentador de butano o GLP"
                     subtitle="Bombona de butano o tanque de propano"
                     selected={funnel.boiler_acs_type === 'butano'}
                     onClick={() => selectAcs('butano')}
                 />
                 <IconCard
-                    icon="🌞"
+                    icon={<IconoFunnel n="solarTermico" />}
                     title="Placas solares térmicas"
                     subtitle="Captadores solares para agua caliente"
                     selected={funnel.boiler_acs_type === 'solar'}
                     onClick={() => selectAcs('solar')}
                 />
                 <IconCard
-                    icon="❓"
+                    icon={<IconoFunnel n="noSe" />}
                     title="No tengo / no lo sé"
                     subtitle="Usamos butano como referencia"
                     selected={funnel.boiler_acs_type === 'no_tengo'}
@@ -113,7 +114,7 @@ export function Step5_ACS({ funnel, updateFunnel, onNext, isInternal = false }) 
                 Cambiar lo del agua caliente actual
             </button>
             <IconCard
-                icon="🚿"
+                icon={<IconoFunnel n="ducha" />}
                 title="Sí, también el agua caliente"
                 subtitle="Más ahorro: una sola máquina para todo"
                 selected={funnel.incluir_acs === true}
@@ -121,7 +122,7 @@ export function Step5_ACS({ funnel, updateFunnel, onNext, isInternal = false }) 
                 badge="Más ahorro"
             />
             <IconCard
-                icon="🔥"
+                icon={<IconoFunnel n="radiador" />}
                 title="No, solo calefacción"
                 subtitle={isInternal ? "Se mantiene el sistema actual de agua caliente" : "Mantienes tu sistema actual de agua caliente"}
                 selected={funnel.incluir_acs === false}

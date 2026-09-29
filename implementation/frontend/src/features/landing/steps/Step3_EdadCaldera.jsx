@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { IconCard } from '../components/IconCard';
 import { StepLayout } from '../components/StepLayout';
 
+import { IconoFunnel } from '../components/IconosFunnel';
 /**
  * Paso 3 — Edad de la caldera + (si aplica) condensación.
  *
@@ -58,21 +59,21 @@ export function Step3_EdadCaldera({ funnel, updateFunnel, onNext, isInternal = f
                 subtitle={ej ? "Nos ayuda a calcular la mejora al haberla sustituido." : "A más antigua, más probable que esté perdiendo dinero por ineficiencia."}
             >
                 <IconCard
-                    icon="🆕"
+                    icon={<IconoFunnel n="calderaNueva" />}
                     title="Menos de 10 años"
                     subtitle="Caldera moderna"
                     selected={funnel.edad_caldera === '<10'}
                     onClick={() => selectEdad('<10')}
                 />
                 <IconCard
-                    icon="⏳"
+                    icon={<IconoFunnel n="relojArena" />}
                     title="Entre 10 y 20 años"
                     subtitle="Tecnología intermedia"
                     selected={funnel.edad_caldera === '10-20'}
                     onClick={() => selectEdad('10-20')}
                 />
                 <IconCard
-                    icon="👴"
+                    icon={<IconoFunnel n="calderaVieja" />}
                     title="Más de 20 años"
                     subtitle="Caldera antigua, gran margen de ahorro"
                     selected={funnel.edad_caldera === '>20'}
@@ -80,7 +81,7 @@ export function Step3_EdadCaldera({ funnel, updateFunnel, onNext, isInternal = f
                     badge="🔥 Ahorro alto"
                 />
                 <IconCard
-                    icon="❓"
+                    icon={<IconoFunnel n="noSe" />}
                     title="No lo sé"
                     subtitle="Calculamos con una estimación conservadora"
                     selected={funnel.edad_caldera === 'no_se'}
@@ -107,21 +108,21 @@ export function Step3_EdadCaldera({ funnel, updateFunnel, onNext, isInternal = f
                 Cambiar edad de la caldera
             </button>
             <IconCard
-                icon="🏭"
+                icon={<IconoFunnel n="calderaHumos" />}
                 title="No, sin manguera de condensados"
                 subtitle="Caldera convencional (atmosférica o estanca sin condensación)"
                 selected={funnel.condensacion === 'no'}
                 onClick={() => selectCondensacion('no')}
             />
             <IconCard
-                icon="💧"
+                icon={<IconoFunnel n="calderaGota" />}
                 title="Sí, tiene manguera de condensados"
                 subtitle="Tubo fino por debajo que evacúa agua, o se indica en la placa"
                 selected={funnel.condensacion === 'si'}
                 onClick={() => selectCondensacion('si')}
             />
             <IconCard
-                icon="❓"
+                icon={<IconoFunnel n="noSe" />}
                 title="No lo sé"
                 subtitle="Lo estimamos por la edad de la caldera"
                 selected={funnel.condensacion === 'no_se'}

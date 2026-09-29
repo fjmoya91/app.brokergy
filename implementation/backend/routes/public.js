@@ -53,6 +53,51 @@ function loadFotovoltaica() {
     return _fotovoltaicaPromise;
 }
 
+// Lo que el cliente CONFIRMA de su vivienda al aceptar (emisores y placas).
+// Fuente única de las preguntas y del contraste con la simulación: el mismo
+// módulo que pinta la página pública y el aviso del expediente.
+let _confirmacionPromise = null;
+function loadConfirmacion() {
+    if (!_confirmacionPromise) {
+        const url = require('url').pathToFileURL(
+            require('path').join(__dirname, '../../frontend/src/features/expedientes/logic/confirmacionCliente.js')
+        ).href;
+        _confirmacionPromise = import(url);
+    }
+    return _confirmacionPromise;
+}
+
+/**
+ * La confirmación del cliente, lista para guardar en la oportunidad, o null si
+ * no llegó (un navegador con la versión anterior de la página no la manda, y
+ * eso NO puede impedir aceptar). Lleva al lado lo que se SUPUSO al simular:
+ * sin eso, dentro de tres meses no se sabe si el dato cambió o ya era así.
+ */
+async function confirmacionDeLaAceptacion(raw, datosCalculo) {
+    if (!raw) return null;
+    let obj = raw;
+    if (typeof raw === 'string') {
+        try { obj = JSON.parse(raw); } catch (_) { return null; }
+    }
+    const { sanearConfirmacion, CONFIRMACION_VERSION } = await loadConfirmacion();
+    const saneada = sanearConfirmacion(obj);
+    if (!saneada) return null;
+    const { normalizarFotovoltaica, fotovoltaicaDesdeFunnel } = await loadFotovoltaica();
+    const inputs = datosCalculo?.inputs || {};
+    const version = /^[\w.-]{1,10}$/.test(String(obj.version || '')) ? String(obj.version) : CONFIRMACION_VERSION;
+    return {
+        ...saneada,
+        fecha: new Date().toISOString(),
+        version,
+        supuesto: {
+            tipo_emisor: inputs.emitterType || null,
+            fotovoltaica: inputs.fotovoltaica
+                ? normalizarFotovoltaica(inputs.fotovoltaica)
+                : fotovoltaicaDesdeFunnel(datosCalculo?.landing_funnel),
+        },
+    };
+}
+
 // Configuración de multer (memoria para subida directa a Drive)
 const upload = multer({
     storage: multer.memoryStorage(),
@@ -411,6 +456,19 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
         const condicionesVersion = /^[\w.-]{1,20}$/.test(String(formFields.condiciones_version || ''))
             ? String(formFields.condiciones_version) : null;
 
+        // Lo que el cliente CONFIRMA de su vivienda (cómo le llega el calor y si
+        // tiene placas). Se guarda en la oportunidad y `createExpediente` lo
+        // hereda: las placas se aplican, el emisor se AVISA si no casa con la
+        // simulación (ver logic/confirmacionCliente.js). Un fallo aquí no puede
+        // tumbar la aceptación.
+        let confirmacion = null;
+        try {
+            confirmacion = await confirmacionDeLaAceptacion(formFields.confirmacion, opp.datos_calculo);
+        } catch (e) {
+            console.warn('[Public] confirmación de la vivienda:', e.message);
+        }
+        const conConfirmacion = confirmacion ? { confirmacion_cliente: confirmacion } : {};
+
         if (prevEstado !== 'ACEPTADA') {
             const clienteNombre = [formFields.nombre_razon_social, formFields.apellidos].filter(Boolean).join(' ');
             const newHistorial = [...currentHistorial, {
@@ -424,7 +482,7 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
                 ...(ceeDecision ? { cee_decision: ceeDecision } : {})
             }];
 
-            const newData = { ...(opp.datos_calculo || {}), estado: 'ACEPTADA', historial: newHistorial, ...(ceeDecision ? { cee_decision: ceeDecision } : {}), ...(fechasPrevistas || {}) };
+            const newData = { ...(opp.datos_calculo || {}), estado: 'ACEPTADA', historial: newHistorial, ...(ceeDecision ? { cee_decision: ceeDecision } : {}), ...(fechasPrevistas || {}), ...conConfirmacion };
             await supabase.from('oportunidades')
                 .update({ datos_calculo: newData })
                 .eq('id_oportunidad', id);
@@ -434,9 +492,9 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
             // falta — el listado de versiones se lee sin el historial delante.
             try { await propuestaVersiones.sellarAceptacion(opp, { aceptadoPor: `Firma Cliente (${clienteNombre})` }); } catch (_) { }
             console.log(`[Public] Oportunidad ${id} marcada como ACEPTADA${vAceptada ? ` (propuesta v${vAceptada})` : ''}${ceeDecision ? ` (CEE: ${ceeDecision})` : ''}${fechaInicio ? ` (inicio obra: ${fechaInicio})` : ''}`);
-        } else if ((ceeDecision && opp.datos_calculo?.cee_decision !== ceeDecision) || fechasPrevistas) {
+        } else if ((ceeDecision && opp.datos_calculo?.cee_decision !== ceeDecision) || fechasPrevistas || confirmacion) {
             // Re-aceptación, cambio de decisión CEE o fechas nuevas cuando ya estaba ACEPTADA.
-            const newData = { ...(opp.datos_calculo || {}), ...(ceeDecision ? { cee_decision: ceeDecision } : {}), ...(fechasPrevistas || {}) };
+            const newData = { ...(opp.datos_calculo || {}), ...(ceeDecision ? { cee_decision: ceeDecision } : {}), ...(fechasPrevistas || {}), ...conConfirmacion };
             await supabase.from('oportunidades').update({ datos_calculo: newData }).eq('id_oportunidad', id);
             opp.datos_calculo = newData; // reflejar para createExpediente
             console.log(`[Public] Oportunidad ${id}: datos de aceptación actualizados`);
@@ -599,7 +657,22 @@ ${uploadLink}
                     : 'Aceptado por el cliente desde el portal público.';
 
                 const justificanteStr = justificanteAdjunto ? '✅ Justificante bancario adjunto' : '⚠️ Sin justificante bancario';
-                const adminMsg = `🚀 *ACEPTACIÓN (PORTAL PÚBLICO)*\n\nOportunidad *${id}*\n👤 *Cliente:* ${formFields.nombre_razon_social} ${formFields.apellidos || ''}\n📍 ${opp.datos_calculo?.inputs?.direccion || 'S/N'}\n👷 *Instalador:* ${installerName}\n📋 Expediente: *${numeroExpediente || 'Pte.'}*\n🏦 ${justificanteStr}\n\n${notesStr}\n\n${process.env.FRONTEND_URL || 'https://app.brokergy.es'}?exp=${numeroExpediente || ''}`;
+                // Lo que confirmó de su vivienda, con la diferencia frente a lo
+                // supuesto al simular: es el momento de verlo, antes de encargar
+                // el CEE y de que el expediente arrastre un emisor equivocado.
+                let viviendaStr = '';
+                if (confirmacion) {
+                    try {
+                        const { resumenConfirmacion } = await loadConfirmacion();
+                        const lineas = resumenConfirmacion(confirmacion);
+                        if (lineas.length) {
+                            viviendaStr = '\n\n🏠 *Confirmado por el cliente:*\n' + lineas
+                                .map(l => `• ${l.tema}: *${l.valor}*${l.aviso ? `\n  ⚠️ ${l.aviso}` : ''}`)
+                                .join('\n');
+                        }
+                    } catch (e) { console.warn('[Public] resumen de la confirmación:', e.message); }
+                }
+                const adminMsg = `🚀 *ACEPTACIÓN (PORTAL PÚBLICO)*\n\nOportunidad *${id}*\n👤 *Cliente:* ${formFields.nombre_razon_social} ${formFields.apellidos || ''}\n📍 ${opp.datos_calculo?.inputs?.direccion || 'S/N'}\n👷 *Instalador:* ${installerName}\n📋 Expediente: *${numeroExpediente || 'Pte.'}*\n🏦 ${justificanteStr}${viviendaStr}\n\n${notesStr}\n\n${process.env.FRONTEND_URL || 'https://app.brokergy.es'}?exp=${numeroExpediente || ''}`;
                 whatsappService.sendText(process.env.WHATSAPP_ADMIN_CHAT || '34623926179', adminMsg).catch(e => console.warn('[Public] Error WhatsApp Admin:', e.message));
 
                 await emailService.sendAdminNotificationEmail({
@@ -3402,3 +3475,5 @@ router.post('/lote-firma/:loteId/firmar', async (req, res) => {
 });
 
 module.exports = router;
+// Para scripts/test_confirmacion_cliente.mjs: la confirmación que se guarda al aceptar.
+module.exports.confirmacionDeLaAceptacion = confirmacionDeLaAceptacion;

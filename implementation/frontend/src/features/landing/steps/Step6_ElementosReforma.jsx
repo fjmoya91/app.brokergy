@@ -2,6 +2,7 @@ import React from 'react';
 import { IconCard } from '../components/IconCard';
 import { StepLayout } from '../components/StepLayout';
 
+import { IconoFunnel } from '../components/IconosFunnel';
 /**
  * Solo se muestra si funnel.isReforma === true.
  * Permite marcar qué elementos quiere mejorar en la reforma envolvente
@@ -25,28 +26,28 @@ export function Step6_ElementosReforma({ funnel, updateFunnel, onNext }) {
             canContinue={algunoSeleccionado}
         >
             <IconCard
-                icon="🪟"
+                icon={<IconoFunnel n="ventana" />}
                 title="Ventanas"
                 subtitle="Cambio de ventanas por modelos más eficientes"
                 selected={!!funnel.reforma_elementos?.ventanas}
                 onClick={() => toggle('ventanas')}
             />
             <IconCard
-                icon="🏠"
+                icon={<IconoFunnel n="cubierta" />}
                 title="Cubierta / tejado"
                 subtitle="Aislamiento del techo o tejado"
                 selected={!!funnel.reforma_elementos?.cubierta}
                 onClick={() => toggle('cubierta')}
             />
             <IconCard
-                icon="🧱"
+                icon={<IconoFunnel n="fachada" />}
                 title="Fachada (paredes exteriores)"
                 subtitle="SATE, trasdosado o aislamiento de fachada"
                 selected={!!funnel.reforma_elementos?.paredes}
                 onClick={() => toggle('paredes')}
             />
             <IconCard
-                icon="⬇️"
+                icon={<IconoFunnel n="sueloAislamiento" />}
                 title="Suelo"
                 subtitle="Aislamiento del suelo de la vivienda"
                 selected={!!funnel.reforma_elementos?.suelo}

@@ -3,10 +3,55 @@ import axios from 'axios';
 import { DynamicNetworkBackground } from '../../../components/DynamicNetworkBackground';
 import CondicionesAceptacionModal from '../components/CondicionesAceptacionModal';
 import { CONDICIONES_VERSION } from '../logic/condicionesAceptacion';
+import { ConfirmarVivienda } from '../components/ConfirmarVivienda';
+import {
+    CONFIRMACION_VACIA, CONFIRMACION_VERSION, faltanConfirmacion, resumenConfirmacion,
+} from '../../expedientes/logic/confirmacionCliente';
 
 // Usamos el entorno para definir dónde están las API (Vite local o Vercel)
 const isProd = import.meta.env.PROD;
 const API_URL = isProd ? '/api/public' : 'http://localhost:3000/api/public';
+
+// /firma/demo — el formulario tal y como lo ve el cliente, con datos de mentira.
+// No llama a la API: ni se acepta nada ni sale ningún mensaje. Sirve para
+// enseñarlo y para revisarlo sin tocar una propuesta de verdad.
+const DEMO_ID = 'demo';
+const DEMO_DATOS = {
+    nombre_razon_social: 'María',
+    apellidos: 'García López',
+    dni_cif: '12345678Z',
+    email: 'maria.garcia@ejemplo.es',
+    telefono: '600 000 000',
+    iban: '',
+};
+
+function DemoAviso() {
+    return (
+        <div className="mb-6 p-3 rounded-xl border border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-300 text-[11px] font-bold text-center leading-relaxed">
+            MODO PRUEBA · así ve el cliente el formulario. No se acepta ninguna propuesta ni se envía nada.
+        </div>
+    );
+}
+
+/** En la prueba, lo que se habría guardado con la aceptación. */
+function DemoResumen({ conf }) {
+    const lineas = resumenConfirmacion({ ...conf, supuesto: { tipo_emisor: 'radiadores_convencionales', fotovoltaica: { estado: 'no' } } });
+    return (
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 space-y-3">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Lo que se guardaría en el expediente</p>
+            {lineas.map(l => (
+                <div key={l.tema} className="text-sm">
+                    <span className="text-white/40">{l.tema}: </span>
+                    <span className="text-white font-bold">{l.valor}</span>
+                    {l.aviso && <p className="mt-1 text-[11px] text-amber-300/90 leading-snug">⚠️ {l.aviso}</p>}
+                </div>
+            ))}
+            <p className="text-[10px] text-white/30 leading-snug">
+                Los avisos comparan con una propuesta de ejemplo calculada con radiadores y sin placas: es lo que vería el equipo en el aviso de aceptación y en el expediente.
+            </p>
+        </div>
+    );
+}
 
 /**
  * Componente interactivo para subir fotos/vídeos directamente a Drive
@@ -212,8 +257,23 @@ export function AceptarPropuestaView({ idOportunidad }) {
     // está aceptada. El enlace no cambia al reenviar una revisión: sin decirlo,
     // el cliente firma un documento distinto del que recibió en su día.
     const [versionProp, setVersionProp] = useState({ v: null, fecha: null, aceptada: null });
+    // Lo que el cliente confirma de su vivienda: cómo le llega el calor y si tiene
+    // placas. Se pregunta en NEUTRO, sin preseleccionar lo que se supuso al
+    // simular — ver logic/confirmacionCliente.js.
+    const [conf, setConf] = useState(CONFIRMACION_VACIA);
+    // La aceptación va en dos tramos: los DATOS (un formulario, vienen rellenos
+    // y solo se repasan) y la VIVIENDA (una pregunta por pantalla: el 90 % de
+    // las aceptaciones se hacen con el móvil). Ver components/ConfirmarVivienda.
+    const [fase, setFase] = useState('datos');
+    const demo = String(idOportunidad || '').toLowerCase() === DEMO_ID;
 
     useEffect(() => {
+        if (demo) {
+            setFormData(prev => ({ ...prev, ...DEMO_DATOS }));
+            setDisplayId('DEMO');
+            setLoading(false);
+            return;
+        }
         const fetchCliente = async () => {
             try {
                 const res = await axios.get(`${API_URL}/cliente/${idOportunidad}`);
@@ -244,16 +304,35 @@ export function AceptarPropuestaView({ idOportunidad }) {
         };
 
         if (idOportunidad) fetchCliente();
-    }, [idOportunidad]);
+    }, [idOportunidad, demo]);
 
     const handleChange = (e) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
     };
 
-    const handleSubmit = async (e) => {
+    // Datos repasados → a las preguntas de la vivienda. La validación nativa de
+    // los campos `required` ya ha pasado cuando llega aquí.
+    const handleSubmit = (e) => {
         e.preventDefault();
         if (ceeAportado && !ceeChoice) {
             setError('Por favor, indícanos si usamos tu CEE actual o hacemos uno nuevo.');
+            return;
+        }
+        setError(null);
+        setFase('vivienda');
+    };
+
+    const enviarAceptacion = async () => {
+        // Las preguntas de la vivienda no se pueden saltar en las pantallas;
+        // esto es la red por si algo llega a medias.
+        const faltan = faltanConfirmacion(conf);
+        if (faltan.length) {
+            setError(`Falta por contestar: ${faltan.join(', ')}.`);
+            return;
+        }
+        if (demo) {
+            setGeneratedExpediente('26RES060_DEMO');
+            setSuccess(true);
             return;
         }
         setSubmitting(true);
@@ -265,6 +344,8 @@ export function AceptarPropuestaView({ idOportunidad }) {
             if (ceeAportado && ceeChoice) fd.append('cee_choice', ceeChoice);
             // Qué texto de condiciones tenía delante al aceptar: se sella en el historial.
             fd.append('condiciones_version', CONDICIONES_VERSION);
+            // Lo que confirma de su vivienda. Va como JSON: es un multipart.
+            fd.append('confirmacion', JSON.stringify({ ...conf, version: CONFIRMACION_VERSION }));
             const res = await axios.post(`${API_URL}/aceptar/${idOportunidad}`, fd, {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
@@ -487,6 +568,7 @@ export function AceptarPropuestaView({ idOportunidad }) {
                         <div className="bg-bkg-surface shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/[0.06] rounded-[2.5rem] p-6 sm:p-10 relative overflow-hidden backdrop-blur-xl transition-all font-inter">
                             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-brand/40 to-transparent"></div>
 
+                            {demo && <DemoAviso />}
                             {/* Success Icon & Main Title */}
                             <div className="text-center mb-8">
                                 <div className="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-6 border border-emerald-500/30 shadow-[0_0_30px_rgba(16,185,129,0.1)]">
@@ -509,8 +591,14 @@ export function AceptarPropuestaView({ idOportunidad }) {
                                 <div className="text-3xl font-black text-brand tracking-widest">{generatedExpediente || 'PTE...'}</div>
                             </div>
 
-                            {/* File Upload Section - Dynamic Replacement */}
-                            <FileUploadSection idOportunidad={idOportunidad} API_URL={API_URL} />
+                            {/* File Upload Section - Dynamic Replacement. En la
+                                prueba no hay carpeta a la que subir: se enseña
+                                en su lugar lo que se habría guardado. */}
+                            {demo ? (
+                                <DemoResumen conf={conf} />
+                            ) : (
+                                <FileUploadSection idOportunidad={idOportunidad} API_URL={API_URL} />
+                            )}
 
                             <div className="my-8 flex items-center gap-4">
                                 <div className="h-px flex-1 bg-white/5"></div>
@@ -553,10 +641,10 @@ export function AceptarPropuestaView({ idOportunidad }) {
     }
 
     return (
-        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 relative overflow-hidden selection:bg-brand selection:text-black">
+        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center px-3 py-8 sm:p-4 relative overflow-hidden selection:bg-brand selection:text-black">
             <DynamicNetworkBackground />
 
-            <div className="w-full max-w-2xl relative z-10 px-4">
+            <div className="w-full max-w-2xl relative z-10 px-0 sm:px-4">
                 
                 {/* Header Style matching Login */}
                 <div className="text-center mb-10 relative">
@@ -576,7 +664,7 @@ export function AceptarPropuestaView({ idOportunidad }) {
                 <div className="relative group">
                     <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-orange-600/10 rounded-full blur-[100px] pointer-events-none animate-pulse" style={{ animationDelay: '2s' }}></div>
                     
-                    <div className="bg-bkg-surface shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/[0.06] rounded-[2rem] p-8 sm:p-10 relative overflow-hidden backdrop-blur-xl">
+                    <div className="bg-bkg-surface shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/[0.06] rounded-[2rem] px-5 py-7 sm:p-10 relative overflow-hidden backdrop-blur-xl">
                         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-brand/40 to-transparent"></div>
 
                         {error && !formData.nombre_razon_social ? (
@@ -594,6 +682,18 @@ export function AceptarPropuestaView({ idOportunidad }) {
                             </div>
                         ) : (
                             <>
+                                {demo && <DemoAviso />}
+                                {fase === 'vivienda' ? (
+                                    <ConfirmarVivienda
+                                        conf={conf}
+                                        setConf={setConf}
+                                        onVolverDatos={() => { setError(null); setFase('datos'); }}
+                                        onAceptar={enviarAceptacion}
+                                        onVerCondiciones={() => setVerCondiciones(true)}
+                                        enviando={submitting}
+                                        error={error}
+                                    />
+                                ) : (<>
                                 <div className="text-center mb-10">
                                     <h2 className="text-2xl font-black text-white mb-2 tracking-tight uppercase">
                                         Firma de Aceptación
@@ -836,45 +936,24 @@ export function AceptarPropuestaView({ idOportunidad }) {
                                     <div className="pt-6">
                                         <button
                                             type="submit"
-                                            disabled={submitting}
-                                            className="w-full py-4 bg-gradient-to-r from-brand to-brand-700 hover:from-brand-400 hover:to-brand-600 text-bkg-deep font-black rounded-xl transition-all shadow-lg shadow-brand/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 text-base uppercase tracking-widest"
+                                            className="w-full py-4 bg-gradient-to-r from-brand to-brand-700 hover:from-brand-400 hover:to-brand-600 text-bkg-deep font-black rounded-xl transition-all shadow-lg shadow-brand/20 flex items-center justify-center gap-3 text-base uppercase tracking-widest"
                                         >
-                                            {submitting ? (
-                                                <>
-                                                    <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-                                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                                    </svg>
-                                                    Procesando...
-                                                </>
-                                            ) : (
-                                                <>
-                                                    Confirmar y Aceptar Propuesta
-                                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                                                    </svg>
-                                                </>
-                                            )}
+                                            Continuar
+                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                                            </svg>
                                         </button>
-                                        {/* Aceptación por clic: el botón ES la aceptación, y el
-                                            texto completo queda a un clic. No hay casilla porque
-                                            lo que se acepta es el servicio que se contrata, no un
-                                            consentimiento aparte (ni publicidad, que no se hace). */}
-                                        <p className="mt-3 text-center text-[11px] text-white/40 leading-relaxed">
-                                            Al pulsar «Confirmar y aceptar propuesta» aceptas las{' '}
-                                            <button type="button" onClick={() => setVerCondiciones(true)}
-                                                    className="underline underline-offset-2 text-white/60 hover:text-brand transition-colors">
-                                                condiciones y autorizaciones
-                                            </button>
-                                            {' '}de la propuesta, incluidas la presentación de los Certificados de Eficiencia Energética y el tratamiento de tus datos personales.
+                                        <p className="mt-3 text-center text-[13px] text-white/70 leading-relaxed">
+                                            Después te hacemos 3 preguntas rápidas sobre tu vivienda y aceptas la propuesta.
                                         </p>
                                     </div>
                                 </form>
+                                </>)}
                                 <CondicionesAceptacionModal
                                     open={verCondiciones}
                                     onClose={() => setVerCondiciones(false)}
                                     enviando={submitting}
-                                    onAceptar={() => { setVerCondiciones(false); formRef.current?.requestSubmit(); }}
+                                    onAceptar={() => { setVerCondiciones(false); enviarAceptacion(); }}
                                 />
                             </>
                         )}

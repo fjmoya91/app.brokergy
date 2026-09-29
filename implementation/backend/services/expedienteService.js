@@ -20,6 +20,16 @@ function loadFotovoltaica() {
     return _fvPromise;
 }
 
+// Lo que el cliente confirmó de su vivienda al aceptar (emisores y placas).
+let _confPromise = null;
+function loadConfirmacion() {
+    if (!_confPromise) {
+        const url = pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/confirmacionCliente.js')).href;
+        _confPromise = import(url);
+    }
+    return _confPromise;
+}
+
 // Mapa inverso "nombre de provincia normalizado" -> código (para migración desde XML).
 // El CEE trae la provincia como texto ("CIUDAD REAL"); la app espera el CÓDIGO de
 // provincia en datos_calculo.inputs.provincia (lo usan getCCAA y los cálculos).
@@ -197,6 +207,24 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             fotovoltaica = { estado: null, potencia_kwp: null, potencia_desconocida: false };
         }
 
+        // ── Lo que el CLIENTE confirmó al aceptar ────────────────────────────
+        // Muchas simulaciones las rellenamos nosotros y SUPONEN (radiadores, sin
+        // placas); al aceptar se le pregunta al cliente. Las PLACAS mandan sobre
+        // lo supuesto —no mueven ninguna cifra, solo qué declara el CEE—. El
+        // EMISOR no se cambia aquí: mueve el SCOP y el ahorro, así que el
+        // expediente conserva el de la simulación y el módulo de Instalación
+        // AVISA de la diferencia con un botón para aplicarlo (lo decide una
+        // persona). Ver logic/confirmacionCliente.js.
+        const confirmacionCliente = op.datos_calculo?.confirmacion_cliente || null;
+        if (confirmacionCliente?.fotovoltaica) {
+            try {
+                const { fotovoltaicaResuelta } = await loadConfirmacion();
+                fotovoltaica = fotovoltaicaResuelta(confirmacionCliente.fotovoltaica, fotovoltaica);
+            } catch (e) {
+                console.warn('[ExpedienteService] confirmación del cliente:', e.message);
+            }
+        }
+
         const instalacion = {
             misma_direccion: true,
             ref_catastral: op.ref_catastral || '',
@@ -230,6 +258,10 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             // Placas solares YA instaladas en la vivienda (no las de esta obra).
             // `estado: null` = todavía no se ha preguntado; NO es lo mismo que 'no'.
             fotovoltaica,
+            // Lo que dijo el cliente al aceptar, con lo que se había supuesto al
+            // simular. El expediente lo lleva consigo (MCP, skills, CE3X) y no
+            // depende de ir a buscarlo a la oportunidad.
+            ...(confirmacionCliente ? { confirmacion_cliente: confirmacionCliente } : {}),
             // En las fichas de HIBRIDACIÓN (RES093 · TER173) la hibridación ES la
             // actuación, no una opción: se siembra activada aunque la oportunidad no
             // lo traiga en sus inputs. Un TER173 con esto en `false` calcularía su

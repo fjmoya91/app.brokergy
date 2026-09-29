@@ -2,6 +2,7 @@ import React from 'react';
 import { IconCard } from '../components/IconCard';
 import { StepLayout } from '../components/StepLayout';
 
+import { IconoFunnel } from '../components/IconosFunnel';
 export function Step1_TipoProyecto({ funnel, updateFunnel, onNext }) {
     const select = (value) => {
         updateFunnel({ isReforma: value });
@@ -14,14 +15,14 @@ export function Step1_TipoProyecto({ funnel, updateFunnel, onNext }) {
             subtitle="Elige la opción que mejor describe lo que quieres hacer en tu vivienda."
         >
             <IconCard
-                icon="🔄"
+                icon={<IconoFunnel n="aerotermia" />}
                 title="Solo cambiar mi caldera por aerotermia"
                 subtitle="Conservas el resto de tu vivienda como está y ganas eficiencia."
                 selected={funnel.isReforma === false}
                 onClick={() => select(false)}
             />
             <IconCard
-                icon="🏗️"
+                icon={<IconoFunnel n="reformaIntegral" />}
                 title="Reforma integral: aerotermia + mejorar aislamiento"
                 subtitle="Cambias la caldera y, además, mejoras ventanas, fachada o cubierta."
                 selected={funnel.isReforma === true}

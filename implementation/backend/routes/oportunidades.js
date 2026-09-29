@@ -261,7 +261,10 @@ router.post('/', requireAuth, async (req, res) => {
         if (existingData?.datos_calculo) {
             const META_KEYS = ['origen', 'consent_email', 'consent_whatsapp', 'lead_score',
                                'lead_caliente', 'partner_slug', 'timeline', 'motivacion',
-                               'warning_biomasa_aplicado', 'landing_funnel', 'solicita_instalador'];
+                               'warning_biomasa_aplicado', 'landing_funnel', 'solicita_instalador',
+                               // Lo que el CLIENTE confirmó de su vivienda al aceptar: lo escribe
+                               // /api/public/aceptar y la calculadora no lo manda.
+                               'confirmacion_cliente'];
             for (const k of META_KEYS) {
                 if (existingData.datos_calculo[k] !== undefined && datosCalculoFinal[k] === undefined) {
                     datosCalculoFinal[k] = existingData.datos_calculo[k];

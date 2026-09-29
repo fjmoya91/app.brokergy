@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { IconCard } from '../components/IconCard';
 import { StepLayout } from '../components/StepLayout';
 
+import { IconoFunnel } from '../components/IconosFunnel';
 function NoTieneModal({ onGoToReforma, onClose }) {
     const [mode, setMode] = useState('warning'); // 'warning' | 'dead_end'
 
@@ -120,42 +121,42 @@ export function Step2_Combustible({ funnel, updateFunnel, onNext, onGoToReforma 
                 subtitle="Esto nos ayuda a calcular cuánto puedes ahorrar."
             >
                 <IconCard
-                    icon="🔥"
+                    icon={<IconoFunnel n="gas" />}
                     title="Gas natural o butano"
                     subtitle="Caldera de gas (la más común en España)"
                     selected={funnel.combustible_actual === 'gas'}
                     onClick={() => select('gas')}
                 />
                 <IconCard
-                    icon="🛢️"
+                    icon={<IconoFunnel n="gasoleo" />}
                     title="Gasóleo / Diésel"
                     subtitle="Caldera con depósito de combustible líquido"
                     selected={funnel.combustible_actual === 'gasoleo'}
                     onClick={() => select('gasoleo')}
                 />
                 <IconCard
-                    icon="⚡"
+                    icon={<IconoFunnel n="electricidad" />}
                     title="Electricidad"
                     subtitle="Radiadores eléctricos o caldera eléctrica"
                     selected={funnel.combustible_actual === 'electrica'}
                     onClick={() => select('electrica')}
                 />
                 <IconCard
-                    icon="⚫"
+                    icon={<IconoFunnel n="carbon" />}
                     title="Carbón"
                     subtitle="Estufa o caldera de carbón"
                     selected={funnel.combustible_actual === 'carbon'}
                     onClick={() => select('carbon')}
                 />
                 <IconCard
-                    icon="🪵"
+                    icon={<IconoFunnel n="biomasa" />}
                     title="Biomasa"
                     subtitle="Pellets, leña o hueso de aceituna"
                     selected={funnel.combustible_actual === 'biomasa'}
                     onClick={() => select('biomasa')}
                 />
                 <IconCard
-                    icon="🚫"
+                    icon={<IconoFunnel n="ninguno" />}
                     title="No tenía calefacción"
                     subtitle="No había ningún sistema central de calefacción"
                     selected={funnel.combustible_actual === 'no_tiene'}

@@ -28,6 +28,7 @@ import {
     acsMismoEquipo, acsEquipoPropio,
 } from './aerotermiaUnits.js';
 import { normalizarFotovoltaica, tieneFotovoltaica, potenciaTexto } from './fotovoltaica.js';
+import { sanearConfirmacion } from './confirmacionCliente.js';
 import { emisoresFinales, emisoresFinalesMixtos, generadorCe3x, emisorCorto } from './emisores.js';
 
 // Emisores que dan FRÍO: con ellos el equipo se declara en CE3X con
@@ -501,6 +502,18 @@ export function buildCe3xFinal(exp, { modelos = {} } = {}) {
         L.push(p
             ? `Autoconsumo fotovoltaico ya instalado: *${p}*. Hay que declararlo como instalación EXISTENTE (contribuciones energéticas), no como medida de mejora.`
             : 'Autoconsumo fotovoltaico ya instalado (el cliente no sabía la potencia — te la pedimos). Hay que declararlo como instalación EXISTENTE (contribuciones energéticas), no como medida de mejora.');
+    }
+
+    // ── Aire acondicionado que YA tiene la vivienda ──────────────────────────
+    // Lo dice el cliente al aceptar la propuesta (no sale en ninguna simulación)
+    // y se QUEDA después de la obra: regla 72, equipos de refrigeración
+    // existentes. Sin el aviso, el certificador no lo ve si no lo vio en la visita.
+    const confCli = sanearConfirmacion(inst.confirmacion_cliente);
+    if (confCli?.aire_acondicionado === true) {
+        const n = confCli.num_aires;
+        L.push('');
+        L.push('❄️ *LA VIVIENDA TIENE AIRE ACONDICIONADO*');
+        L.push(`El cliente dijo al aceptar que tiene ${n ? `*${n} ${n === 1 ? 'aparato' : 'aparatos'}*` : 'aire acondicionado'}. Decláralos como equipos de refrigeración EXISTENTES: se quedan en la vivienda después de la obra.`);
     }
 
     // ── La vivienda NO tenía calefacción ─────────────────────────────────────
