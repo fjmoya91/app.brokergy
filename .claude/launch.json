@@ -82,7 +82,7 @@
       "runtimeExecutable": "node",
       "runtimeArgs": [
         "-e",
-        "process.env.PORT='3010';process.env.WHATSAPP_ENABLED='false';process.argv[1]=require('path').resolve('server.js');require('module').runMain()"
+        "process.env.PORT='3010';process.env.WHATSAPP_ENABLED='false';process.env.WA_MEDIA_SIMULADO='1';process.argv[1]=require('path').resolve('server.js');require('module').runMain()"
       ],
       "cwd": "implementation/backend",
       "port": 3010,

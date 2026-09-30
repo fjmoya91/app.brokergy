@@ -13,6 +13,8 @@
  */
 
 const crypto = require('crypto');
+const path = require('path');
+const { pathToFileURL } = require('url');
 const supabase = require('./supabaseClient');
 const docsAlcance = require('./docsAlcance');
 const driveService = require('./driveService');
@@ -1200,13 +1202,98 @@ async function mapLimit(items, limite, fn) {
  *
  * @returns {Promise<{subidas: Array, fallidas: Array, subId: string}>}
  */
-async function subirFicherosASlot({ oportunidadUuid, datosCalculo = {}, slotDef, archivos, label = null, subidoPor = 'cliente', destino = null }) {
+// Las VENTANAS van ventana por ventana: cada foto dice de cuál es. Las reglas
+// (qué es un id válido, cómo se rotula) viven en el frontend y se cargan aquí
+// por import(), como las del CIFO — una sola fuente para las dos caras.
+let _ventanasObra = null;
+function ventanasObra() {
+    if (!_ventanasObra) {
+        _ventanasObra = import(pathToFileURL(path.join(__dirname,
+            '../../frontend/src/features/docs/logic/ventanasObra.js')).href);
+    }
+    return _ventanasObra;
+}
+
+/**
+ * Cambia de qué ventana es una foto, o el nombre de una ventana.
+ *
+ *   { accion: 'renombrar', ventana: 'V2', nombre: 'Cocina' }
+ *       → todas las fotos de la V2, en los DOS apartados, pasan a llamarse así.
+ *   { accion: 'asignar', slot, name, driveId?, ventana: 'V2'|null, nombre? }
+ *       → esa foto pasa a ser de la V2 (null = "sin ventana asignada").
+ *
+ * Escribe apartado a apartado con la RPC atómica de siempre. Una foto que existe
+ * en Drive y no en la BD (subida a mano, migrada) se da de alta al asignarla —
+ * mismo criterio que validarla: Drive manda sobre la existencia.
+ */
+async function actualizarVentanas(oppUuid, datosCalculo = {}, cambio = {}) {
+    const vo = await ventanasObra();
+    const uploads = datosCalculo.reforma_uploads || {};
+    if (cambio.accion === 'renombrar') {
+        const v = vo.sanearVentana(cambio.ventana, cambio.nombre);
+        if (!v) return { ok: false, error: 'Esa ventana no existe.' };
+        let tocadas = 0;
+        for (const slot of Object.keys(vo.SLOTS_POR_VENTANA)) {
+            const lista = Array.isArray(uploads[slot]) ? uploads[slot] : [];
+            if (!lista.some(it => vo.numeroVentana(it.ventana) === vo.numeroVentana(v.ventana))) continue;
+            const nueva = lista.map(it => (vo.numeroVentana(it.ventana) === vo.numeroVentana(v.ventana)
+                ? { ...it, ventana: v.ventana, ventana_nombre: v.ventana_nombre }
+                : it));
+            // eslint-disable-next-line no-await-in-loop
+            const { error } = await supabase.rpc('reforma_replace_slot', { p_id: oppUuid, p_slot: slot, p_array: nueva });
+            if (error) return { ok: false, error: 'No se pudo guardar el nombre.' };
+            tocadas += nueva.filter(it => it.ventana === v.ventana).length;
+        }
+        return { ok: true, ...v, fotos: tocadas };
+    }
+    if (cambio.accion === 'asignar') {
+        const slot = String(cambio.slot || '');
+        if (!vo.esPorVentana(slot)) return { ok: false, error: 'Ese apartado no va por ventanas.' };
+        const v = cambio.ventana ? vo.sanearVentana(cambio.ventana, cambio.nombre) : null;
+        if (cambio.ventana && !v) return { ok: false, error: 'Esa ventana no existe.' };
+        const lista = Array.isArray(uploads[slot]) ? uploads[slot] : [];
+        const es = (it) => (cambio.driveId && it.driveId === cambio.driveId) || (cambio.name && it.name === cambio.name);
+        let encontrada = false;
+        const nueva = lista.map(it => {
+            if (!es(it)) return it;
+            encontrada = true;
+            return { ...it, ventana: v ? v.ventana : null, ventana_nombre: v ? v.ventana_nombre : null };
+        });
+        if (!encontrada) {
+            if (!cambio.name) return { ok: false, error: 'No se encuentra esa foto.' };
+            nueva.push({
+                name: String(cambio.name), driveId: cambio.driveId || null, estado: 'subida',
+                ventana: v ? v.ventana : null, ventana_nombre: v ? v.ventana_nombre : null,
+            });
+        }
+        const { error } = await supabase.rpc('reforma_replace_slot', { p_id: oppUuid, p_slot: slot, p_array: nueva });
+        if (error) return { ok: false, error: 'No se pudo guardar.' };
+        return { ok: true, ventana: v ? v.ventana : null, ventana_nombre: v ? v.ventana_nombre : null };
+    }
+    return { ok: false, error: 'Acción no válida.' };
+}
+
+async function subirFicherosASlot({ oportunidadUuid, datosCalculo = {}, slotDef, archivos, label = null, subidoPor = 'cliente', destino = null, ventana = null, ventanasPorFichero = null }) {
     // `destino` (opcional) — la MISMA subida para otro dueño que no es una
     // oportunidad: los CEE directos (ceeDirectoDocsService). Trae la carpeta de
     // Drive, la subcarpeta, lo ya registrado del slot y cómo registrar cada
     // entrada. Sin él, todo es exactamente lo de siempre.
     const slot = slotDef.key;
     const lista = Array.from(archivos || []);
+    // De qué VENTANA es (solo en los apartados de ventanas). Lo que no sea un id
+    // válido se ignora: la foto entra igual, "sin ventana asignada".
+    // `ventanasPorFichero` = ['V3', 'V4', …], una por fichero y en su orden: es
+    // «Subir todas a la vez» del antes, donde cada foto pasa a ser una ventana.
+    let deVentana = null;
+    let porFichero = null;
+    if ((ventana && ventana.ventana) || Array.isArray(ventanasPorFichero)) {
+        const vo = await ventanasObra();
+        if (vo.esPorVentana(slot)) {
+            if (ventana && ventana.ventana) deVentana = vo.sanearVentana(ventana.ventana, ventana.nombre);
+            if (Array.isArray(ventanasPorFichero)) porFichero = ventanasPorFichero.map(id => vo.sanearVentana(id, null));
+        }
+    }
+    const ventanaDe = (idx) => (porFichero ? porFichero[idx] || null : deVentana);
     // Slot de UNA sola foto: solo entra la primera. El resto se descarta aquí y
     // no en el navegador, para que las dos entradas se comporten igual.
     const files = slotDef.multiple ? lista : lista.slice(0, 1);
@@ -1257,7 +1344,7 @@ async function subirFicherosASlot({ oportunidadUuid, datosCalculo = {}, slotDef,
             fileName = `${slot}.${ext(f)}`;
         }
         reservados.push({ name: fileName });
-        return { file: f, fileName, fileLabel };
+        return { file: f, fileName, fileLabel, idx: i };
     });
 
     // Slot único: retirar la versión anterior para no acumular duplicados. Se
@@ -1294,6 +1381,7 @@ async function subirFicherosASlot({ oportunidadUuid, datosCalculo = {}, slotDef,
         const entry = {
             name: r.fileName, link: r.saved.link, driveId: r.saved.id, at: new Date().toISOString(),
             estado: 'subida', subido_por: subidoPor, motivo: null,
+            ...(ventanaDe(r.idx) || {}),
         };
         const { error } = destino
             ? await destino.registrar(slot, entry, !!slotDef.multiple)
@@ -1312,6 +1400,8 @@ async function subirFicherosASlot({ oportunidadUuid, datosCalculo = {}, slotDef,
             thumb: driveThumb(r.saved.id),
             label: slotDef.named ? parseOtrosLabel(r.fileName, slot) : null,
             estado: 'subida',
+            ventana: ventanaDe(r.idx)?.ventana || null,
+            ventana_nombre: ventanaDe(r.idx)?.ventana_nombre || null,
             file: r.file,          // el llamador lo necesita para el OCR de facturas
         });
     }
@@ -1431,7 +1521,9 @@ async function buildDocsView(opp, opts = {}) {
                     mimeType: f.mimeType || null,
                     estado: db.estado || 'subida',
                     motivo: db.motivo || null,
-                    subido_por: db.subido_por || null
+                    subido_por: db.subido_por || null,
+                    ventana: db.ventana || null,
+                    ventana_nombre: db.ventana_nombre || null
                 };
             })
             : (uploads[s.key] || []).map(it => ({
@@ -1440,7 +1532,8 @@ async function buildDocsView(opp, opts = {}) {
                 link: it.link, at: it.at,
                 driveId: it.driveId || null, thumb: driveThumb(it.driveId),
                 mimeType: it.mimeType || null,
-                estado: it.estado || 'subida', motivo: it.motivo || null, subido_por: it.subido_por || null
+                estado: it.estado || 'subida', motivo: it.motivo || null, subido_por: it.subido_por || null,
+                ventana: it.ventana || null, ventana_nombre: it.ventana_nombre || null
             }));
 
         // Override del admin: "no necesario" → deja de ser obligatorio (y se marca waived).
@@ -1880,6 +1973,8 @@ module.exports = {
     docsSubfolder,
     ensureSubfolderId,
     subirFicherosASlot,
+    actualizarVentanas,
+    ventanasObra,
     conceptsFromEnvolvente,
     syncEnvolventeConcepts,
     conceptsFromInstalacion,

@@ -7,6 +7,9 @@
  */
 export const API_DOCS_OPORTUNIDAD = {
     admin: '/api/oportunidades', public: '/api/public/reforma-docs', thumb: '/api/public/reforma-thumb', escaparate: true,
+    // «Traer del WhatsApp» (rutas `/whatsapp-media/*`). Los CEE directos aún no
+    // las tienen: sin la bandera, el botón no se pinta.
+    whatsapp: true,
 };
 export const API_DOCS_CEE_DIRECTO = {
     admin: '/api/cee-directos', public: '/api/public/cee-directo-docs', thumb: '/api/public/cee-directo-thumb', escaparate: false,

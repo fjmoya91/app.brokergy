@@ -20,6 +20,7 @@ const { createLead } = require('../services/leadService');
 const { FICHAS, detectPrograma } = require('../utils/fichas');
 const { sellarPrecioCae } = require('../utils/precioCae');
 const clasificarFotos = require('../services/clasificarFotosService');
+const whatsappMedia = require('../services/whatsappMedia');
 const multer = require('multer');
 // Las fotos del "buzón" viajan YA REDUCIDAS desde el navegador (para clasificar
 // no hace falta resolución: lo que se mira es qué aparato sale). El tope es
@@ -2016,6 +2017,70 @@ router.post('/:id/docs/clasificar', staffOnly, uploadFotosClasificar, async (req
                 ? 'La lectura ha tardado demasiado. Colócalas a mano o prueba con menos fotos.'
                 : 'No se pudieron leer las fotos. Colócalas a mano.',
         });
+    }
+});
+
+// ── Traer las fotos del WHATSAPP ───────────────────────────────────────────────
+// Muchos clientes no usan el enlace de subida: mandan las fotos al WhatsApp de la
+// empresa. Esto las lee del propio chat y las entrega al repartidor (el buzón de
+// arriba), que propone el apartado y espera a que una persona lo confirme.
+//
+// Todo `staffOnly`: se lee la conversación real de un cliente, y la clasificación
+// que viene después es una llamada de pago. La lógica —qué chats, cómo se leen,
+// qué se puede bajar— vive en `services/whatsappMedia.js`.
+
+// GET → a quién se le puede buscar (solo base de datos: no toca WhatsApp).
+router.get('/:id/whatsapp-media/contactos', staffOnly, async (req, res) => {
+    try {
+        const opp = await findOppForDocs(req.params.id);
+        if (!opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
+        const contactos = await whatsappMedia.contactosDeOportunidad(opp);
+        return res.json({ contactos, whatsapp: whatsappMedia.disponible() });
+    } catch (e) {
+        console.error('[wa-media] contactos:', e.message);
+        return res.status(500).json({ error: 'No se pudieron cargar los contactos.' });
+    }
+});
+
+// POST { telefonos, dias } → lo que ha llegado por esos chats (sin bajar nada).
+router.post('/:id/whatsapp-media/buscar', staffOnly, async (req, res) => {
+    try {
+        const opp = await findOppForDocs(req.params.id);
+        if (!opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
+        const r = await whatsappMedia.buscar(opp, { telefonos: req.body?.telefonos, dias: req.body?.dias });
+        return res.json(r);
+    } catch (e) {
+        if (!e.status) console.error('[wa-media] buscar:', e.message);
+        return res.status(e.status || 500).json({ error: e.status ? e.message : 'No se pudo leer WhatsApp.' });
+    }
+});
+
+// GET ?msg= → el adjunto, en binario. Solo de un chat leído para ESTE expediente.
+router.get('/:id/whatsapp-media/descargar', staffOnly, async (req, res) => {
+    try {
+        const opp = await findOppForDocs(req.params.id);
+        if (!opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
+        const { buffer, mimetype, nombre } = await whatsappMedia.descargar(opp, req.query.msg);
+        res.set('Content-Type', mimetype);
+        res.set('X-Nombre-Archivo', encodeURIComponent(nombre));
+        res.set('Access-Control-Expose-Headers', 'X-Nombre-Archivo');
+        return res.send(buffer);
+    } catch (e) {
+        if (!e.status) console.error('[wa-media] descargar:', e.message);
+        return res.status(e.status || 500).json({ error: e.status ? e.message : 'No se pudo bajar esa foto.' });
+    }
+});
+
+// POST { items: [{ waMsgId, slot, tipo, t }] } → apunta las ya colocadas.
+router.post('/:id/whatsapp-media/colocadas', staffOnly, async (req, res) => {
+    try {
+        const opp = await findOppForDocs(req.params.id);
+        if (!opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
+        const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 200) : [];
+        return res.json(await whatsappMedia.registrarColocadas(opp, items, nombreUsuario(req)));
+    } catch (e) {
+        console.error('[wa-media] colocadas:', e.message);
+        return res.status(500).json({ error: 'No se pudo apuntar.' });
     }
 });
 

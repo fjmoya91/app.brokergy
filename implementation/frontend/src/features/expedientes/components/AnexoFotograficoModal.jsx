@@ -137,7 +137,9 @@ export function AnexoFotograficoModal({ isOpen, onClose, expediente, photos: ext
                         : (g.photos || []);
                     fotos.forEach((ph, i) => {
                         const id = `drive_${ph.name}`;
-                        const label = i === 0 ? g.label : `${g.label} (${i + 1})`;
+                        // Una foto de ventana llega ya rotulada con SU ventana
+                        // ("Ventana 2 · Cocina"): así el antes y el después casan.
+                        const label = ph.rotulo || (i === 0 ? g.label : `${g.label} (${i + 1})`);
                         const existing = prevById.get(id);
                         // Drive es la FUENTE DE VERDAD (regla 20): el base64 se toma
                         // SIEMPRE fresco del backend. No conservamos el file previo:

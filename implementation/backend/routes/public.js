@@ -1048,6 +1048,15 @@ async function resolverDestinoSubida(req, res) {
     return { opp, slotDef };
 }
 
+/** `ventanas` llega del formulario como JSON: ['V3','V4',…], una por fichero. */
+function leerVentanasPorFichero(txt) {
+    if (!txt) return null;
+    try {
+        const arr = JSON.parse(String(txt));
+        return Array.isArray(arr) ? arr.slice(0, 60).map(x => String(x || '')) : null;
+    } catch { return null; }
+}
+
 /** Quién sube, para el sello `subido_por` de cada foto. */
 function quienSube(req) {
     return req.user ? (req.user.rol_nombre === 'ADMIN' ? 'admin' : 'instalador') : 'cliente';
@@ -1095,6 +1104,32 @@ function efectosPostSubida({ req, uuid, slotDef, subidas, label }) {
     }
 }
 
+// PATCH /api/public/reforma-docs/:uuid/ventanas?token= → nombre de una ventana,
+// o de qué ventana es una foto. Lo usan el cliente (enlace), el instalador y el
+// panel interno (con sesión, sin token), igual que la subida. Ver
+// reformaUploadService.actualizarVentanas y frontend .../docs/logic/ventanasObra.js.
+router.patch('/reforma-docs/:uuid/ventanas', requireAuth, async (req, res) => {
+    try {
+        const { uuid } = req.params;
+        const { data: opp } = await supabase
+            .from('oportunidades')
+            .select('id, datos_calculo')
+            .eq('id', uuid)
+            .maybeSingle();
+        if (!opp) return res.status(404).json({ error: 'Solicitud no encontrada' });
+        const token = req.query.token;
+        if (!isStaff(req) && (!token || opp.datos_calculo?.upload_token !== token)) {
+            return res.status(403).json({ error: 'Enlace inválido o caducado.' });
+        }
+        const r = await reformaUploadService.actualizarVentanas(opp.id, opp.datos_calculo || {}, req.body || {});
+        if (!r.ok) return res.status(400).json({ error: r.error });
+        return res.json(r);
+    } catch (e) {
+        console.error('Error reforma-docs ventanas:', e);
+        res.status(500).json({ error: 'No se pudo guardar.' });
+    }
+});
+
 // POST /api/public/reforma-docs/:uuid/:slot?token= → sube 1 fichero al slot
 router.post('/reforma-docs/:uuid/:slot', requireAuth, uploadDocsSingle, async (req, res) => {
     try {
@@ -1114,6 +1149,7 @@ router.post('/reforma-docs/:uuid/:slot', requireAuth, uploadDocsSingle, async (r
             archivos: [req.file],
             label,
             subidoPor: quienSube(req),
+            ventana: { ventana: req.body?.ventana, nombre: req.body?.ventanaNombre },
         });
         if (!subidas.length) {
             return res.status(500).json({ error: fallidas[0]?.error || 'Error al subir a Google Drive' });
@@ -1124,6 +1160,7 @@ router.post('/reforma-docs/:uuid/:slot', requireAuth, uploadDocsSingle, async (r
         return res.json({
             success: true, slot, name: s.name, link: s.link,
             label: s.label, driveId: s.driveId, thumb: s.thumb,
+            ventana: s.ventana, ventana_nombre: s.ventana_nombre,
             estado: 'subida', count: (slotDef.multiple ? prev.length + 1 : 1)
         });
     } catch (e) {
@@ -1150,6 +1187,10 @@ router.post('/reforma-docs/:uuid/:slot/batch', requireAuth, uploadDocsArray, asy
             archivos,
             label,
             subidoPor: quienSube(req),
+            // De qué ventana son (solo en los apartados de ventanas; si no, se ignora).
+            ventana: { ventana: req.body?.ventana, nombre: req.body?.ventanaNombre },
+            // …o una distinta para cada foto («Subir todas a la vez» del antes).
+            ventanasPorFichero: leerVentanasPorFichero(req.body?.ventanas),
         });
         efectosPostSubida({ req, uuid, slotDef, subidas, label });
 

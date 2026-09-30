@@ -16,6 +16,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { miniaturaParaMirar } from '../../utils/imageResize';
 import { ClasificandoFotos } from './ClasificandoFotos';
@@ -26,7 +27,7 @@ const CONFIANZA_UI = {
     baja: { cls: 'text-white/40', txt: 'Dudoso' },
 };
 
-export function BuzonFotos({ idOrUuid, files, slots, addableConcepts = [], onSubir, onCerrar, onAnadirApartado = null, adminBase = '/api/oportunidades' }) {
+export function BuzonFotos({ idOrUuid, files, slots, addableConcepts = [], onSubir, onCerrar, onAnadirApartado = null, onColocadas = null, adminBase = '/api/oportunidades' }) {
     // Una fila por fichero: su miniatura local, el destino elegido y lo que el
     // modelo dijo haber visto (que es lo que permite confirmar sin abrir la foto).
     const [filas, setFilas] = useState(() => Array.from(files || []).map((f, i) => ({
@@ -195,14 +196,22 @@ export function BuzonFotos({ idOrUuid, files, slots, addableConcepts = [], onSub
         setSubiendo({ hecho, total });
         for (const [key, archivos] of grupos) {
             const slot = (slots || []).find(s => s.key === key);
-            if (slot) await onSubir(slot, archivos);
+            if (slot) {
+                const ok = await onSubir(slot, archivos);
+                // Un apartado de UNA foto solo se queda con la primera: solo esa
+                // cuenta como colocada.
+                if (ok !== false && onColocadas) onColocadas(key, slot.multiple ? archivos : archivos.slice(0, 1));
+            }
             setSubiendo({ hecho: ++hecho, total });
         }
         setSubiendo(null);
         onCerrar();
     };
 
-    return (
+    // Portaleado a <body>: dentro del modal de documentación (que lleva
+    // backdrop-blur) un `fixed` se anclaba a él, y en el móvil la cabecera quedaba
+    // tapada por la barra de la app. En el MÓVIL es hoja inferior; en el PC, centrado.
+    return createPortal(
         <>
         {leyendo && <ClasificandoFotos total={filas.filter(f => f.file.type?.startsWith('image/')).length} preparadas={preparadas} />}
         {visor && urls[visor] && (
@@ -214,9 +223,10 @@ export function BuzonFotos({ idOrUuid, files, slots, addableConcepts = [], onSub
                 </p>
             </div>
         )}
-        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md" onClick={onCerrar}>
-            <div className="bg-[#0F1013] border border-white/10 rounded-3xl w-full max-w-3xl flex flex-col max-h-[92vh] shadow-2xl" onClick={e => e.stopPropagation()}>
-                <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between gap-4 shrink-0">
+        <div className="fixed inset-0 z-[300] flex items-center justify-center max-md:items-end p-4 max-md:p-0 bg-black/85 backdrop-blur-md" onClick={onCerrar}>
+            <div className="bg-bkg-deep border border-white/10 rounded-3xl max-md:rounded-b-none w-full max-w-3xl flex flex-col max-h-[92vh] max-md:max-h-[94dvh] shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="md:hidden mx-auto mt-2 h-1 w-10 rounded-full bg-white/20 shrink-0" />
+                <div className="px-5 md:px-6 py-3 md:py-4 border-b border-white/10 flex items-center justify-between gap-3 shrink-0">
                     <div className="min-w-0">
                         <h3 className="text-white font-black uppercase tracking-widest text-sm flex items-center gap-2">
                             <span className="text-amber-400">🗂️</span> Repartir {filas.length} archivo{filas.length === 1 ? '' : 's'}
@@ -226,13 +236,13 @@ export function BuzonFotos({ idOrUuid, files, slots, addableConcepts = [], onSub
                                 : 'Comprueba el apartado de cada una y corrige lo que no cuadre.'}
                         </p>
                     </div>
-                    <button onClick={onCerrar} className="p-2 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-all shrink-0">
+                    <button onClick={onCerrar} aria-label="Cerrar" className="w-11 h-11 md:w-9 md:h-9 flex items-center justify-center rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-all shrink-0">
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                     </button>
                 </div>
 
                 {error && (
-                    <div className="mx-6 mt-4 rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-2.5 text-amber-200 text-xs font-bold flex items-center justify-between gap-3">
+                    <div className="mx-4 md:mx-6 mt-4 rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-2.5 text-amber-200 text-xs font-bold flex items-center justify-between gap-3">
                         <span>{error}</span>
                         <button onClick={clasificar} className="underline underline-offset-2 hover:text-white shrink-0">Reintentar</button>
                     </div>
@@ -240,15 +250,15 @@ export function BuzonFotos({ idOrUuid, files, slots, addableConcepts = [], onSub
 
                 {/* Reconocidas, pero sin sitio donde ponerlas en ESTE expediente. */}
                 {faltanApartados.length > 0 && onAnadirApartado && (
-                    <div className="mx-6 mt-4 space-y-2">
+                    <div className="mx-4 md:mx-6 mt-4 space-y-2">
                         {faltanApartados.map(c => (
-                            <div key={c.id} className="flex items-center justify-between gap-3 rounded-xl border border-sky-400/25 bg-sky-400/[0.07] px-4 py-2.5">
+                            <div key={c.id} className="flex max-md:flex-col md:items-center justify-between gap-2 md:gap-3 rounded-xl border border-sky-400/25 bg-sky-400/[0.07] px-4 py-2.5">
                                 <p className="text-xs text-white/70 leading-snug min-w-0">
                                     <strong className="text-sky-200">{c.n} {c.n === 1 ? 'foto parece' : 'fotos parecen'} de {c.label.replace(/\s*\(.*\)$/, '').toLowerCase()}</strong>
                                     {' '}· este expediente no tiene ese apartado.
                                 </p>
                                 <button onClick={() => anadirApartado(c.id)} disabled={!!anadiendo}
-                                    className="shrink-0 px-3 py-1.5 rounded-lg border border-sky-400/40 text-sky-200 text-[10px] font-black uppercase tracking-wider hover:bg-sky-400/15 transition-all disabled:opacity-40">
+                                    className="shrink-0 min-h-[44px] md:min-h-0 px-3 py-1.5 rounded-lg border border-sky-400/40 text-sky-200 text-[10px] font-black uppercase tracking-wider hover:bg-sky-400/15 transition-all disabled:opacity-40">
                                     {anadiendo === c.id ? 'Añadiendo…' : '➕ Añadir apartado'}
                                 </button>
                             </div>
@@ -256,7 +266,7 @@ export function BuzonFotos({ idOrUuid, files, slots, addableConcepts = [], onSub
                     </div>
                 )}
 
-                <div className="p-6 overflow-y-auto space-y-2 flex-1">
+                <div className="p-4 md:p-6 overflow-y-auto overscroll-contain space-y-2 flex-1">
                     {filas.map(f => (
                         <div key={f.id} className={`flex items-center gap-3 rounded-2xl border-2 p-2.5 transition-all ${f.slot ? 'border-white/10 bg-white/[0.03]' : 'border-amber-400/25 bg-amber-400/[0.04]'}`}>
                             <button type="button" onClick={() => urls[f.id] && setVisor(f.id)}
@@ -270,35 +280,45 @@ export function BuzonFotos({ idOrUuid, files, slots, addableConcepts = [], onSub
                                 <select
                                     value={f.slot}
                                     onChange={e => setSlot(f.id, e.target.value)}
-                                    className="w-full bg-white/[0.06] border-2 border-white/10 focus:border-amber-400 rounded-xl px-3 py-2 text-white text-sm font-bold outline-none"
+                                    className="no-uppercase w-full min-h-[44px] md:min-h-0 bg-white/[0.06] border-2 border-white/10 focus:border-amber-400 rounded-xl px-3 py-2 text-white text-base md:text-sm font-bold outline-none"
                                 >
                                     <option value="">— Sin clasificar —</option>
                                     {opciones.map(o => (
                                         <option key={o.key} value={o.key}>{o.fase} · {o.label}</option>
                                     ))}
                                 </select>
-                                <p className="mt-1 text-[10px] flex items-center gap-2 min-w-0">
-                                    <span className="text-white/30 truncate max-w-[45%]" title={f.file.name}>{f.file.name}</span>
-                                    {f.visto && <span className="text-white/50 truncate">· {f.visto}</span>}
+                                {/* Traída del WhatsApp: lo que escribió el cliente al mandarla
+                                    ("esta es la caldera") dice más que cualquier suposición.
+                                    En su propia línea: en la del nombre, en un móvil, se cortaba
+                                    a una letra. */}
+                                {f.file.wa?.caption && (
+                                    <p className="mt-1 text-[11px] text-emerald-300/80 line-clamp-2" title={f.file.wa.caption}>💬 “{f.file.wa.caption}”</p>
+                                )}
+                                <p className="mt-1 text-[11px] md:text-[10px] flex items-center gap-2 min-w-0">
+                                    <span className="text-white/30 truncate max-w-[45%] max-md:hidden" title={f.file.name}>{f.file.name}</span>
+                                    {f.visto && <span className="text-white/50 truncate"><span className="max-md:hidden">· </span>{f.visto}</span>}
                                     {f.confianza && <span className={`font-black uppercase tracking-wider shrink-0 ${CONFIANZA_UI[f.confianza].cls}`}>· {CONFIANZA_UI[f.confianza].txt}</span>}
                                 </p>
                             </div>
                             <button onClick={() => quitar(f.id)} title="Quitar de la lista"
-                                className="w-8 h-8 rounded-lg text-white/30 hover:text-red-300 hover:bg-red-500/10 transition-all shrink-0 font-black">✕</button>
+                                className="w-11 h-11 md:w-8 md:h-8 rounded-lg text-white/30 hover:text-red-300 hover:bg-red-500/10 transition-all shrink-0 font-black">✕</button>
                         </div>
                     ))}
                 </div>
 
-                <div className="px-6 py-4 bg-black/30 border-t border-white/10 flex items-center justify-between gap-4 shrink-0">
-                    <p className="text-[11px] font-bold text-white/40">
+                {/* En el móvil el resumen va encima y los botones debajo, a lo ancho:
+                    en una sola fila el texto se partía en tres renglones. */}
+                <div className="px-4 md:px-6 pt-3 md:py-4 bg-black/30 border-t border-white/10 flex max-md:flex-col md:items-center justify-between gap-2 md:gap-4 shrink-0"
+                    style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
+                    <p className="text-[11px] font-bold text-white/40 max-md:text-center">
                         {sinDestino > 0
                             ? <>Se subirán <span className="text-white/70">{filas.length - sinDestino}</span> · <span className="text-amber-300">{sinDestino} sin clasificar</span> (no se suben)</>
                             : <>Listas para subir: <span className="text-white/70">{filas.length}</span></>}
                     </p>
                     <div className="flex items-center gap-3">
-                        <button onClick={onCerrar} disabled={!!subiendo} className="px-4 py-2 text-xs font-bold text-white/50 hover:text-white uppercase tracking-widest disabled:opacity-40">Cancelar</button>
+                        <button onClick={onCerrar} disabled={!!subiendo} className="min-h-[44px] md:min-h-0 px-4 py-2 text-xs font-bold text-white/50 hover:text-white uppercase tracking-widest shrink-0 disabled:opacity-40">Cancelar</button>
                         <button onClick={subir} disabled={leyendo || !grupos.size || !!subiendo}
-                            className="px-6 py-2.5 text-xs font-black rounded-xl uppercase tracking-widest bg-amber-500 hover:bg-amber-400 text-black transition-all disabled:opacity-40">
+                            className="min-h-[44px] md:min-h-0 flex-1 md:flex-none px-6 py-2.5 text-xs font-black rounded-xl uppercase tracking-widest bg-amber-500 hover:bg-amber-400 text-black transition-all disabled:opacity-40">
                             {subiendo ? `Subiendo… ${subiendo.hecho}/${subiendo.total}` : leyendo ? 'Leyendo…'
                                 : `Subir ${filas.length - sinDestino} archivo${filas.length - sinDestino === 1 ? '' : 's'}`}
                         </button>
@@ -306,7 +326,8 @@ export function BuzonFotos({ idOrUuid, files, slots, addableConcepts = [], onSub
                 </div>
             </div>
         </div>
-        </>
+        </>,
+        document.body
     );
 }
 

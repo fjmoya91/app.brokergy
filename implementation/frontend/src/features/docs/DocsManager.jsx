@@ -15,6 +15,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { prepararImagenParaSubir } from '../../utils/imageResize';
 import { BuzonFotos } from './BuzonFotos';
+import { TraerDeWhatsapp } from './TraerDeWhatsapp';
+import { VentanasPorVentana } from './VentanasPorVentana';
+import { esPorVentana, pareja, ventanasDe, progresoDespues } from './logic/ventanasObra';
 import { API_DOCS_OPORTUNIDAD } from './docsApi';
 import { SlotIlustracion, tieneIlustracion } from './SlotIlustracion';
 
@@ -177,7 +180,7 @@ function ErrorSlot({ error, className = '' }) {
     );
 }
 
-export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedded = false, canValidate = false, rol = null, need = null, onPedirSlot = null, api = API_DOCS_OPORTUNIDAD }) {
+export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedded = false, canValidate = false, rol = null, need = null, onPedirSlot = null, puedeWhatsapp = false, api = API_DOCS_OPORTUNIDAD }) {
     // Enlace scoped por rol: cliente sube el ANTES de la obra; instalador, el DESPUÉS
     // (instalación terminada + facturas + RITE). Restringe la vista a esa fase.
     const roleFase = rol === 'cliente' ? 'ANTES' : rol === 'instalador' ? 'DESPUES' : null;
@@ -195,6 +198,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const [uploadN, setUploadN] = useState({});     // { slot: { hecho, total, fase } }
     const [previewing, setPreviewing] = useState({}); // { slot: [objectURL|null] } mientras suben
     const [buzon, setBuzon] = useState(null);       // { files } al soltar fuera de una casilla
+    const [traerWa, setTraerWa] = useState(false);  // popup «Traer del WhatsApp» (solo staff)
     const [buzonDrag, setBuzonDrag] = useState(false);
     const [slotError, setSlotError] = useState({});
     const [lightbox, setLightbox] = useState(null);
@@ -390,7 +394,9 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     // serie. En tanda, el servidor lista una vez, reserva los índices y sube en
     // paralelo. Y el porcentaje pasa a ser real y monótono, en vez de volver a
     // cero en cada foto (que es lo que parecía un cuelgue).
-    const uploadFiles = async (slot, fileList, label = null) => {
+    // `ventana` (opcional): { ventana: 'V2', nombre } — de qué ventana son las
+    // fotos, en los apartados que van ventana por ventana (ver VentanasPorVentana).
+    const uploadFiles = async (slot, fileList, label = null, ventana = null) => {
         const todos = Array.from(fileList || []);
         if (!todos.length) return false;
         // Apartado de UNA sola foto: solo entra la primera. El servidor aplica el
@@ -431,6 +437,12 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
             // La etiqueta va ANTES de los ficheros para que multer la deje en req.body.
             // Con varios, el servidor la numera (_1, _2…) al nombrar cada uno.
             if (label) form.append('label', label);
+            if (ventana?.ventana) {
+                form.append('ventana', ventana.ventana);
+                form.append('ventanaNombre', ventana.nombre || '');
+            }
+            // «Subir todas a la vez» del antes: una ventana distinta por foto.
+            if (Array.isArray(ventana?.porFichero)) form.append('ventanas', JSON.stringify(ventana.porFichero));
             for (const f of preparados) form.append('files', f);
 
             const res = await axios.post(
@@ -450,6 +462,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                 name: it.name, label: it.label ?? null, link: it.link, thumb: it.thumb,
                 driveId: it.driveId, localUrl: previews[i] || null,
                 estado: 'subida', at: new Date().toISOString(),
+                ventana: it.ventana ?? null, ventana_nombre: it.ventana_nombre ?? null,
             }));
             if (entries.length) {
                 patchSlot(slot.key, s => {
@@ -483,9 +496,29 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
             // Acuse visible y vuelta al recorrido automático: el apartado deja de
             // estar pendiente, así que el siguiente aparece solo.
             setFlash({ key: slot.key, n: files.length });
-            setPasoKey(null);
+            // Ventana por ventana, el paso NO se acaba con la primera foto: quedan
+            // las demás ventanas. Se queda en pantalla hasta que pulse "Siguiente".
+            setPasoKey(esPorVentana(slot.key) ? slot.key : null);
         }
         return ok;
+    };
+
+    // Nombre de una ventana, o de qué ventana es una foto. Por el MISMO canal que
+    // la subida (enlace con token o sesión interna), y reflejado en pantalla sin
+    // recargar la vista entera.
+    const renombrarVentana = async (id, nombre) => {
+        await axios.patch(`${api.public}/${uuidRef.current}/ventanas`,
+            { accion: 'renombrar', ventana: id, nombre },
+            { params: { token: tokenRef.current } });
+        for (const k of ['FOTO_VENTANAS_ANTES', 'FOTO_VENTANAS_DESPUES']) {
+            patchSlot(k, s => ({ ...s, items: (s.items || []).map(it => (it.ventana === id ? { ...it, ventana_nombre: nombre || null } : it)) }));
+        }
+    };
+    const asignarVentana = async (slot, item, id, nombre) => {
+        await axios.patch(`${api.public}/${uuidRef.current}/ventanas`,
+            { accion: 'asignar', slot: slot.key, name: item.name, driveId: item.driveId || null, ventana: id, nombre },
+            { params: { token: tokenRef.current } });
+        patchSlot(slot.key, s => ({ ...s, items: (s.items || []).map(it => (it.name === item.name ? { ...it, ventana: id, ventana_nombre: nombre || null } : it)) }));
     };
 
     // Punto de entrada de TODAS las subidas (botón e input + arrastrar y soltar).
@@ -556,6 +589,18 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         const res = await axios.get(`${api.admin}/${idOrUuid}/docs`);
         setInfo(res.data);
         return res.data?.slots || [];
+    };
+
+    // Las fotos traídas del WhatsApp llevan pegado de qué mensaje salieron. Al
+    // colocarlas se apunta, para que la próxima vez salgan marcadas como "ya
+    // colocada" y no se suban dos veces. Es una pista: si falla, la foto ya está
+    // subida y no se dice nada.
+    const apuntarColocadasWa = (slotKey, archivos) => {
+        const items = (archivos || []).filter(f => f?.wa?.msgId)
+            .map(f => ({ waMsgId: f.wa.msgId, slot: slotKey, tipo: f.wa.tipo, t: f.wa.t }));
+        if (!items.length) return;
+        axios.post(`${api.admin}/${idOrUuid}/whatsapp-media/colocadas`, { items })
+            .catch(e => console.warn('[docs] apuntar fotos del WhatsApp:', e.message));
     };
 
     // ── BUZÓN (solo admin) ──────────────────────────────────────────────────
@@ -757,7 +802,17 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     // es el MISMO documento, solo subido por otra puerta. Sin esto, el slot se
     // pintaba "Obligatorio/pendiente" teniéndolo ya, y parecía que faltaba.
     const coveredExternally = (s) => !(s.items?.length) && (!!s.externalRite || (s.externalDocs?.length > 0));
-    const slotDone = (s) => (s.items?.length > 0) || coveredExternally(s);
+    const slotDone = (s) => {
+        // Ventana por ventana, el DESPUÉS no está hecho con una foto: lo está
+        // cuando TODAS las ventanas tienen la suya. Si no, el recorrido guiado lo
+        // daría por terminado con la primera y nadie haría las demás.
+        if (s.key === 'FOTO_VENTANAS_DESPUES' && s.items?.length) {
+            const antesDe = slots.find(x => x.key === 'FOTO_VENTANAS_ANTES');
+            const { ventanas } = ventanasDe(antesDe?.items || [], s.items);
+            if (ventanas.length) return progresoDespues(ventanas).faltan === 0;
+        }
+        return (s.items?.length > 0) || coveredExternally(s);
+    };
 
     // Orden dentro de cada fase: lo accionable arriba, lo ya resuelto abajo.
     //   0 · rechazada (hay que volver a subir)   1 · pendiente (aún sin foto)
@@ -969,8 +1024,118 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         );
     };
 
+    // Una foto de un apartado, con sus controles (visor, validar/rechazar, borrar,
+    // escaparate). La misma en la casilla de siempre y en las tarjetas de ventana.
+    const renderItem = (slot, it, i) => {
+        const busy = busySlot === slot.key;
+        const fEstado = it.estado || 'subida';
+        const img = isImageItem(it);
+        const doc = img ? null : docMetaFor(it);
+        return (
+            <div key={it.name || i} className="flex flex-col items-center gap-1">
+                <div className="relative group">
+                    {img ? (
+                        <button
+                            onClick={() => { setLbConfirmDelete(false); setLightbox({ slot, item: it, localUrl: it.localUrl, driveId: it.driveId, thumb: it.thumb, label: slot.label }); }}
+                            className={`relative w-16 h-16 rounded-lg overflow-hidden border-2 ${FOTO_ESTADO_BORDER[fEstado]} hover:opacity-90 transition-all block`}
+                            title={it.motivo ? `Rechazada: ${it.motivo}` : 'Ver en grande'}
+                        >
+                            <DriveImg localUrl={it.localUrl} proxySrc={thumbProxy(it.driveId, 400)} driveId={it.driveId} thumb={it.thumb} size={400} fit="cover" />
+                        </button>
+                    ) : (
+                        <a
+                            href={it.link || (it.driveId ? `https://drive.google.com/file/d/${it.driveId}/view` : '#')}
+                            target="_blank" rel="noreferrer"
+                            className={`relative w-16 h-16 rounded-lg overflow-hidden border-2 ${FOTO_ESTADO_BORDER[fEstado]} hover:opacity-90 transition-all flex flex-col items-center justify-center gap-0.5 bg-white/[0.04]`}
+                            title={`${it.name}${it.motivo ? ` · Rechazada: ${it.motivo}` : ''}`}
+                        >
+                            <span className="text-xl leading-none">{doc.icon}</span>
+                            <span className="text-[7px] font-black uppercase tracking-wider text-white/50">{doc.ext}</span>
+                        </a>
+                    )}
+                    {/* Borrar: solo ADMIN */}
+                    {canValidate && (
+                        <button onClick={() => deleteItem(slot, it)} disabled={busy} title="Eliminar"
+                            className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white text-xs font-black flex items-center justify-center shadow-lg max-md:opacity-100 opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50">✕</button>
+                    )}
+                    {/* Publicada en el escaparate → badge estrella */}
+                    {img && publicadas[it.driveId] && (
+                        <span title="Publicada en el escaparate público"
+                            className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-amber-500 text-white text-[10px] flex items-center justify-center shadow-lg">★</span>
+                    )}
+                </div>
+                {/* Nombre legible del documento (slots "Otros") */}
+                {it.label && (
+                    <span className="text-[9px] text-white/55 font-bold max-w-[72px] text-center leading-tight break-words" title={it.label}>{it.label}</span>
+                )}
+                {/* Controles de validación (solo admin) */}
+                {canValidate && (
+                    <div className="flex items-center gap-1.5">
+                        <button onClick={() => reviewItem(slot, it, 'validar')} disabled={acting === `${slot.key}:${it.name}` || bulkValidating !== null}
+                            title="Validar foto" aria-label="Validar foto"
+                            className={`w-7 h-7 rounded-lg text-sm font-black flex items-center justify-center transition-all disabled:opacity-50 ${fEstado === 'validada' ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30' : 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/30'}`}>✓</button>
+                        <button onClick={() => {
+                            setReject({ slot, item: it });
+                            setRejectMotivo('');
+                            const sbp = it.subido_por;
+                            if (sbp === 'instalador' && info?.recipients?.instalador) setRejectNotifyTarget('instalador');
+                            else if (info?.recipients?.cliente) setRejectNotifyTarget('cliente');
+                            else setRejectNotifyTarget('ninguno');
+                        }} disabled={acting === `${slot.key}:${it.name}` || bulkValidating !== null}
+                            title="Rechazar foto" aria-label="Rechazar foto"
+                            className={`w-7 h-7 rounded-lg text-sm font-black flex items-center justify-center transition-all disabled:opacity-50 ${fEstado === 'rechazada' ? 'bg-red-500 text-white shadow-sm shadow-red-500/30' : 'bg-red-500/15 text-red-300 hover:bg-red-500/30'}`}>✗</button>
+                        {/* Publicar en el escaparate — solo fotos VALIDADAS */}
+                        {img && fEstado === 'validada' && api.escaparate && (
+                            publicadas[it.driveId]
+                                ? <button onClick={() => unpublish(it)} disabled={pubBusy} title="Quitar del escaparate público"
+                                    className="w-7 h-7 rounded-lg text-sm flex items-center justify-center bg-amber-500 text-white shadow-sm shadow-amber-500/30 disabled:opacity-50">★</button>
+                                : <button onClick={() => openPublish(slot, it)} disabled={pubBusy} title="Publicar en el escaparate público"
+                                    className="w-7 h-7 rounded-lg text-sm flex items-center justify-center bg-amber-500/15 text-amber-300 hover:bg-amber-500/30 disabled:opacity-50">☆</button>
+                        )}
+                    </div>
+                )}
+                {fEstado === 'rechazada' && it.motivo && (
+                    <span className="text-[8px] text-red-300/80 max-w-[64px] text-center leading-tight">{it.motivo}</span>
+                )}
+            </div>
+        );
+    };
+
+    // Miniatura pequeña y sin controles: la ventana VIEJA junto a la nueva, o una
+    // foto a la que hay que decirle de qué ventana es.
+    const renderMini = (slot, it, { soloImagen = false } = {}) => (soloImagen ? (
+        // Dentro de otro botón (elegir a qué ventana va una foto): solo la imagen,
+        // un botón dentro de otro no es HTML válido.
+        <div className="relative w-14 h-14 shrink-0 rounded-lg overflow-hidden border border-white/15">
+            <DriveImg localUrl={it.localUrl} proxySrc={thumbProxy(it.driveId, 200)} driveId={it.driveId} thumb={it.thumb} size={200} fit="cover" />
+        </div>
+    ) : (
+        <button type="button"
+            onClick={() => { setLbConfirmDelete(false); setLightbox({ slot, item: it, localUrl: it.localUrl, driveId: it.driveId, thumb: it.thumb, label: slot?.label || '' }); }}
+            className="relative w-14 h-14 shrink-0 rounded-lg overflow-hidden border border-white/15 hover:border-white/40 transition-all">
+            <DriveImg localUrl={it.localUrl} proxySrc={thumbProxy(it.driveId, 200)} driveId={it.driveId} thumb={it.thumb} size={200} fit="cover" />
+        </button>
+    ));
+
+    // Las fotos de las VENTANAS van ventana por ventana (ver VentanasPorVentana).
+    const ventanasDeSlot = (slot) => (
+        <VentanasPorVentana
+            slot={slot}
+            otro={slots.find(x => x.key === pareja(slot.key)) || null}
+            clientView={clientView}
+            busy={busySlot === slot.key}
+            textoSubiendo={() => textoSubiendo(slot)}
+            onSubir={(files, ventana) => uploadFiles(slot, files, null, ventana)}
+            renderFoto={renderItem}
+            renderMini={renderMini}
+            onRenombrar={renombrarVentana}
+            onAsignar={asignarVentana}
+        />
+    );
+
     const renderSlot = (slot) => {
         const items = slot.items || [];
+        const porVentana = esPorVentana(slot.key) && !slot.existing;
         // Cubierto por Documentación (RITE/facturas ya en el expediente): resuelto,
         // aunque no tenga fichero propio en este slot. Ver coveredExternally.
         const coveredExt = coveredExternally(slot);
@@ -1123,87 +1288,16 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                 ))}
                             </div>
                         )}
-                        {items.length > 0 && (
+                        {porVentana && <div className="mt-3">{ventanasDeSlot(slot)}</div>}
+                        {!porVentana && items.length > 0 && (
                             <div className="mt-3 flex flex-wrap gap-3">
-                                {items.map((it, i) => {
-                                    const fEstado = it.estado || 'subida';
-                                    const img = isImageItem(it);
-                                    const doc = img ? null : docMetaFor(it);
-                                    return (
-                                        <div key={i} className="flex flex-col items-center gap-1">
-                                            <div className="relative group">
-                                                {img ? (
-                                                    <button
-                                                        onClick={() => { setLbConfirmDelete(false); setLightbox({ slot, item: it, localUrl: it.localUrl, driveId: it.driveId, thumb: it.thumb, label: slot.label }); }}
-                                                        className={`relative w-16 h-16 rounded-lg overflow-hidden border-2 ${FOTO_ESTADO_BORDER[fEstado]} hover:opacity-90 transition-all block`}
-                                                        title={it.motivo ? `Rechazada: ${it.motivo}` : 'Ver en grande'}
-                                                    >
-                                                        <DriveImg localUrl={it.localUrl} proxySrc={thumbProxy(it.driveId, 400)} driveId={it.driveId} thumb={it.thumb} size={400} fit="cover" />
-                                                    </button>
-                                                ) : (
-                                                    <a
-                                                        href={it.link || (it.driveId ? `https://drive.google.com/file/d/${it.driveId}/view` : '#')}
-                                                        target="_blank" rel="noreferrer"
-                                                        className={`relative w-16 h-16 rounded-lg overflow-hidden border-2 ${FOTO_ESTADO_BORDER[fEstado]} hover:opacity-90 transition-all flex flex-col items-center justify-center gap-0.5 bg-white/[0.04]`}
-                                                        title={`${it.name}${it.motivo ? ` · Rechazada: ${it.motivo}` : ''}`}
-                                                    >
-                                                        <span className="text-xl leading-none">{doc.icon}</span>
-                                                        <span className="text-[7px] font-black uppercase tracking-wider text-white/50">{doc.ext}</span>
-                                                    </a>
-                                                )}
-                                                {/* Borrar: solo ADMIN */}
-                                                {canValidate && (
-                                                    <button onClick={() => deleteItem(slot, it)} disabled={busy} title="Eliminar"
-                                                        className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white text-xs font-black flex items-center justify-center shadow-lg max-md:opacity-100 opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50">✕</button>
-                                                )}
-                                                {/* Publicada en el escaparate → badge estrella */}
-                                                {img && publicadas[it.driveId] && (
-                                                    <span title="Publicada en el escaparate público"
-                                                        className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-amber-500 text-white text-[10px] flex items-center justify-center shadow-lg">★</span>
-                                                )}
-                                            </div>
-                                            {/* Nombre legible del documento (slots "Otros") */}
-                                            {it.label && (
-                                                <span className="text-[9px] text-white/55 font-bold max-w-[72px] text-center leading-tight break-words" title={it.label}>{it.label}</span>
-                                            )}
-                                            {/* Controles de validación (solo admin) */}
-                                            {canValidate && (
-                                                <div className="flex items-center gap-1.5">
-                                                    <button onClick={() => reviewItem(slot, it, 'validar')} disabled={acting === `${slot.key}:${it.name}` || bulkValidating !== null}
-                                                        title="Validar foto" aria-label="Validar foto"
-                                                        className={`w-7 h-7 rounded-lg text-sm font-black flex items-center justify-center transition-all disabled:opacity-50 ${fEstado === 'validada' ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30' : 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/30'}`}>✓</button>
-                                                    <button onClick={() => {
-                                                        setReject({ slot, item: it });
-                                                        setRejectMotivo('');
-                                                        const sbp = it.subido_por;
-                                                        if (sbp === 'instalador' && info?.recipients?.instalador) setRejectNotifyTarget('instalador');
-                                                        else if (info?.recipients?.cliente) setRejectNotifyTarget('cliente');
-                                                        else setRejectNotifyTarget('ninguno');
-                                                    }} disabled={acting === `${slot.key}:${it.name}` || bulkValidating !== null}
-                                                        title="Rechazar foto" aria-label="Rechazar foto"
-                                                        className={`w-7 h-7 rounded-lg text-sm font-black flex items-center justify-center transition-all disabled:opacity-50 ${fEstado === 'rechazada' ? 'bg-red-500 text-white shadow-sm shadow-red-500/30' : 'bg-red-500/15 text-red-300 hover:bg-red-500/30'}`}>✗</button>
-                                                    {/* Publicar en el escaparate — solo fotos VALIDADAS */}
-                                                    {img && fEstado === 'validada' && api.escaparate && (
-                                                        publicadas[it.driveId]
-                                                            ? <button onClick={() => unpublish(it)} disabled={pubBusy} title="Quitar del escaparate público"
-                                                                className="w-7 h-7 rounded-lg text-sm flex items-center justify-center bg-amber-500 text-white shadow-sm shadow-amber-500/30 disabled:opacity-50">★</button>
-                                                            : <button onClick={() => openPublish(slot, it)} disabled={pubBusy} title="Publicar en el escaparate público"
-                                                                className="w-7 h-7 rounded-lg text-sm flex items-center justify-center bg-amber-500/15 text-amber-300 hover:bg-amber-500/30 disabled:opacity-50">☆</button>
-                                                    )}
-                                                </div>
-                                            )}
-                                            {fEstado === 'rechazada' && it.motivo && (
-                                                <span className="text-[8px] text-red-300/80 max-w-[64px] text-center leading-tight">{it.motivo}</span>
-                                            )}
-                                        </div>
-                                    );
-                                })}
+                                {items.map((it, i) => renderItem(slot, it, i))}
                             </div>
                         )}
                         <ErrorSlot error={slotError[slot.key]} className="mt-2" />
                     </div>
 
-                    {!slot.existing && (
+                    {!slot.existing && !porVentana && (
                         <div className={clientView && !done ? 'w-full' : 'shrink-0'}>
                             <label className={`block cursor-pointer rounded-xl font-black uppercase tracking-widest transition-all text-center ${clientView && !done ? 'w-full py-3.5 text-xs' : 'px-4 py-2.5 text-[11px]'} ${busy ? 'bg-white/10 text-white/40' : done ? 'bg-white/[0.06] text-white/70 hover:bg-white/[0.1] border border-white/10' : 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/20'}`}>
                                 {busy ? textoSubiendo(slot) : uploadCta(slot, done)}
@@ -1244,8 +1338,18 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                     slots={(info.slots || []).filter(s => !s.existing)}
                     addableConcepts={info.addableConcepts || []}
                     onSubir={(slot, archivos) => uploadFiles(slot, archivos)}
+                    onColocadas={apuntarColocadasWa}
                     onAnadirApartado={canValidate ? anadirApartadoDesdeBuzon : null}
                     onCerrar={() => setBuzon(null)}
+                />
+            )}
+            {traerWa && (
+                <TraerDeWhatsapp
+                    idOrUuid={idOrUuid}
+                    adminBase={api.admin}
+                    slots={info.slots || []}
+                    onListo={(files) => { setTraerWa(false); setBuzon({ files }); }}
+                    onCerrar={() => setTraerWa(false)}
                 />
             )}
             {/* Cabecera de identificación */}
@@ -1271,6 +1375,8 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                 const txt = textoDe(pasoSlot);
                 const busy = busySlot === pasoSlot.key;
                 const yaTiene = (pasoSlot.items || []).length;
+                // Las ventanas van en tarjetas, una por ventana (VentanasPorVentana).
+                const pasoPorVentana = esPorVentana(pasoSlot.key);
                 const paso = pasoIdx >= 0 ? pasoIdx + 1 : Math.min(cliDone + 1, cliTotal);
                 const yaEnviado = !necesitaAccion(pasoSlot);
                 return (
@@ -1350,7 +1456,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                 —es a lo que ha vuelto a mirar—; si no, el ejemplo, que
                                 enseña el encuadre. A todo el ancho: en un móvil, una
                                 miniatura de 160 px no deja ver si la pegatina se lee. */}
-                            {yaTiene > 0 ? (
+                            {yaTiene > 0 && !pasoPorVentana ? (
                                 <button
                                     onClick={() => { const it = pasoSlot.items[0]; setLbConfirmDelete(false); setLightbox({ slot: pasoSlot, item: it, localUrl: it.localUrl, driveId: it.driveId, thumb: it.thumb, label: txt.label }); }}
                                     className="relative mb-4 aspect-[7/6] w-full max-w-sm mx-auto block overflow-hidden rounded-2xl border-2 border-emerald-400/40">
@@ -1359,7 +1465,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                         🔍 Ver en grande
                                     </span>
                                 </button>
-                            ) : tieneIlustracion(pasoSlot.key) ? (
+                            ) : tieneIlustracion(pasoSlot.key) && yaTiene === 0 ? (
                                 <div className="mb-4 aspect-[7/6] w-full max-w-sm mx-auto">
                                     <SlotIlustracion slotKey={pasoSlot.key} className="w-full h-full" />
                                 </div>
@@ -1367,6 +1473,13 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
 
                             <h2 className="text-center text-xl md:text-2xl font-black text-white leading-tight">{txt.label}</h2>
                             {txt.help && <p className="mt-2.5 text-center text-sm text-white/55 leading-relaxed">{txt.help}</p>}
+                            {pasoPorVentana && (
+                                <p className="mt-1.5 text-center text-sm text-white/55 leading-relaxed">
+                                    {pasoSlot.fase === 'DESPUES'
+                                        ? 'En cada ventana ves cómo estaba: hazle la foto a la nueva.'
+                                        : 'Una tarjeta por ventana. Si son varias, pulsa «Añadir otra ventana».'}
+                                </p>
+                            )}
 
                             {/* Motivo del rechazo: qué falló exactamente la vez anterior */}
                             {pasoSlot.estado === 'rechazada' && (pasoSlot.items || []).filter(i => i.motivo).map((i, n) => (
@@ -1379,7 +1492,9 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                 expediente y no se toca desde aquí. Volver atrás a mirar y no
                                 poder corregir es media función; sin esto, el cliente sube la
                                 buena encima y nos deja las dos, y hay que adivinar cuál vale. */}
-                            {yaTiene > 0 && (pasoSlot.items[0].estado || 'subida') === 'subida' && !busy && (
+                            {pasoPorVentana && <div className="mt-5">{ventanasDeSlot(pasoSlot)}</div>}
+
+                            {!pasoPorVentana && yaTiene > 0 && (pasoSlot.items[0].estado || 'subida') === 'subida' && !busy && (
                                 quitarConfirm === pasoSlot.items[0].name ? (
                                     <div className="mt-3 flex items-center justify-center gap-2">
                                         <button onClick={async () => { setQuitarConfirm(null); await deleteItem(pasoSlot, pasoSlot.items[0]); }}
@@ -1399,7 +1514,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                 )
                             )}
 
-                            {yaTiene > 1 && (
+                            {!pasoPorVentana && yaTiene > 1 && (
                                 <div className="mt-4 flex flex-wrap justify-center gap-2">
                                     {(pasoSlot.items || []).slice(1, 6).map((it, n) => (
                                         <button key={n}
@@ -1412,15 +1527,15 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                 </div>
                             )}
 
-                            <label className={`mt-5 block cursor-pointer rounded-2xl py-4 text-center font-black uppercase tracking-widest text-sm transition-all ${busy ? 'bg-white/10 text-white/40' : yaEnviado ? 'border border-white/15 bg-white/[0.06] text-white/70 hover:bg-white/[0.1]' : 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/25'}`}>
+                            {!pasoPorVentana && <label className={`mt-5 block cursor-pointer rounded-2xl py-4 text-center font-black uppercase tracking-widest text-sm transition-all ${busy ? 'bg-white/10 text-white/40' : yaEnviado ? 'border border-white/15 bg-white/[0.06] text-white/70 hover:bg-white/[0.1]' : 'bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-lg shadow-amber-500/25'}`}>
                                 {busy ? textoSubiendo(pasoSlot) : uploadCta(pasoSlot, yaEnviado)}
                                 <input type="file" accept={pasoSlot.accept}
                                     {...(pasoSlot.multiple ? { multiple: true } : {})}
                                     disabled={busy}
                                     onChange={e => { requestUpload(pasoSlot, e.target.files); e.target.value = ''; }}
                                     className="hidden" />
-                            </label>
-                            {pasoSlot.multiple && !busy && (
+                            </label>}
+                            {!pasoPorVentana && pasoSlot.multiple && !busy && (
                                 <p className="mt-2 text-center text-[11px] text-white/35">
                                     Puedes elegir varias a la vez
                                     {/* El arrastrar y soltar solo existe con raton: en un movil
@@ -1445,7 +1560,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                         onClick={() => irA(pasoIdx + 1, !yaEnviado)}
                                         disabled={pasoIdx < 0 || pasoIdx >= recorrido.length - 1}
                                         className="flex-1 py-3 rounded-xl border border-white/10 text-xs font-bold uppercase tracking-widest text-white/50 hover:text-white/85 hover:border-white/25 transition-all disabled:opacity-25 disabled:hover:text-white/50 disabled:hover:border-white/10">
-                                        {yaEnviado ? 'Siguiente ›' : 'Ahora no ›'}
+                                        {yaEnviado ? (pasoPorVentana ? 'Ya están todas ›' : 'Siguiente ›') : 'Ahora no ›'}
                                     </button>
                                 </div>
                             )}
@@ -1639,6 +1754,15 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                         {canSeeDespues ? '🔧' : '🔒'} Después de la obra
                     </button>
                 </div>
+            )}
+
+            {/* Traer del WhatsApp (solo staff): muchos clientes no usan el enlace y
+                mandan las fotos al chat. Se leen de ahí y van al repartidor. */}
+            {mode === 'admin' && puedeWhatsapp && api.whatsapp && (
+                <button onClick={() => setTraerWa(true)}
+                    className="mb-3 w-full min-h-[44px] py-2.5 rounded-xl border border-emerald-400/30 bg-emerald-400/[0.05] text-emerald-300 text-xs font-black uppercase tracking-widest hover:bg-emerald-400/10 transition-all">
+                    💬 Traer fotos del WhatsApp
+                </button>
             )}
 
             {/* Añadir apartado de obra (solo admin): habilita conceptos extra —ventanas,

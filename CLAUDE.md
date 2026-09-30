@@ -10826,6 +10826,141 @@ El certificado crudo está guardado en el propio expediente (`cee.xml_inicial` /
 expedientes lo tienen), así que la revisión no necesita Drive: `--expediente 26RES060_192` lo trae
 todo de una vez.
 
+### Traer las fotos del WHATSAPP al repartidor (2026-09-30)
+
+Muchos clientes no usan el enlace de subida: mandan las fotos al WhatsApp de la
+empresa. Botón **💬 Traer fotos del WhatsApp** en el gestor de documentación (solo
+STAFF, solo oportunidades CAE): se eligen los chats y el periodo, se ve lo que ha
+llegado y lo marcado se baja y entra en el **repartidor** de siempre, que propone el
+apartado y espera a que una persona lo confirme. Es la opción MANUAL; no hay nada que
+escuche los mensajes ni que se dispare solo.
+
+| Qué | Dónde |
+|---|---|
+| Contactos, lectura del chat, descarga, marcas | [whatsappMedia.js](implementation/backend/services/whatsappMedia.js) |
+| Rutas (**staffOnly**) | `GET /api/oportunidades/:id/whatsapp-media/contactos` · `POST …/buscar` · `GET …/descargar?msg=` · `POST …/colocadas` |
+| Popup | [TraerDeWhatsapp.jsx](implementation/frontend/src/features/docs/TraerDeWhatsapp.jsx) → `BuzonFotos` (prop `onColocadas`) |
+| Qué mensajes ya se colocaron | tabla `whatsapp_media_importada` (`scripts/whatsapp_media_importada.sql`, ya en producción) |
+| Prueba de lo puro | `node implementation/backend/scripts/test_whatsapp_media.js` |
+| Probar la pantalla sin la sesión real | `WA_MEDIA_SIMULADO=1` con WhatsApp apagado (lo lleva `backend-alt`): fotos del tutorial |
+
+**REGLA — se habla con WhatsApp Web DIRECTAMENTE** (`WAWebCollections`,
+`WAWebChatLoadMessages.loadEarlierMsgs`, `WAWebDownloadManager`), nunca con
+`fetchMessages()` ni con `Message.downloadMedia()` de la librería: las dos pasan por
+el `serialize()` que WhatsApp rompió. `BAJAR` es lo que hace `downloadMedia` de
+whatsapp-web.js 1.34.7, sin el modelo serializado. Nada de esto está en el camino de
+ENVÍO (lo que rompía la sesión era `getChatById`/`sendSeen` ahí).
+
+**REGLA — de una en una y con plazo**: todo lo que toca el Chrome va en fila
+(`enSerie`) y con `conPlazo`; dos plazos agotados seguidos cortan la lectura. Cada
+chat carga como mucho 1.500 mensajes / 40 lotes, y un adjunto de más de 50 MB se
+marca y no se baja (viaja en base64 por el protocolo de depuración).
+
+**REGLA — solo se baja lo que salió de un chat leído para ESE expediente.** El id
+del mensaje lleva el chat dentro (`chatDeMsgId`) y se comprueba contra los chats
+recién leídos para esa oportunidad (`permitir`, 3 h); si no, el botón bajaría
+cualquier foto de cualquier conversación. **No se crean chats**: el número se busca
+como `@c.us` y por su `@lid` (`WAWebApiContact.getCurrentLid`), sin abrir nada.
+
+**REGLA — lo recomendado es lo del CLIENTE** (titular, propietarios, persona de
+contacto y chats vinculados a mano). El chat de un INSTALADOR se ofrece sin marcar y
+con aviso —puede traer fotos de sus otras obras—, y un número que está en las dos
+fichas también. Se puede teclear otro número (la hija que manda las fotos).
+
+**REGLA — lo colocado se APUNTA, y es una pista, no un candado.** Al subir, el
+repartidor avisa de qué mensaje salió cada foto y se guarda en
+`whatsapp_media_importada` (la subida renombra el fichero y el slot no sabría de
+dónde vino). La próxima vez sale "✓ Ya colocada · Caldera" y sin marcar, y si está
+en OTRA obra ("En 26RES060_190") tampoco se marca. Se puede volver a traer.
+
+Lo que no se baja se dice con su motivo (`caducado`: WhatsApp ya no la tiene en sus
+servidores y hay que pedírsela otra vez; `no_encontrado`; `grande`), y un chat que no
+llegó a cargarse entero sale como "no se ha podido cargar todo el periodo". Una foto
+mandada "como documento" se marca **original, sin comprimir**: es la buena para leer
+una placa. En el repartidor se enseña lo que escribió el cliente al mandarla.
+
+**REGLA — MOBILE FIRST, y cómodo en el PC.** El popup y el REPARTIDOR son **hoja
+inferior** en el móvil (con asa, `94dvh` y el área segura del iPhone en el pie) y
+centrados en el PC; controles de **44 px** y campos a **16 px** en el móvil (iOS amplía
+la página por debajo), compactos desde `md:`. En el PC, **Esc** cierra (salvo leyendo o
+bajando) e **Intro** en el número busca. ⚠️ El repartidor pasa a ir **portaleado a
+`body`**: dentro del modal de documentación (con `backdrop-blur`) su cabecera quedaba
+tapada por la barra de la app en el móvil. Y su desplegable lleva `no-uppercase`: en
+mayúsculas y a 16 px no se leía el apartado.
+
+⚠️ **PENDIENTE de medir en el VPS**: `LEER_CHAT` y `BAJAR` corren dentro de la sesión
+real y en local no se pueden ejercer. La miniatura sale de `m.body` (en un mensaje con
+foto es la miniatura en base64); si WhatsApp la mueve, la lista sale con iconos y todo
+lo demás funciona. Y hay que comprobar que leer y bajar no afecta a los envíos (ACK).
+
+### Las VENTANAS, ventana por ventana (2026-09-30)
+
+En un RES080 se cambian cinco, ocho, doce ventanas y cada una necesita su foto de
+antes y la de después. Iban a granel —dos casillas, todas las de antes y todas las
+de después— y ni quien revisa ni el Anexo Fotográfico sabían qué ventana nueva
+correspondía a qué ventana vieja. Ahora los dos apartados de ventanas
+(`FOTO_VENTANAS_ANTES` / `_DESPUES`) van en **tarjetas, una por ventana**, en el
+enlace del cliente (guiado y lista) y en el panel interno.
+
+| Qué | Dónde |
+|---|---|
+| Reglas: id, nombre, agrupar, progreso, orden del anexo (FUENTE ÚNICA, pura) | [logic/ventanasObra.js](implementation/frontend/src/features/docs/logic/ventanasObra.js) |
+| Las tarjetas | [VentanasPorVentana.jsx](implementation/frontend/src/features/docs/VentanasPorVentana.jsx), montadas por `DocsManager` (`ventanasDeSlot`) |
+| Guardar al subir · renombrar · reasignar | `subirFicherosASlot({ ventana })` y `actualizarVentanas` en `reformaUploadService` |
+| Rutas | `POST /api/public/reforma-docs/:uuid/:slot[/batch]` con `ventana` + `ventanaNombre` · `PATCH /api/public/reforma-docs/:uuid/ventanas?token=` |
+| Anexo Fotográfico | `collectPhotoGroups` anota y ordena (`ordenarPorVentana`); las filas llevan `rotulo` |
+| Pruebas | `node implementation/backend/scripts/test_ventanas_obra.mjs` · `test_ventanas_subida.js` |
+
+**REGLA — la ventana va EN LA FOTO, no en una lista aparte.** Cada entrada de
+`reforma_uploads` lleva `ventana: 'V3'` y `ventana_nombre: 'Cocina'`, junto a su
+estado: no hay tabla ni lista que pueda desincronizarse, y una ventana EXISTE cuando
+tiene alguna foto. Renombrar escribe en todas sus fotos de los DOS apartados (RPC
+`reforma_replace_slot`, como validar). El id **no se reutiliza** al borrar
+(`siguienteId`): la 3 sigue siendo la 3, o la foto de después se emparejaría con otra.
+
+**REGLA — en el DESPUÉS, la ventana VIEJA al lado** («Así estaba»): es lo que dice
+de qué ventana es la foto que se está haciendo, la haga el cliente, el carpintero o
+el equipo. Y el apartado del después **solo está hecho cuando TODAS las ventanas
+tienen su foto nueva** (`slotDone` en DocsManager): si no, el recorrido guiado lo
+daba por terminado con la primera. Por lo mismo, subir una foto de ventana **no
+avanza** el paso guiado (`setPasoKey(slot.key)`): quedan las demás; el botón pasa
+a «Ya están todas ›».
+
+**REGLA — nada se esconde.** Las fotos sin ventana (las de antes de esto, las del
+repartidor o del WhatsApp) salen en «fotos sin ventana asignada» con un
+desplegable para colocarlas, y una foto que solo está en Drive se da de alta al
+asignarla. Un id que no es una ventana se ignora: la foto entra igual, sin ventana.
+
+**El nombre es opcional y de un toque** (`NOMBRES_RAPIDOS`: Salón, Cocina,
+Dormitorio…), o tecleado. Mientras no hay ninguna ventana se enseña ya la «Ventana
+1» con su botón; al añadir la segunda, la primera se queda (era provisional y
+desaparecía). Mobile first: botones de 48 px, campos a 16 px.
+
+**El Anexo Fotográfico las saca en orden de ventana y con su rótulo** («Ventana 2 ·
+Cocina», igual en el antes y en el después, numerando las repetidas). El nombre
+vigente sale de los DOS apartados (`nombresDeVentanas`). El orden manual del
+gestor (`anexo_orden`) sigue mandando si existe.
+
+**«Subir todas a la vez» existe, pero en segundo plano y con la explicación
+delante**: *lo ideal es subir cada foto en su ventana, así sabemos cuál es cuál.*
+Va debajo de las tarjetas, con un botón que no es el naranja. Lo que hace depende
+de la fase, y la pantalla lo dice ANTES de pulsar:
+- **Antes**: cada foto pasa a ser una ventana nueva, con números seguidos detrás de
+  las que ya tienen foto (`idsParaTanda`; una ventana añadida en pantalla y vacía la
+  ocupa la primera foto). Viaja como `ventanas` = JSON `['V3','V4',…]`, una por
+  fichero (`ventanasPorFichero` en `subirFicherosASlot`).
+- **Después**: no hay forma de saber de qué ventana es cada una, así que entran sin
+  ventana y cada foto pregunta **«¿Cuál de estas era?»** enseñando cómo estaba cada
+  ventana: se coloca TOCANDO la foto vieja, no eligiendo en un desplegable.
+- Las fotos sueltas del antes (repartidor, WhatsApp) tienen además **«Cada foto es
+  una ventana distinta»**, que las coloca todas de un toque, en serie.
+
+⚠️ La miniatura dentro de un botón va con `renderMini(slot, it, { soloImagen: true })`:
+un botón dentro de otro no es HTML válido.
+
+⚠️ PENDIENTE: el parte diario y «qué falta» siguen contando el apartado del después
+como hecho con UNA foto; no saben que a una ventana le falta la suya.
+
 **⚠️ Ese XML está EN MAYÚSCULAS** —`normalizeData` deja la columna entera así— y eso es justo lo que
 impide releerlo con `parseCeeXml` (regla 32: busca los tags con mayúsculas exactas y `DOMParser`
 rechaza `<?XML VERSION…?>`). `radiografiaCee` SÍ puede, porque busca sin distinguir mayúsculas y
@@ -11194,6 +11329,10 @@ fichero en CE3X y pulsar calcular.
     ⚠️ Como consecuencia, **borrar un firmado tiene que invalidar su visto bueno
     explícitamente**: antes se limpiaba de rebote porque el navegador mandaba su copia sin esa
     clave — o sea, por el mismo accidente que se acaba de cerrar. Un slot verde que apunta a un
+68.b **Las fotos que el cliente manda al WHATSAPP se TRAEN al repartidor con un botón** (💬 Traer fotos del WhatsApp, gestor de documentación, solo staff y solo CAE): se eligen chats y periodo, se lista lo llegado y lo marcado se baja y entra en `BuzonFotos`, que propone y espera confirmación. Se lee WhatsApp Web DIRECTAMENTE —nunca `fetchMessages`/`downloadMedia` de la librería, rotos por el `serialize()`—, en fila y con plazo; **solo se baja lo de un chat leído para ESE expediente** (el chat va dentro del id del mensaje) y no se crean chats. Lo del cliente viene marcado; el chat del instalador, sin marcar y con aviso. Lo colocado se apunta en `whatsapp_media_importada` (pista, no candado) y sale "ya colocada" o "en otra obra". Fuente única: [whatsappMedia.js](implementation/backend/services/whatsappMedia.js). Tras tocarlo: `node implementation/backend/scripts/test_whatsapp_media.js`. ⚠️ Lo que corre dentro de la sesión (`LEER_CHAT`, `BAJAR`) solo se puede probar en el VPS. Ver "Traer las fotos del WHATSAPP al repartidor".
+
+68.c **Las fotos de las VENTANAS van ventana por ventana** (RES080 y cualquier expediente con ventanas): una tarjeta por ventana con su antes y su después, y en el después la ventana VIEJA al lado («Así estaba»). La ventana va EN CADA FOTO (`ventana: 'V3'`, `ventana_nombre`) dentro de `reforma_uploads`, sin lista aparte; el id no se reutiliza. El apartado del después solo está hecho con TODAS las ventanas, y subir una no avanza el paso guiado. Las fotos sin ventana se enseñan para colocarlas. El Anexo Fotográfico las ordena y rotula por ventana. Fuente única: [logic/ventanasObra.js](implementation/frontend/src/features/docs/logic/ventanasObra.js). Tras tocarlo: `node implementation/backend/scripts/test_ventanas_obra.mjs` y `test_ventanas_subida.js`. Ver "Las VENTANAS, ventana por ventana".
+
     fichero que ya no existe dice que alguien revisó algo que no está. Tras tocarlo:
     `node implementation/backend/scripts/test_validacion_no_se_pisa.mjs`.
 25. **La PROPUESTA se versiona al ENVIARLA, nunca al guardarla**: cada envío archiva su PDF en `0. PROPUESTAS` como `Propuesta_{expte}_v{N}.pdf`, imprime la marca DENTRO del documento y sella qué versión aceptó el cliente. Fuente única: [propuestaVersiones.js](implementation/backend/services/propuestaVersiones.js) — no volver a generar el PDF de la propuesta por separado en cada canal (el del email y el de WhatsApp acababan siendo documentos distintos), ni guardar el HTML de una versión en el JSONB (353 KB de media, regla 21). Ver "Versiones de la PROPUESTA".

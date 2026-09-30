@@ -107,6 +107,24 @@ async function collectPhotoGroups(datosCalculo = {}) {
         }
         if (photos.length) groups.push({ key: c.key, label: c.label, fase: c.fase, photos });
     }
+
+    // VENTANAS: cada foto con su ventana y en orden de ventana, rotulada igual en
+    // el antes y en el después ("Ventana 2 · Cocina"). Así el anexo las enseña
+    // emparejadas en vez de en dos montones. El nombre vigente sale de los DOS
+    // apartados, para que una ventana no se llame distinto en cada bloque.
+    const vo = await reformaUploadService.ventanasObra();
+    const uploads = dc.reforma_uploads || {};
+    const nombres = vo.nombresDeVentanas(uploads.FOTO_VENTANAS_ANTES || [], uploads.FOTO_VENTANAS_DESPUES || []);
+    for (const g of groups) {
+        if (!vo.esPorVentana(g.key)) continue;
+        const porNombre = new Map((uploads[g.key] || []).map(it => [it.name, it]));
+        const anotadas = g.photos.map(ph => ({
+            ...ph,
+            ventana: porNombre.get(ph.name)?.ventana || null,
+            ventana_nombre: porNombre.get(ph.name)?.ventana_nombre || null,
+        }));
+        if (anotadas.some(ph => ph.ventana)) g.photos = vo.ordenarPorVentana(anotadas, nombres);
+    }
     return { groups };
 }
 
@@ -136,7 +154,8 @@ function buildRowsFromGroups(groups, orden = {}) {
         applyOrden(g.photos || [], orden?.[g.key]).forEach((ph, i) => {
             rows.push({
                 id: `drive_${ph.name}`,
-                label: i === 0 ? g.label : `${g.label} (${i + 1})`,
+                // Una foto de ventana se rotula con SU ventana (ver collectPhotoGroups).
+                label: ph.rotulo || (i === 0 ? g.label : `${g.label} (${i + 1})`),
                 groupLabel: g.label, // etiqueta del CONCEPTO (la usa el bloque de comentario)
                 slotKey: g.key,
                 fase: g.fase,
