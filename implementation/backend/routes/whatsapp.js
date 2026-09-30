@@ -134,6 +134,7 @@ router.post('/send-media', requireAuth, requireService, async (req, res) => {
 const waLabels = require('../services/whatsappLabels');
 const waSync = require('../services/whatsappInstaladoresSync');
 const waClientesSync = require('../services/whatsappClientesSync');
+const waNombresClientes = require('../services/whatsappNombresClientes');
 
 // Un fallo de dato o de estado (WhatsApp caído, chat inexistente, cuenta que no
 // es Business) NO es una avería del servidor: su mensaje ya está escrito para
@@ -230,6 +231,22 @@ router.post('/etiquetas/sincronizar-clientes', adminOInterno, async (req, res) =
         const dryRun = req.body?.dryRun !== false;
         const desde = Math.max(0, Number(req.body?.desde) || 0);
         res.json(await waClientesSync.sincronizar({ dryRun, desde }));
+    } catch (e) { errorLabels(res, e); }
+});
+
+// POST /api/whatsapp/contactos/renombrar-clientes  { dryRun?, despuesDe?, incluirCambioFicha? }
+//
+// Pone el nº de obra delante del nombre del cliente en la AGENDA:
+// "RES080 Irene Lopez (Gonzagarri)" → "RES080_87 Irene Lopez (Gonzagarri)"
+// (con expediente, su número; sin él, su oportunidad). Solo toca el prefijo de
+// los contactos que ya lo llevan (ver whatsappNombresClientes). ADMIN o interna;
+// `dryRun` por defecto; a trozos con el cursor `siguiente`.
+router.post('/contactos/renombrar-clientes', adminOInterno, async (req, res) => {
+    try {
+        const dryRun = req.body?.dryRun !== false;
+        const despuesDe = req.body?.despuesDe ? String(req.body.despuesDe) : null;
+        const incluirCambioFicha = req.body?.incluirCambioFicha === true;
+        res.json(await waNombresClientes.renombrar({ dryRun, despuesDe, incluirCambioFicha }));
     } catch (e) { errorLabels(res, e); }
 });
 

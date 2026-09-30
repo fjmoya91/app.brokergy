@@ -25,6 +25,8 @@ export function WhatsappSettingsView() {
     // Lo mismo para los CLIENTES: etiquetas de tipo (RES060…CEE) y estado.
     const [syncCli, setSyncCli] = useState(null);
     const [syncingCli, setSyncingCli] = useState(false);
+    const [nombres, setNombres] = useState(null);
+    const [renombrando, setRenombrando] = useState(false);
 
     const fetchStatus = useCallback(async () => {
         try {
@@ -143,6 +145,46 @@ export function WhatsappSettingsView() {
             showAlert(err.response?.data?.error || err.message, 'No se ha podido sincronizar', 'error');
         } finally {
             setSyncingCli(false);
+        }
+    };
+
+    // Pone el nº de obra delante del nombre del cliente en la agenda del teléfono
+    // ("RES080 Irene…" → "RES080_87 Irene…"). En seco por defecto; a trozos con
+    // un cursor por teléfono (`siguiente`), por el mismo motivo que los otros dos.
+    const renombrarClientes = async (dryRun) => {
+        if (!dryRun) {
+            const confirmado = await showConfirm(
+                `Se renombrarán ${nombres?.cambios?.length ?? ''} contactos de la agenda de tu teléfono. `
+                + 'Solo cambia el prefijo (RES080 → RES080_87); el resto del nombre se queda como lo escribiste. '
+                + 'Los que cambiarían de ficha no se tocan. No se envía ningún mensaje.',
+                'Renombrar clientes en WhatsApp',
+                'warning'
+            );
+            if (!confirmado) return;
+        }
+        setRenombrando(true);
+        try {
+            if (dryRun) {
+                const { data } = await axios.post('/api/whatsapp/contactos/renombrar-clientes', { dryRun: true });
+                setNombres(data);
+                return;
+            }
+            const total = { ...nombres, dryRun: false, renombrados: 0, errores: [] };
+            let despuesDe = null;
+            do {
+                const { data } = await axios.post('/api/whatsapp/contactos/renombrar-clientes', { dryRun: false, despuesDe });
+                total.renombrados += data.renombrados;
+                total.errores.push(...(data.errores || []));
+                if (data.abortado) { total.abortado = data.abortado; break; }
+                despuesDe = data.siguiente;
+                total.pendientes = despuesDe ? Math.max(0, data.pendientes - data.renombrados - (data.errores?.length || 0)) : 0;
+                setNombres({ ...total, enCurso: !!despuesDe });
+            } while (despuesDe);
+            setNombres({ ...total, enCurso: false });
+        } catch (err) {
+            showAlert(err.response?.data?.error || err.message, 'No se ha podido renombrar', 'error');
+        } finally {
+            setRenombrando(false);
         }
     };
 
@@ -481,6 +523,80 @@ export function WhatsappSettingsView() {
                                 </p>
                             )}
                             {syncCli.abortado && <p className="text-red-300/90 text-xs">{syncCli.abortado}</p>}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {status?.ready && (
+                <div className="bg-bkg-surface border border-white/5 rounded-2xl p-6">
+                    <h2 className="text-sm font-bold uppercase tracking-widest text-white/60 mb-1">Nombres de clientes en la agenda</h2>
+                    <p className="text-xs text-white/40 leading-relaxed mb-4">
+                        Pone el número de obra delante del nombre: <span className="font-mono text-white/60">RES080 Irene Lopez (Gonzagarri)</span> pasa
+                        a <span className="font-mono text-white/60">RES080_87 Irene Lopez (Gonzagarri)</span>. Con expediente, su número; si la
+                        propuesta aún no está aceptada, su oportunidad (<span className="font-mono text-white/60">RES060_OP246</span>). Solo se
+                        cambia el prefijo de los contactos que ya lo llevan; lo demás se queda como lo escribiste. No se envía ningún mensaje.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                        <button onClick={() => renombrarClientes(true)} disabled={renombrando}
+                            className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-sm text-white/80 disabled:opacity-50">
+                            {renombrando && (!nombres || nombres.dryRun) ? 'Mirando…' : 'Ver qué haría'}
+                        </button>
+                        <button onClick={() => renombrarClientes(false)} disabled={renombrando || !nombres?.dryRun || !nombres.cambios?.length}
+                            title={!nombres ? 'Primero mira qué haría' : ''}
+                            className="px-4 py-2 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/30 text-sm text-emerald-200 disabled:opacity-40">
+                            Renombrar ahora
+                        </button>
+                    </div>
+                    {nombres && (
+                        <div className="mt-4 text-sm text-white/70 space-y-1.5">
+                            <p>
+                                <span className="text-white/40">
+                                    {nombres.enCurso ? `En marcha (quedan ${nombres.pendientes}): ` : (nombres.dryRun ? 'Se renombrarían: ' : 'Hecho: ')}
+                                </span>
+                                <span className="text-white font-semibold">{nombres.dryRun ? nombres.cambios.length : nombres.renombrados}</span> contactos
+                                <span className="text-white/40"> (de {nombres.contactos} con prefijo; {nombres.yaAlDia} ya al día)</span>
+                            </p>
+                            {nombres.cambios?.length > 0 && (
+                                <details className="text-xs text-white/50">
+                                    <summary className="cursor-pointer">Ver contacto a contacto</summary>
+                                    <ul className="mt-1 space-y-0.5 max-h-64 overflow-y-auto">
+                                        {nombres.cambios.map((c, i) => (
+                                            <li key={i}>
+                                                <span className="text-white/40">{c.antes}</span> → <span className="text-emerald-300/80">{c.despues}</span>
+                                                {c.via !== 'titular' && <span className="text-white/30"> · por {c.via} de {c.cliente}</span>}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </details>
+                            )}
+                            {nombres.revisar?.length > 0 && (
+                                <details className="text-xs text-amber-300/80">
+                                    <summary className="cursor-pointer">{nombres.revisar.length} cambiarían de ficha — no se tocan, revísalos a mano</summary>
+                                    <ul className="mt-1 space-y-0.5 max-h-64 overflow-y-auto">
+                                        {nombres.revisar.map((c, i) => (
+                                            <li key={i}>{c.antes} → {c.despues} <span className="text-white/30">({c.cliente}, {c.via})</span></li>
+                                        ))}
+                                    </ul>
+                                </details>
+                            )}
+                            {(nombres.sinCliente?.length > 0 || nombres.variosClientes?.length > 0) && (
+                                <details className="text-xs text-white/40">
+                                    <summary className="cursor-pointer">
+                                        {nombres.sinCliente?.length || 0} sin cliente con ese teléfono · {nombres.variosClientes?.length || 0} en varios clientes
+                                    </summary>
+                                    <ul className="mt-1 space-y-0.5 max-h-64 overflow-y-auto">
+                                        {nombres.variosClientes?.map((c, i) => <li key={`v${i}`}>{c.nombre}: {c.clientes.join(' / ')}</li>)}
+                                        {nombres.sinCliente?.map((c, i) => <li key={`s${i}`}>{c.nombre} ({c.tlf})</li>)}
+                                    </ul>
+                                </details>
+                            )}
+                            {nombres.errores?.length > 0 && (
+                                <p className="text-red-300/80 text-xs">
+                                    Errores: {nombres.errores.map(x => `${x.antes}: ${x.error}`).join(' · ')}
+                                </p>
+                            )}
+                            {nombres.abortado && <p className="text-red-300/90 text-xs">{nombres.abortado}</p>}
                         </div>
                     )}
                 </div>
