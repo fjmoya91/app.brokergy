@@ -103,7 +103,15 @@ function Leido({ etiqueta, d }) {
                 {[d.marca, d.potencia_kw ? `${String(d.potencia_kw).replace('.', ',')} kW` : null, d.refrigerante]
                     .filter(Boolean).join(' · ')}
             </div>
-            {d.numero_serie && <div className="text-[11px] text-white/70 mt-1">Nº de serie: <b className="font-mono">{d.numero_serie}</b></div>}
+            {d.numero_serie && !d.serie_dudosa && <div className="text-[11px] text-white/70 mt-1">Nº de serie: <b className="font-mono">{d.numero_serie}</b></div>}
+            {/* Dos modelos leen la placa: si sus nºs de serie no coinciden, no se
+                hereda ninguno al expediente — allí se elige mirando la foto. */}
+            {d.serie_dudosa && (
+                <div className="text-[11px] text-amber-300 mt-1">
+                    ⚠ Nº de serie dudoso: <b className="font-mono">{(d.serie_alternativas || []).map((a) => a.serie).join(' ó ')}</b>
+                    <div className="text-[10px] text-white/40">No se pasará al expediente: allí se elige con «Leer placas», mirando la foto.</div>
+                </div>
+            )}
             {/* La LÍNEA literal de la placa. Es la EVIDENCIA: permite contrastar el
                 número sin volver a abrir la foto. */}
             {d.serie_texto && <div className="text-[10px] text-white/35 italic break-all mt-0.5">«{d.serie_texto}»</div>}

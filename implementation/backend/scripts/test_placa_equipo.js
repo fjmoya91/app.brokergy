@@ -10,7 +10,7 @@
  *   node implementation/backend/scripts/test_placa_equipo.js
  */
 
-const { casan, norm, serieDesdeTexto } = require('../services/placaEquipoOcrService');
+const { casan, norm, serieDesdeTexto, esEan13 } = require('../services/placaEquipoOcrService');
 
 let fallos = 0;
 const ok = (cond, msg) => {
@@ -75,6 +75,15 @@ ok(s4.serie === '5624802034' && !!s4.aviso, 'si las dos lecturas difieren, manda
 const s5 = serieDesdeTexto(null, '1650773');
 ok(s5.serie === '1650773' && !s5.aviso, 'sin línea literal, vale el número aislado');
 ok(serieDesdeTexto(null, null).serie === null, 'sin nada, null');
+
+console.log('\n── Un código de barras EAN-13 no es un nº de serie ─────────────');
+// Medido en la MIDEA de 26RES060_OP246: el lector copió el EAN del producto
+// («8 431312 256175») en vez de «SN: 541S7757904A3150100002», justo encima.
+ok(esEan13('8 431312 256175'), 'el EAN-13 impreso bajo las barras se reconoce');
+ok(!esEan13('8431312256176'), 'con el dígito de control mal, no es un EAN');
+ok(!esEan13('SN: 8431312256175'), 'rotulado como nº de serie, se respeta');
+ok(!esEan13('541S7757904A3150100002'), 'un nº de serie alfanumérico no es un EAN');
+ok(!esEan13('1650773'), 'un nº de serie corto tampoco');
 
 console.log(`\n${fallos ? `❌ ${fallos} FALLO(S)` : '✅ Todo correcto'}\n`);
 process.exit(fallos ? 1 : 0);

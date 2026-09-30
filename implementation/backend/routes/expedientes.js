@@ -4899,7 +4899,10 @@ router.post('/:id/placa-caldera/ocr', suyoSiCertificador, (req, res, next) => {
         };
         proponer('marca', 'Marca', cal.marca, leido.marca);
         proponer('modelo', 'Modelo', cal.modelo, leido.modelo);
-        proponer('numero_serie', 'Nº de serie', cal.numero_serie, leido.numero_serie);
+        // Un nº de serie DUDOSO (las dos lecturas no coinciden) no se escribe desde
+        // aquí: su aviso ya va en `lectura.avisos` con las dos versiones, y se elige
+        // en «Leer placas» de Instalación, que sí ofrece escoger entre las dos.
+        if (!leido.serie_dudosa) proponer('numero_serie', 'Nº de serie', cal.numero_serie, leido.numero_serie);
         // Un CERO no es una potencia: `potencia_caldera` nace en '' y se guarda
         // como 0 en cuanto alguien abre y guarda Instalación sin tocarlo. Si
         // contara como valor puesto, la placa saldría como «conflicto» contra un
@@ -5215,11 +5218,44 @@ router.post('/:id/placas/ocr', suyoSiCertificador, async (req, res) => {
             }
         };
 
+        // ── El Nº DE SERIE, que puede venir DUDOSO ─────────────────────────────
+        // Cada placa se lee con dos modelos distintos (utils/serieDePlaca). Si sus
+        // nºs de serie no coinciden, ninguno se escribe solo: se enseñan los dos en
+        // `dudosos` y lo elige una persona mirando la foto. La elección vuelve en
+        // `series_elegidas` y SOLO se acepta una de las dos leídas — un valor
+        // cualquiera no lo respalda ninguna placa (mismo criterio que `equipo_id`).
+        // Y se compara sin separadores: «2-93-00577» y «29300577» son el mismo dato.
+        const { norm: normSerie } = require('../utils/serieDePlaca');
+        const elecciones = (req.body?.series_elegidas && typeof req.body.series_elegidas === 'object')
+            ? req.body.series_elegidas : {};
+        const dudosos = [];
+        const proponerSerie = (nodo, campo, etiqueta, actual, lectura) => {
+            if (!lectura?.numero_serie) return;
+            if (!lectura.serie_dudosa) {
+                if (!vacio(actual) && normSerie(actual) === normSerie(lectura.numero_serie)) return;
+                return proponer(nodo, campo, etiqueta, actual, lectura.numero_serie);
+            }
+            const alts = (lectura.serie_alternativas || []).map((a) => a?.serie).filter(Boolean);
+            if (!vacio(actual)) {
+                // Lo escrito es una de las dos lecturas: no hay nada que decir.
+                if (alts.some((a) => normSerie(a) === normSerie(actual))) return;
+                conflictos.push({ nodo, campo, etiqueta, actual, leido: alts.join(' / ') });
+                return;
+            }
+            const clave = `${nodo}.${campo}`;
+            const elegida = elecciones[clave];
+            if (elegida && alts.includes(elegida)) {
+                propuesta.push({ nodo, campo, etiqueta, valor: elegida });
+                return;
+            }
+            dudosos.push({ nodo, campo, clave, etiqueta, alternativas: lectura.serie_alternativas });
+        };
+
         // Caldera que se retira.
         const leidoCal = caldera.leido || {};
         proponer('caldera', 'marca', 'Caldera · Marca', cal.marca, leidoCal.marca);
         proponer('caldera', 'modelo', 'Caldera · Modelo', cal.modelo, leidoCal.modelo);
-        proponer('caldera', 'numero_serie', 'Caldera · Nº de serie', cal.numero_serie, leidoCal.numero_serie);
+        proponerSerie('caldera', 'numero_serie', 'Caldera · Nº de serie', cal.numero_serie, leidoCal);
         // Un CERO no es una potencia: `potencia_caldera` nace en '' y se guarda como
         // 0 en cuanto alguien abre y guarda Instalación sin tocarlo. Si contara como
         // valor puesto, saldría un «conflicto» contra un dato que no existe.
@@ -5234,7 +5270,7 @@ router.post('/:id/placas/ocr', suyoSiCertificador, async (req, res) => {
         // otra. Si falta la foto de la exterior, ese hueco se queda sin rellenar y
         // lo dice el aviso — que es lo correcto, no rellenarlo con lo que haya.
         proponer('aerotermia', 'marca', 'Equipo nuevo · Marca', aero.marca, ext?.marca || int?.marca);
-        proponer('aerotermia', 'numero_serie', 'Equipo nuevo · Nº de serie (ud. exterior)', aero.numero_serie, ext?.numero_serie);
+        proponerSerie('aerotermia', 'numero_serie', 'Equipo nuevo · Nº de serie (ud. exterior)', aero.numero_serie, ext);
         proponer('aerotermia', 'modelo_ud_exterior', 'Equipo nuevo · Modelo ud. exterior', aero.modelo_ud_exterior, ext?.modelo);
         proponer('aerotermia', 'modelo_ud_interior', 'Equipo nuevo · Modelo ud. interior', aero.modelo_ud_interior, int?.modelo);
 
@@ -5259,8 +5295,8 @@ router.post('/:id/placas/ocr', suyoSiCertificador, async (req, res) => {
         // Con el ACS fuera del alcance ese nodo no describe nada de esta obra, así
         // que el dato se guarda como REGISTRO junto al modelo del mismo aparato.
         if (esLaInteriorDelEquipo && inst.cambio_acs === false) {
-            proponer('aerotermia', 'numero_serie_ud_interior', 'Equipo nuevo · Nº de serie ud. interior',
-                aero.numero_serie_ud_interior, int.numero_serie);
+            proponerSerie('aerotermia', 'numero_serie_ud_interior', 'Equipo nuevo · Nº de serie ud. interior',
+                aero.numero_serie_ud_interior, int);
         }
 
         // ── El nodo de ACS ────────────────────────────────────────────────────
@@ -5300,8 +5336,8 @@ router.post('/:id/placas/ocr', suyoSiCertificador, async (req, res) => {
         const acsAparte = inst.misma_aerotermia_acs === false;
         if (inst.cambio_acs !== false && (acsAparte || acsConjunto)
             && (hayUdInterior || !acsConjunto) && int?.numero_serie) {
-            proponer('acs', 'numero_serie', 'Equipo de ACS · Nº de serie (ud. interior)',
-                acsNodo.numero_serie, int.numero_serie);
+            proponerSerie('acs', 'numero_serie', 'Equipo de ACS · Nº de serie (ud. interior)',
+                acsNodo.numero_serie, int);
             // ⚠️ NI MARCA NI `modelo`: los dos entran en la firma con la que
             // `mismaMaquina()` decide si el ACS es una SEGUNDA máquina, y de ese
             // veredicto cuelgan qué SCOP_dhw se declara y qué equipos imprime el
@@ -5480,7 +5516,7 @@ router.post('/:id/placas/ocr', suyoSiCertificador, async (req, res) => {
             acs_conjunto: acsConjunto && !equipoCatalogo ? { ...acsConjunto, equipo: modeloCompleto?.modelo_comercial || '' } : null,
             catalogo_candidatos: catalogo.candidatos || [],
             fotos: [...(caldera.fotos || []), ...(equipos.fotos || [])],
-            propuesta, conflictos,
+            propuesta, conflictos, dudosos,
             escrito: aplicar ? escrito : [],
             avisos,
         });

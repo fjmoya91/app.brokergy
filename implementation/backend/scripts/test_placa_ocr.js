@@ -91,5 +91,16 @@ comprueba('solid_* + fuelType pellets → pellets', conId('solid_auto', 'pellets
 comprueba('electric → electricidad', conId('electric'), 'electricidad');
 comprueba('sin declarar → nada', conId(undefined), null);
 
+// Las placas importadas antiguas son TABLAS multilingües con una fila de
+// consumo y otra útil (SERRA CALOR de 26RES060_OP246).
+console.log('\n5. Placa en tabla: Input / Output');
+comprueba('Input 49,8 · Output 43 → la útil (Output)',
+    elegirPotencia([{ etiqueta: 'Input', valor: '49.8' }, { etiqueta: 'Output', valor: '43' }], 'gasoleo').kw, 43);
+comprueba('Puissance du foyer · Puissance rendue → la rendue',
+    elegirPotencia([{ etiqueta: 'Puissance du foyer', valor: '49,8' },
+                    { etiqueta: 'Puissance rendue', valor: '43' }], 'gasoleo').kw, 43);
+comprueba('línea literal Input/Output → la útil',
+    potenciaDesdeTexto('Input 49.8 [42900] Kw Output into water 43 [37000] Kw').kw, 43);
+
 console.log(fallos ? `\n${fallos} FALLAN` : '\nTodo correcto.');
 process.exit(fallos ? 1 : 0);

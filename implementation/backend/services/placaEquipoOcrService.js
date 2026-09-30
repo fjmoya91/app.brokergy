@@ -63,7 +63,10 @@
 const driveService = require('./driveService');
 const reformaUploadService = require('./reformaUploadService');
 const supabase = require('./supabaseClient');
-const { llamarGemini, SUBCARPETA_DOCS, limpia } = require('./placaOcrService');
+const { leerDosVeces, SUBCARPETA_DOCS, limpia } = require('./placaOcrService');
+const {
+    reglasSerie, SCHEMA_SERIE, elegirSerie, combinarSeries, serieDesdeTexto, esEan13,
+} = require('../utils/serieDePlaca');
 
 //: Cuántas fotos de CADA placa se mandan a leer. El slot es `multiple` porque se
 //: suben varias perspectivas de la misma etiqueta; cada imagen se paga y con
@@ -93,24 +96,21 @@ const UNIDADES = [
     },
 ];
 
-const promptDe = (u) => `Eres un lector de PLACAS DE CARACTERÍSTICAS de bombas de calor (aerotermia) instaladas en viviendas españolas. Te doy fotos de la etiqueta de datos de la ${u.etiqueta.toUpperCase()} y, a veces, del aparato entero.
+const promptDe = (u, opts = {}) => `Eres un lector de PLACAS DE CARACTERÍSTICAS de bombas de calor (aerotermia) instaladas en viviendas españolas. Te doy fotos de la etiqueta de datos de la ${u.etiqueta.toUpperCase()} y, a veces, del aparato entero.
 
 Todas las fotos son de LA MISMA máquina: la ${u.etiqueta}. No mezcles datos de aparatos distintos.
 
 DEVUELVE, transcribiendo literalmente lo que veas:
-- marca: el fabricante (DAIKIN, PANASONIC, MITSUBISHI, LG, SAMSUNG, TOSHIBA, BAXI, VAILLANT, SAUNIER DUVAL, THERMOR, ARISTON, GIATSU, HAIER, GREE, FUJITSU, HITACHI, BOSCH…). Puede estar en el frontal del aparato y no en la etiqueta.
-- modelo: el código de modelo TAL CUAL está impreso, con sus guiones y sufijos (p. ej. "EPGA16DAV37", "WH-MDC07J3E5", "GIA-K12BPT3R32", "RAV-GV1601ATP-E", "WH-ADC0309K3E5"). Es el campo rotulado "MODEL", "MODELO", "MODEL NAME", "TYPE" o "TIPO". Cópialo entero, sin quitarle nada.
-- numero_serie: el número de serie / "MFG.NO." / "SERIAL No." / "S/N" / "Nº SERIE" / "SERIAL NUMBER", sin espacios. Es el que identifica ESTE aparato concreto, no el modelo. null si no se lee con claridad.
-- serie_texto: la LÍNEA COMPLETA Y LITERAL donde aparece ese número, con su rótulo y sus separadores, tal como está impresa (p. ej. "MFG.NO. : 1650773", "SERIAL No. 5624802034"). Cópiala entera; no la resumas.
+- marca: el fabricante (DAIKIN, PANASONIC, MITSUBISHI, LG, SAMSUNG, TOSHIBA, BAXI, VAILLANT, SAUNIER DUVAL, THERMOR, ARISTON, GIATSU, HAIER, GREE, FUJITSU, HITACHI, BOSCH, LASIAN…). Puede estar en el frontal del aparato y no en la etiqueta.
+- modelo: el código de modelo TAL CUAL está impreso, con sus guiones y sufijos (p. ej. "EPGA16DAV37", "WH-MDC07J3E5", "GIA-K12BPT3R32", "RAV-GV1601ATP-E", "WH-ADC0309K3E5"). Es el campo rotulado "MODEL", "MODELO", "MODEL NAME", "TYPE" o "TIPO", o el nombre en grande de la cabecera de la placa. Cópialo entero, sin quitarle nada.
+${reglasSerie(opts)}
 - potencia_kw: la potencia calorífica nominal en kW si la placa la declara ("HEATING CAPACITY", "Pot. calorífica", "CAPACITY"), como número con punto decimal. null si no aparece.
 - refrigerante: el gas refrigerante si aparece ("R32", "R410A", "R290", "R134a"). null si no.
-- codigo_barras: si la etiqueta lleva un código largo bajo un código de barras y NO es el nº de serie, cópialo; si no, null.
 - anio: el año de fabricación (4 cifras) si aparece, si no null.
 
 REGLAS:
 - NO inventes ni completes caracteres que no se lean con claridad: es preferible null a un valor adivinado. Un nº de serie adivinado se imprime en un certificado y en una declaración responsable.
-- El MODELO y el Nº DE SERIE son cosas distintas y están uno al lado del otro: el modelo se repite en todos los aparatos iguales, el nº de serie es único. No los intercambies.
-- NO confundas el nº de serie con el código de artículo, el nº de homologación CE, el PIN, el código de barras ni el número de lote.
+- El MODELO y el Nº DE SERIE son cosas distintas: el modelo se repite en todos los aparatos iguales, el nº de serie es único. No los intercambies.
 - Copia el modelo con TODOS sus guiones, puntos y sufijos de letra o número: "WH-MDC07J3E5-1" no es lo mismo que "WH-MDC07J3E5".`;
 
 const SCHEMA = {
@@ -118,77 +118,31 @@ const SCHEMA = {
     properties: {
         marca: { type: 'STRING', nullable: true },
         modelo: { type: 'STRING', nullable: true },
-        numero_serie: { type: 'STRING', nullable: true },
-        serie_texto: { type: 'STRING', nullable: true },
+        ...SCHEMA_SERIE,
         potencia_kw: { type: 'NUMBER', nullable: true },
         refrigerante: { type: 'STRING', nullable: true },
-        codigo_barras: { type: 'STRING', nullable: true },
         anio: { type: 'INTEGER', nullable: true },
     },
 };
+//: El de siempre lee SIN la lista de códigos: con ella entraba en bucle (ver
+//: SCHEMA_SERIE_BASE en utils/serieDePlaca). Su nº de serie hace de contraste.
+const SCHEMA_BASE = {
+    ...SCHEMA,
+    properties: { ...SCHEMA.properties, codigos: undefined },
+};
+delete SCHEMA_BASE.properties.codigos;
 
 // ── El nº de serie, decidido por el código ───────────────────────────────────
-// MEDIDO sobre la placa de 26RES080_66 (DAIKIN ERLA16DAV37, «MFG.NO. : 1650773»),
-// tres vueltas por combinación y `temperature: 0`:
+// Lo decide `utils/serieDePlaca.js`, compartido con la placa de la caldera: el
+// modelo transcribe su nº de serie, la LÍNEA literal y TODOS los códigos largos
+// que ve con su rótulo y su sitio (junto a unas barras, a un QR, en la tabla), y
+// el código elige. Ver allí el porqué, medido.
 //
-//   1 foto (solo la placa)     sin pedir la línea → 3/3 aciertos
-//   2 fotos (placa + aparato)  sin pedir la línea → 0/3   lee «1802773»
-//   2 fotos (placa + aparato)  PIDIENDO la línea  → 3/3 aciertos
-//
-// O sea: la foto de contexto —que hace falta, porque la MARCA va en el frontal y
-// no en la etiqueta— desvía la atención del modelo justo sobre los dígitos, y el
-// fallo es SISTEMÁTICO, no un azar que se corrija repitiendo. Pedir la línea
-// entera con su rótulo lo arregla del todo: transcribir una cadena con contexto
-// es una tarea distinta de aislar siete cifras.
-//
-// Es la MISMA regla que `placaOcrService` ya aplica a la potencia: el modelo copia
-// la línea literal y el número lo saca el código. Y esa línea es además la
-// EVIDENCIA que se le enseña a quien revisa, para contrastarla sin abrir la foto.
-
-//: Lo que en una placa rotula el nº de serie. Se quita para quedarse con el valor.
-const RE_ROTULO = /^.*?(?:mfg\.?\s*n[oº°]?\.?|serial\s*(?:n[oº°]?\.?|number)|s\/?n|n[º°]\s*(?:de\s*)?serie|seriennummer)\s*[:.\-]?\s*/i;
-
-/**
- * El nº de serie que se escribe, a partir de la línea literal y del número que
- * el modelo aisló por su cuenta.
- *
- * Manda la LÍNEA, que es la transcripción con contexto. Si los dos coinciden no
- * hay nada que decir; si difieren se avisa, porque entonces una de las dos
- * lecturas es mala y quien revisa tiene que mirar la foto.
- *
- * @returns {{serie:string|null, texto:string|null, aviso:string|null}}
- */
-function serieDesdeTexto(linea, suelto) {
-    const limpiar = (v) => String(v || '').trim().replace(/\s+/g, '');
-    const nSuelto = limpiar(suelto) || null;
-    const bruto = String(linea || '').trim();
-    if (!bruto) return { serie: nSuelto, texto: null, aviso: null };
-
-    // ⚠️ NO se corta por el primer espacio. Un nº de serie puede venir escrito por
-    // bloques y los espacios son suyos: la placa de 26RES080_79 pone
-    // «S/N:1KK018 038JAP D8D5BJF 0134», y quedarse con «1KK018» deja el número a
-    // un cuarto. Se toma todo lo que sigue al rótulo.
-    const restoNorm = limpiar(bruto.replace(RE_ROTULO, ''));
-
-    // Lo que cuenta es si las DOS lecturas dicen lo mismo, y para eso basta con
-    // que el número aislado aparezca dentro de la línea. Cuando concuerdan manda el
-    // aislado: es el mismo dato ya sin el rótulo ni lo que venga detrás.
-    if (nSuelto && restoNorm.toUpperCase().includes(nSuelto.toUpperCase())) {
-        return { serie: nSuelto, texto: bruto, aviso: null };
-    }
-    if (!nSuelto) return { serie: restoNorm || null, texto: bruto, aviso: null };
-    if (!restoNorm) return { serie: nSuelto, texto: bruto, aviso: null };
-
-    // Discrepan de verdad: una de las dos lecturas es mala y no se puede saber
-    // cuál sin mirar la foto. Se propone la de la LÍNEA, que es la transcripción
-    // con contexto, y se dice.
-    return {
-        serie: restoNorm, texto: bruto,
-        aviso: `El nº de serie no se ha leído igual las dos veces: en la línea «${bruto}» pone `
-            + `«${restoNorm}», pero el lector ha aislado «${nSuelto}». Se propone el de la línea — `
-            + 'compruébalo en la foto antes de aplicarlo: va impreso en el CIFO y en el Anexo I.',
-    };
-}
+// MEDIDO antes sobre la placa de 26RES080_66 (DAIKIN, «MFG.NO. : 1650773»): con
+// una foto de contexto al lado, el número aislado salía «1802773» 3 de 3 veces, y
+// pidiendo la línea entera con su rótulo, 3 de 3 bien. Transcribir una cadena con
+// contexto es una tarea distinta de aislar siete cifras — por eso se sigue
+// pidiendo la línea, que además es la EVIDENCIA que se enseña a quien revisa.
 
 // ── El cruce con el catálogo ─────────────────────────────────────────────────
 
@@ -338,26 +292,48 @@ async function casarConCatalogo(ext, int) {
  * @param {object[]} imgs  [{ name, buffer, mimeType }]
  */
 async function leerUnidad(u, imgs) {
-    const bruto = await llamarGemini(imgs, {
-        prompt: promptDe(u), schema: SCHEMA, etiqueta: `placaEquipo:${u.id}`,
+    // DOS lecturas en paralelo, con dos modelos distintos: la base (el de
+    // siempre) da marca, modelo, potencia…, y la otra manda en el nº de serie. Si
+    // los dos nºs de serie coinciden, va; si no, se proponen los dos y elige una
+    // persona (ver `combinarSeries`).
+    const { base, serie: deSerie } = await leerDosVeces(imgs, {
+        prompt: promptDe(u), schema: SCHEMA,
+        promptBase: promptDe(u, { codigos: false }), schemaBase: SCHEMA_BASE,
+        etiqueta: `placaEquipo:${u.id}`,
     });
+    const campo = (k) => limpia(base?.[k]) ?? limpia(deSerie?.[k]);
+    const modelo = campo('modelo')?.toUpperCase() || null;
 
-    // El nº de serie sale de la LÍNEA literal, no del número que el modelo
-    // aisló: medido, con la foto de contexto delante se equivoca 3 de 3 veces
-    // aislándolo y acierta 3 de 3 copiando la línea entera (ver arriba).
-    const serie = serieDesdeTexto(bruto?.serie_texto, bruto?.numero_serie);
+    // El nº de serie lo decide el CÓDIGO sobre lo que ha visto cada lectura: lo
+    // rotulado como tal, lo impreso junto a unas barras o un QR, y nunca un código
+    // de producto, un EAN, el modelo ni un ejemplo del prompt (utils/serieDePlaca).
+    const serie = combinarSeries(
+        deSerie ? elegirSerie(deSerie, { modelo }) : null,
+        base ? elegirSerie(base, { modelo }) : null,
+    );
+
+    const potencia = Number(base?.potencia_kw) > 0 ? Number(base.potencia_kw)
+        : (Number(deSerie?.potencia_kw) > 0 ? Number(deSerie.potencia_kw) : null);
+    const anio = [base?.anio, deSerie?.anio].map(Number)
+        .find((a) => a > 2000 && a <= new Date().getFullYear() + 1) || null;
 
     return {
         aviso: serie.aviso,
         datos: {
-            marca: limpia(bruto?.marca)?.toUpperCase() || null,
-            modelo: limpia(bruto?.modelo)?.toUpperCase() || null,
+            marca: campo('marca')?.toUpperCase() || null,
+            modelo,
             numero_serie: serie.serie || null,
-            serie_texto: serie.texto,
-            potencia_kw: Number(bruto?.potencia_kw) > 0 ? Number(bruto.potencia_kw) : null,
-            refrigerante: limpia(bruto?.refrigerante)?.toUpperCase() || null,
-            anio: Number(bruto?.anio) > 2000 && Number(bruto?.anio) <= new Date().getFullYear() + 1
-                ? Number(bruto.anio) : null,
+            serie_texto: serie.texto || null,
+            // De dónde sale y si las dos lecturas coinciden. Con `serie_dudosa`
+            // el nº de serie NO se escribe solo: el popup enseña las dos
+            // `serie_alternativas` y elige una persona mirando la foto.
+            serie_origen: serie.origen || null,
+            serie_confirmada: !!serie.confirmada,
+            serie_dudosa: !!serie.dudosa,
+            serie_alternativas: serie.alternativas?.length ? serie.alternativas : undefined,
+            potencia_kw: potencia,
+            refrigerante: campo('refrigerante')?.toUpperCase() || null,
+            anio,
         },
     };
 }
@@ -474,7 +450,7 @@ async function leerPlacasAerotermia(driveFolderId) {
         for (const f of [...placas, ...contexto]) {
             // eslint-disable-next-line no-await-in-loop
             const buffer = await driveService.getFileContent(f.id).catch(() => null);
-            if (buffer?.length) imgs.push({ name: f.name, buffer, mimeType: mimeDe(f) });
+            if (buffer?.length) imgs.push({ id: f.id, name: f.name, buffer, mimeType: mimeDe(f) });
         }
         if (!imgs.length) {
             avisos.push(`Las fotos de la ${u.etiqueta} están en Drive pero no se han podido descargar.`);
@@ -485,7 +461,8 @@ async function leerPlacasAerotermia(driveFolderId) {
         const { datos, aviso } = await leerUnidad(u, imgs);
         if (aviso) avisos.push(`${u.etiqueta}: ${aviso}`);
         unidades[u.id] = datos;
-        fotos.push(...imgs.map((i) => ({ name: i.name, unidad: u.id })));
+        // Con su id de Drive: el popup la enlaza para comprobar un nº de serie dudoso.
+        fotos.push(...imgs.map((i) => ({ id: i.id || null, name: i.name, unidad: u.id })));
 
         if (!unidades[u.id].numero_serie) {
             avisos.push(`En las fotos de la ${u.etiqueta} no se lee el nº de serie. `
@@ -498,5 +475,5 @@ async function leerPlacasAerotermia(driveFolderId) {
 
 module.exports = {
     leerPlacasAerotermia, leerPlacasDeImagenes, leerUnidad,
-    casarConCatalogo, casan, norm, serieDesdeTexto, UNIDADES,
+    casarConCatalogo, casan, norm, serieDesdeTexto, esEan13, UNIDADES,
 };

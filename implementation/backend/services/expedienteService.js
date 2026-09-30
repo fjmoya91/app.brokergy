@@ -311,7 +311,9 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             // HUECOS— y el mismo destino: `numero_serie` es SIEMPRE el de la unidad
             // EXTERIOR, que es lo que imprimen el CIFO y el Anexo I.
             const placa = op.datos_calculo?.inputs?.placa_ocr;
-            if (placa?.exterior?.numero_serie && !instalacion.aerotermia_cal.numero_serie) {
+            // Un nº de serie DUDOSO (las dos lecturas no coincidían) no se hereda:
+            // se elige en el expediente con «Leer placas», mirando la foto.
+            if (placa?.exterior?.numero_serie && !placa.exterior.serie_dudosa && !instalacion.aerotermia_cal.numero_serie) {
                 instalacion.aerotermia_cal.numero_serie = placa.exterior.numero_serie;
                 console.log('[ExpedienteService] Nº de serie de la ud. exterior heredado de la placa leída al simular.');
             }
@@ -319,7 +321,7 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             // imprimiéndose —si al nodo de ACS por ser un conjunto bibloc, o aquí—
             // lo decide el lector de placas del expediente con el alcance delante
             // (regla 27.e); esto solo evita perder un dato ya leído.
-            if (placa?.interior?.numero_serie && !instalacion.aerotermia_cal.numero_serie_ud_interior) {
+            if (placa?.interior?.numero_serie && !placa.interior.serie_dudosa && !instalacion.aerotermia_cal.numero_serie_ud_interior) {
                 instalacion.aerotermia_cal.numero_serie_ud_interior = placa.interior.numero_serie;
             }
         } catch (e) {

@@ -42,6 +42,9 @@
 
 const driveService = require('./driveService');
 const reformaUploadService = require('./reformaUploadService');
+const {
+    reglasSerie, SCHEMA_SERIE, SCHEMA_SERIE_BASE, elegirSerie, combinarSeries,
+} = require('../utils/serieDePlaca');
 
 const PROVIDER = 'gemini';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
@@ -64,14 +67,15 @@ const SLOT_CALDERA = 'FOTO_CALDERA_ANTES';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const PROMPT = `Eres un lector de PLACAS DE CARACTERÍSTICAS de calderas de calefacción españolas. Te doy fotos de la etiqueta de datos de una caldera y, a veces, de la caldera entera.
+const promptCaldera = (opts = {}) => `Eres un lector de PLACAS DE CARACTERÍSTICAS de calderas de calefacción españolas. Te doy fotos de la etiqueta de datos de una caldera y, a veces, de la caldera entera.
 
 DEVUELVE, transcribiendo literalmente lo que veas:
-- marca: el fabricante (VAILLANT, JUNKERS, SAUNIER DUVAL, BAXI, ROCA, FERROLI, ARISTON, VIESSMANN, DOMUSA, BUDERUS…). Puede estar en el frontal de la caldera y no en la etiqueta.
+- marca: el fabricante (VAILLANT, JUNKERS, SAUNIER DUVAL, BAXI, ROCA, FERROLI, ARISTON, VIESSMANN, DOMUSA, BUDERUS, SERRA CALOR…). Puede estar en el frontal de la caldera y no en la etiqueta. «Caldaia», «Chaudière», «Boiler», «Caldera», «Kessel» y sus trozos («…DAIA») son la palabra CALDERA en otro idioma, NUNCA una marca; tampoco la marca del QUEMADOR (Bentone, Riello, Lamborghini…), que es otro aparato atornillado delante.
 - modelo: la denominación del modelo tal cual (p. ej. "VMW ES 246/5-3", "CERACLASS EXCELLENCE ZWBE 25-3C", "THEMA CONDENS F25").
-- numero_serie: el número de serie / nº de fabricación, sin espacios. null si no se lee con claridad.
+${reglasSerie(opts)}
 - potencia_texto: la LÍNEA COMPLETA Y LITERAL donde aparece la potencia, con sus símbolos y unidades, tal como está impresa (p. ej. "Pn 80/60°C 10,9-23,3 kW", "Qn = 25,5 kW  Pn = 23,3 kW", "Potencia útil 24 kW", "Potencia kW Sólido 15,3 Líquido 23,3 Gas 23,3"). Cópiala entera; no la resumas ni elijas un número.
-- potencias: TODAS las potencias en kW que declare la placa, una por entrada, sin elegir ninguna. Cada entrada lleva "etiqueta" (el rótulo literal que la acompaña: "Pn", "Qn", "Sólido", "Líquido", "Gas", "Potencia útil", o "" si no lleva ninguno) y "valor" (el número TAL CUAL, con su coma decimal y su rango si lo tiene: "23,3", "10,9-23,3"). Muchas calderas antiguas son policombustible y declaran una potencia por combustible: transcríbelas todas.
+- potencias: TODAS las potencias en kW que declare la placa, una por entrada, sin elegir ninguna. Cada entrada lleva "etiqueta" (el rótulo literal que la acompaña: "Pn", "Qn", "Sólido", "Líquido", "Gas", "Potencia útil", "Input", "Output", o "" si no lleva ninguno) y "valor" (el número TAL CUAL, con su coma decimal y su rango si lo tiene: "23,3", "10,9-23,3"). Muchas calderas antiguas son policombustible y declaran una potencia por combustible: transcríbelas todas.
+- Las placas antiguas importadas son a menudo una TABLA con cada fila rotulada en varios idiomas. Hay DOS filas de potencia y las dos se transcriben, cada una con su rótulo: la del CONSUMO («Input», «Heat input», «Puissance du foyer», «Portata termica», «Potenza al focolare») y la ÚTIL («Output», «Output into water», «Puissance rendue», «Potenza utile», «Resa»). Ejemplo: una fila «Input · Puissance du foyer · 49,8 kW (42900 kcal/h)» y la siguiente «Output into water · Puissance rendue · 43 kW (37000 kcal/h)» son DOS entradas: {"etiqueta":"Input","valor":"49,8"} y {"etiqueta":"Output","valor":"43"}. Las kcal/h entre paréntesis no son otra potencia.
 - combustible: uno de "gas_natural", "glp", "gasoleo", "pellets", "carbon", "electricidad", o null. El GLP incluye propano y butano.
 - acs: true si la placa dice que la caldera también produce agua caliente sanitaria (caldera "mixta", con caudal de ACS en l/min), false si es solo calefacción, null si no se dice.
 - anio: el año de fabricación (4 cifras) si aparece, si no null.
@@ -79,15 +83,43 @@ DEVUELVE, transcribiendo literalmente lo que veas:
 REGLAS:
 - NO inventes ni completes datos que no se lean con claridad: es preferible null a un valor adivinado. Un modelo adivinado acaba impreso en un certificado.
 - En potencia_texto copia la línea TAL CUAL, incluidos los rangos y las dos potencias si aparecen las dos. No conviertas ni redondees nada.
-- NO confundas el nº de serie con el código de artículo, el nº de homologación CE (0063…), el código de barras ni el PIN.
 - NO confundas la potencia en kW con la presión (bar), el caudal (l/min), la tensión (V) ni el consumo eléctrico (W).`;
+
+//: El modelo nuevo lee con la lista de códigos; el de siempre, sin ella (ver
+//: SCHEMA_SERIE_BASE en utils/serieDePlaca: con ella entraba en bucle).
+const PROMPT = promptCaldera();
+const PROMPT_BASE = promptCaldera({ codigos: false });
 
 const SCHEMA = {
     type: 'OBJECT',
     properties: {
         marca: { type: 'STRING', nullable: true },
         modelo: { type: 'STRING', nullable: true },
-        numero_serie: { type: 'STRING', nullable: true },
+        ...SCHEMA_SERIE,
+        potencia_texto: { type: 'STRING', nullable: true },
+        potencias: {
+            type: 'ARRAY',
+            items: {
+                type: 'OBJECT',
+                properties: {
+                    etiqueta: { type: 'STRING', nullable: true },
+                    valor: { type: 'STRING' },
+                },
+                required: ['valor'],
+            },
+        },
+        combustible: { type: 'STRING', nullable: true },
+        acs: { type: 'BOOLEAN', nullable: true },
+        anio: { type: 'INTEGER', nullable: true },
+    },
+};
+
+const SCHEMA_BASE = {
+    type: 'OBJECT',
+    properties: {
+        marca: { type: 'STRING', nullable: true },
+        modelo: { type: 'STRING', nullable: true },
+        ...SCHEMA_SERIE_BASE,
         potencia_texto: { type: 'STRING', nullable: true },
         potencias: {
             type: 'ARRAY',
@@ -110,8 +142,12 @@ const SCHEMA = {
 
 //: Lo que en una placa significa POTENCIA ÚTIL (lo que la caldera entrega al
 //: circuito) frente a CONSUMO calorífico (lo que quema). CE3X pide la primera.
-const RE_UTIL = /\b(pn|p\s*n|p(?:ot(?:encia)?)?\.?\s*(?:útil|util|nominal\s+útil|calefacci[óo]n)|output|nutzleistung)\b/i;
-const RE_CONSUMO = /\b(qn|q\s*n|hi|consumo\s+calor[íi]fico|carga\s+t[ée]rmica|input|w[äa]rmebelastung)\b/i;
+//: Con los rótulos de las placas importadas antiguas (italiano, francés, inglés),
+//: que son TABLAS con una fila de consumo y otra útil: medido en la SERRA CALOR
+//: de 26RES060_OP246, «Input · Puissance du foyer 49,8 kW» y «Output into
+//: water · Puissance rendue 43 kW». Sin estos rótulos se tomaba el consumo.
+const RE_UTIL = /\b(pn|p\s*n|p(?:ot(?:encia)?)?\.?\s*(?:útil|util|nominal\s+útil|calefacci[óo]n)|output|nutzleistung|puissance\s+rendue|potenza\s+utile|resa)\b/i;
+const RE_CONSUMO = /\b(qn|q\s*n|hi|consumo\s+calor[íi]fico|carga\s+t[ée]rmica|input|w[äa]rmebelastung|puissance\s+du\s+foyer|portata\s+termica|potenza\s+al\s+focolare)\b/i;
 
 /** 'util' | 'consumo' | null, según cuál de los dos aparezca MÁS CERCA del número. */
 function ultimoCalificador(antes) {
@@ -143,7 +179,10 @@ function potenciaDesdeTexto(texto) {
     // Números seguidos (o precedidos en la línea) de kW. Se admite la coma
     // decimal española y el punto: las placas usan las dos.
     const nums = [];
-    const re = /(\d{1,3}(?:[.,]\d{1,2})?)\s*(?:-|–|a|hasta)?\s*(\d{1,3}(?:[.,]\d{1,2})?)?\s*k\s*w/gi;
+    // Las kcal/h entre corchetes o paréntesis pueden ir ENTRE el número y la
+    // unidad («49.8 [42900] Kw», las tablas de las placas importadas antiguas):
+    // se saltan, no son otra potencia.
+    const re = /(\d{1,3}(?:[.,]\d{1,2})?)\s*(?:-|–|a|hasta)?\s*(\d{1,3}(?:[.,]\d{1,2})?)?\s*(?:[[(][\d.,\s]{1,12}[\])]\s*)?k\s*w/gi;
     let m;
     while ((m = re.exec(s)) !== null) {
         // El calificador que manda es el ÚLTIMO que haya delante del número, no
@@ -292,12 +331,12 @@ const limpia = (v) => { const s = String(v ?? '').trim(); return s && !/^[-—.]
  */
 async function llamarGemini(imagenes, {
     prompt = PROMPT, schema = SCHEMA, etiqueta = 'placaOcr', deadline = DEADLINE_MS,
-    pensar = false,
+    pensar = false, modelo = GEMINI_MODEL, resolucion = null, maxTokens = null, temperatura = 0,
 } = {}) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('Falta GEMINI_API_KEY en el entorno.');
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`;
     const body = {
         contents: [{
             role: 'user',
@@ -311,10 +350,17 @@ async function llamarGemini(imagenes, {
         generationConfig: {
             responseMimeType: 'application/json',
             responseSchema: schema,
-            temperature: 0,
+            temperature: temperatura,
             // Ver el aviso de la cabecera: a cero es lo correcto para transcribir,
             // y es un bloqueo seguro para lo que hay que razonar.
             ...(pensar ? {} : { thinkingConfig: { thinkingBudget: 0 } }),
+            ...(resolucion ? { mediaResolution: resolucion } : {}),
+            // Un TOPE de salida. Lo que se pide son unas decenas de campos cortos
+            // (~300 tokens), y sin tope una lectura puede entrar en BUCLE: medido el
+            // 30/09/2026, gemini-3.6-flash devolvió en un serie_texto miles de
+            // «_1_1_1…» y otras se quedaban colgadas hasta el plazo. Con el tope el
+            // bucle acaba en una respuesta cortada, que falla rápido y se descarta.
+            ...(maxTokens ? { maxOutputTokens: maxTokens } : {}),
         },
     };
 
@@ -358,12 +404,67 @@ async function llamarGemini(imagenes, {
     let data;
     try { data = JSON.parse(text); } catch { throw new Error('Respuesta de Gemini no es JSON.'); }
     const uso = data?.usageMetadata || {};
-    console.log(`[${etiqueta}] Gemini ${GEMINI_MODEL} ${((Date.now() - t0) / 1000).toFixed(1)}s · `
+    console.log(`[${etiqueta}] Gemini ${modelo} ${((Date.now() - t0) / 1000).toFixed(1)}s · `
         + `${imagenes.length} foto(s) · in=${uso.promptTokenCount ?? '?'} out=${uso.candidatesTokenCount ?? '?'}`
         + (uso.thoughtsTokenCount ? ` think=${uso.thoughtsTokenCount}` : ''));
     const out = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!out) throw new Error('Gemini no devolvió contenido.');
+    if (data?.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+        throw new Error('La lectura se cortó por el tope de salida (el modelo entró en bucle).');
+    }
     return JSON.parse(out);
+}
+
+//: El SEGUNDO modelo que lee cada placa. Dos modelos distintos se equivocan en
+//: sitios distintos —repetir el mismo no, que falla igual—, así que leer con los
+//: dos y comparar el nº de serie es lo que detecta el carácter dudoso. Y éste es
+//: además el que mejor lee los nºs de serie: medido el 30/09/2026 sobre 37 placas
+//: de ud. exterior, 32 frente a 25 del de siempre, y el único que acertó las
+//: rachas de ceros («075076300000022»). Vacío = una sola lectura, como antes.
+const MODELO_SERIE = process.env.PLACA_OCR_MODELO_SERIE ?? 'gemini-3.6-flash';
+//: Lo que se pide son campos cortos (~300 tokens). Ver el tope en `llamarGemini`.
+const MAX_TOKENS_PLACA = Number(process.env.PLACA_OCR_MAX_TOKENS) || 1536;
+
+/**
+ * Lee las MISMAS fotos con los dos modelos, en paralelo.
+ *
+ * `base` es el modelo de siempre (GEMINI_MODEL), con el prompt SIN la lista de
+ * códigos: de él siguen saliendo marca, modelo, potencias… — lo medido no
+ * cambia— y su nº de serie hace de CONTRASTE. `serie` es el segundo, con la lista,
+ * que manda en el nº de serie. Una lectura que falle NO tumba la otra;
+ * si fallan las dos, se lanza el error de la base.
+ *
+ * @returns {Promise<{base:object|null, serie:object|null}>}
+ */
+async function leerDosVeces(imagenes, {
+    prompt = PROMPT, schema = SCHEMA, promptBase = PROMPT_BASE, schemaBase = SCHEMA_BASE,
+    etiqueta = 'placaOcr',
+} = {}) {
+    const dos = MODELO_SERIE && MODELO_SERIE !== GEMINI_MODEL;
+    // Si una lectura acaba en BUCLE (cortada por el tope), se repite UNA vez con
+    // algo de variación: con la decodificación voraz de `temperature: 0` el bucle
+    // se repite idéntico, y con un poco de aleatoriedad casi siempre sale. Solo
+    // ante el bucle: para cualquier otro fallo, repetir no arregla nada.
+    const conReintento = async (o) => {
+        try { return await llamarGemini(imagenes, { ...o, maxTokens: MAX_TOKENS_PLACA }); } catch (e) {
+            if (!/bucle/.test(e.message)) throw e;
+            console.warn(`[${o.etiqueta}] bucle; se repite con variación`);
+            return llamarGemini(imagenes, { ...o, maxTokens: MAX_TOKENS_PLACA, temperatura: 0.4 });
+        }
+    };
+    const [rBase, rSerie] = await Promise.allSettled([
+        conReintento({ prompt: dos ? promptBase : prompt, schema: dos ? schemaBase : schema, etiqueta }),
+        dos
+            ? conReintento({ prompt, schema, modelo: MODELO_SERIE, etiqueta: `${etiqueta}+serie` })
+            : Promise.resolve(null),
+    ]);
+    if (rBase.status === 'rejected' && (!dos || rSerie.status === 'rejected')) throw rBase.reason;
+    if (rBase.status === 'rejected') console.warn(`[${etiqueta}] la lectura base falló: ${rBase.reason?.message}`);
+    if (dos && rSerie.status === 'rejected') console.warn(`[${etiqueta}] la lectura del nº de serie (${MODELO_SERIE}) falló: ${rSerie.reason?.message}`);
+    return {
+        base: rBase.status === 'fulfilled' ? rBase.value : null,
+        serie: dos && rSerie.status === 'fulfilled' ? rSerie.value : null,
+    };
 }
 
 // ── Las fotos, desde Drive ───────────────────────────────────────────────────
@@ -410,7 +511,7 @@ async function fotosDeLaCaldera(datosCalculo = {}) {
         const buffer = await driveService.getFileContent(f.id).catch(() => null);
         if (buffer?.length) {
             fotos.push({
-                name: f.name, buffer, mimeType: mimeDe(f),
+                id: f.id, name: f.name, buffer, mimeType: mimeDe(f),
                 slot: placas.includes(f) ? SLOT_PLACA : SLOT_CALDERA,
             });
         }
@@ -444,7 +545,13 @@ async function leerPlacaCaldera(entrada, opciones = {}) {
         }
     }
 
-    const bruto = await llamarGemini(fotos);
+    // DOS lecturas en paralelo con dos modelos distintos: la base (el de siempre)
+    // da marca, modelo y potencias —lo medido no cambia—, y la otra manda en el
+    // nº de serie. Medido el 30/09/2026 en 26RES093_11: la placa dice
+    // «Nº SERIE: 0905326219» (foto girada) y la lectura única había escrito
+    // «00053210» en el expediente. Ver `combinarSeries` (utils/serieDePlaca).
+    const { base, serie: deSerie } = await leerDosVeces(fotos, { etiqueta: 'placaOcr' });
+    const bruto = base || deSerie || {};
 
     // Se decide sobre las potencias TRANSCRITAS UNA A UNA, que es lo que permite
     // ver que una placa es policombustible. La línea literal queda de red de
@@ -467,6 +574,13 @@ async function leerPlacaCaldera(entrada, opciones = {}) {
         avisos.push(`La placa solo declara el CONSUMO calorífico (${pot.kw.toString().replace('.', ',')} kW), no la potencia útil. `
             + 'CE3X pide la útil, que es algo menor: compruébalo.');
     }
+    const modeloLeido = limpia(bruto?.modelo)?.toUpperCase() || null;
+    const serie = combinarSeries(
+        deSerie ? elegirSerie(deSerie, { modelo: modeloLeido }) : null,
+        base ? elegirSerie(base, { modelo: modeloLeido }) : null,
+    );
+    if (serie.aviso) avisos.push(serie.aviso);
+
     if (!bruto?.marca && !bruto?.modelo) {
         avisos.push('No se lee ni la marca ni el modelo. Si la foto es solo de la etiqueta de datos, '
             + 'la marca suele estar en el frontal de la caldera.');
@@ -476,7 +590,14 @@ async function leerPlacaCaldera(entrada, opciones = {}) {
         leido: {
             marca: limpia(bruto?.marca)?.toUpperCase() || null,
             modelo: limpia(bruto?.modelo)?.toUpperCase() || null,
-            numero_serie: limpia(bruto?.numero_serie)?.replace(/\s+/g, '') || null,
+            numero_serie: serie.serie || null,
+            serie_texto: serie.texto || null,
+            serie_origen: serie.origen || null,
+            serie_confirmada: !!serie.confirmada,
+            // Con las dos lecturas en desacuerdo el nº de serie NO se escribe solo:
+            // se enseñan las dos alternativas y elige una persona mirando la foto.
+            serie_dudosa: !!serie.dudosa,
+            serie_alternativas: serie.alternativas?.length ? serie.alternativas : undefined,
             potencia_texto: limpia(bruto?.potencia_texto),
             potencias: (bruto?.potencias || []).filter((p) => kwDe(p?.valor)),
             combustible,
@@ -488,7 +609,7 @@ async function leerPlacaCaldera(entrada, opciones = {}) {
         potencia_base: pot.base,
         potencia_candidatos: pot.candidatos,
         potencia_familias: pot.familias || [],
-        fotos: fotos.map((f) => ({ name: f.name, slot: f.slot })),
+        fotos: fotos.map((f) => ({ id: f.id || null, name: f.name, slot: f.slot })),
         avisos,
     };
 }
@@ -503,5 +624,5 @@ module.exports = {
     PROVIDER, leerPlacaCaldera, fotosDeLaCaldera, potenciaDesdeTexto, elegirPotencia,
     combustibleDeclarado, SLOT_PLACA, SLOT_CALDERA,
     // Para `placaEquipoOcrService`, que lee otras placas con el mismo cliente.
-    llamarGemini, SUBCARPETA_DOCS, GEMINI_MODEL, limpia,
+    llamarGemini, leerDosVeces, SUBCARPETA_DOCS, GEMINI_MODEL, MODELO_SERIE, limpia,
 };

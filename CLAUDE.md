@@ -3774,6 +3774,65 @@ se migra a él, hay que quitar ese `thinkingConfig`.
 
 ---
 
+## El Nº DE SERIE de una placa: dos lecturas, y lo decide el código (2026-09-30)
+
+El lector de placas (el de Instalación, el de la calculadora y el de la envolvente)
+fallaba justo en el dato que más pesa. Medido sobre **37 placas de ud. exterior y 41
+de caldera** de expedientes cuyo nº de serie tecleó una persona:
+
+- **El nº de serie bajo un código de barras o un QR, sin rótulo, salía en blanco**: el
+  prompt decía que ese texto NUNCA era el nº de serie, y en muchas marcas lo es (LASIAN
+  AERIA HT 12 de 26RES093_11: `8D00260116160057`; Aerosun: `IN2601309004-053` bajo un QR).
+- **Cogía el código de ARTÍCULO** de la tabla («CODICE 8119208» de las Sime) en vez de la
+  pegatina «SN: 540J0268…».
+- **Se comía o duplicaba un cero** en las rachas («075076300000022»).
+- En calderas sucias o giradas, un dígito distinto **escrito en silencio** (26RES093_11:
+  la placa dice `0905326219` y se guardó `00053210`).
+
+| Qué | Dónde |
+|---|---|
+| Qué es nº de serie y qué no · juntar dos lecturas · reglas del prompt | [utils/serieDePlaca.js](implementation/backend/utils/serieDePlaca.js) — `elegirSerie`, `combinarSeries`, `reglasSerie` |
+| Las dos lecturas en paralelo (tope de salida + reintento ante bucle) | `leerDosVeces` en [placaOcrService.js](implementation/backend/services/placaOcrService.js) |
+| Elegir la serie dudosa | `SeriesDudosas` en `LeerPlacasModal.jsx` · `dudosos` / `series_elegidas` en `POST /:id/placas/ocr` |
+| Pruebas | `node implementation/backend/scripts/test_serie_placa.js` |
+
+**REGLA — el modelo LEE; qué es el nº de serie lo decide el CÓDIGO.** Se le pide su nº
+de serie, la línea literal y —al modelo nuevo— TODOS los códigos largos que vea con su
+rótulo y su sitio (junto a barras, a un QR, en la tabla). `elegirSerie` toma: lo que
+propone el lector, salvo que sea un código de PRODUCTO (CODE/CODICE/Art./Ref., «Cód.
+iden. tipo», «Registro de tipo», «N.R.I. FABRICANTE»), un EAN/UPC con su dígito de
+control, el propio MODELO o un ejemplo del prompt; si no, lo rotulado («SN»,
+«MFG.NO.», «Nº fabricación», «Matricola»…); si no, **lo impreso sin rótulo junto a unas
+barras o un QR**.
+
+**REGLA — cada placa se lee con DOS MODELOS DISTINTOS, y si no coinciden NO se escribe
+solo.** Repetir el mismo modelo no sirve (falla igual), pero dos distintos se equivocan
+en sitios distintos. `gemini-2.5-flash` (la base: de él siguen saliendo marca, modelo y
+potencias) y `gemini-3.6-flash` (`PLACA_OCR_MODELO_SERIE`, el que mejor lee: 32 de 37
+frente a 25). Coinciden → «✓ dos lecturas coinciden». Discrepan → `serie_dudosa` +
+`serie_alternativas`: el popup enseña las dos con su línea y un enlace a la foto, **sin
+preseleccionar** (en calderas la preferida acierta ~6 de 10) y el servidor solo acepta
+una de las dos leídas. Resultado medido: ud. exterior de **22/37 a 35/37**; caldera,
+12 de 41 marcadas como dudosas en vez de escribirse mal. Coste: **~0,003 € por placa**.
+
+**REGLA — NINGÚN PROMPT LLEVA UN Nº DE SERIE REAL DE EJEMPLO.** Medido: el modelo
+**devolvió el ejemplo** como nº de serie de otra máquina (26RES060_151 salió con el de
+26RITE_001; con razonamiento activado, en tres placas más). Los ejemplos son marcadores
+(`EJEMPLOS_SERIE`, interpolados desde el util) y una lectura que coincida se descarta. El
+razonamiento (`pensar`) **empeora** la lectura: más lento e inventa.
+
+**REGLA — la lista de códigos va SOLO al modelo nuevo.** Pedírsela a `gemini-2.5-flash`
+sin razonamiento lo mete en **bucle** (10 de 43 calderas, hasta el tope de salida); con su
+prompt de siempre no lo hace nunca. Por eso hay dos prompts (`PROMPT` / `PROMPT_BASE`) y
+toda lectura va con `maxOutputTokens` (1.536): un bucle acaba en respuesta cortada, se
+reintenta una vez con `temperature: 0.4` y, si vuelve a fallar, queda la otra lectura.
+
+Un nº de serie dudoso leído en la **calculadora** no se hereda al crear el expediente
+(`expedienteService`), y en la **envolvente** no se propone: se elige en «Leer placas».
+⚠️ Al revisar el corpus salieron nºs de serie **mal guardados a mano** que el lector lee
+bien: 26RES080_54 (caldera, a mano en la placa `3188697`; consta `388697`) y 26RES093_8
+(Domusa `Nº SERIE: 0611271051`; consta `DS112210053`).
+
 ## Quién EJECUTA la obra y quién FIRMA ante Industria (2026-08-26)
 
 Un instalador no habilitado en Industria delega la firma en otra empresa
@@ -11148,6 +11207,8 @@ fichero en CE3X y pulsar calcular.
 27.d **La PLACA de la caldera se LEE con IA, y una placa POLICOMBUSTIBLE no tiene UNA potencia**: de ella salen marca, modelo, nº de serie y la POTENCIA, que no está en ningún campo del expediente y sin la cual la instalación existente no se escribe en el `.cex`. Las fotos van como FOTOS (no por `normalizeToPdf`): una placa es un primer plano y el número vive en unos pocos píxeles — es la razón de que su slot esté en `FULL_RES_SLOTS`. Se leen también un par de la caldera entera, porque la MARCA está en el frontal y no en la etiqueta. El modelo TRANSCRIBE todas las potencias con su rótulo y la línea literal; cuál vale lo decide `elegirPotencia()`: útil (`Pn`) sobre consumo (`Qn`), de un rango el máximo, y en una placa policombustible **la del combustible que declara el expediente** — la ROCA P-30-4 de 26RES060_186 pone «Sólido 15,3 · Líquido 23,3 · Gas 23,3» y coger la mayor declara una caldera un 52 % más potente que la real. Sin combustible declarado no se elige ninguna. Se PROPONE y solo se rellenan HUECOS (el `0` de `potencia_caldera` no es un valor puesto); el COMBUSTIBLE leído nunca se escribe, porque de él cuelga la propuesta ya firmada. Fuente única: [placaOcrService.js](implementation/backend/services/placaOcrService.js). Tras tocarlo: `node implementation/backend/scripts/test_placa_ocr.js`. Ver "La PLACA de la caldera se lee con IA".
 
 27.e **Las TRES placas de la obra se leen de un botón, y la placa se lee SOLA**: el botón **Leer placas** de la cabecera de Instalación lee la de la caldera que se retira y las de la bomba de calor (ud. exterior y ud. interior) y rellena marca, modelo, nº de serie y potencia — el nº de serie de la ud. exterior va impreso en el CIFO, en el Anexo I y en la memoria RITE. **NADA de fotos de contexto junto a la etiqueta**: medido sobre dos placas reales (3 vueltas, `temperature: 0`), con la placa sola **12/12 aciertos** y con una segunda foto al lado **0/6**, fallando en UN DÍGITO en medio del número y siempre el mismo — así que ni se nota ni se corrige repitiendo. **Una lectura POR UNIDAD** (el slot ya dice de qué aparato es cada foto: mezclarlas escribe en el CIFO el nº de serie del otro aparato), y el nº de serie sale de su **LÍNEA LITERAL** como la potencia — ⚠️ sin cortar por el primer espacio, que los hay escritos por bloques (`S/N:1KK018 038JAP D8D5BJF 0134`). El **EQUIPO lo decide el catálogo** (`casarConCatalogo`, códigos normalizados; un código numérico como los de THERMOR nunca casa por prefijo), con **varios candidatos se desempata por la OTRA unidad** y, si aun así quedan varios, **se pregunta**: elegir por el usuario es declarar el SCOP de otra máquina. El **SCOP no se calcula aquí** — lo resuelven `getScopFromModel`/`getScopSeason` por ESM, las mismas del desplegable. Se PROPONE, solo se rellenan huecos, y al aplicar se escribe **lo revisado**, no una lectura nueva. Coste medido: **~0,002 € por expediente** (las tres placas), y el cruce con el catálogo **no gasta ni un token**. Fuente única: [placaEquipoOcrService.js](implementation/backend/services/placaEquipoOcrService.js). Tras tocarlo: `node implementation/backend/scripts/test_placa_equipo.js` y `test_placa_acs_conjunto.mjs` (que comprueba qué acaba imprimiendo el CIFO). Ver "Las TRES placas de la obra, de un botón".
+
+27.f **El Nº DE SERIE de una placa lo decide el CÓDIGO, sobre DOS lecturas de dos modelos distintos**: `elegirSerie` ([utils/serieDePlaca.js](implementation/backend/utils/serieDePlaca.js)) toma lo rotulado como nº de serie y, si no hay, **lo impreso sin rótulo junto a un código de barras o un QR** (la LASIAN de 26RES093_11 salía en blanco porque el prompt lo prohibía), y descarta códigos de producto, EAN/UPC, el modelo y los ejemplos del prompt. Cada placa se lee con `gemini-2.5-flash` y `gemini-3.6-flash` en paralelo (`leerDosVeces`): si los nºs de serie no coinciden, **no se escribe solo** — el popup enseña las dos lecturas sin preseleccionar y el servidor solo acepta una de ellas. **Ningún prompt lleva un nº de serie real de ejemplo**: el modelo los copiaba como dato de otra máquina. La lista de códigos va solo al modelo nuevo (al otro lo mete en bucle) y toda lectura lleva tope de salida. Tras tocarlo: `node implementation/backend/scripts/test_serie_placa.js`. Ver "El Nº DE SERIE de una placa".
 
 27. **Al instalador se le pide TODO de una vez, y un CIFO firmado NO cierra la tarea para siempre**: al enviar el CIFO o la documentación RITE, la app comprueba si el otro también falta y ofrece mandarlo en el MISMO mensaje, con UN enlace (`/instalador/:id`). Reenviarle el CIFO teniendo ya uno firmado (requerimiento) **anula esa firma** (`cert_cifo_refirma_at`), o el enlace de ese mismo correo le dice "todo recibido" y no le deja firmar; la cierran la subida pública y `mergeDocumentacion`, que además sella `cert_cifo_signed_at` y **no deja retroceder ni `_drive_at` ni el propio sello de re-firma** — ese sello lo escribe un endpoint dedicado y el autoguardado siguiente lo borraba con el `null` que traía la copia hidratada (medido en 26RES060_179: el enlace de ese mismo email decía «¡TODO RECIBIDO!»). Fuente única de qué falta y de los textos: [logic/instaladorPendientes.js](implementation/frontend/src/features/expedientes/logic/instaladorPendientes.js); del envío, `POST /api/expedientes/:id/instalador/enviar`. `cert_rite_drive_link` significa CERTIFICADO RITE aportado — la Memoria que generamos nosotros vive en `memoria_rite_docx_link`. Ver "Al instalador se le pide TODO de una vez".
 

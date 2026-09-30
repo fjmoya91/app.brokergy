@@ -30,6 +30,9 @@ export function LeerPlacasModal({ isOpen, onClose, expedienteId, numeroExpedient
     //: (de un modelo cuelgan el SCOP y la ficha técnica del certificado). La
     //: elección la hace una persona aquí, y es un clic — no un callejón sin salida.
     const [elegido, setElegido] = useState(null);
+    //: El nº de serie DUDOSO —las dos lecturas no coinciden— no se escribe solo:
+    //: se elige aquí, mirando la foto, entre las dos que se han leído.
+    const [series, setSeries] = useState({});
     //: El efecto se re-lanza si cambia la identidad de una prop (el padre las pasa
     //: como flechas en línea). Sin este guardián, abrir el popup dispararía DOS
     //: lecturas —y cada una se paga—. Mismo motivo que el del autoguardado de
@@ -49,6 +52,7 @@ export function LeerPlacasModal({ isOpen, onClose, expedienteId, numeroExpedient
                 // Un hueco se ofrece marcado; sustituir un equipo ya elegido, no.
                 setUsarEquipo(!!data.equipo_catalogo && !data.equipo_catalogo.sustituye);
                 setElegido(null);
+                setSeries({});
                 setFase('revisar');
             })
             .catch((e) => {
@@ -69,6 +73,9 @@ export function LeerPlacasModal({ isOpen, onClose, expedienteId, numeroExpedient
                 aplicar: true,
                 aplicar_equipo: usarEquipo,
                 equipo_id: elegido,
+                // Solo las elegidas: el servidor no acepta un valor que no sea una
+                // de las dos lecturas de esa placa.
+                series_elegidas: series,
                 // Se manda LO REVISADO. Si no, el servidor volvería a leer las fotos:
                 // se pagaría una segunda vez y —lo importante— podría salir otro
                 // resultado y escribirse algo que nadie ha visto en esta pantalla.
@@ -120,12 +127,13 @@ export function LeerPlacasModal({ isOpen, onClose, expedienteId, numeroExpedient
                     <Equipo res={res} usar={usarEquipo} setUsar={setUsarEquipo} />
                     <AcsSuelto res={res} />
                     <Candidatos res={res} elegido={elegido} setElegido={setElegido} />
+                    <SeriesDudosas res={res} series={series} setSeries={setSeries} />
                     <Propuesta res={res} />
                     <Conflictos res={res} />
                     <Avisos res={res} />
                 </div>
 
-                <Pie res={res} usarEquipo={usarEquipo} elegido={elegido} onAplicar={aplicar} onCerrar={cerrar} />
+                <Pie res={res} usarEquipo={usarEquipo} elegido={elegido} series={series} onAplicar={aplicar} onCerrar={cerrar} />
             </div>
         </div>,
         document.body,
@@ -187,7 +195,17 @@ function LoLeido({ res }) {
                         <div className="text-[10px] font-black text-brand uppercase tracking-wider">{b.t}</div>
                         <Dato k="Marca" v={b.d.marca} />
                         <Dato k="Modelo" v={b.d.modelo} />
-                        <Dato k="Nº serie" v={b.d.numero_serie} />
+                        <Dato k="Nº serie" v={b.d.serie_dudosa
+                            ? (b.d.serie_alternativas || []).map((a) => a.serie).join('  ó  ')
+                            : b.d.numero_serie} />
+                        {/* Dos modelos distintos leen cada placa: si coinciden, el nº
+                            de serie está confirmado; si no, se elige abajo. */}
+                        {b.d.serie_dudosa && (
+                            <div className="text-[10px] text-amber-400 pl-1">⚠ las dos lecturas no coinciden · elígelo abajo</div>
+                        )}
+                        {b.d.serie_confirmada && (
+                            <div className="text-[10px] text-emerald-400/80 pl-1">✓ dos lecturas coinciden</div>
+                        )}
                         {/* La LÍNEA literal de la placa. Es la evidencia: permite
                             contrastar el número sin abrir la foto, que es justo lo
                             que nadie hace si solo se le enseña el dato suelto. */}
@@ -323,8 +341,82 @@ function Candidatos({ res, elegido, setElegido }) {
     );
 }
 
+/**
+ * El nº de serie que DOS lecturas no leen igual.
+ *
+ * Cada placa se lee con dos modelos distintos: cuando coinciden, casi siempre
+ * aciertan; cuando no, es justo donde hay un carácter dudoso (un cero de más en
+ * una racha, un 5 que parece un 6). Ahí no se elige por nadie: se enseñan las dos
+ * lecturas con su línea literal y un enlace a la foto, y lo decide quien mira. Sin
+ * elegir, ese nº de serie no se escribe —va impreso en el CIFO y en el Anexo I—.
+ */
+function SeriesDudosas({ res, series, setSeries }) {
+    const lista = res?.dudosos || [];
+    if (!lista.length) return null;
+    // La foto de la placa de cada aparato, para comprobarlo sin buscarla.
+    const fotosDe = (d) => (res?.fotos || []).filter((f) => f.id && (
+        d.nodo === 'caldera' ? f.slot === 'FOTO_PLACA_CALDERA_ANTES'
+            : (d.nodo === 'acs' || d.campo === 'numero_serie_ud_interior') ? f.unidad === 'interior'
+                : f.unidad === 'exterior'));
+    return (
+        <div>
+            <h4 className="text-[10px] font-black text-amber-400 uppercase tracking-widest mb-2">
+                Nº de serie a comprobar ({lista.length}) · dos lecturas no coinciden
+            </h4>
+            <div className="space-y-2">
+                {lista.map((d) => {
+                    const fotos = fotosDe(d);
+                    const elegida = series[d.clave] || null;
+                    return (
+                        <div key={d.clave} className="rounded-xl p-3 border bg-amber-500/[0.05] border-amber-500/25">
+                            <div className="flex items-baseline justify-between gap-2">
+                                <div className="text-[11px] font-bold text-white">{d.etiqueta}</div>
+                                <div className="flex gap-3 shrink-0">
+                                    {fotos.map((f, i) => (
+                                        <a key={f.id} href={`https://drive.google.com/file/d/${f.id}/view`} target="_blank" rel="noopener noreferrer"
+                                            className="text-[10px] text-brand hover:underline">
+                                            Ver la foto{fotos.length > 1 ? ` ${i + 1}` : ''} ↗
+                                        </a>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="mt-2 space-y-1">
+                                {(d.alternativas || []).map((a) => (
+                                    <label key={a.serie} className={`flex items-start gap-2.5 rounded-lg px-3 py-2 border cursor-pointer transition-colors ${
+                                        elegida === a.serie ? 'bg-emerald-500/[0.08] border-emerald-500/30' : 'bg-white/[0.03] border-white/[0.07] hover:border-white/20'}`}>
+                                        <input type="radio" name={`serie-${d.clave}`} className="mt-0.5 accent-emerald-500 w-4 h-4"
+                                            checked={elegida === a.serie}
+                                            onChange={() => setSeries((x) => ({ ...x, [d.clave]: a.serie }))} />
+                                        <div className="min-w-0">
+                                            <div className="text-[12px] font-mono font-bold text-white break-all">{a.serie}</div>
+                                            {a.texto && a.texto !== a.serie && (
+                                                <div className="text-[10px] text-white/40 italic break-all">«{a.texto}»</div>
+                                            )}
+                                        </div>
+                                    </label>
+                                ))}
+                                <label className={`flex items-center gap-2.5 rounded-lg px-3 py-2 border cursor-pointer transition-colors ${
+                                    !elegida ? 'bg-white/[0.05] border-white/15' : 'bg-white/[0.02] border-white/[0.07] hover:border-white/20'}`}>
+                                    <input type="radio" name={`serie-${d.clave}`} className="accent-emerald-500 w-4 h-4"
+                                        checked={!elegida}
+                                        onChange={() => setSeries((x) => ({ ...x, [d.clave]: null }))} />
+                                    <span className="text-[11px] text-white/55">Ninguna — no lo escribo (lo pondré a mano)</span>
+                                </label>
+                            </div>
+                        </div>
+                    );
+                })}
+                <p className="text-[10px] text-white/35 px-1">
+                    Cada placa se lee con dos modelos distintos. Cuando no coinciden, el que se equivoca suele fallar en un carácter —un cero de más, un 5 que parece un 6—: míralo en la foto antes de elegir.
+                </p>
+            </div>
+        </div>
+    );
+}
+
 function Propuesta({ res }) {
     const p = res?.propuesta || [];
+    if (!p.length && (res?.dudosos || []).length) return null;
     if (!p.length) {
         return (
             <div className="text-[11px] text-white/45 bg-white/[0.03] border border-white/[0.07] rounded-xl px-3 py-2.5">
@@ -391,8 +483,9 @@ function Avisos({ res }) {
     );
 }
 
-function Pie({ res, usarEquipo, elegido, onAplicar, onCerrar }) {
+function Pie({ res, usarEquipo, elegido, series, onAplicar, onCerrar }) {
     const n = (res?.propuesta?.length || 0)
+        + Object.values(series || {}).filter(Boolean).length
         + ((usarEquipo && res?.equipo_catalogo) || elegido ? 1 : 0)
         + (res?.acs_conjunto ? 1 : 0);
     return (
