@@ -2873,37 +2873,82 @@ router.get('/:id/cifo/estado', internalKeyOrAuth, async (req, res) => {
 // cliente). Escribe EXACTAMENTE donde la subida pública del cliente: carpeta raíz
 // del expediente en Drive (justificante de titularidad bancaria.pdf) y el campo
 // documentacion.justificante_titularidad_link. Acepta PDF o imagen (base64).
+// Además lo LEE (justificanteOcrService, 1ª página, ~0,0003 €): si la ficha no
+// tiene IBAN lo rellena, y si lo tiene comprueba número y titular
+// (utils/justificanteBancario.js). La comprobación AVISA, nunca bloquea la subida.
 router.post('/:id/justificante', enforceAuth, async (req, res) => {
     try {
-        const { base64, mimeType } = req.body;
+        const { base64, mimeType, cliente: clienteForm } = req.body;
         if (!base64 || String(base64).trim() === '') return res.status(400).json({ error: 'Archivo requerido' });
-        const { data: exp, error } = await supabase.from('expedientes').select('id, documentacion, oportunidad_id').eq('id', req.params.id).maybeSingle();
+        const { data: exp, error } = await supabase.from('expedientes').select('id, oportunidad_id, cliente_id').eq('id', req.params.id).maybeSingle();
         if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
-        const { data: op } = await supabase.from('oportunidades').select('datos_calculo').eq('id', exp.oportunidad_id).single();
-        const driveFolderId = op?.datos_calculo?.drive_folder_id || op?.datos_calculo?.inputs?.drive_folder_id;
+        const { data: op } = await supabase.from('oportunidades').select('drive_folder_id:datos_calculo->>drive_folder_id, drive_folder_id_in:datos_calculo->inputs->>drive_folder_id').eq('id', exp.oportunidad_id).single();
+        const driveFolderId = op?.drive_folder_id || op?.drive_folder_id_in;
         if (!driveFolderId) return res.status(400).json({ error: 'El expediente no tiene carpeta Drive configurada' });
 
         const driveService = require('../services/driveService');
-        let buf = Buffer.from(base64, 'base64');
+        const original = Buffer.from(base64, 'base64');
         const mime = mimeType || 'application/pdf';
-        if (mime !== 'application/pdf' && mime.startsWith('image/')) {
-            const { PDFDocument } = require('pdf-lib');
-            const pdfDoc = await PDFDocument.create();
-            const img = mime === 'image/png' ? await pdfDoc.embedPng(buf) : await pdfDoc.embedJpg(buf);
-            const { width, height } = img.scale(1);
-            const page = pdfDoc.addPage([width, height]);
-            page.drawImage(img, { x: 0, y: 0, width, height });
-            buf = Buffer.from(await pdfDoc.save());
-        }
+        const { leerJustificante, aPdf } = require('../services/justificanteOcrService');
+        const buf = mime.startsWith('image/') ? await aPdf(original, mime) : original;
+
+        // La LECTURA va en paralelo con Drive y nunca tumba la subida: el fichero es
+        // el trabajo; lo leído, una comprobación.
+        const lecturaP = leerJustificante(buf, 'application/pdf').catch(e => { console.warn('[justificante] lectura:', e.message); return null; });
+
         const name = 'justificante de titularidad bancaria.pdf';
         try { const existing = await driveService.findFileByName(driveFolderId, name); if (existing) await driveService.deleteFile(existing); } catch (e) {}
         const r = await driveService.saveFileToFolder(driveFolderId, name, 'application/pdf', buf);
         if (!r?.link) return res.status(500).json({ error: 'No se pudo guardar en Drive' });
         try { if (r.id) await driveService.setFolderPublic(r.id, 'reader'); } catch (e) {}
 
-        const docUpdate = { ...(exp.documentacion || {}), justificante_titularidad_link: r.link };
-        await supabase.from('expedientes').update({ documentacion: docUpdate }).eq('id', req.params.id);
-        res.json({ success: true, link: r.link });
+        // Escritura atómica del campo (antes: read-modify-write de documentacion entera).
+        await supabase.rpc('set_expediente_doc_field', { p_oportunidad_id: exp.oportunidad_id, p_field: 'justificante_titularidad_link', p_value: r.link });
+
+        // ── Comprobación contra la ficha ─────────────────────────────────────
+        // Manda lo que hay en el FORMULARIO abierto (puede no estar guardado aún);
+        // lo que no venga se toma de la BD.
+        let comprobacion = null;
+        const lectura = await lecturaP;
+        if (lectura) {
+            const { evaluarJustificante } = require('../utils/justificanteBancario');
+            const CAMPOS = ['numero_cuenta', 'nombre_razon_social', 'apellidos', 'es_empresa', 'representante_nombre', 'representante_apellidos', 'copropietarios'];
+            let clienteBd = null;
+            if (exp.cliente_id) {
+                const { data } = await supabase.from('clientes').select(CAMPOS.join(', ')).eq('id_cliente', exp.cliente_id).maybeSingle();
+                clienteBd = data || null;
+            }
+            const cliente = { ...(clienteBd || {}) };
+            if (clienteForm && typeof clienteForm === 'object') for (const k of CAMPOS) if (clienteForm[k] !== undefined) cliente[k] = clienteForm[k];
+            comprobacion = evaluarJustificante(lectura, cliente);
+
+            // Rellenar SOLO un hueco: ni la ficha guardada ni el formulario tienen IBAN.
+            comprobacion.rellenado = false;
+            if (comprobacion.rellenar && exp.cliente_id && !String(clienteBd?.numero_cuenta || '').trim()) {
+                const { error: eUp } = await supabase.from('clientes').update({ numero_cuenta: comprobacion.rellenar }).eq('id_cliente', exp.cliente_id);
+                if (!eUp) comprobacion.rellenado = true;
+                else console.warn('[justificante] rellenar IBAN:', eUp.message);
+            }
+
+            // Huella (solo metadatos, regla 21). MERGE: se escriben todas las claves.
+            supabase.rpc('merge_expediente_doc_json', {
+                p_expediente_id: exp.id,
+                p_field: 'justificante_ocr',
+                p_value: {
+                    at: new Date().toISOString(),
+                    por: req.user?.email || null,
+                    iban_leido: comprobacion.iban.leido || null,
+                    iban_valido: comprobacion.iban_valido,
+                    iban_estado: comprobacion.iban.estado,
+                    titulares: comprobacion.titular.leidos,
+                    titular_estado: comprobacion.titular.estado,
+                    ok: comprobacion.ok,
+                    avisos: comprobacion.avisos,
+                    rellenado: comprobacion.rellenado,
+                },
+            }).then(({ error: e }) => { if (e) console.warn('[justificante] huella:', e.message); }, () => {});
+        }
+        res.json({ success: true, link: r.link, comprobacion, lectura_fallida: !lectura });
     } catch (e) {
         console.error('[justificante upload] Error:', e);
         res.status(500).json({ error: 'Error al subir el justificante', message: e.message });

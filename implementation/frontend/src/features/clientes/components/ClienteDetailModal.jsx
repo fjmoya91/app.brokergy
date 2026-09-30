@@ -897,8 +897,15 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                     {isAdmin && expedienteId && (
                                         <div className="sm:col-span-2">
                                             <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-1.5">Justificante de titularidad bancaria</label>
-                                            <JustificanteUploader variant="box" expedienteId={expedienteId} currentLink={justificanteLink} onUploaded={() => { if (onUpdated) onUpdated(); }} />
-                                            <p className="text-[10px] text-white/25 mt-1.5">Se guarda en la carpeta del expediente, igual que si lo sube el cliente por el enlace.</p>
+                                            <JustificanteUploader variant="box" expedienteId={expedienteId} currentLink={justificanteLink}
+                                                cliente={{ numero_cuenta: form.numero_cuenta || '', nombre_razon_social: form.nombre_razon_social || '', apellidos: form.apellidos || '', es_empresa: !!form.es_empresa, representante_nombre: form.representante_nombre || '', representante_apellidos: form.representante_apellidos || '', copropietarios: form.copropietarios || [] }}
+                                                onUploaded={(_link, comp) => {
+                                                    // El IBAN leído va al FORMULARIO si estaba vacío (el backend ya lo ha
+                                                    // guardado en la ficha si allí también faltaba).
+                                                    if (comp?.rellenar && !String(form.numero_cuenta || '').trim()) updateForm({ numero_cuenta: comp.rellenar });
+                                                    if (onUpdated) onUpdated();
+                                                }} />
+                                            <p className="text-[10px] text-white/25 mt-1.5">Se guarda en la carpeta del expediente, igual que si lo sube el cliente por el enlace. Se lee al subirlo: rellena el IBAN si falta y comprueba que número y titular coinciden.</p>
                                         </div>
                                     )}
                                     <div className="sm:col-span-2 pt-2">

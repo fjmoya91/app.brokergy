@@ -15,8 +15,13 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
 // `huella` = pastilla opcional a la derecha (ENVIADO/PEDIDO/SIN PEDIR del barrido):
 // esta fila sustituye a PendingRow para el justificante y sin ella sería el único
 // pendiente que no dice si ya se ha reclamado.
-export function JustificanteUploader({ expedienteId, currentLink = null, onUploaded, variant = 'box', label = 'Justificante de titularidad bancaria', huella = null }) {
+// `cliente` = lo que hay en el formulario abierto (IBAN, nombre, copropietarios…):
+// el backend LEE el justificante y compara con eso, aunque aún no esté guardado.
+// `onUploaded(link, comprobacion)` recibe además el veredicto y el IBAN con el que
+// rellenar la ficha si estaba vacía (`comprobacion.rellenar`).
+export function JustificanteUploader({ expedienteId, currentLink = null, onUploaded, variant = 'box', label = 'Justificante de titularidad bancaria', huella = null, cliente = null }) {
     const [link, setLink] = useState(currentLink || null);
+    const [comprobacion, setComprobacion] = useState(null);
     const [uploading, setUploading] = useState(false);
     const [dragging, setDragging] = useState(false);
     const [error, setError] = useState(null);
@@ -28,11 +33,13 @@ export function JustificanteUploader({ expedienteId, currentLink = null, onUploa
         if (!file || !expedienteId || uploading) return;
         const ok = file.type === 'application/pdf' || (file.type || '').startsWith('image/');
         if (!ok) { setError('Solo se admite PDF o imagen.'); return; }
-        setError(null); setUploading(true);
+        setError(null); setUploading(true); setComprobacion(null);
         try {
             const base64 = await fileToBase64(file);
-            const { data } = await axios.post(`/api/expedientes/${expedienteId}/justificante`, { base64, mimeType: file.type });
-            if (data?.link) { setLink(data.link); if (onUploaded) onUploaded(data.link); }
+            const { data } = await axios.post(`/api/expedientes/${expedienteId}/justificante`, { base64, mimeType: file.type, cliente: cliente || undefined });
+            const comp = data?.comprobacion || (data?.lectura_fallida ? { lecturaFallida: true } : null);
+            setComprobacion(comp);
+            if (data?.link) { setLink(data.link); if (onUploaded) onUploaded(data.link, comp); }
         } catch (e) {
             setError(e.response?.data?.error || 'No se pudo subir el justificante.');
         } finally { setUploading(false); }
@@ -96,7 +103,7 @@ export function JustificanteUploader({ expedienteId, currentLink = null, onUploa
                     <div className="space-y-2">
                         <div className="flex items-center justify-center gap-2 text-brand">
                             <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
-                            <span className="text-[11px] font-black uppercase tracking-widest">Anexando…</span>
+                            <span className="text-[11px] font-black uppercase tracking-widest">Anexando y leyendo…</span>
                         </div>
                         <Bar />
                     </div>
@@ -122,6 +129,31 @@ export function JustificanteUploader({ expedienteId, currentLink = null, onUploa
                 <a href={link} target="_blank" rel="noopener noreferrer" className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-emerald-400/70 hover:text-emerald-300">Ver justificante ↗</a>
             )}
             {error && <p className="mt-1.5 text-[11px] text-red-400">⚠️ {error}</p>}
+            {!uploading && comprobacion && <ResultadoLectura c={comprobacion} />}
+        </div>
+    );
+}
+
+// Lo que ha leído la IA y lo que ha comprobado el código, dicho en una o dos líneas.
+function ResultadoLectura({ c }) {
+    if (c.lecturaFallida) return <p className="mt-2 text-[11px] text-white/40">No se ha podido leer el documento: comprueba el IBAN y el titular a mano.</p>;
+    const iban = c.iban?.leido ? String(c.iban.leido).replace(/(.{4})/g, '$1 ').trim() : null;
+    const titular = (c.titular?.leidos || []).join(' · ');
+    const tono = c.ok ? 'border-emerald-500/25 bg-emerald-500/[0.06] text-emerald-300' : 'border-amber-500/30 bg-amber-500/[0.07] text-amber-200';
+    return (
+        <div className={`mt-2 rounded-lg border px-3 py-2 text-[11px] space-y-1 ${tono}`}>
+            <p className="font-black uppercase tracking-wider text-[10px]">
+                {c.ok ? (c.rellenar ? '✓ IBAN rellenado desde el justificante' : '✓ Titular e IBAN coinciden con la ficha') : '⚠ Revisa el justificante'}
+            </p>
+            {(iban || titular) && (
+                <p className="text-white/60 no-uppercase">
+                    {titular && <>Titular: <span className="text-white/85">{titular}</span></>}
+                    {titular && iban && ' · '}
+                    {iban && <>IBAN: <span className="font-mono text-white/85">{iban}</span></>}
+                </p>
+            )}
+            {(c.avisos || []).map((a, i) => <p key={i}>• {a}</p>)}
+            {c.rellenar && !c.rellenado && <p className="text-white/50">Se ha puesto en el formulario: guarda la ficha para conservarlo.</p>}
         </div>
     );
 }
