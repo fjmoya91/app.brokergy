@@ -23,10 +23,18 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import puppeteer from 'puppeteer';
 import { deriveRes080Data, buildRes080Html } from '../../frontend/src/features/expedientes/logic/res080Doc.js';
+import { ACLARACION_MAX } from '../../frontend/src/features/expedientes/logic/hitosActuacion.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '../../frontend/public');
 const APP_URL = 'https://app.brokergy.es';
+
+// Una aclaración del largo MÁXIMO que admite el popup, con palabras largas.
+const ACLARACION_LARGA = ('La factura nº FV-2026/000412-A, de fecha 02/03/2026, corresponde a la entrega de material '
+    + 'y no supone el inicio de la ejecución de la actuación. La ejecución de la actuación se inicia el 04/05/2026, '
+    + 'con posterioridad a la visita del técnico certificador (20/04/2026) y a la firma del certificado de eficiencia '
+    + 'energética inicial (22/04/2026). El equipo quedó almacenado por el instalador hasta el comienzo de los trabajos, '
+    + 'sin montaje alguno en la vivienda antes de esa fecha, y así consta en el albarán de entrega correspondiente.').slice(0, ACLARACION_MAX);
 
 const SERIE = ['340G501550428080100004', '340G501550428110100043', '340H555110531030100009',
     '340H555110531030100011', '340H555110531030100012'];
@@ -69,8 +77,18 @@ const base = () => ({
         cee_inicial: { demandaCalefaccion: 118.4, superficieHabitable: 132, demandaACS: 12.1 },
         cee_final: { demandaCalefaccion: 74.2, superficieHabitable: 132, demandaACS: 12.1 },
     },
+    // Los HITOS en su peor caso (los mismos que check_cifo_paginas): primera
+    // factura marcada como entrega de material con nº largo, los dos CEE con
+    // visita y firma, y la aclaración del largo máximo que admite el popup.
     documentacion: {
         fecha_inicio_res080: '2026-05-04', fecha_fin_res080: '2026-06-18',
+        facturas: [
+            { numero_factura: 'FV-2026/000412-A', fecha_factura: '2026-03-02', motivo_no_inicio: 'MATERIAL' },
+            { numero_factura: 'F-2026/0413', fecha_factura: '2026-05-04' },
+        ],
+        fecha_visita_cee_inicial: '2026-04-20', fecha_firma_cee_inicial: '2026-04-22',
+        fecha_visita_cee_final: '2026-06-25', fecha_firma_cee_final: '2026-06-28',
+        hitos_actuacion: { aclaracion: ACLARACION_LARGA },
         envolvente: {
             actua_cerramientos: true, sustituye_ventanas: true,
             aislamiento_muros: true, aislamiento_cubierta: true,
@@ -131,6 +149,16 @@ const anexoVi = (e) => {
 
 const casos = [
     ['1 equipo (caso normal)', cascada(1)],
+    // Sin cascada los HITOS van en la hoja de la instalación: lo que más la
+    // engorda con un solo equipo es el termo fuera de alcance, con su nota.
+    ['1 equipo · termo fuera de alcance', (() => {
+        const e = cascada(1);
+        e.instalacion.cambio_acs = false;
+        e.instalacion.misma_aerotermia_acs = false;
+        e.instalacion.aerotermia_acs = { tipo_equipo_nuevo: 'termo_electrico', marca: 'THERMOR', modelo: 'DURALIS 150', numero_serie: 'TH-99812761' };
+        return e;
+    })()],
+    ['1 equipo · ACS equipo propio', acsPropio(cascada(1))],
     ['3 en cascada', cascada(3)],
     ['5 en cascada', cascada(5)],
     ['5 en cascada · ACS equipo propio', acsPropio(cascada(5))],

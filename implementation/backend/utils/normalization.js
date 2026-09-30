@@ -40,7 +40,10 @@
 // con `includes()`, así que en MAYÚSCULAS el aviso de la página de firma dejaba
 // de salir — el cliente veía dos documentos repetidos sin saber por qué. Medido
 // en 26RES060_179, guardado como ['ANEXO_I','ANEXO_CESION'].
-const BLACKLIST = ['id', 'id_oportunidad', 'id_cliente', 'password', 'token', 'reformaType', 'method', 'type', 'icon', 'link', 'url', 'ficha', 'tipo_emisor', 'tipo_equipo_nuevo', 'metodo_scop', 'hibridacion_metodo', 'rendimiento_id', 'comb_', 'datos_calculo', 'fotovoltaica', 'envolvente', 'placa_ocr', 'placas_ocr', 'subvenciones', 'requerimiento_firma', 'confirmacion_cliente'];
+// `hitos_actuacion` (documentacion) guarda la ACLARACIÓN sobre las fechas que se
+// imprime tal cual en el CIFO: es texto redactado, y en MAYÚSCULAS saldría en el
+// certificado como un grito. Ver logic/hitosActuacion.js.
+const BLACKLIST = ['id', 'id_oportunidad', 'id_cliente', 'password', 'token', 'reformaType', 'method', 'type', 'icon', 'link', 'url', 'ficha', 'tipo_emisor', 'tipo_equipo_nuevo', 'metodo_scop', 'hibridacion_metodo', 'rendimiento_id', 'comb_', 'datos_calculo', 'fotovoltaica', 'envolvente', 'placa_ocr', 'placas_ocr', 'subvenciones', 'requerimiento_firma', 'confirmacion_cliente', 'hitos_actuacion'];
 
 function normalizeData(obj) {
     if (!obj || typeof obj !== 'object') return obj;

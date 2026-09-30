@@ -24,10 +24,19 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import puppeteer from 'puppeteer';
 import { deriveCifoData, buildCifoHtml } from '../../frontend/src/features/expedientes/logic/cifoDoc.js';
+import { ACLARACION_MAX } from '../../frontend/src/features/expedientes/logic/hitosActuacion.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '../../frontend/public');
 const APP_URL = 'https://app.brokergy.es';
+
+// Una aclaración del largo MÁXIMO que admite el popup, con palabras largas para
+// que parta línea donde peor le venga.
+const ACLARACION_LARGA = ('La factura nº FV-2026/000412-A, de fecha 02/03/2026, corresponde a la entrega de material '
+    + 'y no supone el inicio de la ejecución de la actuación. La ejecución de la actuación se inicia el 04/05/2026, '
+    + 'con posterioridad a la visita del técnico certificador (20/04/2026) y a la firma del certificado de eficiencia '
+    + 'energética inicial (22/04/2026). El equipo quedó almacenado por el instalador hasta el comienzo de los trabajos, '
+    + 'sin montaje alguno en la vivienda antes de esa fecha, y así consta en el albarán de entrega correspondiente.').slice(0, ACLARACION_MAX);
 
 const SERIE = ['340G501550428080100004', '340G501550428110100043', '340H555110531030100009',
     '340H555110531030100011', '340H555110531030100012'];
@@ -81,9 +90,20 @@ const base = (numero_expediente = '26RES060_146') => ({
         cee_final: { demandaCalefaccion: 212.85, superficieHabitable: 815, demandaACS: 5.89 },
         num_rooms: 4,
     },
+    // Los HITOS en su peor caso: primera factura marcada como entrega de material,
+    // los dos CEE con visita y firma, y una aclaración del largo máximo que admite
+    // el popup (ACLARACION_MAX). Van en la hoja de la instalación, que es la que
+    // engorda la cascada, así que se miden con TODOS los casos a la vez.
     documentacion: {
         fecha_inicio_cifo: '2026-05-04', fecha_fin_cifo: '2026-06-18',
-        facturas: [{ numero_factura: 'F-2026/0412' }],
+        fecha_pruebas_cert_instalacion: '2026-06-18',
+        facturas: [
+            { numero_factura: 'FV-2026/000412-A', fecha_factura: '2026-03-02', motivo_no_inicio: 'MATERIAL' },
+            { numero_factura: 'F-2026/0413', fecha_factura: '2026-05-04' },
+        ],
+        fecha_visita_cee_inicial: '2026-04-20', fecha_firma_cee_inicial: '2026-04-22',
+        fecha_visita_cee_final: '2026-06-25', fecha_firma_cee_final: '2026-06-28',
+        hitos_actuacion: { aclaracion: ACLARACION_LARGA },
     },
     oportunidades: { datos_calculo: { zona: 'D3', inputs: { caePriceClient: 95 } } },
 });
@@ -206,6 +226,25 @@ const casos = [
             nombre_responsable: 'FRANCISCO JAVIER', apellidos_responsable: 'MOYA LÓPEZ DE LA TORRE',
             nif_responsable: '12345678X' };
         return e;
+    })()],
+    // ── HITOS en la hoja de la instalación (un solo equipo) ──────────────────
+    // Sin cascada, los hitos con su aclaración van en esa hoja. Se miden aquí las
+    // dos notas que la engordan con UN equipo —el termo fuera de alcance y la
+    // calefacción fuera de alcance del terciario—, las dos con las dos empresas
+    // de nombre largo, que es lo que más ocupa.
+    ['RES060 · 1 equipo · termo fuera · 2 empresas', (() => {
+        const e = cascada(1);
+        e.instalacion.misma_aerotermia_acs = false;
+        e.instalacion.aerotermia_acs = { tipo_equipo_nuevo: 'termo_electrico', marca: 'THERMOR', modelo: 'DURALIS 150', numero_serie: 'TH-99812761' };
+        return conDelegacion(e, { largos: true });
+    })()],
+    ['TER100 · 1 equipo · sin calefacción · piscina · 2 empresas', (() => {
+        const e = base('26TER100_9');
+        e.instalacion.cambio_calefaccion = false;
+        e.instalacion.piscina = { activa: true, demanda_kwh: 18000, scop: 4.2,
+            equipo: { marca: 'SIME', modelo: 'POOL HP 90', numero_serie: 'PL0099213' } };
+        e.cee.acs_method = 'manual'; e.cee.dacs_manual = 48000;
+        return conDelegacion(e, { largos: true });
     })()],
     // ── Dos empresas: la que ejecuta y factura + la habilitada que firma ──
     ['RES060 · 2 empresas (26RES080_62)', conDelegacion(cascada(1))],

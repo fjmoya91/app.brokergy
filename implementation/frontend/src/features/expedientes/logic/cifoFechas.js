@@ -18,7 +18,13 @@
 // fija el override manual (`fecha_inicio_cifo_manual` / `_fin_cifo_manual`), que
 // es el mecanismo que ya existe para atender un requerimiento.
 // ============================================================================
-import { calcCifo } from './calcCifo';
+import { calcCifo } from './calcCifo.js';
+import { hitosActuacion, aclaracionSugerida, fechaEs } from './hitosActuacion.js';
+
+// Lo que se le dice a quien ve el aviso para que sepa DÓNDE se arregla. Una
+// factura de entrega de material o un anticipo no es un error del expediente: es
+// una fecha que hay que explicar, y eso se hace desde «Hitos de la actuación».
+const COMO_SE_ACLARA = 'Si la primera factura es una entrega de material o un anticipo, márcala así en «Hitos de la actuación» (junto a las fechas del CIFO): deja de abrir la actuación y el CIFO lo aclara.';
 
 const iso = (v) => (v ? String(v).slice(0, 10) : null);
 const esES = (v) => (iso(v) ? iso(v).split('-').reverse().join('/') : '—');
@@ -31,8 +37,10 @@ const hoyISO = () => new Date().toISOString().slice(0, 10);
 export function incidenciasFechasCifo(expediente) {
     const doc = expediente?.documentacion || {};
     const out = [];
-    const add = (tipo, severidad, titulo, texto, evidencia, slot = 'cert_cifo') =>
-        out.push({ tipo, severidad, titulo, texto, evidencia, slot });
+    // `accion` dice qué superficie ARREGLA el aviso ('hitos' = el popup de hitos
+    // de la actuación). La pinta el panel de incidencias como un botón al lado.
+    const add = (tipo, severidad, titulo, texto, evidencia, slot = 'cert_cifo', extra = {}) =>
+        out.push({ tipo, severidad, titulo, texto, evidencia, slot, ...extra });
 
     const { inicio, fin } = calcCifo(doc);
     const pruebas = iso(doc.fecha_pruebas_cert_instalacion);
@@ -78,8 +86,8 @@ export function incidenciasFechasCifo(expediente) {
     if (inicio && ceeIniFirma && inicio < ceeIniFirma) {
         add('FECHA_ANTERIOR_CEE', 'GRAVE',
             'La actuación empieza antes del CEE inicial',
-            `El CIFO arranca el ${esES(inicio)} y el CEE inicial está firmado el ${esES(ceeIniFirma)}. La actuación tiene que ser posterior al certificado de partida: si empieza antes, la obra se hizo sin existir la situación de referencia sobre la que se calcula el ahorro.`,
-            `Inicio ${esES(inicio)} < firma CEE inicial ${esES(ceeIniFirma)}`);
+            `El CIFO arranca el ${esES(inicio)} y el CEE inicial está firmado el ${esES(ceeIniFirma)}. La actuación tiene que ser posterior al certificado de partida: si empieza antes, la obra se hizo sin existir la situación de referencia sobre la que se calcula el ahorro. ${COMO_SE_ACLARA}`,
+            `Inicio ${esES(inicio)} < firma CEE inicial ${esES(ceeIniFirma)}`, 'cert_cifo', { accion: 'hitos' });
     } else if (ceeIniReg && inicio && inicio < ceeIniReg) {
         const soloRegistro = ceeIniFirma && inicio >= ceeIniFirma;
         if (soloRegistro && esRes080) {
@@ -92,9 +100,25 @@ export function incidenciasFechasCifo(expediente) {
                 'La actuación empieza antes del CEE inicial',
                 soloRegistro
                     ? `El CIFO arranca el ${esES(inicio)} y el CEE inicial no se registró hasta el ${esES(ceeIniReg)} (firmado el ${esES(ceeIniFirma)}). Esta ficha exige el CEE de partida REGISTRADO antes de la actuación.`
-                    : `El CIFO arranca el ${esES(inicio)} y el CEE inicial se registró el ${esES(ceeIniReg)}. La actuación tiene que ser posterior al certificado de partida: si empieza antes, la obra se hizo sin existir la situación de referencia sobre la que se calcula el ahorro.`,
-                `Inicio ${esES(inicio)} < CEE inicial ${esES(ceeIniReg)}`);
+                    : `El CIFO arranca el ${esES(inicio)} y el CEE inicial se registró el ${esES(ceeIniReg)}. La actuación tiene que ser posterior al certificado de partida: si empieza antes, la obra se hizo sin existir la situación de referencia sobre la que se calcula el ahorro. ${COMO_SE_ACLARA}`,
+                `Inicio ${esES(inicio)} < CEE inicial ${esES(ceeIniReg)}`, 'cert_cifo', { accion: 'hitos' });
         }
+    }
+
+    // ── Facturas ANTERIORES al inicio, sin aclarar ──────────────────────────
+    // Solo existen si alguien ha marcado una factura como entrega de material /
+    // anticipo, o ha fijado el inicio a mano: las dos son decisiones deliberadas,
+    // y lo que el verificador ve es una factura fechada ANTES del inicio que el
+    // CIFO declara. Si el propio CIFO no lo explica, lo pregunta él. LEVE: el
+    // bloque de hitos ya dice «entrega de material» junto a la primera factura;
+    // la aclaración es la que lo cuenta con palabras.
+    const hitos = hitosActuacion(expediente);
+    if (hitos.anteriores.length && !hitos.aclaracion) {
+        const lista = hitos.anteriores.map(f => `${f.numero ? `nº ${f.numero}` : 'sin número'} (${fechaEs(f.fecha)})`).join(', ');
+        add('FACTURA_ANTERIOR_INICIO', 'LEVE',
+            'Hay facturas anteriores al inicio de la actuación sin aclarar',
+            `El CIFO declara el inicio el ${esES(inicio)} y ${hitos.anteriores.length === 1 ? 'la factura' : 'las facturas'} ${lista} ${hitos.anteriores.length === 1 ? 'es anterior' : 'son anteriores'}. El verificador lo cruza: conviene que el propio CIFO lo explique con una aclaración en «Hitos de la actuación».${aclaracionSugerida(hitos) ? ' Hay una redacción propuesta lista para revisar.' : ''}`,
+            `Factura ${fechaEs(hitos.anteriores[0].fecha)} < inicio ${esES(inicio)}`, 'cert_cifo', { accion: 'hitos' });
     }
 
     // ── Coherencia interna ──────────────────────────────────────────────────

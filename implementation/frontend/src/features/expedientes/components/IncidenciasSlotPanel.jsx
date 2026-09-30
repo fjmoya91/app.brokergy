@@ -39,7 +39,16 @@ const fecha = (v) => {
     catch { return null; }
 };
 
-export function IncidenciasSlotPanel({ expedienteId, slot, incidencias, onCambio, compacto = false, variant = 'card', onJuzgarAviso = null }) {
+// Lo que ARREGLA un aviso calculado, cuando hay una pantalla para ello. El aviso
+// lo dice en su campo `accion` (ver logic/cifoFechas.js) y quien monta el panel
+// decide qué abrir con `onAccion`. Un aviso que dice qué está mal pero no dónde se
+// arregla obliga a buscarlo — y el de las fechas del CIFO se arregla en un popup
+// que no está a la vista.
+const ACCIONES = {
+    hitos: 'Aclarar las fechas',
+};
+
+export function IncidenciasSlotPanel({ expedienteId, slot, incidencias, onCambio, compacto = false, variant = 'card', onJuzgarAviso = null, onAccion = null }) {
     const { user } = useAuth();
     const [busyId, setBusyId] = useState(null);
     const [resolviendo, setResolviendo] = useState(null); // id de la que se está subsanando
@@ -172,6 +181,14 @@ export function IncidenciasSlotPanel({ expedienteId, slot, incidencias, onCambio
                                     {inc.reclasificado && ' · Reclasificada a mano; vuelve a su severidad si cambia el dato.'}
                                 </p>
                                 <div className="flex flex-wrap items-center gap-1.5">
+                                    {onAccion && inc.accion && ACCIONES[inc.accion] && (
+                                        <button
+                                            onClick={() => onAccion(inc)}
+                                            className="px-3 py-1.5 rounded-lg bg-brand/15 border border-brand/40 text-brand text-[9px] font-black uppercase tracking-widest hover:bg-brand hover:text-bkg-deep transition-all"
+                                        >
+                                            {ACCIONES[inc.accion]}
+                                        </button>
+                                    )}
                                     <button
                                         onClick={() => registrar(inc)}
                                         disabled={busy}

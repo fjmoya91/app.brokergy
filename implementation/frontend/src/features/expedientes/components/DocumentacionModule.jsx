@@ -28,6 +28,8 @@ import { calcCifo } from '../logic/calcCifo';
 import { SLOTS_INCIDENCIA, incidenciasDeSlot, resumenSlot } from '../logic/incidenciaSlots';
 import { incidenciasFechasCifo } from '../logic/cifoFechas';
 import { IncidenciasSlotPanel } from './IncidenciasSlotPanel';
+import { HitosActuacionModal } from './HitosActuacionModal';
+import { hitosActuacion } from '../logic/hitosActuacion';
 import { readAnnexPrefs, orderAttachments } from '../logic/annexPrefs';
 import { ftAttachmentSlots, ftDocFields } from '../logic/fichasTecnicas';
 import { avisosCeeDocumento, ceeBaseDocumento, hayAvisosBloqueantes, acsEnAlcance } from '../logic/ceeFases';
@@ -1262,6 +1264,9 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     // Un solo estado para las dos fichas del terciario: comparten modal.
     const [showFichaTerciario, setShowFichaTerciario] = useState(false);
     const [showCertificadoCifo, setShowCertificadoCifo] = useState(false);
+    // Popup «Hitos de la actuación»: las fechas del CIFO con todo lo que las rodea,
+    // qué facturas no abren la obra y la aclaración que se imprime.
+    const [showHitos, setShowHitos] = useState(false);
     const [showCertificadoRes080, setShowCertificadoRes080] = useState(false);
     const [showAnexoFotografico, setShowAnexoFotografico] = useState(false);
     const [showFacturasModal, setShowFacturasModal] = useState(false);
@@ -1512,6 +1517,19 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
     const commitField = useCallback((field, val) => {
         setLocal(prev => {
             const next = { ...prev, [field]: val };
+            const cifo = calcCifo(next);
+            const merged = { ...next, fecha_inicio_cifo: cifo.inicio, fecha_fin_cifo: cifo.fin };
+            onSave({ documentacion: merged });
+            return merged;
+        });
+    }, [onSave]);
+
+    // Varios campos de una vez, en UN guardado: el popup de hitos toca las facturas,
+    // las fechas fijadas a mano y la aclaración, y tres guardados seguidos se
+    // pisarían entre sí con la copia de `documentacion` de cada uno.
+    const commitFields = useCallback((cambios) => {
+        setLocal(prev => {
+            const next = { ...prev, ...cambios };
             const cifo = calcCifo(next);
             const merged = { ...next, fecha_inicio_cifo: cifo.inicio, fecha_fin_cifo: cifo.fin };
             onSave({ documentacion: merged });
@@ -3460,6 +3478,33 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                     <div className="flex items-center gap-3 shrink-0 max-md:w-full max-md:justify-between">
                                         <InlineDate label="Fecha Inicio CIFO" value={local.fecha_inicio_cifo} onChange={v => commitField('fecha_inicio_cifo_manual', v)} />
                                         <InlineDate label="Fecha Fin CIFO" value={local.fecha_fin_cifo} onChange={v => commitField('fecha_fin_cifo_manual', v)} />
+                                        {/* Hitos de la actuación: de dónde sale cada fecha, qué facturas
+                                            no abren la obra y la aclaración que imprime el CIFO. El
+                                            botón avisa (ámbar) cuando hay facturas anteriores al inicio
+                                            sin aclarar, que es lo que abre el requerimiento. */}
+                                        {(() => {
+                                            const hh = hitosActuacion({ ...expediente, documentacion: local });
+                                            const pendiente = hh.anteriores.length > 0 && !hh.aclaracion;
+                                            const conAclaracion = !!hh.aclaracion;
+                                            return (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowHitos(true)}
+                                                    title={pendiente
+                                                        ? 'Hay facturas anteriores al inicio sin aclarar'
+                                                        : 'Hitos de la actuación: fechas del CIFO, facturas que no abren la obra y aclaración'}
+                                                    className={`h-9 px-3 rounded-xl border text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${
+                                                        pendiente
+                                                            ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-bkg-deep'
+                                                            : conAclaracion
+                                                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-bkg-deep'
+                                                                : 'bg-white/[0.03] border-white/10 text-white/45 hover:text-white hover:border-white/25'
+                                                    }`}
+                                                >
+                                                    {pendiente ? '⚠ Hitos' : conAclaracion ? '✓ Hitos' : 'Hitos'}
+                                                </button>
+                                            );
+                                        })()}
                                     </div>
 
                                     <div className="flex items-center gap-6 max-md:w-full max-md:justify-between max-md:gap-3">
@@ -3806,6 +3851,16 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                         </div>
                     </div>
             </div>
+            {showHitos && (
+                <HitosActuacionModal
+                    expediente={expediente}
+                    doc={local}
+                    user={user}
+                    readOnly={!['ADMIN', 'TRABAJADOR'].includes(user?.rol)}
+                    onGuardar={(cambios) => commitFields(cambios)}
+                    onClose={() => setShowHitos(false)}
+                />
+            )}
             {/* MODAL GESTIÓN FIRMADOS */}
             {/* Incidencias de un slot SIN documento que enseñar (aún no se ha subido,
                 o la incidencia es sobre lo que falta). El visor no aplica: aquí solo
@@ -3829,6 +3884,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                 incidencias={incSlot(verIncidenciasSlot.slot)}
                                 onCambio={() => onIncidenciasChanged?.()}
                                 onJuzgarAviso={juzgarAviso}
+                                onAccion={(inc) => { if (inc.accion === 'hitos') setShowHitos(true); }}
                             />
                         </div>
                     </div>
@@ -3906,6 +3962,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                                     onCambio={() => onIncidenciasChanged?.()}
                                     variant="aside"
                                     onJuzgarAviso={juzgarAviso}
+                                onAccion={(inc) => { if (inc.accion === 'hitos') setShowHitos(true); }}
                                 />
                             ) : (
                                 <p className="text-[10px] font-black uppercase tracking-widest text-white/25 flex items-center gap-2">

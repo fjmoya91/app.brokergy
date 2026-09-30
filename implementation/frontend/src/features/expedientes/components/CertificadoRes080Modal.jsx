@@ -28,6 +28,7 @@ import AnexoPaginasModal from './AnexoPaginasModal';
 // La página de capturas del CE3X NO se duplica aquí: vive en res080Doc.js, que es
 // lo que usa el backend para generar el mismo certificado server-side.
 import { buildCe3xPages, buildJustificacionAhorroPages, buildEmpresasBox } from '../logic/res080Doc';
+import { hitosActuacion, hitosBoxHtml } from '../logic/hitosActuacion';
 import { postEmail } from '../../../utils/emailFallback';
 // Los nombres van en MAYÚSCULAS en la ficha: en el saludo se escriben bien y
 // sin cortar los compuestos ("MARIA JOSÉ" no es "Maria").
@@ -1343,11 +1344,28 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
             </div>
         `);
 
+        // HITOS DE LA ACTUACIÓN — el MISMO bloque que res080Doc.js y el CIFO
+        // (hitosBoxHtml). Inicio y fin tal cual los imprime la hoja 1 (editables
+        // en esta vista previa). Con CASCADA, en hoja propia antes de la instalación.
+        const hitosAparte = calNuUds > 1 || (acsSeActua && acsNuUds > 1);
+        const hitosBox = hitosBoxHtml({ hitos: hitosActuacion(expediente), sectionTitle,
+            inicioTxt: ed('fecha_inicio'), finTxt: ed('fecha_fin'), mt: '20px' });
+        if (hitosAparte && hitosBox) {
+            pages.push(`
+            <div class="doc-page">
+                ${pageHeader}
+                ${hitosBox}
+                ${footer}
+            </div>
+        `);
+        }
+
         // PÁGINA 2: INSTALACIÓN TÉRMICA
         pages.push(`
             <div class="doc-page">
                 ${pageHeader}
-                ${sectionTitle('Actuación sobre la instalación térmica', '20px')}
+                ${hitosAparte ? '' : hitosBox}
+                ${sectionTitle('Actuación sobre la instalación térmica', hitosAparte || !hitosBox ? '20px' : '14px')}
                 <p style="margin:0 0 6px 20px;font-size:12.5px;color:#4a4a44;">${eb('descripcion_termica')}</p>
 
                 ${subLabel('Instalación de calefacción')}

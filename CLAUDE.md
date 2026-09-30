@@ -1804,6 +1804,88 @@ hoja. Holguras actuales: **+28px en el peor caso** (RES093 de textos largos con 
 
 ---
 
+## HITOS DE LA ACTUACIÓN — la factura que NO abre la obra (2026-09-30)
+
+Requerimiento repetido: el CIFO toma como inicio de actuación la PRIMERA factura, y
+cuando esa factura es la **entrega del material** (o un **anticipo**) emitida antes
+de existir el CEE inicial, el verificador ve una obra que empieza sin certificado de
+partida — aunque se hiciera en su orden. Medido en **26RES093_11**: la bomba de calor
+se facturó el 29/05/2026 (26/000417), el CEE inicial se visitó y firmó el 01/09, la
+instalación se facturó el 11/09 (26/000618) y las pruebas RITE son del 15/09. El CIFO
+arrancaba el 29/05 y salía GRAVE.
+
+| Qué | Dónde |
+|---|---|
+| La marca de la factura y el cálculo de inicio/fin | [calcCifo.js](implementation/frontend/src/features/expedientes/logic/calcCifo.js) — `MOTIVOS_NO_INICIO`, `motivoNoInicio` |
+| Los hitos, la aclaración propuesta y qué se puede citar | [hitosActuacion.js](implementation/frontend/src/features/expedientes/logic/hitosActuacion.js) |
+| El bloque impreso (FUENTE ÚNICA de CIFO, RES080 y el modal del RES080) | `hitosBoxHtml` en [hitosActuacion.js](implementation/frontend/src/features/expedientes/logic/hitosActuacion.js) |
+| El popup | [HitosActuacionModal.jsx](implementation/frontend/src/features/expedientes/components/HitosActuacionModal.jsx), botón **Hitos** junto a las fechas del CIFO + «Aclarar las fechas» en el aviso |
+| Redacción con IA | `POST /api/expedientes/:id/hitos/aclaracion-ia` (**staffOnly**) → [aclaracionFechasService.js](implementation/backend/services/aclaracionFechasService.js) |
+| Pruebas | `node implementation/backend/scripts/test_hitos_actuacion.mjs` · `check_cifo_paginas.mjs` · `check_res080_paginas.mjs` |
+
+**REGLA — una factura puede NO abrir la actuación, y lo marca una persona.**
+`documentacion.facturas[].motivo_no_inicio` = `'MATERIAL'` | `'ANTICIPO'` la saca del
+INICIO de `calcCifo` —no del fin, ni de las facturas asociadas, ni de la inversión:
+sigue siendo una factura del expediente—. Nunca se deduce. Se lee sin distinguir
+mayúsculas (`normalizeData`). Si al quitarlas no queda nada que abra, se usan todas:
+un CIFO sin fecha de inicio es peor. Como TODAS las superficies llaman a `calcCifo`
+(CIFO, fichas RES, anexo del MITECO, solicitud de verificación), el inicio nuevo sale
+igual en todas. Con la marca, 26RES093_11 arranca el 11/09 y el GRAVE se apaga solo.
+
+**REGLA — el CIFO y el Certificado RES080 llevan un bloque «Hitos de la actuación»**:
+primera factura (con su nº y «entrega de material» si lo es), inicio y fin, y la
+visita del técnico y la firma del CEE INICIAL y del CEE FINAL. **Las dos filas de CEE
+salen SIEMPRE**, con «—» en lo que aún no consta (decisión del usuario, 2026-09-30: el
+CEE final es la otra mitad de la historia y su fila no puede desaparecer). **No se
+imprime el REGISTRO del CEE**: la regla de la casa es que el certificado existe desde
+su FIRMA (regla de `cifoFechas`), y el registro es un trámite ajeno. En el RES080 el
+inicio y el fin del bloque son los de su hoja 1 (`fields.fecha_inicio/fin`, editables
+en la vista previa), pasados a dd/mm/aaaa.
+
+**REGLA — la aclaración solo AFIRMA lo que dicen los datos.** `aclaracionSugerida`
+compone el texto con las fechas del expediente y solo sitúa el inicio «con
+posterioridad a la firma del CEE inicial» si de verdad lo es; a una factura
+anterior al inicio SIN marcar (inicio fijado a mano) no le atribuye naturaleza
+ninguna. Tope `ACLARACION_MAX` (480 caracteres). Se guarda en
+`documentacion.hitos_actuacion` = `{ aclaracion, origen, por, at }`, que va en la
+**BLACKLIST de `normalizeData`**: es texto que se imprime tal cual, y en MAYÚSCULAS
+saldría en el certificado como un grito.
+
+**REGLA — la IA REDACTA, el expediente pone los DATOS, y el código lo COMPRUEBA.**
+El prompt lleva solo los hechos (y lo que cuente el usuario del caso), y el texto
+que cite una fecha o un nº de factura que no consta se DESCARTA
+(`fechasAjenas`, `facturasCitadas`) y se devuelve la propuesta del código diciéndolo.
+No guarda: vuelve al popup. Medido: ~1 s y ~100 tokens de salida.
+⚠️ **En modo JSON y sin razonar, gemini-2.5-flash entra en BUCLE al escribir «º»**
+(se queda emitiendo saltos de línea tras «La factura n»): por eso se le pide
+«número» y la propuesta se le pasa sin el ordinal (`sinOrdinal`). Si aun así se
+corta, se reintenta una vez con más temperatura.
+⚠️ `facturasCitadas` exige el `º` y que lo citado lleve un DÍGITO: con una «o»
+normal, «no supone» se leía como la factura «supone».
+
+**REGLA — los hitos ABREN la hoja de la INSTALACIÓN, antes de los equipos**
+(decisión del usuario, 2026-09-30), en el CIFO y en el RES080. Con un solo equipo
+caben siempre (peor caso medido con la aclaración máxima: CIFO +22px con termo fuera
+y dos empresas; RES080 +37px con termo fuera). Con equipos en CASCADA la hoja se
+llena de nº de serie y los hitos van en una hoja propia justo ANTES de la de la
+instalación (`hitosAparte`). Lo decide un dato del expediente, no una medición; los
+dos caminos están en los dos medidores. Hoy son 4 expedientes de 291 con cascada. Los
+recuadros de firma no se mueven: los dos se anclan a la hoja 1 de contenido (PDF
+página 2), que va antes.
+
+**REGLA — el aviso dice DÓNDE se arregla.** `cifoFechas` añade `accion: 'hitos'` al
+GRAVE de «la actuación empieza antes del CEE inicial» y al LEVE nuevo
+`FACTURA_ANTERIOR_INICIO` (facturas anteriores al inicio sin aclaración); el panel
+de incidencias pinta «Aclarar las fechas», que abre el popup. Marcar las fechas de
+un CIFO ya generado no cambia el PDF: el popup lo dice antes de guardar (y si está
+firmado, que hay que volver a pedir la firma).
+
+⚠️ El Certificado RES080 tiene DOS copias de sus páginas (`res080Doc.js`, que usa el
+backend, y `CertificadoRes080Modal.jsx`): las dos llaman a `hitosBoxHtml`, así que el
+bloque no puede divergir; lo que se añada alrededor sí hay que tocarlo en las dos.
+
+---
+
 ## El módulo CEE del expediente, en el MÓVIL — asignar técnico (2026-08-21)
 
 La pestaña CEE se abre desde el teléfono para hacer UNA cosa: ver cómo va el certificado y
@@ -11502,6 +11584,8 @@ fichero en CE3X y pulsar calcular.
 85. **Los PRESUPUESTOS adjuntados a la propuesta rellenan Datos Económicos, cada uno en SU campo**: hueco Aerotermia → P. Aerotermia, hueco **Placas solares** (nuevo, siempre visible, fichero `PRESUPUESTO DE LA INSTALACIÓN_FOTOVOLTAICA.pdf`) → P. Fotovoltaica, huecos de la reforma → P. Reforma como **SUMA** de los activos con documento (recordados por hueco en `inputs.presupuestos_leidos`; los adjuntos nunca leídos se leen en el momento). El IVA lo decide la SIMULACIÓN (particular con IVA; empresa/terciario según el conmutador); las líneas de otra partida van a su campo solo si está vacío (la aerotermia estimada cuenta como vacía); <1 € de diferencia es la misma cifra. **Se guarda sola** con el mismo `payloadOportunidad` del botón Guardar, esperando al `result` recalculado, con línea en el historial y «Deshacer». Solo staff (lector `staffOnly`). Fuente única: [logic/presupuestoLeido.js](implementation/frontend/src/features/calculator/logic/presupuestoLeido.js). Tras tocarlo: `node implementation/backend/scripts/test_presupuesto_leido.mjs`. Ver "Los presupuestos adjuntados a la propuesta rellenan Datos Económicos".
 
 86. **Los AIRES ACONDICIONADOS que confirma el cliente llegan al CEE: la pestaña, el encargo y la envolvente** (2026-09-29). Lo confirmado al aceptar (emisores, placas, aires; en un CEE directo, su cuestionario) sale en la pestaña CEE (`ConfirmadoPorCliente`) y DENTRO del encargo del CEE INICIAL al certificador, con cómo declararlo (`bloqueConfirmacionCertificador`, que el backend manda en `aviso-cliente-cee` como `bloque_certificador`). En la envolvente, el bloque «Aires acondicionados existentes» de Instalaciones los crea de un clic, uno por aparato, repartiendo el 100 % de la refrigeración (y la superficie) entre todos: en **CAE** como «Equipo de sólo refrigeración» — máquina frigorífica, 250 % (26RES060_206: 5 × 20 %) —; en una **deducción del IRPF** (CEE directo, 2026CEE_60) como «Equipo de calefacción y refrigeración» — bomba de calor ESTIMADA, 270 % / 250 % —. Van en el INICIAL (el final los conserva), y rehacer SUSTITUYE los del bloque (`aire: true`). El motor escribe ya el `climatizacion` ESTIMADO (forma medida en 258 equipos del corpus) y el estacional aproximado con `FACTOR_ESTACIONAL` (157,5 · 204,3 / 163,3, las cifras de los dos `.cex` de referencia). Tras tocarlo: `node implementation/backend/scripts/test_aires_ce3x.mjs`, `test_confirmacion_cliente.mjs` y `pytest implementation/cee-engine/tests/test_equipos.py`. Ver «Y llega al CEE: la pestaña, el encargo y la envolvente».
+
+93. **Una factura de ENTREGA DE MATERIAL o un ANTICIPO no abre la actuación, y el CIFO lo cuenta en «Hitos de la actuación»** (2026-09-30). `facturas[].motivo_no_inicio` (`MATERIAL` | `ANTICIPO`, lo marca una persona en el popup **Hitos** junto a las fechas del CIFO) la saca del INICIO de `calcCifo` —no del fin ni de la inversión—, así que el inicio nuevo sale igual en todas las superficies. El CIFO y el Certificado RES080 imprimen ABRIENDO la hoja de la instalación (en hoja propia justo antes si hay cascada) la primera factura, el inicio y el fin y la visita y la firma del CEE inicial y del final —las dos filas siempre, con «—» en lo que no consta, y nunca el registro—, más la ACLARACIÓN si la hay (`documentacion.hitos_actuacion`, en la BLACKLIST de `normalizeData`). La aclaración propuesta solo afirma lo que dicen los datos; la de la IA (`POST /:id/hitos/aclaracion-ia`, staffOnly) se descarta si cita una fecha o una factura que no consta. ⚠️ gemini-2.5-flash en JSON entra en bucle con «º»: se le pide «número». Fuente única: [hitosActuacion.js](implementation/frontend/src/features/expedientes/logic/hitosActuacion.js). Tras tocarlo: `node implementation/backend/scripts/test_hitos_actuacion.mjs`, `check_cifo_paginas.mjs` y `check_res080_paginas.mjs`. Ver "HITOS DE LA ACTUACIÓN".
 
 ---
 

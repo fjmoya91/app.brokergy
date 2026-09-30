@@ -461,7 +461,7 @@ function detectarIncidenciasFactura({ ocr, exp, op, cliente, instalador, factura
         if (fRefIni && fFactura.getTime() < fRefIni.getTime()) {
             add('FECHA', 'LEVE', 'La factura es anterior al CEE inicial',
                 firmaIni
-                    ? `La factura es del ${fmtFecha(ocr.fecha_factura)} y el CEE inicial de ${numExp} está firmado el ${fmtFecha(firmaIni)}. La actuación tiene que ser posterior al certificado de partida: comprueba si la obra se ejecutó de verdad antes de existir la situación de referencia, o si es solo que la factura se emitió antes (un anticipo, el material). Lo que declara la fecha de obra es el CIFO.`
+                    ? `La factura es del ${fmtFecha(ocr.fecha_factura)} y el CEE inicial de ${numExp} está firmado el ${fmtFecha(firmaIni)}. La actuación tiene que ser posterior al certificado de partida: comprueba si la obra se ejecutó de verdad antes de existir la situación de referencia, o si es solo que la factura se emitió antes (un anticipo, el material). Lo que declara la fecha de obra es el CIFO: si es material o un anticipo, márcala así en «Hitos de la actuación» (junto a las fechas del CIFO) y deja de abrir la actuación.`
                     : `La factura es del ${fmtFecha(ocr.fecha_factura)} y el CEE inicial de ${numExp} se registró el ${fmtFecha(registroIni)}. No consta la fecha de FIRMA del certificado, que es la que decide: el registro es un trámite posterior y puede ir semanas por detrás, así que el desfase puede ser solo eso. Rellena la fecha de firma en la rejilla del CEE para poder afirmarlo.`,
                 firmaIni
                     ? `Factura ${fmtFecha(ocr.fecha_factura)} < firma CEE inicial ${fmtFecha(firmaIni)}`

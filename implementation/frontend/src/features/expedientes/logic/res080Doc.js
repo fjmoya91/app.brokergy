@@ -21,6 +21,7 @@ import { BOILER_EFFICIENCIES, redondeaScop } from '../../calculator/logic/calcul
 import { buildInstalacionAddress, empresaInstaladora, empresasActuacion,
     EMPRESAS_COL_EJECUTA, EMPRESAS_COL_HABILITADA, notaDelegacionRite } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
+import { hitosActuacion, hitosBoxHtml } from './hitosActuacion.js';
 import { EMITTER_OPTIONS, emitterScopContext, scopAcsAnexoViHtml, placaAnexoContenido, PLACA_ANEXO_TITULO, PLACA_ANEXO_LABEL } from './cifoDoc.js';
 import { emisorLabelDocumento } from './emisores.js';
 import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevoLabel, esTermoElectrico, esAcumuladorAcs, datosAcumulador, acsSerieDeclarada } from './aerotermiaUnits.js';
@@ -385,7 +386,12 @@ export function deriveRes080Data({ expediente, results, parseHuecosFromXml }) {
     }).map(oFin => ({ initial: matchByName(opacosInit, oFin), final: oFin }));
     const seSustituyen = changedHuecos.length > 0 || env.sustituye_ventanas === true;
 
+    // Las fechas de la actuación y de los dos CEE, para el bloque «Hitos de la
+    // actuación». Fuente única con el CIFO (hitosActuacion.js).
+    const hitos = hitosActuacion(exp);
+
     return {
+        hitos,
         fields, env, inst, cli, results,
         numExpte, locCA, locDir, locCat, utmX, utmY, clientFull, clientDir,
         aeTotal, ef_i, ef_f,
@@ -783,6 +789,7 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
         sameAero, tieneAcs, delegadoRite, empresas,
         zoneStr, zoneLabel, scopCalRaw, scopCalStr, scopAcsRaw, scopAcsStr, emiLabel, metodoCal, metodoAcs,
         changedHuecos, changedOpacos, seSustituyen,
+        hitos,
     } = data;
 
     const ed = (f) => fields[f] || '';
@@ -950,11 +957,29 @@ export function buildRes080Html({ data, appUrl, attachments = [], isForPdf = tru
         </div>
     `);
 
+    // HITOS DE LA ACTUACIÓN — mismo bloque que el CIFO (hitosBoxHtml), abriendo la
+    // hoja de la instalación. El inicio y el fin se imprimen TAL CUAL salen en la
+    // hoja 1 (`fecha_inicio`/`fecha_fin`, que la vista previa deja editar): el
+    // bloque no puede decir otra fecha que la de arriba. Con equipos en CASCADA la
+    // hoja se llena de nº de serie y los hitos van en hoja propia, antes.
+    const hitosAparte = calNuUds > 1 || (acsSeActua && acsNuUds > 1);
+    const hitosBox = hitosBoxHtml({ hitos, sectionTitle, inicioTxt: ed('fecha_inicio'), finTxt: ed('fecha_fin'), mt: '20px' });
+    if (hitosAparte && hitosBox) {
+        pages.push(`
+        <div class="doc-page">
+            ${pageHeader}
+            ${hitosBox}
+            ${footer}
+        </div>
+    `);
+    }
+
     // PÁGINA 2: INSTALACIÓN TÉRMICA
     pages.push(`
         <div class="doc-page">
             ${pageHeader}
-            ${sectionTitle('Actuación sobre la instalación térmica', '20px')}
+            ${hitosAparte ? '' : hitosBox}
+            ${sectionTitle('Actuación sobre la instalación térmica', hitosAparte || !hitosBox ? '20px' : '14px')}
             <p style="margin:0 0 6px 20px;font-size:12.5px;color:#4a4a44;">${eb('descripcion_termica')}</p>
 
             ${subLabel('Instalación de calefacción')}

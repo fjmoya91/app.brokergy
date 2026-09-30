@@ -23,6 +23,7 @@ import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs, HYBRI
 import { buildInstalacionAddress, domicilioEmpresa, empresaInstaladora, empresasActuacion,
     notaDelegacionRite } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
+import { hitosActuacion, hitosBoxHtml } from './hitosActuacion.js';
 import { formatMarcas, formatModelos, formatSeries, countUnidades, tipoEquipoNuevo, tipoEquipoNuevoLabel, esTermoElectrico, datosAcumulador, acsSerieDeclarada, EQUIPO_NUEVO } from './aerotermiaUnits.js';
 import { resolveDacs, ACS_METHOD } from './demandaAcs.js';
 import { ceeBaseDocumento, acsEnAlcance } from './ceeFases.js';
@@ -205,6 +206,9 @@ export function deriveCifoData({ expediente, results }) {
     const cifoDatesCert = calcCifo(doc);
     const fechaInicio = formatDateSpanish(cifoDatesCert.inicio || doc.fecha_inicio_cifo || doc.fecha_visita_cee_inicial);
     const fechaFin = formatDateSpanish(cifoDatesCert.fin || doc.fecha_fin_cifo || doc.fecha_firma_cee_final);
+    // Las fechas que cuentan la obra, juntas: primera factura, inicio y fin, y las
+    // visitas y firmas de los dos CEE. Fuente única con el popup donde se aclaran.
+    const hitos = hitosActuacion(exp);
 
     // Ahorro AE_TOTAL. En TER100 se sustituye más abajo por la suma del desglose
     // (AE_C + AE_ACS + AE_CAP), para que el total del certificado no pueda diferir de
@@ -527,6 +531,8 @@ export function deriveCifoData({ expediente, results }) {
         // hibridación (RES093)
         cbStr, pDesignKwStr, coveragePct, coveragePctStr, thZone, pbdcKw, pbdcKwStr, demandaAnualKwhStr, appliedCovStr,
         hybridMethod, pCalderaKwStr, refPowerKwStr, pDesignWStr, pEspecificaStr, pEspecificaNum, climateSeason,
+        // hitos de la actuación (fechas + aclaración)
+        hitos,
     };
 }
 
@@ -695,6 +701,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
         empRite, empresas, ejeNombre, ejeCif, ejeDir, tecNombre, tecCarnet,
         cbStr, pDesignKwStr, coveragePct, coveragePctStr, thZone, pbdcKwStr, demandaAnualKwhStr, appliedCovStr,
         hybridMethod, pCalderaKwStr, refPowerKwStr, pDesignWStr, pEspecificaStr, pEspecificaNum, climateSeason,
+        hitos,
     } = data;
 
     const pages = [];
@@ -888,6 +895,21 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
                     + `${tecCarnet ? ` con carnet de instalador ${tecCarnet}` : ''}`, true)}
     `;
 
+    // ── HITOS DE LA ACTUACIÓN ────────────────────────────────────────────────
+    // Las fechas que el verificador cruza, juntas: la primera factura, el inicio
+    // y el fin declarados, y la visita y la firma de los dos CEE (con «—» en lo
+    // que aún no consta), más la aclaración si alguien la ha escrito. El bloque
+    // es FUENTE ÚNICA con el Certificado RES080 (`hitosBoxHtml`).
+    //
+    // Va ABRIENDO la hoja de la instalación, antes de los equipos: es lo primero
+    // que se lee después de la identificación, y la hoja 1 no admite ni una fila
+    // más (+28px en el peor caso medido, y lleva anclado el recuadro de firma).
+    // Con equipos en CASCADA esa hoja se llena de nº de serie: entonces los hitos
+    // van en su propia hoja, justo ANTES de la de la instalación. Lo decide un dato
+    // del expediente, no una medición; los dos caminos están en el medidor.
+    const hitosAparte = calNuUds > 1 || (tieneAcs && acsNuUds > 1);
+    const hitosBox = hitosBoxHtml({ hitos, sectionTitle, mt: '16px' });
+
     // PÁGINA 0: PORTADA
     pages.push(`
         <div class="doc-page" style="padding:0;display:block;background:#111110;overflow:hidden;">
@@ -1019,10 +1041,23 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     // ⚠️ El recuadro de firma del instalador está anclado a la página 2 del PDF
     // (`SIGN_BOXES.cifo_res060`), que es la anterior a ésta: partir aquí no lo
     // mueve. Cualquier página que se añada ANTES sí habría que reflejarla allí.
+    // Con CASCADA, los hitos en hoja propia ANTES de la instalación (ver arriba).
+    // Hoy son 4 expedientes de 291 (2026-09-30).
+    if (hitosAparte && hitosBox) {
+        pages.push(`
+        <div class="doc-page">
+            ${pageHeader}
+            ${hitosBox}
+            ${footer}
+        </div>
+    `);
+    }
+
     pages.push(`
         <div class="doc-page">
             ${pageHeader}
-            ${sectionTitle('Datos de la instalación de calefacción', '16px')}
+            ${hitosAparte ? '' : hitosBox}
+            ${sectionTitle('Datos de la instalación de calefacción', hitosAparte || !hitosBox ? '16px' : '14px')}
             ${tieneCalefaccion
                 ? cmpBox(cmpHead(), `
                     ${cmpRow('Tipo de caldera', calExTipo, calNuUds > 1 ? 'Bombas de calor en cascada' : 'Bomba de calor')}
@@ -1086,6 +1121,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
             ${footer}
         </div>
     `);
+
 
     // La PISCINA (solo TER100) encabeza la página siguiente, no ésta. Es el
     // tercer servicio y su tabla ocupa 268px: en un terciario con la cascada

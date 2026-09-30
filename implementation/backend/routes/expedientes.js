@@ -2798,6 +2798,45 @@ router.get('/:id/anexo-fotografico/estado', internalKeyOrAuth, async (req, res) 
     }
 });
 
+// ─── POST /api/expedientes/:id/hitos/aclaracion-ia ───────────────────────────
+// Redacta con la IA la «Aclaración sobre las fechas» que se imprime en el CIFO
+// (bloque «Hitos de la actuación»). NO guarda: devuelve el texto al popup, donde
+// una persona lo lee y decide. Lee del expediente solo lo que hace falta —la
+// documentación y las fechas de visita y firma de los dos CEE, por ruta JSON:
+// `cee` entero trae los XML de los certificados (regla 22)— y aplica encima lo
+// que el popup tiene marcado sin guardar (qué facturas no abren la actuación y
+// las fechas fijadas a mano). Ver services/aclaracionFechasService.js.
+// staffOnly: es una llamada de pago y el texto va a un documento firmado.
+router.post('/:id/hitos/aclaracion-ia', staffOnly, async (req, res) => {
+    try {
+        const { data: row, error } = await supabase.from('expedientes')
+            .select(`id, numero_expediente, documentacion,
+                vis_ini:cee->>fecha_visita_cee_inicial, fir_ini:cee->>fecha_firma_cee_inicial,
+                vis_fin:cee->>fecha_visita_cee_final, fir_fin:cee->>fecha_firma_cee_final,
+                xvis_ini:cee->cee_inicial->>fechaVisita, xfir_ini:cee->cee_inicial->>fechaFirma,
+                xvis_fin:cee->cee_final->>fechaVisita, xfir_fin:cee->cee_final->>fechaFirma`)
+            .eq('id', req.params.id).maybeSingle();
+        if (error) throw error;
+        if (!row) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const expediente = {
+            id: row.id, numero_expediente: row.numero_expediente,
+            documentacion: row.documentacion || {},
+            cee: {
+                fecha_visita_cee_inicial: row.vis_ini, fecha_firma_cee_inicial: row.fir_ini,
+                fecha_visita_cee_final: row.vis_fin, fecha_firma_cee_final: row.fir_fin,
+                cee_inicial: { fechaVisita: row.xvis_ini, fechaFirma: row.xfir_ini },
+                cee_final: { fechaVisita: row.xvis_fin, fechaFirma: row.xfir_fin },
+            },
+        };
+        const { redactar } = require('../services/aclaracionFechasService');
+        const r = await redactar({ expediente, borrador: req.body?.borrador || {}, contexto: req.body?.contexto || '' });
+        res.json(r);
+    } catch (e) {
+        console.error('[hitos/aclaracion-ia]', e);
+        res.status(500).json({ error: e.message || 'No se pudo redactar la aclaración' });
+    }
+});
+
 // ─── POST /api/expedientes/:id/cifo/generar ──────────────────────────────────
 // Genera el Certificado CIFO (RES060/RES093/TER100/TER173) con el MISMO builder que el modal
 // (features/expedientes/logic/cifoDoc.js), fusiona las fichas técnicas, lo guarda
