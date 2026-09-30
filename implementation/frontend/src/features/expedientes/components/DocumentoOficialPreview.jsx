@@ -14,14 +14,20 @@ import axios from 'axios';
  *
  * El PDF se pide UNA vez por juego de datos (`formulario` se compara serializado):
  * mientras el popup está abierto y nadie toca nada, no se vuelve a generar.
+ *
+ * `fuente` admite cualquier documento tal como viaja al envío —`{ formulario }`
+ * (impreso oficial) o `{ html }` (maqueta, p. ej. el Convenio de Cesión)—: el
+ * popup de envío de anexos enseña con esto EXACTAMENTE lo que va a mandar.
+ * `formulario` se conserva por compatibilidad con los modales de ficha.
  * ────────────────────────────────────────────────────────────────────────────
  */
-export function DocumentoOficialPreview({ formulario, titulo = 'documento', onFallback, nota = null }) {
+export function DocumentoOficialPreview({ formulario, fuente = null, titulo = 'documento', onFallback, nota = null }) {
     const [url, setUrl] = useState(null);
     const [error, setError] = useState('');
     const [cargando, setCargando] = useState(true);
     const urlRef = useRef(null);
-    const clave = JSON.stringify(formulario || null);
+    const cuerpo = fuente || { formulario };
+    const clave = JSON.stringify(cuerpo);
 
     useEffect(() => {
         let vivo = true;
@@ -29,7 +35,7 @@ export function DocumentoOficialPreview({ formulario, titulo = 'documento', onFa
         setError('');
         (async () => {
             try {
-                const { data } = await axios.post('/api/pdf/generate', { formulario });
+                const { data } = await axios.post('/api/pdf/generate', cuerpo);
                 if (!vivo) return;
                 if (!data?.pdf) throw new Error('El servidor no devolvió el PDF');
                 const bytes = Uint8Array.from(atob(data.pdf), c => c.charCodeAt(0));
