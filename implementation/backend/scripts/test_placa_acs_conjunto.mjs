@@ -69,7 +69,8 @@ ok(Number(nodo.litros) === 180, `trae los litros del depósito (${nodo.litros})`
 ok(!nodo.equipos_extra, 'NO arrastra la cascada del bloque de calefacción');
 
 console.log('\n── Pero el SCOP es PROPIO ──────────────────────────────────────');
-ok(Math.abs(Number(nodo.scop) - 3.775) < 0.001, `SCOP_dhw 3,775 y no el 4,2 de calefacción (es ${nodo.scop})`);
+// El SCOP va con DOS decimales (redondeaScop): el 3,775 del catálogo es 3,78.
+ok(Math.abs(Number(nodo.scop) - 3.78) < 0.001, `SCOP_dhw 3,78 y no el 4,2 de calefacción (es ${nodo.scop})`);
 ok(Number(nodo.scop) !== Number(nodoCal.scop), 'nunca es el mismo número que el de calefacción');
 
 console.log('\n── Y su nº de serie es el de la UNIDAD INTERIOR ────────────────');

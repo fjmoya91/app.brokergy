@@ -1,3 +1,4 @@
+import { redondeaScop } from './calculation.js';
 /**
  * ============================================================================
  * FICHA RES060FC (PROPUESTA) — CAEs MÁXIMOS CON FACTOR DE CORRECCIÓN
@@ -94,8 +95,8 @@ export function calculateRes060FC({
 
     const S = parseFloat(superficie) || 0;
     const eta = parseFloat(boilerEff) || 0;
-    const scopB = parseFloat(scopHeating) || 0;
-    const scopD = parseFloat(scopAcs) || 0;
+    const scopB = redondeaScop(scopHeating) || 0;
+    const scopD = redondeaScop(scopAcs) || 0;
     const cefNum = Math.max(0, parseFloat(cef) || 0);
 
     const dem = q * S; // D_CAL · S (kWh/año)

@@ -3341,6 +3341,9 @@ router.put('/:id', enforceAuth, async (req, res) => {
             }
         }
         if (instalacion !== undefined)   updates.instalacion   = { ...existing.instalacion,   ...instalacion };
+        // El SCOP se GUARDA con dos decimales (redondeaScop, fuente única con las
+        // fórmulas y los documentos): lo guardado es lo que se imprime y se calcula.
+        if (updates.instalacion) updates.instalacion = await require('../utils/scopRedondeo').redondearScopsInstalacion(updates.instalacion);
         if (seguimiento !== undefined) {
             updates.seguimiento = { ...existing.seguimiento, ...seguimiento };
 

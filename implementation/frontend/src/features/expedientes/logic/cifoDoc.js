@@ -19,7 +19,7 @@
 // inyecte su propio origen absoluto (Puppeteer renderiza con setContent → base
 // about:blank, las rutas relativas no cargan).
 // ============================================================================
-import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs, HYBRID_METHODS } from '../../calculator/logic/calculation.js';
+import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs, HYBRID_METHODS, redondeaScop } from '../../calculator/logic/calculation.js';
 import { buildInstalacionAddress, domicilioEmpresa, empresaInstaladora, empresasActuacion,
     notaDelegacionRite } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
@@ -296,7 +296,7 @@ export function deriveCifoData({ expediente, results }) {
     const calNuMod = formatModelos(inst.aerotermia_cal);
     const calNuSerieEx = formatSeries(inst.aerotermia_cal);
     const calNuUds = countUnidades(inst.aerotermia_cal);
-    const scopCalRaw = parseFloat(inst.aerotermia_cal?.scop) || 0;
+    const scopCalRaw = redondeaScop(inst.aerotermia_cal?.scop) || 0;
     const scopCalStr = scopCalRaw ? scopCalRaw.toFixed(2).replace('.', ',') : '—';
 
     // El ACS solo COMPUTA en la ficha si se actúa sobre él CON UNA BOMBA DE CALOR.
@@ -338,7 +338,7 @@ export function deriveCifoData({ expediente, results }) {
             : formatSeries(inst.aerotermia_acs)) : '—';
     const acsNuUds = acum ? 1
         : tieneAcs ? (inst.misma_aerotermia_acs ? calNuUds : countUnidades(inst.aerotermia_acs)) : 0;
-    const scopAcsRaw = tieneAcs ? parseFloat(inst.misma_aerotermia_acs ? inst.aerotermia_cal?.scop : inst.aerotermia_acs?.scop || 0) : 0;
+    const scopAcsRaw = tieneAcs ? (redondeaScop(inst.misma_aerotermia_acs ? inst.aerotermia_cal?.scop : inst.aerotermia_acs?.scop || 0) || 0) : 0;
     const scopAcsStr = tieneAcs ? (scopAcsRaw ? scopAcsRaw.toFixed(2).replace('.', ',') : '—') : 'no aplica';
 
     // Nunca es true a la vez que `tieneAcs` (un termo saca el ACS de la fórmula);
@@ -415,7 +415,7 @@ export function deriveCifoData({ expediente, results }) {
     const dcapStr = tienePiscina
         ? dcapRaw.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
         : 'no aplica';
-    const scopPoolRaw = tienePiscina ? (parseFloat(piscinaObj.scop) || 0) : 0;
+    const scopPoolRaw = tienePiscina ? (redondeaScop(piscinaObj.scop) || 0) : 0;
     const scopPoolStr = tienePiscina ? (scopPoolRaw ? scopPoolRaw.toFixed(2).replace('.', ',') : '—') : 'no aplica';
     const pisEquipo = piscinaObj.equipo || {};
     const pisNuMarca = pisEquipo.marca || '—';

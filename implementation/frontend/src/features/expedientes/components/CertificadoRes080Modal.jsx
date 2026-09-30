@@ -2,7 +2,7 @@ import React, { useRef, useState, useCallback, useEffect } from 'react';
 import axios from 'axios';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../../../context/AuthContext';
-import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
+import { BOILER_EFFICIENCIES, redondeaScop } from '../../calculator/logic/calculation';
 import { buildInstalacionAddress, empresaInstaladora, empresasActuacion } from '../utils/docGenerators';
 import { calcCifo } from '../logic/calcCifo';
 import { EMITTER_OPTIONS, emitterScopContext, scopAcsAnexoViHtml, placaAnexoContenido, PLACA_ANEXO_TITULO, PLACA_ANEXO_LABEL } from '../logic/cifoDoc';
@@ -1045,9 +1045,9 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
     const zoneStr = (op.datos_calculo?.zona || 'D3').toUpperCase();
     const zoneLabel = ['A3','A4','B3','B4','C1','C2','C3','C4','D1','D2','D3'].includes(zoneStr)
         ? 'Cálido' : (zoneStr === 'E1' ? 'Medio' : 'Cálido');
-    const scopCalRaw = parseFloat(inst.aerotermia_cal?.scop) || 0;
+    const scopCalRaw = redondeaScop(inst.aerotermia_cal?.scop) || 0;
     const scopCalStr = scopCalRaw ? scopCalRaw.toFixed(2).replace('.', ',') : '—';
-    const scopAcsRaw = tieneAcs ? parseFloat(sameAero ? inst.aerotermia_cal?.scop : inst.aerotermia_acs?.scop || 0) : 0;
+    const scopAcsRaw = tieneAcs ? (redondeaScop(sameAero ? inst.aerotermia_cal?.scop : inst.aerotermia_acs?.scop || 0) || 0) : 0;
     const scopAcsStr = tieneAcs ? (scopAcsRaw ? scopAcsRaw.toFixed(2).replace('.', ',') : '—') : 'no aplica';
     // Ver logic/emisores.js: con emisores mixtos se enumeran (gemelo de res080Doc).
     const emiLabel   = emisorLabelDocumento(expediente);

@@ -24,6 +24,7 @@ import {
     AEROTHERMIA_MODELS,
     CAE_PRECIO_CLIENTE_NUEVAS,
     calculateTerciario,
+    redondeaScop,
 } from '../logic/calculation';
 // El SECTOR (residencial / terciario) decide la ficha y, con ella, cómo se
 // reparte el ahorro. Fuente única con el backend y con el resto de pantallas.
@@ -553,8 +554,10 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             // ahorro de toda propuesta nueva, y eso no se ha pedido.
             dacs: dacsCalculada,
             boilerEff: parseFloat(inputs.boilerEff) || 0.92,
-            scopHeating: parseFloat(inputs.scopHeating) || 3.2,
-            scopAcs: parseFloat(inputs.scopAcs) || 3.0,
+            // Con dos decimales: el SCOP de la propuesta es el mismo que acabará
+            // en el CIFO (redondeaScop, fuente única).
+            scopHeating: redondeaScop(inputs.scopHeating) || 3.2,
+            scopAcs: redondeaScop(inputs.scopAcs) || 3.0,
             uMuro: parseFloat(inputs.uMuro) || 1.7,
             uCubierta: parseFloat(inputs.uCubierta) || 2.5,
             ventanaU: parseFloat(inputs.ventanaU) || 3.0,

@@ -502,8 +502,8 @@ export function calculateRes080Estimated(inputs) {
     const energyTotalIni = energyAcsIni + energyCalIni;
 
     // 5. Energía Final Final (Tras Aerotermia + Reforma)
-    const energyCalFin = Q_net_fin / scopHeating;
-    const energyAcsFin = acsDemandTotal / (scopAcs || 3.0);
+    const energyCalFin = Q_net_fin / redondeaScop(scopHeating);
+    const energyAcsFin = acsDemandTotal / (redondeaScop(scopAcs) || 3.0);
     const energyTotalFin = energyCalFin + energyAcsFin;
 
     const ahorroTotal = Math.max(0, energyTotalIni - energyTotalFin);
@@ -852,6 +852,10 @@ export function calculateSavings({
     changeHeating = true,
     cb = 1.0 // Coeficiente de bivalencia (1.0 si no es híbrido)
 }) {
+    // El SCOP entra con DOS decimales, el mismo que imprimen el CIFO y las fichas:
+    // quien rehaga la cuenta con el papel delante tiene que llegar al mismo número.
+    if (Number.isFinite(redondeaScop(scopHeating))) scopHeating = redondeaScop(scopHeating);
+    if (Number.isFinite(redondeaScop(scopAcs))) scopAcs = redondeaScop(scopAcs);
     // 1. Energía Final Situación Actual (Old)
     // Calefacción + ACS (asumimos que la caldera antigua hacía ambas o que el rendimiento aplica a ambas si ACS se incluía, 
     // pero la User Request dice: "Si no se cambia ACS, SCOP será el mismo que el n de la caldera antigua", lo que implica
@@ -964,7 +968,7 @@ export function calculateTerciario({
     // sin SCOP la resta 1/η − 1/SCOP no está definida (dividiría por cero).
     const term = (activo, demanda, scop) => {
         const d = parseFloat(demanda) || 0;
-        const s = parseFloat(scop) || 0;
+        const s = redondeaScop(scop) || 0;
         if (!activo || d <= 0 || s <= 0 || eff <= 0) return 0;
         return (1 / eff - 1 / s) * d * fp;
     };
@@ -1854,6 +1858,27 @@ export function zoneClimateSeason(zone) {
     return String(zone || 'D3').toUpperCase() === 'E1' ? 'medio' : 'calido';
 }
 
+/**
+ * El SCOP con DOS decimales, que es como lo declara la ficha del fabricante y como
+ * lo imprimen el CIFO y las fichas. FUENTE ÚNICA del redondeo: lo usan las fórmulas
+ * del ahorro, los documentos que lo imprimen y el servidor al guardarlo, para que el
+ * número que se lee en el papel sea EXACTAMENTE el que ha servido para calcular.
+ *
+ * ⚠️ No vale `toFixed(2)` ni `Math.round(v * 100) / 100`: con decimales binarios
+ * 3.775 se guarda como 3,77499999… y los dos dan 3,77, mientras 5.775 (que se guarda
+ * por encima) da 5,78. Se redondea sobre la representación DECIMAL del número —el
+ * «3.775» que se ha tecleado—, así que la mitad sube siempre: 3,775 → 3,78.
+ *
+ * @returns {number} NaN si no es un número (quien llama decide el respaldo).
+ */
+export function redondeaScop(v) {
+    const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v);
+    if (!Number.isFinite(n)) return NaN;
+    const s = String(n);
+    if (s.includes('e')) return Math.round(n * 100) / 100;
+    return Number(`${Math.round(Number(`${s}e2`))}e-2`);
+}
+
 // Núcleo compartido: el VALOR del SCOP y la TEMPORADA de la que sale tienen que
 // salir de la MISMA decisión, o acabarán divergiendo. La temporada solo es
 // 'calido' si TODOS los valores usados vienen de las columnas de clima cálido;
@@ -1880,10 +1905,10 @@ function resolveScop(model, zone, temp, method = 'ficha') {
             // Según EPREL: SCOP = 2.5 * ( (eta_s / 100) + 0.03 )  (Donde 0.03 es el factor F1 para aerotermia)
             const s35 = ((e35.raw + 3) / 100) * 2.5;
             const s55 = ((e55.raw + 3) / 100) * 2.5;
-            if (temp <= 35) return { value: parseFloat(s35.toFixed(2)), season: season(e35.warm) };
-            if (temp >= 55) return { value: parseFloat(s55.toFixed(2)), season: season(e55.warm) };
+            if (temp <= 35) return { value: redondeaScop(s35), season: season(e35.warm) };
+            if (temp >= 55) return { value: redondeaScop(s55), season: season(e55.warm) };
             // Interpolación simple para 45ºC
-            return { value: parseFloat(((s35 + s55) / 2).toFixed(2)), season: season(e35.warm && e55.warm) };
+            return { value: redondeaScop((s35 + s55) / 2), season: season(e35.warm && e55.warm) };
         }
     }
     // CASO 2: Dato directo de Ficha Técnica (comportamiento actual)
@@ -1895,7 +1920,7 @@ function resolveScop(model, zone, temp, method = 'ficha') {
     // el fabricante): los otros métodos ('eprel', 'conjunto', 'independiente')
     // ya redondean, y con éste dispar la misma pantalla mezclaba "4,62" con
     // "4,017" según qué pestaña se mirara.
-    const round2 = (v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : v);
+    const round2 = redondeaScop;
     const pickScop = (calido, medio) => {
         const c = warmZone ? parseFloat(calido) : NaN;
         if (Number.isFinite(c) && c >= SCOP_MIN) return { value: round2(c), warm: true };
@@ -1914,7 +1939,7 @@ function resolveScop(model, zone, temp, method = 'ficha') {
 
     // Interpolación para 45ºC (Baja temperatura / Fancoils)
     return {
-        value: parseFloat(((scop35.value + scop55.value) / 2).toFixed(2)),
+        value: redondeaScop((scop35.value + scop55.value) / 2),
         season: season(scop35.warm && scop55.warm),
     };
 }
@@ -1944,7 +1969,7 @@ export function getScopAcsFromModel(model, zone, method = 'ficha') {
     if (method === 'conjunto') {
         const etaAcs = isWarm ? (model.eta_acs_calida || model.eta_acs_media) : model.eta_acs_media;
         if (etaAcs) {
-            return parseFloat(((parseFloat(etaAcs) / 100) * 2.5).toFixed(2));
+            return redondeaScop((parseFloat(etaAcs) / 100) * 2.5);
         }
     }
 
@@ -1954,7 +1979,7 @@ export function getScopAcsFromModel(model, zone, method = 'ficha') {
         const cop = parseFloat(model.cop_a7_55);
         if (Number.isFinite(cop) && cop > 0) {
             const fc = FC_BY_ZONE[normalizedZone] ?? FC_BY_ZONE['D3'];
-            return parseFloat((cop * fc).toFixed(2));
+            return redondeaScop(cop * fc);
         }
     }
 
@@ -1965,7 +1990,7 @@ export function getScopAcsFromModel(model, zone, method = 'ficha') {
     // salía tal cual en pantalla mientras los otros dos métodos ya venían a 2.
     let scopAcs = isWarm ? (model.scop_dhw_calido || model.scop_dhw_medio) : model.scop_dhw_medio;
     const n = parseFloat(scopAcs || 3.0);
-    return Number.isFinite(n) ? Math.round(n * 100) / 100 : n;
+    return Number.isFinite(n) ? redondeaScop(n) : n;
 }
 
 // ============================================================================

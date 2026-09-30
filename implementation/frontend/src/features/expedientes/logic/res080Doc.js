@@ -17,7 +17,7 @@
 // DOMParser; el backend, una con xml2js. Si no se pasa y el cee ya trae los arrays
 // huecos/opacos, no hace falta.
 // ============================================================================
-import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation.js';
+import { BOILER_EFFICIENCIES, redondeaScop } from '../../calculator/logic/calculation.js';
 import { buildInstalacionAddress, empresaInstaladora, empresasActuacion,
     EMPRESAS_COL_EJECUTA, EMPRESAS_COL_HABILITADA, notaDelegacionRite } from '../utils/docGenerators.js';
 import { calcCifo } from './calcCifo.js';
@@ -341,9 +341,9 @@ export function deriveRes080Data({ expediente, results, parseHuecosFromXml }) {
     const zoneStr = (op.datos_calculo?.zona || 'D3').toUpperCase();
     const zoneLabel = ['A3', 'A4', 'B3', 'B4', 'C1', 'C2', 'C3', 'C4', 'D1', 'D2', 'D3'].includes(zoneStr)
         ? 'Cálido' : (zoneStr === 'E1' ? 'Medio' : 'Cálido');
-    const scopCalRaw = parseFloat(inst.aerotermia_cal?.scop) || 0;
+    const scopCalRaw = redondeaScop(inst.aerotermia_cal?.scop) || 0;
     const scopCalStr = scopCalRaw ? scopCalRaw.toFixed(2).replace('.', ',') : '—';
-    const scopAcsRaw = tieneAcs ? parseFloat(sameAero ? inst.aerotermia_cal?.scop : inst.aerotermia_acs?.scop || 0) : 0;
+    const scopAcsRaw = tieneAcs ? (redondeaScop(sameAero ? inst.aerotermia_cal?.scop : inst.aerotermia_acs?.scop || 0) || 0) : 0;
     const scopAcsStr = tieneAcs ? (scopAcsRaw ? scopAcsRaw.toFixed(2).replace('.', ',') : '—') : 'no aplica';
     // Con equipos de tipos distintos (un conductos y un split) se enumeran: el
     // certificado no puede decir uno solo mientras el CE3X declara dos generadores.

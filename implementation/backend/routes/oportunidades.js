@@ -129,6 +129,9 @@ router.post('/internal-simulation', enforceAuth, async (req, res) => {
 router.post('/', requireAuth, async (req, res) => {
     try {
         const body = normalizeData(req.body);
+        // El SCOP de la simulación se GUARDA con dos decimales (redondeaScop, fuente
+        // única con las fórmulas y los documentos). Lo hereda el expediente al aceptar.
+        if (body?.datos_calculo?.inputs) body.datos_calculo.inputs = await require('../utils/scopRedondeo').redondearScopsInputs(body.datos_calculo.inputs);
         const { id_oportunidad, ref_catastral, prescriptor, referencia_cliente, demanda_calefaccion, datos_calculo, nota, creador_id, prescriptor_id, instalador_asociado_id } = body;
 
         if (!ref_catastral) {

@@ -3,7 +3,7 @@ import axios from 'axios';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
-import { BOILER_EFFICIENCIES } from '../../calculator/logic/calculation';
+import { BOILER_EFFICIENCIES, redondeaScop } from '../../calculator/logic/calculation';
 import { buildInstalacionAddress, empresaInstaladora, empresasActuacion } from '../utils/docGenerators';
 import { calcCifo } from '../logic/calcCifo';
 import { esTermoElectrico, esAcumuladorAcs } from '../logic/aerotermiaUnits';
@@ -668,7 +668,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     // Aerotermia Calefaccion (3)
     const calNuMarca = inst.aerotermia_cal?.marca || '—';
     const calNuSerieEx = inst.aerotermia_cal?.numero_serie || inst.aerotermia_cal?.n_serie_ext || '—';
-    const scopCalRaw = parseFloat(inst.aerotermia_cal?.scop) || 0;
+    const scopCalRaw = redondeaScop(inst.aerotermia_cal?.scop) || 0;
     const scopCalStr = scopCalRaw ? scopCalRaw.toFixed(2).replace('.', ',') : '—';
 
     // ACS
@@ -684,7 +684,7 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
 
     const acsNuMarca = tieneAcs ? (inst.misma_aerotermia_acs ? calNuMarca : inst.aerotermia_acs?.marca || '—') : '—';
     const acsNuSerieEx = tieneAcs ? (inst.misma_aerotermia_acs ? calNuSerieEx : inst.aerotermia_acs?.numero_serie || inst.aerotermia_acs?.n_serie_ext || '—') : '—';
-    const scopAcsRaw = tieneAcs ? parseFloat(inst.misma_aerotermia_acs ? inst.aerotermia_cal?.scop : inst.aerotermia_acs?.scop || 0) : 0;
+    const scopAcsRaw = tieneAcs ? (redondeaScop(inst.misma_aerotermia_acs ? inst.aerotermia_cal?.scop : inst.aerotermia_acs?.scop || 0) || 0) : 0;
     const scopAcsStr = tieneAcs ? (scopAcsRaw ? scopAcsRaw.toFixed(2).replace('.', ',') : '—') : 'no aplica';
 
     // ACS como depósito acumulador (toggle "Es acumulador" en Instalación):

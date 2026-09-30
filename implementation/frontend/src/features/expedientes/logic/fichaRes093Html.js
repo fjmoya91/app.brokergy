@@ -11,7 +11,7 @@
 // Imports CON extensión: además de Vite, este módulo se carga por import()
 // dinámico desde Node (comparativa y pruebas del impreso oficial). Node ESM no
 // resuelve rutas sin extensión.
-import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs } from '../../calculator/logic/calculation.js';
+import { BOILER_EFFICIENCIES, calculateHybridization, resolveHybridInputs, redondeaScop } from '../../calculator/logic/calculation.js';
 import { computeExpedienteFinancials } from './expedienteFinancials.js';
 import { calcCifo } from './calcCifo.js';
 import { ceeBaseDocumento, acsEnAlcance } from './ceeFases.js';
@@ -108,12 +108,12 @@ export function deriveFichaRes093(expediente, opts = {}) {
     const etaBoiler = boilerEffEntry?.value || 0.92;
     const etaStr = etaBoiler.toFixed(2).replace('.', ',');
 
-    const scopCal = parseFloat(inst.aerotermia_cal?.scop) || 0;
+    const scopCal = redondeaScop(inst.aerotermia_cal?.scop) || 0;
     const scopCalStr = scopCal ? scopCal.toFixed(2).replace('.', ',') : '—';
 
     // SCOP_dhw — DEBE coincidir con el Certificado CIFO (cifoDoc.js). El SCOP se toma
     // de la aerotermia de calefacción si es la misma, o de la de ACS en caso contrario.
-    const scopAcsRaw = tieneAcs ? parseFloat(inst.misma_aerotermia_acs ? inst.aerotermia_cal?.scop : inst.aerotermia_acs?.scop || 0) : 0;
+    const scopAcsRaw = tieneAcs ? (redondeaScop(inst.misma_aerotermia_acs ? inst.aerotermia_cal?.scop : inst.aerotermia_acs?.scop || 0) || 0) : 0;
     const scopAcsStr = tieneAcs ? (scopAcsRaw ? scopAcsRaw.toFixed(2).replace('.', ',') : '—') : 'no aplica';
 
     // ── Cb (coeficiente de cobertura por bivalencia) ──
