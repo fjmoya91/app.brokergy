@@ -32,9 +32,12 @@ const { _conPlazo: conPlazo } = require('./whatsappLabels');
 const { cargarRelaciones } = require('./clientesRelaciones');
 const { leerPrefijo, obraDelContacto, nombreNuevo } = require('../utils/nombreContactoCliente');
 
-const PAUSA_MS = Number(process.env.WA_SYNC_PAUSA_MS || 1500);
+// Mucho más despacio que las etiquetas: WhatsApp LIMITA las ediciones de la
+// agenda. Medido el 30/09/2026: una cada 1,5 s aguantó ~41 y luego 429
+// `rate-overlimit`. Una cada 20 s y dos por petición (nginx corta al minuto).
+const PAUSA_MS = Number(process.env.WA_CONTACTOS_PAUSA_MS || 20_000);
 const FALLOS_SEGUIDOS_MAX = Number(process.env.WA_SYNC_FALLOS_MAX || 3);
-const LIMITE = Number(process.env.WA_SYNC_LIMITE || 12);
+const LIMITE = Number(process.env.WA_CONTACTOS_LIMITE || 2);
 const espera = (ms) => new Promise(r => setTimeout(r, ms));
 const nueve = (t) => { const d = String(t || '').replace(/\D/g, ''); return d.length >= 9 ? d.slice(-9) : null; };
 
@@ -145,13 +148,21 @@ async function renombrar({ dryRun = true, despuesDe = null, incluirCambioFicha =
             informe.renombrados++;
         } catch (err) {
             informe.errores.push({ tlf: c.tlf, antes: c.antes, error: err.message });
+            // Un 429 NO se reintenta con el siguiente: insistir alarga el castigo.
+            if (err.limitado) {
+                informe.abortado = err.message;
+                informe.limitado = true;
+                return informe;
+            }
             fallosSeguidos = err.plazoAgotado ? fallosSeguidos + 1 : 0;
             if (fallosSeguidos >= FALLOS_SEGUIDOS_MAX) {
                 informe.abortado = `${fallosSeguidos} tiempos de espera seguidos: la sesión de WhatsApp no responde.`;
                 return informe;
             }
         }
-        if (pausaMs) await espera(pausaMs);
+        // Sin pausa tras el ÚLTIMO de la tanda: la espera la pone la siguiente
+        // petición, y así la petición no roza el minuto de nginx.
+        if (pausaMs && c !== tanda[tanda.length - 1]) await espera(pausaMs);
     }
     informe.siguiente = pendientes.length > tanda.length ? tanda[tanda.length - 1].tlf : null;
     return informe;

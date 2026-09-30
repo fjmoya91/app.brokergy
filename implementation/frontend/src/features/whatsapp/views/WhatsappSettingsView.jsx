@@ -156,7 +156,8 @@ export function WhatsappSettingsView() {
             const confirmado = await showConfirm(
                 `Se renombrarán ${nombres?.cambios?.length ?? ''} contactos de la agenda de tu teléfono. `
                 + 'Solo cambia el prefijo (RES080 → RES080_87); el resto del nombre se queda como lo escribiste. '
-                + 'Los que cambiarían de ficha no se tocan. No se envía ningún mensaje.',
+                + 'Los que cambiarían de ficha no se tocan. No se envía ningún mensaje. '
+                + 'Va despacio (uno cada 20 s) porque WhatsApp limita los cambios en la agenda: deja esta pantalla abierta.',
                 'Renombrar clientes en WhatsApp',
                 'warning'
             );
@@ -179,6 +180,9 @@ export function WhatsappSettingsView() {
                 despuesDe = data.siguiente;
                 total.pendientes = despuesDe ? Math.max(0, data.pendientes - data.renombrados - (data.errores?.length || 0)) : 0;
                 setNombres({ ...total, enCurso: !!despuesDe });
+                // WhatsApp LIMITA las ediciones de la agenda (429 a las ~41 seguidas):
+                // entre petición y petición, la misma pausa que dentro de cada una.
+                if (despuesDe) await new Promise(r => setTimeout(r, 20000));
             } while (despuesDe);
             setNombres({ ...total, enCurso: false });
         } catch (err) {

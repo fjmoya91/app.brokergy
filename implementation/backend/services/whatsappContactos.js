@@ -72,16 +72,34 @@ async function guardar(telefonoE164, nombre, apellido = '') {
         e.datoInvalido = true;
         throw e;
     }
-    await conPlazo(client.pupPage.evaluate(async (num, nom, ape) => {
-        await window.require('WAWebSaveContactAction').saveContactAction({
-            firstName: nom,
-            lastName: ape || '',
-            phoneNumber: num,
-            prevPhoneNumber: num,
-            syncToAddressbook: true,
-            username: undefined,
-        });
+    // El error se devuelve como DATO y no se deja escapar: cruzando `evaluate` llega
+    // minificado ("t") y no se distingue un 429 de cualquier otra cosa.
+    const r = await conPlazo(client.pupPage.evaluate(async (num, nom, ape) => {
+        try {
+            await window.require('WAWebSaveContactAction').saveContactAction({
+                firstName: nom,
+                lastName: ape || '',
+                phoneNumber: num,
+                prevPhoneNumber: num,
+                syncToAddressbook: true,
+                username: undefined,
+            });
+            return { ok: true };
+        } catch (e) {
+            return { ok: false, mensaje: e?.message || String(e), status: e?.status || e?.statusCode || null };
+        }
     }, numero, nombre, apellido), PLAZO_MS, 'guardar el contacto');
+    if (!r?.ok) {
+        // ⚠️ WhatsApp LIMITA las ediciones de la agenda: medido el 30/09/2026, a
+        // las ~41 seguidas (una cada 1,5 s) empezó a responder 429
+        // `rate-overlimit`. Quien llame tiene que PARAR, no seguir insistiendo.
+        const limitado = r?.status === 429 || /rate-overlimit/i.test(r?.mensaje || '');
+        const e = new Error(limitado
+            ? 'WhatsApp está limitando los cambios en la agenda (429 rate-overlimit). Espera un rato y vuelve a intentarlo.'
+            : `WhatsApp no ha guardado el contacto: ${r?.mensaje || 'error desconocido'}`);
+        e.limitado = limitado;
+        throw e;
+    }
     return true;
 }
 
