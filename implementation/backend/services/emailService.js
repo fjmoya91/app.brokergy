@@ -594,17 +594,34 @@ const lineaCalderaAceptacion = (caldera, tu = true) => {
     if (caldera.placa) return `Foto de la placa de características de ${que}, que se lea bien: la del aparato ya la tenemos.`;
     return null;
 };
-const documentacionAceptacion = (tu = true, caldera = null) => [
-    'Un vídeo corto recorriendo la vivienda o, si no, fotos de las paredes que dan a la calle o al patio, donde se vean las ventanas. Necesitamos saber cuántas hay y a qué lado da cada una.',
-    `Planos de la vivienda o un croquis de la distribución, si ${tu ? 'los tienes' : 'los hay'}.`,
-    lineaCalderaAceptacion(caldera, tu),
-    `Si ${tu ? 'vas' : 'se van'} a cambiar ventanas o aislamiento, fotos y presupuesto.`,
-].filter(Boolean);
+// Dos bloques y no una lista corrida: lo IMPRESCINDIBLE para poder hacer el CEE
+// inicial y lo que AYUDA si lo tiene. Mezclados, los planos o el CEE anterior se
+// leían con el mismo peso que las fotos de las fachadas, y quien no tenía planos
+// daba por hecho que no podía mandar nada (decisión del usuario, 2026-09-30).
+const documentacionAceptacion = (tu = true, caldera = null) => ({
+    necesarios: [
+        `Fotos de cada pared de la vivienda que dé a la calle o a un patio, con la pared ENTERA en la foto y sus ventanas a la vista: necesitamos saber cuántas ventanas hay y a qué lado da cada una. Si ${tu ? 'te' : 'os'} resulta más fácil, vale también un vídeo corto recorriendo la vivienda.`,
+        lineaCalderaAceptacion(caldera, tu),
+        `Si ${tu ? 'vas' : 'se van'} a cambiar ventanas o aislamiento, fotos de cómo están ahora y el presupuesto.`,
+    ].filter(Boolean),
+    ayuda: [
+        'Planos de la vivienda o un croquis de la distribución.',
+        'El certificado energético (CEE) anterior de la vivienda, solo si ya existe uno. Es opcional: nosotros presentaremos uno nuevo igualmente.',
+    ],
+});
+/** Las dos listas en texto plano (WhatsApp / email en texto), con viñeta. */
+const documentacionAceptacionTexto = (tu = true, caldera = null, vineta = '•') => {
+    const d = documentacionAceptacion(tu, caldera);
+    const l = (arr) => arr.map(x => `${vineta} ${x}`).join('\n');
+    return { necesarios: l(d.necesarios), ayuda: l(d.ayuda) };
+};
 
 // `titular`: solo cuando lo recibe la PERSONA DE CONTACTO del cliente (o el partner
 // que lleva la relación): entonces la propuesta aceptada es la de ese titular.
 const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente, uploadLink, titular = null, caldera = null }) => {
     const subject = `Aceptación recibida [Exp ${numeroExpediente || ''}] — Brokergy`;
+    const docsAcept = documentacionAceptacion(!titular, caldera);
+    const docsAceptTxt = documentacionAceptacionTexto(!titular, caldera, '-');
 
     const whatsAppLink = `https://wa.me/34623926179?text=${encodeURIComponent(titular
         ? `Hola, soy ${userName}. Os envío la documentación del expediente ${numeroExpediente || 'A consultar'} de ${titular}.`
@@ -628,8 +645,11 @@ const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente,
                 { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
             ) +
             emailBox(
-                emailP('📁 Para poder hacer el CEE inicial necesitamos', { size: 14, bold: true, color: BRAND.orangeDark, mb: 12 }) +
-                emailList(documentacionAceptacion(!titular, caldera), { mb: 0 }),
+                emailP('📁 Para poder hacer el CEE inicial necesitamos', { size: 14, bold: true, color: BRAND.orangeDark, mb: 6 }) +
+                emailP('Sin esto no podemos preparar el certificado, y sin certificado la ayuda no sale adelante.', { size: 13, color: BRAND.muted, mb: 12 }) +
+                emailList(docsAcept.necesarios, { mb: 16 }) +
+                emailP('Además, nos sirve de ayuda si lo tienes:', { size: 14, bold: true, color: BRAND.text, mb: 10 }) +
+                emailList(docsAcept.ayuda, { mb: 0 }),
                 { mb: 22 }
             ) +
             emailP('No hace falta que nos lo envíes todo de una sola vez; puedes mandarlo poco a poco conforme lo vayas recopilando.', { size: 14, color: BRAND.muted, mb: 15 }) +
@@ -651,7 +671,7 @@ const sendAcceptanceNotificationEmail = async ({ to, userName, numeroExpediente,
         footerNote: `Un saludo, Equipo BROKERGY · <a href="https://brokergy.es" style="color:${BRAND.greenDark};text-decoration:none;">brokergy.es</a>`,
     });
 
-    const text = `¡Hola, ${userName}!\n\nHemos recibido correctamente la aceptación de tu propuesta. Muchas gracias.\n\n${numeroExpediente ? `Tu número de expediente es: ${numeroExpediente}\n\n` : ''}A partir de ahora nos ponemos con el Certificado de Eficiencia Energética (CEE): de prepararlo y presentarlo nos encargamos nosotros. Para poder hacerlo cuanto antes necesitamos la documentación de abajo.\n\nMUY IMPORTANTE ANTES DE EMPEZAR LA OBRA: no dejes que te presenten ninguna factura hasta que te avisemos con un nuevo mensaje confirmando que el CEE ya está presentado — es la condición para no perder la ayuda. Si pasan unos días sin noticias nuestras, o si tenéis prisa por facturar, escríbenos sin problema: preferimos que preguntes antes de que se cuele una factura.\n\nPara poder hacer el CEE inicial necesitamos (puedes enviarlo poco a poco):\n${documentacionAceptacion(!titular, caldera).map(l => `- ${l}`).join('\n')}\n\n${uploadLink ? `Puedes subir tu documentación directamente aquí:\n${uploadLink}\n\nO también p` : `P`}uedes enviarlo por:\nEmail: info@brokergy.es\nWhatsApp: 623 926 179\n\nUn saludo,\nEquipo BROKERGY`;
+    const text = `¡Hola, ${userName}!\n\nHemos recibido correctamente la aceptación de tu propuesta. Muchas gracias.\n\n${numeroExpediente ? `Tu número de expediente es: ${numeroExpediente}\n\n` : ''}A partir de ahora nos ponemos con el Certificado de Eficiencia Energética (CEE): de prepararlo y presentarlo nos encargamos nosotros. Para poder hacerlo cuanto antes necesitamos la documentación de abajo.\n\nMUY IMPORTANTE ANTES DE EMPEZAR LA OBRA: no dejes que te presenten ninguna factura hasta que te avisemos con un nuevo mensaje confirmando que el CEE ya está presentado — es la condición para no perder la ayuda. Si pasan unos días sin noticias nuestras, o si tenéis prisa por facturar, escríbenos sin problema: preferimos que preguntes antes de que se cuele una factura.\n\nPara poder hacer el CEE inicial necesitamos (sin esto no podemos preparar el certificado):\n${docsAceptTxt.necesarios}\n\nAdemás, nos sirve de ayuda si lo tienes:\n${docsAceptTxt.ayuda}\n\n${uploadLink ? `Puedes subir tu documentación directamente aquí:\n${uploadLink}\n\nO también p` : `P`}uedes enviarlo por:\nEmail: info@brokergy.es\nWhatsApp: 623 926 179\n\nUn saludo,\nEquipo BROKERGY`;
 
     return sendMail({ to, subject, html, text });
 };
@@ -1857,6 +1877,7 @@ module.exports = {
     sendProposalEmail,
     sendAcceptanceNotificationEmail,
     documentacionAceptacion,
+    documentacionAceptacionTexto,
     sendAnnexEmail,
     sendAdminNotificationEmail,
     sendCertificadorNotificationEmail,

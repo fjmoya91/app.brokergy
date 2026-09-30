@@ -589,16 +589,21 @@ function buildDocChecklist(datosCalculo = {}) {
            label: 'Fachada de la calle (completa)', help: 'Para ver cuántas ventanas hay y su tamaño.' });
     push({ key: 'FOTO_PATIOS_INTERIORES', fase: PHASE.ANTES, required: false, multiple: true, accept: ACCEPT_FOTO,
            label: 'Patios interiores', help: 'Paredes que dan a patios, con sus ventanas.' });
-    push({ key: 'VIDEO_VIVIENDA', fase: PHASE.ANTES, required: false, multiple: true, prescindible: true, accept: ACCEPT_VIDEO,
+    // Vídeo y planos: OPCIONALES SIEMPRE, no prescindibles (2026-09-30). El acuse de
+    // aceptación los ofrece —el vídeo como alternativa a las fotos de las paredes, los
+    // planos como ayuda— y ocultarlos en el enlace era pedir algo que no se podía
+    // subir. No se reclaman nunca, y al registrarse el CEE inicial desaparecen con el
+    // resto del material de captación (CEE_CAPTACION_SLOTS).
+    push({ key: 'VIDEO_VIVIENDA', fase: PHASE.ANTES, required: false, multiple: true, optionalAlways: true, accept: ACCEPT_VIDEO,
            label: 'Vídeo recorriendo la vivienda', help: 'Un vídeo corto mostrando estancias, ventanas y accesos al exterior.' });
-    push({ key: 'DOC_PLANOS', fase: PHASE.ANTES, required: false, multiple: true, prescindible: true, accept: ACCEPT_DOC,
+    push({ key: 'DOC_PLANOS', fase: PHASE.ANTES, required: false, multiple: true, optionalAlways: true, accept: ACCEPT_DOC,
            label: 'Planos o croquis', help: 'PDF o foto (.pdf, .png, .jpg…). Si no los tienes, con el vídeo nos vale.' });
     // CEE EXISTENTE: el certificado energético actual de la vivienda (si ya lo tiene).
     // optionalAlways → nunca pasa a obligatorio al ACEPTAR (no toda vivienda tiene CEE previo).
     // mergePdf → puede aportarse como PDF directo O como fotos de las páginas; cuando estén
     // todas, el cliente/admin pulsa "Unir en un PDF" y el backend las funde en un único PDF.
     push({ key: 'DOC_CEE_EXISTENTE', fase: PHASE.ANTES, required: false, multiple: true, optionalAlways: true, mergePdf: true, accept: ACCEPT_DOC,
-           label: 'Certificado de Eficiencia Energética existente', help: 'El CEE actual de la vivienda, si ya tienes uno. Puede ser un PDF o varias fotos de sus páginas: cuando estén todas, pulsa “Unir en un PDF” para juntarlas en un único documento.' });
+           label: 'Certificado de Eficiencia Energética existente (opcional)', help: 'El CEE actual de la vivienda, si ya tienes uno — es opcional: presentaremos uno nuevo en cualquier caso. Puede ser un PDF o varias fotos de sus páginas: cuando estén todas, pulsa “Unir en un PDF” para juntarlas en un único documento.' });
     // PRESUPUESTO de la obra. Es la pareja "antes" de DOC_FACTURAS: la inversión que
     // el Anexo declara sale de la FACTURA, pero mientras no la haya el presupuesto es
     // lo que fija el importe de la simulación (y de él se leen ya los equipos).
@@ -798,11 +803,13 @@ const LABEL_CLIENTE = {
     FOTO_CALDERA_ANTES:        { label: 'Tu caldera actual', help: 'Una foto de la caldera entera, en el sitio donde está puesta. Si puedes, sácala desde un par de ángulos.' },
     FOTO_PLACA_CALDERA_ANTES:  { label: 'La pegatina de la caldera', help: 'La etiqueta con letras y números que lleva pegada. Acércate hasta que se lean bien: de ahí sacamos la marca y el modelo.' },
     FOTO_EMISORES_ANTES:       { label: 'Un radiador de tu casa', help: 'Con uno cualquiera nos vale.' },
-    FOTO_FACHADA_PRINCIPAL:    { label: 'Tu casa vista desde la calle', help: 'Apártate lo suficiente para que salga entera, con todas sus ventanas.' },
-    FOTO_PATIOS_INTERIORES:    { label: 'Las paredes que dan a un patio', help: 'Si tu casa tiene patio, una foto de cada pared que dé a él.' },
-    VIDEO_VIVIENDA:            { label: 'Un vídeo andando por tu casa', help: 'Camina despacio por las habitaciones enseñando las ventanas y las puertas que dan a la calle. Un minuto basta.' },
+    FOTO_FACHADA_PRINCIPAL:    { label: 'Tu casa vista desde la calle', help: 'Apártate lo suficiente para que salga la pared entera en la foto, con todas sus ventanas. Si tiene varias paredes a la calle, una foto de cada una.' },
+    FOTO_PATIOS_INTERIORES:    { label: 'Las paredes que dan a un patio', help: 'Si tu casa tiene patio, una foto de cada pared que dé a él, entera y con sus ventanas.' },
+    VIDEO_VIVIENDA:            { label: 'Un vídeo andando por tu casa', help: 'Si te resulta más fácil que las fotos de las paredes: camina despacio por las habitaciones enseñando las ventanas y las puertas que dan a la calle. Un minuto basta.' },
     DOC_PLANOS:                { label: 'Los planos de tu casa', help: 'Si los tienes a mano. Si no, no pasa nada: con el vídeo nos apañamos.' },
-    DOC_CEE_EXISTENTE:         { label: 'El certificado energético de tu casa', help: 'Es el papel con la letra de colores, de la A a la G. Si no lo tienes, sáltalo. Puedes mandarlo en PDF o fotografiar sus hojas.' },
+    // OPCIONAL y dicho con esas palabras: quien no lo tiene cree que sin él no
+    // hay ayuda. El certificado que vale para el expediente lo presentamos nosotros.
+    DOC_CEE_EXISTENTE:         { label: 'El certificado energético de tu casa (opcional)', help: 'Solo si ya tienes uno: es el papel con la letra de colores, de la A a la G. Si no lo tienes, sáltalo sin problema: en cualquier caso nosotros presentaremos uno nuevo para que tu ayuda salga adelante. Puedes mandarlo en PDF o fotografiar sus hojas.' },
     DOC_PRESUPUESTO:           { label: 'El presupuesto del instalador', help: 'El papel donde te dice lo que cuesta la obra. Vale una foto.' },
     FOTO_ACS_ANTES:            { label: 'Cómo calientas hoy el agua', help: 'El termo eléctrico, o el sitio por donde la caldera calienta el agua de la ducha.' },
     FOTO_VENTANAS_ANTES:       { label: 'Las ventanas de ahora', help: 'Las que vais a cambiar, tal y como están hoy.' },

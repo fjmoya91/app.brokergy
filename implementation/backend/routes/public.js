@@ -581,7 +581,7 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
             // están en Drive no se vuelven a pedir. `null` = no se pudo comprobar
             // → se pide "si no nos la has enviado ya".
             const caldera = await reformaUploadService.calderaPendiente(opp);
-            const listaDocs = (tu) => emailService.documentacionAceptacion(tu, caldera).map(l => `• ${l}`).join('\n');
+            const listaDocs = (tu) => emailService.documentacionAceptacionTexto(tu, caldera);
 
             // 3. Email
             if (dest.email) try {
@@ -604,19 +604,23 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
                 const msgTercero =
 `¡Hola *${nombreSaludo(dest.saludo)}*!
 
-*${dest.titular}* ha aceptado la propuesta. *¡Muchas gracias por confiar en Brokergy!*
+*${dest.titular}* ha aceptado la propuesta.
 
 El número de expediente asignado es: *${numeroExpediente || 'Pte. confirmar'}*
 
 A partir de este momento, nuestro equipo técnico comenzará a preparar el *Certificado de Eficiencia Energética (CEE) inicial*. Es fundamental que quede presentado *antes de que se presente ninguna factura de la obra*: os avisaremos en cuanto lo esté.
 
-📁 *Para poder hacer el CEE inicial necesitamos* (se puede enviar poco a poco):
-${listaDocs(false)}
+📁 *Para poder hacer el CEE inicial necesitamos:*
+${listaDocs(false).necesarios}
+
+Además, nos sirve de ayuda si los tenéis:
+${listaDocs(false).ayuda}
 
 🔗 *Se puede subir aquí:*
 ${uploadLink}
 
 ¡Quedamos a vuestra disposición para cualquier duda!
+*¡Muchas gracias por confiar en nosotros!*
 *BROKERGY — Ingeniería Energética*`;
                 whatsappService.sendText(dest.tlf, msgTercero)
                     .catch(err => console.warn(`[Public] Error WhatsApp contacto:`, err.message));
@@ -624,19 +628,23 @@ ${uploadLink}
                 const whatsappMsg =
 `¡Hola *${nombreSaludo(dest.saludo)}*!
 
-Hemos recibido correctamente la aceptación de tu propuesta. *¡Muchas gracias por confiar en Brokergy!*
+Hemos recibido correctamente la aceptación de tu propuesta.
 
 Tu número de expediente asignado es: *${numeroExpediente || 'Pte. confirmar'}*
 
 A partir de este momento, nuestro equipo técnico comenzará a preparar el *Certificado de Eficiencia Energética (CEE) inicial*. Es fundamental que quede presentado *antes de que te presenten ninguna factura de la obra*: te avisaremos en cuanto lo esté.
 
-📁 *Para poder hacer el CEE inicial necesitamos* (puedes enviarlo poco a poco):
-${listaDocs(true)}
+📁 *Para poder hacer el CEE inicial necesitamos:*
+${listaDocs(true).necesarios}
+
+Además, nos sirve de ayuda si los tienes:
+${listaDocs(true).ayuda}
 
 🔗 *Puedes subir tu documentación aquí:*
 ${uploadLink}
 
 ¡Quedamos a tu disposición para cualquier duda!
+*¡Muchas gracias por confiar en nosotros!*
 *BROKERGY — Ingeniería Energética*`;
                 whatsappService.sendText(dest.tlf, whatsappMsg)
                     .catch(err => console.warn(`[Public] Error WhatsApp cliente:`, err.message));

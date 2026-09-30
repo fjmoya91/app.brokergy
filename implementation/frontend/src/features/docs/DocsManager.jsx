@@ -867,9 +867,13 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const cliPendientes = byTier(cliVisibles.filter(necesitaAccion));
     const cliHechos = byTier(cliVisibles.filter(s => !necesitaAccion(s)));
     const cliRechazadas = cliPendientes.filter(s => s.estado === 'rechazada').length;
-    // La barra mide apartados resueltos sobre los que se le piden de verdad.
-    const cliTotal = cliVisibles.filter(s => !s.existing && !s.waived).length;
-    const cliDone = Math.max(0, cliTotal - cliPendientes.length);
+    // La barra mide apartados resueltos sobre los que se le piden de verdad. Lo
+    // OPCIONAL SIEMPRE (CEE anterior, planos, vídeo, presupuesto) solo cuenta si lo
+    // ha mandado: si no, la barra se quedaba corta por papeles que puede no tener,
+    // y con todo lo imprescindible entregado seguía pareciendo a medias.
+    const cuentaEnBarra = (s) => !s.existing && !s.waived && (!s.optionalAlways || slotDone(s));
+    const cliTotal = cliVisibles.filter(cuentaEnBarra).length;
+    const cliDone = cliVisibles.filter(s => cuentaEnBarra(s) && !necesitaAccion(s)).length;
     const cliPct = cliTotal > 0 ? Math.round((cliDone / cliTotal) * 100) : 100;
 
     // ── EL ORDEN DE UNA REFORMA: PRIMERO LO VIEJO, DESPUÉS LO NUEVO ─────────
@@ -914,8 +918,10 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     const recorrido = cliVisibles.filter(s => s.fase === faseActiva && !s.existing && !s.waived);
     // Progreso DE ESTA FASE, no global: mezclar "Paso 3 de 6" con una barra que
     // mide las dos fases juntas no dice nada. Cada acto tiene su propia cuenta.
-    const faseDone = recorrido.filter(s => !necesitaAccion(s)).length;
-    const fasePct = recorrido.length ? Math.round((faseDone / recorrido.length) * 100) : 100;
+    // Mismo criterio que la barra de la lista: lo opcional solo suma si llegó.
+    const faseCuenta = recorrido.filter(cuentaEnBarra);
+    const faseDone = faseCuenta.filter(s => !necesitaAccion(s)).length;
+    const fasePct = faseCuenta.length ? Math.round((faseDone / faseCuenta.length) * 100) : 100;
     // ¿Se acaba de cerrar la fase A? (para anunciar el paso a la B)
     const antesCerrado = faseActiva === 'DESPUES'
         && cliVisibles.some(s => s.fase === 'ANTES' && !s.existing && !s.waived)
@@ -1388,19 +1394,25 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                         <div className="flex items-center justify-between gap-3 mb-2">
                             <span className={`text-[11px] font-black uppercase tracking-widest ${faseActiva === 'ANTES' ? 'text-amber-300/90' : 'text-emerald-300/90'}`}>
                                 {api.unaFase ? '📷 Para tu certificado' : (faseActiva === 'ANTES' ? '① Antes de la obra' : '② La instalación nueva')}
+                                {recorrido.length > 1 && (
+                                    <span className="ml-2 text-white/40 normal-case tracking-normal font-bold">· paso {paso} de {recorrido.length}</span>
+                                )}
                             </span>
                             <button onClick={() => setGuiado(false)}
                                 className="text-[11px] font-bold text-white/45 hover:text-white/80 underline underline-offset-2">
                                 Ver todos
                             </button>
                         </div>
+                        {/* La cifra de al lado es lo ENVIADO, no el nº de paso: con
+                            "5/6" junto a una barra casi vacía parecía que la barra no
+                            contaba. El paso en el que se está va junto al rótulo de la fase. */}
                         <div className="flex items-center gap-3 mb-4">
                             <div className="h-2 flex-1 rounded-full bg-white/10 overflow-hidden">
                                 <div className={`h-full rounded-full transition-all duration-500 ${faseActiva === 'ANTES' ? 'bg-gradient-to-r from-amber-500 to-amber-300' : 'bg-gradient-to-r from-emerald-500 to-emerald-300'}`}
                                     style={{ width: `${fasePct}%` }} />
                             </div>
-                            <span className="shrink-0 text-[11px] font-black uppercase tracking-widest text-white/40">
-                                {paso}/{recorrido.length}
+                            <span className="shrink-0 text-[11px] font-black uppercase tracking-widest text-white/55 tabular-nums">
+                                {faseDone}/{faseCuenta.length} enviado{faseCuenta.length === 1 ? '' : 's'}
                             </span>
                         </div>
 

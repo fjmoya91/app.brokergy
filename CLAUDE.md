@@ -573,12 +573,25 @@ entero) conserva pestañas, densidad y validación. El cliente ve otra cosa:
 - Barra de progreso y **lo rechazado primero**, anunciado: es lo único que el cliente ya daba por
   hecho y sigue pendiente.
 
-**REGLA — lo PRESCINDIBLE no se le pide a un expediente EN CURSO.** Vídeos, planos, "Otros" y el
-CEE posterior van marcados `prescindible: true`. Con la oportunidad ya ACEPTADA, la ruta pública
+**REGLA — lo PRESCINDIBLE no se le pide a un expediente EN CURSO.** "Otros", el vídeo de la
+reforma y el CEE posterior van marcados `prescindible: true`. Con la oportunidad ya ACEPTADA, la ruta pública
 pide la vista con `audience: 'cliente'` y esos apartados **no se le enseñan** — no alimentan ningún
 documento (el CEE final lo emite NUESTRO certificador) y solo alargaban la pantalla del móvil. El
 **admin los conserva** (los usa para archivar material suelto), y un apartado prescindible que YA
 tenga ficheros no se oculta nunca.
+⚠️ **El vídeo de la vivienda y los planos NO son prescindibles, son `optionalAlways`** (2026-09-30):
+el acuse de aceptación los ofrece —el vídeo como alternativa a las fotos de las paredes, los planos
+como ayuda— y escondidos en el enlace se le pedía algo que no podía subir. No se reclaman nunca y
+desaparecen al registrarse el CEE inicial (`CEE_CAPTACION_SLOTS`).
+
+**El acuse de aceptación pide en DOS bloques** (`documentacionAceptacion` → `{ necesarios, ayuda }`
+en `emailService.js`, fuente única del email y de los dos WhatsApp de `routes/public.js`): lo
+IMPRESCINDIBLE para el CEE inicial (fotos de las paredes enteras con sus ventanas —o un vídeo—, la
+placa de la caldera si falta, y fotos + presupuesto si se cambian ventanas/aislamiento) y lo que
+AYUDA (planos, CEE anterior **opcional**: «nosotros presentaremos uno nuevo igualmente»).
+**La barra del enlace solo cuenta lo opcional si llegó** (`cuentaEnBarra` en `DocsManager`), y la
+cifra de al lado es lo ENVIADO («1/4 enviados»), no el nº de paso: «5/6» junto a una barra casi
+vacía parecía que la barra no contaba.
 
 **Arrastrar y soltar en el paso guiado** (PC): la tarjeta entera es zona de suelta y admite varios
 ficheros. La pista "o arrástralas aquí" va en `hidden md:inline` — en un móvil no hay de dónde

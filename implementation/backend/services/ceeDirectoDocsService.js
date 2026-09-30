@@ -254,7 +254,7 @@ function lineasPeticion(claves) {
     const out = [];
     const casa = CLAVES_CASA.filter(k => set.has(k));
     if (casa.includes('FOTO_FACHADA_PRINCIPAL') || casa.includes('VIDEO_VIVIENDA')) {
-        out.push('Un vídeo corto recorriendo la vivienda o, si no, fotos de las paredes que dan a la calle o al patio, donde se vean las ventanas. Necesitamos saber cuántas hay y a qué lado da cada una.');
+        out.push('Fotos de cada pared de la vivienda que dé a la calle o a un patio, con la pared ENTERA en la foto y sus ventanas a la vista: necesitamos saber cuántas ventanas hay y a qué lado da cada una. Si te resulta más fácil, vale también un vídeo corto recorriendo la vivienda.');
     } else if (casa.includes('FOTO_PATIOS_INTERIORES')) {
         out.push('Si la vivienda tiene patio, fotos de las paredes que dan a él, donde se vean las ventanas.');
     }
