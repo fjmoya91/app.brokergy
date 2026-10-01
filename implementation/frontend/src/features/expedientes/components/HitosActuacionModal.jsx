@@ -186,15 +186,15 @@ export function HitosActuacionModal({ expediente, doc, readOnly = false, user, o
                             return (
                                 <p key={k} className="text-[11px] text-white/40 mt-2 ml-2">
                                     CEE {fase}: sin {falta.join(' ni ')} todavía — {falta.length === 2
-                                        ? 'su fila no saldrá en el certificado'
-                                        : 'esa casilla saldrá vacía en el certificado'}.
+                                        ? 'ese paso no saldrá en el certificado'
+                                        : 'esa fecha no saldrá en el certificado'}.
                                     Se toma de la rejilla del CEE o de su .xml.
                                 </p>
                             );
                         })}
                         {!h.pruebas && (
                             <p className="text-[11px] text-white/40 mt-2 ml-2">
-                                Sin fecha de pruebas del Certificado RITE — esa casilla saldrá vacía en el certificado.
+                                Sin fecha de pruebas del Certificado RITE — esa fecha no saldrá en el certificado.
                             </p>
                         )}
                         {sinFecha.length > 0 && (

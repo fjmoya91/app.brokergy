@@ -1846,11 +1846,17 @@ un CIFO sin fecha de inicio es peor. Como TODAS las superficies llaman a `calcCi
 igual en todas. Con la marca, 26RES093_11 arranca el 11/09 y el GRAVE se apaga solo.
 
 **REGLA — el CIFO y el Certificado RES080 llevan un bloque «Hitos de la actuación»,
-ordenado como el PROCESO** (no por fecha): CEE inicial (visita del técnico · firma) →
-facturas (primera · última, con su nº y «entrega de material» si lo es; con una sola,
-una casilla) → actuación (inicio · pruebas RITE · fin) → CEE final (visita · firma).
-Tres columnas iguales por fila, para que las fechas queden alineadas. Ordenar por
-fecha haría saltar al principio justo la factura de material anterior al CEE.
+ordenado como el PROCESO** (no por fecha): ① CEE inicial (visita técnica · firma) →
+② facturas (primera · última, con su nº y «entrega de material» en ámbar si lo es; con
+una sola, «Emitida»; con más de dos, el paso dice cuántas) → ③ actuación (inicio ·
+pruebas RITE · fin) → ④ CEE final (visita · firma). **Una COLUMNA por paso**, con la
+cabecera numerada en oscuro y la ACTUACIÓN en verde (es el paso cuyas fechas declara
+el certificado); dentro, rótulo a la izquierda y fecha a la derecha, así que las
+fechas de cada paso quedan en columna y la secuencia se lee de izquierda a derecha
+(rediseño del 2026-10-01: la versión de una fila por paso con tres casillas dejaba
+huecos que se leían como datos que faltan, y el nº de factura colgaba suelto).
+Ordenar por fecha haría saltar al principio justo la factura de material anterior al
+CEE.
 **No se imprime el REGISTRO del CEE**: la regla de la casa es que el certificado
 existe desde su FIRMA (regla de `cifoFechas`), y el registro es un trámite ajeno. En
 el RES080 el inicio y el fin del bloque son los de su hoja 1
@@ -1858,10 +1864,10 @@ el RES080 el inicio y el fin del bloque son los de su hoja 1
 
 **REGLA — lo que NO consta NO se imprime, y se AVISA antes de generar** (decisión
 del usuario, 2026-10-01, que sustituye a la de imprimir «—»): sin fechas de un CEE,
-su fila no sale; una fecha suelta que falte (una firma, las pruebas del RITE) deja su
-casilla vacía. `avisosHitos(expediente)` lo dice en la puerta de «Generar» del
-CIFO/RES080 (`handleGenerateClick`, docType `cifo`), en ámbar junto a los de
-`avisosCeeDocumento`; con «Generar de todos modos» sale sin esa fila. El popup de
+su paso no sale (y los demás se numeran seguidos); una fecha suelta que falte (una
+firma, las pruebas del RITE) no sale. `avisosHitos(expediente)` lo dice en la puerta de
+«Generar» del CIFO/RES080 (`handleGenerateClick`, docType `cifo`), en ámbar junto a los
+de `avisosCeeDocumento`; con «Generar de todos modos» sale sin ese paso. El popup de
 hitos lo dice también.
 
 **REGLA — la aclaración solo AFIRMA lo que dicen los datos.** `aclaracionSugerida`
@@ -1888,8 +1894,9 @@ normal, «no supone» se leía como la factura «supone».
 **REGLA — los hitos ABREN la hoja de la INSTALACIÓN, antes de los equipos**
 (decisión del usuario, 2026-09-30), en el CIFO y en el RES080. Con un solo equipo
 caben siempre (peor caso medido con la aclaración máxima, factura de material con nº
-largo y los dos CEE: CIFO +12px con termo fuera y dos empresas de nombre largo;
-RES080 +23px con termo fuera). Con equipos en CASCADA la hoja se
+largo y los dos CEE: CIFO +16px con termo fuera y dos empresas de nombre largo;
+RES080 +27px con termo fuera — las columnas por paso ganaron 4 px al diseño anterior,
+porque las dos filas de CEE caben en una). Con equipos en CASCADA la hoja se
 llena de nº de serie y los hitos van en una hoja propia justo ANTES de la de la
 instalación (`hitosAparte`). Lo decide un dato del expediente, no una medición; los
 dos caminos están en los dos medidores. Hoy son 4 expedientes de 291 con cascada. Los

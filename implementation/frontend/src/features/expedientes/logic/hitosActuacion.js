@@ -191,15 +191,19 @@ const escHtml = (t) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt
 /**
  * El bloque «Hitos de la actuación» en HTML.
  *
- * Ordenado como el PROCESO, no por fecha: CEE inicial → facturas (primera y
- * última) → actuación (inicio · pruebas del RITE · fin) → CEE final. Cada fila
- * tiene tres columnas iguales para que las fechas queden alineadas y se lean de
- * un vistazo. Ordenar por fecha haría saltar al principio justo la factura de
- * material anterior al CEE, que es lo que la aclaración explica.
+ * Una COLUMNA por paso, numerados y en el orden del PROCESO, no por fecha:
+ * ① CEE inicial → ② facturas (primera y última) → ③ actuación (inicio · pruebas
+ * del RITE · fin) → ④ CEE final. Dentro de cada paso, rótulo a la izquierda y
+ * fecha a la derecha, así que las fechas de un paso quedan en columna y la
+ * secuencia se lee de izquierda a derecha. La actuación va en verde: es el paso
+ * cuyas fechas declara el certificado. Ordenar por fecha haría saltar al
+ * principio justo la factura de material anterior al CEE, que es lo que la
+ * aclaración explica. (Hasta 2026-10-01 era una fila por paso con tres casillas,
+ * y las filas de dos fechas dejaban huecos que se leían como datos que faltan.)
  *
  * REGLA — lo que NO consta NO se imprime (decisión del usuario, 2026-10-01): sin
- * fechas del CEE final, su fila no sale; y la fecha suelta que falte en una fila
- * deja la casilla vacía. Lo que falta se AVISA antes de generar (`avisosHitos`),
+ * fechas del CEE final, su paso no sale (y los demás se numeran seguidos); la
+ * fecha suelta que falte en un paso no sale. Lo que falta se AVISA antes de generar (`avisosHitos`),
  * no se rellena con «—» en un documento firmado. Lo que no se imprime nunca es
  * el REGISTRO de los CEE: la regla de la casa es que el certificado existe desde
  * su FIRMA, y el registro es un trámite ajeno.
@@ -225,49 +229,57 @@ export function hitosBoxHtml({ hitos, sectionTitle, inicioTxt, finTxt, mt = '16p
     const ini = hitos.ceeInicial || {};
     const fn = hitos.ceeFinal || {};
 
-    // Una casilla: rótulo pequeño + fecha, y debajo (opcional) el detalle — el nº
-    // de la factura y si es una entrega de material. Sin fecha, casilla vacía.
-    const casilla = (rotulo, fecha, detalle = '') => fecha
-        ? `<div style="padding:4px 10px 4px 0;"><span style="color:#8A8A82;font-weight:600;">${rotulo}</span> <span style="font-weight:700;">${fecha}</span>${detalle ? `<div style="font-size:10px;color:#8A8A82;font-weight:600;line-height:1.3;">${detalle}</div>` : ''}</div>`
-        : '<div></div>';
+    // Un hito: rótulo a la izquierda y fecha a la derecha, en una línea, para que
+    // las fechas de cada paso queden en columna. Debajo, si es una factura, su nº
+    // y —si no abre la obra— el motivo en ámbar. Sin fecha, el hito no sale.
+    const hito = (rotulo, fecha, detalle = '') => fecha
+        ? `<div style="padding:2px 0;"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px;white-space:nowrap;"><span style="color:#6E6E66;font-weight:600;font-size:11px;">${rotulo}</span><span style="font-weight:700;font-variant-numeric:tabular-nums;">${fecha}</span></div>${detalle}</div>`
+        : '';
     const detalleFactura = (f) => [
-        f.numero ? `nº ${escHtml(f.numero)}` : '',
-        f.motivo ? `<span style="color:#9A6B12;font-weight:700;">${MOTIVOS_NO_INICIO[f.motivo].corto}</span>` : '',
-    ].filter(Boolean).join(' · ');
+        f.numero ? `<div style="font-size:10px;color:#8A8A82;font-weight:600;line-height:1.3;">nº ${escHtml(f.numero)}</div>` : '',
+        f.motivo ? `<div style="line-height:1.3;"><span style="display:inline-block;padding:0 6px;border-radius:6px;background:#FBEFD8;color:#9A6B12;font-size:9.5px;font-weight:700;">${MOTIVOS_NO_INICIO[f.motivo].corto}</span></div>` : '',
+    ].join('');
 
-    const filas = [];
+    // Un PASO por columna, en el orden del proceso. Un paso sin ninguna fecha no
+    // sale (el CEE final antes de la obra), y los que quedan se numeran seguidos.
+    const pasos = [];
     if (ini.visita || ini.firma) {
-        filas.push(['CEE inicial', [casilla('Visita del técnico', fechaEs(ini.visita)), casilla('Firma', fechaEs(ini.firma))]]);
+        pasos.push({ titulo: 'CEE inicial', hitos: [hito('Visita técnica', fechaEs(ini.visita)), hito('Firma', fechaEs(ini.firma))] });
     }
     if (hitos.primera) {
-        filas.push([hitos.ultima ? 'Facturas' : 'Factura', [
-            casilla(hitos.ultima ? 'Primera' : 'Fecha', fechaEs(hitos.primera.fecha), detalleFactura(hitos.primera)),
-            hitos.ultima ? casilla('Última', fechaEs(hitos.ultima.fecha), detalleFactura(hitos.ultima)) : '<div></div>',
-        ]]);
+        const n = (hitos.facturas || []).length;
+        pasos.push({
+            // Con más de dos se dice cuántas hay: el bloque enseña la primera y la última.
+            titulo: hitos.ultima ? `Facturas${n > 2 ? ` <span style="opacity:.6;">(${n})</span>` : ''}` : 'Factura',
+            hitos: hitos.ultima
+                ? [hito('Primera', fechaEs(hitos.primera.fecha), detalleFactura(hitos.primera)),
+                   hito('Última', fechaEs(hitos.ultima.fecha), detalleFactura(hitos.ultima))]
+                : [hito('Emitida', fechaEs(hitos.primera.fecha), detalleFactura(hitos.primera))],
+        });
     }
     if (inicio || pruebas || fin) {
-        filas.push(['Actuación', [casilla('Inicio', inicio), casilla('Pruebas RITE', pruebas), casilla('Fin', fin)]]);
+        pasos.push({ titulo: 'Actuación', clave: true, hitos: [hito('Inicio', inicio), hito('Pruebas RITE', pruebas), hito('Fin', fin)] });
     }
     if (fn.visita || fn.firma) {
-        filas.push(['CEE final', [casilla('Visita del técnico', fechaEs(fn.visita)), casilla('Firma', fechaEs(fn.firma))]]);
+        pasos.push({ titulo: 'CEE final', hitos: [hito('Visita técnica', fechaEs(fn.visita)), hito('Firma', fechaEs(fn.firma))] });
     }
-    if (!filas.length) return '';
+    if (!pasos.length) return '';
 
-    // Etiqueta 18% + tres columnas iguales: las fechas quedan alineadas fila a
-    // fila. Estas hojas son de alto FIJO y las miden check_cifo_paginas.mjs y
+    // Una sola rejilla con la cabecera y el cuerpo, para que cada columna sea la
+    // misma arriba y abajo. La ACTUACIÓN va en verde: es el paso cuyas fechas
+    // declara el certificado (mismo verde que la columna «Nueva» de sus tablas).
+    // Estas hojas son de alto FIJO y las miden check_cifo_paginas.mjs y
     // check_res080_paginas.mjs.
-    const fila = (label, celdas, last) => {
-        const borde = last ? '' : 'border-bottom:1px solid #ECECE4;';
-        const tres = [...celdas, '<div></div>', '<div></div>'].slice(0, 3).join('');
-        return `<div style="display:grid;grid-template-columns:18% 82%;"><div style="padding:4px 16px;background:#F7F7F1;color:#6E6E66;font-weight:600;${borde}">${label}</div><div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding:0 0 0 14px;${borde}">${tres}</div></div>`;
-    };
+    const num = (i, clave) => `<span style="display:inline-block;width:15px;height:15px;line-height:15px;border-radius:50%;text-align:center;font-size:9.5px;font-weight:800;margin-right:7px;letter-spacing:0;background:${clave ? '#1A1A1A' : '#93C01F'};color:${clave ? '#93C01F' : '#1A1A1A'};">${i + 1}</span>`;
+    const cabecera = pasos.map((p, i) => `<div style="padding:6px 12px;background:${p.clave ? '#93C01F' : '#1A1A1A'};color:${p.clave ? '#1A1A1A' : '#fff'};font-weight:${p.clave ? 800 : 700};font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;white-space:nowrap;${i ? `border-left:1px solid ${p.clave ? '#7FA61A' : '#33332F'};` : ''}">${num(i, p.clave)}${p.titulo}</div>`).join('');
+    const cuerpo = pasos.map((p, i) => `<div style="padding:5px 12px;${p.clave ? 'background:#F3F8E6;' : ''}${i ? 'border-left:1px solid #ECECE4;' : ''}">${p.hitos.join('')}</div>`).join('');
     const aclaracion = hitos.aclaracion
         ? `<div style="padding:6px 16px;background:#FBF6EE;border-top:1px solid #F1E4CF;font-size:10.5px;line-height:1.45;color:#5b4a2e;"><b style="color:#1A1A1A;font-weight:700;">Aclaración sobre las fechas.</b> ${escHtml(hitos.aclaracion)}</div>`
         : '';
     return `
         ${sectionTitle('Hitos de la actuación', mt)}
         <div style="border:1px solid #E9E9E1;border-radius:16px;overflow:hidden;font-size:12px;">
-            ${filas.map(([l, c], i) => fila(l, c, i === filas.length - 1)).join('')}
+            <div style="display:grid;grid-template-columns:repeat(${pasos.length},minmax(0,1fr));">${cabecera}${cuerpo}</div>
             ${aclaracion}
         </div>`;
 }
@@ -283,17 +295,17 @@ export function avisosHitos(expediente) {
     const cee = (c, fase) => {
         if (!c.visita && !c.firma) {
             out.push({ id: `hitos_sin_cee_${fase}`, nivel: 'warn',
-                texto: `El CEE ${fase} aún no tiene fecha de visita del técnico ni de firma: en «Hitos de la actuación» no saldrá su fila. Se toman de la rejilla del CEE o de su .xml.` });
+                texto: `El CEE ${fase} aún no tiene fecha de visita del técnico ni de firma: en «Hitos de la actuación» no saldrá ese paso. Se toman de la rejilla del CEE o de su .xml.` });
         } else if (!c.visita || !c.firma) {
             out.push({ id: `hitos_cee_${fase}_incompleto`, nivel: 'warn',
-                texto: `Al CEE ${fase} le falta la fecha de ${!c.visita ? 'visita del técnico' : 'firma'}: en «Hitos de la actuación» esa casilla saldrá vacía.` });
+                texto: `Al CEE ${fase} le falta la fecha de ${!c.visita ? 'visita del técnico' : 'firma'}: en «Hitos de la actuación» no saldrá esa fecha.` });
         }
     };
     cee(h.ceeInicial, 'inicial');
     cee(h.ceeFinal, 'final');
     if (!h.pruebas) {
         out.push({ id: 'hitos_sin_pruebas', nivel: 'warn',
-            texto: 'No consta la fecha de pruebas del Certificado RITE: en «Hitos de la actuación» esa casilla saldrá vacía.' });
+            texto: 'No consta la fecha de pruebas del Certificado RITE: en «Hitos de la actuación» no saldrá esa fecha.' });
     }
     return out;
 }

@@ -23,6 +23,8 @@ const { conBorrador, facturasCitadas } = require('../services/aclaracionFechasSe
 
 let fallos = 0;
 const ok = (cond, msg) => { console.log(`${cond ? '  ✓' : '  ✗'} ${msg}`); if (!cond) fallos++; };
+// El texto que se lee, sin marcado: lo que comprueban las pruebas del bloque.
+const texto = (h) => String(h).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
 const expediente = (docExtra = {}, cee = {}) => ({
     id: 'x', numero_expediente: '26RES093_11',
@@ -159,8 +161,15 @@ console.log('\n── El CIFO imprime los hitos');
     const pos = (t) => html.indexOf(t);
     ok(pos('>CEE inicial<') < pos('>Facturas<') && pos('>Facturas<') < pos('>Actuación<') && pos('>Actuación<') < pos('>CEE final<'),
         'filas en el orden del proceso: CEE inicial, facturas, actuación, CEE final');
-    ok(html.includes('Última</span> <span style="font-weight:700;">11/09/2026'), 'la última factura, con su fecha');
-    ok(html.includes('Pruebas RITE</span> <span style="font-weight:700;">15/09/2026'), 'la fecha de pruebas del RITE');
+    // Se comprueba el TEXTO del bloque, no su marcado: el estilo puede cambiar.
+    ok(texto(html).includes('Última 11/09/2026'), 'la última factura, con su fecha');
+    ok(texto(html).includes('Pruebas RITE 15/09/2026'), 'la fecha de pruebas del RITE');
+    ok(/>\s*1\s*<\/span>\s*CEE inicial/.test(html) && />\s*4\s*<\/span>\s*CEE final/.test(html), 'los pasos van numerados en orden');
+    // Con más de dos facturas se dice cuántas son (el bloque enseña la primera y la última).
+    const e3 = JSON.parse(JSON.stringify(e));
+    e3.documentacion.facturas.push({ numero_factura: '26/000700', fecha_factura: '2026-09-12' });
+    ok(texto(buildCifoHtml({ data: deriveCifoData({ expediente: e3, results }), appUrl: '' })).includes('Facturas (3)'),
+        'con tres facturas, el paso dice cuántas son');
     // Sin CEE final todavía, su fila NO sale (y la puerta de Generar lo avisa).
     const ef = conMaterial();
     ef.instalacion = e.instalacion; ef.oportunidades = e.oportunidades;
@@ -171,7 +180,8 @@ console.log('\n── El CIFO imprime los hitos');
     // Una sola factura: una casilla, sin «Primera»/«Última».
     const e1 = JSON.parse(JSON.stringify(e)); e1.documentacion.facturas = [e1.documentacion.facturas[1]];
     const html1 = buildCifoHtml({ data: deriveCifoData({ expediente: e1, results }), appUrl: '' });
-    ok(html1.includes('>Factura<') && !html1.includes('Última</span>'), 'con una sola factura, una sola casilla');
+    ok(html1.includes('>Factura<') && !texto(html1).includes('Última') && texto(html1).includes('Emitida 11/09/2026'),
+        'con una sola factura, una sola casilla');
     // Sin pruebas del RITE: casilla vacía (sin «—») y aviso.
     const e2 = JSON.parse(JSON.stringify(e)); delete e2.documentacion.fecha_pruebas_cert_instalacion;
     const html2 = buildCifoHtml({ data: deriveCifoData({ expediente: e2, results }), appUrl: '' });
@@ -199,7 +209,7 @@ console.log('\n── El Certificado RES080 imprime el mismo bloque');
     ok(html.includes('22/09/2026'), 'con las fechas del CEE final');
     // El inicio del bloque es el de la hoja 1, aunque la vista previa lo edite.
     data.fields.fecha_inicio = '12/09/2026';
-    ok(buildRes080Html({ data, appUrl: '' }).includes('Inicio</span> <span style="font-weight:700;">12/09/2026'), 'el inicio es el mismo que imprime la hoja 1');
+    ok(texto(buildRes080Html({ data, appUrl: '' })).includes('Inicio 12/09/2026'), 'el inicio es el mismo que imprime la hoja 1');
 }
 
 console.log(fallos ? `\n${fallos} prueba(s) fallan.` : '\nTodo en orden.');
