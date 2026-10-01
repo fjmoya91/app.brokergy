@@ -752,7 +752,7 @@ const sendAdminNotificationEmail = async ({ numeroExpediente, clientName, addres
 const sendCertificadorNotificationEmail = async ({
     to, certName, expedienteNum, clienteName, clienteData,
     ficha, tipoActuacion,
-    ceeFolderLink, portalLink, ackLink,
+    ceeFolderLink, portalLink, ackLink, encargoLink = null,
     // RES060/RES093/TER100
     demandaPerM2,       // kWh/m²·año (q_net)
     superficieRef,      // m²
@@ -819,6 +819,7 @@ const sendCertificadorNotificationEmail = async ({
 
     const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">` +
         (ackLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(ackLink, '✅ Aceptar Encargo')}</td></tr>` : '') +
+        (encargoLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(encargoLink, '📋 Ver el encargo completo')}</td></tr>` : '') +
         (portalLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(portalLink, '🔗 Acceder al Portal', BRAND.orange)}</td></tr>` : '') +
         (ceeFolderLink ? `<tr><td align="center">${emailOutlineButton(ceeFolderLink, '📁 Acceder a Carpeta CEE')}</td></tr>` : '') +
         `</table>` +
@@ -841,7 +842,7 @@ const sendCertificadorNotificationEmail = async ({
 
     const urgentText = isUrgent ? '🚨 URGENTE 🚨\n\n' : '';
     const adminMsgText = adminMessage ? `\nMensaje de Brokergy:\n${adminMessage}\n\n` : '';
-    const linksText = `${ackLink ? 'Para aceptar el encargo haz clic aquí: ' + ackLink + '\n\n' : ''}${portalLink ? 'Portal: ' + portalLink + '\n' : ''}${ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink : ''}`;
+    const linksText = `${ackLink ? 'Para aceptar el encargo haz clic aquí: ' + ackLink + '\n\n' : ''}${encargoLink ? 'Todo el encargo en una página: ' + encargoLink + '\n' : ''}${portalLink ? 'Portal: ' + portalLink + '\n' : ''}${ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink : ''}`;
     const text = customMessage
         ? `${customMessage}\n\n${linksText}\n\nBROKERGY · Ingeniería Energética`
         : `${urgentText}Hola ${certName}!\n\nTe asignamos el expediente ${expedienteNum}.\n\n${clienteText}${isReforma ? `Ahorro mínimo esperado: ${ahorroObjetivo ? Math.round(ahorroObjetivo) + ' kWh/año' : 'Consultar propuesta'}` : `Demanda mínima esperada: ${demandaPerM2 ? demandaPerM2.toFixed(1).replace('.', ',') + ' kWh/m²·año' : 'Consultar propuesta'}${superficieRef ? `\nSuperficie mínima: ${superficieRef.toLocaleString('es-ES', { maximumFractionDigits: 2 })} m²` : ''}`}\n\n${adminMsgText}${linksText}\n\nBROKERGY · Ingeniería Energética`;
@@ -874,6 +875,7 @@ const sendCeeDirectoEncargoEmail = async ({
     alcanceLabel,           // 'Un solo certificado' | 'Inicial y final'
     carpetas = [],          // [{ nombre, link }]
     expedienteLink = null,  // deep-link ?cee=<id>
+    encargoLink = null,     // la PÁGINA DEL ENCARGO del técnico (services/encargoTecnico.js)
     acuse = null,           // { aceptar, rechazar } — los dos enlaces del acuse
     priority = 'normal',
     adminMessage = null,
@@ -920,6 +922,7 @@ const sendCeeDirectoEncargoEmail = async ({
     const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">` +
         (acuse?.aceptar ? `<tr><td align="center" style="padding-bottom:10px;">${emailButton(acuse.aceptar, '✅ Acepto el encargo')}</td></tr>` : '') +
         (acuse?.rechazar ? `<tr><td align="center" style="padding-bottom:16px;"><a href="${acuse.rechazar}" style="color:${BRAND.muted};font-size:12px;text-decoration:underline;">No puedo cogerlo</a></td></tr>` : '') +
+        (encargoLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(encargoLink, '📋 Ver el encargo completo')}</td></tr>` : '') +
         (expedienteLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(expedienteLink, '🔗 Abrir el expediente', BRAND.orange)}</td></tr>` : '') +
         carpetas.map(c => `<tr><td align="center" style="padding-bottom:12px;">${emailOutlineButton(c.link, `📁 ${escapeHtml(c.nombre)}`)}</td></tr>`).join('') +
         `</table>` +
@@ -942,14 +945,15 @@ const sendCeeDirectoEncargoEmail = async ({
     const ackText = acuse?.aceptar
         ? `Acepto el encargo: ${acuse.aceptar}\nNo puedo cogerlo: ${acuse.rechazar}\n\n`
         : '';
+    const encargoText = encargoLink ? `Todo el encargo en una página: ${encargoLink}\n` : '';
     const text = customMessage
-        ? `${customMessage}\n\n${carpetasText}\n\nBROKERGY · Ingeniería Energética`
+        ? `${customMessage}\n\n${encargoText}${carpetasText}\n\nBROKERGY · Ingeniería Energética`
         : `${isUrgent ? '🚨 URGENTE 🚨\n\n' : ''}Hola ${certName}!\n\n`
           + `Te encargamos el ${fase} del expediente ${expedienteNum}.\n\n`
           + `${clienteDataText(clienteData)}`
           + `${alcanceLabel ? `Alcance: ${alcanceLabel}\n\n` : ''}`
           + `${adminMessage ? `Mensaje de Brokergy:\n${adminMessage}\n\n` : ''}`
-          + `${ackText}${expedienteLink ? `Expediente: ${expedienteLink}\n` : ''}${carpetasText}\n\n`
+          + `${ackText}${encargoText}${expedienteLink ? `Expediente: ${expedienteLink}\n` : ''}${carpetasText}\n\n`
           + `BROKERGY · Ingeniería Energética`;
 
     return sendMail({ to, subject, html, text });
@@ -961,7 +965,7 @@ const sendCeeDirectoEncargoEmail = async ({
 const sendCertificadorFinalNotificationEmail = async ({
     to, certName, expedienteNum, clienteName, clienteData,
     ficha, tipoActuacion,
-    ceeFolderLink, portalLink, ackLink,
+    ceeFolderLink, portalLink, ackLink, encargoLink = null,
     priority = 'normal',
     adminMessage = null,
     customMessage = null,
@@ -993,6 +997,7 @@ const sendCertificadorFinalNotificationEmail = async ({
     ) : '';
 
     const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">` +
+        (encargoLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(encargoLink, '📋 Ver el encargo completo')}</td></tr>` : '') +
         (portalLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(portalLink, '🔗 Acceder al Portal', BRAND.orange)}</td></tr>` : '') +
         (ceeFolderLink ? `<tr><td align="center">${emailOutlineButton(ceeFolderLink, '📁 Acceder a Carpeta CEE')}</td></tr>` : '') +
         `</table>`;
@@ -1025,7 +1030,7 @@ const sendCertificadorFinalNotificationEmail = async ({
  */
 const sendCertificadorReminderEmail = async ({
     to, certName, expedienteNum, clienteName, clienteData,
-    ficha, tipoActuacion, ceeFolderLink, portalLink, ackLink,
+    ficha, tipoActuacion, ceeFolderLink, portalLink, ackLink, encargoLink = null,
     adminMessage = null,
     customMessage = null,
     // 'emision' (falta emitir el CEE) | 'registro' (visto bueno dado, falta registrar).
@@ -1062,6 +1067,7 @@ const sendCertificadorReminderEmail = async ({
     // En fase de registro el botón útil es el de subir el CEE registrado, no la carpeta.
     const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">` +
         (esRegistro && ceeUploadLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(ceeUploadLink, '📤 Subir CEE registrado')}</td></tr>` : '') +
+        (encargoLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(encargoLink, '📋 Ver el encargo completo')}</td></tr>` : '') +
         (portalLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(portalLink, '🔗 Acceder al Portal', BRAND.orange)}</td></tr>` : '') +
         (ceeFolderLink ? `<tr><td align="center">${emailOutlineButton(ceeFolderLink, '📁 Carpeta CEE')}</td></tr>` : '') +
         `</table>`;
@@ -1079,7 +1085,7 @@ const sendCertificadorReminderEmail = async ({
     });
 
     const adminMsgText = adminMessage ? `\nMensaje de Brokergy:\n${adminMessage}\n\n` : '';
-    const linksText = `${portalLink ? 'Portal: ' + portalLink + '\n' : ''}${ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink : ''}`;
+    const linksText = `${encargoLink ? 'Todo el encargo en una página: ' + encargoLink + '\n' : ''}${portalLink ? 'Portal: ' + portalLink + '\n' : ''}${ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink : ''}`;
     const text = customMessage
         ? `${customMessage}\n\n${linksText}\n\nBROKERGY · Ingeniería Energética`
         : esRegistro
@@ -1094,7 +1100,7 @@ const sendCertificadorReminderEmail = async ({
  */
 const sendCertificadorUrgentEmail = async ({
     to, certName, expedienteNum, clienteName, clienteData,
-    ficha, tipoActuacion, ceeFolderLink, portalLink, ackLink,
+    ficha, tipoActuacion, ceeFolderLink, portalLink, ackLink, encargoLink = null,
     adminMessage = null,
     customMessage = null,
     espera = 'emision',
@@ -1129,6 +1135,7 @@ const sendCertificadorUrgentEmail = async ({
 
     const botonesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">` +
         (esRegistro && ceeUploadLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(ceeUploadLink, '📤 Subir CEE registrado')}</td></tr>` : '') +
+        (encargoLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(encargoLink, '📋 Ver el encargo completo')}</td></tr>` : '') +
         (portalLink ? `<tr><td align="center" style="padding-bottom:12px;">${emailButton(portalLink, '🔗 Acceder al Portal', BRAND.orange)}</td></tr>` : '') +
         (ceeFolderLink ? `<tr><td align="center">${emailOutlineButton(ceeFolderLink, '📁 Carpeta CEE')}</td></tr>` : '') +
         `</table>`;
@@ -1147,7 +1154,7 @@ const sendCertificadorUrgentEmail = async ({
     });
 
     const adminMsgText = adminMessage ? `\nMensaje de Brokergy:\n${adminMessage}\n\n` : '';
-    const linksText = `${portalLink ? 'Portal: ' + portalLink + '\n' : ''}${ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink : ''}`;
+    const linksText = `${encargoLink ? 'Todo el encargo en una página: ' + encargoLink + '\n' : ''}${portalLink ? 'Portal: ' + portalLink + '\n' : ''}${ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink : ''}`;
     const text = customMessage
         ? `⚠️ URGENTE\n\n${customMessage}\n\n${linksText}\n\nBROKERGY · Ingeniería Energética`
         : esRegistro
@@ -1171,6 +1178,8 @@ const sendReviewRequestEmailToAdmin = async ({
     priority = 'normal',
     techMessage = null,
     isResend = false,
+    revisionLinea = null,
+    revisionAt = null,
 }) => {
     const to = 'franciscojavier.moya.s2e2@gmail.com'; // Email de administración
     const phaseLabel = phase === 'final' ? 'FINAL' : 'INICIAL';
@@ -1190,6 +1199,23 @@ const sendReviewRequestEmailToAdmin = async ({
         emailP('💬 Mensaje del técnico', { size: 11, bold: true, color: BRAND.orangeDark, mb: 8 }) +
         emailP(escapeHtml(techMessage), { size: 14, pre: true, mb: 0 }),
         { bg: BRAND.orangeTint, border: BRAND.orange, mb: 22 }
+    ) : '';
+
+    // La revisión automática de lo que ha subido: con su veredicto delante se
+    // sabe si hay que abrir el expediente ya o puede esperar. El tono sale del
+    // veredicto (la línea empieza por él).
+    const revisionTono = !revisionLinea ? null
+        : revisionLinea.startsWith('NO APTO') ? { bg: '#FDECEC', border: '#E5484D' }
+        : revisionLinea.startsWith('APTO CON AVISOS') ? { bg: BRAND.orangeTint, border: BRAND.orange }
+        : { bg: BRAND.greenTint, border: BRAND.green };
+    const revisionCuando = revisionAt
+        ? ` · ${new Date(revisionAt).toLocaleString('es-ES', { timeZone: 'Europe/Madrid', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+        : '';
+    const revisionHtml = revisionLinea ? emailBox(
+        emailP(`🔎 Revisión automática${revisionCuando}`, { size: 11, bold: true, color: BRAND.muted, mb: 8 }) +
+        emailP(escapeHtml(revisionLinea), { size: 14, bold: true, mb: 6 }) +
+        emailP('Es la misma revisión de la lupa del módulo CEE. No da el visto bueno: lo das tú.', { size: 11, color: BRAND.muted, mb: 0 }),
+        { ...revisionTono, mb: 22 }
     ) : '';
 
     // Bloque "Quién solicita la revisión" (certName + tlf + email del cert si los tenemos)
@@ -1234,7 +1260,7 @@ const sendReviewRequestEmailToAdmin = async ({
             emailP('Solicitud de Revisión Técnica', { size: 18, bold: true, mb: 6 }) +
             emailP(`El técnico <strong>${escapeHtml(certName || 'Técnico')}</strong> ha subido el archivo <strong>.CEX</strong> del <strong>CEE ${phaseLabel}</strong> para el expediente <strong style="color:${BRAND.orangeDark};">${escapeHtml(numExp)}</strong>${clienteName ? ` del cliente <strong>${escapeHtml(clienteName)}</strong>` : ''}.`, { color: BRAND.muted, mb: 16 }) +
             emailP('El expediente está pendiente de tu revisión para validar y autorizar la presentación.', { color: BRAND.muted, mb: 22 }) +
-            certInfoHtml + clienteInfoHtml + techMessageHtml +
+            revisionHtml + certInfoHtml + clienteInfoHtml + techMessageHtml +
             emailHeading('Accesos directos:', { size: 14 }) +
             botonesHtml +
             `<div style="height:20px;line-height:20px;font-size:0;">&nbsp;</div>` +
@@ -1246,11 +1272,12 @@ const sendReviewRequestEmailToAdmin = async ({
 
     const urgentText = isUrgent ? '🚨 URGENTE 🚨\n\n' : '';
     const techMsgText = techMessage ? `\nMensaje del técnico:\n${techMessage}\n\n` : '';
+    const revisionText = revisionLinea ? `Revisión automática: ${revisionLinea}\n\n` : '';
     const approveText = approveLink ? `\n✅ Dar visto bueno (un clic, avisa al técnico por email + WhatsApp):\n${approveLink}\n` : '';
     const folderText = openLocalLink
         ? `Abrir carpeta local del expediente: ${openLocalLink}\n${ceeFolderLink ? 'Carpeta CEE (Drive): ' + ceeFolderLink + '\n' : ''}`
         : (ceeFolderLink ? 'Carpeta CEE: ' + ceeFolderLink + '\n' : '');
-    const text = `${urgentText}SOLICITUD DE REVISIÓN TÉCNICA\n\nEl técnico ${certName || 'Técnico'} ha subido el .CEX del CEE ${phaseLabel} del expediente ${numExp}.\n\n${clienteText}${techMsgText}Ver expediente: ${finalPortalLink}\n${folderText}${approveText}\nBROKERGY · Ingeniería Energética`;
+    const text = `${urgentText}SOLICITUD DE REVISIÓN TÉCNICA\n\nEl técnico ${certName || 'Técnico'} ha subido el .CEX del CEE ${phaseLabel} del expediente ${numExp}.\n\n${revisionText}${clienteText}${techMsgText}Ver expediente: ${finalPortalLink}\n${folderText}${approveText}\nBROKERGY · Ingeniería Energética`;
 
     return sendMail({ to, subject, html, text });
 };

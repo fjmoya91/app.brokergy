@@ -862,9 +862,15 @@ input[autocomplete="new-password"] {
 .theme-light .bg-blue-500.text-white, .theme-light .bg-blue-600.text-white,
 .theme-light .bg-indigo-500.text-white, .theme-light .bg-indigo-600.text-white,
 .theme-light .bg-purple-500.text-white, .theme-light .bg-purple-600.text-white,
+.theme-light .bg-violet-600.text-white,
 .theme-light .bg-pink-500.text-white {
     color: #fff !important;
 }
+
+/* Chips oscuros SOBRE un dibujo en papel claro (la pista del croquis en el
+   móvil): el papel es claro en los dos temas, así que el chip y su texto no
+   cambian con el tema. */
+.theme-light .croquis-chip, .theme-light .croquis-chip * { color: #fff !important; }
 
 /* Excepción inversa: hover:text-white sobre fondos claros → texto oscuro
    (si no, al pasar el ratón el texto desaparecería). */

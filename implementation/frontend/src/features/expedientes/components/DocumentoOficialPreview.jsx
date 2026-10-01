@@ -19,26 +19,44 @@ import axios from 'axios';
  * (impreso oficial) o `{ html }` (maqueta, p. ej. el Convenio de Cesión)—: el
  * popup de envío de anexos enseña con esto EXACTAMENTE lo que va a mandar.
  * `formulario` se conserva por compatibilidad con los modales de ficha.
+ *
+ * `pdf` (base64) es para un documento que YA viene generado de otro sitio —la
+ * documentación RITE sale del microservicio en una sola llamada con varios
+ * ficheros—: entonces no se pide nada, solo se pinta. Con `pendiente` enseña que
+ * se está preparando y con `fallo`, por qué no se ha podido.
  * ────────────────────────────────────────────────────────────────────────────
  */
-export function DocumentoOficialPreview({ formulario, fuente = null, titulo = 'documento', onFallback, nota = null }) {
+export function DocumentoOficialPreview({ formulario, fuente = null, pdf, pendiente = false, fallo = '', titulo = 'documento', onFallback, nota = null }) {
     const [url, setUrl] = useState(null);
     const [error, setError] = useState('');
     const [cargando, setCargando] = useState(true);
     const urlRef = useRef(null);
+    const externo = pdf !== undefined;
     const cuerpo = fuente || { formulario };
-    const clave = JSON.stringify(cuerpo);
+    const clave = externo
+        ? `pdf:${pendiente ? 'pendiente' : ''}:${fallo}:${pdf ? pdf.length : 0}:${pdf ? pdf.slice(-64) : ''}`
+        : JSON.stringify(cuerpo);
 
     useEffect(() => {
         let vivo = true;
         setCargando(true);
         setError('');
+        // Un documento externo que aún se está preparando se queda en "preparando":
+        // no hay nada que pintar, pero tampoco es un fallo.
+        if (externo && !fallo && (pendiente || !pdf)) return () => { vivo = false; };
         (async () => {
             try {
-                const { data } = await axios.post('/api/pdf/generate', cuerpo);
-                if (!vivo) return;
-                if (!data?.pdf) throw new Error('El servidor no devolvió el PDF');
-                const bytes = Uint8Array.from(atob(data.pdf), c => c.charCodeAt(0));
+                let base64;
+                if (externo) {
+                    if (fallo) throw new Error(fallo);
+                    base64 = pdf;
+                } else {
+                    const { data } = await axios.post('/api/pdf/generate', cuerpo);
+                    if (!vivo) return;
+                    if (!data?.pdf) throw new Error('El servidor no devolvió el PDF');
+                    base64 = data.pdf;
+                }
+                const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
                 const blobUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
                 if (urlRef.current) URL.revokeObjectURL(urlRef.current);
                 urlRef.current = blobUrl;

@@ -265,7 +265,21 @@ function scrubExpedienteForUser(exp, req) {
     // CERTIFICADOR (u otros): sin ninguna cifra. Aplicamos también el capado
     // PROFUNDO del margen para que no escape por el snapshot anidado que
     // stripFinancials (borrado plano) no alcanza.
-    return stripBrokergyMargin(stripFinancials(exp));
+    return revisionParaTecnico(stripBrokergyMargin(stripFinancials(exp)));
+}
+
+// La REVISIÓN del CEE guardada (`cee.revision_{fase}`) lleva las comprobaciones
+// «frente a la propuesta» —la demanda y la superficie que se le presupuestaron
+// al cliente—, y esas no son para el técnico (ver `revisionTecnico.js`). A quien
+// no es staff se le entrega SU versión: la misma que ve al subir el fichero.
+function revisionParaTecnico(exp) {
+    if (!exp?.cee || (!exp.cee.revision_inicial && !exp.cee.revision_final)) return exp;
+    const { guardadaParaTecnico } = require('../services/cee/revisionTecnico');
+    const cee = { ...exp.cee };
+    for (const k of ['revision_inicial', 'revision_final']) {
+        if (cee[k]) cee[k] = guardadaParaTecnico(cee[k]);
+    }
+    return { ...exp, cee };
 }
 
 // Firma HMAC para el enlace "Dar visto bueno" del email de revisión.
@@ -1623,6 +1637,23 @@ async function buildAvisoClienteCee(exp, phase) {
     return { fase, ...contacto, mensaje, asunto, avisadoEn: sello?.at || null, avisadoA: sello?.to || null };
 }
 
+// ─── GET /api/expedientes/:id/enlace-encargo?phase=inicial|final ──────────────
+// La PÁGINA DEL ENCARGO del técnico ASIGNADO (`services/encargoTecnico.js`): los
+// popups de aviso al certificador la meten en el mensaje. staffOnly: el enlace
+// abre el teléfono y la dirección del cliente.
+router.get('/:id/enlace-encargo', staffOnly, async (req, res) => {
+    try {
+        const { data: exp } = await supabase.from('expedientes')
+            .select('id, cert:cee->>certificador_id').eq('id', req.params.id).maybeSingle();
+        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const { enlaceEncargo } = require('../services/encargoTecnico');
+        res.json({ url: enlaceEncargo({ negocio: 'cae', id: exp.id, fase: req.query.phase,
+                                        certId: req.query.certificador_id || exp.cert || null }) });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // ─── GET /api/expedientes/:id/aviso-cliente-cee?phase=initial ─────────────────
 // Lo que el popup de "Notificar certificador" necesita para enseñar el aviso al
 // cliente antes de mandarlo: destinatario, canales disponibles y el texto.
@@ -1630,6 +1661,7 @@ router.get('/:id/aviso-cliente-cee', staffOnly, async (req, res) => {
     try {
         const { data: exp, error } = await supabase.from('expedientes')
             .select('id, numero_expediente, cliente_id, oportunidad_id, documentacion, '
+                    + 'cert:cee->>certificador_id, '
                     + 'confirmacion:instalacion->confirmacion_cliente, '
                     + 'oportunidades(confirmacion:datos_calculo->confirmacion_cliente)')
             .eq('id', req.params.id).single();
@@ -1643,8 +1675,13 @@ router.get('/:id/aviso-cliente-cee', staffOnly, async (req, res) => {
             bloqueCertificador = bloqueConfirmacionCertificador({
                 confirmacion: exp.confirmacion || exp.oportunidades?.confirmacion || null, cae: true });
         } catch (e) { console.warn('[aviso-cliente-cee] confirmación:', e.message); }
+        // La PÁGINA DEL ENCARGO del técnico que se acaba de elegir (su firma lo
+        // lleva): el popup la mete en el mensaje en lugar del enlace a la app.
+        const { enlaceEncargo } = require('../services/encargoTecnico');
         res.json({ ...(await buildAvisoClienteCee(exp, req.query.phase)),
-                   bloque_certificador: bloqueCertificador });
+                   bloque_certificador: bloqueCertificador,
+                   enlace_encargo: enlaceEncargo({ negocio: 'cae', id: exp.id, fase: req.query.phase,
+                                                   certId: req.query.certificador_id || exp.cert || null }) });
     } catch (err) {
         console.error('[aviso-cliente-cee]', err.message);
         res.status(500).json({ error: 'Error preparando el aviso al cliente' });
@@ -3410,6 +3447,15 @@ router.put('/:id', enforceAuth, async (req, res) => {
             // "PENDIENTE REVISIÓN"). Lo preservamos siempre: el módulo NUNCA debe cambiarlo.
             if (existing.cee && 'estado' in existing.cee) {
                 updates.cee.estado = existing.cee.estado;
+            }
+            // La REVISIÓN del CEE (`revision_inicial` / `revision_final`) la
+            // escribe SOLO su ruta (`/:id/revisar-cee`). La copia que el detalle
+            // reenvía en cada autoguardado se hidrató al abrir la vista y no la
+            // trae al día: sin esto, el primer guardado borraría la revisión
+            // recién hecha (mismo fallo que `docs_validados`).
+            for (const k of ['revision_inicial', 'revision_final']) {
+                if (existing.cee && k in existing.cee) updates.cee[k] = existing.cee[k];
+                else delete updates.cee[k];
             }
             // Un CERTIFICADOR no se retira a sí mismo del expediente ni se lo
             // pasa a otro. Dejarlo «sin asignar» lo devuelve a la cola, le quita
@@ -7330,23 +7376,12 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
             await supabase.from('expedientes').update({ estado: estadoTrasAviso, updated_at: new Date().toISOString() }).eq('id', req.params.id);
         }
 
-        const ficha = op?.ficha || 'RES060';
         const dc = op?.datos_calculo || {};
-        const result = dc.result || {};
-        const inputs = dc.inputs || {};
 
-        // Demanda objetivo: priorizamos kWh/m²·año (q_net) sobre el total (Q_net)
-        const superficieRef = parseFloat(inputs.superficieCalefactable) || parseFloat(inputs.surface) || null;
-        const demandaPerM2 =
-            parseFloat(result.q_net) ||
-            parseFloat(inputs.demand_per_m2) ||
-            parseFloat(inputs.demandaCalefaccion) ||
-            (superficieRef && parseFloat(result.Q_net) ? parseFloat(result.Q_net) / superficieRef : null);
-        const demandaObjetivoTotal =
-            parseFloat(result.Q_net) ||
-            parseFloat(dc.Q_net) ||
-            (superficieRef && demandaPerM2 ? superficieRef * demandaPerM2 : null);
-        const ahorroObjetivo = parseFloat(result.res080?.ahorroEnergiaFinalTotal) || null;
+        // Lo que el certificado tiene que alcanzar para que el ahorro presupuestado
+        // se pueda certificar. Fuente única con la página del encargo del técnico.
+        const { ficha, superficieRef, demandaPerM2, ahorroObjetivo } =
+            require('../utils/objetivoEncargo').objetivosEncargo(op);
 
         const expedienteNum = exp.numero_expediente || op?.id_oportunidad || req.params.id;
         
@@ -7485,9 +7520,17 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
             }
         }
 
+        // La PÁGINA DEL ENCARGO de ESTE técnico. El popup ya la mete en su texto;
+        // si el mensaje llega sin ella (otra superficie, un navegador sin
+        // refrescar), se añade aquí — en lugar del enlace a la app, que va dentro.
+        const { enlaceEncargo: enlaceDeEncargo, conEnlaceEncargo } = require('../services/encargoTecnico');
+        const encargoLink = soloAsignar ? null
+            : enlaceDeEncargo({ negocio: 'cae', id: req.params.id, fase: phase, certId });
+
         // === EMAIL ===
         if (sendEmail) {
             const emailParams = {
+                encargoLink,
                 to: cert.email,
                 certName,
                 expedienteNum,
@@ -7563,6 +7606,7 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
                     waMsg = `${urgentWaPrefix}¡Hola *${certName}*!\n\nTe hemos asignado el expediente *${expedienteNum}*${clienteName ? ` (${clienteName})` : ''} para el *CEE Inicial*.\n\nTienes toda la documentación en la carpeta y el portal.${adminMsgWa}\n\n${ceeFolderLink ? '📁 Carpeta: ' + ceeFolderLink + '\n' : ''}${portalLink ? '🔗 Portal: ' + portalLink + '\n' : ''}\n¡Gracias!\n*BROKERGY · Ingeniería Energética*`;
                 }
 
+                waMsg = conEnlaceEncargo(waMsg, encargoLink);
                 try {
                     const waRes = await whatsappService.sendText(certPhone, waMsg);
                     // sendText siempre encola en BD; si el cliente no está READY, se enviará al reconectar.
@@ -7910,11 +7954,20 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
         const msgTag = techMessage ? `\n💬 Mensaje: "${techMessage}"` : '';
         const resendTag = isResend ? ' (reenvío)' : '';
 
+        // La REVISIÓN automática de lo que ha subido (la que ve el técnico al
+        // subir y Fran con la lupa). Va en el aviso con el veredicto COMPLETO
+        // —el de Fran, con lo que el técnico no ve—: es lo que decide si hay que
+        // abrir el expediente ya o puede esperar. No sustituye al visto bueno.
+        const { lineaParaStaff } = require('../services/cee/revisionTecnico');
+        const revisionGuardada = exp.cee?.[phase === 'final' ? 'revision_final' : 'revision_inicial'] || null;
+        const revisionLinea = lineaParaStaff(revisionGuardada);
+        const revisionTag = revisionLinea ? `\n🔎 Revisión automática: ${revisionLinea}` : '';
+
         // 1. Notificación técnica (con prioridad y mensaje opcional)
         historial.push({
             id: Date.now().toString() + '_revreq',
             tipo: 'notificacion_tecnica',
-            texto: `El técnico ha subido el archivo .CEX del ${phaseLabel}${priorityTag}${resendTag}. PENDIENTE DE REVISIÓN por BROKERGY.${msgTag}`,
+            texto: `El técnico ha subido el archivo .CEX del ${phaseLabel}${priorityTag}${resendTag}. PENDIENTE DE REVISIÓN por BROKERGY.${msgTag}${revisionTag}`,
             priority,
             techMessage,
             isResend,
@@ -7991,6 +8044,8 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
                 priority,
                 techMessage,
                 isResend,
+                revisionLinea,
+                revisionAt: revisionGuardada?.at || null,
             });
             channels.push('Email');
         } catch (mailErr) {
@@ -8005,7 +8060,10 @@ router.post('/:id/notify-review', enforceAuth, async (req, res) => {
                 const resendWaTag = isResend ? ' *(reenvío)*' : '';
                 const msgBlock = techMessage ? `\n💬 *Mensaje del técnico:* ${techMessage}\n` : '';
                 const clientLine = clienteName ? ` del cliente *${clienteName}*` : '';
-                const waMsg = `${urgentWaPrefix}📢 *REVISIÓN SOLICITADA*${resendWaTag}\n\nEl técnico *${certName}* ha subido el *.CEX* del *${phaseLabel}* del expediente *${expedienteNum}*${clientLine}.${msgBlock}\n${certPhone ? '📞 Tlf técnico: ' + certPhone + '\n' : ''}🔗 Ver expediente: ${portalLink}\n${ceeFolderLink ? '📁 Carpeta CEE: ' + ceeFolderLink + '\n' : ''}\n*BROKERGY · Ingeniería Energética*`;
+                // Sin el enlace de visto bueno: aquel APRUEBA con un GET, y la
+                // vista previa de enlaces de WhatsApp lo abriría sola. Va en el email.
+                const revBlock = revisionLinea ? `\n🔎 *Revisión automática:* ${revisionLinea}\n` : '';
+                const waMsg = `${urgentWaPrefix}📢 *REVISIÓN SOLICITADA*${resendWaTag}\n\nEl técnico *${certName}* ha subido el *.CEX* del *${phaseLabel}* del expediente *${expedienteNum}*${clientLine}.${msgBlock}${revBlock}\n${certPhone ? '📞 Tlf técnico: ' + certPhone + '\n' : ''}🔗 Ver expediente: ${portalLink}\n${ceeFolderLink ? '📁 Carpeta CEE: ' + ceeFolderLink + '\n' : ''}\n*BROKERGY · Ingeniería Energética*`;
                 await whatsappService.sendText(adminPhone, waMsg);
                 channels.push('WhatsApp');
             }
@@ -8120,6 +8178,107 @@ router.get('/:id/cert-cliente-data', staffOnly, async (req, res) => {
 
 // ─── POST /api/expedientes/:id/approve-cee ────────────────────────────────
 // Admin aprueba el CEX y autoriza presentación
+// ─── POST /api/expedientes/:id/revisar-cee?fase=inicial|final ─────────────
+// REVISA el CEE que entregó el certificador antes de darle el visto bueno: su
+// `.xml` (de la BD o de Drive) y su `.cex` (de Drive, leído por el motor), contra
+// el expediente. Devuelve el informe entero y GUARDA el resumen en
+// `cee.revision_{fase}`. Fuente única del juicio: `services/cee/revisionCee.js`
+// (el MISMO que el CLI y la skill `revisar-cee`).
+//
+// REGLA — PROPONE, no aprueba: el visto bueno sigue siendo `/approve-cee`, con
+// una persona delante. staffOnly: el certificador no se revisa a sí mismo.
+router.post('/:id/revisar-cee', staffOnly, async (req, res) => {
+    try {
+        const { revisarYGuardar } = require('../services/cee/cargarRevision');
+        const fase = (req.query.fase || req.body?.fase) === 'final' ? 'final' : 'inicial';
+        const out = await revisarYGuardar({
+            id: req.params.id, fase,
+            usuario: req.user?.nombre || req.user?.email || null,
+        });
+        res.json(out);
+    } catch (err) {
+        console.error('[revisar-cee]', err.message);
+        res.status(err.status || 500).json({ error: err.status ? err.message : `No se pudo revisar el CEE: ${err.message}` });
+    }
+});
+
+// ─── POST /api/expedientes/:id/pre-revision-cee?fase=inicial|final ────────
+// La REVISIÓN PREVIA que ve el certificador al subir su .xml o su .cex: el MISMO
+// juicio que la lupa de Fran (y se GUARDA en el mismo sitio, con
+// `origen: 'subida'`, así que la chapa de Fran se colorea sola), pero devuelve
+// solo la parte que es del técnico (`revisionTecnico.vistaTecnico`): sin las
+// comparaciones con la propuesta.
+//
+// REGLA — no aprueba nada: el visto bueno sigue siendo `/approve-cee`.
+// Abierta al certificador ASIGNADO (y al staff), nunca a otro técnico.
+router.post('/:id/pre-revision-cee', suyoSiCertificador, async (req, res) => {
+    try {
+        const { preRevisar } = require('../services/cee/revisionTecnico');
+        const fase = (req.query.fase || req.body?.fase) === 'final' ? 'final' : 'inicial';
+        const quien = req.user?.rol_nombre === 'CERTIFICADOR'
+            ? (req.user?.acronimo || req.user?.razon_social || req.user?.nombre || 'el técnico')
+            : (req.user?.nombre || req.user?.email || null);
+        const out = await preRevisar({ id: req.params.id, fase, usuario: `al subir · ${quien}` });
+        res.json(out);
+    } catch (err) {
+        console.error('[pre-revision-cee]', err.message);
+        res.status(err.status || 500).json({ error: err.status ? err.message : `No se pudo revisar el CEE: ${err.message}` });
+    }
+});
+
+// ─── POST /api/expedientes/:id/cee/poner-medida ───────────────────────────
+// Pone la MEDIDA DE MEJORA del expediente en el `.cex` INICIAL del técnico —la
+// misma que se añadía a mano— y lo deja en su carpeta como
+// `{nº} - CEE INICIAL_CON MEDIDA_REVISAR.cex`. No la CALCULA: eso es el motor de
+// CE3X al pulsar «Actualizar». Escribe en Drive, así que solo con un gesto.
+router.post('/:id/cee/poner-medida', staffOnly, async (req, res) => {
+    try {
+        const cex = require('../services/ceeEnvolventeCex');
+        const { ponerMedida } = require('../services/cee/revisionCex');
+        const ctx = await cex.cargarExpediente(req.params.id);
+        if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado' });
+        //: Sin línea de historial a propósito: el historial es un read-modify-write
+        //: de `documentacion` entera y pisaría otras escrituras. El rastro es el
+        //: propio fichero en Drive y la siguiente revisión.
+        const out = await ponerMedida(ctx);
+        res.json(out);
+    } catch (err) {
+        console.error('[poner-medida]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo poner la medida' });
+    }
+});
+
+// ─── POST /api/expedientes/:id/cee/final-desde-medida ─────────────────────
+// El CEE FINAL a partir de la medida de mejora del CEE inicial que ENTREGÓ el
+// técnico (ver `services/cee/ceeFinalDesdeMedida.js`). Sin `escribir`, solo el
+// análisis para el popup; con él, `{nº} - CEE FINAL_REVISAR.cex` en Drive.
+// De momento RES060 y RES093.
+router.post('/:id/cee/final-desde-medida', staffOnly, async (req, res) => {
+    try {
+        const cex = require('../services/ceeEnvolventeCex');
+        const { prepararFinal } = require('../services/cee/ceeFinalDesdeMedida');
+        const ctx = await cex.cargarExpediente(req.params.id);
+        if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const b = req.body || {};
+        const fecha = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : null);
+        //: Sin línea de historial, como `poner-medida`: el historial es un
+        //: read-modify-write de `documentacion` entera. El rastro es el fichero.
+        const out = await prepararFinal(ctx, {
+            escribir: b.escribir === true,
+            fechaEmision: fecha(b.fecha_emision),
+            fechaVisita: fecha(b.fecha_visita),
+            medidas: Array.isArray(b.medidas) ? b.medidas.map(String) : null,
+            textos: (b.textos && typeof b.textos === 'object') ? b.textos : {},
+            params: (b.params && typeof b.params === 'object') ? b.params : {},
+        });
+        const { fichero, ...resto } = out;   // los bytes no viajan al navegador
+        res.json(resto);
+    } catch (err) {
+        console.error('[cee-final-desde-medida]', err.message);
+        res.status(err.status || 500).json({ error: err.message || 'No se pudo generar el CEE final' });
+    }
+});
+
 router.post('/:id/approve-cee', staffOnly, async (req, res) => {
     try {
         const { phase } = req.body;

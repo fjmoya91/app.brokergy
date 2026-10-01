@@ -67,7 +67,7 @@ function bloqueCorpus() {
 // ─── B) El juicio ────────────────────────────────────────────────────────────
 
 /** Un `.xml` mínimo, con los nodos que de verdad escribe CE3X. */
-function xmlDe({ rc = '9034325VJ9393S0001SS', zona = 'D3', sup = 164.8, demanda = 180.83,
+function xmlDe({ rc = '9034325VJ9393S0001SS', zona = 'D3', sup = 164.8, demanda = 180.83, anio = 1995,
     calefaccion = [], acs = [], opacos = [], huecos = [],
     fecha = ce3x(FECHA_CERT), visita = ce3x(FECHA_VISITA),
     nifCert = '71355161F', nombreCert = 'RAQUEL MONCAYO TERRIZA' } = {}) {
@@ -89,7 +89,7 @@ function xmlDe({ rc = '9034325VJ9393S0001SS', zona = 'D3', sup = 164.8, demanda 
 <FechaVisita>${visita}</FechaVisita><FechaGeneracion>${fecha}</FechaGeneracion>
 <IdentificacionEdificio><ReferenciaCatastral>${rc}</ReferenciaCatastral>
 <ZonaClimatica>${zona}</ZonaClimatica><Provincia>Ciudad Real</Provincia><Municipio>Tomelloso</Municipio>
-<NormativaVigente>NBE-CT-79</NormativaVigente><Procedimiento>CEXv2.3</Procedimiento></IdentificacionEdificio>
+<NormativaVigente>NBE-CT-79</NormativaVigente><AnoConstruccion>${anio}</AnoConstruccion><Procedimiento>CEXv2.3</Procedimiento></IdentificacionEdificio>
 <DatosGeneralesyGeometria><SuperficieHabitable>${sup}</SuperficieHabitable>
 <NumeroDePlantasSobreRasante>99999999.99</NumeroDePlantasSobreRasante>
 <VolumenEspacioHabitable>461.44</VolumenEspacioHabitable></DatosGeneralesyGeometria>
@@ -309,60 +309,54 @@ async function bloqueJuicio() {
     const cambios = compararEnvolventes(ini, fin);
     ok(cambios.opacos.cambiados.every((c) => !!c.tipo), 'cada cerramiento que cambia dice de qué TIPO es');
 
-    // ── TRANSMITANCIAS ───────────────────────────────────────────────────────
+    // ── TRANSMITANCIAS: IGUALES A LA GUÍA (criterio de Fran, 29/09/2026) ────
+    //: 1995 en D3 → la guía (`getUByYear`) da muro 1,69 · cubierta 1,69 · suelo 1,00.
+    //: Sin `.cex` se juzga con las U del `.xml`; el modo solo lo trae el `.cex`.
     const OPACOS_OK = [
         { nombre: 'F1E', tipo: 'Fachada', u: 1.69 },
-        { nombre: 'CU1', tipo: 'Cubierta', u: 1.0 },
-        { nombre: 'SU1', tipo: 'Suelo', u: 1.25 },
+        { nombre: 'CU1', tipo: 'Cubierta', u: 1.69 },
+        { nombre: 'SU1', tipo: 'Suelo', u: 1.0 },
     ];
-    const conOpacos = (opacos) => radiografiaXml(xmlDe({
-        calefaccion: [CALDERA_GAS], acs: [CALDERA_GAS], opacos,
+    const conOpacos = (opacos, extra = {}) => radiografiaXml(xmlDe({
+        calefaccion: [CALDERA_GAS], acs: [CALDERA_GAS], opacos, ...extra,
     }));
 
     res = await revisarCee({ radiografia: conOpacos(OPACOS_OK), expediente: expedienteDe(), fase: 'inicial' });
-    ok(punto(res, 'transmitancias').estado === 'ok', 'todas las transmitancias como «Usuario» (= Conocido) → correcto');
+    ok(punto(res, 'transmitancias').estado === 'ok', 'todas iguales a la guía → correcto');
 
     res = await revisarCee({
-        radiografia: conOpacos([
-            { ...OPACOS_OK[0], modo: 'PorDefecto' },
-            { ...OPACOS_OK[1], modo: 'Estimado' },
-            OPACOS_OK[2],
-        ]),
+        radiografia: conOpacos([{ ...OPACOS_OK[0], u: 2.38 }, { ...OPACOS_OK[1], u: 2.63 }, OPACOS_OK[2]]),
         expediente: expedienteDe(), fase: 'inicial',
     });
-    ok(punto(res, 'transmitancias').estado === 'aviso', 'una «por defecto» y una «estimada» → aviso, no fallo');
-    ok(punto(res, 'transmitancias').dice.includes('2 de 2'), 'y se dice cuántas y cuáles', punto(res, 'transmitancias').dice);
+    ok(punto(res, 'transmitancias').estado === 'aviso', 'distintas de la guía → aviso, no fallo');
+    ok(punto(res, 'transmitancias').dice.includes('2 de 3'), 'y se dice cuántas y cuáles', punto(res, 'transmitancias').dice);
     ok(res.veredicto !== 'NO APTO', 'y no tumba el certificado', res.veredicto);
 
-    //: En un RES080, un cerramiento sin justificar que ADEMÁS se rehabilita pesa
-    //: más: su U de partida es la base del ahorro.
-    const expR80Cub = expedienteDe({ documentacion: { envolvente: { aislamiento_cubierta: true } } });
-    expR80Cub.numero_expediente = '26RES080_996';
+    //: Un certificado ANTERIOR a que se exigiera la guía solo se informa.
     res = await revisarCee({
-        radiografia: conOpacos([OPACOS_OK[0], { ...OPACOS_OK[1], modo: 'PorDefecto' }, OPACOS_OK[2]]),
-        expediente: expR80Cub, fase: 'inicial',
-    });
-    ok(/REHABILITA/.test(punto(res, 'transmitancias').detalle || ''),
-        'y en un RES080 se señala si la sin justificar es la que se rehabilita');
-
-    //: El SUELO no dispara el aviso —solo el 11 % de los certificados de
-    //: producción lo justifica— pero SÍ se menciona, para no esconderlo.
-    res = await revisarCee({
-        radiografia: conOpacos([OPACOS_OK[0], OPACOS_OK[1], { ...OPACOS_OK[2], modo: 'PorDefecto' }]),
+        radiografia: conOpacos([{ ...OPACOS_OK[0], u: 2.38 }], { fecha: '10/10/2025', visita: '01/10/2025' }),
         expediente: expedienteDe(), fase: 'inicial',
     });
-    ok(punto(res, 'transmitancias').estado === 'ok', 'el SUELO por defecto NO dispara el aviso');
-    ok(/suelo/i.test(punto(res, 'transmitancias').dice), 'pero se menciona igualmente', punto(res, 'transmitancias').dice);
+    ok(punto(res, 'transmitancias').estado === 'info', 'anterior a la guía (01/04/2026) → solo informa');
 
-    //: Los PUENTES TÉRMICOS no cuentan: van casi siempre por defecto (19.999 de
-    //: 29.780 apariciones del corpus) y ahogarían el recuento de fachadas.
+    //: El SUELO «por defecto» no se juzga: contra el terreno CE3X calcula su U.
+    res = await revisarCee({
+        radiografia: conOpacos([OPACOS_OK[0], OPACOS_OK[1], { ...OPACOS_OK[2], u: 0.55, modo: 'PorDefecto' }]),
+        expediente: expedienteDe(), fase: 'inicial',
+    });
+    ok(punto(res, 'transmitancias').estado === 'ok', 'un suelo «por defecto» con otra U NO dispara el aviso');
+
+    //: Los PUENTES TÉRMICOS no son cerramientos: no se comparan con la guía.
     const conPuentes = radiografiaXml(xmlDe({
         calefaccion: [CALDERA_GAS], acs: [CALDERA_GAS],
         opacos: [...OPACOS_OK,
             { nombre: 'PT1', tipo: 'Pilar en Esquina', u: 0.1, sup: null, modo: 'PorDefecto' }],
     }));
     res = await revisarCee({ radiografia: conPuentes, expediente: expedienteDe(), fase: 'inicial' });
-    ok(punto(res, 'transmitancias').estado === 'ok', 'un puente térmico «por defecto» no cuenta como transmitancia sin justificar');
+    ok(punto(res, 'transmitancias').estado === 'ok', 'un puente térmico no cuenta como cerramiento');
+
+    //: Sin `.cex` la medida de mejora no se puede juzgar, y se DICE.
+    ok(punto(res, 'medida')?.estado === 'no_comprobable', 'sin .cex, la medida sale «sin comprobar»');
 
     // ── FECHAS ───────────────────────────────────────────────────────────────
     res = await revisarCee({

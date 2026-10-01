@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import axios from 'axios';
 import confetti from 'canvas-confetti';
 import { useModal } from '../../../context/ModalContext';
@@ -10,8 +9,9 @@ import { anexoIFormulario } from '../logic/anexoIFormulario';
 import { buildAnexoCesionHtml, getDualMessage, getClientCaeRate, buildInstalacionAddress, esCesionPrevia, tieneCuentaBancaria } from '../utils/docGenerators';
 import { clienteContacts, instaladorContacts, defaultContactIds, priorizarPorRol, phoneValid } from '../utils/docContacts';
 import { ContactoPickRow, NotaVariosDestinatarios } from './ContactoPickRow';
-// El visor enseña el PDF que se va a enviar (no una maqueta parecida).
-import { DocumentoOficialPreview } from './DocumentoOficialPreview';
+// El visor enseña el PDF que se va a enviar (no una maqueta parecida). Compartido
+// con el popup del CIFO.
+import { VisorDocumentosEnvio } from './VisorDocumentosEnvio';
 import { unidadesSinSerie, countUnidades, acsEsOtraMaquina } from '../logic/aerotermiaUnits';
 // Canal de envío de la barra inferior — COMPARTIDO con los otros popups de envío.
 import { CanalChip, avisoCanales } from '../../../components/CanalChip';
@@ -210,14 +210,6 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
     // Visor de los anexos: null | 'anexo1' | 'cesion' (la pestaña abierta).
     const [verDoc, setVerDoc]           = useState(null);
     const userEditedRef = useRef(false);
-
-    // Esc cierra el VISOR y vuelve al envío, no el popup entero.
-    useEffect(() => {
-        if (!verDoc) return undefined;
-        const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); setVerDoc(null); } };
-        window.addEventListener('keydown', onKey, true);
-        return () => window.removeEventListener('keydown', onKey, true);
-    }, [verDoc]);
 
     // ── A quién saludamos ────────────────────────────────────────────────────
     // El saludo lo manda el/los contacto(s) MARCADOS, no el titular: si se escribe
@@ -1150,91 +1142,29 @@ export function EnviarAnexosModal({ isOpen, onClose, onExit, expediente, results
             </div>
 
             {/* ── VISOR DE LOS ANEXOS ─────────────────────────────────────────
-                Se revisan AQUÍ, sin salir del envío. Enseña el PDF exacto que va a
-                salir: sale de `docDefFor`, la misma función que construye los
-                adjuntos, así que lleva los overrides del popup del Anexo I y, en un
-                requerimiento, el importe nuevo. Las dos pestañas se montan a la vez
-                para que cambiar de una a otra no vuelva a generar el PDF.
-                Portaleado a body: el popup lleva backdrop-blur y un `fixed` dentro
-                se anclaría a él (regla 29.b). */}
-            {verDoc && createPortal(
-                <div className="fixed inset-0 z-[450] flex items-center justify-center bg-black/90 backdrop-blur-md p-2 sm:p-5">
-                    <div className="w-full max-w-5xl h-full flex flex-col bg-[#0F1013] border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
-                        {/* Cabecera: una pestaña por documento, con si sale o no */}
-                        <div className="shrink-0 px-4 sm:px-5 py-3 border-b border-white/[0.07] bg-brand/5 flex items-center gap-3">
-                            <div className="flex-1 min-w-0 flex gap-2 overflow-x-auto">
-                                {['anexo1', 'cesion'].map(k => {
-                                    const activo = verDoc === k;
-                                    const bloq = isBlocked(k);
-                                    const sale = sendDocs.includes(k);
-                                    return (
-                                        <button key={k} type="button" onClick={() => setVerDoc(k)}
-                                            className={`shrink-0 text-left px-3.5 py-2 rounded-xl border transition-all ${activo ? 'border-brand/50 bg-brand/10' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
-                                            <div className={`text-[11px] font-black uppercase tracking-wider ${activo ? 'text-white' : 'text-white/60'}`}>{DOC_DEFS[k].label}</div>
-                                            <div className={`text-[9px] font-bold flex items-center gap-1 ${bloq ? 'text-red-400/80' : sale ? 'text-emerald-400/90' : 'text-white/35'}`}>
-                                                <span className={`w-1.5 h-1.5 rounded-full ${bloq ? 'bg-red-400' : sale ? 'bg-emerald-400' : 'bg-white/25'}`} />
-                                                {bloq ? 'No se puede enviar' : sale ? 'Se envía' : 'No marcado · no se envía'}
-                                            </div>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                            <button type="button" onClick={() => setVerDoc(null)} title="Volver al envío (Esc)"
-                                className="shrink-0 text-white/40 hover:text-white transition-colors">
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                            </button>
-                        </div>
-
-                        {/* Lo que el documento NO puede decir por sí solo */}
-                        {(isBlocked(verDoc) || (esRequerimiento && imp.nuevo != null)) && (
-                            <div className="shrink-0 px-5 py-2 border-b border-white/[0.06] text-[11px] leading-snug">
-                                {isBlocked(verDoc)
-                                    ? <span className="text-red-400 font-bold">🔒 {blockers[verDoc]}. Así saldría: rellénalo en el expediente antes de enviarlo.</span>
-                                    : <span className="text-amber-300">Regenerado con el importe del requerimiento: <strong>{eur(imp.nuevo)}</strong>.</span>}
-                            </div>
-                        )}
-
-                        <div className="flex-1 min-h-0 flex flex-col">
-                            {['anexo1', 'cesion'].map(k => (
-                                <div key={k} className={verDoc === k ? 'flex-1 min-h-0' : 'hidden'}>
-                                    <DocumentoOficialPreview fuente={fuenteDoc(docDefFor(k))} titulo={DOC_DEFS[k].label}
-                                        nota="Es el PDF exacto que se va a enviar. Lo que escribas con las herramientas del visor (texto, lápiz) no se guarda ni se envía." />
-                                </div>
-                            ))}
-                        </div>
-
-                        {/* Pie: incluir/quitar este documento y seguir */}
-                        {(() => {
-                            const orden = ['anexo1', 'cesion'];
-                            const siguiente = orden[orden.indexOf(verDoc) + 1];
-                            const bloq = isBlocked(verDoc);
-                            const sale = sendDocs.includes(verDoc);
-                            return (
-                                <div className="shrink-0 px-4 sm:px-5 py-3 border-t border-white/[0.07] bg-white/[0.02] flex flex-wrap items-center justify-between gap-2">
-                                    {bloq ? <span /> : (
-                                        <button type="button" onClick={() => toggleDoc(verDoc)}
-                                            className={`px-4 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${sale ? 'border-white/10 text-white/50 hover:text-white hover:border-white/30' : 'border-brand/40 text-brand hover:bg-brand/10'}`}>
-                                            {sale ? 'Quitar del envío' : 'Incluir en el envío'}
-                                        </button>
-                                    )}
-                                    <div className="flex items-center gap-2">
-                                        <button type="button" onClick={() => setVerDoc(null)}
-                                            className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${siguiente ? 'border border-white/10 text-white/50 hover:text-white hover:border-white/30' : 'bg-brand text-black hover:brightness-110 active:scale-95'}`}>
-                                            Volver al envío
-                                        </button>
-                                        {siguiente && (
-                                            <button type="button" onClick={() => setVerDoc(siguiente)}
-                                                className="px-5 py-2.5 rounded-xl bg-brand text-black text-[10px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all">
-                                                Ver el {DOC_DEFS[siguiente].label} →
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
-                            );
-                        })()}
-                    </div>
-                </div>,
-                document.body
+                Se revisan AQUÍ, sin salir del envío. El visor es COMPARTIDO con el
+                del CIFO; cada documento sale de `docDefFor`, la misma función que
+                construye los adjuntos, así que lleva los overrides del popup del
+                Anexo I y, en un requerimiento, el importe nuevo. */}
+            {verDoc && (
+                <VisorDocumentosEnvio
+                    activo={verDoc}
+                    onActivo={setVerDoc}
+                    onClose={() => setVerDoc(null)}
+                    onToggle={toggleDoc}
+                    docs={['anexo1', 'cesion'].map(k => ({
+                        key: k,
+                        titulo: DOC_DEFS[k].label,
+                        estado: isBlocked(k) ? 'bloqueado' : (sendDocs.includes(k) ? 'sale' : 'fuera'),
+                        fuente: fuenteDoc(docDefFor(k)),
+                        aviso: isBlocked(k)
+                            ? <>🔒 {blockers[k]}. Así saldría: rellénalo en el expediente antes de enviarlo.</>
+                            : (esRequerimiento && imp.nuevo != null)
+                                ? <>Regenerado con el importe del requerimiento: <strong>{eur(imp.nuevo)}</strong>.</>
+                                : null,
+                        avisoTono: isBlocked(k) ? 'rojo' : 'ambar',
+                    }))}
+                />
             )}
         </div>
     );

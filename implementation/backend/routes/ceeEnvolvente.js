@@ -174,10 +174,11 @@ function recorteSaneado(r) {
  * Las ZONAS que no cuentan en UNA planta (el garaje dentro de la casa, con la
  * vivienda encima), tal y como pueden viajar al motor. Vértices en el CRS
  * métrico, como el contorno de la vivienda; lo que no sean pares de números, o
- * un nivel que no sea un entero, no viaja. El uso solo pone nombre: en CE3X las
- * tres se escriben igual.
+ * un nivel que no sea un entero, no viaja. GARAJE, ALMACEN y el genérico solo
+ * ponen nombre (en CE3X se escriben igual); PORCHE es un porche ABIERTO, que el
+ * motor trata como exterior.
  */
-const USOS_ZONA = ['GARAJE', 'ALMACEN', 'ESPACIO NO HABITABLE'];
+const USOS_ZONA = ['GARAJE', 'ALMACEN', 'ESPACIO NO HABITABLE', 'PORCHE'];
 function zonasSaneadas(zs) {
     if (!Array.isArray(zs)) return [];
     return zs.slice(0, 20).map((z) => {
@@ -187,6 +188,38 @@ function zonasSaneadas(zs) {
         const uso = String(z?.uso || '').toUpperCase();
         return { nivel, poligono: r.poligono, uso: USOS_ZONA.includes(uso) ? uso : null };
     }).filter(Boolean);
+}
+
+/**
+ * El CROQUIS a mano alzada de lo que no es vivienda (ver `gis/croquis.py` en el
+ * motor): manchas por planta que el motor endereza y ajusta a los m² de
+ * Catastro. Vértices en EPSG:25830 (`poligono`, lo que dibuja la ventana) o en
+ * fracciones de la huella (`uv`, de oeste a este y de sur a norte: lo que
+ * escribe la skill). Lo demás no viaja.
+ */
+function croquisSaneado(cs) {
+    if (!Array.isArray(cs)) return null;
+    const out = cs.slice(0, 20).map((c) => {
+        const nivel = Number(c?.nivel);
+        if (!Number.isInteger(nivel)) return null;
+        const uso = String(c?.uso || '').toUpperCase();
+        const base = { nivel, uso: USOS_ZONA.includes(uso) ? uso : null };
+        if (Array.isArray(c?.uv) && c.uv.length >= 3 && c.uv.length <= 100) {
+            const uv = c.uv.map(p => (Array.isArray(p) ? [Number(p[0]), Number(p[1])] : null));
+            if (uv.every(p => p && Number.isFinite(p[0]) && Number.isFinite(p[1]))) return { ...base, uv };
+            return null;
+        }
+        // Un croquis es a mano alzada: admite más vértices que un contorno
+        // pulsado vértice a vértice (el navegador ya lo simplifica, pero un
+        // trazo largo del dedo sigue pasando de 100).
+        const pts = Array.isArray(c?.poligono) ? c.poligono : null;
+        if (!pts || pts.length < 3 || pts.length > 400) return null;
+        const limpio = pts.map(p => (Array.isArray(p) && p.length >= 2
+            ? [Number(p[0]), Number(p[1])] : null));
+        if (limpio.some(p => !p || !Number.isFinite(p[0]) || !Number.isFinite(p[1]))) return null;
+        return { ...base, poligono: limpio };
+    }).filter(Boolean);
+    return out.length ? out : null;
 }
 
 /**
@@ -208,6 +241,14 @@ router.post('/:expedienteId/geometria', internalOnly, staffSiOportunidad, async 
         // la superficie que acaba en el certificado.
         const construcciones = await cex.construccionesElegidas(
             req.params.expedienteId, origenDe(req));
+
+        // Las PISTAS para proponer el croquis: las fachadas en cuya foto hay una
+        // puerta de garaje. Un fallo aquí solo quita la pista, nunca la medición.
+        let pistasCroquis = null;
+        try {
+            const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
+            if (ctx) pistasCroquis = fotos.pistasCroquis(ctx.expediente);
+        } catch (e) { console.warn('[ceeEnvolvente] pistas del croquis:', e.message); }
 
         const r = await alMotor('/envolvente', {
             referencia_catastral: rc,
@@ -232,6 +273,13 @@ router.post('/:expedienteId/geometria', internalOnly, staffSiOportunidad, async 
             // que el contorno (un prisma para todas las plantas), se resta SOLO
             // de su nivel: la vivienda de encima sigue entera.
             zonas_fuera: zonasSaneadas(req.body?.zonas_fuera),
+            // El CROQUIS a mano alzada: el motor lo ajusta a los m² de Catastro,
+            // lo mide como zonas más y devuelve los polígonos (`croquis_ajustado`)
+            // para que se guarden como zonas. `croquis_ajustar: false` = tal cual.
+            croquis: croquisSaneado(req.body?.croquis),
+            croquis_ajustar: req.body?.croquis_ajustar !== false,
+            // Para la PROPUESTA de croquis (el motor la calcula y la ofrece).
+            pistas_croquis: pistasCroquis,
             // El PROGRAMA de CE3X (residencial / pequeño / gran terciario). De
             // él cuelga QUÉ SE MIDE: en un terciario cuentan también los usos
             // del terciario que Catastro no da por habitables (un hotel es
@@ -369,6 +417,93 @@ router.post('/:expedienteId/cartografia', internalOnly, staffSiOportunidad, asyn
         console.error('[ceeEnvolvente] cartografia:', e.message);
         res.status(e.status || 500).json({ error: e.message });
     }
+});
+
+// ─── El CROQUIS pintado desde el MÓVIL ───────────────────────────────────────
+// Ver `services/croquisMovil.js`. Estas son las rutas del ORDENADOR (con sesión);
+// las del teléfono son públicas por token y viven en `routes/public.js`. La
+// sesión queda atada a ESTE expediente: con el token de otro no se lee nada.
+const croquisMovil = require('../services/croquisMovil');
+
+/**
+ * POST /api/cee-envolvente/:expedienteId/croquis-movil
+ * Body: { planta, muros, lienzo, zonas, catastro, trazos, georef }
+ *
+ * Abre el enlace y dibuja su QR. La CARTOGRAFÍA la pone el backend con el mismo
+ * helper cacheado del plano (cero peticiones de más si ya se veía en pantalla):
+ * pintar dónde está el garaje sin ver la parcela es pintar a ciegas.
+ */
+router.post('/:expedienteId/croquis-movil', internalOnly, staffSiOportunidad, async (req, res) => {
+    try {
+        let cartografia = null;
+        if (req.body?.georef) {
+            const c = await cex.cartografia(req.body.georef).catch(() => null);
+            if (c?.imagen && req.body.georef.en_el_lienzo) {
+                cartografia = { imagen: c.imagen, tipo: c.tipo, en_el_lienzo: req.body.georef.en_el_lienzo };
+            }
+        }
+        const enlace = croquisMovil.abrir({
+            ...(req.body || {}),
+            cartografia,
+            expediente: req.params.expedienteId,
+            // De qué negocio es: las FOTOS que se hagan desde el teléfono se
+            // escriben en la tabla que toque.
+            negocio: origenDe(req),
+            origen: req.get('origin') || req.get('referer'),
+        });
+        const QRCode = require('qrcode');
+        const pintar = (u) => QRCode.toDataURL(u, { margin: 1, width: 460 });
+        enlace.qr = await pintar(enlace.url);
+        enlace.qrAlternativas = await Promise.all(enlace.alternativas.map(pintar));
+        enlace.conCartografia = !!cartografia;
+        res.json(enlace);
+    } catch (e) {
+        res.status(e.status || 503).json({ error: e.message });
+    }
+});
+
+/**
+ * GET /api/cee-envolvente/:expedienteId/croquis-movil/:token/esperar?v=N
+ *
+ * Petición LARGA: contesta en cuanto el teléfono manda algo más nuevo que la
+ * versión `v`, o a los 20 s con lo que haya. Es lo que hace que el croquis se
+ * vea AQUÍ según se pinta allí, sin la cadencia a saltos de una encuesta.
+ */
+router.get('/:expedienteId/croquis-movil/:token/esperar', internalOnly, staffSiOportunidad, async (req, res) => {
+    let soltar = null;
+    req.on('close', () => soltar?.());
+    const datos = await croquisMovil.esperar(req.params.token, req.params.expedienteId,
+                                             req.query.v, (fn) => { soltar = fn; });
+    if (!res.writableEnded && !res.destroyed) res.json(datos);
+});
+
+/** POST …/croquis-movil/:token/resultado — cómo ha ido el ajuste que pidió el teléfono. */
+router.post('/:expedienteId/croquis-movil/:token/resultado', internalOnly, staffSiOportunidad, (req, res) => {
+    const ok = croquisMovil.responder(req.params.token, req.params.expedienteId, req.body || {});
+    res.status(ok ? 200 : 410).json({ ok });
+});
+
+/**
+ * POST …/croquis-movil/:token/resultado-huecos — el ordenador ha puesto (o no)
+ * en el plano los huecos que se revisaron en el teléfono.
+ */
+router.post('/:expedienteId/croquis-movil/:token/resultado-huecos', internalOnly, staffSiOportunidad, (req, res) => {
+    const ok = croquisMovil.responderHuecos(req.params.token, req.params.expedienteId, req.body || {});
+    res.status(ok ? 200 : 410).json({ ok });
+});
+
+/**
+ * POST …/croquis-movil/:token/paredes — cómo están las paredes AHORA en el plano
+ * del ordenador (huecos, nombre, si admiten ventanas), para que el teléfono lo vea.
+ */
+router.post('/:expedienteId/croquis-movil/:token/paredes', internalOnly, staffSiOportunidad, (req, res) => {
+    const ok = croquisMovil.actualizarParedes(req.params.token, req.params.expedienteId, req.body?.paredes);
+    res.status(ok ? 200 : 410).json({ ok });
+});
+
+/** DELETE …/croquis-movil/:token — el ordenador cierra; el teléfono lo verá. */
+router.delete('/:expedienteId/croquis-movil/:token', internalOnly, staffSiOportunidad, (req, res) => {
+    res.json({ ok: croquisMovil.cerrar(req.params.token, req.params.expedienteId) });
 });
 
 /**

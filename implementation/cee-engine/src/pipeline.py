@@ -585,10 +585,212 @@ def sin_vivienda_mide_todo(modelo: Modelo) -> list[str]:
 #: Por debajo de esto una zona dibujada no es un garaje: es un clic de mas.
 AREA_MINIMA_ZONA_M2 = 1.0
 
-#: Como puede llamarse una zona que no cuenta. Solo sirve para el nombre y las
-#: notas: en CE3X las tres se escriben igual (particion con espacio no
-#: habitable).
-USOS_ZONA = ("GARAJE", "ALMACEN", floors_mod.NO_HABITABLE)
+#: Como puede llamarse una zona que no cuenta. GARAJE, ALMACEN y el genérico
+#: solo ponen nombre: en CE3X los tres se escriben igual (particion con espacio
+#: no habitable). El PORCHE ABIERTO es otra cosa: es EXTERIOR (ver
+#: `floors.plantas_desde_partes`).
+USOS_ZONA = ("GARAJE", "ALMACEN", floors_mod.NO_HABITABLE, floors_mod.PORCHE)
+
+
+def _objetivos_catastro(modelo: Modelo, nivel: int, huella_m2: float) -> tuple[dict, dict]:
+    """Los m2 que Catastro declara en ESTE nivel por uso de zona, escalados a la
+    huella (la suma de las unidades no siempre casa con el poligono: 197 frente
+    a 195,36 en OP246). Devuelve (objetivos, declarados_sin_escalar)."""
+    return _objetivos_de(modelo, nivel, huella_m2)
+
+
+def _uso_zona(s) -> str:
+    """El uso de ZONA de una construccion que no es vivienda."""
+    a = s.attrs or {}
+    literal = str(a.get("uso_literal") or s.use or "").upper()
+    if literal.startswith("PORCHE"):
+        return floors_mod.PORCHE
+    if s.use in ("GARAJE", "ALMACEN"):
+        return s.use
+    return floors_mod.NO_HABITABLE
+
+
+def _objetivos_de(modelo: Modelo, nivel: int, huella_m2: float,
+                  sin_codigos=()) -> tuple[dict, dict]:
+    """`_objetivos_catastro`, pudiendo dejar fuera construcciones concretas (las
+    que ya son un CUERPO aparte: esas se quitan con «Quitar cuerpo», no con un
+    croquis). La escala es siempre la de la planta entera."""
+    esp = [s for s in modelo.spaces if s.floor == nivel and s.area]
+    total = sum(float(s.area) for s in esp)
+    escala = (huella_m2 / total) if total > 0 else 1.0
+    fuera = set(sin_codigos or ())
+    crudo: dict[str, float] = {}
+    for s in esp:
+        a = s.attrs or {}
+        if a.get("habitable") or a.get("codigo") in fuera:
+            continue
+        uso = _uso_zona(s)
+        crudo[uso] = crudo.get(uso, 0.0) + float(s.area)
+    return {u: v * escala for u, v in crudo.items()}, crudo
+
+
+def ajustar_croquis(modelo: Modelo, croquis, ajustar: bool = True) -> tuple[list[dict], list[dict]]:
+    """El CROQUIS a mano alzada, convertido en zonas con los m2 de Catastro.
+
+    Cada trazo es `{nivel, uso, poligono: [[x,y],...]}` en EPSG:25830 (lo que
+    dibuja la ventana) o `{nivel, uso, uv: [[u,v],...]}` en fracciones de la
+    huella de su planta, de OESTE a ESTE y de SUR a NORTE (lo que escribe la
+    skill: «el garaje es la franja norte»). Ver `gis/croquis.py`.
+
+    Devuelve (zonas para `leer_zonas`, detalle para la respuesta).
+    """
+    if not croquis:
+        return [], []
+    from shapely.geometry import Polygon
+    from .gis import croquis as croquis_mod
+
+    huellas = {pl.nivel: pl.huella for pl in floors_mod.plantas_desde_partes(modelo.partes)}
+    por_nivel: dict[int, list[dict]] = {}
+    dichos: list[str] = []
+    for i, t in enumerate(croquis if isinstance(croquis, list) else []):
+        if not isinstance(t, dict):
+            continue
+        try:
+            nivel = int(t.get("nivel"))
+        except (TypeError, ValueError):
+            dichos.append(f"el trazo {i + 1} no dice en que planta esta")
+            continue
+        huella = huellas.get(nivel)
+        if huella is None:
+            dichos.append(f"el trazo {i + 1} es de {_nombre_nivel(nivel)}, que no existe")
+            continue
+        uso = str(t.get("uso") or "").strip().upper()
+        uso = uso if uso in USOS_ZONA else floors_mod.NO_HABITABLE
+        try:
+            if t.get("uv"):
+                a_xy = croquis_mod.marco(huella)
+                pts = [a_xy(float(u), float(v)) for u, v in t["uv"]]
+            else:
+                pts = [(float(x), float(y)) for x, y in (t.get("poligono") or [])]
+        except (TypeError, ValueError):
+            dichos.append(f"el trazo {i + 1} no trae vertices legibles")
+            continue
+        if len(pts) < 3:
+            dichos.append(f"el trazo {i + 1} tiene menos de 3 puntos")
+            continue
+        por_nivel.setdefault(nivel, []).append(
+            {"indice": i, "uso": uso, "poligono": Polygon(pts)})
+
+    zonas: list[dict] = []
+    detalle: list[dict] = []
+    for nivel, trazos in sorted(por_nivel.items()):
+        huella = huellas[nivel]
+        objetivos, declarados = _objetivos_catastro(modelo, nivel, huella.area)
+        hechos, avisos = croquis_mod.ajustar_nivel(huella, trazos, objetivos, ajustar)
+        dichos.extend(f"{_nombre_nivel(nivel)}: {a}" for a in avisos)
+        for z in hechos:
+            coords = [[round(x, 2), round(y, 2)] for x, y in z["poligono"].exterior.coords[:-1]]
+            zonas.append({"nivel": nivel, "uso": z["uso"], "poligono": coords})
+            detalle.append({"indice": z["indice"], "nivel": nivel, "uso": z["uso"],
+                            "poligono": coords, "area_m2": z["area_m2"],
+                            "objetivo_m2": z["objetivo_m2"],
+                            "catastro_m2": round(declarados.get(z["uso"], 0.0), 2) or None,
+                            "dibujado_m2": z["dibujado_m2"], "de": z["de"]})
+        resto = huella.area - sum(z["area_m2"] for z in hechos)
+        if hechos:
+            dichos.append(f"{_nombre_nivel(nivel)}: croquis ajustado ("
+                          + ", ".join(f"{z['uso']} {z['area_m2']:.1f} m2" for z in hechos)
+                          + f"); queda de vivienda {resto:.1f} m2")
+    if dichos:
+        modelo.diagnostics.add("CROQUIS", "; ".join(dichos))
+    return zonas, detalle
+
+
+#: Por debajo de esto, lo que Catastro declara que no es vivienda en una planta
+#: no merece una propuesta (redondeos entre `lcons` y la huella).
+PROPUESTA_MINIMA_M2 = 4.0
+
+
+def proponer_croquis(modelo: Modelo, elementos, inventario=None, niveles_hechos=(),
+                     pistas=None) -> list[dict]:
+    """La PROPUESTA de croquis para cada planta que la necesita (ver
+    `gis/croquis_propuesta.py`).
+
+    La necesita una planta donde Catastro declara usos que NO son vivienda
+    MEZCLADOS con ella en el mismo cuerpo: lo que es un cuerpo aparte ya casado
+    con su construccion (el aparcamiento adosado) se quita entero y no entra, y
+    una planta que ya tiene sus zonas o su croquis tampoco — ya lo decidio una
+    persona.
+
+    `elementos`: las paredes medidas (`ElementoCE3X`). `pistas`: {uso: [ids de
+    pared]} — hoy, las fachadas en cuya FOTO hay una puerta de garaje.
+    Devuelve [{nivel, trazos: [...], avisos}] con los poligonos en EPSG:25830.
+    """
+    from shapely import wkt as shp_wkt
+    from shapely.ops import unary_union
+    from .gis import croquis as croquis_mod
+    from .gis import croquis_propuesta as cp
+
+    hechos = {int(n) for n in (niveles_hechos or ()) if n is not None}
+    huellas = {pl.nivel: pl.huella for pl in floors_mod.plantas_desde_partes(modelo.partes)}
+    # Lo que ya es un cuerpo aparte, por nivel: su construccion y su poligono.
+    casados: dict[int, list] = {}
+    for c in inventario or []:
+        con = c.get("construccion") or {}
+        if c.get("_geom") is None:
+            continue
+        if con.get("habitable") is False:
+            for n in c.get("niveles_fuera") or []:
+                casados.setdefault(int(n), []).append((con.get("codigo"), c["_geom"]))
+        elif c.get("fuera"):
+            # Un cuerpo que el certificador ya ha dejado fuera sin que case con
+            # nada: su sitio no se propone, pero sus m2 no se sabe de que son.
+            for n in c.get("niveles_fuera") or []:
+                casados.setdefault(int(n), []).append((None, c["_geom"]))
+
+    salida = []
+    for nivel, huella in sorted(huellas.items()):
+        if nivel in hechos or huella is None or huella.is_empty:
+            continue
+        aparte = casados.get(nivel, [])
+        objetivos, declarados = _objetivos_de(modelo, nivel, huella.area,
+                                              sin_codigos=[cod for cod, _ in aparte if cod])
+        objetivos = {u: v for u, v in objetivos.items() if v >= PROPUESTA_MINIMA_M2}
+        if not objetivos:
+            continue
+        mixta = huella.difference(unary_union([g for _, g in aparte])) if aparte else huella
+        if mixta.is_empty or mixta.area < sum(objetivos.values()) * 0.5:
+            continue
+        paredes = []
+        for e in elementos or []:
+            if e.nivel != nivel or not e.geometria_wkt:
+                continue
+            try:
+                linea = shp_wkt.loads(e.geometria_wkt)
+            except Exception:                              # noqa: BLE001
+                continue
+            if linea.geom_type not in ("LineString", "MultiLineString"):
+                continue
+            # Solo las paredes del BORDE de la parte mezclada.
+            if linea.distance(mixta.boundary) > 0.3:
+                continue
+            paredes.append({"id": e.id, "tipo": e.tipo, "subtipo": e.subtipo,
+                            "orientacion": e.orientacion, "linea": linea})
+        semillas, notas = cp.proponer(mixta, paredes, objetivos, pistas)
+        if not semillas:
+            continue
+        zonas, avisos = croquis_mod.ajustar_nivel(
+            mixta, [{"indice": s["indice"], "uso": s["uso"], "poligono": s["poligono"]}
+                    for s in semillas], objetivos, True)
+        por_indice = {s["indice"]: s for s in semillas}
+        trazos = []
+        for z in zonas:
+            s = por_indice[z["indice"]]
+            trazos.append({
+                "uso": z["uso"],
+                "poligono": [[round(x, 2), round(y, 2)] for x, y in z["poligono"].exterior.coords[:-1]],
+                "area_m2": z["area_m2"],
+                "catastro_m2": round(declarados.get(z["uso"], 0.0), 2) or None,
+                "ancla": s["ancla"], "lado": s["lado"],
+                "por_que": s["por_que"], "confianza": s["confianza"],
+            })
+        salida.append({"nivel": nivel, "trazos": trazos, "avisos": notas + avisos})
+    return salida
 
 
 def leer_zonas(modelo: Modelo, zonas) -> list[dict]:
@@ -756,7 +958,10 @@ def excluir_cuerpos(modelo: Modelo, ids, inventario=None, zonas=None) -> list[st
             + "; ".join(dichas_zonas) + ". Se resta SOLO de esa planta —la de arriba "
             "no se toca—; la pared de la casa contra la zona sale como PARTICION con "
             "espacio no habitable y el forjado de encima, como suelo sobre espacio no "
-            "habitable")
+            "habitable"
+            + (" (un PORCHE ABIERTO es exterior: la pared detras de el sale FACHADA y el "
+               "forjado de encima, SUELO en contacto con el aire)"
+               if any(z["uso"] == floors_mod.PORCHE for z in zonas) else ""))
     return dichos + dichas_zonas
 
 
@@ -875,6 +1080,23 @@ def analizar(o: Opciones, modelo: Modelo) -> Resultado:
     # En un TERCIARIO el forjado entre dos plantas acondicionadas de distinto
     # uso (las aulas bajo la vivienda del sacerdote) no se escribe: a los dos
     # lados hay la misma temperatura. En el residencial no cambia nada.
+    #
+    # Y una planta que se MIDE es habitable para sus forjados, aunque Catastro
+    # declare en ella sobre todo un garaje: sin esto, la misma planta era
+    # vivienda para sus paredes y garaje para sus suelos y techos, y salian dos
+    # particiones fantasma sobre toda la huella (ver `marcar_usos_medidos`).
+    hab_por_nivel: dict[int, dict[str, float]] = {}
+    for s in modelo.spaces:
+        if (s.attrs or {}).get("habitable") and s.floor is not None and s.use:
+            d = hab_por_nivel.setdefault(int(s.floor), {})
+            d[s.use] = d.get(s.use, 0.0) + float(s.area or 0.0)
+    medidos = floors_mod.marcar_usos_medidos(modelo.floors, hab_por_nivel)
+    if medidos:
+        modelo.diagnostics.add(
+            "USO_MEDIDO",
+            "; ".join(medidos) + ". Catastro no dice que poligono es cada uso: si en la "
+            "planta hay un garaje o un porche, delimitalo («Quitar una zona») para que "
+            "salgan la particion vertical contra el y el forjado de encima")
     horizontales = floors_mod.elementos_horizontales(
         modelo.floors,
         acondicionados=(alphanumeric.ACONDICIONADOS_TERCIARIO

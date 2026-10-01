@@ -976,6 +976,20 @@ router.post('/:id/docs/enviar-enlace', staffOnly, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// GET /:id/enlace-encargo?phase=  → la página del encargo del técnico ASIGNADO
+// (gemela de la del CAE: el módulo CEE la pide sin saber de qué negocio es).
+router.get('/:id/enlace-encargo', staffOnly, async (req, res) => {
+    try {
+        const row = await svc.cargar(req.params.id, { conRelaciones: false });
+        if (!row) return res.status(404).json({ error: 'Expediente no encontrado' });
+        const { enlaceEncargo } = require('../services/encargoTecnico');
+        res.json({ url: enlaceEncargo({ negocio: 'cee', id: row.id, fase: req.query.phase,
+                                        certId: req.query.certificador_id || row.cee?.certificador_id || null }) });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // GET /:id/aviso-cliente-cee?phase=initial&certificador_id=  → borrador para el popup
 router.get('/:id/aviso-cliente-cee', staffOnly, async (req, res) => {
     try {
@@ -991,8 +1005,13 @@ router.get('/:id/aviso-cliente-cee', staffOnly, async (req, res) => {
             bloqueCertificador = bloqueConfirmacionCertificador({
                 cuestionario: row.documentacion?.cuestionario || null, cae: false });
         } catch (e) { console.warn('[cee-directo aviso-cliente-cee] cuestionario:', e.message); }
+        // La PÁGINA DEL ENCARGO del técnico elegido: el popup la mete en el
+        // mensaje en lugar del enlace a la app (services/encargoTecnico.js).
+        const { enlaceEncargo } = require('../services/encargoTecnico');
         res.json({ ...(await buildAvisoClienteCeeDirecto(row, req.query.phase === 'final' ? 'final' : 'inicial', req.query.certificador_id || null)),
-                   bloque_certificador: bloqueCertificador });
+                   bloque_certificador: bloqueCertificador,
+                   enlace_encargo: enlaceEncargo({ negocio: 'cee', id: row.id, fase: req.query.phase,
+                                                   certId: req.query.certificador_id || row.cee?.certificador_id || null }) });
     } catch (err) {
         console.error('[cee-directo aviso-cliente-cee]', err.message);
         res.status(500).json({ error: 'Error preparando el aviso al cliente' });
@@ -1126,6 +1145,10 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
         cee.ack_respuesta_at = null;
         cee.ack_enviado_at = new Date().toISOString();
         const acuse = ack.enlacesAck(row.id, ackToken);
+        // La PÁGINA DEL ENCARGO de ESTE técnico: todo en una (cliente, dirección,
+        // fotos y enlaces). Ver services/encargoTecnico.js.
+        const { enlaceEncargo, conEnlaceEncargo } = require('../services/encargoTecnico');
+        const encargoLink = enlaceEncargo({ negocio: 'cee', id: row.id, fase: phase, certId });
         const bloqueCarpetas = compartidas.map(c => `📁 ${c.nombre}:\n${c.link}`).join('\n\n');
 
         const cuerpo = (req.body?.customMessage || '').trim()
@@ -1161,6 +1184,7 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
                         : 'Un solo certificado',
                     carpetas: compartidas,
                     expedienteLink: enlaceApp(row.id),
+                    encargoLink,
                     acuse,
                     priority: req.body?.priority === 'urgent' ? 'urgent' : 'normal',
                     adminMessage: (req.body?.adminMessage || '').trim() || null,
@@ -1179,7 +1203,7 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
                 // distintas: un enlace suelto que "acepta al pulsarlo" sin decir
                 // cuál es cuál es una trampa.
                 await whatsappService.sendText(telefonoDe(cert),
-                    `${cuerpo}\n\n✅ Me encargo:\n${acuse.aceptar}\n\n🚫 No puedo cogerlo:\n${acuse.rechazar}`);
+                    `${conEnlaceEncargo(cuerpo, encargoLink)}\n\n✅ Me encargo:\n${acuse.aceptar}\n\n🚫 No puedo cogerlo:\n${acuse.rechazar}`);
                 enviados.push('whatsapp');
             } catch (e) { errores.push(`whatsapp: ${e.message}`); }
         }

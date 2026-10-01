@@ -7,9 +7,12 @@ description: >-
   el .xml / el .cex que me han pasado", o adjunte un .xml, .cex o PDF de un CEE. Comprueba lo que se
   revisa a mano: que el CEE inicial declare el equipo que se va a sustituir con su combustible, que el
   alcance (calefacción / calefacción+ACS) coincida, que la demanda y la superficie no queden por debajo
-  de las simuladas, que la vivienda sea la del expediente, y —en un RES080— QUÉ elementos de envolvente
-  cambian entre los dos certificados. INFORMA con un veredicto y la evidencia de cada punto: no da el
-  visto bueno, no avisa al certificador y no registra nada. Eso lo decide una persona.
+  de las simuladas, que las transmitancias y la ventilación sean las de la guía, que la vivienda sea la
+  del expediente, huecos y puentes térmicos, y —leyendo el .cex— que la MEDIDA DE MEJORA del inicial
+  exista, esté calculada sobre ESE edificio y lleve el equipo y el SCOP del expediente; y en un RES080,
+  QUÉ elementos de envolvente cambian. Si falta la medida, la app puede ponerla (--poner-medida).
+  INFORMA con un veredicto y la evidencia de cada punto: no da el visto bueno, no avisa al certificador
+  y no registra nada. Eso lo decide una persona.
 ---
 
 # Revisar un CEE antes de dar el visto bueno
@@ -66,16 +69,31 @@ determinista y el resultado es reproducible:
 
 ```bash
 cd implementation/backend
-node scripts/revisar_cee.js <cee.xml> [otro.xml] --exp <expediente.json> --fase inicial|final
+node scripts/revisar_cee.js --expediente 26RES060_192 [--fase inicial|final]
 ```
 
-`expediente.json` es lo que devuelve `get_expediente`, guardado tal cual. Sin `--exp` hace solo la
-radiografía (qué dice el certificado), que ya vale para mirarlo por encima.
+Con `--expediente` lo trae todo solo: el `.xml` (de Supabase, o de Drive si no está en la BD) y el
+**`.cex` del técnico** de su carpeta `1. CEE / CEE INICIAL|FINAL`, que lee el **motor**
+(`cee-engine`, `POST /cex/radiografia`). ⚠️ Sin el motor levantado los puntos del `.cex` salen «sin
+comprobar» —en local: `preview_start cee-engine`, puerto 8090—.
 
-⚠️ **`--fase` siempre.** De la fase depende el criterio: en el inicial se espera una caldera y en el
-final una bomba de calor, y en un RES080 se espera que la demanda BAJE. Sin ella se deduce del nombre
-del fichero, que es una conjetura — y equivocarla no da un aviso raro: revisa con el criterio
-contrario. En la app la fase la da el slot al que se subió, que es un dato.
+Con ficheros sueltos: `node scripts/revisar_cee.js <cee.xml> [otro.xml] --exp <expediente.json>`.
+
+⚠️ **`--fase` siempre** con ficheros sueltos: de la fase depende el criterio (en el inicial se espera
+una caldera y en el final una bomba de calor; en un RES080, que la demanda BAJE).
+
+**Si falta la medida de mejora**, la app la pone — la MISMA que se añadía a mano:
+
+```bash
+node scripts/revisar_cee.js --expediente 26RES060_192 --poner-medida
+```
+
+⚠️ **ESCRIBE en Drive** (`{nº} - CEE INICIAL_CON MEDIDA_REVISAR.cex`, junto al del técnico, en una
+carpeta que ve el certificador): pídelo solo si el usuario lo quiere. La medida sale **SIN calcular**
+—el ahorro lo calcula el motor de CE3X al pulsar «Actualizar», y ese motor no está aquí—, así que
+alguien tiene que abrirlo en CE3X, pulsar «Actualizar» y guardarlo como el `.cex` del certificado.
+Sin aerotermia en el expediente pone una GENÉRICA con lo simulado; con el ACS fuera de alcance y la
+caldera mixta retirada, un termo eléctrico.
 
 **Sin el repo (Cowork)** — aplica a mano el criterio de [referencia/criterio.md](referencia/criterio.md)
 leyendo el `.xml`, y **dilo en el informe**: «revisado sin el comprobador determinista». Es la misma
@@ -91,29 +109,37 @@ seguimiento y el historial.
 
 ## Lo que se comprueba
 
+Todos los umbrales están medidos sobre los 143 CEE iniciales que Fran había aprobado (29/09/2026).
+
 | Punto | Contra qué | Si falla |
 |---|---|---|
 | El generador que se sustituye está en el CEE inicial | `caldera_antigua_cal.rendimiento_id` | NO APTO (en RES080, aviso) |
 | Es de **combustión** (en RES060/093/TER100/TER173) | la ficha | NO APTO |
 | El **combustible** es el declarado | `inputs.fuelType` + la fila de rendimiento | NO APTO si cambia de FAMILIA; aviso dentro de ella |
-| El **rendimiento** encaja con la casilla del Anexo VIII (±8 pts) | `BOILER_EFFICIENCIES` | aviso |
+| **Rendimiento** de la caldera (y su cola en el `.cex`) | la tabla | **solo informa** |
 | El **ACS**: si la actuación lo toca, está descrito; y con el mismo equipo si así consta | `cambio_acs`, `misma_caldera_acs` | NO APTO / aviso |
-| **Acumulación de ACS** | — | **no comprobable con el `.xml`** (ver abajo) |
-| **Demanda** y **superficie** ≥ las simuladas | la oportunidad | NO APTO |
+| **Demanda** y **superficie** frente a las simuladas | la oportunidad | aviso hasta −10 %; NO APTO más abajo |
 | **Referencia catastral** y **zona climática** | el expediente | NO APTO / aviso |
+| **Transmitancias** = la Guía (±2 %) | `getUByYear` | aviso desde el 01/04/2026; antes, info |
+| **Ventilación** = la Guía | `getVentanaYACHByYear` | aviso desde el 01/04/2026 |
+| **Año** = el de la simulación | la oportunidad | aviso |
+| **Huecos**: que haya, y entre 6 % y 45 % de la fachada | lo aprobado | NO APTO / aviso |
+| **Puentes**: forjado, contorno de hueco, pilares | lo aprobado | aviso |
+| **Reparto** de calefacción y ACS al 100 % | el `.cex` | aviso |
+| **Aires y placas** que confirmó el cliente | `confirmacion_cliente`, `fotovoltaica` | aviso |
+| **Medida de mejora**: existe, calculada, sobre ESTE edificio | el `.cex` | NO APTO (RES080: aviso si no hay) |
+| **Medida**: bomba de calor, modelo y SCOP del expediente | el expediente o la simulación | NO APTO / aviso |
 | **RES080**: qué elementos de envolvente cambian | `documentacion.envolvente` | NO APTO |
 | **Fase final**: declara la bomba de calor instalada | `aerotermia_cal` | NO APTO |
-| **Transmitancias** de muros, cubierta, suelo y particiones justificadas | el propio `.xml` | aviso |
-| **Fecha del certificado** = la que consta en el expediente (la que se le pide firmar) | `fechaFirmaCee` | aviso |
+| **Fecha del certificado** = la que consta en el expediente | `fechaFirmaCee` | aviso |
 | **Fecha de visita** anterior al certificado, y que exista | el propio `.xml` | NO APTO / aviso |
 | **Quién firma** el certificado es el técnico asignado | `prescriptores` del `certificador_id` | aviso |
 
 ## Lo que hay que saber
 
-**La acumulación de ACS NO está en el `.xml`.** Medido sobre los 462 certificados reales del corpus: el
-único nodo con «volumen» es `<VolumenEspacioHabitable>`, que es el de la vivienda. Ese punto solo se
-puede comprobar abriendo el **`.cex`** (o mirándolo en CE3X), y por eso la revisión lo saca marcado
-como *no comprobable* en vez de callarlo.
+**La acumulación de ACS y la medida de mejora solo están en el `.cex`.** El `.xml` no declara el
+depósito (medido en 462) ni qué equipo propone la medida o si está calculada. Por eso la revisión lee
+el `.cex`, y si no lo tiene, esos puntos salen *no comprobables* en vez de callarse.
 
 **En un RES080, qué se sustituye NO se lee del texto de la medida de mejora.** Su `<Nombre>` es texto
 libre: en el corpus dice cosas como «CEE FINAL.cex» o «MAE 1». Lo que sí prueba qué cambia es comparar

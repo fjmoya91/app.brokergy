@@ -47,8 +47,16 @@ const APP_BASE = 'https://app.brokergy.es';
 // el CEE contratado suelto. Son DOS TABLAS distintas y el mismo UUID no vale en
 // las dos: mandar `?exp=` con el id de un CEE directo le da al técnico un enlace
 // que abre la pestaña equivocada y no encuentra nada. Visto en 2026CEE_54.
-const expedienteLine = (expedienteId, ctx = {}) =>
-    expedienteId ? `\n\n🔗 Abre el expediente directamente en la app:\n${APP_BASE}/?${ctx.deepLink || 'exp'}=${expedienteId}` : '';
+//
+// Con la PÁGINA DEL ENCARGO (`ctx.encargoLink`, la da el servidor: su firma lleva
+// el técnico) va esa en su lugar: dentro está también el enlace a la app, y un
+// mensaje con cuatro enlaces no se sabe por cuál empezar. El texto es el MISMO
+// que usa el servidor cuando la añade él (`encargoTecnico.TEXTO_ENLACE`).
+export const TEXTO_ENLACE_ENCARGO = '📋 Todo el encargo en una página (cliente, dirección, fotos y enlaces):';
+const expedienteLine = (expedienteId, ctx = {}) => {
+    if (ctx.encargoLink) return `\n\n${TEXTO_ENLACE_ENCARGO}\n${ctx.encargoLink}`;
+    return expedienteId ? `\n\n🔗 Abre el expediente directamente en la app:\n${APP_BASE}/?${ctx.deepLink || 'exp'}=${expedienteId}` : '';
+};
 
 // ─── Eje 1: qué esperamos del certificador ───────────────────────────────────
 export const CERT_ESPERA = { EMISION: 'emision', REGISTRO: 'registro' };

@@ -127,25 +127,46 @@ const primerNombre = (s) => String(s || '').trim().split(/\s+/)[0] || '';
 const capital = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
 
 /**
- * Mensaje de envío (WhatsApp con *negritas*; el email lo convierte). Dice cómo
- * se paga —es lo que se le pide— y por qué conviene: el certificado se entrega
- * con la factura abonada (candado de cobro).
+ * Qué trabajo se factura, dicho como se le diría al cliente ("el certificado de
+ * eficiencia energética final"). Sale de las LÍNEAS, que es lo que de verdad se
+ * cobra: la tasa es un suplido y no es "el trabajo".
  */
-export function mensajeFactura({ nombre, numero, total, expediente, esEmpresa = false } = {}) {
+export function trabajoFacturado(lineas = []) {
+    const txt = lineas.map(l => String(l?.descripcion || '')).filter(d => d && !/^\s*tasa/i.test(d));
+    const cee = txt.find(d => /certificad/i.test(d) && /eficiencia/i.test(d));
+    if (cee) {
+        const ini = /inicial/i.test(cee), fin = /final/i.test(cee);
+        if (ini && fin) return 'los certificados de eficiencia energética inicial y final';
+        if (fin) return 'el certificado de eficiencia energética final';
+        if (ini) return 'el certificado de eficiencia energética inicial';
+        return 'el certificado de eficiencia energética';
+    }
+    return txt[0] ? txt[0].trim().replace(/^realizaci[oó]n de /i, '').toLowerCase() : 'el certificado de eficiencia energética';
+}
+
+/**
+ * Mensaje de envío (WhatsApp con *negritas*; el email lo convierte). Dice qué se
+ * factura, cómo se paga y por qué conviene: por política de empresa el
+ * certificado no se entrega hasta que la factura está abonada (candado de cobro),
+ * así que se le pide el JUSTIFICANTE para no tener que esperar a verlo en el banco.
+ */
+export function mensajeFactura({ nombre, numero, total, expediente, esEmpresa = false, lineas = [] } = {}) {
     const saludo = nombre ? `¡Hola ${esEmpresa ? '' : capital(primerNombre(nombre))}!`.replace('¡Hola !', '¡Hola!') : '¡Hola!';
+    const trabajo = trabajoFacturado(lineas);
+    const plural = trabajo.startsWith('los ');
     return [
         saludo,
         '',
-        `Te adjunto la factura *${numero || ''}*${expediente ? ` de tu certificado energético (expediente ${expediente})` : ''}.`,
+        `Te paso la factura *${numero || ''}* por los trabajos ${trabajo.replace(/^el /, 'del ').replace(/^(?!del )/, 'de ')}${expediente ? ` (expediente ${expediente})` : ''}.`,
         '',
         `💶 *Importe: ${fmtEur(total)}*`,
         '',
         'Puedes abonarla por transferencia a esta cuenta, indicando el nº de factura en el concepto:',
         `🏦 ${BROKERGY_EMISOR.banco} · *${BROKERGY_EMISOR.iban}*`,
         '',
-        '📌 En cuanto recibamos el pago te enviamos el certificado registrado.',
+        `📌 Por políticas de empresa, hasta que la factura no esté abonada no podemos enviarte ${plural ? 'los certificados' : 'el certificado'} de eficiencia energética. Cuando puedas, remítenos por aquí el *justificante de pago* y te ${plural ? 'los' : 'lo'} enviamos en cuanto lo recibamos.`,
         '',
-        'Cualquier duda, estamos a tu disposición.',
+        'Muchas gracias de antemano.',
         'Un saludo,',
         '*BROKERGY* · Ingeniería Energética',
     ].join('\n');

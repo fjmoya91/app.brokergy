@@ -19,7 +19,11 @@ import {
 //       al emitir, no antes).
 //   2 · EMITIR   — el backend toma el siguiente número del libro de facturas de
 //       la hoja de AppSheet, escribe su fila y genera el PDF.
-//   3 · ENVIAR   — el PDF por email y/o WhatsApp.
+//   3 · ENVIAR   — el PDF por email y/o WhatsApp, con el mensaje a la vista.
+// El envío se prepara YA en el paso 1 (a quién, por dónde y el texto): así el
+// botón es «Emitir y enviar» y la factura sale al cliente en el mismo gesto.
+// El nº de la factura no existe hasta emitir: el mensaje enseña el que TOCARÍA
+// y, si al emitir sale otro, se sustituye antes de enviar.
 // Con facturas ya emitidas se abre en la lista: verlas, reenviarlas o rehacer
 // un PDF que no llegó a generarse (mismo número).
 // ─────────────────────────────────────────────────────────────────────────────
@@ -81,7 +85,7 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
             setObs(data.observaciones || '');
             const ult = data.emitidas?.[data.emitidas.length - 1];
             if (ult) { setActual(ult); setVista('emitida'); prepararEnvio(data, ult); }
-            else setVista('preparar');
+            else { setVista('preparar'); prepararEnvioDestino(data, d); }
             return data;
         } catch (err) {
             setCargaError(err.response?.data?.error || 'No se pudo preparar la factura');
@@ -92,7 +96,7 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
     useEffect(() => {
         if (!isOpen) return;
         setDatos(null); setFecha(hoyIso()); setVenc(sumarDias(hoyIso(), 30)); setVencTocado(false);
-        setEditCliente(false); setMensajeTocado(false); setVerMensaje(false); setFase(null);
+        setEditCliente(false); setMensajeTocado(false); setVerMensaje(true); setFase(null);
         cargar();
         axios.get('/api/whatsapp/status').then(r => setWaReady(!!r.data?.ready)).catch(() => setWaReady(false));
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -107,10 +111,21 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
         setMensajeTocado(false);
     };
 
+    // Antes de emitir: a quién se le mandaría según a quién se factura.
+    const prepararEnvioDestino = (d, dest) => {
+        const k = d?.contactos?.[dest] || {};
+        const c = d?.destinatarios?.[dest] || {};
+        const em = k.email || c.email || '';
+        const tl = k.tlf || c.tlf || '';
+        setEmail(em); setTlf(tl);
+        setUsaEmail(!!em); setUsaWa(!!tl);
+    };
+
     const elegirDestino = (d) => {
         setDestino(d);
         setCliente(datos?.destinatarios?.[d] || {});
         setEditCliente(false);
+        prepararEnvioDestino(datos, d);
     };
 
     const totales = useMemo(() => totalesFactura(lineas), [lineas]);
@@ -137,15 +152,35 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
         : datos?.errorHoja ? 'No se puede leer el libro de facturas'
         : null;
 
+    // El mensaje que saldría al emitir (con el nº que tocaría ahora).
+    const contactoDestino = datos?.contactos?.[destino] || {};
+    const mensajeDe = (numero) => mensajeFactura({
+        nombre: contactoDestino.nombre || cliente.razon_social, numero, total: totales.total,
+        expediente: datos?.expediente?.numero, esEmpresa: contactoDestino.esEmpresa ?? !!cliente.esEmpresa, lineas,
+    });
+    const numeroPrevisto = datos?.proximoNumero || '';
+    const canEmailPrev = usaEmail && /\S+@\S+\.\S+/.test(email);
+    const canWaPrev = usaWa && waReady && tlf.replace(/\D/g, '').length >= 9;
+    const enviarAlEmitir = vista === 'preparar' && (canEmailPrev || canWaPrev);
+
     const emitir = async () => {
         if (emitiendo.current || motivo) return;
         const hay = datos?.emitidas || [];
-        const texto = `Se emite con el siguiente número del libro de facturas${datos?.proximoNumero ? ` (ahora mismo, ${datos.proximoNumero})` : ''} por ${fmtEur(totales.total)} a ${cliente.razon_social}.\n\nUn número de factura emitido no se puede borrar: si hay un error, se corrige con una factura rectificativa.`
+        const canalesEnvio = enviarAlEmitir ? [...(canEmailPrev ? ['email'] : []), ...(canWaPrev ? ['whatsapp'] : [])] : [];
+        const aQuien = [canWaPrev ? `WhatsApp (${tlf.trim()})` : null, canEmailPrev ? `email (${email.trim()})` : null].filter(Boolean).join(' y ');
+        const texto = `Se emite con el siguiente número del libro de facturas${datos?.proximoNumero ? ` (ahora mismo, ${datos.proximoNumero})` : ''} por ${fmtEur(totales.total)} a ${cliente.razon_social}.`
+            + (canalesEnvio.length ? `\n\nEn cuanto se emita, se envía con el mensaje por ${aQuien}.` : '\n\nNo se envía a nadie: no hay ningún canal marcado.')
+            + '\n\nUn número de factura emitido no se puede borrar: si hay un error, se corrige con una factura rectificativa.'
             + (hay.length ? `\n\n⚠️ Este expediente ya tiene la factura ${hay.map(f => f.numero).join(', ')}.` : '');
-        if (!(await showConfirm(texto, 'Emitir la factura', 'warning', { confirmar: 'Emitir' }))) return;
+        const conEnvio = canalesEnvio.length > 0;
+        if (!(await showConfirm(texto, conEnvio ? 'Emitir y enviar la factura' : 'Emitir la factura', 'warning', { confirmar: conEnvio ? 'Emitir y enviar' : 'Emitir' }))) return;
+        // Se congela AHORA lo revisado: el mensaje y a quién va.
+        const mensajeRevisado = mensajeTocado ? mensaje : null;
+        const emailEnvio = email.trim(), tlfEnvio = tlf.trim();
+        const titulo = conEnvio ? 'emitirEnviar' : 'emitir';
 
         emitiendo.current = true;
-        setRes({ ok: false, items: [], text: '', titulo: 'emitir' });
+        setRes({ ok: false, items: [], text: '', titulo });
         setFase('sending');
         try {
             const { data } = await axios.post(`${API}/${expedienteId}/factura`, {
@@ -157,14 +192,39 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
                     : { texto: `El PDF no se pudo generar (${data.errorPdf}). La factura está emitida: rehazlo desde aquí.`, tono: 'aviso' },
                 ...(data.clienteCreadoEnHoja ? [{ texto: 'Cliente dado de alta en la hoja (no estaba)', tono: 'ok' }] : []),
             ];
-            setRes({ ok: true, items, text: '', titulo: 'emitir' });
+            let enviadoOk = true;
+            if (conEnvio) {
+                if (!data.pdf) {
+                    enviadoOk = false;
+                    items.push({ texto: 'No se ha enviado: sin PDF no hay nada que adjuntar. Genera el PDF y envíala desde aquí.', tono: 'aviso' });
+                } else {
+                    // Si el nº que enseñaba el mensaje no es el que ha salido, se corrige.
+                    const final = mensajeRevisado == null ? mensajeDe(data.numero)
+                        : (numeroPrevisto && numeroPrevisto !== data.numero ? mensajeRevisado.split(numeroPrevisto).join(data.numero) : mensajeRevisado);
+                    try {
+                        const { data: env } = await axios.post(`${API}/${expedienteId}/factura/${encodeURIComponent(data.numero)}/enviar`, {
+                            canales: canalesEnvio, email: emailEnvio, tlf: tlfEnvio, mensaje: final,
+                        }, { timeout: 180000 });
+                        for (const [k, r] of Object.entries(env.resultados || {})) {
+                            const canal = k === 'email' ? 'Email' : 'WhatsApp';
+                            items.push({ texto: r.ok ? `${canal} → ${r.to}` : `${canal}: ${r.error}`, tono: r.ok ? 'ok' : 'aviso' });
+                        }
+                        enviadoOk = (env.canalesOk?.length || 0) > 0;
+                        if (!enviadoOk) items.push({ texto: 'La factura está emitida pero no ha salido por ningún canal: reenvíala desde aquí.', tono: 'aviso' });
+                    } catch (e) {
+                        enviadoOk = false;
+                        items.push({ texto: `La factura está emitida pero no se pudo enviar (${e.response?.data?.error || e.message}). Reenvíala desde aquí.`, tono: 'aviso' });
+                    }
+                }
+            }
+            setRes({ ok: true, items, text: '', titulo: conEnvio && !enviadoOk ? 'emitirSinEnviar' : titulo });
             setFase('done');
             const d = await cargar();
             const fac = d?.emitidas?.find(f => f.numero === data.numero);
             if (fac) { setActual(fac); setVista('emitida'); prepararEnvio(d, fac); }
             onCambio?.();
         } catch (err) {
-            setRes({ ok: false, items: [], text: err.response?.data?.error || err.message, titulo: 'emitir' });
+            setRes({ ok: false, items: [], text: err.response?.data?.error || err.message, titulo });
             setFase('done');
         } finally {
             emitiendo.current = false;
@@ -195,9 +255,8 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
     const contacto = actual ? (datos?.contactos?.[actual.destino] || {}) : {};
     const mensajeAuto = actual ? mensajeFactura({
         nombre: contacto.nombre || actual.cliente?.razon_social, numero: actual.numero, total: actual.total,
-        expediente: datos?.expediente?.numero, esEmpresa: contacto.esEmpresa,
+        expediente: datos?.expediente?.numero, esEmpresa: contacto.esEmpresa, lineas: actual.lineas || [],
     }) : '';
-    const mensajeVisible = mensajeTocado ? mensaje : mensajeAuto;
 
     const canEmail = usaEmail && /\S+@\S+\.\S+/.test(email);
     const canWa = usaWa && waReady && tlf.replace(/\D/g, '').length >= 9;
@@ -226,8 +285,12 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
 
     if (!isOpen) return null;
 
+    const mensajeVisible = mensajeTocado ? mensaje : (vista === 'preparar' ? mensajeDe(numeroPrevisto) : mensajeAuto);
+
     const titulos = {
         emitir: ['Emitiendo la factura…', '¡Factura emitida!', 'No se pudo emitir'],
+        emitirEnviar: ['Emitiendo y enviando la factura…', '¡Factura emitida y enviada!', 'No se pudo emitir'],
+        emitirSinEnviar: ['Emitiendo y enviando la factura…', 'Factura emitida · sin enviar', 'No se pudo emitir'],
         enviar: ['Enviando la factura…', '¡Factura enviada!', 'No se pudo enviar'],
         pdf: ['Generando el PDF…', 'PDF listo', 'No se pudo generar el PDF'],
     }[res.titulo || 'emitir'];
@@ -403,24 +466,32 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
                                 </>
                             )}
 
-                            {vista === 'emitida' && actual && (
+                            {(vista === 'preparar' || (vista === 'emitida' && actual)) && (
                                 <section>
-                                    <label className={lbl}>Enviar la factura {actual.numero}</label>
+                                    <label className={lbl}>
+                                        {vista === 'preparar' ? 'Enviar al emitir' : `Enviar la factura ${actual.numero}`}
+                                        {vista === 'preparar' && <span className="text-white/20 normal-case font-normal tracking-normal"> — sale con el PDF adjunto en cuanto se emita</span>}
+                                    </label>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                                         <input value={email} onChange={e => setEmail(e.target.value)} type="email" placeholder="email" className={`${inp} no-uppercase`} />
                                         <input value={tlf} onChange={e => setTlf(e.target.value)} type="tel" placeholder="móvil (WhatsApp)" className={inp} />
                                     </div>
                                     <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.02]">
                                         <button type="button" onClick={() => setVerMensaje(v => !v)} className="w-full flex items-center justify-between px-4 py-3 text-left">
-                                            <span className="text-[11px] text-white/50 line-clamp-1">{mensajeVisible.split('\n').filter(Boolean).slice(1, 2).join(' ')}</span>
+                                            <span className="text-[11px] text-white/50 line-clamp-1">{verMensaje ? 'Mensaje que recibirá' : mensajeVisible.split('\n').filter(Boolean).slice(1, 2).join(' ')}</span>
                                             <span className="text-[10px] font-black uppercase tracking-widest text-brand/70 shrink-0 ml-3">{verMensaje ? 'Ocultar' : 'Ver / editar el mensaje'}</span>
                                         </button>
                                         {verMensaje && (
                                             <div className="px-4 pb-4">
-                                                <textarea value={mensajeVisible} rows={12}
+                                                <textarea value={mensajeVisible} rows={13}
                                                     onChange={e => { setMensaje(e.target.value); setMensajeTocado(true); }}
-                                                    className="no-uppercase w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-[13px] text-white/80 focus:outline-none focus:border-brand/40 resize-y font-mono" />
-                                                {mensajeTocado && <button type="button" className="text-[11px] text-white/30 underline mt-1" onClick={() => setMensajeTocado(false)}>Volver al automático</button>}
+                                                    className="no-uppercase w-full bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2 text-[13px] leading-relaxed text-white/80 focus:outline-none focus:border-brand/40 resize-y" />
+                                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
+                                                    {vista === 'preparar' && numeroPrevisto && (
+                                                        <span className="text-[11px] text-white/30">El nº {numeroPrevisto} es el que toca ahora; si al emitir sale otro, se corrige solo.</span>
+                                                    )}
+                                                    {mensajeTocado && <button type="button" className="text-[11px] text-white/30 underline" onClick={() => setMensajeTocado(false)}>Volver al automático</button>}
+                                                </div>
                                             </div>
                                         )}
                                     </div>
@@ -433,6 +504,15 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
                     {datos && (
                         <div className="shrink-0 border-t border-white/[0.06] px-5 py-4 space-y-3" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
                             {vista === 'preparar' ? (
+                                <>
+                                <div className="flex flex-wrap gap-2">
+                                    <CanalChip canal="whatsapp" nombre="WhatsApp" activo={usaWa}
+                                        disponible={!!waReady && tlf.replace(/\D/g, '').length >= 9}
+                                        detalle={tlf} motivo={waReady === false ? 'WhatsApp desconectado' : 'Sin teléfono'}
+                                        onClick={() => setUsaWa(v => !v)} bloqueado={!!fase} />
+                                    <CanalChip canal="email" nombre="Email" activo={usaEmail} disponible={/\S+@\S+\.\S+/.test(email)}
+                                        detalle={email} motivo="Sin email" onClick={() => setUsaEmail(v => !v)} bloqueado={!!fase} />
+                                </div>
                                 <div className="flex gap-2">
                                     <button onClick={() => setPreview(true)} disabled={!lineas.length}
                                         className="flex-1 md:flex-none md:px-5 min-h-[44px] rounded-xl border border-white/10 text-[11px] font-black uppercase tracking-widest text-white/55 hover:text-white transition-colors disabled:opacity-30">
@@ -440,9 +520,10 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
                                     </button>
                                     <button onClick={emitir} disabled={!!motivo || !!fase}
                                         className="flex-[2] md:flex-1 min-h-[44px] rounded-xl bg-brand text-bkg-deep text-[11px] font-black uppercase tracking-widest disabled:opacity-30 disabled:cursor-not-allowed hover:bg-brand-700 transition-colors">
-                                        {motivo || `Emitir factura · ${fmtEur(totales.total)}`}
+                                        {motivo || `${enviarAlEmitir ? 'Emitir y enviar' : 'Emitir factura'} · ${fmtEur(totales.total)}`}
                                     </button>
                                 </div>
+                                </>
                             ) : actual && (
                                 <>
                                     <div className="flex flex-wrap gap-2">

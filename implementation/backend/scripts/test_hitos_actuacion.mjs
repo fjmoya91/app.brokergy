@@ -12,7 +12,7 @@
 import { createRequire } from 'module';
 import { calcCifo, motivoNoInicio } from '../../frontend/src/features/expedientes/logic/calcCifo.js';
 import {
-    hitosActuacion, aclaracionSugerida, fechasAjenas, ACLARACION_MAX,
+    hitosActuacion, aclaracionSugerida, fechasAjenas, ACLARACION_MAX, avisosHitos,
 } from '../../frontend/src/features/expedientes/logic/hitosActuacion.js';
 import { incidenciasFechasCifo } from '../../frontend/src/features/expedientes/logic/cifoFechas.js';
 import { deriveCifoData, buildCifoHtml } from '../../frontend/src/features/expedientes/logic/cifoDoc.js';
@@ -155,11 +155,29 @@ console.log('\n── El CIFO imprime los hitos');
     ok((htmlC.match(/class="doc-page"/g) || []).length === paginas + 1, 'con cascada, los hitos van en una hoja propia');
     ok(htmlC.indexOf('Hitos de la actuación') < htmlC.indexOf('Datos de la instalación de calefacción'),
         '… y esa hoja va antes de la de la instalación');
-    // Sin CEE final todavía, su fila sale igual, con «—».
+    // Orden del PROCESO: CEE inicial → facturas → actuación → CEE final.
+    const pos = (t) => html.indexOf(t);
+    ok(pos('>CEE inicial<') < pos('>Facturas<') && pos('>Facturas<') < pos('>Actuación<') && pos('>Actuación<') < pos('>CEE final<'),
+        'filas en el orden del proceso: CEE inicial, facturas, actuación, CEE final');
+    ok(html.includes('Última</span> <span style="font-weight:700;">11/09/2026'), 'la última factura, con su fecha');
+    ok(html.includes('Pruebas RITE</span> <span style="font-weight:700;">15/09/2026'), 'la fecha de pruebas del RITE');
+    // Sin CEE final todavía, su fila NO sale (y la puerta de Generar lo avisa).
     const ef = conMaterial();
     ef.instalacion = e.instalacion; ef.oportunidades = e.oportunidades;
     const htmlF = buildCifoHtml({ data: deriveCifoData({ expediente: ef, results }), appUrl: '' });
-    ok(/CEE final<\/div><div[^>]*><span[^>]*>Visita del técnico<\/span> —/.test(htmlF), 'sin CEE final, su fila sale con «—»');
+    ok(!htmlF.includes('>CEE final<') && htmlF.includes('>CEE inicial<'), 'sin CEE final, su fila NO sale');
+    ok(avisosHitos(ef).some(a => a.id === 'hitos_sin_cee_final' && a.nivel === 'warn'), 'y la puerta de Generar lo avisa');
+    ok(!avisosHitos(e).length, 'con todo puesto, ningún aviso');
+    // Una sola factura: una casilla, sin «Primera»/«Última».
+    const e1 = JSON.parse(JSON.stringify(e)); e1.documentacion.facturas = [e1.documentacion.facturas[1]];
+    const html1 = buildCifoHtml({ data: deriveCifoData({ expediente: e1, results }), appUrl: '' });
+    ok(html1.includes('>Factura<') && !html1.includes('Última</span>'), 'con una sola factura, una sola casilla');
+    // Sin pruebas del RITE: casilla vacía (sin «—») y aviso.
+    const e2 = JSON.parse(JSON.stringify(e)); delete e2.documentacion.fecha_pruebas_cert_instalacion;
+    const html2 = buildCifoHtml({ data: deriveCifoData({ expediente: e2, results }), appUrl: '' });
+    ok(!html2.includes('Pruebas RITE</span>') && avisosHitos(e2).some(a => a.id === 'hitos_sin_pruebas'), 'sin pruebas del RITE: no sale y se avisa');
+    const bloqueF = htmlF.slice(htmlF.indexOf('Hitos de la actuación'), htmlF.indexOf('Datos de la instalación de calefacción'));
+    ok(!bloqueF.includes('—'), 'el bloque nunca imprime «—»');
     // Sin ninguna fecha, no hay bloque.
     const e0 = { ...e, documentacion: {}, cee: {} };
     ok(!buildCifoHtml({ data: deriveCifoData({ expediente: e0, results }), appUrl: '' }).includes('Hitos de la actuación'),
@@ -181,7 +199,7 @@ console.log('\n── El Certificado RES080 imprime el mismo bloque');
     ok(html.includes('22/09/2026'), 'con las fechas del CEE final');
     // El inicio del bloque es el de la hoja 1, aunque la vista previa lo edite.
     data.fields.fecha_inicio = '12/09/2026';
-    ok(buildRes080Html({ data, appUrl: '' }).includes('Inicio</span> 12/09/2026'), 'el inicio es el mismo que imprime la hoja 1');
+    ok(buildRes080Html({ data, appUrl: '' }).includes('Inicio</span> <span style="font-weight:700;">12/09/2026'), 'el inicio es el mismo que imprime la hoja 1');
 }
 
 console.log(fallos ? `\n${fallos} prueba(s) fallan.` : '\nTodo en orden.');

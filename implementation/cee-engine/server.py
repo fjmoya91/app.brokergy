@@ -47,6 +47,8 @@ from src.viz import plano_svg                         # noqa: E402
 import generar_cex as G                               # noqa: E402
 import leer_cex as L                                  # noqa: E402
 import editar_cex as E                                # noqa: E402
+import radiografia_cex as RX                          # noqa: E402
+import cee_final as CF                                # noqa: E402
 
 logging.basicConfig(level=logging.INFO,
                     format="%(levelname)-7s %(name)s | %(message)s")
@@ -204,11 +206,33 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
         # Las ZONAS que no cuentan en UNA planta (el garaje dentro de la casa,
         # con la vivienda encima). Se leen ANTES de quitar nada: se miden
         # contra lo construido en su nivel.
-        zonas = pipeline.leer_zonas(modelo, payload.get("zonas_fuera"))
+        # El CROQUIS: manchas a mano alzada de lo que no es vivienda, que aqui
+        # se enderezan y se ajustan a los m2 que Catastro declara en su planta.
+        # Salen como zonas mas (las mismas de «Quitar una zona») y vuelven en la
+        # respuesta para que se guarden: el croquis se ajusta UNA vez.
+        croquis_zonas, croquis_detalle = pipeline.ajustar_croquis(
+            modelo, payload.get("croquis"),
+            ajustar=payload.get("croquis_ajustar", True) is not False)
+        zonas = pipeline.leer_zonas(
+            modelo, list(payload.get("zonas_fuera") or []) + croquis_zonas)
         pipeline.excluir_cuerpos(modelo, payload.get("cuerpos_excluidos"),
                                  inventario=inventario, zonas=zonas)
         res = pipeline.analizar(o, modelo)
         pipeline.escribir_salidas(o, res, rc)
+        # La PROPUESTA de croquis (ver `gis/croquis_propuesta.py`): donde está,
+        # probablemente, lo que Catastro declara que no es vivienda DENTRO del
+        # mismo cuerpo. Solo en las plantas que aún no tienen zonas ni croquis
+        # (esas ya las ha decidido una persona). Nunca se aplica: la ve el
+        # técnico y la ajusta como un croquis más. Un fallo aquí no puede
+        # tumbar la medición.
+        try:
+            hechos = {z["nivel"] for z in zonas} | {
+                t.get("nivel") for t in (payload.get("croquis") or []) if isinstance(t, dict)}
+            pistas = payload.get("pistas_croquis") if isinstance(payload.get("pistas_croquis"), dict) else None
+            propuesta = pipeline.proponer_croquis(modelo, res.elementos, inventario, hechos, pistas)
+        except Exception:                          # noqa: BLE001
+            log.exception("fallo proponiendo el croquis de %s", rc.parcela)
+            propuesta = []
 
         geometria = json.loads(
             (o.output / "ce3x_geometry.json").read_text(encoding="utf-8"))
@@ -261,6 +285,13 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
             # que no sirven no vienen y el diagnostico dice por que.
             "zonas_fuera": [{"indice": z["indice"], "nivel": z["nivel"], "uso": z["uso"],
                              "area_m2": z["area_m2"]} for z in zonas],
+            # El croquis ya ajustado: los poligonos (EPSG:25830) que hay que
+            # GUARDAR como zonas, con su area, la de Catastro y la dibujada.
+            "croquis_ajustado": croquis_detalle,
+            # La PROPUESTA de croquis por planta: [{nivel, trazos: [{uso,
+            # poligono (EPSG:25830), area_m2, catastro_m2, ancla, lado, por_que,
+            # confianza}], avisos}]. Se ofrece, no se aplica.
+            "croquis_propuesto": propuesta,
             "resumen": export.resumen(res.elementos),
             # Lo que NO se ha podido saber. Va al primer plano a propósito: es
             # lo que el certificador tiene que mirar.
@@ -637,6 +668,166 @@ async def cex_instalaciones(fichero: UploadFile = File(...),
     return Response(
         content=salida, media_type="application/octet-stream",
         headers={"X-Cee-Avisos": json.dumps(avisos + G.AVISOS_IMAGEN)})
+
+
+# --------------------------------------------------------------------------
+# REVISAR el .cex que entrega un certificador
+# --------------------------------------------------------------------------
+
+@app.post("/cex/radiografia")
+async def cex_radiografia(fichero: UploadFile = File(...)) -> dict:
+    """LOS HECHOS de un `.cex`: envolvente, equipos, medidas y si la medida
+    está calculada sobre ESTE edificio. No juzga: eso lo hace el backend, que
+    tiene el expediente delante (`services/cee/revisionCee.js`).
+
+    Solo lee, y sin deserializar: el fichero viene de fuera.
+    """
+    crudo = await fichero.read()
+    try:
+        return RX.radiografia_bytes(crudo)
+    except Exception as exc:                      # noqa: BLE001
+        raise HTTPException(400, f"no parece un .cex legible: {exc}")
+
+
+# --------------------------------------------------------------------------
+# El CEE FINAL desde la MEDIDA DE MEJORA del inicial del técnico
+# --------------------------------------------------------------------------
+
+@app.post("/cex/final-desde-medida")
+async def cex_final_desde_medida(fichero: UploadFile = File(...),
+                                 datos: str = Form("{}")) -> Response:
+    """El `.cex` del CEE FINAL: el inicial del técnico con su «edificio mejorado».
+
+    La instalación del final son los equipos de la medida de mejora del inicial,
+    tal cual; la medida del final es retirar el generador que se quedó en apoyo
+    (hibridación) y/o las que mande la app. Solo se tocan los pickles 4, 5, 6 y
+    11 (ver `tools/cee_final.py`).
+
+    Con `solo_analizar` devuelve JSON —qué medida del inicial se usa, qué
+    equipos lleva el final, qué debe dar al calificarlo y qué medida se le
+    propone— sin escribir nada. Sin él, el fichero.
+    """
+    crudo = await fichero.read()
+    try:
+        ficha = json.loads(datos or "{}")
+    except Exception as exc:                      # noqa: BLE001
+        raise HTTPException(400, f"`datos` no es JSON: {exc}")
+    try:
+        salida, analisis, avisos = CF.componer(crudo, ficha)
+    except CF.FinalNoEscrito as exc:
+        raise HTTPException(422, str(exc))
+    except (G.GeneracionError, E.EdicionError) as exc:
+        raise HTTPException(422, str(exc))
+    except Exception as exc:                      # noqa: BLE001
+        log.exception("cex/final-desde-medida")
+        raise HTTPException(500, f"no se ha podido montar el CEE final: {exc}")
+    if salida is None:
+        return JSONResponse({"analisis": analisis, "avisos": avisos})
+    return Response(
+        content=salida, media_type="application/octet-stream",
+        headers={"X-Cee-Avisos": json.dumps(avisos)})
+
+
+class MedidaNoEscrita(Exception):
+    """El fichero o la ficha no dan para poner la medida: es una respuesta."""
+
+
+def poner_medida(crudo: bytes, ficha: dict) -> tuple[bytes, list[str]]:
+    """La lógica de `/cex/medida`, sin HTTP (se prueba sin levantar el servidor)."""
+    base = L.trocear_bytes(crudo)
+    if not base.version_conocida:
+        raise MedidaNoEscrita(f"versión de .cex no probada: {base.version!r}")
+    medidas = ficha.get("medidas") or []
+    if not medidas:
+        raise MedidaNoEscrita("el expediente no propone ninguna medida de mejora")
+    zonas = _zonas_declaradas(base)
+    previas = L.leer(base, G.INSTALACIONES)
+    envolvente_ = L.leer(base, G.ENVOLVENTE)
+    espacio = (ficha.get("envolvente") or {}).get("espacio", "auto")
+
+    avisos: list[str] = []
+    grupos, filas = [], []
+    for m in medidas:
+        equipos_m = m.get("instalaciones") or []
+        if not equipos_m:
+            avisos.append(f"La medida «{m.get('nombre')}» no declara ningún equipo: no se escribe.")
+            continue
+        avisos.extend(G.heredar_del_base(equipos_m, previas))
+        inst_m, av_i = G.construir_instalaciones(
+            {"instalaciones": equipos_m, "envolvente": {"espacio": espacio}},
+            previas, zonas, retirar=G.slots_a_retirar(equipos_m))
+        grupo, fila, av_g = G.construir_medida(m, envolvente_, inst_m)
+        avisos.extend(av_i + av_g)
+        grupos.extend(grupo)
+        if fila:
+            filas.append(fila)
+    if not grupos:
+        raise MedidaNoEscrita("ninguna medida se ha podido escribir: " + " · ".join(avisos))
+
+    #: Lo del certificador que NO se llama como lo nuestro, se queda.
+    nuestros = {str(g.estado[G.Cadena("nombre")]) for g in grupos}
+    suyos_g = [g for g in (L.leer(base, G.MEDIDAS) or [])
+               if str((getattr(g, "estado", {}) or {}).get("nombre")) not in nuestros]
+    res_base = L.leer(base, G.RESUMEN_MEDIDAS)
+    suyas_f = [f for f in (res_base[2] if isinstance(res_base, list) and len(res_base) > 2
+                           and isinstance(res_base[2], list) else [])
+               if not (isinstance(f, list) and len(f) > 1 and str(f[1]) in nuestros)]
+    if suyos_g:
+        avisos.append("Se conservan las medidas que ya traía el fichero: "
+                      + ", ".join(str(g.estado.get("nombre")) for g in suyos_g) + ".")
+
+    cambios = {
+        G.MEDIDAS: grupos + [G._reemitible(g) for g in suyos_g],
+        G.RESUMEN_MEDIDAS: G.construir_resumen_medidas(filas + suyas_f, res_base),
+    }
+    informe = L.leer(base, G.INFORME)
+    if isinstance(informe, list) and len(informe) == 7:
+        informe = list(informe)
+        informe[0] = str((medidas[0] or {}).get("nombre") or "")
+        cambios[G.INFORME] = informe
+    return E.sustituir_pickles(crudo, cambios), avisos
+
+
+@app.post("/cex/medida")
+async def cex_medida(fichero: UploadFile = File(...),
+                     datos: str = Form(...)) -> Response:
+    """Devuelve el MISMO `.cex` con la medida de mejora del expediente puesta.
+
+    Es lo que se hacía a mano al revisar un CEE inicial: cargarle como medida
+    de mejora lo que va a ser el certificado final. Se compone con los MISMOS
+    escritores que la medida del `.cex` que genera la app (`/cex`): la
+    aerotermia retira la caldera, en una hibridación la caldera se queda con su
+    parte, y lo que ya dice el fichero —el depósito, la superficie servida—
+    manda sobre lo derivado.
+
+    REGLA — solo se tocan las MEDIDAS (pickles 5 y 6) y la casilla del conjunto
+    del informe. La envolvente, la instalación y los datos del certificador
+    quedan byte a byte (lo comprueba `sustituir_pickles`).
+
+    REGLA — no se pisa lo del certificador: una medida suya con OTRO nombre se
+    conserva; la que se llame igual que la nuestra se sustituye.
+
+    ⚠️ La medida sale SIN CALCULAR: el ahorro y la calificación los calcula el
+    motor de CE3X al pulsar «Actualizar», y ese motor no está aquí.
+    """
+    crudo = await fichero.read()
+    try:
+        ficha = json.loads(datos)
+    except Exception as exc:                      # noqa: BLE001
+        raise HTTPException(400, f"`datos` no es JSON: {exc}")
+    try:
+        salida, avisos = poner_medida(crudo, ficha)
+    except MedidaNoEscrita as exc:
+        raise HTTPException(422, str(exc))
+    except (G.GeneracionError, E.EdicionError) as exc:
+        raise HTTPException(422, str(exc))
+    except Exception as exc:                      # noqa: BLE001
+        log.exception("cex/medida")
+        raise HTTPException(500, f"no se ha podido poner la medida: {exc}")
+
+    return Response(
+        content=salida, media_type="application/octet-stream",
+        headers={"X-Cee-Avisos": json.dumps(avisos)})
 
 
 def _zonas_declaradas(cex: Any) -> set[str]:

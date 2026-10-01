@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { DynamicNetworkBackground } from '../../../components/DynamicNetworkBackground';
+import PreRevisionCee from '../../expedientes/components/PreRevisionCee';
 
 const isProd = import.meta.env.PROD;
 const API_URL = isProd ? '/api/public' : 'http://localhost:3000/api/public';
@@ -101,6 +102,11 @@ export function SubirCeeView({ expedienteId, token, phase, endpoint = 'cee-uploa
     const [info, setInfo] = useState(null);
     const [loadError, setLoadError] = useState(null);
     const [justRegistered, setJustRegistered] = useState(false);
+    // La revisión previa de lo que acaba de subir (solo en el CAE: en un CEE
+    // directo no hay medida de mejora que revisar). 0 = no pedida todavía; cada
+    // .xml o .cex nuevo la rehace.
+    const [revKey, setRevKey] = useState(0);
+    const conRevision = endpoint === 'cee-upload';
 
     const loadInfo = useCallback(() => {
         return axios.get(`${API_URL}/${endpoint}/${expedienteId}?token=${encodeURIComponent(token)}&phase=${phase}`)
@@ -114,7 +120,12 @@ export function SubirCeeView({ expedienteId, token, phase, endpoint = 'cee-uploa
         // Refresca el estado desde el servidor (reconciliado con Drive).
         loadInfo();
         if (slotId === 'registro' && data?.registrado) setJustRegistered(true);
+        if (conRevision && (slotId === 'xml' || slotId === 'cex')) setRevKey((k) => k + 1);
     };
+
+    const pedirRevision = () => axios
+        .post(`${API_URL}/cee-prerevision/${expedienteId}?token=${encodeURIComponent(token)}&phase=${phase}`)
+        .then((r) => r.data);
 
     if (!info && !loadError) {
         return (
@@ -189,6 +200,19 @@ export function SubirCeeView({ expedienteId, token, phase, endpoint = 'cee-uploa
                             <SlotRow key={slot.id} slot={slot} phase={info.phase} endpoint={endpoint}
                                 expedienteId={expedienteId} token={token} onUploaded={handleUploaded} />
                         ))}
+
+                        {conRevision && revKey > 0 && (
+                            <div className="pt-2">
+                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/45 mb-2">Revisión de lo que has subido</p>
+                                <PreRevisionCee key={revKey} pedir={pedirRevision} />
+                            </div>
+                        )}
+                        {conRevision && revKey === 0 && info.slots.some(s => (s.id === 'xml' || s.id === 'cex') && s.current) && (
+                            <button type="button" onClick={() => setRevKey(1)}
+                                className="w-full py-3 rounded-xl border border-white/10 bg-white/[0.03] text-white/70 text-[11px] font-black uppercase tracking-widest hover:text-white hover:border-brand/40 transition-all">
+                                🔎 Revisar lo que he subido
+                            </button>
+                        )}
                     </div>
                 </div>
 

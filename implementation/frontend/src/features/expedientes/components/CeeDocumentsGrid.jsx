@@ -20,6 +20,7 @@ import { resolveDacs, ACS_METHOD } from '../logic/demandaAcs';
 import { SolicitarFaltantesModal } from './SolicitarFaltantesModal';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
 import { WhatsappConnectModal } from '../../whatsapp/components/WhatsappConnectModal';
+import PreRevisionCee, { PreRevisionModal } from './PreRevisionCee';
 
 // Pill compacto de estado por fase CEE: subestado actual + días-en-estado + última comunicación.
 function CeeStatusPill({ expediente, section }) {
@@ -262,6 +263,13 @@ export const CeeDocumentsGrid = forwardRef(function CeeDocumentsGrid({
     onForceNotify,
     onNotifyReview,
     onApproveCee,
+    onRevisarCee,
+    // Revisión PREVIA para el técnico al subir (solo CAE: en un CEE directo no
+    // hay medida de mejora que revisar). (section) => Promise<{ tecnico, at }>.
+    onPreRevision = null,
+    // GENERAR el CEE final desde la medida de mejora del CEE inicial del
+    // técnico (solo CAE, RES060/RES093). () => void, o null para no pintarlo.
+    onGenerarFinal = null,
     onApproveSend,
     onSaveInstalacion,
     onEditCliente
@@ -305,6 +313,9 @@ export const CeeDocumentsGrid = forwardRef(function CeeDocumentsGrid({
     const [selectedTargets, setSelectedTargets] = useState(['CLIENTE']);
     // ── Estado del modal de notificación al certificador ──
     const [certNotifyModal, setCertNotifyModal] = useState(null); // { section: 'inicial'|'final' }
+    //: La PÁGINA DEL ENCARGO del técnico asignado (la firma el servidor): va en el
+    //: mensaje en lugar del enlace a la app. Ver services/encargoTecnico.js.
+    const [enlaceEncargo, setEnlaceEncargo] = useState(null);
     const [certTemplate, setCertTemplate] = useState('standard'); // 'standard' | 'seguimiento' | 'approve'
     // Eje 1: qué esperamos del certificador ('emision' | 'registro'). Eje 2: tono.
     const [certEspera, setCertEspera] = useState(CERT_ESPERA.EMISION);
@@ -346,6 +357,12 @@ export const CeeDocumentsGrid = forwardRef(function CeeDocumentsGrid({
     const [sendingNotifyReview, setSendingNotifyReview] = useState(false);
     const [reviewPriority, setReviewPriority] = useState('normal'); // 'normal' | 'urgent'
     const [reviewMessage, setReviewMessage] = useState('');
+    // La revisión previa que sale dentro de ese popup. La clave la rehace cuando
+    // llega un fichero nuevo con el popup ya abierto; el estado cambia el botón.
+    const [preRevKey, setPreRevKey] = useState(0);
+    const [preRevEstado, setPreRevEstado] = useState(null); // 'corregir'|'revisar'|'bien'|null
+    // La última revisión previa, abierta desde la chapa del certificador.
+    const [preRevModal, setPreRevModal] = useState(null); // section
     
     const numExp = expediente?.numero_expediente || 'S-EXP';
 
@@ -484,9 +501,10 @@ Según el documento:
             // que confirmó el cliente al aceptar (emisores, placas, aires), que
             // es lo que hay que declarar como existente.
             return buildCertEncargoMessage(section, certName, clienteNombre, numExp, ceeFolderLink, expedienteId,
-                section === 'final' ? ce3x.bloque : bloqueClienteInicial);
+                section === 'final' ? ce3x.bloque : bloqueClienteInicial, { encargoLink: enlaceEncargo });
         }
-        return buildCertMessage({ espera, tono, fase: section, certName, clienteNombre, numExp, expedienteId, dias });
+        return buildCertMessage({ espera, tono, fase: section, certName, clienteNombre, numExp, expedienteId, dias,
+                                  ctx: { encargoLink: enlaceEncargo } });
     };
 
     // El bloque CE3X necesita el SEER, que vive en el CATÁLOGO del modelo y no en
@@ -543,10 +561,14 @@ Según el documento:
         // Cargar los enlaces del visto bueno (descarga + subida) para el preview.
         setCertApproveLinks(null);
         setCertClienteMissing([]);
+        setEnlaceEncargo(null);
         if (expediente?.id) {
             axios.get(`${apiBase}/${expediente.id}/approve-cee-links?phase=${certNotifyModal.section}`)
                 .then(r => setCertApproveLinks(r.data))
                 .catch(() => setCertApproveLinks(null));
+            axios.get(`${apiBase}/${expediente.id}/enlace-encargo?phase=${certNotifyModal.section}`)
+                .then(r => setEnlaceEncargo(r.data?.url || null))
+                .catch(() => setEnlaceEncargo(null));
             // Avisar de los datos del cliente que el certificador NO recibirá.
             axios.get(`${apiBase}/${expediente.id}/cert-cliente-data`)
                 .then(r => setCertClienteMissing(r.data?.missing || []))
@@ -558,7 +580,8 @@ Según el documento:
 
     // El nombre del certificador llega por fetch: si el admin abre el popup antes de
     // que cargue, la plantilla se sembró con "¡Hola técnico!". Cuando llega el nombre
-    // re-sembramos, salvo que el texto ya esté editado a mano.
+    // re-sembramos, salvo que el texto ya esté editado a mano. Lo mismo con el
+    // enlace de la página del encargo.
     useEffect(() => {
         if (!certNotifyModal || !certName) return;
         if (certNotifyMessage !== lastCertDefaultRef.current) return;
@@ -567,7 +590,7 @@ Según el documento:
         setCertNotifyMessage(def);
         lastCertDefaultRef.current = def;
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [certName, certNotifyModal]);
+    }, [certName, certNotifyModal, enlaceEncargo]);
 
     // Cambio de tipo de mensaje: regenera SIEMPRE el texto de esa plantilla.
     // (La lógica anterior de "preservar la edición" hacía que al pulsar "Visto bueno"
@@ -1162,7 +1185,21 @@ Según el documento:
                     }
                 }
 
-                // Al subir el .CEX, si es certificador, ofrecer notificar a Brokergy para revisión
+                // Al subir el .CEX (o el .XML con el .CEX ya subido), si es
+                // certificador, ofrecer notificar a Brokergy — y enseñarle ANTES la
+                // revisión automática de lo que acaba de subir, para que corrija lo
+                // suyo sin ida y vuelta. Es la misma revisión de la lupa de Fran.
+                const esCertSubida = (() => {
+                    const r = (user?.rol || '').toUpperCase();
+                    return r === 'CERTIFICADOR' || (user?.rol_nombre || '').toUpperCase() === 'CERTIFICADOR' || Number(user?.id_rol) === 4;
+                })();
+                if (slot.id === 'xml' && esCertSubida && ceeFiles?.[section]?.cex) {
+                    setReviewPriority('normal');
+                    setReviewMessage('');
+                    setPreRevEstado(null);
+                    setPreRevKey((k) => k + 1);
+                    setNotifyReviewModal({ section });
+                }
                 if (slot.id === 'cex') {
                     const rol = (user?.rol || '').toUpperCase();
                     const rolNombre = (user?.rol_nombre || '').toUpperCase();
@@ -1173,6 +1210,8 @@ Según el documento:
                         console.log('[CEX uploaded] → abriendo notifyReviewModal');
                         setReviewPriority('normal');
                         setReviewMessage('');
+                        setPreRevEstado(null);
+                        setPreRevKey((k) => k + 1);
                         setNotifyReviewModal({ section });
                     } else {
                         console.log('[CEX uploaded] → NO se abre popup (rol no es CERTIFICADOR)');
@@ -1477,8 +1516,46 @@ Según el documento:
                                                 // varias opciones de mensaje (Encargo / Recordatorio / Urgente / Visto bueno).
                                                 // El check verde es un atajo extra al "Visto bueno" cuando el CEE está
                                                 // pendiente de revisión.
+                                                // La REVISIÓN del certificado: lupa con el color del
+                                                // último veredicto (gris = sin revisar). Sale en cuanto
+                                                // hay algo entregado que revisar, no solo en «pendiente».
+                                                const revision = expediente?.cee?.[`revision_${section}`];
+                                                const verCol = {
+                                                    'APTO': 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400',
+                                                    'APTO CON AVISOS': 'bg-amber-500/20 border-amber-500/40 text-amber-400',
+                                                    'NO APTO': 'bg-red-500/20 border-red-500/40 text-red-400',
+                                                }[revision?.veredicto] || 'bg-white/5 border-white/15 text-white/60';
+                                                const hayEntrega = isPendingReview || !!revision
+                                                    || ['PRESENTADO', 'REVISADO', 'REGISTRADO'].includes(segStatus);
+                                                //: El CEE final se GENERA desde la medida del inicial
+                                                //: del técnico: hace falta su .cex, y no se rehace uno
+                                                //: ya registrado.
+                                                const puedeGenerar = section === 'final' && onGenerarFinal
+                                                    && !!ceeFiles?.inicial?.cex && segStatus !== 'REGISTRADO';
                                                 return (
                                                     <>
+                                                        {puedeGenerar && (
+                                                            <button
+                                                                title="Generar el CEE final desde la medida de mejora del CEE inicial del técnico"
+                                                                onClick={() => onGenerarFinal()}
+                                                                className="h-7 max-md:h-10 px-2 rounded-lg border flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 bg-brand/10 border-brand/30 text-brand hover:bg-brand/20"
+                                                            >
+                                                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12h6m-3-3v6M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                                                                <span className="max-md:hidden">Generar</span>
+                                                            </button>
+                                                        )}
+                                                        {onRevisarCee && hayEntrega && (
+                                                            <button
+                                                                title={revision
+                                                                    ? `Revisión del CEE: ${revision.veredicto} — abrir el informe`
+                                                                    : 'Revisar el CEE del certificador antes del visto bueno'}
+                                                                onClick={() => onRevisarCee(section)}
+                                                                className={`h-7 max-md:h-10 px-2 rounded-lg border flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest hover:brightness-125 transition-all active:scale-95 ${verCol}`}
+                                                            >
+                                                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-4.35-4.35M11 18a7 7 0 100-14 7 7 0 000 14z" /></svg>
+                                                                <span className="max-md:hidden">{revision ? ({ 'APTO': 'Apto', 'APTO CON AVISOS': 'Avisos', 'NO APTO': 'No apto' }[revision.veredicto] || 'Revisar') : 'Revisar'}</span>
+                                                            </button>
+                                                        )}
                                                         {isPendingReview && onApproveCee && (
                                                             <button
                                                                 title="Validar y autorizar registro (visto bueno)"
@@ -1528,14 +1605,40 @@ Según el documento:
                                                     </>
                                                 );
                                             } else if (isCertificador) {
+                                                // Su revisión previa (ya en SU versión: el backend
+                                                // le quita las comparaciones con la propuesta).
+                                                const rt = expediente?.cee?.[`revision_${section}`]?.tecnico;
+                                                const chapaRev = onPreRevision && rt ? (() => {
+                                                    const n = rt.corregir.length || rt.revisar.length;
+                                                    const col = rt.estado === 'corregir'
+                                                        ? 'bg-red-500/15 border-red-500/40 text-red-400'
+                                                        : rt.estado === 'revisar'
+                                                            ? 'bg-amber-500/15 border-amber-500/40 text-amber-400'
+                                                            : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400';
+                                                    return (
+                                                        <button
+                                                            title={`Revisión automática de lo que subiste: ${rt.titular}`}
+                                                            onClick={() => setPreRevModal(section)}
+                                                            className={`h-7 max-md:h-10 px-2 rounded-lg border flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest hover:brightness-125 transition-all active:scale-95 ${col}`}
+                                                        >
+                                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-4.35-4.35M11 18a7 7 0 100-14 7 7 0 000 14z" /></svg>
+                                                            <span className="whitespace-nowrap">{rt.estado === 'bien' ? '✓' : `${rt.estado === 'corregir' ? '✗' : '!'} ${n}`}</span>
+                                                        </button>
+                                                    );
+                                                })() : null;
                                                 if (isPendingReview) {
                                                     return (
+                                                        <>
+                                                        {chapaRev}
                                                         <div title="Pendiente de revisión por Brokergy" className="w-7 h-7 max-md:w-10 max-md:h-10 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-brand/60 cursor-help">
                                                             <svg className="w-4 h-4 animate-[spin_3s_linear_infinite]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                                         </div>
+                                                        </>
                                                     );
                                                 }
                                                 return (
+                                                    <>
+                                                    {chapaRev}
                                                     <button
                                                         title="Notificar CEE Realizado (Solicitar Revisión)"
                                                         onClick={() => {
@@ -1545,6 +1648,8 @@ Según el documento:
                                                             }
                                                             setReviewPriority('normal');
                                                             setReviewMessage('');
+                                                            setPreRevEstado(null);
+                                                            setPreRevKey((k) => k + 1);
                                                             setNotifyReviewModal({ section });
                                                         }}
                                                         className="w-7 h-7 max-md:w-10 max-md:h-10 rounded-lg bg-brand/10 border border-brand/20 flex items-center justify-center text-brand/80 hover:bg-brand hover:text-black transition-all shadow-[0_0_10px_rgba(238,143,31,0.2)] active:scale-95"
@@ -1553,6 +1658,7 @@ Según el documento:
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                                                         </svg>
                                                     </button>
+                                                    </>
                                                 );
                                             }
                                             return null;
@@ -2704,7 +2810,7 @@ Según el documento:
                     onClick={() => { if (!sendingNotifyReview) setNotifyReviewModal(null); }}
                 >
                     <div
-                        className="bg-[#0b0c11] border border-white/10 rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl relative overflow-hidden"
+                        className={`bg-[#0b0c11] border border-white/10 rounded-[2.5rem] w-full ${onPreRevision ? 'max-w-lg' : 'max-w-md'} p-8 max-md:p-6 shadow-2xl relative overflow-hidden max-h-[92vh] overflow-y-auto custom-scrollbar`}
                         onClick={e => e.stopPropagation()}
                     >
                         <div className="absolute top-0 right-0 w-40 h-40 bg-brand/10 blur-[60px] rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />
@@ -2720,6 +2826,22 @@ Según el documento:
                             <p className="text-[11px] text-white/40 font-bold uppercase tracking-widest mb-6">
                                 CEE {notifyReviewModal.section === 'inicial' ? 'INICIAL' : 'FINAL'} · Expediente <span className="text-brand">{numExp}</span>
                             </p>
+
+                            {onPreRevision && (
+                                <div className="w-full mb-6">
+                                    <PreRevisionCee
+                                        key={preRevKey}
+                                        pedir={() => onPreRevision(notifyReviewModal.section)}
+                                        onResultado={setPreRevEstado}
+                                    />
+                                    {preRevEstado === 'corregir' && (
+                                        <p className="text-[11px] text-white/60 mt-3 text-left">
+                                            Te recomendamos corregirlo y volver a subirlo antes de avisar: así no hay ida y vuelta.
+                                            Si hay un motivo, avisa igualmente y cuéntalo en el mensaje.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
 
                             {/* Selector de prioridad */}
                             <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2 self-start pl-1">Prioridad</p>
@@ -2758,7 +2880,9 @@ Según el documento:
                             />
                             <p className="text-[9px] text-white/20 mb-6 self-end pr-1">{reviewMessage.length}/500</p>
 
-                            <div className="grid grid-cols-1 gap-3 w-full">
+                            {/* Con la revisión encima el popup crece: los botones se quedan
+                                pegados abajo para no tener que bajar a buscarlos. */}
+                            <div className={`grid grid-cols-1 gap-3 w-full ${onPreRevision ? 'sticky -bottom-8 max-md:-bottom-6 bg-[#0b0c11] pt-4 pb-8 max-md:pb-6 -mb-8 max-md:-mb-6' : ''}`}>
                                 <button
                                     disabled={sendingNotifyReview}
                                     onClick={async () => {
@@ -2788,7 +2912,9 @@ Según el documento:
                                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                                             </svg>
-                                            {reviewPriority === 'urgent' ? '🚨 Notificar URGENTE a Brokergy' : 'Notificar a Brokergy'}
+                                            {reviewPriority === 'urgent'
+                                                ? '🚨 Notificar URGENTE a Brokergy'
+                                                : preRevEstado === 'corregir' ? 'Avisar igualmente a Brokergy' : 'Notificar a Brokergy'}
                                         </>
                                     )}
                                 </button>
@@ -2798,12 +2924,22 @@ Según el documento:
                                     disabled={sendingNotifyReview}
                                     className="w-full py-3 text-white/30 text-[10px] font-black uppercase tracking-[0.2em] hover:text-white transition-all"
                                 >
-                                    Más Tarde
+                                    {preRevEstado === 'corregir' ? 'Lo corrijo y lo vuelvo a subir' : 'Más Tarde'}
                                 </button>
                             </div>
                         </div>
                     </div>
                 </div>
+            )}
+
+            {preRevModal && onPreRevision && (
+                <PreRevisionModal
+                    fase={preRevModal}
+                    numExp={numExp}
+                    inicial={expediente?.cee?.[`revision_${preRevModal}`] || null}
+                    pedir={() => onPreRevision(preRevModal)}
+                    onClose={() => setPreRevModal(null)}
+                />
             )}
 
             {/* ── Modal Reenviar Notificación CEE Registrado ──────────────────── */}

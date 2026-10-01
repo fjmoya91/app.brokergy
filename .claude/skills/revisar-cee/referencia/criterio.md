@@ -93,11 +93,11 @@ id: `gas_*` → gas natural (o GLP si `inputs.fuelType === 'glp'`), `oil_*` → 
 carbón o pellets según `inputs.fuelType`, `electric` → electricidad. Si no casa → **NO APTO**: de ahí
 salen el rendimiento de la tabla y el ahorro que se le prometió al cliente.
 
-### 4. El rendimiento
-`<RendimientoEstacional>` × 100 vs. el `value` de la fila del Anexo VIII (`BOILER_EFFICIENCIES`).
-**Más de 8 puntos de separación → aviso**, no fallo: es el mismo umbral con el que la app
-preselecciona la casilla desde un CEE cargado. Importa porque el CIFO recalcula con la casilla del
-expediente, no con el η del certificado.
+### 4. El rendimiento — SOLO INFORMA
+`<RendimientoEstacional>` es el **estacional** (56,8 %) y la casilla del Anexo VIII del expediente es
+otra cosa (79 %): comparados, saltaba un aviso en 97 de 116 certificados aprobados. Decisión de Fran
+(29/09/2026): **se enseña, no se juzga**. El CIFO recalcula con la casilla del expediente. En el
+`.cex` se ve además CÓMO lo estima el certificador: rendimiento de combustión, aislamiento, potencia.
 
 ### 5. El ACS
 - `cambio_acs !== false` → `<InstalacionesACS>` tiene que estar descrito. Si no está → **NO APTO**.
@@ -105,15 +105,17 @@ expediente, no con el η del certificado.
   el de calefacción. Si es otro → **aviso**: una de las dos cosas está mal.
 - Fuera de alcance → solo se mira que el certificado no lo contradiga.
 
-### 6. La acumulación de ACS — NO SE PUEDE con el `.xml`
-Buscado en los 462: el único nodo con «volumen» es `<VolumenEspacioHabitable>`, que es el de la
-vivienda. **Sale siempre como no comprobable** y hay que mirarlo en el `.cex` o en CE3X. No se calla.
+### 6. La acumulación de ACS — solo en el `.cex`
+Buscado en los 462: el único nodo del `.xml` con «volumen» es `<VolumenEspacioHabitable>`. El depósito
+está en el `.cex` (bloque [8] del equipo que da ACS: `[True, litros, t_alta, t_baja, UA, …]`). Sin
+`.cex` sale como no comprobable; con él, se enseña.
 
 ### 7. Demanda y superficie
 `<Demanda><EdificioObjeto><Calefaccion>` y `<SuperficieHabitable>` contra lo que simuló la
 oportunidad (`result.q_net` y `result.superficieAplicada`). **Holgura del 2 %** — por debajo son
 redondeos del `.cex`. Si la demanda o la superficie certificadas quedan **por debajo** de las
-simuladas → **NO APTO**: sobre esas cifras se le prometió el bono al cliente.
+simuladas: **hasta un 10 % por debajo → aviso; más de un 10 % → NO APTO** (Fran, 29/09/2026: había
+aprobado 13 entre −4 % y −24 %). Sobre esas cifras se le prometió el bono al cliente.
 
 ⚠️ **En el CEE FINAL de un RES080 el criterio se INVIERTE**: allí la demanda TIENE que bajar, porque
 el ahorro de la ficha es la diferencia entre el antes y el después. Una demanda que no baja es la
@@ -140,36 +142,30 @@ Después se cruza con lo que declara la pestaña Envolvente (`documentacion.envo
   justificar.
 - **Con un solo `.xml` no se afirma nada** sobre este punto.
 
-### 10. Las transmitancias, justificadas
+### 10. Las transmitancias, IGUALES A LA GUÍA
 
-`<ModoDeObtencion>` de cada cerramiento opaco (fachada, cubierta, suelo, particiones).
+Criterio de Fran (29/09/2026): las U de **fachadas al aire, cubiertas y suelos declarados
+«Conocidas»** tienen que ser las de la **Guía de Transmitancias de BROKERGY** para el año y la zona
+del certificado (`getUByYear`, la MISMA con la que se calculó la propuesta), con **±2 %**:
 
-⚠️ **En el `.xml` NO existe «Conocido»**: los tres valores son `PorDefecto`, `Estimado` y
-**`Usuario`**, y `Usuario` ES el «Conocido (Ensayado/justificado)» de CE3X. Verificado por contraste:
-las bombas de calor —que en el `.cex` se declaran «Conocido»— llevan `Usuario` en 618 de 769, y las
-calderas estándar `Estimado` en 392 de 394.
+| Año | Muro | Cubierta | Suelo |
+|---|---|---|---|
+| antes de 1960 | 2,20 | 2,50 | 1,25 |
+| 1960-1978 | 1,90 | 2,10 | 1,10 |
+| 1979-1990 | 1,80 | 1,90 | 1,05 |
+| 1991-2007 | 1,69 | 1,69 | 1,00 |
+| 2008-2013 | U_max del CTE 2006 por zona | | |
+| 2014-2019 | 0,35 | 0,25 | 0,35 |
+| desde 2020 | 0,27 | 0,22 | 0,30 |
 
-⚠️ Un **HUECO** no lleva `<ModoDeObtencion>` sino `<ModoDeObtencionTransmitancia>` y
-`<ModoDeObtencionFactorSolar>`. Los 5.618 huecos del corpus son así.
+- Distinta → **aviso**, no fallo, con la U de la guía al lado.
+- **Solo en certificados emitidos desde el 01/04/2026**, que es cuando se empezó a exigir la guía.
+  Antes, solo se informa. Medido: de 142 aprobados, 55 la cumplen entera, y casi ninguno de 2025.
+- **NO cuentan**: el suelo contra el terreno «Por defecto» (su U la calcula CE3X con el perímetro),
+  las medianeras (adiabáticas) y los puentes térmicos.
 
-⚠️ Los **PUENTES TÉRMICOS** (contorno de hueco, caja de persiana, encuentros, pilares) NO cuentan:
-van por defecto en 19.999 de las 29.780 apariciones y ahogarían el recuento. Se distinguen porque no
-tienen `<Superficie>` sino `<Longitud>`. Los **adiabáticos** tampoco: su U no describe nada.
-
-**Aviso, no fallo.** Un CEE con transmitancias por defecto es válido; lo que pasa es que son el caso
-más desfavorable —dan más demanda y con ella más ahorro— y es de lo primero que el verificador mira
-con lupa. Medido con el propio lector sobre los 115 expedientes con `.xml` en la BD: **65 de 115**
-tienen todas sus fachadas y cubiertas justificadas, así que como fallo dejaría fuera a media cartera.
-
-⚠️ **El SUELO no cuenta**: solo el **11 %** lo justifica, y metido en la cuenta el aviso saltaría en
-casi los 115. Cuando va por defecto se menciona en el detalle, sin disparar nada.
-
-**En un RES080 pesa más** si el cerramiento sin justificar es de los que se rehabilitan: su U de
-partida es la base del ahorro. Se señala en el detalle.
-
-Cuánto se justifica cada uno, en los 115 expedientes de producción: **fachada 63 %** · cubierta 72 %
-· partición vertical 66 % · partición horizontal 56 % · **suelo 11 %** · adiabáticos y lucernarios
-0 %.
+La **ventilación** va igual: la de `getVentanaYACHByYear` (0,83 ren/h desde 1979; 1,00 antes), aviso
+desde el 01/04/2026 (63 de 142 aprobados usan otra, casi siempre 0,83 en viviendas anteriores a 1979).
 
 ### 11. Las fechas
 
@@ -204,6 +200,45 @@ Tiene que declarar la **bomba de calor instalada**. Si sigue declarando la calde
 el certificado de antes de la obra, o la actuación no se ha recogido. ⚠️ En **RES093 y TER173** la
 caldera **no se retira** —son hibridaciones, y ahí conviven las dos—, así que eso es lo correcto.
 
+### 14. Datos generales (del `.cex`)
+- **Año** distinto del de la simulación → aviso (coincide en 91 de 94 aprobados).
+- Superficie, plantas, altura, demanda de ACS y normativa → **se enseñan** (el nº de plantas no casa
+  con la oportunidad en 26 de 110 aprobados: la oportunidad cuenta distinto).
+
+### 15. Huecos y puentes (del `.cex`)
+- **Ningún hueco** → NO APTO.
+- Superficie de huecos / fachada al aire **fuera de 6 %-45 %** → aviso (p2 y p98 de lo aprobado).
+- Falta alguno de **forjado · contorno de hueco · pilar integrado · pilar en esquina** → aviso (los
+  llevan más del 93 % de los aprobados).
+
+### 16. Equipos existentes (del `.cex`)
+- Reparto de calefacción o ACS ≠ **100 %** → aviso (CE3X no calcula así).
+- El cliente **confirmó aires** al aceptar y el inicial no tiene equipos de frío → aviso.
+- El cliente **declaró placas** y no hay contribución renovable → aviso (van como EXISTENTES).
+
+### 17. La MEDIDA DE MEJORA del CEE inicial (del `.cex`)
+Es lo que Fran añadía a mano: «le cargo como medida de mejora lo que va a ser el final».
+
+| Punto | Si falla |
+|---|---|
+| Existe | **NO APTO** en RES060/RES093/TER (aviso en RES080: 20 de los 22 aprobados sin medida son RES080) |
+| Está **calculada** (ahorro ≠ 0 y foto del edificio) | **NO APTO** |
+| Se calculó sobre ESTE edificio (la foto `datosEdificioOriginal` = el fichero de hoy) | **NO APTO** — se tocó el edificio después: hay que pulsar «Actualizar» |
+| Propone una **bomba de calor** | **NO APTO** |
+| El **modelo** es el del expediente | aviso |
+| El **SCOP** de calefacción = el del expediente (±2 %) | aviso |
+| El **SCOP_dhw** = el del expediente, si el ACS está en alcance | aviso |
+| El ACS de la medida cubre el **100 %** | **NO APTO** (CE3X no la calcula) |
+| En hibridación, la bomba cubre el **C_b** (±2 pts) | aviso |
+
+**Si el expediente aún no declara la aerotermia** (13 de los 15 pendientes el 29/09/2026), se compara
+con la **genérica de la simulación**: SCOP de calefacción, SCOP_dhw y potencia de la oportunidad.
+
+**Una medida calculada guarda DOS fotos del edificio** (`datosEdificioOriginal` y
+`datosNuevoEdificio`, cada una con instalaciones, envolvente y datos generales). Es lo que permite
+detectar la medida DESFASADA — medido en 26RES060_154: superficie 213,9 → 280 m² y ACS 336 → 140 l/día
+después de calcularla.
+
 ---
 
 ## El veredicto
@@ -212,6 +247,7 @@ caldera **no se retira** —son hibridaciones, y ahí conviven las dos—, así 
 |---|---|
 | **NO APTO** | hay al menos un fallo |
 | **APTO CON AVISOS** | ningún fallo, pero hay avisos o puntos no comprobables |
+| (info) | se enseña y no cuenta: la caldera, los datos generales, el depósito |
 | **APTO** | todo comprobado y todo correcto |
 
 Un `no_comprobable` no tumba el certificado, pero **tampoco deja decir APTO a secas**: es lo que

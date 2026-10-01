@@ -1407,7 +1407,12 @@ function startWatchdog() {
 // demonio inmortal que seguía reconectando y avisando por email con el código
 // que tenía cargado en memoria. Así se quedó uno el 24/07/2026 desde las 10:24
 // mandando un aviso cada 10 min. Los scripts sueltos ya no arrancan nada.
-const ES_SERVIDOR = /server\.js$/i.test(process.argv[1] || '')
+//
+// ⚠️ Por el NOMBRE EXACTO del fichero, no por cómo acaba: con `/server\.js$/`
+// un banco de pruebas llamado `banco_encargo_server.js` que montaba
+// routes/public se tomó por el servidor y auto-conectó la sesión de WhatsApp
+// guardada en el disco (30/09/2026).
+const ES_SERVIDOR = /(^|[\\/])server\.js$/i.test(process.argv[1] || '')
     || String(process.env.WWA_AUTOSTART || '').toLowerCase() === 'always';
 if (!ES_SERVIDOR && CONFIG.enabled) {
     console.log('[wwa] Módulo cargado fuera del servidor: no se auto-conecta ni se arranca el supervisor.');

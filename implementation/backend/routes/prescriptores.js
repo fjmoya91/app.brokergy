@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const supabase = require('../services/supabaseClient');
-const { requireAuth, enforceAuth, adminOnly } = require('../middleware/auth');
+const { requireAuth, enforceAuth, adminOnly, staffOnly } = require('../middleware/auth');
 const { normalizeContactos, PARTNER_CONTACT_FIELDS, contactoClienteDesdePartner } = require('../services/notifyContacts');
 const { normalizeCliente } = require('../utils/normalization');
 
@@ -984,6 +984,56 @@ router.get('/:id', enforceAuth, async (req, res) => {
     } catch (err) {
         console.error('Error GET prescriptor by ID:', err);
         res.status(500).json({ error: 'Error al recuperar el prescriptor' });
+    }
+});
+
+// ─── PATCH /api/prescriptores/:id/firmantes ────────────────────────────────────
+// Quién FIRMA por la empresa: el Certificado CIFO (representante legal) y la
+// Memoria RITE (técnico habilitado). Lo usan los popups de envío al instalador
+// para PEDIR el dato ahí mismo cuando falta, sin salir a la ficha.
+//
+// REGLA — ruta propia y con LISTA BLANCA, nunca el PATCH general con medio
+// payload. Aquél está pensado para el formulario entero: con un cuerpo parcial
+// pone `instalador_rite_id` a null (borra la delegación ante Industria) y
+// reescribe el nombre del usuario del portal con cadenas vacías. Aquí solo se
+// tocan los campos de firmante que lleguen, y nada más.
+const CAMPOS_FIRMANTE_TEXTO = [
+    'nombre_responsable', 'apellidos_responsable', 'nif_responsable',
+    'representante_nombre', 'representante_apellidos', 'representante_dni',
+    'tecnico_firmante_nombre', 'tecnico_firmante_apellidos', 'tecnico_firmante_dni', 'tecnico_firmante_carnet_rite',
+];
+const CAMPOS_FIRMANTE_BOOL = ['representante_distinto', 'tecnico_firmante_distinto'];
+
+router.patch('/:id/firmantes', staffOnly, async (req, res) => {
+    try {
+        const body = req.body || {};
+        const cambios = {};
+        for (const k of CAMPOS_FIRMANTE_TEXTO) {
+            if (body[k] === undefined) continue;
+            // Mismo criterio que el resto de la ficha: nombres y DNI en MAYÚSCULAS.
+            const v = (body[k] ?? '').toString().trim().toUpperCase();
+            cambios[k] = v || null;
+        }
+        for (const k of CAMPOS_FIRMANTE_BOOL) {
+            if (body[k] !== undefined) cambios[k] = !!body[k];
+        }
+        if (!Object.keys(cambios).length) return res.status(400).json({ error: 'No hay nada que guardar.' });
+
+        const { data, error } = await supabase
+            .from('prescriptores')
+            .update(cambios)
+            .eq('id_empresa', req.params.id)
+            .select('*')
+            .single();
+        if (error) {
+            if (error.code === 'PGRST116') return res.status(404).json({ error: 'Prescriptor no encontrado' });
+            throw error;
+        }
+        console.log(`[prescriptores] firmante actualizado en ${req.params.id} por ${req.user?.email || req.user?.id}: ${Object.keys(cambios).join(', ')}`);
+        res.json(stripNotasSiNoEsInterno(data, req));
+    } catch (err) {
+        console.error('Error PATCH prescriptores/:id/firmantes:', err);
+        res.status(500).json({ error: 'No se pudo guardar el firmante', details: err.message });
     }
 });
 

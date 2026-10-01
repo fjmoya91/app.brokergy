@@ -21,11 +21,15 @@
 const { detectPrograma, esSustitucionCaldera } = require('../../utils/fichas');
 const { envolventeDeclarada } = require('../docsAlcance');
 const { combustibleDeclarado, familiaCombustible, NOMBRE_FAMILIA } = require('../../utils/combustibleCaldera');
-const { norm, ACUMULACION_SOLO_EN_CEX, MODO_ES } = require('./radiografiaCee');
+const { norm, ACUMULACION_SOLO_EN_CEX } = require('./radiografiaCee');
 const { fechaFirmaCee } = require('../../utils/ceeFechas');
+const { revisarConCex, revisarTransmitancias } = require('./revisionCeeCex');
 
 /** Holgura relativa. La misma que ya se aplica al cruzar los dos CEE (regla 32). */
 const HOLGURA_PCT = 2;
+
+//: Por debajo de lo simulado, a partir de cuánto es FALLO y no aviso (%).
+const LIMITE_FALLO_PCT = 10;
 
 /**
  * Cuántos puntos de rendimiento pueden separar el η del certificado del η de la
@@ -63,8 +67,8 @@ class Informe {
      * @param dice    lo que dice el CERTIFICADO (la evidencia)
      * @param esperado lo que dice el EXPEDIENTE
      */
-    anota(id, titulo, estado, { dice = null, esperado = null, detalle = null } = {}) {
-        this.puntos.push({ id, titulo, estado, dice, esperado, detalle });
+    anota(id, titulo, estado, { dice = null, esperado = null, detalle = null, accion = null } = {}) {
+        this.puntos.push({ id, titulo, estado, dice, esperado, detalle, ...(accion ? { accion } : {}) });
     }
 
     get resumen() {
@@ -74,6 +78,9 @@ class Informe {
             avisos: cuenta('aviso'),
             fallas: cuenta('falla'),
             no_comprobables: cuenta('no_comprobable'),
+            //: `info` se ENSEÑA y no cuenta: es un dato para mirar (cómo se
+            //: estimó la caldera, los datos generales), no algo que revisar.
+            info: cuenta('info'),
             total: this.puntos.length,
         };
     }
@@ -205,12 +212,13 @@ function revisarGeneradorInicial(inf, rx, ctx) {
     // ── El η medido vs. la casilla del Anexo VIII ────────────────────────────
     const rends = gens.map((g) => g.rendimiento_pct).filter((v) => v !== null);
     if (ctx.rendimientoExpPct !== null && rends.length) {
-        const cerca = rends.find((r) => Math.abs(r - ctx.rendimientoExpPct) <= TOLERANCIA_RENDIMIENTO_PTS);
-        inf.anota('rendimiento', 'Rendimiento de la caldera', cerca !== undefined ? 'ok' : 'aviso', {
+        // REGLA — SOLO INFORMA (Fran, 29/09/2026). El .xml da el rendimiento
+        // ESTACIONAL (56,8 %) y la tabla del expediente es otra cosa (79 %):
+        // como aviso saltaba en 97 de 116 certificados aprobados. El CIFO usa la
+        // casilla de la tabla; esto es para mirarlo, no para revisarlo.
+        inf.anota('rendimiento', 'Rendimiento estacional de la caldera', 'info', {
             dice: rends.map((r) => `${r.toFixed(1).replace('.', ',')} %`).join(' · '),
-            esperado: `${ctx.rendimientoExpPct.toFixed(1).replace('.', ',')} % — ${ctx.calderaExp}`,
-            detalle: cerca !== undefined ? null
-                : `Se separan más de ${TOLERANCIA_RENDIMIENTO_PTS} puntos. El CIFO recalcula con la casilla del expediente, no con el η del certificado: si la casilla no es la que toca, el verificador no podrá reproducir el ahorro.`,
+            esperado: `tabla del expediente: ${ctx.rendimientoExpPct.toFixed(1).replace('.', ',')} % — ${ctx.calderaExp}`,
         });
     }
 }
@@ -260,101 +268,13 @@ function revisarAcs(inf, rx, ctx) {
     }
 
     // ── La acumulación: EL XML NO LA DICE ────────────────────────────────────
-    if (ACUMULACION_SOLO_EN_CEX && rx.acumulacion_acs === null) {
+    if (ACUMULACION_SOLO_EN_CEX && rx.acumulacion_acs === null && !ctx.hayCex) {
         inf.anota('acumulacion_acs', 'Acumulación de ACS (depósito)', 'no_comprobable', {
             dice: 'el .xml no declara acumulación en ninguno de sus nodos',
             esperado: 'depósito de ACS si la instalación lo tiene',
             detalle: 'Medido sobre 462 certificados reales: la acumulación NO viaja en el .xml, solo en el .cex. Hay que abrir el .cex (o mirarlo en CE3X) para comprobar este punto.',
         });
     }
-}
-
-/**
- * Las TRANSMITANCIAS deben estar justificadas, no puestas por defecto.
- *
- * REGLA — en el `.xml` el «Conocido» de CE3X se escribe **`Usuario`**; no existe
- * ninguna cadena «Conocido» (ver `MODO_CONOCIDO`). Los otros dos valores son
- * `PorDefecto` y `Estimado`, y los dos significan que nadie ha justificado esa U.
- *
- * REGLA — esto AVISA, no tumba el certificado. Un CEE con transmitancias por
- * defecto es válido; lo que pasa es que son el caso más desfavorable, dan más
- * demanda y con ella más ahorro, así que es de lo primero que un verificador
- * mira con lupa. Medido CON ESTE MISMO LECTOR sobre los 115 expedientes con
- * `.xml` en la BD: **65 de 115** tienen todas sus fachadas y cubiertas
- * justificadas — o sea que el criterio discrimina de verdad, pero como fallo
- * dejaría fuera a la mitad de la cartera.
- *
- * ⚠️ Esa cifra se midió con el lector, NO con una consulta SQL: una regex que
- * dé por hecho que `<ModoDeObtencion>` va pegado a `<Tipo>` cuenta mal, porque
- * el orden de los hijos de `<Elemento>` cambia entre ficheros. La primera
- * medición dijo «68 y 45» y era un artefacto.
- */
-function revisarTransmitancias(inf, rx, ctx) {
-    // Qué cerramientos cuentan: MUROS, CUBIERTA y PARTICIONES.
-    //
-    // ⚠️ El SUELO queda FUERA a propósito. Medido con este mismo lector sobre
-    // los 115 expedientes con `.xml` en la BD: fachada 63 % justificadas,
-    // cubierta 72 %, particiones 66 % y 56 %… y **suelo solo el 11 %**. Metido
-    // en la cuenta, el aviso saltaría en casi los 115 y dejaría de leerse —
-    // que es el vicio de siempre: un aviso que sale siempre enseña a ignorar la
-    // lista entera. Sin él, 65 de 115 salen limpios y el aviso discrimina.
-    // Cuando el suelo va por defecto se DICE en el detalle, sin disparar nada.
-    //
-    // Los PUENTES TÉRMICOS también quedan fuera —van por defecto en 19.999 de
-    // las 29.780 apariciones del corpus— y los ADIABÁTICOS igual: su U no
-    // describe nada, por definición no hay transferencia al otro lado (0 % de
-    // los 204 del corpus están justificados, y es lo correcto).
-    const MIRA = new Set(['fachada', 'cubierta',
-        'particioninteriorvertical', 'particioninteriorhorizontal']);
-    const clave = (o) => norm(o.tipo).replace(/\s/g, '');
-    const opacos = rx.envolvente.opacos.filter((o) => MIRA.has(clave(o)));
-    const suelos = rx.envolvente.opacos.filter((o) => clave(o) === 'suelo'
-        && o.transmitancia_conocida === false);
-    if (!opacos.length) {
-        inf.anota('transmitancias', 'Transmitancias justificadas', 'no_comprobable', {
-            dice: 'el certificado no declara cerramientos opacos',
-            esperado: 'fachadas, cubierta, suelo y particiones',
-        });
-        return;
-    }
-
-    const sinJustificar = opacos.filter((o) => o.transmitancia_conocida === false);
-    const sinModo = opacos.filter((o) => o.transmitancia_conocida === null);
-
-    // ¿Alguno de los que NO está justificado es de los que se rehabilitan? En un
-    // RES080 la U de partida de ESE elemento es la base del ahorro, así que ahí
-    // el «por defecto» pesa mucho más que en una fachada que no se toca.
-    const declarado = new Set(ctx.envolventeDeclarada || []);
-    const enAlcance = sinJustificar.filter((o) => {
-        const fam = FAMILIA_CERRAMIENTO[norm(o.tipo)];
-        return fam && declarado.has(fam);
-    });
-
-    const resumen = (lista) => lista
-        .map((o) => `${o.nombre} (${o.tipo}, ${MODO_ES[norm(o.modo_obtencion)] || o.modo_obtencion})`)
-        .join(' · ');
-
-    //: El SUELO no dispara el aviso, pero si va por defecto se dice: es un dato
-    //: que el certificador puede querer justificar, no un descuido que ocultar.
-    const notaSuelo = suelos.length
-        ? ` (el suelo ${suelos.map((o) => o.nombre).join(', ')} también va por defecto, pero eso es lo normal: solo el 11 % de los certificados lo justifica)`
-        : '';
-
-    if (!sinJustificar.length && !sinModo.length) {
-        inf.anota('transmitancias', 'Transmitancias justificadas', 'ok', {
-            dice: `los ${opacos.length} cerramientos van como conocido (justificado)${notaSuelo}`,
-            esperado: 'conocido, no «por defecto» ni «estimado» — muros, cubierta y particiones',
-        });
-        return;
-    }
-
-    inf.anota('transmitancias', 'Transmitancias justificadas', 'aviso', {
-        dice: `${sinJustificar.length} de ${opacos.length} sin justificar — ${resumen(sinJustificar)}${notaSuelo}`,
-        esperado: 'conocido (justificado), no «por defecto» ni «estimado» — muros, cubierta y particiones',
-        detalle: enAlcance.length
-            ? `⚠️ ${enAlcance.length} de ellos son elementos que este expediente REHABILITA (${enAlcance.map((o) => o.nombre).join(', ')}): su transmitancia de partida es la base del ahorro, así que ahí el «por defecto» es lo primero que mira el verificador.`
-            : 'No invalida el certificado, pero las transmitancias por defecto son el caso más desfavorable: dan más demanda y con ella más ahorro.',
-    });
 }
 
 /**
@@ -497,8 +417,14 @@ function revisarDemanda(inf, rx, ctx) {
     }
     const pct = (v) => (v === null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(1).replace('.', ',')} %`);
 
+    // REGLA — por debajo de lo simulado hasta un 10 % es AVISO; más, FALLO
+    // (Fran, 29/09/2026: aprobó 13 entre −4 % y −24 %). En el final de un RES080,
+    // donde la demanda TIENE que bajar, sigue siendo fallo.
+    const nivel = (c) => (!c.alerta ? 'ok'
+        : cmp.esperaMenor ? 'falla'
+            : (c.deltaPct != null && c.deltaPct > -LIMITE_FALLO_PCT) ? 'aviso' : 'falla');
     inf.anota('demanda', 'Demanda de calefacción frente a la propuesta',
-        cmp.demanda.alerta ? 'falla' : 'ok', {
+        nivel(cmp.demanda), {
             dice: `${cmp.demanda.cee} kWh/m²·año`,
             esperado: `${Math.round(cmp.demanda.prop)} kWh/m²·año simulados (${pct(cmp.demanda.deltaPct)})`,
             detalle: !cmp.demanda.alerta ? null
@@ -509,7 +435,8 @@ function revisarDemanda(inf, rx, ctx) {
 
     if (cmp.superficie.cee) {
         inf.anota('superficie', 'Superficie frente a la propuesta',
-            cmp.superficie.alerta ? 'falla' : 'ok', {
+            !cmp.superficie.alerta ? 'ok'
+                : (cmp.superficie.deltaPct != null && cmp.superficie.deltaPct > -LIMITE_FALLO_PCT) ? 'aviso' : 'falla', {
                 dice: `${cmp.superficie.cee} m²`,
                 esperado: `${Math.round(cmp.superficie.prop)} m² simulados (${pct(cmp.superficie.deltaPct)})`,
                 detalle: cmp.superficie.alerta
@@ -599,6 +526,51 @@ function revisarGeneradorFinal(inf, rx, ctx) {
     });
 }
 
+// ─── Sin .xml: lo mínimo del .cex para que el juicio del .cex funcione ─────────
+
+function rxDesdeCex(cex) {
+    const g = cex?.generales || {};
+    return {
+        identificacion: { anio_construccion: g.anio || null, zona_climatica: g.zona_he1 || null },
+        geometria: { superficie_habitable: g.superficie || null },
+        demanda: {}, generadores: { calefaccion: [], acs: [], refrigeracion: [] },
+        fechas: {}, certificador: {}, calificacion: {}, medidas: [],
+        envolvente: { opacos: [], huecos: [] }, acumulacion_acs: null,
+    };
+}
+
+// ─── El equipo que tiene que proponer la medida ──────────────────────────────
+
+/**
+ * Qué aerotermia describe la actuación: la del expediente o, si aún no la
+ * declara, la GENÉRICA de la simulación (`conAerotermiaSimulada`, la MISMA que
+ * compone la medida que pone la app). Contra esto se juzga la medida del .cex.
+ */
+async function equipoEsperado(expediente) {
+    try {
+        const { conAerotermiaSimulada } = await import(
+            '../../../frontend/src/features/cee-envolvente/logic/fichaCe3x.js');
+        const { resolverCe3x } = await import(
+            '../../../frontend/src/features/expedientes/logic/ce3xFinal.js');
+        const sim = conAerotermiaSimulada(expediente);
+        const d = resolverCe3x(sim.expediente);
+        if (!d) return null;
+        const cal = sim.expediente.instalacion?.aerotermia_cal || {};
+        return {
+            nombre: d.nombre,
+            modelo: [cal.modelo, cal.modelo_conjunto].filter(Boolean).join(' '),
+            generica: !!cal.generica,
+            scopCal: d.scopCal || null,
+            scopAcs: d.hayAcs ? (d.scopAcs || null) : null,
+            hayAcs: !!d.hayAcs,
+            hibridacion: !!d.hibridacion,
+            pctCal: d.repartoValido ? d.pctCal : null,
+        };
+    } catch {
+        return null;
+    }
+}
+
 // ─── El punto de entrada ─────────────────────────────────────────────────────
 
 /**
@@ -612,8 +584,13 @@ function revisarGeneradorFinal(inf, rx, ctx) {
  * @param {object} [o.certificador]  la fila de `prescriptores` del técnico asignado
  * @returns {Promise<{fase, ficha, veredicto, resumen, comprobaciones, contexto}>}
  */
-async function revisarCee({ radiografia, otraFase = null, expediente = {}, fase = 'inicial', certificador = null }) {
-    const rx = radiografia;
+async function revisarCee({ radiografia, otraFase = null, expediente = {}, fase = 'inicial',
+                            certificador = null, cex = null }) {
+    //: Sin `.xml` pero con `.cex`: el certificado no se puede registrar (el
+    //: Registro pide el `.xml`), y eso es lo primero que se dice. Lo que sí se
+    //: puede mirar con el `.cex` —medida, transmitancias, huecos— se mira igual.
+    const soloCex = !radiografia && !!cex;
+    const rx = radiografia || rxDesdeCex(cex);
     const op = expediente.oportunidades || expediente.oportunidad || {};
     const inputs = op.datos_calculo?.inputs || {};
     const inst = expediente.instalacion || {};
@@ -626,7 +603,7 @@ async function revisarCee({ radiografia, otraFase = null, expediente = {}, fase 
     //: La tabla del Anexo VIII es del frontend (ESM); el backend ya la carga así
     //: en `cifoService`. Se importa dentro para no obligar a todo el que
     //: requiera este módulo a arrastrar el bundle del frontend.
-    const { BOILER_EFFICIENCIES } = await import(
+    const { BOILER_EFFICIENCIES, getUByYear, getVentanaYACHByYear } = await import(
         '../../../frontend/src/features/calculator/logic/calculation.js'
     );
     const fila = BOILER_EFFICIENCIES.find((b) => b.id === rendimientoId) || null;
@@ -674,6 +651,14 @@ async function revisarCee({ radiografia, otraFase = null, expediente = {}, fase 
         nifCertificadorAsignado: certificador?.cif || certificador?.nif_responsable || null,
         nombreCertificadorAsignado: certificador?.nombre_responsable || certificador?.razon_social || null,
         envolventeDeclarada: null,   // se rellena abajo, solo en RES080
+        //: Lo que necesitan las comprobaciones del `.cex` (revisionCeeCex.js).
+        hayCex: !!cex,
+        getUByYear, getVentanaYACHByYear,
+        fechaCertificado: rx.fechas?.certificado || null,
+        anioOportunidad: Number(inputs.anio || inputs.yearBuilt) || null,
+        confirmacion: inst.confirmacion_cliente || op.datos_calculo?.confirmacion_cliente || null,
+        fotovoltaica: inst.fotovoltaica?.estado || null,
+        esperado: await equipoEsperado(expediente),
     };
 
     //: El alcance de envolvente se resuelve ANTES de las comprobaciones porque
@@ -684,6 +669,18 @@ async function revisarCee({ radiografia, otraFase = null, expediente = {}, fase 
     ctx.envolventeDeclarada = declarado;
 
     const inf = new Informe();
+    if (soloCex) {
+        inf.anota('xml', 'El .xml del certificado', 'falla', {
+            dice: 'el técnico ha entregado el .cex pero NO el .xml',
+            esperado: 'el .xml exportado de CE3X (es lo que se presenta en el Registro)',
+            detalle: 'Sin el .xml no se puede registrar ni revisar la demanda, las fechas, la calificación ni quién lo firma. Pídeselo al certificador.',
+        });
+        revisarConCex(inf, rx, cex, ctx);
+        return {
+            fase, ficha, veredicto: inf.veredicto, resumen: inf.resumen, comprobaciones: inf.puntos,
+            contexto: { expediente: expediente.numero_expediente || null, solo_cex: true },
+        };
+    }
     revisarIdentificacion(inf, rx, ctx);
     revisarCertificador(inf, rx, ctx);
     revisarFechas(inf, rx, ctx);
@@ -691,7 +688,17 @@ async function revisarCee({ radiografia, otraFase = null, expediente = {}, fase 
     else revisarGeneradorInicial(inf, rx, ctx);
     revisarAcs(inf, rx, ctx);
     revisarDemanda(inf, rx, ctx);
-    revisarTransmitancias(inf, rx, ctx);
+    if (cex) revisarConCex(inf, rx, cex, ctx);
+    else {
+        revisarTransmitancias(inf, rx, null, ctx);
+        if (fase === 'inicial') {
+            inf.anota('medida', 'Medida de mejora', 'no_comprobable', {
+                dice: `el .xml declara ${rx.medidas.length} medida(s)`,
+                esperado: 'la medida con el equipo del expediente, calculada',
+                detalle: 'Sin el .cex no se puede saber qué equipo propone ni si está calculada.',
+            });
+        }
+    }
 
     if (ficha === 'RES080') {
         let cambios = null;
@@ -721,6 +728,7 @@ async function revisarCee({ radiografia, otraFase = null, expediente = {}, fase 
 
 module.exports = {
     revisarCee,
+    LIMITE_FALLO_PCT,
     HOLGURA_PCT,
     TOLERANCIA_RENDIMIENTO_PTS,
     FAMILIA_CERRAMIENTO,

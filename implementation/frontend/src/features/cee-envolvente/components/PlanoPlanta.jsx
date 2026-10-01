@@ -2,14 +2,31 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { alturaHueco, areaPoligono, at, caja, centro, centroide, cota, CAMARA_ISO, ESCALA_AXO, fmt,
          claveEncuadre, largo, LARGO_MINIMO_PARED, pegarAPared, proyector,
          recorrido, reparto,
-         tamanosDeDibujo, TOPE_ALT }
+         simplificarTrazo, tamanosDeDibujo, TOPE_ALT }
     from '../logic/geometriaPlano';
 import { TIPOS_PARED, nombreHueco } from '../logic/usePlanoEnvolvente';
 import { cuerposDeLaPlanta } from '../logic/cuerposEnvolvente';
 import { CubiertaControl, LucernariosCubierta } from './PanelCubierta';
 import { RecorteControl } from './PanelRecorte';
 import { ViviendaPlantaControl } from './PanelZonas';
-import { ETIQUETA_USO_ZONA } from '../logic/zonasFuera';
+import { COLOR_CROQUIS, ETIQUETA_USO_ZONA } from '../logic/zonasFuera';
+import { ATRIBUCION_PNOA, enlacesMapas, leerFechaVuelo, lienzoALatLon, teselasOrtofoto,
+         urlFechaVuelo } from '../logic/ortofoto';
+
+//: La fecha del vuelo, por URL: con dos plantas en pantalla son dos planos que
+//: preguntan lo mismo, y se pregunta una vez. Una respuesta fallida no se
+//: guarda — la próxima vez que se encienda la capa se vuelve a intentar.
+const FECHAS_VUELO = new Map();
+function fechaVuelo(url) {
+    if (!FECHAS_VUELO.has(url)) {
+        const p = fetch(url).then(r => (r.ok ? r.json() : null)).then(leerFechaVuelo)
+            .catch(() => null)
+            .then((info) => { if (!info) FECHAS_VUELO.delete(url); return info; });
+        FECHAS_VUELO.set(url, p);
+    }
+    return FECHAS_VUELO.get(url);
+}
+import { EtiquetaMancha } from './EtiquetaMancha';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // El plano del certificador. Cada pared se pulsa.
@@ -216,8 +233,30 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                               zonas = [], dibujarZona = false, usoZona = 'GARAJE',
                               onUsoZona = null, onZona = null, onZonaModo = null,
                               onZonaQuitar = null,
+                              //: El CROQUIS a mano alzada (ver `gis/croquis.py` en
+                              //: el motor): las manchas ya pintadas en esta planta
+                              //: —en este lienzo—, el uso con el que se pinta y qué
+                              //: hacer con cada trazo, con el ajuste y el borrado.
+                              croquis = [], dibujarCroquis = false, usoCroquis = 'GARAJE',
+                              onUsoCroquis = null, onCroquisTrazo = null, onCroquisModo = null,
+                              onCroquisAjustar = null, onCroquisDeshacer = null,
+                              onCroquisBorrar = null, catastroPlanta = [],
+                              //: El croquis pintado DESDE EL MÓVIL: si hay una
+                              //: sesión abierta en esta planta, lo que llega se
+                              //: ve aquí —también el trazo que va a medias—.
+                              croquisMovil = null, abriendoMovil = false, onCroquisMovil = null,
+                              onCroquisMovilQr = null, onCroquisMovilCerrar = null,
+                              //: La PROPUESTA de croquis del motor para esta planta
+                              //: (dónde está, probablemente, el garaje, el porche…),
+                              //: cómo verla, y por qué se propuso lo que se ve.
+                              propuestaCroquis = null, onVerPropuesta = null, notasPropuesta = null,
                               catastro, quiereCatastro, onCatastro,
                               trayendoCatastro, falloCatastro,
+                              //: La VISTA AÉREA (ortofoto del PNOA) debajo del
+                              //: plano, en 2D y bajo el edificio en 3D. `georef`
+                              //: es el de la geometría: dice dónde cae el lienzo
+                              //: en el mundo, y con él se colocan las teselas.
+                              georef = null, satelite = false, onSatelite = null,
                               // Los CUERPOS del edificio (la casa, el garaje
                               // adosado, el porche) y qué pasa al pulsar uno.
                               cuerpos = [], onCuerpo = null }) {
@@ -458,6 +497,9 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
     //: esquina del tejado.
     const [vertices, setVertices] = useState([]);
     const [cursor, setCursor] = useState(null);
+    //: El trazo del LÁPIZ que se está pintando (croquis): se ve mientras se
+    //: arrastra y se entrega al soltar.
+    const [lapiz, setLapiz] = useState(null);
     // Salir del modo (desde el panel, o al cerrar) tira lo que hubiera a
     // medias, y Esc cancela desde el teclado: es lo que uno prueba primero.
     useEffect(() => {
@@ -601,10 +643,21 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
         // dibujando: en modo dibujo el botón izquierdo traza, así que sin esto
         // la única forma de llegar a otra parte del plano era alejarse con la
         // rueda y volver — que es justo lo que hace que dibujar «cueste».
-        if ((dibujando || dibujarPoligono) && espacio.current && e.button === 0) {
+        if ((dibujando || dibujarPoligono || dibujarCroquis) && espacio.current && e.button === 0) {
             arrastre.current = { gesto: 'mover', cam: camara,
                                  ...aDibujo(e.clientX, e.clientY), vb: vista,
                                  x0: e.clientX, y0: e.clientY, movido: false };
+            return;
+        }
+        // El CROQUIS: se pinta ARRASTRANDO, a mano alzada —con el dedo o con el
+        // ratón—. No hace falta precisión: el motor endereza los bordes y
+        // ajusta la superficie a la de Catastro.
+        if (dibujarCroquis && !es3d && e.button === 0) {
+            const p = aDibujo(e.clientX, e.clientY);
+            arrastre.current = { gesto: 'croquis', pts: [[p.x, p.y]], vb: vista,
+                                 x0: e.clientX, y0: e.clientY, movido: false };
+            setLapiz([[p.x, p.y]]);
+            svgRef.current?.setPointerCapture?.(e.pointerId);
             return;
         }
         // Dibujar una pared nueva: se empieza donde se pulse, pegado a la pared
@@ -656,6 +709,15 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
             setTrazo({ a: d.a, b: pegar(p.x, p.y, null, d.a) });
             return;
         }
+        if (d.gesto === 'croquis') {
+            const p = aDibujo(e.clientX, e.clientY, d.vb);
+            const u = d.pts[d.pts.length - 1];
+            if (Math.hypot(p.x - u[0], p.y - u[1]) > tam * 0.25) {
+                d.pts.push([Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100]);
+                setLapiz([...d.pts]);
+            }
+            return;
+        }
         if (d.gesto === 'pared') { moverPared(d, e); return; }
         if (d.gesto === 'hueco') { moverHueco(d, e); return; }
         if (d.gesto === 'girar') { girar(d, e); return; }
@@ -690,6 +752,14 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
             } else {
                 setVertices(v => [...v, [Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100]]);
             }
+            arrastrado.current = true;
+            setTimeout(() => { arrastrado.current = false; }, 0);
+            return;
+        }
+        if (d?.gesto === 'croquis') {
+            setLapiz(null);
+            // Una mancha de menos de 1 m² es un toque, no un croquis.
+            if (d.pts.length >= 3 && areaPoligono(d.pts) > 1) onCroquisTrazo?.(simplificarTrazo(d.pts));
             arrastrado.current = true;
             setTimeout(() => { arrastrado.current = false; }, 0);
             return;
@@ -743,6 +813,51 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
         () => (es3d ? [] : cuerposDeLaPlanta(cuerpos, planta?.nivel)),
         [cuerpos, planta?.nivel, es3d]);
 
+    //: La ORTOFOTO: qué teselas cubren el entorno y dónde van en el lienzo. Se
+    //: calcula solo con la capa encendida — sin ella no se pide ni una imagen.
+    //: ⚠ También por ENCIMA del `return` de «esta planta no tiene plano».
+    const orto = useMemo(
+        () => (satelite && georef ? teselasOrtofoto(georef) : null),
+        [satelite, georef]);
+    //: Cuántas teselas han llegado y cuántas han fallado. Es lo que permite
+    //: decir «cargando 4 de 9» en vez de un fondo que se rellena a trozos sin
+    //: explicación, y avisar si el IGN no ha servido alguna.
+    //: La cuenta va atada a UN juego de teselas (`clave`): al volver a medir el
+    //: juego cambia y la cuenta vieja no vale — se descarta al leerla, sin un
+    //: efecto que la ponga a cero un fotograma tarde.
+    const [ortoCarga, setOrtoCarga] = useState({ clave: null, bien: 0, mal: 0 });
+    const claveOrto = orto?.teselas
+        ? `${orto.teselas[0]?.key}/${orto.teselas.length}` : null;
+    const carga = ortoCarga.clave === claveOrto ? ortoCarga : { bien: 0, mal: 0 };
+    const alCargarTesela = (fallo) => setOrtoCarga(c => {
+        const b = c.clave === claveOrto ? c : { clave: claveOrto, bien: 0, mal: 0 };
+        return { ...b, bien: b.bien + (fallo ? 0 : 1), mal: b.mal + (fallo ? 1 : 0) };
+    });
+
+    //: De CUÁNDO es la foto, en el centro de la casa. Una ortofoto anterior a la
+    //: ampliación del garaje enseña una casa sin garaje: sin la fecha a la
+    //: vista, eso se lee como que el garaje no existe.
+    const urlVuelo = useMemo(() => {
+        const l = plano.lienzo;
+        return orto?.teselas && l?.ancho > 0 ? urlFechaVuelo(georef, l.ancho / 2, l.alto / 2) : null;
+    }, [orto, georef, plano.lienzo]);
+    const [vuelo, setVuelo] = useState(null);
+    useEffect(() => {
+        if (!urlVuelo) return undefined;
+        let vivo = true;
+        fechaVuelo(urlVuelo).then((info) => { if (vivo) setVuelo({ url: urlVuelo, info }); });
+        return () => { vivo = false; };
+    }, [urlVuelo]);
+    const infoVuelo = vuelo?.url === urlVuelo ? vuelo.info : null;
+
+    //: Dónde está el edificio, para abrirlo en Google. El centro del LIENZO es
+    //: el de la casa: el motor la encuadra ahí con su margen.
+    const enlaces = useMemo(() => {
+        const l = plano.lienzo;
+        if (!georef || !(l?.ancho > 0)) return [];
+        return enlacesMapas(lienzoALatLon(georef, l.ancho / 2, l.alto / 2));
+    }, [georef, plano.lienzo]);
+
     // ── lo que se dibuja ─────────────────────────────────────────────────────
     if (!es3d && (!(ancho > 0) || !(alto > 0))) return <SinPlano planta={planta} />;
 
@@ -778,7 +893,10 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                 onZoom={f => escalar(f)} onEncuadrar={encuadrar}
                 puedeAlejar={puedeAlejar} entorno={entorno} onEntorno={onEntorno}
                 catastro={quiereCatastro} onCatastro={onCatastro}
-                trayendoCatastro={trayendoCatastro} falloCatastro={falloCatastro} />
+                trayendoCatastro={trayendoCatastro} falloCatastro={falloCatastro}
+                satelite={satelite} onSatelite={georef ? onSatelite : null}
+                avisoSatelite={orto?.aviso || null}
+                enlaces={enlaces} />
 
             {/* LA CUBIERTA de esta planta. Va aquí —bajo la barra de SU plano y
                 encima del dibujo— porque se marca dibujándola: el mando tiene
@@ -805,7 +923,20 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                                        onZonaQuitar={onZonaQuitar}
                                        recorte={recorte} onRecorteModo={onRecorteModo}
                                        onRecorteQuitar={onRecorteQuitar}
-                                       recorteSugerido={recorteSugerido} midiendo={midiendo} />
+                                       recorteSugerido={recorteSugerido} midiendo={midiendo}
+                                       croquis={croquis} dibujandoCroquis={dibujarCroquis}
+                                       usoCroquis={usoCroquis} onUsoCroquis={onUsoCroquis}
+                                       onCroquisModo={onCroquisModo}
+                                       onCroquisAjustar={onCroquisAjustar}
+                                       onCroquisDeshacer={onCroquisDeshacer}
+                                       onCroquisBorrar={onCroquisBorrar}
+                                       catastroPlanta={catastroPlanta}
+                                       croquisMovil={croquisMovil} abriendoMovil={abriendoMovil}
+                                       onCroquisMovil={onCroquisMovil}
+                                       onCroquisMovilQr={onCroquisMovilQr}
+                                       onCroquisMovilCerrar={onCroquisMovilCerrar}
+                                       propuesta={propuestaCroquis} onVerPropuesta={onVerPropuesta}
+                                       notasPropuesta={notasPropuesta} />
             )}
 
             {!es3d && onCubiertaModo && !dibujarRecorte && !dibujarZona && (
@@ -828,8 +959,19 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                 contenedor y no del SVG: dentro del SVG habría que colocarlo en
                 metros y se deformaría con el zoom. */}
             <div ref={cajaRef}
-                 className="relative overflow-hidden rounded-xl border border-white/[0.05]"
+                 className={`relative overflow-hidden rounded-xl border border-white/[0.05]
+                             ${croquisMovil ? 'ring-2 ring-violet-400/60' : ''}`}
                  style={{ background: PAPEL }}>
+                {/* Con el croquis abierto en el móvil, la mirada está en el plano,
+                    no en la barra: aquí se dice que lo que aparece llega en directo. */}
+                {croquisMovil && (
+                    <span className="croquis-chip pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-1.5
+                                     rounded-full bg-violet-600/90 px-2.5 py-1 text-[11px] font-bold text-white shadow">
+                        <span className={`inline-block h-1.5 w-1.5 rounded-full bg-white
+                                          ${croquisMovil.enCurso ? 'animate-pulse' : ''}`} />
+                        {croquisMovil.conectado ? 'En directo desde el móvil' : 'Esperando al móvil'}
+                    </span>
+                )}
                 {/* `select-none`: sin él, arrastrar sobre el plano selecciona
                     los rótulos de las paredes y el dibujo se queda con media
                     planta en azul de selección. */}
@@ -901,7 +1043,16 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                           width={vista.ancho * 3} height={vista.alto * 3}
                           fill={`url(#grid-${uid})`} />
 
-                    {!es3d && <Contexto contexto={plano.contexto} />}
+                    {/* La ORTOFOTO, encima de la retícula (una foto no necesita
+                        la cuadrícula para dar la escala: están las cotas) y
+                        debajo de todo lo demás. Sin filtro de tema: invertida,
+                        un tejado rojo saldría azul, y lo que se mira aquí es
+                        precisamente de qué color y de qué forma es. */}
+                    {!es3d && orto?.teselas && (
+                        <Ortofoto teselas={orto.teselas} onCarga={alCargarTesela} />
+                    )}
+
+                    {!es3d && <Contexto contexto={plano.contexto} sobreFoto={!!orto?.teselas} />}
 
                     {/* Los CUERPOS del edificio, DEBAJO de los muros: se pinta
                         primero porque en un SVG manda el último, y las paredes
@@ -919,6 +1070,16 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
 
                     {es3d ? (
                         <>
+                            {/* El SUELO de verdad bajo el edificio: la misma
+                                ortofoto, puesta en el plano z = 0 con la MISMA
+                                proyección que las paredes. Es lo que convierte
+                                la axonometría en algo que se reconoce: la casa
+                                levantada sobre su parcela, con la calle y el
+                                patio donde están. */}
+                            {orto?.teselas && (
+                                <OrtofotoSuelo teselas={orto.teselas} proy={proy}
+                                               onCarga={alCargarTesela} />
+                            )}
                             <Suelo contexto={plano.contexto} proy={proy} />
                             {caras.map(f => (
                                 <path key={f.key} d={f.d} fill={f.fill} stroke={f.stroke}
@@ -980,7 +1141,16 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                                 ya restadas y la que se está dibujando. */}
                             <Zonas zonas={zonas}
                                    vertices={dibujarZona ? vertices : []}
-                                   cursor={dibujarZona ? cursor : null} uid={uid} tam={tam} />
+                                   cursor={dibujarZona ? cursor : null} uid={uid} tam={tam}
+                                   fantasma={dibujarCroquis || !!croquisMovil} />
+
+                            {/* El CROQUIS a mano alzada: las manchas pintadas y
+                                la que se está pintando. */}
+                            <Croquis trazos={dibujarCroquis || croquisMovil ? croquis : []}
+                                     lapiz={lapiz || croquisMovil?.enCurso?.pts || null}
+                                     uso={lapiz ? usoCroquis : (croquisMovil?.enCurso?.uso || usoCroquis)}
+                                     dedo={!lapiz && croquisMovil?.enCurso?.pts?.length > 1}
+                                     tam={tam} />
 
                             {rotulos.map(r => (
                                 <g key={r.id} style={{ pointerEvents: 'none' }}>
@@ -1081,6 +1251,14 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                              onNorte={() => setCamara(c => ({ ...c, az: 0 }))} />
                 )}
 
+                {/* De quién es la foto —lo pide su licencia, CC BY 4.0— y cómo
+                    va la carga. Abajo a la derecha: la brújula está a la
+                    izquierda. */}
+                {orto?.teselas && (
+                    <AtribucionOrtofoto total={orto.teselas.length} carga={carga}
+                                        vuelo={infoVuelo} />
+                )}
+
                 {/* Bajo el ratón puede haber una pared o un HUECO de esa
                     pared, y lo que se pregunta no es lo mismo: de la pared, qué
                     es y si le queda algo; del hueco, cuál es y cuánto mide —
@@ -1104,7 +1282,8 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
 /** La cabecera del plano: qué se está viendo, y los mandos para verlo. */
 function Controles({ titulo, subtitulo, es3d, onGirar, dibujando, onDibujar, corto,
                      onZoom, onEncuadrar, puedeAlejar, entorno, onEntorno,
-                     catastro, onCatastro, trayendoCatastro, falloCatastro }) {
+                     catastro, onCatastro, trayendoCatastro, falloCatastro,
+                     satelite, onSatelite, avisoSatelite, enlaces = [] }) {
     return (
         <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2">
             <b className="text-[13px] font-black tracking-wide">{titulo}</b>
@@ -1163,7 +1342,68 @@ function Controles({ titulo, subtitulo, es3d, onGirar, dibujando, onDibujar, cor
                         {trayendoCatastro ? 'Trayendo…' : falloCatastro ? '▦ Catastro ⚠' : '▦ Catastro'}
                     </Boton>
                 )}
+                {/* La vista aérea. Es un FONDO, como el Catastro, y los dos no
+                    caben a la vez: la cartografía es un papel opaco y taparía
+                    la foto. Encender uno apaga el otro (lo decide la vista). */}
+                {onSatelite && (
+                    <Boton onClick={() => onSatelite(!satelite)} activo={satelite}
+                           title={avisoSatelite
+                               || 'La ortofoto del PNOA (IGN) debajo del plano: tejados, patios, '
+                                + 'piscinas y lo construido que no consta en Catastro'}>
+                        {satelite && avisoSatelite ? '◩ Satélite ⚠' : '◩ Satélite'}
+                    </Boton>
+                )}
+                {enlaces.length > 0 && <MenuMapas enlaces={enlaces} />}
             </div>
+        </div>
+    );
+}
+
+/**
+ * «Ver en Google»: el mismo edificio en los visores de fuera. Lo que dan y el
+ * plano no: el 3D fotogramétrico y, sobre todo, el Street View — la FACHADA,
+ * que desde arriba no se ve y es donde están las ventanas que hay que medir.
+ *
+ * Son ENLACES y no una capa: las imágenes de Google no se pueden poner debajo
+ * de un plano propio sin su API de pago. Se abren en otra pestaña (`noopener`:
+ * sin él comparte proceso con esta, y un Google Earth cargando la frena).
+ */
+function MenuMapas({ enlaces }) {
+    const [abierto, setAbierto] = useState(false);
+    const ref = useRef(null);
+    useEffect(() => {
+        if (!abierto) return undefined;
+        const fuera = (e) => { if (!ref.current?.contains(e.target)) setAbierto(false); };
+        const esc = (e) => { if (e.key === 'Escape') setAbierto(false); };
+        document.addEventListener('pointerdown', fuera);
+        document.addEventListener('keydown', esc);
+        return () => {
+            document.removeEventListener('pointerdown', fuera);
+            document.removeEventListener('keydown', esc);
+        };
+    }, [abierto]);
+    return (
+        <div ref={ref} className="relative">
+            <Boton onClick={() => setAbierto(a => !a)} activo={abierto}
+                   title="Abrir este edificio en Google Maps, Street View o Google Earth">
+                ↗ Google
+            </Boton>
+            {abierto && (
+                <div className="absolute right-0 top-8 z-30 w-72 overflow-hidden rounded-xl border
+                                border-white/10 bg-bkg-surface shadow-2xl">
+                    {enlaces.map(e => (
+                        <a key={e.id} href={e.href} target="_blank" rel="noopener noreferrer"
+                           onClick={() => setAbierto(false)}
+                           className="block border-b border-white/[0.06] px-3 py-2.5 last:border-b-0
+                                      hover:bg-white/[0.05]">
+                            <span className="block text-[12px] font-bold text-white/85">
+                                {e.etiqueta} <span className="text-white/35">↗</span>
+                            </span>
+                            <span className="block text-[11px] text-white/50">{e.detalle}</span>
+                        </a>
+                    ))}
+                </div>
+            )}
         </div>
     );
 }
@@ -1421,7 +1661,71 @@ function Cuerpos({ cuerpos, sobre, onSobre, onPulsar, tam }) {
     );
 }
 
-function Contexto({ contexto }) {
+/**
+ * La ORTOFOTO en planta: una `<image>` por tesela, cada una en su sitio del
+ * lienzo (ver `teselasOrtofoto`). Las pide el navegador directamente al IGN.
+ */
+function Ortofoto({ teselas, onCarga }) {
+    return (
+        <g style={{ pointerEvents: 'none' }} opacity={0.92}>
+            {teselas.map(t => (
+                <image key={t.key} href={t.href} x={t.x} y={t.y}
+                       width={t.ancho} height={t.alto} preserveAspectRatio="none"
+                       onLoad={() => onCarga?.(false)} onError={() => onCarga?.(true)} />
+            ))}
+        </g>
+    );
+}
+
+/**
+ * La misma ortofoto como SUELO del 3D. La axonometría, a altura fija, es una
+ * transformación AFÍN del plano (un giro y un achatamiento: ver `proyector`),
+ * así que basta con proyectar tres puntos del suelo para sacar la matriz y
+ * dejar que el navegador deforme las teselas — encajan con las paredes porque
+ * es exactamente la misma cuenta.
+ */
+function OrtofotoSuelo({ teselas, proy, onCarga }) {
+    const [ox, oy] = proy(0, 0, 0);
+    const [ax, ay] = proy(1, 0, 0);
+    const [bx, by] = proy(0, 1, 0);
+    const m = [ax - ox, ay - oy, bx - ox, by - oy, ox, oy].map(v => +v.toFixed(6));
+    // Más apagada que en planta: aquí las paredes son CARAS translúcidas, y
+    // con la foto a plena intensidad las grises («sin mirar») desaparecían
+    // encima de los tejados de al lado. El suelo sitúa; el edificio manda.
+    return (
+        <g transform={`matrix(${m.join(' ')})`} style={{ pointerEvents: 'none' }} opacity={0.5}>
+            {teselas.map(t => (
+                <image key={t.key} href={t.href} x={t.x} y={t.y}
+                       width={t.ancho} height={t.alto} preserveAspectRatio="none"
+                       onLoad={() => onCarga?.(false)} onError={() => onCarga?.(true)} />
+            ))}
+        </g>
+    );
+}
+
+/** De quién es la foto, y cómo va la carga — con lo que ha fallado dicho. */
+function AtribucionOrtofoto({ total, carga, vuelo }) {
+    const llegadas = carga.bien + carga.mal;
+    const cargando = llegadas < total;
+    return (
+        <span className="pointer-events-none absolute bottom-2 right-2 z-10 rounded-md
+                         bg-bkg-surface/85 px-2 py-1 text-[10px] font-semibold
+                         text-white/70 backdrop-blur">
+            {cargando ? `Cargando la ortofoto · ${llegadas} de ${total} · ` : ''}
+            {carga.mal > 0 && !cargando
+                ? <span className="text-amber-400">{carga.mal} tesela{carga.mal > 1 ? 's' : ''} sin cargar · </span>
+                : null}
+            {/* La fecha, delante de la atribución: es lo que hay que leer. */}
+            {vuelo ? <span className="text-white/90">{vuelo.texto} · </span> : null}
+            {ATRIBUCION_PNOA}
+        </span>
+    );
+}
+
+//: Con la foto debajo, los vecinos van SIN relleno: la masa gris tapaba justo
+//: sus tejados, que es lo que se viene a ver. Su contorno se queda — es lo que
+//: dice dónde CREE Catastro que están, y compararlo con la foto es la gracia.
+function Contexto({ contexto, sobreFoto = false }) {
     if (!contexto) return null;
     const { vecinos = [], parcelas_vecinas: lindes = [], parcela = [],
             edificio = [] } = contexto;
@@ -1434,13 +1738,13 @@ function Contexto({ contexto }) {
             ))}
             {vecinos.map((anillo, i) => (
                 <polygon key={`v${i}`} points={recorrido(anillo)}
-                         fill={CONTEXTO.vecinoRelleno}
+                         fill={sobreFoto ? 'none' : CONTEXTO.vecinoRelleno}
                          stroke={CONTEXTO.vecinoBorde} strokeWidth={1}
                          vectorEffect="non-scaling-stroke" />
             ))}
             {/* La huella de la CASA, apenas insinuada: es lo que hace que las
                 paredes se lean como el contorno de algo y no como rayas sueltas. */}
-            {edificio.map((anillo, i) => (
+            {!sobreFoto && edificio.map((anillo, i) => (
                 <polygon key={`e${i}`} points={recorrido(anillo)}
                          fill={CONTEXTO.casa} stroke="none" />
             ))}
@@ -1878,27 +2182,33 @@ function Cubierta({ reforma, vertices, cursor, uid, tam }) {
  * restadas, con el mismo lenguaje que un cuerpo que no cuenta —gris, a trazos y
  * con su rótulo—, y la que se está dibujando.
  */
-function Zonas({ zonas, vertices, cursor, tam }) {
+function Zonas({ zonas, vertices, cursor, tam, fantasma = false }) {
     const puntos = (pts) => pts.map(([x, y]) => `${x},${y}`).join(' ');
     const trazo = cursor ? [...vertices, [cursor.x, cursor.y]] : vertices;
     return (
         <g style={{ pointerEvents: 'none' }}>
-            {(zonas || []).filter(z => z.lienzo?.length >= 3).map((z) => {
-                const color = z.aplicada ? 'var(--text-secondary)' : 'var(--warning)';
-                const c = caja(z.lienzo, 0);
-                const texto = `${(ETIQUETA_USO_ZONA[z.uso] || 'No habitable').toUpperCase()} · NO CUENTA`
-                    + ` · ${fmt(z.area_real ?? z.area_m2 ?? 0)} m²`;
-                return (
-                    <g key={z.indice}>
-                        <polygon points={puntos(z.lienzo)} fill={color} fillOpacity={0.08}
-                                 stroke={color} strokeWidth={tam * 0.1}
-                                 strokeDasharray={`${tam * 0.6} ${tam * 0.35}`} strokeLinejoin="round" />
-                        <text x={c.x + c.ancho / 2} y={c.y + c.alto / 2}
-                              fontSize={tam * 0.8} fontWeight={900} fill={color}
-                              textAnchor="middle">{texto}</text>
-                    </g>
-                );
-            })}
+            {/* Mientras se hace un CROQUIS, lo ya restado va en FANTASMA y sin
+                rótulo: el croquis lo va a sustituir, y sus rótulos chocaban con
+                las manchas nuevas. */}
+            <g opacity={fantasma ? 0.35 : 1}>
+                {(zonas || []).filter(z => z.lienzo?.length >= 3).map((z) => {
+                    const color = z.aplicada ? 'var(--text-secondary)' : 'var(--warning)';
+                    const c = caja(z.lienzo, 0);
+                    return (
+                        <g key={z.indice}>
+                            <polygon points={puntos(z.lienzo)} fill={color} fillOpacity={0.08}
+                                     stroke={color} strokeWidth={tam * 0.1}
+                                     strokeDasharray={`${tam * 0.6} ${tam * 0.35}`} strokeLinejoin="round" />
+                            {!fantasma && (
+                                <EtiquetaMancha cx={c.x + c.ancho / 2} cy={c.y + c.alto / 2} tam={tam} escala={0.85}
+                                                titulo={`${(ETIQUETA_USO_ZONA[z.uso] || 'No habitable').toUpperCase()} · NO CUENTA`}
+                                                sub={`${fmt(z.area_real ?? z.area_m2 ?? 0)} m²`}
+                                                color={color} papel={PAPEL} tinta={color} tintaSub={color} />
+                            )}
+                        </g>
+                    );
+                })}
+            </g>
             {vertices.length > 0 && (
                 <>
                     <polyline points={puntos(trazo)}
@@ -1911,6 +2221,62 @@ function Zonas({ zonas, vertices, cursor, tam }) {
                                 stroke="var(--info)" strokeWidth={tam * 0.08} />
                     ))}
                 </>
+            )}
+        </g>
+    );
+}
+
+/**
+ * Las manchas del CROQUIS: translúcidas y sin precisión, que es lo que son.
+ * El rótulo, como el de las paredes (papel, tinta y la raya del color del uso),
+ * con los m² dibujados debajo: es lo que se compara con Catastro.
+ */
+function Croquis({ trazos, lapiz, uso, tam, dedo = false }) {
+    const puntos = (pts) => pts.map(([x, y]) => `${x},${y}`).join(' ');
+    const colorLapiz = COLOR_CROQUIS[uso] || '#94a3b8';
+    return (
+        <g style={{ pointerEvents: 'none' }}>
+            {(trazos || []).map((t, i) => {
+                const color = COLOR_CROQUIS[t.uso] || COLOR_CROQUIS['ESPACIO NO HABITABLE'];
+                return (
+                    <polygon key={i} points={puntos(t.pts)} fill={color} fillOpacity={0.2}
+                             stroke={color} strokeWidth={tam * 0.12} strokeLinejoin="round" />
+                );
+            })}
+            {(trazos || []).map((t, i) => {
+                const color = COLOR_CROQUIS[t.uso] || COLOR_CROQUIS['ESPACIO NO HABITABLE'];
+                const c = caja(t.pts, 0);
+                return (
+                    <EtiquetaMancha key={`r${i}`} cx={c.x + c.ancho / 2} cy={c.y + c.alto / 2} tam={tam}
+                                    titulo={(ETIQUETA_USO_ZONA[t.uso] || 'No habitable').toUpperCase()}
+                                    sub={`≈${Math.round(areaPoligono(t.pts))} m²`}
+                                    color={color} papel={PAPEL}
+                                    tinta="var(--text-primary)" tintaSub="var(--text-secondary)" />
+                );
+            })}
+            {/* La que se está pintando, como un LAZO: dónde empezó y por dónde
+                se va a cerrar. */}
+            {lapiz?.length > 1 && (
+                <g>
+                    <polygon points={puntos(lapiz)} fill={colorLapiz} fillOpacity={0.14} />
+                    <line x1={lapiz[lapiz.length - 1][0]} y1={lapiz[lapiz.length - 1][1]}
+                          x2={lapiz[0][0]} y2={lapiz[0][1]} stroke={colorLapiz}
+                          strokeWidth={tam * 0.1} strokeDasharray={`${tam * 0.4} ${tam * 0.3}`} strokeOpacity={0.8} />
+                    <polyline points={puntos(lapiz)} fill="none" stroke={colorLapiz}
+                              strokeWidth={tam * 0.16} strokeLinejoin="round" strokeLinecap="round" />
+                    <circle cx={lapiz[0][0]} cy={lapiz[0][1]} r={tam * 0.32} fill={PAPEL}
+                            stroke={colorLapiz} strokeWidth={tam * 0.12} />
+                </g>
+            )}
+            {/* Dónde está el DEDO del móvil ahora mismo: sin esa marca, un
+                trazo que crece solo en la pantalla no se sabe de dónde sale. */}
+            {dedo && lapiz?.length > 1 && (
+                <circle cx={lapiz[lapiz.length - 1][0]} cy={lapiz[lapiz.length - 1][1]}
+                        r={tam * 0.45} fill={COLOR_CROQUIS[uso] || '#94a3b8'} fillOpacity={0.35}
+                        stroke={COLOR_CROQUIS[uso] || '#94a3b8'} strokeWidth={tam * 0.1}>
+                    <animate attributeName="r" values={`${tam * 0.35};${tam * 0.6};${tam * 0.35}`}
+                             dur="1.2s" repeatCount="indefinite" />
+                </circle>
             )}
         </g>
     );

@@ -175,6 +175,25 @@ def suelo_terreno(nombre, superficie, espacio, term) -> list:
             "", "", "1", espacio, Cadena("terreno")]
 
 
+def suelo_aire(nombre, superficie, espacio, term) -> list:
+    """Suelo en contacto con el AIRE EXTERIOR: 15 campos, acaba en 'aire'.
+
+    Es el forjado que vuela sobre un porche abierto o un soportal. MEDIDO sobre
+    el corpus: 216 suelos asi en 1.613 `.cex`, todos con esta forma
+    (['...', 'Suelo', sup, U, masa, 'Suelo', '', 'Sin patron', modo, [...],
+    '', '', '1', zona, 'aire']). Va en 'Conocidas' con la U de la guia, como
+    los que la declaran: [True, False, U, masa].
+
+    POR QUE EXISTE — 26RES060_OP246: el suelo de la planta 1 sobre el porche
+    salia como «SUELO EN TERRENO», un suelo contra el terreno en la planta alta.
+    """
+    u, masa = term["u"], term["masa"]
+    return [nombre, Cadena("Suelo"), _num(superficie), u, masa,
+            Cadena("Suelo"), Cadena(""), SIN_PATRON,
+            "Conocidas", [True, False, str(u), str(masa)],
+            "", "", "1", espacio, Cadena("aire")]
+
+
 # --------------------------------------------------------------------------
 # Huecos y puentes termicos
 # --------------------------------------------------------------------------
@@ -1834,8 +1853,16 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
                 avisos.append(
                     f"{ident}: se escribe {sup} m2 (decision del certificador) y la "
                     f"geometria mide {sup_medida} m2")
-            cerramientos.append(suelo_terreno(
-                rotulo("SUELO EN TERRENO"), sup, zona, conU(term["suelo_terreno"])))
+            if el.get("subtipo") == "AIRE_EXTERIOR":
+                # Una ficha anterior no trae `suelo_aire`: la U de suelo de la
+                # guia con la masa de un forjado, que es lo que es.
+                base = term.get("suelo_aire") or {**term["suelo_terreno"], "masa": 500,
+                                                  "modo": "Conocidas"}
+                cerramientos.append(suelo_aire(
+                    rotulo("SUELO EN CONTACTO CON AIRE EXTERIOR"), sup, zona, conU(base)))
+            else:
+                cerramientos.append(suelo_terreno(
+                    rotulo("SUELO EN TERRENO"), sup, zona, conU(term["suelo_terreno"])))
             apuntar(cerramientos[-1], ident, "SUELO", el)
         elif tipo == "CUBIERTA":
             sup = _superficie(cfg.get("cubierta"), sup_medida)
@@ -2378,6 +2405,156 @@ def construir_medida(m: dict, envolvente: list, instalaciones: list,
             _num(m.get("vida_util")), _num(m.get("inversion")),
             _num(m.get("coste_mantenimiento") or 0)]
     return [P.Instancia(_MM, "grupoMedidasMejora", estado)], fila, avisos
+
+
+# --------------------------------------------------------------------------
+# Medida de mejora de ENVOLVENTE: «Adicion de Aislamiento Termico»
+# --------------------------------------------------------------------------
+
+#: El tipo que escribe el dialogo «Medida de mejora en el aislamiento termico»
+#: de CE3X. Es tambien la tercera columna de su fila en el resumen (pickle 6).
+TIPO_AISLAMIENTO = "Adición de Aislamiento Térmico"
+
+#: Que cerramientos toca cada casilla del dialogo, por su TIPO en el pickle 3.
+ELEMENTO_AISLAMIENTO = {"fachada": "Fachada", "cubierta": "Cubierta",
+                        "suelo": "Suelo", "particion": "Partición Interior"}
+
+#: Los psi que CE3X propone al aislar una FACHADA por el EXTERIOR. Iguales en los
+#: tres .cex del corpus que lo traen (CE126_Juanmi, «1 Bloque de viviendas» y
+#: «4 Gran terciario»): son los valores del dialogo, no una medida nuestra. Van
+#: con las cuatro casillas de «aplicar» a False —como en esos tres—, asi que los
+#: puentes termicos de la medida NO cambian.
+PSI_AISLAMIENTO_EXTERIOR = ["0.01", "0.16", "0.02", "0.65", "0.16", "0.26", "0.22"]
+
+
+def _dec(x: Any) -> str:
+    """Un decimal como lo teclea el certificador, SIN cortarlo a dos cifras
+    (`_num` dejaria una lambda de 0,034 en '0.03')."""
+    f = float(x)
+    return f"{f:.4f}".rstrip("0").rstrip(".")
+
+
+def params_aislamiento(a: dict) -> list:
+    """Los 13 parametros del dialogo, en el orden en que los guarda CE3X.
+
+    Medido sobre cinco medidas reales (la de 26RES093_11 y cuatro del corpus):
+
+      [0] fachada · [1] cubierta · [2] suelo        casillas de elementos
+      [3] modo «Nuevo valor de transmitancia»       (radio)
+      [4] modo «Caracteristicas del aislamiento»    (radio)
+      [5] particion interior                        casilla
+      [6] U · [7] lambda · [8] espesor en METROS    ('' lo del otro modo)
+      [9] ''
+      [10] por el EXTERIOR (True) / por el interior
+      [11] los 7 psi del aislamiento por el exterior (solo en fachada)
+      [12] cuatro casillas de aplicar esos psi (siempre False en el corpus)
+    """
+    el = set(a.get("elementos") or [])
+    modo_u = a.get("modo") == "u"
+    exterior = bool(a.get("exterior", True))
+    psi = (list(PSI_AISLAMIENTO_EXTERIOR) if exterior and "fachada" in el else [""] * 7)
+    return ["fachada" in el, "cubierta" in el, "suelo" in el, modo_u, not modo_u,
+            "particion" in el,
+            _dec(a["u"]) if modo_u else "",
+            "" if modo_u else _dec(a["lambda"]),
+            "" if modo_u else _dec(a["espesor"]),
+            "", exterior, psi, [False, False, False, False]]
+
+
+def u_con_aislante(u0: float, lam: float, espesor: float) -> float:
+    """La U de un cerramiento al añadirle una capa de aislante: la misma cuenta
+    que hace CE3X (comprobada en tres medidas del corpus: 1,4 → 0,4667;
+    1,69 → 0,4694; 1,26 → 0,3515)."""
+    return 1.0 / (1.0 / float(u0) + float(espesor) / float(lam))
+
+
+def construir_medida_aislamiento(m: dict, envolvente: list, instalaciones: list,
+                                 ) -> tuple[list, list, list[str]]:
+    """UN conjunto de medidas de ENVOLVENTE (pickle 5) y sus filas del resumen.
+
+    `m` es la ficha de la medida: {nombre (del CONJUNTO), caracteristicas,
+    otros_datos, inversion, vida_util, aislamiento: [{nombre, elementos, modo
+    ('u' | 'lambda'), u | lambda + espesor (m), exterior}]}.
+
+    Lo que escribe es lo que escribe CE3X, medido sobre la medida de cubierta de
+    26RES093_11:
+      · `medidasMejoraEnvolvente` con cada medida y sus 13 parametros;
+      · `cerramientosMejorados` = los del edificio con la U NUEVA en los del tipo
+        elegido (solo cambia ese campo: el bloque de «Conocidas» se queda);
+      · huecos y puentes, los del edificio;
+      · la instalacion, la ACTUAL, con `mejoras[1][2] = False` (no se toca).
+    Una MEDIANERA (fachada contra otro edificio) nunca se aisla: es adiabatica.
+    """
+    avisos: list[str] = []
+    nombre = str((m or {}).get("nombre") or "").strip()
+    medidas = (m or {}).get("aislamiento") or []
+    if not nombre or not medidas:
+        return [], [], ["Medida de aislamiento sin nombre o sin elementos: no se escribe."]
+
+    cerramientos = _reemitible(envolvente[0])
+    mme, filas = [], []
+    for a in medidas:
+        tipos = {ELEMENTO_AISLAMIENTO[e] for e in (a.get("elementos") or [])
+                 if e in ELEMENTO_AISLAMIENTO}
+        cambiados = 0
+        for rec in cerramientos:
+            if not (isinstance(rec, list) and len(rec) > 5 and rec[1] in tipos):
+                continue
+            if rec[1] == "Fachada" and str(rec[-1]) == "edificio":
+                continue                                   # medianera
+            u0 = _numf(rec[3])
+            if not u0:
+                avisos.append(f"{rec[0]!r}: sin U de partida; no se le aplica el aislamiento.")
+                continue
+            u1 = (_numf(a["u"]) if a.get("modo") == "u"
+                  else u_con_aislante(u0, a["lambda"], a["espesor"]))
+            if u1 >= u0:
+                avisos.append(f"{rec[0]!r}: la U nueva ({u1:.2f}) no mejora la que tiene ({u0:.2f}).")
+            rec[3] = float(u1)
+            cambiados += 1
+        if not cambiados:
+            raise GeneracionError(
+                f"La medida «{a.get('nombre')}» no encuentra ningún cerramiento de tipo "
+                f"{', '.join(sorted(tipos)) or '—'} en el edificio.")
+        mme.append([str(a.get("nombre") or nombre), TIPO_AISLAMIENTO, params_aislamiento(a)])
+        filas.append([str(a.get("nombre") or nombre), nombre, TIPO_AISLAMIENTO,
+                      _num(m.get("vida_util")), _num(m.get("inversion")),
+                      _num(m.get("coste_mantenimiento") or 0)])
+
+    sistemas = {v: [] for v in SLOT_A_MM.values()}
+    for slot, equipos in zip(SLOTS, instalaciones):
+        sistemas[SLOT_A_MM[slot]] = _reemitible(equipos)
+    economico = P.Instancia(_MM, "AnalisisEconomicoConjuntoMM", {
+        Cadena("inversionInicial"): [_numf(m.get("inversion")) or 0.0],
+        Cadena("costeMantenimiento"): [_numf(m.get("coste_mantenimiento")) or 0.0],
+        Cadena("vidaUtil"): [_numf(m.get("vida_util")) or 0.0],
+        Cadena("analisisTeorico"): _sin_calcular(),
+        Cadena("analisisFacturas"): _sin_calcular(),
+    })
+    instal = _reemitible(instalaciones)
+    estado = {
+        Cadena("nombre"): nombre,
+        Cadena("caracteristicas"): str(m.get("caracteristicas") or ""),
+        Cadena("otrosDatos"): str(m.get("otros_datos") or ""),
+        Cadena("datosInstalaciones"): instal,
+        # False: este conjunto NO cambia la instalacion (lo que escribe CE3X en
+        # una medida solo de envolvente).
+        Cadena("mejoras"): [mme, ["", instal, False]],
+        Cadena("medidasMejoraEnvolvente"): mme,
+        Cadena("cerramientosMejorados"): cerramientos,
+        Cadena("huecosMejorados"): _reemitible(envolvente[1]),
+        Cadena("puentesTermicosMejorados"): _reemitible(envolvente[2]),
+        Cadena("analisisEconomico"): economico,
+        Cadena("ahorro"): [0.0] * 6,
+        Cadena("datosEdificioOriginal"): None,
+        Cadena("datosNuevoEdificio"): None,
+    }
+    for clave in SLOT_A_MM.values():
+        estado[Cadena(clave)] = sistemas[clave]
+    avisos.append(f"Medida de mejora «{nombre}» escrita SIN calcular: abre "
+                  "Medidas de Mejora en CE3X y pulsa Actualizar para que salgan "
+                  "su ahorro y su calificacion.")
+    return [P.Instancia(_MM, "grupoMedidasMejora", estado)], filas, avisos
 
 
 #: Los PRECIOS DE LA ENERGIA del analisis economico de CE3X: diez casillas que

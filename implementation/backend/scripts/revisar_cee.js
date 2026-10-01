@@ -21,66 +21,38 @@ const { radiografiaXml, compararEnvolventes } = require('../services/cee/radiogr
 
 const COLOR = process.stdout.isTTY && !process.env.NO_COLOR;
 const c = (code, s) => (COLOR ? `[${code}m${s}[0m` : s);
-const ICONO = { ok: c(32, '✓'), aviso: c(33, '!'), falla: c(31, '✗'), no_comprobable: c(90, '?') };
+const ICONO = { ok: c(32, '✓'), aviso: c(33, '!'), falla: c(31, '✗'), no_comprobable: c(90, '?'), info: c(36, 'i') };
 
 function args(argv) {
-    const o = { ficheros: [], exp: null, fase: null, json: false, expediente: null };
+    const o = { ficheros: [], exp: null, fase: null, json: false, expediente: null, ponerMedida: false };
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
         if (a === '--exp') o.exp = argv[++i];
         else if (a === '--fase') o.fase = argv[++i];
         else if (a === '--json') o.json = true;
         else if (a === '--expediente') o.expediente = argv[++i];
+        //: ESCRIBE en Drive: el `.cex` del técnico con la medida de mejora del
+        //: expediente, como `{nº} - CEE INICIAL_CON MEDIDA_REVISAR.cex`. Nunca
+        //: sale solo: hay que pedirlo.
+        else if (a === '--poner-medida') o.ponerMedida = true;
         else if (!a.startsWith('--')) o.ficheros.push(a);
     }
     return o;
 }
 
 /**
- * Todo lo que hace falta para revisar, desde Supabase y con el nº de expediente.
- *
- * El `.xml` crudo de cada fase está guardado en el propio expediente
- * (`cee.xml_inicial` / `cee.xml_final`), así que no hay que bajar nada de Drive.
- *
- * ⚠️ Viene EN MAYÚSCULAS —`normalizeData` deja así la columna entera— y eso es
- * justo lo que impide releerlo con `parseCeeXml` (regla 32). `radiografiaCee`
- * sí puede: busca sin distinguir mayúsculas y normaliza los valores antes de
- * casarlos con los enums de CE3X.
- *
- * ⚠️ Los dos XML pesan ~110 KB cada uno: se piden de UN expediente, nunca de un
- * listado (regla 22).
+ * Todo lo que hace falta para revisar, desde Supabase. La carga vive en
+ * `services/cee/cargarRevision.js`: la comparten este CLI, el barrido de
+ * calibración y la ruta de la app.
  */
 async function desdeSupabase(numero) {
-    const supabase = require('../services/supabaseClient');
-    const { data, error } = await supabase
-        .from('expedientes')
-        .select('*, oportunidades(*)')
-        .eq('numero_expediente', numero)
-        .maybeSingle();
-    if (error) throw new Error(`Supabase: ${error.message}`);
-    if (!data) throw new Error(`No existe el expediente ${numero}.`);
-
-    //: Quién tiene asignado el CEE, para poder decir si lo firma ese técnico.
-    //: ⚠️ La columna del NIF en `prescriptores` es `cif`, no `cif_nif` (regla 51).
-    let certificador = null;
-    const certId = data.cee?.certificador_id;
-    if (certId) {
-        const { data: p } = await supabase.from('prescriptores')
-            .select('id_empresa, razon_social, cif, nombre_responsable, nif_responsable, es_autonomo')
-            .eq('id_empresa', certId).maybeSingle();
-        certificador = p || null;
-    }
-
-    const fases = [];
-    for (const fase of ['inicial', 'final']) {
-        const crudo = data.cee?.[`xml_${fase}`];
-        if (crudo) fases.push({ fichero: `${numero} · CEE ${fase} (Supabase)`, fase, deducida: false, rx: radiografiaXml(crudo) });
-    }
-    if (!fases.length) {
+    const { cargarParaRevision } = require('../services/cee/cargarRevision');
+    const r = await cargarParaRevision({ numero });
+    if (!r.fases.length) {
         throw new Error(`${numero} no tiene ningún .xml guardado (cee.xml_inicial / cee.xml_final). `
             + 'Pásale el fichero a mano, o cárgalo en el módulo CEE.');
     }
-    return { expediente: data, certificador, fases };
+    return r;
 }
 
 /**
@@ -126,7 +98,7 @@ function pintaRadiografia(rx, titulo) {
 function pintaInforme(res) {
     const color = { 'APTO': 32, 'APTO CON AVISOS': 33, 'NO APTO': 31 }[res.veredicto] || 0;
     console.log(`\n${c(1, `REVISIÓN — ${res.contexto.expediente || 'sin expediente'} · ficha ${res.ficha} · CEE ${res.fase}`)}`);
-    console.log(`  ${c(color, c(1, res.veredicto))}   ${res.resumen.ok} correctos · ${res.resumen.avisos} avisos · ${res.resumen.fallas} fallos · ${res.resumen.no_comprobables} sin comprobar\n`);
+    console.log(`  ${c(color, c(1, res.veredicto))}   ${res.resumen.ok} correctos · ${res.resumen.avisos} avisos · ${res.resumen.fallas} fallos · ${res.resumen.no_comprobables} sin comprobar · ${res.resumen.info || 0} informativos\n`);
     for (const p of res.comprobaciones) {
         console.log(`  ${ICONO[p.estado]} ${c(1, p.titulo)}`);
         if (p.dice) console.log(`      dice:     ${p.dice}`);
@@ -145,11 +117,13 @@ async function main() {
 
     let expedienteBd = null;
     let certificadorBd = null;
+    let cexBd = {};
     let leidos;
     if (o.expediente) {
         const traido = await desdeSupabase(o.expediente);
         expedienteBd = traido.expediente;
         certificadorBd = traido.certificador;
+        cexBd = traido.cex || {};
         leidos = traido.fases;
     } else {
         leidos = o.ficheros.map((f) => ({
@@ -205,8 +179,14 @@ async function main() {
         return 0;
     }
 
+    const cexFase = cexBd[principal.fase];
+    if (cexFase?.error) console.log(`\n${c(33, `! .cex no leído: ${cexFase.error}`)}`);
+    else if (cexFase) console.log(`\n${c(90, `.cex del técnico: ${cexFase.nombre}`)}`);
+    else if (expedienteBd) console.log(`\n${c(33, '! No hay .cex del técnico en la carpeta: la medida de mejora no se puede revisar.')}`);
+
     const { revisarCee } = require('../services/cee/revisionCee');
     const res = await revisarCee({
+        cex: cexFase?.rx || null,
         radiografia: principal.rx,
         otraFase: otro ? otro.rx : null,
         expediente,
@@ -216,6 +196,28 @@ async function main() {
 
     if (o.json) console.log(JSON.stringify(res, null, 2));
     else pintaInforme(res);
+
+    const faltaMedida = res.comprobaciones.some((p) => p.accion === 'poner_medida');
+    if (faltaMedida && !o.ponerMedida && !o.json) {
+        console.log(`
+${c(36, '→ La app puede poner la medida: vuelve a lanzarlo con --poner-medida.')}`);
+    }
+    if (o.ponerMedida && expedienteBd) {
+        if (!faltaMedida) {
+            console.log(`
+${c(90, '--poner-medida: el .cex ya lleva medida de mejora; no se toca.')}`);
+        } else {
+            const cex = require('../services/ceeEnvolventeCex');
+            const { ponerMedida } = require('../services/cee/revisionCex');
+            const r = await ponerMedida(await cex.cargarExpediente(o.expediente));
+            console.log(`
+${c(32, `✓ Medida puesta: «${r.medidas.join(' · ')}»`)}`);
+            console.log(`  sobre ${r.base} → ${r.nombre}`);
+            if (r.link) console.log(`  ${r.link}`);
+            console.log(c(33, '  Falta CALCULARLA: abrir en CE3X, Medidas de Mejora → «Actualizar», y guardarlo como el .cex del certificado.'));
+            for (const a of r.avisos) console.log(c(90, `  · ${a}`));
+        }
+    }
     return res.veredicto === 'NO APTO' ? 2 : 0;
 }
 

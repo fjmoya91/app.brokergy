@@ -39,6 +39,8 @@ import { SubirInstaladorView } from './features/public/views/SubirInstaladorView
 import { SubirCeeView } from './features/public/views/SubirCeeView';
 import { FirmarAnexosView } from './features/public/views/FirmarAnexosView';
 import FirmaMovilView from './features/firma/FirmaMovilView';
+import CroquisMovilView from './features/cee-envolvente/views/CroquisMovilView';
+import EncargoTecnicoView from './features/encargo/EncargoTecnicoView';
 import { FirmarLoteView } from './features/public/views/FirmarLoteView';
 import { SubirDocsReformaView } from './features/public/views/SubirDocsReformaView';
 import { ConfirmarCobroView } from './features/cobro/views/ConfirmarCobroView';
@@ -290,6 +292,28 @@ function App() {
     const path = window.location.pathname;
     if (path.startsWith('/firma-movil/')) return path.split('/firma-movil/')[1]?.split('/')[0] || null;
     return null;
+  });
+
+  // El CROQUIS de la envolvente pintado con el dedo: /croquis-movil/:token. Lo
+  // abre el teléfono al escanear el QR de la ventana de la envolvente; lo que
+  // se pinta aquí se ve en el ordenador según se dibuja.
+  const [croquisMovilToken] = useState(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/croquis-movil/')) return path.split('/croquis-movil/')[1]?.split('/')[0] || null;
+    return null;
+  });
+
+  // La PÁGINA DEL ENCARGO del certificador: /encargo/:id?token=&phase=[&origen=cee].
+  // Todo el encargo en una página para el móvil (ver services/encargoTecnico.js).
+  const [encargoData] = useState(() => {
+    const path = window.location.pathname;
+    if (!path.startsWith('/encargo/')) return null;
+    const id = path.split('/encargo/')[1]?.split('/')[0] || null;
+    const sp = new URLSearchParams(window.location.search);
+    const token = sp.get('token');
+    const phase = sp.get('phase') === 'final' ? 'final' : 'inicial';
+    const origen = sp.get('origen') === 'cee' ? 'cee' : null;
+    return (id && token) ? { id, token, phase, origen } : null;
   });
 
   // Aceptación de una OFERTA de CEE directo: /aceptar-cee/:token
@@ -1103,8 +1127,8 @@ function App() {
 
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
-  const isPublicRoute = !!(landingRoute || reformaDocsData || ceeDocsData || firmaOportunidadId || ofertaCeeToken || certAckData || cobroData || cifoUploadId || riteUploadId || instaladorId || presentarCeeData || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || firmarLoteId || portalRoute);
-  const isLoggedDashboard = user && !firmaOportunidadId && !ofertaCeeToken && !ceeDocsData && !resetToken && !certAckData && !cobroData && !cifoUploadId && !riteUploadId && !instaladorId && !presentarCeeData && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
+  const isPublicRoute = !!(landingRoute || reformaDocsData || ceeDocsData || firmaOportunidadId || ofertaCeeToken || certAckData || cobroData || cifoUploadId || riteUploadId || instaladorId || presentarCeeData || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || croquisMovilToken || encargoData || firmarLoteId || portalRoute);
+  const isLoggedDashboard = user && !firmaOportunidadId && !ofertaCeeToken && !ceeDocsData && !resetToken && !certAckData && !cobroData && !cifoUploadId && !riteUploadId && !instaladorId && !presentarCeeData && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !croquisMovilToken && !encargoData && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
   const wrapperPadding = (isLoggedDashboard || isPublicRoute || (user && envolventeId)) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
@@ -1165,6 +1189,10 @@ function App() {
           />
         ) : firmaMovilToken ? (
           <FirmaMovilView token={firmaMovilToken} />
+        ) : croquisMovilToken ? (
+          <CroquisMovilView token={croquisMovilToken} />
+        ) : encargoData ? (
+          <EncargoTecnicoView id={encargoData.id} token={encargoData.token} phase={encargoData.phase} origen={encargoData.origen} />
         ) : firmarAnexosId ? (
           <FirmarAnexosView expedienteId={firmarAnexosId} />
         ) : firmarLoteId ? (

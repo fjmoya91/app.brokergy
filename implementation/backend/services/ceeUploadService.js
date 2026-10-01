@@ -103,7 +103,9 @@ const matchSlot = (filename) => {
     // técnico, pero no es su entrega: es un punto de partida para que lo abra
     // en CE3X. Sin esta salida, la rejilla y el popup del certificador darían
     // el certificado por presentado en cuanto se generase.
-    if (lower.endsWith('_revisar.cex')) return null;
+    // ⚠️ También con el sufijo que pone Drive a una copia (`_REVISAR (1).cex`):
+    // medido en 26RES060_196, esa copia se tomaba por la entrega del técnico.
+    if (/_revisar(\s*\(\d+\))?\.cex$/.test(lower)) return null;
     if (lower.endsWith('.xml')) return 'xml';
     if (lower.endsWith('.cex')) return 'cex';
     if (lower.endsWith('_reg.pdf')) return 'registro';

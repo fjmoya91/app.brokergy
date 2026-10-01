@@ -908,7 +908,7 @@ export function buildCifoHtml({ data, appUrl, attachments = [], withAnnexPreview
     // van en su propia hoja, justo ANTES de la de la instalación. Lo decide un dato
     // del expediente, no una medición; los dos caminos están en el medidor.
     const hitosAparte = calNuUds > 1 || (tieneAcs && acsNuUds > 1);
-    const hitosBox = hitosBoxHtml({ hitos, sectionTitle, mt: '16px' });
+    const hitosBox = hitosBoxHtml({ hitos, sectionTitle, mt: '12px' });
 
     // PÁGINA 0: PORTADA
     pages.push(`

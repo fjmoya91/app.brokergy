@@ -89,6 +89,13 @@ export function FotosCerramiento({
     }, [expedienteId, clave]);
 
     useEffect(() => { refrescar(); }, [refrescar]);
+    // Una foto hecha desde el TELÉFONO (el croquis móvil) llega sin pasar por
+    // aquí: la ventana avisa con este evento y la lista se vuelve a pedir.
+    useEffect(() => {
+        const alCambiar = () => refrescar();
+        window.addEventListener('envolvente:fotos', alCambiar);
+        return () => window.removeEventListener('envolvente:fotos', alCambiar);
+    }, [refrescar]);
 
     async function subir(ficheros) {
         const lista = Array.from(ficheros || []).filter(f => f.type?.startsWith('image/'));

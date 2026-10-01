@@ -17,12 +17,55 @@ import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal
 // Si la ficha no lo declara, se asume la persona de contacto — y eso se dice en
 // ámbar, con el botón para arreglarlo ahí mismo: el envío es el último momento
 // en que alguien va a mirar este dato.
+//
+// REGLA — lo que falta se PIDE AQUÍ, no se manda a la ficha. Si no consta quién
+// firma, la propia tarjeta trae el formulario (nombre, apellidos, DNI y, en la
+// memoria, el carné si firma un técnico con carné propio) y se guarda en la
+// ficha del instalador por `PATCH /prescriptores/:id/firmantes`, que solo toca
+// esos campos. Y si se está ASUMIENDO la persona de contacto, un clic la declara.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const FIRMANTE_DE = {
     cifo: { titulo: 'Firma el Certificado CIFO', resolver: firmanteCifo },
     rite: { titulo: 'Firma la Memoria RITE', resolver: firmanteMemoriaRite },
 };
+
+// ── Dónde se escribe el firmante de cada documento ─────────────────────────
+// Los MISMOS campos que leen `firmanteCifo` / `firmanteMemoriaRite`: si se
+// escribiera en otro sitio, el documento seguiría diciendo que no consta.
+//   · autónomo            → él mismo (nombre_responsable / nif_responsable)
+//   · CIFO en una empresa → representante legal (representante_distinto)
+//   · memoria RITE        → representante legal, o un TÉCNICO con carné propio
+const MAPA = {
+    responsable: { nombre: 'nombre_responsable', apellidos: 'apellidos_responsable', dni: 'nif_responsable' },
+    representante: { nombre: 'representante_nombre', apellidos: 'representante_apellidos', dni: 'representante_dni', flag: 'representante_distinto' },
+    tecnico: { nombre: 'tecnico_firmante_nombre', apellidos: 'tecnico_firmante_apellidos', dni: 'tecnico_firmante_dni', carnet: 'tecnico_firmante_carnet_rite', flag: 'tecnico_firmante_distinto' },
+};
+
+// A quién se declara por defecto para ese documento.
+function destinoPorDefecto(k, p) {
+    if (p.es_autonomo) return 'responsable';
+    if (k === 'rite' && p.tecnico_firmante_distinto) return 'tecnico';
+    return 'representante';
+}
+
+function valoresDe(destino, p) {
+    const m = MAPA[destino];
+    return {
+        nombre: p[m.nombre] || '',
+        apellidos: p[m.apellidos] || '',
+        dni: p[m.dni] || '',
+        carnet: m.carnet ? (p[m.carnet] || '') : '',
+    };
+}
+
+function camposAGuardar(destino, v) {
+    const m = MAPA[destino];
+    const out = { [m.nombre]: v.nombre, [m.apellidos]: v.apellidos, [m.dni]: v.dni };
+    if (m.carnet) out[m.carnet] = v.carnet;
+    if (m.flag) out[m.flag] = true;
+    return out;
+}
 
 export function FirmantesEnvio({ docs = [], pres = {}, onFichaActualizada,
     opcionesCifo = [], firmanteCifo: firmanteCifoRolSel = null, onFirmanteCifo = null }) {
@@ -31,6 +74,10 @@ export function FirmantesEnvio({ docs = [], pres = {}, onFichaActualizada,
     const [fichaLocal, setFichaLocal] = useState(null);
     const [ficha, setFicha] = useState(null);        // ficha abierta para editar
     const [abriendo, setAbriendo] = useState(false);
+    // Formulario en línea por documento: { [k]: { destino, v: {nombre, apellidos, dni, carnet} } }
+    const [form, setForm] = useState({});
+    const [guardando, setGuardando] = useState(null);   // k que se está guardando
+    const [errorForm, setErrorForm] = useState({});
 
     const p = fichaLocal || pres;
     const lista = docs.filter(k => FIRMANTE_DE[k]);
@@ -68,6 +115,112 @@ export function FirmantesEnvio({ docs = [], pres = {}, onFichaActualizada,
         setFicha(null);
         const fresca = await recargar();
         if (fresca) onFichaActualizada?.(fresca);
+    };
+
+    const abrirForm = (k, destino = destinoPorDefecto(k, p)) => {
+        setErrorForm(e => ({ ...e, [k]: null }));
+        setForm(prev => ({ ...prev, [k]: { destino, v: valoresDe(destino, p) } }));
+    };
+    const cerrarForm = (k) => setForm(prev => { const n = { ...prev }; delete n[k]; return n; });
+    // Al cambiar de "representante" a "técnico" se conserva lo ya tecleado.
+    const cambiarDestino = (k, destino) => setForm(prev => {
+        const v = prev[k]?.v || {};
+        const tecleado = (v.nombre || v.apellidos || v.dni) ? { nombre: v.nombre, apellidos: v.apellidos, dni: v.dni } : {};
+        return { ...prev, [k]: { destino, v: { ...valoresDe(destino, p), ...tecleado } } };
+    });
+    const setValor = (k, campo, valor) =>
+        setForm(prev => ({ ...prev, [k]: { ...prev[k], v: { ...prev[k].v, [campo]: valor } } }));
+
+    const guardar = async (k, cambios) => {
+        if (!p?.id_empresa) { setErrorForm(e => ({ ...e, [k]: 'Esta ficha no tiene identificador: edítala desde la ficha.' })); return; }
+        setGuardando(k);
+        setErrorForm(e => ({ ...e, [k]: null }));
+        try {
+            const { data } = await axios.patch(`/api/prescriptores/${p.id_empresa}/firmantes`, cambios);
+            // La ruta devuelve la fila entera: se usa como ficha nueva, y el popup
+            // la recibe para generar el documento con el firmante ya puesto.
+            const fresca = { ...p, ...data };
+            setFichaLocal(fresca);
+            onFichaActualizada?.(fresca);
+            cerrarForm(k);
+        } catch (e) {
+            setErrorForm(er => ({ ...er, [k]: e.response?.data?.error || e.message || 'No se pudo guardar' }));
+        } finally {
+            setGuardando(null);
+        }
+    };
+
+    const guardarForm = (k) => {
+        const f = form[k];
+        const v = f?.v || {};
+        if (!String(v.nombre || '').trim() || !String(v.dni || '').trim()) {
+            setErrorForm(e => ({ ...e, [k]: 'Pon al menos el nombre y el DNI de quien firma.' }));
+            return;
+        }
+        if (f.destino === 'tecnico' && !String(v.carnet || '').trim()) {
+            setErrorForm(e => ({ ...e, [k]: 'Un técnico con carné propio firma con ese carné: indícalo.' }));
+            return;
+        }
+        guardar(k, camposAGuardar(f.destino, v));
+    };
+
+    // "Sí, firma esta persona": la persona de contacto pasa a estar DECLARADA como
+    // representante legal, con sus mismos datos. Un clic, sin teclear nada.
+    const confirmarContacto = (k) => guardar(k, camposAGuardar('representante', valoresDe('responsable', p)));
+
+    const inputCls = 'w-full min-w-0 bg-bkg-elevated border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-brand/50 transition-all';
+
+    // Se pinta con una función y NO como componente (<Formulario />): definido
+    // dentro del render, un componente nuevo en cada tecla remontaría los inputs
+    // y el cursor saltaría fuera del campo a cada letra.
+    const formulario = (k) => {
+        const f = form[k];
+        if (!f) return null;
+        const ocupado = guardando === k;
+        return (
+            <div className="mt-2 space-y-2">
+                {/* En la memoria, la firma puede ser del representante o de un técnico
+                    con su propio carné: son campos distintos de la ficha. */}
+                {k === 'rite' && !p.es_autonomo && (
+                    <div className="flex gap-1.5">
+                        {[['representante', 'Representante legal'], ['tecnico', 'Técnico con carné propio']].map(([d, et]) => (
+                            <button key={d} type="button" onClick={() => cambiarDestino(k, d)}
+                                className={`flex-1 py-1.5 rounded-lg border text-[9.5px] font-black uppercase tracking-wider transition-all ${f.destino === d ? 'border-brand/50 bg-brand/10 text-brand' : 'border-white/10 text-white/40 hover:text-white'}`}>
+                                {et}
+                            </button>
+                        ))}
+                    </div>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <input className={inputCls} placeholder="Nombre" value={f.v.nombre}
+                        onChange={e => setValor(k, 'nombre', e.target.value)} />
+                    <input className={inputCls} placeholder="Apellidos" value={f.v.apellidos}
+                        onChange={e => setValor(k, 'apellidos', e.target.value)} />
+                    <input className={inputCls} placeholder="DNI / NIE" value={f.v.dni}
+                        onChange={e => setValor(k, 'dni', e.target.value)} />
+                </div>
+                {f.destino === 'tecnico' && (
+                    <input className={inputCls} placeholder="Nº de carné RITE del técnico" value={f.v.carnet}
+                        onChange={e => setValor(k, 'carnet', e.target.value)} />
+                )}
+                {errorForm[k] && <p className="text-[10.5px] text-red-400">{errorForm[k]}</p>}
+                <div className="flex items-center justify-between gap-2">
+                    <p className="text-[10px] text-white/30 leading-snug">
+                        Se guarda en la ficha de {p.razon_social || 'el instalador'} y vale para los próximos envíos.
+                    </p>
+                    <div className="flex gap-1.5 shrink-0">
+                        <button type="button" onClick={() => cerrarForm(k)} disabled={ocupado}
+                            className="px-2.5 py-1.5 rounded-lg border border-white/10 text-white/40 text-[9.5px] font-black uppercase tracking-wider hover:text-white disabled:opacity-40">
+                            Cancelar
+                        </button>
+                        <button type="button" onClick={() => guardarForm(k)} disabled={ocupado}
+                            className="px-3 py-1.5 rounded-lg bg-brand text-black text-[9.5px] font-black uppercase tracking-wider hover:brightness-110 disabled:opacity-50">
+                            {ocupado ? 'Guardando…' : 'Guardar firmante'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
     };
 
     return (
@@ -122,13 +275,31 @@ export function FirmantesEnvio({ docs = [], pres = {}, onFichaActualizada,
                 const f = resolver(p);
                 const sinDatos = firmanteIncompleto(f);
                 const aviso = sinDatos || !f.declarado;
+                const abierto = !!form[k];
+                const ocupado = guardando === k;
                 return (
                     <div key={k} className={`rounded-xl border px-3 py-2 ${aviso ? 'border-amber-500/30 bg-amber-500/[0.06]' : 'border-white/[0.06] bg-white/[0.02]'}`}>
-                        <p className="text-[9.5px] uppercase tracking-wider font-bold text-white/35">{titulo}</p>
+                        <div className="flex items-start justify-between gap-2">
+                            <p className="text-[9.5px] uppercase tracking-wider font-bold text-white/35">{titulo}</p>
+                            {!sinDatos && !abierto && (
+                                <button type="button" onClick={() => abrirForm(k)}
+                                    className="shrink-0 text-[9px] font-black uppercase tracking-widest text-white/30 hover:text-brand transition-colors">
+                                    Cambiar
+                                </button>
+                            )}
+                        </div>
                         {sinDatos ? (
-                            <p className="text-[11px] text-amber-300/90 leading-snug mt-0.5">
-                                <b>No consta quién lo firma.</b> Decláralo en la ficha antes de mandarlo: saldría sin firmante.
-                            </p>
+                            <>
+                                <p className="text-[11px] text-amber-300/90 leading-snug mt-0.5">
+                                    <b>No consta quién lo firma.</b> Dilo aquí{k === 'cifo' ? ` (${p.es_autonomo ? 'el propio autónomo' : 'el representante legal de la empresa'})` : ''}: sin él, saldría sin firmante.
+                                </p>
+                                {!abierto && (
+                                    <button type="button" onClick={() => abrirForm(k)}
+                                        className="mt-2 px-3 py-1.5 rounded-lg bg-brand/15 border border-brand/40 text-brand text-[9.5px] font-black uppercase tracking-wider hover:bg-brand hover:text-black transition-all">
+                                        Indicar quién firma
+                                    </button>
+                                )}
+                            </>
                         ) : (
                             <>
                                 <p className="text-[12px] font-bold text-white leading-snug mt-0.5">
@@ -138,13 +309,27 @@ export function FirmantesEnvio({ docs = [], pres = {}, onFichaActualizada,
                                 <p className="text-[10px] text-white/40">
                                     {f.etiqueta}{f.carnet ? ` · Carné ${f.carnet}` : ''}
                                 </p>
-                                {!f.declarado && (
-                                    <p className="text-[10.5px] text-amber-300/90 leading-snug mt-1">
-                                        Nadie ha declarado quién firma: se está asumiendo la persona de contacto. Si firma otra persona, decláralo en la ficha.
-                                    </p>
+                                {!f.declarado && !abierto && (
+                                    <>
+                                        <p className="text-[10.5px] text-amber-300/90 leading-snug mt-1">
+                                            Nadie ha declarado quién firma: se está asumiendo la persona de contacto.
+                                        </p>
+                                        <div className="flex flex-wrap gap-1.5 mt-2">
+                                            <button type="button" onClick={() => confirmarContacto(k)} disabled={ocupado}
+                                                className="px-3 py-1.5 rounded-lg bg-brand/15 border border-brand/40 text-brand text-[9.5px] font-black uppercase tracking-wider hover:bg-brand hover:text-black transition-all disabled:opacity-50">
+                                                {ocupado ? 'Guardando…' : `Sí, firma ${f.nombre.split(' ')[0]}`}
+                                            </button>
+                                            <button type="button" onClick={() => abrirForm(k)} disabled={ocupado}
+                                                className="px-3 py-1.5 rounded-lg border border-white/10 text-white/50 text-[9.5px] font-black uppercase tracking-wider hover:text-white transition-all disabled:opacity-50">
+                                                Firma otra persona
+                                            </button>
+                                        </div>
+                                        {errorForm[k] && <p className="text-[10.5px] text-red-400 mt-1">{errorForm[k]}</p>}
+                                    </>
                                 )}
                             </>
                         )}
+                        {formulario(k)}
                     </div>
                 );
             })}

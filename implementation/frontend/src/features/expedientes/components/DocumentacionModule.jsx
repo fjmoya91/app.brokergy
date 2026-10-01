@@ -29,7 +29,7 @@ import { SLOTS_INCIDENCIA, incidenciasDeSlot, resumenSlot } from '../logic/incid
 import { incidenciasFechasCifo } from '../logic/cifoFechas';
 import { IncidenciasSlotPanel } from './IncidenciasSlotPanel';
 import { HitosActuacionModal } from './HitosActuacionModal';
-import { hitosActuacion } from '../logic/hitosActuacion';
+import { hitosActuacion, avisosHitos } from '../logic/hitosActuacion';
 import { readAnnexPrefs, orderAttachments } from '../logic/annexPrefs';
 import { ftAttachmentSlots, ftDocFields } from '../logic/fichasTecnicas';
 import { avisosCeeDocumento, ceeBaseDocumento, hayAvisosBloqueantes, acsEnAlcance } from '../logic/ceeFases';
@@ -1476,6 +1476,10 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
         // demanda (CIFO / certificado RES080 y la ficha oficial): el Anexo I y el
         // Convenio de Cesión no la llevan, y avisar ahí sería ruido.
         const avisos = ['cifo', 'res060'].includes(docType) ? avisosCeeDocumento(expediente) : [];
+        // El CIFO / certificado RES080 imprimen «Hitos de la actuación», y lo que no
+        // consta (el CEE final sin fechas, las pruebas del RITE) NO sale: se dice
+        // aquí, antes de generar. Con «Generar de todos modos» sale sin esa fila.
+        if (docType === 'cifo') avisos.push(...avisosHitos({ ...expediente, documentacion: local }));
         // Un 'info' (p. ej. "el ACS sale como no aplica") acompaña, pero no
         // interrumpe: si no hay nada más que decir, se genera sin puerta.
         if (missing.length > 0 || hayAvisosBloqueantes(avisos)) {
@@ -2817,6 +2821,15 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                 onAttachmentsChange={setCifoAttachments}
                 onSaveDrive={(link) => handleModalSaveDrive('cert_cifo_drive_link', link)}
                 onMarkSent={markInstaladorSent}
+                // Lo que el envío pide para poder mandar también la Memoria RITE
+                // (fecha de pruebas, emplazamiento del frío): se guarda por el MISMO
+                // camino que la cadena de popups de «Generar» — copia local + PUT —,
+                // para que el siguiente autoguardado no lo pise con la copia vieja.
+                onSaveDocFields={async (campos) => {
+                    const merged = { ...local, ...campos };
+                    setLocal(merged);
+                    await onSave({ documentacion: merged });
+                }}
                 onSaveFichaLink={(type, link, driveId) => {
                     const fields = ftDocFields(type);
                     if (!fields) return;

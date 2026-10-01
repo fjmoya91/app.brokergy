@@ -914,6 +914,28 @@ router.post('/upload-docs/:id', upload.array('files', 50), async (req, res) => {
 // Proxy de miniatura: el navegador NO puede hotlinkear las URLs de Drive
 // (lh3/thumbnail) de forma fiable desde la app, pero el backend sí. Servimos la
 // imagen desde nuestro propio origen → el navegador siempre la carga. Cacheable.
+/**
+ * La miniatura de un fichero de Drive, pedida por el servidor (el navegador no
+ * puede hotlinkear las de Drive de forma fiable, regla 18). Con `bytesSiNo`, si
+ * Drive no da miniatura se devuelven los bytes originales (solo para imágenes).
+ */
+async function miniaturaDeDrive(driveId, size = '400', { bytesSiNo = true } = {}) {
+    const tryFetch = async (url) => {
+        try {
+            const r = await axios.get(url, { responseType: 'arraybuffer', timeout: 9000, maxRedirects: 5, validateStatus: s => s === 200 });
+            return { buf: Buffer.from(r.data), type: r.headers['content-type'] || 'image/jpeg' };
+        } catch { return null; }
+    };
+    let img = await tryFetch(`https://lh3.googleusercontent.com/d/${driveId}=w${size}`);
+    if (!img) img = await tryFetch(`https://drive.google.com/thumbnail?id=${driveId}&sz=w${size}`);
+    if (!img && bytesSiNo) {
+        // Último recurso: bytes originales por la API de Drive (autenticada)
+        const buf = await driveService.getFileContent(driveId);
+        if (buf) img = { buf, type: 'image/jpeg' };
+    }
+    return img;
+}
+
 router.get('/reforma-thumb/:uuid/:driveId', async (req, res) => {
     try {
         const { uuid, driveId } = req.params;
@@ -923,20 +945,8 @@ router.get('/reforma-thumb/:uuid/:driveId', async (req, res) => {
         if (!opp || opp.datos_calculo?.upload_token !== token) return res.status(403).end();
 
         const size = /^\d+$/.test(String(sz)) ? String(sz) : '400';
-        const tryFetch = async (url) => {
-            try {
-                const r = await axios.get(url, { responseType: 'arraybuffer', timeout: 9000, maxRedirects: 5, validateStatus: s => s === 200 });
-                return { buf: Buffer.from(r.data), type: r.headers['content-type'] || 'image/jpeg' };
-            } catch { return null; }
-        };
-        let img = await tryFetch(`https://lh3.googleusercontent.com/d/${driveId}=w${size}`);
-        if (!img) img = await tryFetch(`https://drive.google.com/thumbnail?id=${driveId}&sz=w${size}`);
-        if (!img) {
-            // Último recurso: bytes originales por la API de Drive (autenticada)
-            const buf = await driveService.getFileContent(driveId);
-            if (!buf) return res.status(404).end();
-            img = { buf, type: 'image/jpeg' };
-        }
+        const img = await miniaturaDeDrive(driveId, size);
+        if (!img) return res.status(404).end();
         res.set('Content-Type', img.type);
         res.set('Cache-Control', 'private, max-age=86400');
         return res.send(img.buf);
@@ -1333,6 +1343,31 @@ router.get('/cee-upload/:expedienteId', async (req, res) => {
     }
 });
 
+// POST /api/public/cee-prerevision/:expedienteId?token=&phase= → la REVISIÓN
+// PREVIA de lo que el técnico acaba de subir por su enlace. Es la misma que ve
+// dentro de la app (`revisionTecnico.preRevisar`): el juicio de la lupa de Fran,
+// guardado donde siempre, pero devolviendo solo la parte del técnico.
+// ⚠️ Prefijo propio y no `/cee-upload/:id/…`: colgando de ahí, la ruta de subida
+// `/:slot` la tomaría por un tipo de documento.
+// El enlace no caduca y cada revisión baja ficheros y llama al motor: dentro de
+// una ventana corta se devuelve la última en vez de rehacerla (`frenar`).
+router.post('/cee-prerevision/:expedienteId', async (req, res) => {
+    try {
+        const { expedienteId } = req.params;
+        const { token, phase } = req.query;
+        const ph = phase === 'final' ? 'final' : 'inicial';
+        if (!ceeUploadService.ceeUploadSignatureValid(expedienteId, ph, token)) {
+            return res.status(403).json({ error: 'Enlace inválido o caducado.' });
+        }
+        const { preRevisar } = require('../services/cee/revisionTecnico');
+        const out = await preRevisar({ id: expedienteId, fase: ph, usuario: 'al subir · enlace del técnico', frenar: true });
+        res.json(out);
+    } catch (e) {
+        console.error('[cee-prerevision]', e.message);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'No se ha podido revisar ahora mismo. Tu fichero sí se ha guardado.' });
+    }
+});
+
 // POST /api/public/cee-upload/:expedienteId/:slot?token=&phase= → sube 1 fichero
 router.post('/cee-upload/:expedienteId/:slot', uploadDocsSingle, async (req, res) => {
     try {
@@ -1370,6 +1405,8 @@ router.post('/cee-upload/:expedienteId/:slot', uploadDocsSingle, async (req, res
         // subirlo desde la app en CeeDocumentsGrid): vuelve a ámbar.
         const ceeActualizado = invalidarValidacionCee(cee, sectionK, slot);
         await supabase.from('expedientes').update({ cee: ceeActualizado, updated_at: new Date().toISOString() }).eq('id', expedienteId);
+        // Fichero nuevo ⇒ la revisión previa que hubiera en el freno ya no vale.
+        if (slot === 'xml' || slot === 'cex') require('../services/cee/revisionTecnico').olvidar(expedienteId, ph);
 
         // Al subir el REGISTRO → misma notificación/transición que la app.
         //
@@ -3089,6 +3126,246 @@ router.post('/firma-movil/:token', (req, res) => {
 // El ORDENADOR pregunta si ya ha llegado. Al entregarla, el enlace se cierra.
 router.get('/firma-movil/:token/esperar', (req, res) => {
     res.json(firmaMovil.recoger(req.params.token));
+});
+
+// ─── La PÁGINA DEL ENCARGO del certificador (/encargo/:id) ───────────────────
+// Todo el encargo en una página para el móvil: qué le toca, a quién llamar,
+// dónde es, qué hay y qué se instala, lo que confirmó el cliente, sus fotos y
+// los enlaces para subir, firmar y presentar. Ver `services/encargoTecnico.js`.
+// El token lleva el TÉCNICO asignado: si el encargo pasa a otro, este deja de valer.
+const encargoTecnico = require('../services/encargoTecnico');
+
+router.get('/encargo/:id', async (req, res) => {
+    try {
+        const e = await encargoTecnico.cargarEncargo({
+            negocio: req.query.origen, id: req.params.id, fase: req.query.phase, token: req.query.token,
+        });
+        res.set('Cache-Control', 'no-store');
+        res.json(e);
+    } catch (e) {
+        if (!e.status) console.error('[encargo]', e.message);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'No se ha podido abrir el encargo ahora mismo.' });
+    }
+});
+
+// Una foto (o documento) del encargo. Solo de los que la página enseña: nunca
+// un fichero cualquiera de Drive por su id.
+//   ?sz=400|1600 → la miniatura (también de un PDF o un vídeo)
+//   sin sz       → el fichero; un VÍDEO no se descarga por aquí (pesa): se va a Drive.
+router.get('/encargo/:id/fichero/:driveId', async (req, res) => {
+    try {
+        const f = await encargoTecnico.ficheroPermitido({
+            negocio: req.query.origen, id: req.params.id, fase: req.query.phase,
+            token: req.query.token, driveId: req.params.driveId,
+        });
+        if (!f) return res.status(404).end();
+        const sz = /^\d{2,4}$/.test(String(req.query.sz || '')) ? String(req.query.sz) : null;
+        if (sz) {
+            const img = await miniaturaDeDrive(req.params.driveId, sz, { bytesSiNo: f.tipo === 'imagen' });
+            if (!img) return res.status(404).end();
+            res.set('Content-Type', img.type);
+            res.set('Cache-Control', 'private, max-age=86400');
+            return res.send(img.buf);
+        }
+        if (f.tipo === 'video') {
+            if (!f.enlace) return res.status(404).end();
+            return res.redirect(302, f.enlace);
+        }
+        const buf = await driveService.getFileContent(req.params.driveId);
+        if (!buf) return res.status(404).end();
+        res.set('Content-Type', f.mime || 'application/octet-stream');
+        res.set('Cache-Control', 'private, max-age=3600');
+        if (f.nombre) res.set('Content-Disposition', `inline; filename="${encodeURIComponent(f.nombre)}"`);
+        res.send(buf);
+    } catch (e) {
+        console.error('[encargo fichero]', e.message);
+        res.status(500).end();
+    }
+});
+
+// ─── Pintar el CROQUIS de la envolvente desde el MÓVIL ───────────────────────
+// Ver `services/croquisMovil.js`. Públicas a propósito —el teléfono no tiene
+// sesión— y el token (16 bytes, 30 min de silencio mientras el ordenador no lo
+// mire, 12 h como mucho) es toda la autorización. Lo que cambia algo admite un
+// `id_local`: sin cobertura el teléfono reintenta, y un reintento de algo que
+// sí llegó no puede hacerlo dos veces.
+// Al teléfono solo viaja la GEOMETRÍA de la planta (paredes, cartografía del
+// Catastro, m² por uso): ni un dato del titular ni del expediente.
+const croquisMovil = require('../services/croquisMovil');
+const CROQUIS_CERRADO = 'Este enlace ya no vale. Pide otro QR desde el ordenador.';
+
+router.get('/croquis-movil/:token', (req, res) => {
+    const datos = croquisMovil.paraMovil(req.params.token);
+    if (!datos) return res.status(410).json({ error: CROQUIS_CERRADO });
+    res.json(datos);
+});
+
+router.get('/croquis-movil/:token/estado', (req, res) => {
+    res.json(croquisMovil.estadoMovil(req.params.token));
+});
+
+// El TELÉFONO manda lo pintado: el estado ENTERO, terminado y a medias.
+router.post('/croquis-movil/:token', (req, res) => {
+    const r = croquisMovil.actualizar(req.params.token, req.body || {});
+    if (!r.ok) return res.status(410).json({ error: CROQUIS_CERRADO });
+    res.json(r);
+});
+
+// El TELÉFONO pide que se ajuste a Catastro (o que se aplique tal cual). Lo
+// hace el ORDENADOR, que es quien tiene el plano y guarda el trabajo.
+router.post('/croquis-movil/:token/ajustar', (req, res) => {
+    const r = croquisMovil.pedirAjuste(req.params.token, req.body || {});
+    if (r.ok) return res.json(r);
+    if (r.motivo === 'vacio') return res.status(400).json({ error: 'No hay nada pintado todavía.' });
+    res.status(410).json({ error: CROQUIS_CERRADO });
+});
+
+// ── Las FOTOS de las paredes, desde el mismo enlace ──────────────────────────
+// El técnico está delante de la fachada con la planta en el teléfono: toca la
+// pared, le hace la foto y se leen sus huecos. Se usan LAS MISMAS funciones que
+// la ventana del ordenador (`paredFotoService`, `paredOcrService`), así que una
+// foto hecha aquí es idéntica a una subida allí. Solo sobre las paredes de ESTA
+// planta, y con tope de subidas y de lecturas por sesión.
+const uploadFotoMovil = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 12 * 1024 * 1024, files: 1 },
+});
+const fotosPared = require('../services/paredFotoService');
+
+async function contextoFotos(req, res) {
+    const f = croquisMovil.paraFotos(req.params.token);
+    if (!f) { res.status(410).json({ error: CROQUIS_CERRADO }); return null; }
+    const ctx = await require('../services/ceeEnvolventeCex').cargarExpediente(f.expediente, f.negocio);
+    if (!ctx) { res.status(404).json({ error: 'El expediente ya no existe.' }); return null; }
+    return { ...f, expediente: ctx.expediente };
+}
+
+// Las fotos que ya tiene cada pared de esta planta (reconciliadas con Drive).
+router.get('/croquis-movil/:token/fotos', async (req, res) => {
+    try {
+        const c = await contextoFotos(req, res);
+        if (!c) return;
+        const todas = await fotosPared.estado(c.expediente);
+        const ids = new Set(c.paredes.map(p => p.id));
+        const salida = {};
+        for (const [clave, lista] of Object.entries(todas)) {
+            if (!ids.has(clave)) continue;   // ni huecos ni paredes de otra planta
+            salida[clave] = (lista || []).map(x => ({
+                drive_id: x.drive_id, nombre: x.nombre, origen: x.origen, roto: !!x.roto,
+                lectura: x.lectura ? { ventanas: x.lectura.ventanas ?? null, puertas: x.lectura.puertas ?? null } : null,
+            }));
+        }
+        res.json({ fotos: salida });
+    } catch (e) {
+        console.error('[croquis-movil] fotos:', e.message);
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+// Los bytes de UNA foto de una pared de esta planta (para verla en el teléfono).
+router.get('/croquis-movil/:token/fotos/:driveId', async (req, res) => {
+    try {
+        const c = await contextoFotos(req, res);
+        if (!c) return;
+        const guardadas = fotosPared.fotosDe(c.expediente);
+        const es = c.paredes.some(p => (guardadas[p.id] || []).some(x => x.drive_id === req.params.driveId));
+        if (!es) return res.status(404).json({ error: 'Esa foto no es de esta planta.' });
+        const f = await fotosPared.bytesDe(c.expediente, req.params.driveId);
+        res.setHeader('Content-Type', f.mimeType);
+        res.setHeader('Cache-Control', 'private, max-age=3600');
+        res.send(f.buffer);
+    } catch (e) {
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+// Sube UNA foto y la pega a esa pared.
+//
+// Con `id_local` (la foto que el teléfono tenía en cola sin cobertura), un
+// reenvío de una subida que SÍ llegó —se perdió la respuesta— devuelve la de
+// entonces en vez de pegar la misma foto dos veces.
+router.post('/croquis-movil/:token/fotos', uploadFotoMovil.single('file'), async (req, res) => {
+    try {
+        const idLocal = req.query.id_local || req.body?.id_local;
+        const antes = croquisMovil.yaHecho(req.params.token, 'subida', idLocal);
+        if (antes) return res.json(antes);
+        const c = await contextoFotos(req, res);
+        if (!c) return;
+        const muro = croquisMovil.pared(req.params.token, req.query.pared || req.body?.pared);
+        if (!muro) return res.status(400).json({ error: 'Esa pared no es de esta planta.' });
+        if (!croquisMovil.puedeSubir(req.params.token)) {
+            return res.status(429).json({ error: `Ya se han subido ${croquisMovil.MAX_SUBIDAS} fotos desde este enlace. Pide otro QR.` });
+        }
+        if (!req.file) return res.status(400).json({ error: 'No ha llegado ninguna foto.' });
+        const puesta = await fotosPared.subir(c.expediente, muro.id, req.file, 'móvil (croquis)');
+        croquisMovil.apuntarFoto(req.params.token, { subida: true });
+        const salida = { ok: true, puesta: { drive_id: puesta.drive_id, nombre: puesta.nombre, origen: puesta.origen } };
+        croquisMovil.apuntarHecho(req.params.token, 'subida', idLocal, salida);
+        res.json(salida);
+    } catch (e) {
+        console.error('[croquis-movil] subir foto:', e.message);
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+// Lee los huecos de UNA foto de esa pared. PROPONE: no toca el plano.
+// Con `id_local`, un reenvío tras perder la respuesta no paga otra lectura.
+router.post('/croquis-movil/:token/fotos/leer', async (req, res) => {
+    try {
+        const { pared: id, drive_id: driveId, aspecto, id_local: idLocal } = req.body || {};
+        const antes = croquisMovil.yaHecho(req.params.token, 'lectura', idLocal);
+        if (antes) return res.json(antes);
+        const c = await contextoFotos(req, res);
+        if (!c) return;
+        const muro = croquisMovil.pared(req.params.token, id);
+        if (!muro) return res.status(400).json({ error: 'Esa pared no es de esta planta.' });
+        if (muro.admite === false) {
+            return res.status(400).json({ error: 'Esta pared no es una fachada: aquí no se cuentan ventanas.' });
+        }
+        const lista = fotosPared.fotosDe(c.expediente)[muro.id] || [];
+        if (!lista.some(x => x.drive_id === driveId)) {
+            return res.status(404).json({ error: 'Esa foto no está en esta pared.' });
+        }
+        if (!croquisMovil.gastaLectura(req.params.token)) {
+            return res.status(429).json({ error: `Ya se han leído ${croquisMovil.MAX_LECTURAS} fotos desde este enlace. Pide otro QR.` });
+        }
+        const f = await fotosPared.bytesDe(c.expediente, driveId);
+        // La PARED la pone la sesión —lo que midió el ordenador—, nunca el teléfono:
+        // de su largo sale la escala con la que se estiman las medidas.
+        const lectura = await require('../services/paredOcrService').leerFachada(
+            [{ name: f.nombre, buffer: f.buffer, mimeType: f.mimeType }],
+            { nombre: muro.nombre || muro.id, orientacion: muro.orientacion, largo: muro.largo, alto: muro.alto },
+            { aspecto: Number(aspecto) || null });
+        try { await fotosPared.sellarLectura(c.expediente, muro.id, [driveId], lectura); }
+        catch (e) { console.warn('[croquis-movil] sellar lectura:', e.message); }
+        croquisMovil.apuntarFoto(req.params.token);
+        croquisMovil.apuntarHecho(req.params.token, 'lectura', idLocal, lectura);
+        res.json(lectura);
+    } catch (e) {
+        console.error('[croquis-movil] leer foto:', e.message);
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+// Lo revisado en el teléfono, para que lo ponga en el plano el ORDENADOR.
+router.post('/croquis-movil/:token/huecos', (req, res) => {
+    const r = croquisMovil.pedirHuecos(req.params.token, req.body || {});
+    if (r.ok) return res.json(r);
+    const errores = {
+        pared: [400, 'Esa pared no es de esta planta.'],
+        no_admite: [400, 'Esta pared no es una fachada: aquí no van ventanas.'],
+        vacio: [400, 'No hay ningún hueco marcado.'],
+        pendiente: [409, 'El ordenador aún está poniendo los anteriores. Espera un momento.'],
+    };
+    const [st, msg] = errores[r.motivo] || [410, CROQUIS_CERRADO];
+    res.status(st).json({ error: msg });
+});
+
+// Cómo están las paredes ahora (huecos, nombre…), sin la geometría.
+router.get('/croquis-movil/:token/paredes', (req, res) => {
+    const r = croquisMovil.paredesMovil(req.params.token);
+    if (!r) return res.status(410).json({ error: CROQUIS_CERRADO });
+    res.json(r);
 });
 
 router.post('/anexos-upload/:expedienteId',

@@ -156,6 +156,16 @@ function loadFichaCe3x() {
     return loadEsm(FICHA_JS, _ficha);
 }
 
+//: Las medidas de AISLAMIENTO (cubierta, fachada) con su solución y su texto.
+//: Fuente única con el popup del CEE final: el texto que se ve es el que se escribe.
+const AISLAMIENTO_JS = path.join(
+    __dirname, '../../frontend/src/features/cee-envolvente/logic/medidasAislamiento.js');
+const _aislamiento = { sello: null, promesa: null };
+
+function loadMedidasAislamiento() {
+    return loadEsm(AISLAMIENTO_JS, _aislamiento);
+}
+
 //: Un CEE directo leído como expediente. Fuente única con la VENTANA, que pinta
 //: la misma fila: con dos adaptadores, la dirección que se enseña y la que se
 //: escribe en el `.cex` acabarían saliendo de sitios distintos.
@@ -1192,6 +1202,7 @@ module.exports = {
     cartografia,
     SUFIJO_REVISAR,
     loadFichaCe3x,
+    loadMedidasAislamiento,
     cargarExpediente,
     componerFicha,
     nombreDelCex,

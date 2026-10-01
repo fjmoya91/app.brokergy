@@ -44,6 +44,10 @@ class Planta:
     uso_dominante: str | None = None
     confianza_uso: float = 0.0
     nota_uso: str = ""
+    #: El uso con el que la ENVOLVENTE trata esta planta: el habitable que
+    #: cuenta en ella, aunque Catastro declare otro dominante. Ver
+    #: `marcar_usos_medidos`. `None` = la planta no se mide (manda el dominante).
+    uso_medido: str | None = None
     #: Lo que hay CONSTRUIDO en este nivel y NO es de la vivienda: el garaje
     #: adosado, el almacen. No esta en `huella` —sus paredes no se miden— pero
     #: sigue estando ahi, y eso decide dos cosas: que la pared de la casa
@@ -207,7 +211,12 @@ def plantas_desde_partes(partes: list[ParteEdificio],
             trozo = _limpia(g.intersection(fuera))
             if trozo is None:
                 continue
-            partes_fuera.append({"geom": trozo, "uso": cuerpo.get("uso") or NO_HABITABLE})
+            # Un PORCHE ABIERTO no es un espacio no habitable: es EXTERIOR. Se
+            # quita de la huella igual, pero NO se guarda como construido, asi
+            # que la pared de la casa detras de el sale FACHADA y el forjado de
+            # encima, SUELO en contacto con el aire exterior (no una particion).
+            if cuerpo.get("uso") != PORCHE:
+                partes_fuera.append({"geom": trozo, "uso": cuerpo.get("uso") or NO_HABITABLE})
             recortada = _limpia(g.difference(fuera))
             if recortada is not None:
                 g = recortada
@@ -252,6 +261,10 @@ def asignar_usos(plantas: list[Planta], usos_por_planta: dict[int, dict[str, flo
 #: Como se llama un espacio no habitable del que Catastro no dice el uso.
 NO_HABITABLE = "ESPACIO NO HABITABLE"
 
+#: Una zona dibujada que es un PORCHE ABIERTO («PORCHE 100%» en Catastro): no
+#: cuenta, y tampoco es un espacio no habitable — es exterior.
+PORCHE = "PORCHE"
+
 
 def _partir(g: BaseGeometry, fuera: BaseGeometry | None):
     """Separa de `g` lo que cae sobre `fuera` y lo que queda."""
@@ -263,10 +276,44 @@ def _partir(g: BaseGeometry, fuera: BaseGeometry | None):
 def _uso(pl: Planta | None) -> str:
     if pl is None:
         return "EXTERIOR"
-    return pl.uso_dominante or "DESCONOCIDO"
+    return pl.uso_medido or pl.uso_dominante or "DESCONOCIDO"
 
 
 NO_HABITABLES = {"GARAJE", "ALMACEN", "COMUN"}
+
+
+def marcar_usos_medidos(plantas: list[Planta],
+                        habitables_por_nivel: dict[int, dict[str, float]]) -> list[str]:
+    """Una planta que la envolvente MIDE es espacio habitable, la domine el uso
+    que la domine.
+
+    POR QUE EXISTE — 2119403VJ9321N (26RES060_OP246): la planta baja es UN
+    BuildingPart con 39 m2 de vivienda, 122 de aparcamiento y 36 de porche.
+    Catastro no dice que poligono es cada uso, asi que se mide la planta entera
+    como vivienda (sus paredes son fachadas de la zona PLANTA BAJA). Pero los
+    forjados se decidian con el uso DOMINANTE —GARAJE— y salian DOS particiones
+    fantasma sobre los mismos 195 m2: el techo de la baja «entre plantas» y el
+    suelo de la primera «sobre garaje», y en CE3X la primera se leia como un
+    garaje ENTERRADO debajo de la planta baja. La misma planta no puede ser
+    vivienda para sus paredes y garaje para sus forjados.
+
+    El garaje de verdad, si esta dentro de la planta, se DELIMITA (zona fuera):
+    entonces es `no_habitable_partes` y de ahi salen la particion vertical
+    contra el y el suelo de la primera sobre el. Eso ya lo hacia bien.
+
+    Devuelve lo que ha cambiado, para decirlo.
+    """
+    dichos: list[str] = []
+    for pl in plantas:
+        usos = {u: a for u, a in (habitables_por_nivel.get(pl.nivel) or {}).items() if u}
+        if not usos:
+            continue
+        medido = max(usos, key=usos.get)
+        pl.uso_medido = medido
+        if pl.uso_dominante and pl.uso_dominante != medido:
+            dichos.append(f"{pl.etiqueta}: Catastro declara sobre todo {pl.uso_dominante}, "
+                          f"pero se mide como {medido} (lo que cuenta en ella)")
+    return dichos
 
 
 def elementos_horizontales(plantas: list[Planta],
@@ -282,6 +329,11 @@ def elementos_horizontales(plantas: list[Planta],
     salida: list[ElementoHorizontal] = []
 
     def relevante(origen: str, destino: str, no_hab: bool) -> bool:
+        # El forjado lo escribe el lado HABITABLE («suelo/techo contra espacio
+        # no habitable»). Desde el lado no habitable es el MISMO forjado otra
+        # vez: salia duplicado, y en la zona que no es.
+        if origen in NO_HABITABLES:
+            return False
         if no_hab:
             return True
         if origen == destino:

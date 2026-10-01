@@ -1845,21 +1845,30 @@ un CIFO sin fecha de inicio es peor. Como TODAS las superficies llaman a `calcCi
 (CIFO, fichas RES, anexo del MITECO, solicitud de verificación), el inicio nuevo sale
 igual en todas. Con la marca, 26RES093_11 arranca el 11/09 y el GRAVE se apaga solo.
 
-**REGLA — el CIFO y el Certificado RES080 llevan un bloque «Hitos de la actuación»**:
-primera factura (con su nº y «entrega de material» si lo es), inicio y fin, y la
-visita del técnico y la firma del CEE INICIAL y del CEE FINAL. **Las dos filas de CEE
-salen SIEMPRE**, con «—» en lo que aún no consta (decisión del usuario, 2026-09-30: el
-CEE final es la otra mitad de la historia y su fila no puede desaparecer). **No se
-imprime el REGISTRO del CEE**: la regla de la casa es que el certificado existe desde
-su FIRMA (regla de `cifoFechas`), y el registro es un trámite ajeno. En el RES080 el
-inicio y el fin del bloque son los de su hoja 1 (`fields.fecha_inicio/fin`, editables
-en la vista previa), pasados a dd/mm/aaaa.
+**REGLA — el CIFO y el Certificado RES080 llevan un bloque «Hitos de la actuación»,
+ordenado como el PROCESO** (no por fecha): CEE inicial (visita del técnico · firma) →
+facturas (primera · última, con su nº y «entrega de material» si lo es; con una sola,
+una casilla) → actuación (inicio · pruebas RITE · fin) → CEE final (visita · firma).
+Tres columnas iguales por fila, para que las fechas queden alineadas. Ordenar por
+fecha haría saltar al principio justo la factura de material anterior al CEE.
+**No se imprime el REGISTRO del CEE**: la regla de la casa es que el certificado
+existe desde su FIRMA (regla de `cifoFechas`), y el registro es un trámite ajeno. En
+el RES080 el inicio y el fin del bloque son los de su hoja 1
+(`fields.fecha_inicio/fin`, editables en la vista previa), pasados a dd/mm/aaaa.
+
+**REGLA — lo que NO consta NO se imprime, y se AVISA antes de generar** (decisión
+del usuario, 2026-10-01, que sustituye a la de imprimir «—»): sin fechas de un CEE,
+su fila no sale; una fecha suelta que falte (una firma, las pruebas del RITE) deja su
+casilla vacía. `avisosHitos(expediente)` lo dice en la puerta de «Generar» del
+CIFO/RES080 (`handleGenerateClick`, docType `cifo`), en ámbar junto a los de
+`avisosCeeDocumento`; con «Generar de todos modos» sale sin esa fila. El popup de
+hitos lo dice también.
 
 **REGLA — la aclaración solo AFIRMA lo que dicen los datos.** `aclaracionSugerida`
 compone el texto con las fechas del expediente y solo sitúa el inicio «con
 posterioridad a la firma del CEE inicial» si de verdad lo es; a una factura
 anterior al inicio SIN marcar (inicio fijado a mano) no le atribuye naturaleza
-ninguna. Tope `ACLARACION_MAX` (480 caracteres). Se guarda en
+ninguna. Tope `ACLARACION_MAX` (420 caracteres): por encima, el popup NO deja guardar (no la recorta: se cortaría a media frase en un documento firmado). Se guarda en
 `documentacion.hitos_actuacion` = `{ aclaracion, origen, por, at }`, que va en la
 **BLACKLIST de `normalizeData`**: es texto que se imprime tal cual, y en MAYÚSCULAS
 saldría en el certificado como un grito.
@@ -1878,8 +1887,9 @@ normal, «no supone» se leía como la factura «supone».
 
 **REGLA — los hitos ABREN la hoja de la INSTALACIÓN, antes de los equipos**
 (decisión del usuario, 2026-09-30), en el CIFO y en el RES080. Con un solo equipo
-caben siempre (peor caso medido con la aclaración máxima: CIFO +22px con termo fuera
-y dos empresas; RES080 +37px con termo fuera). Con equipos en CASCADA la hoja se
+caben siempre (peor caso medido con la aclaración máxima, factura de material con nº
+largo y los dos CEE: CIFO +12px con termo fuera y dos empresas de nombre largo;
+RES080 +23px con termo fuera). Con equipos en CASCADA la hoja se
 llena de nº de serie y los hitos van en una hoja propia justo ANTES de la de la
 instalación (`hitosAparte`). Lo decide un dato del expediente, no una medición; los
 dos caminos están en los dos medidores. Hoy son 4 expedientes de 291 con cascada. Los
@@ -2642,6 +2652,15 @@ ficha reenvía `documentacion` entera desde su copia.
 FECHA DE PAGO), y al revés: es el mismo hecho, y si no el libro seguiría diciendo
 que se debe. Best-effort y en diferido: la hoja no puede tumbar el cobro. Una
 segunda factura del mismo expediente exige confirmarlo (409 sin `otraMas`).
+
+**REGLA — se EMITE y se ENVÍA en el mismo gesto, con el mensaje a la vista.** El
+popup ya trae en el paso de preparar a quién se manda (WhatsApp / email del
+contacto del destino) y el texto (`mensajeFactura`, que dice QUÉ se factura
+—`trabajoFacturado`, sacado de las líneas— y pide el justificante de pago porque
+el certificado no se entrega sin cobrar). El botón pasa a «Emitir y enviar». El
+nº no existe hasta emitir: el mensaje enseña el que TOCARÍA y, si sale otro, se
+sustituye antes de enviar. El envío llama a la MISMA ruta `/:numero/enviar` de
+después; si falla, la factura queda emitida y se reenvía desde el propio popup.
 
 La Sheets API tiene que estar activa en el proyecto de GCP del OAuth
 (651872791732) — se activó el 23/09/2026. Variables opcionales:
@@ -8257,6 +8276,89 @@ mitad con el color de otra cosa.
 
 ---
 
+### El CEE FINAL desde la MEDIDA DE MEJORA del inicial del técnico (2026-09-30)
+
+El otro camino al CEE final, y el que se usa cuando el técnico ya ha ENTREGADO el inicial con su
+medida de mejora CALCULADA: el «edificio mejorado» de esa medida ES el certificado final. Botón
+**«Generar»** en la fila del CEE final (solo ADMIN, solo RES060 y RES093) y skill
+**`generar-cee-final`** (`scripts/cee_final.js`), las dos por la MISMA función.
+
+| Qué | Dónde |
+|---|---|
+| Montar el final (lógica pura, probable sin servidor) | [tools/cee_final.py](implementation/cee-engine/tools/cee_final.py) → motor `POST /cex/final-desde-medida` |
+| Buscar el `.cex` del técnico, catálogo de medidas, guardar en Drive | [services/cee/ceeFinalDesdeMedida.js](implementation/backend/services/cee/ceeFinalDesdeMedida.js) |
+| Ruta | `POST /api/expedientes/:id/cee/final-desde-medida` (**staffOnly**; sin `escribir`, solo el análisis) |
+| Popup | [CeeFinalDesdeMedidaModal.jsx](implementation/frontend/src/features/expedientes/components/CeeFinalDesdeMedidaModal.jsx) |
+| Pruebas | `python -m pytest implementation/cee-engine/tests/test_cee_final.py` |
+
+**REGLA — la instalación del final es la de la medida del TÉCNICO, tal cual** (sus `sistemas*MM`,
+equipo a equipo, con sus porcentajes y superficies). No se recompone desde el expediente, que es lo
+que hace el camino de arriba (`/cex/instalaciones`): podría dar otro C_b, otro slot para la
+aerotermia u otro reparto del frío, y el final dejaría de ser lo que se revisó. Solo cambian los
+pickles 4, 5, 6 y 11; lo demás del fichero del técnico, byte a byte.
+
+**REGLA — salvo la MÁQUINA: si el técnico declaró otro modelo u otro SCOP, manda el EXPEDIENTE**
+(decisión del usuario, 2026-09-30). `equiposDelExpediente` ([fichaCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/fichaCe3x.js),
+desde `resolverCe3x`) dice qué máquina y qué rendimiento lleva cada servicio, y `corregir_equipos`
+(`cee_final.py`) cambia en el registro de la medida SOLO el nombre y las casillas [2]/[7] de ese
+servicio, en equipos con el rendimiento CONOCIDO; slot, porcentajes, superficies y acumulación siguen
+siendo del técnico, y la misma máquina con el mismo rendimiento no se toca. Con corrección, los
+resultados esperados de la medida del inicial ya no valen y se dice. Medido en 26RES060_184/185
+(placas leídas: SHP M PRO 012 y MANANTIAL110RPLUSV, no la 010 ni la 150RPLUSB de la medida).
+
+**REGLA — el equipo que da el ACS en el final hereda el DEPÓSITO del inicial** (decisión del usuario,
+2026-10-01): la D_ACS del final tiene que ser la del inicial (regla 12.f) y CE3X la calcula con las
+pérdidas del depósito. `heredar_deposito` (`cee_final.py`) copia el bloque [8] tal cual (litros, UA,
+temperaturas, multiplicador) al equipo del final que cubre ACS sin depósito; si alguno ya lo tiene, no
+se añade otro. Medido en 26RES060_185: con los 150 l del inicial, D_ACS 22,04 en las dos fases.
+
+**REGLA — en una HIBRIDACIÓN la medida del final es RETIRAR el generador en apoyo** (la bomba asume
+el 100 % de lo que compartían). Se decide mirando el FICHERO, no la ficha: un equipo del inicial
+cuya parte de un servicio BAJA en la medida es el que se quedó en apoyo; el equipo nuevo que
+comparte ese servicio es la bomba. Una caldera MIXTA que sigue con el ACS se queda con la
+calefacción a `['0.0','0']`. En una sustitución no hay nada que retirar y la medida por defecto es
+el **autoconsumo** de `medidasCe3x` (importado) — salvo que el `.cex` ya declare placas.
+
+**REGLA — lo que CE3X calculó para la medida del inicial es lo que debe dar el final**
+(`datosNuevoEdificio.datosResultados`: emisiones, EPNR, demanda, con sus letras). Se enseña en el
+popup y en el script: es la comprobación al calificarlo. Una medida sin calcular o DESFASADA
+(`radiografia_cex`) se avisa y el final se genera igual con sus equipos.
+
+**REGLA — las fechas del inicial NO pasan al final.** Se piden (el popup las trae con HOY, a la
+vista); sin ellas quedan en blanco y se dice. Con varias medidas manda la que imprime el informe
+(casilla 0 del pickle 11); si no casa ninguna, se pregunta. Una medida que toca la ENVOLVENTE
+(RES080) no se genera: es la fase 2.
+
+Sale como `{nº} - CEE FINAL_REVISAR.cex` por `guardarEnDrive(ctx, buf, 'final')` —el mismo nombre y
+carpeta que el botón de la envolvente—, así que la rejilla no lo toma por la entrega del técnico
+hasta que se calcule en CE3X y se suba como `– CEE FINAL`. Caso de referencia: **26RES093_11**,
+idéntico byte a byte al montado a mano.
+
+**Medidas de ENVOLVENTE en el final: aislamiento de cubierta y de fachada** (2026-09-30). Se
+eligen en el mismo popup, con su **solución constructiva** (cubierta: lana mineral sobre el último
+forjado · cubierta invertida con XPS · insuflado; fachada: SATE · insuflado en cámara · trasdosado
+interior) y su espesor, y el texto de «Características» —profesional, con material, espesor,
+conductividad y la U antes y después— sale de ahí: fuente única
+[medidasAislamiento.js](implementation/frontend/src/features/cee-envolvente/logic/medidasAislamiento.js),
+que usan el popup y el backend. Con la vivienda ya con placas (sin autoconsumo que proponer) la de
+cubierta va marcada por defecto. El motor la escribe con `construir_medida_aislamiento`
+(`generar_cex.py`) exactamente como el diálogo «Medida de mejora en el aislamiento térmico» de CE3X
+—comprobado campo a campo contra la que guardó CE3X para 26RES093_11—:
+
+| Campo del conjunto | Qué lleva |
+|---|---|
+| `medidasMejoraEnvolvente` | `[nombre, 'Adición de Aislamiento Térmico', 13 parámetros]` — `[fachada, cubierta, suelo, modo U, modo λ+e, partición, U, λ, e (m), '', por el exterior, 7 ψ, 4 × False]` (decodificados con 5 medidas reales) |
+| `cerramientosMejorados` | los del edificio con la U NUEVA en `[3]` de los del tipo elegido; el bloque de «Conocidas» `[9]` NO cambia |
+| `mejoras` | `[medidas de envolvente, ['', instalación ACTUAL, False]]` — `False` = la instalación no cambia |
+| resumen (pickle 6) | una fila por medida con tipo `Adición de Aislamiento Térmico` |
+
+Se escribe en modo **λ + espesor** (no con una U a secas): CE3X calcula la U de cada cerramiento
+con `U' = 1/(1/U + e/λ)` (comprobado en el corpus: 1,4 → 0,4667 · 1,69 → 0,4694 · 1,26 → 0,3515) y
+el texto puede decir qué material y qué espesor se ponen. **Una medianera no se aísla** (fachada
+contra `edificio`). ⚠️ **El texto no puede llevar «λ» ni rayas largas**: el `.cex` es latin-1 y un
+carácter fuera tumba el fichero entero — por eso dice «conductividad térmica de 0,035 W/m·K».
+Tras tocarlo: `node implementation/backend/scripts/test_medidas_aislamiento.mjs`.
+
 ## Qué PLANTAS se miden lo marcó una persona, no Catastro (2026-09-14)
 
 Catastro dice de qué es cada trozo construido y **se equivoca**: una planta
@@ -8394,6 +8496,81 @@ app en claro había que salir. Es el MISMO `ThemeToggle` (`collapsed`), no una
 copia. ⚠️ Fuera del `ThemeProvider` `useTheme` cae a un no-op silencioso: un banco
 de pruebas que monte esta ventana suelta tiene que envolverla, o el botón parece
 roto sin serlo.
+
+### La VISTA AÉREA (satélite), debajo del plano y bajo el 3D (2026-09-30)
+
+Botón **◩ Satélite** en la barra del plano, en 2D **y en 3D**: la ortofoto del
+**PNOA** (IGN) en su sitio exacto. La cartografía del Catastro dice lo que está
+DADO DE ALTA; la foto enseña lo que hay: el tejado, el patio, el cobertizo sin declarar, la
+piscina. Es lo que se mira en Google Earth antes de levantar un certificado, pero
+debajo de las paredes que se clasifican. Al lado, **↗ Google** abre el edificio en
+Google Maps (satélite), **Street View** (la fachada, que desde arriba no se ve) y
+Google Earth (3D).
+
+| Qué | Dónde |
+|---|---|
+| Rejilla de teselas, lienzo↔mundo, UTM→lat/lon, enlaces (puro) | [logic/ortofoto.js](implementation/frontend/src/features/cee-envolvente/logic/ortofoto.js) |
+| La capa en planta, el suelo del 3D, la atribución y el menú de Google | `Ortofoto` · `OrtofotoSuelo` · `AtribucionOrtofoto` · `MenuMapas` en `PlanoPlanta.jsx` |
+| El fondo elegido (Catastro · Satélite · nada) | `fondo` en `EnvolventeView.jsx`, recordado en `localStorage` (`brokergy.envolvente.fondo`) |
+| Prueba (sin red) | `node implementation/backend/scripts/test_ortofoto.mjs` |
+
+**REGLA — el PNOA y no Google.** Es del IGN, CC BY 4.0 (basta citarlo: la
+atribución va en la esquina del plano mientras se ve) y se sirve en EPSG:25830,
+el sistema del motor, así que encaja sin reproyectar. Las imágenes de Google no se
+pueden poner debajo de un plano propio sin su API de pago: de Google van
+**ENLACES**, por las URL documentadas de Maps (`api=1`) y la búsqueda por
+coordenadas de Earth (comprobado: vuela al punto).
+
+**REGLA — por TESELAS (WMTS) y las pide el NAVEGADOR.** La WMS del PNOA tarda
+13-30 s por imagen (medido); las teselas bajan en paralelo en ~0,3 s (20 medidas)
+y las cachean el navegador y el IGN. No pasan por nuestro servidor, igual que las
+de OpenStreetMap del selector de ubicación (no hay CSP que lo impida). Se cubre el
+entorno **más 40 m** alrededor (sin eso quedaban bandas negras al mirar la
+manzana), en el nivel 19 (0,15 m/px) y, si pasa de 64 teselas, en el 18 (0,30,
+la resolución nativa del PNOA).
+
+⚠️ **La esquina de la rejilla que publica el IGN está REDONDEADA al metro.** Sus
+capabilities dan `TopLeftCorner` con la Y entera, y con ella la tesela del nivel 18
+salía un píxel (0,30 m) desplazada frente a la WMS del mismo rectángulo. La
+rejilla está alineada POR ABAJO (`arriba = minY + filas · lado`) con un `minY` fijo
+por huso, que se acota cruzando los ocho niveles. Con el punto medio, comprobado
+tesela contra WMS por correlación de imagen: **desplazamiento 0** en los husos 29
+(Santiago), 30 (Tomelloso, Madrid) y 31 (Barcelona). **Canarias (huso 28) NO se
+ofrece**: no se pudo comprobar (la WMS daba 502), y una foto desplazada debajo de
+un plano enseña la fachada donde no está.
+
+**REGLA — es un FONDO, y es uno.** La cartografía del Catastro es un papel opaco y
+taparía la foto: encender uno apaga el otro. Sin nada guardado sale el Catastro,
+como siempre. La foto NO lleva el filtro de tema (invertida, un tejado rojo sale
+azul), y con ella debajo los vecinos van **sin relleno** —la masa gris tapaba
+justo sus tejados— conservando su contorno, que es dónde CREE Catastro que están.
+
+**En 3D la foto es el SUELO**: la axonometría a altura fija es una transformación
+AFÍN del plano, así que se proyectan tres puntos, se saca la matriz y el navegador
+deforma las teselas con la MISMA cuenta que las paredes. Va al 50 % de opacidad:
+a plena intensidad, las caras grises («sin mirar») desaparecían sobre los tejados.
+
+La barra dice cómo va la carga («Cargando la ortofoto · 4 de 25») y cuántas
+teselas no ha servido el IGN. Nunca tumba el plano: sin georreferencia o fuera de
+los husos comprobados, el botón lo dice en su `title` (`◩ Satélite ⚠`).
+
+**REGLA — la FECHA DEL VUELO va a la vista** («vuelo de junio de 2024», delante de
+la atribución). El PNOA mezcla vuelos de años distintos, y una foto anterior a la
+ampliación del garaje enseña una casa sin garaje. La da el IGN punto a punto
+(GetFeatureInfo de `OI.MosaicElement`, `urlFechaVuelo` / `leerFechaVuelo`), con la
+resolución. Ese servicio es LENTO (8 s medidos): la foto no espera por la fecha, y
+se cachea por URL para no preguntarla dos veces.
+
+⚠️ **La foto NO es una ortoimagen verdadera** (lo dice el propio IGN): los tejados
+altos salen desplazados respecto a la huella de Catastro —medido en 26RES060_208:
+~2 m en una casa de dos plantas—. Sirve para ver QUÉ hay; **no se mide con ella**.
+
+**Y la usa la skill `generar-cee-inicial`**: `cee_inicial.js paredes` (y `aplicar`)
+descarga las teselas con la MISMA `teselasOrtofoto` y `cee_inicial_plano.py` las
+compone en `satelite.png` (la foto sola, para leer tejados) y
+`plano_satelite.png` / `plano_plan_satelite.png` (las paredes encima, con halo
+oscuro para que una fachada naranja se distinga de un tejado de teja). La rejilla
+NO se copia a Python: el manifiesto trae las teselas ya colocadas en el lienzo.
 
 ### Las IMÁGENES del certificado se ven solas, y se pueden sustituir
 
@@ -10771,6 +10948,141 @@ De paso, el canal (WhatsApp · Email) se cambia DENTRO del popup: entrando desde
 casilla no hay dos botones de los que salir, y cerrar para volver a entrar por el
 otro es un peaje.
 
+### Traer las fotos del WHATSAPP al repartidor (2026-09-30)
+
+Muchos clientes no usan el enlace de subida: mandan las fotos al WhatsApp de la
+empresa. Botón **💬 Traer fotos del WhatsApp** en el gestor de documentación (solo
+STAFF, solo oportunidades CAE): se eligen los chats y el periodo, se ve lo que ha
+llegado y lo marcado se baja y entra en el **repartidor** de siempre, que propone el
+apartado y espera a que una persona lo confirme. Es la opción MANUAL; no hay nada que
+escuche los mensajes ni que se dispare solo.
+
+| Qué | Dónde |
+|---|---|
+| Contactos, lectura del chat, descarga, marcas | [whatsappMedia.js](implementation/backend/services/whatsappMedia.js) |
+| Rutas (**staffOnly**) | `GET /api/oportunidades/:id/whatsapp-media/contactos` · `POST …/buscar` · `GET …/descargar?msg=` · `POST …/colocadas` |
+| Popup | [TraerDeWhatsapp.jsx](implementation/frontend/src/features/docs/TraerDeWhatsapp.jsx) → `BuzonFotos` (prop `onColocadas`) |
+| Qué mensajes ya se colocaron | tabla `whatsapp_media_importada` (`scripts/whatsapp_media_importada.sql`, ya en producción) |
+| Prueba de lo puro | `node implementation/backend/scripts/test_whatsapp_media.js` |
+| Probar la pantalla sin la sesión real | `WA_MEDIA_SIMULADO=1` con WhatsApp apagado (lo lleva `backend-alt`): fotos del tutorial |
+
+**REGLA — se habla con WhatsApp Web DIRECTAMENTE** (`WAWebCollections`,
+`WAWebChatLoadMessages.loadEarlierMsgs`, `WAWebDownloadManager`), nunca con
+`fetchMessages()` ni con `Message.downloadMedia()` de la librería: las dos pasan por
+el `serialize()` que WhatsApp rompió. `BAJAR` es lo que hace `downloadMedia` de
+whatsapp-web.js 1.34.7, sin el modelo serializado. Nada de esto está en el camino de
+ENVÍO (lo que rompía la sesión era `getChatById`/`sendSeen` ahí).
+
+**REGLA — de una en una y con plazo**: todo lo que toca el Chrome va en fila
+(`enSerie`) y con `conPlazo`; dos plazos agotados seguidos cortan la lectura. Cada
+chat carga como mucho 1.500 mensajes / 40 lotes, y un adjunto de más de 50 MB se
+marca y no se baja (viaja en base64 por el protocolo de depuración).
+
+**REGLA — solo se baja lo que salió de un chat leído para ESE expediente.** El id
+del mensaje lleva el chat dentro (`chatDeMsgId`) y se comprueba contra los chats
+recién leídos para esa oportunidad (`permitir`, 3 h); si no, el botón bajaría
+cualquier foto de cualquier conversación. **No se crean chats**: el número se busca
+como `@c.us` y por su `@lid` (`WAWebApiContact.getCurrentLid`), sin abrir nada.
+
+**REGLA — lo recomendado es lo del CLIENTE** (titular, propietarios, persona de
+contacto y chats vinculados a mano). El chat de un INSTALADOR se ofrece sin marcar y
+con aviso —puede traer fotos de sus otras obras—, y un número que está en las dos
+fichas también. Se puede teclear otro número (la hija que manda las fotos).
+
+**REGLA — lo colocado se APUNTA, y es una pista, no un candado.** Al subir, el
+repartidor avisa de qué mensaje salió cada foto y se guarda en
+`whatsapp_media_importada` (la subida renombra el fichero y el slot no sabría de
+dónde vino). La próxima vez sale "✓ Ya colocada · Caldera" y sin marcar, y si está
+en OTRA obra ("En 26RES060_190") tampoco se marca. Se puede volver a traer.
+
+Lo que no se baja se dice con su motivo (`caducado`: WhatsApp ya no la tiene en sus
+servidores y hay que pedírsela otra vez; `no_encontrado`; `grande`), y un chat que no
+llegó a cargarse entero sale como "no se ha podido cargar todo el periodo". Una foto
+mandada "como documento" se marca **original, sin comprimir**: es la buena para leer
+una placa. En el repartidor se enseña lo que escribió el cliente al mandarla.
+
+**REGLA — MOBILE FIRST, y cómodo en el PC.** El popup y el REPARTIDOR son **hoja
+inferior** en el móvil (con asa, `94dvh` y el área segura del iPhone en el pie) y
+centrados en el PC; controles de **44 px** y campos a **16 px** en el móvil (iOS amplía
+la página por debajo), compactos desde `md:`. En el PC, **Esc** cierra (salvo leyendo o
+bajando) e **Intro** en el número busca. ⚠️ El repartidor pasa a ir **portaleado a
+`body`**: dentro del modal de documentación (con `backdrop-blur`) su cabecera quedaba
+tapada por la barra de la app en el móvil. Y su desplegable lleva `no-uppercase`: en
+mayúsculas y a 16 px no se leía el apartado.
+
+⚠️ **PENDIENTE de medir en el VPS**: `LEER_CHAT` y `BAJAR` corren dentro de la sesión
+real y en local no se pueden ejercer. La miniatura sale de `m.body` (en un mensaje con
+foto es la miniatura en base64); si WhatsApp la mueve, la lista sale con iconos y todo
+lo demás funciona. Y hay que comprobar que leer y bajar no afecta a los envíos (ACK).
+
+### Las VENTANAS, ventana por ventana (2026-09-30)
+
+En un RES080 se cambian cinco, ocho, doce ventanas y cada una necesita su foto de
+antes y la de después. Iban a granel —dos casillas, todas las de antes y todas las
+de después— y ni quien revisa ni el Anexo Fotográfico sabían qué ventana nueva
+correspondía a qué ventana vieja. Ahora los dos apartados de ventanas
+(`FOTO_VENTANAS_ANTES` / `_DESPUES`) van en **tarjetas, una por ventana**, en el
+enlace del cliente (guiado y lista) y en el panel interno.
+
+| Qué | Dónde |
+|---|---|
+| Reglas: id, nombre, agrupar, progreso, orden del anexo (FUENTE ÚNICA, pura) | [logic/ventanasObra.js](implementation/frontend/src/features/docs/logic/ventanasObra.js) |
+| Las tarjetas | [VentanasPorVentana.jsx](implementation/frontend/src/features/docs/VentanasPorVentana.jsx), montadas por `DocsManager` (`ventanasDeSlot`) |
+| Guardar al subir · renombrar · reasignar | `subirFicherosASlot({ ventana })` y `actualizarVentanas` en `reformaUploadService` |
+| Rutas | `POST /api/public/reforma-docs/:uuid/:slot[/batch]` con `ventana` + `ventanaNombre` · `PATCH /api/public/reforma-docs/:uuid/ventanas?token=` |
+| Anexo Fotográfico | `collectPhotoGroups` anota y ordena (`ordenarPorVentana`); las filas llevan `rotulo` |
+| Pruebas | `node implementation/backend/scripts/test_ventanas_obra.mjs` · `test_ventanas_subida.js` |
+
+**REGLA — la ventana va EN LA FOTO, no en una lista aparte.** Cada entrada de
+`reforma_uploads` lleva `ventana: 'V3'` y `ventana_nombre: 'Cocina'`, junto a su
+estado: no hay tabla ni lista que pueda desincronizarse, y una ventana EXISTE cuando
+tiene alguna foto. Renombrar escribe en todas sus fotos de los DOS apartados (RPC
+`reforma_replace_slot`, como validar). El id **no se reutiliza** al borrar
+(`siguienteId`): la 3 sigue siendo la 3, o la foto de después se emparejaría con otra.
+
+**REGLA — en el DESPUÉS, la ventana VIEJA al lado** («Así estaba»): es lo que dice
+de qué ventana es la foto que se está haciendo, la haga el cliente, el carpintero o
+el equipo. Y el apartado del después **solo está hecho cuando TODAS las ventanas
+tienen su foto nueva** (`slotDone` en DocsManager): si no, el recorrido guiado lo
+daba por terminado con la primera. Por lo mismo, subir una foto de ventana **no
+avanza** el paso guiado (`setPasoKey(slot.key)`): quedan las demás; el botón pasa
+a «Ya están todas ›».
+
+**REGLA — nada se esconde.** Las fotos sin ventana (las de antes de esto, las del
+repartidor o del WhatsApp) salen en «fotos sin ventana asignada» con un
+desplegable para colocarlas, y una foto que solo está en Drive se da de alta al
+asignarla. Un id que no es una ventana se ignora: la foto entra igual, sin ventana.
+
+**El nombre es opcional y de un toque** (`NOMBRES_RAPIDOS`: Salón, Cocina,
+Dormitorio…), o tecleado. Mientras no hay ninguna ventana se enseña ya la «Ventana
+1» con su botón; al añadir la segunda, la primera se queda (era provisional y
+desaparecía). Mobile first: botones de 48 px, campos a 16 px.
+
+**El Anexo Fotográfico las saca en orden de ventana y con su rótulo** («Ventana 2 ·
+Cocina», igual en el antes y en el después, numerando las repetidas). El nombre
+vigente sale de los DOS apartados (`nombresDeVentanas`). El orden manual del
+gestor (`anexo_orden`) sigue mandando si existe.
+
+**«Subir todas a la vez» existe, pero en segundo plano y con la explicación
+delante**: *lo ideal es subir cada foto en su ventana, así sabemos cuál es cuál.*
+Va debajo de las tarjetas, con un botón que no es el naranja. Lo que hace depende
+de la fase, y la pantalla lo dice ANTES de pulsar:
+- **Antes**: cada foto pasa a ser una ventana nueva, con números seguidos detrás de
+  las que ya tienen foto (`idsParaTanda`; una ventana añadida en pantalla y vacía la
+  ocupa la primera foto). Viaja como `ventanas` = JSON `['V3','V4',…]`, una por
+  fichero (`ventanasPorFichero` en `subirFicherosASlot`).
+- **Después**: no hay forma de saber de qué ventana es cada una, así que entran sin
+  ventana y cada foto pregunta **«¿Cuál de estas era?»** enseñando cómo estaba cada
+  ventana: se coloca TOCANDO la foto vieja, no eligiendo en un desplegable.
+- Las fotos sueltas del antes (repartidor, WhatsApp) tienen además **«Cada foto es
+  una ventana distinta»**, que las coloca todas de un toque, en serie.
+
+⚠️ La miniatura dentro de un botón va con `renderMini(slot, it, { soloImagen: true })`:
+un botón dentro de otro no es HTML válido.
+
+⚠️ PENDIENTE: el parte diario y «qué falta» siguen contando el apartado del después
+como hecho con UNA foto; no saben que a una ventana le falta la suya.
+
 ### Dos huecos del alcance
 
 **La HIBRIDACIÓN no tenía foto propia.** Lo que hay que acreditar en un RES093 o un
@@ -10921,141 +11233,6 @@ El certificado crudo está guardado en el propio expediente (`cee.xml_inicial` /
 expedientes lo tienen), así que la revisión no necesita Drive: `--expediente 26RES060_192` lo trae
 todo de una vez.
 
-### Traer las fotos del WHATSAPP al repartidor (2026-09-30)
-
-Muchos clientes no usan el enlace de subida: mandan las fotos al WhatsApp de la
-empresa. Botón **💬 Traer fotos del WhatsApp** en el gestor de documentación (solo
-STAFF, solo oportunidades CAE): se eligen los chats y el periodo, se ve lo que ha
-llegado y lo marcado se baja y entra en el **repartidor** de siempre, que propone el
-apartado y espera a que una persona lo confirme. Es la opción MANUAL; no hay nada que
-escuche los mensajes ni que se dispare solo.
-
-| Qué | Dónde |
-|---|---|
-| Contactos, lectura del chat, descarga, marcas | [whatsappMedia.js](implementation/backend/services/whatsappMedia.js) |
-| Rutas (**staffOnly**) | `GET /api/oportunidades/:id/whatsapp-media/contactos` · `POST …/buscar` · `GET …/descargar?msg=` · `POST …/colocadas` |
-| Popup | [TraerDeWhatsapp.jsx](implementation/frontend/src/features/docs/TraerDeWhatsapp.jsx) → `BuzonFotos` (prop `onColocadas`) |
-| Qué mensajes ya se colocaron | tabla `whatsapp_media_importada` (`scripts/whatsapp_media_importada.sql`, ya en producción) |
-| Prueba de lo puro | `node implementation/backend/scripts/test_whatsapp_media.js` |
-| Probar la pantalla sin la sesión real | `WA_MEDIA_SIMULADO=1` con WhatsApp apagado (lo lleva `backend-alt`): fotos del tutorial |
-
-**REGLA — se habla con WhatsApp Web DIRECTAMENTE** (`WAWebCollections`,
-`WAWebChatLoadMessages.loadEarlierMsgs`, `WAWebDownloadManager`), nunca con
-`fetchMessages()` ni con `Message.downloadMedia()` de la librería: las dos pasan por
-el `serialize()` que WhatsApp rompió. `BAJAR` es lo que hace `downloadMedia` de
-whatsapp-web.js 1.34.7, sin el modelo serializado. Nada de esto está en el camino de
-ENVÍO (lo que rompía la sesión era `getChatById`/`sendSeen` ahí).
-
-**REGLA — de una en una y con plazo**: todo lo que toca el Chrome va en fila
-(`enSerie`) y con `conPlazo`; dos plazos agotados seguidos cortan la lectura. Cada
-chat carga como mucho 1.500 mensajes / 40 lotes, y un adjunto de más de 50 MB se
-marca y no se baja (viaja en base64 por el protocolo de depuración).
-
-**REGLA — solo se baja lo que salió de un chat leído para ESE expediente.** El id
-del mensaje lleva el chat dentro (`chatDeMsgId`) y se comprueba contra los chats
-recién leídos para esa oportunidad (`permitir`, 3 h); si no, el botón bajaría
-cualquier foto de cualquier conversación. **No se crean chats**: el número se busca
-como `@c.us` y por su `@lid` (`WAWebApiContact.getCurrentLid`), sin abrir nada.
-
-**REGLA — lo recomendado es lo del CLIENTE** (titular, propietarios, persona de
-contacto y chats vinculados a mano). El chat de un INSTALADOR se ofrece sin marcar y
-con aviso —puede traer fotos de sus otras obras—, y un número que está en las dos
-fichas también. Se puede teclear otro número (la hija que manda las fotos).
-
-**REGLA — lo colocado se APUNTA, y es una pista, no un candado.** Al subir, el
-repartidor avisa de qué mensaje salió cada foto y se guarda en
-`whatsapp_media_importada` (la subida renombra el fichero y el slot no sabría de
-dónde vino). La próxima vez sale "✓ Ya colocada · Caldera" y sin marcar, y si está
-en OTRA obra ("En 26RES060_190") tampoco se marca. Se puede volver a traer.
-
-Lo que no se baja se dice con su motivo (`caducado`: WhatsApp ya no la tiene en sus
-servidores y hay que pedírsela otra vez; `no_encontrado`; `grande`), y un chat que no
-llegó a cargarse entero sale como "no se ha podido cargar todo el periodo". Una foto
-mandada "como documento" se marca **original, sin comprimir**: es la buena para leer
-una placa. En el repartidor se enseña lo que escribió el cliente al mandarla.
-
-**REGLA — MOBILE FIRST, y cómodo en el PC.** El popup y el REPARTIDOR son **hoja
-inferior** en el móvil (con asa, `94dvh` y el área segura del iPhone en el pie) y
-centrados en el PC; controles de **44 px** y campos a **16 px** en el móvil (iOS amplía
-la página por debajo), compactos desde `md:`. En el PC, **Esc** cierra (salvo leyendo o
-bajando) e **Intro** en el número busca. ⚠️ El repartidor pasa a ir **portaleado a
-`body`**: dentro del modal de documentación (con `backdrop-blur`) su cabecera quedaba
-tapada por la barra de la app en el móvil. Y su desplegable lleva `no-uppercase`: en
-mayúsculas y a 16 px no se leía el apartado.
-
-⚠️ **PENDIENTE de medir en el VPS**: `LEER_CHAT` y `BAJAR` corren dentro de la sesión
-real y en local no se pueden ejercer. La miniatura sale de `m.body` (en un mensaje con
-foto es la miniatura en base64); si WhatsApp la mueve, la lista sale con iconos y todo
-lo demás funciona. Y hay que comprobar que leer y bajar no afecta a los envíos (ACK).
-
-### Las VENTANAS, ventana por ventana (2026-09-30)
-
-En un RES080 se cambian cinco, ocho, doce ventanas y cada una necesita su foto de
-antes y la de después. Iban a granel —dos casillas, todas las de antes y todas las
-de después— y ni quien revisa ni el Anexo Fotográfico sabían qué ventana nueva
-correspondía a qué ventana vieja. Ahora los dos apartados de ventanas
-(`FOTO_VENTANAS_ANTES` / `_DESPUES`) van en **tarjetas, una por ventana**, en el
-enlace del cliente (guiado y lista) y en el panel interno.
-
-| Qué | Dónde |
-|---|---|
-| Reglas: id, nombre, agrupar, progreso, orden del anexo (FUENTE ÚNICA, pura) | [logic/ventanasObra.js](implementation/frontend/src/features/docs/logic/ventanasObra.js) |
-| Las tarjetas | [VentanasPorVentana.jsx](implementation/frontend/src/features/docs/VentanasPorVentana.jsx), montadas por `DocsManager` (`ventanasDeSlot`) |
-| Guardar al subir · renombrar · reasignar | `subirFicherosASlot({ ventana })` y `actualizarVentanas` en `reformaUploadService` |
-| Rutas | `POST /api/public/reforma-docs/:uuid/:slot[/batch]` con `ventana` + `ventanaNombre` · `PATCH /api/public/reforma-docs/:uuid/ventanas?token=` |
-| Anexo Fotográfico | `collectPhotoGroups` anota y ordena (`ordenarPorVentana`); las filas llevan `rotulo` |
-| Pruebas | `node implementation/backend/scripts/test_ventanas_obra.mjs` · `test_ventanas_subida.js` |
-
-**REGLA — la ventana va EN LA FOTO, no en una lista aparte.** Cada entrada de
-`reforma_uploads` lleva `ventana: 'V3'` y `ventana_nombre: 'Cocina'`, junto a su
-estado: no hay tabla ni lista que pueda desincronizarse, y una ventana EXISTE cuando
-tiene alguna foto. Renombrar escribe en todas sus fotos de los DOS apartados (RPC
-`reforma_replace_slot`, como validar). El id **no se reutiliza** al borrar
-(`siguienteId`): la 3 sigue siendo la 3, o la foto de después se emparejaría con otra.
-
-**REGLA — en el DESPUÉS, la ventana VIEJA al lado** («Así estaba»): es lo que dice
-de qué ventana es la foto que se está haciendo, la haga el cliente, el carpintero o
-el equipo. Y el apartado del después **solo está hecho cuando TODAS las ventanas
-tienen su foto nueva** (`slotDone` en DocsManager): si no, el recorrido guiado lo
-daba por terminado con la primera. Por lo mismo, subir una foto de ventana **no
-avanza** el paso guiado (`setPasoKey(slot.key)`): quedan las demás; el botón pasa
-a «Ya están todas ›».
-
-**REGLA — nada se esconde.** Las fotos sin ventana (las de antes de esto, las del
-repartidor o del WhatsApp) salen en «fotos sin ventana asignada» con un
-desplegable para colocarlas, y una foto que solo está en Drive se da de alta al
-asignarla. Un id que no es una ventana se ignora: la foto entra igual, sin ventana.
-
-**El nombre es opcional y de un toque** (`NOMBRES_RAPIDOS`: Salón, Cocina,
-Dormitorio…), o tecleado. Mientras no hay ninguna ventana se enseña ya la «Ventana
-1» con su botón; al añadir la segunda, la primera se queda (era provisional y
-desaparecía). Mobile first: botones de 48 px, campos a 16 px.
-
-**El Anexo Fotográfico las saca en orden de ventana y con su rótulo** («Ventana 2 ·
-Cocina», igual en el antes y en el después, numerando las repetidas). El nombre
-vigente sale de los DOS apartados (`nombresDeVentanas`). El orden manual del
-gestor (`anexo_orden`) sigue mandando si existe.
-
-**«Subir todas a la vez» existe, pero en segundo plano y con la explicación
-delante**: *lo ideal es subir cada foto en su ventana, así sabemos cuál es cuál.*
-Va debajo de las tarjetas, con un botón que no es el naranja. Lo que hace depende
-de la fase, y la pantalla lo dice ANTES de pulsar:
-- **Antes**: cada foto pasa a ser una ventana nueva, con números seguidos detrás de
-  las que ya tienen foto (`idsParaTanda`; una ventana añadida en pantalla y vacía la
-  ocupa la primera foto). Viaja como `ventanas` = JSON `['V3','V4',…]`, una por
-  fichero (`ventanasPorFichero` en `subirFicherosASlot`).
-- **Después**: no hay forma de saber de qué ventana es cada una, así que entran sin
-  ventana y cada foto pregunta **«¿Cuál de estas era?»** enseñando cómo estaba cada
-  ventana: se coloca TOCANDO la foto vieja, no eligiendo en un desplegable.
-- Las fotos sueltas del antes (repartidor, WhatsApp) tienen además **«Cada foto es
-  una ventana distinta»**, que las coloca todas de un toque, en serie.
-
-⚠️ La miniatura dentro de un botón va con `renderMini(slot, it, { soloImagen: true })`:
-un botón dentro de otro no es HTML válido.
-
-⚠️ PENDIENTE: el parte diario y «qué falta» siguen contando el apartado del después
-como hecho con UNA foto; no saben que a una ventana le falta la suya.
-
 **⚠️ Ese XML está EN MAYÚSCULAS** —`normalizeData` deja la columna entera así— y eso es justo lo que
 impide releerlo con `parseCeeXml` (regla 32: busca los tags con mayúsculas exactas y `DOMParser`
 rechaza `<?XML VERSION…?>`). `radiografiaCee` SÍ puede, porque busca sin distinguir mayúsculas y
@@ -11069,13 +11246,159 @@ espera una caldera y en el final una bomba de calor, y en un RES080 la demanda t
 que equivocarla no da un aviso raro: revisa con el criterio contrario. En la app la da el SLOT al que
 se subió (`ceeUploadService`), que es un dato; en el CLI, `--fase` MANDA y lo deducido se dice.
 
-### Pendiente (fase 2)
+### Con el `.cex` delante, y la MEDIDA DE MEJORA (2026-09-29)
 
-El juicio ya vive en `services/`, así que llevarlo a la app es **declarar una ruta**
-(`POST /api/expedientes/:id/revisar-cee`, staffOnly) y pintar el resultado en el módulo CEE, junto al
-botón de visto bueno. Mientras eso no exista, la revisión se hace con el CLI o con la skill — y en
-Cowork, sin el comprobador delante, el veredicto lo da el modelo aplicando
-`referencia/criterio.md`, que **no es lo mismo** y el informe tiene que decirlo.
+La revisión lee también el **`.cex` que entregó el técnico** — el depósito de ACS, la cola con la
+que CE3X estima la caldera y la **medida de mejora** solo están ahí. Criterios de Fran (29/09/2026),
+todos **medidos sobre los 143 CEE iniciales que él había aprobado** antes de fijarlos:
+
+| Qué | Dónde |
+|---|---|
+| Los HECHOS del `.cex` (sin deserializar) | [tools/radiografia_cex.py](implementation/cee-engine/tools/radiografia_cex.py) → `POST /cex/radiografia` |
+| Poner la medida en el `.cex` del técnico | `poner_medida` en `cee-engine/server.py` → `POST /cex/medida` |
+| Bajar el `.cex`/`.xml` del técnico y llamar al motor | [services/cee/revisionCex.js](implementation/backend/services/cee/revisionCex.js) |
+| El juicio de lo que sale del `.cex` | [services/cee/revisionCeeCex.js](implementation/backend/services/cee/revisionCeeCex.js) |
+| Carga (BD + Drive + motor), compartida CLI/barrido | [services/cee/cargarRevision.js](implementation/backend/services/cee/cargarRevision.js) |
+| Calibrar contra lo aprobado | `node scripts/barrer_revision_cee.js [--cex-json …]` |
+| Pruebas | `node scripts/test_revision_cee_cex.js` · `pytest cee-engine/tests/test_radiografia_cex.py` |
+
+**REGLA — las transmitancias y la ventilación, IGUALES A LA GUÍA (`getUByYear` /
+`getVentanaYACHByYear`), pero solo AVISO y solo desde el 01/04/2026** (`FECHA_GUIA`). Medido: de 142
+aprobados solo 55 la cumplían entera —53 de los 68 que firmó el propio Fran difieren—, y la
+coincidencia sube desde abril de 2026. Antes de esa fecha, solo se informa. No cuentan el suelo
+contra el terreno «Por defecto» (su U la calcula CE3X), las medianeras ni los puentes.
+
+**REGLA — la demanda y la superficie por debajo de lo simulado: aviso hasta −10 %, NO APTO más
+abajo** (`LIMITE_FALLO_PCT`). Había aprobados 13 entre −4 % y −24 %.
+
+**REGLA — el rendimiento de la caldera SOLO INFORMA** (estado `info`, que se enseña y no cuenta en el
+veredicto). El `.xml` da el ESTACIONAL (56,8 %) y la tabla del expediente es otra cosa (79 %): como
+aviso saltaba en 97 de 116 aprobados.
+
+**REGLA — la medida de mejora del INICIAL es obligatoria en sustitución e hibridación** (NO APTO sin
+ella; en RES080, aviso: 20 de los 22 aprobados sin medida son RES080), **tiene que estar CALCULADA**,
+**calculada sobre ESTE edificio** y con **el equipo, el SCOP y el SCOP_dhw del expediente** (±2 %)
+—en hibridación, el C_b—. Una medida calculada guarda DOS fotos del edificio (`datosEdificioOriginal`
+y `datosNuevoEdificio`, con instalaciones, envolvente y generales): si la original no coincide con el
+fichero de hoy, el certificador tocó el edificio después de calcularla (**medida desfasada** →
+NO APTO). Medido en 26RES060_154: superficie 213,9 → 280 m² y ACS 336 → 140 l/día después.
+
+**REGLA — si el expediente aún no declara la aerotermia, se compara (y se compone) con la GENÉRICA
+de la simulación** (`conAerotermiaSimulada` en `fichaCe3x.js`: SCOP de calefacción, SCOP_dhw y
+potencia de la oportunidad). Criterio de Fran: «si se ha traído de la oportunidad, la que aparezca;
+si no, una genérica». Medido el 29/09/2026: 13 de los 15 iniciales pendientes no la tenían. Vale
+también para el equipo de ACS aparte que no declara su SCOP_dhw (o que ni se ha identificado).
+
+**REGLA — en la MEDIDA, si el ACS no se cambia y la caldera que se retira era mixta, el ACS lo da un
+TERMO ELÉCTRICO** (`termoSiRetira` en `instalacionNueva`, lo pide `medidasCe3x`). Quién daba el ACS
+lo dicen los equipos del `.cex` de esa fase (`existentes`), nunca el flag `misma_caldera_acs`. Solo
+en sustitución: en una hibridación la caldera se queda.
+
+**REGLA — la app PONE la medida, pero no la CALCULA.** `--poner-medida` (o `ponerMedida`) compone la
+medida con los MISMOS escritores que el `.cex` que genera la app y la mete en el fichero del técnico
+tocando SOLO los pickles 5, 6 y la casilla del informe; lo guarda como
+`{nº} - CEE INICIAL_CON MEDIDA_REVISAR.cex` (el `_REVISAR` hace que `matchSlot` no lo tome por la
+entrega). Una medida suya con otro nombre se conserva. El ahorro y la calificación los calcula el
+motor de CE3X al pulsar «Actualizar», que no está aquí: alguien tiene que abrirlo y pulsarlo.
+
+**REGLA — sin `.xml` en la BD se busca en Drive** (los migrados: 210 de los aprobados no lo tienen en
+la BD) y **sin motor, los puntos del `.cex` salen «sin comprobar»**, nunca en blanco.
+
+⚠️ El `.cex` se busca SIN crear ni hacer pública la carpeta (`carpetaSinCrear`): para LEER no se
+toca Drive.
+
+### En la app: el botón «Revisar» del módulo CEE (fase 2, 2026-09-29)
+
+Lupa en la cabecera de cada fase de la rejilla del CEE, junto al visto bueno (solo ADMIN, solo en
+el CAE), con el color del último veredicto: gris sin revisar, verde, ámbar o rojo. Abre
+[RevisionCeeModal.jsx](implementation/frontend/src/features/expedientes/components/RevisionCeeModal.jsx):
+fallos, avisos y «sin comprobar» primero; lo correcto plegado; «Volver a revisar», «🧩 Poner la
+medida» (si falta) y «✓ Dar el visto bueno», que abre el popup de siempre y, con NO APTO, pregunta
+antes sin bloquear.
+
+| Qué | Dónde |
+|---|---|
+| Revisar y guardar | `POST /api/expedientes/:id/revisar-cee?fase=` (**staffOnly**) → `revisarYGuardar` |
+| Poner la medida | `POST /api/expedientes/:id/cee/poner-medida` (**staffOnly**) → `ponerMedida` |
+| El resumen guardado | `cee.revision_inicial` / `cee.revision_final` (metadatos: veredicto, recuento y los puntos no verdes) |
+
+**REGLA — ninguna IA en el veredicto.** El juicio es código determinista: la misma revisión da
+siempre lo mismo y cada punto dice de dónde sale su cifra.
+
+**REGLA — `revision_*` la escribe SOLO su ruta** (RPC `set_expediente_cee_field`), y el PUT general
+la PRESERVA: la copia de `cee` que el detalle reenvía en cada autoguardado se hidrató al abrir y la
+borraría (mismo fallo que `docs_validados`).
+
+**REGLA — sin `.xml` pero con `.cex` se revisa igual y sale NO APTO «falta el .xml»**: el Registro lo
+pide. Medido el 29/09/2026: 26RES060_196, _197 y _204 estaban así. Lo que se ve en el `.cex` se
+revisa igualmente.
+
+⚠️ `matchSlot` reconoce ahora también la copia que hace Drive del borrador (`_REVISAR (1).cex`):
+en 26RES060_196 esa copia se tomaba por la entrega del técnico, también en la rejilla.
+
+⚠️ En un CEE directo no hay botón: la ruta vive solo en `/api/expedientes` y allí no hay medida de
+mejora que revisar.
+
+### La revisión PREVIA al subir el técnico (fase 3, 2026-09-30)
+
+Cuando el certificador sube su `.xml` o su `.cex`, ve AL MOMENTO lo que la revisión detecta y lo
+corrige antes de que llegue a Brokergy: menos ida y vuelta. Es la MISMA revisión de la lupa de Fran
+(se guarda en `cee.revision_{fase}` con `origen: 'subida'`, así que la lupa se colorea sola), pero
+al técnico se le enseña SU parte.
+
+| Qué | Dónde |
+|---|---|
+| Qué parte ve el técnico, con qué palabras, y la línea para Fran | [revisionTecnico.js](implementation/backend/services/cee/revisionTecnico.js) — `vistaTecnico`, `guardadaParaTecnico`, `lineaParaStaff`, `preRevisar` |
+| Ruta en la app (certificador ASIGNADO o staff) | `POST /api/expedientes/:id/pre-revision-cee?fase=` (`suyoSiCertificador`) |
+| Ruta del enlace público `/subir-cee` (token) | `POST /api/public/cee-prerevision/:id?token=&phase=` |
+| El panel (compartido por las dos superficies) | [PreRevisionCee.jsx](implementation/frontend/src/features/expedientes/components/PreRevisionCee.jsx) (+ `PreRevisionModal`) |
+| Dónde sale | popup «Solicitar revisión» de la rejilla (al subir el `.cex`, o el `.xml` con el `.cex` ya subido, y en la campana), chapa 🔍 del certificador, y `/subir-cee` tras subir |
+| Probar contra un expediente real SIN guardar | `node scripts/probar_pre_revision.js 26RES060_154 [--fase final]` |
+| Pruebas | `node scripts/test_pre_revision_cee.js` |
+
+**REGLA — la DEMANDA y la SUPERFICIE frente a la simulación SÍ se le enseñan, como algo que
+REVISAR** (decisión del usuario, 2026-09-30, que revierte la primera versión): de ellas sale el
+ahorro en MWh que se puede certificar, y el email del encargo ya se las da como «objetivo de
+seguridad» — ocultárselas en la revisión dejaba al técnico con el objetivo en el correo y sin saber
+si lo había alcanzado. Pero lo que para Fran es un FALLO al técnico le sale como algo que revisar
+(`estadoTecnico`), nunca como «corregir», y con un consejo que le pide **comprobar su modelo**
+(zonas calefactadas de todas las plantas, transmitancias y ventilación de la guía, estancias
+habitables) **y decirlo si la vivienda es así** — no mover una cifra hasta que cuadre. La excepción
+es el CEE final de un RES080 cuya demanda no baja, que sí es «corregir»: el certificado no recoge la
+obra. Sin simulación detrás no se le enseña nada (no puede hacer nada con ello). Sigue sin ver lo
+informativo (`rendimiento`, `caldera_cex`, `generales`). Y **nunca se le dice "APTO"**: «No hemos
+visto nada que corregir» / «Hay N cosas que corregir antes de enviarlo».
+
+**REGLA — el detalle de un expediente que abre un CERTIFICADOR lleva la revisión en SU versión**
+(`revisionParaTecnico` dentro de `scrubExpedienteForUser`). Antes de esto la revisión guardada viajaba
+entera al técnico, con el veredicto, los fallos y los botones de Brokergy dentro.
+
+**REGLA — la revisión al subir lee el `.xml` de DRIVE, no el de la BD** (`xmlDeDrive`). El de la BD
+lo escribe el navegador un instante DESPUÉS de subir, y por el enlace público no se escribe nunca:
+revisar ése es revisarle el fichero anterior. La lupa de Fran sigue leyendo el de la BD.
+
+**REGLA — los textos están escritos para Brokergy y al técnico se le habla de tú**
+(`TEXTO_TECNICO`, por estado; `DICE_TECNICO` solo para la evidencia en tercera persona). Sin el
+botón «Poner la medida» (`accion`), que es de Brokergy.
+
+**REGLA — no bloquea.** Con algo que corregir el botón dice «Avisar igualmente a Brokergy» y el otro
+«Lo corrijo y lo vuelvo a subir»; si hay un motivo, se cuenta en el mensaje. El visto bueno sigue
+siendo de Fran.
+
+**El aviso a Fran lleva el veredicto COMPLETO** (`notify-review`: WhatsApp, email e historial),
+con lo que el técnico no ve: `NO APTO · 2 fallos (…) · 1 aviso`. ⚠️ **Sin el enlace de visto bueno
+en el WhatsApp**: `approve-cee-from-email` APRUEBA con un GET, y la vista previa de enlaces de
+WhatsApp lo abriría sola. Sigue en el email, donde ya estaba.
+
+**La ruta pública tiene FRENO** (`CEE_PREREVISION_ESPERA_MS`, 20 s): el enlace no caduca y cada
+revisión baja ficheros y llama al motor. Un `.xml`/`.cex` nuevo lo OLVIDA (`olvidar`), o el `.cex`
+subido a los segundos del `.xml` recibiría la revisión de cuando aún no estaba. Tarda ~7 s (medido
+sobre 26RES060_154); sin el motor, los puntos del `.cex` salen «sin comprobar».
+
+Solo en el **CAE**: en un CEE directo no hay medida de mejora que revisar. Lo que no se ha hecho: que
+se revise sola lo que el técnico deja DIRECTAMENTE en la carpeta de Drive (no hay gancho); lo cubre la
+campana, que revisa antes de avisar. Las ayudas con IA (un CEE que solo llega en PDF, contrastar
+huecos con las fotos) siguen para después y solo como aviso.
 
 ### Para el CERTIFICADO o para el EXPEDIENTE: no es lo mismo (2026-09-21)
 
@@ -11352,6 +11675,383 @@ fichero en CE3X y pulsar calcular.
 
 ---
 
+## GENERAR el CEE inicial desde las fotos — skill `generar-cee-inicial` (2026-09-29)
+
+El gemelo de `revisar-cee`: aquél mira el `.cex` que ENTREGA el certificador; éste se lo da ya hecho.
+De las fotos del expediente saca la caldera actual (placa), la aerotermia real (placa), los huecos de
+cada fachada, y escribe `{nº} - CEE INICIAL_REVISAR.cex` con la aerotermia como medida de mejora —y el
+mismo trabajo en la ventana de la envolvente, en ámbar lo que hay que confirmar—. Si la aerotermia no
+está en el catálogo, la da de alta con su ficha técnica, su EPREL y su Keymark.
+
+| Qué | Dónde |
+|---|---|
+| El orquestador (estado · placas · fotos · paredes · leer-pared · eprel · alta-aerotermia · aplicar) | [scripts/cee_inicial.js](implementation/backend/scripts/cee_inicial.js) |
+| El plano de paredes sobre la cartografía **y sobre la foto aérea** (PNOA, con la fecha del vuelo), en PNG | [scripts/cee_inicial_plano.py](implementation/backend/scripts/cee_inicial_plano.py) — teselas de [logic/ortofoto.js](implementation/frontend/src/features/cee-envolvente/logic/ortofoto.js) |
+| Lo SEÑALADO, sin React (lo usan el hook de la ventana y la skill) | [logic/senalado.js](implementation/frontend/src/features/cee-envolvente/logic/senalado.js) — `estadoDeTrabajo`, `senaladoDe` |
+| La skill y su referencia (formato del plan, alta de aerotermia) | `.claude/skills/generar-cee-inicial/` |
+| Pruebas | `test_senalado.mjs` · `test_placa_ocr.js` · `test_placa_equipo.js` · `test_ortofoto.mjs` |
+
+**La VISTA AÉREA es un dato más para decidir, no para medir** (2026-09-30): `paredes` deja
+`satelite.png` (la foto sola) y `plano_satelite.png`. Con ella se ve qué hay al otro lado de cada
+pared, por dónde entra el coche (dónde cae el garaje del croquis), lo construido que no consta, el
+tipo de cubierta y las placas del tejado. Los tejados salen desplazados (no es ortoimagen verdadera)
+y la foto puede ser anterior a la obra: si las fotos del cliente la contradicen, mandan ellas.
+
+**REGLA — `loSenalado` es UNA función y vive fuera de React.** Estaba dentro de
+`usePlanoEnvolvente`, así que un script no podía componer lo que la ventana le manda al motor sin
+copiarlo — y una copia es un `.cex` que dice otra cosa del mismo edificio. `senalado.js` es puro
+(imports con `.js`, probable desde Node); el hook solo le pasa su estado.
+
+**REGLA — el modelo solo LEE; el plan lo escribe quien ha mirado las fotos.** `leer-pared` PROPONE
+(medido en 26RES060_OP246: tomó la máquina exterior por una ventana y se dejó una balconera), y cada
+lectura de placa se contrasta con su foto. Lo leído nace `dudoso`. Lo que no se puede afirmar no se
+escribe: un nº de serie manuscrito, el polígono de un garaje que Catastro no dibuja.
+
+**REGLA — ningún dato del catálogo sin documento.** `alta-aerotermia` exige el SCOP de clima CÁLIDO a
+35 y 55 °C escrito en una ficha, comprueba que cuadra con su η (SCOP = 2,5·(η+3)/100), usa el MISMO
+`buildPayload` que la pantalla del catálogo, no duplica un modelo que ya casa por su código de placa y
+guarda la ficha UNIDA (fabricante recortado + EPREL + etiqueta) con `ficha_tecnica_partes` en la forma
+de `fichaConsolidada`. Nace `is_validated: false`. ⚠️ Un mismo modelo puede tener VARIOS registros
+EPREL (uno por importador) y no todos publican los tres climas: se elige el que los trae.
+
+**REGLA — en una OPORTUNIDAD, `aplicar` cambia la aerotermia de la SIMULACIÓN** con los mismos campos
+que «Leer la placa» de la calculadora (`aerothermiaModel`, `scopHeating`, `scopTemporada`…, por
+`oportunidad_merge_inputs`): el resultado de la propuesta queda DESFASADO hasta que se abra la
+calculadora y se guarde, y se anota en el historial. En un EXPEDIENTE no se toca: la aerotermia se
+cambia desde Instalación («Leer placas»), que recalcula el ahorro.
+
+**Placas — dos lecturas que fallaban, medidas en OP246**: una SERRA CALOR italiana con la tabla
+multilingüe *Input 49,8 / Output 43* salía a 49,8 kW (consumo) — `elegirPotencia` reconoce ya
+*Output / Puissance rendue / Potenza utile* como útil e *Input / Puissance du foyer* como consumo, y la
+línea literal tolera las kcal entre corchetes; y «Caldaia/Boiler/Chaudière» (o su trozo «DAIA») se
+leía como la marca. En la MIDEA, el nº de serie salía el **EAN-13** del código de barras
+(`esEan13`, con su dígito de control, lo descarta).
+
+⚠️ `paredFotoService.escribir` actualiza ahora el objeto que tiene en la mano: dos escrituras seguidas
+desde un script se pisaban (la segunda reemplazaba la clave con lo de antes de la primera).
+
+### El CROQUIS a mano alzada — se dice DÓNDE, los m² los pone Catastro (2026-09-29)
+
+Cuando Catastro mete vivienda, garaje y porche en el MISMO cuerpo, no dice dónde está cada uno — y
+dibujar el garaje vértice a vértice, acertando con sus 122 m², era lo más lento de todo. Ahora se
+pinta a mano alzada (o la skill lo escribe en fracciones de la huella) y el motor hace el resto.
+
+| Qué | Dónde |
+|---|---|
+| Enderezar, ajustar a los m², alinear escalones | [gis/croquis.py](implementation/cee-engine/src/gis/croquis.py) — `ajustar_nivel`, `regularizar`, `ajustar`, `alinear_escalones`, `marco` |
+| Los m² de Catastro por uso y planta, y la conversión a zonas | `_objetivos_catastro` · `ajustar_croquis` en [pipeline.py](implementation/cee-engine/src/pipeline.py) |
+| API | `POST /envolvente` con `croquis` (+ `croquis_ajustar`) → `croquis_ajustado` en la respuesta |
+| Backend | `croquisSaneado` en [routes/ceeEnvolvente.js](implementation/backend/routes/ceeEnvolvente.js) |
+| Ventana | «✏️ Croquis» en `PanelZonas` (uso con su color · ↶ · **✓ Ajustar a Catastro** · Tal cual) + capa `Croquis` en `PlanoPlanta` |
+| Skill | `croquis` en el plan de `aplicar` (`uv` o `poligono`) + `plano_plan.png` para revisarlo |
+| Pruebas | `python -m pytest implementation/cee-engine/tests/test_croquis.py` |
+
+**REGLA — el croquis dice DÓNDE; CUÁNTO lo dice Catastro.** Cada mancha se endereza (bordes
+paralelos a las paredes del edificio), se recorta a la huella y se CRECE o ENCOGE con un buffer a
+inglete, por bisección, hasta los m² que Catastro declara para ESE uso en ESA planta (escalados a la
+huella: la suma de las unidades no siempre casa con el polígono — 197 frente a 195,36 en OP246). Lo
+que no se pinta es vivienda. Medido en 26RES060_OP246 con un croquis aproximado («garaje = franja
+norte», «porche = mancha trasera»): garaje en L de 121 m² que envuelve el porche (35,7) y vivienda
+en la franja sur (38,6), lo mismo que se había hecho a mano.
+
+**REGLA — un uso que Catastro NO declara en esa planta se deja como se dibujó, y SE DICE**
+(`de: 'dibujado tal cual'`). «Tal cual» (`croquis_ajustar: false`) hace lo mismo a propósito, para
+cuando Catastro está desfasado.
+
+**REGLA — lo que dejan dos ajustes independientes se limpia.** Una tira de menos de 0,8 m (`_sin_tiras`,
+dentro de la bisección) haría de toda una pared una partición con el garaje; un escalón de menos de
+0,6 m entre dos zonas (`alinear_escalones`) es un trozo de muro que no existe. Se alinean
+compensando el área, así que las superficies siguen siendo las de Catastro.
+
+**REGLA — el croquis SUSTITUYE las zonas de SUS plantas**, y lo que se guarda son ZONAS
+(`zonas_fuera`, en el mundo, regla 79): las manchas no se guardan. Las de otras plantas se conservan.
+En la ventana, ajustar es UNA petición: se ajusta y se mide a la vez.
+
+**REGLA — en fracciones, `u` va de OESTE a ESTE y `v` de SUR a NORTE** (`marco`, sobre el rectángulo
+mínimo de la huella). Es lo que permite a la skill escribir «el garaje es la mitad norte» sin
+coordenadas, y pasarse por fuera de las paredes (`-0.05`, `1.05`) no cuenta.
+
+⚠️ Un trazo a mano alzada deja un punto cada pocos centímetros (rodear una casa de 14 × 14 m son
+cientos de vértices) y `recorteSaneado` rechazaba más de 100: el croquis se descartaba sin decirlo.
+Ahora cada trazo se SIMPLIFICA al soltarlo (`simplificarTrazo`, Ramer-Douglas-Peucker a 8 cm, en
+`geometriaPlano.js`) y `croquisSaneado` admite hasta 400.
+
+### Y se puede PINTAR DESDE EL MÓVIL, viéndolo aquí en tiempo real (2026-09-29)
+
+Botón **📱 Pintar desde el móvil** (en la barra de zonas de cada plano, y «📱 En el móvil» dentro del
+modo croquis): sale un popup con un QR, el teléfono abre la planta (`/croquis-movil/:token`) y se
+rodea con el DEDO lo que no es vivienda. Cada trazo —también el que va a medias— aparece en el plano
+del ordenador según se pinta, con la marca del dedo. El popup se cierra solo en cuanto el teléfono se
+conecta: lo que hay que mirar es el plano.
+
+| Qué | Dónde |
+|---|---|
+| La sesión (memoria, token, espera larga, resultado) | [croquisMovil.js](implementation/backend/services/croquisMovil.js) (reutiliza `basesParaMovil` de `firmaMovil`) |
+| Rutas del ORDENADOR (sesión) | `POST /api/cee-envolvente/:id/croquis-movil` · `GET …/:token/esperar?v=` · `POST …/:token/resultado` · `DELETE …/:token` |
+| Rutas del TELÉFONO (públicas, por token) | `GET /api/public/croquis-movil/:token` · `…/estado` · `POST …/:token` · `POST …/:token/ajustar` |
+| Espejo en el ordenador | [useCroquisMovil.js](implementation/frontend/src/features/cee-envolvente/logic/useCroquisMovil.js) + `CroquisMovilModal` |
+| Lo que ve el teléfono | [CroquisMovilView.jsx](implementation/frontend/src/features/cee-envolvente/views/CroquisMovilView.jsx) |
+| Prueba | `node implementation/backend/scripts/test_croquis_movil.js` |
+
+**REGLA — es TIEMPO REAL, no una encuesta.** El ordenador deja abierta una petición LARGA (`esperar`)
+que el servidor contesta en cuanto el teléfono manda algo (medido: el trazo llega cada ~130 ms
+mientras se pinta), o a los 20 s con lo que haya. El teléfono manda SIEMPRE el estado entero —trazos
+terminados y el que va a medias—, así que un mensaje perdido lo corrige el siguiente.
+
+**REGLA — al teléfono solo viaja la GEOMETRÍA de la planta**: paredes, zonas ya restadas, la
+cartografía del Catastro (la pone el backend con la caché del plano) y los m² que Catastro declara por
+uso. Ni titular ni dirección. La sesión queda atada a ESE expediente: con el token de otro, el
+ordenador no lee nada.
+
+**REGLA — el AJUSTE lo hace el ORDENADOR**, aunque lo pida el teléfono: es quien tiene el plano,
+vuelve a medir y guarda el trabajo. El teléfono pide, espera y recibe cómo ha ido (con las zonas que
+han salido, en SU lienzo, para poder corregir encima). Mientras hay sesión, en el ordenador NO se
+pinta (lo de uno pisaría lo del otro), pero se puede ajustar desde allí y el teléfono se entera.
+
+**REGLA — el teléfono pinta en el lienzo del momento en que se ABRIÓ** (`marco` = `lienzoAMundo`
+de entonces) y el ordenador lo traslada al de ahora (`deltaLienzo`): al ajustar, el motor vuelve a
+medir y puede re-encuadrar el lienzo (regla 79), y sin esto lo siguiente que se pintara caería
+desplazado.
+
+**Un dedo pinta, dos dedos mueven y amplían** (un segundo dedo a mitad de trazo lo descarta: era un
+pellizco). La sesión dura mientras se use y caduca a los 30 min de silencio; se recuerda en el
+navegador del ordenador, así que recargar la ventana no deja al teléfono pintando para nadie — y si
+el ordenador deja de preguntar más de 45 s, el teléfono lo avisa.
+
+⚠️ No se ha probado con un teléfono de verdad ni con la ventana del ordenador logueada: se probó con
+las rutas REALES y la autenticación simulada, un «ordenador» que hace la espera larga y la página del
+móvil en el navegador a 375 px con eventos de puntero (pintar, pellizcar, ajustar, resultado).
+
+**REGLA — tras un ajuste, el teléfono recibe la planta RE-MEDIDA, paredes incluidas.** El ajuste
+vuelve a medir la planta, y sin las paredes nuevas el móvil pintaba las zonas ajustadas sobre las de
+antes (no aparecía, por ejemplo, la partición contra el garaje). El ordenador devuelve las paredes de la
+geometría nueva y [croquisMovilPuente.js](implementation/frontend/src/features/cee-envolvente/logic/croquisMovilPuente.js)
+las traslada a SU lienzo (`deltaLienzo(marcoNuevo, marco)`, porque el motor puede re-encuadrar); las
+zonas vienen del mundo. La sesión las guarda en `plano` —no en `resultado`, que el teléfono consulta
+cada 2,5 s— y el teléfono, al ver `remedido`, vuelve a pedir la planta. Un ajuste que no deja ninguna
+zona también es `remedido` (la planta se ha quedado sin ellas). Pruebas:
+`node implementation/backend/scripts/test_croquis_movil_puente.mjs` y `test_croquis_movil.js`.
+
+**REGLA — vale también en TABLET, y en HORIZONTAL los mandos van a la derecha** (`landscape:`): debajo
+le quitarían al plano la poca altura que hay. El tamaño base del dibujo es en PÍXELES (`TAM_PX`), no una
+fracción del ancho: en una tablet el plano mide 900 px y con «ancho/28» las líneas salían el doble de
+gruesas. Al cambiar de tamaño la caja, `alCambiarDeTamano`: si se ha GIRADO, se sigue viendo todo lo que
+se veía; si es un cambio pequeño (la barra del navegador), misma escala y mismo centro — ajustar «para
+que quepa» también ahí alejaría el plano un poco en cada vaivén.
+
+**Y la FOTO de cada pared, desde el mismo enlace (2026-09-30).** Pestaña **«Fotos de paredes»** en el
+teléfono: se toca una pared (un dedo MUEVE el plano en ese modo; la pared más cercana bajo el dedo,
+radio de 26 px), se le hace la foto y queda pegada a ESA pared por las MISMAS funciones que la ventana
+del ordenador (`paredFotoService`). En una **fachada** se leen sus huecos (`paredOcrService.leerFachada`,
+con la pared —largo, alto, orientación— que tiene la SESIÓN, nunca la que diga el teléfono) y la
+propuesta se **revisa en el teléfono**, sobre la propia foto con cada hueco numerado: mismo criterio que
+`LecturaFotoModal` (todo marcado con la pared vacía; nada si ya tiene huecos, y «Quitar los N y poner
+estos M» aparte). Al confirmar, lo **pone el ORDENADOR** (`pedirHuecos` → su espera larga →
+[huecosDelMovil.js](implementation/frontend/src/features/cee-envolvente/logic/huecosDelMovil.js) →
+`aplicaHuecosLeidos`, en ámbar por confirmar) y escribe la marca de la foto; el **uid lo fija el
+teléfono**, así la marca y el hueco casan. En el plano del teléfono cada fachada dice si ya tiene foto
+(✓ verde / + a trazos) y el panel ofrece «Siguiente fachada sin foto».
+- **Uno cada vez y se RETIRA al contestar**: el pedido de huecos se borra de la sesión cuando el
+  ordenador responde, así que recargar la ventana no los pone dos veces.
+- **Lo que el ordenador sabe de las paredes le llega al teléfono** (`POST …/croquis-movil/:token/paredes`
+  con nombre, tipo, si admite ventanas y cuántos huecos tiene; el teléfono lo pide al ver `paredesV`).
+- **El token ya no solo pinta**: sube fotos a las paredes de ESA planta, ve las suyas y pide lecturas,
+  con tope por sesión (`CROQUIS_MOVIL_MAX_SUBIDAS` 60 · `CROQUIS_MOVIL_MAX_LECTURAS` 40). Las
+  candidatas del expediente (las que subió el cliente) no se ofrecen desde el teléfono.
+- La foto se reduce en el teléfono a 2560 px (`prepararFoto`) y viaja con su relación de aspecto.
+- El panel de la pared del ordenador se refresca solo (`envolvente:fotos`).
+- Pruebas: `test_croquis_movil.js` (sesión), `test_foto_movil.mjs` (qué pared hay bajo el dedo).
+
+**Y aguanta SIN COBERTURA (2026-09-30).** En un sótano o en un pueblo la señal va y viene, y
+antes lo que se pintaba o fotografiaba en ese rato se perdía: un trazo solo se reenviaba con el
+siguiente, una foto hecha con la cámara (que muchas veces no queda en la galería) moría con la
+subida, y recargar la página sin red —Android la cierra a menudo al abrir la cámara— la dejaba
+en blanco.
+
+| Qué | Dónde |
+|---|---|
+| La bandeja de salida del teléfono (qué se guarda, cómo se reenvía, cómo se recupera) | [logic/bandejaMovil.js](implementation/frontend/src/features/cee-envolvente/logic/bandejaMovil.js) |
+| Que la página ABRA sin red | [public/sw-croquis.js](implementation/frontend/public/sw-croquis.js) + [logic/swCroquisMovil.js](implementation/frontend/src/features/cee-envolvente/logic/swCroquisMovil.js) |
+| Vida del enlace, `clave`/`marco` e idempotencia (`yaHecho`/`apuntarHecho`) | [croquisMovil.js](implementation/backend/services/croquisMovil.js) |
+| Pruebas | `node implementation/backend/scripts/test_bandeja_movil.mjs` · `test_croquis_movil.js` |
+
+**REGLA — todo se apunta PRIMERO en el teléfono y después se manda.** Lo pintado va a
+`localStorage` por PLANTA; las fotos, a **IndexedDB** (son megas), con respaldo en memoria si el
+navegador no deja; los huecos confirmados, a `localStorage`. Se manda solo al volver la red: la
+consulta del estado (cada 2,5 s, con plazo de 8 s y sin apilarse) es la SONDA, y en cuanto
+contesta sale lo pendiente. `pedir()` pone PLAZO a cada petición —con poca señal un `fetch`
+puede colgarse minutos sin fallar— y trata un 502/503/504 como falta de red, no como respuesta.
+Mientras tanto se sigue trabajando: se pinta, se hacen más fotos y el ajuste pedido espera
+(«Seguir pintando» lo cancela).
+
+**REGLA — un reenvío NO hace las cosas dos veces.** Sin cobertura se pierde también la
+RESPUESTA, y el teléfono reintenta algo que sí llegó. Cada petición que cambia algo lleva su
+`id_local` y el servidor lo recuerda por sesión: la foto no se sube dos veces, la lectura (de
+pago) no se repite, los huecos no se ponen por duplicado —y un reenvío de huecos ya pedidos
+devuelve el pedido de entonces en vez de «pendiente»— y el ajuste no se pide otra vez. Lo
+pintado ya era idempotente: viaja siempre el estado entero.
+
+**REGLA — el enlace no caduca mientras el ORDENADOR lo mira**, pero tiene TOPE. La espera larga
+del ordenador renueva los 30 min (el teléfono puede pasar media hora sin poder decir nada) y
+nunca más allá de `VIDA_MAXIMA_HORAS` (12) desde que se abrió: el token es toda la
+autorización para subir fotos a un expediente real.
+
+**REGLA — se guarda por PLANTA (`clave`), no por enlace.** El servidor da una `clave` estable
+(un resumen de negocio + expediente + planta: no dice cuál es) y el `marco` del lienzo. Si el
+enlace caduca con cosas sin mandar, la pantalla de «cerrado» lo DICE («queda guardado 1 zona
+pintada sin enviar: pide otro QR y ábrelo aquí») y el siguiente QR de esa planta, en ese mismo
+teléfono, ofrece recuperarlo —lo pintado se enseña en naranja y se TRASLADA a su lienzo
+(`recuperarTrazos`: el motor re-encuadra al volver a medir); las fotos de la cola suben solas—.
+Lo del enlace anterior se aparta como RESCATE para que el nuevo no lo pise mientras se decide.
+
+**REGLA — la foto es una TAREA POR PARED**, y el panel de fotos ya no se desmonta al pasar al
+croquis. Sin señal se fotografían varias fachadas seguidas: cada una sube, se lee y su propuesta
+espera en SU pared («Ventanas por revisar», «!» violeta en el plano; «↑» ámbar lo que espera
+cobertura). Una foto más nueva de la misma pared manda sobre la anterior, que ni se lee. Una
+foto que el servidor NO acepta (pared que ya no existe, cupo) no se pierde: Reintentar · Guardar
+en el teléfono · Descartar.
+
+**REGLA — el service worker SOLO controla `/croquis-movil/`** (se registra con ese `scope`, solo
+en la app construida y en contexto seguro): el resto de la app no pasa por él —comprobado—. Guarda
+la página (red primero, 6 s), `/assets` y `/fonts` (lo guardado primero: llevan resumen), la
+planta y la lista de fotos del enlace (red primero, copia si no contesta) y las fotos ya subidas;
+nunca un POST ni el estado. Lo que la página cargó antes de que existiera se lo pasa por mensaje,
+o la primera recarga sin red no abriría. Un 410 borra la copia de esa planta.
+
+⚠️ Verificado de punta a punta con la app CONSTRUIDA y un servidor que usa el `croquisMovil.js`
+real y corta la «cobertura» destruyendo cada conexión (la ven igual la página y el service
+worker): 31 comprobaciones, incluidas recargar sin red, la respuesta de una subida perdida
+(una sola foto en «Drive») y recuperar con otro QR. Lo que no se ha probado es un teléfono de
+verdad en un sótano.
+
+**Cómo se ve (revisión de diseño, 2026-09-30).** Lo que no hay que deshacer:
+- **Móvil: el plano manda.** Cabecera en una línea, la instrucción como píldora SOBRE el plano (se
+  quita al primer trazo) y la paleta de usos ABAJO, junto a los botones, al alcance del pulgar.
+- **Jerarquía de líneas en el móvil:** la cartografía al 50 % y casi sin color (`feColorMatrix`
+  saturate 0.2) para que sus rosas y verdes no se confundan con los usos; las paredes con un contorno
+  blanco debajo y grosor en `tam` (no engordan al ampliar); lo YA marcado, rayado; el borrador,
+  relleno suave; y lo que se va a sustituir, en fantasma mientras se pinta. En el ordenador, las
+  zonas ya restadas también van en fantasma y sin rótulo durante el croquis.
+- **Rótulos de mancha = rótulos de pared** ([EtiquetaMancha.jsx](implementation/frontend/src/features/cee-envolvente/components/EtiquetaMancha.jsx)):
+  papel, texto en TINTA y la raya del color del uso, con los m² debajo. En el color del uso a secas no
+  se leía (verde, ámbar y gris quedaban por debajo de 3:1).
+- **El trazo en curso es un LAZO:** punto de inicio y línea discontinua de cierre, en los dos lados.
+- **El croquis SUSTITUYE las zonas de la planta, y se DICE:** la pista del móvil lo avisa y ofrece
+  «Partir de ahí» (carga lo ya marcado como manchas). «Borrar todo» en el móvil y la ✕ del ordenador
+  con manchas sin ajustar piden un segundo toque.
+- **«Tal cual» se llama «Solo enderezar»** en los dos lados (es lo que hace), y los m² del croquis van
+  sin decimales (`textoCatastro` en `zonasFuera.js` quita además el «100%» que Catastro pega al uso).
+- ⚠️ En tema claro `text-white` se vuelve oscuro: el chip oscuro sobre el papel del móvil y el
+  «En directo» del plano llevan `croquis-chip` (index.css), y `bg-violet-600.text-white` está en la
+  lista de excepciones. Un botón desactivado usa `disabled:opacity-40`, nunca `disabled:text-white/40`
+  (en claro sale blanco sobre blanco).
+
+### El croquis se PROPONE solo (2026-09-30)
+
+El croquis ya ponía los m²; lo que quedaba por decir era DÓNDE. Muchas veces ni eso hace falta
+preguntarlo: un garaje está contra la calle —por ahí entra el coche—, un porche abierto da a un patio o
+a un espacio libre de la parcela y un almacén suele estar al fondo. Con eso y los m² que Catastro
+declara, el motor propone el croquis al medir y el técnico solo lo corrige.
+
+| Qué | Dónde |
+|---|---|
+| Dónde va cada uso (lados, anclas, semillas) | [gis/croquis_propuesta.py](implementation/cee-engine/src/gis/croquis_propuesta.py) |
+| Qué plantas la necesitan, objetivos y ajuste | `proponer_croquis` en [pipeline.py](implementation/cee-engine/src/pipeline.py) |
+| Respuesta del motor | `croquis_propuesto` en `POST /envolvente` (EPSG:25830, ya ajustado) |
+| La pista de la foto | `pistasCroquis` en [paredFotoService.js](implementation/backend/services/paredFotoService.js) → `pistas_croquis` |
+| Ordenador | «✨ Catastro declara … · Ver dónde» en la barra de la planta + notas con el motivo (`PanelZonas`) |
+| Teléfono | «Ver la propuesta» en la pista (`CroquisMovilView`), con el motivo de cada mancha |
+| Skill | `paredes` la lista con su `poligono`, lista para copiar al plan |
+| Pruebas | `python -m pytest implementation/cee-engine/tests/test_croquis_propuesta.py` |
+
+**REGLA — es una PROPUESTA y dice POR QUÉ.** Cada mancha lleva su ancla (las paredes a las que se
+pega), el motivo y la confianza: **alta** si una FOTO lo dice (en la foto de esa fachada hay una
+puerta de garaje), **media** si sale de la calle o del patio, **baja** si es lo que queda. Nunca se
+aplica sola: «Ver dónde» la carga como un croquis más, que se corrige y se ajusta por el MISMO camino
+(«Ajustar a Catastro»). Medido en OP246 contra el croquis que se hizo a mano: garaje IoU 0,86, porche
+0,60.
+
+**REGLA — se razona por LADOS, no por paredes.** Catastro trocea una fachada cada vez que cambia el
+vecino de enfrente (el norte de OP246 son cuatro tramos: 1,25 · 3,01 · 10,09 · 0,06 m) y «la pared más
+larga» elegiría un trozo. Un lado es el conjunto de fachadas con la misma orientación y a lo mismo.
+
+**REGLA — solo se propone donde hace falta**: en plantas donde Catastro MEZCLA vivienda con otro uso en
+el mismo cuerpo, sin zonas ni croquis ya puestos, y con al menos 4 m² del uso. Lo que es un cuerpo
+aparte ya casado con su construcción (el aparcamiento adosado) se quita entero por su botón y no entra.
+
+**La pista de la foto**: al sellar la lectura de una fachada se marca `garaje: true` si hay una
+puerta de más de 2,2 m o que la IA describe como de garaje/cochera/portón (`esPuertaDeGaraje`), y la
+ruta de geometría se la pasa al motor. Un fallo al leerla solo quita la pista, nunca la medición.
+
+**La propuesta viaja al teléfono** con la sesión (`propuestaLimpia`: uso, puntos y un motivo de 200
+caracteres como mucho) y **se retira al volver a medir**: la planta ya tiene sus zonas.
+
+⚠️ El motor hay que REINICIARLO para que devuelva `croquis_propuesto` (Python importa una vez por
+proceso; `/health` dice si el código cargado es el del disco).
+
+---
+
+## La PÁGINA DEL ENCARGO del técnico (2026-09-30)
+
+Al certificador el encargo le llegaba repartido en un email, un WhatsApp, la carpeta de
+Drive, el enlace de subida y, si acaso, la app. Ahora hay UNA página pensada para el
+móvil — `/encargo/:id?token=&phase=[&origen=cee]` — con lo que le toca AHORA (aceptar ·
+visitar y subir · lo estamos revisando · firmar y presentar · registrado), el cliente
+con **Llamar / WhatsApp / Email**, la vivienda con **Cómo llegar** (por coordenadas si
+las hay) y el Catastro, la instalación, lo que confirmó el cliente, las fotos y
+documentos de SU fase con visor, las fechas y los accesos (carpeta, envolvente, app).
+
+| Qué | Dónde |
+|---|---|
+| Firma, enlace, carga y lista blanca (fuente única) | [encargoTecnico.js](implementation/backend/services/encargoTecnico.js) |
+| Rutas públicas | `GET /api/public/encargo/:id` · `GET /api/public/encargo/:id/fichero/:driveId` |
+| Rutas staff (el enlace, para el popup) | `GET /api/expedientes/:id/enlace-encargo` · `GET /api/cee-directos/:id/enlace-encargo` |
+| La página | [EncargoTecnicoView.jsx](implementation/frontend/src/features/encargo/EncargoTecnicoView.jsx) |
+| Prueba | `node implementation/backend/scripts/test_encargo_tecnico.mjs` |
+
+**REGLA — el enlace es del TÉCNICO ASIGNADO.** El token es un HMAC de negocio + id +
+fase + `certificador_id`: al pasar el encargo a otro técnico, el enlace del anterior
+deja de valer SOLO (403 «este enlace ya no vale») y también sus fotos (404), sin
+tabla de tokens que mantener. Cada fichero se vuelve a comprobar contra la firma.
+
+**REGLA — lista blanca, y ni un IMPORTE.** Solo viajan los campos que la página pinta: ni
+el bono, ni la inversión, ni el margen. **El OBJETIVO del certificado SÍ** —demanda mínima y
+superficie útil mínima, o ahorro mínimo en un RES080— en la tarjeta «Objetivo del certificado»:
+de ellas sale el ahorro en MWh que se puede certificar, y son **las MISMAS cifras del email del
+encargo**, que salen de la misma función ([utils/objetivoEncargo.js](implementation/backend/utils/objetivoEncargo.js),
+`objetivosEncargo`, que ahora usa también `notify-certificador`). La tarjeta termina pidiendo
+certificar la vivienda tal y como es y contarlo si no sale. Un CEE directo no tiene objetivo (no hay
+simulación detrás). De las fotos, solo las de SU fase (ANTES para el inicial,
+DESPUÉS para el final) y **nunca facturas, presupuestos ni los cajones «Otros»**; el
+proxy de miniaturas solo sirve un `driveId` que esté en esa lista (caché de 20 min).
+«Falta» se decide con `utils/materialCee` en el inicial (vídeo O fachada+patios;
+caldera y placa), no con el `required` del checklist.
+
+**REGLA — el paso REGISTRADO lo manda también el JUSTIFICANTE.** En los migrados el
+subestado se quedó en `ASIGNADO` y la página pedía «acepta el encargo» de un
+certificado ya inscrito (26RES060_100). Solo el justificante: un `.xml` subido no
+prueba nada (puede haber vuelto a trabajo).
+
+**Aceptar usa los acuses de SIEMPRE** (`cert-ack` en el CAE, `cee-ack` en los
+directos) — no hay un tercer camino. El domicilio del cliente solo sale si no es la
+misma cadena que la vivienda y se rotula en NEUTRO («Domicilio del cliente»: puede
+diferir por una errata). El equipo de ACS solo sale aparte si es OTRA máquina
+(`acsEsOtroEquipo`, por el modelo — regla 12.c).
+
+**El enlace va DENTRO de los mensajes del encargo**: en el WhatsApp sustituye la línea
+«🔗 Abre el expediente en la app» (`conEnlaceEncargo`), en el email es un botón, y el
+popup de `EncargoCertificadorModal`/rejilla lo pide al abrirse. El texto de esa línea
+es el MISMO en los dos lados (`TEXTO_ENLACE` = `TEXTO_ENLACE_ENCARGO`, lo vigila el
+test). Con «Solo asignar» no hay enlace (no hay encargo que enseñar).
+⚠️ **No lo llevan todavía**: los mensajes en bloque del parte diario
+(`seguimientoLote`) ni el visto bueno (`approve-cee`).
+
+⚠️ **Un banco de pruebas que monte `routes/public.js` NO se puede llamar `*server.js`.**
+`whatsappService` decidía si era el servidor con `/server\.js$/`, y un
+`banco_encargo_server.js` se tomó por él y **auto-conectó la sesión de WhatsApp del
+disco** (falló porque el backend local ya la tenía abierta). Ahora exige el nombre
+exacto (`/(^|[\\/])server\.js$/`), pero en un banco pon además `WHATSAPP_ENABLED=false`.
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -11424,10 +12124,6 @@ fichero en CE3X y pulsar calcular.
     ⚠️ Como consecuencia, **borrar un firmado tiene que invalidar su visto bueno
     explícitamente**: antes se limpiaba de rebote porque el navegador mandaba su copia sin esa
     clave — o sea, por el mismo accidente que se acaba de cerrar. Un slot verde que apunta a un
-68.b **Las fotos que el cliente manda al WHATSAPP se TRAEN al repartidor con un botón** (💬 Traer fotos del WhatsApp, gestor de documentación, solo staff y solo CAE): se eligen chats y periodo, se lista lo llegado y lo marcado se baja y entra en `BuzonFotos`, que propone y espera confirmación. Se lee WhatsApp Web DIRECTAMENTE —nunca `fetchMessages`/`downloadMedia` de la librería, rotos por el `serialize()`—, en fila y con plazo; **solo se baja lo de un chat leído para ESE expediente** (el chat va dentro del id del mensaje) y no se crean chats. Lo del cliente viene marcado; el chat del instalador, sin marcar y con aviso. Lo colocado se apunta en `whatsapp_media_importada` (pista, no candado) y sale "ya colocada" o "en otra obra". Fuente única: [whatsappMedia.js](implementation/backend/services/whatsappMedia.js). Tras tocarlo: `node implementation/backend/scripts/test_whatsapp_media.js`. ⚠️ Lo que corre dentro de la sesión (`LEER_CHAT`, `BAJAR`) solo se puede probar en el VPS. Ver "Traer las fotos del WHATSAPP al repartidor".
-
-68.c **Las fotos de las VENTANAS van ventana por ventana** (RES080 y cualquier expediente con ventanas): una tarjeta por ventana con su antes y su después, y en el después la ventana VIEJA al lado («Así estaba»). La ventana va EN CADA FOTO (`ventana: 'V3'`, `ventana_nombre`) dentro de `reforma_uploads`, sin lista aparte; el id no se reutiliza. El apartado del después solo está hecho con TODAS las ventanas, y subir una no avanza el paso guiado. Las fotos sin ventana se enseñan para colocarlas. El Anexo Fotográfico las ordena y rotula por ventana. Fuente única: [logic/ventanasObra.js](implementation/frontend/src/features/docs/logic/ventanasObra.js). Tras tocarlo: `node implementation/backend/scripts/test_ventanas_obra.mjs` y `test_ventanas_subida.js`. Ver "Las VENTANAS, ventana por ventana".
-
     fichero que ya no existe dice que alguien revisó algo que no está. Tras tocarlo:
     `node implementation/backend/scripts/test_validacion_no_se_pisa.mjs`.
 25. **La PROPUESTA se versiona al ENVIARLA, nunca al guardarla**: cada envío archiva su PDF en `0. PROPUESTAS` como `Propuesta_{expte}_v{N}.pdf`, imprime la marca DENTRO del documento y sella qué versión aceptó el cliente. Fuente única: [propuestaVersiones.js](implementation/backend/services/propuestaVersiones.js) — no volver a generar el PDF de la propuesta por separado en cada canal (el del email y el de WhatsApp acababan siendo documentos distintos), ni guardar el HTML de una versión en el JSONB (353 KB de media, regla 21). Ver "Versiones de la PROPUESTA".
@@ -11563,7 +12259,11 @@ fichero en CE3X y pulsar calcular.
 
 68. **Las fotos suben en TANDA, se pegan con Ctrl+V y se reparten desde un buzón**: cada foto era su propio POST, y ese POST le pedía a Drive tres cosas **antes de mover un byte** (buscar la subcarpeta · listar el slot para el índice `_N` · en slot único, listar otra vez para borrar la anterior), en serie — porque dos subidas a la vez calculaban el mismo índice y se pisaban el nombre. Ahora `subirFicherosASlot` ([reformaUploadService.js](implementation/backend/services/reformaUploadService.js)) lista **una vez**, reserva los índices de toda la tanda y sube **en paralelo** (tope 4); la subcarpeta se resuelve una vez por proceso (`ensureSubfolderId` — ⚠️ su respaldo es devolver el PADRE cuando falla, y ese caso NO se cachea o todas las fotos caerían en la raíz). Es **fuente única**: `/:slot` (un fichero, que siguen usando los navegadores sin refrescar y el gestor del Anexo Fotográfico) y `/:slot/batch` delegan las dos, o la misma foto se nombraría distinto según por dónde entre. **Una tanda a medias se responde 200 con el parcial** (`items` + `fallidas`): lo que ya está en Drive no puede presentarse como si no hubiera pasado nada. La **miniatura se pinta antes de que responda el servidor** y el botón dice la fase real ("Preparando 3 de 10…" y luego un porcentaje monótono, que es el de UNA petición y no vuelve a cero en cada foto). **Ctrl+V** pega en la tarjeta que señala el ratón, anunciándolo en ella (`hidden md:`: en un móvil no hay portapapeles). Soltar **fuera** de una casilla abre el **BUZÓN** ([BuzonFotos.jsx](implementation/frontend/src/features/docs/BuzonFotos.jsx)): un modelo propone el apartado de cada foto y dice qué ha visto, y la persona confirma — el prompt lleva dentro el checklist REAL de ese expediente y **una clave que no esté en él se descarta**, la foto queda "sin clasificar" y no se sube; el cajón "Otros" no se propone nunca. A clasificar va una copia **muy reducida** (768 px: se reconoce el aparato, no se lee su serie) y **con `pensar: true`**, al revés que los lectores que transcriben; en tandas de 12, porque con más el modelo confunde el orden de las imágenes con el de las respuestas. Cuando reconoce algo para lo que ESTE expediente no tiene apartado (una ventana en un RES060) devuelve su **`concepto`** —de `ADDABLE_CONCEPTS`— y el buzón ofrece **añadir el apartado** y colocarlas ahí, en vez de dejar un hueco mudo. ⚠️ Los `objectURL` de las miniaturas se crean **dentro del efecto**: creados en el inicializador de `useState`, el cleanup de StrictMode los revocaba y al remontar el estado se RESTAURA en vez de recalcularse — las trece miniaturas salían rotas y no había nada que revisar. Acierto medido sobre las fotos de ejemplo del tutorial: **7/7**, 0,005 € la tanda (`node implementation/backend/scripts/probar_clasificar_fotos.js`). Y **📩 Pedírsela** en cada casilla vacía manda el enlace filtrado `?need=` con el mensaje en lenguaje de cliente, **refrescando antes la lista de lo que falta** — si no, se le reclama lo que acaba de subir. Dos huecos de alcance cerrados: **`FOTO_HIBRIDACION`** (lo que define un RES093/TER173 son las dos máquinas conectadas, y eso no lo enseña ninguna otra foto; entra también en el mapa explícito del Anexo Fotográfico) y el **depósito de ACS que va DENTRO de la unidad interior**, que se retira solo si el expediente lo afirma y solo si está vacío (`acsEquipoPropio`, por la MÁQUINA y no por el flag — regla 12.c). Y cada apartado declara su **DESTINO** (`destinoDeSlot`): `CEE` —lo que el certificador necesita para modelar la vivienda: fachada desde la calle, patios, vídeo, planos, CEE anterior— o `EXPEDIENTE` —lo que justifica la actuación—. ⚠️ En un RES080 la ENVOLVENTE es del EXPEDIENTE, no del certificado. De ahí salen los dos bloques del panel, los dos botones de petición rápida y el titular que le explica al cliente PARA QUÉ se le pide (solo si todo lo pedido es del mismo destino: mezclado sería mentir a medias). **Lo `optionalAlways` no se reclama** —el CEE anterior se OFRECE— y **lo del DESPUÉS no se preselecciona mientras la obra no esté terminada**. El parte diario lo vigila con **`CEE_SIN_MATERIAL`** (16 expedientes en producción al estrenarlo, el más viejo de 160 días): el detector mira `reforma_uploads` —Drive de 150 expedientes sería una llamada por cada uno— y el MENSAJE lo compone `faltantesPorDestino`, que sí reconcilia con Drive y puede acabar diciendo que no falta nada. Y el botón **«Fotos» del expediente abre este gestor**, no el del Anexo Fotográfico (decisión del usuario, 2026-09-21: aquí se viene a subir y a pedir; a ordenar y comentar se entra desde el propio Anexo). ⚠️ **Medio minuto de espera no puede ser una pantalla quieta**: mientras clasifica sale [ClasificandoFotos](implementation/frontend/src/features/docs/ClasificandoFotos.jsx) —SVG y `@keyframes`, nunca un GIF—, con el número DE VERDAD en la fase que se puede contar (reducir las fotos ocurre en el navegador) y por TIEMPO lo del servidor, parándose en el último rótulo en vez de dar la vuelta. ⚠️ En SVG el `scale` pivota sobre el ORIGEN DEL VIEWBOX: sin `transform-box: fill-box` la foto salía disparada en diagonal en vez de encoger donde estaba. ⚠️ Y el **desplegable de cada fila se leía blanco sobre blanco** —el popup de un `<select>` lo pinta el navegador con el esquema del SISTEMA y ahí hereda el `text-white` de la app—: se arregla declarando **`color-scheme`** (`dark` en `:root`, `light` en `.theme-light`), que de paso pinta en oscuro las barras de scroll y los iconos de fecha de toda la app, más dos reglas explícitas de `option`. No era del buzón: le pasaba a cualquier `<select>`. Tras tocarlo: `node implementation/backend/scripts/test_docs_fotos.js`. Ver "El gestor de FOTOGRAFÍAS".
 
-69. **El CEE que entrega el certificador se REVISA antes de darle el visto bueno**: `radiografiaCee` lee los HECHOS del `.xml` y `revisionCee` los cruza con el expediente punto por punto, con la evidencia literal al lado (`node scripts/revisar_cee.js --expediente 26RES060_192`). **PROPONE, no aprueba**: no escribe en el expediente, no registra incidencias y no le escribe al certificador — el visto bueno se sigue dando en el módulo CEE. **Lo que no se puede comprobar se DICE** y baja el veredicto a APTO CON AVISOS: un punto callado se lee como un punto que está bien. Tres cosas MEDIDAS sobre los 462 certificados reales: **la acumulación de ACS NO está en el `.xml`** (el único nodo con «volumen» es el de la vivienda — solo vive en el `.cex`, regla 48.b), **en un RES080 qué se sustituye no se lee del texto de la medida de mejora** (es texto libre: «CEE FINAL.cex», «MAE 1») sino comparando los DOS certificados cerramiento a cerramiento —la ventana que se cambia es la que baja de U—, y **el combustible se compara por FAMILIA**, porque `gas_*` cubre gas natural y GLP con la misma fila del Anexo VIII (dentro de la familia → aviso; cambiar de familia → falla). El `.xml` se lee de **Supabase** (`cee.xml_inicial`), donde vive EN MAYÚSCULAS: `parseCeeXml` no puede releerlo (regla 32) y este lector sí, porque busca sin distinguir mayúsculas — si alguien quita el flag `i`, deja de funcionar en silencio. Comprueba además que las **transmitancias** de muros, cubierta, suelo y particiones estén justificadas —⚠️ en el `.xml` el «Conocido» de CE3X se escribe **`Usuario`**, no existe ninguna cadena «Conocido»; los huecos lo declaran en `<ModoDeObtencionTransmitancia>` y los puentes térmicos no cuentan—, que la **fecha del certificado** sea la que consta en el expediente (que es la que el visto bueno le pide firmar, `fechaFirmaCee`), que la **visita** sea anterior al certificado y exista, y que **quien firma** sea el técnico asignado (por su NIF o el de su entidad). Esos cuatro son AVISO salvo la visita posterior y la fecha futura, que son imposibles: como fallo, el de las transmitancias dejaría fuera a media cartera (65 de 115 la cumplen; el SUELO queda fuera de la cuenta porque solo el 11 % lo justifica). ⚠️ La **FASE no se deduce del nombre del fichero**: de ella depende el criterio, y equivocarla revisa con el contrario. Tras tocarlo: `node implementation/backend/scripts/test_revision_cee.js`. Ver "REVISAR el CEE que entrega el certificador".
+68.b **Las fotos que el cliente manda al WHATSAPP se TRAEN al repartidor con un botón** (💬 Traer fotos del WhatsApp, gestor de documentación, solo staff y solo CAE): se eligen chats y periodo, se lista lo llegado y lo marcado se baja y entra en `BuzonFotos`, que propone y espera confirmación. Se lee WhatsApp Web DIRECTAMENTE —nunca `fetchMessages`/`downloadMedia` de la librería, rotos por el `serialize()`—, en fila y con plazo; **solo se baja lo de un chat leído para ESE expediente** (el chat va dentro del id del mensaje) y no se crean chats. Lo del cliente viene marcado; el chat del instalador, sin marcar y con aviso. Lo colocado se apunta en `whatsapp_media_importada` (pista, no candado) y sale "ya colocada" o "en otra obra". Fuente única: [whatsappMedia.js](implementation/backend/services/whatsappMedia.js). Tras tocarlo: `node implementation/backend/scripts/test_whatsapp_media.js`. ⚠️ Lo que corre dentro de la sesión (`LEER_CHAT`, `BAJAR`) solo se puede probar en el VPS. Ver "Traer las fotos del WHATSAPP al repartidor".
+
+68.c **Las fotos de las VENTANAS van ventana por ventana** (RES080 y cualquier expediente con ventanas): una tarjeta por ventana con su antes y su después, y en el después la ventana VIEJA al lado («Así estaba»). La ventana va EN CADA FOTO (`ventana: 'V3'`, `ventana_nombre`) dentro de `reforma_uploads`, sin lista aparte; el id no se reutiliza. El apartado del después solo está hecho con TODAS las ventanas, y subir una no avanza el paso guiado. Las fotos sin ventana se enseñan para colocarlas. El Anexo Fotográfico las ordena y rotula por ventana. Fuente única: [logic/ventanasObra.js](implementation/frontend/src/features/docs/logic/ventanasObra.js). Tras tocarlo: `node implementation/backend/scripts/test_ventanas_obra.mjs` y `test_ventanas_subida.js`. Ver "Las VENTANAS, ventana por ventana".
+
+69. **El CEE que entrega el certificador se REVISA antes de darle el visto bueno**: `radiografiaCee` lee los HECHOS del `.xml` y `revisionCee` los cruza con el expediente punto por punto, con la evidencia literal al lado (`node scripts/revisar_cee.js --expediente 26RES060_192`). **PROPONE, no aprueba**: no escribe en el expediente, no registra incidencias y no le escribe al certificador — el visto bueno se sigue dando en el módulo CEE. **Lo que no se puede comprobar se DICE** y baja el veredicto a APTO CON AVISOS: un punto callado se lee como un punto que está bien. Tres cosas MEDIDAS sobre los 462 certificados reales: **la acumulación de ACS NO está en el `.xml`** (el único nodo con «volumen» es el de la vivienda — solo vive en el `.cex`, regla 48.b), **en un RES080 qué se sustituye no se lee del texto de la medida de mejora** (es texto libre: «CEE FINAL.cex», «MAE 1») sino comparando los DOS certificados cerramiento a cerramiento —la ventana que se cambia es la que baja de U—, y **el combustible se compara por FAMILIA**, porque `gas_*` cubre gas natural y GLP con la misma fila del Anexo VIII (dentro de la familia → aviso; cambiar de familia → falla). El `.xml` se lee de **Supabase** (`cee.xml_inicial`), donde vive EN MAYÚSCULAS: `parseCeeXml` no puede releerlo (regla 32) y este lector sí, porque busca sin distinguir mayúsculas — si alguien quita el flag `i`, deja de funcionar en silencio. Comprueba además que las **transmitancias** de muros, cubierta, suelo y particiones estén justificadas —⚠️ en el `.xml` el «Conocido» de CE3X se escribe **`Usuario`**, no existe ninguna cadena «Conocido»; los huecos lo declaran en `<ModoDeObtencionTransmitancia>` y los puentes térmicos no cuentan—, que la **fecha del certificado** sea la que consta en el expediente (que es la que el visto bueno le pide firmar, `fechaFirmaCee`), que la **visita** sea anterior al certificado y exista, y que **quien firma** sea el técnico asignado (por su NIF o el de su entidad). Esos cuatro son AVISO salvo la visita posterior y la fecha futura, que son imposibles: como fallo, el de las transmitancias dejaría fuera a media cartera (65 de 115 la cumplen; el SUELO queda fuera de la cuenta porque solo el 11 % lo justifica). ⚠️ La **FASE no se deduce del nombre del fichero**: de ella depende el criterio, y equivocarla revisa con el contrario. Tras tocarlo: `node implementation/backend/scripts/test_revision_cee.js`. Ver "REVISAR el CEE que entrega el certificador". **Desde 2026-09-29 lee también el `.cex` del técnico** (motor: `POST /cex/radiografia`) y juzga la MEDIDA DE MEJORA del inicial —obligatoria en sustitución/hibridación, calculada, sobre ESTE edificio (desfase), con el equipo y el SCOP del expediente o, sin equipo, con la genérica de la simulación—; las transmitancias y la ventilación contra la GUÍA (aviso desde el 01/04/2026), la demanda en dos escalones (aviso hasta −10 %), huecos, puentes y lo que confirmó el cliente; el rendimiento de la caldera pasa a informativo. `--poner-medida` mete la medida en el `.cex` del técnico (sin calcularla). Ver "Con el `.cex` delante, y la MEDIDA DE MEJORA".
 
 70. **La COMA y el PUNTO valen igual al teclear una medida, y lo que no es un número NO vale 0**: un `<input type="number">` devuelve **cadena vacía** mientras lo escrito no sea un número completo, y `Number('')` es **0** — así que escribir «2.2» metía un 0 al pasar por «2.», y borrar el campo para reescribirlo lo dejaba en 0. Y como **tocar una medida la da por CONFIRMADA** (`cambiaHueco` pone `estado: 'medido'`), ese 0 quedaba marcado como medida comprobada por el certificador: una ventana de 0 m² camino del `.cex` sin que nada lo delatara. `aNumero` devuelve **`null`** (que NO es 0) para lo que no es un número, y de esa diferencia depende todo. **Mientras se escribe manda el TEXTO, no el número**: un campo controlado por el número reescribe «2» sobre «2,» y la coma desaparece debajo de los dedos, así que el texto vive en el campo hasta el `onBlur`. **Vaciarlo significa cosas distintas y lo dice quien pone el campo** (`alVaciar`): en la U de la pared es «vuelve a la de su época» y en el ancho de una ventana no es nada, porque una ventana siempre mide algo. Va con `inputMode="decimal"` (mismo teclado en el móvil) y de paso se pierden las flechitas y la rueda del ratón, que sobre una medida es justo lo que no se quiere. Aplicado a los **nueve** campos numéricos de la ventana de envolvente. Fuentes únicas: [numeroDecimal.js](implementation/frontend/src/utils/numeroDecimal.js) y [CampoDecimal.jsx](implementation/frontend/src/components/CampoDecimal.jsx). Tras tocarlo: `node implementation/backend/scripts/test_numero_decimal.mjs`. Ver "La COMA y el PUNTO valen igual al teclear una medida".
 72. **La aerotermia de la MEDIDA DE MEJORA (y del CEE final) se declara según su UNIDAD TERMINAL y según su ALCANCE**: con un emisor que da FRÍO (`emisorDaFrio`: suelo radiante, splits, conductos) es **`mixto3`** (calefacción + refrigeración + ACS) si el ACS es suyo, o **`climatizacion`** si no; con **radiadores** no hay modo frío aunque la máquina sea reversible, y es `mixto2` o `calefaccion` como siempre. La refrigeración va con el **SEER en %** y al 100 %, y no se reparte con el C_b (la caldera que se queda no da frío); sin SEER en el catálogo sale sin refrigeración **y se dice**. Referencia: el `.cex` que el certificador guardó a mano para **26RES060_198** (suelo radiante + ACS): un solo `mixto3` `['310','623','416']`, los tres servicios al 100 % — la app lo escribía como *solo calefacción* y sin ACS. Formas MEDIDAS sobre 1.379 `.cex` de producción: 153 `mixto3` y 237 `climatizacion` con el rendimiento conocido (el motor solo escribe ese modo). **REGLA — lo que el equipo nuevo NO asume se QUEDA**: si se cambia la caldera pero no el ACS, la caldera mixta se conserva con la calefacción a `['0.0','0']` y el ACS como estaba (es como lo dejan los certificadores a mano, 8 casos medidos) — retirarla entera dejaba el ACS sin cubrir y CE3X no calcula; un termo que ya daba el ACS tampoco se toca. Lo hace `construir_instalaciones` (`_sin_servicios`), así que vale para la medida y para el CEE final. El **mismo depósito** (mismos litros que el del fichero) se hereda TAL CUAL con su UA. **Los aires acondicionados que YA tiene la vivienda se QUEDAN** (decisión del usuario, 2026-09-24): la refrigeración nunca retira nada; un split de solo frío se conserva tal cual, uno que también calentaba se queda con la calefacción a 0, y la aerotermia cubre del frío lo que ellos no cubren (superficie en la misma proporción). La superficie de frío de la aerotermia es la de CALEFACCIÓN, no la del split. ⚠️ `equipoConAjustes` decidía el ACS por `slot === 'mixto2'` y a un `mixto3` le borraba el ACS y el depósito: ahora va por los SERVICIOS del tipo. ⚠️ Un **SEER es un cociente, no un %**: el modelo 244 (DAIKIN ERLA16D2V37) lo tenía guardado como 416 y el `.cex` salía con 41.600 % de refrigeración — corregido a 4,16, y `PATCH /aerotermia/:id/datos-rite` rechaza un SEER > 15. Tras tocarlo: `pytest implementation/cee-engine/tests/test_equipos.py` y `node implementation/backend/scripts/test_cex_final.mjs`.
@@ -11598,7 +12298,21 @@ fichero en CE3X y pulsar calcular.
 
 86. **Los AIRES ACONDICIONADOS que confirma el cliente llegan al CEE: la pestaña, el encargo y la envolvente** (2026-09-29). Lo confirmado al aceptar (emisores, placas, aires; en un CEE directo, su cuestionario) sale en la pestaña CEE (`ConfirmadoPorCliente`) y DENTRO del encargo del CEE INICIAL al certificador, con cómo declararlo (`bloqueConfirmacionCertificador`, que el backend manda en `aviso-cliente-cee` como `bloque_certificador`). En la envolvente, el bloque «Aires acondicionados existentes» de Instalaciones los crea de un clic, uno por aparato, repartiendo el 100 % de la refrigeración (y la superficie) entre todos: en **CAE** como «Equipo de sólo refrigeración» — máquina frigorífica, 250 % (26RES060_206: 5 × 20 %) —; en una **deducción del IRPF** (CEE directo, 2026CEE_60) como «Equipo de calefacción y refrigeración» — bomba de calor ESTIMADA, 270 % / 250 % —. Van en el INICIAL (el final los conserva), y rehacer SUSTITUYE los del bloque (`aire: true`). El motor escribe ya el `climatizacion` ESTIMADO (forma medida en 258 equipos del corpus) y el estacional aproximado con `FACTOR_ESTACIONAL` (157,5 · 204,3 / 163,3, las cifras de los dos `.cex` de referencia). Tras tocarlo: `node implementation/backend/scripts/test_aires_ce3x.mjs`, `test_confirmacion_cliente.mjs` y `pytest implementation/cee-engine/tests/test_equipos.py`. Ver «Y llega al CEE: la pestaña, el encargo y la envolvente».
 
-93. **Una factura de ENTREGA DE MATERIAL o un ANTICIPO no abre la actuación, y el CIFO lo cuenta en «Hitos de la actuación»** (2026-09-30). `facturas[].motivo_no_inicio` (`MATERIAL` | `ANTICIPO`, lo marca una persona en el popup **Hitos** junto a las fechas del CIFO) la saca del INICIO de `calcCifo` —no del fin ni de la inversión—, así que el inicio nuevo sale igual en todas las superficies. El CIFO y el Certificado RES080 imprimen ABRIENDO la hoja de la instalación (en hoja propia justo antes si hay cascada) la primera factura, el inicio y el fin y la visita y la firma del CEE inicial y del final —las dos filas siempre, con «—» en lo que no consta, y nunca el registro—, más la ACLARACIÓN si la hay (`documentacion.hitos_actuacion`, en la BLACKLIST de `normalizeData`). La aclaración propuesta solo afirma lo que dicen los datos; la de la IA (`POST /:id/hitos/aclaracion-ia`, staffOnly) se descarta si cita una fecha o una factura que no consta. ⚠️ gemini-2.5-flash en JSON entra en bucle con «º»: se le pide «número». Fuente única: [hitosActuacion.js](implementation/frontend/src/features/expedientes/logic/hitosActuacion.js). Tras tocarlo: `node implementation/backend/scripts/test_hitos_actuacion.mjs`, `check_cifo_paginas.mjs` y `check_res080_paginas.mjs`. Ver "HITOS DE LA ACTUACIÓN".
+87. **El CEE inicial se GENERA desde las fotos con la skill `generar-cee-inicial`, por las MISMAS funciones que la ventana** (2026-09-29). `scripts/cee_inicial.js` lee las placas (caldera y aerotermia), dibuja el plano de paredes sobre la cartografía, propone los huecos de cada fachada, da de alta en el catálogo la aerotermia que falte (ficha del fabricante recortada + EPREL + etiqueta, SCOP cálido 35/55 obligatorio y cuadrado con su η) y con un PLAN escrito por quien ha mirado las fotos guarda el trabajo, pega las fotos y escribe `{nº} - CEE INICIAL_REVISAR.cex`. Lo señalado sale de `senalado.js` (`estadoDeTrabajo` + `senaladoDe`), sacado de `usePlanoEnvolvente` para que el script y el botón no puedan divergir. Lo leído nace DUDOSO; el garaje dentro de una planta NO se inventa (se delimita en la ventana); en una oportunidad cambia la aerotermia de la simulación y el resultado de la propuesta queda desfasado hasta recalcular. Sin `--escribir` no toca nada. Caso de referencia: 26RES060_OP246 (MIDEA MHC-V12WD2N7-E30 → catálogo id 565). Ver «GENERAR el CEE inicial desde las fotos».
+
+88. **Una planta que se MIDE es VIVIENDA para sus forjados, aunque Catastro declare en ella sobre todo un garaje; y un PORCHE ABIERTO es exterior** (2026-09-29). En 26RES060_OP246 la planta baja es UN BuildingPart (195,36 m², que es la huella: la suma de los usos de cada planta, 17+122+36+22 y 175+21) con 39 m² de vivienda, 122 de aparcamiento y 36 de porche. Sus paredes se medían como vivienda pero sus forjados usaban el uso DOMINANTE (garaje), y salían DOS particiones sobre los mismos 195 m² — el techo de la baja «entre plantas» y el suelo de la primera «sobre garaje» —, y CE3X leía la primera como un garaje ENTERRADO bajo la planta baja, sin sótano. `marcar_usos_medidos` ([gis/floors.py](implementation/cee-engine/src/gis/floors.py), `Planta.uso_medido`) da a la planta el uso habitable que cuenta en ella; `uso_dominante` se conserva (es lo que dice Catastro). Y un forjado **nunca se escribe desde el lado no habitable** (`relevante`): lo escribe la vivienda, una vez. El garaje de verdad se DELIMITA (zona `GARAJE`): pared contra él = **partición vertical**, forjado de encima = **NH inferior**, su suelo fuera. Zona nueva **`PORCHE`** (motor, backend y `zonasFuera.js`): se resta de la huella pero NO es espacio no habitable, así que la pared detrás sale **fachada** y el forjado de encima **suelo al aire exterior**. Sin delimitar se mide la planta entera como vivienda y el motor lo dice (`USO_MEDIDO`). ⚠️ Y el forjado que VUELA sobre el porche (`SUELO`/`AIRE_EXTERIOR`) se escribía como «SUELO EN TERRENO» en la planta alta: `generar_cex.suelo_aire` lo escribe con la forma de los 216 suelos al aire del corpus (15 campos, 'Conocidas' [True, False, U, masa], acaba en 'aire'), con el término nuevo `suelo_aire` de `transmitancias` (U de suelo de la guía, masa de forjado 500). **Las superficies tienen que casar con Catastro por planta** (criterio del usuario): el croquis de la persona dice DÓNDE, los m² los pone Catastro. Tras tocarlo: `python -m pytest implementation/cee-engine/tests/test_planta_mixta.py`.
+
+89. **Lo que no es vivienda en una planta se PINTA a mano alzada y el motor lo ajusta a los m² de Catastro** (2026-09-29). «✏️ Croquis» en la ventana de la envolvente (o `croquis` en el plan de la skill `generar-cee-inicial`, en fracciones de la huella: `u` de oeste a este, `v` de sur a norte): cada mancha se endereza, se ajusta por bisección a la superficie que Catastro declara para ese uso en esa planta, se limpian las tiras de menos de 0,8 m y se alinean los escalones de menos de 0,6 m — así que **el croquis dice DÓNDE y Catastro dice CUÁNTO**. Un uso que Catastro no declara se deja como se dibujó y se dice; «Tal cual» no ajusta. Lo que se guarda son ZONAS (`zonas_fuera`), que sustituyen las de esa planta. Fuente única: [gis/croquis.py](implementation/cee-engine/src/gis/croquis.py) + `ajustar_croquis` en `pipeline.py`. Tras tocarlo: `python -m pytest implementation/cee-engine/tests/test_croquis.py`. **Y se puede pintar DESDE EL MÓVIL** («📱 Pintar desde el móvil»: QR → el teléfono pinta con el dedo → el ordenador lo ve en tiempo real por una espera larga; el ajuste lo hace el ordenador, y el teléfono pinta en el lienzo de cuando se abrió, que el ordenador traslada al de ahora). Sesión en memoria, token de 30 min de silencio, al teléfono solo la geometría ([croquisMovil.js](implementation/backend/services/croquisMovil.js)). Tras tocarlo: `node implementation/backend/scripts/test_croquis_movil.js`. Ver "El CROQUIS a mano alzada" **Y se PROPONE solo** (`croquis_propuesto` del motor, `gis/croquis_propuesta.py`): garaje contra la calle —o contra la fachada en cuya foto hay una puerta de garaje, confianza alta—, porche contra el patio, almacén al fondo, ya ajustado a Catastro y con el motivo de cada mancha; se ofrece («✨ … · Ver dónde» en el ordenador, «Ver la propuesta» en el teléfono) y nunca se aplica sola. Tras tocarlo: `python -m pytest implementation/cee-engine/tests/test_croquis_propuesta.py`. Ver "El croquis se PROPONE solo". **Y aguanta SIN COBERTURA** (2026-09-30): lo pintado, las fotos (IndexedDB) y los huecos confirmados se apuntan PRIMERO en el teléfono y salen solos al volver la red; cada envío lleva `id_local` y el servidor no lo hace dos veces (`yaHecho`); el enlace no caduca mientras el ordenador lo mira (tope 12 h); lo que quedó sin mandar con un enlace caducado se recupera con el siguiente QR de esa planta (`clave` + `marco`); y la página abre sin red por un service worker que SOLO controla `/croquis-movil/`. Fuente única: [bandejaMovil.js](implementation/frontend/src/features/cee-envolvente/logic/bandejaMovil.js). Tras tocarlo: `node implementation/backend/scripts/test_bandeja_movil.mjs` y `test_croquis_movil.js`. Ver "Y aguanta SIN COBERTURA".
+
+90. **Al subir su `.xml`/`.cex`, el técnico ve la REVISIÓN PREVIA y corrige lo suyo antes de que llegue a Brokergy** (2026-09-30). Es el MISMO juicio de la lupa de Fran (se guarda en `cee.revision_{fase}` con `origen: 'subida'`), pero al técnico se le enseña SU parte ([revisionTecnico.js](implementation/backend/services/cee/revisionTecnico.js) — `vistaTecnico`): **con la demanda y la superficie frente a la simulación como algo que REVISAR, nunca «corregir»** (de ellas sale el ahorro en MWh certificable y el email del encargo ya se las da como objetivo; el consejo le pide comprobar su modelo y decirlo si la vivienda es así — decisión del usuario, 2026-09-30), sin lo informativo, con los consejos escritos para él y **sin decirle nunca "APTO"**. Sale en el popup «Solicitar revisión» de la rejilla (`POST /api/expedientes/:id/pre-revision-cee`, `suyoSiCertificador`), en la chapa 🔍 del certificador y en `/subir-cee` (`POST /api/public/cee-prerevision/:id`, con freno de 20 s que un fichero nuevo olvida). **El detalle de un expediente que abre un CERTIFICADOR lleva la revisión en SU versión** (`revisionParaTecnico` en `scrubExpedienteForUser`): antes viajaba entera, con el veredicto y los botones de Brokergy. **Lee el `.xml` de DRIVE** (`xmlDeDrive`): el de la BD lo escribe el navegador después, y por el enlace público nunca. **No bloquea**: con algo que corregir el botón dice «Avisar igualmente a Brokergy». El aviso a Fran (`notify-review`) lleva el veredicto COMPLETO, y **sin el enlace de visto bueno en el WhatsApp** (aprueba con un GET y la vista previa de enlaces lo abriría). Solo CAE. Tras tocarlo: `node implementation/backend/scripts/test_pre_revision_cee.js` y `probar_pre_revision.js <nº>` (sin guardar). Ver "La revisión PREVIA al subir el técnico".
+
+91. **La VISTA AÉREA del plano de la envolvente es la ortofoto del PNOA (IGN), por teselas que pide el navegador, y de Google solo van ENLACES** (2026-09-30). Botón **◩ Satélite** en 2D y en 3D —en 3D es el suelo, proyectado con la misma matriz afín que las paredes— y **↗ Google** con Maps satélite, Street View y Earth. El PNOA es CC BY 4.0 (la atribución va en la esquina mientras se ve) y está en EPSG:25830; Google no se puede poner debajo de un plano propio sin su API de pago. Es un FONDO exclusivo con el Catastro (recordado en `localStorage`), sin filtro de tema y con los vecinos sin relleno encima. Lleva la **fecha del vuelo** a la vista, **no es una ortoimagen verdadera** (los tejados se desplazan ~2 m: no se mide con ella) y la usa también la skill `generar-cee-inicial` (`satelite.png`, `plano_satelite.png`). ⚠️ **La esquina de la rejilla que publica el IGN está redondeada al metro**: la rejilla se alinea por abajo con un `minY` por huso, comprobado tesela contra WMS con desplazamiento 0 en los husos 29, 30 y 31; **Canarias no se ofrece** (sin comprobar). Fuente única: [logic/ortofoto.js](implementation/frontend/src/features/cee-envolvente/logic/ortofoto.js). Tras tocarlo: `node implementation/backend/scripts/test_ortofoto.mjs`. Ver "La VISTA AÉREA (satélite)".
+
+92. **El CEE FINAL de un RES060/RES093 sale de la MEDIDA DE MEJORA del inicial del técnico** (2026-09-30): botón «Generar» de la fila del CEE final o skill `generar-cee-final`. La instalación del final es la de esa medida TAL CUAL (no se recompone desde el expediente); en una hibridación la medida del final retira el generador en apoyo (bomba al 100 %), en una sustitución es el autoconsumo, y se pueden añadir medidas de AISLAMIENTO de cubierta y fachada con su solución constructiva y un texto profesional (`medidasAislamiento.js` + `construir_medida_aislamiento`, calcado del diálogo de CE3X; el texto no lleva «λ»: el .cex es latin-1); las fechas del inicial no pasan al final; RES080 es la fase 2. Se ENSEÑA lo que debe dar al calificarlo (lo que CE3X calculó para la medida). Fuente única: `tools/cee_final.py` + `services/cee/ceeFinalDesdeMedida.js`. **La MÁQUINA la manda el expediente** si el técnico tecleó otra (`equiposDelExpediente` → `corregir_equipos`), y **el equipo de ACS hereda el depósito del inicial** (`heredar_deposito`) para que la D_ACS no cambie. Tras tocarlo: `python -m pytest implementation/cee-engine/tests/test_cee_final.py` y `node implementation/backend/scripts/test_medidas_aislamiento.mjs`. Ver "El CEE FINAL desde la MEDIDA DE MEJORA".
+
+92. **El técnico tiene UNA página del encargo, y el enlace es SUYO** (2026-09-30): `/encargo/:id?token=&phase=[&origen=cee]`, pensada para el móvil — qué le toca ahora, el cliente con Llamar/WhatsApp, Cómo llegar, la instalación, lo que confirmó el cliente, las fotos de SU fase y los enlaces para subir y presentar. El token es un HMAC atado al `certificador_id` ASIGNADO: al reasignar, el enlace del anterior deja de valer solo, y cada foto se vuelve a comprobar contra la firma. **Lista blanca y ni un importe**, pero con el **objetivo del certificado** (demanda y superficie mínimas, o ahorro en RES080), el MISMO del email por `objetivosEncargo`; nunca facturas, presupuestos ni «Otros». Aceptar va por los acuses de siempre. El enlace sustituye a «Abre el expediente en la app» en el WhatsApp del encargo y es un botón en el email (CAE y CEE directos). Fuente única: [encargoTecnico.js](implementation/backend/services/encargoTecnico.js). Tras tocarlo: `node implementation/backend/scripts/test_encargo_tecnico.mjs` y `test_pre_revision_cee.js`. Ver "La PÁGINA DEL ENCARGO del técnico".
+
+93. **Una factura de ENTREGA DE MATERIAL o un ANTICIPO no abre la actuación, y el CIFO lo cuenta en «Hitos de la actuación»** (2026-09-30). `facturas[].motivo_no_inicio` (`MATERIAL` | `ANTICIPO`, lo marca una persona en el popup **Hitos** junto a las fechas del CIFO) la saca del INICIO de `calcCifo` —no del fin ni de la inversión—, así que el inicio nuevo sale igual en todas las superficies. El CIFO y el Certificado RES080 imprimen ABRIENDO la hoja de la instalación (en hoja propia justo antes si hay cascada) la en el orden del proceso: CEE inicial (visita · firma), facturas (primera · última), actuación (inicio · pruebas RITE · fin) y CEE final —lo que no consta NO sale (sin fechas de un CEE, no sale su fila) y se avisa en la puerta de «Generar» (`avisosHitos`); nunca el registro—, más la ACLARACIÓN si la hay (máx. 420 caracteres) (`documentacion.hitos_actuacion`, en la BLACKLIST de `normalizeData`). La aclaración propuesta solo afirma lo que dicen los datos; la de la IA (`POST /:id/hitos/aclaracion-ia`, staffOnly) se descarta si cita una fecha o una factura que no consta. ⚠️ gemini-2.5-flash en JSON entra en bucle con «º»: se le pide «número». Fuente única: [hitosActuacion.js](implementation/frontend/src/features/expedientes/logic/hitosActuacion.js). Tras tocarlo: `node implementation/backend/scripts/test_hitos_actuacion.mjs`, `check_cifo_paginas.mjs` y `check_res080_paginas.mjs`. Ver "HITOS DE LA ACTUACIÓN".
 
 94. **El nombre del cliente en la AGENDA de WhatsApp lleva su nº de obra** (2026-09-30): «RES080 Irene Lopez (Gonzagarri)» pasa a «RES080_87 Irene Lopez (Gonzagarri)» — con expediente, su nº sin el año; sin él, su oportunidad (`RES060_OP246`); un CEE directo, `CEE_54`. Botón en el panel de WhatsApp («Nombres de clientes en la agenda», en seco primero) y `POST /api/whatsapp/contactos/renombrar-clientes` (adminOnly o `x-internal-key`, `dryRun` por defecto, a trozos con cursor por teléfono). **Es la EXCEPCIÓN a `guardarSiFalta`**: solo se toca el PREFIJO que la casa escribe delante (`RES060`, `RES080 -`, `26RES080_78`, `CEEI`…; nunca «Termia», «Teresa» ni «RESERVAS») y lo de detrás se conserva letra a letra; un contacto sin prefijo no se renombra. Se casa por teléfono contra titular, persona de contacto y copropietarios; un número en VARIOS clientes no se toca, varias obras abiertas de la misma ficha se preguntan, y **lo que cambiaría la ficha que ya dice el nombre (RES080 → RES060_143) se aparta a «revisar»** — suele ser un teléfono casado con otra persona de la ficha. `saveContactAction` EDITA el contacto (el `@c.us` y su `@lid`), no lo duplica. ⚠️ **WhatsApp LIMITA las ediciones de la agenda**: medido el 30/09/2026, una cada 1,5 s aguantó ~41 y después respondió **429 `rate-overlimit`** a todas (la sesión siguió sana). Va a una cada 20 s (`WA_CONTACTOS_PAUSA_MS`), dos por petición, y **se para al primer 429** (`err.limitado` en `whatsappContactos.guardar`, que ahora devuelve el error como dato: cruzando `evaluate` llegaba minificado como «t»). Fuente única: [utils/nombreContactoCliente.js](implementation/backend/utils/nombreContactoCliente.js) + [whatsappNombresClientes.js](implementation/backend/services/whatsappNombresClientes.js). Tras tocarlo: `node implementation/backend/scripts/test_nombre_contacto_cliente.js`.
 

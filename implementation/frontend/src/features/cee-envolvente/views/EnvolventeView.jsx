@@ -4,8 +4,8 @@ import { useAuth } from '../../../context/AuthContext';
 import { getRoleFlags } from '../../../utils/roleFlags';
 import { PlanoPlanta } from '../components/PlanoPlanta';
 import { PanelPared } from '../components/PanelPared';
-import { usePlanoEnvolvente } from '../logic/usePlanoEnvolvente';
-import { lienzoAMundo, areaPoligono } from '../logic/geometriaPlano';
+import { usePlanoEnvolvente, nombreDe } from '../logic/usePlanoEnvolvente';
+import { lienzoAMundo, areaPoligono, simplificarTrazo } from '../logic/geometriaPlano';
 import { CampoDecimal } from '../../../components/CampoDecimal';
 import { dondeSobra, dondeSigue } from '../logic/cuerposEnvolvente';
 import { claveExtras, claveInstalacion, equipoNuevo, esTerciarioCe3x, etiquetaTipoCe3x,
@@ -14,7 +14,12 @@ import { TipoEdificioModal } from '../components/TipoEdificioModal';
 import { useDeshacer } from '../logic/useDeshacer';
 import { MidiendoElEdificio } from '../components/MidiendoElEdificio';
 import { ETIQUETA_USO_ZONA } from '../logic/zonasFuera';
-import { admiteHuecos } from '../logic/tiposPared';
+import { useCroquisMovil } from '../logic/useCroquisMovil';
+import { deltaLienzo } from '../logic/trabajoGuardado';
+import { CroquisMovilModal } from '../components/CroquisMovilModal';
+import { respuestaParaElMovil } from '../logic/croquisMovilPuente';
+import { ponerHuecosDelMovil } from '../logic/huecosDelMovil';
+import { admiteHuecos, tipoDe } from '../logic/tiposPared';
 import { VentanasViviendaModal } from '../components/VentanasViviendaModal';
 import { PERSIANA_DEFECTO_NUEVOS, huecosDefecto, resumenVentanas, ventanasContestadas }
     from '../logic/ventanasVivienda';
@@ -43,6 +48,23 @@ import { api, esCeeDirecto as enCeeDirecto, esOportunidad as enOportunidad } fro
 //: `.cex`— pasan por aquí: repite sola la que no llegó a salir y devuelve el
 //: fallo ya redactado, en vez de la misma frase para seis causas distintas.
 import { postEnvolvente, soloLista } from '../logic/pedirEnvolvente';
+
+//: Qué FONDO lleva el plano en este navegador: 'catastro' · 'satelite' ·
+//: 'ninguno'. Es una comodidad de pantalla, no un dato del expediente.
+const CLAVE_FONDO = 'brokergy.envolvente.fondo';
+
+/**
+ * Lo que el TELÉFONO necesita saber de una pared para hacerle la foto: su id
+ * (la clave de sus fotos), cómo se llama aquí, sus medidas —de ellas sale la
+ * escala al leer la foto— y si admite ventanas.
+ */
+function metaParedMovil(m) {
+    return {
+        id: m.id, nombre: nombreDe(m), tipo: tipoDe(m),
+        largo: m.largo, alto: m.alto, orientacion: m.orientacion || null,
+        admite: admiteHuecos(m), huecos: (m.huecos || []).length,
+    };
+}
 
 export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     const id = expediente?.id;
@@ -124,7 +146,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         traerGeometria(trabajoPrevio.cuerpos_fuera || [],
                        trabajoPrevio.recorte_vivienda || null, undefined,
                        trabajoPrevio.zonas_fuera || []);
-    }, [trabajoPrevio, geo, cargando, rc]);   // eslint-disable-line react-hooks/exhaustive-deps
+    }, [trabajoPrevio, geo, cargando, rc]);  
 
     useEffect(() => {
         if (!id) return;
@@ -178,6 +200,74 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     //: se escriben igual, como partición con espacio no habitable.
     const [dibujandoZona, setDibujandoZona] = useState(null);
     const [usoZona, setUsoZona] = useState('GARAJE');
+    //: El CROQUIS a mano alzada: la planta en la que se pinta, con qué uso, y
+    //: las manchas de cada planta (en su lienzo) hasta que se ajustan. No se
+    //: guardan: lo que se guarda son las ZONAS que salen de ajustarlas.
+    const [croquisPlanta, setCroquisPlanta] = useState(null);
+    const [usoCroquis, setUsoCroquis] = useState('GARAJE');
+    const [trazosCroquis, setTrazosCroquis] = useState({});
+    //: El croquis pintado DESDE EL MÓVIL (ver `logic/useCroquisMovil.js`): lo
+    //: que se pinta allí se refleja AQUÍ en `trazosCroquis` según se dibuja, y
+    //: el ajuste que pide el teléfono lo hace esta ventana. El QR se enseña al
+    //: abrir y se oculta solo cuando el teléfono se conecta.
+    const [verQrMovil, setVerQrMovil] = useState(false);
+    //
+    // REGLA — el móvil pinta en el lienzo del MOMENTO EN QUE SE ABRIÓ (`marco`),
+    // y aquí se traslada al de ahora. Al ajustar, el motor vuelve a medir y
+    // puede re-encuadrar el lienzo (regla 79): sin esto, lo siguiente que se
+    // pintara en el teléfono caería desplazado.
+    const movil = useCroquisMovil(id, {
+        onCambio: (data, planta) => setTrazosCroquis(c => ({
+            ...c, [planta.id]: trazosAlLienzo(data.trazos || [], planta.marco) })),
+        onPedido: async (pedido, trazos, planta) => respuestaParaElMovil(
+            await ajustarCroquis(planta, pedido.ajustar, trazosAlLienzo(trazos, planta.marco)), planta.marco),
+        onFin: () => {
+            setVerQrMovil(false);
+            onAviso?.('El croquis desde el móvil se ha cerrado (el enlace caduca tras 30 minutos sin usarse).');
+        },
+        // Fotos nuevas desde el teléfono: el panel de la pared las vuelve a pedir.
+        onFotos: () => window.dispatchEvent(new CustomEvent('envolvente:fotos')),
+        onHuecos: (pedido) => ponerHuecosDesdeMovil(pedido),
+    });
+    // Lo que el teléfono sabe de cada pared (sus huecos, su nombre, si admite
+    // ventanas), al día: si aquí se reclasifica una pared o se le ponen huecos,
+    // allí se ve. Solo de la planta de la sesión, y con un respiro para no
+    // mandarlo a cada tecla.
+    const metaParedesMovil = useMemo(() => {
+        const pl = movil.sesion && (plano.plantas || []).find(p => p.id === movil.sesion.planta?.id);
+        if (!pl) return null;
+        const salida = {};
+        for (const m0 of pl.muros || []) {
+            const m = plano.muros?.[m0.id] || m0;
+            if (!m?.id) continue;
+            salida[m.id] = metaParedMovil(m);
+        }
+        return salida;
+    }, [movil.sesion, plano.plantas, plano.muros]);
+    const claveMetaMovil = metaParedesMovil ? JSON.stringify(metaParedesMovil) : '';
+    const tokenMovil = movil.sesion?.token || null;
+    useEffect(() => {
+        if (!tokenMovil || !claveMetaMovil) return undefined;
+        const t = setTimeout(() => {
+            axios.post(api(id, `croquis-movil/${tokenMovil}/paredes`), { paredes: JSON.parse(claveMetaMovil) })
+                .catch(() => { /* la sesión se ha cerrado: nada que contar */ });
+        }, 600);
+        return () => clearTimeout(t);
+    }, [id, tokenMovil, claveMetaMovil]);
+    // En cuanto el teléfono abre el enlace, el QR sobra: lo que hay que mirar
+    // es el plano, donde aparece cada trazo según se pinta.
+    // Se deja ver el «✓ Móvil conectado» un momento: cerrarse de golpe no
+    // se distingue de que el popup haya fallado.
+    useEffect(() => {
+        if (!movil.estado.conectado) return undefined;
+        const t = setTimeout(() => setVerQrMovil(false), 900);
+        return () => clearTimeout(t);
+    }, [movil.estado.conectado]);
+    // Si no se ha podido abrir el enlace, se dice donde se dicen los errores.
+    const { error: errorMovil, setError: setErrorMovil } = movil;
+    useEffect(() => {
+        if (errorMovil) { setError(errorMovil); setErrorMovil(null); }
+    }, [errorMovil, setErrorMovil]);
 
     //: QUÉ PLANTAS se ven a la vez. `null` es la vista dividida —todas, una al
     //: lado de otra—; un índice es ver esa sola a todo el ancho. Las dos hacen
@@ -242,7 +332,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
      * esta función a un `onClick` vuelve a romperlo sin enterarse.
      */
     async function traerGeometria(cuerposFuera = null, recorte = undefined, tipo = undefined,
-                                  zonas = undefined) {
+                                  zonas = undefined, extra = null) {
         if (!rc) { setError('Este expediente no tiene referencia catastral.'); return false; }
         // El TIPO decide qué se mide: en un terciario cuentan los usos del
         // terciario (un hotel es «HOTELERO» en Catastro). Lo pasa quien acaba
@@ -271,13 +361,17 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                   recorte_vivienda: recortePedido.current,
                   zonas_fuera: zonasPedidas.current.map(({ nivel, poligono, uso }) =>
                       ({ nivel, poligono, uso })),
-                  tipo_edificio_ce3x: tipoMedir },
+                  tipo_edificio_ce3x: tipoMedir,
+                  // El croquis a mano alzada, cuando se está ajustando uno.
+                  ...(extra && typeof extra === 'object' && !extra.nativeEvent ? extra : {}) },
                 // Repetible: medir NO escribe nada —lee Catastro, y el motor lo
                 // tiene cacheado—, así que una petición que no ha llegado se
                 // puede volver a mandar sin consecuencias.
                 { haciendo: 'construir la envolvente', repetible: true });
             setGeo(data);
-            return true;
+            // La respuesta, y no un `true`: quien ajusta un croquis necesita los
+            // polígonos que devuelve el motor. Sigue siendo «verdadero».
+            return data;
         } catch (e) {
             // Ya viene redactado: qué ha fallado y qué hacer con ello. El
             // respaldo es por si algo revienta antes de llegar a la petición.
@@ -374,6 +468,135 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         if (ok) onAviso?.('Zona quitada: vuelve a contar como vivienda.');
     }
 
+    // ── EL CROQUIS A MANO ALZADA ─────────────────────────────────────────────
+    // Se pinta DÓNDE está el garaje, el porche…, sin medir nada, y el motor lo
+    // endereza y lo ajusta a los m² que Catastro declara en esa planta (ver
+    // `gis/croquis.py`). Lo que sale son ZONAS como las de «Quitar una zona», y
+    // SUSTITUYEN a las que ya hubiera en esa planta: el croquis la describe
+    // entera. Una sola petición: se ajusta y se mide a la vez.
+    //
+    // Devuelve cómo ha ido ({ ok, texto, lineas }): cuando lo ha pedido el
+    // MÓVIL, es lo que se le enseña allí. Los trazos pueden llegar dados (los
+    // que manda el teléfono), porque el estado de esta vista va un render por
+    // detrás de lo que acaba de llegar.
+    async function ajustarCroquis(planta, ajustar = true, trazosDados = null) {
+        const trazos = trazosDados || trazosCroquis[planta.id] || [];
+        if (!trazos.length) return { ok: false, texto: 'No hay nada pintado.' };
+        const t = lienzoAMundo(geo?.georef);
+        if (!t) {
+            setError('No se puede situar el croquis: falta la georreferencia del plano.');
+            return { ok: false, texto: 'Falta la georreferencia del plano: vuelve a traer la envolvente en el ordenador.' };
+        }
+        const r2 = v => Math.round(v * 100) / 100;
+        const croquis = trazos.map(tr => ({
+            nivel: planta.nivel, uso: tr.uso,
+            poligono: simplificarTrazo(tr.pts).map(([x, y]) => [r2(x + t.dx), r2(t.y0 - y)]),
+        }));
+        const previo = plano.trabajo || trabajoPrevio || {};
+        const otras = (previo.zonas_fuera || []).filter(z => z.nivel !== planta.nivel);
+        setTrabajoPrevio({ ...previo, zonas_fuera: otras });
+        const data = await traerGeometria(previo.cuerpos_fuera || [], previo.recorte_vivienda || null,
+                                          undefined, otras,
+                                          { croquis, croquis_ajustar: ajustar });
+        if (!data) {
+            setTrabajoPrevio(previo);
+            return { ok: false, texto: 'No se ha podido ajustar: mira el aviso en el ordenador.' };
+        }
+        const hechas = (data.croquis_ajustado || []).map(z => ({
+            nivel: z.nivel, planta: planta.id, uso: z.uso, poligono: z.poligono,
+            area_m2: z.area_m2,
+        }));
+        const nuevas = [...otras, ...hechas];
+        // Lo que se pedirá al volver a medir: ya con el croquis como zonas.
+        zonasPedidas.current = nuevas;
+        setTrabajoPrevio({ ...previo, zonas_fuera: nuevas });
+        setTrazosCroquis(c => ({ ...c, [planta.id]: [] }));
+        setCroquisPlanta(null);
+        // m² sin decimales: el croquis los AJUSTA, no los mide (el mismo garaje
+        // salía como 120,99 aquí, 121,0 en la barra y 122 en Catastro).
+        const resumen = (data.croquis_ajustado || []).map(z =>
+            `${ETIQUETA_USO_ZONA[z.uso] || z.uso} ${Math.round(Number(z.area_m2) || 0)} m²`
+            + (z.catastro_m2 ? ` (Catastro ${Math.round(Number(z.catastro_m2) || 0)})` : ''));
+        onAviso?.(resumen.length
+            ? `Croquis ${ajustar ? 'ajustado a Catastro' : 'aplicado tal cual'} en `
+              + `${planta.nombre || 'la planta'}: ${resumen.join(' · ')}. Lo demás es vivienda.`
+            : 'El croquis no ha dado ninguna zona: mira el diagnóstico.');
+        // Lo que ha quedado de la planta tras volver a medir: el móvil lo
+        // necesita para no pintar las zonas nuevas sobre las paredes de antes.
+        const nueva = (data.plantas || []).find(p => p.id === planta.id)
+            || (data.plantas || []).find(p => p.nivel === planta.nivel);
+        const remedida = {
+            zonasMundo: hechas,
+            muros: (nueva?.muros || []).map(m => ({ svg: m.svg, ...metaParedMovil(m) })),
+            marcoNuevo: lienzoAMundo(data.georef),
+        };
+        return resumen.length
+            ? { ok: true, lineas: resumen, ...remedida,
+                texto: `${ajustar ? 'Ajustado a Catastro' : 'Aplicado tal cual'} en ${planta.nombre || 'la planta'}.` }
+            : { ok: false, texto: 'El croquis no ha dado ninguna zona (¿cae fuera de las paredes?).', ...remedida };
+    }
+
+    // Los trazos del móvil, del lienzo en que se abrió la sesión al de ahora.
+    function trazosAlLienzo(trazos, marco) {
+        const d = deltaLienzo(marco, lienzoAMundo(geo?.georef));
+        if (!d) return trazos || [];
+        return (trazos || []).map(t => ({
+            ...t, pts: (t.pts || []).map(([x, y]) => [x + d[0], y + d[1]]) }));
+    }
+
+
+    // Lo que se ha revisado en el TELÉFONO sobre la foto de una pared: lo pone en
+    // el plano `ponerHuecosDelMovil` (la misma función que el popup de aquí) y
+    // aquí se escribe la marca de la foto, que necesita la sesión.
+    async function ponerHuecosDesdeMovil(pedido) {
+        const r = await ponerHuecosDelMovil(plano, pedido, {
+            ponerMarcas: (cuerpo) => axios.put(api(id, 'fotos/marcas'), cuerpo),
+        });
+        if (r.ok) {
+            window.dispatchEvent(new CustomEvent('envolvente:fotos'));
+            onAviso?.(`Desde el móvil: ${r.texto}`);
+        }
+        return r;
+    }
+
+    // El ajuste pulsado AQUÍ con una sesión del móvil abierta en esa planta: el
+    // teléfono también tiene que enterarse (y dejar de enseñar lo ya aplicado).
+    async function ajustarCroquisDesdeAqui(planta, ajustar) {
+        const r = await ajustarCroquis(planta, ajustar);
+        if (movil.sesion?.planta?.id === planta.id) movil.responder(respuestaParaElMovil(r, movil.sesion.planta.marco));
+    }
+
+    // Abrir el croquis en el MÓVIL: a la sesión solo va la geometría de esa
+    // planta (paredes, lienzo, zonas ya restadas) y lo que Catastro declara que
+    // no es vivienda; la cartografía la pone el backend con su caché.
+    async function abrirCroquisMovil(planta) {
+        if (!geo?.georef) { setError('Falta la georreferencia del plano: vuelve a traer la envolvente.'); return; }
+        if (movil.sesion) movil.cerrar();
+        setDibujandoCubierta(null);
+        setDibujandoRecorte(null);
+        setDibujandoZona(null);
+        // Se pinta en el teléfono: aquí se mira. Pintar en los dos sitios a la
+        // vez haría que lo de uno pisara lo del otro.
+        setCroquisPlanta(null);
+        const marco = lienzoAMundo(geo.georef);
+        const ok = await movil.abrir({ id: planta.id, nombre: planta.nombre, nivel: planta.nivel, marco }, {
+            planta: { id: planta.id, nombre: planta.nombre, nivel: planta.nivel },
+            muros: (planta.muros || []).filter(m => (m.svg || []).length >= 2)
+                .map(m => ({ svg: m.svg, ...metaParedMovil(plano.muros?.[m.id] || m) })),
+            lienzo: plano.lienzo,
+            zonas: zonasLienzo.filter(z => z.nivel === planta.nivel)
+                .map(z => ({ uso: z.uso, lienzo: z.lienzo })),
+            catastro: (geo?.construcciones || []).filter(c => c.nivel === planta.nivel && !c.cuenta)
+                .map(c => ({ uso: c.uso, superficie: c.superficie })),
+            trazos: trazosCroquis[planta.id] || [],
+            // La PROPUESTA de croquis: en el teléfono se ofrece igual («Partir de
+            // la propuesta»), con el motivo de cada mancha.
+            propuesta: (propuestaCroquis[planta.id] || []).map(t => ({ uso: t.uso, pts: t.pts, por_que: t.por_que })),
+            georef: geo.georef,
+        });
+        if (ok) setVerQrMovil(true);
+    }
+
     // ── La cartografía del Catastro DEBAJO del plano ─────────────────────────
     // Una medianera lo es por lo que hay AL OTRO LADO, y el plano ya dibuja los
     // colindantes; con la cartografía de verdad debajo deja de haber que fiarse
@@ -385,7 +608,24 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     // Encendida POR DEFECTO: comprobar contra qué da cada pared es el trabajo,
     // no un extra. Se separa la INTENCIÓN (`quiereCatastro`) de los datos
     // (`catastro`) para que apagarla no la vuelva a pedir en bucle.
-    const [quiereCatastro, setQuiereCatastro] = useState(true);
+    //
+    // El FONDO es uno: la cartografía del Catastro, la VISTA AÉREA (ortofoto
+    // del PNOA, ver `logic/ortofoto.js`) o nada. No caben dos: la cartografía
+    // es un papel opaco y taparía la foto. La elección se recuerda en ESTE
+    // navegador —quien trabaja con la foto la quiere en el siguiente
+    // expediente—, y sin nada guardado sale el Catastro, como siempre.
+    const [fondo, setFondo] = useState(() => {
+        try {
+            const v = localStorage.getItem(CLAVE_FONDO);
+            return ['catastro', 'satelite', 'ninguno'].includes(v) ? v : 'catastro';
+        } catch { return 'catastro'; }
+    });
+    const quiereCatastro = fondo === 'catastro';
+    const verSatelite = fondo === 'satelite';
+    const cambiarFondo = useCallback((f) => {
+        setFondo(f);
+        try { localStorage.setItem(CLAVE_FONDO, f); } catch { /* sin almacenamiento: da igual */ }
+    }, []);
     const [catastro, setCatastro] = useState(null);
     const [trayendoCatastro, setTrayendoCatastro] = useState(false);
     const [falloCatastro, setFalloCatastro] = useState(null);
@@ -420,8 +660,13 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     useEffect(() => { setCatastro(null); setFalloCatastro(null); }, [geo?.georef]);
 
     function verCatastro(encender) {
-        setQuiereCatastro(encender);
+        cambiarFondo(encender ? 'catastro' : 'ninguno');
         if (encender) setFalloCatastro(null);   // volver a pulsar es reintentar
+    }
+    // La vista aérea no pide nada a nuestro servidor: las teselas las baja el
+    // navegador del IGN, y las coloca el plano (`PlanoPlanta`).
+    function ponSatelite(encender) {
+        cambiarFondo(encender ? 'satelite' : 'ninguno');
     }
 
     // ── Qué construcciones CUENTAN ───────────────────────────────────────────
@@ -765,6 +1010,26 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     //: por su posición en lo pedido). Una zona que el motor no ha aplicado —no
     //: toca la casa, o es de una planta que ya no existe— sale marcada: el
     //: diagnóstico dice por qué.
+    // La PROPUESTA de croquis del motor, por planta y en ESTE lienzo. El motor
+    // la calcula al medir (solo en las plantas sin zonas ni croquis) y aquí se
+    // ofrece: «Ver la propuesta» la carga como un croquis más.
+    const propuestaCroquis = useMemo(() => {
+        const t = lienzoAMundo(geo?.georef);
+        if (!t) return {};
+        const out = {};
+        for (const pr of geo?.croquis_propuesto || []) {
+            const pl = (plano.plantas || []).find(p => p.nivel === pr.nivel);
+            if (!pl || !pr.trazos?.length) continue;
+            out[pl.id] = pr.trazos.map(tr => ({
+                uso: tr.uso, por_que: tr.por_que, confianza: tr.confianza,
+                area_m2: tr.area_m2, catastro_m2: tr.catastro_m2,
+                pts: (tr.poligono || []).map(([X, Y]) => [X - t.dx, t.y0 - Y]),
+            }));
+        }
+        return out;
+    }, [geo?.georef, geo?.croquis_propuesto, plano.plantas]);
+    const [notasPropuesta, setNotasPropuesta] = useState({});
+
     const zonasLienzo = useMemo(() => {
         const t = lienzoAMundo(geo?.georef);
         if (!t) return [];
@@ -1099,7 +1364,9 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                             <PlanoPlanta planta={aLaVez[0] || plantas[0]} plano={plano}
                                          capas={aLaVez}
                                          entorno={false} onEntorno={setEntorno}
-                                         modo="3d" altura={alturaPlanta} />
+                                         modo="3d" altura={alturaPlanta}
+                                         georef={geo?.georef} satelite={verSatelite}
+                                         onSatelite={ponSatelite} />
                         ) : aLaVez.map(p => (
                             <PlanoPlanta key={p.id || p.nombre} planta={p} plano={plano}
                                          cuerpos={cuerpos} onCuerpo={setCuerpoSel}
@@ -1135,7 +1402,48 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                          onZona={(poly) => cerrarZona(p, poly)}
                                          onZonaModo={si => { setDibujandoCubierta(null);
                                                              setDibujandoRecorte(null);
+                                                             setCroquisPlanta(null);
                                                              setDibujandoZona(si ? p.id : null); }}
+                                         croquis={trazosCroquis[p.id] || []}
+                                         dibujarCroquis={croquisPlanta === p.id}
+                                         usoCroquis={usoCroquis} onUsoCroquis={setUsoCroquis}
+                                         onCroquisTrazo={(pts) => setTrazosCroquis(c => ({
+                                             ...c, [p.id]: [...(c[p.id] || []), { uso: usoCroquis, pts }] }))}
+                                         onCroquisModo={si => { setDibujandoCubierta(null);
+                                                                setDibujandoRecorte(null);
+                                                                setDibujandoZona(null);
+                                                                if (!si) setNotasPropuesta(n => ({ ...n, [p.id]: null }));
+                                                                setCroquisPlanta(si ? p.id : null); }}
+                                         propuestaCroquis={propuestaCroquis[p.id] || null}
+                                         notasPropuesta={croquisPlanta === p.id ? notasPropuesta[p.id] : null}
+                                         onVerPropuesta={() => {
+                                             const pr = propuestaCroquis[p.id];
+                                             if (!pr?.length) return;
+                                             setDibujandoCubierta(null);
+                                             setDibujandoRecorte(null);
+                                             setDibujandoZona(null);
+                                             setTrazosCroquis(c => ({ ...c, [p.id]: pr.map(t => ({ uso: t.uso, pts: t.pts })) }));
+                                             setNotasPropuesta(n => ({ ...n, [p.id]: pr }));
+                                             setCroquisPlanta(p.id);
+                                         }}
+                                         onCroquisAjustar={(aj) => ajustarCroquisDesdeAqui(p, aj)}
+                                         onCroquisMovil={() => abrirCroquisMovil(p)}
+                                         croquisMovil={movil.sesion?.planta?.id === p.id
+                                             ? { conectado: movil.estado.conectado,
+                                                 enCurso: movil.estado.enCurso
+                                                     ? trazosAlLienzo([movil.estado.enCurso],
+                                                                      movil.sesion.planta.marco)[0]
+                                                     : null }
+                                             : null}
+                                         abriendoMovil={movil.abriendo}
+                                         onCroquisMovilQr={() => setVerQrMovil(true)}
+                                         onCroquisMovilCerrar={() => { movil.cerrar(); setVerQrMovil(false);
+                                                                       setTrazosCroquis(c => ({ ...c, [p.id]: [] })); }}
+                                         onCroquisDeshacer={() => setTrazosCroquis(c => ({
+                                             ...c, [p.id]: (c[p.id] || []).slice(0, -1) }))}
+                                         onCroquisBorrar={() => setTrazosCroquis(c => ({ ...c, [p.id]: [] }))}
+                                         catastroPlanta={(geo?.construcciones || [])
+                                             .filter(c => c.nivel === p.nivel && !c.cuenta)}
                                          onZonaQuitar={quitarZona}
                                          onRecorteQuitar={quitarRecorte}
                                          recorteSugerido={p.id === plantaRecorte && muchasParedes && !recorteLienzo}
@@ -1144,7 +1452,9 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                          quiereCatastro={quiereCatastro}
                                          onCatastro={verCatastro}
                                          trayendoCatastro={trayendoCatastro}
-                                         falloCatastro={falloCatastro} />
+                                         falloCatastro={falloCatastro}
+                                         georef={geo?.georef} satelite={verSatelite}
+                                         onSatelite={ponSatelite} />
                         ))}
                     </div>
                 </div>
@@ -1155,6 +1465,12 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                 carpinteriaDefecto={huecosDefecto(ajustes)} expedienteId={id} />
                 </div>
             </div>
+
+            {verQrMovil && movil.sesion && (
+                <CroquisMovilModal sesion={movil.sesion} conectado={movil.estado.conectado}
+                                   onCerrar={() => setVerQrMovil(false)}
+                                   onTerminar={() => { movil.cerrar(); setVerQrMovil(false); }} />
+            )}
 
             {verVentanasAhora && (
                 <VentanasViviendaModal

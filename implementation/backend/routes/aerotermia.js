@@ -548,3 +548,8 @@ function buildPayload(body) {
 }
 
 module.exports = router;
+// La MISMA normalización para quien da de alta un equipo desde un script (la
+// skill `generar-cee-inicial`): con una copia, un SCOP de tres decimales o un
+// η en tanto por uno entrarían en el catálogo de una forma por la pantalla y de
+// otra por el script.
+module.exports.buildPayload = buildPayload;

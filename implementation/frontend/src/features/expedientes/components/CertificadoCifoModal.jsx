@@ -40,6 +40,10 @@ import { usePlacaScopAcs } from '../logic/usePlacaScopAcs';
 import { PlacaScopAcsBanda } from './PlacaScopAcsBanda';
 // Quién firma cada documento, y poder arreglarlo sin salir del envío.
 import { FirmantesEnvio } from './FirmantesEnvio';
+// Revisar lo que se manda sin salir del envío, y pedir aquí lo que le falta a la
+// Memoria RITE. El visor es el mismo que el del envío de anexos del cliente.
+import { VisorDocumentosEnvio } from './VisorDocumentosEnvio';
+import { RiteDatosPendientes } from './RiteDatosPendientes';
 
 const APP_BASE_URL = 'https://app.brokergy.es';
 
@@ -59,7 +63,7 @@ const APP_URL = import.meta.env.VITE_APP_URL || (typeof window !== 'undefined' ?
 // "Corrección" y el aviso de cabecera con el motivo. Mientras el CIFO esté rechazado
 // y sin reenviar, el backend NO sirve el borrador en /subir-cifo (rechazoBorrador en
 // utils/docValidacion): la única salida es corregir, regenerar y volver a enviar.
-export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rechazo = null, attachments: externalAttachments, onAttachmentsChange, onSaveDrive, onSaveFichaLink, onSaveExtraAnnexes, onSaveAnnexPrefs, onMarkSent }) {
+export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rechazo = null, attachments: externalAttachments, onAttachmentsChange, onSaveDrive, onSaveFichaLink, onSaveExtraAnnexes, onSaveAnnexPrefs, onMarkSent, onSaveDocFields }) {
     const { user } = useAuth();
     const { showConfirm } = useModal();
     const containerRef = useRef(null);
@@ -104,6 +108,15 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
     // documentación RITE. `riteBloqueo` explica por qué NO se puede ofrecer.
     const [sendDocsSel, setSendDocsSel] = useState(['cifo']);
     const [riteBloqueo, setRiteBloqueo] = useState('Comprobando…');
+    // Lo que el /check dice que le falta a la Memoria RITE: se PIDE en el propio
+    // envío (RiteDatosPendientes) en vez de mandar a Documentación.
+    const [riteCheck, setRiteCheck] = useState(null);
+    // Visor de lo que sale: null | 'cifo' | 'rite_borrador' | 'rite_memoria'.
+    const [verDoc, setVerDoc] = useState(null);
+    // La documentación RITE para VERLA: la MISMA llamada que la genera para el
+    // envío (/memoria-rite/files, sin tocar Drive ni BD). Se pide al abrir el
+    // visor y se olvida en cuanto cambia algo que la memoria imprime.
+    const [riteFiles, setRiteFiles] = useState({ estado: 'idle', files: [], error: '' });
 
     // El padre ahora pasa siempre los attachments fijos en su state efímero;
     // mantenemos el fallback por si llegan vacíos.
@@ -1151,33 +1164,79 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
         setWaReady(null);
         setSendDocsSel(['cifo']);
         setRiteBloqueo('Comprobando…');
+        setRiteCheck(null);
+        setVerDoc(null);
+        setRiteFiles({ estado: 'idle', files: [], error: '' });
         setSendOpen(true);
         try {
             const st = await axios.get('/api/whatsapp/status');
             setWaReady(!!st.data?.ready);
         } catch { setWaReady(false); }
 
-        // Que la Memoria RITE se pueda mandar de paso NO es solo que falte: hay
-        // que poder generarla sin huecos. La validación es la MISMA que la del
-        // popup de generación (GET /memoria-rite/check, fuente única en
-        // utils/riteValidation): si le faltan datos, se dice cuál es el problema
-        // en vez de mandar una memoria a medias que el instalador no puede firmar.
-        if (!estadoInst.pendientes.includes('rite')) { setRiteBloqueo('Ya la tenemos'); return; }
+        if (await comprobarRite()) {
+            setSendDocsSel(['cifo', 'rite']);
+            setSendMessage(buildCifoMessage(defaultTpl, (sel[0]?.saludo || sel[0]?.label) || empResponsable, ['cifo', 'rite']));
+        }
+    };
+
+    // Que la Memoria RITE se pueda mandar de paso NO es solo que falte: hay que
+    // poder generarla sin huecos. La validación es la MISMA que la del popup de
+    // generación (GET /memoria-rite/check, fuente única en utils/riteValidation).
+    // Si le faltan datos, se PIDEN en el propio envío (RiteDatosPendientes) en vez
+    // de mandar a Documentación. Devuelve true si ya se puede mandar.
+    const comprobarRite = async () => {
+        if (!estadoInst.pendientes.includes('rite')) { setRiteBloqueo('Ya la tenemos'); setRiteCheck(null); return false; }
         try {
             const { data } = await axios.get(`/api/expedientes/${expediente.id}/memoria-rite/check`);
             const faltan = (data?.missing?.length ? data.missing.length : 0)
                 + (data?.potencias?.length ? data.potencias.length : 0)
                 + (data?.situadoEn ? 1 : 0) + (data?.fechaPruebas ? 1 : 0);
             if (faltan) {
-                setRiteBloqueo('Le faltan datos - genérala desde Documentación');
-            } else {
-                setRiteBloqueo(null);
-                setSendDocsSel(['cifo', 'rite']);
-                setSendMessage(buildCifoMessage(defaultTpl, (sel[0]?.saludo || sel[0]?.label) || empResponsable, ['cifo', 'rite']));
+                setRiteCheck(data);
+                setRiteBloqueo('Le faltan datos — complétalos aquí abajo');
+                return false;
             }
+            setRiteCheck(null);
+            setRiteBloqueo(null);
+            return true;
         } catch {
+            setRiteCheck(null);
             setRiteBloqueo('No se ha podido comprobar - mándala desde Documentación');
+            return false;
         }
+    };
+
+    // Tras guardar en el popup lo que faltaba: se vuelve a comprobar y, si ya se
+    // puede, la documentación RITE entra en el envío y el mensaje lo anuncia.
+    const riteResuelto = async () => {
+        setRiteFiles({ estado: 'idle', files: [], error: '' });
+        if (await comprobarRite()) {
+            setSendDocsSel(prev => {
+                const next = ['cifo', 'rite'].filter(x => x === 'rite' || prev.includes(x));
+                setSendMessage(buildCifoMessage(templateKey, (selectedContacts[0]?.saludo || selectedContacts[0]?.label) || empResponsable, next));
+                return next;
+            });
+        }
+    };
+
+    // La documentación RITE para el VISOR: la misma generación que el envío.
+    const cargarRiteFiles = async () => {
+        if (riteFiles.estado === 'cargando' || riteFiles.estado === 'ok') return;
+        setRiteFiles({ estado: 'cargando', files: [], error: '' });
+        try {
+            const { data } = await axios.post(`/api/expedientes/${expediente.id}/memoria-rite/files`);
+            setRiteFiles({ estado: 'ok', files: data?.files || [], error: '' });
+        } catch (e) {
+            setRiteFiles({ estado: 'error', files: [], error: e.response?.data?.error || e.message || 'No se pudo generar la documentación RITE' });
+        }
+    };
+
+    // Abrir el visor en un documento. 'rite' abre la primera de sus pestañas.
+    const abrirVisor = (k) => {
+        const clave = k === 'rite' ? 'rite_borrador' : k;
+        if (clave.startsWith('rite')) cargarRiteFiles();
+        else if (!riteBloqueo) cargarRiteFiles();   // de paso: para pasar a su pestaña sin esperar
+        setVerDoc(clave);
     };
 
     // Al marcar/desmarcar un contacto o cambiar de plantilla regeneramos el mensaje
@@ -1548,16 +1607,34 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                                     bloqueos={riteBloqueo ? { rite: riteBloqueo } : {}}
                                     pendientes={estadoInst.pendientes}
                                     onToggle={pickDoc}
+                                    onVer={abrirVisor}
                                 />
+
+                                {/* Si a la Memoria RITE le falta algo, se pide AQUÍ y al
+                                    guardarlo entra en el envío. La `key` remonta el bloque
+                                    con cada comprobación nueva (sus campos nacen de ella). */}
+                                {riteCheck && (
+                                    <RiteDatosPendientes
+                                        key={JSON.stringify(riteCheck)}
+                                        check={riteCheck}
+                                        onGuardarDoc={onSaveDocFields}
+                                        onResuelto={riteResuelto}
+                                    />
+                                )}
 
                                 {/* Quién firma CADA documento de los que se mandan. No
                                     es la misma persona: el CIFO lo firma quien representa
                                     a la empresa y la memoria quien está habilitado ante
-                                    Industria (puede ser un técnico con su carné). */}
+                                    Industria (puede ser un técnico con su carné). Si no
+                                    consta, se pide ahí mismo. */}
                                 <FirmantesEnvio
                                     docs={sendDocsSel.filter(k => k !== 'rite' || !riteBloqueo)}
                                     pres={presFirmanteRite}
-                                    onFichaActualizada={setPresRefrescada}
+                                    onFichaActualizada={(fresca) => {
+                                        setPresRefrescada(fresca);
+                                        // La memoria imprime al firmante: la que se vio ya no vale.
+                                        setRiteFiles({ estado: 'idle', files: [], error: '' });
+                                    }}
                                     opcionesCifo={opcionesCifoFirma}
                                     firmanteCifo={firmanteRol}
                                     onFirmanteCifo={pickFirmante}
@@ -1681,6 +1758,54 @@ export function CertificadoCifoModal({ isOpen, onClose, expediente, results, rec
                                 </div>
                             </div>
                         </div>
+
+                        {/* ── VISOR: lo que va a salir, sin salir del envío ──────
+                            El CIFO sale de buildHtml + anexos, lo MISMO que se guarda
+                            en Drive al enviar (y que sirve el enlace de firma). La
+                            documentación RITE, de /memoria-rite/files, la MISMA
+                            generación que adjunta /instalador/enviar. */}
+                        {verDoc && (() => {
+                            const U = (f) => (f?.name || '').toUpperCase();
+                            const rf = riteFiles.files || [];
+                            const borrador = rf.find(f => U(f).includes('BORRADOR_CERTIFICADO'));
+                            const memoriaPdf = rf.find(f => U(f).includes('MEMORIA_RITE') && U(f).endsWith('.PDF'));
+                            const memoriaDocx = rf.find(f => U(f).endsWith('.DOCX'));
+                            const riteSale = sendDocsSel.includes('rite') ? 'sale' : 'fuera';
+                            const cargandoRite = riteFiles.estado === 'idle' || riteFiles.estado === 'cargando';
+                            const falloRite = riteFiles.estado === 'error' ? riteFiles.error : '';
+                            const pdfDe = (f, nombre) => cargandoRite || falloRite ? {}
+                                : f && U(f).endsWith('.PDF') ? { pdf: f.base64 }
+                                    : { sinVista: `El servicio RITE no ha devuelto ${nombre} en PDF.` };
+                            const docsVisor = [
+                                {
+                                    key: 'cifo', grupo: 'cifo', titulo: 'Certificado CIFO',
+                                    estado: sendDocsSel.includes('cifo') ? 'sale' : 'fuera',
+                                    fuente: { html: buildHtml(), annexes: getAnnexPayload() },
+                                },
+                                ...(riteBloqueo ? [] : [
+                                    {
+                                        key: 'rite_borrador', grupo: 'rite', titulo: 'Borrador certificado RITE', estado: riteSale,
+                                        pendiente: cargandoRite, fallo: falloRite, ...pdfDe(borrador, 'el borrador del certificado'),
+                                        aviso: 'Es el borrador para copiar en la plataforma de Industria: lo registra el instalador.',
+                                    },
+                                    {
+                                        key: 'rite_memoria', grupo: 'rite', titulo: 'Memoria RITE', estado: riteSale,
+                                        pendiente: cargandoRite, fallo: falloRite, ...pdfDe(memoriaPdf, 'la memoria'),
+                                        aviso: memoriaDocx ? 'La memoria va también en Word, para que la pueda editar antes de firmarla.' : null,
+                                        descargas: memoriaDocx ? [{ nombre: memoriaDocx.name, base64: memoriaDocx.base64, mimetype: memoriaDocx.mimetype, etiqueta: 'Descargar el Word' }] : [],
+                                    },
+                                ]),
+                            ];
+                            return (
+                                <VisorDocumentosEnvio
+                                    docs={docsVisor}
+                                    activo={verDoc}
+                                    onActivo={(k) => { if (k.startsWith('rite')) cargarRiteFiles(); setVerDoc(k); }}
+                                    onClose={() => setVerDoc(null)}
+                                    onToggle={pickDoc}
+                                />
+                            );
+                        })()}
                     </div>
                 )}
 

@@ -424,6 +424,46 @@ export function areaPoligono(pts) {
 }
 
 /**
+ * Un trazo a MANO ALZADA con los vértices que hacen falta y no más.
+ *
+ * El dedo o el ratón dejan un punto cada pocos centímetros: rodear una casa de
+ * 14 × 14 m son 400 vértices, y el backend no admite un croquis de más de 400.
+ * Ramer-Douglas-Peucker con una tolerancia de 8 cm —que es menos que el grosor
+ * de un tabique—: la forma no cambia y el motor la endereza de todos modos.
+ * Si aún pasa del tope, se va subiendo la tolerancia.
+ */
+export function simplificarTrazo(pts, tol = 0.08, max = 200) {
+    const p = (pts || []).filter(q => Array.isArray(q) && Number.isFinite(q[0]) && Number.isFinite(q[1]));
+    if (p.length <= 3) return p;
+    const rdp = (ini, fin, t, out) => {
+        const [ax, ay] = p[ini], [bx, by] = p[fin];
+        const L = Math.hypot(bx - ax, by - ay);
+        let dMax = -1, iMax = -1;
+        for (let i = ini + 1; i < fin; i++) {
+            const [x, y] = p[i];
+            const d = L < 1e-9 ? Math.hypot(x - ax, y - ay)
+                : Math.abs((bx - ax) * (ay - y) - (ax - x) * (by - ay)) / L;
+            if (d > dMax) { dMax = d; iMax = i; }
+        }
+        if (dMax > t) {
+            rdp(ini, iMax, t, out);
+            out.push(p[iMax]);
+            rdp(iMax, fin, t, out);
+        }
+    };
+    let t = tol, salida = p;
+    for (let vuelta = 0; vuelta < 8; vuelta++) {
+        const out = [p[0]];
+        rdp(0, p.length - 1, t, out);
+        out.push(p[p.length - 1]);
+        salida = out;
+        if (salida.length <= max) break;
+        t *= 1.6;
+    }
+    return salida;
+}
+
+/**
  * Del LIENZO al MUNDO: la traslación con la que el motor colocó el plano.
  *
  * `plano_svg._georef` deja `bbox = [oeste, sur, este, norte]` del rectángulo del
@@ -440,6 +480,6 @@ export function lienzoAMundo(georef) {
 }
 
 export default { largo, at, centro, centroide, cota, iso, proyector, CAMARA_ISO, ESCALA_AXO,
-                 areaPoligono, claveEncuadre, lienzoAMundo, tamanosDeDibujo,
+                 areaPoligono, claveEncuadre, lienzoAMundo, simplificarTrazo, tamanosDeDibujo,
                  TOPE_ALT, caja, recorrido, reparto, fmt, puntoMasCercano, pegarAPared,
                  RUMBOS, rumboDelAzimut, rumbosDeLaPared };

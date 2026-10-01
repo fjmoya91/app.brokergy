@@ -22,6 +22,9 @@ import { fireSuccessConfetti } from '../utils/successConfetti';
 import { CanalChip } from '../../../components/CanalChip';
 import { useAuth } from '../../../context/AuthContext';
 import { getRoleFlags } from '../../../utils/roleFlags';
+import RevisionCeeModal from './RevisionCeeModal';
+import CeeFinalDesdeMedidaModal from './CeeFinalDesdeMedidaModal';
+import { getFicha } from '../logic/expedienteTaxonomia';
 
 // ─── Componentes de Celda ──────────────────────────────────────────────────
 function TableCell({ value, onChange, readOnly, type = 'number', highlight = false }) {
@@ -227,6 +230,22 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
 
     // ─── Estado para popup de validación (approve-cee) ─────────────────────
     const [showApprovePopup, setShowApprovePopup] = useState(false);
+    //: La REVISIÓN del CEE del técnico (informe antes del visto bueno). Solo en
+    //: el CAE: la ruta vive en `/api/expedientes` y en un CEE directo no hay
+    //: medida de mejora que revisar.
+    const [revisionFase, setRevisionFase] = useState(null);
+    const puedeRevisar = !String(apiBase || '').includes('cee-directos');
+    //: GENERAR el CEE final desde la medida de mejora del inicial del técnico
+    //: (`services/cee/ceeFinalDesdeMedida.js`). De momento RES060 y RES093: en
+    //: un RES080 la medida toca la envolvente y es la segunda fase.
+    const [generarFinal, setGenerarFinal] = useState(false);
+    const puedeGenerarFinal = puedeRevisar && ['RES060', 'RES093'].includes(getFicha(expediente || {}));
+    // La revisión PREVIA que ve el técnico al subir (su parte de la misma
+    // revisión de la lupa). No refresca el expediente: el popup donde sale
+    // vive en la rejilla y un refresco lo desmontaría a media lectura.
+    const preRevision = (fase) => axios
+        .post(`${apiBase}/${expediente.id}/pre-revision-cee?fase=${fase}`)
+        .then((r) => r.data);
     const [approveLoading, setApproveLoading] = useState(false);
     const [approveResult, setApproveResult] = useState(null);
     const [approveMessage, setApproveMessage] = useState('');
@@ -867,6 +886,9 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 }}
                 onApproveCee={openApprovePopup}
                 onApproveSend={submitApprove}
+                onRevisarCee={puedeRevisar ? setRevisionFase : null}
+                onPreRevision={puedeRevisar ? preRevision : null}
+                onGenerarFinal={puedeGenerarFinal ? () => setGenerarFinal(true) : null}
             />
 
             {/* Cargar CEE por fichero (XML exacto u OCR IA) — alternativa a subir el .xml o
@@ -993,6 +1015,8 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 }}
                 onApproveCee={openApprovePopup}
                 onApproveSend={submitApprove}
+                onRevisarCee={puedeRevisar ? setRevisionFase : null}
+                onPreRevision={puedeRevisar ? preRevision : null}
             />
 
             {/* En modo MANUAL (sin .xml): aviso de que todo (incluida la superficie) se edita en la tabla */}
@@ -1123,6 +1147,24 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
 
     return (
         <div className="space-y-6">
+            {generarFinal && (
+                <CeeFinalDesdeMedidaModal
+                    expediente={expediente}
+                    apiBase={apiBase}
+                    onClose={() => setGenerarFinal(false)}
+                />
+            )}
+            {revisionFase && (
+                <RevisionCeeModal
+                    expediente={expediente}
+                    fase={revisionFase}
+                    apiBase={apiBase}
+                    onClose={() => setRevisionFase(null)}
+                    onRefresh={onRefresh}
+                    onApprove={(f) => { setRevisionFase(null); openApprovePopup(f); }}
+                />
+            )}
+
             {/* ─── Popup de validación CEE (approve-cee) ─────────────────── */}
             {showApprovePopup && (
                 <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in max-md:items-end" onClick={() => { if (!approveLoading) setShowApprovePopup(false); }}>

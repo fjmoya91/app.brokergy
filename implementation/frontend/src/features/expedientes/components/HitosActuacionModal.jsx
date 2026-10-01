@@ -100,6 +100,11 @@ export function HitosActuacionModal({ expediente, doc, readOnly = false, user, o
     const cifoGenerado = !!doc?.cert_cifo_drive_link;
     const cifoFirmado = !!doc?.cert_cifo_signed_link;
 
+    // El bloque de hitos va en una hoja de alto FIJO: una aclaración más larga que
+    // el tope desbordaría la hoja. No se recorta sola —se cortaría a media frase en
+    // un documento firmado—: se dice y no se deja guardar hasta acortarla.
+    const demasiadoLarga = aclaracion.trim().length > ACLARACION_MAX;
+
     const setMotivo = (idx, m) => setMotivos(prev => prev.map((v, i) => (i === idx ? m : v)));
 
     const redactarIa = async () => {
@@ -134,7 +139,7 @@ export function HitosActuacionModal({ expediente, doc, readOnly = false, user, o
                 fecha_inicio_cifo_manual: inicioManual || null,
                 fecha_fin_cifo_manual: finManual || null,
                 hitos_actuacion: texto ? {
-                    aclaracion: texto.slice(0, ACLARACION_MAX),
+                    aclaracion: texto,
                     origen: origenTexto || 'manual',
                     por: user?.nombre || user?.email || null,
                     at: new Date().toISOString(),
@@ -171,19 +176,27 @@ export function HitosActuacionModal({ expediente, doc, readOnly = false, user, o
                             ))}
                         </ol>
                         {!items.length && <p className="text-[12px] text-white/40 italic">Todavía no hay ninguna fecha: ni facturas, ni pruebas del RITE, ni CEE.</p>}
-                        {/* Los dos CEE salen SIEMPRE en el certificado; lo que falte, con «—».
-                            Se dice aquí para que no sorprenda al abrir el PDF. */}
+                        {/* Lo que no consta NO se imprime: sin fechas de un CEE, su fila no
+                            sale en el certificado. Se dice aquí para que no sorprenda al
+                            abrir el PDF (y otra vez en la puerta de «Generar»). */}
                         {[['ceeInicial', 'inicial'], ['ceeFinal', 'final']].map(([k, fase]) => {
                             const c = h[k] || {};
                             const falta = [!c.visita && 'la visita del técnico', !c.firma && 'la firma'].filter(Boolean);
                             if (!falta.length) return null;
                             return (
                                 <p key={k} className="text-[11px] text-white/40 mt-2 ml-2">
-                                    CEE {fase}: sin {falta.join(' ni ')} todavía — en el certificado sale «—».
+                                    CEE {fase}: sin {falta.join(' ni ')} todavía — {falta.length === 2
+                                        ? 'su fila no saldrá en el certificado'
+                                        : 'esa casilla saldrá vacía en el certificado'}.
                                     Se toma de la rejilla del CEE o de su .xml.
                                 </p>
                             );
                         })}
+                        {!h.pruebas && (
+                            <p className="text-[11px] text-white/40 mt-2 ml-2">
+                                Sin fecha de pruebas del Certificado RITE — esa casilla saldrá vacía en el certificado.
+                            </p>
+                        )}
                         {sinFecha.length > 0 && (
                             <p className="text-[11px] text-amber-300/80 mt-2">
                                 {sinFecha.length === 1 ? 'Una factura no tiene' : `${sinFecha.length} facturas no tienen`} fecha y no cuenta{sinFecha.length === 1 ? '' : 'n'} para el inicio ni el fin: ponla en «Facturas de la obra».
@@ -219,7 +232,7 @@ export function HitosActuacionModal({ expediente, doc, readOnly = false, user, o
                         </div>
                         <textarea
                             value={aclaracion}
-                            onChange={e => { setAclaracion(e.target.value.slice(0, ACLARACION_MAX)); setOrigenTexto('manual'); }}
+                            onChange={e => { setAclaracion(e.target.value); setOrigenTexto('manual'); }}
                             readOnly={readOnly}
                             rows={4}
                             placeholder={h.anteriores.length
@@ -257,6 +270,11 @@ export function HitosActuacionModal({ expediente, doc, readOnly = false, user, o
                                 </button>
                             </div>
                         )}
+                        {demasiadoLarga && (
+                            <p className="text-[11px] text-red-300/90 mt-2 leading-snug">
+                                Se pasa del máximo ({aclaracion.trim().length} de {ACLARACION_MAX} caracteres): acórtala para poder guardar. El bloque va en una hoja de alto fijo del certificado.
+                            </p>
+                        )}
                         {ia.aviso && <p className="text-[11px] text-amber-300/85 mt-2 leading-snug">{ia.aviso}</p>}
                         <p className="text-[11px] text-white/35 mt-2 leading-snug">
                             La IA solo redacta: el texto que cite una fecha o una factura que no consta en el expediente se descarta. Revísalo antes de guardar —va en un documento que firma el instalador.
@@ -278,7 +296,7 @@ export function HitosActuacionModal({ expediente, doc, readOnly = false, user, o
                             {readOnly ? 'Cerrar' : 'Cancelar'}
                         </button>
                         {!readOnly && (
-                            <button onClick={guardar} disabled={guardando}
+                            <button onClick={guardar} disabled={guardando || demasiadoLarga}
                                 className="px-5 py-2 rounded-xl bg-brand text-bkg-deep text-[10px] font-black uppercase tracking-widest hover:brightness-110 transition-all disabled:opacity-50">
                                 {guardando ? 'Guardando…' : 'Guardar'}
                             </button>

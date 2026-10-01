@@ -107,14 +107,19 @@ async function escribir(expediente, todas) {
     //: mueven. Se escribe por la misma función que el resto de la envolvente.
     if (expediente?.es_oportunidad) {
         await require('./ceeEnvolventeCex').setCeeField(expediente, CAMPO, todas);
-        return;
+    } else {
+        const { error } = esCeeDirecto(expediente)
+            ? await supabase.rpc('set_cee_directo_cee_field', {
+                p_cee_directo_id: expediente.id, p_field: CAMPO, p_value: todas })
+            : await supabase.rpc('set_expediente_cee_field', {
+                p_expediente_id: expediente.id, p_field: CAMPO, p_value: todas });
+        if (error) throw new Error(error.message);
     }
-    const { error } = esCeeDirecto(expediente)
-        ? await supabase.rpc('set_cee_directo_cee_field', {
-            p_cee_directo_id: expediente.id, p_field: CAMPO, p_value: todas })
-        : await supabase.rpc('set_expediente_cee_field', {
-            p_expediente_id: expediente.id, p_field: CAMPO, p_value: todas });
-    if (error) throw new Error(error.message);
+    //: Lo escrito queda también en el objeto que se tiene en la mano. Cada
+    //: escritura REEMPLAZA la clave entera desde `fotosDe(expediente)`, así que
+    //: dos seguidas sobre el mismo objeto —pegar varias fotos desde un script—
+    //: se pisaban: la segunda escribía sobre lo que había antes de la primera.
+    if (expediente) expediente.cee = { ...(expediente.cee || {}), [CAMPO]: todas };
 }
 
 /**
@@ -363,6 +368,28 @@ async function bytesDe(expediente, driveId, { cands = null } = {}) {
 }
 
 /**
+ * ¿Es este hueco una PUERTA DE GARAJE? Por su ancho (una puerta de peatón no
+ * pasa de 1,5 m; una de garaje mide 2,2 o más) o porque su descripción lo dice.
+ */
+function esPuertaDeGaraje(h) {
+    if (h?.tipo !== 'puerta') return false;
+    if (Number(h.ancho) >= 2.2) return true;
+    return /garaje|cochera|port[oó]n|basculante|seccional|enrollable/i.test(String(h.descripcion || ''));
+}
+
+/**
+ * Las fachadas en cuya foto hay una puerta de garaje: {GARAJE: [ids]}, o null.
+ * Es lo que se le pasa al motor para PROPONER el croquis.
+ */
+function pistasCroquis(expediente) {
+    const ids = Object.entries(fotosDe(expediente))
+        .filter(([clave, lista]) => !clave.includes('/')
+            && (lista || []).some(f => f?.lectura?.garaje === true))
+        .map(([clave]) => clave);
+    return ids.length ? { GARAJE: ids } : null;
+}
+
+/**
  * Deja escrito lo ultimo que se leyo de una foto.
  *
  * Una comprobacion que se ve una vez y se pierde al cerrar el popup no sirve de
@@ -380,7 +407,10 @@ async function sellarLectura(expediente, clave, driveIds, lectura) {
         ambito: lectura?.ambito || null,
         ...(lectura?.ambito === 'pared'
             ? { ventanas: lectura.ventanas ?? null, puertas: lectura.puertas ?? null,
-                encuadre: lectura.encuadre || null }
+                encuadre: lectura.encuadre || null,
+                // Si en esta fachada hay una PUERTA DE GARAJE: es la pista más
+                // fiable de dónde está el garaje para proponer el croquis.
+                garaje: (lectura.huecos || []).some(esPuertaDeGaraje) }
             : { tipo: lectura?.tipo || null, material_marco: lectura?.material_marco || null,
                 acristalamiento: lectura?.acristalamiento || null }),
     };
@@ -488,4 +518,6 @@ module.exports = {
     bytesDe,
     sellarLectura,
     validaClave,
+    esPuertaDeGaraje,
+    pistasCroquis,
 };

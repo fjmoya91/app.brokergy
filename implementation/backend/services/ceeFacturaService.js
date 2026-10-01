@@ -240,7 +240,7 @@ async function enviar(id, numero, { canales = [], email, tlf, mensaje, usuario =
     const { buffer, filename, reg, row } = await pdfDe(id, numero);
     const contacto = contactoEnvio(row, reg.destino);
     const texto = txt(mensaje) || m.mensajeFactura({
-        nombre: contacto.nombre, numero: reg.numero, total: reg.total, expediente: row.numero_expediente, esEmpresa: contacto.esEmpresa
+        nombre: contacto.nombre, numero: reg.numero, total: reg.total, expediente: row.numero_expediente, esEmpresa: contacto.esEmpresa, lineas: reg.lineas || []
     });
 
     const resultados = {};

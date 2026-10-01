@@ -49,8 +49,11 @@ export function EncargoCertificadorModal({
 
     //: `bloque` = lo que confirmó el cliente al aceptar (emisores, placas, aires),
     //: que llega con el borrador del aviso al cliente. Lo redacta el backend.
-    const plantilla = (bloque = '') => buildCertDefaultMessage('standard', 'inicial', certName,
-        clienteNombre, numExp, ceeFolderLink, expedienteId, { ctx: msgCtx, ce3xBlock: bloque });
+    //: `encargo` = el enlace a la PÁGINA DEL ENCARGO de ESTE técnico (su firma lo
+    //: lleva), que llega en la misma respuesta.
+    const plantilla = (bloque = '', encargo = null) => buildCertDefaultMessage('standard', 'inicial', certName,
+        clienteNombre, numExp, ceeFolderLink, expedienteId,
+        { ctx: { ...msgCtx, encargoLink: encargo }, ce3xBlock: bloque });
 
     const [certNotifLoading, setCertNotifLoading] = useState(false);
     const [certNotifResult, setCertNotifResult] = useState(null);
@@ -58,6 +61,7 @@ export function EncargoCertificadorModal({
     const [certAdminMessage, setCertAdminMessage] = useState('');
     const [certAssignMessage, setCertAssignMessage] = useState(() => plantilla());
     const [bloqueCliente, setBloqueCliente] = useState('');
+    const [enlaceEncargo, setEnlaceEncargo] = useState(null);
     const [certChannels, setCertChannels] = useState(['email']);
     // Si la pulsación fue "Asignar y notificar" o "Solo asignar": el overlay no puede
     // decir "Enviando encargo…" cuando no se manda nada.
@@ -85,9 +89,12 @@ export function EncargoCertificadorModal({
                 // tiene que declarar como existentes los aires y las placas.
                 // Solo si el mensaje sigue siendo la plantilla: lo ya retocado
                 // no se pisa.
-                if (d.bloque_certificador) {
-                    setBloqueCliente(d.bloque_certificador);
-                    setCertAssignMessage(m => (m === plantilla() ? plantilla(d.bloque_certificador) : m));
+                // La página del encargo va en lugar del enlace a la app.
+                if (d.bloque_certificador || d.enlace_encargo) {
+                    setBloqueCliente(d.bloque_certificador || '');
+                    setEnlaceEncargo(d.enlace_encargo || null);
+                    setCertAssignMessage(m => (m === plantilla()
+                        ? plantilla(d.bloque_certificador || '', d.enlace_encargo || null) : m));
                 }
                 // Por WhatsApp, que es donde el cliente lee; si no consta teléfono, por email.
                 setClienteChannels(d.tlf ? ['whatsapp'] : (d.email ? ['email'] : []));
@@ -258,7 +265,7 @@ export function EncargoCertificadorModal({
                                 <p className="text-[9px] font-black text-white/30 uppercase tracking-widest">Mensaje al certificador</p>
                                 <button
                                     type="button"
-                                    onClick={() => setCertAssignMessage(plantilla(bloqueCliente))}
+                                    onClick={() => setCertAssignMessage(plantilla(bloqueCliente, enlaceEncargo))}
                                     disabled={certNotifLoading}
                                     className="text-[9px] font-black uppercase tracking-widest text-white/30 hover:text-brand transition-colors disabled:opacity-40"
                                     title="Restaurar el texto por defecto"

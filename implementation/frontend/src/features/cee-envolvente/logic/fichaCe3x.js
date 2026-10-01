@@ -4,7 +4,7 @@ import { resolverCe3x, buildMedidaMejora } from '../../expedientes/logic/ce3xFin
 import { PRUEBAS_CERTIFICADOR, OTROS_DATOS_MEDIDA, MEDIDA_AUTOCONSUMO,
          techoAutoconsumo } from '../../expedientes/logic/ce3xTextos.js';
 import { normalizarFotovoltaica } from '../../expedientes/logic/fotovoltaica.js';
-import { EQUIPO_NUEVO, RENDIMIENTO_JOULE }
+import { EQUIPO_NUEVO, RENDIMIENTO_JOULE, countUnidades }
     from '../../expedientes/logic/aerotermiaUnits.js';
 import { contactoCliente, deQuienEs } from '../../../utils/contactoCliente.js';
 import { esCeeDirecto } from './ceeDirecto.js';
@@ -100,6 +100,10 @@ export function transmitancias(anio, zona, { particionArriba = true, retoques } 
         // cerramientos del corpus ni uno solo lo tiene en 'Conocidas'. CE3X
         // modela el terreno aparte.
         suelo_terreno: { u: u.floor, masa: MASA.suelo, modo: 'Por defecto' },
+        // El suelo que VUELA sobre un porche abierto o un soportal: es un
+        // forjado (masa de partición horizontal) y lleva la U de SUELO de la
+        // guía en 'Conocidas', como los 23 de los 216 del corpus que la declaran.
+        suelo_aire: { u: u.floor, masa: MASA.particion_h, modo: 'Conocidas' },
         particion_superior: {
             u: uPart, masa: MASA.particion_h, modo: 'Conocidas',
             tipo_espacio: particionArriba ? 'Otro' : 'Garaje/espacio enterrado',
@@ -127,6 +131,7 @@ export const ETIQUETA_U = {
     fachada: 'Fachada',
     cubierta: 'Cubierta',
     suelo_terreno: 'Suelo',
+    suelo_aire: 'Suelo al aire exterior',
     particion_superior: 'Particiones',
     particion_vertical: 'Partición vertical',
     medianera: 'Medianera',
@@ -460,6 +465,12 @@ const AVISO_SIN_DEPOSITO = 'No consta el volumen del depósito de ACS: el equipo
 const sinAvisosDeAcs = (avisos, equipo) =>
     (equipo && !tipoEquipo(equipo.slot).servicios.includes('acs')
         ? avisos.filter(a => a !== AVISO_SIN_DEPOSITO) : avisos);
+
+//: Y el de la caldera sin nombre, que deja de ser verdad en cuanto alguien lo
+//: teclea en Instalaciones: decir «va como CALDERA EXISTENTE» de un equipo que
+//: sale llamado «CALDERA SERRA CALOR» es contradecir el propio fichero.
+const AVISO_CALDERA_SIN_NOMBRE = 'La caldera actual no tiene marca ni modelo en el '
+    + 'expediente: el equipo va como «CALDERA EXISTENTE».';
 
 /** El equipo recién AÑADIDO: su uso y el nombre con el que nace. */
 export const equipoNuevo = (slot) => {
@@ -1059,10 +1070,7 @@ export function instalacionExistente({ expediente, superficie, litros = null } =
     avisos.push(`Instalación existente: ${fila.label} → ${rend} % de combustión, `
         + `${combustible}, ${String(potencia).replace('.', ',')} kW. Sale de lo que se `
         + 'puso en la oportunidad: compruébalo con la placa.');
-    if (!nombre) {
-        avisos.push('La caldera actual no tiene marca ni modelo en el expediente: el '
-            + 'equipo va como «CALDERA EXISTENTE».');
-    }
+    if (!nombre) avisos.push(AVISO_CALDERA_SIN_NOMBRE);
 
     return { equipo, avisos };
 }
@@ -1096,7 +1104,8 @@ export const POTENCIA_CALDERA_POR_DEFECTO = 24;
  * lo declaran así.
  */
 export function instalacionNueva({ expediente, superficie, modelos = {},
-                                   existentes = null, delFichero = false } = {}) {
+                                   existentes = null, delFichero = false,
+                                   termoSiRetira = false } = {}) {
     const avisos = [];
     // ⚠️ CON el catálogo. Iba `{}`, y entonces todo lo que vive en el modelo y
     // no se sella en el expediente —el SEER— salía como si faltara.
@@ -1227,8 +1236,10 @@ export function instalacionNueva({ expediente, superficie, modelos = {},
         ...(mixto ? { superficie_acs: sup, pct_acs: String(pct) } : {}),
         pct_calefaccion: String(pct),
         ...(acumulacion ? { acumulacion } : {}),
-        de: 'de la aerotermia declarada en el expediente (la misma que el '
-            + 'popup «Datos del equipo» y el encargo al certificador).',
+        de: expediente?.instalacion?.aerotermia_cal?.generica
+            ? 'de lo SIMULADO en la oportunidad: el expediente aún no declara la aerotermia.'
+            : 'de la aerotermia declarada en el expediente (la misma que el '
+              + 'popup «Datos del equipo» y el encargo al certificador).',
     };
 
     // La caldera que se queda. En una MEDIDA DE MEJORA se copia la que escribe
@@ -1242,8 +1253,34 @@ export function instalacionNueva({ expediente, superficie, modelos = {},
             + `de la demanda, y la bomba el ${pct} % (coeficiente de bivalencia C_b).`);
     }
 
+    // ── El ACS cuando NO se cambia y la caldera que se retira lo daba ────────
+    // Criterio de Fran (2026-09-29) para la MEDIDA DE MEJORA: si la caldera
+    // daba calefacción y ACS y se retira, pero la obra no toca el ACS, el agua
+    // caliente del edificio mejorado la da un TERMO ELÉCTRICO. Sin esto, el
+    // motor conserva la caldera solo para el ACS (`_sin_servicios`), que es
+    // como queda en un CEE final hecho a mano — pero la medida describe el
+    // edificio sin caldera. Solo en sustitución: en una hibridación la caldera
+    // se queda y sigue dando su parte.
+    //
+    // Quién daba el ACS lo dicen los equipos de ESTA fase (`existentes`), no el
+    // flag `misma_caldera_acs`, que nace en true en todo expediente sin que
+    // nadie lo haya contestado.
+    let termo = null;
+    if (termoSiRetira && !d.hibridacion && expediente?.instalacion?.cambio_acs === false
+        && (existentes || []).some(e => e?.slot === 'mixto2')) {
+        termo = equipoAnadido({ slot: 'ACS', nombre: 'TERMO ELÉCTRICO', pct_acs: '100' },
+                              { superficie }).equipo;
+        if (termo) {
+            termo.de = 'el ACS no se cambia y la caldera que lo daba se retira: '
+                     + 'en el edificio mejorado lo da un termo eléctrico.';
+            avisos.push('El ACS no entra en la obra y la caldera que lo daba se retira: la '
+                        + 'medida lleva un TERMO ELÉCTRICO para el agua caliente.');
+        }
+    }
+
     return {
-        extras: [...(acs.equipo ? [acs.equipo] : []), ...(caldera ? [caldera] : [])],
+        extras: [...(acs.equipo ? [acs.equipo] : []), ...(caldera ? [caldera] : []),
+                 ...(termo ? [termo] : [])],
         equipo: bomba,
         //: Lo que el motor necesita para NO retirar el generador del fichero.
         //: Va en estructura, no dentro de un aviso.
@@ -1251,6 +1288,44 @@ export function instalacionNueva({ expediente, superficie, modelos = {},
             ? { hibridacion: { pct_generador_previo: 100 - pct } } : {}),
         avisos,
     };
+}
+
+/**
+ * Los equipos NUEVOS que declara el expediente, por SERVICIO: qué nombre y qué
+ * rendimiento (SCOP × 100) tiene que llevar el CEE FINAL.
+ *
+ * POR QUÉ EXISTE: el CEE final desde la medida del inicial (`cee_final.py`) copia
+ * la instalación de la medida del técnico, y el técnico puede haber tecleado otra
+ * máquina de la que se instaló. Medido el 30/09/2026 en 26RES060_184/185: la
+ * medida llevaba una JOHNSON MANANTIAL150RPLUSB (402 %) donde el expediente dice
+ * MANANTIAL110RPLUSV (3,74), y en el 184 una SIME SHP M PRO 010 (491 %) donde se
+ * instaló la 012 (4,55). El final declararía un ahorro mayor que el del CIFO.
+ *
+ * REGLA — manda el EXPEDIENTE (decisión del usuario, 2026-09-30): es lo que
+ * imprimen el CIFO y el Anexo I. Sale de `resolverCe3x`, la MISMA fuente que el
+ * `.cex` de la envolvente y el encargo al certificador.
+ *
+ * Devuelve [] si el expediente no declara la aerotermia (entonces no hay nada
+ * con qué corregir y se queda lo del técnico).
+ */
+export function equiposDelExpediente(expediente, { modelos = {} } = {}) {
+    const d = resolverCe3x(expediente, { modelos });
+    if (!d || expediente?.instalacion?.aerotermia_cal?.generica) return [];
+    const out = [];
+    const rendCal = Math.round((d.scopCal || 0) * 100);
+    const rendAcs = Math.round((d.scopAcs || 0) * 100);
+    //: `clave` es lo que identifica la máquina dentro del nombre que tecleó el
+    //: técnico (sin el paréntesis de la unidad exterior): si su nombre la
+    //: contiene y el rendimiento coincide, es la misma y no se toca.
+    if (rendCal) out.push({ servicio: 'calefaccion', nombre: d.nombre, clave: d.nombreCorto, rend: rendCal });
+    if (d.hayAcs && rendAcs) {
+        if (d.acsEnMismoEquipo) {
+            out.push({ servicio: 'acs', nombre: d.nombre, clave: d.nombreCorto, rend: rendAcs });
+        } else if (d.acsAparte && d.acsTipo !== EQUIPO_NUEVO.TERMO) {
+            out.push({ servicio: 'acs', nombre: d.nombreAcs, clave: d.nombreAcs, rend: rendAcs });
+        }
+    }
+    return out;
 }
 
 //: La superficie servida se reparte con el MISMO porcentaje, y con el REDONDEADO:
@@ -1444,6 +1519,73 @@ function titulacionCe3x(c) {
 export const AUTOCONSUMO_DECLARABLE = 0.9;
 
 /**
+ * El expediente con la aerotermia de la SIMULACIÓN, cuando aún no declara la suya.
+ *
+ * Al revisar un CEE inicial lo normal es que la máquina todavía no esté
+ * elegida: medido el 29/09/2026, 13 de los 15 iniciales pendientes de revisión
+ * no la tienen. Si la calculadora eligió un modelo, el expediente ya lo hereda
+ * al aceptarse (`expedienteService`); si no, lo que hay es lo simulado —SCOP de
+ * calefacción, SCOP de ACS y potencia— y con eso se compone una aerotermia
+ * GENÉRICA. Es el criterio de Fran (2026-09-29): «si se ha traído desde la
+ * oportunidad, la que aparezca; si no, una genérica».
+ *
+ * No escribe nada: devuelve una COPIA del expediente para componer la medida.
+ */
+export function conAerotermiaSimulada(expediente) {
+    const inst = expediente?.instalacion || {};
+    const i = expediente?.oportunidades?.datos_calculo?.inputs
+        || expediente?.oportunidad?.datos_calculo?.inputs || {};
+    const coma = (n) => String(n).replace('.', ',');
+    if (countUnidades(inst.aerotermia_cal)) {
+        //: Con la aerotermia declarada puede faltar solo el SCOP del equipo de
+        //: ACS que va aparte: sin él CE3X no deja calcular la medida («la
+        //: instalación de ACS no está bien definida»). Mismo criterio: lo simulado.
+        const acs = inst.aerotermia_acs;
+        const scopAcsSim = Number(i.scopAcs);
+        const aparte = inst.misma_aerotermia_acs === false;
+        if (inst.cambio_acs !== false && aparte && scopAcsSim > 0
+            && !(parseFloat(acs?.scop) > 0)) {
+            //: Con el equipo de ACS identificado se le pone solo el SCOP; sin
+            //: identificar, uno GENÉRICO — el expediente dice que el ACS lo da
+            //: otra máquina pero no cuál.
+            const declarado = countUnidades(acs);
+            const nodo = declarado ? { ...acs, scop: scopAcsSim }
+                : { marca: 'GENÉRICA', modelo: '', scop: scopAcsSim, generica: true };
+            return {
+                expediente: { ...expediente, instalacion: { ...inst, aerotermia_acs: nodo } },
+                simulada: true,
+                aviso: (declarado
+                    ? 'El equipo de ACS no declara su SCOP_dhw'
+                    : 'El ACS lo da otra máquina y el expediente no dice cuál')
+                    + `: en la medida va ${declarado ? 'el SCOP_dhw' : 'una bomba de calor de ACS GENÉRICA con el SCOP_dhw'} `
+                    + `simulado en la oportunidad (${coma(scopAcsSim)}). Ponlo en Instalación y vuelve a ponerla.`,
+            };
+        }
+        return { expediente, simulada: false };
+    }
+    const scop = Number(i.scopHeating);
+    if (!(scop > 0)) return { expediente, simulada: false };
+    const kw = Number(i.potenciaBomba) > 0 ? Number(i.potenciaBomba) : null;
+    const cambioAcs = inst.cambio_acs !== undefined && inst.cambio_acs !== null
+        ? inst.cambio_acs !== false : i.changeAcs === true;
+    const scopAcs = Number(i.scopAcs) > 0 ? Number(i.scopAcs) : null;
+    const cal = { marca: 'GENÉRICA', modelo: kw ? `${String(kw).replace('.', ',')} kW` : 'SEGÚN SIMULACIÓN',
+                  scop, potencia_nominal: kw, generica: true };
+    const instalacion = {
+        ...inst, aerotermia_cal: cal, cambio_acs: cambioAcs,
+        ...(cambioAcs ? { misma_aerotermia_acs: true, aerotermia_acs: { ...cal, scop: scopAcs } } : {}),
+    };
+    return {
+        expediente: { ...expediente, instalacion },
+        simulada: true,
+        aviso: `El expediente aún no declara la aerotermia: la medida lleva una GENÉRICA con lo `
+            + `simulado en la oportunidad (SCOP ${coma(scop)}`
+            + `${cambioAcs && scopAcs ? ` · SCOP_dhw ${coma(scopAcs)}` : ''}${kw ? ` · ${coma(kw)} kW` : ''}). `
+            + 'Cuando se elija el equipo, vuelve a ponerla.',
+    };
+}
+
+/**
  * El CATÁLOGO de medidas de mejora de este expediente, y cuáles se escriben.
  *
  * Son las casillas de CE3X, no un texto: cada medida es «este mismo edificio con
@@ -1470,10 +1612,18 @@ export const AUTOCONSUMO_DECLARABLE = 0.9;
  */
 export function medidasCe3x({ expediente, superficie, fase = 'inicial',
                               elegidas = null, textos = null, modelos = {},
-                              existentes = null, final = null } = {}) {
+                              existentes = null, final = null,
+                              generica = false } = {}) {
     const esFinal = fase === 'final';
     const catalogo = [];
     const avisos = [];
+    //: Sin aerotermia en el expediente, la de la SIMULACIÓN (ver
+    //: `conAerotermiaSimulada`). Solo si quien llama lo pide: la revisión del
+    //: CEE sí; la ventana de envolvente sigue mandando a rellenar Instalación.
+    if (generica && !esFinal) {
+        const sim = conAerotermiaSimulada(expediente);
+        if (sim.simulada) { expediente = sim.expediente; avisos.push(sim.aviso); }
+    }
     //: Un CEE contratado SUELTO certifica el estado actual: no hay una actuación
     //: declarada de la que salga la medida de aerotermia, así que no se marca
     //: sola. Marcada, salía un aviso en CADA generación mandando a rellenar un
@@ -1483,7 +1633,8 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
     const ceeSuelto = esCeeDirecto(expediente);
 
     // ── 1. La AEROTERMIA: la actuación de este expediente ────────────────────
-    const nueva = instalacionNueva({ expediente, superficie, modelos, existentes });
+    const nueva = instalacionNueva({ expediente, superficie, modelos, existentes,
+                                     termoSiRetira: true });
     const { extras = [] } = nueva;
     //: Lo tecleado en la cara del CEE FINAL (el uso de la aerotermia, sus
     //: rendimientos) y los equipos añadidos allí. Solo si hay algo: sin
@@ -1969,7 +2120,10 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
         equipos: [conMano.equipo, ...(derivada.extras || []),
                   ...anadidos.map(a => a.equipo)].filter(Boolean),
         falta: conMano.equipo ? null : (conMano.falta || derivada.falta),
-        avisos: [...sinAvisosDeAcs(derivada.avisos, conMano.equipo), ...conMano.avisos,
+        avisos: [...sinAvisosDeAcs(derivada.avisos, conMano.equipo)
+                     .filter(a => a !== AVISO_CALDERA_SIN_NOMBRE
+                              || !String(ajustesDeFase(cfg, fase)?.nombre || '').trim()),
+                 ...conMano.avisos,
                  ...(avisoUso ? [avisoUso] : []),
                  ...anadidos.flatMap(a => a.avisos)],
     };
