@@ -534,11 +534,16 @@ router.put('/:id', internalOnly, async (req, res) => {
         // pestaña abierta antes de emitir borraría el registro de la factura
         // (su número ya está en el libro de facturas: perderlo aquí es perder
         // el rastro de un número emitido).
+        // Lo mismo con lo que escriben otras rutas por la RPC de MERGE: la entrega
+        // al cliente y la guía de la deducción del IRPF. La copia del navegador no
+        // los trae al día y el autoguardado se los llevaría por delante.
         if (patch.documentacion && typeof patch.documentacion === 'object') {
-            const guardadas = row.documentacion?.facturas_emitidas;
             patch.documentacion = { ...patch.documentacion };
-            if (guardadas) patch.documentacion.facturas_emitidas = guardadas;
-            else delete patch.documentacion.facturas_emitidas;
+            for (const clave of ['facturas_emitidas', 'entrega_cliente', 'guia_irpf']) {
+                const guardado = row.documentacion?.[clave];
+                if (guardado) patch.documentacion[clave] = guardado;
+                else delete patch.documentacion[clave];
+            }
         }
 
         if (!isStaff(req)) {
@@ -1554,6 +1559,11 @@ router.post('/:id/borrador-cee/drive', staffOnly, async (req, res) => {
     }
 });
 
+// ─── /:id/guia-irpf… ────────────────────────────────────────────────────────
+// Gemela de la del CAE: la guía de la deducción del IRPF y el envío de los
+// certificados + la guía. Un CEE directo es, muchas veces, justo para esto.
+require('./guiaIrpfRutas').montarGuiaIrpf(router, 'cee_directo', { staffOnly });
+
 // ─── GET /:id/borrador-cee/fichero ──────────────────────────────────────────
 // Gemela de la del CAE. Ver allí el porqué de pedir por CLAVE de documento.
 router.get('/:id/borrador-cee/fichero', staffOnly, async (req, res) => {
@@ -1886,18 +1896,27 @@ router.post('/:id/resend-cee-notifications', staffOnly, async (req, res) => {
         // que exista, el certificado va ADJUNTO, que además es lo que la mayoría
         // quiere: guardarse el PDF.
 
+        // La guía de la deducción del IRPF va con el certificado si esta fase es la
+        // de "después" y los certificados la acreditan: mismo criterio que la
+        // entrega del panel (`guiaIrpfService.guiaDeEntrega`). Nunca para el envío.
+        const guiaIrpf = require('../services/guiaIrpfService');
+        const guiaEntrega = await guiaIrpf.guiaDeEntrega(row, phase);
+
         // Texto editado en la preview. Viaja en `overrides.CLIENTE`, igual que en el
         // CAE, para que lo que se revisa en pantalla sea exactamente lo que sale.
-        const cuerpo = String(req.body?.overrides?.CLIENTE || req.body?.customMessage || '').trim()
-            || `¡Hola${nombreCliente(row.cliente) ? ` ${nombreCliente(row.cliente)}` : ''}!\n\n`
-             + `Ya tienes listo tu ${faseLabel} (expediente ${row.numero_expediente}).\n\n`
-             + `Te lo adjuntamos en este mensaje.\n\n`
-             + `¡Gracias por confiar en nosotros!\nBROKERGY · Ingeniería Energética`;
+        // Este texto va igual al email que al WhatsApp: sin los asteriscos de negrita.
+        const textoEditado = String(req.body?.overrides?.CLIENTE || req.body?.customMessage || '').trim();
+        const cuerpoPorDefecto = (textoGuia) =>
+            `¡Hola${nombreCliente(row.cliente) ? ` ${nombreCliente(row.cliente)}` : ''}!\n\n`
+            + `Ya tienes listo tu ${faseLabel} (expediente ${row.numero_expediente}).\n\n`
+            + `Te lo adjuntamos en este mensaje.\n\n`
+            + (textoGuia ? `${textoGuia.replace(/\*/g, '')}\n\n` : '')
+            + `¡Gracias por confiar en nosotros!\nBROKERGY · Ingeniería Energética`;
 
         if (preview) {
             return res.json({
                 ok: true,
-                preview: { CLIENTE: cuerpo },
+                preview: { CLIENTE: textoEditado || cuerpoPorDefecto(guiaEntrega.va ? guiaEntrega.texto : '') },
                 cobrado: row.cobrado,
                 destinatario: { email: row.cliente?.email || null, tlf: row.cliente?.tlf || null }
             });
@@ -1916,20 +1935,58 @@ router.post('/:id/resend-cee-notifications', staffOnly, async (req, res) => {
         const attachments = canales.includes('email')
             ? await uploads.getSectionAttachments(row, phase)
             : undefined;
+
+        // La guía: si no se puede rasterizar, el certificado sale igual y el texto
+        // por defecto ya no la anuncia (un adjunto prometido que no llega se busca).
+        let guiaPdf = null;
+        if (guiaEntrega.va) {
+            try { guiaPdf = await guiaIrpf.pdfGuiaDeEntrega(guiaEntrega); }
+            catch (e) { console.warn('[cee-directos resend] la guía del IRPF no se pudo preparar:', e.message); }
+        }
+        const nombreGuiaPdf = guiaPdf ? guiaPdf.filename.replace(' – ', ' - ') : null;
+        if (guiaPdf && attachments) attachments.push({ filename: nombreGuiaPdf, content: guiaPdf.buffer, contentType: 'application/pdf' });
+        const cuerpo = textoEditado || cuerpoPorDefecto(guiaPdf ? guiaEntrega.texto : '');
+
+        const telefono = row.cliente?.tlf || row.cliente?.telefono;
         const { enviados, errores } = await enviar({
             canales,
             email: row.cliente?.email,
-            telefono: row.cliente?.tlf || row.cliente?.telefono,
+            telefono,
             asunto: `${row.numero_expediente} — Tu certificado de eficiencia energética`,
             cuerpo, attachments
         });
         if (!enviados.length) return res.status(502).json({ error: `No se pudo enviar. ${errores.join(' · ')}` });
 
+        // Por WhatsApp sí va la guía —un PDF de una página, que se lee en el móvil—,
+        // detrás del texto y con su etiqueta corta, como en la entrega del panel.
+        if (guiaPdf && enviados.includes('whatsapp')) {
+            try {
+                await whatsappService.sendMedia(telefono,
+                    { base64: guiaPdf.buffer.toString('base64'), filename: nombreGuiaPdf, mimetype: 'application/pdf' },
+                    { caption: 'guía para la deducción en la Renta', splitCaption: false });
+            } catch (e) { errores.push(`whatsapp (guía): ${e.message}`); }
+        }
+
         await svc.anotarHistorial(row.id, {
             tipo: 'CLIENTE',
-            texto: `${faseLabel.toUpperCase()} ENTREGADO AL CLIENTE POR ${enviados.join(' Y ').toUpperCase()}`,
+            texto: `${faseLabel.toUpperCase()} ENTREGADO AL CLIENTE POR ${enviados.join(' Y ').toUpperCase()}`
+                + `${guiaPdf ? ` + GUÍA DE LA DEDUCCIÓN DEL IRPF (${guiaEntrega.modalidad} %${guiaEntrega.ejemplo ? ', CON EJEMPLO' : ''})` : ''}`,
             usuario: req.user?.email || null
         });
+        if (guiaPdf) {
+            try {
+                await guiaIrpf.sellarGuiaEntregada(guiaEntrega, guiaPdf.buffer, {
+                    canales: enviados,
+                    destinatario: {
+                        nombre: nombreCliente(row.cliente),
+                        email: enviados.includes('email') ? row.cliente?.email : null,
+                        tlf: enviados.includes('whatsapp') ? telefono : null,
+                    },
+                    ficheros: [nombreGuiaPdf],
+                    usuario: req.user?.email || null,
+                });
+            } catch (e) { console.warn('[cee-directos resend] no se pudo sellar la guía:', e.message); }
+        }
 
         // La rejilla enseña el resultado leyendo `channels.email` / `channels.whatsapp`
         // (nombres de los destinatarios). Sin ese mapa anunciaba "ningún
@@ -2094,7 +2151,7 @@ router.get('/:id/entrega', staffOnly, async (req, res) => {
         res.json({
             ...st,
             phase,
-            mensaje: entrega.mensaje(row, phase),
+            mensaje: entrega.mensaje(row, phase, { textoGuia: st.guia?.texto }),
             // Que el automático esté apagado es un dato de la pantalla: si no, en
             // local uno marca cobrado, no pasa nada y piensa que está roto.
             autoActivado: entrega.autoActivado()

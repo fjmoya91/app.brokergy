@@ -617,6 +617,76 @@ export function leerCalificacionesDeTexto(xmlString) {
     };
 }
 
+/**
+ * Lo que pide la DEDUCCIÓN DEL IRPF de un certificado, leído del texto del .xml,
+ * SIN DOM — el gemelo de `leerCalificacionesDeTexto` para la guía que compone el
+ * backend (`guiaIrpfService`), donde `DOMParser` no existe.
+ *
+ * Solo se usa para RESCATAR lo que el objeto parseado no trae: los certificados
+ * subidos antes de que existieran `epnrConsumo` o `tipoEdificio` tienen el `.xml`
+ * crudo en `cee.xml_*` y sin él la guía saldría con huecos. Lo guardado manda.
+ *
+ * Los bloques que se recorren son acotados y ninguno se anida consigo mismo:
+ *  · `<Consumo>` (el PRIMERO: las medidas de mejora traen los suyos detrás) →
+ *    su `<EnergiaPrimariaNoRenovable>` → `<Global>`, un NÚMERO. ⚠️ Dentro de
+ *    `<Consumo>` va antes `<FactoresDePaso><FinalAPrimariaNoRenovable>`, que es
+ *    OTRA etiqueta y la expresión no la confunde.
+ *  · `<Demanda><EdificioObjeto>` → `<Calefaccion>` y `<Refrigeracion>` (la
+ *    deducción del 20 % compara su SUMA).
+ *  · `<DatosDelCertificador><Fecha>` → la fecha del certificado (no la de
+ *    `<FechaGeneracion>`, que es cuándo se guardó el fichero).
+ *
+ * Case-insensitive: el XML guardado en BD llega entero en MAYÚSCULAS.
+ */
+export function leerDatosIrpfDeTexto(xmlString) {
+    const out = {
+        epnrConsumo: null, epnrLetra: null,
+        demandaCalefaccion: null, demandaRefrigeracion: null,
+        tipoEdificio: null, fechaFirma: null, refCatastral: null, superficieHabitable: null,
+    };
+    if (!xmlString || typeof xmlString !== 'string') return out;
+
+    const bloque = (txt, tag) => {
+        if (!txt) return null;
+        const abre = txt.search(new RegExp(`<${tag}[\\s>]`, 'i'));
+        if (abre < 0) return null;
+        const cierra = txt.toLowerCase().indexOf(`</${tag.toLowerCase()}>`, abre);
+        return txt.slice(abre, cierra < 0 ? undefined : cierra);
+    };
+    const texto = (txt, tag) => {
+        if (!txt) return null;
+        const m = txt.match(new RegExp(`<${tag}>\\s*([^<]*?)\\s*</${tag}>`, 'i'));
+        return m && m[1] ? m[1] : null;
+    };
+    // `99999999.99` es "no consta" en el formato de CE3X: no es un valor.
+    const numero = (txt, tag) => {
+        const v = parseFloat(String(texto(txt, tag) || '').replace(',', '.'));
+        return isFinite(v) && v >= 0 && v < 99999999 ? v : null;
+    };
+
+    const consumo = bloque(bloque(xmlString, 'Consumo'), 'EnergiaPrimariaNoRenovable');
+    const c = numero(consumo, 'Global');
+    if (c != null && c > 0) out.epnrConsumo = c;
+    out.epnrLetra = leerCalificacionesDeTexto(xmlString).epnrLetra;
+
+    const dem = bloque(bloque(xmlString, 'Demanda'), 'EdificioObjeto');
+    out.demandaCalefaccion = numero(dem, 'Calefaccion');
+    out.demandaRefrigeracion = numero(dem, 'Refrigeracion');
+
+    const ident = bloque(xmlString, 'IdentificacionEdificio');
+    out.tipoEdificio = texto(ident, 'TipoDeEdificio');
+    out.refCatastral = texto(ident, 'ReferenciaCatastral');
+
+    const sup = numero(bloque(xmlString, 'DatosGeneralesyGeometria'), 'SuperficieHabitable');
+    if (sup != null && sup > 0) out.superficieHabitable = sup;
+
+    const f = texto(bloque(xmlString, 'DatosDelCertificador'), 'Fecha');
+    const m = String(f || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m) out.fechaFirma = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+
+    return out;
+}
+
 /** ⚠️ Necesita `DOMParser`: en Node devuelve vacío. Ver `leerCalificacionesDeTexto`. */
 export function parseEpnrFromXml(xmlString) {
     const vacio = {

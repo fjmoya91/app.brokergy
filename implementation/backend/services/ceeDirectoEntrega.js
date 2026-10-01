@@ -26,7 +26,12 @@ const estados = require('../utils/ceeDirectoEstados');
 // cliente ha comprado; el registro es la prueba de que está presentado).
 const SLOTS_ENTREGA = ['pdf', 'registro'];
 
-const ETIQUETA_SLOT = { pdf: 'certificado firmado', registro: 'justificante de registro' };
+const ETIQUETA_SLOT = { pdf: 'certificado firmado', registro: 'justificante de registro', guia: 'guía para la deducción en la Renta' };
+
+// La guía de la deducción del IRPF viaja con la entrega cuando los certificados
+// la acreditan (ver `guiaIrpfService.guiaDeEntrega`). Lazy: ese servicio arrastra
+// pdfService y la lógica ESM del frontend, y aquí solo hace falta al entregar.
+const guiaIrpf = () => require('./guiaIrpfService');
 
 /**
  * El envío automático se puede apagar. En LOCAL hay que apagarlo:
@@ -71,6 +76,9 @@ async function estado(row, fase) {
     const tlf = contacto.tlf;
     if (!email && !tlf) faltan.push('El cliente no tiene ni email ni teléfono en su ficha');
 
+    // La guía NO es un requisito: si no va, el certificado se entrega igual.
+    const guia = guiaIrpf().guiaDeEntregaPublica(await guiaIrpf().guiaDeEntrega(row, ph));
+
     return {
         puede: faltan.length === 0,
         faltan,
@@ -78,20 +86,31 @@ async function estado(row, fase) {
         destinatario: { nombre: contacto.nombre || nombreCliente(cli), email, tlf },
         ficheros: {
             pdf: enDrive.pdf ? enDrive.pdf.name : null,
-            registro: enDrive.registro ? enDrive.registro.name : null
-        }
+            registro: enDrive.registro ? enDrive.registro.name : null,
+            guia: guia?.va ? guia.fichero : null
+        },
+        guia
     };
 }
 
-/** Texto del mensaje. Sale de aquí y no de cada ruta: es el mismo por los dos canales. */
-function mensaje(row, fase) {
+/**
+ * Texto del mensaje. Sale de aquí y no de cada ruta: es el mismo por los dos canales.
+ * Con `textoGuia` (el párrafo de `guiaIrpf.textoGuiaEnEntrega`) anuncia la guía
+ * de la Renta que va adjunta.
+ */
+function mensaje(row, fase, { textoGuia = '' } = {}) {
     const faseLabel = estados.nombreFase(row, uploads.normalizePhase(fase));
-    const nombre = nombreCliente(row.cliente);
-    const pila = nombre ? ` ${nombre.split(/\s+/)[0]}` : '';
+    // Se saluda a quien RECIBE el mensaje (con el desvío activo, su persona de
+    // contacto) y en minúsculas: la ficha guarda el nombre en MAYÚSCULAS y
+    // "¡Hola LAURA!" delata la plantilla.
+    const nombre = svc.contactoCliente(row.cliente).nombre || nombreCliente(row.cliente);
+    const p = nombre ? nombre.split(/\s+/)[0] : '';
+    const pila = p ? ` ${p.charAt(0).toUpperCase()}${p.slice(1).toLowerCase()}` : '';
     return `¡Hola${pila}!\n\n`
         + `Ya tienes tu *${faseLabel}* registrado (expediente ${row.numero_expediente}).\n\n`
         + `Te adjuntamos el certificado firmado y el justificante de registro. `
         + `Guárdalos: son los documentos que te van a pedir.\n\n`
+        + (textoGuia ? `${textoGuia}\n\n` : '')
         + `¡Gracias por confiar en nosotros!\n*BROKERGY · Ingeniería Energética*`;
 }
 
@@ -125,7 +144,7 @@ async function entregar(id, fase, opts = {}) {
     if (!opts.manual && !autoActivado()) {
         console.log(`[cee-entrega] SIMULADO (CEE_ENTREGA_AUTO=false) → ${row.numero_expediente} `
             + `a ${st.destinatario.email || '—'} / ${st.destinatario.tlf || '—'} `
-            + `con ${st.ficheros.pdf} + ${st.ficheros.registro}`);
+            + `con ${st.ficheros.pdf} + ${st.ficheros.registro}${st.ficheros.guia ? ` + ${st.ficheros.guia}` : ''}`);
         return { enviado: false, motivo: 'AUTO_DESACTIVADO', simulado: st };
     }
 
@@ -137,10 +156,30 @@ async function entregar(id, fase, opts = {}) {
         return { enviado: false, motivo: 'ADJUNTOS_NO_DESCARGABLES', faltan: ['No se han podido descargar los ficheros de Drive'] };
     }
 
-    const cuerpo = opts.mensaje?.trim() || mensaje(row, ph);
-    const faseLabel = estados.nombreFase(row, ph);
     const canales = [];
     const errores = [];
+
+    // La guía de la Renta, si esta fase es la de "después" y los certificados la
+    // acreditan. Si no se puede preparar, el certificado sale igual y SIN el
+    // párrafo que la anuncia: un mensaje que promete un adjunto que no llega
+    // deja al cliente buscándolo.
+    let guia = null;
+    let bufferGuia = null;
+    const g = await guiaIrpf().guiaDeEntrega(row, ph);
+    if (g.va) {
+        try {
+            const { buffer, filename } = await guiaIrpf().pdfGuiaDeEntrega(g);
+            adjuntos.push({ slot: 'guia', filename: filename.replace(' – ', ' - '), content: buffer, contentType: 'application/pdf' });
+            guia = g;
+            bufferGuia = buffer;
+        } catch (e) {
+            console.warn(`[cee-entrega] ${row.numero_expediente}: la guía del IRPF no se pudo preparar:`, e.message);
+            errores.push(`guía de la Renta: ${e.message}`);
+        }
+    }
+
+    const cuerpo = opts.mensaje?.trim() || mensaje(row, ph, { textoGuia: guia?.texto });
+    const faseLabel = estados.nombreFase(row, ph);
 
     if (st.destinatario.email) {
         try {
@@ -194,12 +233,27 @@ async function entregar(id, fase, opts = {}) {
     await svc.anotarHistorial(row.id, {
         tipo: 'CLIENTE',
         texto: `${faseLabel.toUpperCase()} ENTREGADO AL CLIENTE POR ${canales.join(' Y ').toUpperCase()}`
+            + `${guia ? ` + GUÍA DE LA DEDUCCIÓN DEL IRPF (${guia.modalidad} %${guia.ejemplo ? ', CON EJEMPLO' : ''})` : ''}`
             + `${opts.manual ? '' : ' (AUTOMÁTICO)'}`,
         usuario: opts.usuario || null
     });
 
-    console.log(`[cee-entrega] ${row.numero_expediente} entregado por ${canales.join('+')}`);
-    return { enviado: true, canales, errores, ficheros: adjuntos.map(a => a.filename) };
+    // La guía que ha recibido queda en Drive (la sirve el portal) y sellada como
+    // enviada, igual que si se hubiera mandado con su botón.
+    if (guia) {
+        try {
+            await guiaIrpf().sellarGuiaEntregada(guia, bufferGuia, {
+                canales,
+                destinatario: st.destinatario,
+                ficheros: adjuntos.map(a => a.filename),
+                usuario: opts.usuario || null,
+                automatica: !opts.manual
+            });
+        } catch (e) { console.warn('[cee-entrega] no se pudo sellar la guía:', e.message); }
+    }
+
+    console.log(`[cee-entrega] ${row.numero_expediente} entregado por ${canales.join('+')}${guia ? ' (con la guía del IRPF)' : ''}`);
+    return { enviado: true, canales, errores, ficheros: adjuntos.map(a => a.filename), guia: !!guia };
 }
 
 /**

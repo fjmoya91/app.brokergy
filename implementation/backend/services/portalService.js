@@ -179,6 +179,10 @@ const DOC_MAP = {
     cifo:              { label: 'Certificado CIFO',               fields: ['cert_cifo_signed_link'], certificado: true },
     rite:              { label: 'Certificado RITE',               fields: ['cert_rite_signed_link', 'cert_rite_drive_link'], certificado: true },
     anexo_fotografico: { label: 'Anexo Fotográfico',              fields: ['anexo_fotografico_signed_link'] },
+    // La guía para aplicarse la deducción del IRPF, tal y como se le envió
+    // (`guiaIrpfService` la guarda en Drive y la sella aquí). No es un certificado:
+    // solo existe cuando ya se le ha entregado, así que no se bloquea.
+    guia_irpf:         { label: 'Guía para la deducción en la Renta', fields: ['guia_irpf.drive_id', 'guia_irpf.link'] },
 };
 
 /**
@@ -244,9 +248,10 @@ function resolveDocLink(exp, docKey) {
         const driveId = extractDriveId(link);
         return driveId ? { driveId, name: `${docKey}.pdf`, label: def.label } : null;
     }
-    // Documentacion.*_link
+    // Documentacion.*_link (o una ruta con punto dentro de un objeto: `guia_irpf.link`)
     for (const field of def.fields || []) {
-        const driveId = extractDriveId(doc[field]);
+        const valor = field.includes('.') ? field.split('.').reduce((o, k) => (o ? o[k] : undefined), doc) : doc[field];
+        const driveId = extractDriveId(valor);
         if (driveId) return { driveId, name: `${docKey}.pdf`, label: def.label };
     }
     return null;

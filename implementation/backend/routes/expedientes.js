@@ -4672,6 +4672,13 @@ async function leerYArchivarFactura(grupo, ctx) {
         numero_factura: ocr.numero_factura || '',
         fecha_factura: ocr.fecha_factura || null,
         importe_sin_iva: ocr.totales?.base_imponible ?? 0,
+        // El total CON IVA y quién la emite: los pide la deducción del IRPF del
+        // cliente (`guiaIrpf`: «cantidades satisfechas» van con IVA, y el NIF de
+        // quien ha realizado las obras). La inversión del Anexo sigue siendo la base.
+        ...(ocr.totales?.total > 0 ? { importe_con_iva: ocr.totales.total } : {}),
+        ...(ocr.totales?.iva_pct != null ? { iva_pct: ocr.totales.iva_pct } : {}),
+        ...(ocr.emisor?.nombre ? { emisor_nombre: ocr.emisor.nombre } : {}),
+        ...(ocr.emisor?.nif ? { emisor_nif: ocr.emisor.nif } : {}),
         drive_link: saved.link,
         drive_id: saved.id,
         origen: 'ocr',
@@ -8169,6 +8176,12 @@ router.post('/:id/borrador-cee/drive', staffOnly, async (req, res) => {
         res.status(err.status || 500).json({ error: err.status === 404 ? err.message : 'No se pudo guardar el borrador en Drive' });
     }
 });
+
+// ─── /api/expedientes/:id/guia-irpf… ──────────────────────────────────────
+// La guía de la deducción del IRPF y el envío al cliente de sus dos CEE + la
+// guía con un botón. Montada desde `guiaIrpfRutas` para que la gemela de los CEE
+// directos sea el mismo código (el módulo CEE llama a `${apiBase}/…`).
+require('./guiaIrpfRutas').montarGuiaIrpf(router, 'expediente', { staffOnly });
 
 // ─── GET /api/expedientes/:id/cert-cliente-data ───────────────────────────
 // Ficha del cliente tal y como la recibirá el certificador, más la lista de datos

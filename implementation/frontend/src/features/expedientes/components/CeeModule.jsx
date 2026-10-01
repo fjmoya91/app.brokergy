@@ -9,6 +9,7 @@ import { EfficiencyTable, CATEGORIES_SIMPLIFICADO } from '../../calculator/compo
 import { CeeDocumentsGrid } from './CeeDocumentsGrid';
 import { AvisoIrpfEpnr } from './AvisoIrpfEpnr';
 import { CeeAnteriorCliente } from './CeeAnteriorCliente';
+import { GuiaIrpfBoton } from './GuiaIrpfModal';
 import { ConfirmadoPorCliente } from './ConfirmadoPorCliente';
 import { TecnicoPicker } from './TecnicoPicker';
 import { EncargoCertificadorModal } from './EncargoCertificadorModal';
@@ -139,7 +140,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
     // la ficha, que firmamos nosotros. El técnico entra aquí a subir su
     // certificado y a mirar los datos, no a cambiar cómo se calculan.
     const { user } = useAuth();
-    const { isCertificador } = getRoleFlags(user);
+    const { isCertificador, isStaff } = getRoleFlags(user);
 
     const [local, setLocal] = useState(() => {
         const saved = expediente?.cee || {};
@@ -1668,6 +1669,9 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
             {secciones.includes('inicial') && secciones.includes('final') && (
                 <div className="mt-8">
                     <AvisoIrpfEpnr cee={local} />
+                    {/* Certificados + guía de la Renta al cliente, de un botón. Solo el
+                        equipo interno: lleva importes y le escribe al cliente. */}
+                    {isStaff && <GuiaIrpfBoton expediente={expediente} apiBase={apiBase} onEnviado={onRefresh} />}
                 </div>
             )}
 
@@ -1679,6 +1683,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 <div className="mt-8">
                     <CeeAnteriorCliente
                         cee={local}
+                        accion={isStaff ? <GuiaIrpfBoton expediente={expediente} apiBase={apiBase} onEnviado={onRefresh} /> : null}
                         onCargar={() => setCeeLoadTarget('anterior')}
                         onQuitar={() => {
                             if (!window.confirm('¿Quitar el CEE anterior del cliente? Solo se deja de comparar: no toca el CEE de este encargo.')) return;

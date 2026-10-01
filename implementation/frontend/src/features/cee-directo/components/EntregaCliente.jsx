@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import { GuiaIrpfModal } from '../../expedientes/components/GuiaIrpfModal';
+import { eur } from '../../expedientes/logic/guiaIrpf';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Entrega del certificado al cliente.
@@ -19,11 +21,55 @@ const API = '/api/cee-directos';
 
 const FASES = { inicial: 'CEE inicial', final: 'CEE final' };
 
+/**
+ * La guía de la deducción del IRPF que viaja con la entrega (o por qué no va).
+ * Se enseña ANTES de entregar —también mientras falta el cobro— porque la entrega
+ * puede salir sola: es aquí donde se ve qué le va a llegar al cliente, y desde
+ * aquí se revisa y se guarda (sus ajustes son los que usa la entrega).
+ */
+function LineaGuia({ guia, onRevisar }) {
+    if (!guia) return null;
+    if (!guia.va) {
+        // Sin certificado de antes no hay nada que comparar (compraventa,
+        // alquiler): ni se menciona. Solo se dice cuando SÍ se comparó y no da.
+        if (!guia.comparable) return null;
+        return (
+            <div className="text-[11px] text-white/35 mt-1.5">
+                La guía de la Renta no irá: {guia.motivo}
+            </div>
+        );
+    }
+    return (
+        <div className="mt-2 rounded-lg border border-brand/25 bg-brand/[0.05] px-3 py-2">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="text-[11px] text-white/75">
+                    🧾 Con el certificado va la <b>guía de la deducción del IRPF ({guia.modalidad} %)</b>
+                </span>
+                <button type="button" onClick={onRevisar}
+                    className="text-[10px] font-black uppercase tracking-wider text-brand hover:underline">
+                    Revisar la guía
+                </button>
+            </div>
+            <div className="text-[10px] text-white/40 mt-0.5 leading-snug">
+                {guia.ejemplo
+                    ? `Sin facturas de la obra: lleva un ejemplo con una obra de ${eur(guia.ejemplo.importe, 0)} (${eur(guia.ejemplo.deduccion, 0)} de deducción). Si el cliente te pasa sus facturas, añádelas en la guía y saldrá su caso real.`
+                    : `Con las facturas de la obra: deducción estimada de ${eur(guia.deduccion || 0)}.`}
+            </div>
+            {guia.avisos?.length > 0 && (
+                <div className="text-[10px] text-amber-300/80 mt-1">
+                    ⚠️ {guia.avisos.length === 1 ? 'Hay 1 cosa' : `Hay ${guia.avisos.length} cosas`} que revisar en la guía antes de entregar.
+                </div>
+            )}
+        </div>
+    );
+}
+
 function Fila({ id, fase, etiqueta, onCambio }) {
     const [info, setInfo] = useState(null);
     const [enviando, setEnviando] = useState(false);
     const [resultado, setResultado] = useState(null);
     const [confirmarReenvio, setConfirmarReenvio] = useState(false);
+    const [revisarGuia, setRevisarGuia] = useState(false);
 
     const cargar = useCallback(async () => {
         try {
@@ -53,7 +99,7 @@ function Fila({ id, fase, etiqueta, onCambio }) {
 
     if (!info) return null;
 
-    const { puede, faltan, yaEntregado, destinatario, ficheros } = info;
+    const { puede, faltan, yaEntregado, destinatario, ficheros, guia } = info;
 
     return (
         <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
@@ -82,8 +128,9 @@ function Fila({ id, fase, etiqueta, onCambio }) {
                                 {destinatario.tlf ? ` · ${destinatario.tlf}` : ''}
                             </div>
                             <div className="text-[11px] text-white/25 mt-1">
-                                Adjuntos: {[ficheros.pdf, ficheros.registro].filter(Boolean).join(' · ')}
+                                Adjuntos: {[ficheros.pdf, ficheros.registro, ficheros.guia].filter(Boolean).join(' · ')}
                             </div>
+                            <LineaGuia guia={guia} onRevisar={() => setRevisarGuia(true)} />
                         </>
                     ) : (
                         <>
@@ -93,6 +140,7 @@ function Fila({ id, fase, etiqueta, onCambio }) {
                                     <li key={i} className="text-[11px] text-amber-400/80">• {f}</li>
                                 ))}
                             </ul>
+                            <LineaGuia guia={guia} onRevisar={() => setRevisarGuia(true)} />
                         </>
                     )}
                 </div>
@@ -131,6 +179,12 @@ function Fila({ id, fase, etiqueta, onCambio }) {
             {resultado && (
                 <div className={`mt-3 text-[11px] ${resultado.ok ? 'text-emerald-400' : 'text-red-400'}`}>{resultado.texto}</div>
             )}
+
+            {/* Revisar la guía que irá con la entrega: el mismo popup que su botón
+                del módulo CEE, sin "Enviar" — aquí la envía la entrega. */}
+            <GuiaIrpfModal isOpen={revisarGuia} onClose={() => { setRevisarGuia(false); cargar(); }}
+                           expedienteId={id} apiBase={API} soloRevisar
+                           onEnviado={() => { cargar(); onCambio?.(); }} />
         </div>
     );
 }
@@ -154,7 +208,8 @@ export function EntregaCliente({ id, esDoble, autoAvisoRef, onCambio }) {
 
             <p className="text-[11px] text-white/30 mb-4">
                 Se envía solo —por email y WhatsApp, con el certificado firmado y el justificante de
-                registro adjuntos— en cuanto el expediente está cobrado y el registro subido.
+                registro adjuntos— en cuanto el expediente está cobrado y el registro subido. Si los
+                certificados acreditan la deducción del IRPF, va también la guía de la Renta.
             </p>
 
             {/* Que el automático esté apagado tiene que verse. Sin este aviso, en

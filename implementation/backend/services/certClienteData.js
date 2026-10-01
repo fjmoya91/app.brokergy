@@ -20,7 +20,12 @@ const joinAddress = ({ calle, cp, municipio, provincia }) => {
     const parts = [base];
     if (cp && !base.includes(cp)) parts.push(cp);
     if (municipio && !base.toUpperCase().includes(municipio.toUpperCase())) parts.push(municipio);
-    if (provincia) parts.push(`(${provincia})`);
+    // Ni la provincia que ya viene dentro ("… (CIUDAD REAL)"), ni un CÓDIGO de
+    // provincia ("13"): la calculadora guarda a veces el código INE y salía
+    // "… (CIUDAD REAL), (13)" en lo que lee el certificador y el cliente.
+    if (provincia && !/^\d+$/.test(clean(provincia)) && !base.toUpperCase().includes(clean(provincia).toUpperCase())) {
+        parts.push(`(${provincia})`);
+    }
     return parts.filter(Boolean).join(', ');
 };
 

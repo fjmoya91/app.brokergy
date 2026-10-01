@@ -45,8 +45,10 @@ const fechaEs = (iso) => (/^\d{4}-\d{2}-\d{2}/.test(iso || '')
  * @param {object}   props.cee       el `cee` del encargo (con `cee_anterior`)
  * @param {Function} props.onCargar  abrir el popup de carga para el CEE anterior
  * @param {Function} props.onQuitar  retirar el CEE anterior
+ * @param {node}     [props.accion]  lo que va debajo de la comprobación (el envío
+ *        de la guía de la Renta al cliente, que solo ve el equipo interno)
  */
-export function CeeAnteriorCliente({ cee, onCargar, onQuitar }) {
+export function CeeAnteriorCliente({ cee, onCargar, onQuitar, accion = null }) {
     const ant = cee?.cee_anterior;
     if (!ant) return null;
 
@@ -103,6 +105,7 @@ export function CeeAnteriorCliente({ cee, onCargar, onQuitar }) {
                 rotulos={ROTULOS}
                 falta={FALTA}
             />
+            {accion}
         </div>
     );
 }

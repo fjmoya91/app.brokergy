@@ -477,6 +477,12 @@ function FacturasSection({ expedienteId, facturas, onChange, onCommit, readOnly,
                                 numero_factura: f.numero_factura || leida.numero_factura || '',
                                 fecha_factura: f.fecha_factura || leida.fecha_factura || null,
                                 importe_sin_iva: Number(f.importe_sin_iva) || leida.importe_sin_iva || 0,
+                                // Total con IVA y emisor: es un documento nuevo, así que
+                                // van los suyos (los usa la guía del IRPF del cliente).
+                                importe_con_iva: leida.importe_con_iva ?? null,
+                                iva_pct: leida.iva_pct ?? null,
+                                emisor_nombre: leida.emisor_nombre || f.emisor_nombre || null,
+                                emisor_nif: leida.emisor_nif || f.emisor_nif || null,
                                 drive_link: leida.drive_link,
                                 drive_id: leida.drive_id,
                                 origen: 'ocr',

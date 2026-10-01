@@ -48,6 +48,11 @@ const CLAVES_PROTEGIDAS = [
     // escribe PUT /memoria-rite/locales; una copia vieja del navegador no puede
     // devolver la tabla a lo que había antes de confirmar el popup.
     'rite_locales',
+    // La guía de la deducción del IRPF que se le entregó al cliente (enlace de
+    // Drive, ajustes y envío). La escriben solo las rutas /guia-irpf con la RPC de
+    // MERGE, y el portal del cliente sirve el PDF desde aquí: borrarla dejaría al
+    // cliente sin poder descargarse lo que se le mandó.
+    'guia_irpf',
 ];
 
 const { DOCUMENTO_VALIDABLE_LABELS, BORRADORES_CLIENTE, invalidarValidacionDocs } = require('./docValidacion');

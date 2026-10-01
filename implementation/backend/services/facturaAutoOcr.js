@@ -38,6 +38,12 @@ function buildPatch(ocr) {
 
     const base = ocr?.totales?.base_imponible;
     if (Number.isFinite(base) && base > 0) patch.importe_sin_iva = base;
+    // Total con IVA y emisor: los usa la guía de la deducción del IRPF del cliente.
+    const total = ocr?.totales?.total;
+    if (Number.isFinite(total) && total > 0) patch.importe_con_iva = total;
+    if (Number.isFinite(ocr?.totales?.iva_pct)) patch.iva_pct = ocr.totales.iva_pct;
+    if (String(ocr?.emisor?.nombre || '').trim()) patch.emisor_nombre = String(ocr.emisor.nombre).trim();
+    if (String(ocr?.emisor?.nif || '').trim()) patch.emisor_nif = String(ocr.emisor.nif).trim();
 
     // Partidas (AEROTERMIA, VENTANAS…): de ellas sale CUÁL es la factura de la
     // instalación térmica, que fija la fecha de pruebas de la Memoria RITE.

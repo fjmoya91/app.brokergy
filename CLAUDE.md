@@ -4143,8 +4143,11 @@ los certificados ya subidos tienen en `cee_inicial`/`cee_final` un objeto parsea
 **REGLA — esto INFORMA, no decide.** Que el certificado cumpla el requisito
 técnico no es que al cliente le corresponda la deducción: hay plazos de expedición,
 base máxima anual y la situación de cada declaración. El texto habla del
-certificado ("el ahorro certificado es del 41,6 %") y **no viaja en la entrega al
-cliente** — afirmarle por escrito que tiene derecho a un dinero es otra cosa.
+certificado ("el ahorro certificado es del 41,6 %"). **Al cliente le llega por la
+GUÍA de la Renta** (ver "La GUÍA de la deducción del IRPF"), que habla de lo que
+acreditan los certificados y de cómo se rellena la declaración, con una estimación
+marcada como tal y el aviso de que depende de su situación fiscal — nunca afirma
+que tenga derecho a un importe (decisión del usuario, 2026-10-01).
 
 Se avisa además si las **superficies de los dos certificados no casan** (>2 %):
 el indicador es por m², así que si una está mal el porcentaje compara dos edificios
@@ -4179,6 +4182,104 @@ las fechas del 29/09 al 29/06, las del certificado del otro técnico (reparado d
 
 **REGLA — solo se pinta si se ha cargado**: la mayoría de estos encargos son
 compraventas y alquileres, donde no hay un antes que comparar.
+
+✅ 2026CEE_60 REPARADO el 01/10/2026: la "reparación" de arriba no había llegado al
+objeto guardado — `cee_inicial` seguía siendo el CEE del otro técnico leído por OCR
+(`_fileName: "OCR (IA)"`: demanda 127,8, 120,36 m², ACS 0, fechas 29/06). Se rehízo
+entero desde su propio `.xml` (`parseCeeXml`, como al subirlo en la rejilla: 180,37 ·
+130 m² · ACS 17 · 151,34 D · 29/09/2026) junto a `fecha_firma/visita_cee_inicial` y
+los combustibles, con nota en el historial. `cee_anterior` (el del otro técnico) no se
+tocó.
+
+---
+
+## La GUÍA de la deducción del IRPF para el cliente (2026-10-01)
+
+Botón **🧾 Enviar al cliente: certificados + guía de la Renta** bajo la comprobación
+del IRPF del módulo CEE (solo equipo interno), en los DOS negocios. Al cliente le
+llegan sus certificados FIRMADOS y una guía de UNA página, con la marca de los
+documentos de cliente (la de la oferta de CEE: filete degradado, Manrope + Archivo,
+banda oscura con el lema), que le dice qué deducción aplicarse, dónde se marca en
+Renta Web y todos los datos que le va a pedir, ya rellenos. La guía se guarda en Drive
+y el cliente la descarga también desde su portal (`/mi-expediente`).
+
+| Qué | Dónde |
+|---|---|
+| Qué deducción, estimación, texto del mensaje y HTML del PDF (fuente única) | [logic/guiaIrpf.js](implementation/frontend/src/features/expedientes/logic/guiaIrpf.js) |
+| Cargar los dos negocios, PDF, Drive, envío y sello | [services/guiaIrpfService.js](implementation/backend/services/guiaIrpfService.js) |
+| Rutas (montadas en `expedientes` y `ceeDirectos` desde un único montador) | [routes/guiaIrpfRutas.js](implementation/backend/routes/guiaIrpfRutas.js) — `GET /:id/guia-irpf` · `POST …/estado` · `…/pdf` · `…/guardar` · `…/enviar` (**staffOnly**) |
+| Popup (vista previa = el PDF real) | `GuiaIrpfModal.jsx` (+ `GuiaIrpfBoton`) |
+| Lector del `.xml` sin DOM para el servidor | `leerDatosIrpfDeTexto` en [xmlCeeParser.js](implementation/frontend/src/features/calculator/logic/xmlCeeParser.js) |
+| Pruebas | `node implementation/backend/scripts/test_guia_irpf.mjs` (lógica + cabe en UNA hoja) · `probar_guia_irpf.js <nº> [--pdf]` (expediente real, sin escribir) |
+
+**Qué deducción** (manual de BROKERGY «MANUAL DEDUCCIONES IRPF»): consumo de energía
+primaria no renovable −30 % o letra A/B → **unifamiliar o edificio completo: 60 %**
+(base 5.000 €/año, 15.000 € en total, el exceso en los 4 años siguientes: 12.000 € →
+3.000 + 3.000 + 1.200) · **piso: 40 %** (base 7.500 €) · si no, demanda de calefacción
++ refrigeración −7 % → **20 %** · si no, no hay guía. El tipo sale del `<TipoDeEdificio>`
+del certificado y se puede cambiar en el popup. **Vigencia en `MODALIDADES`** (RDL 7/2026:
+20/40 % hasta 31/12/2026, 60 % hasta 31/12/2027): cuando se vuelva a prorrogar, se cambia ahí.
+
+**REGLA — los datos de Renta Web son LITERALES** (verificados con el manual de la AEAT
+2025): situación (clave 1), referencia catastral, NIF de quien ha realizado las obras (1)
+y (2), fecha y consumo/letra de los dos certificados, cantidades satisfechas. El rótulo de
+cada opción (`opcionRenta`) es el de la pantalla de Renta Web: no se parafrasea.
+
+**REGLA — en la guía manda lo que dice EL CERTIFICADO (`.xml`)**, al revés que en la
+comprobación de la pantalla: es lo que el cliente teclea mirando su papel. Si lo guardado
+difiere (fecha o consumo) se usa el `.xml` y se AVISA a quien envía.
+
+**REGLA — "cantidades satisfechas" van CON IVA.** Las facturas del expediente solo
+guardaban la base: se supone el 21 % y se marca en ámbar para que una persona lo compruebe
+(puede ser 10 %). Desde hoy el lector de facturas guarda además `importe_con_iva`, `iva_pct`,
+`emisor_nombre` y `emisor_nif` (rutas de OCR, `facturaAutoOcr` y el modal). La factura de
+NUESTROS certificados (CEE directo, `facturas_emitidas` al cliente) también cuenta —la
+norma incluye «la emisión de los correspondientes certificados»— pero BROKERGY no "ha
+realizado las obras" y no pone su NIF ahí. El popup deja añadir a mano las facturas que
+pase el cliente.
+
+**REGLA — sin facturas de la OBRA va un EJEMPLO, nunca una estimación sobre lo que haya**
+(decisión del usuario, 2026-10-01). Ninguna factura, o solo la de nuestros certificados —lo
+normal en un CEE directo: la obra la contrató el cliente con otro—: estimar sobre los 161 € de
+la factura de los certificados le diría que se deduce 96. En su lugar, el recuadro oscuro de
+la guía es **«EJEMPLO · OBRA DE 9.000 €»** (`IMPORTE_EJEMPLO`, IVA incluido): 60 % → 3.000 +
+2.400 = **5.400 €** en dos declaraciones; 40 % → 3.000 (topado a 7.500); 20 % → 1.000. El
+ejemplo es el de UNA persona aunque haya varios propietarios (repartido parecería calculado), y
+la guía le dice que lo suyo es el mismo % de lo que haya pagado. En cuanto hay una factura de
+la obra —del expediente o añadida en el popup— sale su caso real. **No es un aviso** (en un CEE
+directo saldría siempre): el popup lo dice como información. La frase del ejemplo es fuente
+única (`fraseEjemplo`) para el mensaje de la guía y el de la entrega, y con ejemplo el sello no
+guarda `deduccion_estimada` (guarda `ejemplo`).
+
+**REGLA — en un CEE directo la guía VIAJA CON LA ENTREGA del certificado**
+(`guiaIrpfService.guiaDeEntrega`): la del panel «Entrega al cliente» —manual y automática— y el
+«Enviar al cliente» de la rejilla, si la fase entregada es la de «después» (la del encargo en
+uno ÚNICO, la final en uno DOBLE) y hay certificado de antes con el que comparar. Sin esto, el
+certificado y la guía eran dos mensajes con el mismo PDF. Va adjunta, el mensaje la anuncia
+(`textoGuiaEnEntrega`), queda en Drive y sellada (`enviada.via = 'entrega'`) y el historial lo
+dice. **Nunca para la entrega**: si la guía no se puede componer o rasterizar, el certificado
+sale igual y sin el párrafo que la anuncia. Usa los ajustes GUARDADOS de la guía, así que el
+panel la enseña ANTES de entregar (también mientras falta el cobro) con «Revisar la guía»: el
+mismo popup en modo `soloRevisar` (sin «Enviar», que sería mandar el certificado dos veces).
+Probar sin enviar nada: `node scripts/probar_guia_irpf.js 2026CEE_60` (imprime también lo que
+llevaría la entrega).
+
+**REGLA — se envían SOLO los PDF FIRMADOS** (`…_fdo.pdf`) **y la guía**, renombrados para el
+cliente («CEE ANTES / DESPUÉS DE LA OBRA»); sin el `.xml`, el `.cex` ni el registro. Todo o
+nada: si falta un PDF no sale el mensaje. En un CEE directo de UN certificado se manda solo
+el nuestro (el anterior es del cliente) y el mensaje se lo recuerda. **Respeta el candado de
+cobro** de los CEE directos; en el CAE antes de `DOC. COMPLETA` solo AVISA.
+
+**REGLA — la guía se guarda y se SELLA** en `documentacion.guia_irpf` (enlace + ajustes del
+popup + envío; RPC de MERGE): `1. CEE` en el CAE, la raíz del encargo en un CEE directo,
+sustituyendo la anterior. Es **clave protegida** del autoguardado en los dos negocios (en el
+CEE directo se protegió de paso `entrega_cliente`, que tampoco lo estaba). El portal la sirve
+con la clave `guia_irpf` (`fields` admite ya rutas con punto).
+
+⚠️ `toLocaleString('es-ES')` NO agrupa números de cuatro cifras ("7768 €"): la guía usa su
+propio formateador (`miles`). Y la hoja es de alto FIJO: tras tocar la maqueta, el test mide
+la holgura (hoy +26 px en el peor caso: 5 facturas, 2 empresas, 2 propietarios; el ejemplo
+deja más de +130).
 
 ---
 
@@ -12456,6 +12557,8 @@ exacto (`/(^|[\\/])server\.js$/`), pero en un banco pon además `WHATSAPP_ENABLE
 94. **El nombre del cliente en la AGENDA de WhatsApp lleva su nº de obra** (2026-09-30): «RES080 Irene Lopez (Gonzagarri)» pasa a «RES080_87 Irene Lopez (Gonzagarri)» — con expediente, su nº sin el año; sin él, su oportunidad (`RES060_OP246`); un CEE directo, `CEE_54`. Botón en el panel de WhatsApp («Nombres de clientes en la agenda», en seco primero) y `POST /api/whatsapp/contactos/renombrar-clientes` (adminOnly o `x-internal-key`, `dryRun` por defecto, a trozos con cursor por teléfono). **Es la EXCEPCIÓN a `guardarSiFalta`**: solo se toca el PREFIJO que la casa escribe delante (`RES060`, `RES080 -`, `26RES080_78`, `CEEI`…; nunca «Termia», «Teresa» ni «RESERVAS») y lo de detrás se conserva letra a letra; un contacto sin prefijo no se renombra. Se casa por teléfono contra titular, persona de contacto y copropietarios; un número en VARIOS clientes no se toca, varias obras abiertas de la misma ficha se preguntan, y **lo que cambiaría la ficha que ya dice el nombre (RES080 → RES060_143) se aparta a «revisar»** — suele ser un teléfono casado con otra persona de la ficha. `saveContactAction` EDITA el contacto (el `@c.us` y su `@lid`), no lo duplica. ⚠️ **WhatsApp LIMITA las ediciones de la agenda**: medido el 30/09/2026, una cada 1,5 s aguantó ~41 y después respondió **429 `rate-overlimit`** a todas (la sesión siguió sana). Va a una cada 20 s (`WA_CONTACTOS_PAUSA_MS`), dos por petición, y **se para al primer 429** (`err.limitado` en `whatsappContactos.guardar`, que ahora devuelve el error como dato: cruzando `evaluate` llegaba minificado como «t»). Fuente única: [utils/nombreContactoCliente.js](implementation/backend/utils/nombreContactoCliente.js) + [whatsappNombresClientes.js](implementation/backend/services/whatsappNombresClientes.js). Tras tocarlo: `node implementation/backend/scripts/test_nombre_contacto_cliente.js`.
 
 97. **En un CEE directo de UN solo certificado, el CEE de ANTES del cliente se carga APARTE, como «CEE anterior del cliente»** (2026-10-01), y debajo sale la comprobación de la deducción del IRPF (ahorro ≥30 % en energía primaria no renovable o letra A/B) contra el CEE de este encargo. Va en `cee.cee_anterior`, **nunca en una fase**: en un encargo ÚNICO la fase «inicial» es el NUESTRO, y cargarlo ahí pisaba sus datos (2026CEE_60). El lector de PDF del CEE saca ya el consumo global de energía primaria no renovable y su letra, así que un PDF basta. Fuente única: [CeeAnteriorCliente.jsx](implementation/frontend/src/features/expedientes/components/CeeAnteriorCliente.jsx) + `comprobarIrpf` en [irpfEpnr.js](implementation/frontend/src/features/expedientes/logic/irpfEpnr.js). Ver "Un CEE directo de UN solo certificado: el CEE ANTERIOR del cliente".
+
+98. **Al cliente se le envían sus CEE firmados + una GUÍA de una página para la deducción del IRPF, de un botón** (2026-10-01): bajo la comprobación del IRPF del módulo CEE, en los dos negocios. La guía dice qué deducción aplicarse (unifamiliar/edificio 60 % · piso 40 % · solo demanda 20 %), dónde se marca en Renta Web y los datos LITERALES que pide, con las facturas CON IVA (el 21 % supuesto se marca para revisar) y una estimación marcada como tal —o, sin facturas de la obra, un EJEMPLO con una obra de 9.000 €—; nunca afirma un derecho. En un CEE directo va también, adjunta, con la ENTREGA del certificado (panel, automática y rejilla), sin poder pararla nunca. Los datos del certificado salen de su `.xml` (manda sobre lo guardado, y se avisa si difiere). Solo viajan los PDF firmados y la guía; respeta el candado de cobro de los CEE directos. Se guarda en Drive, se sella en `documentacion.guia_irpf` (clave protegida) y la sirve el portal del cliente. Fuente única: [logic/guiaIrpf.js](implementation/frontend/src/features/expedientes/logic/guiaIrpf.js) + [guiaIrpfService.js](implementation/backend/services/guiaIrpfService.js). Tras tocarlo: `node implementation/backend/scripts/test_guia_irpf.mjs` (incluye que cabe en una hoja). Ver "La GUÍA de la deducción del IRPF para el cliente".
 
 ---
 
