@@ -2,7 +2,7 @@
 // ============================================================================
 // cee_inicial.js — GENERAR EL CEE INICIAL de una obra, desde sus fotos.
 //
-// Lo usa la skill `generar-cee-inicial` (.claude/skills/generar-cee-inicial).
+// Lo usa la skill `generar-cee-inicial` (skills/generar-cee-inicial).
 // Es el gemelo de `revisar_cee.js`: aquél mira el `.cex` que ENTREGA el
 // certificador; éste prepara el que se le da ya hecho.
 //
@@ -920,7 +920,7 @@ const ORDENES = { estado, placas, fotos, paredes, 'leer-pared': leerPared, eprel
     const f = ORDENES[ORDEN];
     if (!f) {
         console.log(`Órdenes: ${Object.keys(ORDENES).join(' · ')}\n`
-            + 'Ver la cabecera de este fichero y .claude/skills/generar-cee-inicial/SKILL.md');
+            + 'Ver la cabecera de este fichero y skills/generar-cee-inicial/SKILL.md');
         process.exit(1);
     }
     await f();

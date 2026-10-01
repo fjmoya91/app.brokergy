@@ -1,8 +1,8 @@
 # El criterio, para aplicarlo sin el comprobador
 
 Todo lo de aquí está MEDIDO sobre los 462 certificados reales de `data/real_cases_xml`. Cuando se
-pueda ejecutar `scripts/revisar_cee.js`, se ejecuta: esto es el respaldo para cuando no hay repo
-delante (Cowork), y entonces **hay que decir en el informe que se ha revisado sin el comprobador**.
+pueda ejecutar `scripts/revisar_cee.js`, se ejecuta: esto es el respaldo para cuando no se puede
+ejecutar (Cowork sin Desktop Commander, o con el PC apagado — ver `comun/entorno.md`), y entonces **hay que decir en el informe que se ha revisado sin el comprobador**.
 
 ---
 

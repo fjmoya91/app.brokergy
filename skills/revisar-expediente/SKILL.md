@@ -1,16 +1,6 @@
 ---
 name: revisar-expediente
-description: >-
-  Gestor de la cartera de expedientes CAE de BROKERGY: el agente que repasa los expedientes en curso y
-  mueve cada uno a su siguiente acción. Úsalo cuando el usuario diga "revisa la cartera", "qué expedientes
-  tenemos en curso", "repasa/gestiona los pendientes", "ponme al día de los expedientes", "empieza con los
-  migrados sin revisar", o al empezar el día. Saca el panorama (MCP get_summary + list_pending), agrupa en
-  paquetes de 5 por año de actuación + CCAA (criterio de lote), clasifica cada expediente (migrado sin
-  revisar → auditar / faltan datos → rellenar / falta documento → generar / falta algo del cliente o
-  instalador → pedir por WhatsApp) y ORQUESTA las skills adecuadas en orden: rellenar-expediente,
-  auditar-expediente, migrar-expediente, generar-anexo-cifo, generar-anexo-fotografico y enviar-whatsapp.
-  NO reimplementa lo que hacen esas skills: las invoca. No cierra estados ni firma; las acciones
-  irreversibles (WhatsApp, generar) pasan por el visto bueno del usuario.
+description: 'Gestor de la cartera de expedientes CAE de BROKERGY: el agente que repasa los expedientes en curso y mueve cada uno a su siguiente acción. Úsalo cuando el usuario diga "revisa la cartera", "qué expedientes tenemos en curso", "repasa/gestiona los pendientes", "ponme al día de los expedientes", "empieza con los migrados sin revisar", o al empezar el día. Saca el panorama (MCP get_summary + list_pending), agrupa en paquetes de 5 por año de actuación + CCAA (criterio de lote), clasifica cada expediente (migrado sin revisar → auditar / faltan datos → rellenar / falta documento → generar / falta algo del cliente o instalador → pedir por WhatsApp) y ORQUESTA las skills adecuadas en orden: rellenar-expediente, auditar-expediente, migrar-expediente, generar-anexo-cifo, generar-anexo-fotografico y enviar-whatsapp. NO reimplementa lo que hacen esas skills: las invoca. No cierra estados ni firma; las acciones irreversibles (WhatsApp, generar) pasan por el visto bueno del usuario.'
 ---
 
 # Revisar expedientes — gestor de cartera CAE

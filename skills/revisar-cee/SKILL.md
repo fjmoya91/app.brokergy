@@ -1,18 +1,6 @@
 ---
 name: revisar-cee
-description: >-
-  Revisa el CERTIFICADO DE EFICIENCIA ENERGÉTICA que entrega un certificador, antes de darle el visto
-  bueno para que lo registre. Úsalo cuando el usuario diga "revisa el CEE del expediente NNN", "mírame
-  este certificado", "¿puedo dar el visto bueno al CEE de X?", "acaban de subir el CEE inicial", "revisa
-  el .xml / el .cex que me han pasado", o adjunte un .xml, .cex o PDF de un CEE. Comprueba lo que se
-  revisa a mano: que el CEE inicial declare el equipo que se va a sustituir con su combustible, que el
-  alcance (calefacción / calefacción+ACS) coincida, que la demanda y la superficie no queden por debajo
-  de las simuladas, que las transmitancias y la ventilación sean las de la guía, que la vivienda sea la
-  del expediente, huecos y puentes térmicos, y —leyendo el .cex— que la MEDIDA DE MEJORA del inicial
-  exista, esté calculada sobre ESE edificio y lleve el equipo y el SCOP del expediente; y en un RES080,
-  QUÉ elementos de envolvente cambian. Si falta la medida, la app puede ponerla (--poner-medida).
-  INFORMA con un veredicto y la evidencia de cada punto: no da el visto bueno, no avisa al certificador
-  y no registra nada. Eso lo decide una persona.
+description: 'Revisa el CERTIFICADO DE EFICIENCIA ENERGÉTICA que entrega un certificador, antes de darle el visto bueno para que lo registre. Úsalo cuando el usuario diga "revisa el CEE del expediente NNN", "mírame este certificado", "¿puedo dar el visto bueno al CEE de X?", "acaban de subir el CEE inicial", "revisa el .xml / el .cex que me han pasado", o adjunte un .xml, .cex o PDF de un CEE. Comprueba lo que se revisa a mano: que el CEE inicial declare el equipo que se va a sustituir con su combustible, que el alcance (calefacción / calefacción+ACS) coincida, que la demanda y la superficie no queden por debajo de las simuladas, transmitancias y ventilación de la guía, huecos y puentes térmicos, y —leyendo el .cex— que la MEDIDA DE MEJORA del inicial exista, esté calculada sobre ESE edificio y lleve el equipo y el SCOP del expediente; en un RES080, qué envolvente cambia. INFORMA con veredicto y evidencia: no da el visto bueno ni avisa al certificador; eso lo decide una persona.'
 ---
 
 # Revisar un CEE antes de dar el visto bueno
@@ -64,8 +52,9 @@ adjunta el fichero, úsalo tal cual.
 
 ### 2. Ejecuta la revisión
 
-**Con el repo delante (Claude Code)** — es el camino bueno, porque el juicio lo hace código
-determinista y el resultado es reproducible:
+**Con el comprobador (Claude Code, o Cowork por Desktop Commander)** — es el camino bueno, porque el
+juicio lo hace código determinista y el resultado es reproducible. En Cowork el comando es el mismo,
+lanzado EN EL PC con Desktop Commander (nunca en el sandbox): ver [comun/entorno.md](comun/entorno.md).
 
 ```bash
 cd implementation/backend
@@ -95,7 +84,7 @@ alguien tiene que abrirlo en CE3X, pulsar «Actualizar» y guardarlo como el `.c
 Sin aerotermia en el expediente pone una GENÉRICA con lo simulado; con el ACS fuera de alcance y la
 caldera mixta retirada, un termo eléctrico.
 
-**Sin el repo (Cowork)** — aplica a mano el criterio de [referencia/criterio.md](referencia/criterio.md)
+**Sin el comprobador (Cowork sin Desktop Commander, o con el PC apagado)** — aplica a mano el criterio de [referencia/criterio.md](referencia/criterio.md)
 leyendo el `.xml`, y **dilo en el informe**: «revisado sin el comprobador determinista». Es la misma
 lista de puntos, pero el veredicto lo estás dando tú y no el código.
 

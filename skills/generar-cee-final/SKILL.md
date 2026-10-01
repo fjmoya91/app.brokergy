@@ -1,16 +1,6 @@
 ---
 name: generar-cee-final
-description: >-
-  GENERA el CEE FINAL (.cex de CE3X) de un expediente CAE RES060 o RES093 a partir de la MEDIDA DE
-  MEJORA del CEE inicial que ya entregó el técnico: el «edificio mejorado» de esa medida pasa a ser el
-  certificado final (misma envolvente, mismos datos, mismo técnico, mismas imágenes; la instalación,
-  la de la medida TAL CUAL). En una HIBRIDACIÓN (RES093) le pone como medida de mejora retirar la
-  caldera que quedó en apoyo, con la bomba de calor al 100 %; en una sustitución (RES060), el
-  autoconsumo si procede; y, sobre todo si ya hay placas, medidas de AISLAMIENTO de cubierta o fachada
-  con su solución constructiva (lana mineral, XPS, SATE…) y un texto profesional. Deja `{nº} - CEE FINAL_REVISAR.cex` en «1. CEE / CEE FINAL» y dice qué tiene
-  que dar al calificarlo en CE3X. Úsalo cuando el usuario diga "genera el CEE final de NNN", "el final
-  como aparece en la medida de mejora", "prepárame el CEE final para visto bueno y firmar". Es el mismo
-  camino que el botón «Generar» de la fila del CEE final en la app. RES080 NO (segunda fase).
+description: 'GENERA el CEE FINAL (.cex de CE3X) de un expediente CAE RES060 o RES093 a partir de la MEDIDA DE MEJORA del CEE inicial que ya entregó el técnico: el «edificio mejorado» de esa medida pasa a ser el certificado final (misma envolvente, mismos datos, mismo técnico, mismas imágenes; la instalación, la de la medida TAL CUAL). En una HIBRIDACIÓN (RES093) le pone como medida de mejora retirar la caldera que quedó en apoyo, con la bomba de calor al 100 %; en una sustitución (RES060), el autoconsumo si procede; y medidas de AISLAMIENTO de cubierta o fachada con su solución constructiva. Deja `{nº} - CEE FINAL_REVISAR.cex` en «1. CEE / CEE FINAL» y dice qué tiene que dar al calificarlo en CE3X. Úsalo cuando el usuario diga "genera el CEE final de NNN", "el final como aparece en la medida de mejora", "prepárame el CEE final para visto bueno y firmar". Es el mismo camino que el botón «Generar» de la fila del CEE final en la app. RES080 NO (segunda fase).'
 ---
 
 # Generar el CEE final desde la medida de mejora del inicial
@@ -51,6 +41,9 @@ el final. Es como se hace a mano, y la app lo hace igual:
   secas.
 - Proyecto Supabase `app.brokergy` → `okfeopwetlxdffrsbfqw`. Motor (cee-engine) levantado en
   `CEE_ENGINE_URL` (local: `http://127.0.0.1:8090`, `preview_start cee-engine`).
+- **Dónde se ejecuta — Claude Code o Cowork:** los comandos son los MISMOS y van SIEMPRE en el PC
+  (repo + `.env` + motor). En Code, por la shell; en **Cowork, por Desktop Commander, nunca en el
+  sandbox**. Rutas, motor y qué hacer si no hay PC: [comun/entorno.md](comun/entorno.md).
 
 ## La herramienta
 

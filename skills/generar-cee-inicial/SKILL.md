@@ -1,16 +1,6 @@
 ---
 name: generar-cee-inicial
-description: >-
-  GENERA el CEE INICIAL (.cex de CE3X) de una oportunidad o de un expediente a partir de sus FOTOS:
-  lee la placa de la caldera existente, la de la aerotermia que se va a poner, cuenta y mide las
-  ventanas y puertas de cada fachada, las asigna a su pared en el plano del Catastro y escribe el
-  .cex con la aerotermia como MEDIDA DE MEJORA. Si la aerotermia no está en el catálogo, la da de
-  alta con todo lo que justifica su SCOP de clima cálido a 35 y 55 °C: ficha técnica del fabricante,
-  ficha y etiqueta EPREL y Keymark si existe, unidas y guardadas en Drive. Úsalo cuando el usuario
-  diga "genera el CEE inicial de NNN", "hazme el .cex de la oportunidad OP246", "prepara la
-  envolvente de X con sus fotos", "mete esta aerotermia en el catálogo". Es el gemelo de
-  `revisar-cee`: aquél revisa el .cex que entrega el certificador; éste se lo da ya hecho.
-  Lo leído de una foto NACE DUDOSO y lo que no se puede afirmar no se inventa.
+description: 'GENERA el CEE INICIAL (.cex de CE3X) de una oportunidad o de un expediente a partir de sus FOTOS: lee la placa de la caldera existente, la de la aerotermia que se va a poner, cuenta y mide las ventanas y puertas de cada fachada, las asigna a su pared en el plano del Catastro y escribe el .cex con la aerotermia como MEDIDA DE MEJORA. Si la aerotermia no está en el catálogo, la da de alta con todo lo que justifica su SCOP de clima cálido a 35 y 55 °C: ficha técnica del fabricante, ficha y etiqueta EPREL y Keymark si existe, unidas y guardadas en Drive. Úsalo cuando el usuario diga "genera el CEE inicial de NNN", "hazme el .cex de la oportunidad OP246", "prepara la envolvente de X con sus fotos", "mete esta aerotermia en el catálogo". Es el gemelo de `revisar-cee`: aquél revisa el .cex que entrega el certificador; éste se lo da ya hecho. Lo leído de una foto NACE DUDOSO y lo que no se puede afirmar no se inventa.'
 ---
 
 # Generar el CEE inicial desde las fotos
@@ -29,6 +19,9 @@ la envolvente (`/envolvente/:id`), donde el certificador lo abre y confirma lo q
   la placa no dice. Se deja en blanco y se DICE en el informe final.
 - Proyecto Supabase `app.brokergy` → `okfeopwetlxdffrsbfqw`. Motor de envolvente (cee-engine) levantado
   en `CEE_ENGINE_URL` (local: `http://127.0.0.1:8090`; `npm` del backend no lo arranca).
+- **Dónde se ejecuta — Claude Code o Cowork:** los comandos son los MISMOS y van SIEMPRE en el PC
+  (repo + `.env` + motor). En Code, por la shell; en **Cowork, por Desktop Commander, nunca en el
+  sandbox**. Rutas, motor y qué hacer si no hay PC: [comun/entorno.md](comun/entorno.md).
 
 ## La herramienta
 

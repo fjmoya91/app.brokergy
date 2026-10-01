@@ -20,6 +20,21 @@ La app Brokergy es un CRM interno para gestión de oportunidades de rehabilitaci
 
 Si el usuario dice "no veo el cambio", lo primero a comprobar es: **¿hemos hecho el deploy al VPS?** Vercel/Railway NO aplican aquí.
 
+## ⚠️ Skills: UNA sola fuente para Code y Cowork
+
+Todas las skills de BROKERGY viven en **[skills/](skills/README.md)** del repo y en ningún otro sitio
+(ni `.claude/skills/`, ni Drive, ni escritas a mano en Cowork). Code y Cowork las cargan de la
+**cuenta de claude.ai**, así que se PUBLICAN ahí:
+
+1. Se edita en `skills/<nombre>/` (lo común, en `skills/_comun/`).
+2. `node scripts/skills.mjs empaquetar` → `skills/dist/<nombre>.skill`, y se envía con SendUserFile
+   para que el usuario pulse «Guardar skill» (el hook `.claude/hooks/skill-editada.mjs` lo recuerda).
+3. `node scripts/skills.mjs estado` confirma que la cuenta ejecuta lo del repo. Si dice
+   «CUENTA + NUEVA», se editó en Cowork: `importar` antes de tocar nada.
+
+El repo es público: nada de DNI, IBAN, teléfonos ni claves dentro de una skill. Las que ejecutan
+scripts corren SIEMPRE en el PC (en Cowork, por Desktop Commander): ver `skills/_comun/entorno.md`.
+
 ### Módulos implementados y estables
 
 | Módulo | Estado | Descripción |
@@ -11144,7 +11159,7 @@ RES080— que se vea QUÉ elementos se rehabilitan. Se hacía a ojo, expediente 
 | El JUICIO (cruce con el expediente, punto por punto) | [revisionCee.js](implementation/backend/services/cee/revisionCee.js) |
 | Combustible declarado y su FAMILIA (fuente única) | [utils/combustibleCaldera.js](implementation/backend/utils/combustibleCaldera.js) |
 | Por línea de órdenes | `node scripts/revisar_cee.js --expediente 26RES060_192 [--fase inicial\|final]` |
-| Skill | `.claude/skills/revisar-cee/` (+ su `referencia/criterio.md` para Cowork) |
+| Skill | `skills/revisar-cee/` (+ su `referencia/criterio.md` para Cowork) |
 | Pruebas | `node implementation/backend/scripts/test_revision_cee.js` |
 
 **REGLA — el fichero solo se LEE; el juicio es del código.** Mismo reparto que
@@ -11706,7 +11721,7 @@ está en el catálogo, la da de alta con su ficha técnica, su EPREL y su Keymar
 | El orquestador (estado · placas · fotos · paredes · leer-pared · eprel · alta-aerotermia · aplicar) | [scripts/cee_inicial.js](implementation/backend/scripts/cee_inicial.js) |
 | El plano de paredes sobre la cartografía **y sobre la foto aérea** (PNOA, con la fecha del vuelo), en PNG | [scripts/cee_inicial_plano.py](implementation/backend/scripts/cee_inicial_plano.py) — teselas de [logic/ortofoto.js](implementation/frontend/src/features/cee-envolvente/logic/ortofoto.js) |
 | Lo SEÑALADO, sin React (lo usan el hook de la ventana y la skill) | [logic/senalado.js](implementation/frontend/src/features/cee-envolvente/logic/senalado.js) — `estadoDeTrabajo`, `senaladoDe` |
-| La skill y su referencia (formato del plan, alta de aerotermia) | `.claude/skills/generar-cee-inicial/` |
+| La skill y su referencia (formato del plan, alta de aerotermia) | `skills/generar-cee-inicial/` |
 | Pruebas | `test_senalado.mjs` · `test_placa_ocr.js` · `test_placa_equipo.js` · `test_ortofoto.mjs` |
 
 **La VISTA AÉREA es un dato más para decidir, no para medir** (2026-09-30): `paredes` deja
