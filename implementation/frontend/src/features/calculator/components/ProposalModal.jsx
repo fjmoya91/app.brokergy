@@ -14,6 +14,7 @@ import { estadoFc, lineaFactorCorreccion } from '../logic/avisoFc';
 // se factura hasta un mensaje nuevo confirmándolo. Fuente única — ver
 // `logic/avisoCeeInicial.js`. Va SIEMPRE, no depende de ningún caso.
 import { lineaAvisoCeeInicial } from '../logic/avisoCeeInicial';
+import { opcionesHibridacion, resultParaPropuesta, lineaTablaHibridacion, avisoHibridacion, mensajeHibridacion } from '../logic/hibridacionPropuesta';
 import { comisionEurMwh, pctDeComision, lineaComisionPartner } from '../logic/comisionPartner';
 // El enlace para ACEPTAR va en un mensaje aparte, después del PDF — ver
 // `logic/mensajeAceptacion.js`.
@@ -277,6 +278,7 @@ const baseCss = `
         .prop-est p { margin: 0; padding: 0; font-size: 10px; color: var(--g600); line-height: 1.55; }
         .prop-est p + p { margin-top: 5px; }
         .prop-est strong { color: var(--dark); }
+        .prop-est.hib-mas { border-color: #C8E6C9; border-top-color: var(--green); background: var(--green-light); }
         /* Chapa "presupuesto estimado" de la portada, junto a los indicadores. */
         .prop-estbadge { margin-top: 8px; display: inline-block; padding: 4px 10px; border-radius: 6px; background: var(--orange-light); border: 1px solid #FFE0B2; font-size: 9.5px; font-weight: 800; color: var(--orange-dark); text-transform: uppercase; letter-spacing: 0.6px; }
         .prop-nsm { margin-top: var(--e-nsm); display: flex; flex-direction: column; gap: 2px; }
@@ -576,7 +578,15 @@ function AvisoLecturaPresupuesto({ lectura, guardado, onDeshacer, onCerrar, flot
 // Estado de partida del ajuste de la portada (ver `fit` dentro del componente).
 const FIT_INICIAL = { pass: 0, compact: false, vars: null, reposo: null, zoom: null, zoomOk: null, zoomKo: null, listo: false };
 
-export function ProposalModal({ isOpen, onClose, result, inputs, onSaveRequest, onPresupuestoLeido, guardadoPresupuestoLeido }) {
+export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, onSaveRequest, onPresupuestoLeido, guardadoPresupuestoLeido }) {
+    // Con hibridación y «Retirando la caldera», los financieros SIN caldera pasan a
+    // ser los de la propuesta entera (tabla, indicadores, cláusula y mensaje); la
+    // otra cifra se cita al lado (logic/hibridacionPropuesta.js).
+    const result = useMemo(
+        () => resultParaPropuesta(resultCalculo, inputs),
+        [resultCalculo, inputs]
+    );
+    const opHibrida = useMemo(() => opcionesHibridacion(resultCalculo, inputs), [resultCalculo, inputs]);
     const { showAlert, showConfirm } = useModal();
     const { user } = useAuth();
     const proposalRef = useRef(null);
@@ -2151,6 +2161,8 @@ info@brokergy.es · 623 926 179`;
         // (`buildAceptacion`, abajo), y en su sitio el texto avisa de que está
         // debajo. A mitad de este mensaje no lo veía nadie.
         const enlaceDebajo = lineaEnlaceDebajo({ b2b: esB2B(mode) });
+        // Hibridación: la otra cifra (caldera retirada / mantenida) y qué es retirarla.
+        const hib = (!isReforma && opHibrida) ? `\n\n${mensajeHibridacion(opHibrida, { b2b: esB2B(mode) })}` : '';
         // Si la oportunidad viene de un instalador (o de otro colaborador), el
         // cliente la recibe EN COLABORACIÓN con él, no «tal y como acordamos»:
         // quien habló con el cliente fue el instalador, no nosotros. Solo al
@@ -2187,7 +2199,7 @@ info@brokergy.es · 623 926 179`;
             } else if (isBoth) {
                 return `¡Hola ${fName}!\n\nTe adjunto la simulación de las ayudas para el proyecto de ${clientNameForPartner} (Exp. ${displayId}), presentando las siguientes opciones para su caso:\n\n🔹 *Opción 1: Instalando solo aerotermia*\nEl cliente podría obtener una ayuda directa de *${formatNumber(Math.round(fAero.caeBonus || 0))} €* gracias al Bono Energético BROKERGY. Si sumamos las deducciones del IRPF (*${formatNumber(Math.round(fAero.irpfDeduction || 0))} €*), podría alcanzar un total de hasta *${formatNumber(Math.round(fAero.totalAyuda || 0))} €*.\n\n🔹 *Opción 2: Aerotermia junto con mejora de la envolvente*\nEn este caso, la ayuda del Bono Energético BROKERGY asciende a *${formatNumber(Math.round(fReforma.caeBonus || 0))} €*. Sumando las deducciones del IRPF (*${formatNumber(Math.round(fReforma.irpfDeduction || 0))} €*), el total para el cliente podría llegar hasta los *${formatNumber(Math.round(fReforma.totalAyuda || 0))} €*.\n\nTe recordamos que para acogerse a las deducciones del IRPF el cliente debe ser propietario de la vivienda y contar con retenciones aplicables. Por nuestra parte, dejaremos toda la parte técnica preparada para que las pueda solicitar fácilmente.\n\nPara avanzar con el proceso, los pasos serían:\n\n• Aceptar vuestro presupuesto de instalación.\n• Aceptar la propuesta técnica que adjuntamos en PDF.\n\n${enlaceDebajo}\n\nQuedo a vuestra disposición para cualquier duda o aclaración.\n\nUn saludo,\nFran Moya · BROKERGY`;
             } else {
-                return `¡Hola ${fName}!\n\nTe adjunto la simulación de las ayudas para el expediente de ${clientNameForPartner} (Exp. ${displayId}), presentando las siguientes opciones para su caso:\n\n🔹 *A modo resumen:*\n\n*Opción 1:* Instalando el sistema de aerotermia, el cliente podría obtener una ayuda de *${formatNumber(Math.round(fAero.caeBonus || 0))} €* gracias al Bono Energético BROKERGY.\n\nAdemás, si el cliente es propietario y tiene retenciones, puede acogerse a las deducciones en el IRPF siempre que estén vigentes. El importe estimado de estas sería de *${formatNumber(Math.round(fAero.irpfDeduction || 0))} €*. (Nosotros dejaremos toda la parte técnica preparada para que las pueda solicitar).\n\n💡 *Resumen total de las ayudas:* El cliente podría obtener hasta *${formatNumber(Math.round(fAero.totalAyuda || 0))} €* combinando ambas opciones.\n\nPara avanzar, los siguientes pasos serían:\n\n• Aceptar el presupuesto del instalador.\n• Aceptar la propuesta que adjuntamos en PDF.\n\n${enlaceDebajo}\n\nQuedo a vuestra disposición para cualquier duda o aclaración.\n\nUn saludo,\nFran Moya · BROKERGY`;
+                return `¡Hola ${fName}!\n\nTe adjunto la simulación de las ayudas para el expediente de ${clientNameForPartner} (Exp. ${displayId}), presentando las siguientes opciones para su caso:\n\n🔹 *A modo resumen:*\n\n*Opción 1:* Instalando el sistema de aerotermia, el cliente podría obtener una ayuda de *${formatNumber(Math.round(fAero.caeBonus || 0))} €* gracias al Bono Energético BROKERGY.\n\nAdemás, si el cliente es propietario y tiene retenciones, puede acogerse a las deducciones en el IRPF siempre que estén vigentes. El importe estimado de estas sería de *${formatNumber(Math.round(fAero.irpfDeduction || 0))} €*. (Nosotros dejaremos toda la parte técnica preparada para que las pueda solicitar).${hib}\n\n💡 *Resumen total de las ayudas:* El cliente podría obtener hasta *${formatNumber(Math.round(fAero.totalAyuda || 0))} €* combinando ambas opciones.\n\nPara avanzar, los siguientes pasos serían:\n\n• Aceptar el presupuesto del instalador.\n• Aceptar la propuesta que adjuntamos en PDF.\n\n${enlaceDebajo}\n\nQuedo a vuestra disposición para cualquier duda o aclaración.\n\nUn saludo,\nFran Moya · BROKERGY`;
             }
         } else {
             // CLIENTE
@@ -2204,10 +2216,10 @@ info@brokergy.es · 623 926 179`;
                 const totalReforma = Math.round(fReforma.totalAyuda || 0);
                 return `${saludo}\n\n${apertura} la simulación de las ayudas para tu proyecto, presentando las siguientes opciones:\n\n🔹 *Opción 1: Instalando solo aerotermia*\nPodrías obtener una ayuda directa de *${formatNumber(bonoAero)} €* gracias al Bono Energético BROKERGY. Si sumamos las deducciones del IRPF (*${formatNumber(irpfAero)} €*), podrías alcanzar un total de hasta *${formatNumber(totalAero)} €*.\n\n🔹 *Opción 2: Aerotermia junto con mejora de la envolvente (cambio de ventanas y/o aislamiento en muros o cubierta)*\nEn este caso, la ayuda del Bono Energético BROKERGY asciende a *${formatNumber(bonoReforma)} €*. Sumando las deducciones del IRPF (*${formatNumber(irpfReforma)} €*), el total podría llegar hasta los *${formatNumber(totalReforma)} €*.\n\nTe recordamos que para acogerte a las deducciones del IRPF debes ser propietario de la vivienda y contar con retenciones aplicables, y que la normativa debe seguir vigente. Por nuestra parte, dejaremos toda la parte técnica preparada para que las puedas solicitar fácilmente.\n\nPara avanzar con el proceso, los pasos serían:\n\n• Aceptar el presupuesto del instalador.\n• Aceptar la propuesta que te adjuntamos en PDF.\n\n${enlaceDebajo}\n\nQuedo a tu disposición para cualquier duda o aclaración.\n\nUn saludo,\n\nFran Moya\nBROKERGY | Ingeniería Energética\nhttps://brokergy.es/`;
             } else {
-                return `${saludo}\n\n${apertura} la simulación de las ayudas para tu expediente (Nº ${displayId}), presentando las siguientes opciones para tu caso:\n\n🔹 *A modo resumen:*\n\n*Opción 1:* Instalando el sistema de aerotermia, podrías obtener una ayuda de *${formatNumber(Math.round(fAero.caeBonus || 0))} €* gracias al Bono Energético BROKERGY.\n\nAdemás, si eres propietario y tienes retenciones, puedes acogerte a las deducciones en el IRPF siempre que estén vigentes. El importe estimado de estas sería de *${formatNumber(Math.round(fAero.irpfDeduction || 0))} €*. (Nosotros dejaremos toda la parte técnica preparada para que las puedas solicitar).\n\n💡 *Resumen total de las ayudas:* Podrías obtener hasta *${formatNumber(Math.round(fAero.totalAyuda || 0))} €* combinando ambas opciones.\n\nEn caso de conformidad, los siguientes pasos serían:\n\n• Aceptar el presupuesto al instalador (si no lo has aceptado ya)\n• Aceptar la propuesta que te adjuntamos en PDF.\n\n${enlaceDebajo}\n\nQuedo a tu disposición para cualquier duda o aclaración.\n\nUn saludo, Fran Moya\n\nBROKERGY — Especialistas en Eficiencia Energética\n\n\ninfo@brokergy.es · 623 926 179`;
+                return `${saludo}\n\n${apertura} la simulación de las ayudas para tu expediente (Nº ${displayId}), presentando las siguientes opciones para tu caso:\n\n🔹 *A modo resumen:*\n\n*Opción 1:* Instalando el sistema de aerotermia, podrías obtener una ayuda de *${formatNumber(Math.round(fAero.caeBonus || 0))} €* gracias al Bono Energético BROKERGY.\n\nAdemás, si eres propietario y tienes retenciones, puedes acogerte a las deducciones en el IRPF siempre que estén vigentes. El importe estimado de estas sería de *${formatNumber(Math.round(fAero.irpfDeduction || 0))} €*. (Nosotros dejaremos toda la parte técnica preparada para que las puedas solicitar).${hib}\n\n💡 *Resumen total de las ayudas:* Podrías obtener hasta *${formatNumber(Math.round(fAero.totalAyuda || 0))} €* combinando ambas opciones.\n\nEn caso de conformidad, los siguientes pasos serían:\n\n• Aceptar el presupuesto al instalador (si no lo has aceptado ya)\n• Aceptar la propuesta que te adjuntamos en PDF.\n\n${enlaceDebajo}\n\nQuedo a tu disposición para cualquier duda o aclaración.\n\nUn saludo, Fran Moya\n\nBROKERGY — Especialistas en Eficiencia Energética\n\n\ninfo@brokergy.es · 623 926 179`;
             }
         }
-    }, [inputs, result, displayId, ceeComparison, cobrand, clienteInfo]);
+    }, [inputs, result, displayId, ceeComparison, cobrand, clienteInfo, opHibrida]);
 
     /**
      * El SEGUNDO mensaje: el enlace para aceptar la propuesta, solo. Por
@@ -2709,6 +2721,8 @@ info@brokergy.es · 623 926 179`;
     const avisoPres = presEstimado
         ? avisoPresupuestoEstimado({ conIrpf: presConIrpf, importe: presInfo.importe })
         : null;
+    const lineaHibrida = lineaTablaHibridacion(opHibrida);
+    const avisoHibrida = avisoHibridacion(opHibrida);
 
     // Trío de indicadores de la portada (ayuda total · % cubierto · inversión neta).
     // Solo se pinta cuando hay UNA opción: en la comparativa a dos columnas esos tres
@@ -3378,7 +3392,7 @@ info@brokergy.es · 623 926 179`;
                                                         {!hideBudget && f.presupuestoFotovoltaica > 0 && (
                                                             <div className="prop-ftr"><span className="prop-fl">Instalación fotovoltaica {ivaSuffix(f)}</span><span className="prop-fv">{formatNumber(f.presupuestoFotovoltaica)} €</span></div>
                                                         )}
-                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f)}{ceeComparison && includeCeeComp && !inputs?.isReforma && (<><br /><small style={{ color: 'var(--orange)', fontWeight: 700 }}>Con tu CEE: {formatNumber(Math.round(ceeComparison.conCee.cae))} € · con un CEE nuevo BROKERGY: {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € (tú eliges)</small></>)}</span><span className="prop-fv grn">{hideBudget ? '' : '– '}{formatNumber(f.caeBonus)} €</span></div>
+                                                        <div className="prop-ftr"><span className="prop-fl">Bono Energético CAE <small>(Ingreso Bruto)</small> {ivaSuffixCae(f)}{ceeComparison && includeCeeComp && !inputs?.isReforma && (<><br /><small style={{ color: 'var(--orange)', fontWeight: 700 }}>Con tu CEE: {formatNumber(Math.round(ceeComparison.conCee.cae))} € · con un CEE nuevo BROKERGY: {formatNumber(Math.round(ceeComparison.ceeNuevo.cae))} € (tú eliges)</small></>)}{lineaHibrida && (<><br /><small style={{ color: lineaHibrida.tono === 'mas' ? 'var(--green-dark)' : 'var(--red)', fontWeight: 800 }}>{lineaHibrida.texto}</small></>)}</span><span className="prop-fv grn">{hideBudget ? '' : '– '}{formatNumber(f.caeBonus)} €</span></div>
 
                                                         {f.irpfCaeAmount > 0 && (
                                                             <div className="prop-ftr">
@@ -3512,6 +3526,15 @@ info@brokergy.es · 623 926 179`;
                                         <div className="prop-est">
                                             <h4>⚠ {avisoPres.titulo} — propuesta provisional</h4>
                                             {avisoPres.parrafos.map((p, i) => <p key={i}>{p}</p>)}
+                                        </div>
+                                    )}
+
+                                    {/* Hibridación: las dos cifras (caldera retirada / mantenida)
+                                        y qué significa retirarla de verdad. */}
+                                    {avisoHibrida && (
+                                        <div className={`prop-est ${opHibrida.retira ? '' : 'hib-mas'}`}>
+                                            <h4>{opHibrida.retira ? '⚠' : '💡'} {avisoHibrida.titulo}</h4>
+                                            {avisoHibrida.parrafos.map((p, i) => <p key={i}>{p}</p>)}
                                         </div>
                                     )}
 

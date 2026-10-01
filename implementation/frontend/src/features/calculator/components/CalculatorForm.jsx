@@ -24,6 +24,7 @@ import { fichaDesdeInputs, SECTORES, fichaColor } from '../../expedientes/logic/
 import { ACS_METHOD, resolveDacs } from '../../expedientes/logic/demandaAcs';
 // El OBJETO de la simulación: una vivienda o el EDIFICIO completo.
 import { pctDeComision, comisionDePct } from '../logic/comisionPartner';
+import { HIBRIDACION_PROPUESTA, modoHibridacionPropuesta } from '../logic/hibridacionPropuesta';
 import { esBloque, TIPO_INMUEBLE, clasificarTipoEdificio, etiquetaTipoEdificio, avisoTipoEdificio, IRPF_EDIFICIO_REQUISITO } from '../logic/tipoInmueble';
 import { FV, FV_OPCIONES, normalizarFotovoltaica, potenciaTexto, etiquetaFotovoltaica } from '../../expedientes/logic/fotovoltaica';
 import { produceAcs, litrosAcsCatalogo, esConjuntoAcs } from '../../expedientes/logic/acsCatalogo';
@@ -2415,6 +2416,40 @@ export function CalculatorForm({
                                                 ))}
                                             </div>
                                         </div>
+
+                                        {/* Qué precio va como PRINCIPAL en la propuesta; el otro se cita
+                                            al lado en color (logic/hibridacionPropuesta.js). No mueve el
+                                            cálculo ni la ficha: solo cómo se presenta. */}
+                                        {!inputs.isReforma && (
+                                            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                                                <Label className="text-[9px] text-slate-500 font-bold uppercase tracking-widest shrink-0">Precio en la propuesta</Label>
+                                                <div className="flex gap-1.5 p-1 bg-slate-950/50 border border-brand/20 rounded-xl">
+                                                    {[
+                                                        { id: HIBRIDACION_PROPUESTA.MANTIENE, label: 'Manteniendo la caldera', hint: 'y en verde cuánto más si la retira' },
+                                                        { id: HIBRIDACION_PROPUESTA.RETIRA, label: 'Retirando la caldera', hint: 'y en rojo cuánto menos si la mantiene' },
+                                                    ].map(opt => (
+                                                        <button
+                                                            key={opt.id}
+                                                            type="button"
+                                                            title={`Precio principal ${opt.label.toLowerCase()} ${opt.hint}`}
+                                                            onClick={() => handleChange('hibridacionPropuesta', opt.id)}
+                                                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border
+                                                                ${modoHibridacionPropuesta(inputs) === opt.id
+                                                                    ? 'bg-brand text-bkg-deep border-brand'
+                                                                    : 'text-slate-500 border-transparent hover:text-white'}`}
+                                                        >
+                                                            {opt.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                {result?.financialsSinCaldera && result?.financials && (
+                                                    <span className="text-[10px] font-bold text-slate-400 tabular-nums">
+                                                        Con caldera <span className="text-white">{Math.round(result.financials.caeBonus).toLocaleString('es-ES')} €</span>
+                                                        {' · '}sin caldera <span className="text-emerald-400">{Math.round(result.financialsSinCaldera.caeBonus).toLocaleString('es-ES')} €</span>
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
 
                                         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
                                             <div className="min-w-[140px]">

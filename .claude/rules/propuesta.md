@@ -36,6 +36,7 @@ paths:
 
 ## Documentos del área (nivel 3)
 
+- `docs/conocimiento/propuesta/hibridacion-caldera-retirada-o-mantenida.md` — Hibridación: la propuesta enseña el bono RETIRANDO y MANTENIENDO la caldera (2026-10-01) · 2,7 KB
 - `docs/conocimiento/propuesta/la-propuesta-al-titular-aunque-los-avisos-vayan-al-instalador.md` — La propuesta al TITULAR, aunque sus avisos vayan al instalador (2026-10-10) · 2,4 KB
 - `docs/conocimiento/propuesta/presupuesto-estimado-la-propuesta-lo-dice-y-dice-a-que-afecta.md` — Presupuesto ESTIMADO — la propuesta lo dice, y dice a qué afecta (2026-09-03) · 9,3 KB
 - `docs/conocimiento/propuesta/programar-el-envio-de-una-propuesta.md` — PROGRAMAR el envío de una propuesta (2026-09-19) · 4,9 KB
@@ -45,6 +46,9 @@ paths:
 
 > Son sus frases en negrita, copiadas tal cual. El porqué y los casos, en el documento.
 
+- `docs/conocimiento/propuesta/hibridacion-caldera-retirada-o-mantenida.md`
+  - **REGLA — quien prepara la propuesta elige qué cifra es el PRECIO**
+  - **REGLA — retirar la caldera es DESMONTARLA Y SACARLA DE LA VIVIENDA.**
 - `docs/conocimiento/propuesta/la-propuesta-al-titular-aunque-los-avisos-vayan-al-instalador.md`
   - **REGLA — con los avisos desviados, el titular es una fila más: `TITULAR`.**
   - **REGLA — si la oportunidad viene de un colaborador, al titular se le escribe «En

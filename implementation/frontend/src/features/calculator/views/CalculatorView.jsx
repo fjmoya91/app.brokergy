@@ -688,7 +688,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
         // calefacción dentro del alcance las dos vías dan EXACTAMENTE lo mismo
         // (comprobado en test_ter173.mjs); lo que añade `calculateTerciario` es
         // poder dejar un servicio fuera y poder sumar la piscina.
-        const savingsRes = esTerciarioCalc
+        const ahorroCon = (cb) => esTerciarioCalc
             ? calculateTerciario({
                 q_net_heating: demandRes.Q_net,
                 dacs: sanitizedInputs.dacs,
@@ -716,12 +716,13 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 changeHeating: esBloqueCalc ? inputs.changeHeating !== false : true,
                 cb: cb
             });
+        const savingsRes = ahorroCon(cb);
 
         // 3. Cálculos Financieros (IRPF + CAE)
-        const financialRes = calculateFinancials({
+        const financierosDe = (savingsKwh) => calculateFinancials({
             presupuesto: sanitizedInputs.presupuesto,
             presupuestoFotovoltaica: sanitizedInputs.presupuestoFotovoltaica,
-            savingsKwh: savingsRes.savingsKwh,
+            savingsKwh,
             caePriceClient: sanitizedInputs.caePriceClient,
             caePriceSO: sanitizedInputs.caePriceSO,
             caePricePrescriptor: inputs.includeCommission ? sanitizedInputs.caePricePrescriptor : 0,
@@ -750,6 +751,14 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             aplicarIrpfCae: esTerciarioCalc ? false : (inputs.aplicarIrpfCae === true || inputs.aplicarIrpfCae === 'true'),
             includeIVA: inputs.includeIVA === true || inputs.includeIVA === 'true'
         });
+        const financialRes = financierosDe(savingsRes.savingsKwh);
+
+        // 3.1 Con hibridación, el MISMO cálculo retirando la caldera (C_b = 1): la
+        // propuesta enseña las dos cifras y quien la prepara elige cuál va de precio
+        // (logic/hibridacionPropuesta.js). No cambia nada de lo que se guarda.
+        const financialsSinCaldera = hybridizationRes
+            ? financierosDe(ahorroCon(1).savingsKwh)
+            : null;
 
         // 3.5 Ficha RES060FC (propuesta de nueva normativa) — comparativa en tiempo real.
         // Usa la demanda del ANEXO IV (provincia + año + tipología), el MISMO η/SCOP que
@@ -960,6 +969,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
             ...demandRes,
             savings: savingsRes,
             financials: financialRes,
+            financialsSinCaldera,
             annualSavings: annualSavingsRes,
             payback: paybackRes,
             res080: res080Data,
