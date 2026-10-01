@@ -155,7 +155,10 @@ async function sugerirCertificadores(row, limite = 5) {
     const { data: certs } = await supabase
         .from('prescriptores')
         .select('id_empresa, razon_social, acronimo, email, tlf, municipio, provincia')
-        .eq('tipo_empresa', 'CERTIFICADOR');
+        .eq('tipo_empresa', 'CERTIFICADOR')
+        // El AGENTE IA no es un candidato a quien ofrecérselo cuando un técnico
+        // dice que no: se le encarga a propósito, no por descarte.
+        .eq('es_agente_ia', false);
 
     const candidatos = (certs || []).filter(c => !yaRechazaron.has(String(c.id_empresa)));
     if (!candidatos.length) return [];

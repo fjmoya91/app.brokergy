@@ -2922,6 +2922,59 @@ Catastro, presupuesto con CARRIER 30AWH010HM (catálogo id 420) y bomba de ACS L
 ⚠️ La lectura de chats por la API necesita el backend DESPLEGADO; ese primer caso se leyó con el mismo
 código ejecutado por CDP sobre la sesión del VPS (solo lectura).
 
+## El AGENTE IA, un certificador más (2026-10-01)
+
+Los CEE que prepara Claude con las skills (`generar-cee-inicial`, `generar-cee-final`) se perdían
+de vista: se le pedían y después nadie sabía si estaban hechos o no. Ahora el agente es un
+**CERTIFICADOR de la tabla de siempre** —la ficha «AGENTE IA» de `prescriptores`, marcada con
+`es_agente_ia`— y recorre las mismas fases que un técnico:
+
+```
+encargado (ASIGNADO) → la skill empieza (EN_TRABAJO) → deja el .cex y AVISA (PTE_REVISION)
+```
+
+| Qué | Dónde |
+|---|---|
+| La ficha y la marca | `scripts/agente_ia_certificador.sql` (ya en producción: id `91693e92-…`) |
+| Empezar · terminar · cola (fuente única) | [services/agenteIa.js](implementation/backend/services/agenteIa.js) |
+| Lo que llaman las skills | [scripts/agente_ia.js](implementation/backend/scripts/agente_ia.js) (`cola` · `empezar` · `terminar` · `estado`) |
+| Avisan solos al escribir | `cee_inicial.js aplicar --escribir` y `cee_final.js --escribir` (`--sin-aviso` lo calla) |
+| Encargarlo desde la app | `EncargoAgenteIaModal` (lo elige `EncargoCertificadorModal` sin hooks de por medio) |
+| En qué va, en el módulo CEE | `AgenteIaEstado` (encargado · en ello · borrador listo con su .cex) |
+| Pruebas | `node implementation/backend/scripts/test_agente_ia.js` · `test_agente_ia_flujo.js` · `test_solo_asignar_cert.js` |
+
+**REGLA — se reconoce por la MARCA, nunca por el nombre** (`esAgenteIa`, en backend y frontend):
+el nombre se edita desde Prescriptores.
+
+**REGLA — asignar al agente ES el encargo** (como el certificador de la casa, regla 80): no tiene
+email ni teléfono, así que `notify-certificador` sin canales lo deja ASIGNADO y no «pendiente de
+enviar», en el CAE y en los CEE directos; pedirle canales → 400. Lo que lo pone a trabajar es
+pedírselo a Claude: el popup enseña la frase para copiar («Genera el CEE inicial de X») y no ofrece
+mensaje, canales ni aviso al cliente (le anunciaría la llamada de un técnico que no va a llamar).
+
+**REGLA — solo mueve la fase si el encargo es SUYO.** `empezar` pone al agente en la barra si no hay
+técnico; si lo hay, NO se lo quita (le prepara el borrador) salvo `--reasignar`, que pide una
+persona. Lo normal en el CEE FINAL es que el técnico del inicial siga asignado: el agente avisa y no
+toca ni el técnico ni la fase. Nunca hacia atrás: no rebaja un REVISADO ni toca un REGISTRADO.
+
+**REGLA — al terminar AVISA, como un técnico que sube su .cex**: WhatsApp (`WHATSAPP_ADMIN_CHAT`) +
+email (`ADMIN_EMAIL`, buzón secundario), con el `.cex`, la carpeta, la ventana de la envolvente y lo
+que queda por hacer. El aviso sale desde el PC: el WhatsApp entra en `whatsapp_queue` y lo manda el
+VPS (no hace falta desplegar nada para avisar). Un fallo del aviso **nunca deshace** el `.cex`: se
+dice y se reintenta con `agente_ia.js terminar`.
+
+**REGLA — el agente NO FIRMA**: `tecnicoCe3x` devuelve null con él (el `.cex` va sin técnico y la ficha
+lo dice), el radar no le «reclama» nada (bloque propio `AGENTE_IA`, pelota de BROKERGY, sin botón de
+envío; con el visto bueno dado, «asigna el técnico que lo registra») y el popup del visto bueno avisa
+en ámbar. `sugerirCertificadores` no lo ofrece.
+
+**REGLA — el sello `cee.agente_ia[fase]`** (`estado`, `empezado_at`, `terminado_at`, `fichero`,
+`fichero_link`, `carpeta_link`, `delAgente`) lo escribe SOLO la skill (RPC `set_*_cee_field`), y los
+dos PUT lo PRESERVAN — la ficha abierta reenvía `cee` desde su copia y se lo llevaría por delante.
+
+⚠️ El `TecnicoPicker` del MÓVIL usaba `permiteVaciar` sin recibirlo y la hoja se caía al abrirla;
+corregido de paso.
+
 ## Bot de WhatsApp — contesta a los chats ETIQUETADOS (2026-08-25)
 
 Un asistente que responde por la MISMA sesión de WhatsApp del VPS con la que ya
@@ -12789,3 +12842,4 @@ PROPUESTA_PROGRAMADA_MAX_DIAS=90   ← hasta cuándo se admite programar
 
 - [TECH_MANUAL.md](TECH_MANUAL.md) — Arquitectura técnica profunda, integraciones, flujos de datos
 - [DESIGN_SPEC.md](DESIGN_SPEC.md) — Especificación del módulo de Consulta Catastral
+101. **El AGENTE IA es un certificador más** (2026-10-01): ficha «AGENTE IA» en `prescriptores` (`es_agente_ia`), elegible en el selector de técnico. Encargárselo es asignarlo (ASIGNADO, sin mensajes: no tiene email ni teléfono) y se le pone a trabajar pidiéndoselo a Claude; la skill marca la fase al empezar (`agente_ia.js empezar` → EN_TRABAJO, el agente en la barra si no hay técnico) y al escribir el `.cex` la deja «pendiente de revisión» y avisa por WhatsApp + email como un técnico que sube su archivo. Con un técnico asignado no le quita nada (le prepara el borrador). No firma: no va como técnico en el `.cex`, el radar lo saca en su bloque `AGENTE_IA` sin reclamarle nada y el visto bueno avisa. Fuente única: [services/agenteIa.js](implementation/backend/services/agenteIa.js). Tras tocarlo: `node implementation/backend/scripts/test_agente_ia.js` y `test_agente_ia_flujo.js`. Ver "El AGENTE IA, un certificador más".

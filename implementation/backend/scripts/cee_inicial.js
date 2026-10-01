@@ -14,7 +14,10 @@
 //   node scripts/cee_inicial.js eprel    <codigo del modelo> [--out DIR]
 //   node scripts/cee_inicial.js alta-aerotermia --json datos.json
 //            [--ficha ft.pdf[:1,3-4]] [--eprel-fiche f.pdf] [--eprel-label l.pdf] [--escribir]
-//   node scripts/cee_inicial.js aplicar  <clave> --plan plan.json [--escribir]
+//   node scripts/cee_inicial.js aplicar  <clave> --plan plan.json [--escribir] [--sin-aviso]
+//
+// Con --escribir, al terminar avisa como el AGENTE IA (services/agenteIa.js):
+// fase «pendiente de revisión» y WhatsApp + email al equipo. --sin-aviso lo calla.
 //
 // <clave> = el nº de la oportunidad (26RES060_OP246), el del expediente
 // (26RES060_186) o el de un CEE directo (2026CEE_55); el origen se deduce del
@@ -888,9 +891,32 @@ async function aplicar() {
         if (!gd.ok) throw new Error(`El .cex no ha llegado a Drive: ${gd.error}`);
         console.log(`✓ ${gd.nombre} → ${gd.carpeta}\n  ${gd.link}\n  carpeta: ${gd.carpeta_link}`);
         if (gd.archivado) console.log(`  (el anterior se ha archivado en OLD como «${gd.archivado}»)`);
+        // El AGENTE IA termina: la fase queda «pendiente de revisión» y se avisa
+        // al equipo, como cuando un técnico sube su .cex. Va AQUÍ y no en la skill
+        // para que no se pueda olvidar; `--sin-aviso` lo calla al relanzar.
+        await avisarAgente(ctx, gd, [...avisos, ...avMotor], 'inicial');
     }
     const todos = [...avisos, ...avMotor];
     if (todos.length) console.log(`\nAVISOS (${todos.length})\n  ⚠ ${todos.join('\n  ⚠ ')}`);
+}
+
+/**
+ * El AGENTE IA ha terminado: fase «pendiente de revisión» (si el encargo es
+ * suyo) y aviso al equipo por WhatsApp + email (`services/agenteIa.js`). Un
+ * fallo aquí NUNCA deshace lo escrito: el `.cex` ya está en Drive.
+ */
+async function avisarAgente(ctx, gd, avisos, fase) {
+    try {
+        const r = await require('../services/agenteIa').terminar({
+            negocio: ctx.origen, clave: ctx.clave, fase,
+            fichero: { nombre: gd.nombre, link: gd.link, carpeta_link: gd.carpeta_link },
+            avisos, aviso: !RESTO.includes('--sin-aviso'),
+        });
+        require('./agente_ia').informeTerminar(r);
+    } catch (e) {
+        console.log(`\n✗ AGENTE IA: el .cex está guardado, pero no se ha podido marcar ni avisar: ${e.message}`
+            + `\n  Reintenta con: node scripts/agente_ia.js terminar ${ctx.clave}${fase === 'final' ? ' --fase final' : ''}`);
+    }
 }
 
 /**

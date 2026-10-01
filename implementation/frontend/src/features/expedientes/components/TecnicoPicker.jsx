@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useIsMobile } from '../../../utils/useIsMobile';
 import { telefonoDe, emailDe } from '../../../utils/contactoPrescriptor';
+import { esAgenteIa } from '../../../utils/agenteIa';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Selector del TÉCNICO CERTIFICADOR de un expediente.
@@ -40,7 +41,9 @@ const coincide = (c, consulta) => {
     return palabras.every(w => heno.includes(w));
 };
 
-const nombreDe = (c) => c?.razon_social || c?.acronimo || 'Sin nombre';
+// El AGENTE IA lleva su 🤖 delante en las DOS caras: en una lista de técnicos de
+// verdad tiene que distinguirse de un vistazo que ese no firma.
+const nombreDe = (c) => `${esAgenteIa(c) ? '🤖 ' : ''}${c?.razon_social || c?.acronimo || 'Sin nombre'}`;
 
 function Logo({ c, size = 'w-9 h-9' }) {
     return c?.logo_empresa ? (
@@ -191,7 +194,7 @@ function DesktopSelect({ value, onChange, options, placeholder, disabled, permit
 }
 
 // ─── Móvil: tarjeta + hoja inferior ──────────────────────────────────────────
-function MobileSheet({ certificadores, value, onChange, onClose }) {
+function MobileSheet({ certificadores, value, onChange, onClose, permiteVaciar = true }) {
     const [consulta, setConsulta] = useState('');
     const filtrados = useMemo(
         () => certificadores.filter(c => coincide(c, consulta)),
@@ -254,7 +257,9 @@ function MobileSheet({ certificadores, value, onChange, onClose }) {
                                         {nombreDe(c)}
                                     </span>
                                     <span className="block text-[11px] text-white/35 truncate normal-case mt-0.5">
-                                        {[tel, mail].filter(Boolean).join(' · ') || 'Sin teléfono ni email en su ficha'}
+                                        {esAgenteIa(c)
+                                            ? 'Prepara el borrador con las skills y te avisa al terminar'
+                                            : ([tel, mail].filter(Boolean).join(' · ') || 'Sin teléfono ni email en su ficha')}
                                     </span>
                                 </span>
                                 {elegido && (
@@ -317,7 +322,7 @@ export function TecnicoPicker({ certificadores = [], value, onChange, disabled =
                 disabled={disabled}
                 placeholder="Certificador no asignado"
                 permiteVaciar={permiteVaciar}
-                options={certificadores.map(c => ({ value: c.id_empresa, label: c.razon_social || c.acronimo }))}
+                options={certificadores.map(c => ({ value: c.id_empresa, label: nombreDe(c) }))}
             />
         );
     }
@@ -380,6 +385,7 @@ export function TecnicoPicker({ certificadores = [], value, onChange, disabled =
                     value={value}
                     onChange={onChange}
                     onClose={() => setAbierto(false)}
+                    permiteVaciar={permiteVaciar}
                 />
             )}
         </>

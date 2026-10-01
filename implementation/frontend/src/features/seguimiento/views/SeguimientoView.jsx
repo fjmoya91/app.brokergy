@@ -53,6 +53,8 @@ const TONO = {
     SIN_LOTEAR:           { txt: 'text-emerald-400', bg: 'bg-emerald-500/10', bd: 'border-emerald-500/25', barra: 'bg-emerald-500' },
     REGISTRO:             { txt: 'text-orange-400', bg: 'bg-orange-500/10', bd: 'border-orange-500/25', barra: 'bg-orange-500' },
     CERT_SIN_ENTREGAR:    { txt: 'text-fuchsia-400', bg: 'bg-fuchsia-500/10', bd: 'border-fuchsia-500/25', barra: 'bg-fuchsia-500' },
+    // Cian: el AGENTE IA. Lo encargado y sin hacer, que hay que pedirle a Claude.
+    AGENTE_IA:            { txt: 'text-cyan-400', bg: 'bg-cyan-500/10', bd: 'border-cyan-500/25', barra: 'bg-cyan-500' },
     SIN_ENCARGAR:         { txt: 'text-slate-300', bg: 'bg-slate-500/10', bd: 'border-slate-500/25', barra: 'bg-slate-400' },
     MIGRADO_SIN_REVISAR:  { txt: 'text-violet-400', bg: 'bg-violet-500/10', bd: 'border-violet-500/25', barra: 'bg-violet-500' },
     FIRMA_PENDIENTE:      { txt: 'text-yellow-400', bg: 'bg-yellow-500/10', bd: 'border-yellow-500/25', barra: 'bg-yellow-500' },

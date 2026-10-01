@@ -19,6 +19,10 @@ la envolvente (`/envolvente/:id`), donde el certificador lo abre y confirma lo q
   la placa no dice. Se deja en blanco y se DICE en el informe final.
 - Proyecto Supabase `app.brokergy` → `okfeopwetlxdffrsbfqw`. Motor de envolvente (cee-engine) levantado
   en `CEE_ENGINE_URL` (local: `http://127.0.0.1:8090`; `npm` del backend no lo arranca).
+- **El que hace el CEE es el «AGENTE IA», un certificador más.** Sale en la barra de certificadores
+  del expediente: al EMPEZAR se marca (`agente_ia.js empezar`) y al ESCRIBIR el `.cex` la fase pasa
+  a «pendiente de revisión» y llega un aviso por WhatsApp + email, igual que cuando un técnico sube
+  su archivo. Así se sabe siempre si está hecho o no (ver «El agente» más abajo).
 - **Dónde se ejecuta — Claude Code o Cowork:** los comandos son los MISMOS y van SIEMPRE en el PC
   (repo + `.env` + motor). En Code, por la shell; en **Cowork, por Desktop Commander, nunca en el
   sandbox**. Rutas, motor y qué hacer si no hay PC: [comun/entorno.md](comun/entorno.md).
@@ -36,7 +40,16 @@ Todo pasa por `implementation/backend/scripts/cee_inicial.js` (desde `implementa
 | `leer-pared <clave> --pared ID --fotos id1,id2` | Inventaria los huecos de una fachada desde su foto (escala por la puerta) | nada |
 | `eprel <modelo>` | Busca el modelo en EPREL y baja su ficha (ES) y su etiqueta | nada |
 | `alta-aerotermia --json d.json [--ficha ft.pdf:1,3-4] [--eprel-fiche f.pdf] [--eprel-label l.pdf]` | Da de alta el equipo en el catálogo y guarda la ficha unida en Drive | con `--escribir` |
-| `aplicar <clave> --plan plan.json` | Guarda el trabajo, pega las fotos, compone la ficha, escribe el `.cex` y lo guarda en Drive | con `--escribir` |
+| `aplicar <clave> --plan plan.json` | Guarda el trabajo, pega las fotos, compone la ficha, escribe el `.cex`, lo guarda en Drive **y avisa** (`--sin-aviso` lo calla) | con `--escribir` |
+
+Y el **agente** (`implementation/backend/scripts/agente_ia.js`):
+
+| Orden | Qué hace |
+|---|---|
+| `cola` | Lo que tiene encargado el agente y no ha terminado, y lo que dejó hecho pendiente de revisar |
+| `empezar <clave> [--fase final] [--reasignar]` | Pone «AGENTE IA» en la barra de certificadores y la fase «en trabajo» |
+| `terminar <clave> [--fase final] [--sin-aviso]` | Solo si el `.cex` se dejó por otro camino: «pendiente de revisión» + aviso |
+| `estado <clave>` | Quién es el certificador y qué consta del agente en ese CEE |
 
 `<clave>`: `26RES060_OP246` (oportunidad), `26RES060_186` (expediente) o `2026CEE_55` (CEE directo);
 el origen se deduce del formato (`--origen op|cae|cee` lo fuerza). **Sin `--escribir` no se toca
@@ -44,6 +57,13 @@ nada**: siempre primero en seco.
 
 ## El recorrido
 
+0. **Márcalo: `node scripts/agente_ia.js empezar <clave>`** (en una oportunidad no hace nada: no tiene
+   certificador). Si el expediente no tiene técnico, pone **«AGENTE IA»** en la barra y la fase pasa a
+   «en trabajo». Si ya tiene un **técnico de verdad** asignado, NO se lo quita: lo dice y el agente le
+   prepara el borrador. **Pregunta** entonces si se quiere poner a nombre del agente (`--reasignar`):
+   puede que ese técnico sea quien tiene que firmarlo.
+   - Si el usuario pregunta «¿qué tienes pendiente?» o «¿está hecho el CEE de X?»: `agente_ia.js cola`
+     (o `estado <clave>`).
 1. **`estado`**. Sin carpeta de Drive no hay dónde dejar el `.cex` (en una oportunidad: guardarla
    desde la calculadora). Si ya hay trabajo guardado, `aplicar` lo conserva y añade encima.
 2. **`placas`**, y **abre las fotos de las placas** para contrastar marca, modelo, potencia y serie.
@@ -103,6 +123,11 @@ nada**: siempre primero en seco.
    una foto escorzada es orientativa — lo dice el propio aviso).
 6. Escribe el **plan** (`referencia/plan.md`) y lánzalo en seco: **`aplicar --plan`**. Revisa la
    ficha que imprime (superficie, plantas, instalaciones, medida) y los avisos. Luego `--escribir`.
+   **Con `--escribir` avisa solo**: la fase queda «pendiente de revisión» (si el encargo es del agente)
+   y sale el WhatsApp + email al equipo con el `.cex`, la carpeta y lo que queda por hacer. Si lo
+   relanzas en la misma sesión para corregir algo menor, añade `--sin-aviso` (o el usuario recibirá
+   otro aviso «actualizado»). Si el aviso falla, el `.cex` ya está guardado: dilo y reintenta con
+   `agente_ia.js terminar <clave>`.
 7. **Informe final**: el enlace del `.cex` y de la carpeta, y la lista de **lo que queda por hacer**
    (ver abajo). Nunca «listo» a secas: el `.cex` lleva `_REVISAR` porque hay que abrirlo en CE3X.
 
@@ -127,6 +152,9 @@ nada**: siempre primero en seco.
 
 ## Lo que el informe final dice SIEMPRE
 
+- Que el aviso **ha salido** (o por qué no) y en qué fase queda: «pendiente de revisión» si el
+  encargo es del agente; si hay un técnico asignado, que sigue siendo suyo.
+
 - Qué se ha leído de cada placa y qué **no** se ha escrito (y por qué).
 - Cuántos huecos por pared y que están **por confirmar** (ámbar) en la ventana.
 - Lo que **no se ha podido afirmar**: garaje/porche dentro de la planta, fachadas sin foto (sin
@@ -139,6 +167,7 @@ nada**: siempre primero en seco.
 ## Pruebas
 
 ```bash
+node implementation/backend/scripts/test_agente_ia.js       # el agente: a quién se le queda, fases, aviso
 node implementation/backend/scripts/test_senalado.mjs       # lo señalado, montado sin React
 node implementation/backend/scripts/test_placa_ocr.js       # potencia útil vs consumo, Input/Output
 node implementation/backend/scripts/test_placa_equipo.js    # casación con el catálogo, EAN ≠ serie

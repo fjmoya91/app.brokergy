@@ -225,7 +225,7 @@ async function cargarExpediente(clave, origen = 'cae') {
                     + 'nif_responsable, empresa_razon_social, empresa_cif, '
                     + 'direccion, municipio, provincia, codigo_postal, '
                     + 'email, tlf, email_responsable, tlf_responsable, '
-                    + 'titulacion, colegio_profesional, numero_colegiado')
+                    + 'titulacion, colegio_profesional, numero_colegiado, es_agente_ia')
             .eq('id_empresa', certId).maybeSingle();
         certificador = data || null;
     }

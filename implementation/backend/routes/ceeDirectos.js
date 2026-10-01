@@ -546,6 +546,15 @@ router.put('/:id', internalOnly, async (req, res) => {
             }
         }
 
+        // El sello del AGENTE IA (`cee.agente_ia`) lo escribe la skill desde el PC
+        // por su RPC, y la ficha manda `cee` ENTERO desde la copia que cargó al
+        // abrirse: sin esto, el primer autoguardado se lo llevaría por delante.
+        if (patch.cee && typeof patch.cee === 'object') {
+            patch.cee = { ...patch.cee };
+            if (row.cee && 'agente_ia' in row.cee) patch.cee.agente_ia = row.cee.agente_ia;
+            else delete patch.cee.agente_ia;
+        }
+
         if (!isStaff(req)) {
             // El técnico manda el objeto `cee` ENTERO (es lo que tiene en pantalla)
             // y `guardar` lo reemplaza, así que sin esto podría retirarse del
@@ -1133,14 +1142,24 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
             // enviado" (ver el ciclo de vida del CEE): dejarlo ahí sin haber
             // avisado a nadie haría que el parte diario diera por encargado un
             // trabajo del que el técnico no sabe nada.
+            //
+            // Salvo el AGENTE IA: a él no se le escribe nada —no hay a quién—, así
+            // que asignárselo ES el encargo (como el certificador de la casa en el
+            // CAE). Sin esto se quedaría para siempre «pendiente de encargar».
+            const delAgente = require('../services/agenteIa').esAgenteIa(cert);
+            if (delAgente && estados.rankSubestado(seguimiento[key]) < estados.rankSubestado('ASIGNADO')) {
+                seguimiento[key] = 'ASIGNADO';
+            }
             const guardadoSinAviso = await svc.guardar(row.id, { seguimiento, cee }, { seguimientoPrev: row.seguimiento });
             await svc.anotarHistorial(row.id, {
                 tipo: 'CERTIFICADOR',
-                texto: `ASIGNADO ${(cert.razon_social || cert.acronimo || '').toUpperCase()} SIN AVISAR`,
+                texto: delAgente
+                    ? `${faseLabel} ENCARGADO AL AGENTE IA: LO PREPARA CON LAS SKILLS Y AVISA AL TERMINAR`
+                    : `ASIGNADO ${(cert.razon_social || cert.acronimo || '').toUpperCase()} SIN AVISAR`,
                 usuario: req.user?.email || null
             });
             return res.json({
-                ok: true, asignadoSinAviso: true, enviados: [], errores: [],
+                ok: true, asignadoSinAviso: !delAgente, encargadoAgente: delAgente, enviados: [], errores: [],
                 expediente: guardadoSinAviso, compartidas
             });
         }

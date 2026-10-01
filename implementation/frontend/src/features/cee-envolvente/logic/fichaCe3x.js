@@ -1474,6 +1474,10 @@ function equipoDeAcs(d, superficie) {
 export function tecnicoCe3x(certificador) {
     const c = certificador;
     if (!c) return null;
+    //: El AGENTE IA es un certificador «de la barra», pero NO firma: sus datos no
+    //: pueden ir en el `.cex` como técnico certificador. Se queda en blanco, igual
+    //: que sin técnico asignado, y el aviso de la ficha dice por qué.
+    if (c.es_agente_ia === true) return null;
 
     const persona = [c.nombre_responsable, c.apellidos_responsable]
         .filter(Boolean).join(' ').trim();
@@ -2305,7 +2309,10 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
     for (const t of ficha.termicas._retocadas || []) {
         avisos.push(`Transmitancia cambiada por el certificador — ${t}`);
     }
-    if (!ficha.tecnico) {
+    if (!ficha.tecnico && certificador?.es_agente_ia === true) {
+        avisos.push('El certificador asignado es el AGENTE IA, que no firma: el .cex sale sin '
+                    + 'los datos del técnico. Se ponen al asignar el técnico que lo firma (o en CE3X).');
+    } else if (!ficha.tecnico) {
         avisos.push(expediente?.es_oportunidad
             ? 'Es una OPORTUNIDAD: aún no hay técnico certificador, así que el .cex sale sin '
               + 'sus datos. Al aceptarla, vuelve a generarlo desde el expediente (o ponlos en CE3X).'

@@ -115,7 +115,7 @@ router.get('/certificadores', staffOnly, async (req, res) => {
     try {
         const { data, error } = await supabase
             .from('prescriptores')
-            .select('id_empresa, razon_social, acronimo, cif, municipio, provincia, email, tlf, tipo_empresa, usuarios(email, tlf)')
+            .select('id_empresa, razon_social, acronimo, cif, municipio, provincia, email, tlf, tipo_empresa, es_agente_ia, usuarios(email, tlf)')
             .in('tipo_empresa', ['CERTIFICADOR', 'OTRO'])
             .order('razon_social', { ascending: true });
         if (error) throw error;

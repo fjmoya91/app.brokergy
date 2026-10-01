@@ -41,6 +41,11 @@ el final. Es como se hace a mano, y la app lo hace igual:
   secas.
 - Proyecto Supabase `app.brokergy` → `okfeopwetlxdffrsbfqw`. Motor (cee-engine) levantado en
   `CEE_ENGINE_URL` (local: `http://127.0.0.1:8090`, `preview_start cee-engine`).
+- **Lo hace el «AGENTE IA», un certificador más** (`scripts/agente_ia.js`). Al empezar se marca y
+  al escribir **avisa al equipo** (WhatsApp + email) como un técnico que sube su archivo. Pero aquí lo
+  normal es que el expediente YA tenga su técnico (el que hizo el inicial y firmará el final): el
+  agente le prepara el borrador y **no le quita el expediente ni cambia la fase**. Solo si el CEE
+  final está encargado al agente pasa a «pendiente de revisión».
 - **Dónde se ejecuta — Claude Code o Cowork:** los comandos son los MISMOS y van SIEMPRE en el PC
   (repo + `.env` + motor). En Code, por la shell; en **Cowork, por Desktop Commander, nunca en el
   sandbox**. Rutas, motor y qué hacer si no hay PC: [comun/entorno.md](comun/entorno.md).
@@ -64,7 +69,8 @@ node scripts/cee_final.js 26RES093_11 --fecha=2026-09-30 --escribir \
 | `--cubierta=SOLUCION[:CM]` | Aislamiento de cubierta: `lana_forjado` (por defecto, 12 cm) · `xps_invertida` (8) · `insuflado_cubierta` (10) |
 | `--fachada=SOLUCION[:CM]` | Aislamiento de fachada: `sate` (por defecto, 8 cm) · `insuflado_camara` (5) · `trasdosado` (5) |
 | `--nombre="…"` `--caracteristicas="…"` | Reescribe el texto de la medida de retirada |
-| `--escribir` | Lo deja en «1. CEE / CEE FINAL» como `{nº} - CEE FINAL_REVISAR.cex` (el anterior va a OLD) |
+| `--escribir` | Lo deja en «1. CEE / CEE FINAL» como `{nº} - CEE FINAL_REVISAR.cex` (el anterior va a OLD) **y avisa** al equipo |
+| `--sin-aviso` | Con `--escribir`, no avisa (al relanzar en la misma sesión) |
 | `--guardar=ruta.cex` | Una copia local (sin `--escribir`, SOLO la copia local) |
 | `--json` | El análisis en JSON |
 
@@ -72,6 +78,9 @@ node scripts/cee_final.js 26RES093_11 --fecha=2026-09-30 --escribir \
 
 ## El recorrido
 
+0. **Márcalo**: `node scripts/agente_ia.js empezar <nº> --fase final`. Si el expediente tiene técnico
+   (lo normal), no se le quita: el agente le prepara el borrador. **No uses `--reasignar` aquí** salvo
+   que el usuario lo pida: ese técnico es quien firma y registra el final.
 1. **En seco**: `node scripts/cee_final.js <nº>`. Lee:
    - de qué `.cex` del técnico parte (el de «1. CEE / CEE INICIAL», nunca el `_REVISAR` de la app);
    - la **medida del inicial** que se usa y si está **calculada** (sin calcular o **desfasada** se
@@ -130,7 +139,9 @@ cubierta que guardó CE3X para 26RES093_11.
   vale: no está calculado.
 - **Con varias medidas manda la que imprime su informe**; si no se sabe cuál, se pregunta.
 - **No se genera sobre un CEE final ya REGISTRADO.**
-- **No se cambia ningún estado ni se avisa a nadie.** El rastro es el fichero.
+- **Al escribir, avisa al equipo** (WhatsApp + email, como un técnico que sube su archivo) y lo anota
+  en el historial. **La fase solo cambia si el CEE final está encargado al AGENTE IA**; con un técnico
+  asignado, no se toca. `--sin-aviso` lo calla al relanzar.
 
 ## Lo que queda por hacer (el informe final lo dice SIEMPRE)
 
@@ -147,6 +158,7 @@ cubierta que guardó CE3X para 26RES093_11.
 ## Pruebas
 
 ```bash
+node implementation/backend/scripts/test_agente_ia.js
 python -m pytest implementation/cee-engine/tests/test_cee_final.py
 node implementation/backend/scripts/test_medidas_aislamiento.mjs
 node implementation/backend/scripts/cee_final.js 26RES093_11      # caso real, en seco

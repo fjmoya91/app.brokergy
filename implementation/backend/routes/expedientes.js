@@ -3453,7 +3453,9 @@ router.put('/:id', enforceAuth, async (req, res) => {
             // reenvía en cada autoguardado se hidrató al abrir la vista y no la
             // trae al día: sin esto, el primer guardado borraría la revisión
             // recién hecha (mismo fallo que `docs_validados`).
-            for (const k of ['revision_inicial', 'revision_final']) {
+            // Y el sello del AGENTE IA (`agente_ia`), por lo mismo: lo escribe la
+            // skill desde el PC mientras la ficha puede estar abierta.
+            for (const k of ['revision_inicial', 'revision_final', 'agente_ia']) {
                 if (existing.cee && k in existing.cee) updates.cee[k] = existing.cee[k];
                 else delete updates.cee[k];
             }
@@ -7369,8 +7371,18 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
         // La excepción es el certificador de la CASA (CIF de Brokergy): asignárselo a
         // uno mismo ES el encargo, y dejarlo "pendiente de enviar" lo tendría a diario
         // en el parte pidiendo que te escribas a ti mismo.
+        //
+        // Y el AGENTE IA, por lo mismo: no hay a quién escribirle, así que
+        // asignárselo ES el encargo. Lo que lo pone a trabajar es pedírselo a
+        // Claude (skills generar-cee-inicial / generar-cee-final), y al terminar
+        // avisa él (services/agenteIa.js).
         const { esDeBrokergy } = require('../services/ceeFirmaService');
-        const encargoPendiente = template === 'standard' && soloAsignar && !esDeBrokergy(cert);
+        const { esAgenteIa } = require('../services/agenteIa');
+        const delAgente = esAgenteIa(cert);
+        if (delAgente && (sendEmail || sendWhatsApp)) {
+            return res.status(400).json({ error: 'Al Agente IA no se le escribe: se le encarga con «Encargar al Agente IA» y se lo pides en Claude.' });
+        }
+        const encargoPendiente = template === 'standard' && soloAsignar && !esDeBrokergy(cert) && !delAgente;
 
         // Automatización de estado
         // GUARD: un recordatorio al certificador nunca puede hacer retroceder el
@@ -7697,7 +7709,9 @@ router.post('/:id/notify-certificador', internalKeyOrAuth, async (req, res) => {
                         tipo: 'certificador_asignado',
                         texto: encargoPendiente
                             ? `Certificador ${tecnico} asignado SIN AVISAR · el encargo del ${phaseLabel} queda PENDIENTE DE ENVIAR`
-                            : `Certificador ${tecnico} asignado (certificador de Brokergy: no se envía aviso)`,
+                            : delAgente
+                                ? `🤖 ${phaseLabel} encargado al AGENTE IA · lo prepara con las skills y avisa al terminar`
+                                : `Certificador ${tecnico} asignado (certificador de Brokergy: no se envía aviso)`,
                         fecha: new Date().toISOString(),
                         usuario: userName,
                     });

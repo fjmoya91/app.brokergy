@@ -24,8 +24,22 @@ import { buildCertDefaultMessage } from '../logic/certMessages';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
 import { CanalChip } from '../../../components/CanalChip';
 import { telefonoDe, emailDe } from '../../../utils/contactoPrescriptor';
+import { esAgenteIa } from '../../../utils/agenteIa';
+import { EncargoAgenteIaModal } from './EncargoAgenteIaModal';
 
-export function EncargoCertificadorModal({
+/**
+ * El AGENTE IA se encarga con su propio popup (no se le escribe ni se avisa al
+ * cliente de su llamada: hay que pedírselo a Claude). Se decide AQUÍ, antes de
+ * cualquier hook, para que las dos superficies que encargan (módulo CEE y
+ * Seguimiento) lo hereden sin saberlo — y sin un `return` entre hooks.
+ */
+export function EncargoCertificadorModal(props) {
+    return esAgenteIa(props.certificador)
+        ? <EncargoAgenteIaModal {...props} />
+        : <EncargoTecnicoModal {...props} />;
+}
+
+function EncargoTecnicoModal({
     expedienteId,
     numExp,
     clienteNombre = '',

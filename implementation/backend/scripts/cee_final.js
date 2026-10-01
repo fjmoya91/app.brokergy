@@ -20,6 +20,10 @@
 //   --escribir                 lo deja en «1. CEE / CEE FINAL» como {nº} - CEE FINAL_REVISAR.cex
 //   --guardar=ruta.cex         además (o sin --escribir: solo) una copia local
 //   --json                     el análisis en JSON
+//   --sin-aviso                con --escribir, no avisa al equipo (al relanzar)
+//
+// Con --escribir, al terminar avisa como el AGENTE IA (services/agenteIa.js):
+// fase «pendiente de revisión» si el encargo es del agente, y WhatsApp + email.
 //
 // Sin --escribir ni --guardar NO toca nada: lee el .cex del técnico, pregunta al
 // motor y enseña qué haría. Necesita el motor levantado (CEE_ENGINE_URL).
@@ -35,6 +39,7 @@ function args(argv) {
         const [k, ...v] = a.split('=');
         const val = v.join('=');
         if (a === '--escribir') o.escribir = true;
+        else if (a === '--sin-aviso') o.sinAviso = true;
         else if (a === '--json') o.json = true;
         else if (k === '--fecha') o.fecha = val;
         else if (k === '--fecha-visita') o.fechaVisita = val;
@@ -119,6 +124,20 @@ async function main() {
         console.log(`\n  ✓ guardado en Drive: ${r.guardado.carpeta} / ${r.guardado.nombre}`);
         if (r.guardado.archivado) console.log(`    (el anterior se archiva en OLD como «${r.guardado.archivado}»)`);
         console.log(`    ${r.guardado.link}\n    carpeta: ${r.guardado.carpeta_link}`);
+        // El AGENTE IA termina: «pendiente de revisión» si el encargo es suyo (si
+        // hay un técnico asignado, no cambia de fase) y aviso al equipo, como un
+        // técnico que sube su .cex. Un fallo aquí no deshace lo guardado.
+        try {
+            const t = await require('../services/agenteIa').terminar({
+                negocio: 'cae', clave: ctx.expediente.id, fase: 'final',
+                fichero: { nombre: r.guardado.nombre, link: r.guardado.link, carpeta_link: r.guardado.carpeta_link },
+                avisos: r.avisos || [], aviso: !o.sinAviso,
+            });
+            require('./agente_ia').informeTerminar(t);
+        } catch (e) {
+            console.log(`\n  ✗ AGENTE IA: guardado, pero no se ha podido marcar ni avisar: ${e.message}`
+                + `\n    Reintenta con: node scripts/agente_ia.js terminar ${ctx.expediente.numero_expediente} --fase final`);
+        }
     } else if (!o.guardar) {
         console.log(`\n  EN SECO: iría a «${r.carpeta}» como «${r.nombre}». Pásale --escribir.`);
     }

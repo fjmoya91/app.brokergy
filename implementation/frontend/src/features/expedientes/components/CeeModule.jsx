@@ -13,6 +13,8 @@ import { GuiaIrpfBoton } from './GuiaIrpfModal';
 import { ConfirmadoPorCliente } from './ConfirmadoPorCliente';
 import { TecnicoPicker } from './TecnicoPicker';
 import { EncargoCertificadorModal } from './EncargoCertificadorModal';
+import { AgenteIaEstado } from './AgenteIaEstado';
+import { esAgenteIa } from '../../../utils/agenteIa';
 import { Ce3xAyudasModal } from './Ce3xAyudasModal';
 import { BorradorCeeModal } from './BorradorCeeModal';
 import { createPortal } from 'react-dom';
@@ -1260,6 +1262,14 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                                 </div>
 
                                 <div className="max-md:flex-1 max-md:overflow-y-auto max-md:overscroll-contain max-md:px-5 max-md:py-4">
+                                {/* El AGENTE IA no firma ni registra: el visto bueno le llegaría a
+                                    nadie. Se dice ANTES de pulsar, con lo que hay que hacer. */}
+                                {esAgenteIa(selectedCert) && (
+                                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2.5 mb-4 text-[11px] text-amber-300 leading-snug">
+                                        🤖 El certificador asignado es el <strong>Agente IA</strong>, que no firma ni registra: a él no le llega
+                                        nada. Asigna antes el técnico que lo firma y lo presenta en Industria.
+                                    </div>
+                                )}
                                 {/* Prioridad: en urgente el mensaje lleva 🚨 y el email sale marcado. */}
                                 <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">Prioridad</p>
                                 <div className="flex gap-2 mb-5">
@@ -1654,6 +1664,12 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                     <span className="text-[10px] font-black uppercase tracking-widest text-white/30">Guardando…</span>
                 )}
             </div>
+
+            {/* En qué va el AGENTE IA: la barra dice a quién está encargado; esto,
+                si está HECHO (encargado · en ello · borrador listo, con su .cex). */}
+            {!isCertificador && (
+                <AgenteIaEstado expediente={expediente} certificador={selectedCert} secciones={secciones} />
+            )}
 
             {/* Lo que el cliente confirmó al aceptar: es lo que el CEE inicial tiene
                 que recoger como existente (aires, placas) y el emisor real. */}

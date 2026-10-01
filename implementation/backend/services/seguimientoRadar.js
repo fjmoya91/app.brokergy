@@ -86,6 +86,16 @@ const BLOQUES = {
         dias: num(process.env.RADAR_REGISTRO_DIAS, 2), reinsistir: num(process.env.RADAR_REGISTRO_REINSISTIR, 3),
         nota: null,
     },
+    AGENTE_IA: {
+        // El AGENTE IA es un certificador más, pero NO trabaja solo: hay que
+        // pedírselo en Claude («genera el CEE inicial de X»). Por eso su pelota es
+        // de BROKERGY y no hay a quién reclamarle nada (sin botón de envío), y plazo
+        // 0: lo encargado y sin hacer es justo lo que se olvida — «¿está hecho o
+        // no?» era la pregunta que no tenía respuesta. Ver services/agenteIa.js.
+        orden: 7, emoji: '🤖', titulo: 'Encargados al Agente IA y sin terminar',
+        dias: num(process.env.RADAR_AGENTE_IA_DIAS, 0), reinsistir: null,
+        nota: 'No trabaja solo: pídeselo en Claude («genera el CEE inicial de …»). Al terminar te avisa y pasa a «pendiente de revisión».',
+    },
     CERT_SIN_ENTREGAR: {
         orden: 7, emoji: '🟣', titulo: 'Encargados al certificador y sin entregar',
         dias: num(process.env.RADAR_CERT_DIAS, 10), reinsistir: num(process.env.RADAR_CERT_REINSISTIR, 7),
@@ -195,9 +205,14 @@ function detectarRevision(e, out) {
         // espera es más sospechoso, no menos. Entra marcado "sin fecha".
         out.push(fila(e, 'REVISION', {
             scope: f.scope, desde, d,
-            detalle: `${f.label} · ${sub === 'PRESENTADO' ? 'presentado' : 'en revisión'}`,
+            // Lo que deja el AGENTE IA es un BORRADOR (`…_REVISAR.cex`): se revisa
+            // abriéndolo en CE3X, no con la lupa — y se dice para no buscar un
+            // .cex de técnico que no existe.
+            detalle: e.es_agente
+                ? `${f.label} · borrador del Agente IA: ábrelo en CE3X`
+                : `${f.label} · ${sub === 'PRESENTADO' ? 'presentado' : 'en revisión'}`,
             responsable: 'BROKERGY',
-            accion: { tipo: 'ver', label: 'Revisar y dar el visto bueno' },
+            accion: { tipo: 'ver', label: e.es_agente ? 'Revisarlo en CE3X' : 'Revisar y dar el visto bueno' },
         }));
     }
 }
@@ -208,6 +223,18 @@ function detectarRegistro(e, out) {
         if (e.seguimiento?.[f.key] !== 'REVISADO') continue;
         const desde = desdeFase(e.seguimiento, f.key);
         const d = dias(desde);
+        // El AGENTE IA no firma ni registra: con el visto bueno dado, lo que falta
+        // es asignar el técnico que lo hace. Reclamárselo al agente sería un
+        // mensaje a nadie.
+        if (e.es_agente) {
+            out.push(fila(e, 'REGISTRO', {
+                scope: f.scope, desde, d,
+                detalle: `${f.label} · visto bueno dado · el Agente IA no firma: asigna el técnico que lo registra`,
+                responsable: 'BROKERGY',
+                accion: { tipo: 'ver', label: 'Asignar el técnico' },
+            }));
+            continue;
+        }
         out.push(fila(e, 'REGISTRO', {
             scope: f.scope, desde, d,
             detalle: `${f.label} · visto bueno dado, falta registrar`,
@@ -228,6 +255,15 @@ function detectarCertSinEntregar(e, out) {
         // un CEE que le encargamos sin saber cuándo es más sospechoso, no menos. Se
         // descartaba, y con él el único expediente en esa situación (07/09/2026).
         const d = dias(desde);
+        if (e.es_agente) {
+            out.push(fila(e, 'AGENTE_IA', {
+                scope: f.scope, desde, d,
+                detalle: `${f.label} · ${sub === 'EN_TRABAJO' ? 'el agente está en ello' : 'encargado, sin empezar'}`,
+                responsable: 'BROKERGY',
+                accion: { tipo: 'ver', label: `Pídeselo: «genera el ${f.label} de ${e.numero_expediente}»` },
+            }));
+            continue;
+        }
         // La última comunicación cuenta como aviso aunque saliera desde la app: si le
         // escribiste ayer desde el expediente, el parte no te ofrece escribirle otra vez.
         const contacto = dias(e.seguimiento?.[`${f.key}_last_contacto_at`]);
@@ -643,6 +679,13 @@ async function escanear(opts = {}) {
     if (error) throw new Error(error.message);
 
     const filas = [];
+    // Quién es el AGENTE IA: sus encargos van a su bloque y nunca a uno que
+    // reclame al certificador (no hay a quién escribirle). Una consulta.
+    let agenteId = null;
+    try {
+        const ag = await require('./agenteIa').agente();
+        agenteId = ag ? String(ag.id_empresa) : null;
+    } catch (err) { console.warn('[Radar] agente IA:', err.message); }
     // Estado del LOTE de cada expediente. Hace falta para el bloque COBRO: lo que
     // decide que toca pedirle los datos al cliente no es el expediente, es que su
     // lote haya llegado a la fase de pago. Una consulta, no N.
@@ -663,6 +706,7 @@ async function escanear(opts = {}) {
         // cualquier guardado del lote, así que no es exacto: sirve para ordenar por
         // antigüedad, no para prometer un plazo.
         e.lote_desde = lote?.updated_at || null;
+        e.es_agente = !!agenteId && String(e.certificador_id || '') === agenteId;
 
         // El instalador no vive en el expediente sino en su oportunidad. `prescriptor_id`
         // es el respaldo histórico (antes de existir instalador_asociado_id); el 1 es el

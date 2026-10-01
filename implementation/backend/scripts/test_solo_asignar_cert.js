@@ -19,6 +19,7 @@ process.env.INTERNAL_API_KEY = 'clave-test';
 
 // ── Estado de los dobles ────────────────────────────────────────────────────
 const CERT_EXTERNO = { id_empresa: 'C-RAQUEL', razon_social: 'RAQUEL MONCAYO TERRIZA', nombre_responsable: 'RAQUEL', email: 'raquel@test', tlf: '600000000', cif: '71355161F', es_autonomo: true };
+const CERT_AGENTE = { id_empresa: 'C-AGENTE', razon_social: 'AGENTE IA', es_agente_ia: true, es_autonomo: false };
 const CERT_CASA = { id_empresa: 'C-FRAN', razon_social: 'FRANCISCO JAVIER MOYA LÓPEZ', nombre_responsable: 'FRANCISCO JAVIER', email: 'fran@test', tlf: '611111111', cif: '06282551D', empresa_cif: 'B19350222', es_autonomo: true };
 
 let exp;
@@ -53,7 +54,7 @@ function builder(tabla) {
             return { data: null, error: null };
         }
         if (tabla === 'expedientes') return { data: exp, error: null };
-        if (tabla === 'prescriptores') return { data: [CERT_EXTERNO, CERT_CASA].find(c => c.id_empresa === q.filtros.id_empresa) || null, error: null };
+        if (tabla === 'prescriptores') return { data: [CERT_EXTERNO, CERT_CASA, CERT_AGENTE].find(c => c.id_empresa === q.filtros.id_empresa) || null, error: null };
         if (tabla === 'clientes') return { data: { id_cliente: 'CLI1', nombre_razon_social: 'CLIENTE', apellidos: 'PRUEBA' }, error: null };
         if (tabla === 'oportunidades') return { data: { id: 'OP1', ficha: 'RES060', datos_calculo: { drive_folder_id: 'ROOT' } }, error: null };
         return { data: null, error: null };
@@ -162,6 +163,23 @@ async function main() {
         r = await post({ certificador_id: 'C-RAQUEL', sendEmail: false, sendWhatsApp: false, phase: 'initial', template: 'standard' });
         ok(exp.cee.ack_token === 'TOKEN-VIEJO', 'el token del encargo enviado sigue vivo', exp.cee.ack_token);
         ok(exp.estado === 'EN CERTIFICADOR CEE INICIAL', 'el estado no retrocede', exp.estado);
+
+        console.log('\n6. Encargar al AGENTE IA → cuenta como encargado (como el de la casa)');
+        reset();
+        r = await post({ certificador_id: 'C-AGENTE', sendEmail: false, sendWhatsApp: false, phase: 'initial', template: 'standard' });
+        ok(r.status === 200, 'responde 200', JSON.stringify(r.data));
+        ok(emails.length === 0 && whatsapps.length === 0, 'no sale nada (no hay a quién escribirle)');
+        ok(exp.cee.certificador_id === 'C-AGENTE', 'el agente queda en la barra de certificadores');
+        ok(exp.seguimiento.cee_inicial === 'ASIGNADO', 'la fase pasa a ASIGNADO (encargado)', exp.seguimiento.cee_inicial);
+        ok(exp.estado === 'EN CERTIFICADOR CEE INICIAL', 'el estado avanza', exp.estado);
+        ok(r.data.encargoPendiente === false, 'no queda «pendiente de enviar»');
+        ok(/AGENTE IA/.test(ultimoHist()?.texto || ''), 'historial: encargado al Agente IA', ultimoHist()?.texto);
+
+        console.log('\n7. Al AGENTE IA no se le escribe: pedir canales → 400');
+        reset();
+        r = await post({ certificador_id: 'C-AGENTE', sendEmail: true, sendWhatsApp: false, phase: 'initial', template: 'standard' });
+        ok(r.status === 400, 'responde 400', r.status);
+        ok(emails.length === 0, 'no sale nada');
     } finally {
         // Sin cerrar antes las conexiones keep-alive de fetch, salir con
         // process.exit revienta libuv en Windows (UV_HANDLE_CLOSING).
