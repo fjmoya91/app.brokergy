@@ -328,6 +328,32 @@ async function createExpediente(uuid_oportunidad, id_cliente, manualNumber = nul
             console.warn('[ExpedienteService] equipos desde docs_ocr:', e.message);
         }
 
+        // ── …y la PLACA DE LA CALDERA leída al dar de alta la oportunidad ─────
+        // La skill `alta-oportunidad` lee la etiqueta de la caldera que el
+        // instalador mandó por WhatsApp (marca, modelo, nº de serie y POTENCIA, que
+        // no está en ningún otro campo y sin ella la caldera no se escribe en el
+        // .cex). Mismo criterio que la placa de la aerotermia: solo HUECOS, y un
+        // nº de serie dudoso no se hereda — se elige en el expediente mirando la foto.
+        try {
+            const pc = op.datos_calculo?.inputs?.placa_caldera;
+            if (pc && typeof pc === 'object') {
+                const rellenar = (c) => {
+                    if (!c) return;
+                    if (pc.marca && !c.marca) c.marca = pc.marca;
+                    if (pc.modelo && !c.modelo) c.modelo = pc.modelo;
+                    if (pc.numero_serie && !pc.serie_dudosa && !c.numero_serie) c.numero_serie = pc.numero_serie;
+                };
+                rellenar(instalacion.caldera_antigua_cal);
+                if (instalacion.misma_caldera_acs) rellenar(instalacion.caldera_antigua_acs);
+                const kw = Number(pc.potencia_kw);
+                if (kw > 0 && !(Number(instalacion.potencia_caldera_kw) > 0)) instalacion.potencia_caldera_kw = kw;
+                if (kw > 0 && !(Number(instalacion.potencia_caldera) > 0)) instalacion.potencia_caldera = kw;
+                console.log('[ExpedienteService] Caldera existente heredada de la placa leída al dar de alta la oportunidad.');
+            }
+        } catch (e) {
+            console.warn('[ExpedienteService] placa de la caldera:', e.message);
+        }
+
         console.log(`[ExpedienteService] Instalación pre-rellenada desde oportunidad → ` +
             `cal=${aerotermiaCal.marca}/${aerotermiaCal.modelo}/SCOP=${aerotermiaCal.scop} ` +
             `cambio_acs=${cambioAcs} ` +

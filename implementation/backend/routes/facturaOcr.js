@@ -98,6 +98,85 @@ function importesDocumento(ocr) {
 }
 
 /**
+ * Lee un presupuesto o una factura (1 PDF o N imágenes) y devuelve la fila con la
+ * MISMA forma que `expedientes.documentacion.facturas[]` + los equipos citados.
+ * La usan la ruta de abajo y la skill `alta-oportunidad` (que lee el presupuesto
+ * que el instalador mandó por WhatsApp): una sola lectura, un solo formato.
+ *
+ * @param {Array<{buffer, mimetype, originalname}>} files
+ * @param {'factura'|'presupuesto'} tipoPedido
+ */
+async function extraerDocumentoObra(files, tipoPedido = 'factura') {
+    const tipo = String(tipoPedido || 'factura').toLowerCase() === 'presupuesto' ? 'presupuesto' : 'factura';
+
+    // 1) Normalizar a PDF (varias fotos de una factura se unen en un solo PDF).
+    const ceeOcrService = require('../services/ceeOcrService');
+    let pdf;
+    try {
+        ({ pdf } = await ceeOcrService.normalizeToPdf(files));
+    } catch (e) {
+        throw Object.assign(new Error(e.message), { status: 400 });
+    }
+
+    // 2) Leer.
+    const facturaOcrService = require('../services/facturaOcrService');
+    let ocr;
+    try {
+        ocr = await facturaOcrService.extractFacturaFromPdf(pdf);
+    } catch (e) {
+        console.error('[facturaOcr/lead] extracción falló:', e.message);
+        throw Object.assign(new Error('La lectura falló: ' + e.message), { status: e.status === 429 ? 429 : 502 });
+    }
+
+    const imp = importesDocumento(ocr);
+
+    const partidas = [...new Set((ocr.lineas || [])
+        .map(l => String(l?.partida || '').trim().toUpperCase())
+        .filter(Boolean))];
+
+    // Equipos citados en las líneas: es lo que después hay que teclear a mano en
+    // Instalación (marca/modelo/nº de serie van al CIFO y al Anexo I).
+    const equipos = (ocr.lineas || [])
+        .filter(l => l?.marca || l?.modelo || l?.numero_serie)
+        .map(l => ({
+            partida: l.partida || 'OTROS',
+            marca: l.marca || null,
+            modelo: l.modelo || null,
+            numero_serie: l.numero_serie || null,
+            descripcion: l.descripcion || null,
+        }));
+
+    return {
+        ok: true,
+        tipo,
+        provider: facturaOcrService.PROVIDER,
+        doc: {
+            tipo,
+            numero_factura: ocr.numero_factura || '',
+            fecha_factura: ocr.fecha_factura || null,
+            // Las dos cifras viajan siempre: la base es la del Anexo del
+            // expediente; el total con IVA es el que manda en la economía de la
+            // oportunidad (ver importesDocumento).
+            importe_sin_iva: imp.sinIva,
+            importe_total: imp.conIva,
+            iva_pct: imp.ivaPct,
+            iva_estimado: imp.ivaEstimado,
+            emisor_nombre: ocr.emisor?.nombre || null,
+            emisor_nif: ocr.emisor?.nif || null,
+            cliente_nombre: ocr.cliente?.nombre || null,
+            cliente_nif: ocr.cliente?.nif || null,
+            partidas,
+            origen: 'ocr',
+            validada: false,
+            drive_link: null,
+            drive_id: null,
+        },
+        equipos,
+        ocr,
+    };
+}
+
+/**
  * POST /api/factura-ocr/extract
  * Body multipart: files[] (1 PDF o N imágenes) + tipo = 'factura' | 'presupuesto'
  *
@@ -112,75 +191,9 @@ router.post('/extract', requireAuth, staffOnly, uploadFiles, async (req, res) =>
     try {
         const files = req.files || [];
         if (!files.length) return res.status(400).json({ error: 'No se recibió ningún fichero (campo "files").' });
-
-        const tipo = String(req.body?.tipo || 'factura').toLowerCase() === 'presupuesto' ? 'presupuesto' : 'factura';
-
-        // 1) Normalizar a PDF (varias fotos de una factura se unen en un solo PDF).
-        const ceeOcrService = require('../services/ceeOcrService');
-        let pdf;
-        try {
-            ({ pdf } = await ceeOcrService.normalizeToPdf(files));
-        } catch (e) {
-            return res.status(400).json({ error: e.message });
-        }
-
-        // 2) Leer.
-        const facturaOcrService = require('../services/facturaOcrService');
-        let ocr;
-        try {
-            ocr = await facturaOcrService.extractFacturaFromPdf(pdf);
-        } catch (e) {
-            console.error('[facturaOcr/lead] extracción falló:', e.message);
-            return res.status(e.status === 429 ? 429 : 502).json({ error: 'La lectura falló: ' + e.message });
-        }
-
-        const imp = importesDocumento(ocr);
-
-        const partidas = [...new Set((ocr.lineas || [])
-            .map(l => String(l?.partida || '').trim().toUpperCase())
-            .filter(Boolean))];
-
-        // Equipos citados en las líneas: es lo que después hay que teclear a mano en
-        // Instalación (marca/modelo/nº de serie van al CIFO y al Anexo I).
-        const equipos = (ocr.lineas || [])
-            .filter(l => l?.marca || l?.modelo || l?.numero_serie)
-            .map(l => ({
-                partida: l.partida || 'OTROS',
-                marca: l.marca || null,
-                modelo: l.modelo || null,
-                numero_serie: l.numero_serie || null,
-                descripcion: l.descripcion || null,
-            }));
-
-        return res.json({
-            ok: true,
-            tipo,
-            provider: facturaOcrService.PROVIDER,
-            doc: {
-                tipo,
-                numero_factura: ocr.numero_factura || '',
-                fecha_factura: ocr.fecha_factura || null,
-                // Las dos cifras viajan siempre: la base es la del Anexo del
-                // expediente; el total con IVA es el que manda en la economía de la
-                // oportunidad (ver importesDocumento).
-                importe_sin_iva: imp.sinIva,
-                importe_total: imp.conIva,
-                iva_pct: imp.ivaPct,
-                iva_estimado: imp.ivaEstimado,
-                emisor_nombre: ocr.emisor?.nombre || null,
-                emisor_nif: ocr.emisor?.nif || null,
-                cliente_nombre: ocr.cliente?.nombre || null,
-                cliente_nif: ocr.cliente?.nif || null,
-                partidas,
-                origen: 'ocr',
-                validada: false,
-                drive_link: null,
-                drive_id: null,
-            },
-            equipos,
-            ocr,
-        });
+        return res.json(await extraerDocumentoObra(files, req.body?.tipo));
     } catch (err) {
+        if (err.status) return res.status(err.status).json({ error: err.message });
         console.error('Error POST /api/factura-ocr/extract:', err);
         res.status(500).json({ error: 'Error procesando el documento', details: err.message });
     }
@@ -188,3 +201,4 @@ router.post('/extract', requireAuth, staffOnly, uploadFiles, async (req, res) =>
 
 module.exports = router;
 module.exports.importesDocumento = importesDocumento;
+module.exports.extraerDocumentoObra = extraerDocumentoObra;

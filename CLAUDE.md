@@ -2863,6 +2863,65 @@ fallo al programar se enseña DENTRO del panel: el aviso del popup queda detrás
 
 ---
 
+## Alta de OPORTUNIDAD desde WhatsApp — skill `alta-oportunidad` (2026-10-01)
+
+El instalador pide una simulación por WhatsApp y manda, en una ráfaga, casi siempre lo mismo: la
+referencia catastral, la foto de la caldera y la de su placa, a veces si son radiadores, y de vez en
+cuando un croquis o el presupuesto. Rellenar «Nueva simulación» con eso a mano era el trabajo; ahora
+lo hace la skill **`alta-oportunidad`** y deja la oportunidad en **PTE ENVIAR** con su simulación, el
+cliente dado de alta y los documentos en Drive. La propuesta (PDF) se sigue revisando y enviando
+desde la app.
+
+| Qué | Dónde |
+|---|---|
+| Leer una conversación ENTERA (texto, adjuntos, vCards, notas de voz) | [whatsappConversacion.js](implementation/backend/services/whatsappConversacion.js) |
+| Rutas (equipo interno o `x-internal-key`) | `GET /api/whatsapp/conversacion/chats?q=` · `POST /api/whatsapp/conversacion` · `GET /api/whatsapp/conversacion/adjunto?msg=` |
+| Lo determinista (bloque de la petición, plantas, plan → funnel, historial) | [utils/altaOportunidad.js](implementation/backend/utils/altaOportunidad.js) |
+| El orquestador (chats · chat · escuchar · catastro · leer · aerotermia · crear) | [scripts/alta_oportunidad.js](implementation/backend/scripts/alta_oportunidad.js) |
+| Leer un presupuesto (fuente única con la ruta del funnel) | `extraerDocumentoObra` en [routes/facturaOcr.js](implementation/backend/routes/facturaOcr.js) |
+| La skill | `skills/alta-oportunidad/` (+ `referencia/plan.md`) |
+| Pruebas | `node implementation/backend/scripts/test_alta_oportunidad.js` |
+
+**REGLA — el alta sale por las MISMAS funciones que el formulario.** `funnelToCalculatorInputs` y
+`computeFullCalculatorResult` (frontend, importados por ESM con un gancho que resuelve los imports sin
+extensión), `createLead` en modo interno y `subirFicherosASlot` (la primera subida crea la carpeta de
+Drive). Lo único que añade la skill es lo que el formulario no sabe: la fila de la caldera por su EDAD
+real (`rendimiento_id`, que manda sobre el «más de 20 años» del funnel — en gasóleo eso cae en
+«anterior a 1985» aunque la caldera sea de 2005), las U con la ZONA (lo que hace la calculadora al
+abrirse) y la aerotermia del catálogo con los campos de «Leer la placa». Y pasa bien la provincia: el
+formulario la manda fuera de `catastro` y la ruta la pierde (`datos_calculo.provincia/ccaa` vacíos).
+
+**REGLA — la conversación se LEE en el servidor, y solo se lee.** La sesión de WhatsApp es un
+singleton del proceso del VPS: la skill (en el PC) entra por las rutas con la clave interna. Mismo
+cuidado que `whatsappMedia`: `WAWebCollections` directo (nunca `fetchMessages`/`getChatById`), en la
+MISMA fila de lecturas (`enSerie`, exportada) y con plazo; no crea chats; y un adjunto solo se baja de
+una conversación leída por esa ruta en las últimas 3 h. Se bajan también las **notas de voz**
+(`audio/ogg` en `EXT_MIME`): el instalador dice de viva voz lo que no escribe, y la skill las
+transcribe con el mismo cliente de Gemini.
+
+**REGLA — sin emisor declarado, RADIADORES convencionales** (decisión del usuario, 2026-10-01).
+
+**REGLA — TODO lo que el Catastro declara como VIVIENDA cuenta** (decisión del usuario, 2026-10-01),
+aunque el croquis solo dibuje radiadores en una planta: `seleccionConstrucciones` no deja quitar una
+vivienda; el plan solo puede AÑADIR lo que el Catastro no da como vivienda. Y la **orientación de la
+fachada principal y los patios** salen del croquis o de las fotos (`orientacion`, `patios`): es lo que
+se corregía a mano. Medido en OP250: con las dos plantas (175 m²), N y 1 patio, la skill da al céntimo
+lo que se guardó a mano en la calculadora (96,76 kWh/m²·año · 20.284 kWh · bono 2.028,37 €); con solo
+la planta baja daba 1.594 €.
+
+**REGLA — la placa de la caldera viaja con la oportunidad** (`inputs.placa_caldera`: marca, modelo, nº
+de serie, potencia útil, combustible) y `expedienteService` la hereda al aceptar — solo HUECOS, y un
+nº de serie dudoso no. En Junkers/Bosch «FD 583 …» es la fecha de fabricación, no el nº de serie.
+
+**REGLA — una vivienda que ya tiene oportunidad PARA la skill y se pregunta**: puede ser un cambio de
+presupuesto de una simulación ya hecha, no un alta. La skill solo da de alta.
+
+Primer caso real: **26RES060_OP250** (chat «ISM Alejandro administración», 01/10/2026): RC + PDF del
+Catastro, presupuesto con CARRIER 30AWH010HM (catálogo id 420) y bomba de ACS LASIAN ATHERIA 100
+(fuera de catálogo), placa JUNKERS CGW25 de gasóleo 25 kW y croquis con los radiadores por estancia.
+⚠️ La lectura de chats por la API necesita el backend DESPLEGADO; ese primer caso se leyó con el mismo
+código ejecutado por CDP sobre la sesión del VPS (solo lectura).
+
 ## Bot de WhatsApp — contesta a los chats ETIQUETADOS (2026-08-25)
 
 Un asistente que responde por la MISMA sesión de WhatsApp del VPS con la que ya
@@ -12563,6 +12622,8 @@ exacto (`/(^|[\\/])server\.js$/`), pero en un banco pon además `WHATSAPP_ENABLE
 100. **El ENLACE para aceptar la propuesta va en un MENSAJE APARTE, después del PDF** (2026-10-01): dentro del texto largo, a mitad y tras las cifras, nadie lo veía — «¿y cómo lo acepto?» y había que volver a pasarlo a mano. Las ocho variantes del mensaje (cliente/partner × aerotermia/reforma/comparativa/CEE aportado) ya no llevan el enlace: en su sitio dicen «👇 Más abajo te dejo el enlace para aceptarla» (`lineaEnlaceDebajo`, que vale para los dos canales). Por WhatsApp salen tres burbujas: texto → PDF → **el enlace solo, en su línea** (`mensajeAceptacion`); al partner, en tercera persona para que pueda reenviárselo al cliente tal cual. En el **email no se repite**: el correo ya lleva el botón «✍️ Aceptar y firmar» debajo del texto. Viaja como `textoDespues` de `sendMedia` (ruta `/api/whatsapp/send-media` y el envío PROGRAMADO, que lo guarda en el plan como `whatsapps[].mensajeAceptacion`; un plan anterior sale como entonces), con su propia confirmación de ACK; si falla **no se lanza** —el texto y el PDF ya llegaron y reintentar los duplicaría—: se devuelve en `despues` y el resultado del envío lo dice («pásaselo a mano»). El popup lo enseña debajo del mensaje antes de pulsar. Fuente única: [logic/mensajeAceptacion.js](implementation/frontend/src/features/calculator/logic/mensajeAceptacion.js). Tras tocarlo: `node implementation/backend/scripts/test_mensaje_aceptacion.mjs`.
 
 ---
+
+99. **Una oportunidad se da de ALTA con lo que el instalador manda por WHATSAPP, con la skill `alta-oportunidad`** (2026-10-01): lee el chat en el servidor (`/api/whatsapp/conversacion`, solo lectura, `x-internal-key`), baja la ráfaga de la petición (fotos, PDF, notas de voz), y con un plan escrito por quien ha mirado cada fichero crea la oportunidad por las MISMAS funciones que «Nueva simulación» (`funnelToCalculatorInputs` → `computeFullCalculatorResult` → `createLead` → `subirFicherosASlot`). Sin emisor declarado, radiadores; toda VIVIENDA del Catastro cuenta (no se puede quitar); orientación de la fachada y patios del croquis; la fila de la caldera por su EDAD real (`rendimiento_id`); la potencia útil de la placa en `inputs.placa_caldera`, que el expediente hereda; una RC con oportunidad previa PARA (`crear` se niega salvo `permitir_duplicado`). Primero en seco. Fuente única: [utils/altaOportunidad.js](implementation/backend/utils/altaOportunidad.js) + [scripts/alta_oportunidad.js](implementation/backend/scripts/alta_oportunidad.js) + [whatsappConversacion.js](implementation/backend/services/whatsappConversacion.js). Tras tocarlo: `node implementation/backend/scripts/test_alta_oportunidad.js`. Ver "Alta de OPORTUNIDAD desde WhatsApp".
 
 ## Arquitectura de Ficheros Clave
 

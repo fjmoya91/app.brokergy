@@ -94,6 +94,9 @@ const EXT_MIME = {
     'image/heic': 'heic', 'image/gif': 'gif',
     'video/mp4': 'mp4', 'video/3gpp': '3gp', 'video/quicktime': 'mov',
     'application/pdf': 'pdf',
+    // Notas de voz y audios: los lee la skill `alta-oportunidad` (el instalador
+    // dice a menudo de viva voz lo que no escribe: «son radiadores»).
+    'audio/ogg': 'ogg', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/aac': 'aac',
 };
 const extDeMime = (mime) => EXT_MIME[String(mime || '').split(';')[0].trim().toLowerCase()] || 'bin';
 
@@ -583,6 +586,9 @@ function bajarSimulada(id) {
 
 module.exports = {
     disponible, contactosDeOportunidad, buscar, descargar, registrarColocadas,
+    // Para `whatsappConversacion` (la conversación entera de la skill
+    // alta-oportunidad): la MISMA fila de lecturas y la MISMA descarga.
+    _enSerie: enSerie, _clienteWa: clienteWa, _BAJAR: BAJAR, MOTIVO_BAJADA,
     // Puros, para las pruebas:
     nueve, chatDeMsgId, extDeMime, nombreArchivo, filtrarMedia, unirContactos,
     CONFIG,

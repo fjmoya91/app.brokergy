@@ -253,6 +253,53 @@ router.post('/contactos/renombrar-clientes', adminOInterno, async (req, res) => 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CONVERSACIÓN — leer un chat entero (texto + adjuntos) para la skill
+// `alta-oportunidad`, que da de alta una oportunidad con lo que el instalador
+// mandó por WhatsApp. Solo LECTURA (ver services/whatsappConversacion.js).
+//
+// Equipo interno o `x-internal-key`: la sesión de WhatsApp es un SINGLETON de
+// este proceso y la skill corre en el PC, así que entra por aquí con la clave
+// interna (mismo patrón que la sincronización de etiquetas). Es la
+// conversación real de un cliente: nunca `requireAuth` (no exige sesión).
+// ─────────────────────────────────────────────────────────────────────────────
+const waConversacion = require('../services/whatsappConversacion');
+const staffOInterno = (req, res, next) => {
+    const key = req.headers['x-internal-key'];
+    if (key && process.env.INTERNAL_API_KEY && key === process.env.INTERNAL_API_KEY) return next();
+    return staffOnly(req, res, next);
+};
+const errorConversacion = (res, e, que) => {
+    if (!e.status) console.error(`[wa-conversacion] ${que}:`, e.message);
+    return res.status(e.status || 500).json({ error: e.status ? e.message : `No se pudo ${que}.` });
+};
+
+// GET ?q=ism alejandro → chats cuyo nombre contiene esas palabras
+router.get('/conversacion/chats', staffOInterno, async (req, res) => {
+    try { res.json(await waConversacion.buscarChats(req.query.q)); }
+    catch (e) { errorConversacion(res, e, 'buscar el chat'); }
+});
+
+// POST { telefono | chatId, dias } → la conversación (sin bajar nada)
+router.post('/conversacion', staffOInterno, async (req, res) => {
+    try {
+        res.json(await waConversacion.leerConversacion({
+            telefono: req.body?.telefono, chatId: req.body?.chatId, dias: req.body?.dias,
+        }));
+    } catch (e) { errorConversacion(res, e, 'leer la conversación'); }
+});
+
+// GET ?msg= → el adjunto, en binario. Solo de una conversación leída aquí.
+router.get('/conversacion/adjunto', staffOInterno, async (req, res) => {
+    try {
+        const { buffer, mimetype, nombre } = await waConversacion.descargarAdjunto(req.query.msg);
+        res.set('Content-Type', mimetype);
+        res.set('X-Nombre-Archivo', encodeURIComponent(nombre));
+        res.set('Access-Control-Expose-Headers', 'X-Nombre-Archivo');
+        res.send(buffer);
+    } catch (e) { errorConversacion(res, e, 'bajar el adjunto'); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // BOT — el asistente que contesta a los chats etiquetados.
 //
 // Todo ADMIN: aquí se ve lo que una máquina le ha dicho a clientes reales en
