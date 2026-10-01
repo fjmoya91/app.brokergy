@@ -8983,6 +8983,10 @@ Botón **📄 Presentar el CEE**, dentro de **Ayudas CE3X**: un popup con cada c
 para copiar, y un PDF descargable que además **viaja adjunto en el visto bueno** que le
 dice al certificador que ya puede presentar.
 
+Desde 2026-10-01 se abre también **directamente** con el botón **📄 Presentar CEE** de la
+barra del módulo CEE, detrás de CE3X (solo equipo interno): a dos clics dentro de Ayudas
+CE3X no lo encontraba nadie. Es el MISMO `BorradorCeeModal`, portaleado a `body`.
+
 | Qué | Dónde |
 |---|---|
 | Qué va en cada casilla, las X y los avisos | [logic/borradorCee.js](implementation/frontend/src/features/expedientes/logic/borradorCee.js) |

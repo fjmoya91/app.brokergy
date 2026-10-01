@@ -12,6 +12,8 @@ import { ConfirmadoPorCliente } from './ConfirmadoPorCliente';
 import { TecnicoPicker } from './TecnicoPicker';
 import { EncargoCertificadorModal } from './EncargoCertificadorModal';
 import { Ce3xAyudasModal } from './Ce3xAyudasModal';
+import { BorradorCeeModal } from './BorradorCeeModal';
+import { createPortal } from 'react-dom';
 import { telefonoDe, emailDe } from '../../../utils/contactoPrescriptor';
 import { MensajeEditable } from './MensajeEditable';
 import { buildCertApproveMessage } from '../logic/certMessages';
@@ -193,6 +195,9 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
     const [ceeLoadTarget, setCeeLoadTarget] = useState(null);
     // Caja de herramientas del certificador (textos fijos de CE3X).
     const [ayudasCe3x, setAyudasCe3x] = useState(false);
+    // El borrador para presentar el CEE en el Registro, abierto DIRECTAMENTE desde
+    // la barra del módulo (también se llega desde Ayudas CE3X).
+    const [presentarCee, setPresentarCee] = useState(false);
     // La rejilla del CEE, para que el borrador de presentación pueda subir por
     // ella el justificante de registro y el recibo de la tasa: tienen que hacer
     // lo MISMO que si se soltaran en su casilla. Solo se monta una de las dos
@@ -1585,6 +1590,22 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                              className="h-5 w-5 shrink-0" />
                         <span>CE3X</span>
                     </button>
+                    {/* Presentar el CEE en el Registro: el popup con cada casilla del
+                        formulario lista para copiar. Vivía solo dentro de Ayudas CE3X,
+                        a dos clics; es el último paso del trabajo del certificado y va
+                        aquí, a la vista, detrás de CE3X. Solo el equipo interno: su
+                        ruta es staffOnly (al técnico le llega en PDF con el visto bueno). */}
+                    {!isCertificador && (
+                        <button
+                            type="button"
+                            onClick={() => setPresentarCee(true)}
+                            title="Datos del formulario del Registro, listos para copiar y pegar"
+                            className="flex items-center gap-2 px-3 py-2 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] text-[9px] font-black uppercase tracking-widest text-emerald-400 hover:bg-emerald-500 hover:text-black transition-colors max-md:w-full max-md:justify-center max-md:py-3.5 max-md:text-[10px]"
+                        >
+                            <span>📄</span>
+                            <span>Presentar CEE</span>
+                        </button>
+                    )}
                 </div>
                 {saving && (
                     <span className="text-[10px] font-black uppercase tracking-widest text-white/30">Guardando…</span>
@@ -1624,6 +1645,21 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 // puede presentar. Su ruta es staffOnly y aquí solo daría un 403.
                 permiteBorrador={!isCertificador}
             />
+
+            {/* El MISMO popup que se abre desde Ayudas CE3X, portaleado a body: el
+                módulo vive dentro de tarjetas con backdrop-filter y un `fixed` se
+                anclaría a ellas (mismo motivo que SendActionOverlay). */}
+            {presentarCee && !isCertificador && createPortal(
+                <BorradorCeeModal
+                    isOpen
+                    onClose={() => setPresentarCee(false)}
+                    expedienteId={expediente?.id}
+                    apiBase={apiBase}
+                    fases={secciones}
+                    gridRef={gridRef}
+                />,
+                document.body
+            )}
 
             {/* Modal de carga de CEE (XML exacto u OCR IA) — compartido entre RES060/RES093 y
                 RES080, disparado por ceeLoadTarget desde cualquiera de los dos render paths. */}
