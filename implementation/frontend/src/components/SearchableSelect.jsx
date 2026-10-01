@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 
 /**
  * Desplegable con BUSCADOR y dos renglones por opción (`label` + `sublabel`).
@@ -12,6 +13,11 @@ import React from 'react';
  * de la placa (`WH-WDG12ME5`), y esa referencia es lo que se tiene delante
  * cuando se busca el equipo: filtrar solo por el nombre comercial dejaría fuera
  * el único dato que distingue dos modelos gemelos.
+ *
+ * `portal`: la lista se pinta en `document.body` con posición fija, encima de
+ * todo. Hace falta cuando el desplegable vive en una cabecera y debajo hay
+ * capas con su propio z-index (la barra de pestañas del expediente la tapaba).
+ * Es opcional para no mover los desplegables que ya funcionan dentro de su caja.
  */
 function norm(s) {
     // Sin tildes, como el resto de buscadores de la app: "kommerling" tiene que
@@ -20,11 +26,13 @@ function norm(s) {
     return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 }
 
-export default function SearchableSelect({ value, onChange, options, label, placeholder = '— Selecciona —', searchPlaceholder = 'Buscar...', disabled = false, showAvatar = true, dropUp = false, triggerClassName = '', id }) {
+export default function SearchableSelect({ value, onChange, options, label, placeholder = '— Selecciona —', searchPlaceholder = 'Buscar...', disabled = false, showAvatar = true, dropUp = false, triggerClassName = '', id, portal = false }) {
     const [open, setOpen] = React.useState(false);
     const [query, setQuery] = React.useState('');
     const containerRef = React.useRef(null);
     const inputRef = React.useRef(null);
+    const listRef = React.useRef(null);
+    const [rect, setRect] = React.useState(null);
 
     const selected = options.find(o => String(o.value) === String(value));
     const filtered = query
@@ -37,7 +45,8 @@ export default function SearchableSelect({ value, onChange, options, label, plac
 
     React.useEffect(() => {
         const handler = (e) => {
-            if (containerRef.current && !containerRef.current.contains(e.target)) {
+            if (containerRef.current && !containerRef.current.contains(e.target)
+                && !(listRef.current && listRef.current.contains(e.target))) {
                 setOpen(false);
             }
         };
@@ -45,8 +54,26 @@ export default function SearchableSelect({ value, onChange, options, label, plac
         return () => document.removeEventListener('mousedown', handler);
     }, []);
 
+    // Con `portal`, la lista sigue al botón: se coloca al abrir y se cierra si la
+    // página se desplaza (una lista fija quedaría flotando lejos de su botón).
+    React.useEffect(() => {
+        if (!portal || !open) return;
+        const colocar = () => setRect(containerRef.current?.getBoundingClientRect() || null);
+        colocar();
+        const alScroll = (e) => { if (!(listRef.current && listRef.current.contains(e.target))) setOpen(false); };
+        window.addEventListener('resize', colocar);
+        window.addEventListener('scroll', alScroll, true);
+        return () => {
+            window.removeEventListener('resize', colocar);
+            window.removeEventListener('scroll', alScroll, true);
+        };
+    }, [portal, open]);
+
     const handleOpen = () => {
         if (disabled) return;
+        // La posición se toma ya aquí para que la lista portaleada salga en el
+        // primer render y el buscador pueda recibir el foco.
+        if (portal) setRect(containerRef.current?.getBoundingClientRect() || null);
         setOpen(true);
         setTimeout(() => inputRef.current?.focus(), 0);
     };
@@ -93,60 +120,67 @@ export default function SearchableSelect({ value, onChange, options, label, plac
                 </svg>
             </button>
 
-            {open && (
-                <div className={`absolute z-50 w-full bg-bkg-elevated border border-white/10 rounded-xl shadow-xl overflow-hidden ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
-                    <div className="p-2 border-b border-white/5">
-                        <input
-                            ref={inputRef}
-                            type="text"
-                            value={query}
-                            onChange={e => setQuery(e.target.value)}
-                            placeholder={searchPlaceholder}
-                            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-white/30 outline-none focus:border-brand/40"
-                        />
-                    </div>
-                    <ul className="max-h-52 overflow-y-auto">
-                        <li
-                            onClick={() => handleSelect('')}
-                            className="px-3 py-2 text-sm text-white/30 hover:bg-white/5 cursor-pointer"
-                        >
-                            {placeholder}
-                        </li>
-                        {filtered.length === 0 && (
-                            <li className="px-3 py-2 text-xs text-white/20 italic">Sin resultados</li>
-                        )}
-                        {filtered.map(o => {
-                            const isActive = String(value) === String(o.value);
-                            const initials = (o.acronimo || o.label || '?').slice(0, 2).toUpperCase();
-                            return (
-                                <li
-                                    key={o.value}
-                                    onClick={() => handleSelect(o.value)}
-                                    className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors ${
-                                        isActive ? 'bg-brand/20' : 'hover:bg-white/5'
-                                    }`}
-                                >
-                                    {/* Logo o avatar de iniciales */}
-                                    {showAvatar && (
-                                        <div className="w-7 h-7 rounded-md flex-shrink-0 flex items-center justify-center overflow-hidden bg-white/5 border border-white/10">
-                                            {o.logo
-                                                ? <img src={o.logo} alt="" className="w-full h-full object-contain" />
-                                                : <span className="text-[9px] font-black text-white/40">{initials}</span>
-                                            }
-                                        </div>
-                                    )}
-                                    <span className="flex flex-col min-w-0">
-                                        <span className={`text-sm truncate ${isActive ? 'text-brand font-semibold' : 'text-white/70'}`}>
-                                            {o.label}
+            {open && (() => {
+                const lista = (
+                    <div
+                        ref={listRef}
+                        style={portal && rect ? { position: 'fixed', left: rect.left, width: rect.width, ...(dropUp ? { bottom: window.innerHeight - rect.top + 4 } : { top: rect.bottom + 4 }) } : undefined}
+                        className={`${portal ? 'z-[1000]' : `absolute z-50 w-full ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`} bg-bkg-elevated border border-white/10 rounded-xl shadow-xl overflow-hidden`}
+                    >
+                        <div className="p-2 border-b border-white/5">
+                            <input
+                                ref={inputRef}
+                                type="text"
+                                value={query}
+                                onChange={e => setQuery(e.target.value)}
+                                placeholder={searchPlaceholder}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-white/30 outline-none focus:border-brand/40"
+                            />
+                        </div>
+                        <ul className="max-h-52 overflow-y-auto">
+                            <li
+                                onClick={() => handleSelect('')}
+                                className="px-3 py-2 text-sm text-white/30 hover:bg-white/5 cursor-pointer"
+                            >
+                                {placeholder}
+                            </li>
+                            {filtered.length === 0 && (
+                                <li className="px-3 py-2 text-xs text-white/20 italic">Sin resultados</li>
+                            )}
+                            {filtered.map(o => {
+                                const isActive = String(value) === String(o.value);
+                                const initials = (o.acronimo || o.label || '?').slice(0, 2).toUpperCase();
+                                return (
+                                    <li
+                                        key={o.value}
+                                        onClick={() => handleSelect(o.value)}
+                                        className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors ${
+                                            isActive ? 'bg-brand/20' : 'hover:bg-white/5'
+                                        }`}
+                                    >
+                                        {/* Logo o avatar de iniciales */}
+                                        {showAvatar && (
+                                            <div className="w-7 h-7 rounded-md flex-shrink-0 flex items-center justify-center overflow-hidden bg-white/5 border border-white/10">
+                                                {o.logo
+                                                    ? <img src={o.logo} alt="" className="w-full h-full object-contain" />
+                                                    : <span className="text-[9px] font-black text-white/40">{initials}</span>
+                                                }
+                                            </div>
+                                        )}
+                                        <span className="flex flex-col min-w-0">
+                                            <span className={`text-sm truncate ${isActive ? 'text-brand font-semibold' : 'text-white/70'}`}>
+                                                {o.label}
+                                            </span>
+                                            {o.sublabel && <span className="text-[11px] text-brand/70 font-mono font-semibold truncate leading-tight">{o.sublabel}</span>}
                                         </span>
-                                        {o.sublabel && <span className="text-[11px] text-brand/70 font-mono font-semibold truncate leading-tight">{o.sublabel}</span>}
-                                    </span>
-                                </li>
-                            );
-                        })}
-                    </ul>
-                </div>
-            )}
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    </div>
+                );
+                return portal ? (rect ? createPortal(lista, document.body) : null) : lista;
+            })()}
         </div>
     );
 }

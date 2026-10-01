@@ -1518,6 +1518,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                                         placeholder={asignandoPartner ? 'Asignando…' : 'Sin partner · asignar…'}
                                         searchPlaceholder="Buscar partner…"
                                         disabled={asignandoPartner}
+                                        portal
                                         triggerClassName="!py-1.5 !text-xs !rounded-full !border-violet-500/30 !bg-violet-500/5"
                                     />
                                 </div>
