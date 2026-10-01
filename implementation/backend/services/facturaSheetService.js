@@ -310,6 +310,22 @@ async function actualizar(id, valores = {}) {
     return f;
 }
 
+/**
+ * Nº y FECHA FACTURA de toda la serie, para comprobar el orden correlativo al
+ * cambiar una fecha (una factura con número menor no puede ser posterior).
+ */
+async function fechasDeLaSerie() {
+    const cab = await cabeceras(TAB_FACTURAS);
+    const ix = mapaCabeceras(TAB_FACTURAS, cab, ['Nº FACTURA', 'FECHA FACTURA']);
+    const filas = await leer(`${q(TAB_FACTURAS)}!A2:${letra(Math.max(ix['Nº FACTURA'], ix['FECHA FACTURA']))}`, 'FORMATTED_VALUE');
+    const aIso = (v) => { const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(String(v || '').trim()); return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : null; };
+    return filas.map(f => {
+        const numero = String(f[ix['Nº FACTURA']] ?? '').trim();
+        const m = RE_NUM.exec(numero);
+        return { numero, correlativo: m ? Number(m[2]) : null, fecha: aIso(f[ix['FECHA FACTURA']]) };
+    }).filter(x => x.correlativo != null && x.fecha);
+}
+
 // ── PDF ─────────────────────────────────────────────────────────────────────
 
 /** Nombre del PDF igual que el de AppSheet: `{nº} - {razón social}.pdf`. */
@@ -336,6 +352,6 @@ async function guardarPdf({ id, numero, razonSocial, buffer }) {
 }
 
 module.exports = {
-    HOJA_ID, articulos, proximoNumero, siguienteDe, emitir, actualizar, filaDe, guardarPdf, nombrePdf,
+    HOJA_ID, articulos, proximoNumero, siguienteDe, emitir, actualizar, filaDe, guardarPdf, nombrePdf, fechasDeLaSerie,
     fechaHoja, _internos: { letra, mapaCabeceras, nif, texto, telefono }
 };

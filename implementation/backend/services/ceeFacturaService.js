@@ -216,6 +216,76 @@ async function rehacerPdf(id, numero) {
     return generarPdf(row, reg);
 }
 
+/**
+ * Cambia la FECHA de una factura YA emitida, conservando su número.
+ *
+ * Se escribe en la hoja (FECHA FACTURA y FECHA VENCIMIENTO, que se desplaza lo
+ * mismo para conservar el plazo de pago), se corrige el registro y se REHACE el
+ * PDF: el nuevo sustituye al viejo en la carpeta FACTURAS y en la del
+ * expediente, y el viejo se retira aunque se llamara distinto. Lo que ya se le
+ * mandó al cliente lleva la fecha anterior, así que se dice: hay que reenviarla.
+ *
+ * El número de una serie es correlativo: una factura con número menor no puede
+ * ser posterior, ni una con número mayor anterior. Eso se AVISA (no se bloquea:
+ * puede haber motivo, y lo decide una persona con la lista delante).
+ */
+async function cambiarFecha(id, numero, { fecha, usuario = null } = {}) {
+    const fechaIso = /^\d{4}-\d{2}-\d{2}$/.test(fecha || '') ? fecha : null;
+    if (!fechaIso) throw error(400, 'Falta la nueva fecha de la factura');
+    const { row, reg } = await registroDe(id, numero);
+    if (reg.fecha === fechaIso) throw error(400, 'La factura ya tiene esa fecha');
+    const m = await modulo();
+
+    // Se conserva el plazo que tenía (por defecto, VENCIMIENTO_DIAS).
+    const dias = (reg.fecha && reg.vencimiento)
+        ? Math.round((Date.parse(reg.vencimiento) - Date.parse(reg.fecha)) / 86400000)
+        : m.VENCIMIENTO_DIAS;
+    const vencimientoIso = m.sumarDias(fechaIso, Number.isFinite(dias) && dias >= 0 ? dias : m.VENCIMIENTO_DIAS);
+
+    // Orden correlativo de la serie (aviso).
+    const avisos = [];
+    try {
+        const yo = /ING_(\d+)$/.exec(reg.numero);
+        const n = yo ? Number(yo[1]) : null;
+        if (n != null) {
+            const serie = await hoja.fechasDeLaSerie();
+            const antes = serie.filter(x => x.correlativo < n && x.fecha > fechaIso).sort((a, b) => b.correlativo - a.correlativo)[0];
+            const despues = serie.filter(x => x.correlativo > n && x.fecha < fechaIso).sort((a, b) => a.correlativo - b.correlativo)[0];
+            if (antes) avisos.push(`La factura anterior ${antes.numero} tiene fecha ${m.isoAEs(antes.fecha)}, posterior a la nueva: la serie deja de ir en orden.`);
+            if (despues) avisos.push(`La factura siguiente ${despues.numero} tiene fecha ${m.isoAEs(despues.fecha)}, anterior a la nueva: la serie deja de ir en orden.`);
+        }
+    } catch (e) { console.warn('[factura cee] orden de la serie:', e.message); }
+
+    const aHoja = (iso) => { const [y, mm, d] = iso.split('-'); return `${d}/${mm}/${y}`; };
+    await hoja.actualizar(reg.sheet_id, { 'FECHA FACTURA': aHoja(fechaIso), 'FECHA VENCIMIENTO': aHoja(vencimientoIso) });
+
+    const anterior = { fecha: reg.fecha, vencimiento: reg.vencimiento, pdf: reg.pdf || null };
+    const nuevo = {
+        ...reg, fecha: fechaIso, vencimiento: vencimientoIso,
+        cambios_fecha: [...(reg.cambios_fecha || []), { de: reg.fecha, a: fechaIso, at: new Date().toISOString(), usuario }],
+    };
+    await svc.mergeDoc(row.id, CAMPO, { [reg.numero]: nuevo });
+    await svc.anotarHistorial(row.id, {
+        tipo: 'FACTURA', texto: `FACTURA ${reg.numero}: FECHA CAMBIADA DEL ${m.isoAEs(reg.fecha)} AL ${m.isoAEs(fechaIso)}`, usuario
+    });
+
+    // PDF nuevo (sustituye por nombre al viejo) + retirar el viejo si se llamaba distinto.
+    let pdf = null, errorPdf = null;
+    try { pdf = await generarPdf(row, nuevo); }
+    catch (e) { errorPdf = e.message; console.error('[factura cee] PDF tras cambiar la fecha:', e.message); }
+    if (pdf && anterior.pdf) {
+        for (const viejo of [anterior.pdf.driveId, anterior.pdf.copiaId]) {
+            if (!viejo || viejo === pdf.driveId || viejo === pdf.copiaId) continue;
+            try { await driveService.deleteFile(viejo); } catch { /* ya no estaba */ }
+        }
+    }
+
+    return {
+        numero: reg.numero, fecha: fechaIso, vencimiento: vencimientoIso, pdf, errorPdf, avisos,
+        yaEnviada: (reg.envios || []).length > 0,
+    };
+}
+
 /** El PDF archivado; si no está (o no baja), se rehace con el mismo número. */
 async function pdfDe(id, numero) {
     const { row, reg } = await registroDe(id, numero);
@@ -300,4 +370,4 @@ async function sincronizarCobro(id, cobrado, cobradoAt) {
     }
 }
 
-module.exports = { borrador, emitir, rehacerPdf, pdfDe, enviar, sincronizarCobro, CAMPO };
+module.exports = { borrador, emitir, rehacerPdf, cambiarFecha, pdfDe, enviar, sincronizarCobro, CAMPO };

@@ -106,6 +106,23 @@ const ok = (c, m) => { if (!c) throw new Error('FALLO: ' + m); console.log('  �
         console.log('\n----- MENSAJE -----\n' + wa.caption + '\n-------------------');
         ok((await svc.pdfDe('e2e', ESPERADO)).buffer.length > 20000, 'el PDF archivado se vuelve a bajar');
 
+        console.log('6b · Cambiar la fecha de la factura ya emitida y enviada');
+        const pdfViejo = doc[ESPERADO].pdf.driveId;
+        const cf = await svc.cambiarFecha('e2e', ESPERADO, { fecha: '2026-09-20' });
+        ok(cf.fecha === '2026-09-20' && cf.vencimiento === '2026-10-20', `fecha ${cf.fecha}, vence ${cf.vencimiento} (conserva los 30 días)`);
+        ok(cf.yaEnviada === true, 'avisa de que ya se le había enviado');
+        ok(cf.avisos.length > 0, `avisa del orden de la serie: ${cf.avisos.join(' | ')}`);
+        const F1 = (await sheets.spreadsheets.values.get({ spreadsheetId: copiaId, range: "'FACTURAS'!A90:P200" })).data.values.find(x => x[1] === ESPERADO);
+        ok(F1[5] === '20/09/2026' && F1[6] === '20/10/2026', 'la hoja tiene la fecha y el vencimiento nuevos');
+        ok(doc[ESPERADO].fecha === '2026-09-20' && doc[ESPERADO].cambios_fecha?.length === 1, 'el registro guarda la fecha y el cambio');
+        ok(cf.pdf?.driveId && cf.pdf.driveId !== pdfViejo, 'PDF nuevo');
+        const vivos = (await drive.files.list({ q: `'${carpetaId}' in parents and trashed=false and name='${ESPERADO} - PRUEBA E2E FACTURA.pdf'`, fields: 'files(id)' })).data.files;
+        ok(vivos.length === 1 && vivos[0].id === cf.pdf.driveId, 'en la carpeta solo queda el PDF nuevo');
+        const viejoMeta = (await drive.files.get({ fileId: pdfViejo, fields: 'trashed' })).data;
+        ok(viejoMeta.trashed === true, 'el PDF viejo está en la papelera');
+        let igual = null; try { await svc.cambiarFecha('e2e', ESPERADO, { fecha: '2026-09-20' }); } catch (e2) { igual = e2; }
+        ok(igual?.status === 400, 'la misma fecha otra vez → 400');
+
         console.log('7 · Marcar cobrado → PAGADA en la hoja');
         await svc.sincronizarCobro('e2e', true, '2026-09-24T10:00:00Z');
         const F2 = (await sheets.spreadsheets.values.get({ spreadsheetId: copiaId, range: "'FACTURAS'!A90:P200" })).data.values.find(x => x[1] === ESPERADO);

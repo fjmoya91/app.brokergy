@@ -68,6 +68,7 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
     const [mensaje, setMensaje] = useState('');
     const [mensajeTocado, setMensajeTocado] = useState(false);
     const [verMensaje, setVerMensaje] = useState(false);
+    const [nuevaFecha, setNuevaFecha] = useState(null);   // { numero, fecha } mientras se cambia la fecha de una emitida
 
     const [fase, setFase] = useState(null);
     const [res, setRes] = useState({ ok: false, items: [], text: '', titulo: '' });
@@ -252,6 +253,34 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
         }
     };
 
+    // Cambiar la fecha de una factura YA emitida: mismo número, la hoja se
+    // corrige, el PDF se rehace y el viejo se retira. Lo enviado lleva la fecha
+    // anterior, así que se recuerda reenviarla.
+    const cambiarFecha = async () => {
+        if (!nuevaFecha?.fecha) return;
+        const { numero, fecha: f } = nuevaFecha;
+        setRes({ ok: false, items: [], text: '', titulo: 'fecha' }); setFase('sending');
+        try {
+            const { data } = await axios.post(`${API}/${expedienteId}/factura/${encodeURIComponent(numero)}/fecha`, { fecha: f }, { timeout: 180000 });
+            const items = [
+                { texto: `Fecha de ${numero}: ${isoAEs(data.fecha)} · vence el ${isoAEs(data.vencimiento)}`, tono: 'ok' },
+                data.pdf
+                    ? { texto: 'PDF rehecho con la nueva fecha; el anterior se ha retirado', tono: 'ok' }
+                    : { texto: `El PDF no se pudo rehacer (${data.errorPdf}). Genéralo desde aquí.`, tono: 'aviso' },
+                ...(data.avisos || []).map(t => ({ texto: t, tono: 'aviso' })),
+                ...(data.yaEnviada ? [{ texto: 'El cliente tiene la factura con la fecha anterior: reenvíasela.', tono: 'aviso' }] : []),
+            ];
+            setRes({ ok: true, items, text: '', titulo: 'fecha' }); setFase('done');
+            setNuevaFecha(null);
+            const d = await cargar();
+            const fac = d?.emitidas?.find(x => x.numero === numero);
+            if (fac) { setActual(fac); setVista('emitida'); prepararEnvio(d, fac); }
+            onCambio?.();
+        } catch (err) {
+            setRes({ ok: false, items: [], text: err.response?.data?.error || err.message, titulo: 'fecha' }); setFase('done');
+        }
+    };
+
     const contacto = actual ? (datos?.contactos?.[actual.destino] || {}) : {};
     const mensajeAuto = actual ? mensajeFactura({
         nombre: contacto.nombre || actual.cliente?.razon_social, numero: actual.numero, total: actual.total,
@@ -293,6 +322,7 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
         emitirSinEnviar: ['Emitiendo y enviando la factura…', 'Factura emitida · sin enviar', 'No se pudo emitir'],
         enviar: ['Enviando la factura…', '¡Factura enviada!', 'No se pudo enviar'],
         pdf: ['Generando el PDF…', 'PDF listo', 'No se pudo generar el PDF'],
+        fecha: ['Cambiando la fecha y rehaciendo el PDF…', 'Fecha cambiada', 'No se pudo cambiar la fecha'],
     }[res.titulo || 'emitir'];
 
     return (
@@ -337,10 +367,31 @@ export function FacturaCeeModal({ isOpen, onClose, expedienteId, onCambio }) {
                                                 <span className={`text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border ${f.estado === 'PAGADA' ? 'text-emerald-400 border-emerald-500/25' : 'text-amber-400 border-amber-500/25'}`}>{f.estado === 'PAGADA' ? 'Pagada' : 'Pendiente de pago'}</span>
                                                 {f.envios?.length > 0 && <span className="text-[10px] text-white/30">enviada {f.envios.length}×</span>}
                                                 <div className="ml-auto flex gap-1.5">
+                                                    <button onClick={() => setNuevaFecha(nuevaFecha?.numero === f.numero ? null : { numero: f.numero, fecha: f.fecha })}
+                                                        title="Cambiar la fecha de la factura (mismo número; se rehace el PDF)"
+                                                        className="min-h-[36px] px-2 text-[10px] font-black uppercase tracking-widest text-white/50 hover:text-white">📅 Fecha</button>
                                                     {f.pdf
                                                         ? <button onClick={() => verPdf(f)} className="min-h-[36px] px-2 text-[10px] font-black uppercase tracking-widest text-white/50 hover:text-white">📄 PDF</button>
                                                         : <button onClick={() => rehacerPdf(f)} className="min-h-[36px] px-2 text-[10px] font-black uppercase tracking-widest text-amber-300 hover:text-amber-200">⚠ Generar el PDF</button>}
                                                 </div>
+                                                {nuevaFecha?.numero === f.numero && (
+                                                    <div className="basis-full flex flex-wrap items-end gap-2 pt-2 mt-1 border-t border-white/10">
+                                                        <div>
+                                                            <label className={lbl}>Nueva fecha de {f.numero}</label>
+                                                            <input type="date" value={nuevaFecha.fecha || ''} onChange={e => setNuevaFecha({ numero: f.numero, fecha: e.target.value })}
+                                                                className="min-h-[40px] px-3 rounded-xl bg-white/[0.04] border border-white/10 text-white text-base md:text-sm" />
+                                                        </div>
+                                                        <button onClick={cambiarFecha} disabled={!nuevaFecha.fecha || nuevaFecha.fecha === f.fecha}
+                                                            className="min-h-[40px] px-4 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest disabled:opacity-40">
+                                                            Cambiar y rehacer el PDF
+                                                        </button>
+                                                        <button onClick={() => setNuevaFecha(null)} className="min-h-[40px] px-3 text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white">Cancelar</button>
+                                                        <p className="basis-full text-[11px] text-white/45">
+                                                            Conserva el número {f.numero}. Se corrige en el libro de facturas, el vencimiento se desplaza lo mismo y el PDF viejo se retira.
+                                                            {f.envios?.length > 0 && ' Ya se le envió: después habrá que reenviársela.'}
+                                                        </p>
+                                                    </div>
+                                                )}
                                             </div>
                                         ))}
                                     </div>

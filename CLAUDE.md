@@ -2669,6 +2669,17 @@ nº no existe hasta emitir: el mensaje enseña el que TOCARÍA y, si sale otro, 
 sustituye antes de enviar. El envío llama a la MISMA ruta `/:numero/enviar` de
 después; si falla, la factura queda emitida y se reenvía desde el propio popup.
 
+**REGLA — la FECHA de una factura emitida se CAMBIA, el número NO** (`POST
+/:id/factura/:numero/fecha`, adminOnly; botón 📅 Fecha en la lista del popup). Se
+escriben FECHA FACTURA y FECHA VENCIMIENTO en la hoja (el vencimiento se desplaza
+lo mismo, conservando el plazo), se corrige el registro (`cambios_fecha[]`) y el
+historial, y se REHACE el PDF: el nuevo sustituye al viejo en la carpeta FACTURAS y
+en la del expediente, y el viejo va a la PAPELERA de Drive aunque se llamara
+distinto. Si ya se había enviado, se dice: el cliente tiene la de la fecha
+anterior y hay que reenviársela. Una fecha que rompe el orden correlativo de la
+serie (una anterior con fecha posterior, o al revés) se AVISA y no se bloquea
+(`fechasDeLaSerie`). Probado contra la copia en `test_factura_cee.js` (paso 6b).
+
 La Sheets API tiene que estar activa en el proyecto de GCP del OAuth
 (651872791732) — se activó el 23/09/2026. Variables opcionales:
 `APPSHEET_FACTURAS_SHEET_ID`, `APPSHEET_FACTURAS_FOLDER_ID`, `APPSHEET_USUARIO`.

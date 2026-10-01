@@ -416,6 +416,15 @@ router.post('/:id/factura/:numero/pdf', adminOnly, async (req, res) => {
     }
 });
 
+router.post('/:id/factura/:numero/fecha', adminOnly, async (req, res) => {
+    try {
+        res.json(await facturas.cambiarFecha(req.params.id, req.params.numero, { fecha: req.body?.fecha, usuario: req.user?.email || null }));
+    } catch (err) {
+        console.error('[cee-directos factura fecha]', err.message);
+        res.status(err.status || 500).json({ error: err.message });
+    }
+});
+
 router.post('/:id/factura/:numero/enviar', adminOnly, async (req, res) => {
     try {
         res.json(await facturas.enviar(req.params.id, req.params.numero, { ...(req.body || {}), usuario: req.user?.email || null }));
