@@ -4328,9 +4328,32 @@ y el cliente la descarga también desde su portal (`/mi-expediente`).
 primaria no renovable −30 % o letra A/B → **unifamiliar o edificio completo: 60 %**
 (base 5.000 €/año, 15.000 € en total, el exceso en los 4 años siguientes: 12.000 € →
 3.000 + 3.000 + 1.200) · **piso: 40 %** (base 7.500 €) · si no, demanda de calefacción
-+ refrigeración −7 % → **20 %** · si no, no hay guía. El tipo sale del `<TipoDeEdificio>`
-del certificado y se puede cambiar en el popup. **Vigencia en `MODALIDADES`** (RDL 7/2026:
++ refrigeración −7 % → **20 %** · si no, no hay guía. **Vigencia en `MODALIDADES`** (RDL 7/2026:
 20/40 % hasta 31/12/2026, 60 % hasta 31/12/2027): cuando se vuelva a prorrogar, se cambia ahí.
+
+**REGLA — el TIPO de vivienda lo manda el CATASTRO, como en la oportunidad**
+(`tipoAutomatico`): participación < 100 % → **piso → 40 %**, diga lo que diga el
+`<TipoDeEdificio>` del certificado (el mismo criterio de `calculateFinancials` y
+`PropertySheet`). Medido en **2026CEE_60**: el certificado declara «ViviendaUnifamiliar»,
+el Catastro le da un **16 %** de participación, y la guía salió al 60 % — a la clienta.
+En el CAE la participación viene de la simulación (`inputs.participation`, y
+`inputs.tipo === 'piso'` también cuenta); en un CEE directo, que no tiene oportunidad,
+se le pregunta al Catastro por su referencia (`participacionDe`, por `getByRC`, que
+respeta el WAF y cachea). Solo un «edificio completo» que declare el certificado se
+respeta; con el 100 % decide el certificado. Lo elegido a mano en el popup manda sobre
+todo, y si el certificado y el Catastro no coinciden se AVISA. Si el Catastro no
+responde, se avisa de que el tipo sale del certificado.
+
+**REGLA — lo que se cambia en el popup se GUARDA SOLO** (`POST …/guia-irpf/ajustes`, con
+freno, y al cerrar se vacía lo pendiente). En 2026CEE_60 se eligió «piso», se cerró sin
+pulsar «Guardar», se marcó cobrado y la entrega automática —que usa los ajustes
+GUARDADOS— salió al 60 %. Compara con lo último guardado, no con "¿es el primer render?".
+
+**REGLA — reenviar una guía con OTRO porcentaje es una CORRECCIÓN, y se dice**
+(`esCorreccion`, con lo sellado en `guia_irpf.modalidad` + `enviada`): el mensaje empieza
+diciendo qué deducción le indicamos, cuál le corresponde y por qué, y que descarte la
+anterior; el asunto lleva «CORREGIDA» y el historial «60 % → 40 %». Sin eso el cliente se
+queda con dos guías que dicen cosas distintas.
 
 **REGLA — los datos de Renta Web son LITERALES** (verificados con el manual de la AEAT
 2025): situación (clave 1), referencia catastral, NIF de quien ha realizado las obras (1)
@@ -12670,7 +12693,7 @@ exacto (`/(^|[\\/])server\.js$/`), pero en un banco pon además `WHATSAPP_ENABLE
 
 97. **En un CEE directo de UN solo certificado, el CEE de ANTES del cliente se carga APARTE, como «CEE anterior del cliente»** (2026-10-01), y debajo sale la comprobación de la deducción del IRPF (ahorro ≥30 % en energía primaria no renovable o letra A/B) contra el CEE de este encargo. Va en `cee.cee_anterior`, **nunca en una fase**: en un encargo ÚNICO la fase «inicial» es el NUESTRO, y cargarlo ahí pisaba sus datos (2026CEE_60). El lector de PDF del CEE saca ya el consumo global de energía primaria no renovable y su letra, así que un PDF basta. Fuente única: [CeeAnteriorCliente.jsx](implementation/frontend/src/features/expedientes/components/CeeAnteriorCliente.jsx) + `comprobarIrpf` en [irpfEpnr.js](implementation/frontend/src/features/expedientes/logic/irpfEpnr.js). Ver "Un CEE directo de UN solo certificado: el CEE ANTERIOR del cliente".
 
-98. **Al cliente se le envían sus CEE firmados + una GUÍA de una página para la deducción del IRPF, de un botón** (2026-10-01): bajo la comprobación del IRPF del módulo CEE, en los dos negocios. La guía dice qué deducción aplicarse (unifamiliar/edificio 60 % · piso 40 % · solo demanda 20 %), dónde se marca en Renta Web y los datos LITERALES que pide, con las facturas CON IVA (el 21 % supuesto se marca para revisar) y una estimación marcada como tal —o, sin facturas de la obra, un EJEMPLO con una obra de 9.000 €—; nunca afirma un derecho. En un CEE directo va también, adjunta, con la ENTREGA del certificado (panel, automática y rejilla), sin poder pararla nunca. Los datos del certificado salen de su `.xml` (manda sobre lo guardado, y se avisa si difiere). Solo viajan los PDF firmados y la guía; respeta el candado de cobro de los CEE directos. Se guarda en Drive, se sella en `documentacion.guia_irpf` (clave protegida) y la sirve el portal del cliente. Fuente única: [logic/guiaIrpf.js](implementation/frontend/src/features/expedientes/logic/guiaIrpf.js) + [guiaIrpfService.js](implementation/backend/services/guiaIrpfService.js). Tras tocarlo: `node implementation/backend/scripts/test_guia_irpf.mjs` (incluye que cabe en una hoja). Ver "La GUÍA de la deducción del IRPF para el cliente".
+98. **Al cliente se le envían sus CEE firmados + una GUÍA de una página para la deducción del IRPF, de un botón** (2026-10-01): bajo la comprobación del IRPF del módulo CEE, en los dos negocios. La guía dice qué deducción aplicarse (unifamiliar/edificio 60 % · piso 40 % · solo demanda 20 %), dónde se marca en Renta Web y los datos LITERALES que pide, con las facturas CON IVA (el 21 % supuesto se marca para revisar) y una estimación marcada como tal —o, sin facturas de la obra, un EJEMPLO con una obra de 9.000 €—; nunca afirma un derecho. El tipo de vivienda lo manda el CATASTRO (participación < 100 % → piso → 40 %), como en la oportunidad; lo tocado en el popup se guarda solo, y reenviar con otro porcentaje sale como CORRECCIÓN. En un CEE directo va también, adjunta, con la ENTREGA del certificado (panel, automática y rejilla), sin poder pararla nunca. Los datos del certificado salen de su `.xml` (manda sobre lo guardado, y se avisa si difiere). Solo viajan los PDF firmados y la guía; respeta el candado de cobro de los CEE directos. Se guarda en Drive, se sella en `documentacion.guia_irpf` (clave protegida) y la sirve el portal del cliente. Fuente única: [logic/guiaIrpf.js](implementation/frontend/src/features/expedientes/logic/guiaIrpf.js) + [guiaIrpfService.js](implementation/backend/services/guiaIrpfService.js). Tras tocarlo: `node implementation/backend/scripts/test_guia_irpf.mjs` (incluye que cabe en una hoja). Ver "La GUÍA de la deducción del IRPF para el cliente".
 
 100. **El ENLACE para aceptar la propuesta va en un MENSAJE APARTE, después del PDF** (2026-10-01): dentro del texto largo, a mitad y tras las cifras, nadie lo veía — «¿y cómo lo acepto?» y había que volver a pasarlo a mano. Las ocho variantes del mensaje (cliente/partner × aerotermia/reforma/comparativa/CEE aportado) ya no llevan el enlace: en su sitio dicen «👇 Más abajo te dejo el enlace para aceptarla» (`lineaEnlaceDebajo`, que vale para los dos canales). Por WhatsApp salen tres burbujas: texto → PDF → **el enlace solo, en su línea** (`mensajeAceptacion`); al partner, en tercera persona para que pueda reenviárselo al cliente tal cual. En el **email no se repite**: el correo ya lleva el botón «✍️ Aceptar y firmar» debajo del texto. Viaja como `textoDespues` de `sendMedia` (ruta `/api/whatsapp/send-media` y el envío PROGRAMADO, que lo guarda en el plan como `whatsapps[].mensajeAceptacion`; un plan anterior sale como entonces), con su propia confirmación de ACK; si falla **no se lanza** —el texto y el PDF ya llegaron y reintentar los duplicaría—: se devuelve en `despues` y el resultado del envío lo dice («pásaselo a mano»). El popup lo enseña debajo del mensaje antes de pulsar. Fuente única: [logic/mensajeAceptacion.js](implementation/frontend/src/features/calculator/logic/mensajeAceptacion.js). Tras tocarlo: `node implementation/backend/scripts/test_mensaje_aceptacion.mjs`.
 

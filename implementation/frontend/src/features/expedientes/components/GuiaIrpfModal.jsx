@@ -72,9 +72,11 @@ export function GuiaIrpfModal({ isOpen, onClose, expedienteId, apiBase = '/api/e
     const [overlay, setOverlay] = useState({ phase: null });
     const [guardando, setGuardando] = useState(false);
     const [guardadoLink, setGuardadoLink] = useState(null);
+    const [ajustesGuardados, setAjustesGuardados] = useState(null);   // null · 'guardando' · 'ok' · 'error'
 
     const inicial = useRef(true);
     const turno = useRef(0);
+    const baseAjustes = useRef(null);   // los ajustes tal y como están guardados (JSON)
 
     // ── Carga ──
     useEffect(() => {
@@ -82,21 +84,27 @@ export function GuiaIrpfModal({ isOpen, onClose, expedienteId, apiBase = '/api/e
         let cancelado = false;
         inicial.current = true;
         mensajeEditado.current = false;
+        baseAjustes.current = null;
+        setAjustesGuardados(null);
         setCargando(true);
         setError(null);
         setGuardadoLink(null);
         axios.get(`${apiBase}/${expedienteId}/guia-irpf`)
             .then(({ data }) => {
                 if (cancelado) return;
-                setDatos(data);
-                setTipo(data.ajustes?.tipo || null);
-                setPropietarios(data.ajustes?.propietarios || null);
-                setFilas((data.facturas || []).map(f => ({
+                const filasIni = (data.facturas || []).map(f => ({
                     ...f,
                     // Un importe tocado y guardado vuelve como no-estimado: hay que
                     // recordarlo, o al reconstruir los ajustes se perdería.
                     editado: f.origen !== 'manual' && !!data.ajustes?.facturas?.[f.id]?.importe,
-                })));
+                }));
+                const tipoIni = data.ajustes?.tipo || null;
+                const propIni = data.ajustes?.propietarios || null;
+                setDatos(data);
+                setTipo(tipoIni);
+                setPropietarios(propIni);
+                setFilas(filasIni);
+                baseAjustes.current = JSON.stringify(ajustesDe({ tipo: tipoIni, propietarios: propIni, filas: filasIni }));
                 setEmail(data.destinatario?.email || '');
                 setTlf(data.destinatario?.tlf || '');
                 setCanales({ email: !!data.destinatario?.email, whatsapp: !!data.destinatario?.tlf });
@@ -146,6 +154,40 @@ export function GuiaIrpfModal({ isOpen, onClose, expedienteId, apiBase = '/api/e
     }, [isOpen, cargando, tipo, propietarios, filas]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); }, [pdfUrl]);
+
+    // ── Autoguardado de los ajustes ──
+    // Lo que se toca aquí se GUARDA solo: la entrega del CEE directo (que sale sola
+    // al marcar cobrado) y el próximo envío usan los ajustes guardados. Antes había
+    // que pulsar «Guardar»; en 2026CEE_60 se eligió «piso», se cerró sin guardar y
+    // la clienta recibió la guía al 60 %. Con freno, y al cerrar se vacía lo pendiente.
+    // Se compara con lo ÚLTIMO GUARDADO (`baseAjustes`), no con "¿es el primer
+    // render?": al reabrir el popup el estado del anterior sigue ahí un instante, y
+    // un guardián de primer render lo escribiría encima de lo bueno.
+    const pendiente = useRef(null);
+    const guardarAjustesYa = useCallback(async (ajustes) => {
+        setAjustesGuardados('guardando');
+        try {
+            await axios.post(`${apiBase}/${expedienteId}/guia-irpf/ajustes`, { ajustes });
+            baseAjustes.current = JSON.stringify(ajustes);
+            setAjustesGuardados('ok');
+            // Sin `onEnviado`: recargaría la ficha entera a cada tecla. La entrega
+            // refresca su panel al cerrar el popup.
+        } catch { setAjustesGuardados('error'); }
+    }, [apiBase, expedienteId]);
+    useEffect(() => {
+        if (!isOpen || cargando || baseAjustes.current == null) return;
+        const ajustes = ajustesDe({ tipo, propietarios, filas });
+        if (JSON.stringify(ajustes) === baseAjustes.current) { pendiente.current = null; return; }
+        pendiente.current = ajustes;
+        const t = setTimeout(() => { pendiente.current = null; guardarAjustesYa(ajustes); }, 800);
+        return () => clearTimeout(t);
+    }, [isOpen, cargando, tipo, propietarios, filas]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    /** Cerrar sin perder lo último que se tocó (el freno aún no había saltado). */
+    const cerrar = async () => {
+        if (pendiente.current) { const a = pendiente.current; pendiente.current = null; await guardarAjustesYa(a); }
+        onClose();
+    };
 
     if (!isOpen) return null;
 
@@ -202,11 +244,19 @@ export function GuiaIrpfModal({ isOpen, onClose, expedienteId, apiBase = '/api/e
         }
     };
 
-    const tipoDelCertificado = g?.tipoCee && TIPOS_VIVIENDA[g.tipoCee] ? g.tipoCee : null;
+    // Lo que saldría sin tocar nada: el Catastro (participación < 100 % → piso),
+    // si no el certificado, si no la simulación. Pulsar ESE tipo vuelve a automático.
+    const tipoAuto = g?.tipoAuto && TIPOS_VIVIENDA[g.tipoAuto] ? g.tipoAuto : null;
+    const origenAuto = g?.tipoAutoOrigen === 'catastro'
+        ? `según el Catastro${g?.participacion != null ? ` · participación ${String(g.participacion).replace('.', ',')} %` : ''}`
+        : g?.tipoAutoOrigen === 'certificado' ? 'según el certificado'
+        : g?.tipoAutoOrigen === 'simulacion' ? 'según la simulación' : '';
+    const previa = datos?.previa;
+    const corrige = !!(previa?.modalidad && g?.modalidad && previa.modalidad !== g.modalidad);
 
     const contenido = (
         <div className="fixed inset-0 z-[520] flex items-center justify-center max-md:items-end bg-black/70 backdrop-blur-sm animate-fade-in p-4 max-md:p-0"
-             onClick={onClose}>
+             onClick={cerrar}>
             <div className="bg-bkg-deep border border-white/10 rounded-2xl max-md:rounded-b-none max-md:rounded-t-3xl w-full max-w-6xl shadow-2xl flex flex-col max-h-[94vh]"
                  onClick={e => e.stopPropagation()}>
 
@@ -219,7 +269,7 @@ export function GuiaIrpfModal({ isOpen, onClose, expedienteId, apiBase = '/api/e
                             {g?.numeroExpediente ? ` · ${g.numeroExpediente}` : ''}
                         </p>
                     </div>
-                    <button type="button" onClick={onClose}
+                    <button type="button" onClick={cerrar}
                             className="w-9 h-9 shrink-0 flex items-center justify-center rounded-xl border border-transparent hover:border-white/10 hover:bg-white/5 transition-colors">
                         <svg className="w-5 h-5 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -260,14 +310,14 @@ export function GuiaIrpfModal({ isOpen, onClose, expedienteId, apiBase = '/api/e
                                 )}
 
                                 <div className="mt-3 text-[9px] font-black uppercase tracking-widest text-white/35">
-                                    Tipo de vivienda {tipoDelCertificado && !tipo && <span className="normal-case tracking-normal font-bold text-white/30">· según el certificado</span>}
+                                    Tipo de vivienda {tipoAuto && !tipo && origenAuto && <span className="normal-case tracking-normal font-bold text-white/30">· {origenAuto}</span>}
                                 </div>
                                 <div className="flex flex-wrap gap-1.5 mt-1.5">
                                     {Object.entries(TIPOS_VIVIENDA).map(([k, t]) => {
                                         const activo = (tipo || g?.tipo) === k;
                                         return (
                                             <button key={k} type="button"
-                                                    onClick={() => setTipo(k === tipoDelCertificado ? null : k)}
+                                                    onClick={() => setTipo(k === tipoAuto ? null : k)}
                                                     className={`px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-colors max-md:flex-1 ${activo
                                                         ? 'text-brand border-brand/50 bg-brand/10'
                                                         : 'text-white/40 border-white/[0.08] hover:text-white/70'}`}>
@@ -276,8 +326,15 @@ export function GuiaIrpfModal({ isOpen, onClose, expedienteId, apiBase = '/api/e
                                         );
                                     })}
                                 </div>
-                                {tipo && tipoDelCertificado && tipo !== tipoDelCertificado && (
-                                    <p className="text-[10px] text-amber-300/80 mt-1.5">El certificado dice «{TIPOS_VIVIENDA[tipoDelCertificado].label}»: lo estás cambiando a mano.</p>
+                                {tipo && tipoAuto && tipo !== tipoAuto && (
+                                    <p className="text-[10px] text-amber-300/80 mt-1.5">{origenAuto ? `${origenAuto.charAt(0).toUpperCase()}${origenAuto.slice(1)}` : 'Automáticamente'} sería «{TIPOS_VIVIENDA[tipoAuto].label}»: lo estás cambiando a mano.</p>
+                                )}
+                                {ajustesGuardados && (
+                                    <p className={`text-[10px] mt-1.5 ${ajustesGuardados === 'error' ? 'text-red-300' : 'text-white/35'}`}>
+                                        {ajustesGuardados === 'guardando' ? 'Guardando los ajustes…'
+                                            : ajustesGuardados === 'ok' ? '✓ Ajustes guardados: la entrega y el próximo envío salen así.'
+                                            : 'No se han podido guardar los ajustes: no cierres sin volver a intentarlo.'}
+                                    </p>
                                 )}
 
                                 <label className="flex items-center gap-2 mt-3 text-[11px] text-white/55">
@@ -404,8 +461,9 @@ export function GuiaIrpfModal({ isOpen, onClose, expedienteId, apiBase = '/api/e
                                                      onChange={v => { mensajeEditado.current = true; setMensaje(v); }} />
                                 </div>
                                 {enviada && (
-                                    <p className="text-[10px] text-white/35 mt-1.5">
-                                        Ya se le envió el {fechaEs(String(enviada.at || '').slice(0, 10))} por {(enviada.canales || []).join(' y ')}{enviada.via === 'entrega' ? ', con la entrega del certificado' : ''}.
+                                    <p className={`text-[10px] mt-1.5 ${corrige ? 'text-amber-300/90' : 'text-white/35'}`}>
+                                        Ya se le envió el {fechaEs(String(enviada.at || '').slice(0, 10))} por {(enviada.canales || []).join(' y ')}{enviada.via === 'entrega' ? ', con la entrega del certificado' : ''}
+                                        {corrige ? `, con la deducción del ${previa.modalidad} %. El mensaje le dice que esta es la CORREGIDA (${g.modalidad} %) y que descarte la anterior.` : '.'}
                                     </p>
                                 )}
                             </section>}
@@ -477,7 +535,7 @@ export function GuiaIrpfModal({ isOpen, onClose, expedienteId, apiBase = '/api/e
                 errorText={overlay.errorText}
                 sendingTitle="Enviando los certificados…"
                 okTitle="¡Enviado al cliente!"
-                onClose={() => { const ok = overlay.ok; setOverlay({ phase: null }); if (ok) onClose(); }}
+                onClose={() => { const ok = overlay.ok; setOverlay({ phase: null }); if (ok) cerrar(); }}
             />
         </div>
     );

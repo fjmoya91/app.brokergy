@@ -17,7 +17,7 @@ import { fileURLToPath } from 'url';
 import {
     componerGuia, buildGuiaIrpfHtml, calendarioDeduccion, elegirModalidad,
     tipoViviendaDeCee, mensajeGuiaIrpf, facturaConIva, comprobarDemanda,
-    textoGuiaEnEntrega, fraseEjemplo, IMPORTE_EJEMPLO,
+    textoGuiaEnEntrega, fraseEjemplo, IMPORTE_EJEMPLO, tipoAutomatico, asuntoGuiaIrpf, esCorreccion,
 } from '../../frontend/src/features/expedientes/logic/guiaIrpf.js';
 import { leerDatosIrpfDeTexto } from '../../frontend/src/features/calculator/logic/xmlCeeParser.js';
 
@@ -132,6 +132,22 @@ ok(/dos certificados/.test(mensajeGuiaIrpf(unico, { nombre: 'MARÍA', certificad
 ok(/certificado que tenías de antes/.test(mensajeGuiaIrpf(unico, { certificados: 1 })), 'mensaje con UN certificado: le recuerda el suyo de antes');
 const veinte = componerGuia({ ...base, anterior: { cee: cee(200, 'E', '2026-03-01', { demandaCalefaccion: 160 }) }, posterior: { cee: cee(180, 'E', '2026-09-30', { demandaCalefaccion: 140 }) } });
 eq(veinte.modalidad, '20', 'EPNR −10 % pero demanda −12 % → 20 %');
+
+console.log('\n6.c · El tipo de vivienda lo manda el CATASTRO (como en la oportunidad)');
+eq(tipoAutomatico({ tipoCee: 'unifamiliar', participacion: '16,00' }), { tipo: 'piso', origen: 'catastro', participacion: 16 }, 'certificado unifamiliar + participación 16 % → piso (2026CEE_60)');
+eq(tipoAutomatico({ tipoCee: 'unifamiliar', participacion: '100,00' }).tipo, 'unifamiliar', 'participación 100 % → manda el certificado');
+eq(tipoAutomatico({ tipoCee: null, participacion: null, tipoSimulacion: 'piso' }).tipo, 'piso', 'sin Catastro ni certificado → la simulación');
+eq(tipoAutomatico({ tipoCee: 'unifamiliar', participacion: 100, tipoSimulacion: 'piso' }).tipo, 'piso', 'la simulación calculó piso → piso (mismo criterio que calculateFinancials)');
+eq(tipoAutomatico({ tipoCee: 'bloque', participacion: 16 }).tipo, 'bloque', 'un edificio completo que declara el certificado se respeta');
+const pisoCat = componerGuia({ ...base, propietarios: 1, participacion: '16,00', facturas: [], obras: [] });
+eq([pisoCat.tipo, pisoCat.tipoOrigen, pisoCat.modalidad, pisoCat.ejemplo.calendario.porPropietario], ['piso', 'catastro', '40', 3000], 'la guía de 2026CEE_60 sale al 40 % (ejemplo: 3.000 €)');
+ok(pisoCat.avisos.some(a => /certificado dice «Vivienda unifamiliar», pero en el Catastro/.test(a)), 'avisa de que el certificado dice otra cosa');
+eq(componerGuia({ ...base, propietarios: 1, participacion: '16,00', tipoManual: 'unifamiliar', facturas: [] }).modalidad, '60', 'lo elegido a mano sigue mandando');
+const previa = { modalidad: '60', at: '2026-10-01T16:03:43.921Z' };
+ok(esCorreccion(pisoCat, previa) && !esCorreccion(pisoCat, { modalidad: '40' }) && !esCorreccion(pisoCat, null), 'corrección solo si cambia el porcentaje');
+const msgCorr = mensajeGuiaIrpf(pisoCat, { nombre: 'LAURA', certificados: 1, previa });
+ok(/\*corregida\*/.test(msgCorr) && /el 01\/10\/2026 te indicábamos la deducción del 60 %/.test(msgCorr) && /\*40 %\*/.test(msgCorr) && /participación del 16,00 %/.test(msgCorr) && /descarta la anterior/.test(msgCorr), 'el mensaje de corrección dice qué decía la anterior, cuál vale y por qué');
+ok(/CORREGIDA/.test(asuntoGuiaIrpf(pisoCat, { previa })) && !/CORREGIDA/.test(asuntoGuiaIrpf(pisoCat)), 'asunto de corrección');
 
 if (process.argv.includes('--sin-pdf')) {
     console.log(fallos ? `\n✗ ${fallos} fallo(s)` : '\n✓ Todo bien');

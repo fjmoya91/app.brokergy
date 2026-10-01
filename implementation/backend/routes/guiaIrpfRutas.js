@@ -12,6 +12,7 @@
 //   GET  /:id/guia-irpf            lo que pinta el popup (con los ajustes guardados)
 //   POST /:id/guia-irpf/estado     lo mismo, recompuesto con los ajustes del popup
 //   POST /:id/guia-irpf/pdf        el PDF (vista previa y descarga)
+//   POST /:id/guia-irpf/ajustes    guarda SOLO los ajustes del popup (autoguardado)
 //   POST /:id/guia-irpf/guardar    lo guarda en Drive y lo sella (portal del cliente)
 //   POST /:id/guia-irpf/enviar     certificados + guía al cliente por email/WhatsApp
 
@@ -44,6 +45,11 @@ function montarGuiaIrpf(router, origen, { staffOnly }) {
                 `inline; filename="${filename.replace(/[^\x20-\x7E]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
             res.send(buffer);
         } catch (err) { responderError(res, err, 'pdf', 'No se pudo generar la guía'); }
+    });
+
+    router.post('/:id/guia-irpf/ajustes', staffOnly, async (req, res) => {
+        try { res.json(await guiaIrpf.guardarAjustes(origen, req.params.id, req.body || {}, { usuario: usuarioDe(req) })); }
+        catch (err) { responderError(res, err, 'ajustes', 'No se pudieron guardar los ajustes de la guía'); }
     });
 
     router.post('/:id/guia-irpf/guardar', staffOnly, async (req, res) => {

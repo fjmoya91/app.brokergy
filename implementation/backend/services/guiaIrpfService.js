@@ -269,11 +269,42 @@ function viviendaDe(ctx) {
     };
 }
 
+/**
+ * La participación del inmueble en el CATASTRO, que es lo que decide si es un
+ * piso (< 100 %: finca en división horizontal → deducción del 40 %), igual que
+ * al calcular la oportunidad (`PropertySheet` → `inputs.participation`).
+ *
+ * En el CAE ya viene en la simulación; si no, y en un CEE directo —que no tiene
+ * oportunidad—, se le pregunta al Catastro por la referencia del inmueble. Va por
+ * `catastroService.getByRC`, que respeta el WAF y cachea por referencia: abrir y
+ * recomponer el popup no son peticiones nuevas. Una referencia de 14 caracteres
+ * es la PARCELA y no tiene participación de nadie.
+ */
+async function participacionDe(ctx) {
+    const enSimulacion = ctx.op?.inputs?.participation;
+    if (enSimulacion != null && enSimulacion !== '') return { participacion: enSimulacion };
+    const rc = txt(ctx.origen === 'cee_directo' ? ctx.row.ref_catastral : (ctx.row.instalacion?.ref_catastral || ctx.op?.ref_catastral))
+        .replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    if (rc.length !== 20) return { participacion: null };
+    try {
+        const r = await require('./catastroService').getByRC(rc);
+        const x = Array.isArray(r) ? r[0] : r;
+        return { participacion: x?.participation ?? null };
+    } catch (e) {
+        console.warn(`[guia-irpf] Catastro (${rc}):`, e.message);
+        return { participacion: null, catastroError: e.message || 'sin respuesta' };
+    }
+}
+
 /** Los datos para `componerGuia`, a partir del expediente y de los ajustes. */
-function datosGuia(ctx, ajustes) {
+async function datosGuia(ctx, ajustes) {
     const l = lados(ctx);
     const ins = ctx.instalador;
+    // Si el tipo lo ha elegido una persona, el Catastro no decide nada: no se pregunta.
+    const cat = ajustes.tipo ? { participacion: null } : await participacionDe(ctx);
     return {
+        participacion: cat.participacion,
+        catastroError: cat.catastroError || null,
         numeroExpediente: ctx.row.numero_expediente || '',
         negocio: ctx.origen === 'cee_directo' ? 'cee_directo' : 'cae',
         titular: { nombre: nombreDe(ctx.cliente), nif: txt(ctx.cliente?.dni).toUpperCase() },
@@ -297,7 +328,7 @@ function ajustesDe(ctx, body) {
 
 async function componerCtx(ctx, ajustes) {
     const { componerGuia, buildGuiaIrpfHtml } = await logica();
-    const guia = componerGuia(datosGuia(ctx, ajustes));
+    const guia = componerGuia(await datosGuia(ctx, ajustes));
     return { guia, html: guia.puede ? buildGuiaIrpfHtml(guia) : null };
 }
 
@@ -324,6 +355,9 @@ async function estado(origen, id, body = null) {
 
     const svc = require('./ceeDirectoService');
     const contacto = svc.contactoCliente(ctx.cliente);
+    // Lo último que se le mandó: si el porcentaje cambia, el mensaje es una CORRECCIÓN.
+    const sello = ctx.row.documentacion?.[CAMPO] || null;
+    const previa = sello?.enviada && sello?.modalidad ? { modalidad: String(sello.modalidad), at: sello.enviada.at } : null;
 
     const bloqueos = [];
     const avisos = [...guia.avisos];
@@ -369,8 +403,9 @@ async function estado(origen, id, body = null) {
         avisos,
         puede: bloqueos.length === 0,
         destinatario: { nombre: contacto.nombre || nombreDe(ctx.cliente), email: contacto.email || '', tlf: contacto.tlf || '' },
-        mensaje: mensajeGuiaIrpf(guia, { nombre: contacto.nombre || nombreDe(ctx.cliente), certificados: nCerts }),
-        asunto: asuntoGuiaIrpf(guia),
+        mensaje: mensajeGuiaIrpf(guia, { nombre: contacto.nombre || nombreDe(ctx.cliente), certificados: nCerts, previa }),
+        asunto: asuntoGuiaIrpf(guia, { previa }),
+        previa,
         guardada: ctx.row.documentacion?.[CAMPO] || null,
     };
 }
@@ -465,6 +500,22 @@ async function guardar(origen, id, body = null, { usuario = null } = {}) {
     return { guardado: true, ...subido };
 }
 
+/**
+ * Guarda SOLO los ajustes del popup (tipo de vivienda, propietarios, facturas).
+ *
+ * REGLA — lo que se toca en el popup se guarda solo. Antes vivía en el estado del
+ * popup hasta pulsar «Guardar», y la ENTREGA del CEE directo —que sale sola al
+ * marcar cobrado— usa los ajustes GUARDADOS: en 2026CEE_60 se cambió a «piso», se
+ * cerró el popup sin guardar, se marcó cobrado y la clienta recibió la guía al
+ * 60 %. Sin PDF ni Drive: es una escritura pequeña que el popup hace con freno.
+ */
+async function guardarAjustes(origen, id, body = {}, { usuario = null } = {}) {
+    const ctx = await cargarCtx(origen, id);
+    const ajustes = sanearAjustes(body.ajustes);
+    await mergeSello(ctx, { ajustes, ajustes_at: new Date().toISOString(), ajustes_por: usuario || null });
+    return { guardado: true, ajustes };
+}
+
 // ─── Enviar ──────────────────────────────────────────────────────────────────
 
 /**
@@ -541,7 +592,9 @@ async function enviar(origen, id, body = {}, { usuario = null } = {}) {
     catch (e) { errorDrive = e.message; console.warn('[guia-irpf] no se pudo guardar en Drive:', e.message); }
 
     const dest = [st.destinatario.nombre, canales.includes('email') ? email : null, canales.includes('whatsapp') ? tlf : null].filter(Boolean).join(' · ');
-    await anotarHistorial(ctx, `Certificados y guía de la deducción del IRPF (${guia.modalidad} %) enviados al cliente por ${enviados.join(' + ')} (${dest})`, usuario);
+    await anotarHistorial(ctx, st.previa && st.previa.modalidad !== guia.modalidad
+        ? `Guía de la deducción del IRPF CORREGIDA (${st.previa.modalidad} % → ${guia.modalidad} %) y certificados reenviados al cliente por ${enviados.join(' + ')} (${dest})`
+        : `Certificados y guía de la deducción del IRPF (${guia.modalidad} %) enviados al cliente por ${enviados.join(' + ')} (${dest})`, usuario);
     await mergeSello(ctx, {
         ...selloDe(guia, ajustes, subido.drive_id ? subido : (ctx.row.documentacion?.[CAMPO] || subido), usuario),
         enviada: {
@@ -651,6 +704,6 @@ async function sellarGuiaEntregada(g, buffer, { canales = [], destinatario = {},
 }
 
 module.exports = {
-    estado, pdf, guardar, enviar, sanearAjustes, nombreGuia, CAMPO,
+    estado, pdf, guardar, guardarAjustes, enviar, sanearAjustes, nombreGuia, CAMPO,
     guiaDeEntrega, guiaDeEntregaPublica, pdfGuiaDeEntrega, sellarGuiaEntregada,
 };

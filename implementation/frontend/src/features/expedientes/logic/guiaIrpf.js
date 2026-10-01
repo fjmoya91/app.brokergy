@@ -181,6 +181,36 @@ export function completarCee(cee, xml) {
     return Object.keys(base).length ? base : null;
 }
 
+/**
+ * El tipo de vivienda cuando nadie lo ha elegido a mano en el popup.
+ *
+ * REGLA — manda el CATASTRO, como en la oportunidad: una vivienda con
+ * participación < 100 % está en una finca en DIVISIÓN HORIZONTAL y va como
+ * PISO (40 %), diga lo que diga el certificado. Es el mismo criterio de
+ * `calculateFinancials` (`tipo === 'piso' || participation < 100`) y de la ficha
+ * del inmueble (`PropertySheet`). Medido en 2026CEE_60: el certificado declara
+ * «ViviendaUnifamiliar» y el Catastro le da un 16 % de participación — la guía
+ * salió al 60 % y se le mandó así a la clienta.
+ *
+ * Solo un «edificio completo» que declare el propio certificado se respeta: la
+ * participación es de UN inmueble y un bloque entero no la tiene. Con el 100 %
+ * (o sin dato) decide el certificado, y si tampoco lo dice, la simulación.
+ *
+ * @returns {{tipo:string|null, origen:'catastro'|'certificado'|'simulacion'|null, participacion:number|null}}
+ */
+export function tipoAutomatico({ tipoCee, participacion, tipoSimulacion } = {}) {
+    const p = Number(String(participacion ?? '').replace('%', '').replace(',', '.'));
+    const part = isFinite(p) && p > 0 ? r2(p) : null;
+    if (tipoCee === 'bloque') return { tipo: 'bloque', origen: 'certificado', participacion: part };
+    // Lo mismo que decidió la simulación al calcular la oportunidad (CAE).
+    if ((part != null && part < 100) || tipoSimulacion === 'piso') {
+        return { tipo: 'piso', origen: part != null && part < 100 ? 'catastro' : 'simulacion', participacion: part };
+    }
+    if (tipoCee) return { tipo: tipoCee, origen: 'certificado', participacion: part };
+    if (TIPOS_VIVIENDA[tipoSimulacion]) return { tipo: tipoSimulacion, origen: 'simulacion', participacion: part };
+    return { tipo: null, origen: null, participacion: part };
+}
+
 /** ¿Baja la demanda de calefacción + refrigeración al menos un 7 %? */
 export function comprobarDemanda(ini, fin) {
     const suma = (c) => {
@@ -262,7 +292,9 @@ export function facturaConIva(f) {
  * @param {{nombre:string, nif:string}} d.titular
  * @param {number} [d.propietarios]       titular + copropietarios
  * @param {{direccion, refCatastral, provincia}} d.vivienda
- * @param {string} [d.tipoSimulacion]     'unifamiliar'|'piso' de la oportunidad (respaldo)
+ * @param {string} [d.tipoSimulacion]     'unifamiliar'|'piso' de la oportunidad
+ * @param {number} [d.participacion]      % de participación del inmueble en el Catastro (< 100 → piso)
+ * @param {string} [d.catastroError]      por qué no se pudo consultar el Catastro (se avisa)
  * @param {string} [d.tipoManual]         lo elegido en el popup (manda)
  * @param {{cee, xml, fecha, rotulo}} d.anterior   certificado de antes de la obra
  * @param {{cee, xml, fecha, rotulo}} d.posterior  certificado de después
@@ -285,9 +317,11 @@ export function componerGuia(d = {}) {
     const demanda = comprobarDemanda(ant, pos);
 
     const tipoCee = tipoViviendaDeCee(pos?.tipoEdificio) || tipoViviendaDeCee(ant?.tipoEdificio);
-    const tipo = TIPOS_VIVIENDA[d.tipoManual] ? d.tipoManual
-        : (tipoCee || (TIPOS_VIVIENDA[d.tipoSimulacion] ? d.tipoSimulacion : null));
-    const tipoOrigen = TIPOS_VIVIENDA[d.tipoManual] ? 'manual' : (tipoCee ? 'certificado' : (tipo ? 'simulacion' : null));
+    const { tipo: tipoAuto, origen: origenAuto, participacion } = tipoAutomatico({
+        tipoCee, participacion: d.participacion, tipoSimulacion: d.tipoSimulacion,
+    });
+    const tipo = TIPOS_VIVIENDA[d.tipoManual] ? d.tipoManual : tipoAuto;
+    const tipoOrigen = TIPOS_VIVIENDA[d.tipoManual] ? 'manual' : origenAuto;
 
     const { modalidad, motivo } = elegirModalidad({ tipo, irpf, demanda });
     const m = modalidad ? MODALIDADES[modalidad] : null;
@@ -356,8 +390,17 @@ export function componerGuia(d = {}) {
     // ── Avisos para QUIEN ENVÍA (no salen en el PDF) ───────────────────────────
     const avisos = [];
     if (irpf.estado === 'ok') avisos.push(...(irpf.avisos || []));
-    if (!tipo) avisos.push('No consta el tipo de vivienda en el certificado: elígelo.');
-    else if (tipoOrigen === 'simulacion') avisos.push('El tipo de vivienda sale de la simulación: el certificado no lo declara.');
+    if (!tipo) avisos.push('No consta el tipo de vivienda (ni en el Catastro ni en el certificado): elígelo.');
+    else if (tipoOrigen === 'simulacion' && !tipoCee) avisos.push('El tipo de vivienda sale de la simulación: el certificado no lo declara.');
+    // El certificado y el Catastro no dicen lo mismo: va lo del Catastro, y se dice.
+    if (tipoOrigen !== 'manual' && tipoCee && tipo && tipoCee !== tipo && TIPOS_VIVIENDA[tipoCee]) {
+        avisos.push(`El certificado dice «${TIPOS_VIVIENDA[tipoCee].label}», pero ${tipoOrigen === 'catastro'
+            ? `en el Catastro la vivienda tiene una participación del ${n2(participacion)} % (división horizontal)`
+            : 'la simulación de la oportunidad la calculó como piso'}: va como ${TIPOS_VIVIENDA[tipo].label.toLowerCase()}, igual que en la oportunidad. Si no lo es, cámbialo arriba.`);
+    }
+    if (d.catastroError && tipoOrigen !== 'manual') {
+        avisos.push(`No se ha podido consultar el Catastro (${d.catastroError}): el tipo de vivienda sale del certificado. Compruébalo: si es un piso, la deducción es la del 40 %.`);
+    }
     if (!fechaAnt || !fechaPos) avisos.push('Falta la fecha de alguno de los certificados: Renta Web la pide.');
     // Que no haya facturas de la obra NO es un aviso: en un CEE directo es lo
     // normal y la guía ya lo resuelve con el ejemplo. Un aviso que sale siempre
@@ -405,6 +448,10 @@ export function componerGuia(d = {}) {
         tipo,
         tipoOrigen,
         tipoCee,
+        // Lo que saldría sin tocar nada (para que el popup sepa volver a "automático").
+        tipoAuto,
+        tipoAutoOrigen: origenAuto,
+        participacion,
         modalidad,
         motivo,
         puede: !!modalidad,
@@ -450,20 +497,31 @@ export function componerGuia(d = {}) {
  * @param {string} [opts.nombre]       a quién se saluda (quien lo recibe)
  * @param {number} [opts.certificados] cuántos certificados van adjuntos (1 o 2)
  */
-export function mensajeGuiaIrpf(guia, { nombre = '', certificados = 2 } = {}) {
+export function mensajeGuiaIrpf(guia, { nombre = '', certificados = 2, previa = null } = {}) {
     const pila = String(nombre || '').trim().split(/\s+/)[0];
     const saludo = pila ? `¡Hola ${pila.charAt(0).toUpperCase()}${pila.slice(1).toLowerCase()}!` : '¡Hola!';
     const m = guia?.modalidad ? MODALIDADES[guia.modalidad] : null;
     const certs = certificados >= 2
         ? 'tus *dos certificados de eficiencia energética* (el de antes y el de después de la obra)'
         : 'tu *certificado de eficiencia energética*';
-    const lineas = [
-        saludo,
-        '',
-        `Te enviamos ${certs} y una *guía de una página* para que puedas aplicarte la deducción por obras de mejora energética en tu declaración de la Renta.`,
-    ];
+    const lineas = [saludo, ''];
+    const correccion = esCorreccion(guia, previa);
+    if (correccion) {
+        // Ya tiene una guía con OTRO porcentaje: lo primero que tiene que leer es
+        // que la anterior no vale y por qué. Si no, se queda con dos guías que
+        // dicen cosas distintas y aplica la que tenga más a mano.
+        const pm = MODALIDADES[previa.modalidad];
+        const fecha = fechaEs(String(previa.at || '').slice(0, 10));
+        lineas.push(
+            `Te reenviamos la *guía para la deducción en la Renta*, *corregida*: en la que te mandamos${fecha ? ` el ${fecha}` : ''} te indicábamos la deducción del ${pm.pct} %, pero la que te corresponde es la del *${m.pct} %*${motivoDelTipo(guia)}. Usa esta y descarta la anterior.`,
+            '',
+            `Te adjuntamos de nuevo ${certificados >= 2 ? 'tus certificados de eficiencia energética, que no cambian' : 'tu certificado de eficiencia energética, que no cambia'}, para que lo tengas todo junto.`,
+        );
+    } else {
+        lineas.push(`Te enviamos ${certs} y una *guía de una página* para que puedas aplicarte la deducción por obras de mejora energética en tu declaración de la Renta.`);
+        if (m) lineas.push('', `En la guía tienes la deducción que puedes aplicar (*${m.pct} %*), dónde se marca en Renta Web y todos los datos que te va a pedir, ya rellenos con los de tus certificados.`);
+    }
     if (m) {
-        lineas.push('', `En la guía tienes la deducción que puedes aplicar (*${m.pct} %*), dónde se marca en Renta Web y todos los datos que te va a pedir, ya rellenos con los de tus certificados.`);
         const ej = fraseEjemplo(guia);
         if (ej) lineas.push('', ej);
     }
@@ -513,9 +571,30 @@ export function textoGuiaEnEntrega(guia, { unico = false } = {}) {
     return lineas.join('\n\n');
 }
 
+/**
+ * ¿La guía que se va a mandar CORRIGE una ya enviada? Solo si cambia el
+ * porcentaje: reenviarla con lo mismo no es una corrección.
+ * @param {object} guia
+ * @param {{modalidad:string, at:string}|null} previa  lo sellado del último envío
+ */
+export function esCorreccion(guia, previa) {
+    return !!(guia?.modalidad && previa?.modalidad && MODALIDADES[previa.modalidad] && previa.modalidad !== guia.modalidad);
+}
+
+/** Por qué corresponde ESTA deducción, en lenguaje de cliente (para la corrección). */
+function motivoDelTipo(guia) {
+    if (guia?.tipo === 'piso') {
+        return `, porque tu vivienda forma parte de un edificio dividido en pisos${guia.participacion != null && guia.participacion < 100 ? ` (en el Catastro tiene una participación del ${n2(guia.participacion)} %)` : ''}`;
+    }
+    if (guia?.tipo === 'unifamiliar') return ', porque tu vivienda es unifamiliar';
+    if (guia?.tipo === 'bloque') return ', porque la obra es de todo el edificio';
+    return '';
+}
+
 /** Asunto del email. */
-export function asuntoGuiaIrpf(guia) {
+export function asuntoGuiaIrpf(guia, { previa = null } = {}) {
     const num = guia?.numeroExpediente ? `${guia.numeroExpediente} — ` : '';
+    if (esCorreccion(guia, previa)) return `${num}Guía CORREGIDA para la deducción en la Renta (${MODALIDADES[guia.modalidad].pct} %)`;
     return `${num}Tus certificados energéticos y la guía para la deducción en la Renta`;
 }
 
