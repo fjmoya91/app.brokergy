@@ -109,11 +109,13 @@ router.get('/groups', adminOnly, requireService, async (req, res) => {
 // POST /api/whatsapp/send-media  { phone, caption, media: { url?, base64?, mimetype?, filename? }, asDocument? }
 router.post('/send-media', requireAuth, requireService, async (req, res) => {
     try {
-        const { phone, caption, media, asDocument } = req.body || {};
+        // `textoDespues`: mensaje aparte DESPUÉS del adjunto (el enlace para
+        // aceptar la propuesta). Si no sale, el adjunto sí: lo dice `out.despues`.
+        const { phone, caption, media, asDocument, textoDespues } = req.body || {};
         if (!phone || !media) {
             return res.status(400).json({ error: 'phone y media son obligatorios' });
         }
-        const out = await wwa.sendMedia(phone, media, { caption, asDocument });
+        const out = await wwa.sendMedia(phone, media, { caption, asDocument, textoDespues });
         res.json(out);
     } catch (err) {
         res.status(400).json({ error: err.message });

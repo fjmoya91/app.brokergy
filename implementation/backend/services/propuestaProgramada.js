@@ -222,10 +222,17 @@ async function enviar(fila) {
                 const r = await whatsappService.sendMedia(
                     String(w.phone).replace(/[^0-9]/g, ''),
                     { base64: pdfBase64, filename: fileName, mimetype: 'application/pdf' },
-                    { caption: w.mensaje || '', asDocument: true }
+                    // `mensajeAceptacion`: el enlace para aceptar, en su propia
+                    // burbuja DESPUÉS del PDF — igual que enviándola a mano. Un
+                    // plan guardado antes de que existiera no lo trae y sale
+                    // como entonces.
+                    { caption: w.mensaje || '', asDocument: true, textoDespues: w.mensajeAceptacion || null }
                 );
                 if (r && r.ok === false) throw new Error(r.error || 'WhatsApp no confirmó la entrega');
                 out.push({ channel: 'whatsapp', status: 'ok', text: `${w.label || w.phone} → ${w.phone}` });
+                if (r?.despues && r.despues.ok === false) {
+                    out.push({ channel: 'whatsapp', status: 'fail', text: `${w.label || w.phone}: llegó la propuesta, pero NO el mensaje con el enlace para aceptar (${r.despues.error || 'sin confirmar'}). Pásaselo a mano.` });
+                }
                 if (grupo.modo === 'CLIENTE') clienteOk = true;
             } catch (e) {
                 out.push({ channel: 'whatsapp', status: 'fail', text: `${w.label || w.phone}: ${e.message}` });

@@ -83,6 +83,7 @@ export function EnviarPropuestaModal({
     numexpte,
     candidates = [],            // [{ mode, label, sublabel, email, phone }]
     buildDefaultMessage,        // (mode, name) => string
+    buildAcceptMessage,         // (mode) => string — el enlace para aceptar, en mensaje APARTE
     getPdfHtml,                 // () => html (para el PDF de WhatsApp)
     getEmailHtml,               // () => html (para el PDF del email)
     buildSummaryData,           // (mode, name) => summaryData (plantilla email)
@@ -474,6 +475,13 @@ export function EnviarPropuestaModal({
         return noteInMessage ? composeNote(base, extraNote) : base;
     };
 
+    // ── El SEGUNDO mensaje: el enlace para aceptar ───────────────────────────
+    // Solo por WhatsApp, y DESPUÉS del PDF. A mitad del texto largo nadie lo
+    // veía y había que volver a pasarlo a mano; solo en su burbuja, y la
+    // última del chat, no se pierde. En el email no va: el correo ya lleva el
+    // botón «Aceptar y firmar» debajo del texto.
+    const aceptacionFor = (c) => (buildAcceptMessage ? buildAcceptMessage(c.mode) || null : null);
+
     // ── El PLAN de envío, ya decidido ────────────────────────────────────────
     // Lo mismo que recorre `handleSend`, pero como DATO. Es lo que se guarda al
     // programar: el despachador del servidor lo replica sin volver a decidir a
@@ -503,6 +511,7 @@ export function EnviarPropuestaModal({
                     label: c.label,
                     phone: String(c.phone).replace(/[^0-9]/g, ''),
                     mensaje: messageFor(c),
+                    mensajeAceptacion: aceptacionFor(c),
                 }))
                 : [];
             if (email || whatsapps.length) gruposPlan.push({ modo: mode, email, whatsapps });
@@ -672,13 +681,20 @@ export function EnviarPropuestaModal({
                     continue;
                 }
                 try {
-                    await axios.post('/api/whatsapp/send-media', {
+                    const { data: wa } = await axios.post('/api/whatsapp/send-media', {
                         phone: String(c.phone).replace(/[^0-9]/g, ''),
                         caption: messageFor(c),
                         media: { base64: waPdf, filename, mimetype: 'application/pdf' },
                         asDocument: true,
+                        textoDespues: aceptacionFor(c),
                     });
                     out.push({ channel: 'whatsapp', status: 'ok', text: `${c.label} → ${c.phone}` });
+                    // El PDF llegó pero el enlace no: se dice, porque es justo lo
+                    // que le va a faltar para aceptar. No se reintenta: el texto y
+                    // el PDF ya están en el chat y repetirlos los duplica.
+                    if (wa?.despues && wa.despues.ok === false) {
+                        out.push({ channel: 'whatsapp', status: 'fail', text: `${c.label}: llegó la propuesta, pero NO el mensaje con el enlace para aceptar (${wa.despues.error || 'sin confirmar'}). Pásaselo a mano.` });
+                    }
                     if (mode === 'CLIENTE') clienteOk = true;
                 } catch (err) {
                     out.push({ channel: 'whatsapp', status: 'fail', text: `${c.label}: ${err.response?.data?.error || err.message}` });
@@ -1012,6 +1028,24 @@ export function EnviarPropuestaModal({
                             className="w-full no-uppercase bg-bkg-elevated border border-white/5 rounded-xl px-4 py-3 text-white text-[12px] leading-relaxed focus:outline-none focus:border-brand/40 transition-all resize-y"
                         />
                         <p className="mt-1.5 text-[9px] text-white/25">Se usa como cuerpo del email y como mensaje de WhatsApp. Edítalo libremente.</p>
+
+                        {/* El 2º mensaje se ENSEÑA antes de pulsar: es lo que el
+                            cliente va a tocar, y sin verlo aquí parece que el enlace
+                            ha desaparecido del mensaje. */}
+                        {buildAcceptMessage && (
+                            <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.06] px-4 py-3">
+                                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-emerald-400/90 mb-1.5">
+                                    2º mensaje · el enlace para aceptar
+                                </p>
+                                <p className="whitespace-pre-wrap break-words text-[12px] text-white/70 leading-relaxed">
+                                    {buildAcceptMessage(primaryMode)}
+                                </p>
+                                <p className="mt-2 text-[9px] text-white/30 leading-relaxed">
+                                    Por WhatsApp sale aparte, después del PDF, para que el enlace no se pierda en el texto.
+                                    En el email no se repite: el correo ya lleva el botón «Aceptar y firmar».
+                                </p>
+                            </div>
+                        )}
                     </div>
 
                     {/* Nota adicional */}

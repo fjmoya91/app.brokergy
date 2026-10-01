@@ -991,7 +991,7 @@ async function asegurarParcheAdjuntos() {
  * Envío de media (PDF, imagen...). Solo funciona con cliente activo.
  * Si no está listo, lanza error (media no se puede persistir fácilmente en BD).
  */
-async function sendMedia(phone, media, { caption, asDocument = true, splitCaption } = {}) {
+async function sendMedia(phone, media, { caption, asDocument = true, splitCaption, textoDespues } = {}) {
     if (!CONFIG.enabled) throw new Error('WhatsApp deshabilitado (WHATSAPP_ENABLED=false)');
     if (!media || (!media.url && !media.base64)) throw new Error('media requiere url o base64');
     if (!isReady()) throw new Error(`Cliente WhatsApp no listo (estado: ${state}). Conecta WhatsApp primero.`);
@@ -1095,10 +1095,38 @@ async function sendMedia(phone, media, { caption, asDocument = true, splitCaptio
 
     sentTimestamps.push(Date.now());
     console.log(`[wwa] ✅ Media enviada a ${chatId}`);
+
+    // `textoDespues`: un mensaje que va DESPUÉS del adjunto, en su propia
+    // burbuja. Lo usa la propuesta para el enlace de ACEPTAR: dentro del texto
+    // largo nadie lo veía, y así es lo último que queda en el chat.
+    // Si falla NO se lanza: el texto y el PDF ya han llegado, y quien llama los
+    // reintentaría duplicándolos. Se devuelve aparte (`despues`) para que lo diga.
+    let despues;
+    const tras = (textoDespues || '').trim();
+    if (tras) {
+        try {
+            await sleep(randomDelay());        // pausa humana entre el PDF y el enlace
+            await waitForRateSlot();
+            await sendTypingThenWait();
+            const r2 = await withTimeout(
+                client.sendMessage(chatId, tras, { waitUntilMsgSent: true, sendSeen: SEND_SEEN }),
+                60_000, 'sendMessage(texto-despues)',
+            );
+            await confirmarEntrega(r2, `texto tras el adjunto → ${chatId}`);
+            sentTimestamps.push(Date.now());
+            despues = { ok: true, id: r2?.id?._serialized || null };
+            console.log(`[wwa] Texto posterior al adjunto enviado a ${chatId}.`);
+        } catch (err) {
+            console.warn('[wwa] No se pudo enviar el texto posterior al adjunto:', err.message);
+            despues = { ok: false, error: err.message };
+        }
+    }
+
     return {
         ok: true,
         id: result?.id?._serialized || null,
         timestamp: result?.timestamp || null,
+        ...(despues ? { despues } : {}),
     };
 }
 
