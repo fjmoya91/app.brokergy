@@ -1311,19 +1311,14 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
 
         // El borrador de presentación, igual que en el CAE: el visto bueno es el
         // momento en que el técnico puede presentar. No depende de `attachFiles`
-        // (no sale de Drive) y un fallo suyo NUNCA tumba el aviso.
-        if (req.body?.adjuntarBorrador !== false && canales.includes('email')) {
-            try {
-                const borradorCeeService = require('../services/borradorCeeService');
-                const doc = await borradorCeeService.pdf('cee_directo', row.id, phase);
-                if (doc) {
-                    attachments = [...(attachments || []),
-                        { filename: doc.filename, content: doc.buffer, contentType: 'application/pdf' }];
-                }
-            } catch (bErr) {
-                console.warn('[cee-directos approve-cee] sin borrador de presentación:', bErr.message);
-            }
-        }
+        // (no sale de Drive) y un fallo suyo NUNCA tumba el aviso. Guardarlo en la
+        // carpeta de la fase no depende de los canales, y se hace ANTES de enviar.
+        const { adjunto: borradorAdjunto, borradorDrive } = await require('../services/borradorCeeService')
+            .paraVistoBueno('cee_directo', row.id, phase, {
+                adjuntar: req.body?.adjuntarBorrador !== false && canales.includes('email'),
+                guardar: req.body?.guardarBorradorDrive === true,
+            });
+        if (borradorAdjunto) attachments = [...(attachments || []), borradorAdjunto];
 
         const { enviados, errores } = await enviar({
             canales, email: cert.email, telefono: telefonoDe(cert),
@@ -1332,7 +1327,11 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
         });
 
         if (!enviados.length) {
-            return res.status(502).json({ error: `No se pudo enviar. ${errores.join(' · ')}` });
+            return res.status(502).json({
+                error: `No se pudo enviar. ${errores.join(' · ')}`
+                    + (borradorDrive?.guardado ? ' (El borrador sí ha quedado guardado en Drive.)' : ''),
+                borradorDrive,
+            });
         }
 
         const key = phase === 'final' ? 'cee_final' : 'cee_inicial';
@@ -1361,7 +1360,7 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
                 : !canales.includes('whatsapp') ? null
                 : !tel ? 'sin_telefono' : 'error',
             sentTo: enviados.includes('email') ? cert.email : null,
-            enviados, errores, expediente: guardado, carpetaLink, subirLink
+            enviados, errores, expediente: guardado, carpetaLink, subirLink, borradorDrive
         });
     } catch (err) {
         console.error('[cee-directos approve-cee]', err.message);
@@ -1537,6 +1536,21 @@ router.get('/:id/borrador-cee', staffOnly, async (req, res) => {
     } catch (err) {
         console.error('[borrador-cee]', err.message);
         res.status(err.status || 500).json({ error: err.status === 404 ? err.message : 'Error componiendo el borrador' });
+    }
+});
+
+// ─── POST /:id/borrador-cee/drive ───────────────────────────────────────────
+// Gemela de la del CAE: el borrador en PDF a la carpeta de su fase (`1. CEE`, o
+// `1. CEE INICIAL` / `2. CEE FINAL` en un encargo doble), sustituyendo el anterior.
+router.post('/:id/borrador-cee/drive', staffOnly, async (req, res) => {
+    try {
+        const borradorCeeService = require('../services/borradorCeeService');
+        const fase = (req.body?.fase || req.query.fase) === 'final' ? 'final' : 'inicial';
+        const out = await borradorCeeService.guardarEnDrive('cee_directo', req.params.id, fase);
+        res.status(out.guardado ? 200 : 409).json(out);
+    } catch (err) {
+        console.error('[borrador-cee/drive]', err.message);
+        res.status(err.status || 500).json({ error: err.status === 404 ? err.message : 'No se pudo guardar el borrador en Drive' });
     }
 });
 

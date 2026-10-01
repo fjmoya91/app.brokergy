@@ -329,6 +329,11 @@ export const CeeDocumentsGrid = forwardRef(function CeeDocumentsGrid({
     // el visto bueno es justo el momento en que el técnico puede presentar, y esa
     // hoja es lo que evita que teclee a mano el NIF o la referencia catastral.
     const [certBorrador, setCertBorrador] = useState(true);
+    // Y además GUARDARLO en la carpeta de Drive de esa fase. Va aparte del correo
+    // porque sirve a otra persona: a quien presenta abriendo la carpeta (Brokergy,
+    // cuando el certificador es de la casa). Marcado: dejarlo junto a los ficheros
+    // que se anexan no le estorba a nadie, y se sustituye si ya había uno.
+    const [certBorradorDrive, setCertBorradorDrive] = useState(true);
     // La fecha con la que se le pide firmar. Sale del propio certificado (la de
     // emisión del .xml) porque es la que el Registro espera ver en la firma.
     // Editable: hay expedientes donde se pacta otra.
@@ -646,6 +651,7 @@ Según el documento:
                 const data = onApproveSend
                     ? await onApproveSend(phase, certChannels, mensajeFinal, certAttachFiles, {
                         adjuntarBorrador: certBorrador,
+                        guardarBorradorDrive: certBorradorDrive,
                         fechaFirma: certFechaFirma || null,
                     })
                     : null;
@@ -657,6 +663,11 @@ Según el documento:
                         issues.push(data.waReason === 'sin_telefono'
                             ? '💬 WhatsApp NO enviado (certificador sin teléfono)'
                             : '💬 WhatsApp NO enviado');
+                    }
+                    // Se pidió dejar el borrador en Drive y no ha podido ser: se dice
+                    // con su motivo, o se abre la carpeta contando con que está.
+                    if (certBorradorDrive && data.borradorDrive && !data.borradorDrive.guardado) {
+                        issues.push(`📁 Borrador NO guardado en Drive${data.borradorDrive.motivo ? `: ${data.borradorDrive.motivo}` : ''}`);
                     }
                 }
                 if (issues.length) setTimeout(() => showAlert(issues.join('\n'), 'Aviso de envío', 'warning'), 400);
@@ -695,6 +706,7 @@ Según el documento:
         // mensaje se cambia DENTRO del popup y, sembrándolo solo aquí, cambiar a
         // "Visto bueno" dejaría la fecha en blanco.
         setCertBorrador(true);
+        setCertBorradorDrive(true);
         setCertFechaFirma(
             expediente?.cee?.[`fecha_firma_cee_${section}`]
             || expediente?.cee?.[`cee_${section}`]?.fechaFirma
@@ -2521,9 +2533,11 @@ Según el documento:
                             ))}
                         </div>
 
-                        {/* Visto bueno + email: opción de adjuntar los archivos del CEE al correo. */}
-                        {certTemplate === 'approve' && certChannels.includes('email') && (
+                        {/* Visto bueno: qué viaja con el aviso (solo con email) y qué se
+                            deja en la carpeta de Drive (con cualquier canal). */}
+                        {certTemplate === 'approve' && (
                             <div className="space-y-2 mb-5">
+                                {certChannels.includes('email') && (<>
                                 <label className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 cursor-pointer hover:border-brand/30 transition-colors">
                                     <input
                                         type="checkbox"
@@ -2550,6 +2564,24 @@ Según el documento:
                                     <span className="text-[10px] text-white/60 leading-snug normal-case">
                                         <b className="text-white/80">Adjuntar el borrador de presentación</b> — qué va en cada
                                         casilla del formulario del Registro. Solo para Castilla-La Mancha.
+                                    </span>
+                                </label>
+                                </>)}
+                                {/* Fuera del bloque del email a propósito: quien presenta
+                                    abriendo la carpeta (Brokergy, con el certificador de la
+                                    casa) lo necesita aunque no salga ningún correo. */}
+                                <label className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 cursor-pointer hover:border-emerald-500/30 transition-colors">
+                                    <input
+                                        type="checkbox"
+                                        checked={certBorradorDrive}
+                                        onChange={e => setCertBorradorDrive(e.target.checked)}
+                                        disabled={sendingCertNotify}
+                                        className="mt-0.5 w-4 h-4 accent-emerald-500 shrink-0"
+                                    />
+                                    <span className="text-[10px] text-white/60 leading-snug normal-case">
+                                        <b className="text-white/80">Guardar el borrador en Drive</b> — en la carpeta del
+                                        {certNotifyModal.section === 'final' ? ' CEE final' : ' CEE inicial'}, junto a los ficheros
+                                        que se anexan: para presentarlo con solo abrir la carpeta. Si ya había uno, se sustituye.
                                     </span>
                                 </label>
                             </div>

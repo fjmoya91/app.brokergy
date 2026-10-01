@@ -61,6 +61,8 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
     const [descargando, setDescargando] = useState(null);
     const [subiendo, setSubiendo] = useState(null);
     const [subido, setSubido] = useState({});
+    // Guardar el PDF en la carpeta de Drive de la fase: { cargando } | { fase, carpetaLink, link }.
+    const [enDrive, setEnDrive] = useState(null);
 
     // En un CEE directo de alcance ÚNICO no hay fase final: no se ofrece.
     const disponibles = ['inicial', 'final'].filter(f => fases.includes(f));
@@ -177,9 +179,28 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
         }
     };
 
+    // El PDF a la carpeta del CEE de esta fase, junto a los ficheros que se anexan:
+    // así quien presenta lo tiene todo con solo abrirla. Lo rasteriza el BACKEND
+    // con la misma composición que esta vista (`borradorCeeService`), y sustituye
+    // al que hubiera. Solo para el equipo interno: la vía pública no lo ofrece.
+    const guardarEnDrive = async () => {
+        if (enDrive?.cargando) return;
+        setEnDrive({ cargando: true });
+        setError(null);
+        try {
+            const { data } = await axios.post(`${apiBase}/${expedienteId}/borrador-cee/drive`, { fase }, { timeout: 120000 });
+            setEnDrive({ fase, carpetaLink: data?.carpetaLink || null, link: data?.link || null });
+        } catch (e) {
+            setEnDrive(null);
+            setError(e.response?.data?.motivo || e.response?.data?.error || 'No se pudo guardar el borrador en Drive');
+        }
+    };
+
     if (!isOpen) return null;
     const b = datos?.borrador;
     const sede = b?.sede;
+    const puedeDrive = !paramsExtra && !soloLectura;
+    const guardadoAqui = enDrive && !enDrive.cargando && enDrive.fase === fase;
 
     return (
         // En móvil, hoja inferior: el mismo criterio que Ayudas CE3X.
@@ -320,13 +341,32 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
                 {/* Barra inferior: el PDF es lo que se lleva uno de aquí */}
                 {b?.aplica && (
                     <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-t border-white/[0.06] shrink-0 max-md:pb-[max(0.875rem,env(safe-area-inset-bottom))]">
-                        <p className="text-[9px] text-white/25 normal-case leading-snug hidden md:block">
-                            El PDF se adjunta también al visto bueno que le das al certificador.
-                        </p>
-                        <button type="button" onClick={descargarPdf} disabled={generando || !datos?.html}
-                                className="shrink-0 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-brand/40 bg-brand/10 text-brand hover:bg-brand hover:text-black transition-colors disabled:opacity-40 disabled:hover:bg-brand/10 disabled:hover:text-brand max-md:w-full max-md:py-3.5">
-                            {generando ? 'Generando…' : '⬇ Descargar el borrador en PDF'}
-                        </button>
+                        {guardadoAqui ? (
+                            <p className="text-[10px] text-emerald-400/90 normal-case leading-snug hidden md:block">
+                                ✓ Guardado en la carpeta del {fase === 'final' ? 'CEE final' : 'CEE inicial'}.
+                                {enDrive.carpetaLink && (
+                                    <> <a href={enDrive.carpetaLink} target="_blank" rel="noopener noreferrer"
+                                          className="underline hover:text-emerald-300">Abrir la carpeta</a></>
+                                )}
+                            </p>
+                        ) : (
+                            <p className="text-[9px] text-white/25 normal-case leading-snug hidden md:block">
+                                El PDF se adjunta también al visto bueno que le das al certificador.
+                            </p>
+                        )}
+                        <div className="shrink-0 flex items-center gap-2 max-md:w-full max-md:flex-col">
+                            {puedeDrive && (
+                                <button type="button" onClick={guardarEnDrive} disabled={!!enDrive?.cargando || !datos?.html}
+                                        title="Guarda el PDF en la carpeta del CEE de esta fase, junto a los ficheros que se anexan. Si ya había uno, lo sustituye."
+                                        className="shrink-0 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/15 bg-white/[0.04] text-white/70 hover:border-emerald-500/40 hover:text-emerald-300 transition-colors disabled:opacity-40 max-md:w-full max-md:py-3.5">
+                                    {enDrive?.cargando ? 'Guardando…' : guardadoAqui ? '✓ En Drive · volver a guardar' : '📁 Guardar en Drive'}
+                                </button>
+                            )}
+                            <button type="button" onClick={descargarPdf} disabled={generando || !datos?.html}
+                                    className="shrink-0 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-brand/40 bg-brand/10 text-brand hover:bg-brand hover:text-black transition-colors disabled:opacity-40 disabled:hover:bg-brand/10 disabled:hover:text-brand max-md:w-full max-md:py-3.5">
+                                {generando ? 'Generando…' : '⬇ Descargar el borrador en PDF'}
+                            </button>
+                        </div>
                     </div>
                 )}
             </div>

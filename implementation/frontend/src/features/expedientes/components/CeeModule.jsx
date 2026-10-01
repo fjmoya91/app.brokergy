@@ -256,6 +256,9 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
     // justo el momento en que el certificador puede presentar, y esa hoja es lo
     // que evita que teclee a mano el NIF o la referencia catastral.
     const [approveBorrador, setApproveBorrador] = useState(true);
+    // Y guardarlo en la carpeta de Drive de la fase: para quien presenta abriendo
+    // la carpeta y no el correo. Mismo criterio que el popup de la rejilla.
+    const [approveBorradorDrive, setApproveBorradorDrive] = useState(true);
     // La fecha con la que se le pide firmar. Sale del propio certificado (la de
     // emisión del .xml) porque es la que el Registro espera ver en la firma.
     // Editable: hay expedientes donde se pacta otra.
@@ -505,6 +508,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
         setApprovePendingPhase(phase);
         setApproveChannels(['email']);
         setApproveAttachFiles(false);
+        setApproveBorradorDrive(true);
         setApproveNota('');
         setApprovePriority('normal');
         // La fecha con la que se le pide firmar: la de emisión del propio
@@ -557,6 +561,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
             // no del popup: los pide el mismo `approve-cee` se entre por la campana
             // del grid o por el popup dedicado de Validar.
             adjuntarBorrador: opts.adjuntarBorrador !== false,
+            guardarBorradorDrive: opts.guardarBorradorDrive === true,
             fechaFirma: opts.fechaFirma || null,
         });
         fireSuccessConfetti();
@@ -576,6 +581,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 notaAdicional: approveNota.trim() || null,
                 attachFiles: approveAttachFiles && approveChannels.includes('email'),
                 adjuntarBorrador: approveBorrador,
+                guardarBorradorDrive: approveBorradorDrive,
                 fechaFirma: approveFechaFirma || null,
                 priority: approvePriority
             });
@@ -586,6 +592,11 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
             if (approveChannels.includes('whatsapp')) {
                 if (data.whatsAppSent) parts.push(data.waReason === 'encolado' ? '💬 WhatsApp encolado (se enviará al reconectar)' : '💬 WhatsApp enviado');
                 else parts.push(data.waReason === 'sin_telefono' ? '💬 WhatsApp NO enviado (certificador sin teléfono)' : '💬 WhatsApp NO enviado');
+            }
+            if (approveBorradorDrive && data.borradorDrive) {
+                parts.push(data.borradorDrive.guardado
+                    ? '📁 Borrador guardado en Drive'
+                    : `📁 Borrador NO guardado en Drive${data.borradorDrive.motivo ? ` (${data.borradorDrive.motivo})` : ''}`);
             }
             setApproveResult({
                 type: 'ok',
@@ -1256,9 +1267,10 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                                     </div>
                                 </div>
 
-                                {/* Adjuntar los archivos del CEE al email (opcional) */}
-                                {approveChannels.includes('email') && (
-                                    <div className="space-y-2 mb-5">
+                                {/* Lo que viaja con el aviso (solo con email) y lo que se deja
+                                    en la carpeta de Drive (con cualquier canal). */}
+                                <div className="space-y-2 mb-5">
+                                {approveChannels.includes('email') && (<>
                                         <label className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 cursor-pointer hover:border-emerald-500/30 transition-colors">
                                             <input
                                                 type="checkbox"
@@ -1287,8 +1299,24 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                                                 casilla del formulario del Registro. Solo para Castilla-La Mancha.
                                             </span>
                                         </label>
-                                    </div>
-                                )}
+                                </>)}
+                                        {/* Fuera del bloque del email: quien presenta abriendo la
+                                            carpeta lo necesita aunque no salga ningún correo. */}
+                                        <label className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/10 cursor-pointer hover:border-emerald-500/30 transition-colors">
+                                            <input
+                                                type="checkbox"
+                                                checked={approveBorradorDrive}
+                                                onChange={e => setApproveBorradorDrive(e.target.checked)}
+                                                disabled={approveLoading}
+                                                className="mt-0.5 w-4 h-4 accent-emerald-500 shrink-0"
+                                            />
+                                            <span className="text-[10px] text-white/60 leading-snug normal-case">
+                                                <b className="text-white/80">Guardar el borrador en Drive</b> — en la carpeta del
+                                                {approvePendingPhase === 'final' ? ' CEE final' : ' CEE inicial'}, junto a los ficheros
+                                                que se anexan: para presentarlo con solo abrir la carpeta. Si ya había uno, se sustituye.
+                                            </span>
+                                        </label>
+                                </div>
 
                                 {/* Mensaje editable (homogéneo con el popup de notificar) */}
                                 <div className="flex items-center justify-between mb-2">

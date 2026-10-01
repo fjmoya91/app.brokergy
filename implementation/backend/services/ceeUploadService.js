@@ -114,6 +114,16 @@ const matchSlot = (filename) => {
     return null;
 };
 
+// El borrador para presentar el CEE en el Registro (`borradorCeeService`) puede
+// guardarse en ESTA misma carpeta, para que quien presenta tenga todo al abrirla.
+// No es una entrega del técnico (`matchSlot` ya no lo reconoce: no lleva sufijo
+// de slot) y tampoco es un "archivo del CEE": viaja por su propia casilla del
+// visto bueno, y al cliente no se le manda nunca. Se reconoce por el nombre —con
+// o sin tilde, y también el de la descarga («Borrador presentar …»)—.
+const esBorradorPresentacion = (filename) => /borrador\s+present/i.test(
+    String(filename || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+);
+
 // Escanea la carpeta de la sección y devuelve { slotId: { link, name } } de lo
 // que ya hay subido (para pintar el estado en el popup público).
 async function scanCeeSection(driveFolderId, phase) {
@@ -144,6 +154,8 @@ async function getCeeSectionAttachments(driveFolderId, phase) {
     const files = await driveService.listFiles(sectionFolder);
     for (const f of files) {
         if (f.mimeType === 'application/vnd.google-apps.folder') continue; // ignorar OLD
+        // El borrador va por su casilla: aquí saldría repetido (o contra lo elegido).
+        if (esBorradorPresentacion(f.name)) continue;
         try {
             const buf = await driveService.getFileContent(f.id);
             if (buf && buf.length) {
@@ -298,6 +310,7 @@ module.exports = {
     // (ceeDirectoUploadService) reconozca los ficheros por el MISMO criterio.
     // Si un día cambia el sufijo de un slot, cambia en los dos sitios a la vez.
     matchSlot,
+    esBorradorPresentacion,
     normalizePhase,
     sectionLabel,
     sectionKey,

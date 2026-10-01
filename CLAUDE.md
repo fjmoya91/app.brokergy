@@ -9092,6 +9092,22 @@ es `staffOnly` y el botón no se le pinta (`permiteBorrador`): el visto bueno es
 en que puede presentar, y mandárselo antes sería pedirle que presente un certificado que
 todavía no hemos revisado. Un fallo del adjunto **nunca tumba el visto bueno**.
 
+**REGLA — el borrador también se GUARDA en la carpeta de su fase** (2026-10-01). Cuando
+presenta Brokergy no hay correo que abrir: se abre la carpeta del CEE, de donde salen los
+ficheros que se anexan. Casilla **«Guardar el borrador en Drive»** en los dos popups del
+visto bueno (marcada, y con CUALQUIER canal: no depende del email) y botón **📁 Guardar en
+Drive** en «Presentar el CEE» (`POST /:id/borrador-cee/drive`, staffOnly, en las DOS rutas
+del módulo CEE). Cada fase en SU carpeta —`1. CEE/CEE INICIAL|FINAL` en el CAE; `1. CEE`, o
+`1. CEE INICIAL`/`2. CEE FINAL`, en un CEE directo— como `{nº} – BORRADOR PRESENTACIÓN
+{fase}.pdf`. **Sin sufijo de slot** (`_fdo`/`_reg`/`_etq`): la rejilla reconoce las entregas
+del técnico por él. **Se SUSTITUYE** (el nuevo se sube primero y el anterior va a la
+papelera: es un derivado que se rehace de un clic) y **no toca los permisos** de la carpeta.
+`esBorradorPresentacion` ([ceeUploadService.js](implementation/backend/services/ceeUploadService.js))
+lo aparta de los «archivos del CEE»: no se adjunta dos veces al visto bueno ni se le manda
+al cliente en la entrega. Se rasteriza UNA vez para adjuntar y guardar
+(`borradorCeeService.paraVistoBueno`), y un fallo se devuelve en `borradorDrive` con su
+motivo, sin tumbar el aviso.
+
 ### Los DOS PASOS del certificador — `/presentar-cee/:id?token=&phase=`
 
 Cuando Brokergy da el visto bueno, al técnico le quedan dos cosas y las dos pasaban

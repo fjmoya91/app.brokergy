@@ -8153,6 +8153,23 @@ router.get('/:id/borrador-cee/fichero', staffOnly, async (req, res) => {
     }
 });
 
+// ─── POST /api/expedientes/:id/borrador-cee/drive ─────────────────────────
+// Guarda el borrador en PDF en la carpeta del CEE de su fase (`1. CEE / CEE
+// INICIAL|FINAL`), sustituyendo el anterior: para quien presenta abriendo la
+// carpeta y no el correo. Toda la lógica vive en `borradorCeeService`.
+// 409 cuando no hay nada que guardar (fuera de CLM, sin carpeta), con su motivo.
+router.post('/:id/borrador-cee/drive', staffOnly, async (req, res) => {
+    try {
+        const borradorCeeService = require('../services/borradorCeeService');
+        const fase = (req.body?.fase || req.query.fase) === 'final' ? 'final' : 'inicial';
+        const out = await borradorCeeService.guardarEnDrive('expediente', req.params.id, fase);
+        res.status(out.guardado ? 200 : 409).json(out);
+    } catch (err) {
+        console.error('[borrador-cee/drive]', err.message);
+        res.status(err.status || 500).json({ error: err.status === 404 ? err.message : 'No se pudo guardar el borrador en Drive' });
+    }
+});
+
 // ─── GET /api/expedientes/:id/cert-cliente-data ───────────────────────────
 // Ficha del cliente tal y como la recibirá el certificador, más la lista de datos
 // que faltan. El popup de envío la usa para avisar antes de mandar un encargo
@@ -8304,6 +8321,10 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
         // que es lo que se quiere; si el expediente no es de Castilla-La Mancha
         // no hay borrador y el correo sale igual.
         const adjuntarBorrador = req.body?.adjuntarBorrador !== false;
+        // Y guardarlo en la carpeta del CEE de esa fase, para quien presenta
+        // abriendo la carpeta y no el correo (típico cuando presenta Brokergy).
+        // Solo si se pide: un navegador con la versión anterior no lo manda.
+        const guardarBorradorDrive = req.body?.guardarBorradorDrive === true;
         // Prioridad del visto bueno: en 'urgent' el asunto del email y el WhatsApp
         // salen marcados con la alarma 🚨 y queda reflejado en el historial.
         const isUrgent = req.body?.priority === 'urgent';
@@ -8414,18 +8435,14 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
         // El borrador va aparte de los ficheros del CEE: no sale de Drive y no
         // depende de `attachFiles`. Un fallo suyo NUNCA tumba el visto bueno —
         // el certificador ya tiene el enlace de descarga y puede presentar igual.
-        if (adjuntarBorrador && sendEmail && certEmail) {
-            try {
-                const borradorCeeService = require('../services/borradorCeeService');
-                const doc = await borradorCeeService.pdf('expediente', req.params.id, normPhase);
-                if (doc) {
-                    attachments = [...(attachments || []),
-                        { filename: doc.filename, content: doc.buffer, contentType: 'application/pdf' }];
-                }
-            } catch (bErr) {
-                console.warn('[approve-cee] no se pudo adjuntar el borrador de presentación:', bErr.message);
-            }
-        }
+        // Guardarlo en Drive no depende de los canales: se hace aunque no salga
+        // ningún correo (presenta Brokergy y lo único que se abre es la carpeta).
+        const { adjunto: borradorAdjunto, borradorDrive } = await require('../services/borradorCeeService')
+            .paraVistoBueno('expediente', req.params.id, normPhase, {
+                adjuntar: adjuntarBorrador && sendEmail && !!certEmail,
+                guardar: guardarBorradorDrive,
+            });
+        if (borradorAdjunto) attachments = [...(attachments || []), borradorAdjunto];
         // El enlace a los DOS PASOS que le quedan: firmar y presentar. Va PRIMERO
         // porque es lo que hay que hacer; los otros dos son de apoyo (descargar
         // sueltos, subir el registro) y siguen ahí para quien ya tenga la costumbre.
@@ -8496,7 +8513,7 @@ ${presentarLink}` : '';
             }
         }
 
-        res.json({ ok: true, newEstado, seguimiento, emailSent, whatsAppSent, waReason, sentTo: emailSent ? certEmail : null });
+        res.json({ ok: true, newEstado, seguimiento, emailSent, whatsAppSent, waReason, sentTo: emailSent ? certEmail : null, borradorDrive });
     } catch (err) {
         console.error('[approve-cee]', err.message);
         res.status(500).json({ error: 'Error aprobando el CEE' });
