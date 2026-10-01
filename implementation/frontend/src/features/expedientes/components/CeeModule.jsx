@@ -8,6 +8,7 @@ import { ceeToXmlShape } from '../../cee/ceeExtract';
 import { EfficiencyTable, CATEGORIES_SIMPLIFICADO } from '../../calculator/components/EfficiencyTable';
 import { CeeDocumentsGrid } from './CeeDocumentsGrid';
 import { AvisoIrpfEpnr } from './AvisoIrpfEpnr';
+import { CeeAnteriorCliente } from './CeeAnteriorCliente';
 import { ConfirmadoPorCliente } from './ConfirmadoPorCliente';
 import { TecnicoPicker } from './TecnicoPicker';
 import { EncargoCertificadorModal } from './EncargoCertificadorModal';
@@ -193,6 +194,9 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
     const [xmlFinalError, setXmlFinalError] = useState(null);
     // Carga de CEE por fichero (XML/OCR) para el modo manual: 'inicial' | 'final' | null.
     const [ceeLoadTarget, setCeeLoadTarget] = useState(null);
+    // Encargo de UN solo certificado (CEE directo de alcance ÚNICO): la fase que
+    // aquí se llama "inicial" es el CEE de este encargo, no el de antes de nada.
+    const unaFase = !secciones.includes('final');
     // Caja de herramientas del certificador (textos fijos de CE3X).
     const [ayudasCe3x, setAyudasCe3x] = useState(false);
     // El borrador para presentar el CEE en el Registro, abierto DIRECTAMENTE desde
@@ -748,7 +752,23 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
     // RES080 (reforma): la tabla es de emisiones (emisiones_manual/comb_*/superficie_manual_*),
     // así que seguimos el flujo previo. Si la otra columna venía de un XML cargado, migramos
     // SUS emisiones a manual para no perderla (el path manual solo lee emisiones_manual).
-    const applyCeeToExpediente = (data, target) => {
+    const applyCeeToExpediente = (data, target, meta = {}) => {
+        // El CEE que el cliente trae de ANTES (otro técnico), en un encargo de un
+        // solo certificado: va APARTE, nunca a una fase. Ver CeeAnteriorCliente.
+        if (target === 'anterior') {
+            const nextLocal = {
+                ...local,
+                cee_anterior: {
+                    ...ceeToXmlShape(data),
+                    _origen: data?.source || null,
+                    _fichero: meta.fileNames?.[0] || null,
+                    _cargado_at: new Date().toISOString(),
+                },
+            };
+            setLocal(nextLocal);
+            onSave({ cee: nextLocal });
+            return;
+        }
         const isFinal = target === 'final';
 
         if (!isReforma) {
@@ -915,17 +935,39 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                     Cargar CEE por fichero
                 </div>
                 <p className="text-[10px] text-slate-500 leading-relaxed flex-1">
-                    Sube el CEE de una columna (<b className="text-slate-300">.xml exacto</b>, o <b className="text-slate-300">PDF/fotos con OCR</b>) y rellenamos demanda de calefacción, superficie y combustible. Útil si solo tienes el PDF.
+                    {unaFase ? (
+                        <>Sube el CEE de este encargo si solo tienes el PDF (<b className="text-slate-300">.xml exacto</b>, o <b className="text-slate-300">PDF/fotos con OCR</b>), o el <b className="text-slate-300">CEE que el cliente tenía de antes</b> (de otro técnico) para comparar el consumo de energía primaria no renovable — la deducción del IRPF.</>
+                    ) : (
+                        <>Sube el CEE de una columna (<b className="text-slate-300">.xml exacto</b>, o <b className="text-slate-300">PDF/fotos con OCR</b>) y rellenamos demanda de calefacción, superficie y combustible. Útil si solo tienes el PDF.</>
+                    )}
                 </p>
-                <div className="flex gap-2 shrink-0">
+                <div className="flex gap-2 shrink-0 max-md:flex-wrap">
                     <button
                         type="button"
-                        onClick={() => setCeeLoadTarget('inicial')}
+                        onClick={() => {
+                            // En un encargo de UN solo CEE la fase "inicial" es el de ESTE
+                            // encargo: cargar ahí el certificado de antes del cliente
+                            // pisaba sus datos sin decir nada. Con el .xml ya subido, se
+                            // pregunta antes.
+                            if (unaFase && (local.xml_inicial || local.cee_files?.inicial?.xml)
+                                && !window.confirm('Este encargo ya tiene el .xml de su CEE. Cargar aquí otro fichero SUSTITUYE sus datos (demanda, superficie, fechas).\n\nSi lo que tienes es el CEE de ANTES del cliente (de otro técnico), cárgalo con «CEE anterior del cliente».\n\n¿Sustituir los datos del CEE de este encargo?')) return;
+                            setCeeLoadTarget('inicial');
+                        }}
                         className="flex items-center gap-2 px-3 py-2 max-md:flex-1 max-md:justify-center max-md:py-3.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-[9px] font-black uppercase tracking-widest transition-all active:scale-95"
                     >
                         <svg className="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                        CEE inicial
+                        {unaFase ? 'CEE de este encargo' : 'CEE inicial'}
                     </button>
+                    {unaFase && (
+                    <button
+                        type="button"
+                        onClick={() => setCeeLoadTarget('anterior')}
+                        className="flex items-center gap-2 px-3 py-2 max-md:flex-1 max-md:justify-center max-md:py-3.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-[9px] font-black uppercase tracking-widest transition-all active:scale-95"
+                    >
+                        <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                        CEE anterior del cliente
+                    </button>
+                    )}
                     {secciones.includes('final') && (
                     <button
                         type="button"
@@ -1629,6 +1671,25 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 </div>
             )}
 
+            {/* En un CEE directo de UN solo certificado el "antes" no es una fase:
+                es el CEE que trajo el cliente, de otro técnico. Solo se pinta si
+                se ha cargado — la mayoría de estos encargos son compraventas y
+                alquileres, donde no hay nada que comparar. */}
+            {unaFase && local.cee_anterior && (
+                <div className="mt-8">
+                    <CeeAnteriorCliente
+                        cee={local}
+                        onCargar={() => setCeeLoadTarget('anterior')}
+                        onQuitar={() => {
+                            if (!window.confirm('¿Quitar el CEE anterior del cliente? Solo se deja de comparar: no toca el CEE de este encargo.')) return;
+                            const nextLocal = { ...local, cee_anterior: null };
+                            setLocal(nextLocal);
+                            onSave({ cee: nextLocal });
+                        }}
+                    />
+                </div>
+            )}
+
             {/* La medida de mejora se REDACTA con los datos del equipo, así que el
                 popup necesita el expediente con su instalación VIVA (`instalacionViva`):
                 el autoguardado del detalle se confirma un render más tarde, y copiar
@@ -1666,11 +1727,15 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
             <CeeUploadModal
                 isOpen={!!ceeLoadTarget}
                 onClose={() => setCeeLoadTarget(null)}
-                title={ceeLoadTarget === 'final' ? 'Cargar CEE final' : 'Cargar CEE inicial'}
-                subtitle={isReforma
+                title={ceeLoadTarget === 'final' ? 'Cargar CEE final'
+                    : ceeLoadTarget === 'anterior' ? 'Cargar CEE anterior del cliente'
+                    : unaFase ? 'Cargar el CEE de este encargo' : 'Cargar CEE inicial'}
+                subtitle={ceeLoadTarget === 'anterior'
+                    ? 'Sube el CEE que el cliente tenía de ANTES de la obra, hecho por otro técnico (.xml exacto, o PDF/fotos con OCR). No toca el CEE de este encargo: solo se usa para comparar el consumo de energía primaria no renovable (deducción del IRPF).'
+                    : isReforma
                     ? 'Sube el CEE (.xml exacto, o PDF/fotos con OCR). Rellenaremos las emisiones, el combustible y la superficie de esta columna.'
                     : 'Sube el CEE (.xml exacto, o PDF/fotos con OCR). Rellenaremos la demanda de calefacción, la superficie y el combustible de esta columna, igual que si subieras el .xml.'}
-                onLoaded={(data) => { applyCeeToExpediente(data, ceeLoadTarget); setCeeLoadTarget(null); }}
+                onLoaded={(data, meta) => { applyCeeToExpediente(data, ceeLoadTarget, meta); setCeeLoadTarget(null); }}
             />
 
             {/* showXmlModal is now handled inside CeeDocumentsGrid via sub-components or direct upload logic */}

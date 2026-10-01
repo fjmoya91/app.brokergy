@@ -9,7 +9,7 @@
 // XML u OCR, para que los consumidores no tengan que distinguir el origen.
 
 import axios from 'axios';
-import { parseCeeXml } from '../calculator/logic/xmlCeeParser';
+import { parseCeeXml } from '../calculator/logic/xmlCeeParser.js';
 
 // Estructura vacía normalizada (contrato único de salida).
 export function emptyCeeData() {
@@ -32,6 +32,11 @@ export function emptyCeeData() {
     // → método SIMPLIFICADO. Ver calculateRes080Simplificado en logic/calculation.js.
     emisiones: { calefaccion: '', acs: '', refrigeracion: '', consumo_electrico_m2: '', consumo_otros_m2: '' },
     acs_litros_dia: '',
+    // Consumo GLOBAL de energía primaria no renovable (kWh/m²·año) y su letra: el
+    // indicador del que dependen las deducciones del IRPF. Lo trae el .xml y lo
+    // imprime el PDF en su primera página, así que sale por las dos vías. La
+    // ESCALA (umbrales A…F) solo la da exacta el .xml.
+    energia_primaria_no_renovable: { consumo_global_kwh_m2_ano: '', calificacion_global: '', escala: null },
     servicios: {
       calefaccion: { combustible: '', rendimiento_estacional_pct: '' },
       acs: { combustible: '', rendimiento_estacional_pct: '' },
@@ -84,6 +89,11 @@ export function ceeFromXml(xml) {
   // la vía del .xml — el PDF no la imprime, así que el OCR no la puede sacar.
   d.energia_final_vectores = xml?.energiaFinalVectores || null;
   d.acs_litros_dia = xml?.acsLitrosDia ?? '';
+  d.energia_primaria_no_renovable = {
+    consumo_global_kwh_m2_ano: xml?.epnrConsumo ?? '',
+    calificacion_global: xml?.epnrLetra || '',
+    escala: xml?.epnrEscala || null,
+  };
   d.servicios.calefaccion.combustible = xml?.combustibleCalefaccion || '';
   d.servicios.calefaccion.rendimiento_estacional_pct = xml?.rendimientoCalefaccion ?? '';
   d.servicios.acs.combustible = xml?.combustibleACS || '';
@@ -102,6 +112,7 @@ export function ceeFromOcr(ocr, pdfBase64) {
     identificacion: { ...d.identificacion, ...(ocr.identificacion || {}) },
     demandas: { ...d.demandas, ...(ocr.demandas || {}) },
     emisiones: { ...d.emisiones, ...(ocr.emisiones || {}) },
+    energia_primaria_no_renovable: { ...d.energia_primaria_no_renovable, ...(ocr.energia_primaria_no_renovable || {}) },
     servicios: {
       calefaccion: { ...d.servicios.calefaccion, ...(ocr.servicios?.calefaccion || {}) },
       acs: { ...d.servicios.acs, ...(ocr.servicios?.acs || {}) },
@@ -118,6 +129,7 @@ export function ceeFromOcr(ocr, pdfBase64) {
   ['direccion', 'municipio', 'provincia', 'cp', 'zona_climatica'].forEach((k) => (merged.identificacion[k] = nz(merged.identificacion[k])));
   ['calefaccion_kwh_m2_ano', 'refrigeracion_kwh_m2_ano'].forEach((k) => (merged.demandas[k] = nz(merged.demandas[k])));
   ['calefaccion', 'acs', 'refrigeracion', 'consumo_electrico_m2', 'consumo_otros_m2'].forEach((k) => (merged.emisiones[k] = nz(merged.emisiones[k])));
+  ['consumo_global_kwh_m2_ano', 'calificacion_global'].forEach((k) => (merged.energia_primaria_no_renovable[k] = nz(merged.energia_primaria_no_renovable[k])));
   ['calefaccion', 'acs', 'refrigeracion'].forEach((k) => {
     merged.servicios[k].combustible = nz(merged.servicios[k].combustible);
     merged.servicios[k].rendimiento_estacional_pct = nz(merged.servicios[k].rendimiento_estacional_pct);
@@ -202,6 +214,12 @@ export function ceeToXmlShape(data) {
     // desde lo que imprime el PDF.
     energiaFinalVectores: data.energia_final_vectores || null,
     superficieHabitable: num(data.superficie_habitable_m2),
+    // Los mismos tres campos que deja parseCeeXml: así `irpfEpnr.datosEpnr` lee
+    // igual un CEE cargado por OCR que uno subido con su .xml.
+    epnrConsumo: num(data.energia_primaria_no_renovable?.consumo_global_kwh_m2_ano) || null,
+    epnrLetra: /^[A-G]$/i.test(data.energia_primaria_no_renovable?.calificacion_global || '')
+      ? data.energia_primaria_no_renovable.calificacion_global.toUpperCase() : null,
+    epnrEscala: data.energia_primaria_no_renovable?.escala || null,
     tipoEdificio: data.tipo_edificio || null,
     zonaClimatica: data.identificacion?.zona_climatica || null,
     identificacion: {

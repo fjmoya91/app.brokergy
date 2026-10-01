@@ -13,7 +13,7 @@ import { extractCeeFromFiles } from './ceeExtract';
  *   onClose()         — cerrar sin cargar.
  *   title             — título del popup (p. ej. "Cargar CEE inicial").
  *   subtitle          — texto de ayuda opcional.
- *   onLoaded(data)    — datos del CEE normalizados (forma de emptyCeeData()). El consumidor
+ *   onLoaded(data, { fileNames }) — datos del CEE normalizados (forma de emptyCeeData()). El consumidor
  *                       decide qué hacer con ellos (rellenar columna inicial/final, etc.).
  */
 export default function CeeUploadModal({ isOpen, onClose, title = 'Cargar CEE', subtitle, onLoaded }) {
@@ -35,7 +35,9 @@ export default function CeeUploadModal({ isOpen, onClose, title = 'Cargar CEE', 
     try {
       setStage('processing');
       const { data } = await extractCeeFromFiles(files, { onMessage: setMsg });
-      onLoaded?.(data);
+      // El nombre del fichero va aparte: los datos son los mismos vengan de
+      // donde vengan, pero quien los guarda puede querer decir de qué fichero salen.
+      onLoaded?.(data, { fileNames: files.map((f) => f.name) });
       reset();
       onClose?.();
     } catch (e) {

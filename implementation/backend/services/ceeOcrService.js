@@ -103,6 +103,8 @@ QUÉ EXTRAER Y DÓNDE:
     · fila "Emisiones CO2 por consumo eléctrico"    → consumo_electrico_m2
     · fila "Emisiones CO2 por otros combustibles"   → consumo_otros_m2
   Coge SIEMPRE el valor de la columna "kgCO2/m² año" (el primero), NUNCA el de la columna "kgCO2/año" (el absoluto, que es mucho mayor). Si esa tabla no aparece, devuelve null en los dos.
+- energia_primaria_no_renovable.consumo_global_kwh_m2_ano y energia_primaria_no_renovable.calificacion_global: el CONSUMO GLOBAL DE ENERGÍA PRIMARIA NO RENOVABLE [kWh/m² año] del edificio y su LETRA. Está en dos sitios y dicen lo mismo: en la primera página, "CALIFICACIÓN ENERGÉTICA OBTENIDA", columna "CONSUMO DE ENERGÍA PRIMARIA NO RENOVABLE [kWh/m² año]" (la flecha con el valor y la letra, p.ej. "281.7 E"); y en el Anexo II, apartado "CALIFICACIÓN ENERGÉTICA DEL EDIFICIO EN CONSUMO DE ENERGÍA PRIMARIA NO RENOVABLE", INDICADOR GLOBAL ("Consumo global de energía primaria no renovable"). Devuelve el número en consumo_global_kwh_m2_ano (281.7) y la letra sola, en mayúscula, en calificacion_global ("E").
+    OJO: NO es la columna de EMISIONES (kgCO2/m² año), que va justo al lado y tiene otra letra; y NO son los indicadores PARCIALES de calefacción, ACS o refrigeración: es el GLOBAL.
 - acs_litros_dia: "Demanda diaria de ACS a 60° (litros/día)" (Instalaciones de Agua Caliente Sanitaria, Anexo I).
 - servicios.calefaccion / acs / refrigeracion: para cada servicio, del generador correspondiente (Generadores de calefacción, Generadores de refrigeración, Instalaciones de ACS) extrae:
     - combustible: el "Tipo de Energía" (ej. "Electricidad", "Gas natural", "Gasóleo C", "GLP", "Biomasa"...).
@@ -155,6 +157,16 @@ const GEMINI_SCHEMA = {
         // dos generadores de combustibles distintos. Ver calculateRes080Simplificado.
         consumo_electrico_m2: { type: 'NUMBER', nullable: true },
         consumo_otros_m2: { type: 'NUMBER', nullable: true },
+      },
+    },
+    // El indicador del que dependen las deducciones del IRPF (ahorro ≥30 % o
+    // letra A/B). Antes no se leía y un CEE cargado por PDF no servía para esa
+    // comprobación, aunque el certificado lo imprime en su primera página.
+    energia_primaria_no_renovable: {
+      type: 'OBJECT',
+      properties: {
+        consumo_global_kwh_m2_ano: { type: 'NUMBER', nullable: true },
+        calificacion_global: { type: 'STRING', nullable: true, enum: ['A', 'B', 'C', 'D', 'E', 'F', 'G'] },
       },
     },
     acs_litros_dia: { type: 'NUMBER', nullable: true },

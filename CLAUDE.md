@@ -4148,7 +4148,37 @@ cliente** — afirmarle por escrito que tiene derecho a un dinero es otra cosa.
 
 Se avisa además si las **superficies de los dos certificados no casan** (>2 %):
 el indicador es por m², así que si una está mal el porcentaje compara dos edificios
-distintos. Medido en `26RES060_153`: 91 m² frente a 123 m².
+distintos. Medido en `26RES060_153`: 91 m² frente a 123 m². Y si el de antes es
+POSTERIOR al de después (están intercambiados).
+
+### El PDF también lo trae, y el lector ya lo saca (2026-10-01)
+
+El consumo GLOBAL de energía primaria no renovable y su letra van impresos en la
+primera página del certificado ("CALIFICACIÓN ENERGÉTICA OBTENIDA") y en el apartado 2
+del Anexo II. `ceeOcrService` los lee ya (`energia_primaria_no_renovable`), y
+`ceeToXmlShape` los deja en los MISMOS campos que `parseCeeXml` (`epnrConsumo`,
+`epnrLetra`): un CEE cargado por PDF sirve para la comprobación igual que uno con su
+`.xml`. Medido sobre un escaneo de otro técnico (281,7 E) y sobre un CEE nuestro
+(151,3 D): los dos correctos, ~4 s. La ESCALA (umbrales A…F) solo la da exacta el `.xml`.
+
+### Un CEE directo de UN solo certificado: el CEE ANTERIOR del cliente
+
+El caso: el cliente hizo la obra y ya tenía un CEE de ANTES, de otro técnico; a
+nosotros solo nos contratan el de después y hay que saber si el par vale para la
+deducción. En la caja «Cargar CEE por fichero» de un encargo de alcance ÚNICO hay dos
+botones: **«CEE de este encargo»** y **«CEE anterior del cliente»**. El segundo guarda
+en `cee.cee_anterior` (forma de `ceeToXmlShape` + `_origen`, `_fichero`,
+`_cargado_at`) y debajo sale [CeeAnteriorCliente](implementation/frontend/src/features/expedientes/components/CeeAnteriorCliente.jsx)
+con la comparación —el mismo `AvisoIrpfEpnr`, con su prop `comparar` y sus rótulos—.
+
+**REGLA — ese certificado NO es una fase.** En un encargo ÚNICO la fase que el módulo
+llama "inicial" es el NUESTRO; cargar ahí el de antes del cliente pisaba sus datos sin
+decir nada. Medido en **2026CEE_60** (01/10/2026): la demanda pasó de 180,37 a 127,8 y
+las fechas del 29/09 al 29/06, las del certificado del otro técnico (reparado desde su
+`.xml`). Por eso el botón del CEE propio **pregunta** si ya hay `.xml` subido.
+
+**REGLA — solo se pinta si se ha cargado**: la mayoría de estos encargos son
+compraventas y alquileres, donde no hay un antes que comparar.
 
 ---
 
@@ -12424,6 +12454,8 @@ exacto (`/(^|[\\/])server\.js$/`), pero en un banco pon además `WHATSAPP_ENABLE
 93. **Una factura de ENTREGA DE MATERIAL o un ANTICIPO no abre la actuación, y el CIFO lo cuenta en «Hitos de la actuación»** (2026-09-30). `facturas[].motivo_no_inicio` (`MATERIAL` | `ANTICIPO`, lo marca una persona en el popup **Hitos** junto a las fechas del CIFO) la saca del INICIO de `calcCifo` —no del fin ni de la inversión—, así que el inicio nuevo sale igual en todas las superficies. El CIFO y el Certificado RES080 imprimen ABRIENDO la hoja de la instalación (en hoja propia justo antes si hay cascada) la en el orden del proceso: CEE inicial (visita · firma), facturas (primera · última), actuación (inicio · pruebas RITE · fin) y CEE final —lo que no consta NO sale (sin fechas de un CEE, no sale su fila) y se avisa en la puerta de «Generar» (`avisosHitos`); nunca el registro—, más la ACLARACIÓN si la hay (máx. 420 caracteres) (`documentacion.hitos_actuacion`, en la BLACKLIST de `normalizeData`). La aclaración propuesta solo afirma lo que dicen los datos; la de la IA (`POST /:id/hitos/aclaracion-ia`, staffOnly) se descarta si cita una fecha o una factura que no consta. ⚠️ gemini-2.5-flash en JSON entra en bucle con «º»: se le pide «número». Fuente única: [hitosActuacion.js](implementation/frontend/src/features/expedientes/logic/hitosActuacion.js). Tras tocarlo: `node implementation/backend/scripts/test_hitos_actuacion.mjs`, `check_cifo_paginas.mjs` y `check_res080_paginas.mjs`. Ver "HITOS DE LA ACTUACIÓN".
 
 94. **El nombre del cliente en la AGENDA de WhatsApp lleva su nº de obra** (2026-09-30): «RES080 Irene Lopez (Gonzagarri)» pasa a «RES080_87 Irene Lopez (Gonzagarri)» — con expediente, su nº sin el año; sin él, su oportunidad (`RES060_OP246`); un CEE directo, `CEE_54`. Botón en el panel de WhatsApp («Nombres de clientes en la agenda», en seco primero) y `POST /api/whatsapp/contactos/renombrar-clientes` (adminOnly o `x-internal-key`, `dryRun` por defecto, a trozos con cursor por teléfono). **Es la EXCEPCIÓN a `guardarSiFalta`**: solo se toca el PREFIJO que la casa escribe delante (`RES060`, `RES080 -`, `26RES080_78`, `CEEI`…; nunca «Termia», «Teresa» ni «RESERVAS») y lo de detrás se conserva letra a letra; un contacto sin prefijo no se renombra. Se casa por teléfono contra titular, persona de contacto y copropietarios; un número en VARIOS clientes no se toca, varias obras abiertas de la misma ficha se preguntan, y **lo que cambiaría la ficha que ya dice el nombre (RES080 → RES060_143) se aparta a «revisar»** — suele ser un teléfono casado con otra persona de la ficha. `saveContactAction` EDITA el contacto (el `@c.us` y su `@lid`), no lo duplica. ⚠️ **WhatsApp LIMITA las ediciones de la agenda**: medido el 30/09/2026, una cada 1,5 s aguantó ~41 y después respondió **429 `rate-overlimit`** a todas (la sesión siguió sana). Va a una cada 20 s (`WA_CONTACTOS_PAUSA_MS`), dos por petición, y **se para al primer 429** (`err.limitado` en `whatsappContactos.guardar`, que ahora devuelve el error como dato: cruzando `evaluate` llegaba minificado como «t»). Fuente única: [utils/nombreContactoCliente.js](implementation/backend/utils/nombreContactoCliente.js) + [whatsappNombresClientes.js](implementation/backend/services/whatsappNombresClientes.js). Tras tocarlo: `node implementation/backend/scripts/test_nombre_contacto_cliente.js`.
+
+97. **En un CEE directo de UN solo certificado, el CEE de ANTES del cliente se carga APARTE, como «CEE anterior del cliente»** (2026-10-01), y debajo sale la comprobación de la deducción del IRPF (ahorro ≥30 % en energía primaria no renovable o letra A/B) contra el CEE de este encargo. Va en `cee.cee_anterior`, **nunca en una fase**: en un encargo ÚNICO la fase «inicial» es el NUESTRO, y cargarlo ahí pisaba sus datos (2026CEE_60). El lector de PDF del CEE saca ya el consumo global de energía primaria no renovable y su letra, así que un PDF basta. Fuente única: [CeeAnteriorCliente.jsx](implementation/frontend/src/features/expedientes/components/CeeAnteriorCliente.jsx) + `comprobarIrpf` en [irpfEpnr.js](implementation/frontend/src/features/expedientes/logic/irpfEpnr.js). Ver "Un CEE directo de UN solo certificado: el CEE ANTERIOR del cliente".
 
 ---
 

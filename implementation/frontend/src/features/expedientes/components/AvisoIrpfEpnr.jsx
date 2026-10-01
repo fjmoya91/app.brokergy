@@ -9,6 +9,11 @@ import { comprobarIrpf, UMBRAL_AHORRO } from '../logic/irpfEpnr';
 // no hay nada que comparar, y un recuadro diciendo "faltan datos" en un
 // expediente que aún no ha empezado la obra es ruido.
 //
+// O cuando un CEE directo de UN solo certificado tiene cargado el CEE ANTERIOR
+// que trajo el cliente (de otro técnico): ahí nos contratan solo el de después,
+// y lo que se compara es aquél con el nuestro. Lo dice `comparar`, con sus
+// propios rótulos — "inicial" y "final" no describen ese caso.
+//
 // REGLA — el dato se recalcula del `.xml` GUARDADO cuando el CEE parseado no lo
 // trae. Los certificados subidos antes de que existiera esta comprobación tienen
 // en `cee_inicial`/`cee_final` un objeto sin el consumo de energía primaria no
@@ -54,12 +59,30 @@ const Cifra = ({ rotulo, valor, unidad, letra }) => (
     </div>
 );
 
-export function AvisoIrpfEpnr({ cee }) {
+/**
+ * @param {object} props.cee        el `cee` del expediente: compara sus dos fases
+ * @param {object} [props.comparar] en su lugar, dos certificados cualesquiera:
+ *        `{ inicial, xmlInicial, final, xmlFinal }` (parseados + su .xml crudo)
+ * @param {object} [props.rotulos]  `{ antes, despues, inicial, final }`: las dos
+ *        cifras y cómo se nombra cada certificado en los avisos
+ * @param {object} [props.falta]    textos de lo que falta (ver FALTA_DOS_FASES)
+ */
+export function AvisoIrpfEpnr({ cee, comparar = null, rotulos = null, falta = null }) {
+    const ini0 = comparar ? comparar.inicial : cee?.cee_inicial;
+    const xmlIni = comparar ? comparar.xmlInicial : cee?.xml_inicial;
+    const fin0 = comparar ? comparar.final : cee?.cee_final;
+    const xmlFin = comparar ? comparar.xmlFinal : cee?.xml_final;
     const r = useMemo(() => {
-        const ini = conEpnr(cee?.cee_inicial, cee?.xml_inicial);
-        const fin = conEpnr(cee?.cee_final, cee?.xml_final);
-        return comprobarIrpf(ini, fin);
-    }, [cee?.cee_inicial, cee?.cee_final, cee?.xml_inicial, cee?.xml_final]);
+        const ini = conEpnr(ini0, xmlIni);
+        const fin = conEpnr(fin0, xmlFin);
+        return comprobarIrpf(ini, fin, {
+            ...(falta ? { falta } : {}),
+            ...(rotulos?.inicial ? { rotulos: { inicial: rotulos.inicial, final: rotulos.final } } : {}),
+        });
+    }, [ini0, xmlIni, fin0, xmlFin, falta, rotulos]);
+    const rotAntes = rotulos?.antes || 'Antes';
+    const rotDespues = rotulos?.despues || 'Después';
+    const rotFinal = rotulos?.final || 'certificado final';
 
     if (r.estado === 'faltan_datos') {
         return (
@@ -101,7 +124,7 @@ export function AvisoIrpfEpnr({ cee }) {
                                 ? <>las dos vías: <b className="text-white/70">ahorro del {n2(r.ahorroPct)} %</b> y <b className="text-white/70">letra {r.letraFin}</b></>
                                 : r.porAhorro
                                     ? <>el <b className="text-white/70">ahorro del {n2(r.ahorroPct)} %</b> (se exige {UMBRAL_AHORRO} %)</>
-                                    : <>la <b className="text-white/70">calificación {r.letraFin}</b> del certificado final</>}
+                                    : <>la <b className="text-white/70">calificación {r.letraFin}</b> del {rotFinal}</>}
                             </>
                         ) : (
                             <>Se exige un ahorro del {UMBRAL_AHORRO} % —hay {n2(r.ahorroPct)} %— o letra A/B
@@ -112,9 +135,9 @@ export function AvisoIrpfEpnr({ cee }) {
                 </div>
 
                 <div className="flex items-start gap-6">
-                    <Cifra rotulo="Antes" valor={n2(r.consumoIni)} unidad="kWh/m²·año" letra={r.letraIni} />
+                    <Cifra rotulo={rotAntes} valor={n2(r.consumoIni)} unidad="kWh/m²·año" letra={r.letraIni} />
                     <div className="text-white/20 text-lg font-black pt-4">→</div>
-                    <Cifra rotulo="Después" valor={n2(r.consumoFin)} unidad="kWh/m²·año" letra={r.letraFin} />
+                    <Cifra rotulo={rotDespues} valor={n2(r.consumoFin)} unidad="kWh/m²·año" letra={r.letraFin} />
                     <Cifra rotulo="Ahorro" valor={`${n2(r.ahorroPct)} %`} />
                 </div>
             </div>
