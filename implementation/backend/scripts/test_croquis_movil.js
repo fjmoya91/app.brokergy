@@ -35,7 +35,10 @@ async function prueba(nombre, fn) {
         const d = cm.paraMovil(token);
         assert.ok(d);
         assert.deepStrictEqual(Object.keys(d).sort(),
-            ['catastro', 'clave', 'marco', 'plano', 'planta', 'propuesta', 'resultado', 'trazos', 'usos', 'version']);
+            ['catastro', 'clave', 'contorno', 'georef', 'marco', 'modoInicial', 'plano', 'planta', 'propuesta',
+             'resultado', 'trazos', 'usos', 'version']);
+        // Sin pedirlo, se abre en el croquis (lo de siempre).
+        assert.strictEqual(d.modoInicial, 'croquis');
         // La clave es un resumen: no lleva el id del expediente.
         assert.match(d.clave, /^[0-9a-f]{20}$/);
         assert.ok(!d.clave.includes('EXP-1'));
@@ -289,6 +292,124 @@ async function prueba(nombre, fn) {
         for (let i = 0; i < 250; i++) cm.apuntarHecho(a.token, 'subida', 'fo-' + (100000 + i), i);
         assert.ok(cm._sesiones.get(a.token).hechos.size <= 200);
         cm.cerrar(a.token, 'EXP-S');
+    });
+
+    // ── DELIMITAR LA VIVIENDA desde el teléfono ──────────────────────────────
+    const ADOSADO = [[3, 1], [9, 1], [9, 17], [3, 17]];
+    const conParedes = () => cm.abrir({
+        expediente: 'EXP-V', planta: { id: 'B', nombre: 'Planta baja', nivel: 0 },
+        muros: [{ svg: [[0, 0], [20, 0]], tipo: 'FACHADA', id: 'FBS1', nombre: 'FBS1', catastro: 'FACHADA' },
+                { svg: [[20, 0], [20, 18]], tipo: 'MEDIANERA', id: 'MBE1', nombre: 'MBE1', catastro: 'MEDIANERA' }],
+        lienzo: { ancho: 20, alto: 18 }, georef: GEO, modo: 'vivienda',
+        recorte: [[1, 1], [2, 1], [2, 2], [1, 2]],
+    });
+
+    await prueba('VIVIENDA: se abre en su pestaña, con el contorno ya aplicado y la georreferencia', () => {
+        const a = conParedes();
+        const d = cm.paraMovil(a.token);
+        assert.strictEqual(d.modoInicial, 'vivienda');
+        assert.strictEqual(d.plano.recorte.length, 4);
+        assert.deepStrictEqual(d.georef.bbox, GEO.bbox);
+        // Lo que se dice de cada pared viaja con ella: su tipo y el de Catastro.
+        assert.strictEqual(d.plano.muros[1].tipo, 'MEDIANERA');
+        assert.strictEqual(d.plano.muros[1].catastro, 'MEDIANERA');
+        // Un modo que no existe no se cuela.
+        const b = cm.abrir({ expediente: 'EXP-V', planta: { id: 'B', nivel: 0 }, muros: MUROS,
+                             lienzo: { ancho: 18, alto: 18 }, modo: 'cualquiera' });
+        assert.strictEqual(cm.paraMovil(b.token).modoInicial, 'croquis');
+        [a, b].forEach(x => cm.cerrar(x.token, 'EXP-V'));
+    });
+
+    await prueba('VIVIENDA: el contorno a medias llega al ordenador, y sin la clave no se toca', async () => {
+        const a = conParedes();
+        const v0 = (await cm.esperar(a.token, 'EXP-V', 0)).version;
+        const esperando = cm.esperar(a.token, 'EXP-V', v0);
+        setTimeout(() => cm.actualizar(a.token, { trazos: [], enCurso: null,
+                                                  contorno: { pts: ADOSADO.slice(0, 2), cerrado: true } }), 30);
+        const r = await esperando;
+        assert.deepStrictEqual(r.contorno.pts, ADOSADO.slice(0, 2));
+        // Con dos esquinas no puede estar cerrado, diga lo que diga el teléfono.
+        assert.strictEqual(r.contorno.cerrado, false);
+        // Un teléfono con la página de antes no manda contorno: se conserva.
+        cm.actualizar(a.token, { trazos: [], enCurso: null });
+        assert.strictEqual(cm.paraMovil(a.token).contorno.pts.length, 2);
+        cm.cerrar(a.token, 'EXP-V');
+    });
+
+    await prueba('VIVIENDA: pedir delimitar va por la cola del ajuste, y la respuesta deja el recorte', async () => {
+        const a = conParedes();
+        cm.actualizar(a.token, { trazos: [GARAJE], contorno: { pts: ADOSADO, cerrado: true } });
+        assert.strictEqual(cm.pedirVivienda(a.token, { poligono: ADOSADO.slice(0, 2) }).motivo, 'vacio');
+        assert.strictEqual(cm.pedirVivienda(a.token, { poligono: [[0, 0], [1, 0], [1, 1]] }).motivo, 'pequeno');
+        const v = (await cm.esperar(a.token, 'EXP-V', 0)).version;
+        const esperando = cm.esperar(a.token, 'EXP-V', v);
+        const p = cm.pedirVivienda(a.token, { poligono: ADOSADO, id_local: 'vi-123456' });
+        assert.ok(p.ok);
+        const r = await esperando;
+        assert.deepStrictEqual(r.pedido, { n: p.n, tipo: 'vivienda', poligono: ADOSADO });
+        // Un reenvío (se perdió la respuesta) no pide otro.
+        assert.deepStrictEqual(cm.pedirVivienda(a.token, { poligono: ADOSADO, id_local: 'vi-123456' }), p);
+        cm.responder(a.token, 'EXP-V', { n: p.n, ok: true, tipo: 'vivienda', texto: 'Vivienda delimitada.',
+                                          remedido: true, zonas: [], recorte: ADOSADO,
+                                          muros: [{ svg: [[3, 1], [3, 17]], tipo: 'MEDIANERA', id: 'MBO1' }] });
+        const e = cm.estadoMovil(a.token);
+        assert.strictEqual(e.resultado.tipo, 'vivienda');
+        const d = cm.paraMovil(a.token);
+        assert.deepStrictEqual(d.plano.recorte, ADOSADO);
+        assert.strictEqual(d.plano.muros[0].id, 'MBO1');
+        assert.strictEqual(d.contorno, null);                  // lo dibujado ya es el recorte
+        assert.strictEqual(d.trazos.length, 1);                 // lo del CROQUIS no se toca
+        // Quitarlo: sin polígono, y la respuesta deja el recorte a null.
+        const q = cm.pedirVivienda(a.token, { quitar: true });
+        assert.strictEqual(cm._sesiones.get(a.token).pedido.poligono, null);
+        cm.responder(a.token, 'EXP-V', { n: q.n, ok: true, tipo: 'vivienda', recorte: null });
+        assert.strictEqual(cm.paraMovil(a.token).plano.recorte, null);
+        cm.cerrar(a.token, 'EXP-V');
+    });
+
+    await prueba('PAREDES: lo dicho de cada pared va a una COLA, en orden y sin repetir pared', async () => {
+        const a = conParedes();
+        assert.strictEqual(cm.pedirContra(a.token, { pared: 'NOEXISTE', contra: 'FACHADA' }).motivo, 'pared');
+        assert.strictEqual(cm.pedirContra(a.token, { pared: 'FBS1', contra: 'PATIO' }).motivo, 'tipo');
+        const r1 = cm.pedirContra(a.token, { pared: 'FBS1', contra: 'MEDIANERA', id_local: 'co-111111' });
+        cm.pedirContra(a.token, { pared: 'MBE1', contra: 'FACHADA', id_local: 'co-222222' });
+        // La misma pared otra vez: manda lo último, sin dejar dos pedidos de ella.
+        cm.pedirContra(a.token, { pared: 'FBS1', contra: 'PARTICION_VERTICAL', id_local: 'co-333333' });
+        // Un reenvío de algo que sí llegó no se vuelve a poner.
+        assert.deepStrictEqual(cm.pedirContra(a.token, { pared: 'FBS1', contra: 'MEDIANERA', id_local: 'co-111111' }), r1);
+        const f = await cm.esperar(a.token, 'EXP-V', 0);
+        assert.deepStrictEqual(f.contras.map(c => [c.pared, c.contra]),
+                               [['MBE1', 'FACHADA'], ['FBS1', 'PARTICION_VERTICAL']]);
+        assert.strictEqual(cm.estadoMovil(a.token).contrasPendientes, 2);
+        // El ordenador atiende hasta la n de la primera: sale de la cola.
+        cm.responderContra(a.token, 'EXP-V', { n: f.contras[0].n, ok: true, texto: 'MBE1: al exterior.', pared: 'MBE1' });
+        const e = cm.estadoMovil(a.token);
+        assert.strictEqual(e.contrasPendientes, 1);
+        assert.strictEqual(e.resultadoContra.texto, 'MBE1: al exterior.');
+        // Con el token de otro expediente, nada.
+        assert.strictEqual(cm.responderContra(a.token, 'EXP-1', { n: 99 }), false);
+        cm.cerrar(a.token, 'EXP-V');
+    });
+
+    await prueba('PLANO: el ordenador vuelve a medir por su cuenta y el teléfono lo ve en planoV', () => {
+        const a = conParedes();
+        const v0 = cm.estadoMovil(a.token).planoV;
+        assert.ok(cm.actualizarPlano(a.token, 'EXP-V', {
+            muros: [{ svg: [[3, 1], [9, 1]], tipo: 'FACHADA', id: 'FBS1' }],
+            zonas: [{ uso: 'GARAJE', lienzo: GARAJE.pts }], recorte: ADOSADO,
+            propuesta: [{ uso: 'PORCHE', pts: GARAJE.pts, por_que: 'da al patio' }],
+        }));
+        assert.strictEqual(cm.estadoMovil(a.token).planoV, v0 + 1);
+        const d = cm.paraMovil(a.token);
+        assert.strictEqual(d.plano.muros.length, 1);
+        assert.strictEqual(d.plano.zonas[0].uso, 'GARAJE');
+        assert.deepStrictEqual(d.plano.recorte, ADOSADO);
+        assert.strictEqual(d.propuesta[0].uso, 'PORCHE');
+        // Sin muros no se queda la planta vacía: se conservan los que había.
+        cm.actualizarPlano(a.token, 'EXP-V', { muros: [] });
+        assert.strictEqual(cm.paraMovil(a.token).plano.muros.length, 1);
+        assert.strictEqual(cm.actualizarPlano(a.token, 'EXP-1', {}), false);
+        cm.cerrar(a.token, 'EXP-V');
     });
 
     await prueba('una planta sin paredes no abre sesión', () => {

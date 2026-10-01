@@ -33,6 +33,9 @@ export function ViviendaPlantaControl({
     // El contorno del ADOSADO: solo llega al plano en el que se ofrece.
     recorte = null, onRecorteModo = null, onRecorteQuitar = null, recorteSugerido = false,
     midiendo = false,
+    // Delimitar el adosado con el DEDO en el móvil, y el contorno que se está
+    // dibujando allí ahora mismo (para decirlo en la barra).
+    onRecorteMovil = null, contornoMovil = null,
     // El CROQUIS a mano alzada: lo más rápido cuando se sabe DÓNDE está cada
     // cosa pero no sus medidas. Los m² los pone Catastro (`catastroPlanta`).
     croquis = [], dibujandoCroquis = false, usoCroquis = 'GARAJE', onUsoCroquis,
@@ -57,6 +60,7 @@ export function ViviendaPlantaControl({
         return () => clearTimeout(t);
     }, [confirmaCerrar]);
     const hintCatastro = textoCatastro(catastroPlanta);
+    const hayRecorteMovil = Array.isArray(recorte?.poligono) && recorte.poligono.length >= 3;
     if (croquisMovil) {
         const pintando = !!croquisMovil.enCurso;
         const cerrar = () => {
@@ -82,9 +86,46 @@ export function ViviendaPlantaControl({
                         </span>
                     </div>
                     <p className="mt-0.5 text-[11px] text-white/55">
-                        {croquis.length} {croquis.length === 1 ? 'zona pintada' : 'zonas pintadas'}
-                        {hintCatastro && <> · Catastro: {hintCatastro}</>}
+                        {contornoMovil?.pts?.length
+                            ? <span className="font-bold text-emerald-300">
+                                  Dibujando la vivienda en el móvil · {contornoMovil.pts.length}{' '}
+                                  {contornoMovil.pts.length === 1 ? 'esquina' : 'esquinas'}
+                                  {contornoMovil.pts.length >= 3 ? ` · ≈${fmt(areaPoligono(contornoMovil.pts))} m²` : ''}
+                                  {contornoMovil.cerrado ? ' · cerrado' : ''}
+                              </span>
+                            : <>
+                                  {croquis.length} {croquis.length === 1 ? 'zona pintada' : 'zonas pintadas'}
+                                  {hintCatastro && <> · Catastro: {hintCatastro}</>}
+                              </>}
                     </p>
+                    {/* El ADOSADO no se esconde con el móvil conectado: es justo
+                        el caso en que hace falta (un bloque en hilera medido
+                        entero), y escondido no había forma de encontrarlo. */}
+                    {onRecorteModo && (
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                            {hayRecorteMovil ? (
+                                <span className="inline-flex items-center gap-1 rounded-md border border-emerald-400/40
+                                                 bg-emerald-400/10 px-2 py-0.5 text-[10.5px] font-bold text-emerald-300">
+                                    Adosado delimitado · ≈{fmt(recorte.area_m2 ?? 0)} m² · todas las plantas
+                                    <button onClick={() => onRecorteModo(true)} disabled={midiendo}
+                                            aria-label="Redibujar el contorno"
+                                            className="ml-1 text-white/55 hover:text-white disabled:opacity-40">✎</button>
+                                    {onRecorteQuitar && (
+                                        <button onClick={onRecorteQuitar} disabled={midiendo} aria-label="Quitar el contorno"
+                                                className="text-white/55 hover:text-white disabled:opacity-40">✕</button>
+                                    )}
+                                </span>
+                            ) : (
+                                <Boton onClick={() => onRecorteModo(true)} disabled={midiendo} ambar={recorteSugerido}
+                                       title="Para un adosado dentro de una comunidad: vale para TODAS las plantas y lo de fuera es la casa de al lado (medianera)">
+                                    Delimitar adosado
+                                </Boton>
+                            )}
+                            <span className="text-[10.5px] text-white/50">
+                                o en el móvil, pestaña <b className="text-white/75">Vivienda</b>
+                            </span>
+                        </div>
+                    )}
                 </div>
                 <span className="flex items-center gap-1.5">
                     <Boton onClick={onCroquisMovilQr} title="Volver a enseñar el código QR">Ver QR</Boton>
@@ -297,10 +338,23 @@ export function ViviendaPlantaControl({
                     </Boton>
                 )}
                 {onRecorteModo && !hayRecorte && (
-                    <Boton onClick={() => onRecorteModo(true)} disabled={midiendo} ambar={recorteSugerido}
-                           title="Para un adosado dentro de una comunidad: vale para TODAS las plantas y lo de fuera es la casa de al lado (medianera)">
-                        Delimitar adosado
-                    </Boton>
+                    // Dos entradas para lo mismo —con el ratón aquí o con el dedo
+                    // en el móvil—: juntas, como el croquis.
+                    <span className={`inline-flex overflow-hidden rounded-md border divide-x
+                        ${recorteSugerido ? 'border-amber-400/60 divide-amber-400/40'
+                                          : 'border-white/10 divide-white/10'}`}>
+                        <SegmentoRecorte onClick={() => onRecorteModo(true)} disabled={midiendo} ambar={recorteSugerido}
+                                         title="Para un adosado dentro de una comunidad: vale para TODAS las plantas y lo de fuera es la casa de al lado (medianera)">
+                            Delimitar adosado
+                        </SegmentoRecorte>
+                        {onRecorteMovil && (
+                            <SegmentoRecorte onClick={onRecorteMovil} disabled={midiendo || abriendoMovil}
+                                             ambar={recorteSugerido}
+                                             title="Dibuja el contorno de la vivienda con el dedo en el móvil (QR)">
+                                <IconoMovil size={12} />
+                            </SegmentoRecorte>
+                        )}
+                    </span>
                 )}
             </span>
             {midiendo && <span className="text-[10.5px] text-white/55">volviendo a medir…</span>}
@@ -355,6 +409,17 @@ function BotonPrincipal({ onClick, disabled, title, children }) {
                 className="rounded-md bg-violet-600 px-2.5 py-1 text-[10.5px] font-black uppercase tracking-wider
                            text-white shadow-sm transition hover:bg-violet-500 disabled:opacity-40
                            disabled:shadow-none">
+            {children}
+        </button>
+    );
+}
+
+function SegmentoRecorte({ onClick, disabled, ambar, title, children }) {
+    return (
+        <button onClick={onClick} disabled={disabled} title={title}
+                className={`inline-flex items-center gap-1 px-2 py-1 text-[10.5px] font-bold transition disabled:opacity-40
+                    ${ambar ? 'bg-amber-400/15 text-amber-200 hover:bg-amber-400/25'
+                            : 'bg-white/[0.04] text-white/70 hover:bg-white/[0.08] hover:text-white'}`}>
             {children}
         </button>
     );

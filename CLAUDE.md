@@ -11979,6 +11979,62 @@ verdad en un sótano.
   lista de excepciones. Un botón desactivado usa `disabled:opacity-40`, nunca `disabled:text-white/40`
   (en claro sale blanco sobre blanco).
 
+### Y el CONTORNO del ADOSADO, desde el mismo enlace (2026-10-01)
+
+Lo pidió el usuario con 2026CEE_60 (un piso de una finca en hilera, medida entera): delimitar la
+vivienda con el dedo, validarla y después decir qué es medianera y qué fachada. Pestaña nueva
+**«Vivienda»** en el teléfono (Vivienda · Croquis · Fotos), con dos sub-pestañas:
+**Contorno** (tocar las esquinas) y **Paredes** (decir contra qué da cada una). El botón
+«Delimitar adosado» del ordenador lleva al lado un 📱 que abre el QR **ya en esa pestaña**
+(`modo: 'vivienda'` en la sesión).
+
+| Qué | Dónde |
+|---|---|
+| Imán de las esquinas, cierre, lienzo↔mundo, resumen de paredes (puro) | [logic/contornoMovil.js](implementation/frontend/src/features/cee-envolvente/logic/contornoMovil.js) |
+| La pestaña del teléfono | [ViviendaMovil.jsx](implementation/frontend/src/features/cee-envolvente/components/ViviendaMovil.jsx) + `CroquisMovilView` |
+| Sesión: contorno a medias, pedido de delimitar, cola de «contra qué da», planta al día | `pedirVivienda` · `pedirContra` · `responderContra` · `actualizarPlano` en [croquisMovil.js](implementation/backend/services/croquisMovil.js) |
+| Rutas del teléfono / del ordenador | `POST /api/public/croquis-movil/:token/vivienda` · `…/contra` / `POST …/croquis-movil/:token/resultado-contra` · `…/plano` |
+| Lo aplica el ordenador | `delimitarDesdeMovil` · `reclasificarDesdeMovil` en `EnvolventeView` |
+| Pruebas | `node implementation/backend/scripts/test_croquis_movil.js` · `test_contorno_movil.mjs` |
+
+**REGLA — el recorte es EL MISMO que el del botón del ordenador.** El teléfono manda el polígono en
+SU lienzo; el ordenador lo pasa al mundo con el `marco` de la sesión (`contornoAlMundo`) y llama a
+`volverAMedir({ recorte_vivienda })`, lo mismo que `cerrarRecorte`. Va por la MISMA cola que el
+ajuste del croquis (`pedido.tipo === 'vivienda'`): los dos vuelven a medir y no caben dos a la vez.
+La respuesta lleva la planta nueva y el contorno en el lienzo del teléfono (`recorteMundo` en
+`respuestaParaElMovil`), y el teléfono pasa solo a «Paredes» y encuadra la casa.
+
+**REGLA — un toque pone UNA ESQUINA, y se pega**: primero a la esquina más cercana, si no a la pared
+más cercana —el punto de la fachada donde empieza la casa de al lado—, con un radio de dedo topado en
+1,6 m; lejos se queda donde se toca (por la calle y el jardín se puede pasar). Tocar la primera, con
+tres o más, cierra. **Un dedo arrastrado MUEVE el plano** (como en Fotos), dos amplían. El contorno a
+medias viaja con el estado entero (`actualizar({ contorno })`) y el ordenador lo pinta en su plano
+según se dibuja; sin la clave (un teléfono con la página de antes) no se toca.
+
+**REGLA — lo que se dice de una pared va a una COLA, en orden** (`s.contras`; sobre la misma pared
+manda lo último). Lo aplica el ordenador con el MISMO `reclasifica` del panel de la pared
+(`contraParaReclasificar`: decir lo que dice Catastro es volver a lo de Catastro) y avisa si queda una
+fachada sin rumbo o huecos en una pared que ya no da fuera. En el teléfono se ve al momento; lo
+confirma la meta de paredes, que ahora lleva `tipo` y `catastro`.
+
+**REGLA — si el ordenador vuelve a MEDIR con el móvil conectado, el teléfono se pone al día**
+(`planoParaElMovil` → `…/plano` → `planoV`). Antes, quitar un cuerpo o delimitar desde el ordenador
+dejaba al teléfono tocando paredes que ya no existían. Se manda cuando el plano se ha sembrado con
+esa geometría (los muros traen su `svg_catastro`), no antes: si no, irían con el tipo de la pared vieja.
+
+**«Delimitar adosado» ya no se esconde con el móvil conectado**: la barra morada del croquis lo
+lleva debajo (o el contorno ya aplicado, con ✎ y ✕). Escondido, que era justo el caso del bloque en
+hilera, no había forma de encontrarlo.
+
+**Y la FOTO AÉREA también en el teléfono** (botón «Foto»/«Mapa» con los del encuadre; la sesión lleva
+`georef` y el teléfono pide las teselas del PNOA con `teselasOrtofoto`, como el ordenador): en una
+hilera, los tejados dicen dónde acaba cada casa. La elección se recuerda en el teléfono.
+
+⚠️ Verificado en un banco local (app construida + servicio real + ordenador simulado), no con la
+ventana logueada ni con un teléfono de verdad: dibujar, pegar a la fachada, delimitar, cambiar una
+pared, quitar el contorno y recargar a medias. La parte del ordenador (barra, contorno en directo,
+`delimitarDesdeMovil`) solo ha pasado lint y build.
+
 ### El croquis se PROPONE solo (2026-09-30)
 
 El croquis ya ponía los m²; lo que quedaba por decir era DÓNDE. Muchas veces ni eso hace falta
@@ -12307,7 +12363,7 @@ exacto (`/(^|[\\/])server\.js$/`), pero en un banco pon además `WHATSAPP_ENABLE
 
 74. **La tabla de CARGAS TÉRMICAS de la Memoria RITE sale de las ESTANCIAS REALES, confirmadas en un popup antes de generar**: era la misma plantilla de doce estancias para todas las casas (una de 70 m² firmaba cuatro dormitorios y un vestidor). Ahora el ÚLTIMO eslabón de la cadena previa a generar (fecha de pruebas → frío → titular → **estancias**) es `LocalesRiteModal`: se abre SIEMPRE, relleno con lo guardado o con una propuesta por tamaño de vivienda y nº de plantas, y se añaden o quitan estancias POR PLANTA (y plantas); los m² se reparten solos por peso y el que se teclea se respeta. **La propuesta NO sale de `cee.num_rooms`** —la app lo rellena con 4 por defecto—. **Fuente única del nombre, la orientación y los m²**: [logic/localesRite.js](implementation/frontend/src/features/expedientes/logic/localesRite.js); se guarda ya resuelto en `documentacion.rite_locales` (`PUT /:id/memoria-rite/locales`, staffOnly, RPC de MERGE, clave en `CLAVES_PROTEGIDAS`) y el generador (`cargas_desde_locales` en `rite-generator/lib/cargas_termicas.py`) solo aplica el factor W/m² de la zona. **ELEMENTOS = ⌈potencia / 100 W⌉ solo con RADIADORES** (aluminio 600 mm a ΔT50 da 119-141 W; 100 W deja margen para la aerotermia); con suelo radiante, splits o conductos la columna va en blanco. Tope **25 estancias** (filas de la plantilla JCCM). Sin `rite_locales` (CLI, antiguos) se cae a la plantilla estimada. ⚠️ PENDIENTE: el botón «enviar al instalador para que lo complete» no está hecho. Tras tocarlo: `node implementation/backend/scripts/test_locales_rite.mjs`.
 
-75. **Un ADOSADO dentro de una comunidad se DELIMITA a mano: el contorno corta el edificio y lo de fuera es la casa de al lado.** La parcela de una comunidad de adosados es el CONJUNTO (dos hileras y su calle privada) y Catastro no dibuja dónde acaba cada casa: sus BuildingParts se parten por nº de plantas, no por vivienda — medido en 3677802WJ3437F (26RES060_205): **188 paredes** y 2.955 m² de huella para una vivienda de 62 m². Botón **✂ Delimitar la vivienda** bajo la barra del plano de la PLANTA BAJA (mismo gesto que la cubierta: pulsar vértices, cerrar en el primero; se puede pasar por la calle y el patio, lo que importa son las dos líneas con las casas de al lado). El motor (`pipeline.recortar_vivienda`) **recorta los BuildingParts** con el contorno —un PRISMA, vale para todas las plantas— y guarda **lo de fuera POR NIVEL** en `modelo.recorte_resto`, que entra como COLINDANTE en `_vecinos_en_nivel`: la pared contra la casa de al lado sale **MEDIANERA** y, donde la vecina no llega a esa planta, fachada. **Lo de fuera NO se borra** (mismo criterio que los cuerpos, regla 48.j). **El contorno se guarda en el MUNDO (EPSG:25830)**, en `cee.envolvente.recorte_vivienda`, nunca en el lienzo: al recortar el motor encuadra la casa y el lienzo cambia de origen (`lienzoAMundo(geo.georef)` en los dos sentidos). Viaja como `recorte_vivienda` en `/geometria` (saneado en el backend) y se vuelve a pedir con él al reabrir, igual que `cuerpos_fuera`; un contorno que el motor rechaza (422 `RecorteInvalido`) **no se queda como el pedido**. Se SUGIERE (ámbar) cuando el plano pasa de 40 paredes. Verificado sobre la parcela real: de 188 paredes a 12, con las dos laterales como medianera de 14,06 m. Tras tocarlo: `python -m pytest implementation/cee-engine/tests/test_recorte_vivienda.py`.
+75. **Un ADOSADO dentro de una comunidad se DELIMITA a mano: el contorno corta el edificio y lo de fuera es la casa de al lado.** La parcela de una comunidad de adosados es el CONJUNTO (dos hileras y su calle privada) y Catastro no dibuja dónde acaba cada casa: sus BuildingParts se parten por nº de plantas, no por vivienda — medido en 3677802WJ3437F (26RES060_205): **188 paredes** y 2.955 m² de huella para una vivienda de 62 m². Botón **✂ Delimitar la vivienda** bajo la barra del plano de la PLANTA BAJA (mismo gesto que la cubierta: pulsar vértices, cerrar en el primero; se puede pasar por la calle y el patio, lo que importa son las dos líneas con las casas de al lado). El motor (`pipeline.recortar_vivienda`) **recorta los BuildingParts** con el contorno —un PRISMA, vale para todas las plantas— y guarda **lo de fuera POR NIVEL** en `modelo.recorte_resto`, que entra como COLINDANTE en `_vecinos_en_nivel`: la pared contra la casa de al lado sale **MEDIANERA** y, donde la vecina no llega a esa planta, fachada. **Lo de fuera NO se borra** (mismo criterio que los cuerpos, regla 48.j). **El contorno se guarda en el MUNDO (EPSG:25830)**, en `cee.envolvente.recorte_vivienda`, nunca en el lienzo: al recortar el motor encuadra la casa y el lienzo cambia de origen (`lienzoAMundo(geo.georef)` en los dos sentidos). Viaja como `recorte_vivienda` en `/geometria` (saneado en el backend) y se vuelve a pedir con él al reabrir, igual que `cuerpos_fuera`; un contorno que el motor rechaza (422 `RecorteInvalido`) **no se queda como el pedido**. Se SUGIERE (ámbar) cuando el plano pasa de 40 paredes. Verificado sobre la parcela real: de 188 paredes a 12, con las dos laterales como medianera de 14,06 m. Tras tocarlo: `python -m pytest implementation/cee-engine/tests/test_recorte_vivienda.py`. **Y se dibuja también CON EL DEDO** (2026-10-01): pestaña «Vivienda» del croquis móvil (📱 junto a «Delimitar adosado»), con el mismo recorte y, después, «Paredes» para decir contra qué da cada una; ver "Y el CONTORNO del ADOSADO, desde el mismo enlace".
 
 76. **Un expediente puede estar RECHAZADO, y es una SALIDA, no un paso del ciclo.** Terminal como FINALIZADO (color rojo), pero se llega desde CUALQUIER estado, así que **no está en `ORDEN_ESTADOS`** y se guarda de dónde venía. **Se entra y se sale solo por dos RPC de UNA sentencia** (`expediente_rechazar` / `expediente_reabrir`, `scripts/expedientes_rechazo.sql`, ya en producción): estado, `rechazado_por`, `motivo_rechazo_cat`, `motivo_rechazo` (≥ 20 car.), `rechazo_adjunto_url`, `fecha_rechazo`, `estado_previo_rechazo` y el asiento `{tipo:'estado', estado, fecha, usuario, motivo}` de `documentacion.historial`, a la vez o nada; un CHECK impide un RECHAZADO sin quién/por qué/cuándo. Rutas `POST /api/expedientes/:id/rechazar` y `/reabrir` (**staffOnly**). Elegir RECHAZADO en un selector (fila, tarjeta móvil o detalle) **no guarda**: abre `RechazoExpedienteModal`, y cancelar no toca nada. Un rechazado se pinta con `EstadoRechazado` (badge con el motivo en el tooltip + «Reabrir», que devuelve `estado_previo_rechazo`) y no con un desplegable. **REGLA — nada lo reabre por la espalda**: `avanzarEstado` devuelve RECHAZADO tal cual (sin eso, como no tiene rango, el primer automatismo sellaba su destino), el PUT general da 400 al intentar ponerlo e **ignora** —sin tumbar el resto del guardado— el intento de sacarlo, y el cambio de estado de un LOTE no lo arrastra (`.or('estado.is.null,estado.neq.RECHAZADO')`). Fuera de: "Todos menos finalizado y rechazado", las cifras del resumen del listado (salvo con su chip marcado), el cuadro de mando y el parte diario (`ESTADOS_FUERA`). Su carpeta va a `12. RECHAZADOS` (si no está loteado) y vuelve sola al reabrir; su oportunidad se ve RECHAZADA; y un cliente cuyos expedientes están todos rechazados sale «Rechazado», no «En curso». El listado trae los campos del rechazo con una consulta aparte (la RPC v4 no los tiene). Fuente única del front: [logic/rechazoExpediente.js](implementation/frontend/src/features/expedientes/logic/rechazoExpediente.js), espejo de `utils/expedienteEstados.js` y de los CHECK. En el portal del cliente sale como **«Expediente cerrado»** (`mapEstadoToHito`, subestado `cerrado`): sin barra de pasos, sin el motivo interno y sin pedirle nada (`queFalta` vacío). ⚠️ Pendiente: el bloque del bono del portal sigue enseñando el importe estimado.
 

@@ -18,6 +18,13 @@
 // y lee sus huecos; aquí se entera de que hay fotos nuevas (`onFotos`, para
 // refrescar las del panel) y, cuando allí se confirman los huecos, los PONE en
 // el plano (`onHuecos`) y cuenta cómo ha ido. Uno cada vez, como el ajuste.
+//
+// Y DELIMITAR LA VIVIENDA (2026-10-01): el pedido de delimitar llega por la
+// MISMA cola que el ajuste (`onPedido`, con `pedido.tipo === 'vivienda'`) —los
+// dos vuelven a medir y no caben dos a la vez—; lo que se dice de cada pared
+// (contra qué da) llega en su propia cola (`onContra`), en orden. Y cuando esta
+// ventana vuelve a medir por su cuenta, `enviarPlano` pone al día la planta del
+// teléfono.
 // ============================================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -41,7 +48,7 @@ function guardar(id, s) {
     } catch { /* sin almacenamiento: se pierde al recargar, nada más */ }
 }
 
-export function useCroquisMovil(id, { onCambio, onPedido, onFin, onFotos, onHuecos } = {}) {
+export function useCroquisMovil(id, { onCambio, onPedido, onFin, onFotos, onHuecos, onContra } = {}) {
     //: { token, url, qr, alternativas, qrAlternativas, conCartografia, planta }
     const [sesion, setSesion] = useState(() => {
         const g = id ? leerGuardada(id) : null;
@@ -53,7 +60,7 @@ export function useCroquisMovil(id, { onCambio, onPedido, onFin, onFotos, onHuec
     // Los callbacks por ref: cambian en cada render de la vista y no pueden
     // reiniciar la espera, que es lo que harían metidos en las dependencias.
     const cb = useRef({});
-    useEffect(() => { cb.current = { onCambio, onPedido, onFin, onFotos, onHuecos }; });
+    useEffect(() => { cb.current = { onCambio, onPedido, onFin, onFotos, onHuecos, onContra }; });
 
     const abrir = useCallback(async (planta, cuerpo) => {
         setAbriendo(true);
@@ -81,6 +88,15 @@ export function useCroquisMovil(id, { onCambio, onPedido, onFin, onFotos, onHuec
         setEstado({ conectado: false, enCurso: null });
     }, [id]);
 
+    /**
+     * La planta ha vuelto a medirse AQUÍ (delimitar, quitar un cuerpo…): se le
+     * manda al teléfono, ya en SU lienzo, para que no siga sobre paredes viejas.
+     */
+    const enviarPlano = useCallback((cuerpo) => {
+        if (!sesion || !cuerpo) return;
+        axios.post(api(id, `croquis-movil/${sesion.token}/plano`), cuerpo).catch(() => {});
+    }, [id, sesion]);
+
     /** Contarle al teléfono cómo ha ido un ajuste que se ha hecho desde AQUÍ. */
     const responder = useCallback((r) => {
         if (!sesion) return;
@@ -96,7 +112,29 @@ export function useCroquisMovil(id, { onCambio, onPedido, onFin, onFotos, onHuec
         let version = 0;
         let atendido = 0;
         let atendidoHuecos = 0;
+        let atendidoContra = 0;
         let fotosVistas = null;
+        // Lo que se dice de cada pared: EN ORDEN y sin perder ninguno (se tocan
+        // varias seguidas). Se atiende lo que haya y se cuenta hasta dónde.
+        const colaContra = { ocupado: false, lista: [] };
+        const atenderContras = async () => {
+            if (colaContra.ocupado) return;
+            colaContra.ocupado = true;
+            try {
+                while (colaContra.lista.length && vivo) {
+                    const c = colaContra.lista.shift();
+                    let r;
+                    try { r = await cb.current.onContra?.(c); }
+                    catch (e) { r = { ok: false, texto: e.message }; }
+                    if (!vivo) return;
+                    await axios.post(api(id, `croquis-movil/${sesion.token}/resultado-contra`),
+                                     { n: c.n, pared: c.pared, ...(r || { ok: false, texto: 'No se ha podido cambiar.' }) })
+                        .catch(() => {});
+                }
+            } finally {
+                colaContra.ocupado = false;
+            }
+        };
         // Los huecos que se confirman en el teléfono, también de uno en uno.
         const colaHuecos = { ocupado: false, pendiente: null };
         const ponerHuecos = async (pedido) => {
@@ -164,7 +202,8 @@ export function useCroquisMovil(id, { onCambio, onPedido, onFin, onFotos, onHuec
                     }
                     if (!(data.version > version)) continue;
                     version = data.version;
-                    setEstado({ conectado: !!data.movilVisto, enCurso: data.enCurso || null });
+                    setEstado({ conectado: !!data.movilVisto, enCurso: data.enCurso || null,
+                                contorno: data.contorno || null });
                     cb.current.onCambio?.(data, sesion.planta);
                     if (data.pedido && data.pedido.n > atendido) {
                         atendido = data.pedido.n;
@@ -178,6 +217,12 @@ export function useCroquisMovil(id, { onCambio, onPedido, onFin, onFotos, onHuec
                         atendidoHuecos = data.pedidoHuecos.n;
                         ponerHuecos(data.pedidoHuecos);
                     }
+                    const nuevas = (data.contras || []).filter(c => c.n > atendidoContra);
+                    if (nuevas.length) {
+                        atendidoContra = Math.max(...nuevas.map(c => c.n));
+                        colaContra.lista.push(...nuevas);
+                        atenderContras();
+                    }
                 } catch (e) {
                     if (!vivo || axios.isCancel?.(e) || e.name === 'CanceledError') return;
                     fallos += 1;
@@ -188,7 +233,7 @@ export function useCroquisMovil(id, { onCambio, onPedido, onFin, onFotos, onHuec
         return () => { vivo = false; ctrl.abort(); };
     }, [id, sesion]);
 
-    return { sesion, estado, abriendo, error, setError, abrir, cerrar, responder };
+    return { sesion, estado, abriendo, error, setError, abrir, cerrar, responder, enviarPlano };
 }
 
 export default useCroquisMovil;

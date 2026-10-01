@@ -226,6 +226,10 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                               recorte = null, dibujarRecorte = false, onRecorte = null,
                               onRecorteModo = null, onRecorteQuitar = null,
                               recorteSugerido = false, midiendo = false,
+                              //: Delimitarlo con el DEDO en el móvil, y el contorno
+                              //: que se está dibujando allí (en este lienzo), que
+                              //: se ve aquí según se dibuja.
+                              onRecorteMovil = null, contornoMovil = null,
                               //: Lo que NO es vivienda dentro de ESTA planta (el
                               //: garaje de la baja con la vivienda encima), ya en
                               //: este lienzo, y el modo de dibujar otra zona. El
@@ -911,7 +915,9 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                                 onDibujar={() => onRecorteModo(true)}
                                 onQuitar={onRecorteQuitar}
                                 onCerrar={cerrarCubierta}
-                                onCancelar={() => { setVertices([]); onRecorte?.(null); }} />
+                                onCancelar={() => { setVertices([]); onRecorte?.(null); }}
+                                onMovil={onRecorteMovil
+                                    ? () => { setVertices([]); onRecorteMovil(); } : null} />
             )}
             {!es3d && !dibujarRecorte && (onZonaModo || onRecorteModo) && (
                 <ViviendaPlantaControl planta={planta} zonas={zonas}
@@ -923,6 +929,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                                        onZonaQuitar={onZonaQuitar}
                                        recorte={recorte} onRecorteModo={onRecorteModo}
                                        onRecorteQuitar={onRecorteQuitar}
+                                       onRecorteMovil={onRecorteMovil} contornoMovil={contornoMovil}
                                        recorteSugerido={recorteSugerido} midiendo={midiendo}
                                        croquis={croquis} dibujandoCroquis={dibujarCroquis}
                                        usoCroquis={usoCroquis} onUsoCroquis={onUsoCroquis}
@@ -1134,7 +1141,9 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                             {/* El CONTORNO DE LA VIVIENDA: el ya medido y el que
                                 se está dibujando. */}
                             <Recorte recorte={recorte}
-                                     vertices={dibujarRecorte ? vertices : []}
+                                     vertices={dibujarRecorte ? vertices : (contornoMovil?.pts || [])}
+                                     cerrado={!dibujarRecorte && !!contornoMovil?.cerrado}
+                                     dedo={!dibujarRecorte && !!contornoMovil?.pts?.length}
                                      cursor={dibujarRecorte ? cursor : null} tam={tam} />
 
                             {/* Lo que NO es vivienda en esta planta: las zonas
@@ -2283,10 +2292,13 @@ function Croquis({ trazos, lapiz, uso, tam, dedo = false }) {
 }
 
 /** El contorno de la VIVIENDA delimitada a mano, y el que se está dibujando. */
-function Recorte({ recorte, vertices, cursor, tam }) {
+function Recorte({ recorte, vertices, cursor, tam, cerrado = false, dedo = false }) {
     const puntos = (pts) => pts.map(([x, y]) => `${x},${y}`).join(' ');
     const poli = recorte?.lienzo;
-    const trazo = cursor ? [...vertices, [cursor.x, cursor.y]] : vertices;
+    // El contorno que llega del MÓVIL ya cerrado se dibuja cerrado: es lo que se
+    // va a aplicar si allí se pulsa «Delimitar».
+    const trazo = cursor ? [...vertices, [cursor.x, cursor.y]]
+        : (cerrado && vertices.length >= 3 ? [...vertices, vertices[0]] : vertices);
     return (
         <g style={{ pointerEvents: 'none' }}>
             {poli?.length >= 3 && (
@@ -2306,6 +2318,20 @@ function Recorte({ recorte, vertices, cursor, tam }) {
                                 fill={i === 0 ? 'var(--success)' : PAPEL}
                                 stroke="var(--success)" strokeWidth={tam * 0.08} />
                     ))}
+                    {/* Dónde está el DEDO ahora: el último punto puesto en el
+                        móvil, para seguirlo desde aquí. */}
+                    {dedo && (() => {
+                        const [x, y] = vertices[vertices.length - 1];
+                        return (
+                            <circle cx={x} cy={y} r={tam * 0.75} fill="none" stroke="var(--success)"
+                                    strokeWidth={tam * 0.08} opacity={0.6}>
+                                <animate attributeName="r" from={tam * 0.4} to={tam * 1.1}
+                                         dur="1.2s" repeatCount="indefinite" />
+                                <animate attributeName="opacity" from={0.8} to={0}
+                                         dur="1.2s" repeatCount="indefinite" />
+                            </circle>
+                        );
+                    })()}
                 </>
             )}
         </g>

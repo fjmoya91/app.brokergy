@@ -427,7 +427,10 @@ const croquisMovil = require('../services/croquisMovil');
 
 /**
  * POST /api/cee-envolvente/:expedienteId/croquis-movil
- * Body: { planta, muros, lienzo, zonas, catastro, trazos, georef }
+ * Body: { planta, muros, lienzo, zonas, catastro, trazos, georef, recorte, modo }
+ *
+ * `recorte` es el contorno de la vivienda ya aplicado (en el lienzo) y `modo`, la
+ * pestaña en la que se abre el teléfono ('vivienda' al delimitar un adosado).
  *
  * Abre el enlace y dibuja su QR. La CARTOGRAFÍA la pone el backend con el mismo
  * helper cacheado del plano (cero peticiones de más si ya se veía en pantalla):
@@ -498,6 +501,25 @@ router.post('/:expedienteId/croquis-movil/:token/resultado-huecos', internalOnly
  */
 router.post('/:expedienteId/croquis-movil/:token/paredes', internalOnly, staffSiOportunidad, (req, res) => {
     const ok = croquisMovil.actualizarParedes(req.params.token, req.params.expedienteId, req.body?.paredes);
+    res.status(ok ? 200 : 410).json({ ok });
+});
+
+/**
+ * POST …/croquis-movil/:token/resultado-contra — el ordenador ha aplicado (o no)
+ * lo que se dijo desde el teléfono de una pared (contra qué da).
+ */
+router.post('/:expedienteId/croquis-movil/:token/resultado-contra', internalOnly, staffSiOportunidad, (req, res) => {
+    const ok = croquisMovil.responderContra(req.params.token, req.params.expedienteId, req.body || {});
+    res.status(ok ? 200 : 410).json({ ok });
+});
+
+/**
+ * POST …/croquis-movil/:token/plano — el ordenador ha vuelto a MEDIR por su
+ * cuenta: la planta del teléfono se pone al día (paredes, zonas, contorno), ya
+ * en el lienzo del teléfono.
+ */
+router.post('/:expedienteId/croquis-movil/:token/plano', internalOnly, staffSiOportunidad, (req, res) => {
+    const ok = croquisMovil.actualizarPlano(req.params.token, req.params.expedienteId, req.body || {});
     res.status(ok ? 200 : 410).json({ ok });
 });
 

@@ -50,6 +50,16 @@ export const IconoMenos = ({ size = 20, className = '' }) => (
     <svg {...base(size)} className={className}><path d="M5 12h14" /></svg>
 );
 
+//: El CONTORNO de la vivienda: una casa con sus esquinas marcadas.
+export const IconoVivienda = ({ size = 14, className = '' }) => (
+    <svg {...base(size)} className={className}>
+        <path d="M4 11l8-6.5 8 6.5" />
+        <path d="M6 9.5V20h12V9.5" />
+        <circle cx="6" cy="20" r="1.2" fill="currentColor" />
+        <circle cx="18" cy="20" r="1.2" fill="currentColor" />
+    </svg>
+);
+
 export const IconoCamara = ({ size = 14, className = '' }) => (
     <svg {...base(size)} className={className}>
         <path d="M4 8.5A1.5 1.5 0 015.5 7h2l1.4-2h6.2l1.4 2h2A1.5 1.5 0 0120 8.5v9a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 17.5z" />

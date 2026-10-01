@@ -3,7 +3,10 @@ import { COLOR_CROQUIS, ETIQUETA_USO_ZONA, USOS_ZONA, textoCatastro, usoDeLinea 
 import { areaPoligono, simplificarTrazo } from '../logic/geometriaPlano';
 import { EtiquetaMancha } from '../components/EtiquetaMancha';
 import { IconoCamara, IconoDeshacer, IconoEncuadrar, IconoLapiz, IconoMas, IconoMenos, IconoPapelera,
-         IconoSinRed, IconoSubiendo } from '../components/IconosCroquis';
+         IconoSinRed, IconoSubiendo, IconoVivienda } from '../components/IconosCroquis';
+import { ViviendaMovil } from '../components/ViviendaMovil';
+import { MAX_VERTICES, cierraContorno, pegarVerticeContorno } from '../logic/contornoMovil';
+import { ATRIBUCION_PNOA, teselasOrtofoto } from '../logic/ortofoto';
 import { FotosParedMovil } from '../components/FotosParedMovil';
 import { mitadDePared, paredEnPunto } from '../logic/fotoMovil';
 import { claveDeToken, fotosEnCola, guardarRescate, guardarTrabajo, haceCuanto, leerPoner, leerRescate,
@@ -44,6 +47,19 @@ import { prepararSinCobertura } from '../logic/swCroquisMovil';
 // mandar, el siguiente QR de ESTA planta, abierto en este teléfono, las recupera.
 // La página abre aunque no haya red gracias a un service worker que solo
 // controla esta ruta (`public/sw-croquis.js`).
+//
+// Y un tercer modo, VIVIENDA (2026-10-01): en una comunidad de adosados Catastro
+// mide el bloque entero y hay que decir dónde acaba la casa (regla 75). Se tocan
+// sus esquinas —un toque pone un punto, pegado a la esquina o a la pared más
+// cercana; un dedo arrastrado mueve el plano— y se cierra tocando la primera.
+// El ORDENADOR aplica el contorno con su mismo «Delimitar adosado» y vuelve a
+// medir; después, en «Paredes», se toca cada una y se dice contra qué da.
+// El contorno a medias se ve en el ordenador según se dibuja, y sin cobertura
+// se guarda aquí y se manda solo, como lo demás.
+//
+// La VISTA AÉREA (ortofoto del PNOA) también se puede poner debajo: en una
+// hilera de adosados los tejados dicen dónde acaba cada casa mejor que nada.
+// Las teselas las pide el teléfono al IGN, igual que la ventana del ordenador.
 // ============================================================================
 
 const API = '/api/public/croquis-movil';
@@ -61,6 +77,13 @@ const CONFIRMA_MS = 3000;
 const TAM_PX = 14;
 
 const colorDe = (uso) => COLOR_CROQUIS[uso] || COLOR_CROQUIS['ESPACIO NO HABITABLE'];
+const MODOS_MOVIL = ['vivienda', 'croquis', 'fotos'];
+//: El verde del contorno de la vivienda: el mismo que en el ordenador.
+const VERDE = '#059669';
+//: El fondo elegido (mapa del Catastro o vista aérea) se recuerda en ESTE
+//: teléfono: quien trabaja con la foto la quiere en la planta siguiente.
+const CLAVE_FONDO = 'brokergy.croquisMovil.fondo';
+const CONTORNO_VACIO = { pts: [], cerrado: false };
 const puntos = (pts) => pts.map(([x, y]) => `${x},${y}`).join(' ');
 const fmt = (n) => (Number(n) || 0).toFixed(0);
 
@@ -153,6 +176,33 @@ export default function CroquisMovilView({ token }) {
     //: 'croquis' (pintar lo que no es vivienda) · 'fotos' (la foto de cada pared)
     const [modo, setModo] = useState('croquis');
     const [selPared, setSelPared] = useState(null);
+    //: DELIMITAR LA VIVIENDA: el contorno que se está dibujando (en el lienzo
+    //: de este teléfono), la sub-pestaña («contorno» o «paredes»; null = la que
+    //: toque), la pared elegida para decir contra qué da y el pedido de aplicar.
+    const [contorno, setContorno] = useState(CONTORNO_VACIO);
+    const contornoRef = useRef(CONTORNO_VACIO);
+    const [subVivienda, setSubVivienda] = useState(null);
+    const [selParedV, setSelParedV] = useState(null);
+    const [viviendaEnCola, setViviendaEnCola] = useState(null);
+    const viviendaRef = useRef(null);
+    const [aplicandoVivienda, setAplicandoVivienda] = useState(false);
+    const [resultadoVivienda, setResultadoVivienda] = useState(null);
+    const [avisoVivienda, setAvisoVivienda] = useState(null);
+    //: Lo que se ha dicho de cada pared y aún no ha llegado: [{ id, pared, contra }].
+    const [contras, setContras] = useState([]);
+    const contrasRef = useRef([]);
+    const [avisoContra, setAvisoContra] = useState(null);
+    const vistoContra = useRef(0);
+    const planoVisto = useRef(0);
+    //: Tras delimitar, la planta es otra (solo la casa): se re-encuadra al llegar.
+    const reencuadrarAlCargar = useRef(false);
+    const [fondo, setFondo] = useState(() => {
+        try { return localStorage.getItem(CLAVE_FONDO) === 'satelite' ? 'satelite' : 'mapa'; }
+        catch { return 'mapa'; }
+    });
+    //: La sub-pestaña de VIVIENDA que se ve: la elegida, o «Paredes» si la
+    //: vivienda ya está delimitada y «Contorno» si todavía no.
+    const subActiva = subVivienda || (datos?.plano?.recorte?.length >= 3 ? 'paredes' : 'contorno');
     const [fotosPorPared, setFotosPorPared] = useState({});
     const [resultadoHuecos, setResultadoHuecos] = useState(null);
     const paredesVistas = useRef(0);
@@ -258,7 +308,24 @@ export default function CroquisMovilView({ token }) {
                 setAjusteEnCola(propio.ajuste);
                 setFase('ajustando');
             }
-            if (propio?.sinEnviar || propio?.ajuste) setPulso(p => p + 1);
+            // La pestaña en la que se abre: quien pulsó «Delimitar en el móvil»
+            // viene a dibujar el contorno, no a pintar un garaje.
+            setModo(MODOS_MOVIL.includes(d.modoInicial) ? d.modoInicial : 'croquis');
+            // El contorno de la vivienda que se estaba dibujando, lo que quedó
+            // por pedir y lo dicho de las paredes sin mandar.
+            const c0 = propio?.contorno?.pts?.length ? propio.contorno
+                : (d.contorno?.pts?.length ? d.contorno : null);
+            if (c0) { contornoRef.current = c0; setContorno(c0); }
+            if (propio?.vivienda) {
+                viviendaRef.current = propio.vivienda;
+                setViviendaEnCola(propio.vivienda);
+                setAplicandoVivienda(true);
+            }
+            if (Array.isArray(propio?.contras) && propio.contras.length) {
+                contrasRef.current = propio.contras;
+                setContras(propio.contras);
+            }
+            if (propio?.sinEnviar || propio?.ajuste || propio?.vivienda || propio?.contras?.length) setPulso(p => p + 1);
         };
         cargar();
         return () => { vivo = false; clearTimeout(t); };
@@ -271,8 +338,9 @@ export default function CroquisMovilView({ token }) {
     useEffect(() => {
         const clave = claveRef.current;
         if (!clave || !datos) return;
-        guardarTrabajo(clave, { token, marco: datos.marco || null, trazos, sinEnviar, ajuste: ajusteEnCola });
-    }, [trazos, sinEnviar, ajusteEnCola, datos, token]);
+        guardarTrabajo(clave, { token, marco: datos.marco || null, trazos, sinEnviar, ajuste: ajusteEnCola,
+                                contorno, vivienda: viviendaEnCola, contras });
+    }, [trazos, sinEnviar, ajusteEnCola, datos, token, contorno, viviendaEnCola, contras]);
 
     // Con el enlace cerrado: ¿queda algo guardado en este teléfono? Se dice, con
     // cómo recuperarlo — no es lo mismo que haberlo perdido.
@@ -372,7 +440,7 @@ export default function CroquisMovilView({ token }) {
             cambios.current.hecho += 1;
             setSinEnviar(true);
         }
-        envio.current.ultimo = { trazos: lista, enCurso: curso };
+        envio.current.ultimo = { trazos: lista, enCurso: curso, contorno: contornoRef.current };
         if (!ya && Date.now() - envio.current.hora < CADENCIA_ENVIO_MS) {
             // Demasiado seguido: se queda apuntado y sale con el siguiente.
             if (!envio.current.temporizador) {
@@ -383,6 +451,32 @@ export default function CroquisMovilView({ token }) {
             }
             return;
         }
+        mandar();
+    }, [mandar]);
+
+    // La planta de AHORA (paredes, zonas, contorno). Si se ha delimitado, la
+    // casa es otra y se encuadra: el bloque entero ya no es lo que se mira.
+    const recargarPlano = useCallback(async () => {
+        try {
+            const r2 = await fetch(`${API}/${token}`);
+            const d2 = await r2.json().catch(() => ({}));
+            if (!r2.ok || !d2.plano) return;
+            setDatos(dd => dd && ({ ...dd, plano: d2.plano, propuesta: d2.propuesta ?? dd.propuesta }));
+            if (reencuadrarAlCargar.current) {
+                reencuadrarAlCargar.current = false;
+                const r = cajaRef.current?.getBoundingClientRect();
+                if (r) setVb(encuadre(d2.plano, r.width / Math.max(1, r.height)));
+            }
+        } catch { /* se queda la de antes */ }
+    }, [token]);
+
+    // ── El CONTORNO de la vivienda ────────────────────────────────────────
+    // Se manda con lo demás (estado ENTERO): el ordenador lo dibuja según se
+    // dibuja aquí. Un punto perdido lo corrige el siguiente envío.
+    const ponContorno = useCallback((c) => {
+        contornoRef.current = c;
+        setContorno(c);
+        envio.current.ultimo = { trazos: trazosRef.current, enCurso: null, contorno: c };
         mandar();
     }, [mandar]);
 
@@ -403,6 +497,18 @@ export default function CroquisMovilView({ token }) {
                 const d = await r.json();
                 if (d.estado === 'cerrada') { setCerrada(true); return; }
                 setSinOrdenador(!!d.ordenadorAusente);
+                // Lo que se dijo de una pared, aplicado en el ordenador (o no).
+                if (d.resultadoContra && d.resultadoContra.serial > vistoContra.current) {
+                    vistoContra.current = d.resultadoContra.serial;
+                    setAvisoContra(d.resultadoContra);
+                }
+                // El ordenador ha vuelto a MEDIR por su cuenta (o tras delimitar):
+                // se pide la planta de ahora. Con la de antes se seguiría tocando
+                // paredes que ya no existen.
+                if (d.planoV && d.planoV !== planoVisto.current) {
+                    planoVisto.current = d.planoV;
+                    await recargarPlano();
+                }
                 // Los huecos que el ordenador acaba de poner (o no).
                 if (d.resultadoHuecos) {
                     setResultadoHuecos(prev => (prev?.serial === d.resultadoHuecos.serial ? prev : d.resultadoHuecos));
@@ -422,7 +528,26 @@ export default function CroquisMovilView({ token }) {
                     } catch { /* al siguiente tic */ }
                 }
                 const res = d.resultado;
-                if (res && res.serial > vistoSerial.current) {
+                if (res && res.serial > vistoSerial.current && res.tipo === 'vivienda') {
+                    // DELIMITAR LA VIVIENDA: lo dibujado ya es el contorno de la
+                    // planta (o se ha quitado). Se pasa a «Paredes», que es lo
+                    // siguiente que hay que mirar, y se encuadra la casa nueva.
+                    vistoSerial.current = res.serial;
+                    setResultadoVivienda(res);
+                    setAplicandoVivienda(false);
+                    viviendaRef.current = null;
+                    setViviendaEnCola(null);
+                    if (res.ok) {
+                        ponContorno(CONTORNO_VACIO);
+                        setSubVivienda('paredes');
+                        setSelParedV(null);
+                        reencuadrarAlCargar.current = true;
+                    } else {
+                        setAvisoVivienda(res.texto || 'No se ha podido delimitar.');
+                        setSubVivienda('contorno');
+                    }
+                    if (res.remedido) await recargarPlano();
+                } else if (res && res.serial > vistoSerial.current) {
                     vistoSerial.current = res.serial;
                     setResultado(res);
                     setFase('hecho');
@@ -431,11 +556,7 @@ export default function CroquisMovilView({ token }) {
                         // El ordenador ha VUELTO A MEDIR: se pide la planta de
                         // ahora —paredes y zonas—. Con las paredes de antes, las
                         // zonas nuevas se pintaban sobre una planta que ya no es.
-                        try {
-                            const r2 = await fetch(`${API}/${token}`);
-                            const d2 = await r2.json().catch(() => ({}));
-                            if (r2.ok && d2.plano) setDatos(dd => dd && ({ ...dd, plano: d2.plano }));
-                        } catch { /* se queda la de antes */ }
+                        await recargarPlano();
                     } else if (res.ok && res.zonas?.length) {
                         // Lo que ha salido se ve encima de la planta: es sobre
                         // lo que se corrige si hace falta.
@@ -446,7 +567,62 @@ export default function CroquisMovilView({ token }) {
             finally { consultando.current = false; }
         }, POLL_ESTADO_MS);
         return () => clearInterval(id);
-    }, [datos, cerrada, token, red]);
+    }, [datos, cerrada, token, red, ponContorno, recargarPlano]);
+
+    // Pedir que se aplique (o se quite): se APUNTA antes, como el ajuste, y sin
+    // cobertura sale solo al volver la señal (con su id, para no pedirlo dos veces).
+    const mandarVivienda = useCallback(async () => {
+        const pet = viviendaRef.current;
+        if (!pet) return;
+        try {
+            const r = await pedir(`${API}/${token}/vivienda`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ poligono: pet.poligono, quitar: !pet.poligono, id_local: pet.id }),
+            }, { plazo: 15_000 });
+            if (r.status === 410) { setCerrada(true); return; }
+            red(true);
+            if (viviendaRef.current?.id !== pet.id) return;    // se canceló mientras iba
+            viviendaRef.current = null;
+            setViviendaEnCola(null);
+            if (!r.ok) {
+                const d = await r.json().catch(() => ({}));
+                setAvisoVivienda(d.error || 'No se ha podido pedir.');
+                setAplicandoVivienda(false);
+            }
+            // Si ha ido bien, se sigue esperando el RESULTADO: lo trae el estado.
+        } catch {
+            red(false);   // se queda en el teléfono: sale al volver la red
+        }
+    }, [token, red]);
+
+    // Lo dicho de cada pared, EN ORDEN. Lo que no llega se queda en la cola.
+    const mandandoContras = useRef(false);
+    const mandarContras = useCallback(async () => {
+        if (mandandoContras.current) return;
+        mandandoContras.current = true;
+        try {
+            while (contrasRef.current.length) {
+                const c = contrasRef.current[0];
+                let r;
+                try {
+                    r = await pedir(`${API}/${token}/contra`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ pared: c.pared, contra: c.contra, id_local: c.id }),
+                    }, { plazo: 12_000 });
+                } catch { red(false); return; }
+                if (r.status === 410) { setCerrada(true); return; }
+                red(true);
+                if (!r.ok) {
+                    const d = await r.json().catch(() => ({}));
+                    setAvisoContra({ ok: false, texto: d.error || 'No se ha podido cambiar esa pared.' });
+                }
+                contrasRef.current = contrasRef.current.filter(x => x.id !== c.id);
+                setContras(contrasRef.current);
+            }
+        } finally {
+            mandandoContras.current = false;
+        }
+    }, [token, red]);
 
     // ── Vuelve la red: sale lo pendiente ──────────────────────────────────
     const mandarAjuste = useCallback(async () => {
@@ -480,16 +656,18 @@ export default function CroquisMovilView({ token }) {
         if (!pulso || !datos || cerrada) return;
         (async () => {
             if (cambios.current.confirmado < cambios.current.hecho) {
-                envio.current.ultimo = { trazos: trazosRef.current, enCurso: null };
+                envio.current.ultimo = { trazos: trazosRef.current, enCurso: null, contorno: contornoRef.current };
                 await mandar();
             }
             if (ajusteRef.current) await mandarAjuste();
+            if (viviendaRef.current) await mandarVivienda();
+            if (contrasRef.current.length) await mandarContras();
         })();
     }, [pulso]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Tras un corte, cuando ya no queda nada por mandar: se dice, un momento.
     const hayPendiente = sinEnviar || !!ajusteEnCola || pendFotos.fotos > 0 || pendFotos.huecos > 0
-        || pendFotos.lecturas > 0;
+        || pendFotos.lecturas > 0 || !!viviendaEnCola || contras.length > 0;
     useEffect(() => {
         if (sinRed) { if (hayPendiente) setCorteConPendiente(true); return; }
         if (hayPendiente || !corteConPendiente) return;
@@ -501,6 +679,11 @@ export default function CroquisMovilView({ token }) {
         const t = setTimeout(() => setEnviadoTodo(false), 3500);
         return () => clearTimeout(t);
     }, [enviadoTodo]);
+    useEffect(() => {
+        if (!avisoContra) return undefined;
+        const t = setTimeout(() => setAvisoContra(null), 4500);
+        return () => clearTimeout(t);
+    }, [avisoContra]);
 
     // ── El dedo ───────────────────────────────────────────────────────────
     const aDibujo = (cx, cy) => {
@@ -510,6 +693,7 @@ export default function CroquisMovilView({ token }) {
 
     const onDown = (e) => {
         if (!vb || (modo === 'croquis' && fase !== 'pintando')) return;
+        if (modo === 'vivienda' && aplicandoVivienda) return;
         e.preventDefault();
         // Capturar el dedo: si sale del dibujo a mitad de trazo, se sigue
         // recibiendo. Algún navegador lo rechaza para ciertos punteros, y eso
@@ -517,9 +701,9 @@ export default function CroquisMovilView({ token }) {
         try { svgRef.current?.setPointerCapture?.(e.pointerId); } catch { /* sin captura */ }
         punteros.current.set(e.pointerId, [e.clientX, e.clientY]);
         if (punteros.current.size === 1) {
-            gesto.current = modo === 'fotos'
-                // En FOTOS un dedo no pinta: TOCA una pared (la elige) o, si se
-                // arrastra, mueve el plano.
+            gesto.current = modo !== 'croquis'
+                // En FOTOS y en VIVIENDA un dedo no pinta: TOCA (elige una pared
+                // o pone una esquina) o, si se arrastra, mueve el plano.
                 ? { tipo: 'toque', id: e.pointerId, x0: e.clientX, y0: e.clientY, vb0: vb, movido: false }
                 : { tipo: 'trazo', id: e.pointerId, pts: [aDibujo(e.clientX, e.clientY)] };
         } else if (punteros.current.size === 2) {
@@ -592,12 +776,75 @@ export default function CroquisMovilView({ token }) {
             if (!g.movido) {
                 // Un TOQUE: la pared más cercana bajo el dedo, con un radio de
                 // dedo (26 px), nunca una lejana. Tocar el vacío la suelta.
-                const radio = 26 * vb.w / Math.max(1, anchoPx || svgRef.current.getBoundingClientRect().width);
-                setSelPared(paredEnPunto(datos?.plano?.muros, aDibujo(e.clientX, e.clientY), radio));
+                const px = vb.w / Math.max(1, anchoPx || svgRef.current.getBoundingClientRect().width);
+                const p = aDibujo(e.clientX, e.clientY);
+                if (modo === 'vivienda') tocarVivienda(p, px);
+                else setSelPared(paredEnPunto(datos?.plano?.muros, p, 26 * px));
             }
         } else if (g?.tipo === 'pinza' && punteros.current.size < 2) {
             gesto.current = null;
         }
+    };
+
+    // Un toque en la pestaña VIVIENDA: en «Contorno» pone una esquina (o
+    // cierra, si es la primera); en «Paredes» elige la pared para decir contra
+    // qué da. `px` son los metros de un píxel de pantalla.
+    const tocarVivienda = (p, px) => {
+        if (subActiva === 'paredes') {
+            setSelParedV(paredEnPunto(datos?.plano?.muros, p, 26 * px));
+            return;
+        }
+        const c = contornoRef.current;
+        if (c.cerrado) return;     // cerrado: se aplica o se deshace, no se sigue
+        setAvisoVivienda(null);
+        if (cierraContorno(c.pts, p, 24 * px)) { ponContorno({ pts: c.pts, cerrado: true }); return; }
+        if (c.pts.length >= MAX_VERTICES) return;
+        // El imán: esquinas primero, luego la pared más cercana. Con un tope de
+        // 1,6 m, como el del ordenador: lejos se pone donde se toca.
+        const { p: q } = pegarVerticeContorno(datos?.plano?.muros, p, Math.min(1.6, 22 * px));
+        ponContorno({ pts: [...c.pts, q], cerrado: false });
+    };
+    const deshacerEsquina = () => {
+        const c = contornoRef.current;
+        if (!c.pts.length) return;
+        ponContorno(c.cerrado ? { pts: c.pts, cerrado: false } : { pts: c.pts.slice(0, -1), cerrado: false });
+    };
+    const borrarContorno = () => ponContorno(CONTORNO_VACIO);
+    const pedirVivienda = async (poligono) => {
+        setAvisoVivienda(null);
+        setResultadoVivienda(null);
+        setAplicandoVivienda(true);
+        const pet = { id: nuevoIdLocal('vi'), poligono };
+        viviendaRef.current = pet;
+        setViviendaEnCola(pet);
+        await mandarVivienda();
+    };
+    const delimitar = () => {
+        const c = contornoRef.current;
+        if (c.pts.length < 3) return;
+        if (!c.cerrado) ponContorno({ pts: c.pts, cerrado: true });
+        pedirVivienda(c.pts);
+    };
+    const quitarContorno = () => pedirVivienda(null);
+    const cancelarVivienda = () => {
+        viviendaRef.current = null;
+        setViviendaEnCola(null);
+        setAplicandoVivienda(false);
+    };
+    // Contra qué da una pared: se ve AL MOMENTO aquí (el ordenador lo confirma
+    // después con las paredes de verdad) y se pone en la cola.
+    const decirContra = (pared, contra) => {
+        setDatos(dd => dd && ({ ...dd, plano: { ...dd.plano, muros: dd.plano.muros.map(m => (m.id === pared
+            ? { ...m, tipo: contra, admite: contra === 'FACHADA' } : m)) } }));
+        const nueva = { id: nuevoIdLocal('co'), pared, contra };
+        contrasRef.current = [...contrasRef.current.filter(c => c.pared !== pared), nueva];
+        setContras(contrasRef.current);
+        mandarContras();
+    };
+    const cambiaFondo = () => {
+        const f = fondo === 'satelite' ? 'mapa' : 'satelite';
+        setFondo(f);
+        try { localStorage.setItem(CLAVE_FONDO, f); } catch { /* sin almacenamiento: da igual */ }
     };
 
     const zoom = (k) => setVb(v => v && ({ x: v.x + v.w * (1 - k) / 2, y: v.y + v.h * (1 - k) / 2, w: v.w * k, h: v.h * k }));
@@ -725,17 +972,28 @@ export default function CroquisMovilView({ token }) {
     const repintando = trazos.length > 0 || !!enCurso;
     const ajustando = fase === 'ajustando';
     const enFotos = modo === 'fotos';
-    const pista = !enFotos && fase === 'pintando' && !repintando && !sinOrdenador && !sinRed;
+    const enVivienda = modo === 'vivienda';
+    const enCroquis = modo === 'croquis';
+    const recorte = datos.plano?.recorte?.length >= 3 ? datos.plano.recorte : null;
+    const pista = enCroquis && fase === 'pintando' && !repintando && !sinOrdenador && !sinRed;
+    const pistaVivienda = enVivienda && subActiva === 'contorno' && !contorno.pts.length && !aplicandoVivienda
+        && !sinOrdenador && !sinRed;
+    // La VISTA AÉREA debajo, si se ha elegido: las teselas, ya en este lienzo.
+    const orto = fondo === 'satelite' && datos.georef ? teselasOrtofoto(datos.georef) : null;
+    const conFoto = !!orto?.teselas?.length;
+    const contrasPendientes = new Set(contras.map(c => c.pared));
     const pistaFotos = enFotos && !selPared && !sinOrdenador && !sinRed;
     const pendienteTxt = textoPendiente({ zonas: sinEnviar ? Math.max(1, trazos.length) : 0, fotos: pendFotos.fotos,
                                           huecos: pendFotos.huecos, lecturas: pendFotos.lecturas,
-                                          ajuste: !!ajusteEnCola });
+                                          ajuste: !!ajusteEnCola, vivienda: !!viviendaEnCola,
+                                          contras: contras.length });
     const paredesConId = muros.filter(m => m.id);
     const tieneFoto = (id) => (fotosPorPared[id] || []).some(f => !f.roto);
     const cambiaModo = (m) => {
         setModo(m);
         if (m === 'fotos') cargarFotos();
         else setSelPared(null);
+        if (m !== 'vivienda') setSelParedV(null);
     };
     const m2Dibujados = trazos.reduce((a, t) => a + areaPoligono(t.pts), 0);
     const rescateAqui = rescate ? recuperarTrazos(rescate.trazos, rescate.marco, datos.marco) : [];
@@ -776,17 +1034,28 @@ export default function CroquisMovilView({ token }) {
                                 </pattern>
                             ))}
                         </defs>
-                        {carto?.imagen && (
+                        {carto?.imagen && !conFoto && (
                             <image href={`data:${carto.tipo || 'image/png'};base64,${carto.imagen}`}
                                    x={carto.en_el_lienzo.x} y={carto.en_el_lienzo.y}
                                    width={carto.en_el_lienzo.ancho} height={carto.en_el_lienzo.alto}
                                    preserveAspectRatio="none" opacity={0.5} filter="url(#mapa-base)" />
                         )}
+                        {/* La VISTA AÉREA: en una hilera de adosados los tejados
+                            dicen dónde acaba cada casa. A plena intensidad: es
+                            lo que se viene a mirar. */}
+                        {conFoto && (
+                            <g style={{ pointerEvents: 'none' }}>
+                                {orto.teselas.map(t => (
+                                    <image key={t.key} href={t.href} x={t.x} y={t.y}
+                                           width={t.ancho} height={t.alto} preserveAspectRatio="none" />
+                                ))}
+                            </g>
+                        )}
 
                         {/* 1 · Lo ya marcado (rayado) y los rellenos de lo pintado:
                             DEBAJO de las paredes, que son por donde hay que rodear. */}
                         {/* En FOTOS lo que se mira son las paredes: las zonas, atenuadas. */}
-                        <g opacity={repintando ? 0.35 : enFotos ? 0.5 : 1}>
+                        <g opacity={repintando ? 0.35 : (enFotos || enVivienda) ? 0.5 : 1}>
                             {zonasHechas.map((z, i) => {
                                 const k = Math.max(0, usos.indexOf(z.uso));
                                 return (
@@ -801,11 +1070,29 @@ export default function CroquisMovilView({ token }) {
                         {trazos.map((t, i) => (
                             <polygon key={`f${i}`} points={puntos(t.pts)} fill={colorDe(t.uso)} fillOpacity={0.18} />
                         ))}
-                        {rescate && !enFotos && rescateAqui.map((t, i) => (
+                        {rescate && enCroquis && rescateAqui.map((t, i) => (
                             <polygon key={`rs${i}`} points={puntos(t.pts)} fill="#f59e0b" fillOpacity={0.12}
                                      stroke="#d97706" strokeWidth={tam * 0.16} strokeLinejoin="round"
                                      strokeDasharray={`${tam * 0.45} ${tam * 0.3}`} />
                         ))}
+
+                        {/* El CONTORNO DE LA VIVIENDA ya aplicado: verde a trazos.
+                            En «Vivienda» con más fuerza; en lo demás, de fondo. */}
+                        {recorte && (
+                            <polygon points={puntos(recorte)} fill={VERDE} fillOpacity={enVivienda ? 0.07 : 0}
+                                     stroke={VERDE} strokeWidth={tam * (enVivienda ? 0.2 : 0.12)}
+                                     strokeOpacity={enVivienda ? 0.95 : 0.55} strokeLinejoin="round"
+                                     strokeDasharray={`${tam * 0.7} ${tam * 0.4}`}
+                                     style={{ pointerEvents: 'none' }} />
+                        )}
+                        {/* La pared elegida en «Paredes»: un halo debajo de todo. */}
+                        {enVivienda && selParedV && (() => {
+                            const m = muros.find(x => x.id === selParedV);
+                            return m ? (
+                                <polyline points={puntos(m.svg)} fill="none" stroke="#7c3aed" strokeOpacity={0.35}
+                                          strokeWidth={tam * 1.1} strokeLinecap="round" strokeLinejoin="round" />
+                            ) : null;
+                        })()}
 
                         {/* La pared ELEGIDA para su foto: un halo debajo de todo. */}
                         {enFotos && selPared && (() => {
@@ -832,6 +1119,49 @@ export default function CroquisMovilView({ token }) {
                                           strokeDasharray={t.dash ? `${tam * 0.7} ${tam * 0.45}` : undefined} />
                             );
                         })}
+
+                        {/* El CONTORNO que se está dibujando: los lados puestos, por
+                            dónde se va a cerrar (a trazos) y las esquinas; la
+                            primera, grande —tocarla cierra—. */}
+                        {enVivienda && contorno.pts.length > 0 && (() => {
+                            const pts = contorno.pts;
+                            const p0 = pts[0], pn = pts[pts.length - 1];
+                            const cerrado = contorno.cerrado;
+                            return (
+                                <g style={{ pointerEvents: 'none' }}>
+                                    {pts.length >= 3 && (
+                                        <polygon points={puntos(pts)} fill={VERDE} fillOpacity={cerrado ? 0.16 : 0.08} />
+                                    )}
+                                    <polyline points={puntos(cerrado ? [...pts, p0] : pts)} fill="none" stroke="#fff"
+                                              strokeOpacity={0.9} strokeWidth={tam * 0.46}
+                                              strokeLinejoin="round" strokeLinecap="round" />
+                                    <polyline points={puntos(cerrado ? [...pts, p0] : pts)} fill="none" stroke={VERDE}
+                                              strokeWidth={tam * 0.24} strokeLinejoin="round" strokeLinecap="round"
+                                              strokeDasharray={aplicandoVivienda ? `${tam * 0.5} ${tam * 0.35}` : undefined}>
+                                        {aplicandoVivienda && (
+                                            <animate attributeName="stroke-dashoffset" from={0} to={-tam * 1.7}
+                                                     dur="0.8s" repeatCount="indefinite" />
+                                        )}
+                                    </polyline>
+                                    {!cerrado && pts.length >= 2 && (
+                                        <line x1={pn[0]} y1={pn[1]} x2={p0[0]} y2={p0[1]} stroke={VERDE}
+                                              strokeWidth={tam * 0.1} strokeDasharray={`${tam * 0.4} ${tam * 0.3}`}
+                                              strokeOpacity={0.7} />
+                                    )}
+                                    {pts.map(([x, y], i) => (
+                                        <circle key={i} cx={x} cy={y}
+                                                r={i === 0 ? tam * (pts.length >= 3 && !cerrado ? 0.62 : 0.45) : tam * 0.3}
+                                                fill={i === 0 ? VERDE : PAPEL} stroke={i === 0 ? '#fff' : VERDE}
+                                                strokeWidth={tam * 0.12} />
+                                    ))}
+                                    {pts.length >= 3 && !cerrado && (
+                                        <circle cx={p0[0]} cy={p0[1]} r={tam * 0.95} fill="none" stroke={VERDE}
+                                                strokeWidth={tam * 0.08} strokeOpacity={0.6}
+                                                strokeDasharray={`${tam * 0.25} ${tam * 0.2}`} />
+                                    )}
+                                </g>
+                            );
+                        })()}
 
                         {/* 3 · Los contornos de lo pintado; mientras se ajusta, en
                             movimiento, para que se vea que se están procesando. */}
@@ -870,7 +1200,7 @@ export default function CroquisMovilView({ token }) {
                         })()}
 
                         {/* 5 · Los rótulos, lo último: encima de todo lo demás. */}
-                        {!repintando && !enFotos && zonasHechas.map((z, i) => {
+                        {!repintando && enCroquis && zonasHechas.map((z, i) => {
                             const c = centroDe(z.lienzo);
                             return (
                                 <EtiquetaMancha key={`rz${i}`} cx={c[0]} cy={c[1]} tam={tam}
@@ -914,6 +1244,18 @@ export default function CroquisMovilView({ token }) {
                                 </g>
                             );
                         })}
+                        {enVivienda && selParedV && (() => {
+                            const m = muros.find(x => x.id === selParedV);
+                            if (!m) return null;
+                            const [cx, cy] = mitadDePared(m.svg);
+                            const tipo = { FACHADA: 'Al exterior', MEDIANERA: 'Al vecino',
+                                           PARTICION_VERTICAL: 'A un local' }[m.tipo] || null;
+                            return (
+                                <EtiquetaMancha cx={cx} cy={cy - tam * 1.9} tam={tam}
+                                                titulo={m.nombre || m.id} sub={tipo}
+                                                color="#7c3aed" papel={PAPEL} tinta={TINTA} tintaSub={TINTA_SUAVE} />
+                            );
+                        })()}
                         {enFotos && selPared && (() => {
                             const m = muros.find(x => x.id === selPared);
                             if (!m) return null;
@@ -1009,6 +1351,32 @@ export default function CroquisMovilView({ token }) {
                     </div>
                 )}
 
+                {pistaVivienda && (
+                    <div className="croquis-chip rounded-xl px-3 py-2 text-[12.5px] leading-snug shadow-lg"
+                         style={{ background: 'rgba(15, 23, 42, 0.86)' }}>
+                        <strong>Toca las esquinas de tu vivienda</strong>
+                        <span className="opacity-75"> · un dedo mueve, dos amplían</span>
+                        {datos.georef && fondo !== 'satelite' && (
+                            <span className="mt-1.5 flex items-center justify-between gap-2 text-[12px]">
+                                <span className="opacity-85">En una hilera, los tejados dicen dónde acaba cada casa.</span>
+                                <button onClick={cambiaFondo}
+                                        className="pointer-events-auto min-h-[36px] shrink-0 rounded-lg border
+                                                   border-white/40 px-2.5 text-[12px] font-bold">
+                                    Ver la foto aérea
+                                </button>
+                            </span>
+                        )}
+                    </div>
+                )}
+                {enVivienda && avisoContra && (
+                    <div role="status"
+                         className={`rounded-xl border px-3 py-1.5 text-[12.5px] leading-snug shadow-lg
+                             ${avisoContra.ok ? 'border-violet-400/60 bg-violet-50 text-violet-900'
+                                              : 'border-amber-500/60 bg-amber-50 text-amber-900'}`}>
+                        {avisoContra.texto || (avisoContra.ok ? 'Cambiado.' : 'No se ha podido cambiar.')}
+                    </div>
+                )}
+
                 {pistaFotos && (
                     <div className="croquis-chip rounded-xl px-3 py-2 text-[12.5px] leading-snug shadow-lg"
                          style={{ background: 'rgba(15, 23, 42, 0.86)' }}>
@@ -1027,7 +1395,25 @@ export default function CroquisMovilView({ token }) {
                 </div>
 
                 {/* Los mandos del encuadre, abajo: al alcance del pulgar. */}
+                {/* La atribución de la foto aérea, mientras se ve. */}
+                {conFoto && (
+                    // Por encima de la barra de escala, que va en la esquina.
+                    <span className="pointer-events-none absolute bottom-11 left-2 z-10 max-w-[60%] rounded-md
+                                     bg-white/85 px-1.5 py-0.5 text-[9.5px] font-semibold text-slate-700">
+                        {ATRIBUCION_PNOA}
+                    </span>
+                )}
                 <div className="absolute bottom-3 right-3 flex flex-col gap-1.5">
+                    {datos.georef && (
+                        <button onClick={cambiaFondo}
+                                aria-label={fondo === 'satelite' ? 'Ver el mapa del Catastro' : 'Ver la foto aérea'}
+                                title={fondo === 'satelite' ? 'Ver el mapa del Catastro' : 'Ver la foto aérea'}
+                                className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-300
+                                           bg-white/95 text-[10.5px] font-black uppercase text-slate-700 shadow-md
+                                           active:bg-slate-100">
+                            {fondo === 'satelite' ? 'Mapa' : 'Foto'}
+                        </button>
+                    )}
                     {[['Ampliar', <IconoMas key="m" />, () => zoom(0.7)],
                       ['Alejar', <IconoMenos key="n" />, () => zoom(1 / 0.7)],
                       ['Encuadrar la planta', <IconoEncuadrar key="e" />, reencuadrar]].map(([t, ic, fn]) => (
@@ -1039,7 +1425,38 @@ export default function CroquisMovilView({ token }) {
                     ))}
                 </div>
 
-                {ajustando && !enFotos && (
+                {aplicandoVivienda && enVivienda && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-white/40 px-8">
+                        <div className="flex max-w-xs flex-col items-center gap-2 rounded-2xl border border-white/10
+                                        bg-bkg-surface/95 px-5 py-4 text-center shadow-2xl">
+                            {viviendaEnCola && sinRed ? (
+                                <>
+                                    <IconoSinRed size={30} className="text-amber-300" />
+                                    <p className="text-[14px] font-bold text-white">Sin cobertura</p>
+                                    <p className="text-[12px] leading-snug text-white/75">
+                                        Se pedirá solo en cuanto vuelva la señal. El contorno está guardado en el teléfono.
+                                    </p>
+                                </>
+                            ) : (
+                                <>
+                                    <svg className="h-8 w-8 animate-spin text-emerald-400" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                    </svg>
+                                    <p className="text-[14px] font-bold text-white">Midiendo la vivienda en el ordenador…</p>
+                                    <p className="text-[12px] text-white/75">Lo de fuera pasa a ser la casa de al lado (medianera).</p>
+                                </>
+                            )}
+                            <button onClick={cancelarVivienda}
+                                    className="mt-1 min-h-[44px] rounded-xl border border-white/20 bg-white/[0.06] px-4
+                                               text-[13px] font-bold text-white">
+                                Dejar de esperar
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {ajustando && enCroquis && (
                     <div className="absolute inset-0 flex items-center justify-center bg-white/40 px-8">
                         {ajusteEnCola && sinRed ? (
                             // Pedido sin cobertura: está a salvo en el teléfono, no trabajando.
@@ -1084,9 +1501,10 @@ export default function CroquisMovilView({ token }) {
                 </div>
                 {/* Qué se hace: pintar lo que no es vivienda, o la foto de cada pared. */}
                 <div className="mx-auto w-full max-w-xl shrink-0 px-3 pt-2.5">
-                    <div role="tablist" className="grid grid-cols-2 gap-1 rounded-xl border border-white/10 bg-white/[0.03] p-1">
-                        {[['croquis', <IconoLapiz key="l" />, 'Croquis'],
-                          ['fotos', <IconoCamara key="c" />, 'Fotos de paredes']].map(([m, ic, t]) => (
+                    <div role="tablist" className="grid grid-cols-3 gap-1 rounded-xl border border-white/10 bg-white/[0.03] p-1">
+                        {[['vivienda', <IconoVivienda key="v" />, 'Vivienda'],
+                          ['croquis', <IconoLapiz key="l" />, 'Croquis'],
+                          ['fotos', <IconoCamara key="c" />, 'Fotos']].map(([m, ic, t]) => (
                             <button key={m} role="tab" aria-selected={modo === m} onClick={() => cambiaModo(m)}
                                     className={`flex min-h-[40px] items-center justify-center gap-1.5 rounded-lg text-[12.5px]
                                                 font-bold transition
@@ -1097,7 +1515,7 @@ export default function CroquisMovilView({ token }) {
                     </div>
                 </div>
                 {/* Lo pintado con un enlace ANTERIOR de esta planta, que se quedó sin mandar. */}
-                {rescate && !enFotos && (
+                {rescate && enCroquis && (
                     <div className="mx-auto mt-2.5 w-full max-w-xl px-3">
                         <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2.5">
                             <p className="text-[12.5px] leading-snug text-amber-100">
@@ -1129,7 +1547,22 @@ export default function CroquisMovilView({ token }) {
                                      sinOrdenador={sinOrdenador} sinRed={sinRed} pulso={pulso} onRed={red}
                                      onPendientes={setPendFotos} onEstadoParedes={setEstadoParedes} />
                 </div>
-                {enFotos ? null : fase === 'hecho' && resultado ? (
+                {enVivienda && (
+                    <div className="mx-auto w-full max-w-xl px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2.5
+                                    landscape:flex-1">
+                        <ViviendaMovil sub={subActiva}
+                                       onSub={(k) => { setSubVivienda(k); setSelParedV(null); setAvisoVivienda(null); }}
+                                       contorno={contorno} recorteHay={!!recorte}
+                                       muros={paredesConId}
+                                       selPared={selParedV} onElegirPared={setSelParedV}
+                                       onContra={decirContra} contrasPendientes={contrasPendientes}
+                                       onDeshacer={deshacerEsquina} onBorrar={borrarContorno}
+                                       onDelimitar={delimitar} onQuitar={quitarContorno}
+                                       resultado={resultadoVivienda} aviso={avisoVivienda}
+                                       ocupado={aplicandoVivienda} />
+                    </div>
+                )}
+                {!enCroquis ? null : fase === 'hecho' && resultado ? (
                     <div className="mx-auto w-full max-w-xl shrink-0 space-y-2 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
                         <p className={`text-[14px] font-black ${resultado.ok ? 'text-emerald-300' : 'text-amber-200'}`}>
                             {resultado.ok ? '✓ Hecho' : 'No ha salido'}

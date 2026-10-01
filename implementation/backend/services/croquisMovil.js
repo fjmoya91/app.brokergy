@@ -58,6 +58,17 @@
 //     QR (trasladado al lienzo nuevo). La clave es un resumen: no dice de qué
 //     expediente es.
 
+// ── Y DELIMITAR LA VIVIENDA (2026-10-01) ─────────────────────────────────────
+// En una comunidad de adosados la parcela es la del CONJUNTO y Catastro no dice
+// dónde acaba cada casa (regla 75). El contorno se dibuja con el dedo sobre la
+// misma planta —tocando sus esquinas— y el ORDENADOR lo aplica con el MISMO
+// recorte que su botón «Delimitar adosado» (vuelve a medir: lo de fuera pasa a
+// ser la casa de al lado, medianera). Después, desde el teléfono se puede decir
+// contra qué da cada pared (exterior · vecino · local), y también lo hace el
+// ordenador (`reclasifica`): es quien tiene el trabajo del plano y lo guarda.
+// Mientras se dibuja, el contorno a medias viaja como el trazo del croquis y se
+// ve en el ordenador en directo.
+
 const { randomBytes, createHash } = require('crypto');
 const { basesParaMovil } = require('./firmaMovil');
 
@@ -92,6 +103,12 @@ const RE_ID = /^[A-Za-z0-9_-]{1,40}$/;
 const RE_DRIVE = /^[A-Za-z0-9_-]{10,100}$/;
 const MAX_TRAZOS = 20;
 const MAX_PUNTOS = 400;
+//: El contorno de la vivienda: una casa no tiene sesenta esquinas.
+const MAX_VERTICES = 60;
+//: Lo que se puede decir de una pared: contra qué da (ver `tiposPared.js`).
+const TIPOS_CONTRA = ['FACHADA', 'MEDIANERA', 'PARTICION_VERTICAL'];
+const MAX_CONTRAS = 30;
+const MODOS = ['vivienda', 'croquis', 'fotos'];
 
 /** token → sesión */
 const sesiones = new Map();
@@ -155,7 +172,49 @@ function metaLimpia(m) {
     if (m?.orientacion) o.orientacion = String(m.orientacion).slice(0, 8);
     if (typeof m?.admite === 'boolean') o.admite = m.admite;
     if (Number.isInteger(m?.huecos)) o.huecos = Math.max(0, Math.min(999, m.huecos));
+    // Contra qué da AHORA (lo que se haya reclasificado manda) y lo que decía
+    // Catastro: con los dos, el teléfono sabe si está cambiada.
+    if (m?.tipo) o.tipo = String(m.tipo).slice(0, 40);
+    if (m?.catastro) o.catastro = String(m.catastro).slice(0, 40);
     return o;
+}
+
+/** El contorno a medias del teléfono: sus vértices y si ya está cerrado. */
+function contornoLimpio(c) {
+    if (!c) return null;
+    const pts = puntos(c.pts, { min: 1, max: MAX_VERTICES });
+    return pts ? { pts, cerrado: !!c.cerrado && pts.length >= 3 } : null;
+}
+
+/** El área de un polígono (m² del lienzo). */
+function area(pts) {
+    let a = 0;
+    for (let i = 0; i < pts.length; i++) {
+        const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % pts.length];
+        a += x1 * y2 - x2 * y1;
+    }
+    return Math.abs(a) / 2;
+}
+
+/**
+ * La georreferencia del plano, para que el teléfono ponga la VISTA AÉREA debajo
+ * (las teselas del PNOA las pide él al IGN, ver `logic/ortofoto.js`). No dice
+ * nada que no diga ya el `marco`: es la misma traslación con el rectángulo.
+ */
+function georefLimpio(g) {
+    const b = Array.isArray(g?.bbox) ? g.bbox.map(Number) : [];
+    const en = g?.en_el_lienzo;
+    if (b.length !== 4 || !b.every(Number.isFinite) || !en) return null;
+    const e = ['x', 'y', 'ancho', 'alto'].map(k => Number(en[k]));
+    if (!e.slice(0, 2).every(Number.isFinite)) return null;
+    const crs = /^EPSG:\d{4,5}$/.test(String(g.crs || '')) ? String(g.crs) : null;
+    return {
+        bbox: b,
+        en_el_lienzo: { x: e[0], y: e[1],
+                        ...(Number.isFinite(e[2]) ? { ancho: e[2] } : {}),
+                        ...(Number.isFinite(e[3]) ? { alto: e[3] } : {}) },
+        ...(crs ? { crs } : {}),
+    };
 }
 
 function zonasLimpias(lista) {
@@ -303,7 +362,23 @@ function abrir(o = {}) {
         marco: marcoDe(o.georef),
         nace: ahora,
         hechos: new Map(),
-        planta, plano: { muros, lienzo, zonas, cartografia }, catastro,
+        planta, catastro,
+        //: `recorte` es el contorno de la vivienda ya aplicado, en el lienzo
+        //: del teléfono (o null): para verlo y para redibujarlo encima.
+        plano: { muros, lienzo, zonas, cartografia,
+                 recorte: puntos(o.recorte, { min: 3, max: 200 }) },
+        georef: georefLimpio(o.georef),
+        //: En qué pestaña se abre el teléfono: quien pulsa «Delimitar en el
+        //: móvil» viene a dibujar el contorno, no a pintar un garaje.
+        modoInicial: MODOS.includes(o.modo) ? o.modo : 'croquis',
+        //: El contorno que se está dibujando en el teléfono (a medias).
+        contorno: null,
+        //: Lo que se pide desde el teléfono de cada pared (contra qué da): una
+        //: COLA, porque se tocan varias seguidas y ninguna puede perderse.
+        contras: [], contrasN: 0, resultadoContra: null, respuestasContra: 0,
+        //: Sube cuando el ordenador vuelve a medir por su cuenta (quitar un
+        //: cuerpo, delimitar desde allí): el teléfono vuelve a pedir la planta.
+        planoV: 0,
         trazos: trazosLimpios(o.trazos),
         //: Dónde está, probablemente, lo que no es vivienda (la propuesta del
         //: motor). El teléfono la ofrece; se descarta en cuanto se ajusta.
@@ -347,6 +422,7 @@ function paraMovil(token) {
         trazos: s.trazos, version: s.version, resultado: s.resultado,
         propuesta: s.propuesta,
         clave: s.clave, marco: s.marco,
+        georef: s.georef, modoInicial: s.modoInicial, contorno: s.contorno,
     };
 }
 
@@ -361,7 +437,8 @@ function estadoMovil(token) {
     const ordenadorAusente = Date.now() - (s.ordenadorVisto || 0) > 45_000;
     return { estado: 'abierta', resultado: s.resultado, pedido: s.pedido, ordenadorAusente,
              resultadoHuecos: s.resultadoHuecos, huecosPendientes: !!s.pedidoHuecos,
-             paredesV: s.paredesV };
+             paredesV: s.paredesV, planoV: s.planoV,
+             resultadoContra: s.resultadoContra, contrasPendientes: s.contras.length };
 }
 
 /**
@@ -369,12 +446,15 @@ function estadoMovil(token) {
  * medias. Siempre el estado ENTERO, nunca un «añade este»: si se pierde un
  * mensaje por el camino, el siguiente lo corrige solo.
  */
-function actualizar(token, { trazos, enCurso } = {}) {
+function actualizar(token, { trazos, enCurso, contorno } = {}) {
     limpiar();
     const s = sesiones.get(token);
     if (!s || s.cerrada) return { ok: false, motivo: 'cerrada' };
     if (trazos !== undefined) s.trazos = trazosLimpios(trazos);
     s.enCurso = enCursoLimpio(enCurso);
+    // El contorno de la vivienda que se está dibujando: también el estado
+    // ENTERO. Sin la clave (un teléfono con la página de antes), no se toca.
+    if (contorno !== undefined) s.contorno = contornoLimpio(contorno);
     s.movilVisto = s.movilVisto || Date.now();
     tocar(s);
     return { ok: true, version: s.version };
@@ -402,6 +482,57 @@ function pedirAjuste(token, { ajustar = true, trazos, id_local: idLocal } = {}) 
     return r;
 }
 
+/**
+ * El teléfono pide que se DELIMITE la vivienda con el contorno que ha dibujado
+ * (en su lienzo), o que se QUITE el que hay. Lo hace el ORDENADOR, por el mismo
+ * camino que su botón «Delimitar adosado»: vuelve a medir y guarda el trabajo.
+ * Va por la MISMA cola que el ajuste del croquis: volver a medir no admite dos
+ * a la vez.
+ */
+function pedirVivienda(token, { poligono, quitar = false, id_local: idLocal } = {}) {
+    limpiar();
+    const s = sesiones.get(token);
+    if (!s || s.cerrada) return { ok: false, motivo: 'cerrada' };
+    const antes = yaHecho(token, 'vivienda', idLocal);
+    if (antes) return antes;
+    let pol = null;
+    if (!quitar) {
+        pol = puntos(poligono, { min: 3, max: MAX_VERTICES });
+        if (!pol) return { ok: false, motivo: 'vacio' };
+        // Menos de 4 m² no es una casa: es un toque que se ha cerrado sin querer.
+        if (area(pol) < 4) return { ok: false, motivo: 'pequeno' };
+    }
+    s.pedido = { n: (s.pedido?.n || 0) + 1, tipo: 'vivienda', poligono: pol };
+    s.resultado = null;
+    tocar(s);
+    const r = { ok: true, n: s.pedido.n };
+    apuntarHecho(token, 'vivienda', idLocal, r);
+    return r;
+}
+
+/**
+ * El teléfono dice CONTRA QUÉ da una pared (exterior · vecino · local). Va a una
+ * COLA —se tocan varias seguidas— y lo aplica el ordenador. Sobre la misma pared
+ * manda lo último que se ha dicho.
+ */
+function pedirContra(token, { pared: id, contra, id_local: idLocal } = {}) {
+    const s = viva(token);
+    if (!s) return { ok: false, motivo: 'cerrada' };
+    const antes = yaHecho(token, 'contra', idLocal);
+    if (antes) return antes;
+    if (!RE_ID.test(String(id || '')) || !s.plano.muros.some(m => m.id === id)) {
+        return { ok: false, motivo: 'pared' };
+    }
+    if (!TIPOS_CONTRA.includes(contra)) return { ok: false, motivo: 'tipo' };
+    s.contrasN += 1;
+    s.contras = [...s.contras.filter(c => c.pared !== id), { n: s.contrasN, pared: id, contra }]
+        .slice(-MAX_CONTRAS);
+    tocar(s);
+    const r = { ok: true, n: s.contrasN };
+    apuntarHecho(token, 'contra', idLocal, r);
+    return r;
+}
+
 // ── Lo que hace el ORDENADOR ─────────────────────────────────────────────────
 
 function deEse(token, expediente) {
@@ -419,6 +550,7 @@ function foto(s) {
         version: s.version, trazos: s.trazos, enCurso: s.enCurso,
         movilVisto: s.movilVisto, pedido: s.pedido, caducaEn: s.caduca,
         fotos: s.fotos, pedidoHuecos: s.pedidoHuecos,
+        contorno: s.contorno, contras: s.contras,
     };
 }
 
@@ -463,11 +595,15 @@ function esperar(token, expediente, desde, alCerrarse) {
  * la planta al ver `remedido`: sin eso seguía pintando las zonas nuevas sobre
  * las paredes de antes, una combinación que no existe.
  */
-function responder(token, expediente, { n, ok, texto, lineas, zonas, muros, remedido } = {}) {
+function responder(token, expediente, { n, ok, texto, lineas, zonas, muros, remedido,
+                                         tipo, recorte } = {}) {
     const s = deEse(token, expediente);
     if (!s) return false;
+    const vivienda = tipo === 'vivienda';
     s.respuestas = (s.respuestas || 0) + 1;
     s.resultado = {
+        //: De qué era el pedido: el teléfono lo enseña en su pestaña.
+        tipo: vivienda ? 'vivienda' : 'croquis',
         // `serial` distingue una respuesta de la anterior aunque digan lo mismo:
         // es lo que mira el teléfono para saber que ha llegado una nueva.
         serial: s.respuestas,
@@ -487,10 +623,61 @@ function responder(token, expediente, { n, ok, texto, lineas, zonas, muros, reme
     } else if (ok && s.resultado.zonas.length) {
         s.plano = { ...s.plano, zonas: s.resultado.zonas };
     }
-    // El croquis ya está aplicado: lo pintado pasa a ser zonas. El teléfono
-    // arranca limpio si quiere corregir algo.
-    if (ok) { s.trazos = []; s.enCurso = null; }
+    if (vivienda) {
+        // El contorno ya está aplicado (o quitado): pasa a ser el RECORTE de la
+        // planta, y lo dibujado a medias se suelta. Lo pintado del croquis NO
+        // se toca: es otra cosa.
+        if (ok) {
+            s.contorno = null;
+            if (recorte !== undefined) s.plano = { ...s.plano, recorte: puntos(recorte, { min: 3, max: 200 }) };
+        }
+    } else if (ok) {
+        // El croquis ya está aplicado: lo pintado pasa a ser zonas. El teléfono
+        // arranca limpio si quiere corregir algo.
+        s.trazos = []; s.enCurso = null;
+    }
     tocar(s);
+    return true;
+}
+
+/**
+ * El ordenador cuenta cómo ha ido lo que se dijo de una pared. Se retira de la
+ * cola todo lo atendido hasta `n`: si la ventana se recarga, no lo repite.
+ */
+function responderContra(token, expediente, { n, ok, texto, pared: id } = {}) {
+    const s = deEse(token, expediente);
+    if (!s) return false;
+    const hasta = Number(n) || 0;
+    s.contras = s.contras.filter(c => c.n > hasta);
+    s.respuestasContra += 1;
+    s.resultadoContra = {
+        serial: s.respuestasContra, n: hasta, ok: !!ok,
+        texto: String(texto || '').slice(0, 300),
+        pared: RE_ID.test(String(id || '')) ? String(id) : null,
+    };
+    tocar(s);
+    return true;
+}
+
+/**
+ * El ordenador ha vuelto a MEDIR por su cuenta (delimitar o quitar un cuerpo
+ * desde allí): la planta del teléfono se pone al día —sus paredes, sus zonas y
+ * el contorno, ya en el lienzo del teléfono— y él la vuelve a pedir al ver que
+ * `planoV` ha cambiado. Sin esto seguiría tocando paredes que ya no existen.
+ */
+function actualizarPlano(token, expediente, { muros, zonas, recorte, propuesta } = {}) {
+    const s = deEse(token, expediente);
+    if (!s || s.cerrada) return false;
+    const nuevos = murosLimpios(muros);
+    s.plano = {
+        ...s.plano,
+        ...(nuevos.length ? { muros: nuevos } : {}),
+        ...(Array.isArray(zonas) ? { zonas: zonasLimpias(zonas) } : {}),
+        ...(recorte !== undefined ? { recorte: puntos(recorte, { min: 3, max: 200 }) } : {}),
+    };
+    if (Array.isArray(propuesta)) s.propuesta = propuestaLimpia(propuesta);
+    s.planoV += 1;
+    renovar(s);
     return true;
 }
 
@@ -674,8 +861,8 @@ function cerrar(token, expediente) {
 module.exports = {
     VIDA_MINUTOS, VIDA_MAXIMA_HORAS, USOS,
     yaHecho, apuntarHecho,
-    abrir, paraMovil, estadoMovil, actualizar, pedirAjuste,
-    esperar, responder, cerrar,
+    abrir, paraMovil, estadoMovil, actualizar, pedirAjuste, pedirVivienda, pedirContra,
+    esperar, responder, responderContra, actualizarPlano, cerrar,
     paraFotos, pared, puedeSubir, gastaLectura, apuntarFoto,
     pedirHuecos, responderHuecos, actualizarParedes, paredesMovil,
     MAX_SUBIDAS, MAX_LECTURAS,

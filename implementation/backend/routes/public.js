@@ -3220,6 +3220,27 @@ router.post('/croquis-movil/:token/ajustar', (req, res) => {
     res.status(410).json({ error: CROQUIS_CERRADO });
 });
 
+// El TELÉFONO pide que se DELIMITE la vivienda con el contorno que ha dibujado
+// (o que se quite el que hay). Lo hace el ORDENADOR, por el mismo camino que su
+// botón «Delimitar adosado». Con `id_local`, un reenvío no lo pide dos veces.
+router.post('/croquis-movil/:token/vivienda', (req, res) => {
+    const r = croquisMovil.pedirVivienda(req.params.token, req.body || {});
+    if (r.ok) return res.json(r);
+    if (r.motivo === 'vacio') return res.status(400).json({ error: 'El contorno necesita al menos tres esquinas.' });
+    if (r.motivo === 'pequeno') return res.status(400).json({ error: 'Ese contorno es demasiado pequeño para ser una vivienda.' });
+    res.status(410).json({ error: CROQUIS_CERRADO });
+});
+
+// El TELÉFONO dice contra qué da una pared (exterior · vecino · local). Lo
+// aplica el ORDENADOR, que es quien guarda el trabajo del plano.
+router.post('/croquis-movil/:token/contra', (req, res) => {
+    const r = croquisMovil.pedirContra(req.params.token, req.body || {});
+    if (r.ok) return res.json(r);
+    if (r.motivo === 'pared') return res.status(400).json({ error: 'Esa pared no es de esta planta.' });
+    if (r.motivo === 'tipo') return res.status(400).json({ error: 'Una pared da al exterior, al vecino o a un local.' });
+    res.status(410).json({ error: CROQUIS_CERRADO });
+});
+
 // ── Las FOTOS de las paredes, desde el mismo enlace ──────────────────────────
 // El técnico está delante de la fachada con la planta en el teléfono: toca la
 // pared, le hace la foto y se leen sus huecos. Se usan LAS MISMAS funciones que

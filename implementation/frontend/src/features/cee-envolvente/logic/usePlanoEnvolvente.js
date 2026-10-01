@@ -1084,26 +1084,11 @@ export function usePlanoEnvolvente(geo, expedienteId, guardado) {
 
 // ─── Reglas ──────────────────────────────────────────────────────────────────
 
-//: Las tres cosas que puede ser una pared, y lo que significa cada una en el
-//: cálculo. El rótulo dice CONTRA QUÉ da, no cómo se llama en la norma: es lo
-//: que el certificador está mirando en el plano.
-//:
-//: Vive AQUÍ, con `tipoDe`, porque lo leen tres sitios —el panel, el tooltip del
-//: plano y su leyenda— y tres copias acabarían llamando a lo mismo de tres
-//: maneras dentro de la misma pantalla.
-export const TIPOS_PARED = [
-    { id: 'FACHADA', etiqueta: 'Al exterior',
-      ayuda: 'Da a la calle o a un patio: pierde calor al aire' },
-    { id: 'MEDIANERA', etiqueta: 'Al vecino',
-      ayuda: 'Da contra otra vivienda a la misma temperatura: no pierde calor' },
-    { id: 'PARTICION_VERTICAL', etiqueta: 'A un local',
-      ayuda: 'Da a un garaje, trastero o local sin calefactar: sí pierde calor' },
-];
-
-//: Qué ES cada pared vive en `tiposPared.js`, que no importa React y por eso
-//: se puede comprobar desde Node. Se reexporta para que quien ya lo importaba
-//: de aquí siga igual.
-export { tipoDe, esFuera, esMedianera, esParticion, admiteHuecos } from './tiposPared.js';
+//: Qué ES cada pared —y las tres cosas que puede ser (`TIPOS_PARED`)— vive en
+//: `tiposPared.js`, que no importa React y por eso se puede comprobar desde
+//: Node y usarlo la página del MÓVIL. Se reexporta para que quien ya lo
+//: importaba de aquí siga igual.
+export { TIPOS_PARED, tipoDe, esFuera, esMedianera, esParticion, admiteHuecos } from './tiposPared.js';
 
 //: Lo que cabe en el nombre de un cerramiento de CE3X.
 //:

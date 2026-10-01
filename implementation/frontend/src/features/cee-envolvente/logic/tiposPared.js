@@ -16,6 +16,22 @@
 //: reclasificarse: ninguna comparación casaba.
 const TIPO_DEL_MOTOR = { PARTICION_INTERIOR_VERTICAL: 'PARTICION_VERTICAL' };
 
+//: Las tres cosas que puede ser una pared, y lo que significa cada una en el
+//: cálculo. El rótulo dice CONTRA QUÉ da, no cómo se llama en la norma: es lo
+//: que el certificador está mirando en el plano.
+//:
+//: Una sola lista para el panel, el tooltip del plano, su leyenda y la página
+//: del MÓVIL (donde también se dice contra qué da cada pared): copias distintas
+//: acabarían llamando a lo mismo de varias maneras.
+export const TIPOS_PARED = [
+    { id: 'FACHADA', etiqueta: 'Al exterior',
+      ayuda: 'Da a la calle o a un patio: pierde calor al aire' },
+    { id: 'MEDIANERA', etiqueta: 'Al vecino',
+      ayuda: 'Da contra otra vivienda a la misma temperatura: no pierde calor' },
+    { id: 'PARTICION_VERTICAL', etiqueta: 'A un local',
+      ayuda: 'Da a un garaje, trastero o local sin calefactar: sí pierde calor' },
+];
+
 /** El tipo con el que se va a escribir: manda el certificador sobre Catastro. */
 export function tipoDe(m) {
     const t = m?.tipo_manual || m?.tipo;

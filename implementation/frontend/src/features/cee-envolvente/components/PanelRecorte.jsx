@@ -1,4 +1,5 @@
 import { areaPoligono } from '../logic/geometriaPlano';
+import { IconoMovil } from './IconosCroquis';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DELIMITAR LA VIVIENDA dentro de una comunidad de adosados.
@@ -17,7 +18,10 @@ import { areaPoligono } from '../logic/geometriaPlano';
 
 export function RecorteControl({ recorte, dibujando, vertices = [], midiendo = false,
                                  sugerir = false, onDibujar, onQuitar,
-                                 onCerrar, onCancelar }) {
+                                 onCerrar, onCancelar,
+                                 // Dibujarlo con el DEDO en el móvil (delante de la
+                                 // casa es donde se sabe dónde acaba): abre el QR.
+                                 onMovil = null }) {
     if (dibujando) {
         const m2 = vertices.length >= 3 ? areaPoligono(vertices) : null;
         return (
@@ -37,6 +41,15 @@ export function RecorteControl({ recorte, dibujando, vertices = [], midiendo = f
                     {m2 ? ` · ≈${fmt(m2)} m²` : ''}
                 </span>
                 <span className="ml-auto flex items-center gap-1.5">
+                    {onMovil && (
+                        <button onClick={onMovil} disabled={midiendo}
+                                title="Dibuja el contorno con el dedo en el móvil: lo verás aquí según lo dibujas"
+                                className="inline-flex items-center gap-1 rounded-md border border-white/15
+                                           bg-white/[0.04] px-2 py-1 text-[10.5px] font-bold text-white/75
+                                           hover:bg-white/[0.08] hover:text-white disabled:opacity-40">
+                            <IconoMovil size={12} /> En el móvil
+                        </button>
+                    )}
                     <button onClick={onCerrar} disabled={vertices.length < 3}
                             className="rounded-md border border-emerald-400/60 bg-emerald-400/15 px-2.5 py-1
                                        text-[10.5px] font-black uppercase tracking-wider text-emerald-300
