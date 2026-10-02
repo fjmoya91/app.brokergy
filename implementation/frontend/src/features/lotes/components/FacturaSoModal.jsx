@@ -1,10 +1,13 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { useModal } from '../../../context/ModalContext';
 import { computeLoteEco } from '../logic/loteEco';
 import { buildFacturaSoHtml, computeFacturaAmounts, defaultPrecioKwh } from '../logic/facturaSoHtml';
 import { EnviarLoteDocModal } from './EnviarLoteDocModal';
+import { deriveSoEnvio, CC_BROKERGY } from '../logic/soContactos';
+import { mensajeFacturaSo, ahorroSoFactura } from '../logic/mensajeFacturaSo';
+import { EQUIVALENCIA_FINANCIERA } from '../../calculator/logic/calculation';
 
 const pad = (n) => String(n).padStart(2, '0');
 const toDmy = (d) => `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
@@ -163,13 +166,22 @@ export function FacturaSoModal({ lote, onClose, onGenerated }) {
         }
     };
 
-    // Datos y mensaje del envío al Sujeto Obligado (mismo popup que el Anexo I del lote).
-    const so = lote.sujeto_obligado || {};
-    const soEmail = so.notify_email || so.email || '';
-    const soPhone = so.landing_telefono_contacto || so.telefono || '';
-    const fmtUnidades = Math.round(Number(unidadesKwh) || 0).toLocaleString('es-ES');
-    const fmtTotal = (Number(total) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const sendMessage = `Estimados,\n\nAdjuntamos la factura ${numero || ''} correspondiente a la venta de los Ahorros Energéticos del lote ${lote.codigo || ''} para la emisión de Certificados de Ahorro Energético (CAE).\n\n· Códigos CAE: del ${caeInicial || '—'} al ${caeFinal || '—'}\n· Volumen: ${fmtUnidades} kWh\n· Importe total: ${fmtTotal} € (IVA 21% incluido)\n\nRogamos procedan al pago mediante transferencia bancaria a la cuenta indicada en la factura. Quedamos a su disposición para cualquier aclaración.\n\nUn saludo,\nBROKERGY · Ingeniería Energética`;
+    // Datos y mensaje del envío al Sujeto Obligado: los MISMOS contactos que el resto
+    // de envíos al S.O. (`deriveSoEnvio`): a quién va, con su cargo, y quién en copia.
+    const envio = useMemo(() => deriveSoEnvio(lote.sujeto_obligado), [lote.sujeto_obligado]);
+    // El mensaje lleva además lo que se ha ahorrado el S.O. con el lote frente a la
+    // equivalencia financiera (sin IVA). Se rehace al elegir otro destinatario: el
+    // saludo es de quien lo lee.
+    const messageFor = useCallback((email) => {
+        const nombre = envio.nombrePilaDe ? envio.nombrePilaDe(email) : '';
+        return mensajeFacturaSo({
+            saludo: nombre ? `Buenos días ${nombre},` : 'Buenos días,',
+            codigoLote: lote.codigo, numero, caeInicial, caeFinal,
+            unidadesKwh, precioKwh, base, total,
+            costeVerif: eco.costeVerif, equivalencia: EQUIVALENCIA_FINANCIERA,
+        });
+    }, [envio, lote.codigo, numero, caeInicial, caeFinal, unidadesKwh, precioKwh, base, total, eco.costeVerif]);
+    const ahorroSo = ahorroSoFactura({ unidadesKwh, base, costeVerif: eco.costeVerif, equivalencia: EQUIVALENCIA_FINANCIERA });
     const sendDocs = [{ html, fileName: fileNameFactura, label: 'Factura S.O.' }];
 
     const inputCls = 'w-full bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white focus:border-brand/40 focus:outline-none';
@@ -272,6 +284,11 @@ export function FacturaSoModal({ lote, onClose, onGenerated }) {
                         <span>Base <b className="text-white/80">{eur(base)}</b></span>
                         <span>· IVA 21% <b className="text-white/80">{eur(iva)}</b></span>
                         <span>· Total <b className="text-emerald-400">{eur(total)}</b></span>
+                        {ahorroSo && ahorroSo.ahorro > 0 && (
+                            <span title={`Frente a aportar al FNEE (${EQUIVALENCIA_FINANCIERA.toLocaleString('es-ES')} €/MWh): ${eur(ahorroSo.alternativa)}. Coste real: ${eur(ahorroSo.coste)} (factura${ahorroSo.verif ? ' + verificación' : ''}, sin IVA). Va en el mensaje de envío.`}>
+                                · Ahorro del S.O. <b className="text-emerald-400">{eur(ahorroSo.ahorro)}</b>{ahorroSo.pct != null ? ` (${ahorroSo.pct.toLocaleString('es-ES', { maximumFractionDigits: 1 })} %)` : ''}
+                            </span>
+                        )}
                         {prev?.drive_link && (
                             <a href={prev.drive_link} target="_blank" rel="noopener noreferrer" className="ml-auto text-brand hover:underline font-black uppercase tracking-widest text-[10px]">Ver factura en Drive ↗</a>
                         )}
@@ -306,9 +323,13 @@ export function FacturaSoModal({ lote, onClose, onGenerated }) {
                 <EnviarLoteDocModal
                     title="Enviar factura al Sujeto Obligado"
                     subtitle={`${lote.codigo || 'Lote'} · Factura ${numero || ''}`}
-                    defaultEmail={soEmail}
-                    defaultPhone={soPhone}
-                    defaultMessage={sendMessage}
+                    defaultEmail={envio.notifyEmail}
+                    defaultPhone={envio.notifyPhone}
+                    defaultCc={CC_BROKERGY}
+                    ccSuggestions={envio.ccSugerencias}
+                    toSuggestions={envio.destinatarios}
+                    messageFor={messageFor}
+                    defaultMessage={messageFor(envio.notifyEmail)}
                     summaryData={{ id: lote.codigo || 'LOTE', docType: 'Factura S.O.' }}
                     docs={sendDocs}
                     onClose={() => setSendOpen(false)}
