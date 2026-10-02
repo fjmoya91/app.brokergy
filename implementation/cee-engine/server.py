@@ -444,10 +444,10 @@ def cex(payload: dict = Body(...)) -> Response:
             # nadie lo tira al cambiar el equipo — sin esto la medida declararía
             # que la vivienda pierde su acumulación.
             avisos.extend(G.heredar_del_base(equipos_m, instalaciones))
-            inst_m, av_i = G.construir_instalaciones(
-                {"instalaciones": equipos_m, "envolvente": {"espacio": espacio}},
-                instalaciones, zonas, retirar=G.slots_a_retirar(equipos_m))
-            grupo, fila, av_g = G.construir_medida(m, envolvente_, inst_m)
+            # En la 3.1 el autoconsumo va como «Generación renovable eléctrica».
+            inst_m, gens_m, av_i = G.instalaciones_de_medida(
+                equipos_m, instalaciones, zonas, espacio, version)
+            grupo, fila, av_g = G.construir_medida(m, envolvente_, inst_m, gens_m)
             avisos.extend(av_i + av_g)
             grupos.extend(grupo)
             if fila:
@@ -654,10 +654,11 @@ async def cex_instalaciones(fichero: UploadFile = File(...),
                               " no se escribe.")
                 continue
             avisos.extend(G.heredar_del_base(equipos_m, slots))
-            inst_m, av_i = G.construir_instalaciones(
-                {"instalaciones": equipos_m, "envolvente": {"espacio": espacio}},
-                slots, zonas, retirar=G.slots_a_retirar(equipos_m))
-            grupo, fila, av_g = G.construir_medida(m, L.leer(base, G.ENVOLVENTE), inst_m)
+            inst_m, gens_m, av_i = G.instalaciones_de_medida(
+                equipos_m, slots, zonas, espacio, version,
+                existentes=G.generadores_de_base(meta.get("extra"), version))
+            grupo, fila, av_g = G.construir_medida(m, L.leer(base, G.ENVOLVENTE),
+                                                   inst_m, gens_m)
             avisos.extend(av_i + av_g)
             grupos.extend(grupo)
             if fila:
@@ -770,7 +771,7 @@ def poner_medida(crudo: bytes, ficha: dict) -> tuple[bytes, list[str]]:
     # La medida se compone en la forma interna (la de la 2.3), sea cual sea la
     # versión del fichero: la 3.1 abre y calcula así las medidas (sus propios
     # ejemplos oficiales las traen así). El fichero NO cambia de versión.
-    previas, _meta = CX.instalaciones_internas(base)
+    previas, meta = CX.instalaciones_internas(base)
     envolvente_ = L.leer(base, G.ENVOLVENTE)
     espacio = (ficha.get("envolvente") or {}).get("espacio", "auto")
 
@@ -782,10 +783,13 @@ def poner_medida(crudo: bytes, ficha: dict) -> tuple[bytes, list[str]]:
             avisos.append(f"La medida «{m.get('nombre')}» no declara ningún equipo: no se escribe.")
             continue
         avisos.extend(G.heredar_del_base(equipos_m, previas))
-        inst_m, av_i = G.construir_instalaciones(
-            {"instalaciones": equipos_m, "envolvente": {"espacio": espacio}},
-            previas, zonas, retirar=G.slots_a_retirar(equipos_m))
-        grupo, fila, av_g = G.construir_medida(m, envolvente_, inst_m)
+        # La versión del fichero del técnico, que NO cambia: en uno de la 3.1 el
+        # autoconsumo va como «Generación renovable eléctrica».
+        version_base = VC.version_de(base)
+        inst_m, gens_m, av_i = G.instalaciones_de_medida(
+            equipos_m, previas, zonas, espacio, version_base,
+            existentes=G.generadores_de_base(meta.get("extra"), version_base))
+        grupo, fila, av_g = G.construir_medida(m, envolvente_, inst_m, gens_m)
         avisos.extend(av_i + av_g)
         grupos.extend(grupo)
         if fila:

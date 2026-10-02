@@ -37,6 +37,7 @@ import argparse
 import json
 import math
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -942,6 +943,164 @@ def equipo_renovable(eq: dict, espacio: str) -> tuple[list, list[str]]:
         [hay_fuentes, bool(generada)],
         espacio,
     ], avisos
+
+
+# --------------------------------------------------------------------------
+# CE3X 3.1: las placas como «Generacion renovable electrica» (slot 13)
+# --------------------------------------------------------------------------
+
+#: Los doce meses del objeto, con los nombres que les pone CE3X 3.1.
+MESES_GENERADOR = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+                   "agosto", "septiembre", "octubre", "noviembre", "diciembre")
+
+#: El `id` del generador es un `uuid.UUID`. Se deriva de sus datos (uuid5) y no
+#: se sortea: el mismo expediente da el mismo fichero byte a byte, y dentro del
+#: fichero ese objeto aparece varias veces (instalacion de la medida, su copia
+#: en «mejoras» y su listado) como UNO solo.
+_NS_GENERADOR = uuid.UUID("6f1c2a52-7d3b-4f0e-9a41-2b9e3c5d8a10")
+
+
+def meses_validos(x: Any) -> list[float] | None:
+    """Los doce kWh mensuales de autoconsumo, o None si no lo son."""
+    if not isinstance(x, (list, tuple)) or len(x) != 12:
+        return None
+    meses = [_numf(v) for v in x]
+    if any(v is None or not math.isfinite(v) or v < 0 for v in meses) or sum(meses) <= 0:
+        return None
+    return [float(v) for v in meses]
+
+
+def generador_electrico(eq: dict, zona: str) -> P.Reduccion:
+    """Unas placas de AUTOCONSUMO como las declara CE3X 3.1: «Generacion
+    renovable electrica», con su potencia pico y el autoconsumo MES A MES.
+
+    Es un objeto nuevo de la 3.1 (`models.GeneradorElectrico`), y CE3X lo guarda
+    con `copy_reg._reconstructor` + BUILD. Forma medida sobre «EJEMPLO
+    MIGRADO.cex» (CE3X 3.1, 7 kWp y 11.803 kWh/año): claves STRING, nombre y
+    zona UNICODE, potencia y meses FLOAT, `tipo` None, `consumoMensual` con los
+    doce valores y `id` un `uuid.UUID` (su entero, LONG). Es el mismo objeto en
+    el slot 13 del pickle 4 y en el `listadoGeneradoresElectricoMM` de una
+    medida.
+
+    MEDIDO CON EL PROPIO CE3X 3.1 (el oraculo, tools/oraculo_ce3x): con los
+    mismos kWh, declararlas asi o como «Contribucion energetica» da EXACTAMENTE
+    la misma calificacion (127,27 C / 34,03 D en ese ejemplo). Lo que cambia es
+    como lo pide la 3.1 —y como sale en su XML—, no el resultado.
+    """
+    meses = meses_validos(eq.get("generacion_mensual_kwh"))
+    kwp = _numf(eq.get("potencia_pico_kwp"))
+    nombre = str(eq.get("nombre") or "").strip()
+    if not nombre:
+        raise GeneracionError("el generador electrico no tiene nombre")
+    if not meses:
+        raise GeneracionError(f"«{nombre}»: faltan los doce kWh mensuales de autoconsumo")
+    if not (kwp and kwp > 0):
+        raise GeneracionError(f"«{nombre}»: falta la potencia pico (kWp) de las placas")
+    kwp = round(float(kwp), 2)
+    clave = f"{nombre}|{zona}|{kwp}|{'/'.join(repr(m) for m in meses)}"
+    uid = P.Reduccion("copy_reg", "_reconstructor",
+                      (P.Global("uuid", "UUID"), P.Global("__builtin__", "object"), None),
+                      {Cadena("int"): uuid.uuid5(_NS_GENERADOR, clave).int})
+    estado: dict = {Cadena("nombre"): nombre, Cadena("zona"): str(zona),
+                    Cadena("potencia"): kwp, Cadena("tipo"): None}
+    for mes, v in zip(MESES_GENERADOR, meses):
+        estado[Cadena(mes)] = v
+    estado[Cadena("consumoMensual")] = list(meses)
+    estado[Cadena("id")] = uid
+    return P.Reduccion("copy_reg", "_reconstructor",
+                       (P.Global("models", "GeneradorElectrico"),
+                        P.Global("__builtin__", "object"), None), estado)
+
+
+def _es_autoconsumo(eq: dict) -> bool:
+    """Una contribucion que SOLO genera electricidad (no cubre % de demanda)."""
+    return (eq.get("slot") == "renovable"
+            and bool(_numf(eq.get("generacion_electrica_kwh")))
+            and not any(eq.get(k) for k in ("pct_acs", "pct_calefaccion", "pct_refrigeracion")))
+
+
+def separar_generadores(equipos: list[dict], version: str | None
+                        ) -> tuple[list[dict], list[dict], list[str]]:
+    """En la 3.1, las placas de autoconsumo SALEN de las contribuciones y van
+    como «Generacion renovable electrica». Devuelve (resto, generadores, avisos).
+
+    Hace falta el reparto MENSUAL (lo da PVGIS) y la potencia pico: sin ellos se
+    quedan como contribucion anual —que la 3.1 abre y calcula igual— y se dice
+    como pasarlas. En la 2.3 no existe el objeto: todo se queda como estaba.
+    """
+    if version != "3.1":
+        return list(equipos or []), [], []
+    resto: list[dict] = []
+    gens: list[dict] = []
+    avisos: list[str] = []
+    for eq in equipos or []:
+        if not _es_autoconsumo(eq):
+            resto.append(eq)
+            continue
+        meses = meses_validos(eq.get("generacion_mensual_kwh"))
+        kwp = _numf(eq.get("potencia_pico_kwp"))
+        if meses and kwp and kwp > 0:
+            gens.append(eq)
+            miles = f"{round(sum(meses)):,}".replace(",", ".")
+            avisos.append(
+                f"«{eq.get('nombre')}»: va como «Generación renovable eléctrica» de la 3.1, "
+                f"{_num(kwp).replace('.', ',')} kWp y {miles} kWh/año de autoconsumo "
+                f"repartidos mes a mes.")
+        else:
+            resto.append(eq)
+            avisos.append(
+                f"«{eq.get('nombre')}»: sin el reparto mensual de PVGIS va como «Contribución "
+                f"energética» (kWh/año). La 3.1 lo calcula igual, pero lo suyo es «Generación "
+                f"renovable eléctrica» mes a mes: consulta PVGIS (barra ⚡ del módulo CEE) y "
+                f"vuelve a generar.")
+    return resto, gens, avisos
+
+
+def generadores_de_base(extra: Any, version: str | None) -> list:
+    """Los generadores electricos que YA declara el fichero (slot 13 de una
+    3.1, guardado en `meta["extra"][1]`), listos para volver a escribirse.
+
+    Una medida es el MISMO edificio con su cambio: si el tecnico ya declaro las
+    placas como generador, la medida tiene que llevarlas, o CE3X la calcularia
+    sobre una vivienda SIN placas y el ahorro saldria de otro edificio.
+    """
+    if version != "3.1" or not isinstance(extra, (list, tuple)) or len(extra) < 2:
+        return []
+    return [_reemitible(g) for g in (extra[1] or [])]
+
+
+def instalaciones_de_medida(equipos: list[dict], base: list, zonas: set[str] | None,
+                            espacio: str, version: str | None,
+                            existentes: list | None = None,
+                            ) -> tuple[list, list, list[str]]:
+    """Los 12 slots de una MEDIDA de mejora y, en la 3.1, sus generadores
+    electricos (objetos listos para `construir_medida`): los que ya declara el
+    fichero (`existentes`, de `generadores_de_base`) y los que pone la medida.
+
+    Es el MISMO camino en las cuatro superficies que escriben una medida (el
+    `.cex` de la app, su CEE final, la medida puesta en el `.cex` del tecnico y
+    el CEE final desde la medida): si una sola lo hiciera distinto, la misma
+    medida saldria declarada de dos maneras segun por donde se generara.
+    """
+    resto, gen_eqs, avisos = separar_generadores(equipos, version)
+    zona_defecto = "Edificio Objeto" if str(espacio).lower() == "auto" else str(espacio)
+    declaradas = (zonas or set()) | {"Edificio Objeto"}
+    gens = list(existentes or []) if version == "3.1" else []
+    for eq in gen_eqs:
+        zona = eq.get("zona", zona_defecto)
+        if zona not in declaradas:
+            raise GeneracionError(
+                f"el generador {eq.get('nombre')!r} dice estar en la zona {zona!r}, que no "
+                f"existe. Declaradas: {sorted(declaradas)}.")
+        gens.append(generador_electrico(eq, zona))
+    if resto:
+        inst, av = construir_instalaciones(
+            {"instalaciones": resto, "envolvente": {"espacio": espacio}},
+            base, zonas, retirar=slots_a_retirar(resto))
+    else:
+        inst = [list(x) if isinstance(x, list) else [] for x in (base or [[] for _ in SLOTS])]
+        av = []
+    return inst, gens, avisos + av
 
 
 #: Que funcion escribe cada slot. Lo que no este aqui NO se sabe escribir, y se
@@ -2415,6 +2574,7 @@ def _sin_calcular() -> P.Instancia:
 
 
 def construir_medida(m: dict, envolvente: list, instalaciones: list,
+                     generadores: list | None = None,
                      ) -> tuple[list, list, list[str]]:
     """UN grupo de medidas (pickle 5) y su fila del resumen (pickle 6).
 
@@ -2423,6 +2583,13 @@ def construir_medida(m: dict, envolvente: list, instalaciones: list,
     cambio que esa medida propone —la aerotermia sustituyendo a la caldera, o
     el autoconsumo añadido a lo que ya hay—. Lo compone quien llama, porque
     cada medida propone algo distinto.
+
+    `generadores` (solo 3.1): las placas como «Generacion renovable electrica»
+    (`instalaciones_de_medida`). Van en TRES sitios —`listadoGeneradores-
+    ElectricoMM`, el slot 13 de `datosInstalaciones` y el de la copia de
+    `mejoras`—, y el tercero no es redundante: MEDIDO con el propio CE3X 3.1,
+    sin el generador en `mejoras` la medida abre pero calcula un ahorro de CERO;
+    con el, el mismo 34,2 % que la misma energia declarada como contribucion.
     """
     avisos: list[str] = []
     nombre = str((m or {}).get("nombre") or "").strip()
@@ -2442,14 +2609,22 @@ def construir_medida(m: dict, envolvente: list, instalaciones: list,
     })
 
     instal = _reemitible(instalaciones)
+    copia = _reemitible(instalaciones)
+    if generadores:
+        # Los dos slots de la 3.1 (12 termosolares, 13 electricos), en las dos
+        # listas de equipos de la medida. El objeto es el MISMO en todas: el
+        # emisor escribe su segunda aparicion como GET, como hace CE3X.
+        instal = list(instal) + [[], list(generadores)]
+        copia = list(copia) + [[], list(generadores)]
     estado = {
         Cadena("nombre"): nombre,
         Cadena("caracteristicas"): str(m.get("caracteristicas") or ""),
         Cadena("otrosDatos"): str(m.get("otros_datos") or ""),
         Cadena("datosInstalaciones"): instal,
-        # Una COPIA, no el mismo objeto: en CE3X son dos listas (la 3.1 alarga
-        # `datosInstalaciones` a 14 slots y deja `mejoras` en 12).
-        Cadena("mejoras"): [[], ["", _reemitible(instalaciones), True]],
+        # Una COPIA, no el mismo objeto: en CE3X son dos listas (en una medida
+        # de envolvente la 3.1 alarga `datosInstalaciones` a 14 slots y deja
+        # `mejoras` en 12; con un generador electrico, las dos van a 14).
+        Cadena("mejoras"): [[], ["", copia, True]],
         Cadena("medidasMejoraEnvolvente"): [],
         Cadena("cerramientosMejorados"): _reemitible(envolvente[0]),
         Cadena("huecosMejorados"): _reemitible(envolvente[1]),
@@ -2463,6 +2638,9 @@ def construir_medida(m: dict, envolvente: list, instalaciones: list,
     }
     for clave in SLOT_A_MM.values():
         estado[Cadena(clave)] = sistemas[clave]
+    if generadores:
+        estado[Cadena("listadoGeneradoresTermosolarMM")] = []
+        estado[Cadena("listadoGeneradoresElectricoMM")] = list(generadores)
 
     avisos.append(f"Medida de mejora «{nombre}» escrita SIN calcular: abre "
                   "Medidas de Mejora en CE3X y pulsa Actualizar para que salgan "
@@ -2536,6 +2714,7 @@ def u_con_aislante(u0: float, lam: float, espesor: float) -> float:
 
 
 def construir_medida_aislamiento(m: dict, envolvente: list, instalaciones: list,
+                                 generadores: list | None = None,
                                  ) -> tuple[list, list, list[str]]:
     """UN conjunto de medidas de ENVOLVENTE (pickle 5) y sus filas del resumen.
 
@@ -2599,6 +2778,11 @@ def construir_medida_aislamiento(m: dict, envolvente: list, instalaciones: list,
         Cadena("analisisFacturas"): _sin_calcular(),
     })
     instal = _reemitible(instalaciones)
+    if generadores:
+        # Las placas que YA tiene el edificio (3.1): en una medida de envolvente
+        # CE3X las lleva en `datosInstalaciones` (14 slots) y en su listado, y
+        # deja `mejoras` en 12 (medido en «EJEMPLO MIGRADO.cex»).
+        instal = list(instal) + [[], list(generadores)]
     estado = {
         Cadena("nombre"): nombre,
         Cadena("caracteristicas"): str(m.get("caracteristicas") or ""),
@@ -2619,6 +2803,9 @@ def construir_medida_aislamiento(m: dict, envolvente: list, instalaciones: list,
     }
     for clave in SLOT_A_MM.values():
         estado[Cadena(clave)] = sistemas[clave]
+    if generadores:
+        estado[Cadena("listadoGeneradoresTermosolarMM")] = []
+        estado[Cadena("listadoGeneradoresElectricoMM")] = list(generadores)
     avisos.append(f"Medida de mejora «{nombre}» escrita SIN calcular: abre "
                   "Medidas de Mejora en CE3X y pulsa Actualizar para que salgan "
                   "su ahorro y su calificacion.")

@@ -96,10 +96,16 @@ async function catalogoFinal(ctx, analisis, params = {}) {
     try {
         const { medidasCe3x } = await cex.loadFichaCe3x();
         const trabajo = await cex.leerTrabajo(ctx.expediente.id).catch(() => null);
+        //: En la 3.1 el autoconsumo va como «Generación renovable eléctrica»,
+        //: MES A MES: los meses salen de PVGIS (lo guardado en la barra ⚡, o se
+        //: pregunta aquí; cacheado 30 días por sitio).
+        const pv = (analisis?.version_final || '3.1') === '3.1'
+            ? await cex.pvgisParaAutoconsumo(ctx, trabajo?.ajustes) : {};
         const { catalogo: cat } = medidasCe3x({
             expediente: ctx.expediente, superficie: null, fase: 'final',
             modelos: ctx.modelos, textos: trabajo?.ajustes?.medidas_texto,
             autoconsumoKwh: trabajo?.ajustes?.autoconsumo_kwh,
+            autoconsumoFv: pv.especifica || null,
         });
         const auto = (cat || []).find((m) => m.id === 'autoconsumo');
         if (auto) {

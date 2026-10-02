@@ -1838,7 +1838,8 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
         kwh_techo: techo ? Math.round(techo.kwhAnio) : null,
         motivo: yaTienePlacas
             ? 'La vivienda YA tiene placas: van declaradas como instalación existente '
-              + '(contribuciones energéticas), no como medida de mejora.'
+              + '(«Generación renovable eléctrica» en CE3X 3.1, «Contribuciones energéticas» '
+              + 'en la 2.3), no como medida de mejora.'
             : (kwh ? null : 'No hay un CEE cargado del que sacar el máximo declarable: teclea '
                           + 'los kWh/año de autoconsumo (como mucho, el 90 % del consumo '
                           + 'eléctrico que calcule CE3X).'),
@@ -1881,6 +1882,15 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
             partes.push(`Con PVGIS (${miles(Math.round(pvgis.anual))} kWh por kWp al año en este sitio) `
                         + `son unos ${String(kwpFv).replace('.', ',')} kWp.`);
         }
+        //: Cómo se escribe: en la 3.1 es «Generación renovable eléctrica» con la
+        //: potencia y el autoconsumo MES A MES (lo hace el motor:
+        //: `instalaciones_de_medida`); en la 2.3, la contribución anual de siempre.
+        //: Con los mismos kWh, CE3X 3.1 da la misma calificación de las dos formas.
+        partes.push(kwpFv
+            ? 'En CE3X 3.1 va como «Generación renovable eléctrica»: esos kWp y el autoconsumo '
+              + 'repartido mes a mes según PVGIS.'
+            : 'En CE3X 3.1 va como «Generación renovable eléctrica», mes a mes: si no consultas '
+              + 'PVGIS en la barra ⚡, se le pregunta al generar (ángulos óptimos del sitio).');
         if (!fv.estado) {
             partes.push('En el expediente no consta si la vivienda ya tiene placas: si las '
                         + 'tiene, esta medida no aplica.');

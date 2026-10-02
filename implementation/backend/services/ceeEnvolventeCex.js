@@ -156,6 +156,77 @@ function loadFichaCe3x() {
     return loadEsm(FICHA_JS, _ficha);
 }
 
+//: La producción fotovoltaica (PVGIS): validar una producción específica y
+//: saber dónde está la vivienda. Fuente única con la barra ⚡ del módulo CEE.
+const PRODUCCION_FV_JS = path.join(
+    __dirname, '../../frontend/src/features/expedientes/logic/produccionFv.js');
+const _produccionFv = { sello: null, promesa: null };
+
+function loadProduccionFv() {
+    return loadEsm(PRODUCCION_FV_JS, _produccionFv);
+}
+
+//: Cuánto se espera a PVGIS al GENERAR. Sin respuesta, el autoconsumo sale
+//: como contribución anual —que la 3.1 calcula igual— y se dice: un `.cex` no
+//: puede quedarse esperando a un servicio de fuera.
+const PVGIS_ESPERA_MS = Number(process.env.PVGIS_ESPERA_CEX_MS) || 12000;
+
+/**
+ * La producción ESPECÍFICA de PVGIS (kWh por kWp, anual y mes a mes) para el
+ * autoconsumo de ESTE expediente.
+ *
+ * En CE3X 3.1 las placas se declaran como «Generación renovable eléctrica»:
+ * potencia pico y autoconsumo MES A MES. Esos meses salen de PVGIS. Si alguien
+ * lo consultó en la barra ⚡ y lo usó en la medida, manda lo guardado
+ * (`ajustes.autoconsumo_pvgis`, con su tejado); si no, se pregunta aquí con los
+ * ángulos ÓPTIMOS del sitio, que es lo mismo que enseña la barra sin tocar
+ * nada. `pvgisService` lo cachea 30 días por sitio.
+ *
+ * @returns {Promise<{especifica?: object, aviso?: string}>}
+ */
+async function pvgisParaAutoconsumo(ctx, ajustes) {
+    const { especificaValida, ubicacionDeExpediente } = await loadProduccionFv();
+    if (especificaValida(ajustes?.autoconsumo_pvgis)) return { especifica: ajustes.autoconsumo_pvgis };
+    const ubicacion = ubicacionDeExpediente(ctx.expediente);
+    if (!ubicacion) {
+        return { aviso: 'Sin coordenadas ni referencia catastral no se puede preguntar a PVGIS: el '
+                        + 'autoconsumo va como «Contribución energética» (kWh/año).' };
+    }
+    const pvgis = require('./pvgisService');
+    let plazo;
+    try {
+        const r = await Promise.race([
+            (async () => {
+                const u = await pvgis.resolverUbicacion(ubicacion);
+                return pvgis.produccionEspecifica({ lat: u.lat, lon: u.lon });
+            })(),
+            new Promise((_, no) => { plazo = setTimeout(() => no(new Error('no ha respondido a tiempo')), PVGIS_ESPERA_MS); }),
+        ]);
+        if (!especificaValida(r)) throw new Error('respuesta sin los doce meses');
+        const { anual, mensual, inclinacion, orientacion, optimos, perdidas, montaje, lat, lon, fuente } = r;
+        return {
+            especifica: { anual, mensual, inclinacion, orientacion, optimos, perdidas, montaje, lat, lon, fuente,
+                          automatico: true },
+            aviso: `Autoconsumo: los meses salen de PVGIS para este sitio (${Math.round(anual)} kWh por kWp `
+                   + `al año, ángulos óptimos), consultado al generar. Si el tejado es otro, ajústalo en la `
+                   + 'barra ⚡ del módulo CEE y vuelve a generar.',
+        };
+    } catch (e) {
+        return { aviso: `PVGIS no ha respondido (${e.message}): el autoconsumo va como «Contribución `
+                        + 'energética» (kWh/año), que la 3.1 calcula igual. Vuelve a generar en un rato '
+                        + 'para declararlo como «Generación renovable eléctrica» mes a mes.' };
+    } finally {
+        clearTimeout(plazo);
+    }
+}
+
+/** ¿Alguna medida declara autoconsumo SIN los doce meses? (lo que la 3.1 necesita) */
+function autoconsumoSinMeses(medidas) {
+    return (medidas || []).some((m) => (m?.instalaciones || []).some((e) =>
+        e?.slot === 'renovable' && Number(e.generacion_electrica_kwh) > 0
+        && !(Array.isArray(e.generacion_mensual_kwh) && e.generacion_mensual_kwh.length === 12)));
+}
+
 //: Las medidas de AISLAMIENTO (cubierta, fachada) con su solución y su texto.
 //: Fuente única con el popup del CEE final: el texto que se ve es el que se escribe.
 const AISLAMIENTO_JS = path.join(
@@ -691,12 +762,26 @@ async function componerFicha(ctx, { geometria, envolvente, ajustes, medidas = nu
     const imagenes = conImagenes
         ? await imagenesDelCex(ctx, geometria)
         : { avisos: [] };
-    const { ficha, avisos, medidas: catalogo, faltan, equipos, aires,
-            version_ce3x: versionCe3x } = fichaCe3x({
+    const componer = (aj) => fichaCe3x({
         expediente: ctx.expediente, cliente: ctx.cliente,
         certificador: ctx.certificador, modelos: ctx.modelos,
-        geo: { geometria }, envolvente, ajustes, imagenes, fase, medidas,
+        geo: { geometria }, envolvente, ajustes: aj, imagenes, fase, medidas,
     });
+    let compuesta = componer(ajustes);
+    // En la 3.1 el autoconsumo va como «Generación renovable eléctrica», mes a
+    // mes. Si nadie consultó PVGIS en la barra ⚡, se pregunta aquí — solo al
+    // GENERAR: la previsualización se pide muchas veces y no puede esperar a
+    // un servicio de fuera.
+    const avisosPvgis = [];
+    if (conImagenes && compuesta.ficha?.version_ce3x === '3.1'
+        && autoconsumoSinMeses(compuesta.ficha?.medidas)) {
+        const { especifica, aviso } = await pvgisParaAutoconsumo(ctx, ajustes);
+        if (aviso) avisosPvgis.push(aviso);
+        if (especifica) compuesta = componer({ ...(ajustes || {}), autoconsumo_pvgis: especifica });
+    }
+    const { ficha, medidas: catalogo, faltan, equipos, aires,
+            version_ce3x: versionCe3x } = compuesta;
+    const avisos = [...compuesta.avisos, ...avisosPvgis];
     // El CATÁLOGO viaja aparte de la ficha: es lo que la pestaña de medidas
     // pinta para que se elijan, y no es un dato que vaya dentro del `.cex`.
     // Y la FUENTE en crudo: es lo que edita el formulario de administrativos.
@@ -1183,6 +1268,7 @@ async function escribirImagenes(expediente, puestas) {
 }
 
 module.exports = {
+    pvgisParaAutoconsumo,
     esCeeDirecto,
     esOportunidad,
     origenNorm,

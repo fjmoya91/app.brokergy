@@ -587,7 +587,9 @@ def componer(crudo: bytes, datos: dict) -> tuple[bytes | None, dict, list[str]]:
         for k, v in (datos.get("retirada") or {}).items():
             if isinstance(v, str) and (v.strip() or k == "otros_datos"):
                 texto[k] = v.strip()
-        g, fila, av_g = G.construir_medida(texto, envolvente, slots_ret)
+        g, fila, av_g = G.construir_medida(
+            texto, envolvente, slots_ret,
+            G.generadores_de_base(meta_final.get("extra"), version))
         avisos += av_g
         grupos_mm += g
         filas += [fila] if fila else []
@@ -598,7 +600,9 @@ def componer(crudo: bytes, datos: dict) -> tuple[bytes | None, dict, list[str]]:
         # Una medida de ENVOLVENTE (aislamiento de cubierta, fachada…): el mismo
         # edificio con la U nueva en sus cerramientos y la instalación del final.
         if m.get("aislamiento"):
-            g, fs, av_g = G.construir_medida_aislamiento(m, envolvente, inst_final)
+            g, fs, av_g = G.construir_medida_aislamiento(
+                m, envolvente, inst_final,
+                G.generadores_de_base(meta_final.get("extra"), version))
             avisos += av_g
             grupos_mm += g
             filas += fs
@@ -609,10 +613,12 @@ def componer(crudo: bytes, datos: dict) -> tuple[bytes | None, dict, list[str]]:
             avisos.append(f"La medida «{m.get('nombre')}» no declara ningún equipo: no se escribe.")
             continue
         avisos += G.heredar_del_base(equipos_m, inst_final)
-        inst_m, av_i = G.construir_instalaciones(
-            {"instalaciones": equipos_m, "envolvente": {"espacio": "auto"}},
-            inst_final, zonas, retirar=G.slots_a_retirar(equipos_m))
-        g, fila, av_g = G.construir_medida(m, envolvente, inst_m)
+        # En la 3.1 el autoconsumo va como «Generación renovable eléctrica», y
+        # las placas que ya declara el final van también en la medida.
+        inst_m, gens_m, av_i = G.instalaciones_de_medida(
+            equipos_m, inst_final, zonas, "auto", version,
+            existentes=G.generadores_de_base(meta_final.get("extra"), version))
+        g, fila, av_g = G.construir_medida(m, envolvente, inst_m, gens_m)
         avisos += av_i + av_g
         grupos_mm += g
         filas += [fila] if fila else []

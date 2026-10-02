@@ -12582,15 +12582,14 @@ enseña aunque no haya `.cex`.
 desde CommonJS no se hace `require()` de un ESM. El cuerpo es el MISMO, carácter a carácter, y el
 test lo compara: si cambia la lectura, se cambia en los dos.
 
-⚠️ **Las placas en la 3.1 se pueden declarar de DOS formas, y no dan lo mismo**: como
-contribución renovable anual (lo que traía la 2.3, y lo que conserva CE3X 3.1 al abrir un
-fichero de la 2.3, con el mismo resultado) o como «generador eléctrico» (slot 13,
-`<GeneradorElectrico>`, con la producción mes a mes). Medido en 26RES093_9: el `.cex` de la 3.1
-hecho a mano las volvió a meter como generador de 7 kW (11.803 kWh/año, frente a los 11.000 de la
-2.3), y la energía primaria no renovable pasó de 134,37 a 127,27 y las emisiones eléctricas a 0.
-**No es el motor de la 3.1**: el mismo `.cex` abierto en la 3.1 sin tocarlo da 134,37 · 35,23.
-Al comparar un inicial de la 2.3 con un final de la 3.1 (IRPF, revisión), una diferencia así sale
-de cómo se declararon las placas, no de la obra.
+⚠️ **Las placas en la 3.1 se declaran de DOS formas, y con los MISMOS kWh dan lo MISMO**:
+como contribución renovable anual (lo que traía la 2.3, y lo que conserva CE3X 3.1 al abrir un
+fichero de la 2.3) o como «Generación renovable eléctrica» (slot 13, `<GeneradorElectrico>`,
+mes a mes). Medido con el propio CE3X 3.1 sobre «EJEMPLO MIGRADO.cex» (7 kWp, 11.803 kWh/año):
+las dos dan **127,27 C / 34,03 D**. La diferencia de 26RES093_9 (134,37 con la contribución de
+la 2.3 frente a 127,27 con el generador hecho a mano) venía de los **kWh** (11.000 frente a
+11.803), no de la forma. Al comparar un inicial con un final (IRPF, revisión), lo que tiene que
+cuadrar son los kWh declarados. Cómo lo escribe la app: ver «AUTOCONSUMO con PVGIS».
 
 ## AUTOCONSUMO con PVGIS — kWp ⇄ kWh/año y su reparto mensual (2026-10-02)
 
@@ -12646,9 +12645,45 @@ Sin PVGIS consultado, la medida sale exactamente como antes. El 90 % declarable
 (`AUTOCONSUMO_DECLARABLE`) vive ahora en `autoconsumoMaximo.js` (fichaCe3x lo reexporta):
 la barra y la medida no pueden usar dos cifras distintas.
 
-⚠️ El `.cex` sigue declarando el autoconsumo como «Contribución energética» (kWh/año); el
-objeto «Generación renovable eléctrica» de la 3.1 (slot 13, con la tabla mensual) NO lo
-escribe la app: el panel da los números para teclearlo.
+**REGLA — en la 3.1 el autoconsumo se ESCRIBE como «Generación renovable eléctrica»**
+(2026-10-02): potencia pico y autoconsumo MES A MES, un `models.GeneradorElectrico` con la
+forma medida sobre «EJEMPLO MIGRADO.cex» (claves STRING, nombre y zona UNICODE, meses FLOAT, `id`
+un `uuid.UUID` derivado de sus datos para que el fichero salga igual cada vez). En la 2.3, la
+contribución anual de siempre. Lo decide el motor (`separar_generadores` ·
+`instalaciones_de_medida` · `generador_electrico` en
+[generar_cex.py](implementation/cee-engine/tools/generar_cex.py)) y es el MISMO camino en las
+CUATRO superficies que escriben una medida: el `.cex` de la envolvente (inicial y final),
+«Poner la medida» en el `.cex` del técnico (con la versión de ESE fichero) y el CEE final desde
+la medida. Sin los doce meses se queda como contribución —que la 3.1 calcula igual— y se dice.
+
+**REGLA — en una medida el generador va en TRES sitios**: `listadoGeneradoresElectricoMM`, el
+slot 13 de `datosInstalaciones` y el de la copia de `mejoras[1][1]`. Medido con CE3X 3.1: sin el
+tercero la medida abre pero calcula un ahorro de CERO; con él, el mismo 34,2 % que la misma
+energía como contribución. Es UN objeto (las otras apariciones salen como GET).
+
+**REGLA — los meses los pregunta el BACKEND si nadie lo hizo** (`pvgisParaAutoconsumo` en
+[ceeEnvolventeCex.js](implementation/backend/services/ceeEnvolventeCex.js)): manda lo guardado
+en `ajustes.autoconsumo_pvgis` (con su tejado); si no hay, al GENERAR —nunca en la
+previsualización, que se pide muchas veces— se pregunta con los ángulos óptimos del sitio y 12 s
+de plazo (`PVGIS_ESPERA_CEX_MS`). Si PVGIS no responde, contribución anual + aviso: un `.cex` no
+se queda esperando a un servicio de fuera.
+
+**REGLA — las placas que YA declara el fichero viajan en sus medidas** (`generadores_de_base`).
+Un `.cex` del técnico hecho en la 3.1 con las placas como generador perdía las placas en la
+medida que le ponía la app, y CE3X la calculaba sobre una vivienda SIN ellas: medido, una medida
+que no cambia nada salía con un **−51,9 %**; con el arreglo, 0 %. Vale también para la medida de
+aislamiento y para la de retirar el generador en apoyo del CEE final.
+
+Comprobado de punta a punta el 02/10/2026 con 26RES060_186 (CEE final, en seco): el backend
+preguntó a PVGIS (1.674 kWh/kWp), el motor escribió 6,19 kWp y 10.359 kWh mes a mes, y CE3X 3.1
+abrió el fichero, calculó la medida (93,7 %) y escribió su XML.
+
+```bash
+python -m pytest implementation/cee-engine/tests/test_generador_electrico.py
+```
+
+⚠️ Las placas que ya tiene la vivienda (`instalacion.fotovoltaica`) la app sigue SIN escribirlas
+en el CEE inicial: las declara el certificador.
 
 ## Reglas Críticas — No Romper
 
@@ -13105,4 +13140,4 @@ PROPUESTA_PROGRAMADA_MAX_DIAS=90   ← hasta cuándo se admite programar
 
 105. **Se certifica con CE3X 2.3 y con la 3.1, y por defecto la 3.1** (2026-10-02): la versión se elige en la envolvente (`ajustes.version_ce3x`) y en «Generar CEE final», y un inicial de la 2.3 se convierte a la 3.1 al hacer su final. El cálculo es el mismo (medido con el motor de las dos); cambia lo que pide la 3.1 —uso, protección, titulación del desplegable, superficie útil, unidades de uso y plantas (sin ellos no califica) y la potencia de cada equipo (sin ella no escribe el XML)—, que la app propone y deja corregir. El motor escribe en la forma de la 2.3 y aplica la versión en las fronteras (`version_ce3x.py`); un `.cex` suelto se convierte con `tools/convertir_cex.py`. Nunca puntos en el nombre de un `.cex`: `xml2cert` no encuentra el XML. Y el `.xml` de la 3.1 (esquema v3.0) se LEE igual: los lectores de la app miran la versión y devuelven el mismo objeto que con la 2.3 (`xmlCeeV30.js` y su espejo CJS, que deben ser idénticos). Tras tocarlo: `python -m pytest implementation/cee-engine/tests/test_version_ce3x.py`, `node implementation/backend/scripts/test_version_ce3x_app.mjs` y `node implementation/backend/scripts/test_xml_cee_v30.mjs`. Ver "CE3X 2.3 y 3.1".
 
-106. **El autoconsumo se dimensiona con PVGIS: kWp ⇄ kWh/año y su reparto mensual** (2026-10-02): botón «☀️ kWp con PVGIS» en la barra ⚡ del módulo CEE y junto a los kWh de la medida de autoconsumo de la envolvente. Se pregunta a PVGIS 5.3 (`PVcalc`, estable; la v6 está en prototipo) con 1 kWp y una vez por sitio —la producción es lineal en la potencia—, con caché de 30 días en el backend (`GET /api/pvgis/produccion`, internalOnly) y la ubicación sacada de la UTM del expediente, de la referencia catastral o del `georef` de la envolvente. Los doce meses suman EXACTO el total (resto mayor). «Usar en la medida» guarda la producción específica en `ajustes.autoconsumo_pvgis` y la medida del `.cex` lleva su `potencia_pico_kwp` en vez de la estimación de 1.500 kWh/kWp. Fuentes únicas: [logic/produccionFv.js](implementation/frontend/src/features/expedientes/logic/produccionFv.js) + [pvgisService.js](implementation/backend/services/pvgisService.js). Tras tocarlo: `node implementation/backend/scripts/test_produccion_fv.mjs --en-vivo`. Ver "AUTOCONSUMO con PVGIS".
+106. **El autoconsumo se dimensiona con PVGIS: kWp ⇄ kWh/año y su reparto mensual** (2026-10-02): botón «☀️ kWp con PVGIS» en la barra ⚡ del módulo CEE y junto a los kWh de la medida de autoconsumo de la envolvente. Se pregunta a PVGIS 5.3 (`PVcalc`, estable; la v6 está en prototipo) con 1 kWp y una vez por sitio —la producción es lineal en la potencia—, con caché de 30 días en el backend (`GET /api/pvgis/produccion`, internalOnly) y la ubicación sacada de la UTM del expediente, de la referencia catastral o del `georef` de la envolvente. Los doce meses suman EXACTO el total (resto mayor). «Usar en la medida» guarda la producción específica en `ajustes.autoconsumo_pvgis` y la medida del `.cex` lleva su `potencia_pico_kwp` en vez de la estimación de 1.500 kWh/kWp. Fuentes únicas: [logic/produccionFv.js](implementation/frontend/src/features/expedientes/logic/produccionFv.js) + [pvgisService.js](implementation/backend/services/pvgisService.js). En la 3.1 la medida se escribe como «Generación renovable eléctrica» mes a mes (el backend pregunta a PVGIS al generar si nadie lo hizo; en la 2.3, contribución anual), y las placas que ya declara el fichero viajan en sus medidas. Tras tocarlo: `node implementation/backend/scripts/test_produccion_fv.mjs --en-vivo` y `python -m pytest implementation/cee-engine/tests/test_generador_electrico.py`. Ver "AUTOCONSUMO con PVGIS".

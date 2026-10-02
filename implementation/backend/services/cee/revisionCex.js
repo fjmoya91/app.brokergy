@@ -108,7 +108,7 @@ async function radiografiaCex(bytes) {
  * con lo que el certificador haya retocado en la cara del CEE final de la
  * ventana de envolvente. Importada, nunca recompuesta aquí.
  */
-async function medidasDelExpediente(ctx, { superficie, existentes = null } = {}) {
+async function medidasDelExpediente(ctx, { superficie, existentes = null, version = null } = {}) {
     const { medidasCe3x, claveInstalacion, claveExtras } = await cex.loadFichaCe3x();
     const trabajo = await cex.leerTrabajo(ctx.expediente.id).catch(() => null);
     const cfg = trabajo?.ajustes || {};
@@ -117,10 +117,14 @@ async function medidasDelExpediente(ctx, { superficie, existentes = null } = {})
     //: usa `fichaCe3x`, que las exporta).
     const extras = cfg[claveExtras('final')];
     const final = { ajustes: cfg[claveInstalacion('final')], extras: Array.isArray(extras) ? extras : [] };
+    //: En un `.cex` de la 3.1 el autoconsumo va como «Generación renovable
+    //: eléctrica», mes a mes: los meses salen de PVGIS (ver `pvgisParaAutoconsumo`).
+    const pv = version === '3.1' ? await cex.pvgisParaAutoconsumo(ctx, cfg) : {};
     return medidasCe3x({
         expediente: ctx.expediente, superficie, fase: 'inicial',
         modelos: ctx.modelos, textos: cfg.medidas_texto, final,
         autoconsumoKwh: cfg.autoconsumo_kwh,
+        autoconsumoFv: pv.especifica || null,
         //: Sin aerotermia en el expediente, la genérica de la simulación.
         generica: true,
         //: Los equipos que declara el `.cex` del técnico: es lo que dice si la
@@ -145,6 +149,8 @@ async function ponerMedida(ctx) {
     const rx = await radiografiaCex(entregado.bytes);
     const { medidas, avisos: avisosMedida } = await medidasDelExpediente(ctx, {
         superficie: rx.generales?.superficie,
+        //: La versión del fichero del técnico, que NO cambia al ponerle la medida.
+        version: rx.version_ce3x || null,
         existentes: (rx.equipos || []).map((e) => ({ slot: e.slot, nombre: e.nombre, combustible: e.combustible })),
     });
     if (!medidas?.length) {
