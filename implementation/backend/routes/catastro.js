@@ -145,6 +145,14 @@ router.get('/search', async (req, res) => {
                 code: 'CATASTRO_RATE_LIMITED'
             });
         }
+        // El Catastro no ha contestado (corte de conexión o plazo agotado, ya con un
+        // reintento hecho en `getByRC`). No es un fallo nuestro ni de la referencia:
+        // se dice así, para que la pantalla no lo convierta en un "inténtalo de nuevo"
+        // que no explica nada.
+        if (['CATASTRO_UNREACHABLE', 'CATASTRO_TIMEOUT', 'CATASTRO_DOWN'].includes(error.code)) {
+            const msg = 'El Catastro no ha respondido. Vuelve a pulsar Buscar en unos segundos.';
+            return res.status(503).json({ error: msg, details: msg, code: error.code });
+        }
         res.status(error.code?.startsWith('RC_') ? 404 : 500).json({
             error: 'Search failed',
             details: error.message,

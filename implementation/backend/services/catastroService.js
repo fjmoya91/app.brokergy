@@ -71,6 +71,34 @@ function catastroGet(rawUrl, { headers = COMMON_HEADERS, timeout = 8000, respons
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+// Un CORTE DE RED suelto (conexión reiniciada, plazo agotado) no es el WAF: el WAF
+// CONTESTA —400/403 con su HTML— y eso lo trata `isRateLimitResponse`. Aquí no hay
+// respuesta ninguna. Medido el 02/10/2026: la búsqueda automática del CEE de
+// "Nueva simulación" (RC 6112410VH6961S0001AX) murió en un `read ECONNRESET` y la
+// MISMA consulta, repetida desde el VPS, dio 200 a la primera.
+const CODIGOS_CORTE_RED = new Set(['ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'EPIPE', 'EAI_AGAIN']);
+function esCorteDeRed(err) {
+    if (!err || err.response) return false; // hubo respuesta: no es un corte
+    if (CODIGOS_CORTE_RED.has(err.code)) return true;
+    return /socket hang up|timeout/i.test(String(err.message || ''));
+}
+
+/**
+ * `catastroGet` con UN reintento ante un corte de red, en SERIE y tras una pausa
+ * (regla 17: nunca ráfagas). Lo que vuelve con respuesta —un 400/403 del WAF, un
+ * 404— NO se reintenta: insistir ahí es la forma de que bloqueen la IP.
+ */
+async function catastroGetReintentando(url, opts, { pausaMs = 1200 } = {}) {
+    try {
+        return await catastroGet(url, opts);
+    } catch (err) {
+        if (!esCorteDeRed(err)) throw err;
+        console.warn(`[catastro] corte de red (${err.code || err.message}); reintento en ${pausaMs} ms`);
+        await sleep(pausaMs);
+        return catastroGet(url, opts);
+    }
+}
+
 // Helper para detectar el rate-limit/WAF del catastro en respuestas HTTP.
 // Variantes vistas:
 //   - 403 directo
@@ -286,7 +314,7 @@ async function getByRC(rc) {
         const url = `${BASE_URL}/Consulta_DNPRC?Provincia=&Municipio=&RefCat=${cleanRC}`;
 
         // Datos y coordenadas en serie (defensa contra antiguos WAF de ráfaga).
-        const response = await catastroGet(url, { headers: COMMON_HEADERS, timeout: 8000 });
+        const response = await catastroGetReintentando(url, { headers: COMMON_HEADERS, timeout: 8000 });
         await sleep(500);
         const coordinates = await getCoordinatesByRC(cleanRC);
 
@@ -498,12 +526,15 @@ async function getByRC(rc) {
         }
         monitor.recordOtherError(error.message);
 
-        // Categorizar errores de red/servidor
+        // Categorizar errores de red/servidor. `catastroGet` es http.request puro: sus
+        // errores de red no traen `error.request` (eso era de axios), así que un
+        // ECONNRESET salía con su código crudo y la pantalla solo podía decir "no
+        // pudimos completar la búsqueda".
         if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
             error.code = 'CATASTRO_TIMEOUT';
         } else if (error.response) {
             error.code = 'CATASTRO_DOWN';
-        } else if (error.request) {
+        } else if (error.request || esCorteDeRed(error)) {
             error.code = 'CATASTRO_UNREACHABLE';
         }
         throw error;

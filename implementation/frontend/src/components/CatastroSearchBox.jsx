@@ -31,9 +31,12 @@ function mensajeErrorOcr(e) {
     return delServidor || 'No se pudo leer la imagen. Escribe la referencia a mano.';
 }
 
-export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry, onGeolocate, geolocatePrimary = false, permiteFotoRc = false }) {
+// `initialQuery`: referencia con la que nace escrito el campo (la del CEE cargado en
+// "Nueva simulación"). Si su búsqueda automática falla, reintentar es pulsar Buscar,
+// no volver a teclear 20 caracteres que ya estaban en el certificado.
+export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry, onGeolocate, geolocatePrimary = false, permiteFotoRc = false, initialQuery = '' }) {
     const [searchMode, setSearchMode] = useState('rc'); // 'rc' | 'address'
-    const [query, setQuery] = useState('');
+    const [query, setQuery] = useState(initialQuery || '');
     const [isFocused, setIsFocused] = useState(false);
     const [geoLoading, setGeoLoading] = useState(false);
 

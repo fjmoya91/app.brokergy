@@ -94,6 +94,8 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
     const [parcela, setParcela] = useState(null);
     const [catastroLoading, setCatastroLoading] = useState(false);
     const [catastroError, setCatastroError] = useState(null);
+    // La búsqueda en curso es la automática con la referencia del CEE (no tecleada).
+    const [buscandoCee, setBuscandoCee] = useState(false);
     const [geoBlockedInfo, setGeoBlockedInfo] = useState(null);
     const [geoStage, setGeoStage] = useState(null);
     const [lastGeoCoords, setLastGeoCoords] = useState(null);
@@ -171,9 +173,13 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
     };
 
     // ---- Búsqueda catastral ----
-    const handleSearch = async (query) => {
+    // `opts.desdeCee`: la lanza sola la puerta de "Nueva simulación" con la referencia
+    // del certificado cargado. Si falla, el mensaje dice DE QUÉ referencia se trata —
+    // el usuario no la ha tecleado y, sin eso, el error parece venir de la nada.
+    const handleSearch = async (query, opts = {}) => {
         setCatastroLoading(true);
         setCatastroError(null);
+        setBuscandoCee(!!opts.desdeCee);
         try {
             const res = await axios.get(`${CATASTRO_API}/search`, { params: { q: query } });
             if (res.data.type === 'RC_RESULT') {
@@ -195,28 +201,42 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
             }
         } catch (err) {
             const code = err.response?.data?.code;
-            if (code === 'RC_INVALID_FORMAT') setCatastroError('La referencia catastral no tiene formato válido.');
-            else if (code === 'RC_NOT_FOUND') setCatastroError('No encontramos esa referencia catastral.');
-            else setCatastroError('No pudimos completar la búsqueda. Inténtalo de nuevo.');
+            let msg;
+            if (code === 'RC_INVALID_FORMAT') msg = 'La referencia catastral no tiene formato válido.';
+            else if (code === 'RC_NOT_FOUND') msg = 'No encontramos esa referencia catastral.';
+            else if (code === 'CATASTRO_RATE_LIMITED') msg = 'El Catastro está saturado ahora mismo. Vuelve a intentarlo en unos minutos.';
+            else if (['CATASTRO_UNREACHABLE', 'CATASTRO_TIMEOUT', 'CATASTRO_DOWN'].includes(code)) {
+                msg = 'El Catastro no ha respondido. Vuelve a pulsar Buscar en unos segundos.';
+            }
+            else msg = 'No pudimos completar la búsqueda. Inténtalo de nuevo.';
+            setCatastroError(opts.desdeCee
+                ? `No hemos podido buscar la vivienda del certificado (${query}). ${msg} La referencia ya está escrita en el buscador.`
+                : msg);
         } finally {
             setCatastroLoading(false);
+            setBuscandoCee(false);
         }
     };
 
     // Nueva simulación (admin) con CEE aportado: autocompletamos la búsqueda con la
     // referencia catastral del CEE, para saltar directos a la ficha de la vivienda.
+    // `initialCeeData` es { inicial, final }: la RC vale igual de cualquiera de los dos
+    // certificados (son de la misma vivienda; si no lo fueran, la puerta ya lo ha
+    // avisado antes de llegar aquí). Se limpia como la trae el certificado: un .xml de
+    // varios inmuebles declara varias separadas por ";" y el OCR puede traer espacios.
+    const rcDelCee = useMemo(() => {
+        if (!isInternal) return '';
+        const cruda = initialCeeData?.inicial?.referencia_catastral || initialCeeData?.final?.referencia_catastral || '';
+        const primera = String(cruda).toUpperCase().split(/[;,\n]/)[0] || '';
+        return primera.replace(/[^A-Z0-9]/g, '');
+    }, [isInternal, initialCeeData]);
     const ceePrefillRan = useRef(false);
     useEffect(() => {
-        if (!isInternal || ceePrefillRan.current) return;
-        // `initialCeeData` es { inicial, final }: la RC vale igual de cualquiera de
-        // los dos certificados (son de la misma vivienda; si no lo fueran, la puerta
-        // ya lo ha avisado antes de llegar aquí).
-        const rc = initialCeeData?.inicial?.referencia_catastral || initialCeeData?.final?.referencia_catastral;
-        if (!rc) return;
+        if (!rcDelCee || ceePrefillRan.current) return;
         ceePrefillRan.current = true;
-        handleSearch(String(rc).trim());
+        handleSearch(rcDelCee, { desdeCee: true });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isInternal, initialCeeData]);
+    }, [rcDelCee]);
 
     const handleAddressSelect = async (suggestion) => {
         setCatastroLoading(true);
@@ -656,6 +676,7 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                                     // La ruta es staffOnly (detrás hay una llamada de pago a un
                                     // LLM) y en la landing pública el botón daría un 403.
                                     permiteFotoRc={isInternal}
+                                    initialQuery={rcDelCee}
                                 />
                             ) : (
                                 <ConfirmationCard
@@ -666,8 +687,19 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                                 />
                             )}
 
+                            {isInternal && !rcDelCee && (initialCeeData?.inicial || initialCeeData?.final) && !confirmCandidate && !parcela && (
+                                <div className="mt-6 p-4 bg-sky-500/10 border border-sky-500/30 rounded-2xl text-center">
+                                    <p className="text-sky-200 text-sm">
+                                        El certificado cargado no trae la referencia catastral. Busca la vivienda por referencia o dirección y seguimos con los datos del CEE.
+                                    </p>
+                                </div>
+                            )}
                             {catastroLoading && (
-                                <div className="mt-6 text-center text-amber-400 text-sm">Resolviendo dirección…</div>
+                                <div className="mt-6 text-center text-amber-400 text-sm">
+                                    {buscandoCee
+                                        ? <>Buscando en el Catastro la vivienda del certificado <span className="font-mono">{rcDelCee}</span>…</>
+                                        : 'Resolviendo dirección…'}
+                                </div>
                             )}
                             {catastroError && (
                                 <div className="mt-6 p-4 bg-red-500/10 border border-red-500/30 rounded-2xl text-center">
