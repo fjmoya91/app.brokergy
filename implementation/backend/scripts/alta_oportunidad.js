@@ -29,6 +29,9 @@
 //     `createLead` y `subirFicherosASlot`. La oportunidad de la skill y la del
 //     formulario no pueden diferir.
 //   · El modelo solo LEE; el plan lo escribe quien ha mirado las fotos.
+//   · El CEE que aporta el cliente (`cee` del plan) entra como en la calculadora:
+//     `comparativa` → `ceeParaComparativa` (sigue estimada; la propuesta ofrece
+//     «con tu CEE / CEE nuevo BROKERGY»); `cee` → `seedInputsFromCees`.
 //   · Sin --escribir no se toca nada.
 // ============================================================================
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env'), quiet: true });
@@ -330,7 +333,7 @@ async function crear() {
     if (!raw?.constructions) throw new Error(`El Catastro no devuelve el inmueble ${rc}.`);
 
     const { desgloseConstrucciones } = await esm('utils/construcciones.js');
-    const sel = alta.seleccionConstrucciones(raw.constructions, plan.construcciones);
+    const sel = alta.seleccionConstrucciones(raw.constructions, plan.construcciones, plan.vivienda_construcciones);
     avisos.push(...sel.avisos);
     const desglose = desgloseConstrucciones(raw.constructions, sel.indices);
     const catastroFunnel = {
@@ -448,8 +451,35 @@ async function crear() {
         avisos.push(`Sin presupuesto: la propuesta irá con el ESTIMADO de ${eur(inputs.presupuesto)} (y lo dirá).`);
     }
 
+    // 6b. El CEE que aporta el cliente (el más reciente). Se LEE con el mismo OCR que
+    //     «Nueva simulación» y entra por las MISMAS funciones de la calculadora:
+    //     comparativa → `ceeParaComparativa` (sigue estimada); cee → `seedInputsFromCees`.
+    const ceePlan = alta.ceeDelPlan(plan);
+    let ceeLeido = null;
+    if (ceePlan) {
+        const ceeOcr = require('../services/ceeOcrService');
+        const { ceeFromOcr } = await esm('features/cee/ceeExtract.js');
+        const seed = await esm('features/calculator/logic/ceeSeed.js');
+        const { pdf } = await ceeOcr.normalizeToPdf(ficherosDe(ceePlan.ficheros.map(f => path.resolve(base, f)).join(',')));
+        ceeLeido = ceeFromOcr(await ceeOcr.extractCeeFromPdf(pdf), null);
+        if (ceePlan.modo === 'cee') {
+            Object.assign(inputs, seed.seedInputsFromCees({ inicial: ceeLeido, inputs }));
+        } else {
+            Object.assign(inputs, seed.ceeParaComparativa(ceeLeido), { demandMode: 'estimated' });
+        }
+        const rcCee = String(ceeLeido.referencia_catastral || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (!rcCee) avisos.push('El CEE no deja leer su referencia catastral: comprueba que es de esta vivienda.');
+        else if (rcCee.slice(0, 14) !== rc.slice(0, 14)) avisos.push(`El CEE es de OTRA referencia catastral (${rcCee}), no de ${rc}.`);
+        if (!(Number(ceeLeido.demandas?.calefaccion_kwh_m2_ano) > 0)) avisos.push('El CEE no deja leer la demanda de calefacción: sin ella no hay comparativa.');
+    }
+
     // 7. El resultado, con la MISMA función que guarda el formulario.
     const result = computeFullCalculatorResult(inputs);
+    let comparativa = null;
+    if (ceePlan) {
+        const { computeCeeComparison } = await esm('features/calculator/logic/ceeComparison.js');
+        comparativa = computeCeeComparison(inputs);
+    }
     const contacto = alta.contactoDesdePlan(plan);
     const docs = alta.documentosDelPlan(plan, base);
     for (const d of docs) if (!fs.existsSync(d.ruta)) throw new Error(`No existe el fichero ${d.ruta}.`);
@@ -485,6 +515,24 @@ async function crear() {
     console.log(`Presupuesto:  ${eur(inputs.presupuesto)}${inputs.presupuestoEstimado ? ' (ESTIMADO)' : ''}`);
     console.log(`RESULTADO:    demanda ${dosDec(result?.q_net)} kWh/m²·año · ahorro ${miles(sav.savingsKwh || 0)} kWh/año`
         + ` · bono CAE ${eur(fin.caeBonus)} · IRPF ${eur(fin.irpfDeduction)} · ayuda total ${eur(fin.totalAyuda)}`);
+    if (ceeLeido) {
+        const ep = ceeLeido.energia_primaria_no_renovable || {};
+        console.log(`CEE cliente:  ${ceeLeido.fecha_certificado || 's/f'} · RC ${ceeLeido.referencia_catastral || '?'} · ${dosDec(ceeLeido.superficie_habitable_m2)} m²`
+            + ` · calefacción ${dosDec(ceeLeido.demandas?.calefaccion_kwh_m2_ano)} kWh/m²·año`
+            + `${ep.consumo_global_kwh_m2_ano ? ` · EPNR ${dosDec(ep.consumo_global_kwh_m2_ano)} ${ep.calificacion_global || ''}` : ''}`
+            + ` · modo ${ceePlan.modo === 'cee' ? 'la simulación USA el CEE' : 'COMPARATIVA (la simulación sigue estimada)'}`);
+        if (comparativa) {
+            const c = comparativa;
+            console.log(`COMPARATIVA:  con su CEE ${miles(c.conCee.ahorroKwh || 0)} kWh → bono ${eur(c.conCee.cae)} (ayuda ${eur(c.conCee.total)})`
+                + ` · CEE nuevo BROKERGY ${miles(c.ceeNuevo.ahorroKwh || 0)} kWh → bono ${eur(c.ceeNuevo.cae)} (ayuda ${eur(c.ceeNuevo.total)})`);
+            if (Math.round(c.conCee.cae) === Math.round(c.ceeNuevo.cae)) {
+                avisos.push('Las dos cifras de la comparativa coinciden: la propuesta NO la enseñará'
+                    + (ceePlan.modo === 'cee' ? ' (en modo «cee» la simulación ya usa el certificado).' : '.'));
+            }
+        } else {
+            avisos.push('No se ha podido calcular la comparativa con el CEE (¿falta su demanda de calefacción?).');
+        }
+    }
     console.log(`Ficha:        ${funnel.isReforma ? 'RES080' : 'RES060'}`);
     // Los apartados que tendrá la oportunidad, con la MISMA función que valida la
     // subida (sin expediente detrás, el alcance es el de la simulación).

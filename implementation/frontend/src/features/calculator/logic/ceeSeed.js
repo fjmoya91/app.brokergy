@@ -220,6 +220,33 @@ export function seedInputsFromCees({ inicial = null, final = null, inputs = {} }
   return patch;
 }
 
+/**
+ * La COMPARATIVA «con tu CEE / CEE nuevo BROKERGY» (RES060): el CEE que aporta el
+ * cliente se guarda como `cee_previo` con su demanda y su superficie, y la simulación
+ * SIGUE EN MODO ESTIMADO. `computeCeeComparison` saca el «con tu CEE» de este objeto y
+ * el «CEE nuevo» del cálculo estimado: si la simulación pasara a usar la demanda del
+ * certificado (`seedInputsFromCees`, `demandMode: 'manual'`), las dos cifras saldrían
+ * iguales y la propuesta no enseñaría la comparativa.
+ *
+ * No pone `xmlDemandData`, a propósito: con él el expediente nacería con este CEE
+ * como inicial, y en la comparativa qué certificado vale lo decide el cliente al
+ * aceptar. Ni el PDF (regla 21: el fichero va a Drive).
+ *
+ * @param {object} cee  CEE normalizado (ceeExtract)
+ * @returns {object} PARCHE de inputs — no toca `demandMode`
+ */
+export function ceeParaComparativa(cee) {
+  if (!cee) return {};
+  const { pdfBase64, _files, ...limpio } = cee;
+  const dem = Number(cee.demandas?.calefaccion_kwh_m2_ano);
+  const sup = Number(cee.superficie_habitable_m2);
+  return {
+    cee_previo: limpio,
+    ...(isFinite(dem) && dem > 0 ? { manualDemand: dem } : {}),
+    ...(isFinite(sup) && sup > 0 ? { manualSuperficie: sup } : {}),
+  };
+}
+
 /** Demanda y superficie que aplicará el cálculo, para poder enseñarlas antes de seguir. */
 export { demandaDeCalculo, demandaCal, ceeSuperficie };
 

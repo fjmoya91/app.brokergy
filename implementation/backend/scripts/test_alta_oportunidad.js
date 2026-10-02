@@ -102,6 +102,23 @@ const prueba = async (nombre, fn) => {
         assert.ok(s.avisos.some(a => /9\/99\/99/.test(a)));
         assert.ok(s.avisos.some(a => /1\/00\/02.*ALMACEN/.test(a)));
     });
+    await prueba('una RC con VARIAS viviendas: vivienda_construcciones cuenta solo la suya y lo dice', () => {
+        // 9302601VJ7190S0001XL: el bajo y el 1º sin división horizontal (2026-10-01).
+        const dos = [
+            { type: 'VIVIENDA', code: '01/00/01', surface: 150 },
+            { type: 'VIVIENDA', code: '01/00/02', surface: 35 },
+            { type: 'APARCAMIENTO', code: '01/00/03', surface: 35 },
+            { type: 'VIVIENDA', code: '01/01/01', surface: 166 },
+        ];
+        const alto = alta.seleccionConstrucciones(dos, null, ['01/01/01']);
+        assert.deepStrictEqual(alto.indices, [3]);
+        assert.strictEqual(alto.superficie, 166);
+        assert.ok(alto.avisos.some(a => /01\/00\/01 \(150 m²\)/.test(a) && /01\/00\/02 \(35 m²\)/.test(a)));
+        const bajo = alta.seleccionConstrucciones(dos, null, ['01/00/01', '01/00/02']);
+        assert.strictEqual(bajo.superficie, 185);
+        assert.throws(() => alta.seleccionConstrucciones(dos, null, ['01/00/03']), /VIVIENDA/);
+        assert.throws(() => alta.seleccionConstrucciones(dos, null, ['01/09/09']), /01\/09\/09/);
+    });
     await prueba('sin ninguna vivienda en el Catastro cuenta todo (como el formulario)', () => {
         const s = alta.seleccionConstrucciones([{ type: 'ALMACEN', code: 'a', surface: 50 }, { type: 'OFICINA', code: 'b', surface: 30 }]);
         assert.strictEqual(s.superficie, 80);
@@ -178,6 +195,53 @@ const prueba = async (nombre, fn) => {
         const sin = computeFullCalculatorResult(base).q_net;
         const con = computeFullCalculatorResult({ ...base, ...alta.ajustesEdificio({ orientacion: 'N', patios: 1 }) }).q_net;
         assert.ok(con > sin * 1.1, `N + 1 patio no sube lo esperado (${sin} → ${con})`);
+    });
+
+    console.log('El CEE que aporta el cliente');
+    await prueba('el plan: modo por defecto comparativa, el PDF va solo a DOC_CEE_EXISTENTE, sin .xml', () => {
+        const c = alta.ceeDelPlan({ cee: { fichero: 'cee.pdf' } });
+        assert.strictEqual(c.modo, 'comparativa');
+        assert.throws(() => alta.ceeDelPlan({ cee: { fichero: 'cee.pdf', modo: 'otro' } }));
+        assert.throws(() => alta.ceeDelPlan({ cee: { fichero: 'cee.xml' } }), /PDF/);
+        const d = alta.documentosDelPlan({ cee: { fichero: 'cee.pdf' }, documentos: [{ fichero: 'reg.pdf', slot: 'DOC_CEE_EXISTENTE' }] }, '/tmp');
+        assert.deepStrictEqual(d.map(x => x.slot), ['DOC_CEE_EXISTENTE', 'DOC_CEE_EXISTENTE']);
+        // El mismo fichero en `documentos` y en `cee` no se sube dos veces.
+        assert.strictEqual(alta.documentosDelPlan({ cee: { fichero: 'cee.pdf' }, documentos: [{ fichero: 'cee.pdf', slot: 'DOC_CEE_EXISTENTE' }] }, '/tmp').length, 1);
+    });
+    const seed = await import(pathToFileURL(path.join(FRONT, 'calculator/logic/ceeSeed.js')).href);
+    const { computeCeeComparison } = await import(pathToFileURL(path.join(FRONT, 'calculator/logic/ceeComparison.js')).href);
+    // El caso de 26RES060_OP252: CEE de 217 m² y 133,4 kWh/m²·año en una casa de 255 m².
+    const ceeCliente = {
+        referencia_catastral: '9813003VJ7191S0001HD', superficie_habitable_m2: 217, pdfBase64: 'JVBERi0x', _files: [{}],
+        demandas: { calefaccion_kwh_m2_ano: 133.4 }, servicios: { calefaccion: { combustible: 'Gasóleo-C' } },
+    };
+    const inputsCasa = () => {
+        const funnel = alta.funnelDesdePlan({ caldera: { combustible: 'gasoleo', edad: '>20' }, acs: { incluir: true } });
+        return funnelToCalculatorInputs(funnel, {
+            rc: 'x', yearBuilt: 2006, superficieCalefactable: 255, summaryByType: { VIVIENDA: 255 },
+            floors: { total: 2 }, climateInfo: { climateZone: 'D3' }, provinceCode: '13', participation: '100,00',
+        }, { mode: 'internal' });
+    };
+    await prueba('comparativa: el CEE se guarda SIN el PDF, la simulación sigue estimada y salen DOS cifras', () => {
+        const p = seed.ceeParaComparativa(ceeCliente);
+        assert.ok(!('pdfBase64' in p.cee_previo) && !('_files' in p.cee_previo), 'el PDF no puede ir al JSONB (regla 21)');
+        assert.ok(!('demandMode' in p), 'la comparativa no cambia el modo');
+        assert.strictEqual(p.manualDemand, 133.4);
+        const inputs = { ...inputsCasa(), ...p };
+        assert.strictEqual(inputs.demandMode, 'estimated');
+        const c = computeCeeComparison(inputs);
+        assert.ok(c, 'sin comparativa');
+        assert.notStrictEqual(Math.round(c.conCee.cae), Math.round(c.ceeNuevo.cae), 'las dos cifras coinciden: la propuesta no la enseñaría');
+        // «CEE nuevo» es lo que guarda la simulación; «con tu CEE», 133,4 × 217.
+        assert.strictEqual(Math.round(c.ceeNuevo.cae), Math.round(computeFullCalculatorResult(inputs).financials.caeBonus));
+    });
+    await prueba('modo cee: la simulación usa el certificado y la comparativa se anula (por eso no es el modo por defecto)', () => {
+        const inputs = inputsCasa();
+        Object.assign(inputs, seed.seedInputsFromCees({ inicial: ceeCliente, inputs }));
+        assert.strictEqual(inputs.demandMode, 'manual');
+        assert.strictEqual(computeFullCalculatorResult(inputs).q_net, 133.4);
+        const c = computeCeeComparison(inputs);
+        assert.strictEqual(Math.round(c.conCee.cae), Math.round(c.ceeNuevo.cae));
     });
 
     console.log(`\n${ok} pruebas correctas${process.exitCode ? ' — HAY FALLOS' : ''}`);

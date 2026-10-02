@@ -64,6 +64,7 @@ relativas a esa carpeta.
 | `cliente.direccion` | la que da el instalador | Manda sobre la del Catastro para la ficha del cliente |
 | `rc` | referencia de la VIVIENDA (20) | Con una de 14 (parcela) `crear` se niega |
 | `construcciones` | códigos `escalera/planta/puerta` que se AÑADEN | Todas las VIVIENDA cuentan SIEMPRE (no se pueden quitar). Aquí solo va lo que el Catastro no da como vivienda y se vive. `catastro <RC>` los lista |
+| `vivienda_construcciones` | códigos `escalera/planta/puerta` de ESTA vivienda | SOLO cuando la RC agrupa VARIAS viviendas (parcela sin división horizontal: el bajo y el 1º con la misma RC). Cuenta solo esas y deja fuera las demás viviendas, avisándolo. Tiene que incluir una VIVIENDA. Con varias viviendas, la segunda oportunidad lleva además `permitir_duplicado` (caso 26RES060_OP256/OP257) |
 | `orientacion` | `media` · `N` · `NE` · `E` · `SE` · `S` · `SO` · `O` · `NO` | Hacia dónde mira la FACHADA PRINCIPAL (la de la calle). Del croquis o las fotos. Sin dato, `media` |
 | `patios` | 0 a 4 | Patios interiores (el croquis los rotula). Sin dato, 0 |
 | `fachadas` | 1 a 4 | Fachadas al exterior. Solo si consta (una casa entre medianeras); si no, la de la calculadora |
@@ -81,6 +82,7 @@ relativas a esa carpeta.
 | `aerotermia` | `{ aerotermia_id }` o `{ marca, modelo, scop?, potencia_kw? }` | `{marca, modelo}` se casa con el catálogo por el código; con varios candidatos pide el id |
 | `placas` | `"si"` · `"futuro"` · `"no"` · `null` · o `{ "estado": "si", "kwp": 3.5 }` | Placas fotovoltaicas QUE YA TIENE. `null` = sin declarar |
 | `presupuesto` | `{ fichero }` (se lee con OCR) o `{ importe_con_iva }` | Sin él, la propuesta va con el ESTIMADO de 15.000 € y lo dice |
+| `cee` | `{ fichero, modo, wa_msg_id }` | El CEE que aporta el cliente, el MÁS RECIENTE (PDF o fotos separadas por comas; no `.xml`). Se lee con el OCR de «Nueva simulación» y va solo a `DOC_CEE_EXISTENTE`. `modo`: `comparativa` (por defecto: la simulación sigue estimada y la propuesta ofrece «con tu CEE / CEE nuevo BROKERGY») o `cee` (la simulación usa el certificado; sin comparativa). El seco imprime las dos cifras |
 | `documentos[]` | `{ fichero, slot, wa_msg_id? }` | Apartados: `FOTO_CALDERA_ANTES`, `FOTO_PLACA_CALDERA_ANTES`, `FOTO_EMISORES_ANTES`, `FOTO_ACS_ANTES`, `FOTO_FACHADA_PRINCIPAL`, `FOTO_PATIOS_INTERIORES`, `VIDEO_VIVIENDA`, `DOC_PLANOS`, `DOC_CEE_EXISTENTE`, `DOC_PRESUPUESTO`, `OTROS_ANTES`. El presupuesto entra solo |
 | `decisiones[]` | lo que se ha decidido y por qué | Al historial. Es lo que revisa una persona |
 | `obra_estado` | `no_empezada` (por defecto) | Esta skill da de alta sustituciones de caldera (RES060) |
@@ -96,7 +98,8 @@ relativas a esa carpeta.
 | Patios / paredes a patio | `FOTO_PATIOS_INTERIORES` |
 | Radiadores | `FOTO_EMISORES_ANTES` (solo si el apartado existe: con radiadores no se piden) |
 | Termo o depósito actual | `FOTO_ACS_ANTES` |
-| CEE anterior | `DOC_CEE_EXISTENTE` |
+| CEE anterior (el que se usa, por `cee`) y su justificante de registro | `DOC_CEE_EXISTENTE` |
+| CEE más antiguos (el inicial de las placas y su registro) | `OTROS_ANTES` |
 | La captura o el PDF del Catastro | no se sube (el Catastro se consulta) |
 
 # El plan de `documentar` (la obra YA existe)

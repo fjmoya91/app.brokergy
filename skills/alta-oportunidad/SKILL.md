@@ -64,6 +64,8 @@ Todo pasa por `implementation/backend/scripts/alta_oportunidad.js` (desde `imple
      marca, modelo, potencia y combustible con la foto.
    - la caldera entera, el croquis, el presupuesto, la captura/PDF del Catastro.
    - El presupuesto → `leer --presupuesto` (importe CON IVA, la aerotermia y el ACS en el catálogo).
+   - Un **CEE** (PDF): mira su fecha, la demanda de calefacción, la superficie y los equipos
+     (`pdftotext -layout` basta para leerlo). Va a `cee` del plan (ver la regla del CEE).
 4. **`catastro <RC> --dni <DNI>`**.
    - Si **ya hay una oportunidad** de esa vivienda: **PARA y pregunta**. Puede ser una actualización
      («ha cambiado el presupuesto») y no una alta nueva. Esta skill solo da de alta: `crear` se niega,
@@ -112,7 +114,6 @@ entrada» la V1), el cuarto de caldera, el baño con el termo y el vídeo de la 
    `set_session_title` con `session_id: "self"`; donde no exista esa herramienta (Cowork), se le dice
    al usuario para que lo ponga a mano. Así se sabe de qué obra es cada conversación.
 
-
 ## Reglas que no se rompen
 
 - **Sin emisor declarado, RADIADORES convencionales** (55 °C, el SCOP más prudente). Solo se cambia si
@@ -129,8 +130,27 @@ entrada» la V1), el cuarto de caldera, el baño con el termo y el vídeo de la 
 - **El nº de serie de la caldera solo si está rotulado como tal.** En Junkers/Bosch «FD 583 …» es el
   código de FECHA de fabricación: se guarda con `serie_dudosa: true` (no se hereda al expediente).
 - **ACS de hoy:** una caldera MIXTA (selector grifo / grifo+radiador, dos salidas, «mixta» en el
-  modelo) → `misma_caldera`; un termo → `termo`. **Se cambia el ACS** (`incluir: true`) si el
-  presupuesto trae un equipo de ACS o lo dice el instalador.
+  modelo, o el CEE que dice «Calefacción y ACS») → `misma_caldera`; un termo → `termo`. **Se cambia
+  el ACS** (`incluir: true`) si el presupuesto trae un equipo de ACS, lo dice el instalador **o la
+  caldera que se retira es MIXTA**: al quitarla, el agua caliente la tiene que dar la aerotermia (así
+  se hace en 76 de las 93 simulaciones recientes con el ACS en la caldera de gasóleo). Si el
+  presupuesto no detalla el depósito, se dice en `decisiones` para confirmarlo con el instalador.
+- **El CEE que aporta el cliente** (suele tenerlo de la deducción del IRPF por placas: un inicial y
+  un final). Se carga el **MÁS RECIENTE** en `cee` del plan; su justificante de registro va a
+  `DOC_CEE_EXISTENTE` y los anteriores (el inicial y su registro) a `OTROS_ANTES`.
+  - `modo: "comparativa"` (**por defecto**): la simulación sigue ESTIMADA («CEE nuevo BROKERGY») y la
+    propuesta enseña también la cifra «con tu CEE» (demanda × superficie del certificado). Es lo que
+    se hace a mano cargando el CEE en «Cálculo Estimado» (OP140, OP152, OP168).
+  - `modo: "cee"`: la simulación USA el certificado (como «Nueva simulación» con un CEE en la
+    puerta). Entonces las dos cifras coinciden y **no hay comparativa**: solo si se pide así.
+  - Lo que declare el CEE sirve para el resto del plan: placas fotovoltaicas («Contribuciones
+    energéticas: Inst. Fotovolt. 5 kWp» → `placas: {estado:"si", kwp:5}`), si la caldera da el ACS,
+    aires acondicionados (a `decisiones`: se quedan). El rendimiento estacional del CEE **no** cambia la
+    fila de la caldera (manda la edad).
+  - Solo PDF o fotos: el `.xml` no se lee fuera del navegador.
+- **El chat puede ser del propio CLIENTE** (escribe en primera persona: «si tengo subvención»): su
+  teléfono es el del chat y el partner es el instalador que firma el presupuesto (o el que va entre
+  paréntesis en el nombre del chat).
 - **La aerotermia sale del presupuesto** (o de la placa si ya está montada) y se casa con el catálogo.
   Fuera de catálogo va como `{ marca, modelo }`: la simulación usa el SCOP genérico y SE DICE.
   Darla de alta (ficha + EPREL) es de la skill `generar-cee-inicial` (`alta-aerotermia`).
@@ -139,6 +159,10 @@ entrada» la V1), el cuarto de caldera, el baño con el termo y el vídeo de la 
   cuenta: en 26RES060_OP250 dejar fuera los 34 m² de la planta 1 bajaba el bono de 2.028 € a 1.594 €.
   El código lo impone (`construcciones` no puede quitar una vivienda); solo sirve para AÑADIR algo que
   el Catastro no da como vivienda (un «almacén» que se vive), y se dice en `decisiones`.
+  **Excepción: una RC que agrupa VARIAS viviendas** (parcela sin división horizontal: el bajo y el 1º
+  con la misma referencia, cada uno con su caldera y su presupuesto). Ahí cada vivienda es una
+  oportunidad y cuenta SOLO lo suyo: `vivienda_construcciones` (ver `referencia/plan.md`); la segunda
+  lleva `permitir_duplicado`. Caso: 26RES060_OP256 (1º, 166 m²) y OP257 (bajo, 150 + 35 m²).
 - **Orientación y patios salen del croquis o de las fotos** (`orientacion`, `patios`): hacia dónde
   mira la fachada principal —la de la calle; el croquis suele ponerlo, «C/ HERNAN CORTES (NORTE)»— y
   cuántos patios interiores hay («PATIO»). Es lo que se corregía a mano en la calculadora: en OP250, N
@@ -156,7 +180,7 @@ entrada» la V1), el cuarto de caldera, el baño con el termo y el vídeo de la 
 - El nº de la oportunidad, el enlace `https://app.brokergy.es/?op=<id>`, la carpeta de Drive y el enlace
   de subida de documentación.
 - Superficie, orientación y patios, caldera (y η), emisor, ACS, aerotermia y SCOP, presupuesto, ahorro
-  y **bono CAE**.
+  y **bono CAE**. Con CEE, las **dos cifras de la comparativa** (con su CEE · CEE nuevo BROKERGY).
 - Las **decisiones** tomadas y **lo que hay que revisar** (equipo fuera de catálogo, superficie
   parcial, nº de serie dudoso, teléfono que falta…).
 - El **nombre nuevo del chat** de WhatsApp y el **título de la sesión**, o por qué no se ha tocado.
@@ -171,7 +195,6 @@ entrada» la V1), el cuarto de caldera, el baño con el termo y el vídeo de la 
   Valdepeñas», «crea la oportunidad con lo que ha mandado X por WhatsApp». La skill se carga sola.
 - Lo único que hace falta darle: el **nº de obra** (si ya existe) y **el chat** (como se ve en el
   móvil, o el teléfono). Si hay varios chats parecidos, pregunta cuál.
-
 
 ## Pruebas
 

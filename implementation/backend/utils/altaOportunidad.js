@@ -117,13 +117,33 @@ function tipoMedia(f) {
  * NO es vivienda en el Catastro (un «almacén» que en realidad se vive): nunca
  * quitar una vivienda. Un código de vivienda en la lista sobra y no cambia
  * nada; uno que no existe se AVISA, nunca se traga.
+ *
+ * `soloVivienda` es la EXCEPCIÓN, y solo para una referencia que agrupa VARIAS
+ * viviendas (parcela sin división horizontal: el bajo y el 1º con UNA sola RC,
+ * 9302601VJ7190S0001XL, 2026-10-01). Ahí «todas las viviendas cuentan» sumaría
+ * la casa del vecino: se dice qué construcciones son ESTA vivienda y las demás
+ * viviendas quedan fuera — avisándolo con sus m². Tiene que traer al menos una
+ * VIVIENDA y todos sus códigos tienen que existir: un error aquí no se traga.
  */
-function seleccionConstrucciones(constructions, codigos = null) {
+function seleccionConstrucciones(constructions, codigos = null, soloVivienda = null) {
     const lista = constructions || [];
     const avisos = [];
     const esViv = c => String(c.type || '').toUpperCase().includes('VIVIENDA');
     const viv = lista.map((c, i) => (esViv(c) ? i : null)).filter(i => i !== null);
     let indices = viv.length ? [...viv] : lista.map((_, i) => i);
+    if (Array.isArray(soloVivienda) && soloVivienda.length) {
+        const pedidos = soloVivienda.map(c => String(c).trim());
+        const faltan = pedidos.filter(p => !lista.some(c => String(c.code || '').trim() === p));
+        if (faltan.length) throw new Error(`vivienda_construcciones: el Catastro no tiene ${faltan.join(', ')}.`);
+        const elegidos = lista.map((c, i) => (pedidos.includes(String(c.code || '').trim()) ? i : null)).filter(i => i !== null);
+        if (!elegidos.some(i => esViv(lista[i]))) throw new Error('vivienda_construcciones: tiene que incluir al menos una construcción de VIVIENDA.');
+        const fuera = viv.filter(i => !elegidos.includes(i));
+        if (fuera.length) {
+            avisos.push(`La referencia agrupa varias viviendas: se cuenta solo esta (${elegidos.map(i => lista[i].code).join(' + ')}); `
+                + `quedan fuera, por ser de otra vivienda, ${fuera.map(i => `${lista[i].code} (${lista[i].surface} m²)`).join(' · ')}.`);
+        }
+        indices = elegidos;
+    }
     if (Array.isArray(codigos) && codigos.length) {
         const pedidos = codigos.map(c => String(c).trim());
         const faltan = pedidos.filter(p => !lista.some(c => String(c.code || '').trim() === p));
@@ -261,9 +281,35 @@ function documentoPresupuesto(plan = {}) {
     return p && p.fichero ? { fichero: p.fichero, wa_msg_id: p.wa_msg_id || null, t: p.t || null } : null;
 }
 
+const MODOS_CEE = ['comparativa', 'cee'];
+
+/**
+ * El CEE que aporta el cliente, si el plan lo trae: `{ fichero, modo, wa_msg_id }`.
+ * `fichero` es el PDF (o varias fotos separadas por comas) del certificado MÁS
+ * RECIENTE. `modo`:
+ *   · `comparativa` (por defecto) — la simulación sigue ESTIMADA y la propuesta
+ *     ofrece «con tu CEE» frente a «CEE nuevo BROKERGY» (lo que se hace a mano en
+ *     la calculadora cargando el CEE en «Cálculo Estimado»).
+ *   · `cee` — la simulación usa la demanda del certificado (lo que hace «Nueva
+ *     simulación» con un CEE en la puerta). Sin comparativa: las dos cifras coinciden.
+ */
+function ceeDelPlan(plan = {}) {
+    const c = plan.cee;
+    if (!c) return null;
+    if (!c.fichero) throw new Error('El CEE del plan necesita «fichero» (el PDF del certificado o sus fotos, separadas por comas).');
+    const ficheros = String(c.fichero).split(',').map(s => s.trim()).filter(Boolean);
+    if (ficheros.some(f => /\.(xml|cex)$/i.test(f))) {
+        throw new Error('El CEE se lee de su PDF o de fotos: el .xml no se puede leer fuera del navegador. Pasa el PDF (o carga el .xml en la calculadora).');
+    }
+    const modo = c.modo || 'comparativa';
+    if (!MODOS_CEE.includes(modo)) throw new Error(`cee.modo «${modo}»: usa ${MODOS_CEE.join(' | ')}.`);
+    return { ficheros, modo, wa_msg_id: c.wa_msg_id || null, t: c.t || null };
+}
+
 /**
  * Los ficheros que se suben, cada uno a su apartado. El presupuesto entra solo
- * (a DOC_PRESUPUESTO) aunque el plan no lo repita en `documentos`.
+ * (a DOC_PRESUPUESTO) y el CEE del plan (a DOC_CEE_EXISTENTE) aunque el plan no
+ * los repita en `documentos`.
  */
 function documentosDelPlan(plan = {}, base = '.') {
     const out = [];
@@ -278,6 +324,12 @@ function documentosDelPlan(plan = {}, base = '.') {
     const pre = documentoPresupuesto(plan);
     if (pre && !out.some(d => d.slot === 'DOC_PRESUPUESTO')) {
         out.push({ ruta: path.resolve(base, pre.fichero), slot: 'DOC_PRESUPUESTO', wa_msg_id: pre.wa_msg_id, t: pre.t, label: null });
+    }
+    const cee = ceeDelPlan(plan);
+    for (const f of cee?.ficheros || []) {
+        const ruta = path.resolve(base, f);
+        if (out.some(d => d.ruta === ruta)) continue;
+        out.push({ ruta, slot: 'DOC_CEE_EXISTENTE', wa_msg_id: cee.ficheros.length === 1 ? cee.wa_msg_id : null, t: cee.t, label: null });
     }
     return out;
 }
@@ -388,7 +440,7 @@ module.exports = {
     bloquePeticion, segundosMadrid, resumenMensaje,
     mimeDeFichero, tipoMedia,
     seleccionConstrucciones, funnelDesdePlan, contactoDesdePlan, ajustesEdificio, ORIENTACIONES,
-    documentoPresupuesto, documentosDelPlan, textoHistorial, capitaliza,
+    documentoPresupuesto, ceeDelPlan, MODOS_CEE, documentosDelPlan, textoHistorial, capitaliza,
     oportunidadesDeLaRc, resolverPartner, modeloAerotermia, idAdmin, anotarAlta,
     SLOTS_CONOCIDOS, COMBUSTIBLES, EMISORES, ACS_ACTUAL,
 };
