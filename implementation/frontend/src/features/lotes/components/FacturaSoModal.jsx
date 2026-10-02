@@ -25,14 +25,26 @@ export function FacturaSoModal({ lote, onClose, onGenerated }) {
     const { showAlert } = useModal();
     const eco = useMemo(() => computeLoteEco(lote), [lote]);
     const prev = lote.factura_so || null;
+    // El CERTIFICADO CAE emitido trae el rango de códigos y el total: de ahí salen
+    // el CAE inicial, el final y las unidades (se lee al subirlo; ver
+    // `leerCodigosCertificadoCae` en el backend). Lo ya escrito en la factura manda.
+    const certDoc = (lote.documentos_so || []).find(d => d?.key === 'certificado_cae') || null;
+    const [certCae, setCertCae] = useState(certDoc?.cae || null);
+    const [leyendoCert, setLeyendoCert] = useState(false);
+    const [errorCert, setErrorCert] = useState('');
+    const tieneCodigos = !!(prev?.cae_inicial || prev?.cae_final);
 
     const [numero, setNumero] = useState(prev?.numero || '');
     const [fecha, setFecha] = useState(prev?.fecha || toDmy(new Date()));
     const [vencimiento, setVencimiento] = useState(prev?.vencimiento || toDmy(new Date(Date.now() + 30 * 24 * 3600 * 1000)));
-    const [caeInicial, setCaeInicial] = useState(prev?.cae_inicial || '');
-    const [caeFinal, setCaeFinal] = useState(prev?.cae_final || '');
+    const [caeInicial, setCaeInicial] = useState(prev?.cae_inicial || certDoc?.cae?.cae_inicial || '');
+    const [caeFinal, setCaeFinal] = useState(prev?.cae_final || certDoc?.cae?.cae_final || '');
+    // Sin códigos en la factura, las unidades son los CAE emitidos (1 CAE = 1 kWh);
+    // el borrador puede traer ya las del ahorro, autoguardadas antes del certificado.
     const [unidadesKwh, setUnidadesKwh] = useState(
-        prev?.unidades_kwh ?? Math.round(eco.hasVerif ? eco.ahorroKwhVerif : eco.ahorroKwh)
+        (!tieneCodigos && certDoc?.cae?.total)
+            ? certDoc.cae.total
+            : (prev?.unidades_kwh ?? Math.round(eco.hasVerif ? eco.ahorroKwhVerif : eco.ahorroKwh))
     );
     const [precioKwh, setPrecioKwh] = useState(prev?.precio_kwh ?? defaultPrecioKwh(lote));
     const [generating, setGenerating] = useState(false);
@@ -47,6 +59,40 @@ export function FacturaSoModal({ lote, onClose, onGenerated }) {
             .then(({ data }) => setNumero(data.numero))
             .catch(() => { });
     }, [prev?.numero]);
+
+    // Lee el certificado ya subido (los subidos antes de que la app supiera leerlo
+    // no traen `cae`). Solo RELLENA huecos; lo escrito no se pisa.
+    const leerCertificado = async () => {
+        setLeyendoCert(true); setErrorCert('');
+        try {
+            const { data } = await axios.post(`/api/lotes/${lote.id}/certificado-cae/leer`);
+            const c = data?.cae || null;
+            setCertCae(c);
+            if (c?.cae_inicial && c?.cae_final) {
+                setCaeInicial(v => v || c.cae_inicial);
+                setCaeFinal(v => v || c.cae_final);
+                if (c.total && !tieneCodigos) setUnidadesKwh(c.total);
+            }
+        } catch (err) {
+            setErrorCert(err.response?.data?.error || 'No se pudo leer el certificado CAE.');
+        } finally {
+            setLeyendoCert(false);
+        }
+    };
+    useEffect(() => {
+        if (certDoc?.draft_file_id && !certDoc?.cae && !tieneCodigos) leerCertificado();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const usarCodigosCertificado = () => {
+        if (!certCae) return;
+        setCaeInicial(certCae.cae_inicial || '');
+        setCaeFinal(certCae.cae_final || '');
+        if (certCae.total) setUnidadesKwh(certCae.total);
+    };
+    const difiereDelCert = !!certCae?.cae_inicial && (
+        caeInicial.trim() !== certCae.cae_inicial || caeFinal.trim() !== certCae.cae_final
+        || (certCae.total && Math.round(Number(unidadesKwh) || 0) !== Number(certCae.total)));
 
     const fields = { numero, fecha, vencimiento, caeInicial, caeFinal, unidadesKwh, precioKwh };
     const html = useMemo(() => buildFacturaSoHtml(lote, fields), [lote, numero, fecha, vencimiento, caeInicial, caeFinal, unidadesKwh, precioKwh]);
@@ -164,11 +210,11 @@ export function FacturaSoModal({ lote, onClose, onGenerated }) {
                         </div>
                         <div>
                             <label className={labelCls}>CAE inicial</label>
-                            <input value={caeInicial} onChange={e => setCaeInicial(e.target.value)} placeholder="CAE_006737927135_311228" className={inputCls} />
+                            <input value={caeInicial} onChange={e => setCaeInicial(e.target.value)} placeholder="CAE_000000000000_000000" className={inputCls} />
                         </div>
                         <div>
                             <label className={labelCls}>CAE final</label>
-                            <input value={caeFinal} onChange={e => setCaeFinal(e.target.value)} placeholder="CAE_006738230405_311228" className={inputCls} />
+                            <input value={caeFinal} onChange={e => setCaeFinal(e.target.value)} placeholder="CAE_000000000000_000000" className={inputCls} />
                         </div>
                         <div>
                             <label className={labelCls}>Unidades [kWh]</label>
@@ -179,6 +225,39 @@ export function FacturaSoModal({ lote, onClose, onGenerated }) {
                             <input type="number" step="0.0001" value={precioKwh} onChange={e => setPrecioKwh(e.target.value)} className={inputCls} />
                         </div>
                     </div>
+
+                    {/* Lo que dice el certificado CAE emitido */}
+                    {certDoc && (
+                        <div className={`text-[11px] rounded-xl px-3 py-2 border ${difiereDelCert ? 'border-amber-500/30 bg-amber-500/[0.06]' : 'border-emerald-500/20 bg-emerald-500/[0.04]'}`}>
+                            {leyendoCert ? (
+                                <span className="text-white/60">Leyendo los códigos del Certificado CAE emitido…</span>
+                            ) : certCae?.cae_inicial ? (
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                    <span className="text-white/60">
+                                        Certificado CAE emitido: <b className="text-white/85">{certCae.cae_inicial}</b> → <b className="text-white/85">{certCae.cae_final}</b>
+                                        {certCae.total ? <> · <b className="text-white/85">{Number(certCae.total).toLocaleString('es-ES')}</b> CAE</> : null}
+                                    </span>
+                                    {difiereDelCert
+                                        ? <span className="text-amber-400/90">La factura no dice lo mismo.</span>
+                                        : <span className="text-emerald-400/80">✓ La factura coincide.</span>}
+                                    <span className="ml-auto flex items-center gap-3">
+                                        {difiereDelCert && (
+                                            <button onClick={usarCodigosCertificado} className="text-brand font-black uppercase tracking-widest text-[10px] hover:underline">Usar los del certificado</button>
+                                        )}
+                                        <button onClick={() => leerCertificado()} className="text-white/40 hover:text-white font-black uppercase tracking-widest text-[10px]">Volver a leer</button>
+                                    </span>
+                                    {certCae.avisos?.length > 0 && (
+                                        <p className="basis-full text-amber-400/80">⚠️ {certCae.avisos.join(' · ')}</p>
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="flex flex-wrap items-center gap-3">
+                                    <span className="text-amber-400/80">{errorCert || 'No se han leído los códigos del Certificado CAE emitido.'}</span>
+                                    <button onClick={() => leerCertificado()} className="ml-auto text-brand font-black uppercase tracking-widest text-[10px] hover:underline">Leer los códigos del certificado</button>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     {/* Avisos */}
                     {!eco.hasVerif && (

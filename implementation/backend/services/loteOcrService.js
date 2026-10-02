@@ -1,5 +1,5 @@
 /**
- * loteOcrService — Lectura de los TRES documentos del lote que traen cifras que
+ * loteOcrService — Lectura de los documentos del lote que traen cifras que
  * hasta ahora había que teclear a mano:
  *
  *   · FACTURA DEL VERIFICADOR  → su base imponible es `lotes.coste_verificacion`,
@@ -33,6 +33,8 @@
  * determinista y se puede probar.
  * ─────────────────────────────────────────────────────────────────────────────
  */
+
+const { normalizarCodigoCae, contarRangoCae } = require('../utils/codigosCae');
 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const RETRYABLE_STATUS = new Set([429, 500, 503]);
@@ -415,9 +417,68 @@ async function leerDictamenVerificacion(pdfBuffer) {
     };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 4) CERTIFICADO CAE EMITIDO (resolución de inscripción en el Registro Nacional)
+//
+// Su "RESUELVE · PRIMERO" dice cuántos CAE se emiten y el RANGO de códigos
+// asignado ("desde el código CAE_… hasta el código CAE_…"). Con ese rango y ese
+// total se hace la factura de Brokergy al Sujeto Obligado. Los códigos los
+// normaliza y comprueba `utils/codigosCae.js`.
+// ─────────────────────────────────────────────────────────────────────────────
+const PROMPT_CERTIFICADO_CAE = `Eres un lector de documentos. Extrae LITERALMENTE los datos de esta RESOLUCIÓN de inscripción de Certificados de Ahorro Energético (CAE) en el Registro Nacional.
+
+Extrae, del apartado que resuelve la inscripción:
+- total_cae: el número total de CAE que se inscriben, como TEXTO tal cual ("300.828").
+- cae_inicial: el código desde el que se asignan ("desde el código: CAE_…"), copiado entero tal cual.
+- cae_final: el código hasta el que se asignan ("hasta el código: CAE_…"), copiado entero tal cual.
+- titular: a nombre de quién se emiten.
+- organismo: quién los emite (por ejemplo "Dirección General de Transición Energética de Castilla-La Mancha").
+- fecha_resolucion: la fecha de la resolución o de su firma, tal cual.
+- referencia: el número o código de la resolución o del expediente si aparece (por ejemplo "CAE-1602").
+
+Reglas:
+- Transcribe, no interpretes. Si un dato no aparece, null. NUNCA inventes ni completes una cifra.
+- Copia cada código CAE COMPLETO, con todas sus cifras: "CAE_" + 12 cifras + "_" + 6 cifras. No quites ceros a la izquierda.
+- No confundas los códigos con los ejemplos que explican cómo se forma un código.`;
+
+const SCHEMA_CERTIFICADO_CAE = {
+    type: 'OBJECT',
+    properties: {
+        total_cae: { type: 'STRING', nullable: true },
+        cae_inicial: { type: 'STRING', nullable: true },
+        cae_final: { type: 'STRING', nullable: true },
+        titular: { type: 'STRING', nullable: true },
+        organismo: { type: 'STRING', nullable: true },
+        fecha_resolucion: { type: 'STRING', nullable: true },
+        referencia: { type: 'STRING', nullable: true },
+    },
+};
+
+/**
+ * Lee el certificado (resolución) de emisión de los CAE.
+ * @returns {Promise<{cae_inicial, cae_final, total:number|null, rango:number|null, titular, organismo, fecha_resolucion, referencia}>}
+ */
+async function leerCertificadoCae(pdfBuffer) {
+    if (!pdfBuffer || !pdfBuffer.length) throw new Error('PDF vacío.');
+    const r = await leerConGemini(pdfBuffer, PROMPT_CERTIFICADO_CAE, SCHEMA_CERTIFICADO_CAE, 'certificado_cae') || {};
+    const ini = normalizarCodigoCae(r.cae_inicial);
+    const fin = normalizarCodigoCae(r.cae_final);
+    return {
+        cae_inicial: ini,
+        cae_final: fin,
+        total: numeroEs(r.total_cae),
+        rango: contarRangoCae(ini, fin),
+        titular: txt(r.titular),
+        organismo: txt(r.organismo),
+        fecha_resolucion: txt(r.fecha_resolucion),
+        referencia: txt(r.referencia),
+    };
+}
+
 module.exports = {
     numeroEs,
     leerFacturaVerificador,
     leerInformeVerificacion,
     leerDictamenVerificacion,
+    leerCertificadoCae,
 };

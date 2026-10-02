@@ -623,6 +623,45 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         }
     };
 
+    // ── Fase 5 · el CERTIFICADO CAE trae el rango de códigos emitidos ─────────
+    // Con él se hace la factura de Brokergy al S.O.: se lee al subirlo y la
+    // factura los trae ya puestos.
+    const subirCertificadoCae = async (file) => {
+        setLectura({
+            phase: 'sending', sendingTitle: 'Leyendo el certificado CAE…',
+            subtitle: 'El rango de códigos emitidos y cuántos son',
+        });
+        const r = await subir('certificado_cae', file);
+        if (!r?.documento) { setLectura(null); return; }
+        const c = r.cae?.cae;
+        const abrirFactura = (canSeeMargin && acciones.abrirFactura && lote?.sujeto_obligado_id)
+            ? { etiqueta: 'Hacer la factura al S.O.', onClick: () => { setLectura(null); acciones.abrirFactura(); } }
+            : null;
+        if (r.cae?.leido && c) {
+            setLectura({
+                phase: 'done', ok: !c.avisos?.length,
+                okTitle: 'CAE emitidos', errorTitle: 'Revisa los códigos',
+                subtitle: [c.titular, c.fecha_resolucion].filter(Boolean).join(' · ') || 'Certificado guardado en el lote',
+                items: [
+                    `Desde ${c.cae_inicial}`,
+                    `Hasta ${c.cae_final}`,
+                    ...(c.total ? [`${Number(c.total).toLocaleString('es-ES')} CAE emitidos`] : []),
+                    { texto: 'Se usarán en la factura de Brokergy al S.O.', tono: 'info' },
+                ],
+                errorText: c.avisos?.length ? c.avisos.join(' · ') : null,
+                accion: abrirFactura,
+            });
+        } else {
+            setLectura({
+                phase: 'done', ok: false, errorTitle: 'No se han podido leer los códigos',
+                subtitle: 'El certificado está guardado en el lote',
+                errorText: `No se ha podido leer el rango de códigos${r.cae?.error ? ` (${r.cae.error})` : ''}. `
+                    + 'Al abrir la factura se puede volver a intentar, o escribirlos a mano.',
+                accion: abrirFactura,
+            });
+        }
+    };
+
     // ── Fase 4 · el DICTAMEN trae los datos DEFINITIVOS ───────────────────────
     // Su nº y su fecha identifican la verificación de cara al futuro, y su tabla
     // fija la inversión que manda sobre la declarada al principio: en un
@@ -1363,7 +1402,7 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                         {subiendo === 'requerimiento_ga' ? 'Subiendo…' : `+ Requerimiento G.A.${p.requerimientosGa.length ? ` (${p.requerimientosGa.length})` : ''}`}
                     </BotonSubir>
                     {!p.certificadoCae && (
-                        <BotonSubir disabled={subiendo === 'certificado_cae'} onFile={(f) => subir('certificado_cae', f)} destacado>
+                        <BotonSubir disabled={subiendo === 'certificado_cae'} onFile={subirCertificadoCae} destacado>
                             {subiendo === 'certificado_cae' ? 'Subiendo…' : '↑ Certificado CAE emitido'}
                         </BotonSubir>
                     )}
@@ -1371,7 +1410,13 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 {p.justificanteMiteco && !p.certificadoCae && (
                     <p className="text-[10px] text-cyan-300/70">Presentado al MITECO · justificante de registro guardado.</p>
                 )}
-                {p.certificadoCae && <p className="text-[10px] text-emerald-400/70">CAE emitido · pendiente del pago del S.O. a Brokergy.</p>}
+                {p.certificadoCae && (
+                    <p className="text-[10px] text-emerald-400/70">
+                        CAE emitido{p.certificadoCae.cae?.cae_inicial
+                            ? <> · {p.certificadoCae.cae.cae_inicial} → {p.certificadoCae.cae.cae_final}{p.certificadoCae.cae.total ? ` (${Number(p.certificadoCae.cae.total).toLocaleString('es-ES')} CAE)` : ''}</>
+                            : null} · pendiente del pago del S.O. a Brokergy.
+                    </p>
+                )}
             </Fase>
 
             {/* 6 · La factura de Brokergy al S.O. por la venta de CAEs. NO es la del

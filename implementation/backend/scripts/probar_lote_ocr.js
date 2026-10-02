@@ -4,6 +4,7 @@
  *
  *   node scripts/probar_lote_ocr.js factura <driveFileId>
  *   node scripts/probar_lote_ocr.js informe <driveFileId> [loteId]
+ *   node scripts/probar_lote_ocr.js certificado <driveFileId|LOTE-AAAA-NNN>
  *
  * Con `loteId` en el informe, además casa las actuaciones contra los expedientes
  * de ese lote y enseña la propuesta tal cual la vería el panel — que es lo que hay
@@ -13,7 +14,8 @@
 require('dotenv').config();
 const driveService = require('../services/driveService');
 const supabase = require('../services/supabaseClient');
-const { leerFacturaVerificador, leerInformeVerificacion, leerDictamenVerificacion } = require('../services/loteOcrService');
+const { leerFacturaVerificador, leerInformeVerificacion, leerDictamenVerificacion, leerCertificadoCae } = require('../services/loteOcrService');
+const { comprobarRangoCae } = require('../utils/codigosCae');
 const { casarActuaciones, casarDictamen, contrastarTotal, verificarFacturaDelLote } = require('../services/loteVerificados');
 
 (async () => {
@@ -23,11 +25,23 @@ const { casarActuaciones, casarDictamen, contrastarTotal, verificarFacturaDelLot
         process.exit(1);
     }
     const t0 = Date.now();
-    const buffer = await driveService.getFileContent(fileId);
+    // En `certificado` vale el código del lote: se busca su certificado CAE subido.
+    let idFichero = fileId;
+    if (modo === 'certificado' && /^LOTE-/i.test(fileId)) {
+        const { data: l } = await supabase.from('lotes').select('documentos_so').eq('codigo', fileId).maybeSingle();
+        idFichero = (l?.documentos_so || []).find(d => d?.key === 'certificado_cae')?.draft_file_id;
+        if (!idFichero) { console.error(`${fileId} no tiene subido el certificado CAE.`); process.exit(1); }
+    }
+    const buffer = await driveService.getFileContent(idFichero);
     if (!buffer) { console.error('No se pudo descargar el fichero de Drive.'); process.exit(1); }
     console.log(`Descargado: ${(buffer.length / 1024).toFixed(0)} KB`);
 
-    if (modo === 'dictamen') {
+    if (modo === 'certificado') {
+        const c = await leerCertificadoCae(buffer);
+        console.log(JSON.stringify(c, null, 2));
+        const chk = comprobarRangoCae(c);
+        console.log(chk.avisos.length ? ['Avisos:', ...chk.avisos].join('\n  ') : '✓ El rango cuadra con el total declarado.');
+    } else if (modo === 'dictamen') {
         const d = await leerDictamenVerificacion(buffer);
         console.log(`
 ${d.numero_dictamen} · ${d.expediente_cae} · ${d.fecha_emision} · informe ${d.referencia_informe}`);

@@ -23,7 +23,8 @@ const {
     LOTE_DOC_SLOTS, SLOTS_SUBIBLES, nextDocKey, slotDeKey, sincronizarEstadoLote,
     CARPETA_DOCS, nombreDocLote, guardarDocFirmado,
 } = require('../services/loteDocs');
-const { leerFacturaVerificador, leerInformeVerificacion, leerDictamenVerificacion } = require('../services/loteOcrService');
+const { leerFacturaVerificador, leerInformeVerificacion, leerDictamenVerificacion, leerCertificadoCae } = require('../services/loteOcrService');
+const { comprobarRangoCae } = require('../utils/codigosCae');
 const anexoActuacion = require('../services/anexoActuacionService');
 const solicitudCae = require('../services/solicitudCaeService');
 const { detectPrograma } = require('../utils/fichas');
@@ -786,6 +787,46 @@ async function proponerDatosDictamen(lote, pdfBuffer) {
     }
 }
 
+// ─── El CERTIFICADO CAE trae el RANGO de códigos emitidos ────────────────────
+// "Proceder a la inscripción de un total de 300.828 CAE … desde el código
+// CAE_008569324655_311229 hasta el código CAE_008569625482_311229". Con eso se
+// hace la factura de Brokergy al S.O.: se lee al subirlo y se sella en la entrada
+// del documento (`entrada.cae`), igual que la cabecera del dictamen — identifica
+// al papel y no toca ninguna cifra de ningún expediente. La factura lo PROPONE y
+// una persona la emite. Nunca lanza.
+async function leerCodigosCertificadoCae(lote, pdfBuffer) {
+    try {
+        const leido = await leerCertificadoCae(pdfBuffer);
+        let esperado = null;
+        try {
+            const exps = await expedientesDelLote(lote.id);
+            const kwh = exps.map(e => Number(e?.instalacion?.verificacion?.ahorro_verificado_kwh));
+            if (kwh.length && kwh.every(k => k > 0)) esperado = kwh.reduce((a, b) => a + b, 0);
+        } catch { /* sin ahorro verificado no se contrasta, nada más */ }
+        const chequeo = comprobarRangoCae(leido, { esperado });
+        return {
+            leido: !!(chequeo.cae_inicial && chequeo.cae_final),
+            cae: {
+                cae_inicial: chequeo.cae_inicial,
+                cae_final: chequeo.cae_final,
+                // El total que DECLARA la resolución manda; el rango lo contrasta.
+                total: leido.total || chequeo.rango || null,
+                rango: chequeo.rango,
+                titular: leido.titular,
+                organismo: leido.organismo,
+                fecha_resolucion: leido.fecha_resolucion,
+                referencia: leido.referencia,
+                avisos: chequeo.avisos,
+                leido_at: nowIso(),
+            },
+            avisos: chequeo.avisos,
+        };
+    } catch (err) {
+        console.warn('[lotes] OCR certificado CAE:', err.message);
+        return { leido: false, error: err.message, avisos: [] };
+    }
+}
+
 // Cada subida puede AVANZAR el estado del lote (sincronizarEstadoLote).
 router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
     try {
@@ -944,6 +985,25 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
             }
         }
 
+        // El CERTIFICADO CAE: su rango de códigos se sella para la factura al S.O.
+        let cae = null;
+        if (slot === 'certificado_cae' && !esFirmado) {
+            cae = await leerCodigosCertificadoCae(lote, buffer);
+            if (cae.cae) {
+                entrada.cae = cae.cae;
+                update.documentos_so = docs;
+                if (cae.leido) {
+                    historial.push({
+                        id: `${Date.now()}_cae_rango`, tipo: 'sistema',
+                        texto: `Códigos CAE leídos del certificado: ${cae.cae.cae_inicial} → ${cae.cae.cae_final}`
+                            + `${cae.cae.total ? ` (${Number(cae.cae.total).toLocaleString('es-ES')} CAE)` : ''}.`,
+                        fecha: nowIso(), usuario: usuarioDe(req),
+                    });
+                    update.historial = historial;
+                }
+            }
+        }
+
         await supabase.from('lotes').update(update).eq('id', lote.id);
 
         // Un informe de inexactitudes REABRE el lote aunque ya estuviera VERIFICADO:
@@ -961,7 +1021,7 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
 
         const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
         const [enriched] = await enrichLotes([updated]);
-        res.json({ ok: true, documento: entrada, ocr, ahorros, dictamen, lote: scrubLoteForUser(enriched, req) });
+        res.json({ ok: true, documento: entrada, ocr, ahorros, dictamen, cae, lote: scrubLoteForUser(enriched, req) });
     } catch (err) {
         console.error('[POST /lotes/:id/documentos/:slot]', err.message);
         res.status(500).json({ error: err.message || 'Error al subir el documento del lote' });
@@ -1279,6 +1339,36 @@ router.post('/:id/dictamen/leer', adminOnly, async (req, res) => {
     } catch (err) {
         console.error('[POST /lotes/:id/dictamen/leer]', err.message);
         res.status(500).json({ error: err.message || 'Error al leer el dictamen' });
+    }
+});
+
+// ─── POST /api/lotes/:id/certificado-cae/leer ────────────────────────────────────
+// Relee el certificado CAE ya subido (lotes cuyo certificado se subió antes de que
+// la app supiera leerlo, o para volver a comprobarlo) y sella su rango de códigos.
+router.post('/:id/certificado-cae/leer', adminOnly, async (req, res) => {
+    try {
+        const { data: lote, error } = await supabase.from('lotes').select('*').eq('id', req.params.id).maybeSingle();
+        if (error || !lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        const doc = (lote.documentos_so || []).find(d => d?.key === 'certificado_cae');
+        const fileId = doc?.draft_file_id;
+        if (!fileId) return res.status(409).json({ error: 'Este lote no tiene subido el certificado CAE emitido.' });
+
+        const buffer = await driveService.getFileContent(fileId);
+        if (!buffer) return res.status(502).json({ error: 'No se pudo descargar el certificado CAE desde Drive.' });
+
+        const r = await leerCodigosCertificadoCae(lote, buffer);
+        if (!r.cae) return res.status(502).json({ error: r.error || 'No se pudo leer el certificado CAE.' });
+
+        // Releído justo antes de escribir: no pisar otra subida en curso.
+        const { data: fresh } = await supabase.from('lotes').select('documentos_so').eq('id', lote.id).maybeSingle();
+        const docs = (fresh?.documentos_so || []).map(d => d?.key === 'certificado_cae' ? { ...d, cae: r.cae } : d);
+        await supabase.from('lotes').update({ documentos_so: docs, updated_at: nowIso() }).eq('id', lote.id);
+
+        res.json(r);
+    } catch (err) {
+        console.error('[POST /lotes/:id/certificado-cae/leer]', err.message);
+        res.status(500).json({ error: err.message || 'Error al leer el certificado CAE' });
     }
 });
 
