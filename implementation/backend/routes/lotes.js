@@ -25,6 +25,7 @@ const {
 } = require('../services/loteDocs');
 const { leerFacturaVerificador, leerInformeVerificacion, leerDictamenVerificacion, leerCertificadoCae } = require('../services/loteOcrService');
 const { comprobarRangoCae } = require('../utils/codigosCae');
+const { archivarFacturaVenta } = require('../services/facturaContabilidad');
 const anexoActuacion = require('../services/anexoActuacionService');
 const solicitudCae = require('../services/solicitudCaeService');
 const { detectPrograma } = require('../utils/fichas');
@@ -615,6 +616,40 @@ router.post('/:id/factura-so', adminOnly, async (req, res) => {
     } catch (err) {
         console.error('[POST /lotes/:id/factura-so]', err.message);
         res.status(500).json({ error: err.message || 'Error al generar la factura' });
+    }
+});
+
+// ─── POST /api/lotes/:id/factura-so/contabilidad — copia en CONTABILIDAD ────────
+// Al ENVIAR la factura al S.O. se archiva su PDF en FACTURAS VENTAS/{año}/{n. MES}
+// (ver services/facturaContabilidad.js). El mes es el de la fecha de la factura.
+router.post('/:id/factura-so/contabilidad', adminOnly, async (req, res) => {
+    try {
+        const { html, numero, fecha } = req.body || {};
+        if (!html || !numero) return res.status(400).json({ error: 'Faltan el HTML o el número de factura' });
+        const { data: lote, error } = await supabase.from('lotes').select('id, codigo, sujeto_obligado_id, historial').eq('id', req.params.id).maybeSingle();
+        if (error) throw error;
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+
+        let razonSocial = '';
+        if (lote.sujeto_obligado_id) {
+            const { data: so } = await supabase.from('prescriptores').select('razon_social, acronimo').eq('id_empresa', lote.sujeto_obligado_id).maybeSingle();
+            razonSocial = so?.razon_social || so?.acronimo || '';
+        }
+        const pdf = await htmlToPdf(html);
+        const r = await archivarFacturaVenta({ pdf, numero, fecha, razonSocial });
+
+        const historial = Array.isArray(lote.historial) ? [...lote.historial] : [];
+        historial.push({
+            id: `${Date.now()}_factura_contab`, tipo: 'sistema',
+            texto: `Factura ${numero} archivada en contabilidad (${r.ruta}).`,
+            fecha: nowIso(), usuario: usuarioDe(req),
+        });
+        await supabase.from('lotes').update({ historial }).eq('id', lote.id);
+
+        res.json(r);
+    } catch (err) {
+        console.error('[POST /lotes/:id/factura-so/contabilidad]', err.message);
+        res.status(500).json({ error: err.message || 'No se pudo archivar la factura en contabilidad' });
     }
 });
 

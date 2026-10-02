@@ -53,7 +53,7 @@ const parseCcList = (s) => (s || '').split(/[;,\s]+/).map(e => e.trim()).filter(
 //                    por WhatsApp (p.ej. el requerimiento, que solo avisa por WA).
 //   whatsappNote     string → texto que se muestra bajo el textarea SOLO cuando el
 //                    canal WhatsApp está activo (para ver qué se manda por ahí).
-export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = '', defaultPhone = '', defaultMessage = '', defaultCc = '', ccSuggestions = [], toSuggestions = [], messageFor = null, summaryData, docs, extraBody = null, onSendOverride = null, onBeforeSend = null, messageLabel = 'Mensaje (email / WhatsApp)', whatsappNote = '' }) {
+export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = '', defaultPhone = '', defaultMessage = '', defaultCc = '', ccSuggestions = [], toSuggestions = [], messageFor = null, summaryData, docs, extraBody = null, onSendOverride = null, onBeforeSend = null, onAfterSend = null, afterSendLabel = '', messageLabel = 'Mensaje (email / WhatsApp)', whatsappNote = '' }) {
     const docList = Array.isArray(docs) ? docs : [];
 
     // ── Estado ───────────────────────────────────────────────────────────────
@@ -176,6 +176,18 @@ export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = ''
                 } catch (err) {
                     out.push({ channel: 'whatsapp', status: 'fail', text: err.response?.data?.message || err.response?.data?.error || err.message });
                 }
+            }
+        }
+
+        // Lo que el llamante hace DESPUÉS de un envío que ha salido (p.ej. archivar la
+        // factura en contabilidad). Devuelve líneas que se enseñan con las de los
+        // canales; un fallo aquí no deshace el envío, se dice en su línea.
+        if (onAfterSend && out.some(r => r.status === 'ok')) {
+            try {
+                const extra = await onAfterSend(out);
+                if (Array.isArray(extra)) out.push(...extra);
+            } catch (err) {
+                out.push({ channel: 'drive', status: 'fail', text: err.response?.data?.error || err.message });
             }
         }
 
@@ -386,6 +398,7 @@ export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = ''
                     const chMeta = {
                         email:    { name: 'Email',    path: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
                         whatsapp: { name: 'WhatsApp', path: 'M12 2a10 10 0 00-8.94 14.46L2 22l5.7-1.5A10 10 0 1012 2z' },
+                        drive:    { name: 'Drive',    path: 'M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z' },
                     };
                     const statusMeta = {
                         ok:          { color: 'emerald', label: 'Enviado',       icon: 'M5 13l4 4L19 7' },
@@ -415,6 +428,12 @@ export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = ''
                                                         <span className="text-[11px] font-bold text-white/70 uppercase tracking-wider">Enviando email…</span>
                                                     </div>
                                                 )}
+                                                {afterSendLabel && (
+                                                    <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+                                                        <svg className="w-4 h-4 animate-spin text-white/50 shrink-0" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
+                                                        <span className="text-[11px] font-bold text-white/70 uppercase tracking-wider">{afterSendLabel}</span>
+                                                    </div>
+                                                )}
                                                 {willWhatsapp && (
                                                     <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/10">
                                                         <svg className="w-4 h-4 animate-spin text-emerald-400 shrink-0" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
@@ -436,7 +455,7 @@ export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = ''
                                             {subtitle && <p className="text-white/40 text-[10px] font-bold uppercase tracking-[0.2em] mt-1">{subtitle}</p>}
                                             <div className="mt-6 w-full space-y-2">
                                                 {sendResults.map((r, i) => {
-                                                    const cm = chMeta[r.channel]; const sm = statusMeta[r.status];
+                                                    const cm = chMeta[r.channel] || chMeta.email; const sm = statusMeta[r.status] || statusMeta.fail;
                                                     return (
                                                         <div key={i} className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${sm.color === 'emerald' ? 'bg-emerald-500/[0.06] border-emerald-400/25' : sm.color === 'amber' ? 'bg-amber-500/[0.06] border-amber-400/25' : 'bg-red-500/[0.06] border-red-400/25'}`}>
                                                             <svg className="w-5 h-5 text-white/50 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}><path strokeLinecap="round" strokeLinejoin="round" d={cm.path} /></svg>
@@ -446,7 +465,7 @@ export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = ''
                                                             </div>
                                                             <span className={`flex items-center gap-1 text-[9px] font-black uppercase tracking-wider shrink-0 ${sm.color === 'emerald' ? 'text-emerald-400' : sm.color === 'amber' ? 'text-amber-400' : 'text-red-400'}`}>
                                                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d={sm.icon} /></svg>
-                                                                {sm.label}
+                                                                {r.label || sm.label}
                                                             </span>
                                                         </div>
                                                     );

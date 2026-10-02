@@ -371,6 +371,13 @@ export function FacturaSoModal({ lote, onClose, onGenerated }) {
                     defaultMessage={messageFor(envio.notifyEmail)}
                     summaryData={{ id: lote.codigo || 'LOTE', docType: 'Factura S.O.' }}
                     docs={sendDocs}
+                    // Enviada la factura, su PDF se archiva en contabilidad:
+                    // FACTURAS VENTAS/{año}/{n. MES}, por la fecha de la factura.
+                    afterSendLabel="Guardando en contabilidad…"
+                    onAfterSend={async () => {
+                        const { data } = await axios.post(`/api/lotes/${lote.id}/factura-so/contabilidad`, { html, numero, fecha });
+                        return [{ channel: 'drive', status: 'ok', label: 'Guardada', text: data.ruta || 'Contabilidad' }];
+                    }}
                     onClose={() => setSendOpen(false)}
                 />
             )}
