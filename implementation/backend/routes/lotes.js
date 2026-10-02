@@ -591,16 +591,26 @@ router.post('/:id/factura-so', adminOnly, async (req, res) => {
         const pdfBuffer = await htmlToPdf(html);
         // Nombre del fichero: "5. {nº factura} - {nombre lote} - {acrónimo S.O.}.pdf".
         // El acrónimo del S.O. no viene en el lote crudo (solo el id) → se busca.
-        let acronimoSO = 'SO';
-        if (lote.sujeto_obligado_id) {
-            const { data: soRow } = await supabase.from('prescriptores').select('acronimo, razon_social').eq('id_empresa', lote.sujeto_obligado_id).maybeSingle();
-            if (soRow) acronimoSO = soRow.acronimo || soRow.razon_social || 'SO';
-        }
+        const acronimoSO = await acronimoSoDe(lote);
         const fileName = pdfFileName(nombreDocLote('factura_so', {
             label: `${factura.numero} - ${lote.codigo || 'LOTE'} - ${acronimoSO}`,
         }));
         const saved = await saveOrReplacePdf(docsFolder, fileName, pdfBuffer);
         if (!saved) throw new Error('No se pudo guardar la factura en Drive');
+
+        // Y la copia en CONTABILIDAD (FACTURAS VENTAS/{año}/{n. MES}), con el mismo
+        // PDF y sustituyendo la que hubiera. No tumba la generación: la factura ya
+        // está en el lote, y se dice en la respuesta.
+        let contabilidad = null;
+        try {
+            contabilidad = await archivarFacturaVenta({
+                pdf: pdfBuffer, numero: factura.numero, fecha: factura.fecha,
+                codigoLote: lote.codigo, acronimoSo: acronimoSO,
+            });
+        } catch (e) {
+            console.warn('[factura-so] contabilidad:', e.message);
+            contabilidad = { error: e.message };
+        }
 
         await upsertFacturaSo(lote, factura, {
             emit: true,
@@ -612,12 +622,19 @@ router.post('/:id/factura-so', adminOnly, async (req, res) => {
 
         const { data: updated } = await supabase.from('lotes').select('*').eq('id', lote.id).maybeSingle();
         const [enriched] = await enrichLotes([updated]);
-        res.json(enriched);
+        res.json({ ...enriched, contabilidad });
     } catch (err) {
         console.error('[POST /lotes/:id/factura-so]', err.message);
         res.status(500).json({ error: err.message || 'Error al generar la factura' });
     }
 });
+
+// Acrónimo del S.O. para el nombre de la factura ("INTERALCO"); el lote crudo solo trae su id.
+async function acronimoSoDe(lote) {
+    if (!lote?.sujeto_obligado_id) return 'SO';
+    const { data: so } = await supabase.from('prescriptores').select('acronimo, razon_social').eq('id_empresa', lote.sujeto_obligado_id).maybeSingle();
+    return so?.acronimo || so?.razon_social || 'SO';
+}
 
 // ─── POST /api/lotes/:id/factura-so/contabilidad — copia en CONTABILIDAD ────────
 // Al ENVIAR la factura al S.O. se archiva su PDF en FACTURAS VENTAS/{año}/{n. MES}
@@ -630,13 +647,9 @@ router.post('/:id/factura-so/contabilidad', adminOnly, async (req, res) => {
         if (error) throw error;
         if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
 
-        let razonSocial = '';
-        if (lote.sujeto_obligado_id) {
-            const { data: so } = await supabase.from('prescriptores').select('razon_social, acronimo').eq('id_empresa', lote.sujeto_obligado_id).maybeSingle();
-            razonSocial = so?.razon_social || so?.acronimo || '';
-        }
+        const acronimoSo = await acronimoSoDe(lote);
         const pdf = await htmlToPdf(html);
-        const r = await archivarFacturaVenta({ pdf, numero, fecha, razonSocial });
+        const r = await archivarFacturaVenta({ pdf, numero, fecha, codigoLote: lote.codigo, acronimoSo });
 
         const historial = Array.isArray(lote.historial) ? [...lote.historial] : [];
         historial.push({

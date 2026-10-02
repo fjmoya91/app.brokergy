@@ -15,7 +15,10 @@
  * algo va mal, y aquí eso sería una factura archivada en el año equivocado sin que
  * nadie lo note.
  *
- * El nombre sigue el patrón que ya hay en esa carpeta: "F-2026CAE_6 - NATURGY IBERIA, S.A..pdf".
+ * El nombre es el MISMO que el de la factura en la carpeta del lote, sin su
+ * prefijo de orden: "F-2026CAE_9 - LOTE-2025-003 - INTERALCO.pdf" (decisión del
+ * usuario, 2026-10-02). Se guarda al GENERARLA y al ENVIARLA; con el mismo nombre
+ * la segunda sustituye a la primera, y también a la que se hubiera copiado a mano.
  */
 const driveService = require('./driveService');
 
@@ -38,11 +41,11 @@ function anioMesDe(fecha) {
 /** Nombre de la carpeta del mes: "10. OCTUBRE". */
 const carpetaMes = (mes) => `${mes}. ${MESES[mes - 1]}`;
 
-/** Nombre del fichero: "{nº} - {razón social}.pdf", sin caracteres que Windows no admite. */
-function nombreFichero(numero, razonSocial) {
+/** Nombre del fichero: "{nº} - {lote} - {acrónimo del S.O.}.pdf", sin caracteres que Windows no admite. */
+function nombreFichero(numero, codigoLote, acronimoSo) {
     const limpio = (t) => String(t || '').replace(/[\\/:*?"<>|]/g, '-').trim();
-    const partes = [limpio(numero), limpio(razonSocial)].filter(Boolean);
-    return `${partes.join(' - ') || 'Factura'}.pdf`;
+    const partes = [limpio(numero) || 'Factura', limpio(codigoLote) || 'LOTE', limpio(acronimoSo) || 'SO'];
+    return `${partes.join(' - ')}.pdf`;
 }
 
 async function subcarpeta(padre, nombre) {
@@ -56,14 +59,14 @@ async function subcarpeta(padre, nombre) {
  * nombre (la misma factura reenviada), lo SUSTITUYE: es el mismo número.
  * @returns {Promise<{ link, id, ruta, fileName }>}
  */
-async function archivarFacturaVenta({ pdf, numero, fecha, razonSocial }) {
+async function archivarFacturaVenta({ pdf, numero, fecha, codigoLote, acronimoSo }) {
     const am = anioMesDe(fecha);
     if (!am || am.mes < 1 || am.mes > 12) throw new Error(`La fecha de la factura no es válida (${fecha || 'vacía'}).`);
     const idAnio = await subcarpeta(RAIZ, String(am.anio));
     const nombreMes = carpetaMes(am.mes);
     const idMes = await subcarpeta(idAnio, nombreMes);
 
-    const fileName = nombreFichero(numero, razonSocial);
+    const fileName = nombreFichero(numero, codigoLote, acronimoSo);
     const previo = await driveService.findFileByName(idMes, fileName).catch(() => null);
     const saved = await driveService.saveFileToFolder(idMes, fileName, 'application/pdf', pdf);
     if (!saved?.id) throw new Error('Drive no devolvió el fichero guardado.');

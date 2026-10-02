@@ -144,7 +144,12 @@ export function FacturaSoModal({ lote, onClose, onGenerated }) {
             };
             const { data } = await axios.post(`/api/lotes/${lote.id}/factura-so`, { html, factura });
             onGenerated?.(data);
-            showAlert('Factura generada y guardada en la carpeta del lote.', 'Hecho', 'success');
+            const c = data?.contabilidad;
+            showAlert(
+                c?.ruta
+                    ? `Factura guardada en la carpeta del lote y en contabilidad (${c.ruta}).`
+                    : `Factura guardada en la carpeta del lote, pero NO en contabilidad${c?.error ? `: ${c.error}` : ''}.`,
+                c?.ruta ? 'Hecho' : 'Revisa contabilidad', c?.ruta ? 'success' : 'warning');
             onClose();
         } catch (err) {
             showAlert(err.response?.data?.error || 'Error al generar la factura', 'Error', 'error');
