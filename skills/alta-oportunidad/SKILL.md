@@ -1,6 +1,6 @@
 ---
 name: alta-oportunidad
-description: 'DA DE ALTA una oportunidad (simulación) de BROKERGY con lo que un instalador mandó por WHATSAPP, sin rellenar el formulario: lee el chat del WhatsApp de la empresa (texto, fotos, PDF, tarjetas de contacto y notas de voz), saca la referencia catastral, la caldera y su PLACA (potencia útil, combustible), el croquis, el presupuesto (importe con IVA y la aerotermia del catálogo) y el nombre y DNI del cliente, y crea la oportunidad por las MISMAS funciones que «Nueva simulación», con sus documentos en Drive. Úsalo cuando el usuario diga "da de alta lo último que ha mandado ISM", "hazle la simulación al cliente que me ha pasado Alejandro", "crea la oportunidad con lo del WhatsApp de X", "mira el chat de N y monta la simulación". Sin emisor declarado se toman RADIADORES. Primero en seco; lo que no se puede afirmar se pregunta o se marca para revisar, nunca se inventa. La propuesta (PDF) se revisa y se envía desde la app.'
+description: 'Lleva a la app de BROKERGY lo que un instalador o un cliente manda por WHATSAPP. (1) DA DE ALTA la oportunidad sin rellenar el formulario: lee el chat (texto, fotos, PDF, contactos, notas de voz), saca la referencia catastral, la caldera y su PLACA, el croquis, el presupuesto y el titular, y la crea por las MISMAS funciones que «Nueva simulación» (con su CEE, la comparativa). (2) Si la oportunidad o el expediente YA EXISTE, la DOCUMENTA: fotos, vídeos y CEE a sus apartados de «12. DOCUMENTOS PARA CEE», ventana por ventana. En los dos casos pone el nº de obra en el nombre del chat de WhatsApp (RES080_OP52 …) y en el título de la sesión. Úsalo con "da de alta lo que ha mandado ISM", "crea la oportunidad con lo del WhatsApp de X", "guarda la documentación del chat de X en la OP52", "26RES080_OP52: guarda lo que ha mandado". Sin emisor declarado, RADIADORES. Primero en seco; lo dudoso se pregunta o se marca para revisar. La propuesta se envía desde la app.'
 ---
 
 # Alta de oportunidad desde WhatsApp
@@ -41,6 +41,9 @@ Todo pasa por `implementation/backend/scripts/alta_oportunidad.js` (desde `imple
 | `leer --rc f.pdf\|foto.jpg` | Saca la referencia catastral de un PDF o una captura | nada |
 | `aerotermia "<marca> <modelo>"` | Busca un equipo en el catálogo por su código | nada |
 | `crear --plan plan.json [--escribir]` | Da de alta la oportunidad, el cliente, la carpeta de Drive y sube los documentos | con `--escribir` |
+| `obra <26RES080_OP52\|26RES080_87>` | Una oportunidad o expediente que YA existe: cliente, Drive, nº para el chat y sus apartados (con lo ya subido) | nada |
+| `documentar --op <nº> --plan docs.json [--escribir]` | Coloca fotos, vídeos y documentos del chat en los apartados de ESA obra («12. DOCUMENTOS PARA CEE»), ventana por ventana, y lo anota en su historial | con `--escribir` |
+| `renombrar --op <nº> --tel <tel> [--anteponer] [--escribir]` | Pone el nº de obra en el nombre del chat («RES080 Maria José…» → «RES080_OP52 Maria José…») y dice el título de la sesión | con `--escribir` |
 
 **Sin `--escribir` no se toca nada**: siempre primero en seco.
 
@@ -71,7 +74,44 @@ Todo pasa por `implementation/backend/scripts/alta_oportunidad.js` (desde `imple
    una a una — van al historial de la oportunidad y son lo que se revisa.
 6. **`crear --plan plan.json`** en seco. Revisa la ficha que imprime (superficie, caldera y η, emisor,
    ACS, aerotermia y SCOP, presupuesto, ahorro y bono) y que cada documento tiene ✓. Luego `--escribir`.
-7. **Informe final** (abajo).
+7. **Nombre del chat y de la sesión** (ver «Al terminar, SIEMPRE»).
+8. **Informe final** (abajo).
+
+## Si la oportunidad o el expediente YA EXISTE — `documentar`
+
+El cliente sigue mandando cosas cuando la obra ya está dada de alta: las fotos de la vivienda, el
+vídeo, su CEE, la carpintería que se cambia. El usuario lo pide con el nº («26RES080_OP52: guarda la
+documentación del chat de María José»).
+
+1. **`obra <nº>`**: de quién es, su carpeta y los apartados que tiene ESA obra (un RES080 con
+   ventanas tiene `FOTO_VENTANAS_ANTES`; un RES060 no) con lo que ya hay subido.
+2. **`chats` + `chat <tel> --bajar todo`** (o `--desde`): baja lo que mandó. Comprueba que el chat
+   es de ESE cliente (nombre del chat, lo que escribe, la dirección del CEE).
+3. **Mira cada fichero** y decide su apartado (tabla en `referencia/plan.md`). Un CEE: que su
+   referencia catastral sea la de la obra. Lo que contradiga la simulación (el CEE dice que el agua la
+   da un termo y la simulación, la caldera) **no se corrige**: va a `decisiones`.
+4. **`docs.json`** (`referencia/plan.md`) → **`documentar`** en seco → `--escribir`.
+5. **Nombre del chat y de la sesión.**
+
+Ejemplo: 26RES080_OP52 (02/10/2026) — CEE anterior, 5 huecos de carpintería (V1…V5, «Puerta de
+entrada» la V1), el cuarto de caldera, el baño con el termo y el vídeo de la vivienda.
+
+## Al terminar, SIEMPRE (alta y documentar)
+
+1. **La documentación en su sitio**: todo lo que mandó, en los apartados de la obra («12. DOCUMENTOS
+   PARA CEE» en Drive), nunca suelto en la raíz ni en el escritorio.
+2. **El nº de obra en el nombre del chat de WhatsApp**: `renombrar --op <nº> --tel <tel>` en seco y
+   luego `--escribir`. Con expediente, su nº (`RES080_87`); sin él, la oportunidad (`RES080_OP52`).
+   Solo se toca el PREFIJO de la casa y lo de detrás se conserva letra a letra.
+   - Si el nombre dice OTRA ficha (RES060 frente a RES080), no se toca: suele ser el chat de otra
+     persona. `--forzar-ficha` solo si se ha comprobado.
+   - Sin prefijo (`sin_prefijo`): `--anteponer` **solo si es el chat del PROPIO cliente**. El chat de
+     un INSTALADOR lleva veinte obras y **nunca** se renombra con el nº de una.
+   - Un número que no está en la agenda no se guarda desde aquí: se dice.
+3. **El mismo nombre en el título de la sesión de Claude** (lo imprime `renombrar`): en Claude Code,
+   `set_session_title` con `session_id: "self"`; donde no exista esa herramienta (Cowork), se le dice
+   al usuario para que lo ponga a mano. Así se sabe de qué obra es cada conversación.
+
 
 ## Reglas que no se rompen
 
@@ -119,18 +159,32 @@ Todo pasa por `implementation/backend/scripts/alta_oportunidad.js` (desde `imple
   y **bono CAE**.
 - Las **decisiones** tomadas y **lo que hay que revisar** (equipo fuera de catálogo, superficie
   parcial, nº de serie dudoso, teléfono que falta…).
+- El **nombre nuevo del chat** de WhatsApp y el **título de la sesión**, o por qué no se ha tocado.
 - Que la **propuesta (PDF) se revisa y se envía desde la app** — la skill no envía nada.
+
+## Cómo se invoca
+
+- Escribiendo `/alta-oportunidad` seguido de lo que hay que hacer:
+  `/alta-oportunidad 26RES080_OP52 guarda lo que ha mandado María José` ·
+  `/alta-oportunidad da de alta lo último de ISM Alejandro`.
+- O sin barra, en lenguaje normal: «26RES080_OP52: guarda la documentación del chat RES080 Maria José
+  Valdepeñas», «crea la oportunidad con lo que ha mandado X por WhatsApp». La skill se carga sola.
+- Lo único que hace falta darle: el **nº de obra** (si ya existe) y **el chat** (como se ve en el
+  móvil, o el teléfono). Si hay varios chats parecidos, pregunta cuál.
+
 
 ## Pruebas
 
 ```bash
 node implementation/backend/scripts/test_alta_oportunidad.js   # bloque de la petición, plantas, plan → funnel → resultado
 node implementation/backend/scripts/test_whatsapp_media.js     # nombres de adjunto, contactos
+node implementation/backend/scripts/test_renombrar_contacto.js # el nº de obra en el nombre del chat
 ```
 
 ## Si la lectura del chat falla
 
-`chat`/`chats` llaman a `https://app.brokergy.es/api/whatsapp/conversacion` con la clave interna del
+`chat`/`chats` llaman a `https://app.brokergy.es/api/whatsapp/conversacion` (y `renombrar`, a
+`/api/whatsapp/contactos/renombrar`) con la clave interna del
 `.env` (`INTERNAL_API_KEY`, la misma del VPS). Un 503 es que WhatsApp no está conectado en el servidor
 (Ajustes → WhatsApp). Si dice que la ruta no está desplegada, hay que desplegar el backend. Mientras,
 el usuario puede reenviar los ficheros o dejarlos en una carpeta: el resto de órdenes trabaja con

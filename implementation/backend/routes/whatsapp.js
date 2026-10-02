@@ -252,6 +252,25 @@ router.post('/contactos/renombrar-clientes', adminOInterno, async (req, res) => 
     } catch (e) { errorLabels(res, e); }
 });
 
+// POST /api/whatsapp/contactos/renombrar  { telefono, codigo, dryRun?, anteponer?, forzarFicha? }
+//
+// UN contacto, el del chat que se acaba de trabajar: lo pide la skill
+// `alta-oportunidad` con el nº de la obra ya decidido (26RES080_OP52 →
+// "RES080_OP52 Maria José…"). Mismas reglas que el lote (solo el prefijo; otra
+// ficha, a revisar) y `anteponer` para el chat del propio cliente sin prefijo.
+// ADMIN o interna; `dryRun` por defecto.
+router.post('/contactos/renombrar', adminOInterno, async (req, res) => {
+    try {
+        res.json(await waNombresClientes.renombrarUno({
+            telefono: req.body?.telefono,
+            codigo: req.body?.codigo,
+            dryRun: req.body?.dryRun !== false,
+            anteponer: req.body?.anteponer === true,
+            forzarFicha: req.body?.forzarFicha === true,
+        }));
+    } catch (e) { errorLabels(res, e); }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // CONVERSACIÓN — leer un chat entero (texto + adjuntos) para la skill
 // `alta-oportunidad`, que da de alta una oportunidad con lo que el instalador

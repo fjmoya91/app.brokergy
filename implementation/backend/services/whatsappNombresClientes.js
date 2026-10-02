@@ -30,7 +30,7 @@ const whatsappService = require('./whatsappService');
 const contactos = require('./whatsappContactos');
 const { _conPlazo: conPlazo } = require('./whatsappLabels');
 const { cargarRelaciones } = require('./clientesRelaciones');
-const { leerPrefijo, obraDelContacto, nombreNuevo } = require('../utils/nombreContactoCliente');
+const { leerPrefijo, obraDelContacto, nombreNuevo, codigoCorto, fichaDe } = require('../utils/nombreContactoCliente');
 
 // Mucho más despacio que las etiquetas: WhatsApp LIMITA las ediciones de la
 // agenda. Medido el 30/09/2026: una cada 1,5 s aguantó ~41 y luego 429
@@ -168,4 +168,63 @@ async function renombrar({ dryRun = true, despuesDe = null, incluirCambioFicha =
     return informe;
 }
 
-module.exports = { planificar, renombrar };
+/**
+ * Renombra UN contacto, el del chat que se acaba de trabajar, con el nº de SU obra.
+ *
+ * Lo usa la skill `alta-oportunidad` al dar de alta (o documentar) la obra de un
+ * cliente cuyo chat ha leído: ahí no hace falta casar por teléfono contra
+ * `clientes` —quien lo pide sabe de quién es el chat, y la ficha muchas veces ni
+ * tiene el teléfono (26RES080_OP52)—, así que llega el código ya decidido.
+ *
+ * Mismas reglas que el lote, y una salida que el lote no tiene:
+ *  · solo se toca el PREFIJO de la casa; lo de detrás, letra a letra;
+ *  · si el nombre dice OTRA ficha (RES060 frente a un RES080) no se toca sin
+ *    `forzarFicha`: suele ser el chat de otra persona;
+ *  · un contacto SIN prefijo solo se renombra con `anteponer` —y eso es para el
+ *    chat del PROPIO cliente: el de un instalador lleva veinte obras y no puede
+ *    llevar el nº de una—; un número que no está en la agenda no se guarda.
+ * `dryRun` por defecto. UN guardado: el límite de la agenda (429) no aplica a uno.
+ */
+async function renombrarUno({ telefono, codigo, dryRun = true, anteponer = false, forzarFicha = false } = {}) {
+    let numero = String(telefono || '').replace(/\D/g, '');
+    if (numero.length === 9) numero = `34${numero}`;
+    if (numero.length < 10 || numero.length > 15) {
+        const e = new Error(`Teléfono no válido: ${telefono}`);
+        e.datoInvalido = true;
+        throw e;
+    }
+    const cod = codigoCorto(codigo);
+    const fichaObra = fichaDe(cod);
+    if (!fichaObra) {
+        const e = new Error(`«${codigo}» no es un nº de oportunidad ni de expediente.`);
+        e.datoInvalido = true;
+        throw e;
+    }
+    const info = await contactos.datos(`${numero}@c.us`);
+    const base = { telefono: numero, codigo: cod, antes: info.nombre || null, pushname: info.pushname || null };
+    if (!info.nombre) {
+        return { ...base, accion: 'sin_agenda',
+            motivo: 'Ese número no está guardado en la agenda: no se le pone nombre desde aquí.' };
+    }
+    const p = leerPrefijo(info.nombre);
+    let despues;
+    if (p) {
+        despues = nombreNuevo(info.nombre, cod);
+        if (p.ficha !== fichaObra && !forzarFicha) {
+            return { ...base, accion: 'revisar', propuesto: despues,
+                motivo: `El nombre dice ${p.ficha} y la obra es ${fichaObra}: ¿es de verdad el chat de este cliente?` };
+        }
+    } else if (anteponer) {
+        despues = `${cod} ${info.nombre.trim()}`;
+    } else {
+        return { ...base, accion: 'sin_prefijo', propuesto: `${cod} ${info.nombre.trim()}`,
+            motivo: 'El contacto no lleva el prefijo de la casa (RES060, RES080…). Si es el chat del propio cliente, '
+                + 'repítelo con «anteponer»; si es el de un instalador, no se toca.' };
+    }
+    if (despues === info.nombre) return { ...base, accion: 'ya_al_dia', despues };
+    if (dryRun) return { ...base, accion: 'seco', despues };
+    await contactos.guardar(numero, despues, '');
+    return { ...base, accion: 'renombrado', despues };
+}
+
+module.exports = { planificar, renombrar, renombrarUno };

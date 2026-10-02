@@ -16,6 +16,9 @@
 //   node scripts/alta_oportunidad.js leer --rc fichero.pdf|foto.jpg
 //   node scripts/alta_oportunidad.js aerotermia "<marca> <modelo>"
 //   node scripts/alta_oportunidad.js crear --plan plan.json [--escribir]
+//   node scripts/alta_oportunidad.js obra <26RES080_OP52|26RES080_87>
+//   node scripts/alta_oportunidad.js documentar --op <nº> --plan docs.json [--escribir]
+//   node scripts/alta_oportunidad.js renombrar --op <nº> --tel <tel> [--anteponer] [--escribir]
 //
 // REGLAS (ver skills/alta-oportunidad/SKILL.md):
 //   · El chat se LEE en el servidor (la sesión de WhatsApp vive en el VPS) por
@@ -69,7 +72,7 @@ const dosDec = n => (n === null || n === undefined || n === '' ? '—' : Number(
 
 const [, , ORDEN, ...RESTO] = process.argv;
 // Lo posicional, sin los VALORES de las opciones (`--dias 14` no es un fichero).
-const SIN_VALOR = new Set(['--escribir']);
+const SIN_VALOR = new Set(['--escribir', '--anteponer', '--forzar-ficha']);
 const POS = [];
 for (let i = 0; i < RESTO.length; i++) {
     const a = RESTO[i];
@@ -603,9 +606,186 @@ async function crear() {
     console.log('\nLa oportunidad queda en PTE ENVIAR. La propuesta (PDF) se revisa y se envía desde la app.');
 }
 
+// ─── obra · documentar · renombrar (una oportunidad o expediente que YA existe) ─
+//
+// El cliente sigue mandando cosas por WhatsApp cuando la oportunidad ya está
+// creada (fotos de la vivienda, el vídeo, su CEE). `documentar` las coloca en los
+// apartados de documentación —carpeta «12. DOCUMENTOS PARA CEE» de Drive— por la
+// MISMA `subirFicherosASlot` del gestor de la app, validando contra el checklist
+// REAL de esa obra (`checklistForOportunidad`, que ya poda por el alcance del
+// expediente). Y `renombrar` pone el nº de la obra en el nombre del chat.
+
+/** «26RES080_OP52» o «26RES080_87» → { opp, expediente, codigo, cliente }. */
+async function resolverObra(id) {
+    const codigo = String(id || '').trim().toUpperCase();
+    if (!codigo) throw new Error('Falta --op <nº de oportunidad o de expediente>.');
+    let expediente = null;
+    let { data: opp } = await supabase.from('oportunidades')
+        .select('id, id_oportunidad, cliente_id, datos_calculo').eq('id_oportunidad', codigo).maybeSingle();
+    if (!opp) {
+        const { data: ex } = await supabase.from('expedientes')
+            .select('id, numero_expediente, oportunidad_id, estado').eq('numero_expediente', codigo).maybeSingle();
+        if (!ex) throw new Error(`No hay ninguna oportunidad ni expediente «${codigo}».`);
+        expediente = ex;
+        ({ data: opp } = await supabase.from('oportunidades')
+            .select('id, id_oportunidad, cliente_id, datos_calculo').eq('id', ex.oportunidad_id).maybeSingle());
+        if (!opp) throw new Error(`El expediente ${codigo} no tiene oportunidad detrás.`);
+    } else {
+        const { data: ex } = await supabase.from('expedientes')
+            .select('id, numero_expediente, estado').eq('oportunidad_id', opp.id).maybeSingle();
+        expediente = ex || null;
+    }
+    let cliente = null;
+    if (opp.cliente_id) {
+        const { data } = await supabase.from('clientes')
+            .select('nombre_razon_social, apellidos, tlf, persona_contacto_tlf').eq('id_cliente', opp.cliente_id).maybeSingle();
+        cliente = data || null;
+    }
+    // Con expediente, el nº de obra es el del EXPEDIENTE (igual que el lote de la agenda).
+    return { opp, expediente, codigo: expediente?.numero_expediente || opp.id_oportunidad, cliente };
+}
+
+async function obra() {
+    const reformaUpload = require('../services/reformaUploadService');
+    const o = await resolverObra(POS[0] || opt('op'));
+    const dc = o.opp.datos_calculo || {};
+    console.log(`\n${o.opp.id_oportunidad}${o.expediente ? ` · expediente ${o.expediente.numero_expediente} (${o.expediente.estado})` : ''}`
+        + ` · ${dc.estado || '—'} · ${o.cliente ? `${o.cliente.nombre_razon_social || ''} ${o.cliente.apellidos || ''}`.trim() : 'sin cliente'}`
+        + (o.cliente?.tlf ? ` · tlf ${o.cliente.tlf}` : ' · la ficha no tiene teléfono'));
+    console.log(`  Nº de obra para el chat: ${require('../utils/nombreContactoCliente').codigoCorto(o.codigo)}`);
+    if (dc.drive_folder_link) console.log(`  Drive: ${dc.drive_folder_link}`);
+    const checklist = await reformaUpload.checklistForOportunidad(o.opp);
+    const subidas = dc.reforma_uploads || {};
+    console.log('  APARTADOS (clave · fase · ya subidas):');
+    for (const s of checklist) {
+        const n = Array.isArray(subidas[s.key]) ? subidas[s.key].length : 0;
+        console.log(`    ${s.key.padEnd(30)} ${String(s.fase || '').padEnd(8)} ${n ? `${n} subida${n > 1 ? 's' : ''}` : '—'}   ${s.label}`);
+    }
+}
+
+async function documentar() {
+    const fPlan = opt('plan');
+    if (!fPlan || fPlan === true) throw new Error('Uso: documentar --op <nº> --plan docs.json [--escribir]');
+    const base = path.dirname(path.resolve(fPlan));
+    const plan = JSON.parse(fs.readFileSync(fPlan, 'utf8'));
+    const o = await resolverObra(opt('op') || plan.obra);
+    const reformaUpload = require('../services/reformaUploadService');
+    const checklist = await reformaUpload.checklistForOportunidad(o.opp);
+    const porKey = new Map(checklist.map(s => [s.key, s]));
+
+    // Las ventanas «nueva» se numeran DETRÁS de las que ya tienen foto (el id no
+    // se reutiliza: la 3 sigue siendo la 3 aunque se borre la 2).
+    const vo = await esm('features/docs/logic/ventanasObra.js');
+    const up = o.opp.datos_calculo?.reforma_uploads || {};
+    const { ventanas } = vo.ventanasDe(up.FOTO_VENTANAS_ANTES || [], up.FOTO_VENTANAS_DESPUES || []);
+    let ultima = ventanas.reduce((m, v) => Math.max(m, v.n || 0), 0);
+
+    const docs = [];
+    for (const d of plan.documentos || []) {
+        if (!d?.fichero || !d?.slot) throw new Error('Cada documento necesita «fichero» y «slot».');
+        const slot = String(d.slot).toUpperCase();
+        const def = porKey.get(slot);
+        if (!def) throw new Error(`«${slot}» no es un apartado de ${o.opp.id_oportunidad}. Lánzalo con «obra» para ver los que tiene.`);
+        const ruta = path.resolve(base, d.fichero);
+        if (!fs.existsSync(ruta)) throw new Error(`No existe ${ruta}`);
+        let ventana = null;
+        if (d.ventana && vo.esPorVentana(slot)) {
+            const id = String(d.ventana).toLowerCase() === 'nueva' ? `V${++ultima}` : d.ventana;
+            ventana = vo.sanearVentana(id, d.ventana_nombre || null);
+            if (!ventana) throw new Error(`Ventana «${d.ventana}» no válida (V1…V99 o «nueva»).`);
+        }
+        docs.push({ ruta, slot, def, ventana, wa_msg_id: d.wa_msg_id || null, t: d.t || null });
+    }
+    if (!docs.length) throw new Error('El plan no trae documentos.');
+
+    console.log(`\n${o.opp.id_oportunidad}${o.expediente ? ` (expediente ${o.expediente.numero_expediente})` : ''} — ${docs.length} ficheros a «12. DOCUMENTOS PARA CEE»:`);
+    for (const d of docs) {
+        const mb = (fs.statSync(d.ruta).size / 1048576).toFixed(1);
+        console.log(`  ${path.basename(d.ruta).slice(0, 48).padEnd(48)} → ${d.slot}${d.ventana ? ` · ${vo.rotuloVentana(d.ventana.ventana, d.ventana.ventana_nombre)}` : ''}  (${mb} MB)`);
+    }
+    for (const x of plan.decisiones || []) console.log(`  · ${x}`);
+    if (!ESCRIBIR) {
+        console.log('\nEN SECO. Revisa lo de arriba y vuelve a lanzarlo con --escribir.');
+        return;
+    }
+
+    // En SERIE, un grupo por apartado y ventana: un slot múltiple numera contando
+    // lo que ya hay en Drive, y dos subidas a la vez calcularían el mismo índice.
+    const grupos = new Map();
+    for (const d of docs) {
+        const k = `${d.slot}|${d.ventana?.ventana || ''}`;
+        if (!grupos.has(k)) grupos.set(k, []);
+        grupos.get(k).push(d);
+    }
+    const colocadas = [];
+    const resumen = [];
+    for (const lista of grupos.values()) {
+        const { slot, def, ventana } = lista[0];
+        // eslint-disable-next-line no-await-in-loop
+        const { data: opp } = await supabase.from('oportunidades').select('id, datos_calculo').eq('id', o.opp.id).single();
+        try {
+            // eslint-disable-next-line no-await-in-loop
+            const { subidas, fallidas } = await reformaUpload.subirFicherosASlot({
+                oportunidadUuid: opp.id, datosCalculo: opp.datos_calculo || {}, slotDef: def,
+                archivos: lista.map(d => ({ originalname: path.basename(d.ruta), mimetype: alta.mimeDeFichero(d.ruta), buffer: fs.readFileSync(d.ruta) })),
+                subidoPor: 'admin',
+                ventana: ventana ? { ventana: ventana.ventana, nombre: ventana.ventana_nombre } : null,
+            });
+            for (const s of subidas) console.log(`  ✓ ${slot}${ventana ? ` (${ventana.ventana})` : ''} → ${s.name}`);
+            for (const f of fallidas) console.log(`  ✗ ${slot}: ${f.error}`);
+            if (subidas.length) resumen.push(`${subidas.length} en «${def.label}»${ventana ? ` (${vo.rotuloVentana(ventana.ventana, ventana.ventana_nombre)})` : ''}`);
+            lista.filter(d => d.wa_msg_id).slice(0, subidas.length)
+                .forEach(d => colocadas.push({ waMsgId: d.wa_msg_id, slot, tipo: alta.tipoMedia(d.ruta), t: d.t || null }));
+        } catch (e) {
+            console.log(`  ✗ ${slot}: ${e.message}`);
+        }
+    }
+    if (colocadas.length) {
+        const whatsappMedia = require('../services/whatsappMedia');
+        const r = await whatsappMedia.registrarColocadas({ id: o.opp.id }, colocadas, 'skill alta-oportunidad');
+        console.log(`  (${r.registradas} adjuntos de WhatsApp apuntados como colocados)`);
+    }
+    if (resumen.length) {
+        const chat = plan.chat?.nombre ? `chat «${plan.chat.nombre}»` : 'WhatsApp';
+        await alta.anotarAlta(supabase, o.opp.id, {
+            texto: [`📲 Documentación recibida por ${chat}${plan.chat?.cuando ? ` (${plan.chat.cuando})` : ''} colocada por la skill alta-oportunidad: ${resumen.join(' · ')}.`,
+                ...(plan.decisiones?.length ? [`Notas: ${plan.decisiones.join(' · ')}`] : [])].join('\n'),
+            meta: null,
+        });
+    }
+    const { data: fin } = await supabase.from('oportunidades')
+        .select('drive:datos_calculo->>drive_folder_link').eq('id', o.opp.id).single();
+    console.log(`\nApp:    https://app.brokergy.es/?op=${o.opp.id_oportunidad}`);
+    if (fin?.drive) console.log(`Drive:  ${fin.drive}`);
+}
+
+async function renombrar() {
+    const tel = opt('tel');
+    if (!tel || tel === true) throw new Error('Uso: renombrar --op <nº> --tel <teléfono del chat> [--anteponer] [--escribir]');
+    const o = await resolverObra(opt('op'));
+    const r = await api('/api/whatsapp/contactos/renombrar', {
+        method: 'POST',
+        body: { telefono: tel, codigo: o.codigo, dryRun: !ESCRIBIR, anteponer: RESTO.includes('--anteponer'),
+            forzarFicha: RESTO.includes('--forzar-ficha') },
+    });
+    const nombre = r.despues || r.propuesto || r.antes;
+    const linea = {
+        seco: `«${r.antes}» → «${r.despues}» (en seco: repítelo con --escribir)`,
+        renombrado: `✓ «${r.antes}» → «${r.despues}»`,
+        ya_al_dia: `Ya se llama «${r.antes}».`,
+        revisar: `NO se toca: ${r.motivo} (propuesto «${r.propuesto}»; con --forzar-ficha si es correcto)`,
+        sin_prefijo: `NO se toca: ${r.motivo} (propuesto «${r.propuesto}»)`,
+        sin_agenda: `NO se toca: ${r.motivo}${r.pushname ? ` (en su WhatsApp se llama «${r.pushname}»)` : ''}`,
+    }[r.accion] || JSON.stringify(r);
+    console.log(`\nWhatsApp ${r.telefono}: ${linea}`);
+    if (nombre && ['seco', 'renombrado', 'ya_al_dia'].includes(r.accion)) {
+        console.log(`\nTÍTULO DE LA SESIÓN DE CLAUDE: ${nombre}`);
+    }
+}
+
 // ─── main ───────────────────────────────────────────────────────────────────
 
-const ORDENES = { chats, chat, escuchar, catastro, leer, aerotermia, crear };
+const ORDENES = { chats, chat, escuchar, catastro, leer, aerotermia, crear, obra, documentar, renombrar };
 
 // Se sale DEJANDO que el proceso acabe solo: en Windows (Node 25) un
 // `process.exit` con conexiones de fetch todavía abiertas aborta con «Assertion
