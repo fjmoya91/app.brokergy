@@ -3155,6 +3155,7 @@ info@brokergy.es · 623 926 179`;
                         {/* Botón ENVIAR (unificado: Email + WhatsApp) — solo ADMIN */}
                         {user?.rol === 'ADMIN' && (
                         <button
+                            data-robot="abrir-envio"
                             onClick={() => setEnviarOpen(true)}
                             title="Enviar propuesta al cliente (Email / WhatsApp)"
                             className="text-white/40 hover:text-brand w-12 h-12 flex items-center justify-center transition-all hover:bg-white/5 rounded-2xl border border-transparent hover:border-white/10 shrink-0 group active:scale-90"

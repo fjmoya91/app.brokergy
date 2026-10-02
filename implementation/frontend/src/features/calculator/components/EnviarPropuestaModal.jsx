@@ -851,6 +851,7 @@ export function EnviarPropuestaModal({
                                         className={`w-full rounded-xl border transition-all ${on ? 'border-brand/50 bg-brand/5' : 'border-white/10 bg-white/[0.02] hover:border-white/20'}`}>
                                         <div className="flex items-center gap-3 p-3">
                                             <button type="button" onClick={() => toggleMode(c.mode)}
+                                                data-robot={`modo-${c.mode}`} data-robot-on={on ? '1' : '0'}
                                                 className="flex items-center gap-3 min-w-0 flex-1 text-left">
                                                 <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${on ? 'border-brand bg-brand' : 'border-white/20'}`}>
                                                     {on && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
@@ -1022,6 +1023,7 @@ export function EnviarPropuestaModal({
                             )}
                         </div>
                         <textarea
+                            data-robot="mensaje"
                             value={message}
                             onChange={e => { userEditedRef.current = true; setMessage(e.target.value); }}
                             rows={10}
@@ -1083,12 +1085,15 @@ export function EnviarPropuestaModal({
                     decisión y la única que habilita el botón. */}
                 <div className="px-5 py-3.5 bg-white/[0.02] border-t border-white/[0.07] flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-2">
+                        <div className="contents" data-robot="canal-email" data-robot-on={willEmail ? '1' : '0'}>
                         <CanalChip
                             canal="email" nombre="Email"
                             activo={willEmail} disponible={canEmail}
                             detalle={nEmail === 1 ? 'a 1 destinatario' : `a ${nEmail} destinatarios`} motivo="sin email"
                             onClick={() => toggleChannel('email')}
                         />
+                        </div>
+                        <div className="contents" data-robot="canal-whatsapp" data-robot-on={willWhatsapp ? '1' : '0'}>
                         <CanalChip
                             canal="whatsapp" nombre="WhatsApp"
                             activo={willWhatsapp} disponible={contactPhoneValid && waReady !== false}
@@ -1096,6 +1101,7 @@ export function EnviarPropuestaModal({
                             motivo={!contactPhoneValid ? 'sin teléfono' : 'no conectado'}
                             onClick={() => toggleChannel('whatsapp')}
                         />
+                        </div>
                     </div>
                     <div className="flex items-center gap-2.5 shrink-0">
                         {/* Con canal, el recuento; sin canal, POR QUÉ no se puede
@@ -1117,7 +1123,7 @@ export function EnviarPropuestaModal({
                             className={`flex items-center justify-center w-11 h-11 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-30 disabled:cursor-not-allowed ${panelHora ? 'border-brand/60 bg-brand/15 text-brand' : 'border-white/10 text-white/50 hover:text-white hover:border-white/30'}`}>
                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><circle cx="12" cy="12" r="9" /><path strokeLinecap="round" d="M12 7v5l3 2" /></svg>
                         </button>
-                        <button onClick={handleSend} disabled={busy || !selectedContacts.length || (!willEmail && !willWhatsapp)}
+                        <button data-robot="enviar" onClick={handleSend} disabled={busy || !selectedContacts.length || (!willEmail && !willWhatsapp)}
                             title={avisoPie || 'Enviar'}
                             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-brand text-black text-[11px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
                             {sending
@@ -1161,7 +1167,8 @@ export function EnviarPropuestaModal({
                         fail: { color: 'red', label: 'Error', icon: 'M6 18L18 6M6 6l12 12' },
                     };
                     return (
-                        <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fade-in">
+                        <div data-robot="envio-resultado" data-robot-fase={sendPhase} data-robot-ok={allGood ? '1' : (anyOk ? 'parcial' : '0')}
+                            className="fixed inset-0 z-[400] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fade-in">
                             <div className="relative w-full max-w-md bg-[#0F1013] border border-white/10 rounded-3xl shadow-2xl overflow-hidden animate-scale-in">
                                 <div className={`absolute -top-28 left-1/2 -translate-x-1/2 w-80 h-80 rounded-full blur-3xl pointer-events-none ${glow}`} />
                                 <div className="relative px-8 py-9 flex flex-col items-center text-center">

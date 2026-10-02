@@ -340,7 +340,7 @@ router.post('/', enforceAuth, async (req, res) => {
                 tipo: 'comentario',
                 texto: nota,
                 fecha: new Date().toISOString(),
-                usuario: req.user ? (req.user.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user.acronimo || req.user.razon_social || 'PARTNER')) : 'Administrador'
+                usuario: req.user ? (req.user.esRobot ? 'CLAUDE' : req.user.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user.acronimo || req.user.razon_social || 'PARTNER')) : 'Administrador'
             });
         }
 
@@ -915,7 +915,7 @@ const internalKeyOrAuth = (req, res, next) => {
 };
 
 const nombreUsuario = (req) => req.user
-    ? (req.user.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user.acronimo || req.user.razon_social || 'PARTNER'))
+    ? (req.user.esRobot ? 'CLAUDE' : req.user.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user.acronimo || req.user.razon_social || 'PARTNER'))
     : ((req.internalCall && req.body?.usuario) ? String(req.body.usuario) : 'Sistema');
 
 // Carga la oportunidad con lo justo. NUNCA `datos_calculo` entero en un listado

@@ -1797,7 +1797,7 @@ router.get('/cobro/respuestas', staffOnly, async (req, res) => {
 router.post('/:id/cobro/contactado', staffOnly, async (req, res) => {
     try {
         const quitar = req.body?.quitar === true;
-        const usuario = req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR'
+        const usuario = req.user?.esRobot ? 'CLAUDE' : req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR'
             : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
         await cobroService.sellar(req.params.id, {
             // `null` desmarca: la RPC funde, así que borrar la clave no basta.
@@ -1880,7 +1880,7 @@ router.post('/:id/cobro/enviar', staffOnly, async (req, res) => {
         }
         if (!sent.length) return res.status(400).json({ error: 'No se pudo enviar por los canales elegidos' });
 
-        const usuario = req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR'
+        const usuario = req.user?.esRobot ? 'CLAUDE' : req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR'
             : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
         // Se sella con MERGE: el envío y la respuesta del cliente caen en momentos
         // distintos sobre la misma clave, y un reemplazo borraría el token.
@@ -1963,7 +1963,7 @@ router.post('/:id/solicitar-faltantes', internalKeyOrAuth, async (req, res) => {
         const docObj = exp.documentacion || {};
         const historial = docObj.historial || [];
         const userName = req.internalCall ? 'AGENTE IA'
-            : (req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA'));
+            : (req.user?.esRobot ? 'CLAUDE' : req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA'));
         const ccHist = (Array.isArray(req.body?.cc) ? req.body.cc : []).map(e => String(e || '').trim()).filter(Boolean);
         const destLabel = (nombreDest ? ` (${nombreDest}${tlf ? ` · ${tlf}` : ''})` : (tlf ? ` (${tlf})` : ''))
             + (ccHist.length ? ` · en copia: ${ccHist.join(', ')}` : '');
@@ -2064,7 +2064,7 @@ router.post('/:id/documentos/rechazar', enforceAuth, async (req, res) => {
             delete docsValidados[f];
         }
         const historial = Array.isArray(docObj.historial) ? [...docObj.historial] : [];
-        const userName = req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
+        const userName = req.user?.esRobot ? 'CLAUDE' : req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
         const avisoTxt = sent.length ? ` · avisado a ${target === 'CLIENTE' ? 'Cliente' : 'Instalador'} vía ${sent.join(' + ')}` : ' · sin aviso';
         const newDoc = { ...docObj, docs_rechazados: docsRechazados, docs_validados: docsValidados };
 
@@ -2260,7 +2260,7 @@ router.post('/:id/documentos/validar', enforceAuth, async (req, res) => {
         // persona, y como tal se escribe: el sello de validación es solo una fecha y
         // dentro de tres meses nadie sabría que se validó sabiéndolo.
         if (firmaForzada) {
-            const quien = req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
+            const quien = req.user?.esRobot ? 'CLAUDE' : req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
             newDoc.historial = [...(Array.isArray(docObj.historial) ? docObj.historial : []), {
                 id: `${Date.now()}_firma_forzada_${field}`,
                 tipo: 'doc_firma_forzada',
@@ -2439,7 +2439,7 @@ router.post('/:id/documentos/firmar-subir', enforceAuth, async (req, res) => {
         const newDoc = invalidarValidacionDocs(
             { ...docObj, [field]: saved.link },
             field,
-            { usuario: req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA'), origen: 'firmada con certificado' }
+            { usuario: req.user?.esRobot ? 'CLAUDE' : req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA'), origen: 'firmada con certificado' }
         );
         // Si Brokergy firma el Anexo de Cesión (contrafirma tras el cliente), marcar
         // la firma de Brokergy como completada.
@@ -2606,7 +2606,7 @@ router.post('/:id/documentos/cesion-manuscrita', enforceAuth, (req, res, next) =
             if (savedDni?.link) dniLink = savedDni.link;
         }
 
-        const usuario = req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
+        const usuario = req.user?.esRobot ? 'CLAUDE' : req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
         let newDoc = invalidarValidacionDocs(
             {
                 ...docObj,
@@ -6635,7 +6635,7 @@ router.post('/:id/instalador/enviar', enforceAuth, async (req, res) => {
                 const docFresco = fresco?.documentacion || {};
                 const historial = Array.isArray(docFresco.historial) ? [...docFresco.historial] : [];
                 const usuario = req.internalCall ? 'AGENTE IA'
-                    : (req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA'));
+                    : (req.user?.esRobot ? 'CLAUDE' : req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA'));
                 historial.push({
                     id: `${Date.now()}_cifo_firmante`,
                     tipo: 'cifo_firmante',

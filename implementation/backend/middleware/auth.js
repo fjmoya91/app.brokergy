@@ -97,6 +97,10 @@ const requireAuth = async (req, res, next) => {
             id_rol: userProfile?.id_rol || null,
             rol_nombre: userProfile?.roles?.nombre_rol || null,
             perfilCompleto: userProfile || null,
+            // La cuenta de Claude (scripts/claude_propuesta.js). La marca va en
+            // `app_metadata`, que solo puede escribir el servidor: un usuario puede
+            // editarse su `user_metadata`, y con él se haría pasar por el robot.
+            esRobot: user.app_metadata?.robot === true,
             prescriptor_id: null,
             razon_social: null,
             acronimo: null,

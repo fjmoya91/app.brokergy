@@ -887,6 +887,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                             </button>
 
                             <button
+                                data-robot="abrir-propuesta"
                                 onClick={() => requestAction('pdf')}
                                 className="flex flex-col items-center justify-center gap-1.5 py-3 px-2 bg-blue-600/10 hover:bg-blue-600/20 border border-blue-500/20 text-blue-400 rounded-xl transition-all hover:scale-105 active:scale-95 group shadow-sm"
                             >
@@ -1941,7 +1942,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
             })()}
             {/* Modal de Guardia para PDF: Obliga/Sugiere guardar antes de generar */}
             {showPdfGuard && (
-                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-bkg-deep/80 backdrop-blur-md animate-fade-in" onClick={() => { setShowPdfGuard(false); pendingActionRef.current = null; }}>
+                <div data-robot="aviso-sin-guardar" className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-bkg-deep/80 backdrop-blur-md animate-fade-in" onClick={() => { setShowPdfGuard(false); pendingActionRef.current = null; }}>
                     <div className="w-full max-w-md relative z-10">
                         <div className="bg-bkg-surface shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/[0.06] rounded-[2rem] p-10 relative overflow-hidden backdrop-blur-xl" onClick={e => e.stopPropagation()}>
                             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-brand/40 to-transparent"></div>
