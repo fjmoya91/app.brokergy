@@ -3,6 +3,7 @@ import axios from 'axios';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../../../context/AuthContext';
 import { BOILER_EFFICIENCIES, redondeaScop } from '../../calculator/logic/calculation';
+import { esXmlCeeV30, huecosYOpacosV30 } from '../../calculator/logic/xmlCeeV30';
 import { buildInstalacionAddress, empresaInstaladora, empresasActuacion } from '../utils/docGenerators';
 import { calcCifo } from '../logic/calcCifo';
 import { EMITTER_OPTIONS, emitterScopContext, scopAcsAnexoViHtml, placaAnexoContenido, PLACA_ANEXO_TITULO, PLACA_ANEXO_LABEL } from '../logic/cifoDoc';
@@ -1059,6 +1060,9 @@ export function CertificadoRes080Modal({ isOpen, onClose, expediente, results, r
     // Función para parsear XML on-the-fly si no vienen los huecos en el objeto
     const getHuecosFromXml = (xmlStr) => {
         if (!xmlStr) return [];
+        // El .xml v3.0 (CE3X 3.1) no tiene <Elemento>: se lee con su lector, que
+        // devuelve esta MISMA lista (superficie bruta, orientación en palabras).
+        if (esXmlCeeV30(xmlStr)) return huecosYOpacosV30(xmlStr);
         try {
             const parser = new DOMParser();
             const xmlDoc = parser.parseFromString(xmlStr, 'text/xml');

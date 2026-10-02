@@ -22,6 +22,15 @@ import { FACTORES_PASO } from '../../calculator/logic/calculation.js';
 
 export const FACTOR_ELECTRICIDAD = FACTORES_PASO['Electricidad peninsular'];
 
+//: Cuánto del techo de autoconsumo se declara de verdad. El máximo es lo que el
+//: edificio consume de red: declararlo entero supone que NADA se vierte y que la
+//: producción encaja hora a hora con el consumo, que no ocurre. El 90 % es el
+//: margen que deja el certificador (medido en 26RES060_186: 11.510,48 → 10.359).
+//: Vive aquí y no en `fichaCe3x` porque lo usan también la barra ⚡ del módulo
+//: CEE y su cálculo de kWp con PVGIS: con dos copias, la barra diría unos kWp
+//: para una cifra distinta de la que escribe la medida.
+export const AUTOCONSUMO_DECLARABLE = 0.9;
+
 /**
  * @param {object|null} cee  CEE parseado (`parseCeeXml`) o rescatado del XML
  * @returns {{kwhAnio:number, emisiones:number, factor:number}|null}

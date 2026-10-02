@@ -1,0 +1,12 @@
+{
+  "corpus": "451da2e3e42ec94e442f66084a53a682f0fff2de2db39e1aa1531e73682f0080",
+  "archivos": 462,
+  "funciones": {
+    "radiografiaXml": "1c429c7723e326c5cd08b44ca0225b847c33dde227befa112e7b59260597fe7f",
+    "leerCalificacionesDeTexto": "792d421117ec81da918e5745be9c278b62ad2296a3bbc8471a0e5ad500922a59",
+    "leerDatosIrpfDeTexto": "f559308d7d3c793d6c109fc4ed757f31cac595537f7b19c1367c74d883d81814",
+    "parseCeeXml": "a907b783c3bee431d16cfb2938db1018d5b1e400abcc49de020e1106a1b2735c",
+    "parseEpnrFromXml": "033d8aa859a04d60ea205c62b33ed39bffb9710bbd450bb0d49f88f696dd7ebf",
+    "parseEmisionesTotalesFromXml": "500874649b51cdd3ed5ad5b5cdb28f21b85a263a458e73b28451472f988a5baa"
+  }
+}

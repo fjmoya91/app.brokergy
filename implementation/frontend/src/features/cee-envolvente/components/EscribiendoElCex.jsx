@@ -295,6 +295,11 @@ export function CexGenerado({ g, avisos = [], onCerrar, onVerAvisos, onRegenerar
                         <p className="text-[11px] text-white/40">
                             en <b className="text-white/60">1. CEE / {g?.carpeta}</b>
                             {g?.bytes ? ` · ${Math.round(g.bytes / 1024)} KB` : ''}
+                            {/* Con qué versión de CE3X hay que abrirlo: la 2.3 no
+                                abre un fichero de la 3.1. */}
+                            {g?.version_ce3x && (
+                                <> · para <b className="text-white/60">CE3X {g.version_ce3x}</b></>
+                            )}
                         </p>
                     </div>
                 </div>

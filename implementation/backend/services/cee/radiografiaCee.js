@@ -24,10 +24,21 @@
 //   · 266 llevan <MedidasDeMejora>
 //   · <Tipo> es un enum cerrado de 11 valores y <VectorEnergetico> de 6
 //   · NINGUNO declara la acumulación de ACS: no está en el XML (ver abajo)
+//
+// DOS ESQUEMAS (2026-10-02)
+// -------------------------
+// Todo lo anterior es el v2.0, el de CE3X 2.3. Desde el 01/10/2026 los técnicos
+// exportan con CE3X 3.1, que escribe el v3.0: otras etiquetas y otra estructura.
+// `radiografiaXml` mira la versión y, si es la 3.0, lee con `xmlCeeV30.js` y
+// devuelve LA MISMA radiografía, con las mismas claves (ver
+// `radiografiaXmlV30`). Lo que el v3.0 no dice sale `null`, explicado en su
+// sitio. El camino del v2.0 no se ha tocado.
 // ============================================================================
 
+const v30 = require('./xmlCeeV30');
+
 /**
- * LA ACUMULACIÓN DE ACS NO ESTÁ EN EL XML.
+ * LA ACUMULACIÓN DE ACS NO ESTÁ EN EL XML v2.0.
  *
  * Se buscó en los 462 ficheros cualquier nodo con "acumul", "volum", "deposit"
  * o "inercia": el único que aparece es `<VolumenEspacioHabitable>`, que es el
@@ -38,6 +49,9 @@
  * Por eso la radiografía lo deja explícitamente en `null` y el informe dice que
  * no se ha podido comprobar, en vez de callarse: un punto que se omite en
  * silencio se lee como un punto que está bien.
+ *
+ * ⚠️ El v3.0 SÍ la trae (<Sistemas><Acumulador>): con él la radiografía la da
+ * como lista —vacía si no declara ninguno— y no como `null`.
  */
 const ACUMULACION_SOLO_EN_CEX = true;
 
@@ -282,6 +296,8 @@ function radiografiaXml(contenido) {
     if (!/<DatosEnergeticosDelEdificio/i.test(xml)) {
         throw new Error('Esto no es el .xml de un certificado de eficiencia energética (falta <DatosEnergeticosDelEdificio>).');
     }
+    //: El de CE3X 3.1 se lee por su cuenta y sale con la MISMA forma.
+    if (v30.esXmlCeeV30(xml)) return radiografiaXmlV30(xml);
 
     const ident = bloque(xml, 'IdentificacionEdificio') || '';
     const geom = bloque(xml, 'DatosGeneralesyGeometria') || '';
@@ -372,6 +388,211 @@ function radiografiaXml(contenido) {
     };
 }
 
+// ─── La radiografía del v3.0 (CE3X 3.1) ──────────────────────────────────────
+
+/** `<Servicio>` de un generador del v3.0 → la lista de `generadores` (la del v2.0). */
+const SERVICIO_V30 = { CAL: 'calefaccion', ACS: 'acs', REF: 'refrigeracion' };
+
+/**
+ * Qué es cada `<Tipo>` de generador del v3.0. El esquema lo fija como un enum de
+ * 16 valores (TIPO_GENERADOR); aquí están los que se saben leer, contrastados
+ * con el par v2.0 / v3.0 del mismo edificio (26RES093_9: «Caldera Estándar» →
+ * CalderaConvencional, «Bomba de Calor - Caudal Ref. Variable» →
+ * ExpansionDirectaAireAgua, «Efecto Joule» → CalderaElectrica) y con los
+ * ejemplos oficiales de CE3X 3.1.
+ *
+ * Mismo criterio que la tabla del v2.0: lo que no está —CalderaGenerica,
+ * Absorcion, RedDistrito, RendimientoConstante, MotorCombustionInterna, Otro—
+ * NO se clasifica, y la revisión dice que lo tiene que mirar una persona.
+ *
+ * ⚠️ El v3.0 no separa una bomba de calor de una máquina SOLO de frío (las dos
+ * son ExpansionDirecta…): en refrigeración todas salen `bomba`. La familia que
+ * se revisa es la de la calefacción, donde eso no pasa.
+ */
+const TIPOS_GENERADOR_V30 = {
+    calderaconvencional: { familia: 'caldera', combustion: true },
+    calderabajatemperatura: { familia: 'caldera', combustion: true },
+    calderacondensacion: { familia: 'caldera', combustion: true },
+    calderabiomasa: { familia: 'caldera', combustion: true },
+    calderaacsconvencional: { familia: 'caldera', combustion: true },
+    calderaelectrica: { familia: 'electrico', combustion: false },
+    calefaccionelectrica: { familia: 'electrico', combustion: false },
+    expansiondirectaaireaire: { familia: 'bomba', combustion: false },
+    expansiondirectaaireagua: { familia: 'bomba', combustion: false },
+    bdcaguaagua: { familia: 'bomba', combustion: false },
+};
+
+function clasificarTipoV30(tipo) {
+    return TIPOS_GENERADOR_V30[norm(tipo).replace(/[^a-z]/g, '')] || null;
+}
+
+/**
+ * Lo único que el v3.0 dice del modo de obtención: qué va POR DEFECTO. Si no lo
+ * marca, puede ser «Estimado» o «Conocido» y el fichero no lo distingue — en el
+ * par de 26RES093_9 los dos salen igual —, así que el modo queda en `null`
+ * («no consta»), nunca en uno de los dos.
+ */
+const modoV30 = (porDefecto, propiedad) => ((porDefecto || []).includes(propiedad) ? 'PorDefecto' : null);
+
+function generadorV30(g) {
+    const clase = clasificarTipoV30(g.tipo);
+    const r = g.rendimientoEstacional;
+    return {
+        servicio: SERVICIO_V30[g.servicio] || null,
+        nombre: g.nombre,
+        tipo: g.tipo,
+        tipo_conocido: clase !== null,
+        familia: clase ? clase.familia : null,
+        es_combustion: clase ? clase.combustion : null,
+        //: Con el nombre del v2.0 (GasoleoC, ElectricidadPeninsular…), que es el
+        //: que entiende VECTOR_A_COMBUSTIBLE.
+        vector: g.vectorV20,
+        combustible: combustibleDeVector(g.vectorV20),
+        potencia_kw: g.potencia,
+        rendimiento_pct: r === null ? null : Math.round(r * 1000) / 10,
+        //: El v3.0 no dice cómo se obtuvo el rendimiento de un generador.
+        modo_obtencion: null,
+    };
+}
+
+function envolventeV30(env) {
+    const huecos = [];
+    const opacos = [];
+    const puentes = [];
+    const itemDe = (e, modo) => ({
+        nombre: e.nombre || '(sin nombre)',
+        tipo: e.tipo,
+        superficie: e.superficie,
+        transmitancia: e.transmitancia,
+        //: '' (adiabático) → null, como el `texto()` del v2.0.
+        orientacion: e.orientacion || null,
+        modo_obtencion: modo,
+        transmitancia_conocida: modo === null ? null : esConocido(modo),
+    });
+    for (const o of env.opacos) opacos.push(itemDe(o, modoV30(o.porDefecto, 'transmitancia')));
+    for (const h of env.huecos) {
+        if (norm(h.tipo) === 'hueco') {
+            const item = itemDe(h, modoV30(h.porDefecto, 'transmitancia'));
+            item.factor_solar = h.factorSolar;
+            item.modo_factor_solar = modoV30(h.porDefecto, 'factorsolar');
+            huecos.push(item);
+        } else {
+            //: Un LUCERNARIO va con los opacos y sin modo, detrás de ellos: es
+            //: lo que hace `leerEnvolvente` con el v2.0, donde no llevaba
+            //: <ModoDeObtencion> y tenía superficie.
+            opacos.push(itemDe(h, null));
+        }
+    }
+    for (const p of env.puentes) {
+        const modo = modoV30(p.porDefecto, 'transmitancia');
+        puentes.push({
+            nombre: p.nombre || '(sin nombre)',
+            tipo: p.tipo,
+            superficie: null,
+            transmitancia: p.transmitancia,
+            orientacion: null,
+            modo_obtencion: modo,
+            transmitancia_conocida: modo === null ? null : esConocido(modo),
+            longitud: p.longitud,
+        });
+    }
+    return { huecos, opacos, puentes };
+}
+
+/**
+ * La radiografía de un `.xml` v3.0, con la MISMA forma que la del v2.0. De dónde
+ * sale cada dato está en `xmlCeeV30.js`; aquí, lo que cambia de significado:
+ *
+ *  · `fechas.certificado` ← <DatosCertificado><FechaCalificacion>, «la fecha en
+ *    la que el inmueble obtiene la calificación»: la <Fecha> de
+ *    <DatosDelCertificador> del v2.0. `fechas.visita` ← la PRIMERA <Visita>.
+ *  · `generadores` sin los FICTICIOS (<EsFicticio/>, los de sustitución que pone
+ *    CE3X cuando no hay ese servicio): el v2.0 no los escribía, y contarlos
+ *    declararía un equipo que no está instalado.
+ *  · `acumulacion_acs`: el v2.0 no la traía (`null`); el v3.0 sí, y sale como
+ *    lista de los depósitos que sirven al ACS — vacía si no declara ninguno.
+ *  · `envolvente`: superficie BRUTA de los opacos, orientación en palabras y
+ *    nombres de hueco sin el «-» final, como en el v2.0. El modo de obtención
+ *    solo se sabe cuando va POR DEFECTO.
+ *  · `medidas[].coste_estimado` y `.demanda_global`: el v3.0 da el coste como
+ *    TRAMO («10000-25000») y no da el total de la demanda de la medida (en el
+ *    v2.0 tampoco era una suma fija: solo cuadraba en 227 de 301) → `null`.
+ *  · `identificacion.anio_construccion`: `null` si <FechaConstruccion> es un
+ *    tramo («1979-2005»). `geometria.plantas` ← <PlantasSobreRasante>.
+ */
+function radiografiaXmlV30(xml) {
+    const x = v30.leerXmlCeeV30(xml);
+    const generadores = { calefaccion: [], acs: [], refrigeracion: [] };
+    for (const g of x.generadores) {
+        if (g.ficticio) continue;
+        const s = SERVICIO_V30[g.servicio];
+        if (s) generadores[s].push(generadorV30(g));
+    }
+    return {
+        fichero: {
+            procedimiento: x.certificado.procedimiento,
+            alcance: x.certificado.alcanceV20,
+            generado: x.fechas.generacion,
+        },
+        certificador: {
+            nif: x.certificador.nif,
+            nif_entidad: x.certificador.nifEntidad,
+            nombre: x.certificador.nombre,
+            razon_social: x.certificador.razonSocial,
+            titulacion: x.certificador.titulacion,
+        },
+        fechas: {
+            certificado: x.fechas.calificacion,
+            visita: x.fechas.visita,
+        },
+        identificacion: {
+            ref_catastral: x.identificacion.refCatastral,
+            direccion: x.identificacion.direccion,
+            municipio: x.identificacion.municipio,
+            provincia: x.identificacion.provincia,
+            ccaa: x.identificacion.ccaa,
+            codigo_postal: x.identificacion.codigoPostal,
+            zona_climatica: x.identificacion.zonaClimatica,
+            tipo_edificio: x.tipoEdificio,
+            normativa: x.identificacion.normativa,
+            anio_construccion: x.identificacion.anioConstruccion,
+        },
+        geometria: {
+            superficie_habitable: x.superficieUtil,
+            volumen: x.volumen,
+            plantas: x.identificacion.plantasSobreRasante,
+            demanda_diaria_acs_litros: x.demandaDiariaAcs,
+        },
+        demanda: {
+            calefaccion: x.demanda.cal,
+            refrigeracion: x.demanda.ref,
+            acs: x.demanda.acs,
+        },
+        generadores,
+        acumulacion_acs: x.acumuladores
+            .filter((a) => a.servicios.includes('ACS'))
+            .map((a) => ({
+                nombre: a.nombre,
+                //: El esquema da el volumen en m³.
+                volumen_l: a.volumen === null ? null : Math.round(a.volumen * 1000),
+                unidades: a.multiplicador ?? 1,
+                servicios: a.servicios.map((s) => SERVICIO_V30[s] || s.toLowerCase()),
+            })),
+        calificacion: {
+            epnr: x.calificacion.epnr,
+            emisiones: x.calificacion.emisiones,
+        },
+        medidas: x.medidas.map((m) => ({
+            nombre: m.nombre,
+            descripcion: m.descripcion,
+            coste_estimado: null,
+            demanda_global: null,
+            epnr_global: m.epnr.tot,
+        })),
+        envolvente: envolventeV30(x.envolvente),
+    };
+}
+
 // ─── Comparar dos fases ──────────────────────────────────────────────────────
 
 /**
@@ -432,8 +653,10 @@ module.exports = {
     esConocido,
     fechaCe3x,
     TIPOS_GENERADOR,
+    TIPOS_GENERADOR_V30,
     VECTOR_A_COMBUSTIBLE,
     clasificarTipo,
+    clasificarTipoV30,
     combustibleDeVector,
     norm,
     ACUMULACION_SOLO_EN_CEX,

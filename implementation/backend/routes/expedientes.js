@@ -8315,6 +8315,7 @@ router.post('/:id/cee/final-desde-medida', staffOnly, async (req, res) => {
             medidas: Array.isArray(b.medidas) ? b.medidas.map(String) : null,
             textos: (b.textos && typeof b.textos === 'object') ? b.textos : {},
             params: (b.params && typeof b.params === 'object') ? b.params : {},
+            version: b.version_ce3x || null,
         });
         const { fichero, ...resto } = out;   // los bytes no viajan al navegador
         res.json(resto);

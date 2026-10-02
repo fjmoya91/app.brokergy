@@ -71,6 +71,9 @@ const TEXTO_TECNICO = {
         aviso: 'No coinciden con la Guía de Transmitancias de Brokergy para ese año y zona. Si hay motivo (proyecto, muro de piedra, cubierta rehecha), dilo en el mensaje a Brokergy; si no, pon las de la guía.',
     },
     ventilacion: { aviso: 'No es la de la guía de Brokergy para ese año: si no hay motivo, pon la de la guía.' },
+    version_ce3x: (p) => (/^CE3X 3\.1/.test(p.dice || '')
+        ? 'Abre el .cex con CE3X 3.1, completa esos datos en Datos generales y vuelve a guardarlo y subirlo.'
+        : 'Desde el 01/10/2026 se certifica con CE3X 3.1: ábrelo con la 3.1, completa lo que pide (Datos generales y la potencia de cada equipo), vuelve a calcular y sube el .cex y el .xml nuevos.'),
     // Del objetivo del certificado (el mismo del email del encargo).
     demanda: (p) => (esperaQueBaje(p)
         ? 'En el CEE final de un RES080 la demanda de calefacción tiene que bajar: es el ahorro de la reforma. Comprueba que el certificado recoge las mejoras de la envolvente.'

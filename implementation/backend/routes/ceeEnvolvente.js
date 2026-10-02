@@ -351,7 +351,8 @@ router.post('/:expedienteId/ficha', internalOnly, staffSiOportunidad, async (req
         if (!ctx) return res.status(404).json({ error: 'Expediente no encontrado.' });
 
         const fase = req.body?.fase || 'inicial';
-        const { ficha, catalogo, faltan, avisos, fuente, equipos, aires } = await cex.componerFicha(ctx, {
+        const { ficha, catalogo, faltan, avisos, fuente, equipos, aires,
+                versionCe3x } = await cex.componerFicha(ctx, {
             geometria, envolvente: req.body?.envolvente, ajustes: req.body?.ajustes,
             medidas: req.body?.medidas, fase,
         });
@@ -364,6 +365,7 @@ router.post('/:expedienteId/ficha', internalOnly, staffSiOportunidad, async (req
         // ires: los que dijo tener el cliente al aceptar, para el bloque de
         // Instalaciones que los declara de un clic.
         res.json({ ficha, avisos, fase, medidas: catalogo, faltan, fuente, equipos, aires,
+                   version_ce3x: versionCe3x,
                    nombre: cex.nombreDelCex(ctx.expediente, fase) });
     } catch (e) {
         console.error('[ceeEnvolvente] ficha:', e.message);
@@ -760,7 +762,10 @@ router.post('/:expedienteId/cex', internalOnly, staffSiOportunidad, async (req, 
         // `sin_imagenes`: lo que ha salido SIN foto o croquis porque el
         // Catastro no ha respondido. El popup lo dice en grande y ofrece volver
         // a generar.
+        // La VERSIÓN de CE3X con la que ha salido: la dice el motor (es quien
+        // escribe la cabecera), y si no la dijera, la que se pidió.
         res.json({ ...guardado, fase, avisos, contraste, ficha,
+                   version_ce3x: r.headers.get('X-Cee-Version') || ficha.version_ce3x || null,
                    sin_imagenes: imagenesFallidas });
     } catch (e) {
         console.error('[ceeEnvolvente] cex:', e.message);

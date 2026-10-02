@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { CampoDecimal } from '../../../components/CampoDecimal';
+import { ProduccionFotovoltaica } from '../../expedientes/components/ProduccionFotovoltaica';
 import { ACTIVIDADES_ILUMINACION_CE3X, airesAcondicionados, AISLAMIENTOS_CE3X, AMBITOS_CE3X,
          COMBUSTIBLES_CE3X, esAire, esTerciarioCe3x, etiquetaTipoCe3x, GENERADORES_CE3X,
          LAMPARAS_CE3X, MAX_AIRES_CE3X, MODOS_AIRES, PERFILES_USO_CE3X, porCombustion,
-         repartoAires, TIPOS_EQUIPO_CE3X, TIPOS_RESIDENCIAL_CE3X, tipoEquipo, usosDeEquipo }
+         repartoAires, TIPOS_EQUIPO_CE3X, TIPOS_RESIDENCIAL_CE3X, tipoEquipo, usosDeEquipo,
+         VERSIONES_CE3X, NORMATIVAS_23, NORMATIVAS_31, TITULACIONES_31, GRADOS_PROTECCION_31,
+         PARTES_PROTEGIDAS_31, usosDePrograma, TIPOS_BDC_31 }
     from '../logic/fichaCe3x';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -66,6 +69,17 @@ const EDIFICIO = [
       campo: 'masa_particiones', opciones: ['Ligera', 'Media', 'Pesada'] },
 ];
 
+//: Lo que CE3X 3.1 pide de más en «Datos generales» (RD 390/2021). Sin ellos la
+//: 3.1 NO califica. Se proponen de lo que ya dice la ficha y se pueden cambiar:
+//: se guardan con el trabajo (`ajustes.ce3x31`), no en ninguna otra ficha.
+const GENERALES_31 = [
+    { k: 'superficie_util', etiqueta: 'Superficie útil (RD 390/2021)', tipo: 'number',
+      unidad: 'm²' },
+    { k: 'unidades_uso', etiqueta: 'Nº de viviendas o unidades de uso', tipo: 'number' },
+    { k: 'plantas_sobre_rasante', etiqueta: 'Plantas sobre rasante', tipo: 'number' },
+    { k: 'plantas_bajo_rasante', etiqueta: 'Plantas bajo rasante', tipo: 'number' },
+];
+
 //: Lo que se corrige del TITULAR, y en qué columna de `clientes` se escribe.
 //: Tiene que decir lo mismo que `CAMPOS_CLIENTE` en `ceeEnvolventeCex.js`, que
 //: es la lista que MANDA: lo que no esté allí no se guarda, y desde aquí no se
@@ -120,7 +134,9 @@ const TECNICO = [
  */
 export function PanelAdministrativos({ datos, fuente, puedeCliente = false,
                                        puedeTecnico = false,
-                                       onGuardarCliente, onGuardarTecnico }) {
+                                       onGuardarCliente, onGuardarTecnico,
+                                       version = null, terciario = false,
+                                       ce3x31Puestos = {}, onCambiarCe3x31 }) {
     const a = datos?.ficha?.administrativos || {};
     const t = datos?.ficha?.tecnico;
     const v = (x) => x?.valor ?? null;
@@ -189,7 +205,67 @@ export function PanelAdministrativos({ datos, fuente, puedeCliente = false,
                     </p>
                 )}
             </GrupoFicha>
+
+            {/* Lo que CE3X 3.1 pide de más en Datos administrativos. No es de
+                ninguna ficha de la app —es una decisión del certificado—, así
+                que se guarda con el trabajo y no en Clientes ni Prescriptores. */}
+            {version?.version === '3.1' && (
+                <Administrativos31 version={version} terciario={terciario}
+                                   tecnico={t} puestos={ce3x31Puestos}
+                                   onCambiar={onCambiarCe3x31} />
+            )}
         </Ventana>
+    );
+}
+
+/**
+ * Datos administrativos de la 3.1: la TITULACIÓN como desplegable, el USO del
+ * edificio y su PROTECCIÓN. La titulación sale de la del técnico; el uso, del
+ * programa (en un terciario, de la actividad de la iluminación). Todo editable,
+ * y lo tocado se dice como el resto de la ficha.
+ */
+function Administrativos31({ version, terciario, tecnico, puestos = {}, onCambiar }) {
+    const val = version?.valores || {};
+    const de = version?.de || {};
+    const v = (k) => ({ valor: val[k] ?? null, de: de[k] });
+    const grado = puestos.grado_proteccion || val.grado_proteccion || 'Ninguna';
+    const partes = Array.isArray(puestos.partes_protegidas) ? puestos.partes_protegidas
+        : (val.partes_protegidas || []);
+    const alternarParte = (x) => onCambiar?.('partes_protegidas',
+        partes.includes(x) ? partes.filter(y => y !== x) : [...partes, x]);
+    return (
+        <Grupo titulo="Lo que pide CE3X 3.1">
+            <Campo c={{ k: 'uso', etiqueta: 'Uso del edificio', opciones: usosDePrograma(terciario),
+                        ancho: true }}
+                   v={v('uso')} puesto={puestos.uso} onCambiar={onCambiar} />
+            <Campo c={{ k: 'grado_proteccion', etiqueta: 'Grado de protección',
+                        opciones: GRADOS_PROTECCION_31, ancho: true }}
+                   v={v('grado_proteccion')} puesto={puestos.grado_proteccion}
+                   onCambiar={onCambiar} />
+            {grado !== 'Ninguna' && (
+                <div className="flex flex-wrap items-center gap-2 text-[12px] md:col-span-2">
+                    <dt className="w-44 shrink-0 text-white/45">Partes protegidas</dt>
+                    <dd className="flex flex-wrap gap-1.5">
+                        {PARTES_PROTEGIDAS_31.map(x => (
+                            <button key={x} onClick={() => alternarParte(x)}
+                                    className={`rounded-md border px-2 py-0.5 text-[11px] font-bold
+                                        ${partes.includes(x) ? 'border-brand/60 text-brand'
+                                                             : 'border-white/10 text-white/45'}`}>
+                                {partes.includes(x) ? '✓ ' : ''}{x}
+                            </button>
+                        ))}
+                    </dd>
+                </div>
+            )}
+            {/* La titulación: en la 3.1 es un DESPLEGABLE. Un texto que no casa
+                sale en el XML como «Otra(.*)», así que se propone la opción que
+                corresponde a la que tiene escrita el técnico en su ficha. */}
+            {tecnico && (
+                <Campo c={{ k: 'titulacion', etiqueta: 'Titulación (desplegable)',
+                            opciones: TITULACIONES_31.slice(0, -1), ancho: true }}
+                       v={v('titulacion')} puesto={puestos.titulacion} onCambiar={onCambiar} />
+            )}
+        </Grupo>
     );
 }
 
@@ -294,6 +370,8 @@ function CampoFuente({ c, valor, onCambiar }) {
 /** DATOS GENERALES: la normativa, la zona y lo que mide el edificio. */
 export function PanelGenerales({ datos, puestos = {}, retocadas = {},
                                  tipoCe3x, onCambiarTipo,
+                                 version = null, onCambiarVersion,
+                                 ce3x31Puestos = {}, onCambiarCe3x31,
                                  onCambiarDato, onCambiarU, construcciones,
                                  onCambiarConstrucciones, guardandoConstrucciones,
                                  imagenes, traendoImagenes, onTraerImagenes,
@@ -302,7 +380,12 @@ export function PanelGenerales({ datos, puestos = {}, retocadas = {},
     const a = datos?.ficha?.administrativos || {};
     const t = datos?.ficha?.termicas || {};
     const terciario = esTerciarioCe3x(tipoCe3x?.tipo);
-    const generales = GENERALES.filter(c => (terciario ? !c.soloRes : !c.soloTer));
+    const es31 = version?.version === '3.1';
+    //: La normativa tiene los tramos de SU versión: cuatro en la 2.3, siete en
+    //: la 3.1. El resto de campos no cambia.
+    const generales = GENERALES.filter(c => (terciario ? !c.soloRes : !c.soloTer))
+        .map(c => (c.k === 'normativa'
+            ? { ...c, opciones: es31 ? NORMATIVAS_31 : NORMATIVAS_23 } : c));
     //: Las que el certificador puede retocar. La medianera no está: es
     //: adiabática (U = 0) por definición, y si al otro lado hay un local, lo
     //: que se cambia es el TIPO de la pared, no su transmitancia.
@@ -340,6 +423,13 @@ export function PanelGenerales({ datos, puestos = {}, retocadas = {},
                 </div>
             )}
 
+            {/* La VERSIÓN de CE3X: la 3.1 es la vigente desde el 01/10/2026 y la
+                que sale si nadie dice otra cosa. Va arriba porque de ella cuelga
+                qué se pide debajo. */}
+            {version && (
+                <VersionCe3x version={version} onCambiar={onCambiarVersion} />
+            )}
+
             <Grupo titulo="Datos generales">
                 {generales.map(campo)}
                 {/* CE3X los repite aquí y salen de los administrativos: se
@@ -351,6 +441,18 @@ export function PanelGenerales({ datos, puestos = {}, retocadas = {},
             <Grupo titulo="Definición del edificio">
                 {EDIFICIO.map(campo)}
             </Grupo>
+
+            {/* Lo que la 3.1 pide de más: sin ello NO califica. Se propone de
+                lo de arriba y se puede cambiar. */}
+            {es31 && (
+                <Grupo titulo="Lo que pide CE3X 3.1">
+                    {GENERALES_31.map(c => (
+                        <Campo key={c.k} c={c}
+                               v={{ valor: version?.valores?.[c.k] ?? null, de: version?.de?.[c.k] }}
+                               puesto={ce3x31Puestos[c.k]} onCambiar={onCambiarCe3x31} />
+                    ))}
+                </Grupo>
+            )}
 
             <Construcciones lista={construcciones} onCambiar={onCambiarConstrucciones}
                             guardando={guardandoConstrucciones} />
@@ -393,6 +495,42 @@ export function PanelGenerales({ datos, puestos = {}, retocadas = {},
                 </p>
             </Grupo>
         </Ventana>
+    );
+}
+
+/**
+ * La VERSIÓN de CE3X con la que se escribe el `.cex`.
+ *
+ * Las dos se pueden usar: la 3.1 es la vigente y la 2.3 queda para lo que
+ * estaba a medias. El CÁLCULO es el mismo en las dos (medido con el motor de
+ * cada una); cambian la forma del fichero y lo que pide cada versión.
+ */
+export function VersionCe3x({ version, onCambiar, compacto = false }) {
+    return (
+        <div className={`flex flex-wrap items-center gap-3 ${compacto ? ''
+            : 'rounded-xl border border-white/[0.07] px-4 py-2.5'}`}>
+            <p className={compacto ? 'text-[12px] text-white/45'
+                                   : 'text-[11px] font-bold text-brand'}>
+                {compacto ? 'Versión de CE3X' : 'Versión de CE3X'}
+            </p>
+            <div className="flex items-center gap-1">
+                {VERSIONES_CE3X.map(x => (
+                    <button key={x.valor} onClick={() => onCambiar?.(x.valor)}
+                            title={x.ayuda}
+                            className={`rounded-md border px-2 py-0.5 text-[11.5px] font-black
+                                        uppercase tracking-wider transition
+                                ${version?.version === x.valor
+                                    ? 'border-brand/50 bg-brand/15 text-brand'
+                                    : 'border-white/10 text-white/40 hover:text-white/75'}`}>
+                        {x.etiqueta}
+                    </button>
+                ))}
+            </div>
+            <span className="text-[11px] text-white/40">
+                {(VERSIONES_CE3X.find(x => x.valor === version?.version) || {}).ayuda}
+                {!version?.elegida && ' · por defecto'}
+            </span>
+        </div>
     );
 }
 
@@ -674,7 +812,8 @@ function Foto({ titulo, cual, b64, puesta, cargando, fallo, onSustituir, onQuita
 export function PanelInstalaciones({ fase = 'inicial', onFase, equipo, superficie,
                                      ajustes = {}, onAjuste, extras = [], onExtra,
                                      onAnadir, onBorrar, dosFases = true, iluminacion = null,
-                                     conservados = [], aires = null, children }) {
+                                     conservados = [], aires = null, version = '3.1',
+                                     children }) {
     const esFinal = fase === 'final';
     const [abierta, setAbierta] = useState('principal');
 
@@ -717,6 +856,7 @@ export function PanelInstalaciones({ fase = 'inicial', onFase, equipo, superfici
                         onAbrir={() => setAbierta(abierta === 'principal' ? null : 'principal')}
                         origen="del expediente">
                     <FormularioEquipo eq={principal} superficie={superficie} principal
+                                      version={version}
                                       puesto={ajustes} onCampo={onAjuste} />
                 </Equipo>
 
@@ -726,7 +866,7 @@ export function PanelInstalaciones({ fase = 'inicial', onFase, equipo, superfici
                             onBorrar={() => onBorrar?.(i)}
                             origen={esAire(x) ? 'aire existente' : 'añadido a mano'}>
                         <FormularioEquipo eq={x} superficie={superficie}
-                                          puesto={x}
+                                          puesto={x} version={version}
                                           onCampo={(k, v) => onExtra?.(i, k, v)} />
                     </Equipo>
                 ))}
@@ -941,7 +1081,11 @@ function resumen(eq) {
     // el que se va a escribir, así que es el que hay que leer aquí.
     const comb = eq.combustible || tipoEquipo(eq.slot).combustible;
     const con = comb ? ` de ${String(comb).toLowerCase()}` : '';
-    const pot = eq.potencia ? ` · ${String(eq.potencia).replace('.', ',')} kW` : '';
+    //: La de una caldera va en su cola (`potencia`); la de los demás, por
+    //: servicio (CE3X 3.1). Se enseña la de calefacción, o la que haya.
+    const kw = eq.potencia ?? eq.potencia_calefaccion ?? eq.potencia_acs
+        ?? eq.potencia_refrigeracion;
+    const pot = kw ? ` · ${String(kw).replace('.', ',')} kW` : '';
     return `${eq.nombre}${con}${pot}`;
 }
 
@@ -958,7 +1102,8 @@ function resumen(eq) {
  * una caldera de gasóleo que se deja en solo ACS sigue pidiendo su potencia, y
  * unos radiadores eléctricos no (ver `porCombustion`, medido en el corpus).
  */
-function FormularioEquipo({ eq, superficie, puesto = {}, onCampo, principal = false }) {
+function FormularioEquipo({ eq, superficie, puesto = {}, onCampo, principal = false,
+                           version = '3.1' }) {
     const t = tipoEquipo(eq?.slot);
     const conocido = eq?.rendimiento === 'conocido' && t.valor !== 'refrigeracion';
     const combustion = !conocido && porCombustion(eq);
@@ -1070,6 +1215,31 @@ function FormularioEquipo({ eq, superficie, puesto = {}, onCampo, principal = fa
             ) : (
                 num('rend_nominal', 'Rendimiento nominal', '%',
                     eq?.rend_combustion ?? t.nominal ?? '100.0')
+            )}
+
+            {/* La POTENCIA de cada servicio y el tipo de bomba de calor: CE3X 3.1
+                los pide a todo equipo que no sea una caldera estimada (la suya va
+                en su cola). Sin ellos califica, pero no escribe el XML. No mueven
+                el cálculo. En la 2.3 no existen. */}
+            {version === '3.1' && !combustion && (
+                <>
+                    {t.servicios.map(s => num(`potencia_${s}`,
+                        `Potencia de ${ROTULO_SERVICIO[s].toLowerCase()}`, 'kW'))}
+                    {/bomba de calor/i.test(v('generador', t.generador)) && (
+                        <Editable rotulo="Tipo de bomba de calor" suyo={suyo('tipo_bdc')}
+                                  onDeshacer={() => onCampo('tipo_bdc', null)}>
+                            <select value={eq?.tipo_bdc ?? ''} aria-label="Tipo de bomba de calor"
+                                    onChange={e => onCampo('tipo_bdc', e.target.value === ''
+                                        ? null : Number(e.target.value))}
+                                    className={caja(suyo('tipo_bdc'), '')}>
+                                <option value="">—</option>
+                                {TIPOS_BDC_31.map(x => (
+                                    <option key={x.valor} value={x.valor}>{x.etiqueta}</option>
+                                ))}
+                            </select>
+                        </Editable>
+                    )}
+                </>
             )}
 
             {/* DEMANDA CUBIERTA, servicio a servicio. La superficie también se
@@ -1485,8 +1655,11 @@ function Editable({ rotulo, unidad, suyo, onDeshacer, ancho, children }) {
 // con sus palabras sin abrir el .cex para corregirlo después.
 // ─────────────────────────────────────────────────────────────────────────────
 export function PanelMedidas({ catalogo, elegidas, onElegir, fase = 'inicial', onFase,
-                               textos = {}, onTexto, dosFases = true }) {
+                               textos = {}, onTexto, dosFases = true,
+                               autoconsumoKwh = null, onAutoconsumo,
+                               ubicacionFv = null, onAutoconsumoPvgis = null }) {
     const [abierta, setAbierta] = useState(null);
+    const [verPvgis, setVerPvgis] = useState(false);
     // Sin elección a mano manda lo que trae marcado la fase.
     const marcadas = elegidas || (catalogo || []).filter(m => m.porDefecto).map(m => m.id);
     const alternar = (id) => {
@@ -1557,6 +1730,63 @@ export function PanelMedidas({ catalogo, elegidas, onElegir, fase = 'inicial', o
                                         </button>
                                     )}
                                 </div>
+
+                                {/* Los kWh del AUTOCONSUMO se teclean: sin un CEE
+                                    cargado (todo CEE directo) no hay de dónde sacar
+                                    el máximo, y con él el certificador puede declarar
+                                    menos. Teclearlos en un CEE suelto ya marca la
+                                    medida (ver `medidasCe3x`). */}
+                                {m.id === 'autoconsumo' && onAutoconsumo && !/YA tiene placas/.test(m.motivo || '') && (
+                                    <div className="mt-2 flex flex-wrap items-center gap-2 pl-6">
+                                        <span className="text-[10.5px] text-white/45">
+                                            Autoconsumo declarado
+                                        </span>
+                                        <CampoDecimal valor={autoconsumoKwh ?? ''}
+                                                      onCambio={(n) => onAutoconsumo(n > 0 ? Math.round(n) : null)}
+                                                      alVaciar={() => onAutoconsumo(null)}
+                                                      aria-label="kWh/año de autoconsumo"
+                                                      placeholder={m.kwh_maximo ? String(m.kwh_maximo) : 'kWh/año'}
+                                                      className={`w-24 rounded-md border bg-white/[0.04] px-2 py-1
+                                                                  text-[12px] ${autoconsumoKwh
+                                                          ? 'border-brand/60 text-brand' : 'border-white/10'}`} />
+                                        <span className="text-[10.5px] text-white/35">
+                                            kWh/año{m.kwh_maximo
+                                                ? ` · máximo del CEE cargado: ${miles(m.kwh_maximo)}`
+                                                : ' · como mucho el 90 % del consumo eléctrico que calcule CE3X'}
+                                        </span>
+                                        {m.kwp_pvgis && (
+                                            <span className="text-[10.5px] font-semibold text-amber-300/90">
+                                                ≈ {String(m.kwp_pvgis).replace('.', ',')} kWp
+                                            </span>
+                                        )}
+                                        {ubicacionFv && (
+                                            <button type="button" onClick={() => setVerPvgis(v => !v)}
+                                                    className={`rounded-md border px-2 py-1 text-[10px] font-bold
+                                                                uppercase tracking-wider ${verPvgis
+                                                        ? 'border-amber-400/50 bg-amber-400/10 text-amber-300'
+                                                        : 'border-amber-400/25 text-amber-300/80 hover:border-amber-400/50'}`}>
+                                                ☀️ {verPvgis ? 'Ocultar PVGIS' : 'kWp con PVGIS'}
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+                                {/* PVGIS: los kWp que hacen falta en ESTE sitio y el
+                                    reparto mensual. «Usar en la medida» guarda los
+                                    kWh y la producción del sitio, y con ella la
+                                    medida lleva su potencia pico (la 3.1 la exige). */}
+                                {m.id === 'autoconsumo' && verPvgis && ubicacionFv
+                                    && !/YA tiene placas/.test(m.motivo || '') && (
+                                    <ProduccionFotovoltaica
+                                        className="mt-2 ml-6 max-md:ml-0"
+                                        ubicacion={ubicacionFv}
+                                        kwhObjetivo={m.kwh_techo}
+                                        kwhDeclarado={autoconsumoKwh || m.kwh_maximo}
+                                        textoUsar="Usar en la medida"
+                                        onUsar={onAutoconsumo ? ({ kwh, especifica }) => {
+                                            onAutoconsumo(kwh > 0 ? Math.round(kwh) : null);
+                                            onAutoconsumoPvgis?.(especifica);
+                                        } : null} />
+                                )}
 
                                 {abierta === m.id && m.datos && (
                                     <TextoMedida datos={m.datos} suyo={suyo}
@@ -1710,20 +1940,34 @@ function Fila({ rotulo, v, de, ancho }) {
  * que distinguirse de uno derivado sin tener que acordarse.
  */
 function Campo({ c, v, puesto, onCambiar }) {
-    const suyo = puesto !== undefined;
+    //: Una opción es una cadena (se guarda y se enseña igual) o `{ valor,
+    //: etiqueta }`, como los desplegables de la 3.1 («1998 - 2007» se enseña y
+    //: se guarda «NBE-CT-79_aPartir1998»).
+    const opciones = (c.opciones || []).map(o => (typeof o === 'string'
+        ? { valor: o, etiqueta: o } : o));
+    //: Lo puesto a mano que no es una opción de ESTA lista (una normativa de la
+    //: 3.1 vista con la 2.3) no se enseña: se enseña lo que se va a escribir.
+    const enLista = !c.opciones || opciones.some(o => String(o.valor) === String(puesto));
+    const suyo = puesto !== undefined && enLista;
+    const valor = suyo ? puesto : (v?.valor ?? '');
     return (
-        <div className="flex items-center gap-2 text-[12px]">
+        <div className={`flex items-center gap-2 text-[12px] ${c.ancho ? 'md:col-span-2' : ''}`}>
             <dt className="w-44 shrink-0 text-white/45">{c.etiqueta}</dt>
             <dd className="flex min-w-0 items-center gap-2">
                 {c.opciones ? (
                     <select
-                        value={puesto ?? v?.valor ?? ''} aria-label={c.etiqueta}
+                        value={valor} aria-label={c.etiqueta}
                         onChange={e => onCambiar?.(c.k, e.target.value || null)}
+                        // Con tope de ancho: una opción larga («Estructural o
+                        // equivalente») estira el desplegable y echa el
+                        // «deshacer» fuera del recuadro.
                         className={`rounded-md border bg-white/[0.04] px-2 py-1 text-[12.5px]
-                                    font-bold
+                                    font-bold ${c.ancho ? 'min-w-0 flex-1' : 'max-w-[13rem]'}
                             ${suyo ? 'border-brand/60 text-brand' : 'border-white/10'}`}>
                         <option value="">—</option>
-                        {c.opciones.map(o => <option key={o} value={o}>{o}</option>)}
+                        {opciones.map(o => (
+                            <option key={o.valor} value={o.valor}>{o.etiqueta}</option>
+                        ))}
                     </select>
                 ) : (
                     <input

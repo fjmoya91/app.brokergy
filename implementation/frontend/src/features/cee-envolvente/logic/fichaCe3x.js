@@ -4,11 +4,20 @@ import { resolverCe3x, buildMedidaMejora } from '../../expedientes/logic/ce3xFin
 import { PRUEBAS_CERTIFICADOR, OTROS_DATOS_MEDIDA, MEDIDA_AUTOCONSUMO,
          techoAutoconsumo } from '../../expedientes/logic/ce3xTextos.js';
 import { normalizarFotovoltaica } from '../../expedientes/logic/fotovoltaica.js';
+import { AUTOCONSUMO_DECLARABLE } from '../../expedientes/logic/autoconsumoMaximo.js';
+import { especificaValida, kwpPara, mensualDe } from '../../expedientes/logic/produccionFv.js';
 import { EQUIPO_NUEVO, RENDIMIENTO_JOULE, countUnidades }
     from '../../expedientes/logic/aerotermiaUnits.js';
 import { contactoCliente, deQuienEs } from '../../../utils/contactoCliente.js';
 import { esCeeDirecto } from './ceeDirecto.js';
 import { resolveDacs, CTE_ACS, ACS_METHOD } from '../../expedientes/logic/demandaAcs.js';
+import { versionCe3xDe, normativa31, normativaDeVersion, datosCe3x31 } from './versionCe3x.js';
+
+//: La VERSIÓN de CE3X y lo que la 3.1 pide de más: vive en `versionCe3x.js`
+//: (puro, sin la ficha) y se reexporta para que la pantalla lo tome de aquí.
+export { VERSIONES_CE3X, VERSION_CE3X_DEFECTO, versionCe3xDe, etiquetaVersionCe3x,
+         NORMATIVAS_23, NORMATIVAS_31, TITULACIONES_31, GRADOS_PROTECCION_31,
+         PARTES_PROTEGIDAS_31, usosDePrograma, TIPOS_BDC_31 } from './versionCe3x.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // La ficha del certificador: lo que el `.cex` necesita ALREDEDOR de la
@@ -65,6 +74,23 @@ export function normativaCe3x(anio) {
     if (anio >= 2008) return 'C.T.E.';
     if (anio >= 1979) return 'NBE-CT-79';
     return 'Anterior';
+}
+
+/**
+ * La normativa que declara la ficha, en la VERSIÓN con la que se escribe.
+ *
+ * Por el año, con los tramos de cada versión (cuatro en la 2.3, siete en la
+ * 3.1). Lo puesto a mano MANDA, pasado a lo que entiende esa versión: un tramo
+ * nuevo de la 3.1 baja a su equivalente de la 2.3, y uno de la 2.3 vale tal
+ * cual en la 3.1. No mueve el cálculo (medido): solo lo que dice el certificado.
+ */
+export function normativaDeLaFicha(puesta, anio, version) {
+    const derivada = anio ? (version === '3.1' ? normativa31(anio) : normativaCe3x(anio)) : null;
+    const mano = normativaDeVersion(puesta, version);
+    if (mano && mano !== derivada) return { valor: mano, de: 'puesto a mano por el certificador' };
+    return { valor: derivada,
+             de: anio ? `año de construcción ${anio}${version === '3.1'
+                 ? ' (tramos de CE3X 3.1)' : ''}` : 'sin año de construcción' };
 }
 
 /**
@@ -663,6 +689,31 @@ const rendObligatorios = (slot) => tipoEquipo(slot).servicios
     .filter(s => !(slot === 'mixto2' && s === 'acs'));
 
 /**
+ * La POTENCIA (kW) de cada servicio y el TIPO DE BOMBA DE CALOR de un equipo.
+ *
+ * CE3X 3.1 se las pide a todo equipo que no sea una caldera ESTIMADA —la de una
+ * caldera va en su cola, y es la que su XML declara—: sin ellas califica, pero
+ * no escribe el XML del certificado («Rellene potencia ACS»). No mueven el
+ * cálculo (medido con su motor). Solo se toma lo que es un número mayor que 0:
+ * lo que no conste lo pone el motor por defecto Y LO DICE.
+ */
+export function potenciasDe(x, servicios) {
+    const out = {};
+    for (const s of servicios || []) {
+        const v = Number(String(x?.[`potencia_${s}`] ?? '').replace(',', '.'));
+        if (v > 0) out[`potencia_${s}`] = String(v);
+    }
+    const t = x?.tipo_bdc;
+    if (t !== undefined && t !== null && t !== '' && [0, 1, 2, 3].includes(Number(t))) {
+        out.tipo_bdc = Number(t);
+    }
+    return out;
+}
+
+//: Las tres claves de potencia, para quitarlas de un equipo que ya no las lleva.
+const CLAVES_POTENCIA = ['potencia_calefaccion', 'potencia_acs', 'potencia_refrigeracion'];
+
+/**
  * Un equipo AÑADIDO a mano, con lo mínimo que el motor necesita para escribirlo.
  *
  * El caso que lo justifica: la caldera da la calefacción y la MITAD del agua, y
@@ -743,6 +794,8 @@ export function equipoAnadido(x, { superficie } = {}) {
     if (t.servicios.includes('acs') && x?.acumulacion && Number(x?.litros_acumulacion) > 0) {
         eq.acumulacion = { volumen: Number(x.litros_acumulacion) };
     }
+    //: La potencia de cada servicio (CE3X 3.1). Una caldera la lleva en su cola.
+    if (!porCombustion(eq)) Object.assign(eq, potenciasDe(x, t.servicios));
     return { equipo: eq, avisos };
 }
 
@@ -842,6 +895,13 @@ export function equipoConAjustes(equipo, ajustes, { superficie } = {}) {
                  || rend || tipoEquipo(slot).nominal || '100.0')
         : null;
 
+    //: La POTENCIA de cada servicio y el tipo de bomba de calor (CE3X 3.1): lo
+    //: tecleado manda sobre lo derivado. Una caldera estimada no la lleva aquí:
+    //: la suya es la `potencia` de su cola.
+    const potServ = combustion ? {} : potenciasDe(Object.fromEntries(
+        CLAVES_POTENCIA.concat('tipo_bdc').map(k => [k, tocado(k, a[k]) ?? equipo?.[k]])),
+    servicios);
+
     const nuevo = {
         ...(equipo || {}),
         slot, nombre, generador, combustible,
@@ -866,16 +926,21 @@ export function equipoConAjustes(equipo, ajustes, { superficie } = {}) {
         ...(daCal && a.pct_calefaccion ? { pct_calefaccion: String(a.pct_calefaccion) } : {}),
         ...(daAcs && a.pct_acs ? { pct_acs: String(a.pct_acs) } : {}),
         ...(daFrio && a.pct_refrigeracion ? { pct_refrigeracion: String(a.pct_refrigeracion) } : {}),
+        ...potServ,
     };
     //: Lo que ya no corresponde se QUITA, no se deja colgando: un equipo que ha
     //: pasado a dar solo el ACS no puede seguir llevando la superficie de
     //: calefacción, ni una caldera eléctrica la potencia de una de gas.
     if (!combustion) { delete nuevo.aislamiento; delete nuevo.potencia; delete nuevo.rend_combustion; }
+    //: Y al revés: una caldera estimada no lleva el bloque de potencias de la
+    //: 3.1 (la suya va en la cola), ni el tipo de bomba de calor.
+    if (combustion) { for (const k of CLAVES_POTENCIA) delete nuevo[k]; delete nuevo.tipo_bdc; }
     if (conocido) delete nuevo.rend_nominal;
     for (const s of ['calefaccion', 'acs', 'refrigeracion']) {
         if (servicios.includes(s)) continue;
         delete nuevo[`superficie_${s}`]; delete nuevo[`pct_${s}`];
         delete nuevo[`superficie_${s}_cruda`]; delete nuevo[`rend_${s}`];
+        delete nuevo[`potencia_${s}`];
     }
     // Un equipo que no da ACS no lleva depósito.
     if (!daAcs) { delete nuevo.acumulacion; delete nuevo.acumulacion_cruda; }
@@ -900,7 +965,11 @@ export function equipoConAjustes(equipo, ajustes, { superficie } = {}) {
                                ['superficie_refrigeracion', 'la superficie de refrigeración'],
                                ['pct_refrigeracion', 'el % de refrigeración'],
                                ['acumulacion', 'la acumulación'],
-                               ['litros_acumulacion', 'los litros del depósito']]) {
+                               ['litros_acumulacion', 'los litros del depósito'],
+                               ['potencia_calefaccion', 'la potencia de calefacción'],
+                               ['potencia_acs', 'la potencia de ACS'],
+                               ['potencia_refrigeracion', 'la potencia de refrigeración'],
+                               ['tipo_bdc', 'el tipo de bomba de calor']]) {
         if (a[k] !== undefined && a[k] !== null && a[k] !== '') cambios.push(rotulo);
     }
     if (cambios.length) {
@@ -1035,7 +1104,15 @@ export function instalacionExistente({ expediente, superficie, litros = null } =
             nombre: (nombre ? `CALDERA ${nombre}` : 'CALDERA EXISTENTE').toUpperCase(),
             generador: electrica ? GENERADOR_ELECTRICO : GENERADOR_CALDERA,
             combustible,
-            ...(electrica ? { rend_nominal: String(rend || 100) } : {
+            ...(electrica ? {
+                rend_nominal: String(rend || 100),
+                //: Una caldera ELÉCTRICA no tiene cola de caldera: CE3X 3.1 le
+                //: pide la potencia por servicio. Si consta, es la misma.
+                ...(potenciaDeclarada ? {
+                    potencia_calefaccion: String(potenciaDeclarada),
+                    ...(daAcs ? { potencia_acs: String(potenciaDeclarada) } : {}),
+                } : {}),
+            } : {
                 aislamiento: AISLAMIENTO_POR_DEFECTO,
                 rend_combustion: String(rend),
                 ...(potencia ? { potencia: String(potencia) } : {}),
@@ -1236,6 +1313,14 @@ export function instalacionNueva({ expediente, superficie, modelos = {},
         ...(mixto ? { superficie_acs: sup, pct_acs: String(pct) } : {}),
         pct_calefaccion: String(pct),
         ...(acumulacion ? { acumulacion } : {}),
+        //: La potencia de la MÁQUINA en cada servicio que da (CE3X 3.1 la pide
+        //: para el XML): la del ACS es la misma máquina; la de frío, su potencia
+        //: frigorífica. Entera aunque se reparta la demanda: es la del aparato.
+        ...potenciasDe({ potencia_calefaccion: d.potenciaCal,
+                         potencia_acs: mixto ? d.potenciaCal : null,
+                         potencia_refrigeracion: conFrio ? d.potenciaFrio : null,
+                         tipo_bdc: d.tipoBdc },
+                       tipoEquipo(slotBomba).servicios),
         de: expediente?.instalacion?.aerotermia_cal?.generica
             ? 'de lo SIMULADO en la oportunidad: el expediente aún no declara la aerotermia.'
             : 'de la aerotermia declarada en el expediente (la misma que el '
@@ -1317,12 +1402,20 @@ export function equiposDelExpediente(expediente, { modelos = {} } = {}) {
     //: `clave` es lo que identifica la máquina dentro del nombre que tecleó el
     //: técnico (sin el paréntesis de la unidad exterior): si su nombre la
     //: contiene y el rendimiento coincide, es la misma y no se toca.
-    if (rendCal) out.push({ servicio: 'calefaccion', nombre: d.nombre, clave: d.nombreCorto, rend: rendCal });
+    //: Con su POTENCIA y el tipo de bomba de calor: CE3X 3.1 los pide para el
+    //: XML, y el final desde la medida del técnico los toma de aquí.
+    const pot = (kw, tipo) => ({ ...(kw > 0 ? { potencia: kw } : {}), tipo_bdc: tipo });
+    if (rendCal) {
+        out.push({ servicio: 'calefaccion', nombre: d.nombre, clave: d.nombreCorto, rend: rendCal,
+                   ...pot(d.potenciaCal, d.tipoBdc) });
+    }
     if (d.hayAcs && rendAcs) {
         if (d.acsEnMismoEquipo) {
-            out.push({ servicio: 'acs', nombre: d.nombre, clave: d.nombreCorto, rend: rendAcs });
+            out.push({ servicio: 'acs', nombre: d.nombre, clave: d.nombreCorto, rend: rendAcs,
+                       ...pot(d.potenciaCal, d.tipoBdc) });
         } else if (d.acsAparte && d.acsTipo !== EQUIPO_NUEVO.TERMO) {
-            out.push({ servicio: 'acs', nombre: d.nombreAcs, clave: d.nombreAcs, rend: rendAcs });
+            out.push({ servicio: 'acs', nombre: d.nombreAcs, clave: d.nombreAcs, rend: rendAcs,
+                       ...pot(d.potenciaAcs, 1) });
         }
     }
     return out;
@@ -1414,7 +1507,8 @@ function equipoDeAcs(d, superficie) {
     if (d.acsTipo === EQUIPO_NUEVO.TERMO) {
         return {
             equipo: { ...comun, generador: 'Efecto Joule', rendimiento: 'estimado',
-                      rend_nominal: String(RENDIMIENTO_JOULE * 100) },
+                      rend_nominal: String(RENDIMIENTO_JOULE * 100),
+                      ...potenciasDe({ potencia_acs: d.potenciaAcs }, ['acs']) },
             avisos: [`ACS aparte: se escribe «${nombre}» al 100 % de la demanda, por `
                      + 'efecto Joule (rendimiento 100 %). CE3X recalcula su estacional '
                      + 'al abrir Instalaciones.'],
@@ -1431,7 +1525,9 @@ function equipoDeAcs(d, superficie) {
     }
     return {
         equipo: { ...comun, generador: d.generadorBdc, rendimiento: 'conocido',
-                  rend_acs: String(rend) },
+                  rend_acs: String(rend),
+                  //: Una bomba de calor de ACS es aire-agua (CE3X 3.1).
+                  ...potenciasDe({ potencia_acs: d.potenciaAcs, tipo_bdc: 1 }, ['acs']) },
         avisos: [`ACS aparte: se escribe «${nombre}» al 100 % de la demanda, con `
                  + `${rend} % de rendimiento`
                  + `${acumulacion ? ` y depósito de ${d.litros} l` : ' y SIN depósito'}. `
@@ -1516,11 +1612,9 @@ function titulacionCe3x(c) {
  * Compone la ficha entera. Devuelve `{ ficha, avisos }`: los avisos son lo que
  * NO es una medida, y se enseñan antes de generar.
  */
-//: Cuánto del techo de autoconsumo se declara de verdad. El máximo es lo que el
-//: edificio consume de red: declararlo entero supone que NADA se vierte y que la
-//: producción encaja hora a hora con el consumo, que no ocurre. El 90 % es el
-//: margen que deja el certificador (medido en 26RES060_186: 11.510,48 → 10.359).
-export const AUTOCONSUMO_DECLARABLE = 0.9;
+//: Cuánto del techo de autoconsumo se declara de verdad (el 90 %). Vive en
+//: `autoconsumoMaximo.js` con el máximo; se reexporta para quien lo pedía aquí.
+export { AUTOCONSUMO_DECLARABLE };
 
 /**
  * El expediente con la aerotermia de la SIMULACIÓN, cuando aún no declara la suya.
@@ -1617,7 +1711,8 @@ export function conAerotermiaSimulada(expediente) {
 export function medidasCe3x({ expediente, superficie, fase = 'inicial',
                               elegidas = null, textos = null, modelos = {},
                               existentes = null, final = null,
-                              generica = false } = {}) {
+                              generica = false, autoconsumoKwh = null,
+                              autoconsumoFv = null } = {}) {
     const esFinal = fase === 'final';
     const catalogo = [];
     const avisos = [];
@@ -1702,24 +1797,55 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
     // ── 2. El AUTOCONSUMO fotovoltaico ───────────────────────────────────────
     const fv = normalizarFotovoltaica(expediente?.instalacion?.fotovoltaica);
     const techo = techoAutoconsumo(expediente);
-    const kwh = techo ? Math.round(techo.kwhAnio * AUTOCONSUMO_DECLARABLE) : 0;
+    const maxCee = techo ? Math.round(techo.kwhAnio * AUTOCONSUMO_DECLARABLE) : 0;
+    //: Los kWh que TECLEA el certificador. Hacen falta siempre que no haya un
+    //: CEE cargado del que sacar el máximo —el caso de TODO CEE directo, que es
+    //: justo el certificado que se está haciendo—, y mandan sobre el máximo si lo
+    //: hay: es un dato que pone una persona y se dice.
+    const tecleado = Number(autoconsumoKwh) > 0 ? Math.round(Number(autoconsumoKwh)) : 0;
+    const kwh = tecleado || maxCee;
+    //: La producción ESPECÍFICA de PVGIS en este sitio (kWh por kWp), si se ha
+    //: consultado en la pestaña. Con ella los kWp de la instalación salen de una
+    //: regla de tres con datos del sitio, en vez de la estimación peninsular de
+    //: 1.500 kWh/kWp que pone el motor al pasar a la 3.1 (`version_ce3x.py`).
+    const pvgis = especificaValida(autoconsumoFv) ? autoconsumoFv : null;
+    const kwpFv = pvgis && kwh ? kwpPara(pvgis, kwh) : null;
     const yaTienePlacas = fv.estado === 'si';
     const nombreFv = campoDe(MEDIDA_AUTOCONSUMO, 'Nombre conjunto medidas mejora');
+    //: El texto de la chuleta habla del consumo «derivado del uso de la
+    //: aerotermia». Sin aerotermia en el expediente (un CEE suelto, o un inicial
+    //: sin equipo declarado) eso describe otra vivienda: se habla del edificio.
+    const caracteristicasFv = equipo
+        ? campoDe(MEDIDA_AUTOCONSUMO, 'Características')
+        : 'Se propone como medida de mejora la instalación de autoconsumo fotovoltaico '
+          + 'para reducir el consumo de energía primaria no renovable del edificio';
     const auto = {
         id: 'autoconsumo',
         titulo: 'Autoconsumo fotovoltaico',
-        resumen: kwh ? `${miles(kwh)} kWh/año declarables` : 'Sin techo calculable',
-        porDefecto: esFinal && !yaTienePlacas,
+        resumen: (tecleado ? `${miles(kwh)} kWh/año tecleados`
+            : (kwh ? `${miles(kwh)} kWh/año declarables` : 'Sin techo calculable: teclea los kWh'))
+            + (kwpFv ? ` · ≈ ${String(kwpFv).replace('.', ',')} kWp (PVGIS)` : ''),
+        //: En un CEE suelto, teclear los kWh ES pedir la medida: la elección de
+        //: la pestaña no se guarda y, sin esto, habría que volver a marcarla en
+        //: cada generación.
+        porDefecto: (esFinal || (ceeSuelto && tecleado > 0)) && !yaTienePlacas,
         disponible: !!kwh && !yaTienePlacas,
+        kwh_tecleado: tecleado || null,
+        kwh_maximo: maxCee || null,
+        kwp_pvgis: kwpFv,
+        //: El techo entero (sin el 90 %): para avisar si una potencia produce
+        //: más de lo que el edificio consume.
+        kwh_techo: techo ? Math.round(techo.kwhAnio) : null,
         motivo: yaTienePlacas
             ? 'La vivienda YA tiene placas: van declaradas como instalación existente '
               + '(contribuciones energéticas), no como medida de mejora.'
-            : (kwh ? null : 'El CEE cargado no trae el total de emisiones por vector, '
-                          + 'así que no se puede calcular el máximo declarable.'),
+            : (kwh ? null : 'No hay un CEE cargado del que sacar el máximo declarable: teclea '
+                          + 'los kWh/año de autoconsumo (como mucho, el 90 % del consumo '
+                          + 'eléctrico que calcule CE3X).'),
         nota: null,
         datos: (kwh && !yaTienePlacas) ? {
             nombre: nombreFv,
-            caracteristicas: campoDe(MEDIDA_AUTOCONSUMO, 'Características'),
+            caracteristicas: caracteristicasFv,
             otros_datos: campoDe(MEDIDA_AUTOCONSUMO, 'Otros datos'),
             inversion: 0,
             coste_mantenimiento: 0,
@@ -1728,17 +1854,38 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
                 slot: 'renovable',
                 nombre: nombreFv,
                 generacion_electrica_kwh: kwh,
+                //: Solo con PVGIS consultado. La lee `potencias_de_equipos` del
+                //: motor: es la potencia pico que la 3.1 exige a unas placas.
+                ...(kwpFv ? { potencia_pico_kwp: kwpFv,
+                              generacion_mensual_kwh: mensualDe(pvgis, kwh) } : {}),
             }],
         } : null,
     };
     if (auto.disponible) {
-        const partes = [`${miles(kwh)} kWh/año: el ${Math.round(AUTOCONSUMO_DECLARABLE * 100)} %`
-                        + ` del máximo declarable del CEE ${techo.fase}.`];
+        const partes = [];
+        if (tecleado) {
+            partes.push(`${miles(kwh)} kWh/año TECLEADOS por el certificador.`);
+            if (maxCee && tecleado > maxCee) {
+                partes.push(`Pasan del máximo declarable del CEE ${techo.fase} `
+                            + `(${miles(maxCee)} kWh/año): no se puede declarar más `
+                            + 'autoconsumo que electricidad gasta el edificio.');
+            } else if (!maxCee) {
+                partes.push('Compruébalo al calcular en CE3X: no puede pasar del 90 % del '
+                            + 'consumo eléctrico del edificio.');
+            }
+        } else {
+            partes.push(`${miles(kwh)} kWh/año: el ${Math.round(AUTOCONSUMO_DECLARABLE * 100)} %`
+                        + ` del máximo declarable del CEE ${techo.fase}.`);
+        }
+        if (kwpFv) {
+            partes.push(`Con PVGIS (${miles(Math.round(pvgis.anual))} kWh por kWp al año en este sitio) `
+                        + `son unos ${String(kwpFv).replace('.', ',')} kWp.`);
+        }
         if (!fv.estado) {
             partes.push('En el expediente no consta si la vivienda ya tiene placas: si las '
                         + 'tiene, esta medida no aplica.');
         }
-        if (!esFinal) {
+        if (!esFinal && equipo) {
             partes.push('Su texto habla del consumo «derivado del uso de la aerotermia», '
                         + 'que en el certificado inicial todavía no existe.');
         }
@@ -2046,6 +2193,10 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
     //: datos generales y la iluminación; nada más.
     const { tipo: tipoCe3x, elegido: tipoElegido } = tipoCe3xDe(ajustes, expediente);
     const terciario = esTerciarioCe3x(tipoCe3x);
+    //: Con qué VERSIÓN de CE3X se escribe: la 3.1 (vigente desde el
+    //: 01/10/2026) salvo que se elija la 2.3. El cálculo es el mismo; cambian la
+    //: forma del fichero y lo que pide cada una (ver `versionCe3x.js`).
+    const { version: versionCe3x, elegida: versionElegida } = versionCe3xDe(ajustes);
     if (!tipoElegido && terciario) {
         avisos.push('Se propone PEQUEÑO TERCIARIO porque el expediente es de una ficha del '
                     + 'terciario: confírmalo (o elige gran terciario) antes de generar.');
@@ -2146,6 +2297,10 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
     // elección manda lo que describe la fase (ver `medidasCe3x`).
     const mejora = medidasCe3x({ expediente, superficie, fase, elegidas: medidas, modelos,
                                  textos: cfg.medidas_texto,
+                                 autoconsumoKwh: cfg.autoconsumo_kwh,
+                                 // Lo que dijo PVGIS de este sitio (kWh por
+                                 // kWp), si se consultó en la pestaña: da los kWp.
+                                 autoconsumoFv: cfg.autoconsumo_pvgis,
                                  // La medida es «el edificio con la instalación
                                  // del CEE FINAL»: si en la cara del final se ha
                                  // cambiado el uso de la aerotermia o se ha
@@ -2191,6 +2346,9 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
         //: El PROGRAMA de CE3X. Lo lee el motor para la cabecera, los datos
         //: generales y la iluminación.
         tipo_edificio_ce3x: tipoCe3x,
+        //: La VERSIÓN de CE3X (2.3 o 3.1). Lo lee el motor para la cabecera y
+        //: para añadir lo que la 3.1 pide de más (`ce3x31`, abajo).
+        version_ce3x: versionCe3x,
         administrativos: {
             nombre_edificio: dato(`${rotuloEdificio} EN ${dir.calle}`.trim(),
                                   'compuesto con la dirección de Catastro'),
@@ -2218,8 +2376,7 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
             cliente_email: contacto.email,
         },
         generales: {
-            normativa: puesto('normativa', anio ? normativaCe3x(anio) : null,
-                              `año de construcción ${anio}`),
+            normativa: normativaDeLaFicha(cfg.normativa, anio, versionCe3x),
             // El campo [1] del pickle 2: el tipo de vivienda en un residencial,
             // el PERFIL DE USO en un terciario. Con claves distintas para que
             // la pantalla y el motor no los confundan.
@@ -2305,6 +2462,24 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
         },
     };
 
+    //: Lo que la 3.1 pide de más —uso y protección del edificio, la titulación
+    //: del desplegable, la superficie útil, las unidades de uso y las plantas—,
+    //: con lo que la app propone y lo que haya tocado el certificador. Viaja al
+    //: motor en `ce3x31`; en la 2.3 no existe y no se manda.
+    const ce31 = versionCe3x === '3.1' ? datosCe3x31({
+        ajustes, terciario,
+        tipoEdificio: cfg.tipo_edificio,
+        superficie: ficha.generales.superficie_util_habitable?.valor,
+        plantas: ficha.generales.n_plantas_habitables?.valor,
+        titulacion: ficha.tecnico?.titulacion || null,
+        actividad: ilum?.defecto?.actividad || null,
+        normativa: ficha.generales.normativa?.valor || null,
+    }) : null;
+    if (ce31) {
+        ficha.ce3x31 = ce31.valores;
+        avisos.push(...ce31.avisos);
+    }
+
     avisos.push(...instalacion.avisos, ...mejora.avisos);
     for (const t of ficha.termicas._retocadas || []) {
         avisos.push(`Transmitancia cambiada por el certificador — ${t}`);
@@ -2372,6 +2547,10 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
              // El programa de CE3X y si lo ha elegido alguien: sin elegir, la
              // ventana lo pregunta como CE3X al crear un fichero.
              tipo_ce3x: { tipo: tipoCe3x, elegido: tipoElegido },
+             // La VERSIÓN de CE3X, y en la 3.1 lo que pide de más con su
+             // procedencia: la pantalla lo enseña y deja cambiarlo.
+             version_ce3x: { version: versionCe3x, elegida: versionElegida,
+                             ...(ce31 ? { valores: ce31.valores, de: ce31.de } : {}) },
              // Con los ajustes EN CRUDO, no con `cfg`: ahí los valores por
              // defecto ya están fusionados y `demanda_acs` nunca estaría sin
              // contestar — el popup no preguntaría lo que existe para preguntar.
@@ -2417,10 +2596,44 @@ const PROVINCIA_TILDE = {
     'CORDOBA': 'Córdoba', 'JAEN': 'Jaén', 'LEON': 'León', 'MALAGA': 'Málaga',
     'ALMERIA': 'Almería', 'GUIPUZCOA': 'Guipúzcoa', 'A CORUÑA': 'A Coruña',
 };
-function provinciaCe3x(texto) {
+//: Las SIGLAS de provincia (las de la matrícula antigua) y los códigos INE.
+//:
+//: ⚠️ CE3X no tolera una provincia que no esté en su desplegable: al abrir el
+//: `.cex` salta «Error al abrir el fichero» y DEJA DE CARGAR todo lo que viene
+//: detrás en el fichero —el NIF, la dirección y la titulación del técnico, y
+//: los Datos generales enteros—. Medido el 01/10/2026 en 2026CEE_60: la ficha de
+//: la clienta decía «CR», salía «Cr», y en el corpus de 1.606 `.cex` no hay ni
+//: uno más con algo así (todos «Ciudad Real»).
+const PROVINCIA_SIGLAS = {
+    A: 'Alicante', AB: 'Albacete', AL: 'Almería', AV: 'Ávila', B: 'Barcelona',
+    BA: 'Badajoz', BI: 'Vizcaya', BU: 'Burgos', C: 'A Coruña', CA: 'Cádiz',
+    CC: 'Cáceres', CE: 'Ceuta', CO: 'Córdoba', CR: 'Ciudad Real', CS: 'Castellón',
+    CU: 'Cuenca', GC: 'Las Palmas', GI: 'Girona', GR: 'Granada', GU: 'Guadalajara',
+    H: 'Huelva', HU: 'Huesca', J: 'Jaén', L: 'Lleida', LE: 'León', LO: 'La Rioja',
+    LU: 'Lugo', M: 'Madrid', MA: 'Málaga', ML: 'Melilla', MU: 'Murcia', NA: 'Navarra',
+    O: 'Asturias', OR: 'Ourense', P: 'Palencia', PM: 'Baleares', PO: 'Pontevedra',
+    S: 'Cantabria', SA: 'Salamanca', SE: 'Sevilla', SG: 'Segovia', SO: 'Soria',
+    SS: 'Guipúzcoa', T: 'Tarragona', TE: 'Teruel', TF: 'Santa Cruz de Tenerife',
+    TO: 'Toledo', V: 'Valencia', VA: 'Valladolid', VI: 'Álava', Z: 'Zaragoza', ZA: 'Zamora',
+};
+const PROVINCIA_INE = ['Álava', 'Albacete', 'Alicante', 'Almería', 'Ávila', 'Badajoz',
+    'Baleares', 'Barcelona', 'Burgos', 'Cáceres', 'Cádiz', 'Castellón', 'Ciudad Real',
+    'Córdoba', 'A Coruña', 'Cuenca', 'Girona', 'Granada', 'Guadalajara', 'Guipúzcoa',
+    'Huelva', 'Huesca', 'Jaén', 'León', 'Lleida', 'La Rioja', 'Lugo', 'Madrid', 'Málaga',
+    'Murcia', 'Navarra', 'Ourense', 'Asturias', 'Palencia', 'Las Palmas', 'Pontevedra',
+    'Salamanca', 'Santa Cruz de Tenerife', 'Cantabria', 'Segovia', 'Sevilla', 'Soria',
+    'Tarragona', 'Teruel', 'Toledo', 'Valencia', 'Valladolid', 'Vizcaya', 'Zamora',
+    'Zaragoza', 'Ceuta', 'Melilla'];
+
+export function provinciaCe3x(texto) {
     if (!texto) return texto || null;
     const crudo = String(texto).trim().toUpperCase();
     if (PROVINCIA_TILDE[crudo]) return PROVINCIA_TILDE[crudo];
+    if (PROVINCIA_SIGLAS[crudo]) return PROVINCIA_SIGLAS[crudo];
+    if (/^\d{1,2}$/.test(crudo)) return PROVINCIA_INE[Number(crudo) - 1] || null;
+    //: Unas siglas que no se reconocen NO se mandan: «Cr» rompe el fichero entero
+    //: y un campo en blanco solo hay que rellenarlo en CE3X.
+    if (crudo.length <= 3) return null;
     const menores = new Set(['de', 'del', 'la', 'las', 'los', 'y']);
     return crudo.toLowerCase().split(/\s+/)
         .map((w, i) => (i && menores.has(w)) ? w : w.charAt(0).toUpperCase() + w.slice(1))

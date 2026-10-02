@@ -267,12 +267,22 @@ function revisarAcs(inf, rx, ctx) {
         });
     }
 
-    // ── La acumulación: EL XML NO LA DICE ────────────────────────────────────
+    // ── La acumulación: EL XML v2.0 NO LA DICE ───────────────────────────────
     if (ACUMULACION_SOLO_EN_CEX && rx.acumulacion_acs === null && !ctx.hayCex) {
         inf.anota('acumulacion_acs', 'Acumulación de ACS (depósito)', 'no_comprobable', {
             dice: 'el .xml no declara acumulación en ninguno de sus nodos',
             esperado: 'depósito de ACS si la instalación lo tiene',
             detalle: 'Medido sobre 462 certificados reales: la acumulación NO viaja en el .xml, solo en el .cex. Hay que abrir el .cex (o mirarlo en CE3X) para comprobar este punto.',
+        });
+    } else if (Array.isArray(rx.acumulacion_acs) && !ctx.hayCex) {
+        //: El .xml v3.0 (CE3X 3.1) SÍ la declara. Se ENSEÑA, igual que la del
+        //: .cex (`revisionCeeCex`): es para mirarla, no un punto que se apruebe
+        //: o se suspenda. Con .cex manda aquél y no se anota dos veces.
+        const lista = rx.acumulacion_acs;
+        const litros = (a) => (a.volumen_l === null ? '— l' : `${a.volumen_l} l`) + (a.unidades > 1 ? ` × ${a.unidades}` : '');
+        inf.anota('acumulacion_acs', 'Acumulación de ACS (depósito)', 'info', {
+            dice: lista.length ? lista.map((a) => `${a.nombre || '(sin nombre)'}: ${litros(a)}`).join(' · ') : 'sin depósito declarado',
+            esperado: 'el depósito que tenga la vivienda',
         });
     }
 }

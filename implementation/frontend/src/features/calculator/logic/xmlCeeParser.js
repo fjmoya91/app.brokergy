@@ -11,7 +11,18 @@
  *     <Global>222.35</Global>             ← kWh/m²·año
  *   </EdificioObjeto>
  * </Demanda>
+ *
+ * ── DOS ESQUEMAS (2026-10-02) ────────────────────────────────────────────────
+ * Lo de arriba es el esquema v2.0, el de CE3X 2.3. Desde el 01/10/2026 los
+ * técnicos certifican con CE3X 3.1, que exporta el v3.0: otras etiquetas y otra
+ * estructura (<Indicadores><Demanda><Cal>…). Cada lector público de este fichero
+ * mira primero la versión (`esXmlCeeV30`) y, si es la 3.0, lee con
+ * `xmlCeeV30.js` y devuelve EL MISMO OBJETO, con las mismas claves: ningún
+ * consumidor tiene que saber de qué versión viene el certificado. El camino del
+ * v2.0 no se ha tocado — `backend/scripts/test_xml_cee_v30.mjs` comprueba sobre
+ * los 462 certificados reales que su salida no cambia ni un byte.
  */
+import { esXmlCeeV30, leerXmlCeeV30, sumaDemanda, esVectorAmbiente } from './xmlCeeV30.js';
 
 /**
  * Parsea un string XML de un CEE y extrae los datos de demanda
@@ -36,6 +47,11 @@ export function parseCeeXml(xmlString) {
     if (parseError) {
         throw new Error('El archivo XML no tiene un formato válido.');
     }
+
+    // El esquema v3.0 (CE3X 3.1) se lee por su cuenta y devuelve el MISMO
+    // objeto. Va DESPUÉS de la comprobación de arriba a propósito: un fichero
+    // roto sigue dando el mismo error, sea de la versión que sea.
+    if (esXmlCeeV30(limpio)) return parseCeeXmlV30(limpio);
 
     // Helper para buscar nodos de forma robusta e insensible a mayúsculas
     const findNode = (parent, tag) => {
@@ -343,6 +359,155 @@ export function parseCeeXml(xmlString) {
 }
 
 /**
+ * `parseCeeXml` para el esquema v3.0 (CE3X 3.1): el MISMO objeto, con las mismas
+ * claves y en el mismo orden. De dónde sale cada dato:
+ *
+ *   demanda (cal · ACS · ref)       <Indicadores><Demanda><Cal|Acs|Ref>
+ *   demandaGlobal                   suma de las tres (en el v2.0 <Global> lo era
+ *                                   en 462 de 462; el v3.0 no lo escribe)
+ *   emisiones por servicio          <Indicadores><Emisiones><Cal|Acs|Ref>
+ *   emisiones por vector (m² y año) <Tablas><DesgloseEmisiones>
+ *   superficieHabitable             <DatosEdificio><SuperficieUtil>
+ *   tipoEdificio                    <Escala> + <Alcance>, con el nombre del v2.0
+ *   identificacion.nombre           <DatosEdificio><Descripcion>
+ *   fechaFirma                      <DatosCertificado><FechaCalificacion>
+ *   fechaVisita                     la PRIMERA <Visita><Fecha> (puede haber varias)
+ *   acsLitrosDia                    <Modelo><Global><DemandaDiariaAcs>
+ *   rendimientos y combustibles     <Sistemas><Generador> por <Servicio>, sin los
+ *                                   FICTICIOS (ver abajo)
+ *   energiaFinalVectores            <EnergiaFinalVectores><Vector>, con los
+ *                                   nombres del v2.0
+ *   epnr y emisiones (letra/escala) <Indicadores>…<Tot>, <Calificacion>…<Tot>,
+ *                                   <Escalas>…<Tot>
+ *   huecos / opacos                 <Modelo><Huecos>/<Opacos>, en el idioma del
+ *                                   v2.0 (superficie BRUTA, orientación en palabras)
+ *
+ * Lo medido y lo que el v3.0 ya no dice está en `xmlCeeV30.js`.
+ */
+function parseCeeXmlV30(xmlString) {
+    const x = leerXmlCeeV30(xmlString);
+
+    //: Mismo criterio que `getRendimientoPct`: el XML da la fracción (0.44) y
+    //: aquí se trabaja en % con un decimal.
+    const pct = (v) => (v === null || !(v > 0) || v >= 9999999 ? null : Math.round(v * 1000) / 10);
+    //: Solo los equipos REALES. Un <EsFicticio/> es el de SUSTITUCIÓN que pone
+    //: CE3X 3.1 cuando la vivienda no tiene ese servicio (lo normal: una
+    //: refrigeración que no existe), y el v2.0 no lo escribía — en los 462 del
+    //: corpus no hay ni un generador de sustitución y 222 no llevan ninguno de
+    //: refrigeración. Contarlo declararía un equipo que no está instalado.
+    const reales = x.generadores.filter((g) => !g.ficticio);
+    const delServicio = (s) => reales.filter((g) => g.servicio === s);
+    const cal = delServicio('CAL');
+    const acs = delServicio('ACS');
+    const ref = delServicio('REF');
+
+    const sup = x.superficieUtil;
+    const litros = x.demandaDiariaAcs;
+
+    const result = {
+        demandaCalefaccion: x.demanda.cal,
+        demandaACS: x.demanda.acs,
+        demandaRefrigeracion: x.demanda.ref,
+        demandaGlobal: sumaDemanda(x.demanda),
+        emisionesCalefaccion: x.emisiones.cal,
+        emisionesACS: x.emisiones.acs,
+        emisionesRefrigeracion: x.emisiones.ref,
+        emisionesConsumoElectrico: x.desglose.consumoElectrico,
+        emisionesConsumoOtros: x.desglose.consumoOtros,
+        emisionesTotalElectrico: x.desglose.totalConsumoElectrico,
+        emisionesTotalOtros: x.desglose.totalConsumoOtros,
+        superficieHabitable: sup !== null && sup > 0 && sup < 99999 ? sup : null,
+        zonaClimatica: x.identificacion.zonaClimatica,
+        tipoEdificio: x.tipoEdificio,
+        identificacion: {
+            nombre: x.identificacion.nombre,
+            direccion: x.identificacion.direccion,
+            municipio: x.identificacion.municipio,
+            provincia: x.identificacion.provincia,
+            refCatastral: x.identificacion.refCatastral,
+        },
+        fechaFirma: x.fechas.calificacion,
+        fechaVisita: x.fechas.visita,
+        acsLitrosDia: litros !== null && litros > 0 && litros < 9999999 ? litros : null,
+        rendimientoCalefaccion: cal.length ? pct(cal[0].rendimientoEstacional) : null,
+        rendimientoACS: acs.length ? pct(acs[0].rendimientoEstacional) : null,
+        rendimientoRefrigeracion: ref.length ? pct(ref[0].rendimientoEstacional) : null,
+        combustibleRefrigeracion: ref.length && ref[0].vectorV20 ? mapVectorEnergetico(ref[0].vectorV20) : null,
+        combustibleOtros: null,
+        energiaFinalVectores: null,
+        epnrConsumo: x.epnr.tot !== null && x.epnr.tot > 0 ? x.epnr.tot : null,
+        epnrLetra: x.calificacion.epnr,
+        epnrEscala: x.escalas.epnr,
+        emisionesLetra: x.calificacion.emisiones,
+        emisionesEscala: x.escalas.emisiones,
+    };
+
+    // El único combustible NO eléctrico, entre TODOS los generadores reales.
+    // MEDIOAMBIENTE (lo que capta una bomba de calor) no es un combustible.
+    const noElectricos = [];
+    for (const g of reales) {
+        if (!g.vectorV20 || esVectorAmbiente(g.vector)) continue;
+        const v = mapVectorEnergetico(g.vectorV20);
+        if (v && !/electric/i.test(v) && !noElectricos.includes(v)) noElectricos.push(v);
+    }
+    result.combustibleOtros = noElectricos.length === 1 ? noElectricos[0] : null;
+
+    // La energía final por vector, con el MISMO criterio que el v2.0: solo los
+    // que consumen y `global` = el total del vector. `vectorXml` lleva el nombre
+    // que tenía ese vector en el v2.0.
+    // ⚠️ El total puede salir NEGATIVO cuando la producción propia supera el
+    // consumo (medido −2,48 en un CEE de la 3.1 con las placas declaradas como
+    // «generador eléctrico» de 7 kW). El v2.0 también lo daba negativo a veces
+    // (3 de 3.696 vectores en el corpus) y el lector lo pasa tal cual: aquí igual.
+    const vectores = {};
+    for (const v of x.vectores) {
+        if (!v.nombreV20 || esVectorAmbiente(v.nombre)) continue;
+        const calefaccion = v.cal || 0;
+        const acsV = v.acs || 0;
+        const refrigeracion = v.ref || 0;
+        const iluminacion = v.ilu || 0;
+        const suma = calefaccion + acsV + refrigeracion + iluminacion;
+        const global = v.tot ?? suma;
+        if (!(global > 0) && !(suma > 0)) continue;
+        const nombre = mapVectorEnergetico(v.nombreV20);
+        vectores[nombre] = {
+            nombre,
+            vectorXml: v.nombreV20,
+            esElectrico: /electric/i.test(nombre),
+            calefaccion, acs: acsV, refrigeracion, iluminacion,
+            global: global || suma,
+        };
+    }
+    if (Object.keys(vectores).length > 0) result.energiaFinalVectores = vectores;
+
+    if (cal.length && cal[0].vectorV20) result.combustibleCalefaccion = mapVectorEnergetico(cal[0].vectorV20);
+    if (acs.length && acs[0].vectorV20) result.combustibleACS = mapVectorEnergetico(acs[0].vectorV20);
+
+    // Los huecos (los lucernarios no, como en el v2.0) y TODOS los opacos.
+    result.huecos = x.envolvente.huecos
+        .filter((h) => String(h.tipo || '').toLowerCase() === 'hueco')
+        .map((h) => ({
+            nombre: h.nombre || 'Desconocido',
+            superficie: h.superficie,
+            transmitancia: h.transmitancia,
+            factorSolar: h.factorSolar,
+            orientacion: h.orientacion || 'Desconocida',
+        }));
+    result.opacos = x.envolvente.opacos.map((o) => ({
+        nombre: o.nombre || 'Desconocido',
+        tipo: o.tipo || 'Desconocido',
+        superficie: o.superficie,
+        transmitancia: o.transmitancia,
+        orientacion: o.orientacion || 'Desconocida',
+    }));
+
+    if (result.demandaCalefaccion === null) {
+        throw new Error('No se ha encontrado el dato de demanda de calefacción en el XML. Asegúrate de que el archivo es un Certificado de Eficiencia Energética válido.');
+    }
+    return result;
+}
+
+/**
  * Mapea el VectorEnergetico del XML a los nombres internos de FACTORES_PASO
  */
 function mapVectorEnergetico(xmlValue) {
@@ -553,6 +718,12 @@ function parseTolerante(xmlString) {
  */
 export function parseEmisionesTotalesFromXml(xmlString) {
     const vacio = { emisionesTotalElectrico: null, emisionesTotalOtros: null };
+    // v3.0: las dos cifras viven en <Tablas><DesgloseEmisiones>. Se leen de ahí
+    // y no "del primero que aparezca": las medidas de mejora pueden ir delante.
+    if (esXmlCeeV30(xmlString)) {
+        const d = leerXmlCeeV30(xmlString).desglose;
+        return { emisionesTotalElectrico: d.totalConsumoElectrico, emisionesTotalOtros: d.totalConsumoOtros };
+    }
     const doc = parseTolerante(xmlString);
     if (!doc) return vacio;
     const buscar = (tag) => {
@@ -592,6 +763,13 @@ export function parseEmisionesTotalesFromXml(xmlString) {
 export function leerCalificacionesDeTexto(xmlString) {
     const vacio = { epnrLetra: null, emisionesLetra: null };
     if (!xmlString || typeof xmlString !== 'string') return vacio;
+
+    // v3.0: la letra va en <Calificacion><EnergiaPrimariaNoRenovable|Emisiones>
+    // <Tot>, no en <Global>, y el indicador de CO2 se llama <Emisiones>.
+    if (esXmlCeeV30(xmlString)) {
+        const { calificacion } = leerXmlCeeV30(xmlString);
+        return { epnrLetra: calificacion.epnr, emisionesLetra: calificacion.emisiones };
+    }
 
     // El bloque <Calificacion>: el PRIMERO, que es el del edificio objeto (las
     // medidas de mejora traen los suyos detrás). Mismo criterio que la vía con
@@ -646,6 +824,23 @@ export function leerDatosIrpfDeTexto(xmlString) {
     };
     if (!xmlString || typeof xmlString !== 'string') return out;
 
+    // v3.0: los mismos ocho datos, cada uno de su sitio (ver `parseCeeXmlV30`).
+    // La fecha es <FechaCalificacion> — «en la que el inmueble obtiene la
+    // calificación» —, que es lo que en el v2.0 era <DatosDelCertificador><Fecha>.
+    if (esXmlCeeV30(xmlString)) {
+        const x = leerXmlCeeV30(xmlString);
+        const noNegativo = (v) => (v !== null && v >= 0 ? v : null);
+        out.epnrConsumo = x.epnr.tot !== null && x.epnr.tot > 0 ? x.epnr.tot : null;
+        out.epnrLetra = x.calificacion.epnr;
+        out.demandaCalefaccion = noNegativo(x.demanda.cal);
+        out.demandaRefrigeracion = noNegativo(x.demanda.ref);
+        out.tipoEdificio = x.tipoEdificio;
+        out.fechaFirma = x.fechas.calificacion;
+        out.refCatastral = x.identificacion.refCatastral;
+        out.superficieHabitable = x.superficieUtil !== null && x.superficieUtil > 0 ? x.superficieUtil : null;
+        return out;
+    }
+
     const bloque = (txt, tag) => {
         if (!txt) return null;
         const abre = txt.search(new RegExp(`<${tag}[\\s>]`, 'i'));
@@ -687,13 +882,28 @@ export function leerDatosIrpfDeTexto(xmlString) {
     return out;
 }
 
-/** ⚠️ Necesita `DOMParser`: en Node devuelve vacío. Ver `leerCalificacionesDeTexto`. */
+/**
+ * ⚠️ Necesita `DOMParser`: en Node devuelve vacío. Ver `leerCalificacionesDeTexto`.
+ * El v3.0 se lee sin DOM (`xmlCeeV30.js`), así que ése sí sale también en Node.
+ */
 export function parseEpnrFromXml(xmlString) {
     const vacio = {
         epnrConsumo: null, epnrLetra: null, epnrEscala: null,
         emisionesLetra: null, emisionesEscala: null, superficieHabitable: null,
     };
     try {
+        if (esXmlCeeV30(xmlString)) {
+            const x = leerXmlCeeV30(xmlString);
+            const sup = x.superficieUtil;
+            return {
+                epnrConsumo: x.epnr.tot !== null && x.epnr.tot > 0 ? x.epnr.tot : null,
+                epnrLetra: x.calificacion.epnr,
+                epnrEscala: x.escalas.epnr,
+                emisionesLetra: x.calificacion.emisiones,
+                emisionesEscala: x.escalas.emisiones,
+                superficieHabitable: sup !== null && sup > 0 && sup < 99999 ? sup : null,
+            };
+        }
         const doc = parseTolerante(xmlString);
         if (!doc) return vacio;
         const out = { ...vacio, ...leerEpnr(doc) };

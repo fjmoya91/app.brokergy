@@ -49,6 +49,8 @@ import leer_cex as L                                  # noqa: E402
 import editar_cex as E                                # noqa: E402
 import radiografia_cex as RX                          # noqa: E402
 import cee_final as CF                                # noqa: E402
+import version_ce3x as VC                             # noqa: E402
+import convertir_cex as CX                            # noqa: E402
 
 logging.basicConfig(level=logging.INFO,
                     format="%(levelname)-7s %(name)s | %(message)s")
@@ -407,6 +409,9 @@ def cex(payload: dict = Body(...)) -> Response:
         # lo primero: un tipo que no existe no puede acabar a medias en un
         # fichero.
         tipo = G.TER.tipo_de(datos)
+        # La VERSION de CE3X (2.3 o 3.1, por defecto la vigente). Tambien se
+        # valida lo primero, por lo mismo.
+        version = VC.version_pedida(datos)
         envolvente_, avisos = G.construir_envolvente(geometria, datos)
         zonas = {str(z.estado[G.Cadena("nombre")]) for z in envolvente_[3]}
         base = L.trocear(PLANTILLA)
@@ -474,11 +479,18 @@ def cex(payload: dict = Body(...)) -> Response:
             filas, L.leer(base, G.RESUMEN_MEDIDAS))
         if grupos:
             nuevos[G.MEDIDAS] = grupos
-        salida.write_bytes(G.montar(PLANTILLA, nuevos, tipo))
+        # Los escritores producen la forma de la 2.3 (medida sobre 1.600 .cex
+        # reales); para la 3.1 se le añade lo que esa version pide —datos
+        # generales y administrativos nuevos, la potencia de cada equipo—. Las
+        # medidas se quedan como estan: la 3.1 las abre y las calcula asi.
+        if version == "3.1":
+            pot = VC.potencias_de_equipos(datos.get("instalaciones"))
+            avisos.extend(VC.elevar(nuevos, VC.extra_31(datos), pot))
+        salida.write_bytes(G.montar(PLANTILLA, nuevos, tipo, version))
 
         # Releer SIEMPRE antes de devolver. Un .cex que no se relee igual que se
         # escribio es un .cex que CE3X puede abrir a medias, y eso no se ve.
-        problemas = G.comprobar(salida, nuevos, tipo)
+        problemas = G.comprobar(salida, nuevos, tipo, version)
         if problemas:
             raise HTTPException(500, "el .cex no se relee igual que se escribió: "
                                      + " | ".join(problemas))
@@ -507,6 +519,7 @@ def cex(payload: dict = Body(...)) -> Response:
                 # el texto al parsearlo.
                 "X-Cee-Avisos": json.dumps(avisos),
                 "X-Cee-Contraste": json.dumps(fuera),
+                "X-Cee-Version": version,
             })
     except G.GeneracionError as exc:
         # 422 y no 500: el fichero no se ha escrito A PROPOSITO porque los datos
@@ -584,16 +597,20 @@ async def cex_instalaciones(fichero: UploadFile = File(...),
         if not base.version_conocida:
             raise HTTPException(422, f"versión de .cex no probada: {base.version!r}")
         # El FINAL es el inicial con otro generador, y el PROGRAMA de CE3X
-        # (residencial / pequeño / gran terciario) viaja en su cabecera, que
-        # aquí no se toca. Si el expediente dice ahora otro tipo del que se usó
-        # para el inicial, copiarlo daría un final escrito con el programa
-        # equivocado: se dice, y se regenera el inicial.
+        # (residencial / pequeño / gran terciario) viaja en su cabecera. Si el
+        # expediente dice ahora otro tipo del que se usó para el inicial,
+        # copiarlo daría un final escrito con el programa equivocado: se dice, y
+        # se regenera el inicial. La VERSIÓN, en cambio, sí puede cambiar: un
+        # inicial de la 2.3 da un final de la 3.1 (`convertir_cex`).
         tipo = G.TER.tipo_de(ficha)
-        if base.version != G.TER.VERSION[tipo]:
+        version_base, tipo_base = CX.version_y_programa(base)
+        if tipo_base != tipo:
             raise HTTPException(
                 422, f"El CEE inicial está hecho como «{base.version}» y el expediente "
-                     f"dice ahora «{G.TER.VERSION[tipo]}». El final se hace COPIANDO el "
-                     f"inicial: vuelve a generar primero el inicial con el tipo bueno.")
+                     f"dice ahora «{VC.texto(version_base, tipo)}». El final se hace "
+                     f"COPIANDO el inicial: vuelve a generar primero el inicial con el "
+                     f"tipo bueno.")
+        version = VC.version_pedida(ficha)
 
         # Las zonas declaradas salen del fichero que entra, no de la ficha: si el
         # equipo dijera estar en una zona que ese .cex no tiene, CE3X lo abriría
@@ -602,7 +619,9 @@ async def cex_instalaciones(fichero: UploadFile = File(...),
         equipos = ficha.get("instalaciones", [])
         if not equipos:
             raise HTTPException(422, "no hay ningún equipo nuevo que escribir")
-        previas = L.leer(base, G.INSTALACIONES)
+        # En la forma interna (la de la 2.3): lo que el técnico puso en la 3.1
+        # —la potencia de cada equipo— se guarda en `meta` y se le devuelve.
+        previas, meta = CX.instalaciones_internas(base)
         av_sup = G.heredar_del_base(equipos, previas)
         # En una HIBRIDACIÓN la caldera NO sale: se queda dando servicio junto a
         # la bomba con `100 - C_b` de la demanda. Lo declara la ficha, que es la
@@ -651,11 +670,17 @@ async def cex_instalaciones(fichero: UploadFile = File(...),
             # El conjunto que se imprime en el informe: el del fichero copiado
             # describe la medida del INICIAL, que aquí ya no existe.
             informe = L.leer(base, G.INFORME)
-            if isinstance(informe, list) and len(informe) == 7:
-                informe = list(informe)
+            if VC.informe_valido(informe):
+                informe = G._reemitible(informe)
                 informe[0] = str((ficha["medidas"][0] or {}).get("nombre") or "")
                 cambios[G.INFORME] = informe
 
+        # La versión de destino (por defecto la 3.1): las potencias de los
+        # equipos nuevos salen de la ficha; las de los que se quedan, del fichero.
+        pot = VC.potencias_de_equipos(
+            list(equipos) + [eq for m in (ficha.get("medidas") or [])
+                             for eq in (m.get("instalaciones") or [])])
+        avisos += CX.a_version(base, cambios, version, ficha, meta, pot)
         salida = E.sustituir_pickles(crudo, cambios)
     except HTTPException:
         raise
@@ -667,7 +692,8 @@ async def cex_instalaciones(fichero: UploadFile = File(...),
 
     return Response(
         content=salida, media_type="application/octet-stream",
-        headers={"X-Cee-Avisos": json.dumps(avisos + G.AVISOS_IMAGEN)})
+        headers={"X-Cee-Avisos": json.dumps(avisos + G.AVISOS_IMAGEN),
+                 "X-Cee-Version": version})
 
 
 # --------------------------------------------------------------------------
@@ -741,7 +767,10 @@ def poner_medida(crudo: bytes, ficha: dict) -> tuple[bytes, list[str]]:
     if not medidas:
         raise MedidaNoEscrita("el expediente no propone ninguna medida de mejora")
     zonas = _zonas_declaradas(base)
-    previas = L.leer(base, G.INSTALACIONES)
+    # La medida se compone en la forma interna (la de la 2.3), sea cual sea la
+    # versión del fichero: la 3.1 abre y calcula así las medidas (sus propios
+    # ejemplos oficiales las traen así). El fichero NO cambia de versión.
+    previas, _meta = CX.instalaciones_internas(base)
     envolvente_ = L.leer(base, G.ENVOLVENTE)
     espacio = (ficha.get("envolvente") or {}).get("espacio", "auto")
 
@@ -781,8 +810,8 @@ def poner_medida(crudo: bytes, ficha: dict) -> tuple[bytes, list[str]]:
         G.RESUMEN_MEDIDAS: G.construir_resumen_medidas(filas + suyas_f, res_base),
     }
     informe = L.leer(base, G.INFORME)
-    if isinstance(informe, list) and len(informe) == 7:
-        informe = list(informe)
+    if VC.informe_valido(informe):
+        informe = G._reemitible(informe)
         informe[0] = str((medidas[0] or {}).get("nombre") or "")
         cambios[G.INFORME] = informe
     return E.sustituir_pickles(crudo, cambios), avisos
@@ -828,6 +857,48 @@ async def cex_medida(fichero: UploadFile = File(...),
     return Response(
         content=salida, media_type="application/octet-stream",
         headers={"X-Cee-Avisos": json.dumps(avisos)})
+
+
+def convertir(crudo: bytes, ficha: dict) -> tuple[bytes, list[str], str]:
+    """La lógica de `/cex/convertir`, sin HTTP: es la de `convertir_cex.py`, que
+    también la usa la línea de órdenes (una sola conversión)."""
+    return CX.convertir_bytes(crudo, ficha)
+
+
+@app.post("/cex/convertir")
+async def cex_convertir(fichero: UploadFile = File(...),
+                        datos: str = Form("{}")) -> Response:
+    """Devuelve el MISMO `.cex` en la otra versión de CE3X (por defecto, a la 3.1).
+
+    Es lo que hace la 3.1 al abrir un fichero de la 2.3, pero sin los huecos que
+    deja ella: rellena lo que pide para calificar y para escribir el XML del
+    certificado (superficie útil, nº de viviendas, plantas, uso, grado de
+    protección, la potencia de cada equipo y la de las placas) y lo DICE.
+
+    REGLA — solo cambian la cabecera y los pickles 1, 2, 4 y 11. La envolvente,
+    las medidas y las imágenes quedan byte a byte (lo comprueba
+    `sustituir_pickles`). Nada de lo que cambia mueve el cálculo (medido con el
+    motor de la 3.1).
+
+    `datos` (opcional): `version_ce3x` de destino, `ce3x31` con lo que el
+    expediente sepa (uso, nº de viviendas…) y `instalaciones` con la potencia
+    de los equipos por su nombre.
+    """
+    crudo = await fichero.read()
+    try:
+        ficha = json.loads(datos or "{}")
+    except Exception as exc:                      # noqa: BLE001
+        raise HTTPException(400, f"`datos` no es JSON: {exc}")
+    try:
+        salida, avisos, destino = convertir(crudo, ficha)
+    except (G.GeneracionError, E.EdicionError) as exc:
+        raise HTTPException(422, str(exc))
+    except Exception as exc:                      # noqa: BLE001
+        log.exception("cex/convertir")
+        raise HTTPException(500, f"no se ha podido convertir el .cex: {exc}")
+    return Response(
+        content=salida, media_type="application/octet-stream",
+        headers={"X-Cee-Avisos": json.dumps(avisos), "X-Cee-Version": destino})
 
 
 def _zonas_declaradas(cex: Any) -> set[str]:

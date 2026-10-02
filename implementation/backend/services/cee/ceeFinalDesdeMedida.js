@@ -99,6 +99,7 @@ async function catalogoFinal(ctx, analisis, params = {}) {
         const { catalogo: cat } = medidasCe3x({
             expediente: ctx.expediente, superficie: null, fase: 'final',
             modelos: ctx.modelos, textos: trabajo?.ajustes?.medidas_texto,
+            autoconsumoKwh: trabajo?.ajustes?.autoconsumo_kwh,
         });
         const auto = (cat || []).find((m) => m.id === 'autoconsumo');
         if (auto) {
@@ -159,9 +160,13 @@ async function catalogoFinal(ctx, analisis, params = {}) {
  * @param {object}  [op.params] { aislamiento_cubierta: {solucion, espesor_cm, lambda}, … }
  * @param {boolean} [op.guardarDrive] false = se monta el fichero pero NO se sube
  *        (el script lo usa para probar en seco con el fichero en la mano)
+ * @param {string}  [op.version] '2.3' | '3.1' — la versión de CE3X del final. Sin
+ *        decirla, la 3.1 (la vigente): el inicial del técnico puede estar hecho con
+ *        la 2.3 y el final salir ya con la 3.1 — el motor lo convierte al copiarlo.
  */
 async function prepararFinal(ctx, { escribir = false, fechaEmision = null, fechaVisita = null,
-                                     medidas = null, textos = {}, params = {}, guardarDrive = true } = {}) {
+                                     medidas = null, textos = {}, params = {}, guardarDrive = true,
+                                     version = null } = {}) {
     const exp = ctx?.expediente;
     if (!exp) throw error(404, 'Expediente no encontrado');
     if (cex.esCeeDirecto(exp) || cex.esOportunidad(exp)) {
@@ -187,7 +192,13 @@ async function prepararFinal(ctx, { escribir = false, fechaEmision = null, fecha
     const { equiposDelExpediente } = await cex.loadFichaCe3x();
     const equiposExpediente = equiposDelExpediente(exp, { modelos: ctx.modelos });
 
-    const r1 = await alMotor(entregado.bytes, { solo_analizar: true, equipos_expediente: equiposExpediente });
+    //: La versión de CE3X del final. Lo que no es una de las dos no se manda: el
+    //: motor rechazaría el fichero entero por una versión inventada.
+    const versionCe3x = ['2.3', '3.1'].includes(String(version || '')) ? String(version) : null;
+    const conVersion = versionCe3x ? { version_ce3x: versionCe3x } : {};
+
+    const r1 = await alMotor(entregado.bytes, { solo_analizar: true, equipos_expediente: equiposExpediente,
+                                                ...conVersion });
     const { analisis, avisos: avisosAnalisis = [] } = await r1.json();
     const catalogo = await catalogoFinal(ctx, analisis, params);
 
@@ -236,6 +247,7 @@ async function prepararFinal(ctx, { escribir = false, fechaEmision = null, fecha
     const otras = catalogo.filter((m) => m.id !== 'retirada' && marcadas.includes(m.id));
 
     const r2 = await alMotor(entregado.bytes, {
+        ...conVersion,
         equipos_expediente: equiposExpediente,
         retirar_previo: marcadas.includes('retirada'),
         retirada: marcadas.includes('retirada') ? conTexto(retirada) : null,
@@ -253,6 +265,9 @@ async function prepararFinal(ctx, { escribir = false, fechaEmision = null, fecha
         ...base,
         escrito: true,
         guardado,
+        //: Con qué versión de CE3X ha salido: la dice el motor (es quien escribe
+        //: la cabecera).
+        version_ce3x: r2.headers.get('X-Cee-Version') || versionCe3x || null,
         bytes: fichero.length,
         fichero,
         medidas_final: [...(marcadas.includes('retirada') ? [conTexto(retirada).nombre] : []),

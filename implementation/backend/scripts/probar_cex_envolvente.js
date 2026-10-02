@@ -6,6 +6,13 @@
 //   node implementation/backend/scripts/probar_cex_envolvente.js 26RES060_186 --escribir
 //   node implementation/backend/scripts/probar_cex_envolvente.js 26RES060_186 --final
 //   node implementation/backend/scripts/probar_cex_envolvente.js 2026CEE_55 --cee
+//   node implementation/backend/scripts/probar_cex_envolvente.js 26RES060_184 --version=2.3
+//   node implementation/backend/scripts/probar_cex_envolvente.js 26RES060_184 --final --base=ini.cex
+//
+// `--version=2.3|3.1` elige la versión de CE3X con la que se escribe (sin
+// decirla, la de los ajustes guardados del expediente, y si no, la 3.1 vigente).
+// `--base=<ruta>` hace el FINAL sobre un inicial que está EN DISCO, en vez del
+// de la carpeta de Drive: así se prueba el final sin haber subido el inicial.
 //
 // `--cee` es un CEE contratado SUELTO (`cee_directos`). Es el mismo camino con
 // otra tabla detrás y otra carpeta de Drive: si esto falla ahí y no en el CAE,
@@ -44,6 +51,8 @@ const CAMBIA = process.argv.includes('--cambia');
 // guarda el propio programa (`Lucernario` · «Techo»; `porcMarco` 40).
 const LUCERNARIO = process.argv.includes('--lucernario');
 const GUARDAR = (process.argv.find(a => a.startsWith('--guardar=')) || '').slice(10);
+const VERSION = (process.argv.find(a => a.startsWith('--version=')) || '').slice(10) || null;
+const BASE = (process.argv.find(a => a.startsWith('--base=')) || '').slice(7) || null;
 const CLAVE = process.argv[2];
 
 async function main() {
@@ -80,15 +89,26 @@ async function main() {
         geometria: geo.geometria, envolvente: senaladoDeMentira(geo),
         conImagenes: true,   // lo mismo que hace el botón
         fase: FASE,
+        // La versión pedida va con los AJUSTES, como desde la ventana.
+        ...(VERSION ? { ajustes: { ...(ctx.trabajo?.ajustes || {}), version_ce3x: VERSION } } : {}),
     });
     const g = ficha.generales, t = ficha.termicas;
-    console.log(`\n3. ficha del certificador · CEE ${FASE.toUpperCase()}`);
+    console.log(`\n3. ficha del certificador · CEE ${FASE.toUpperCase()} · CE3X ${ficha.version_ce3x}`);
+    if (ficha.ce3x31) console.log(`   lo que pide la 3.1: ${JSON.stringify(ficha.ce3x31)}`);
     console.log(`   ${g.ano_construccion.valor} · ${g.normativa.valor} · zona ${g.zona_climatica_he1.valor}`
                 + ` · ${g.superficie_util_habitable.valor} m² · ${g.n_plantas_habitables.valor} planta(s)`);
     console.log(`   U fachada ${t.fachada.u} · cubierta ${t.cubierta.u} · suelo ${t.suelo_terreno.u}`
                 + ` · particiones ${t.particion_superior.u}`);
     console.log(`   ${t._de}`);
     console.log(`   foto de fachada: ${kb(g.foto_edificio.valor)} · croquis de parcela: ${kb(g.plano_situacion.valor)}`);
+    for (const e of ficha.instalaciones || []) {
+        const pot = ['calefaccion', 'acs', 'refrigeracion']
+            .filter(k => e[`potencia_${k}`]).map(k => `${k} ${e[`potencia_${k}`]} kW`);
+        if (pot.length || e.tipo_bdc !== undefined) {
+            console.log(`   potencia (3.1) de «${e.nombre}»: ${pot.join(' · ') || '—'}`
+                        + `${e.tipo_bdc !== undefined ? ` · tipo de bomba ${e.tipo_bdc}` : ''}`);
+        }
+    }
     const eq = (ficha.instalaciones || [])[0];
     console.log(`   instalación: ${eq
         ? `[${eq.slot}] ${eq.nombre} · ${eq.generador} · ${eq.combustible}`
@@ -112,7 +132,9 @@ async function main() {
     // el script sea lo que va a pasar de verdad.
     let r;
     if (FASE === 'final') {
-        const partida = await cex.leerCexDeFase(ctx, 'inicial');
+        const partida = BASE
+            ? { nombre: BASE, bytes: require('fs').readFileSync(BASE) }
+            : await cex.leerCexDeFase(ctx, 'inicial');
         if (!partida) throw new Error('no hay ningún .cex inicial en la carpeta: genera antes ése.');
         console.log(`\n4. se copia «${partida.nombre}» (${partida.bytes.length} bytes) y se le`
                     + ' cambia el generador');
@@ -130,7 +152,8 @@ async function main() {
     const fichero = Buffer.from(await r.arrayBuffer());
     const avMotor = JSON.parse(r.headers.get('X-Cee-Avisos') || '[]');
     if (GUARDAR) { require('fs').writeFileSync(GUARDAR, fichero); console.log(`   (guardado en ${GUARDAR})`); }
-    console.log(`${FASE === 'final' ? '  ' : '\n4.'} .cex escrito · ${fichero.length} bytes`);
+    console.log(`${FASE === 'final' ? '  ' : '\n4.'} .cex escrito · ${fichero.length} bytes`
+                + ` · CE3X ${r.headers.get('X-Cee-Version') || '¿?'}`);
     // Los avisos del motor son "lo que NO es una medida": se leen antes de
     // firmar, así que el script los enseña en vez de contarlos.
     if (avMotor.length) console.log(`   ⚠ ${avMotor.join('\n   ⚠ ')}`);

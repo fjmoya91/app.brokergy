@@ -37,6 +37,47 @@ Lo demás: `<IdentificacionEdificio>` (ref. catastral, zona climática, normativ
 **⚠️ Varios ficheros DECLARAN `encoding="UTF-8"` y están en ISO-8859-1.** Leídos como UTF-8, «Caldera
 Estándar» sale con un carácter roto y deja de casar con el enum.
 
+### El `.xml` de CE3X 3.1 (desde el 01/10/2026) es OTRO esquema
+
+Lo de arriba es el esquema **v2.0** (CE3X 2.3). CE3X 3.1 escribe el **v3.0**
+(`<DatosEnergeticosDelEdificio version="3.0">`): el mismo certificado con otras etiquetas. El
+comprobador lee los dos y devuelve lo mismo (`services/cee/xmlCeeV30.js`); a mano, esto:
+
+| Dato | v2.0 (CE3X 2.3) | v3.0 (CE3X 3.1) |
+|---|---|---|
+| Edificio (dirección, municipio, zona…) | `<IdentificacionEdificio>` | `<DatosEdificio>` |
+| Referencia catastral | `<ReferenciaCatastral>` | `<ReferenciasCatastrales><Ref><Parcela>` + `<Inmueble>` (14 + 6) |
+| Superficie útil | `<SuperficieHabitable>` | `<DatosEdificio><SuperficieUtil>` |
+| Fecha del certificado | `<DatosDelCertificador><Fecha>` | `<DatosCertificado><FechaCalificacion>` (d/m/aaaa) |
+| Visita | `<FechaVisita>` | `<InspeccionesObservaciones><Visita><Fecha>` — puede haber varias: la primera |
+| Certificador | `<NIF>`, `<NIFEntidad>`, `<NombreyApellidos>` | `<DatosCertificador>`: `<Nif>`, `<NifEntidad>`, `<NombreApellidos>` |
+| Demanda | `<Demanda><EdificioObjeto><Calefaccion>`/`<ACS>`/`<Refrigeracion>` | `<Indicadores><Demanda><Cal>`/`<Acs>`/`<Ref>` (no trae el total: es la suma) |
+| Energía primaria no renovable y su letra | `<Consumo>…<Global>` y `<Calificacion>…<Global>` | `<Indicadores><EnergiaPrimariaNoRenovable><Tot>` y `<Calificacion><EnergiaPrimariaNoRenovable><Tot>` |
+| Generadores | `<InstalacionesTermicas>` por servicio | `<Modelo><Sistemas><Generador>` con su `<Servicio>` (CAL · ACS · REF) |
+| Cerramientos y huecos | `<CerramientosOpacos>`, `<Elemento>` con `<Tipo>Hueco</Tipo>` | `<Modelo><Opacos><Opaco>` y `<Modelo><Huecos><Hueco>` |
+
+Y lo que cambia de significado, que es donde uno se equivoca:
+
+- **Un `<Generador>` con `<EsFicticio/>` NO existe**: es el de sustitución que pone CE3X cuando la
+  vivienda no tiene ese servicio (lo normal: una refrigeración que no hay). No se cuenta.
+- **El `<Tipo>` del generador es otro enum**: «Caldera Estándar» → `CalderaConvencional`, «Bomba de
+  Calor» → `ExpansionDirectaAireAgua`, «Efecto Joule» → `CalderaElectrica`. El vector va en
+  mayúsculas: `GASOLEO`, `GASNATURAL`, `ELECTRICIDAD` (sin peninsular/insular). `MEDIOAMBIENTE` es lo
+  que capta una bomba de calor, no un combustible.
+- **La superficie de un opaco es NETA** (sin sus huecos); la del v2.0 era BRUTA. Para comparar, súmale
+  la de sus huecos.
+- **Los huecos se llaman con un «-» al final** («V1-» es la «V1» del v2.0) y la orientación va en código
+  (N, S, E, W, NE, NW, SE, SW, H).
+- **El MODO de obtención casi no está**: el v3.0 solo marca lo que va POR DEFECTO
+  (`<PorDefecto>Transmitancia</PorDefecto>`). Lo demás puede ser Estimado o Conocido y el fichero no
+  lo distingue: el punto de las transmitancias justificadas no se puede afirmar solo con el `.xml`.
+- **La acumulación de ACS SÍ viene** (`<Sistemas><Acumulador>`, volumen en m³).
+- **Las placas en la 3.1 pueden ir como «generador eléctrico»** (`<GeneradorElectrico>`, con la
+  potencia) en vez de como contribución anual. Si el técnico las vuelve a meter así, la energía
+  primaria y las emisiones eléctricas cambian respecto a la 2.3 **aunque la obra sea la misma**: no
+  es el motor, es cómo se han declarado. El mismo `.cex` abierto en la 3.1 sin tocarlo da las
+  mismas cifras.
+
 ---
 
 ## Los enums (contados sobre los 462)

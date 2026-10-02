@@ -21,6 +21,8 @@
 //   --guardar=ruta.cex         además (o sin --escribir: solo) una copia local
 //   --json                     el análisis en JSON
 //   --sin-aviso                con --escribir, no avisa al equipo (al relanzar)
+//   --version=2.3|3.1          versión de CE3X del final (sin decirla, la 3.1 vigente; el
+//                              inicial del técnico puede ser de la 2.3: se convierte al copiarlo)
 //
 // Con --escribir, al terminar avisa como el AGENTE IA (services/agenteIa.js):
 // fase «pendiente de revisión» si el encargo es del agente, y WhatsApp + email.
@@ -47,6 +49,7 @@ function args(argv) {
         else if (k === '--nombre') o.nombre = val;
         else if (k === '--caracteristicas') o.caracteristicas = val;
         else if (k === '--guardar') o.guardar = val;
+        else if (k === '--version') o.version = val;
         else if (k === '--cubierta' || k === '--fachada') {
             const [solucion, cm] = val.split(':');
             o.params = { ...(o.params || {}), [`aislamiento_${k.slice(2)}`]: {
@@ -77,6 +80,7 @@ async function main() {
         escribir, guardarDrive: o.escribir,
         fechaEmision: o.fecha || null, fechaVisita: o.fechaVisita || o.fecha || null,
         medidas: o.medidas ?? null, textos, params: o.params || {},
+        version: o.version || null,
     });
     if (o.json) {
         const { fichero, ...resto } = r;
@@ -84,7 +88,8 @@ async function main() {
     } else {
         const a = r.analisis;
         console.log(`\n${ctx.expediente.numero_expediente} · ${r.ficha}`);
-        console.log(`  parte de: ${r.base}`);
+        console.log(`  parte de: ${r.base}${a.version_inicial ? ` (CE3X ${a.version_inicial})` : ''}`);
+        console.log(`  el final sale con CE3X ${r.version_ce3x || a.version_final || '3.1'}`);
         console.log(`  medida del inicial: «${a.medida_inicial.nombre}» · ${a.medida_inicial.calculada ? 'CALCULADA' : 'SIN calcular'}`
             + `${a.medida_inicial.desfase?.length ? ' · DESFASADA' : ''}`);
         console.log('  instalación del CEE FINAL (la de esa medida, con los equipos del expediente):');

@@ -52,6 +52,7 @@ function cex(over = {}) {
                         servicios: { acs: { pct: 100 }, calefaccion: { pct: 100 } }, rend_estacional: { acs: 300, calefaccion: 423 } }],
         }],
         informe: { emision: '19/09/2026' },
+        version: 'CEXv2.3 Residencial', version_ce3x: '2.3',
         ...over,
     };
 }
@@ -142,6 +143,31 @@ t('el cliente confirmó aires y el inicial no los recoge → aviso', () => {
 t('la caldera y el depósito se enseñan, no cuentan', () => {
     const i = inf(); revisarConCex(i, rxXml, cex(), ctx());
     assert.strictEqual(i.de('caldera_cex').estado, 'info'); assert.strictEqual(i.de('acumulacion_acs').estado, 'info');
+});
+
+console.log('La versión de CE3X');
+t('2.3 emitido antes del 01/10/2026 → ok', () => {
+    const i = inf(); revisarConCex(i, rxXml, cex(), ctx()); assert.strictEqual(i.de('version_ce3x').estado, 'ok');
+});
+t('2.3 emitido después → aviso, y dice que el final ya sale en la 3.1', () => {
+    const i = inf(); revisarConCex(i, rxXml, cex({ informe: { emision: '02/10/2026' } }), ctx({ fechaCertificado: '2026-10-02' }));
+    const p = i.de('version_ce3x');
+    assert.strictEqual(p.estado, 'aviso'); assert.match(p.detalle, /3\.1/);
+});
+t('3.1 con sus datos generales → ok', () => {
+    const c = cex({ version: 'CE3Xv3.1 Residencial', version_ce3x: '3.1' });
+    c.generales = { ...c.generales, superficie_util: 132, unidades_uso: 1, plantas_sobre_rasante: 1 };
+    const i = inf(); revisarConCex(i, rxXml, c, ctx()); assert.strictEqual(i.de('version_ce3x').estado, 'ok');
+});
+t('3.1 sin el nº de viviendas → aviso (la 3.1 no califica sin él)', () => {
+    const c = cex({ version: 'CE3Xv3.1 Residencial', version_ce3x: '3.1' });
+    c.generales = { ...c.generales, superficie_util: 132, plantas_sobre_rasante: 1 };
+    const i = inf(); revisarConCex(i, rxXml, c, ctx());
+    assert.strictEqual(i.de('version_ce3x').estado, 'aviso'); assert.match(i.de('version_ce3x').dice, /viviendas/);
+});
+t('una cabecera desconocida → aviso', () => {
+    const i = inf(); revisarConCex(i, rxXml, cex({ version: 'CEXv9.9', version_ce3x: null }), ctx());
+    assert.strictEqual(i.de('version_ce3x').estado, 'aviso');
 });
 
 (async () => {

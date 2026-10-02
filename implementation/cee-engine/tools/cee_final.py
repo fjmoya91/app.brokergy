@@ -46,10 +46,12 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import convertir_cex as CX        # noqa: E402
 import editar_cex as E            # noqa: E402
 import generar_cex as G           # noqa: E402
 import leer_cex as L              # noqa: E402
 import radiografia_cex as RX      # noqa: E402
+import version_ce3x as VC         # noqa: E402
 
 #: El orden del bloque [5] de un equipo: [acs, calefacción, refrigeración].
 SERVICIOS = ("acs", "calefaccion", "refrigeracion")
@@ -137,15 +139,31 @@ def instalaciones_de_medida(grupo: Any) -> list:
     `radiografia_cex.medida`, o el análisis vería equipos que aquí no salen.
     Medido en 26RES060_167 (medida «CEE FINAL.cex»).
     """
+    return instalaciones_de_medida_con_meta(grupo)[0]
+
+
+def instalaciones_de_medida_con_meta(grupo: Any) -> tuple[list, dict]:
+    """Lo mismo, en la forma interna (la de la 2.3), y lo que la 3.1 añade.
+
+    Una medida guardada por CE3X 3.1 trae sus equipos con la POTENCIA de cada
+    uno y, aparte, sus generadores eléctricos y termosolares (las placas, que
+    en la 3.1 se declaran como «generador eléctrico»: medido en un .cex migrado
+    a mano). Se devuelven en `meta` para que el final, si sale en la 3.1, los
+    lleve igual.
+    """
     st = getattr(grupo, "estado", {}) or {}
     mm = [copy.deepcopy(st.get(G.SLOT_A_MM[s]) or []) for s in G.SLOTS]
-    if any(mm):
-        return mm
-    nuevo_st = getattr(st.get("datosNuevoEdificio"), "estado", {}) or {}
-    for inst in (nuevo_st.get("datosInstalaciones"), st.get("datosInstalaciones")):
-        if isinstance(inst, list) and len(inst) == len(G.SLOTS) and any(inst):
-            return [copy.deepcopy(x or []) for x in inst]
-    return mm
+    extra = VC.extra_de_grupo(st)
+    if not any(mm):
+        nuevo_st = getattr(st.get("datosNuevoEdificio"), "estado", {}) or {}
+        for inst in (nuevo_st.get("datosInstalaciones"), st.get("datosInstalaciones")):
+            if isinstance(inst, list) and len(inst) in (12, 14) and any(inst):
+                mm = [copy.deepcopy(x or []) for x in inst]
+                break
+    slots, meta = VC.instalaciones_a_23(mm)
+    if not any(meta["extra"]):
+        meta["extra"] = [list(x) for x in extra]
+    return slots, meta
 
 
 def resultados(grupo: Any) -> dict | None:
@@ -328,7 +346,8 @@ def _clave_nombre(s: Any) -> str:
     return re.sub(r"[^A-Z0-9]", "", s.upper())
 
 
-def corregir_equipos(inst_final: list, equipos: list | None) -> tuple[list[dict], list[str]]:
+def corregir_equipos(inst_final: list, equipos: list | None,
+                     potencias: dict | None = None) -> tuple[list[dict], list[str]]:
     """Pone en la instalación del final la máquina que declara el EXPEDIENTE.
 
     REGLA (decisión del usuario, 2026-09-30) — la instalación sale de la medida
@@ -343,6 +362,10 @@ def corregir_equipos(inst_final: list, equipos: list | None) -> tuple[list[dict]
     técnico. Un equipo cuyo nombre ya contiene la máquina y rinde lo mismo no se
     toca. Un equipo ESTIMADO (una caldera) no se corrige: no es una bomba de
     calor con un SCOP que declarar.
+
+    `potencias` (si se pasa) se rellena con la POTENCIA que el expediente da a
+    cada máquina, por el nombre con el que queda en el final: es la que la 3.1
+    pide para escribir el XML del certificado.
     """
     cambios: list[dict] = []
     avisos: list[str] = []
@@ -366,11 +389,13 @@ def corregir_equipos(inst_final: list, equipos: list | None) -> tuple[list[dict]
                 mismo = clave and clave in _clave_nombre(antes_nombre) \
                     and antes_rend is not None and abs(antes_rend - rend) < 1
                 if mismo:
+                    _anotar_potencia(potencias, antes_nombre, eq)
                     continue
                 for pos in (2, 7):
                     if isinstance(rec[pos], list) and len(rec[pos]) == 3:
                         rec[pos][idx] = str(int(round(rend)))
                 rec[0] = nombre[:120]
+                _anotar_potencia(potencias, rec[0], eq)
                 cambios.append({"servicio": eq.get("servicio"), "antes": antes_nombre,
                                 "antes_rend": antes_rend, "ahora": rec[0], "ahora_rend": rend})
                 avisos.append(
@@ -382,6 +407,18 @@ def corregir_equipos(inst_final: list, equipos: list | None) -> tuple[list[dict]
                           f"{NOMBRE_SERVICIO[eq['servicio']]} y la medida del técnico no tiene "
                           "ningún equipo con el rendimiento CONOCIDO que la cubra: no se corrige.")
     return cambios, avisos
+
+
+def _anotar_potencia(potencias: dict | None, nombre: str, eq: dict) -> None:
+    """La potencia (kW) y el tipo de bomba de calor que el expediente da a `eq`."""
+    if potencias is None:
+        return
+    p = potencias.setdefault(str(nombre), {})
+    kw = _f(eq.get("potencia"))
+    if kw and kw > 0:
+        p[str(eq.get("servicio"))] = kw
+    if eq.get("tipo_bdc") not in (None, ""):
+        p["tipo_bdc"] = eq.get("tipo_bdc")
 
 
 def heredar_deposito(inst_final: list, inst_base: list) -> list[str]:
@@ -492,14 +529,18 @@ def componer(crudo: bytes, datos: dict) -> tuple[bytes | None, dict, list[str]]:
                       + "; ".join(rx_m["desfase"][:3])
                       + "): los resultados esperados no valen; el final sí lleva sus equipos.")
 
-    inst_base = L.leer(base, G.INSTALACIONES)
-    inst_final = instalaciones_de_medida(grupo)
+    # Las dos instalaciones en la forma interna (la de la 2.3), venga el fichero
+    # de la versión que venga; lo que la 3.1 añade queda en `meta_final`.
+    inst_base, _meta_base = CX.instalaciones_internas(base)
+    inst_final, meta_final = instalaciones_de_medida_con_meta(grupo)
+    version = VC.version_pedida(datos)
     if not any(inst_final):
         raise FinalNoEscrito(f"La medida «{nombre_medida}» no declara ningún equipo.")
 
     # La máquina que se instaló la dice el EXPEDIENTE (antes de la retirada, que
     # así trabaja ya con los equipos buenos).
-    correcciones, av_c = corregir_equipos(inst_final, datos.get("equipos_expediente"))
+    potencias: dict = {}
+    correcciones, av_c = corregir_equipos(inst_final, datos.get("equipos_expediente"), potencias)
     avisos += av_c
     if correcciones:
         avisos.append("Los resultados que guardó CE3X para la medida del inicial NO valen para "
@@ -519,7 +560,11 @@ def componer(crudo: bytes, datos: dict) -> tuple[bytes | None, dict, list[str]]:
         "equipos_inicial": RX.instalaciones(inst_base),
         "equipos_final": RX.instalaciones(inst_final),
         "equipos_corregidos": correcciones,
-        "tiene_renovable": bool(inst_final[G.SLOTS.index("renovable")]),
+        # En la 3.1 las placas pueden venir como «generador eléctrico».
+        "tiene_renovable": bool(inst_final[G.SLOTS.index("renovable")]
+                                or (meta_final.get("extra") or [[], []])[1]),
+        "version_inicial": VC.version_de(base),
+        "version_final": version,
         # Los cerramientos del edificio (los mismos en el final): de su U sale la
         # que quedaría con cada medida de aislamiento.
         "cerramientos": (rx.get("envolvente") or {}).get("cerramientos") or [],
@@ -577,7 +622,8 @@ def componer(crudo: bytes, datos: dict) -> tuple[bytes | None, dict, list[str]]:
 
     # ── El informe: el conjunto que se imprime y las fechas DEL FINAL ────────
     informe = L.leer(base, G.INFORME)
-    informe = list(informe) if isinstance(informe, list) and len(informe) == 7 else list(G._INFORME_VACIO)
+    informe = (G._reemitible(informe) if VC.informe_valido(informe)
+               else list(G._INFORME_VACIO))
     informe[0] = nombres[0] if nombres else ""
     fechas = datos.get("informe") or {}
     for clave, i, que in (("fecha_emision", 5, "emisión"), ("fecha_visita", 6, "visita")):
@@ -594,6 +640,10 @@ def componer(crudo: bytes, datos: dict) -> tuple[bytes | None, dict, list[str]]:
         G.RESUMEN_MEDIDAS: G.construir_resumen_medidas(filas, L.leer(base, G.RESUMEN_MEDIDAS)),
         G.INFORME: informe,
     }
+    # La versión del final (por defecto la 3.1, aunque el inicial sea de la
+    # 2.3): se le añade lo que esa versión pide, con la potencia que el
+    # expediente da a cada máquina.
+    avisos += CX.a_version(base, cambios, version, datos, meta_final, potencias)
     salida = E.sustituir_pickles(crudo, cambios)
     analisis["medidas_final"] = nombres
     return salida, analisis, avisos

@@ -123,6 +123,57 @@ function revisarTransmitancias(inf, rx, cex, ctx) {
         });
 }
 
+// ─── La versión de CE3X ──────────────────────────────────────────────────────
+
+//: Desde el 01/10/2026 se certifica con CE3X 3.1. El cálculo es el mismo que en
+//: la 2.3 (medido con el motor de las dos), pero el XML del certificado y lo
+//: que se declara son los de la 3.1.
+const FECHA_CE3X_31 = '2026-10-01';
+
+/**
+ * Con qué versión de CE3X está hecho el `.cex` y, en la 3.1, si trae lo que
+ * esa versión exige para calificar (superficie útil, nº de viviendas o
+ * unidades de uso y plantas sobre rasante).
+ *
+ * AVISA, no bloquea: un certificado de la 2.3 calcula lo mismo, y el CEE final
+ * que la app saca de él ya sale en la 3.1 (se convierte al copiarlo).
+ */
+function revisarVersion(inf, rx, cex, ctx) {
+    const v = cex?.version_ce3x || null;
+    if (!v) {
+        inf.anota('version_ce3x', 'Versión de CE3X', 'aviso', {
+            dice: `cabecera «${cex?.version || '—'}»`,
+            esperado: 'CE3X 3.1 (o 2.3 si es anterior al 01/10/2026)',
+            detalle: 'No es una cabecera de .cex conocida: compruébalo abriéndolo en CE3X.',
+        });
+        return;
+    }
+    const fecha = ctx.fechaCertificado || isoDeCex(cex?.informe?.emision);
+    const fechaTxt = fecha ? fecha.split('-').reverse().join('/') : null;
+    if (v === '2.3') {
+        const tarde = !fecha || fecha >= FECHA_CE3X_31;
+        inf.anota('version_ce3x', 'Versión de CE3X', tarde ? 'aviso' : 'ok', {
+            dice: `CE3X 2.3${fechaTxt ? ` · emitido el ${fechaTxt}` : ''}`,
+            esperado: `CE3X 3.1 desde el ${FECHA_CE3X_31.split('-').reverse().join('/')}`,
+            detalle: tarde
+                ? 'Hecho con la 2.3 cuando ya se certifica con la 3.1. El cálculo es el mismo, pero el XML del certificado es el de la 3.1: que lo abra con CE3X 3.1, complete lo que pide (Datos generales y la potencia de los equipos) y lo vuelva a guardar. El CEE final que saca la app de él ya sale en la 3.1.'
+                : null,
+        });
+        return;
+    }
+    const g = cex.generales || {};
+    const faltan = [['superficie útil', g.superficie_util], ['nº de viviendas o unidades de uso', g.unidades_uso],
+                    ['plantas sobre rasante', g.plantas_sobre_rasante]]
+        .filter(([, x]) => !(Number(x) > 0)).map(([k]) => k);
+    inf.anota('version_ce3x', 'Versión de CE3X', faltan.length ? 'aviso' : 'ok', {
+        dice: faltan.length ? `CE3X 3.1 · sin ${faltan.join(', ')}` : 'CE3X 3.1',
+        esperado: 'CE3X 3.1 con sus datos generales completos',
+        detalle: faltan.length
+            ? 'CE3X 3.1 no califica sin esos datos de Datos generales: que los complete y lo vuelva a guardar.'
+            : null,
+    });
+}
+
 // ─── Datos generales ─────────────────────────────────────────────────────────
 
 function revisarGenerales(inf, rx, cex, ctx) {
@@ -402,6 +453,7 @@ function revisarMedida(inf, rx, cex, ctx) {
 
 /** Todas las del `.cex`, en el orden en que se leen en el informe. */
 function revisarConCex(inf, rx, cex, ctx) {
+    revisarVersion(inf, rx, cex, ctx);
     revisarGenerales(inf, rx, cex, ctx);
     revisarTransmitancias(inf, rx, cex, ctx);
     revisarHuecosPuentes(inf, rx, cex);
@@ -412,5 +464,6 @@ function revisarConCex(inf, rx, cex, ctx) {
 module.exports = {
     revisarConCex,
     revisarTransmitancias,
-    FECHA_GUIA, HUECOS_MIN, HUECOS_MAX, PUENTES_BASE, TOL_SCOP_PCT,
+    revisarVersion,
+    FECHA_GUIA, FECHA_CE3X_31, HUECOS_MIN, HUECOS_MAX, PUENTES_BASE, TOL_SCOP_PCT,
 };

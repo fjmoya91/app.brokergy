@@ -91,6 +91,9 @@ app.use('/api/landing', require('./routes/landing'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/cee-ocr', require('./routes/ceeOcr'));
 app.use('/api/cee-envolvente', require('./routes/ceeEnvolvente'));
+// Producción fotovoltaica de un sitio (PVGIS, JRC): kWp ⇄ kWh/año y su reparto
+// mensual para el autoconsumo de los CEE.
+app.use('/api/pvgis', require('./routes/pvgis'));
 // Lectura de facturas/presupuestos ANTES de que exista expediente (toma de datos de
 // una nueva simulación). El gemelo con expediente vive en routes/expedientes.
 app.use('/api/factura-ocr', require('./routes/facturaOcr'));

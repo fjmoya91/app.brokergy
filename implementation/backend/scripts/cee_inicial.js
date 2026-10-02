@@ -830,6 +830,9 @@ async function aplicar() {
     // 6. La ficha, por el MISMO camino que el botón.
     const { ficha, avisos: avFicha, imagenesFallidas = [] } = await cex.componerFicha(ctx, {
         geometria: geo.geometria, envolvente, ajustes, conImagenes: true, fase: 'inicial',
+        //: Las medidas de mejora que se piden (`["autoconsumo"]`). Sin esta clave
+        //: mandan las que trae marcadas la fase, como en la ventana.
+        medidas: Array.isArray(plan.medidas) ? plan.medidas : null,
     });
     avisos.push(...avFicha);
     const g = ficha.generales;

@@ -11,3 +11,6 @@ venv/
 ejemplos/
 output/
 data/
+# El oráculo de CE3X es una herramienta de desarrollo (Windows, Python 2.7 de
+# CE3X): no pinta nada en la imagen del motor.
+tools/oraculo_ce3x/

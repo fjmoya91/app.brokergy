@@ -46,6 +46,7 @@ import leer_cex as L        # noqa: E402
 import pickle0 as P         # noqa: E402
 import puentes as PT        # noqa: E402
 import terciario as TER     # noqa: E402
+import version_ce3x as VC   # noqa: E402
 from errores import GeneracionError  # noqa: E402
 from pickle0 import Cadena  # noqa: E402
 from puentes import _num    # noqa: E402
@@ -2310,25 +2311,89 @@ SLOT_A_MM = {
 }
 
 
-def _reemitible(v: Any) -> Any:
+def _reemitible(v: Any, _hechos: dict | None = None) -> Any:
     """Un dato LEIDO de un .cex, listo para volver a escribirse.
 
     `leer_cex` no construye nada: los objetos de CE3X vuelven como `Opaco`. Para
     copiarlos a otro pickle hay que decirle al emisor que son instancias, y eso
     es separar el nombre del modulo del de la clase. No se importa ni se llama
     nada: sigue siendo texto leido del disco.
+
+    REGLA — lo que en el fichero era UN objeto sigue siendo uno. Una medida de
+    mejora calculada tiene REFERENCIAS CIRCULARES (cada contribucion apunta a la
+    lista que la contiene: 18 ciclos medidos en un .cex de la 2.3, 40 en uno de
+    la 3.1), y copiarla "entera cada vez" no terminaba nunca: «poner la medida»
+    en un fichero cuyo tecnico ya tenia otra medida calculada moria con un
+    RecursionError. `_hechos` recuerda lo ya convertido (por id) y el emisor
+    escribe la segunda aparicion como GET al mismo sitio, como hizo CE3X.
+
+    Los objetos de la 3.1 que CE3X escribe con REDUCE (`copy_reg._reconstructor`
+    sobre `models.GeneradorElectrico`, `uuid.UUID`…) se reescriben igual, con su
+    lista blanca (`pickle0.GLOBALES_PERMITIDOS`).
     """
+    if _hechos is None:
+        _hechos = {}
+    if isinstance(v, (L.Opaco, dict, list)):
+        ya = _hechos.get(id(v))
+        if ya is not None:
+            return ya
     if isinstance(v, L.Opaco):
-        modulo, _, clase = v.clase.rpartition(".")
-        return P.Instancia(modulo, clase, _reemitible(v.estado))
+        if v.origen == "INST":
+            modulo, _, clase = v.clase.rpartition(".")
+            nuevo = P.Instancia(modulo, clase, None, compartible=True)
+            _hechos[id(v)] = nuevo
+            nuevo.estado = _reemitible(v.estado, _hechos)
+            return nuevo
+        if v.origen == "REDUCE":
+            modulo, _, nombre = v.clase.rpartition(".")
+            if not P.global_permitido(modulo, nombre):
+                raise GeneracionError(
+                    f"el fichero trae un objeto {v.clase!r} que no es de CE3X: no se reescribe")
+            nuevo = P.Reduccion(modulo, nombre)
+            _hechos[id(v)] = nuevo
+            nuevo.args = tuple(_reemitible(a, _hechos) for a in v.args)
+            nuevo.estado = (_reemitible(v.estado, _hechos)
+                            if v.estado is not None else None)
+            return nuevo
+        raise GeneracionError(
+            f"el fichero trae un objeto {v.clase!r} ({v.origen}) que no se sabe reescribir")
+    if isinstance(v, L.Global):
+        if not P.global_permitido(v.modulo, v.nombre):
+            raise GeneracionError(
+                f"el fichero trae una referencia {v.modulo}.{v.nombre} que no es de CE3X")
+        return P.Global(v.modulo, v.nombre)
     if isinstance(v, dict):
-        return {Cadena(k) if isinstance(k, str) else k: _reemitible(x)
-                for k, x in v.items()}
+        nuevo_d = P.Dicc()
+        _hechos[id(v)] = nuevo_d
+        for k, x in v.items():
+            nuevo_d[_clave_reemitible(k)] = _reemitible(x, _hechos)
+        return nuevo_d
     if isinstance(v, list):
-        return [_reemitible(x) for x in v]
+        nueva = P.Lista()
+        _hechos[id(v)] = nueva
+        nueva.extend(_reemitible(x, _hechos) for x in v)
+        return nueva
     if isinstance(v, tuple):
-        return tuple(_reemitible(x) for x in v)
+        return tuple(_reemitible(x, _hechos) for x in v)
+    if isinstance(v, L.Literal):
+        # Iba como STRING: se reescribe como STRING, con sus acentos escapados
+        # como los escribio Python 2.
+        return P.CadenaLeida(v)
     return v
+
+
+def _clave_reemitible(k: Any) -> Any:
+    """La clave de un diccionario leido, con el MISMO opcode que traia.
+
+    Las claves de un objeto (nombres de atributo) van como STRING; si alguna
+    venia como UNICODE se respeta. Una clave de texto sin marca (un dato que no
+    salio de `leer_cex`) sale como STRING si es ASCII, que es lo de siempre.
+    """
+    if isinstance(k, L.Literal):
+        return P.CadenaLeida(k)
+    if isinstance(k, str) and not isinstance(k, Cadena) and k.isascii():
+        return Cadena(k)
+    return k
 
 
 def _sin_calcular() -> P.Instancia:
@@ -2382,7 +2447,9 @@ def construir_medida(m: dict, envolvente: list, instalaciones: list,
         Cadena("caracteristicas"): str(m.get("caracteristicas") or ""),
         Cadena("otrosDatos"): str(m.get("otros_datos") or ""),
         Cadena("datosInstalaciones"): instal,
-        Cadena("mejoras"): [[], ["", instal, True]],
+        # Una COPIA, no el mismo objeto: en CE3X son dos listas (la 3.1 alarga
+        # `datosInstalaciones` a 14 slots y deja `mejoras` en 12).
+        Cadena("mejoras"): [[], ["", _reemitible(instalaciones), True]],
         Cadena("medidasMejoraEnvolvente"): [],
         Cadena("cerramientosMejorados"): _reemitible(envolvente[0]),
         Cadena("huecosMejorados"): _reemitible(envolvente[1]),
@@ -2539,7 +2606,8 @@ def construir_medida_aislamiento(m: dict, envolvente: list, instalaciones: list,
         Cadena("datosInstalaciones"): instal,
         # False: este conjunto NO cambia la instalacion (lo que escribe CE3X en
         # una medida solo de envolvente).
-        Cadena("mejoras"): [mme, ["", instal, False]],
+        # Una COPIA, no el mismo objeto (ver `construir_medida`).
+        Cadena("mejoras"): [mme, ["", _reemitible(instalaciones), False]],
         Cadena("medidasMejoraEnvolvente"): mme,
         Cadena("cerramientosMejorados"): cerramientos,
         Cadena("huecosMejorados"): _reemitible(envolvente[1]),
@@ -2644,7 +2712,8 @@ def construir_informe(datos: dict, plantilla: Any) -> tuple[list, list[str]]:
 # Montaje
 # --------------------------------------------------------------------------
 
-def montar(plantilla: Path, nuevos: dict[int, Any], tipo: str | None = None) -> bytes:
+def montar(plantilla: Path, nuevos: dict[int, Any], tipo: str | None = None,
+           version: str = "2.3") -> bytes:
     """Sustituye los pickles indicados y copia los demas byte a byte.
 
     `tipo` es el PROGRAMA de CE3X con el que se abre el fichero (residencial,
@@ -2655,6 +2724,12 @@ def montar(plantilla: Path, nuevos: dict[int, Any], tipo: str | None = None) -> 
     'Sin patrón', el 13 a True, y el ultimo, el HMAC, que CE3X no comprueba al
     abrir y recalcula al guardar). Lo que cambia es la cabecera, y esa se
     escribe aqui.
+
+    `version` es la de CE3X (2.3 o 3.1) y tambien va en la cabecera. Los pickles
+    que se copian de la plantilla son IGUALES en las dos (medido sobre los 6
+    `.cex` de la 3.1 del disco: 6 a 10, 12 y 13); lo que cambia de forma
+    (1, 2, 4 y 11) lo pone en `nuevos` quien llama, ya en la forma de su
+    version (`version_ce3x.elevar`).
     """
     cex = L.trocear(plantilla)
     if not cex.version_conocida:
@@ -2667,7 +2742,7 @@ def montar(plantilla: Path, nuevos: dict[int, Any], tipo: str | None = None) -> 
         if p.indice == 0 and tipo is not None:
             if tipo not in TER.CABECERA:
                 raise GeneracionError(f"tipo de edificio {tipo!r} no contemplado")
-            trozos.append(TER.CABECERA[tipo])
+            trozos.append(VC.cabecera(version, tipo))
         elif p.indice in nuevos:
             trozos.append(P.volcar(nuevos[p.indice]).encode("raw_unicode_escape"))
         else:
@@ -2775,28 +2850,42 @@ def contrastar(envolvente: list, superficie_util: float | None) -> list[str]:
     return avisos
 
 
-def _comparable(x: Any) -> Any:
+def _comparable(x: Any, _camino: frozenset | None = None) -> Any:
     """Deja un dato en una forma que se pueda comparar antes y despues.
 
     Lo que se escribe como `pickle0.Instancia` vuelve del lector como
     `leer_cex.Opaco`: son la misma cosa vista de ida y de vuelta, y hay que
     compararlas por clase y estado, no por tipo de Python.
+
+    Una medida calculada tiene REFERENCIAS CIRCULARES (ver `_reemitible`): la
+    vuelta a algo que ya esta en el camino se compara como «<ciclo>», que sale
+    en el mismo sitio a la ida y a la vuelta.
     """
+    if isinstance(x, (P.Instancia, P.Reduccion, L.Opaco, dict, list)):
+        if _camino is not None and id(x) in _camino:
+            return "<ciclo>"
+        _camino = (_camino or frozenset()) | {id(x)}
     if isinstance(x, P.Instancia):
-        return (f"{x.modulo}.{x.clase}", _comparable(x.estado))
+        return (f"{x.modulo}.{x.clase}", _comparable(x.estado, _camino))
+    if isinstance(x, P.Reduccion):
+        return (f"{x.modulo}.{x.nombre}", _comparable(x.estado, _camino))
+    if isinstance(x, P.Global):
+        return f"{x.modulo}.{x.nombre}"
+    if isinstance(x, L.Global):
+        return f"{x.modulo}.{x.nombre}"
     if isinstance(x, L.Opaco):
-        return (x.clase, _comparable(x.estado))
+        return (x.clase, _comparable(x.estado, _camino))
     if isinstance(x, dict):
-        return {str(k): _comparable(v) for k, v in x.items()}
+        return {str(k): _comparable(v, _camino) for k, v in x.items()}
     if isinstance(x, (list, tuple)):
-        return [_comparable(v) for v in x]
+        return [_comparable(v, _camino) for v in x]
     if isinstance(x, str):
         return str(x)
     return x
 
 
 def comprobar(salida: Path, esperado: dict[int, Any],
-              tipo: str | None = None) -> list[str]:
+              tipo: str | None = None, version: str = "2.3") -> list[str]:
     """Relee lo escrito y comprueba que dice lo que se queria decir."""
     cex = L.trocear(salida)
     problemas = []
@@ -2804,8 +2893,9 @@ def comprobar(salida: Path, esperado: dict[int, Any],
         problemas.append(f"han salido {len(cex.pickles)} pickles y CE3X espera 15")
     # La cabecera decide con QUE PROGRAMA lo abre CE3X: un terciario que se
     # releyera como residencial abriria con la pestaña de otro edificio.
-    if tipo is not None and cex.version != TER.VERSION.get(tipo):
-        problemas.append(f"la cabecera dice {cex.version!r} y se pidio {TER.VERSION.get(tipo)!r}")
+    if tipo is not None and cex.version != VC.TEXTO.get((version, tipo)):
+        problemas.append(f"la cabecera dice {cex.version!r} y se pidio "
+                         f"{VC.TEXTO.get((version, tipo))!r}")
     for i, valor in esperado.items():
         if _comparable(L.leer(cex, i)) != _comparable(valor):
             problemas.append(f"el pickle {i} no se relee igual que se escribio")

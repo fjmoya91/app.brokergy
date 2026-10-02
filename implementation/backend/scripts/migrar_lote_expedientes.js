@@ -28,6 +28,7 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const fs = require('fs');
 const xml2js = require('xml2js');
+const v30 = require('../services/cee/xmlCeeV30');
 const { execFileSync } = require('child_process');
 const supabase = require('../services/supabaseClient');
 const driveService = require('../services/driveService');
@@ -182,7 +183,41 @@ function getNum(parent, tag) {
   return v;
 }
 
+// El .xml de CE3X 3.1 (esquema v3.0) no tiene ninguno de los nodos de arriba
+// (<EdificioObjeto>, <IdentificacionEdificio>, <InstalacionesTermicas>…): se lee
+// con el lector del v3.0 y sale con ESTE mismo objeto. De dónde sale cada dato
+// y qué ya no dice el v3.0: services/cee/xmlCeeV30.js.
+function parseCeeXmlNodeV30(xmlString) {
+  const x = v30.leerXmlCeeV30(xmlString);
+  // Los generadores REALES: un <EsFicticio/> es el de sustitución que pone CE3X.
+  const primero = (s) => x.generadores.find((g) => !g.ficticio && g.servicio === s && g.vectorV20) || null;
+  // Este mapa solo conoce la grafía del GENERADOR en el v2.0 («BiomasaPellete»).
+  const combustible = (g) => (g ? mapVectorEnergetico(g.vectorV20 === 'BiomasaPellet' ? 'BiomasaPellete' : g.vectorV20) : null);
+  const sup = x.superficieUtil;
+  return {
+    demandaCalefaccion: x.demanda.cal, demandaACS: x.demanda.acs, demandaRefrigeracion: x.demanda.ref,
+    demandaGlobal: v30.sumaDemanda(x.demanda),
+    emisionesCalefaccion: x.emisiones.cal, emisionesACS: x.emisiones.acs, emisionesRefrigeracion: x.emisiones.ref,
+    superficieHabitable: sup !== null && sup > 0 && sup < 99999 ? sup : null,
+    // Solo si <FechaConstruccion> es un año: puede ser un tramo («1979-2005»).
+    anoConstruccion: x.identificacion.anioConstruccion !== null ? String(x.identificacion.anioConstruccion) : null,
+    zonaClimatica: x.identificacion.zonaClimatica,
+    identificacion: {
+      nombre: x.identificacion.nombre,
+      direccion: x.identificacion.direccion,
+      municipio: x.identificacion.municipio,
+      provincia: x.identificacion.provincia,
+      refCatastral: x.identificacion.refCatastral,
+    },
+    fechaFirma: x.fechas.calificacion,
+    fechaVisita: x.fechas.visita,
+    combustibleCalefaccion: combustible(primero('CAL')),
+    combustibleACS: combustible(primero('ACS')),
+  };
+}
+
 async function parseCeeXmlNode(xmlString) {
+  if (v30.esXmlCeeV30(xmlString)) return parseCeeXmlNodeV30(xmlString);
   const root = await xml2js.parseStringPromise(xmlString, { explicitArray: false, trim: true });
   const result = {
     demandaCalefaccion: null, demandaACS: null, demandaRefrigeracion: null, demandaGlobal: null,

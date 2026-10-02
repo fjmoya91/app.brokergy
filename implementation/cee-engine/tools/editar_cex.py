@@ -217,7 +217,12 @@ def sustituir_pickles(crudo: bytes, cambios: dict) -> bytes:
     salida = data
     for indice in sorted(cambios, reverse=True):
         p = cex.pickles[indice]
-        nuevo = pickle0.volcar(cambios[indice]).encode("latin-1")
+        # Unos BYTES se empalman tal cual: es la cabecera (pickle 0), que lleva
+        # la ñ escapada como la escribe CE3X y no se puede emitir como dato.
+        if isinstance(cambios[indice], (bytes, bytearray)):
+            nuevo = bytes(cambios[indice])
+        else:
+            nuevo = pickle0.volcar(cambios[indice]).encode("latin-1")
         salida = salida[:p.offset] + nuevo + salida[p.offset + p.tam:]
 
     # Releerlo es lo unico que prueba que no se ha descuadrado el fichero: si el

@@ -103,9 +103,13 @@ def _nombres(slots: list) -> list[tuple[str, str]]:
 # ─── El final ES el edificio mejorado de la medida ──────────────────────────
 
 def test_el_final_lleva_los_equipos_de_la_medida_y_nada_mas_cambia():
+    """En la MISMA versión (2.3 → 2.3) el final es la medida tal cual. Con la 3.1
+    (el valor por defecto) cambian de forma los pickles 1, 2, 4 y 11: eso lo
+    vigila `test_version_ce3x.py`."""
     base, medida = _hibrida()
     crudo = _cex(base, [("HIBRIDACION AEROTERMIA", medida)])
-    salida, _, _ = CF.componer(crudo, {"informe": {"fecha_emision": "2026-09-30",
+    salida, _, _ = CF.componer(crudo, {"version_ce3x": "2.3",
+                                       "informe": {"fecha_emision": "2026-09-30",
                                                    "fecha_visita": "2026-09-30"}})
     antes, despues = L.trocear_bytes(crudo), L.trocear_bytes(salida)
     assert G._comparable(L.leer(despues, G.INSTALACIONES)) == G._comparable(medida)

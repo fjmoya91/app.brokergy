@@ -31,6 +31,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import leer_cex as L          # noqa: E402
 import generar_cex as G       # noqa: E402
+import version_ce3x as VC     # noqa: E402
 
 #: Los tres modos de transmitancia de un cerramiento opaco, tal y como los
 #: escribe CE3X en la casilla [8]. `Conocidas` es «justificada».
@@ -168,6 +169,9 @@ def _acumulacion(bloque: Any) -> dict | None:
 
 
 def equipo(rec: list) -> dict:
+    # Un equipo guardado por CE3X 3.1 trae ademas su POTENCIA y el tipo de bomba
+    # de calor: se leen aparte y el resto sale igual que en la 2.3.
+    rec, meta31 = VC.equipo_a_23(rec)
     rend = rec[2] if len(rec) > 2 and isinstance(rec[2], list) else []
     serv = rec[5] if len(rec) > 5 and isinstance(rec[5], list) else []
     modo = _s(rec[6]) if len(rec) > 6 else None
@@ -194,7 +198,35 @@ def equipo(rec: list) -> dict:
         "nominal": _nominal(cola),
         "acumulacion": acum,
         "zona": _s(rec[-1]),
+        "potencia_kw": (dict(zip(SERVICIOS, (_f(x) for x in (meta31.get("potencias") or [])[:3])))
+                        if meta31 and meta31.get("potencias") else None),
+        "tipo_bdc": (VC.TIPOS_BDC[meta31["tipo_bdc"]]
+                     if meta31 and isinstance(meta31.get("tipo_bdc"), int)
+                     and 0 <= meta31["tipo_bdc"] < len(VC.TIPOS_BDC) else None),
+        "potencia_pico_kwp": _f(meta31.get("kwp")) if meta31 and "kwp" in meta31 else None,
     }
+
+
+def generadores_electricos(slots: Any) -> list[dict]:
+    """Las placas que CE3X 3.1 declara como «generador eléctrico» (slot 13).
+
+    Es un objeto nuevo de la 3.1 (`models.GeneradorElectrico`) con la potencia
+    y la producción de cada mes; en la 2.3 las placas iban como contribución.
+    """
+    out = []
+    if not (isinstance(slots, list) and len(slots) >= 14 and isinstance(slots[13], list)):
+        return out
+    for g in slots[13]:
+        st = getattr(g, "estado", None) or {}
+        meses = st.get("consumoMensual")
+        out.append({
+            "nombre": _s(st.get("nombre")),
+            "potencia_kw": _f(st.get("potencia")),
+            "produccion_anual_kwh": (round(sum(_f(x) or 0 for x in meses), 1)
+                                     if isinstance(meses, list) else None),
+            "zona": _s(st.get("zona")),
+        })
+    return out
 
 
 def instalaciones(slots: Any) -> list[dict]:
@@ -229,6 +261,11 @@ def generales(g: Any) -> dict:
         "tiene_foto": bool(_s(at(17))),
         "tiene_plano": bool(_s(at(18))),
         "anio": _f(at(19)),
+        # Solo en la 3.1 (RD 390/2021): sin ellos la 3.1 no califica.
+        "superficie_util": _f(at(22)),
+        "unidades_uso": _f(at(23)),
+        "plantas_bajo_rasante": _f(at(24)),
+        "plantas_sobre_rasante": _f(at(25)),
     }
 
 
@@ -265,6 +302,11 @@ def _diferencias_generales(a: Any, b: Any) -> list[str]:
     for i, et in etiquetas.items():
         va = _norm(a[i]) if len(a) > i else None
         vb = _norm(b[i]) if len(b) > i else None
+        if i == 0 and VC.normativa_23(va) == VC.normativa_23(vb):
+            # La 3.1 parte los tramos de otra forma ('NBE-CT-79' de la 2.3 es
+            # 'NBE-CT-79_aPartir1998' en la 3.1 para un edificio de 2000) y la
+            # normativa no mueve el calculo: no es un cambio del edificio.
+            continue
         if va != vb:
             out.append(f"{et}: {va} → {vb}")
     return out
@@ -297,8 +339,14 @@ def _diferencias_instalaciones(a: Any, b: Any) -> list[str]:
         out.append(f"equipo {n}: ya no existe")
     for n in sorted(set(ib) - set(ia), key=str):
         out.append(f"equipo {n}: nuevo")
+    # Lo que solo existe en la 3.1 no cuenta: una medida calculada con la 2.3
+    # sobre un fichero que despues se paso a la 3.1 sigue siendo la misma
+    # instalacion (la potencia y el tipo de bomba no mueven el calculo).
+    solo_31 = ("potencia_kw", "tipo_bdc", "potencia_pico_kwp")
     for n in sorted(set(ia) & set(ib), key=str):
-        if _norm(ia[n]) != _norm(ib[n]):
+        a = {k: v for k, v in ia[n].items() if k not in solo_31}
+        b = {k: v for k, v in ib[n].items() if k not in solo_31}
+        if _norm(a) != _norm(b):
             out.append(f"equipo {n}: cambiado")
     return out
 
@@ -377,6 +425,8 @@ def radiografia_bytes(crudo: bytes) -> dict:
     return {
         "version": cex.version,
         "version_conocida": cex.version_conocida,
+        "version_ce3x": VC.version_de(cex),
+        "generadores_electricos": generadores_electricos(inst),
         "tecnico": {"nombre": tec("nombre"), "empresa": tec("empresa")},
         "generales": generales(gen),
         "envolvente": envolvente(env),

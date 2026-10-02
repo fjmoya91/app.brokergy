@@ -6,10 +6,11 @@ import { PlanoPlanta } from '../components/PlanoPlanta';
 import { PanelPared } from '../components/PanelPared';
 import { usePlanoEnvolvente, nombreDe } from '../logic/usePlanoEnvolvente';
 import { lienzoAMundo, areaPoligono, simplificarTrazo } from '../logic/geometriaPlano';
+import { husoDe } from '../logic/ortofoto';
 import { CampoDecimal } from '../../../components/CampoDecimal';
 import { dondeSobra, dondeSigue } from '../logic/cuerposEnvolvente';
 import { claveExtras, claveInstalacion, equipoNuevo, esTerciarioCe3x, etiquetaTipoCe3x,
-         tipoCe3xDe } from '../logic/fichaCe3x';
+         tipoCe3xDe, versionCe3xDe, etiquetaVersionCe3x } from '../logic/fichaCe3x';
 import { TipoEdificioModal } from '../components/TipoEdificioModal';
 import { useDeshacer } from '../logic/useDeshacer';
 import { MidiendoElEdificio } from '../components/MidiendoElEdificio';
@@ -26,7 +27,7 @@ import { PERSIANA_DEFECTO_NUEVOS, huecosDefecto, resumenVentanas, ventanasContes
     from '../logic/ventanasVivienda';
 import { EscribiendoElCex, CexGenerado } from '../components/EscribiendoElCex';
 import { PanelAdministrativos, PanelEconomico, PanelGenerales, PanelInstalaciones,
-         PanelMedidas, Ventana } from '../components/PanelesFicha';
+         PanelMedidas, Ventana, VersionCe3x } from '../components/PanelesFicha';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Envolvente térmica — la superficie del certificador.
@@ -68,6 +69,18 @@ function metaParedMovil(m) {
         largo: m.largo, alto: m.alto, orientacion: m.orientacion || null,
         admite: admiteHuecos(m), huecos: (m.huecos || []).length,
     };
+}
+
+//: Lo que se guarda de una consulta a PVGIS con el trabajo (`ajustes`): la
+//: producción ESPECÍFICA del sitio (kWh por kWp, anual y por meses) y con qué
+//: tejado se calculó. Son ~300 bytes: con ellos la medida saca los kWp de los
+//: kWh que se declaren, también si se cambian después.
+function pvgisParaGuardar(e) {
+    if (!e || !(Number(e.anual) > 0)) return null;
+    const { anual, mensual, inclinacion, orientacion, optimos, perdidas, montaje,
+            lat, lon, fuente, base_radiacion, anios } = e;
+    return { anual, mensual, inclinacion, orientacion, optimos, perdidas, montaje,
+             lat, lon, fuente, base_radiacion, anios, consultado: new Date().toISOString().slice(0, 10) };
 }
 
 export function EnvolventeView({ expediente, onAviso, onPestanas }) {
@@ -138,6 +151,9 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     //: ventana, y la ficha lo sigue proponiendo.
     const [tipoPospuesto, setTipoPospuesto] = useState(false);
     const tipoInfo = tipoCe3xDe(ajustes, expediente);
+    //: Con qué VERSIÓN de CE3X se escribe: la 3.1 (vigente) salvo que se elija
+    //: la 2.3. Va con los ajustes, así que se guarda con el trabajo.
+    const versionInfo = versionCe3xDe(ajustes);
 
     // Si el expediente YA tiene trabajo, se trae la geometría sola: volver a la
     // pantalla de «traer la envolvente» es un paso de más cuando ya se estuvo
@@ -1255,11 +1271,40 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         </>);
     }
 
+    //: Dónde preguntar a PVGIS: el centro del rectángulo en el que el motor
+    //: dibujó el plano (`georef`, EPSG:258ZZ), que es el edificio. No hace falta
+    //: más precisión: la producción no cambia en cien metros.
+    const ubicacionFv = (() => {
+        const b = (geo?.georef?.bbox || []).map(Number);
+        if (b.length !== 4 || !b.every(Number.isFinite)) return null;
+        return { utm_x: Math.round((b[0] + b[2]) / 2), utm_y: Math.round((b[1] + b[3]) / 2),
+                 huso: husoDe(geo.georef.crs || 'EPSG:25830') || 30 };
+    })();
     const cambiarAjuste = (clave, valor) => setAjustes(a => {
         const n = { ...a };
         if (valor === null || valor === '') delete n[clave]; else n[clave] = valor;
         return n;
     });
+    //: Lo que CE3X 3.1 pide de más (uso, protección, titulación, superficie
+    //: útil, unidades de uso, plantas): va junto en `ajustes.ce3x31` y viaja con
+    //: los ajustes, así que se guarda con el trabajo como todo lo demás.
+    const cambiarCe3x31 = (clave, valor) => setAjustes(a => {
+        const c = { ...(a.ce3x31 || {}) };
+        const vacio = valor === null || valor === '' || (Array.isArray(valor) && !valor.length);
+        if (vacio) delete c[clave]; else c[clave] = valor;
+        const n = { ...a, ce3x31: c };
+        if (!Object.keys(c).length) delete n.ce3x31;
+        return n;
+    });
+    //: La versión que sale en pantalla: la que dice la ficha del servidor (con
+    //: lo que la 3.1 pide de más y su procedencia) o, mientras llega, la de los
+    //: ajustes.
+    const versionVista = ficha?.version_ce3x?.version === versionInfo.version
+        ? ficha.version_ce3x : versionInfo;
+    const cambiarVersion = (v) => {
+        cambiarAjuste('version_ce3x', v);
+        onAviso?.(`Se generará con ${etiquetaVersionCe3x(v)}.`);
+    };
     //: El texto del conjunto de medidas, tal y como se va a volcar al `.cex`.
     //: Viaja con los ajustes, así que se guarda con el trabajo: lo que alguien
     //: se tomó el rato de reescribir no puede perderse al cerrar la pestaña.
@@ -1651,7 +1696,11 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                           onGuardarCliente={guardarFuente(
                               'cliente', 'Ficha del cliente actualizada.')}
                           onGuardarTecnico={guardarFuente(
-                              'tecnico', 'Datos del técnico actualizados.')} />
+                              'tecnico', 'Datos del técnico actualizados.')}
+                          version={versionVista}
+                          terciario={esTerciarioCe3x(tipoInfo.tipo)}
+                          ce3x31Puestos={ajustes.ce3x31 || {}}
+                          onCambiarCe3x31={cambiarCe3x31} />
                     : <Cargando />)}
 
             {modalTipo}
@@ -1661,6 +1710,9 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                     ? <PanelGenerales datos={ficha} puestos={ajustes}
                                       tipoCe3x={tipoInfo}
                                       onCambiarTipo={() => setVerTipo('cambiar')}
+                                      version={versionVista} onCambiarVersion={cambiarVersion}
+                                      ce3x31Puestos={ajustes.ce3x31 || {}}
+                                      onCambiarCe3x31={cambiarCe3x31}
                                       retocadas={ajustes.transmitancias || {}}
                                       onCambiarDato={cambiarAjuste} onCambiarU={cambiarU}
                                       construcciones={geo?.construcciones}
@@ -1682,6 +1734,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                             ?? ficha?.ficha?.instalaciones?.[0]}
                                     conservados={ficha?.equipos?.conservados || []}
                                     aires={ficha?.aires || null}
+                                    version={versionInfo.version}
                                     superficie={superficieDelEdificio}
                                     ajustes={ajustes[claveInstalacion(fichaFase)] || {}}
                                     onAjuste={cambiarInstalacion}
@@ -1709,7 +1762,11 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                 <PanelMedidas catalogo={ficha?.medidas} elegidas={medidasSel}
                               onElegir={setMedidasSel} {...fase}
                               textos={ajustes.medidas_texto || {}}
-                              onTexto={cambiarTextoMedida} />)}
+                              onTexto={cambiarTextoMedida}
+                              autoconsumoKwh={ajustes.autoconsumo_kwh ?? null}
+                              onAutoconsumo={(n) => cambiarAjuste('autoconsumo_kwh', n)}
+                              ubicacionFv={ubicacionFv}
+                              onAutoconsumoPvgis={(e) => cambiarAjuste('autoconsumo_pvgis', pvgisParaGuardar(e))} />)}
 
             {activa === 'economico' && <PanelEconomico />}
 
@@ -1732,6 +1789,10 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                         lo primero que se ve al abrir el fichero, y equivocarlo
                         obliga a rehacerlo entero. Sin elegir, se pregunta al pulsar. */}
                     <TipoAlGenerar tipo={tipoInfo} onCambiar={() => setVerTipo('cambiar')} />
+                    {/* Y con qué VERSIÓN: la 3.1 es la vigente desde el
+                        01/10/2026. Un final se puede hacer con la 3.1 sobre un
+                        inicial de la 2.3: se convierte al copiarlo. */}
+                    <VersionCe3x version={versionVista} onCambiar={cambiarVersion} compacto />
                     {/* El FINAL no se levanta de cero: se COPIA el inicial y se le
                         cambia el generador, que es como se hace a mano. Verificado
                         sobre 26RES060_186 contra el .cex que guardó el certificador
@@ -2391,9 +2452,9 @@ function Guardado({ g }) {
                 )}
             </p>
             <p className="mt-1 text-[11px] leading-relaxed text-white/45">
-                Ábrelo con CE3X, compruébalo y guarda desde el propio CE3X el certificado
-                definitivo. El <b>_REVISAR</b> del nombre es a propósito: esto lo ha escrito
-                la app, todavía no es el CEE.
+                Ábrelo con {g.version_ce3x ? <b>CE3X {g.version_ce3x}</b> : 'CE3X'}, compruébalo
+                y guarda desde el propio CE3X el certificado definitivo. El <b>_REVISAR</b> del
+                nombre es a propósito: esto lo ha escrito la app, todavía no es el CEE.
             </p>
             {g.link && (
                 <a href={g.link} target="_blank" rel="noreferrer"

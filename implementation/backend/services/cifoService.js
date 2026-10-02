@@ -94,8 +94,14 @@ function loadDacs() {
 // que en el frontend usa DOMParser). Solo se usa como fallback cuando el cee NO
 // trae ya los arrays huecos/opacos. Devuelve [{nombre,tipo,superficie,transmitancia,
 // factorSolar,orientacion}]. Async (xml2js).
+//
+// El .xml v3.0 (CE3X 3.1) no tiene <Elemento>: sus huecos y opacos van en
+// <Modelo><Huecos>/<Opacos> y con otras unidades de medida (superficie neta,
+// orientación en código). `huecosYOpacosV30` los devuelve con ESTA misma forma.
 async function parseHuecosFromXmlNode(xmlStr) {
     if (!xmlStr || typeof xmlStr !== 'string') return [];
+    const { esXmlCeeV30, huecosYOpacosV30 } = require('./cee/xmlCeeV30');
+    if (esXmlCeeV30(xmlStr)) return huecosYOpacosV30(xmlStr);
     try {
         const xml2js = require('xml2js');
         const parsed = await xml2js.parseStringPromise(xmlStr, { explicitArray: false, ignoreAttrs: false });

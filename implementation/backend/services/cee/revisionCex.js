@@ -120,6 +120,7 @@ async function medidasDelExpediente(ctx, { superficie, existentes = null } = {})
     return medidasCe3x({
         expediente: ctx.expediente, superficie, fase: 'inicial',
         modelos: ctx.modelos, textos: cfg.medidas_texto, final,
+        autoconsumoKwh: cfg.autoconsumo_kwh,
         //: Sin aerotermia en el expediente, la genérica de la simulación.
         generica: true,
         //: Los equipos que declara el `.cex` del técnico: es lo que dice si la

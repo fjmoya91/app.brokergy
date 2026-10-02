@@ -12459,6 +12459,190 @@ test). Con «Solo asignar» no hay enlace (no hay encargo que enseñar).
 disco** (falló porque el backend local ya la tenía abierta). Ahora exige el nombre
 exacto (`/(^|[\\/])server\.js$/`), pero en un banco pon además `WHATSAPP_ENABLED=false`.
 
+## CE3X 2.3 y 3.1 — se certifica con las DOS (2026-10-02)
+
+Hasta el 30/09/2026 se certificaba con CE3X 2.3; desde el 01/10/2026, con la **3.1**.
+La app escribe las dos, **por defecto la 3.1**, y un CEE final hecho sobre un inicial
+de la 2.3 sale ya en la 3.1: se convierte al copiarlo, en los dos caminos (la ventana
+de la envolvente y «Generar CEE final» desde la medida del técnico).
+
+| Qué | Dónde |
+|---|---|
+| Qué cambia de una a otra; leer y escribir cada versión | [tools/version_ce3x.py](implementation/cee-engine/tools/version_ce3x.py) |
+| Pasar un `.cex` ya hecho a la otra versión (motor `/cex/convertir` y línea de órdenes) | [tools/convertir_cex.py](implementation/cee-engine/tools/convertir_cex.py) |
+| La versión en la app: listas de la 3.1 y lo que se propone en cada campo | [logic/versionCe3x.js](implementation/frontend/src/features/cee-envolvente/logic/versionCe3x.js) |
+| Dónde se elige | «Datos generales» y «Generar el .cex» de la envolvente (`ajustes.version_ce3x`) · popup «Generar CEE final» (`version_ce3x`) · `cee_final.js --version=` |
+| Preguntarle al PROPIO CE3X (abrir, calificar, XML) | [tools/oraculo_ce3x/](implementation/cee-engine/tools/oraculo_ce3x/README.md) |
+| Pruebas | `python -m pytest implementation/cee-engine/tests/test_version_ce3x.py` · `node implementation/backend/scripts/test_version_ce3x_app.mjs` |
+
+**Qué cambia** (preguntado a CE3X 3.1 ejecutando su propio código, no a ojo):
+
+| Pickle | 2.3 → 3.1 |
+|---|---|
+| 0 | `CEXv2.3 Residencial` → `CE3Xv3.1 Residencial` (y los dos terciarios) |
+| 1 | 26 → 29: grado de protección, partes protegidas y **uso del edificio**; la titulación pasa a ser un **desplegable** de 21 (lo que no casa sale en el XML como «Otra(.*)») |
+| 2 | 21 → 26: normativa «otros», **superficie útil, nº de viviendas o unidades de uso, plantas bajo y sobre rasante** — sin ellos la 3.1 **NO califica**; la normativa pasa de 4 a **7 tramos** |
+| 4 | 12 → 14 slots, y cada equipo que no es una caldera ESTIMADA gana su **potencia por servicio** y el **tipo de bomba de calor**: sin ellas califica pero **no escribe el XML**; las placas, su kWp |
+| 11 | el informe, 7 → 8 casillas |
+
+**REGLA — el CÁLCULO es el mismo.** Medido con el motor de la 3.1 sobre el mismo
+fichero que dio la 2.3: idénticas demandas, emisiones y calificación (26RES093_9: 35,23 D
+/ 134,37 C). Ni la normativa ni el tipo de bomba mueven un decimal: un inicial de la 2.3
+y un final de la 3.1 siguen siendo comparables.
+
+**REGLA — los escritores del motor siguen en la forma de la 2.3** (medidos sobre 1.600
+`.cex` reales) y la versión se aplica en las FRONTERAS: `elevar` al escribir una 3.1, e
+`instalaciones_a_23` al leer una, guardando aparte lo que la 2.3 no tiene (potencias,
+tipo de bomba, los dos slots nuevos) para devolverlo **intacto** al escribir.
+
+**REGLA — lo que la 3.1 pide de más se PROPONE y se corrige en la pantalla**
+(`ajustes.ce3x31`): la superficie útil y las plantas salen de Datos generales, la
+titulación de la del técnico, el uso del programa. Viaja al motor en `ficha.ce3x31` y
+el motor no lo vuelve a decidir — tampoco la normativa elegida a mano. **El uso tiene
+DOS listas** según el programa (`listadoUsoEdificioResidencial` / `...Terciario`): el
+terciario no ofrece «Residencial público», así que un hotel va a «Otro».
+
+**REGLA — la potencia sale del EXPEDIENTE** (la unidad, o el catálogo de su modelo) y se
+teclea en Instalaciones; lo que no conste lo pone el motor por defecto **y lo dice**. Una
+caldera estimada no la lleva aparte: va en su cola y es la que declara su XML.
+
+**REGLA — bajar de la 3.1 a la 2.3 solo si no se pierde nada.** Un generador eléctrico o
+termosolar de la 3.1, o medidas calculadas con ella, la 2.3 no los sabe abrir: no se
+escribe y se dice.
+
+⚠️ **Nunca PUNTOS en el nombre de un `.cex`.** `xml2cert` (el que hace el PDF oficial)
+no encuentra el XML: para «EJEMPLO MIGRADO DE 2.3.cex» busca «EJEMPLO MIGRADO DE 2.xml».
+Era el ÚNICO fallo del migrado que motivó todo esto — el fichero estaba completo.
+
+⚠️ **Re-emitir un grupo de medidas CALCULADO** (con referencias cíclicas, objetos
+`models.*` por REDUCE, `uuid.UUID` y claves no ASCII) es fiel gracias al memo (GET) y a una
+lista blanca de clases en `pickle0.py`. Antes, «Poner la medida» sobre un `.cex` con una
+medida ya calculada reventaba con `RecursionError` (también en la 2.3).
+
+La revisión del CEE del técnico avisa si entrega un `.cex` de la **2.3 emitido desde el
+01/10/2026**, o uno de la 3.1 sin sus datos generales (`version_ce3x` en
+`revisionCeeCex.js`).
+
+```bash
+python implementation/cee-engine/tools/convertir_cex.py "ruta\x.cex"          # → x_v31.cex al lado
+node implementation/backend/scripts/probar_cex_envolvente.js 26RES060_184 --version=2.3
+node implementation/backend/scripts/probar_cex_envolvente.js 26RES060_184 --final --base=ini.cex
+```
+
+### Y el `.xml` de la 3.1 se LEE igual (2026-10-02)
+
+CE3X 3.1 exporta el XML del certificado en el esquema **v3.0**
+(`<DatosEnergeticosDelEdificio version="3.0">`): el mismo certificado con otras etiquetas
+(`<DatosEdificio>`, `<Indicadores><Demanda><Cal>`, `<Modelo><Sistemas><Generador>`…). Todos
+los lectores de la app miran primero la versión y, si es la 3.0, leen con
+[xmlCeeV30.js](implementation/frontend/src/features/calculator/logic/xmlCeeV30.js) y devuelven
+**el mismo objeto** que con la 2.3: ningún consumidor sabe de qué versión viene el certificado.
+
+| Qué | Dónde |
+|---|---|
+| Lector del v3.0 (sin DOM; vale también con el XML en MAYÚSCULAS de la BD) | `xmlCeeV30.js` + su **espejo CJS** [services/cee/xmlCeeV30.js](implementation/backend/services/cee/xmlCeeV30.js) |
+| Los cinco lectores públicos del CEE | `xmlCeeParser.js`: `parseCeeXml`, `parseEmisionesTotalesFromXml`, `leerCalificacionesDeTexto`, `leerDatosIrpfDeTexto`, `parseEpnrFromXml` |
+| La radiografía de la revisión del CEE | `radiografiaXmlV30` en [radiografiaCee.js](implementation/backend/services/cee/radiografiaCee.js) |
+| Huecos y opacos del certificado RES080 | `huecosYOpacosV30` (en `cifoService` y en `CertificadoRes080Modal`) |
+| Scripts | `vincular_cee_directos_clientes.js` · `migrar_lote_expedientes.js` |
+| Prueba | `node implementation/backend/scripts/test_xml_cee_v30.mjs` |
+
+**REGLA — lo que sale habla el IDIOMA DEL v2.0** allí donde el v2.0 tenía el mismo dato.
+Durante la transición conviven en el MISMO expediente un CEE inicial de la 2.3 y un final de la
+3.1, y si cada uno hablara su idioma, compararlos daría diferencias que no existen. Por eso la
+superficie de un opaco se devuelve BRUTA (el v3.0 la da NETA, sin sus huecos), se quita el «-»
+final del nombre del hueco («V1-» es la «V1»), la orientación vuelve a palabras, el vector a su
+nombre de la 2.3 (`GASOLEO` → `GasoleoC`) y el factor solar del hueco se recompone MODIFICADO.
+Medido sobre el mismo edificio exportado con las dos (26RES093_9): los 10 huecos y los 15 opacos
+casan por nombre, superficie y U.
+
+**REGLA — el camino del v2.0 no se toca, y se VIGILA**: el test guarda una huella (hash) de lo
+que devuelven los seis lectores con los 462 certificados reales y falla si cambia un byte. En el
+repo va la huella, nunca los certificados.
+
+**REGLA — un `<Generador>` con `<EsFicticio/>` NO existe**: es el de sustitución que pone CE3X
+3.1 cuando la vivienda no tiene ese servicio (lo normal, una refrigeración que no hay). No se
+cuenta: la 2.3 no los escribía, y contarlo declararía un equipo que no está instalado.
+
+**Lo que el v3.0 ya no dice sale `null`, nunca inventado**: el MODO de obtención (solo marca lo
+que va POR DEFECTO, así que sin el `.cex` no se sabe si una U es estimada o conocida), el de los
+generadores, el coste de una medida (es un TRAMO) y el año de construcción cuando es un tramo
+(«1979-2005»). La demanda total no viene: es la suma de las tres, como lo era en la 2.3 en 462 de
+462. **Lo que trae de más**: la acumulación de ACS (`<Sistemas><Acumulador>`), que la revisión
+enseña aunque no haya `.cex`.
+
+⚠️ **El espejo CJS** existe porque `radiografiaCee` y `cifoService` lo necesitan síncrono y
+desde CommonJS no se hace `require()` de un ESM. El cuerpo es el MISMO, carácter a carácter, y el
+test lo compara: si cambia la lectura, se cambia en los dos.
+
+⚠️ **Las placas en la 3.1 se pueden declarar de DOS formas, y no dan lo mismo**: como
+contribución renovable anual (lo que traía la 2.3, y lo que conserva CE3X 3.1 al abrir un
+fichero de la 2.3, con el mismo resultado) o como «generador eléctrico» (slot 13,
+`<GeneradorElectrico>`, con la producción mes a mes). Medido en 26RES093_9: el `.cex` de la 3.1
+hecho a mano las volvió a meter como generador de 7 kW (11.803 kWh/año, frente a los 11.000 de la
+2.3), y la energía primaria no renovable pasó de 134,37 a 127,27 y las emisiones eléctricas a 0.
+**No es el motor de la 3.1**: el mismo `.cex` abierto en la 3.1 sin tocarlo da 134,37 · 35,23.
+Al comparar un inicial de la 2.3 con un final de la 3.1 (IRPF, revisión), una diferencia así sale
+de cómo se declararon las placas, no de la obra.
+
+## AUTOCONSUMO con PVGIS — kWp ⇄ kWh/año y su reparto mensual (2026-10-02)
+
+La barra **⚡ Autoconsumo máximo declarable** del módulo CEE (CAE y CEE directos) lleva
+un botón **☀️ kWp con PVGIS** que despliega la producción fotovoltaica DE ESA VIVIENDA:
+se teclea la potencia y sale la energía, o se teclea la energía (el máximo, o el 90 % que
+declara la medida) y salen los kWp — y en los dos casos los **doce meses**, que son la
+tabla «Autoconsumo mensual (kWh/mes)» de «Generación renovable eléctrica» de CE3X. Con
+placas YA instaladas arranca por su potencia. El mismo panel va junto a los kWh de la
+medida de autoconsumo de la envolvente, con «Usar en la medida».
+
+| Qué | Dónde |
+|---|---|
+| Regla de tres, reparto mensual, ubicación del expediente (puro, sin imports) | [logic/produccionFv.js](implementation/frontend/src/features/expedientes/logic/produccionFv.js) |
+| Consultar PVGIS, normalizar, caché 30 días, UTM/RC → lat/lon | [pvgisService.js](implementation/backend/services/pvgisService.js) |
+| Ruta | `GET /api/pvgis/produccion?lat&lon` · `?utm_x&utm_y[&huso]` · `?rc` (+ `inclinacion`, `orientacion`, `perdidas`, `montaje`), **internalOnly** |
+| El panel | [ProduccionFotovoltaica.jsx](implementation/frontend/src/features/expedientes/components/ProduccionFotovoltaica.jsx) |
+| Pruebas | `node implementation/backend/scripts/test_produccion_fv.mjs [--en-vivo]` |
+
+**REGLA — PVGIS se pregunta con 1 kWp, UNA vez por sitio.** Su producción es lineal en
+la potencia pico, así que la ESPECÍFICA (kWh por kWp, anual y por mes) contesta las dos
+preguntas: `kWh = kWp × específica` y `kWp = kWh ÷ específica`. La caché es por sitio y
+ángulos, nunca por potencia. Medido en Tomelloso (39,16, −3,02): **1.673,88 kWh/kWp·año**
+con los ángulos óptimos (36°, −4°), ~4 s la primera vez.
+
+**REGLA — la API es la ESTABLE, PVGIS 5.3 (`re.jrc.ec.europa.eu/api/v5_3/PVcalc`)**: media
+mensual de 19 años (SARAH3 2005-2023), sombras del horizonte y ángulos óptimos en una
+llamada. La v6 (`photovoltaic-geographic-information-system.ec.europa.eu/api/v6`) está en
+prototipo: medido el 02/10/2026, `performance/broadband` solo da el total del periodo y
+`power/broadband` la serie HORARIA (590 KB por diez años). Cambiar es `PVGIS_API_URL` +
+`normalizar`.
+
+**REGLA — los doce meses SUMAN EXACTO el total** (resto mayor, `repartir`): se teclean en
+CE3X y doce redondeos sueltos no suman lo declarado. Siguen la curva de PVGIS; el panel
+dice que el autoconsumo de un mes no puede pasar de lo que se consume ese mes, y avisa si
+una potencia produce más que el máximo declarable del CEE.
+
+**REGLA — se pregunta al ABRIR el panel, no al pintar la barra**: la barra sale en cada
+CEE que se abre. Lo preguntado se recuerda en la sesión y el backend lo guarda 30 días.
+Sin tejado conocido van los ángulos ÓPTIMOS; «⚙ Tejado» deja poner inclinación,
+orientación (convenio PVGIS: 0 = Sur, −90 = Este, 90 = Oeste), montaje y pérdidas (14 %).
+
+**La ubicación**: la UTM que el Catastro sembró al crear el expediente
+(`instalacion.coord_x/coord_y`, huso 30) → lat/lon con `utmALatLon` de `ortofoto.js` (la
+misma de la envolvente, por ESM); si no hay, la referencia catastral (`getByRC`, cacheado);
+en la envolvente, el centro del `georef`. Una UTM que no cae en España no se manda (422).
+
+**La medida del `.cex` lleva los kWp**: «Usar en la medida» guarda los kWh y la producción
+específica en `ajustes.autoconsumo_pvgis` (~300 bytes), y `medidasCe3x({ autoconsumoFv })`
+pone `potencia_pico_kwp` (y el reparto mensual) en el equipo `renovable` de la medida, que
+`potencias_de_equipos` del motor usa en vez de la estimación de 1.500 kWh/kWp de la 3.1.
+Sin PVGIS consultado, la medida sale exactamente como antes. El 90 % declarable
+(`AUTOCONSUMO_DECLARABLE`) vive ahora en `autoconsumoMaximo.js` (fichaCe3x lo reexporta):
+la barra y la medida no pueden usar dos cifras distintas.
+
+⚠️ El `.cex` sigue declarando el autoconsumo como «Contribución energética» (kWh/año); el
+objeto «Generación renovable eléctrica» de la 3.1 (slot 13, con la tabla mensual) NO lo
+escribe la app: el panel da los números para teclearlo.
+
 ## Reglas Críticas — No Romper
 
 1. **Drive**: La creación de carpetas es **no bloqueante**. **REGLA DE ORO:** Los enlaces a Drive (`drive_folder_link`) solo se muestran en el frontend si `user.rol === 'ADMIN'`.
@@ -12911,3 +13095,7 @@ PROPUESTA_PROGRAMADA_MAX_DIAS=90   ← hasta cuándo se admite programar
 104. **La factura de Brokergy al S.O. se archiva en CONTABILIDAD al generarla y al enviarla** (2026-10-02): al pulsar «Generar / Regenerar y guardar» (el mismo PDF que va a la carpeta del lote) y al enviarla bien por email o WhatsApp, su PDF se guarda en `00. S2E2 / 04. CONTABILIDAD / CAE - SERVICIOS CAE / FACTURAS VENTAS / {año} / {n. MES}` como `{nº} - {lote} - {acrónimo del S.O.}.pdf` (el nombre de la carpeta del lote sin su prefijo: «F-2026CAE_9 - LOTE-2025-003 - INTERALCO.pdf») (`POST /api/lotes/:id/factura-so/contabilidad`, adminOnly; [facturaContabilidad.js](implementation/backend/services/facturaContabilidad.js), raíz en `CONTABILIDAD_FACTURAS_CAE_FOLDER_ID`). El mes es el de la FECHA DE LA FACTURA, no el del envío; si no se llega a la carpeta del mes se FALLA (nunca se deja en la de arriba, que es lo que haría `getOrCreateSubfolder`), y la misma factura reenviada sustituye a la anterior. El resultado sale como una línea «Drive» en el popup de envío (`onAfterSend` de `EnviarLoteDocModal`); un fallo ahí no deshace el envío.
 
 103. **La LLAVE DE CLAUDE: una cuenta sin contraseña que pulsa los botones de la app** (2026-10-02). Para que Claude envíe una propuesta sin que nadie inicie sesión, [scripts/claude_propuesta.js](implementation/backend/scripts/claude_propuesta.js) abre un Chrome sin pantalla EN EL PC, entra en `app.brokergy.es` con la cuenta `robot.claude@app.brokergy.es` (rol ADMIN, para que la propuesta salga idéntica a la de una persona) y pulsa «Generar PDF» → ENVIAR → destinatarios → Enviar. **No se rehace la propuesta en el servidor a propósito**: la compone React midiendo la página (portada, versión, mensajes por persona) y una copia divergiría de la que ve una persona. La cuenta **no tiene contraseña utilizable** (aleatoria, no se guarda) y su dominio no tiene buzón; la sesión la abre el script con la clave de servicio del `.env` (enlace mágico canjeado por el propio servidor, sin email) y la **cierra al terminar**. Se reconoce por `app_metadata.robot` —que solo escribe el servidor; el `user_metadata` lo puede editar el propio usuario— y el historial firma lo suyo como «CLAUDE» (`req.user.esRobot`). **Por defecto va EN SECO**: enseña destinatarios, canales, avisos y el mensaje, con captura en `backend/scratch/claude_propuesta/` (fuera de git: lleva datos del cliente); solo con `--enviar` pulsa el botón. Si la simulación tiene cambios sin guardar **no envía** salvo `--sin-guardar`. Los elementos que pulsa llevan `data-robot` (`abrir-propuesta`, `aviso-sin-guardar`, `abrir-envio`, `modo-<MODO>`, `canal-*`, `mensaje`, `enviar`, `envio-resultado`): **no se quitan ni se renombran sin tocar el script**. Revocarla: `node scripts/claude_propuesta.js baja` (el backend la rechaza en ≤ 5 min, la caché de sesiones).
+
+105. **Se certifica con CE3X 2.3 y con la 3.1, y por defecto la 3.1** (2026-10-02): la versión se elige en la envolvente (`ajustes.version_ce3x`) y en «Generar CEE final», y un inicial de la 2.3 se convierte a la 3.1 al hacer su final. El cálculo es el mismo (medido con el motor de las dos); cambia lo que pide la 3.1 —uso, protección, titulación del desplegable, superficie útil, unidades de uso y plantas (sin ellos no califica) y la potencia de cada equipo (sin ella no escribe el XML)—, que la app propone y deja corregir. El motor escribe en la forma de la 2.3 y aplica la versión en las fronteras (`version_ce3x.py`); un `.cex` suelto se convierte con `tools/convertir_cex.py`. Nunca puntos en el nombre de un `.cex`: `xml2cert` no encuentra el XML. Y el `.xml` de la 3.1 (esquema v3.0) se LEE igual: los lectores de la app miran la versión y devuelven el mismo objeto que con la 2.3 (`xmlCeeV30.js` y su espejo CJS, que deben ser idénticos). Tras tocarlo: `python -m pytest implementation/cee-engine/tests/test_version_ce3x.py`, `node implementation/backend/scripts/test_version_ce3x_app.mjs` y `node implementation/backend/scripts/test_xml_cee_v30.mjs`. Ver "CE3X 2.3 y 3.1".
+
+106. **El autoconsumo se dimensiona con PVGIS: kWp ⇄ kWh/año y su reparto mensual** (2026-10-02): botón «☀️ kWp con PVGIS» en la barra ⚡ del módulo CEE y junto a los kWh de la medida de autoconsumo de la envolvente. Se pregunta a PVGIS 5.3 (`PVcalc`, estable; la v6 está en prototipo) con 1 kWp y una vez por sitio —la producción es lineal en la potencia—, con caché de 30 días en el backend (`GET /api/pvgis/produccion`, internalOnly) y la ubicación sacada de la UTM del expediente, de la referencia catastral o del `georef` de la envolvente. Los doce meses suman EXACTO el total (resto mayor). «Usar en la medida» guarda la producción específica en `ajustes.autoconsumo_pvgis` y la medida del `.cex` lleva su `potencia_pico_kwp` en vez de la estimación de 1.500 kWh/kWp. Fuentes únicas: [logic/produccionFv.js](implementation/frontend/src/features/expedientes/logic/produccionFv.js) + [pvgisService.js](implementation/backend/services/pvgisService.js). Tras tocarlo: `node implementation/backend/scripts/test_produccion_fv.mjs --en-vivo`. Ver "AUTOCONSUMO con PVGIS".

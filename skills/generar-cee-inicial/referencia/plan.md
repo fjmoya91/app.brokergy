@@ -60,6 +60,7 @@ Un JSON escrito por quien ha mirado las fotos. Todo es opcional salvo lo que se 
 | `croquis` | DÓNDE está lo que no es vivienda, a mano alzada | `uv` = fracciones de la huella de esa planta (u de OESTE a ESTE, v de SUR a NORTE); o `poligono` en EPSG:25830. El motor lo endereza, lo **ajusta a los m² de Catastro** del uso en esa planta, alinea las paredes y lo guarda como `zonas_fuera`. Sustituye las zonas de SUS plantas. Pasarse por fuera de las paredes no importa (`-0.05`, `1.05`). `croquis_ajustar: false` = tal cual |
 | `reemplazar` | `true` = los huecos del plan sustituyen a TODOS los guardados | Por defecto se sustituyen solo las paredes que trae el plan |
 | `ajustes` | cualquier otro ajuste de la ventana, tal cual | Se funden sobre los guardados |
+| `medidas` | las medidas de mejora que se escriben (`["autoconsumo"]`, `["aerotermia"]`…) | Sin la clave, las que trae marcadas la fase. El autoconsumo necesita sus kWh: del CEE cargado o tecleados en `ajustes.autoconsumo_kwh` (en un CEE directo, siempre tecleados) |
 
 ## Medir un hueco desde una foto
 

@@ -50,8 +50,12 @@ LF = b"\n"
 #: Los TRES programas de CE3X comparten formato: medido sobre los 43 `.cex` de
 #: terciario del disco, sus envolventes, equipos y medidas tienen exactamente
 #: las mismas formas que las del residencial (ver tools/terciario.py).
+#: Y desde el 01/10/2026 CE3X 3.1 (`tools/version_ce3x.py`): los mismos tres
+#: programas con la cabecera 'CE3Xv3.1 …'.
 VERSIONES_CONOCIDAS = ("CEXv2.3 Residencial", "CEXv2.3 PequeñoTerciario",
-                       "CEXv2.3 GranTerciario")
+                       "CEXv2.3 GranTerciario",
+                       "CE3Xv3.1 Residencial", "CE3Xv3.1 PequeñoTerciario",
+                       "CE3Xv3.1 GranTerciario")
 
 # El pickle 2 lleva la imagen del plano embebida y ocupa ~100 KB. En el volcado
 # los textos largos se cortan; para verlos enteros esta --largo.
@@ -98,6 +102,19 @@ class Global:
 
     def __repr__(self) -> str:
         return f"<GLOBAL {self.modulo}.{self.nombre}>"
+
+
+class Literal(str):
+    """Un texto que en el fichero iba como STRING, no como UNICODE.
+
+    CE3X (Python 2.7) escribe con STRING los literales de su codigo —nombres de
+    atributo, 'Fachada', 'Techo'— y con UNICODE lo tecleado. Para LEER da igual
+    y se comporta como un `str`; para VOLVER A ESCRIBIR un objeto leido no: en
+    Python 2 el mismo texto acentuado («Gasóleo-C») en unicode y en bytes no es
+    la misma clave de un diccionario, y una medida calculada usa claves asi.
+    """
+
+    __slots__ = ()
 
 
 class _Marca:
@@ -267,8 +284,12 @@ def reconstruir(data: bytes, offset: int = 0, envoltorio=None) -> Any:
                       "BININT", "BININT1", "BININT2", "BINFLOAT",
                       "BINSTRING", "SHORT_BINSTRING", "BINUNICODE",
                       "SHORT_BINUNICODE", "BINBYTES", "SHORT_BINBYTES"):
-            pila.append(arg if envoltorio is None
-                        else envoltorio(arg, nombre, pos, fin))
+            if envoltorio is not None:
+                pila.append(envoltorio(arg, nombre, pos, fin))
+            elif nombre in ("STRING", "BINSTRING", "SHORT_BINSTRING") and isinstance(arg, str):
+                pila.append(Literal(arg))
+            else:
+                pila.append(arg)
         elif nombre == "NONE":
             pila.append(None)
         elif nombre == "NEWTRUE":

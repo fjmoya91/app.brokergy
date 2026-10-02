@@ -29,6 +29,7 @@ const supabase = require('../services/supabaseClient');
 const drive = require('../services/driveService');
 const folders = require('../services/ceeDirectoFolders');
 const { matchSlot } = require('../services/ceeUploadService');
+const v30 = require('../services/cee/xmlCeeV30');
 
 const EXEC = process.argv.includes('--execute');
 const MEDIA = process.argv.includes('--incluir-media');
@@ -69,6 +70,20 @@ async function leerXml(cee) {
         // UTF-8 sale algún carácter de reemplazo, era latin1.
         const utf = buf.toString('utf8');
         const todo = utf.includes('�') ? buf.toString('latin1') : utf;
+        // El .xml de CE3X 3.1 (esquema v3.0) no tiene <IdentificacionEdificio>:
+        // la vivienda va en <DatosEdificio>. Se lee con el lector del v3.0, que
+        // ya separa la dirección del edificio de la del certificador.
+        if (v30.esXmlCeeV30(todo)) {
+            const id = v30.leerXmlCeeV30(todo).identificacion;
+            return {
+                fichero: f.name,
+                rc: id.refCatastral,
+                direccion: id.direccion,
+                municipio: id.municipio,
+                provincia: id.provincia,
+                cp: id.codigoPostal,
+            };
+        }
         // SOLO el bloque del EDIFICIO: el XML trae antes la dirección del
         // CERTIFICADOR (<DatosDelCertificador>), y un regex a pelo cogía esa —
         // todos salían "Tomelloso".

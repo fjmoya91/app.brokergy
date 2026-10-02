@@ -140,6 +140,22 @@ function seerBloque(aero, modelos) {
     return vals.length ? Math.min(...vals) : null;
 }
 
+/**
+ * La POTENCIA (kW) de un bloque de aerotermia: la suma de sus unidades.
+ *
+ * CE3X 3.1 la pide a cada equipo que no es una caldera estimada —sin ella
+ * califica pero no escribe el XML del certificado—. Sale de la unidad (lo que
+ * se eligió o leyó de la placa) y, si no la trae, del catálogo de su modelo.
+ * La de una aerotermia GENÉRICA (la de la simulación) va en `potencia_nominal`.
+ */
+function potenciaBloque(aero, modelos, campoCat, campoUd = 'potencia') {
+    const kw = getUnidades(aero).map(u => parseFloat(u?.[campoUd])
+        || (campoUd === 'potencia' ? parseFloat(u?.potencia_nominal) : 0)
+        || parseFloat(modelos?.[u?.aerotermia_db_id]?.[campoCat]) || 0);
+    const total = kw.reduce((a, b) => a + b, 0);
+    return total > 0 ? Math.round(total * 100) / 100 : null;
+}
+
 /** Unidades de calefacción cuyo MODELO no tiene SEER en el catálogo. */
 function unidadesSinSeer(aero, modelos) {
     const vistos = new Set();
@@ -350,6 +366,17 @@ export function resolverCe3x(exp, { modelos = {} } = {}) {
         // "AEROTERMIA SH MASTER 14 (MASTER 14)" se lee como una errata.
         nombreCorto: nombreEquipo(cal, prefijoNombre, { udExterior: false, conteo: false }),
         nUnidades: countUnidades(cal),
+        //: La POTENCIA de cada servicio, en kW: CE3X 3.1 la pide a cada equipo
+        //: para escribir el XML. La del ACS es la misma máquina si la da ella; la
+        //: de un equipo de ACS aparte, la suya.
+        potenciaCal: potenciaBloque(cal, modelos, 'potencia_calefaccion'),
+        potenciaFrio: conFrio
+            ? potenciaBloque(cal, modelos, 'potencia_frigorifica', 'potencia_frio') : null,
+        potenciaAcs: acsAparte
+            ? potenciaBloque(inst.aerotermia_acs, modelos, 'potencia_calefaccion') : null,
+        //: El tipo de bomba de calor de la 3.1 (0 Aire-Aire · 1 Aire-Agua): un
+        //: split o unos conductos son aire-aire; una aerotermia, aire-agua.
+        tipoBdc: aireAire ? 0 : 1,
         series: formatSeries(cal, { dash: '', sep: ' / ' }),
         seriesAcs: formatSeries(inst.aerotermia_acs, { dash: '', sep: ' / ' }),
     };

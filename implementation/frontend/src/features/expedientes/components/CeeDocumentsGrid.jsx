@@ -10,7 +10,10 @@ import {
 import { esTerciario } from '../logic/terciario';
 import { demandaPropuesta } from '../logic/demandaPropuesta';
 import { DemandaPropuestaInfo } from './DemandaPropuestaInfo';
-import { autoconsumoMaximo } from '../logic/autoconsumoMaximo';
+import { autoconsumoMaximo, AUTOCONSUMO_DECLARABLE } from '../logic/autoconsumoMaximo';
+import { ubicacionDeExpediente } from '../logic/produccionFv';
+import { normalizarFotovoltaica } from '../logic/fotovoltaica';
+import { ProduccionFotovoltaica } from './ProduccionFotovoltaica';
 import { parseEmisionesTotalesFromXml } from '../../calculator/logic/xmlCeeParser';
 import { buildCe3xFinal, CE3X_FALTA } from '../logic/ce3xFinal';
 import { bloqueConfirmacionCertificador } from '../logic/confirmacionCliente';
@@ -61,8 +64,14 @@ function CeeStatusPill({ expediente, section }) {
 // aquí: está en las Ayudas CE3X de la barra del módulo, junto al resto de
 // chuletas del certificador. Aquí es una cifra de este certificado; allí son
 // textos fijos que no dependen del expediente.
-function AutoconsumoDeclarable({ auto }) {
+//
+// ☀️ PVGIS: con las coordenadas de la vivienda, los kWp que hacen falta para
+// producir esos kWh (y al revés), y su reparto MES A MES, que es la tabla que
+// pide CE3X en «Generación renovable eléctrica». Se despliega a petición: no se
+// le pregunta a un servicio externo por cada CEE que se abre.
+function AutoconsumoDeclarable({ auto, ubicacion = null, kwpExistente = null }) {
     const [copiado, setCopiado] = useState(null);
+    const [verPvgis, setVerPvgis] = useState(false);
 
     const copiar = async (texto, clave) => {
         try {
@@ -100,7 +109,30 @@ function AutoconsumoDeclarable({ auto }) {
                 >
                     {copiado === '__kwh__' ? '✓ Copiado' : 'Copiar'}
                 </button>
+                {ubicacion && (
+                    <button
+                        type="button"
+                        onClick={() => setVerPvgis(v => !v)}
+                        title="Producción fotovoltaica de esta vivienda con PVGIS: kWp ⇄ kWh/año y su reparto mensual"
+                        className={`text-[9px] font-black uppercase tracking-widest whitespace-nowrap px-2 py-1 max-md:px-3 max-md:py-2 rounded-lg border transition-colors ${
+                            verPvgis
+                                ? 'text-amber-300 border-amber-400/50 bg-amber-400/10'
+                                : 'text-amber-300/80 border-amber-400/25 hover:text-amber-200 hover:border-amber-400/50'
+                        }`}
+                    >
+                        ☀️ {verPvgis ? 'Ocultar PVGIS' : 'kWp con PVGIS'}
+                    </button>
+                )}
             </div>
+            {verPvgis && ubicacion && (
+                <div className="px-3 pb-3 max-md:px-2">
+                    <ProduccionFotovoltaica
+                        ubicacion={ubicacion}
+                        kwhObjetivo={auto.kwhAnio}
+                        kwhDeclarado={Math.round(auto.kwhAnio * AUTOCONSUMO_DECLARABLE)}
+                        kwpExistente={kwpExistente} />
+                </div>
+            )}
         </div>
     );
 }
@@ -1957,7 +1989,12 @@ Según el documento:
                                     : { ...ceeSec, ...parseEmisionesTotalesFromXml(expediente?.cee?.[section === 'final' ? 'xml_final' : 'xml_inicial']) };
                                 const auto = autoconsumoMaximo(conTotal);
                                 if (!auto) return null;
-                                return <AutoconsumoDeclarable auto={auto} />;
+                                // Si la vivienda YA tiene placas, la pregunta es
+                                // al revés: cuánto producen sus kWp.
+                                const kwpFv = normalizarFotovoltaica(expediente?.instalacion?.fotovoltaica).potencia_kwp;
+                                return <AutoconsumoDeclarable auto={auto}
+                                                              ubicacion={ubicacionDeExpediente(expediente)}
+                                                              kwpExistente={kwpFv} />;
                             })()}
                         </div>
                     );

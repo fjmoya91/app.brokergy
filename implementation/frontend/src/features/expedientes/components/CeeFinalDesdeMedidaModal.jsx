@@ -20,6 +20,7 @@ import axios from 'axios';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
 import { CampoDecimal } from '../../../components/CampoDecimal';
 import { medidaAislamiento } from '../../cee-envolvente/logic/medidasAislamiento';
+import { VERSIONES_CE3X, VERSION_CE3X_DEFECTO } from '../../cee-envolvente/logic/versionCe3x';
 
 const SLOT = {
     ACS: 'ACS', calefaccion: 'Calefacción', refrigeracion: 'Refrigeración',
@@ -86,6 +87,9 @@ export default function CeeFinalDesdeMedidaModal({ expediente, apiBase = '/api/e
     const [params, setParams] = useState({});
     const [fechaEmision, setFechaEmision] = useState(hoy());
     const [fechaVisita, setFechaVisita] = useState(hoy());
+    //: Con qué versión de CE3X sale el final: la 3.1 vigente salvo que se diga
+    //: otra. El inicial del técnico puede ser de la 2.3: se convierte al copiarlo.
+    const [version, setVersion] = useState(VERSION_CE3X_DEFECTO);
     const [envio, setEnvio] = useState({ phase: null, ok: false, items: [], error: '', link: null });
 
     const url = `${apiBase}/${expediente.id}/cee/final-desde-medida`;
@@ -151,12 +155,14 @@ export default function CeeFinalDesdeMedidaModal({ expediente, apiBase = '/api/e
             const { data } = await axios.post(url, {
                 escribir: true, fecha_emision: fechaEmision, fecha_visita: fechaVisita,
                 medidas: marcadas, textos: textosEnvio, params: paramsEnvio,
+                version_ce3x: version,
             });
             const f = data.analisis?.resultados?.final;
             setEnvio({
                 phase: 'done', ok: true, error: '', link: data.guardado?.carpeta_link || data.guardado?.link,
                 items: [
-                    `Guardado en «${data.guardado?.carpeta}» como ${data.guardado?.nombre}`,
+                    `Guardado en «${data.guardado?.carpeta}» como ${data.guardado?.nombre}`
+                        + (data.version_ce3x ? ` · para CE3X ${data.version_ce3x}` : ''),
                     ...(data.guardado?.archivado ? [{ texto: `El anterior se archiva en OLD (${data.guardado.archivado})`, tono: 'info' }] : []),
                     data.medidas_final?.length
                         ? `Medida de mejora: ${data.medidas_final.join(' · ')}`
@@ -203,6 +209,32 @@ export default function CeeFinalDesdeMedidaModal({ expediente, apiBase = '/api/e
                                     Se copia <span className="text-white font-bold">{datos.base}</span> tal cual (envolvente, datos, técnico e imágenes)
                                     y su «edificio mejorado» pasa a ser el CEE final.
                                 </p>
+
+                                {/* La VERSIÓN de CE3X del final. Un inicial de la 2.3
+                                    sale en la 3.1 sin perder nada: se le añade lo que la
+                                    3.1 pide (datos generales, potencias de los equipos). */}
+                                <section className="rounded-xl border border-white/10 bg-white/[0.02] p-3 space-y-2">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-white/60">Versión de CE3X del final</p>
+                                        {VERSIONES_CE3X.map((x) => (
+                                            <button key={x.valor} type="button" onClick={() => setVersion(x.valor)} title={x.ayuda}
+                                                    className={`px-2 py-0.5 rounded-md border text-[10px] font-black uppercase tracking-wider
+                                                        ${version === x.valor ? 'border-brand/50 bg-brand/15 text-brand' : 'border-white/10 text-white/40 hover:text-white/75'}`}>
+                                                {x.etiqueta}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    {a?.version_inicial && (
+                                        <p className="text-[11px] text-white/45">
+                                            El inicial del técnico está hecho con <b className="text-white/70">CE3X {a.version_inicial}</b>
+                                            {a.version_inicial !== version
+                                                ? (version === '3.1'
+                                                    ? ': al copiarlo se pasa a la 3.1 —datos generales nuevos y la potencia de cada equipo—. Revísalo en CE3X antes de calcular.'
+                                                    : ': se intenta bajar a la 2.3; si lleva algo que la 2.3 no sabe abrir, no se escribe y se dice.')
+                                                : '.'}
+                                        </p>
+                                    )}
+                                </section>
 
                                 <section className="rounded-xl border border-white/10 bg-white/[0.02] p-3 space-y-2">
                                     <div className="flex flex-wrap items-center gap-2">
