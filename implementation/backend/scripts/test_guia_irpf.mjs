@@ -17,7 +17,7 @@ import { fileURLToPath } from 'url';
 import {
     componerGuia, buildGuiaIrpfHtml, calendarioDeduccion, elegirModalidad,
     tipoViviendaDeCee, mensajeGuiaIrpf, facturaConIva, comprobarDemanda,
-    textoGuiaEnEntrega, fraseEjemplo, IMPORTE_EJEMPLO, tipoAutomatico, asuntoGuiaIrpf, esCorreccion,
+    textoGuiaEnEntrega, fraseEjemplo, IMPORTE_EJEMPLO, tipoAutomatico, asuntoGuiaIrpf, esCorreccion, descripcionTipo,
 } from '../../frontend/src/features/expedientes/logic/guiaIrpf.js';
 import { leerDatosIrpfDeTexto } from '../../frontend/src/features/calculator/logic/xmlCeeParser.js';
 
@@ -147,6 +147,11 @@ const previa = { modalidad: '60', at: '2026-10-01T16:03:43.921Z' };
 ok(esCorreccion(pisoCat, previa) && !esCorreccion(pisoCat, { modalidad: '40' }) && !esCorreccion(pisoCat, null), 'corrección solo si cambia el porcentaje');
 const msgCorr = mensajeGuiaIrpf(pisoCat, { nombre: 'LAURA', certificados: 1, previa });
 ok(/\*corregida\*/.test(msgCorr) && /el 01\/10\/2026 te indicábamos la deducción del 60 %/.test(msgCorr) && /\*40 %\*/.test(msgCorr) && /participación del 16,00 %/.test(msgCorr) && /descarta la anterior/.test(msgCorr), 'el mensaje de corrección dice qué decía la anterior, cuál vale y por qué');
+ok(/en hilera, forma parte de una finca en régimen de división horizontal/.test(msgCorr) && !/dividido en pisos/.test(msgCorr), 'certificado unifamiliar + división horizontal: se le dice EN HILERA, no «piso» (2026CEE_60)');
+eq(descripcionTipo({ tipo: 'piso', tipoCee: 'unifamiliar' }), 'Vivienda unifamiliar en hilera (división horizontal)', 'descripción: unifamiliar en hilera');
+eq(descripcionTipo({ tipo: 'piso', tipoCee: 'piso' }), 'Piso (división horizontal)', 'descripción: piso');
+ok(/es un piso dentro de un edificio/.test(mensajeGuiaIrpf(componerGuia({ ...base, propietarios: 1, participacion: 16, facturas: [], anterior: { cee: cee(325.4, 'E', '2026-03-01', { tipoEdificio: 'ViviendaIndividualEnBloque' }) }, posterior: { cee: cee(104.04, 'C', '2026-09-30', { tipoEdificio: 'ViviendaIndividualEnBloque' }) } }), { previa })), 'un piso de verdad se dice piso');
+ok(/Vivienda unifamiliar en hilera/.test(buildGuiaIrpfHtml(pisoCat, { appUrl: 'https://x' })), 'el PDF pone «Vivienda unifamiliar en hilera» en el tipo');
 ok(/CORREGIDA/.test(asuntoGuiaIrpf(pisoCat, { previa })) && !/CORREGIDA/.test(asuntoGuiaIrpf(pisoCat)), 'asunto de corrección');
 
 if (process.argv.includes('--sin-pdf')) {
@@ -180,6 +185,7 @@ const casos = [
     ['40 % · piso', piso],
     ['20 % · demanda', veinte],
     ['60 % · sin facturas (ejemplo)', sinFact],
+    ['40 % · hilera (2026CEE_60, ejemplo)', pisoCat],
     ['60 % · solo factura de certificados (ejemplo, CEE directo)', certSolo],
     ['40 % · piso sin facturas (ejemplo)', componerGuia({ ...base, tipoManual: 'piso', facturas: [], obras: [] })],
 ];

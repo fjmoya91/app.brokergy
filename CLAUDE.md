@@ -4370,7 +4370,11 @@ se le pregunta al Catastro por su referencia (`participacionDe`, por `getByRC`, 
 respeta el WAF y cachea). Solo un «edificio completo» que declare el certificado se
 respeta; con el 100 % decide el certificado. Lo elegido a mano en el popup manda sobre
 todo, y si el certificado y el Catastro no coinciden se AVISA. Si el Catastro no
-responde, se avisa de que el tipo sale del certificado.
+responde, se avisa de que el tipo sale del certificado. ⚠️ «Piso» aquí significa
+**división horizontal**, y ahí cabe también una vivienda **EN HILERA** que comparte finca
+(2026CEE_60 lo es): al cliente se le nombra con `descripcionTipo` —certificado
+unifamiliar + participación < 100 % → «Vivienda unifamiliar en hilera (división
+horizontal)»—, nunca "un edificio dividido en pisos" de un adosado.
 
 **REGLA — lo que se cambia en el popup se GUARDA SOLO** (`POST …/guia-irpf/ajustes`, con
 freno, y al cerrar se vacía lo pendiente). En 2026CEE_60 se eligió «piso», se cerró sin

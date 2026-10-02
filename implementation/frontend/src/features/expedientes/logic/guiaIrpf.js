@@ -107,7 +107,10 @@ export const RUTA_RENTA = [
 
 export const TIPOS_VIVIENDA = {
     unifamiliar: { label: 'Vivienda unifamiliar', corto: 'Unifamiliar' },
-    piso: { label: 'Vivienda en un bloque (piso)', corto: 'Piso' },
+    // Lo que decide el 40 % es la DIVISIÓN HORIZONTAL (participación < 100 % en el
+    // Catastro), y ahí caben un piso y una vivienda EN HILERA que comparte finca
+    // (2026CEE_60). Cuál de los dos es lo dice `descripcionTipo`.
+    piso: { label: 'Vivienda en división horizontal (piso o en hilera)', corto: 'Piso / hilera' },
     bloque: { label: 'Edificio completo (comunidad de propietarios)', corto: 'Edificio completo' },
 };
 
@@ -182,6 +185,18 @@ export function completarCee(cee, xml) {
 }
 
 /**
+ * Cómo se le NOMBRA al cliente su vivienda. El tipo `piso` es "en división
+ * horizontal", y eso es tanto un piso como una vivienda EN HILERA que comparte
+ * finca: decirle a la dueña de un adosado que vive en "un edificio dividido en
+ * pisos" es decirle algo falso de su casa (2026CEE_60). Si el certificado la
+ * declara unifamiliar y aun así está en división horizontal, es la hilera.
+ */
+export function descripcionTipo({ tipo, tipoCee } = {}) {
+    if (tipo === 'piso') return tipoCee === 'unifamiliar' ? 'Vivienda unifamiliar en hilera (división horizontal)' : 'Piso (división horizontal)';
+    return TIPOS_VIVIENDA[tipo]?.label || null;
+}
+
+/**
  * El tipo de vivienda cuando nadie lo ha elegido a mano en el popup.
  *
  * REGLA — manda el CATASTRO, como en la oportunidad: una vivienda con
@@ -235,7 +250,7 @@ export function elegirModalidad({ tipo, irpf, demanda }) {
         return { modalidad: null, motivo: 'El certificado es de un edificio de uso TERCIARIO: estas deducciones son solo para viviendas.' };
     }
     if (irpf?.estado === 'ok' && irpf.cumple) {
-        if (tipo === 'piso') return { modalidad: '40', motivo: 'Piso en un bloque: deducción del 40 % (la del 60 % es para viviendas unifamiliares y obras de toda la comunidad).' };
+        if (tipo === 'piso') return { modalidad: '40', motivo: 'Vivienda en división horizontal (piso o en hilera): deducción del 40 % (la del 60 % es para viviendas unifamiliares independientes y obras de toda la comunidad).' };
         if (tipo === 'unifamiliar' || tipo === 'bloque') return { modalidad: '60', motivo: tipo === 'bloque' ? 'Edificio completo: deducción del 60 % sobre la parte de cada propietario.' : 'Vivienda unifamiliar: deducción del 60 %, la más favorable.' };
         return { modalidad: null, motivo: 'No consta el tipo de vivienda: elige si es unifamiliar o un piso.' };
     }
@@ -396,7 +411,7 @@ export function componerGuia(d = {}) {
     if (tipoOrigen !== 'manual' && tipoCee && tipo && tipoCee !== tipo && TIPOS_VIVIENDA[tipoCee]) {
         avisos.push(`El certificado dice «${TIPOS_VIVIENDA[tipoCee].label}», pero ${tipoOrigen === 'catastro'
             ? `en el Catastro la vivienda tiene una participación del ${n2(participacion)} % (división horizontal)`
-            : 'la simulación de la oportunidad la calculó como piso'}: va como ${TIPOS_VIVIENDA[tipo].label.toLowerCase()}, igual que en la oportunidad. Si no lo es, cámbialo arriba.`);
+            : 'la simulación de la oportunidad la calculó como piso'}: va como ${(descripcionTipo({ tipo, tipoCee }) || TIPOS_VIVIENDA[tipo].label).toLowerCase()}${m ? ` → deducción del ${m.pct} %` : ''}, igual que en la oportunidad. Si no lo es, cámbialo arriba.`);
     }
     if (d.catastroError && tipoOrigen !== 'manual') {
         avisos.push(`No se ha podido consultar el Catastro (${d.catastroError}): el tipo de vivienda sale del certificado. Compruébalo: si es un piso, la deducción es la del 40 %.`);
@@ -449,6 +464,7 @@ export function componerGuia(d = {}) {
         tipoOrigen,
         tipoCee,
         // Lo que saldría sin tocar nada (para que el popup sepa volver a "automático").
+        tipoDescripcion: descripcionTipo({ tipo, tipoCee }),
         tipoAuto,
         tipoAutoOrigen: origenAuto,
         participacion,
@@ -584,7 +600,10 @@ export function esCorreccion(guia, previa) {
 /** Por qué corresponde ESTA deducción, en lenguaje de cliente (para la corrección). */
 function motivoDelTipo(guia) {
     if (guia?.tipo === 'piso') {
-        return `, porque tu vivienda forma parte de un edificio dividido en pisos${guia.participacion != null && guia.participacion < 100 ? ` (en el Catastro tiene una participación del ${n2(guia.participacion)} %)` : ''}`;
+        const part = guia.participacion != null && guia.participacion < 100 ? ` (en el Catastro tiene una participación del ${n2(guia.participacion)} %)` : '';
+        return guia.tipoCee === 'unifamiliar'
+            ? `, porque tu vivienda, en hilera, forma parte de una finca en régimen de división horizontal${part}`
+            : `, porque tu vivienda es un piso dentro de un edificio en régimen de división horizontal${part}`;
     }
     if (guia?.tipo === 'unifamiliar') return ', porque tu vivienda es unifamiliar';
     if (guia?.tipo === 'bloque') return ', porque la obra es de todo el edificio';
@@ -622,7 +641,7 @@ export function buildGuiaIrpfHtml(guia, { appUrl = origenApp() } = {}) {
     const fin = g.certificados?.posterior || {};
     const cal = g.calendario;
     const multi = (g.propietarios || 1) > 1;
-    const tipoLabel = TIPOS_VIVIENDA[g.tipo]?.label || '—';
+    const tipoLabel = g.tipoDescripcion || TIPOS_VIVIENDA[g.tipo]?.label || '—';
 
     // Por qué la acreditan los certificados, en una frase.
     let acredita = '';

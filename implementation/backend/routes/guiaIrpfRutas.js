@@ -15,10 +15,15 @@
 //   POST /:id/guia-irpf/ajustes    guarda SOLO los ajustes del popup (autoguardado)
 //   POST /:id/guia-irpf/guardar    lo guarda en Drive y lo sella (portal del cliente)
 //   POST /:id/guia-irpf/enviar     certificados + guía al cliente por email/WhatsApp
+//                                  (staff, o `x-internal-key` + `usuario` en el cuerpo)
 
 const guiaIrpf = require('../services/guiaIrpfService');
+const { staffOClaveInterna } = require('../middleware/auth');
 
-const usuarioDe = (req) => req.user?.email || req.user?.nombre || null;
+// Con la clave interna no hay sesión: quien lo pidió viaja en el cuerpo, para que
+// el historial no diga "Sistema" de un envío que decidió una persona.
+const usuarioDe = (req) => req.user?.email || req.user?.nombre
+    || (req.internalCall && typeof req.body?.usuario === 'string' ? req.body.usuario.slice(0, 120) : null);
 
 function responderError(res, err, etiqueta, porDefecto) {
     if (!err.status || err.status >= 500) console.error(`[guia-irpf ${etiqueta}]`, err.message);
@@ -57,7 +62,10 @@ function montarGuiaIrpf(router, origen, { staffOnly }) {
         catch (err) { responderError(res, err, 'guardar', 'No se pudo guardar la guía en Drive'); }
     });
 
-    router.post('/:id/guia-irpf/enviar', staffOnly, async (req, res) => {
+    // También de servidor a servidor (`x-internal-key`): el WhatsApp solo vive en el
+    // proceso del backend, así que un envío pedido desde un script o el MCP tiene
+    // que entrar por aquí — el mismo camino, el mismo texto y el mismo sello.
+    router.post('/:id/guia-irpf/enviar', staffOClaveInterna, async (req, res) => {
         try { res.json(await guiaIrpf.enviar(origen, req.params.id, req.body || {}, { usuario: usuarioDe(req) })); }
         catch (err) { responderError(res, err, 'enviar', 'No se pudo enviar'); }
     });
