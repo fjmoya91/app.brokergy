@@ -6,7 +6,6 @@ import { EntregaCliente } from '../components/EntregaCliente';
 import { DatosExpedienteModal } from '../components/DatosExpedienteModal';
 import { ResumenDatos } from '../components/ResumenDatos';
 import { Trazabilidad } from '../components/Trazabilidad';
-import { CuestionarioCliente } from '../components/CuestionarioCliente';
 import { DocumentacionCee } from '../components/DocumentacionCee';
 import { FacturaCeeModal } from '../components/FacturaCeeModal';
 import { PrescriptorDetailModal } from '../../admin/views/PrescriptorDetailModal';
@@ -47,6 +46,11 @@ export function CeeDirectoDetailView({ id, onBack }) {
     const [showDatos, setShowDatos] = useState(false);
     const [showPartner, setShowPartner] = useState(false);
     const [showFactura, setShowFactura] = useState(false);
+    // Pestaña de la ficha: el certificado (a lo que se entra) o la documentación
+    // que aporta el cliente. Las dos se quedan MONTADAS: la de documentación tiene
+    // que poder contar lo que falta y lo que hay por validar sin abrirla.
+    const [pestana, setPestana] = useState('cee');
+    const [resumenDocs, setResumenDocs] = useState(null);
 
     const cargar = useCallback(async (silent = false) => {
         if (!silent) setLoading(true);
@@ -347,7 +351,7 @@ export function CeeDirectoDetailView({ id, onBack }) {
             {/* Los datos, en UNA LÍNEA. Lo que falta se ve sin desplegar nada —es
                 lo que impide encargar el CEE—; el detalle y la edición van a
                 demanda, para que la pantalla sea la del certificado. */}
-            <div className="mb-6">
+            <div className="mb-5">
                 <ResumenDatos
                     expediente={expediente}
                     prescriptor={expediente.prescriptor}
@@ -362,9 +366,14 @@ export function CeeDirectoDetailView({ id, onBack }) {
                 />
             </div>
 
-            <CuestionarioCliente cuestionario={expediente.documentacion?.cuestionario} />
+            {/* ── Pestañas: el certificado y la documentación del cliente ──── */}
+            <PestanasFicha pestana={pestana} onCambiar={setPestana} resumen={resumenDocs} />
 
-            <DocumentacionCee id={expediente.id} esEquipo={isStaff} esAdmin={isAdmin} />
+            <div className={pestana === 'docs' ? '' : 'hidden'}>
+                <DocumentacionCee id={expediente.id} esEquipo={isStaff} esAdmin={isAdmin}
+                    cuestionario={expediente.documentacion?.cuestionario}
+                    onResumen={setResumenDocs} />
+            </div>
 
             <DatosExpedienteModal
                 isOpen={showDatos}
@@ -409,8 +418,7 @@ export function CeeDirectoDetailView({ id, onBack }) {
                 />
             )}
 
-            <div className="h-6" />
-
+            <div className={pestana === 'cee' ? '' : 'hidden'}>
             {/* ── El módulo CEE, el mismo del expediente CAE ──────────────── */}
             <div className="rounded-2xl border border-white/[0.06] bg-bkg-surface/60 p-4 md:p-6">
                 <CeeModule
@@ -443,8 +451,44 @@ export function CeeDirectoDetailView({ id, onBack }) {
             {isStaff && (
                 <EntregaCliente id={expediente.id} esDoble={esDoble} onCambio={() => cargar(true)} />
             )}
+            </div>
 
+        </div>
+    );
+}
 
+// Las dos pestañas de la ficha. La de documentación dice en su propia chapa lo
+// que reclama atención —imprescindibles que faltan, fotos rechazadas o por
+// validar—, para no tener que abrirla a ver si hay algo.
+function PestanasFicha({ pestana, onCambiar, resumen }) {
+    let chapa = null;
+    if (resumen) {
+        const faltan = resumen.obligatorias - resumen.obligatoriasHechas;
+        if (faltan > 0) chapa = { texto: `Faltan ${faltan}`, tono: 'amber' };
+        else if (resumen.rechazadas > 0) chapa = { texto: `${resumen.rechazadas} rechazada${resumen.rechazadas === 1 ? '' : 's'}`, tono: 'red' };
+        else if (resumen.porValidar > 0) chapa = { texto: `${resumen.porValidar} por validar`, tono: 'sky' };
+        else if (resumen.apartadosHechos > 0) chapa = { texto: '✓', tono: 'emerald' };
+    }
+    const TONO = {
+        amber: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+        red: 'bg-red-500/15 text-red-300 border-red-500/30',
+        sky: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
+        emerald: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+    };
+    const boton = (clave, texto, extra = null) => (
+        <button type="button" onClick={() => onCambiar(clave)}
+            className={`relative -mb-px flex items-center gap-2 px-4 py-2.5 text-[11px] font-black uppercase tracking-widest border-b-2 transition-colors ${
+                pestana === clave ? 'border-brand text-white' : 'border-transparent text-white/40 hover:text-white/70'}`}>
+            {texto}
+            {extra}
+        </button>
+    );
+    return (
+        <div className="mb-4 flex items-end gap-1 border-b border-white/[0.08]">
+            {boton('cee', 'Certificado')}
+            {boton('docs', 'Documentación', chapa && (
+                <span className={`px-1.5 py-0.5 rounded-md border text-[9px] font-black tracking-wider normal-case ${TONO[chapa.tono]}`}>{chapa.texto}</span>
+            ))}
         </div>
     );
 }

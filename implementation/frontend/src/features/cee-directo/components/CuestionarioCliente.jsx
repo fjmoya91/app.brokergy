@@ -10,7 +10,7 @@ export function CuestionarioCliente({ cuestionario }) {
     const filas = resumenCuestionario(cuestionario);
     if (!filas.length) return null;
     return (
-        <div className="mb-6 rounded-2xl border border-white/[0.06] bg-bkg-surface/60 px-4 py-3">
+        <div className="mb-4 rounded-2xl border border-white/[0.06] bg-bkg-surface/60 px-4 py-3">
             <div className="text-[10px] font-black uppercase tracking-widest text-white/35 mb-2">
                 La vivienda, según el cliente
             </div>

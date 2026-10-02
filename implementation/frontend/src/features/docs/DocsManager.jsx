@@ -180,7 +180,7 @@ function ErrorSlot({ error, className = '' }) {
     );
 }
 
-export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedded = false, canValidate = false, rol = null, need = null, onPedirSlot = null, puedeWhatsapp = false, api = API_DOCS_OPORTUNIDAD }) {
+export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedded = false, canValidate = false, rol = null, need = null, onPedirSlot = null, puedeWhatsapp = false, api = API_DOCS_OPORTUNIDAD, compacto = false, onResumen = null }) {
     // Enlace scoped por rol: cliente sube el ANTES de la obra; instalador, el DESPUÉS
     // (instalación terminada + facturas + RITE). Restringe la vista a esa fase.
     const roleFase = rol === 'cliente' ? 'ANTES' : rol === 'instalador' ? 'DESPUES' : null;
@@ -779,6 +779,32 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         return out;
     };
 
+    // Resumen para quien monta el gestor DENTRO de otra pantalla (la pestaña de
+    // Documentación del CEE directo): lo que falta y lo que hay por validar se
+    // tiene que poder leer en la pestaña sin abrirla. Va antes del `return` de
+    // carga: un hook por debajo tumba la pantalla (regla 62).
+    const onResumenRef = useRef(onResumen);
+    onResumenRef.current = onResumen;
+    useEffect(() => {
+        if (!onResumenRef.current || !info) return;
+        const ss = (info.slots || []).filter(s => !s.existing && !s.waived);
+        const tiene = (s) => (s.items?.length > 0) || !!s.externalRite || (s.externalDocs?.length > 0);
+        const req = ss.filter(s => s.required);
+        let porValidar = 0, rechazadas = 0;
+        for (const s of ss) for (const it of (s.items || [])) {
+            const e = it.estado || 'subida';
+            if (e === 'subida') porValidar++;
+            else if (e === 'rechazada') rechazadas++;
+        }
+        onResumenRef.current({
+            obligatorias: req.length,
+            obligatoriasHechas: req.filter(tiene).length,
+            porValidar, rechazadas,
+            apartados: ss.length,
+            apartadosHechos: ss.filter(tiene).length,
+        });
+    }, [info]);
+
     if (loading) return <div className="py-16 text-center text-amber-500 font-bold tracking-widest text-sm uppercase animate-pulse">Cargando…</div>;
     if (error) return (
         <div className="py-16 text-center">
@@ -1359,6 +1385,9 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                 />
             )}
             {/* Cabecera de identificación */}
+            {/* En modo compacto el gestor vive dentro de la ficha del propio
+                expediente: repetir su número y su cliente es ruido. */}
+            {!compacto && (
             <div className={`text-center ${embedded ? 'mb-4' : 'mb-6'}`}>
                 {!embedded && <h1 className="text-2xl md:text-4xl font-black text-white tracking-tight leading-tight">Documentación del expediente</h1>}
                 <p className="text-white/60 text-sm mt-2">
@@ -1366,6 +1395,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                     {info.cliente ? <> · {info.cliente}</> : null}
                 </p>
             </div>
+            )}
 
             {/* ════════ VISTA DEL CLIENTE (enlace público, móvil) ════════
                 Una sola lista: primero lo que hay que hacer, después —plegado— lo
@@ -1788,6 +1818,24 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
 
             {!clientView && (tab === 'ANTES' ? (
                 <section>
+                    {/* Compacto: el progreso y "validar todo" en UNA línea. Las dos
+                        cajas de aviso y el botón a todo el ancho eran tres franjas
+                        delante de la primera foto. */}
+                    {compacto ? (
+                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
+                            <span className={`text-[11px] font-black uppercase tracking-widest ${allReqDone || !reqAntes.length ? 'text-emerald-300/80' : 'text-amber-300'}`}>
+                                {reqAntes.length
+                                    ? (allReqDone ? `✓ Imprescindibles ${reqDone}/${reqAntes.length}` : `Imprescindibles ${reqDone}/${reqAntes.length}`)
+                                    : 'Nada imprescindible'}
+                            </span>
+                            {canValidate && antesPending.length > 0 && (
+                                <button onClick={() => validateMany(antesPending, '__antes__')} disabled={bulkValidating !== null}
+                                    className="min-h-[34px] px-3 rounded-lg bg-emerald-500/10 border border-emerald-400/30 text-emerald-300 text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all disabled:opacity-40">
+                                    {bulkValidating === '__antes__' ? 'Validando…' : `✓ Validar ${antesPending.length} pendiente${antesPending.length === 1 ? '' : 's'}`}
+                                </button>
+                            )}
+                        </div>
+                    ) : (<>
                     <div className="mb-4 p-4 bg-amber-400/[0.06] border border-amber-400/20 rounded-2xl text-sm text-white/70 leading-relaxed">
                         {needSet
                             ? <>📋 Sube <strong className="text-amber-300">solo lo que te pedimos</strong> aquí abajo. Puedes hacerlo desde el móvil, archivo a archivo.</>
@@ -1801,6 +1849,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                             {bulkValidating === '__antes__' ? 'Validando…' : `✓ Validar todo lo pendiente (${antesPending.length})`}
                         </button>
                     )}
+                    </>)}
                     {porDestino(antes)}
                 </section>
             ) : (
