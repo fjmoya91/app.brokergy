@@ -97,8 +97,9 @@ function loadConfirmacionCliente() {
 //     pertenencia de la oportunidad. NO puede ver ni gestionar el expediente luego.
 const PUBLIC_EXPEDIENTE_ROUTES = [
     { method: 'POST', re: /^\/[^/]+\/cert-ack\/?$/ },
-    { method: 'GET',  re: /^\/[^/]+\/fichas-tecnicas\/[^/]+\/?$/ },
-    { method: 'GET',  re: /^\/[^/]+\/anexos-cifo\/[^/]+\/content\/?$/ },
+    // `GET /:id/fichas-tecnicas/:type` y `GET /:id/anexos-cifo/:driveId/content`
+    // estuvieron aquí y servían los PDF a cualquiera sin sesión. Solo los piden los
+    // modales del CIFO y del RES080, con sesión: les aplica el `internalOnly` de abajo.
     { method: 'GET',  re: /^\/[^/]+\/notify-client\/?$/ },
     { method: 'GET',  re: /^\/[^/]+\/approve-cee-from-email\/?$/ },
     // "Abrir carpeta local del expediente": página pública firmada con HMAC que se

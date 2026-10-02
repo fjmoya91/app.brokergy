@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const supabase = require('../services/supabaseClient');
 
 // Cache en memoria: token → { userData, expiresAt }
@@ -210,6 +211,32 @@ const isAdmin = (req) => !!(req.user && req.user.rol_nombre === 'ADMIN');
 const isTrabajador = (req) => !!(req.user && req.user.rol_nombre === 'TRABAJADOR');
 const isStaff = (req) => !!(req.user && (req.user.rol_nombre === 'ADMIN' || req.user.rol_nombre === 'TRABAJADOR'));
 
+// ─── Llamadas de servidor a servidor (envío programado, MCP, scripts) ─────────
+// Llevan la cabecera `x-internal-key` = INTERNAL_API_KEY en vez de una sesión.
+// Se compara en tiempo constante: detrás hay rutas que envían emails y WhatsApp.
+const esClaveInterna = (req) => {
+    const key = req.headers['x-internal-key'];
+    const esperada = process.env.INTERNAL_API_KEY;
+    if (!key || !esperada || typeof key !== 'string') return false;
+    const a = Buffer.from(key);
+    const b = Buffer.from(esperada);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+};
+
+// Con sesión (cualquier rol) o con la clave interna. NUNCA anónimo.
+const sesionOClaveInterna = (req, res, next) => {
+    if (esClaveInterna(req)) { req.internalCall = true; return next(); }
+    return enforceAuth(req, res, next);
+};
+
+// Equipo interno (ADMIN / TRABAJADOR) o la clave interna. Para lo que sale de la
+// casa a un tercero —emails y WhatsApp—: con `requireAuth` a secas, cualquiera
+// en internet podía usar nuestro buzón y nuestro número.
+const staffOClaveInterna = (req, res, next) => {
+    if (esClaveInterna(req)) { req.internalCall = true; return next(); }
+    return staffOnly(req, res, next);
+};
+
 module.exports = {
     requireAuth,
     enforceAuth,
@@ -221,4 +248,7 @@ module.exports = {
     isAdmin,
     isTrabajador,
     isStaff,
+    esClaveInterna,
+    sesionOClaveInterna,
+    staffOClaveInterna,
 };

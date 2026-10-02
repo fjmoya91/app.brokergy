@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { sesionOClaveInterna, staffOClaveInterna } = require('../middleware/auth');
 
 const { getBrowser, mergePdfs, fetchAnnexBuffers, documentoAPdf, encajarPortadas } = require("../services/pdfService");
 const { esPlantillaValida } = require("../services/formularioOficialService");
@@ -19,7 +20,7 @@ const annexSpecs = (body) => (Array.isArray(body?.annexes) ? body.annexes : body
  * Body: { html: string }
  * Returns: application/pdf
  */
-router.post('/generate', async (req, res) => {
+router.post('/generate', sesionOClaveInterna, async (req, res) => {
     const { html } = req.body;
     const annexes = annexSpecs(req.body);
     console.log(`[PDF] Generando PDF oficial... (Payload: ${Math.round((html?.length || 0)/1024)} KB, anexos=${annexes?.length || 0})`);
@@ -104,7 +105,7 @@ router.post('/generate', async (req, res) => {
  * más del mismo documento en la carpeta — y con dos "Anexo I" en "6. ANEXOS CAE",
  * uno con los datos viejos, es cuestión de tiempo enviar el que no toca.
  */
-router.post('/save-to-drive', async (req, res) => {
+router.post('/save-to-drive', sesionOClaveInterna, async (req, res) => {
     const { html, folderId, fileName, subfolderName, replaceExisting } = req.body;
     const annexes = annexSpecs(req.body);
     const driveService = require('../services/driveService');
@@ -183,7 +184,7 @@ router.post('/save-to-drive', async (req, res) => {
  * POST /api/pdf/send-proposal
  * Body: { html: string, to: string, userName: string, summaryData: object }
  */
-router.post('/send-proposal', async (req, res) => {
+router.post('/send-proposal', staffOClaveInterna, async (req, res) => {
     const { html, to, cc, userName, summaryData, customMessage, from, pdfBase64 } = req.body;
     const emailService = require('../services/emailService');
 
@@ -304,7 +305,7 @@ router.post('/send-proposal', async (req, res) => {
  *   docs: [{ html: string, fileName: string }] 
  * }
  */
-router.post('/send-annex', async (req, res) => {
+router.post('/send-annex', staffOClaveInterna, async (req, res) => {
     // `from` (opcional): buzón alternativo elegido por el usuario cuando el
     // principal ha agotado su cuota diaria. Ver emailService.getFallbackSender().
     // `pillLabel`/`buttonLabel`/`preheader`: los pone quien envía cuando el correo no
@@ -377,7 +378,7 @@ router.post('/send-annex', async (req, res) => {
  * Genera el CIFO como PDF y lo envía al instalador por email.
  * Body: { html, to, instaladorNombre, numExpediente }
  */
-router.post('/send-cifo', async (req, res) => {
+router.post('/send-cifo', staffOClaveInterna, async (req, res) => {
     const { html, to, instaladorNombre, numExpediente, clienteNombre, direccionInstalacion, uploadLink, subject, message, from } = req.body;
     const annexes = annexSpecs(req.body);
     const emailService = require('../services/emailService');

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { adminOnly, requireAuth, staffOnly } = require('../middleware/auth');
+const { adminOnly, staffOnly, sesionOClaveInterna, staffOClaveInterna } = require('../middleware/auth');
 
 // Cargamos el servicio de forma tolerante: si falla, la app sigue viva.
 let wwa = null;
@@ -23,7 +23,7 @@ function requireService(req, res, next) {
 }
 
 // GET /api/whatsapp/status
-router.get('/status', requireAuth, requireService, (req, res) => {
+router.get('/status', sesionOClaveInterna, requireService, (req, res) => {
     try {
         res.json(wwa.getStatus());
     } catch (err) {
@@ -83,7 +83,7 @@ router.post('/logout', adminOnly, requireService, async (req, res) => {
 });
 
 // POST /api/whatsapp/send-text  { phone, message }
-router.post('/send-text', requireAuth, requireService, async (req, res) => {
+router.post('/send-text', staffOClaveInterna, requireService, async (req, res) => {
     try {
         const { phone, message } = req.body || {};
         if (!phone || !message) {
@@ -107,7 +107,7 @@ router.get('/groups', adminOnly, requireService, async (req, res) => {
 });
 
 // POST /api/whatsapp/send-media  { phone, caption, media: { url?, base64?, mimetype?, filename? }, asDocument? }
-router.post('/send-media', requireAuth, requireService, async (req, res) => {
+router.post('/send-media', staffOClaveInterna, requireService, async (req, res) => {
     try {
         // `textoDespues`: mensaje aparte DESPUÉS del adjunto (el enlace para
         // aceptar la propuesta). Si no sale, el adjunto sí: lo dice `out.despues`.

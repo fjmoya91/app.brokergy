@@ -127,7 +127,7 @@ router.post('/internal-simulation', enforceAuth, async (req, res) => {
 });
 
 // 1. Registrar una nueva oportunidad (POST /api/oportunidades)
-router.post('/', requireAuth, async (req, res) => {
+router.post('/', enforceAuth, async (req, res) => {
     try {
         const body = normalizeData(req.body);
         // El SCOP de la simulación se GUARDA con dos decimales (redondeaScop, fuente
@@ -585,7 +585,7 @@ function filaListado(o) {
 }
 
 // 2. Obtener lista completa (GET /api/oportunidades)
-router.get('/', requireAuth, async (req, res) => {
+router.get('/', enforceAuth, async (req, res) => {
     try {
         let query = supabase
             .from('oportunidades')
@@ -1264,7 +1264,7 @@ ${notesStr}
 });
 
 // Asignar Prescriptor (PATCH /api/oportunidades/:id/asignar)
-router.patch('/:id/asignar', async (req, res) => {
+router.patch('/:id/asignar', enforceAuth, async (req, res) => {
     const { id } = req.params;
     const { prescriptor_id, prescriptor_name } = req.body;
     try {
@@ -1287,7 +1287,7 @@ router.patch('/:id/asignar', async (req, res) => {
 });
 
 // Actualizar cod_cliente_interno (PATCH /api/oportunidades/:id/cod-cliente)
-router.patch('/:id/cod-cliente', requireAuth, async (req, res) => {
+router.patch('/:id/cod-cliente', enforceAuth, async (req, res) => {
     const { id } = req.params;
     const { cod_cliente_interno } = req.body;
     try {
@@ -1373,7 +1373,7 @@ router.patch('/:id/ficha', requireAuth, adminOnly, async (req, res) => {
 });
 
 // Vincular cliente existente (PATCH /api/oportunidades/:id/vincular-cliente)
-router.patch('/:id/vincular-cliente', requireAuth, async (req, res) => {
+router.patch('/:id/vincular-cliente', enforceAuth, async (req, res) => {
     const { id } = req.params;
     const { cliente_id } = req.body;
     try {
@@ -1435,7 +1435,7 @@ router.delete('/:id/historial/:entryId', adminOnly, async (req, res) => {
 });
 
 // Actualizar entrada específica (PUT /api/oportunidades/:id/historial/:entryId)
-router.put('/:id/historial/:entryId', requireAuth, async (req, res) => {
+router.put('/:id/historial/:entryId', enforceAuth, async (req, res) => {
     const { id, entryId } = req.params;
     const { texto } = req.body;
 
@@ -1479,7 +1479,7 @@ router.put('/:id/historial/:entryId', requireAuth, async (req, res) => {
 // Acepta tanto id_oportunidad (ej. 26RES060_OP90) como ref_catastral (20 chars).
 // Si hay varias coincidencias por RC (varios LEAD para la misma vivienda),
 // devuelve la MÁS RECIENTE — nunca 500 por duplicados.
-router.get('/:id', requireAuth, async (req, res) => {
+router.get('/:id', enforceAuth, async (req, res) => {
     try {
         const { id } = req.params;
         if (!id) return res.status(400).json({ error: 'ID requerido' });
@@ -1597,7 +1597,7 @@ router.get('/:id/local-path', adminOnly, async (req, res) => {
 });
 
 // Obtener anexos (archivos en carpeta "0. PRESUPUESTO")
-router.get('/:id/anexos', async (req, res) => {
+router.get('/:id/anexos', enforceAuth, async (req, res) => {
     try {
         const { id } = req.params;
         const { driveFolderId } = req.query;
@@ -1631,7 +1631,7 @@ router.get('/:id/anexos', async (req, res) => {
 });
 
 // Obtener contenido de un archivo específico
-router.get('/:id/anexos/:fileId', async (req, res) => {
+router.get('/:id/anexos/:fileId', enforceAuth, async (req, res) => {
     try {
         const { fileId } = req.params;
         const content = await driveService.getFileContent(fileId);
@@ -1648,7 +1648,7 @@ router.get('/:id/anexos/:fileId', async (req, res) => {
 
 
 // Subir un nuevo anexo a "0. PRESUPUESTO"
-router.post('/:id/anexos', async (req, res) => {
+router.post('/:id/anexos', enforceAuth, async (req, res) => {
     try {
         const { id } = req.params;
         const { fileName, mimeType, base64, driveFolderId, isBudget, budgetSlot } = req.body;
@@ -1742,7 +1742,7 @@ router.post('/:id/anexos', async (req, res) => {
 });
 
 // Eliminar un anexo específico de Drive
-router.delete('/:id/anexos/:fileId', async (req, res) => {
+router.delete('/:id/anexos/:fileId', enforceAuth, async (req, res) => {
     try {
         const { fileId } = req.params;
         const success = await driveService.deleteFile(fileId);
