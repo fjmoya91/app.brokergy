@@ -100,7 +100,17 @@ export function EnviarLoteDocModal({ onClose, title, subtitle, defaultEmail = ''
     };
 
     // ── Orquestador de envío ─────────────────────────────────────────────────
+    // Candado contra el DOBLE CLIC: `busy` es estado de React y se aplica un render
+    // tarde, así que dos clics seguidos lanzaban dos envíos (2026-10-02: factura al
+    // S.O. mandada dos veces a la vez; una salió y la otra falló, y el popup enseñó
+    // la que falló). El ref se marca en el acto.
+    const enviandoRef = useRef(false);
     const handleSend = async () => {
+        if (enviandoRef.current) return;
+        enviandoRef.current = true;
+        try { await enviar(); } finally { enviandoRef.current = false; }
+    };
+    const enviar = async () => {
         const doEmail = willEmail;
         const doWa = willWhatsapp;
         if (!docList.length) { setStatus({ ok: false, text: 'No hay documentos que enviar.' }); return; }

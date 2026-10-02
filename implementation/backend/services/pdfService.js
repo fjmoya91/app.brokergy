@@ -8,6 +8,20 @@ const LOCAL_CHROME_PATH = 'C:\\\\Program Files\\\\Google\\\\Chrome\\\\Applicatio
 const A4_WIDTH_PT = 595.276;
 const A4_HEIGHT_PT = 841.890;
 
+// `chromium.executablePath()` DESCOMPRIME el binario en /tmp la primera vez que se
+// llama en el proceso. Dos PDF a la vez nada más arrancar (un doble clic en
+// "Enviar") lo descomprimían a la par, y el segundo intentaba lanzar un fichero
+// a medio escribir: `spawn ETXTBSY` (2026-10-02, envío de la factura al S.O.).
+// Se descomprime UNA vez y todos esperan a esa misma promesa; y si aun así el
+// sistema dice que el fichero está ocupado, se reintenta tras una pausa corta.
+let rutaChromium = null;
+function rutaChromiumUnaVez(chromium) {
+    if (!rutaChromium) {
+        rutaChromium = chromium.executablePath().catch((e) => { rutaChromium = null; throw e; });
+    }
+    return rutaChromium;
+}
+
 async function getBrowser() {
     // Importamos dinámicamente para evitar problemas de ESM/CJS en Node 25
     const { default: puppeteer } = await import('puppeteer-core');
@@ -15,8 +29,8 @@ async function getBrowser() {
     // Si estamos en Vercel, usamos el paquete @sparticuz/chromium
     if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
         const { default: chromium } = await import('@sparticuz/chromium');
-
-        return await puppeteer.launch({
+        const executablePath = await rutaChromiumUnaVez(chromium);
+        const opciones = {
             args: [
                 ...chromium.args,
                 '--no-sandbox',
@@ -25,10 +39,18 @@ async function getBrowser() {
                 '--disable-gpu',
             ],
             defaultViewport: { width: 794, height: 1123, deviceScaleFactor: 2 },
-            executablePath: await chromium.executablePath(),
+            executablePath,
             headless: chromium.headless,
             ignoreHTTPSErrors: true,
-        });
+        };
+        for (let intento = 0; ; intento++) {
+            try {
+                return await puppeteer.launch(opciones);
+            } catch (err) {
+                if (err?.code !== 'ETXTBSY' || intento >= 4) throw err;
+                await new Promise((r) => setTimeout(r, 400 * (intento + 1)));
+            }
+        }
     }
 
     return await puppeteer.launch({
