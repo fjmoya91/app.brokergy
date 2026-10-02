@@ -159,7 +159,16 @@ async function enviar() {
         const estadoModos = () => page.$$eval('[data-robot^="modo-"]', els => els.map(e => ({
             modo: e.getAttribute('data-robot').slice(5), on: e.getAttribute('data-robot-on') === '1', texto: e.innerText.replace(/\s+/g, ' ').trim(),
         })));
-        for (const m of await estadoModos()) {
+        // En una oportunidad DIRECTA con instalador asociado, la app lo pone en la
+        // fila de PARTNER (rotulada con su tipo, «Instalador») y oculta la de
+        // INSTALADOR para no repetir a la misma empresa. Pedir «instalador» es
+        // entonces esa fila — y se dice.
+        const disponibles = await estadoModos();
+        if (quiero.has('INSTALADOR') && !disponibles.some(m => m.modo === 'INSTALADOR')) {
+            const p = disponibles.find(m => m.modo === 'PARTNER' && /instalador/i.test(m.texto));
+            if (p) { quiero.delete('INSTALADOR'); quiero.add('PARTNER'); console.log(`  (el instalador va en la fila de partner: ${p.texto})`); }
+        }
+        for (const m of disponibles) {
             if (m.on !== quiero.has(m.modo)) { await page.click(`[data-robot="modo-${m.modo}"]`); await espera(700); }
         }
         const modos = await estadoModos();
