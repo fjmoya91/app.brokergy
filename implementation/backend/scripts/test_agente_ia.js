@@ -116,6 +116,39 @@ const ok = (nombre, fn) => { fn(); n += 1; console.log(`  ✓ ${nombre}`); };
         assert.match(r.html, /A &amp; B/);
     });
 
+    console.log('\nAGENTE IA · la carpeta LOCAL del CEE');
+    const cl = require('../utils/carpetaLocalEnlace');
+    ok('el enlace firma id + carpeta, y abre ESA carpeta', () => {
+        const url = cl.enlaceCarpetaLocal({ id: 'EXP1', carpeta: 'https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrStUvWx', origen: 'cae' });
+        const u = new URL(url);
+        assert.match(u.pathname, /\/api\/expedientes\/EXP1\/open-local-folder$/);
+        assert.equal(u.searchParams.get('folder'), '1AbCdEfGhIjKlMnOpQrStUvWx');
+        assert.equal(u.searchParams.get('origen'), null);
+        assert.ok(cl.firmaCarpetaValida('EXP1', u.searchParams.get('token'), '1AbCdEfGhIjKlMnOpQrStUvWx'));
+    });
+    ok('no se le puede cambiar la carpeta ni el expediente al enlace', () => {
+        const t = cl.firmaCarpeta('EXP1', 'CARPETA_BUENA_1234567890');
+        assert.equal(cl.firmaCarpetaValida('EXP1', t, 'OTRA_CARPETA_1234567890'), false);
+        assert.equal(cl.firmaCarpetaValida('EXP2', t, 'CARPETA_BUENA_1234567890'), false);
+        assert.equal(cl.firmaCarpetaValida('EXP1', t, null), false);
+    });
+    ok('los enlaces a la RAÍZ ya enviados siguen valiendo', () => {
+        assert.ok(cl.firmaCarpetaValida('EXP1', cl.firmaCarpeta('EXP1'), null));
+    });
+    ok('origen solo elige de una lista cerrada a dónde se vuelve', () => {
+        assert.match(cl.enlaceVolver('X', 'cee'), /\?cee=X$/);
+        assert.match(cl.enlaceVolver('X', 'op'), /\?op=X$/);
+        assert.match(cl.enlaceVolver('X', 'javascript:alert(1)'), /\?exp=X$/);
+        assert.equal(cl.enlaceCarpetaLocal({ id: 'X', carpeta: 'no es una carpeta' }), null);
+    });
+    ok('el aviso lleva la carpeta local como acción principal', () => {
+        const r = a.componerAviso({ numero: '26RES080_89', faseLabel: 'CEE INICIAL', pendientes: [],
+            enlaces: { app: 'https://app/?exp=1', carpeta: 'https://drive/c', local: 'https://app/api/expedientes/1/open-local-folder?token=t' } });
+        assert.match(r.whatsapp, /Carpeta local \(PC\): https:\/\/app\/api\/expedientes\/1\/open-local-folder/);
+        assert.match(r.html, /Abrir la carpeta local del CEE INICIAL/);
+        assert.ok(r.html.indexOf('carpeta local') < r.html.indexOf('Abrir en la app'));
+    });
+
     console.log('\nAGENTE IA · el .cex no lo lleva como técnico');
     const ficha = await import(pathToFileURL(path.join(__dirname, '..', '..', 'frontend', 'src',
         'features', 'cee-envolvente', 'logic', 'fichaCe3x.js')).href);

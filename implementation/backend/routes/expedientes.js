@@ -301,19 +301,11 @@ function approveCeeSignatureValid(expId, phase, token) {
     return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-// Firma HMAC para el enlace público "abrir carpeta local" del email de revisión.
+// Firma HMAC para el enlace público "abrir carpeta local" de los emails.
 // Evita que se pueda enumerar /open-local-folder para expedientes arbitrarios.
-function openFolderSignature(expId) {
-    const secret = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.JWT_SECRET || 'brokergy-open-folder';
-    return crypto.createHmac('sha256', secret).update(`open-folder:${expId}`).digest('hex');
-}
-function openFolderSignatureValid(expId, token) {
-    if (!token) return false;
-    const expected = openFolderSignature(expId);
-    const a = Buffer.from(String(token));
-    const b = Buffer.from(expected);
-    return a.length === b.length && crypto.timingSafeEqual(a, b);
-}
+// Fuente única en utils/carpetaLocalEnlace.js (la usa también el Agente IA).
+const { firmaCarpeta: openFolderSignature, firmaCarpetaValida, enlaceVolver } = require('../utils/carpetaLocalEnlace');
+const openFolderSignatureValid = (expId, token, carpetaId = null) => firmaCarpetaValida(expId, token, carpetaId);
 
 // Resuelve el expediente (por UUID o nº) + el id/enlace de su carpeta raíz de Drive.
 // La carpeta vive SIEMPRE dentro de datos_calculo de la oportunidad (JSONB).
@@ -6929,9 +6921,14 @@ router.get('/:id/drive-link', staffOnly, async (req, res) => {
 // (brokergylocal:), así que el botón apunta aquí (https) y esta página lanza el
 // protocolo en el navegador. Degrada con elegancia a la carpeta de Drive si el
 // handler no está instalado o falla la resolución.
+//
+// Con `folder` (firmado junto al id) abre ESA carpeta y no la raíz: es el enlace
+// a la carpeta del CEE del aviso del Agente IA, que vale para los tres negocios
+// (`origen` = cae | cee | op solo decide a dónde vuelve el botón).
 router.get('/:id/open-local-folder', async (req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    const appExpLink = `${process.env.FRONTEND_URL || 'https://app.brokergy.es'}/?exp=${req.params.id}`;
+    const folder = /^[A-Za-z0-9_-]{10,}$/.test(String(req.query.folder || '')) ? String(req.query.folder) : null;
+    const appExpLink = enlaceVolver(req.params.id, req.query.origen);
     const page = ({ b64 = '', path = '', driveLink = '', error = '' }) => `<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BROKERGY · Carpeta local</title>
@@ -6971,8 +6968,15 @@ ${error ? '' : `<script>
 </body></html>`;
 
     try {
-        if (!openFolderSignatureValid(req.params.id, req.query.token)) {
+        if (!openFolderSignatureValid(req.params.id, req.query.token, folder)) {
             return res.status(403).send(page({ error: 'El enlace no es válido o ha cambiado.' }));
+        }
+        if (folder) {
+            const driveLink = `https://drive.google.com/drive/folders/${folder}`;
+            const local = await resolveLocalPathFromDriveFolder(folder);
+            if (!local) return res.status(502).send(page({ error: 'No se pudo resolver la ruta de la carpeta en Drive.', driveLink }));
+            const b64 = Buffer.from(local.path, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
+            return res.send(page({ b64, path: local.path, driveLink }));
         }
         const { exp, driveFolderId, driveLink } = await resolveExpedienteDriveFolder(req.params.id);
         if (!exp) return res.status(404).send(page({ error: 'Expediente no encontrado.' }));

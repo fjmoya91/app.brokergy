@@ -1920,5 +1920,17 @@ module.exports = {
     sendDatosClienteCompletadosEmail,
     buildDatosClienteCompletadosEmail,
     sendAnexosFirmadosEmail,
-    buildAnexosFirmadosEmail
+    buildAnexosFirmadosEmail,
+    // Piezas de la identidad de marca, para los avisos que se componen fuera
+    // de este fichero (p. ej. el del Agente IA): un solo diseño para todos.
+    brandEmailShell,
+    emailP,
+    emailBox,
+    emailList,
+    emailButton,
+    emailOutlineButton,
+    emailDataTable,
+    PILL,
+    BRAND,
+    FONT,
 };

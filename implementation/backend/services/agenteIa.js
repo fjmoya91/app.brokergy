@@ -35,6 +35,7 @@ const supabase = require('./supabaseClient');
 const { applyStatus } = require('./seguimientoTracking');
 const { avanzarEstado } = require('../utils/expedienteEstados');
 const { rankSubestado, esDoble, nombreFase } = require('../utils/ceeDirectoEstados');
+const { enlaceCarpetaLocal } = require('../utils/carpetaLocalEnlace');
 
 const NOMBRE = 'AGENTE IA';
 const FRONT = () => String(process.env.FRONTEND_URL || 'https://app.brokergy.es').replace(/\/+$/, '');
@@ -118,6 +119,126 @@ const etiquetaFase = (fase, negocio, fila) => {
 const escapar = (s) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const recortar = (s, n = 180) => { const t = String(s || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 
+const attr = (s) => escapar(s).replace(/"/g, '&quot;');
+
+/**
+ * El EMAIL del aviso, con la identidad de marca de BROKERGY: el MISMO
+ * `brandEmailShell` (barra degradado naranja→verde, logo, pill) y las mismas
+ * piezas que el de «Revisión solicitada» de un técnico, porque cumple el mismo
+ * papel. Un diseño propio aquí es el que se queda atrás el día que se toque la
+ * marca. Puro: compone HTML, no envía nada.
+ */
+function componerHtml({ numero, cliente, faseLabel, fichero, enlaces, pendientes,
+                        avisosCortos, masAvisos, delAgente, tecnicoHumano, reenvio }) {
+    const {
+        brandEmailShell, emailP, emailBox, emailButton, emailOutlineButton, emailDataTable, BRAND, FONT,
+    } = require('./emailService');
+    const MONO = "font-family:Consolas,'Courier New',monospace;";
+
+    const pill = !delAgente
+        ? { emoji: '🤖', text: 'Agente IA · borrador para el técnico', bg: BRAND.grayTint, color: BRAND.grayText }
+        : { emoji: '🤖', text: reenvio ? 'Agente IA · versión actualizada' : 'Agente IA · pendiente de revisión',
+            bg: BRAND.orangeTint, color: BRAND.orangeDark };
+
+    const reenvioHtml = reenvio ? emailBox(
+        emailP('🔁 Versión nueva — ya había un borrador anterior de esta fase', { size: 12, bold: true, color: BRAND.muted, center: true, mb: 0 }),
+        { bg: BRAND.grayTint, mb: 22 },
+    ) : '';
+
+    const intro = emailP(
+        `El <strong>Agente IA</strong> ha terminado el borrador del <strong>${escapar(faseLabel)}</strong> del expediente `
+        + `<strong style="color:${BRAND.orangeDark};">${escapar(numero)}</strong>`
+        + `${cliente ? ` de <strong>${escapar(cliente)}</strong>` : ''}.`,
+        { color: BRAND.muted, mb: 10 },
+    ) + emailP(delAgente
+        ? 'Queda <strong>pendiente de tu revisión</strong>: el agente no firma, así que después hay que pasárselo al técnico que lo firma y lo registra.'
+        : `El certificador asignado sigue siendo <strong>${escapar(tecnicoHumano || 'otro técnico')}</strong>: el expediente no cambia de fase. El borrador es para él.`,
+    { color: BRAND.muted, mb: 22 });
+
+    // La ficha del borrador: de quién es, en qué queda y qué fichero dejó.
+    const estado = delAgente
+        ? `<span style="color:${BRAND.orangeDark};">Pendiente de revisión</span>`
+        : `Sigue con ${escapar(tecnicoHumano || 'el técnico asignado')}`;
+    const ficha = emailBox(
+        emailP('📄 Borrador generado', { size: 11, bold: true, color: BRAND.muted, mb: 12,
+                                         css: 'letter-spacing:0.06em;text-transform:uppercase;' })
+        + emailDataTable([
+            ['Expediente', escapar(numero)],
+            cliente ? ['Cliente', escapar(cliente)] : null,
+            ['Fase', escapar(faseLabel)],
+            ['Estado', estado],
+            fichero ? ['Fichero', `<span style="${MONO}font-size:12px;font-weight:400;">${escapar(fichero)}</span>`] : null,
+        ]),
+        { pad: '18px 22px' },
+    );
+
+    // Lo que queda, como PASOS numerados: se hace en ese orden.
+    const pasos = (pendientes || []).length ? emailP('Queda por hacer', { size: 16, bold: true, mb: 12 })
+        + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:22px;">${
+            pendientes.map((p, i) => `<tr>
+              <td valign="top" width="34" style="width:34px;padding:0 12px 12px 0;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+                  <td width="24" height="24" align="center" valign="middle" bgcolor="${BRAND.orange}" style="width:24px;height:24px;border-radius:12px;background:${BRAND.orange};${FONT}font-size:12px;line-height:24px;font-weight:700;color:#FFFFFF;">${i + 1}</td>
+                </tr></table>
+              </td>
+              <td valign="top" style="padding:2px 0 12px;${FONT}font-size:14px;line-height:21px;color:${BRAND.text};">${escapar(p)}</td>
+            </tr>`).join('')
+        }</table>` : '';
+
+    const avisosHtml = avisosCortos.length ? emailBox(
+        emailP(`⚠️ Avisos del borrador${masAvisos ? ` · ${avisosCortos.length + masAvisos}` : ''}`,
+               { size: 11, bold: true, color: BRAND.orangeDark, mb: 10, css: 'letter-spacing:0.06em;text-transform:uppercase;' })
+        + avisosCortos.map(a => emailP(escapar(a), { size: 13, color: BRAND.text, mb: 8,
+                                                     css: `padding-left:12px;border-left:3px solid ${BRAND.orange};` })).join('')
+        + (masAvisos ? emailP(`… y ${masAvisos} aviso${masAvisos === 1 ? '' : 's'} más (en el resumen de la skill)`,
+                              { size: 12, color: BRAND.muted, mb: 0, css: 'padding-top:2px;' }) : ''),
+        { bg: BRAND.orangeTint, border: BRAND.orange, pad: '18px 22px' },
+    ) : '';
+
+    // Accesos: los botones son la carpeta LOCAL (donde se trabaja con CE3X) y la
+    // app; el resto, una lista que dice para qué sirve cada uno.
+    const accesos = [
+        enlaces.fichero && ['📄', 'Abrir el .cex', 'Descárgalo y ábrelo en CE3X', enlaces.fichero],
+        enlaces.carpeta && ['📁', 'Carpeta del CEE en Drive', 'Donde se suben el .xml y el .pdf exportados', enlaces.carpeta],
+        enlaces.envolvente && ['🧱', 'Ventana de la envolvente', 'Lo que está en ámbar está por confirmar', enlaces.envolvente],
+    ].filter(Boolean);
+    const accesosHtml = accesos.length ? emailBox(
+        `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${accesos.map(([ico, txt, sub, href], i) => `
+          <tr><td style="padding:${i ? '12px' : '0'} 0 ${i < accesos.length - 1 ? '12px' : '0'};${i < accesos.length - 1 ? `border-bottom:1px solid ${BRAND.border};` : ''}">
+            <a href="${attr(href)}" style="text-decoration:none;display:block;">
+              <span style="${FONT}font-size:14px;line-height:20px;font-weight:700;color:${BRAND.greenDark};">${ico} ${txt} →</span><br>
+              <span style="${FONT}font-size:12px;line-height:18px;color:${BRAND.muted};">${sub}</span>
+            </a>
+          </td></tr>`).join('')}</table>`,
+        { pad: '16px 22px', mb: 0 },
+    ) : '';
+
+    // Con carpeta local, ésa es la acción principal: abre el Explorador en
+    // `1. CEE / CEE INICIAL`, donde está el .cex para CE3X. La app pasa a contorno.
+    const filaBoton = (html, pb = 10) => `<tr><td align="center" style="padding-bottom:${pb}px;">${html}</td></tr>`;
+    const botones = (enlaces.local || enlaces.app)
+        ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:18px;">${
+            enlaces.local
+                ? filaBoton(emailButton(attr(enlaces.local), `📂 Abrir la carpeta local del ${escapar(faseLabel)}`, BRAND.orange), 6)
+                  + filaBoton(emailP('Se abre en el Explorador de este PC (con <strong>brokergylocal</strong> instalado).',
+                                     { size: 11, color: BRAND.muted, center: true, mb: 0 }), enlaces.app ? 14 : 0)
+                  + (enlaces.app ? filaBoton(emailOutlineButton(attr(enlaces.app), '🔗 Abrir en la app'), 0) : '')
+                : filaBoton(emailButton(attr(enlaces.app), '🔗 Abrir en la app', BRAND.orange), 0)
+        }</table>`
+        : '';
+
+    const preheader = `El Agente IA ha dejado el borrador del ${faseLabel} de ${numero}${cliente ? ` (${cliente})` : ''}`
+        + (delAgente ? ' · pendiente de revisión.' : ` para ${tecnicoHumano || 'el técnico asignado'}.`);
+
+    return brandEmailShell({
+        preheader,
+        title: delAgente ? `${faseLabel} listo para revisar` : `Borrador del ${faseLabel} listo`,
+        pill,
+        contentHtml: reenvioHtml + intro + ficha + pasos + avisosHtml + botones + accesosHtml,
+        footerNote: 'Aviso interno del Agente IA · se envía al terminar un borrador de CEE.',
+    });
+}
+
 /**
  * El aviso al equipo cuando el agente termina. Mismo papel que el de un técnico
  * que sube su .cex («REVISIÓN SOLICITADA»), con lo que hace falta para seguir:
@@ -147,35 +268,11 @@ ${fichero ? `\n📄 ${fichero}\n` : ''}
 *Queda por hacer:*
 ${lineasPend}
 ${lineasAv ? `\n${lineasAv}\n` : ''}
-${enlaces.app ? `🔗 Ver: ${enlaces.app}\n` : ''}${enlaces.carpeta ? `📁 Carpeta: ${enlaces.carpeta}\n` : ''}${enlaces.envolvente ? `🧱 Envolvente: ${enlaces.envolvente}\n` : ''}
+${enlaces.local ? `📂 Carpeta local (PC): ${enlaces.local}\n` : ''}${enlaces.app ? `🔗 Ver: ${enlaces.app}\n` : ''}${enlaces.carpeta ? `📁 Carpeta en Drive: ${enlaces.carpeta}\n` : ''}${enlaces.envolvente ? `🧱 Envolvente: ${enlaces.envolvente}\n` : ''}
 *BROKERGY · Ingeniería Energética*`;
 
-    const boton = (href, txt, primario = false) => href
-        ? `<a href="${href}" style="display:inline-block;margin:0 8px 8px 0;${primario
-            ? 'background:#FF6D00;color:#fff;' : 'background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;'}padding:11px 18px;border-radius:10px;text-decoration:none;font-weight:bold;font-size:13px">${txt}</a>`
-        : '';
-    const html = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-    <div style="background:linear-gradient(135deg,#f59e0b,#ea580c);padding:20px 28px;">
-      <h2 style="margin:0;color:#fff;font-size:16px;">🤖 BROKERGY · ${escapar(faseLabel)} listo (Agente IA)${reenvio ? ' · actualizado' : ''}</h2>
-    </div>
-    <div style="padding:24px;background:#fff;color:#222;font-size:14px;line-height:1.5">
-      <p>El <strong>Agente IA</strong> ha terminado el borrador del <strong>${escapar(faseLabel)}</strong> de
-         <strong>${escapar(numero)}</strong>${cliente ? ` (${escapar(cliente)})` : ''}.</p>
-      <p>${delAgente
-          ? `Queda <strong>pendiente de revisión</strong>${reenvio ? ' (ya lo estaba: es una versión nueva)' : ''}.`
-          : `El certificador asignado sigue siendo <strong>${escapar(tecnicoHumano || 'otro técnico')}</strong>: el expediente no cambia de fase.`}</p>
-      ${fichero ? `<p style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;font-family:monospace;font-size:12px">📄 ${escapar(fichero)}</p>` : ''}
-      <p style="margin-bottom:4px"><strong>Queda por hacer:</strong></p>
-      <ul style="margin-top:0">${pendientes.map(p => `<li>${escapar(p)}</li>`).join('')}</ul>
-      ${avisosCortos.length ? `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;font-size:12px;color:#92400e">
-        ${avisosCortos.map(a => `<div>⚠ ${escapar(a)}</div>`).join('')}
-        ${masAvisos ? `<div>… y ${masAvisos} aviso${masAvisos === 1 ? '' : 's'} más (en el resumen de la skill)</div>` : ''}
-      </div>` : ''}
-      <p style="margin:22px 0 0">
-        ${boton(enlaces.app, 'Abrir en la app', true)}${boton(enlaces.fichero, 'Abrir el .cex')}${boton(enlaces.carpeta, 'Carpeta del CEE')}${boton(enlaces.envolvente, 'Ventana de la envolvente')}
-      </p>
-    </div>
-  </div>`;
+    const html = componerHtml({ numero, cliente, faseLabel, fichero, enlaces, pendientes,
+                                avisosCortos, masAvisos, delAgente, tecnicoHumano, reenvio });
 
     const asunto = `🤖 ${faseLabel} listo (Agente IA) — ${numero}${cliente ? ` · ${cliente}` : ''}${reenvio ? ' · actualizado' : ''}`;
     return { whatsapp, html, asunto, text: whatsapp.replace(/\*/g, '') };
@@ -418,7 +515,10 @@ async function terminar({ negocio, clave, fase = 'inicial', fichero = {}, pendie
         cliente = nombreCliente(fila.clientes);
         faseLabel = etiquetaFase(fase, negocio, fila);
         enlaces = { ...enlacesDe(negocio, fila) };
-        if (fichero.carpeta_link) enlaces.carpeta = fichero.carpeta_link;
+        // La carpeta del CEE: la que acaba de devolver la escritura, o la del sello
+        // anterior (un `agente_ia.js terminar` a mano no la trae).
+        const carpetaPrevia = fila.agente_ia?.[fase]?.carpeta_link;
+        if (fichero.carpeta_link || carpetaPrevia) enlaces.carpeta = fichero.carpeta_link || carpetaPrevia;
 
         // Si nadie lo había marcado al empezar y no hay técnico, el encargo es del
         // agente: `decidir` sin reasignar nunca le quita el expediente a nadie.
@@ -489,6 +589,11 @@ async function terminar({ negocio, clave, fase = 'inicial', fichero = {}, pendie
         }
     }
     if (fichero.link) enlaces.fichero = fichero.link;
+    // La carpeta LOCAL del CEE (espejo de Drive del PC): es donde se abre el .cex
+    // en CE3X y donde se dejan el .xml y el .pdf exportados.
+    if (enlaces.carpeta) {
+        enlaces.local = enlaceCarpetaLocal({ id: fila.id, carpeta: enlaces.carpeta, origen: negocio }) || undefined;
+    }
 
     const lista = Array.isArray(pendientes) && pendientes.length
         ? pendientes : pendientesPorDefecto(fase, { delAgente: negocio !== 'op' && delAgente });

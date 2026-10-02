@@ -2989,7 +2989,14 @@ toca ni el técnico ni la fase. Nunca hacia atrás: no rebaja un REVISADO ni toc
 email (`ADMIN_EMAIL`, buzón secundario), con el `.cex`, la carpeta, la ventana de la envolvente y lo
 que queda por hacer. El aviso sale desde el PC: el WhatsApp entra en `whatsapp_queue` y lo manda el
 VPS (no hace falta desplegar nada para avisar). Un fallo del aviso **nunca deshace** el `.cex`: se
-dice y se reintenta con `agente_ia.js terminar`.
+dice y se reintenta con `agente_ia.js terminar`. **El email va con la identidad de marca**: el MISMO
+`brandEmailShell` y las mismas piezas que «Revisión solicitada» (`componerHtml`), que `emailService`
+exporta para esto — nunca un diseño propio, que es el que se queda atrás al tocar la marca. Su acción
+principal es **abrir la carpeta LOCAL del CEE** (`1. CEE / CEE INICIAL`, donde está el `.cex` para
+CE3X): `GET /api/expedientes/:id/open-local-folder?folder=` con la firma HMAC de **id + carpeta**
+([utils/carpetaLocalEnlace.js](implementation/backend/utils/carpetaLocalEnlace.js)), así que no se le
+puede cambiar la carpeta al enlace y vale para los tres negocios; sin `folder`, la raíz del expediente
+como siempre (los enlaces ya enviados siguen valiendo).
 
 **REGLA — el agente NO FIRMA**: `tecnicoCe3x` devuelve null con él (el `.cex` va sin técnico y la ficha
 lo dice), el radar no le «reclama» nada (bloque propio `AGENTE_IA`, pelota de BROKERGY, sin botón de
