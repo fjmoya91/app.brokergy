@@ -64,8 +64,18 @@ nada**: siempre primero en seco.
    puede que ese técnico sea quien tiene que firmarlo.
    - Si el usuario pregunta «¿qué tienes pendiente?» o «¿está hecho el CEE de X?»: `agente_ia.js cola`
      (o `estado <clave>`).
+0. **El título de la sesión, LO PRIMERO: `{nº} - {CLIENTE}`** — p. ej. `2026CEE_61 - JOSÉ ÁNGEL
+   VIOLERO MANJAVACAS` (decisión del usuario, 2026-10-02), nunca una descripción de la tarea («CEE
+   inicial con versión 3.1»). Lo imprime `estado` («título de la sesión: …»). En Claude Code,
+   `set_session_title` con `session_id: "self"`; donde no exista esa herramienta (Cowork), se le dice
+   al usuario para que lo ponga a mano. Así se sabe de qué obra es cada conversación.
 1. **`estado`**. Sin carpeta de Drive no hay dónde dejar el `.cex` (en una oportunidad: guardarla
    desde la calculadora). Si ya hay trabajo guardado, `aplicar` lo conserva y añade encima.
+   En un **CEE directo** las fotos están en «4. DOCUMENTACIÓN PARA CEE» (no en «12.»), y no hay
+   oportunidad: la instalación actual sale del **cuestionario** del cliente
+   (`documentacion.cuestionario`: calefacción, ACS, aires, placas) y se TECLEA en el plan
+   (`ajustes.instalacion` / `ajustes.equipos_extra`), con el aviso de que no viene de una placa.
+   **La versión de CE3X**: por defecto la **3.1**; la 2.3 solo si se pide (`ajustes.version_ce3x`).
 2. **`placas`**, y **abre las fotos de las placas** para contrastar marca, modelo, potencia y serie.
    - La CALDERA: la potencia que va al `.cex` es la **útil** (`Pn`, *Output*, *Puissance rendue*),
      no el consumo (`Qn`, *Input*). En una placa policombustible, la del combustible del expediente.

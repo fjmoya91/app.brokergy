@@ -202,8 +202,13 @@ const aspectoDe = (buf) => {
 async function estado() {
     const ctx = await cargar(POS[0]);
     const e = ctx.expediente, inp = inputsDe(ctx), inst = e.instalacion || {};
+    const titular = [ctx.cliente?.nombre_razon_social, ctx.cliente?.apellidos].filter(Boolean).join(' ')
+        || e.nombre || '';
     console.log(`\n${e.numero_expediente} · ${ctx.origen.toUpperCase()}`);
-    console.log(`  cliente: ${[ctx.cliente?.nombre_razon_social, ctx.cliente?.apellidos].filter(Boolean).join(' ') || '—'}`);
+    console.log(`  cliente: ${titular || '—'}`);
+    // El título de la sesión de Claude: «{nº} - {CLIENTE}», como la cabecera de
+    // la ficha. Así se sabe de qué obra es cada conversación.
+    console.log(`  título de la sesión: ${e.numero_expediente}${titular ? ` - ${titular.toUpperCase()}` : ''}`);
     console.log(`  RC: ${rcDe(ctx) || '— NO TIENE'} · zona ${inp.zona || e.zona_climatica || '—'} · año ${inp.anio || '—'}`);
     console.log(`  carpeta de Drive: ${ctx.driveFolderId || '— NO TIENE (no hay dónde dejar el .cex)'}`);
     console.log(`  caldera: ${inst.caldera_antigua_cal?.rendimiento_id || '—'} · combustible ${inp.fuelType || '—'}`
@@ -266,11 +271,14 @@ async function fotos() {
     if (aviso) console.log(`⚠ ${aviso}`);
     // Además de las de envolvente, TODO lo que hay en «12. DOCUMENTOS PARA CEE»:
     // la caldera, las placas y la aerotermia se miran también.
+    // En un CEE directo la documentación vive en «4. DOCUMENTACIÓN PARA CEE»
+    // (no hay obra ni slots `FOTO_*`): la misma carpeta que mira `candidatas`.
     const raiz = ctx.driveFolderId;
-    const sub = raiz && await driveService.findSubfolderByName(raiz, placaOcr.SUBCARPETA_DOCS);
+    const subNombre = ctx.origen === 'cee' ? '4. DOCUMENTACIÓN PARA CEE' : placaOcr.SUBCARPETA_DOCS;
+    const sub = raiz && await driveService.findSubfolderByName(raiz, subNombre);
     const todas = sub ? (await driveService.listFiles(sub) || [])
         .filter(f => /^image\//.test(f.mimeType || '')) : [];
-    console.log(`\n${todas.length} imágenes en «${placaOcr.SUBCARPETA_DOCS}» → ${out}`);
+    console.log(`\n${todas.length} imágenes en «${subNombre}» → ${out}`);
     for (const f of todas) {
         const esCand = cands.some(c => c.drive_id === f.id);
         const buf = await driveService.getFileContent(f.id).catch(() => null);
@@ -804,7 +812,10 @@ async function aplicar() {
         cubierta_reforma: prev?.cubierta_reforma || {},
         ...(prev?.lucernarios ? { lucernarios: prev.lucernarios } : {}),
         tipos: prev?.tipos || {}, nombres: prev?.nombres || {}, us: prev?.us || {},
-        orientaciones: prev?.orientaciones || {}, pilares: prev?.pilares || {},
+        // `pilares` del plan: { pared: nº } — a 0 no se escribe el puente (un
+        // quiebro de 30 cm no tiene pilares integrados, y el mínimo estimado es 2).
+        orientaciones: prev?.orientaciones || {},
+        pilares: { ...(prev?.pilares || {}), ...(plan.pilares || {}) },
         paredes: prev?.paredes || { movidas: {}, dibujadas: [] },
         cuerpos_fuera: cuerpos || [], recorte_vivienda: prev?.recorte_vivienda || null,
         zonas_fuera: zonas || [],

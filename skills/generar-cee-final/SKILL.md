@@ -49,6 +49,9 @@ el final. Es como se hace a mano, y la app lo hace igual:
 - **Dónde se ejecuta — Claude Code o Cowork:** los comandos son los MISMOS y van SIEMPRE en el PC
   (repo + `.env` + motor). En Code, por la shell; en **Cowork, por Desktop Commander, nunca en el
   sandbox**. Rutas, motor y qué hacer si no hay PC: [comun/entorno.md](comun/entorno.md).
+- **El título de la sesión, LO PRIMERO: `{nº} - {CLIENTE}`** — p. ej. `26RES093_11 - NOMBRE DEL
+  CLIENTE` (decisión del usuario, 2026-10-02), nunca una descripción de la tarea. En Claude Code,
+  `set_session_title` con `session_id: "self"`; en Cowork se le dice al usuario para que lo ponga.
 
 ## La herramienta
 

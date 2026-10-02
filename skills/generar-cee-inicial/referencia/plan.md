@@ -56,6 +56,7 @@ Un JSON escrito por quien ha mirado las fotos. Todo es opcional salvo lo que se 
 | `huecos[].porc_marco` | % de marco | Puerta de entrada 90 (defecto), de patio acristalada 30-40 |
 | `fotos[pared]` | fotos que se pegan a la pared | Solo las de «12. DOCUMENTOS PARA CEE» (fachada, patios, ventanas) |
 | `excluidas` | paredes apartadas de la envolvente | Por id |
+| `pilares` | pilares integrados contados, `{ "FBN2": 0 }` | Se estiman uno cada 3,5 m con mínimo 2: en un quiebro de 30 cm hay que ponerlo a 0 (a 0 no se escribe el puente) |
 | `cuerpos_fuera` / `zonas_fuera` | lo que no es vivienda | Se vuelve a medir. `zonas_fuera`: `[{ "nivel": 0, "uso": "GARAJE"\|"ALMACEN"\|"ESPACIO NO HABITABLE"\|"PORCHE", "poligono": [[x,y],…] }]` en EPSG:25830 (`paredes` imprime las esquinas del edificio). **Solo si el polígono es conocido** |
 | `croquis` | DÓNDE está lo que no es vivienda, a mano alzada | `uv` = fracciones de la huella de esa planta (u de OESTE a ESTE, v de SUR a NORTE); o `poligono` en EPSG:25830. El motor lo endereza, lo **ajusta a los m² de Catastro** del uso en esa planta, alinea las paredes y lo guarda como `zonas_fuera`. Sustituye las zonas de SUS plantas. Pasarse por fuera de las paredes no importa (`-0.05`, `1.05`). `croquis_ajustar: false` = tal cual |
 | `reemplazar` | `true` = los huecos del plan sustituyen a TODOS los guardados | Por defecto se sustituyen solo las paredes que trae el plan |
