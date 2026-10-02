@@ -59,6 +59,79 @@ function stripPartnerMargin(op) {
 // Devuelve true si el usuario NO es ADMIN (incluye sin sesión → tratamos como externo).
 const isNonAdmin = (req) => !(req.user && req.user.rol_nombre === 'ADMIN');
 
+// ─── Lo SUYO de un partner ────────────────────────────────────────────────────
+// El equipo interno (ADMIN / TRABAJADOR) ve y toca TODAS las oportunidades. Un
+// partner, solo las suyas: las que creó él y las de su empresa — el MISMO criterio
+// que el listado (GET /). Antes el listado filtraba y todo lo que lleva `:id` no:
+// conociendo un nº de oportunidad (son correlativos) un partner podía leer la de
+// otro, cambiarle el cliente o tocar sus anexos. Y uno que no es suyo responde
+// 404, no 403: no se le confirma que ese número exista.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SIN_ID = '00000000-0000-0000-0000-000000000000';
+const veTodo = (req) => !!(req.internalCall || isStaff(req));
+
+const esSuya = (op, req) => !!op && (veTodo(req)
+    || (!!req.user?.id_usuario && op.creador_id === req.user.id_usuario)
+    || (!!req.user?.prescriptor_id && op.prescriptor_id === req.user.prescriptor_id));
+
+// Aplica el filtro de "lo suyo" a una consulta sobre `oportunidades`.
+function soloLoSuyo(query, req) {
+    if (veTodo(req)) return query;
+    const userId = req.user?.id_usuario || SIN_ID;
+    const empresaId = req.user?.prescriptor_id;
+    return empresaId
+        ? query.or(`creador_id.eq.${userId},prescriptor_id.eq.${empresaId}`)
+        : query.eq('creador_id', userId);
+}
+
+// Middleware para todo lo que lleva `:id` (nº de oportunidad o su UUID). Al equipo
+// interno y a la clave interna los deja pasar; a un partner, solo si es suya.
+const suyaSiPartner = async (req, res, next) => {
+    if (veTodo(req)) return next();
+    try {
+        const id = String(req.params.id || '');
+        let q = supabase.from('oportunidades').select('id, id_oportunidad, creador_id, prescriptor_id, drive_folder_id:datos_calculo->>drive_folder_id, drive_folder_id_inputs:datos_calculo->inputs->>drive_folder_id');
+        q = UUID_RE.test(id) ? q.eq('id', id) : q.eq('id_oportunidad', id);
+        const { data, error } = await soloLoSuyo(q, req).limit(1);
+        if (error) return res.status(503).json({ error: 'No se ha podido comprobar el acceso. Vuelve a intentarlo.' });
+        if (!data?.length) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
+        // La carpeta de Drive vive en `datos_calculo` y, en algunas antiguas, en `inputs`.
+        req.oportunidadPartner = { ...data[0], drive_folder_id: data[0].drive_folder_id || data[0].drive_folder_id_inputs || null };
+        next();
+    } catch (e) {
+        console.error('[suyaSiPartner]', e.message);
+        res.status(503).json({ error: 'No se ha podido comprobar el acceso. Vuelve a intentarlo.' });
+    }
+};
+
+// Un cliente es de un partner si es de su empresa o si está en una oportunidad
+// suya: el MISMO criterio que el listado de /api/clientes.
+async function clienteDelPartner(clienteId, req) {
+    if (veTodo(req)) return true;
+    if (!clienteId) return true;
+    const empresaId = req.user?.prescriptor_id;
+    const { data: cli } = await supabase.from('clientes').select('id_cliente, prescriptor_id, id_usuario').eq('id_cliente', clienteId).maybeSingle();
+    if (!cli) return false;
+    if (empresaId && cli.prescriptor_id === empresaId) return true;
+    if (req.user?.id_usuario && cli.id_usuario === req.user.id_usuario) return true; // lo dio de alta él
+    const { data: ops } = await soloLoSuyo(
+        supabase.from('oportunidades').select('id').eq('cliente_id', clienteId), req).limit(1);
+    return !!ops?.length;
+}
+
+// El instalador que un partner puede poner en SU oportunidad: él mismo o uno de
+// su red (distribuidor_instalador). Cualquier otro, no.
+async function instaladorDelPartner(instaladorId, req) {
+    if (veTodo(req)) return true;
+    if (!instaladorId) return true;
+    const empresaId = req.user?.prescriptor_id;
+    if (!empresaId) return false;
+    if (instaladorId === empresaId) return true;
+    const { data } = await supabase.from('distribuidor_instalador').select('instalador_id')
+        .eq('distribuidor_id', empresaId).eq('instalador_id', instaladorId).limit(1);
+    return !!data?.length;
+}
+
 router.use((req, res, next) => {
     console.log(`[Router Oportunidades] ${req.method} ${req.url}`);
     next();
@@ -163,6 +236,20 @@ router.post('/', enforceAuth, async (req, res) => {
             }
         }
 
+        // ── Un partner solo guarda sobre LO SUYO ──────────────────────────────
+        // Por nº de oportunidad, una ajena no se toca: 404. Por referencia
+        // catastral, la de otro partner no es "la misma oportunidad": es otra
+        // simulación de la misma vivienda, y se da de alta aparte. Antes la
+        // encontraba por la RC y la SOBRESCRIBÍA con lo de este partner.
+        const esPartner = !!req.user && !veTodo(req);
+        if (esPartner && existingData && !esSuya(existingData, req)) {
+            if (id_oportunidad && existingData.id_oportunidad === id_oportunidad) {
+                return res.status(404).json({ error: 'Oportunidad no encontrada.' });
+            }
+            console.log(`[Backend] RC ${ref_catastral} tiene oportunidad de OTRO partner (${existingData.id_oportunidad}): se da de alta aparte.`);
+            existingData = null;
+        }
+
         if (existingData) {
             console.log(`[Backend] AUDITORÍA - Registro identificado: ${existingData.id_oportunidad} (UUID: ${existingData.id})`);
         } else {
@@ -200,7 +287,8 @@ router.post('/', enforceAuth, async (req, res) => {
 
         // LÓGICA DE ID: Prioridad absoluta al ID que ya tenemos en DB o el que viene de la sesión previa
         // Si el registro ya existe (por ID o por RC), heredamos su ID real de la base de datos
-        let newIdOportunidad = existingData?.id_oportunidad || id_oportunidad;
+        // Un partner no elige el número: o es el de una suya o se genera.
+        let newIdOportunidad = existingData?.id_oportunidad || (esPartner ? null : id_oportunidad);
 
         // Solo generamos un ID secuencial si realmente NO existe nada previo en DB ni en el payload
         if (!newIdOportunidad) {
@@ -355,8 +443,29 @@ router.post('/', enforceAuth, async (req, res) => {
             newRecord.prescriptor_id = prescriptor_id || req.user.prescriptor_id;
         }
 
-        // Si es una oportunidad de partner pero el nombre del prescriptor sigue siendo default, intentar mejorarlo
-        if (newRecord.prescriptor_id && (!prescriptor || prescriptor === 'BROKERGY')) {
+        // ── Un partner NO cambia el partner ni el creador ─────────────────────
+        // Lo que manda el navegador no cuenta: en una nueva el partner es su
+        // empresa y el creador él; en una suya se conserva lo que había. El
+        // cliente y el instalador, solo si son suyos (o de su red).
+        if (esPartner) {
+            newRecord.creador_id = existingData ? existingData.creador_id : req.user.id_usuario;
+            newRecord.prescriptor_id = existingData ? existingData.prescriptor_id : (req.user.prescriptor_id || null);
+            if (existingData) newRecord.prescriptor = existingData.prescriptor;
+            else if (!newRecord.prescriptor_id) {
+                const perfil = req.user.perfilCompleto || {};
+                newRecord.prescriptor = `${perfil.nombre || ''} ${perfil.apellidos || ''}`.trim() || 'PARTNER';
+            }
+            if (!(await clienteDelPartner(newRecord.cliente_id, req))) {
+                newRecord.cliente_id = existingData ? existingData.cliente_id : null;
+            }
+            if (!(await instaladorDelPartner(newRecord.instalador_asociado_id, req))) {
+                newRecord.instalador_asociado_id = existingData ? existingData.instalador_asociado_id : null;
+            }
+        }
+
+        // Si es una oportunidad de partner pero el nombre del prescriptor sigue siendo default, intentar mejorarlo.
+        // En una NUEVA de un partner el nombre sale siempre de su empresa, nunca del navegador.
+        if (newRecord.prescriptor_id && (!prescriptor || prescriptor === 'BROKERGY' || (esPartner && !existingData))) {
             const { data: pData } = await supabase.from('prescriptores').select('razon_social, acronimo').eq('id_empresa', newRecord.prescriptor_id).single();
             if (pData) {
                 newRecord.prescriptor = pData.acronimo || pData.razon_social || 'PARTNER';
@@ -844,7 +953,7 @@ async function anotarHistorial(oportunidadUuid, texto, usuario) {
 // GET /api/oportunidades/:id/propuesta/versiones
 // Lo pide el popup de envío ANTES de mandar nada: con esto avisa de que ya se
 // envió una v1 y sabe qué marca imprimir en el documento.
-router.get('/:id/propuesta/versiones', enforceAuth, async (req, res) => {
+router.get('/:id/propuesta/versiones', enforceAuth, suyaSiPartner, async (req, res) => {
     try {
         const op = await cargarParaVersion(req.params.id);
         if (!op) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
@@ -871,7 +980,7 @@ router.get('/:id/propuesta/versiones', enforceAuth, async (req, res) => {
 // Reserva número, rasteriza el PDF, lo archiva en "0. PROPUESTAS" y DEVUELVE el
 // PDF para que lo manden los canales. Se llama ANTES de enviar a propósito: lo
 // que se archiva tiene que ser byte a byte lo que recibe el cliente.
-router.post('/:id/propuesta/version', internalKeyOrAuth, async (req, res) => {
+router.post('/:id/propuesta/version', internalKeyOrAuth, suyaSiPartner, async (req, res) => {
     try {
         const { html, htmlWeb, marcarEnviada, destinatarios, canales, versionImpresa, result, inputs } = req.body || {};
         if (!html) return res.status(400).json({ error: 'Falta el HTML de la propuesta.' });
@@ -918,7 +1027,7 @@ router.post('/:id/propuesta/version', internalKeyOrAuth, async (req, res) => {
 // Sella el resultado real del envío (a quién llegó y por dónde) y deja la
 // entrada legible en el historial. Se llama al TERMINAR de enviar: hasta
 // entonces no se sabe qué canal falló.
-router.patch('/:id/propuesta/version/:v', internalKeyOrAuth, async (req, res) => {
+router.patch('/:id/propuesta/version/:v', internalKeyOrAuth, suyaSiPartner, async (req, res) => {
     try {
         const { envios, cambios } = req.body || {};
         const v = Number(req.params.v);
@@ -978,7 +1087,7 @@ router.patch('/:id/propuesta/version/:v', internalKeyOrAuth, async (req, res) =>
 // el contador tiene que seguir significando "lo que ha visto el cliente".
 // Se reemplaza a sí mismo (antes cada pulsación dejaba otra copia con el mismo
 // nombre, y Drive lo permite: quedaban PDFs indistinguibles en la carpeta).
-router.post('/:id/propuesta/borrador', enforceAuth, async (req, res) => {
+router.post('/:id/propuesta/borrador', enforceAuth, suyaSiPartner, async (req, res) => {
     try {
         const { html } = req.body || {};
         if (!html) return res.status(400).json({ error: 'Falta el HTML de la propuesta.' });
@@ -1000,7 +1109,7 @@ router.post('/:id/propuesta/borrador', enforceAuth, async (req, res) => {
 // Guarda el plan YA DECIDIDO en el popup (grupos, mensajes por persona, canales)
 // junto al documento tal y como se revisó. A su hora, el despachador lo replica
 // contra estas mismas rutas. Aquí no se envía nada.
-router.post('/:id/propuesta/programar', enforceAuth, async (req, res) => {
+router.post('/:id/propuesta/programar', enforceAuth, suyaSiPartner, async (req, res) => {
     try {
         const { enviarAt, plan, html, htmlEmail } = req.body || {};
         if (!html) return res.status(400).json({ error: 'Falta el documento de la propuesta.' });
@@ -1036,7 +1145,7 @@ router.post('/:id/propuesta/programar', enforceAuth, async (req, res) => {
 });
 
 // GET /api/oportunidades/:id/propuesta/programadas
-router.get('/:id/propuesta/programadas', enforceAuth, async (req, res) => {
+router.get('/:id/propuesta/programadas', enforceAuth, suyaSiPartner, async (req, res) => {
     try {
         const op = await cargarParaVersion(req.params.id);
         if (!op) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
@@ -1053,7 +1162,7 @@ router.get('/:id/propuesta/programadas', enforceAuth, async (req, res) => {
 // Retirar lo programado. Solo mientras siga PENDIENTE: una que ya está
 // ENVIANDO tiene el PDF rasterizándose y puede haber salido — decir que se ha
 // cancelado algo que ya viajó es peor que no poder cancelarlo.
-router.delete('/:id/propuesta/programada/:progId', enforceAuth, async (req, res) => {
+router.delete('/:id/propuesta/programada/:progId', enforceAuth, suyaSiPartner, async (req, res) => {
     try {
         const op = await cargarParaVersion(req.params.id);
         if (!op) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
@@ -1079,7 +1188,7 @@ router.delete('/:id/propuesta/programada/:progId', enforceAuth, async (req, res)
 });
 
 // Añadir un comentario (POST /api/oportunidades/:id/comentarios)
-router.post('/:id/comentarios', internalKeyOrAuth, async (req, res) => {
+router.post('/:id/comentarios', internalKeyOrAuth, suyaSiPartner, async (req, res) => {
     const { id } = req.params;
     try {
         const body = normalizeData(req.body);
@@ -1113,7 +1222,7 @@ router.post('/:id/comentarios', internalKeyOrAuth, async (req, res) => {
 });
 
 // Actualizar estado (PATCH /api/oportunidades/:id/estado)
-router.patch('/:id/estado', internalKeyOrAuth, async (req, res) => {
+router.patch('/:id/estado', internalKeyOrAuth, suyaSiPartner, async (req, res) => {
     const { id } = req.params;
     const { nuevo_estado } = req.body;
     try {
@@ -1264,7 +1373,7 @@ ${notesStr}
 });
 
 // Asignar Prescriptor (PATCH /api/oportunidades/:id/asignar)
-router.patch('/:id/asignar', enforceAuth, async (req, res) => {
+router.patch('/:id/asignar', staffOnly, async (req, res) => {
     const { id } = req.params;
     const { prescriptor_id, prescriptor_name } = req.body;
     try {
@@ -1287,7 +1396,7 @@ router.patch('/:id/asignar', enforceAuth, async (req, res) => {
 });
 
 // Actualizar cod_cliente_interno (PATCH /api/oportunidades/:id/cod-cliente)
-router.patch('/:id/cod-cliente', enforceAuth, async (req, res) => {
+router.patch('/:id/cod-cliente', enforceAuth, suyaSiPartner, async (req, res) => {
     const { id } = req.params;
     const { cod_cliente_interno } = req.body;
     try {
@@ -1373,11 +1482,14 @@ router.patch('/:id/ficha', requireAuth, adminOnly, async (req, res) => {
 });
 
 // Vincular cliente existente (PATCH /api/oportunidades/:id/vincular-cliente)
-router.patch('/:id/vincular-cliente', enforceAuth, async (req, res) => {
+router.patch('/:id/vincular-cliente', enforceAuth, suyaSiPartner, async (req, res) => {
     const { id } = req.params;
     const { cliente_id } = req.body;
     try {
         if (!cliente_id) return res.status(400).json({ error: 'cliente_id requerido.' });
+        // Un partner solo vincula un cliente SUYO (de su empresa, dado de alta por
+        // él o ya en una oportunidad suya): si no, se le colgaría el de otro.
+        if (!(await clienteDelPartner(cliente_id, req))) return res.status(404).json({ error: 'Cliente no encontrado.' });
 
         const { data: cli, error: cliErr } = await supabase
             .from('clientes')
@@ -1486,10 +1598,13 @@ router.get('/:id', enforceAuth, async (req, res) => {
         console.log(`[Backend] Buscando oportunidad por ID o RC: ${id}`);
 
         // 1. Intento por id_oportunidad
-        const byId = await supabase
+        // Un partner solo encuentra LO SUYO, por número y por referencia catastral:
+        // la calculadora pregunta por la RC para avisar de "ya hay una oportunidad de
+        // esta vivienda", y con la de OTRO partner le enseñaba sus datos.
+        const byId = await soloLoSuyo(supabase
             .from('oportunidades')
             .select('*')
-            .eq('id_oportunidad', id)
+            .eq('id_oportunidad', id), req)
             .order('created_at', { ascending: false })
             .limit(1);
 
@@ -1503,10 +1618,10 @@ router.get('/:id', enforceAuth, async (req, res) => {
         }
 
         // 2. Fallback por ref_catastral
-        const byRc = await supabase
+        const byRc = await soloLoSuyo(supabase
             .from('oportunidades')
             .select('*')
-            .eq('ref_catastral', id)
+            .eq('ref_catastral', id), req)
             .order('created_at', { ascending: false })
             .limit(1);
 
@@ -1597,22 +1712,40 @@ router.get('/:id/local-path', adminOnly, async (req, res) => {
 });
 
 // Obtener anexos (archivos en carpeta "0. PRESUPUESTO")
-router.get('/:id/anexos', enforceAuth, async (req, res) => {
+// ─── Anexos de la propuesta (carpeta "0. PRESUPUESTO") ────────────────────────
+// La carpeta de la oportunidad. El equipo interno puede indicarla (el navegador la
+// manda cuando ya la conoce); un partner NUNCA: se usa la de SU oportunidad. Antes
+// cualquiera podía pasar la carpeta de Drive que quisiera para listarla o subir a
+// ella. Y el respaldo pedía la columna `drive_folder_id`, que no existe (vive en
+// `datos_calculo`): no encontraba nunca nada.
+async function carpetaAnexos(req) {
+    if (!veTodo(req)) return req.oportunidadPartner?.drive_folder_id || null;
+    const indicada = req.query?.driveFolderId || req.body?.driveFolderId;
+    if (indicada) return indicada;
+    const id = String(req.params.id || '').replace(/"/g, '');
+    const { data } = await supabase.from('oportunidades')
+        .select('drive_folder_id:datos_calculo->>drive_folder_id')
+        .or(`id_oportunidad.eq."${id}",ref_catastral.eq."${id}"`).limit(1);
+    return data?.[0]?.drive_folder_id || null;
+}
+
+// Un fichero que pide o borra un partner tiene que estar en el "0. PRESUPUESTO"
+// de SU oportunidad. Antes estas dos rutas aceptaban el id de CUALQUIER fichero
+// del Drive de Brokergy (DNI, convenios, facturas…) y lo devolvían o lo borraban.
+async function anexoDeSuOportunidad(req, fileId) {
+    if (veTodo(req)) return true;
+    const carpeta = req.oportunidadPartner?.drive_folder_id;
+    if (!carpeta || !fileId) return false;
+    const presupuesto = await driveService.findSubfolderByName(carpeta, '0. PRESUPUESTO');
+    if (!presupuesto) return false;
+    const meta = await driveService.getFileMetadata(fileId, 'id, parents');
+    return !!meta?.parents?.includes(presupuesto);
+}
+
+router.get('/:id/anexos', enforceAuth, suyaSiPartner, async (req, res) => {
     try {
         const { id } = req.params;
-        const { driveFolderId } = req.query;
-        let finalFolderId = driveFolderId;
-
-        if (!finalFolderId) {
-            const { data: op, error: opErr } = await supabase
-                .from('oportunidades')
-                .select('drive_folder_id')
-                .or(`id_oportunidad.eq."${id}",ref_catastral.eq."${id}"`)
-                .maybeSingle();
-            
-            if (opErr) throw opErr;
-            finalFolderId = op?.drive_folder_id;
-        }
+        const finalFolderId = await carpetaAnexos(req);
 
         if (!finalFolderId) {
             console.warn(`[Anexos] Oportunidad ${id} no tiene carpeta de Drive asociada.`);
@@ -1631,9 +1764,10 @@ router.get('/:id/anexos', enforceAuth, async (req, res) => {
 });
 
 // Obtener contenido de un archivo específico
-router.get('/:id/anexos/:fileId', enforceAuth, async (req, res) => {
+router.get('/:id/anexos/:fileId', enforceAuth, suyaSiPartner, async (req, res) => {
     try {
         const { fileId } = req.params;
+        if (!(await anexoDeSuOportunidad(req, fileId))) return res.status(404).send('Archivo no encontrado');
         const content = await driveService.getFileContent(fileId);
         if (!content) return res.status(404).send('Archivo no encontrado');
         
@@ -1648,25 +1782,14 @@ router.get('/:id/anexos/:fileId', enforceAuth, async (req, res) => {
 
 
 // Subir un nuevo anexo a "0. PRESUPUESTO"
-router.post('/:id/anexos', enforceAuth, async (req, res) => {
+router.post('/:id/anexos', enforceAuth, suyaSiPartner, async (req, res) => {
     try {
         const { id } = req.params;
         const { fileName, mimeType, base64, driveFolderId, isBudget, budgetSlot } = req.body;
 
         if (!base64) return res.status(400).json({ error: 'Falta el contenido del archivo.' });
 
-        let finalFolderId = driveFolderId;
-
-        if (!finalFolderId) {
-            const { data: op, error: opErr } = await supabase
-                .from('oportunidades')
-                .select('drive_folder_id')
-                .or(`id_oportunidad.eq."${id}",ref_catastral.eq."${id}"`)
-                .maybeSingle();
-
-            if (opErr) throw opErr;
-            finalFolderId = op?.drive_folder_id;
-        }
+        const finalFolderId = await carpetaAnexos(req);
 
         if (!finalFolderId) {
             return res.status(400).json({ 
@@ -1742,9 +1865,10 @@ router.post('/:id/anexos', enforceAuth, async (req, res) => {
 });
 
 // Eliminar un anexo específico de Drive
-router.delete('/:id/anexos/:fileId', enforceAuth, async (req, res) => {
+router.delete('/:id/anexos/:fileId', enforceAuth, suyaSiPartner, async (req, res) => {
     try {
         const { fileId } = req.params;
+        if (!(await anexoDeSuOportunidad(req, fileId))) return res.status(404).json({ error: 'Archivo no encontrado.' });
         const success = await driveService.deleteFile(fileId);
         
         if (!success) {
@@ -1931,7 +2055,7 @@ async function setFotoEstado(opp, slot, name, patch) {
 }
 
 // GET /api/oportunidades/:id/docs → vista de documentación (autenticado)
-router.get('/:id/docs', enforceAuth, async (req, res) => {
+router.get('/:id/docs', enforceAuth, suyaSiPartner, async (req, res) => {
     try {
         const opp = await findOppForDocs(req.params.id);
         if (!opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
@@ -2087,7 +2211,7 @@ router.post('/:id/whatsapp-media/colocadas', staffOnly, async (req, res) => {
 // GET /api/oportunidades/:id/upload-link → solo el enlace público de subida.
 // Hermano ligero de `/docs`: aquel reconcilia la carpeta de Drive entera, y la
 // propuesta solo necesita la URL para imprimir su botón "Subir documentación".
-router.get('/:id/upload-link', enforceAuth, async (req, res) => {
+router.get('/:id/upload-link', enforceAuth, suyaSiPartner, async (req, res) => {
     try {
         const opp = await findOppForDocs(req.params.id);
         if (!opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });

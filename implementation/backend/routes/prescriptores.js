@@ -1128,6 +1128,11 @@ router.patch('/:id', enforceAuth, async (req, res) => {
         if (payload.landing_telefono_contacto !== undefined) prescriptorPayload.landing_telefono_contacto = (payload.landing_telefono_contacto || '').toString().trim() || null;
         if (payload.landing_email_contacto !== undefined)    prescriptorPayload.landing_email_contacto = (payload.landing_email_contacto || '').toString().trim().toLowerCase() || null;
 
+        // ── Tipo de empresa: SOLO ADMIN ─────────────────────────────────────
+        // Un partner edita su ficha, pero no cambia lo que ES (instalador,
+        // distribuidor, certificador…): eso lo decide Brokergy.
+        if (!isAdminReq) delete prescriptorPayload.tipo_empresa;
+
         // ── Comisión por defecto del prescriptor ────────────────────────────
         // SOLO ADMIN: esta ruta deja a un partner editar su propia ficha, y la
         // comisión es dinero — se la subiría él mismo. Mismo criterio que el

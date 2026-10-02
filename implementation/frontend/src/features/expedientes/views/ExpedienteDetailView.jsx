@@ -1259,7 +1259,10 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                             </button>
                          )}
 
-                         {/* Botón de Nota Rápida */}
+                         {/* Botón de Nota Rápida. Abre el historial de la OPORTUNIDAD, que es
+                             comercial (propuestas, importes): el certificador no lo ve, y el
+                             backend ya no le sirve una oportunidad que no es suya. */}
+                         {!isCertificador && (
                          <button
                             onClick={() => setShowQuickNote(true)}
                             className="p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] text-white/30 hover:text-brand hover:border-brand/30 hover:bg-brand/5 transition-all shadow-lg group"
@@ -1269,6 +1272,7 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
                             </svg>
                          </button>
+                         )}
 
                          {/* Botón de Incidencias (solo ADMIN). Rojo neón + badge si hay abiertas. */}
                          {isAdmin && (
