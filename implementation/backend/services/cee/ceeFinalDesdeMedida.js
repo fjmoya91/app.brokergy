@@ -80,13 +80,16 @@ async function alMotor(bytes, datos) {
  */
 async function catalogoFinal(ctx, analisis, params = {}) {
     const ret = analisis?.retirada || {};
+    //: La justificación de la «Propuesta de secuencia temporal» (CE3X 3.1): el
+    //: borrador de la retirada lo compone el motor y no la trae.
+    const { justificacionMedida } = await cex.loadFichaCe3x();
     const catalogo = [{
         id: 'retirada',
         titulo: 'Retirar el generador en apoyo (bomba de calor al 100 %)',
         disponible: !!ret.posible,
         motivo: ret.posible ? null : ret.motivo,
         porDefecto: !!ret.posible,
-        datos: ret.borrador || null,
+        datos: ret.borrador ? { ...ret.borrador, ...justificacionMedida('retirada') } : null,
         //: Cómo queda la instalación de la medida, para enseñarla.
         equipos: ret.equipos || null,
     }];

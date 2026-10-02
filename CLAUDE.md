@@ -12569,6 +12569,15 @@ los dos textos ya con `<br>` (y el de pruebas, también sin ellos para la 2.3). 
 punta a punta abriendo el `.cex` con el propio CE3X 3.1 (oráculo) → XML → `xml2cert`. Tras
 tocarlo: `python -m pytest implementation/cee-engine/tests/test_version_ce3x.py`.
 
+**Y la «Propuesta de secuencia temporal» (Anexo III, 3)**: en la 3.1 cada conjunto de
+medidas (`grupoMedidasMejora`) lleva `ordenPrioridad` ('1', '2'…) y `justificacion`, y el
+PDF imprime el orden y une todas las justificaciones en un cuadro. Cada medida de la app
+lleva su `justificacion` + `secuencia` ([justificacionMedidas.js](implementation/frontend/src/features/cee-envolvente/logic/justificacionMedidas.js):
+cubierta · fachada · ventanas · aerotermia · hibridación · retirada · autoconsumo), y
+`medidas_a_31` las escribe: **orden = envolvente (1) → generador (2) → renovables (3)**,
+cada texto precedido del NOMBRE del conjunto y acabado en `<br>`. Lo que ya trae el conjunto
+(un `.cex` 3.1 del técnico) no se toca; en la 2.3 no se escriben (`medidas_a_23`).
+
 ### Y el `.xml` de la 3.1 se LEE igual (2026-10-02)
 
 CE3X 3.1 exporta el XML del certificado en el esquema **v3.0**

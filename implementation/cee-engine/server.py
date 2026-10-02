@@ -482,7 +482,7 @@ def cex(payload: dict = Body(...)) -> Response:
         # Los escritores producen la forma de la 2.3 (medida sobre 1.600 .cex
         # reales); para la 3.1 se le añade lo que esa version pide —datos
         # generales y administrativos nuevos, la potencia de cada equipo—. Las
-        # medidas se quedan como estan: la 3.1 las abre y las calcula asi.
+        # medidas, su orden de ejecucion y su justificacion (Anexo III, 3).
         if version == "3.1":
             pot = VC.potencias_de_equipos(datos.get("instalaciones"))
             avisos.extend(VC.elevar(nuevos, VC.extra_31(datos), pot))

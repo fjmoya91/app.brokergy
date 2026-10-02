@@ -497,3 +497,35 @@ def test_las_recomendaciones_llegan_de_la_ficha_al_fichero():
     CX.a_version(L.trocear_bytes(_cex_23()), cambios, "3.1", datos)
     assert cambios[G.INFORME][7] == "Reco:<br>\n-A"
     assert cambios[G.INFORME][3] == "Visita"
+
+
+# ── La «Propuesta de secuencia temporal» (Anexo III, 3) en la 3.1 ────────────
+
+def _grupo(nombre: str):
+    return P.Instancia("MedidasDeMejora.objetoGrupoMejoras", "grupoMedidasMejora",
+                       {P.Cadena("nombre"): nombre})
+
+
+def test_las_medidas_llevan_su_orden_y_su_justificacion_en_la_3_1():
+    grupos = [_grupo("AUTOCONSUMO"), _grupo("AEROTERMIA"), _grupo("CUBIERTA")]
+    datos = {"medidas": [
+        {"nombre": "AUTOCONSUMO", "justificacion": "Ultima.", "secuencia": 3},
+        {"nombre": "AEROTERMIA", "justificacion": "Linea 1\nLinea 2", "secuencia": 2},
+        {"nombre": "CUBIERTA", "justificacion": "Primera.", "secuencia": 1},
+    ]}
+    VC.medidas_a_31(grupos, VC.extra_31(datos)["justificaciones"])
+    orden = {str(g.estado[P.Cadena("nombre")]): g.estado[P.Cadena("ordenPrioridad")] for g in grupos}
+    assert orden == {"CUBIERTA": "1", "AEROTERMIA": "2", "AUTOCONSUMO": "3"}
+    just = grupos[1].estado[P.Cadena("justificacion")]
+    assert just == "AEROTERMIA: Linea 1<br>\nLinea 2<br>"
+
+
+def test_lo_que_ya_trae_el_conjunto_manda_y_en_la_2_3_no_se_escribe():
+    g = _grupo("SUYA")
+    g.estado[P.Cadena("ordenPrioridad")] = "4"
+    g.estado[P.Cadena("justificacion")] = "La del tecnico"
+    VC.medidas_a_31([g], {"SUYA": ("La de la app", 1)})
+    assert g.estado[P.Cadena("ordenPrioridad")] == "4"
+    assert g.estado[P.Cadena("justificacion")] == "La del tecnico"
+    VC.medidas_a_23([g])
+    assert {str(k) for k in g.estado} == {"nombre"}

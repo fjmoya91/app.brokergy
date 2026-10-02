@@ -367,6 +367,7 @@ def extra_31(datos: dict | None) -> dict:
         "plantas_bajo_rasante": _txt_num(bajo if bajo not in (None, "") else 0),
         "normativa_otros": str(c.get("normativa_otros") or ""),
         "recomendaciones": _recomendaciones(d),
+        "justificaciones": _justificaciones(d),
     }
 
 
@@ -416,6 +417,7 @@ def extra_de_cex(p1: Any, p2: Any, datos: dict | None = None) -> dict:
     base["partes_protegidas"] = [str(x) for x in (base["partes_protegidas"] or [])
                                  if str(x) in PARTES_PROTEGIDAS]
     base["recomendaciones"] = _recomendaciones(datos)
+    base["justificaciones"] = _justificaciones(datos)
     return base
 
 
@@ -541,6 +543,81 @@ def informe_a_31(inf: Any, recomendaciones: str | None = None) -> Any:
     for i in (INFORME_PRUEBAS, INFORME_RECOMENDACIONES):
         out[i] = texto_html_31(out[i])
     return out
+
+
+def _justificaciones(datos: dict | None) -> dict:
+    """{nombre del conjunto: (justificacion, secuencia)} de las medidas que manda
+    la app (`medidas[]` y la `retirada` del CEE final). Texto llano."""
+    d = datos or {}
+    out: dict = {}
+    for m in list(d.get("medidas") or []) + [d.get("retirada")]:
+        if not isinstance(m, dict):
+            continue
+        nombre = str(m.get("nombre") or "").strip()
+        texto = str(m.get("justificacion") or "").strip()
+        if nombre and texto:
+            try:
+                sec = int(m.get("secuencia") or 2)
+            except (TypeError, ValueError):
+                sec = 2
+            out[nombre] = (texto, sec)
+    return out
+
+
+def medidas_a_31(grupos: Any, justificaciones: dict | None = None) -> Any:
+    """Los conjuntos de medidas con los dos campos que añade la 3.1: el ORDEN de
+    ejecucion (`ordenPrioridad`) y la JUSTIFICACION (`justificacion`).
+
+    Es el apartado 3 del Anexo III del certificado, «Propuesta de secuencia
+    temporal de las medidas de mejora» (medido en un .cex guardado por la 3.1:
+    `ordenPrioridad` es un texto, '1', '2'…, y `justificacion` el texto libre).
+    El PDF une las justificaciones de todos los conjuntos en un solo cuadro
+    HTML, asi que cada una va precedida del nombre de su medida y acaba en
+    `<br>` (si no, la siguiente se pegaria a su ultima linea).
+
+    El ORDEN sale de la `secuencia` que manda la app (envolvente 1, generador 2,
+    renovables 3) y, a igualdad, del orden del fichero. Lo que ya trae el
+    conjunto (un .cex de la 3.1 que el tecnico relleno) no se toca: solo se
+    ponen los `<br>` a su justificacion.
+    """
+    if not isinstance(grupos, list):
+        return grupos
+    import pickle0 as P
+
+    just = justificaciones or {}
+    filas = []
+    for i, g in enumerate(grupos):
+        est = getattr(g, "estado", None)
+        if not isinstance(est, dict):
+            continue
+        nombre = str(est.get(P.Cadena("nombre")) or "").strip()
+        filas.append((just.get(nombre, (None, 9))[1], i, g, est, nombre))
+
+    for orden, (_, _, g, est, nombre) in enumerate(sorted(filas, key=lambda f: (f[0], f[1])), 1):
+        if not str(est.get(P.Cadena("ordenPrioridad")) or "").strip():
+            est[P.Cadena("ordenPrioridad")] = str(orden)
+        actual = str(est.get(P.Cadena("justificacion")) or "").strip()
+        if actual:
+            est[P.Cadena("justificacion")] = texto_html_31(actual)
+            continue
+        texto = just.get(nombre, ("", 9))[0]
+        if texto:
+            est[P.Cadena("justificacion")] = texto_html_31(f"{nombre}: {texto}") + "<br>"
+        else:
+            est[P.Cadena("justificacion")] = ""
+    return grupos
+
+
+def medidas_a_23(grupos: Any) -> Any:
+    """Lo contrario: la 2.3 no tiene esos dos campos y no se le escriben."""
+    if not isinstance(grupos, list):
+        return grupos
+    for g in grupos:
+        est = getattr(g, "estado", None)
+        if isinstance(est, dict):
+            for k in [k for k in est if str(k) in ("ordenPrioridad", "justificacion")]:
+                del est[k]
+    return grupos
 
 
 def informe_a_23(inf: Any) -> Any:
@@ -920,6 +997,8 @@ def elevar(pickles: dict, ext: dict, potencias: dict | None = None,
         avisos += av
     if INFORME in pickles:
         pickles[INFORME] = informe_a_31(pickles[INFORME], (ext or {}).get("recomendaciones"))
+    if MEDIDAS in pickles:
+        pickles[MEDIDAS] = medidas_a_31(pickles[MEDIDAS], (ext or {}).get("justificaciones"))
     return avisos
 
 
@@ -942,4 +1021,6 @@ def bajar(pickles: dict) -> list[str]:
                           "de bomba de calor, que solo existen en la 3.1, no van en el fichero.")
     if INFORME in pickles:
         pickles[INFORME] = informe_a_23(pickles[INFORME])
+    if MEDIDAS in pickles:
+        pickles[MEDIDAS] = medidas_a_23(pickles[MEDIDAS])
     return avisos

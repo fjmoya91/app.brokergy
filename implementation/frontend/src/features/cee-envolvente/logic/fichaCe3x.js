@@ -6,6 +6,7 @@ import { PRUEBAS_CERTIFICADOR, OTROS_DATOS_MEDIDA, MEDIDA_AUTOCONSUMO,
 import { normalizarFotovoltaica } from '../../expedientes/logic/fotovoltaica.js';
 import { AUTOCONSUMO_DECLARABLE } from '../../expedientes/logic/autoconsumoMaximo.js';
 import { especificaValida, kwpPara, mensualDe } from '../../expedientes/logic/produccionFv.js';
+import { justificacionMedida } from './justificacionMedidas.js';
 import { EQUIPO_NUEVO, RENDIMIENTO_JOULE, countUnidades }
     from '../../expedientes/logic/aerotermiaUnits.js';
 import { contactoCliente, deQuienEs } from '../../../utils/contactoCliente.js';
@@ -1617,6 +1618,7 @@ function titulacionCe3x(c) {
 export { AUTOCONSUMO_DECLARABLE };
 // Para el backend, que carga este módulo y no ce3xTextos (el CEE final desde la medida).
 export { recomendacionesUso };
+export { justificacionMedida };
 
 /**
  * El expediente con la aerotermia de la SIMULACIÓN, cuando aún no declara la suya.
@@ -1775,6 +1777,9 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
             nombre: nombreDelConjunto(expediente, equipo, modelos),
             caracteristicas: texto.texto || '',
             otros_datos: OTROS_DATOS_MEDIDA,
+            //: «Propuesta de secuencia temporal» del Anexo III (CE3X 3.1): por qué
+            //: esta medida y en qué orden. Lo escribe el motor solo en la 3.1.
+            ...justificacionMedida(esHibrida ? 'hibridacion' : 'aerotermia'),
             inversion: invers.importe,
             coste_mantenimiento: 0,
             vida_util: VIDA_UTIL_MEDIDA,
@@ -1850,6 +1855,7 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
             nombre: nombreFv,
             caracteristicas: caracteristicasFv,
             otros_datos: campoDe(MEDIDA_AUTOCONSUMO, 'Otros datos'),
+            ...justificacionMedida('autoconsumo', { conAerotermia: !!equipo }),
             inversion: 0,
             coste_mantenimiento: 0,
             vida_util: 0,

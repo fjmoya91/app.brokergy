@@ -18,6 +18,8 @@
 // edificio: sale de la solución elegida, y el texto lo dice con sus cifras.
 // ============================================================================
 
+import { justificacionMedida } from './justificacionMedidas.js';
+
 //: Cada elemento: qué cerramientos del .cex toca y cómo se llama la medida.
 //: `tipo` es el de la radiografía del .cex (una medianera ya viene aparte como
 //: «Medianera» y nunca se aísla: es adiabática).
@@ -188,6 +190,8 @@ export function medidaAislamiento({ elemento, solucion = null, espesorCm = null,
             nombre: el.conjunto,
             caracteristicas: sol.texto(t),
             otros_datos: sol.otros,
+            //: «Propuesta de secuencia temporal» del Anexo III (CE3X 3.1).
+            ...justificacionMedida(elemento, { u: rangoU(u0s).replace(/^U (= )?/, '') }),
             aislamiento: [{
                 nombre: el.medida, elementos: [elemento], modo: 'lambda',
                 lambda: l, espesor: e / 100, exterior: sol.exterior,

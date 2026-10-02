@@ -2,6 +2,7 @@ import { buildMedidaMejora } from './ce3xFinal.js';
 import { tieneFotovoltaica, potenciaTexto, normalizarFotovoltaica } from './fotovoltaica.js';
 import { autoconsumoMaximo } from './autoconsumoMaximo.js';
 import { parseEmisionesTotalesFromXml } from '../../calculator/logic/xmlCeeParser.js';
+import { justificacionMedida } from '../../cee-envolvente/logic/justificacionMedidas.js';
 
 // ─── ce3xTextos.js ───────────────────────────────────────────────────────────
 // La CAJA DE HERRAMIENTAS del certificador: lo que hay que teclear a mano en
@@ -300,6 +301,33 @@ export function buildCe3xTextos(expediente, { modelos = {} } = {}) {
             { campo: 'Texto completo', parrafo: true, valor: recomendaciones,
                 copia: textoInformeCe3x31(recomendaciones) },
         ],
+    });
+
+    // La JUSTIFICACIÓN de cada medida (Anexo III, 3: «Propuesta de secuencia
+    // temporal»). En CE3X 3.1 es la casilla «Justificación» de cada conjunto de
+    // medidas; los .cex que genera la app ya la llevan, esto es para teclearla
+    // a mano en una medida que se haya definido en CE3X.
+    const conAerotermia = !!medida;
+    const JUST = [
+        ['Aislamiento de cubierta', 'cubierta'],
+        ['Aislamiento de fachada', 'fachada'],
+        ['Sustitución de ventanas', 'ventanas'],
+        ['Sustitución por aerotermia', 'aerotermia'],
+        ['Hibridación con aerotermia', 'hibridacion'],
+        ['Retirada de la caldera de apoyo', 'retirada'],
+        ['Autoconsumo fotovoltaico', 'autoconsumo'],
+    ];
+    secciones.push({
+        id: 'justificacion_medidas',
+        titulo: 'Justificación de las medidas',
+        resumen: 'Anexo III · 3. Secuencia temporal (solo CE3X 3.1)',
+        nota: 'Una por conjunto de medidas, en su casilla «Justificación». Orden de ejecución: '
+            + 'primero la envolvente, después el generador y al final el autoconsumo.',
+        campos: JUST.map(([campo, tipo]) => ({
+            campo,
+            parrafo: true,
+            valor: justificacionMedida(tipo, { conAerotermia }).justificacion,
+        })),
     });
 
     return secciones;
