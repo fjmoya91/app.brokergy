@@ -24,6 +24,16 @@ function caeRangeCount(caeInicial, caeFinal) {
     return Math.abs(b - a) + 1;
 }
 
+// Una fila de importe de la columna derecha: rótulo a la izquierda, cifra a la derecha.
+function Importe({ label, value, fuerte = false, color = 'text-white/85' }) {
+    return (
+        <div className="flex items-baseline justify-between gap-3">
+            <span className={`text-[11px] ${fuerte ? 'text-white/70 font-bold' : 'text-white/45'}`}>{label}</span>
+            <span className={`tabular-nums shrink-0 ${fuerte ? 'text-base font-black' : 'text-[12px] font-bold'} ${color}`}>{value}</span>
+        </div>
+    );
+}
+
 export function FacturaSoModal({ lote, onClose, onGenerated }) {
     const { showAlert } = useModal();
     const eco = useMemo(() => computeLoteEco(lote), [lote]);
@@ -187,136 +197,165 @@ export function FacturaSoModal({ lote, onClose, onGenerated }) {
     const inputCls = 'w-full bg-bkg-surface border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white focus:border-brand/40 focus:outline-none';
     const labelCls = 'block text-[9px] uppercase tracking-widest font-black text-white/30 mb-1';
 
+    // ── Disposición: la FACTURA a la izquierda, a todo lo que da, y los DATOS en
+    // una columna a la derecha con las acciones ancladas abajo — la misma que el
+    // gestor de documentos firmados. Se edita un campo y se ve el papel cambiar al
+    // lado, sin bajar por debajo de un formulario para encontrar el documento.
+    // En el móvil no caben dos columnas: el documento arriba y los datos debajo.
     return createPortal(
-        <div className="fixed inset-0 z-[320] flex items-start justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto">
-            <div className="bg-bkg-deep border border-white/[0.08] rounded-2xl w-full max-w-5xl my-8 shadow-2xl">
+        <div className="fixed inset-0 z-[320] flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+            <div className="bg-bkg-deep border border-white/[0.08] rounded-2xl w-full max-w-[1500px] h-[94vh] flex flex-col shadow-2xl overflow-hidden">
 
                 {/* Header */}
-                <div className="flex items-center justify-between gap-3 p-6 border-b border-white/[0.06]">
-                    <div>
+                <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-white/[0.06] shrink-0">
+                    <div className="min-w-0">
                         <h2 className="text-base font-black text-white">Factura al Sujeto Obligado</h2>
-                        <p className="text-[11px] text-white/40 mt-0.5">
+                        <p className="text-[11px] text-white/40 mt-0.5 truncate">
                             {lote.codigo || 'Lote'} · {lote.sujeto_obligado?.razon_social || lote.sujeto_obligado?.acronimo || 'S.O. sin asignar'}
                             {prev?.numero && <span className="text-emerald-400/80"> · ya emitida ({prev.numero})</span>}
                         </p>
                     </div>
-                    <button onClick={onClose} className="p-2 text-white/30 hover:text-white transition-colors shrink-0">
-                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
+                    <div className="flex items-center gap-3 shrink-0">
+                        {prev?.drive_link && (
+                            <a href={prev.drive_link} target="_blank" rel="noopener noreferrer" className="text-brand hover:underline font-black uppercase tracking-widest text-[10px]">Ver en Drive ↗</a>
+                        )}
+                        <button onClick={onClose} className="p-2 text-white/30 hover:text-white transition-colors">
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
                 </div>
 
-                <div className="p-6 space-y-4">
-                    {/* Campos editables · onBlur en el contenedor → auto-guarda el borrador */}
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3" onBlur={saveDraft}>
-                        <div>
-                            <label className={labelCls}>Nº de factura</label>
-                            <input value={numero} onChange={e => setNumero(e.target.value)} placeholder="F-2026CAE_1" className={inputCls} />
-                        </div>
-                        <div>
-                            <label className={labelCls}>Fecha factura</label>
-                            <input value={fecha} onChange={e => setFecha(e.target.value)} placeholder="dd/mm/aaaa" className={inputCls} />
-                        </div>
-                        <div>
-                            <label className={labelCls}>Vencimiento</label>
-                            <input value={vencimiento} onChange={e => setVencimiento(e.target.value)} placeholder="dd/mm/aaaa" className={inputCls} />
-                        </div>
-                        <div>
-                            <label className={labelCls}>CAE inicial</label>
-                            <input value={caeInicial} onChange={e => setCaeInicial(e.target.value)} placeholder="CAE_000000000000_000000" className={inputCls} />
-                        </div>
-                        <div>
-                            <label className={labelCls}>CAE final</label>
-                            <input value={caeFinal} onChange={e => setCaeFinal(e.target.value)} placeholder="CAE_000000000000_000000" className={inputCls} />
-                        </div>
-                        <div>
-                            <label className={labelCls}>Unidades [kWh]</label>
-                            <input type="number" value={unidadesKwh} onChange={e => setUnidadesKwh(e.target.value)} className={inputCls} />
-                        </div>
-                        <div>
-                            <label className={labelCls}>Precio [€/kWh]</label>
-                            <input type="number" step="0.0001" value={precioKwh} onChange={e => setPrecioKwh(e.target.value)} className={inputCls} />
+                <div className="flex-1 min-h-0 flex max-md:flex-col">
+
+                    {/* La factura, tal cual saldrá en el PDF */}
+                    <div className="flex-1 min-h-0 max-md:h-[45vh] max-md:shrink-0 overflow-auto custom-scrollbar bg-black/40 p-4 sm:p-6">
+                        <div className="mx-auto w-[794px] max-w-none bg-white shadow-2xl rounded-sm overflow-hidden">
+                            <div dangerouslySetInnerHTML={{ __html: html }} />
                         </div>
                     </div>
 
-                    {/* Lo que dice el certificado CAE emitido */}
-                    {certDoc && (
-                        <div className={`text-[11px] rounded-xl px-3 py-2 border ${difiereDelCert ? 'border-amber-500/30 bg-amber-500/[0.06]' : 'border-emerald-500/20 bg-emerald-500/[0.04]'}`}>
-                            {leyendoCert ? (
-                                <span className="text-white/60">Leyendo los códigos del Certificado CAE emitido…</span>
-                            ) : certCae?.cae_inicial ? (
-                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                                    <span className="text-white/60">
-                                        Certificado CAE emitido: <b className="text-white/85">{certCae.cae_inicial}</b> → <b className="text-white/85">{certCae.cae_final}</b>
-                                        {certCae.total ? <> · <b className="text-white/85">{Number(certCae.total).toLocaleString('es-ES')}</b> CAE</> : null}
-                                    </span>
-                                    {difiereDelCert
-                                        ? <span className="text-amber-400/90">La factura no dice lo mismo.</span>
-                                        : <span className="text-emerald-400/80">✓ La factura coincide.</span>}
-                                    <span className="ml-auto flex items-center gap-3">
-                                        {difiereDelCert && (
-                                            <button onClick={usarCodigosCertificado} className="text-brand font-black uppercase tracking-widest text-[10px] hover:underline">Usar los del certificado</button>
-                                        )}
-                                        <button onClick={() => leerCertificado()} className="text-white/40 hover:text-white font-black uppercase tracking-widest text-[10px]">Volver a leer</button>
-                                    </span>
-                                    {certCae.avisos?.length > 0 && (
-                                        <p className="basis-full text-amber-400/80">⚠️ {certCae.avisos.join(' · ')}</p>
+                    {/* Los datos, al lado del papel */}
+                    <aside className="w-[400px] shrink-0 max-md:w-full max-md:flex-1 min-h-0 flex flex-col border-l max-md:border-l-0 max-md:border-t border-white/[0.06] bg-white/[0.01]">
+                        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-5 space-y-4">
+
+                            {/* Campos editables · onBlur en el contenedor → auto-guarda el borrador */}
+                            <div className="grid grid-cols-2 gap-3" onBlur={saveDraft}>
+                                <div className="col-span-2">
+                                    <label className={labelCls}>Nº de factura</label>
+                                    <input value={numero} onChange={e => setNumero(e.target.value)} placeholder="F-2026CAE_1" className={inputCls} />
+                                </div>
+                                <div>
+                                    <label className={labelCls}>Fecha factura</label>
+                                    <input value={fecha} onChange={e => setFecha(e.target.value)} placeholder="dd/mm/aaaa" className={inputCls} />
+                                </div>
+                                <div>
+                                    <label className={labelCls}>Vencimiento</label>
+                                    <input value={vencimiento} onChange={e => setVencimiento(e.target.value)} placeholder="dd/mm/aaaa" className={inputCls} />
+                                </div>
+                                <div className="col-span-2">
+                                    <label className={labelCls}>CAE inicial</label>
+                                    <input value={caeInicial} onChange={e => setCaeInicial(e.target.value)} placeholder="CAE_000000000000_000000" className={`${inputCls} tabular-nums`} />
+                                </div>
+                                <div className="col-span-2">
+                                    <label className={labelCls}>CAE final</label>
+                                    <input value={caeFinal} onChange={e => setCaeFinal(e.target.value)} placeholder="CAE_000000000000_000000" className={`${inputCls} tabular-nums`} />
+                                </div>
+                                <div>
+                                    <label className={labelCls}>Unidades [kWh]</label>
+                                    <input type="number" value={unidadesKwh} onChange={e => setUnidadesKwh(e.target.value)} className={inputCls} />
+                                </div>
+                                <div>
+                                    <label className={labelCls}>Precio [€/kWh]</label>
+                                    <input type="number" step="0.0001" value={precioKwh} onChange={e => setPrecioKwh(e.target.value)} className={inputCls} />
+                                </div>
+                            </div>
+
+                            {/* Lo que dice el certificado CAE emitido */}
+                            {certDoc && (
+                                <div className={`text-[11px] rounded-xl px-3 py-2.5 border ${difiereDelCert ? 'border-amber-500/30 bg-amber-500/[0.06]' : 'border-emerald-500/20 bg-emerald-500/[0.04]'}`}>
+                                    {leyendoCert ? (
+                                        <span className="text-white/60">Leyendo los códigos del Certificado CAE emitido…</span>
+                                    ) : certCae?.cae_inicial ? (
+                                        <div className="space-y-1.5">
+                                            <p className="text-[9px] uppercase tracking-widest font-black text-white/35">Certificado CAE emitido</p>
+                                            <p className="text-white/75 tabular-nums break-all">
+                                                {certCae.cae_inicial} → {certCae.cae_final}
+                                                {certCae.total ? <> · <b className="text-white/90">{Number(certCae.total).toLocaleString('es-ES')}</b> CAE</> : null}
+                                            </p>
+                                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                                {difiereDelCert
+                                                    ? <span className="text-amber-400/90">La factura no dice lo mismo.</span>
+                                                    : <span className="text-emerald-400/80">✓ La factura coincide.</span>}
+                                                <span className="ml-auto flex items-center gap-3">
+                                                    {difiereDelCert && (
+                                                        <button onClick={usarCodigosCertificado} className="text-brand font-black uppercase tracking-widest text-[10px] hover:underline">Usar los del certificado</button>
+                                                    )}
+                                                    <button onClick={() => leerCertificado()} className="text-white/40 hover:text-white font-black uppercase tracking-widest text-[10px]">Volver a leer</button>
+                                                </span>
+                                            </div>
+                                            {certCae.avisos?.length > 0 && (
+                                                <p className="text-amber-400/80">⚠️ {certCae.avisos.join(' · ')}</p>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-1.5">
+                                            <p className="text-amber-400/80">{errorCert || 'No se han leído los códigos del Certificado CAE emitido.'}</p>
+                                            <button onClick={() => leerCertificado()} className="text-brand font-black uppercase tracking-widest text-[10px] hover:underline">Leer los códigos del certificado</button>
+                                        </div>
                                     )}
                                 </div>
-                            ) : (
-                                <div className="flex flex-wrap items-center gap-3">
-                                    <span className="text-amber-400/80">{errorCert || 'No se han leído los códigos del Certificado CAE emitido.'}</span>
-                                    <button onClick={() => leerCertificado()} className="ml-auto text-brand font-black uppercase tracking-widest text-[10px] hover:underline">Leer los códigos del certificado</button>
+                            )}
+
+                            {/* Avisos */}
+                            {!eco.hasVerif && (
+                                <p className="text-[11px] text-amber-400/80">⚠️ El lote aún no tiene ahorro <b>verificado</b>; las unidades se han prerrellenado con el estimado. Revisa el dato del verificador antes de emitir.</p>
+                            )}
+                            {rangeMismatch && (
+                                <p className="text-[11px] text-amber-400/80">⚠️ El rango de CAEs son <b>{rangeCount.toLocaleString('es-ES')}</b> códigos, pero has puesto <b>{Math.round(Number(unidadesKwh) || 0).toLocaleString('es-ES')}</b> kWh. Deberían coincidir.</p>
+                            )}
+
+                            {/* Importes */}
+                            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 space-y-1.5">
+                                <Importe label="Base imponible" value={eur(base)} />
+                                <Importe label="IVA 21 %" value={eur(iva)} />
+                                <div className="border-t border-white/[0.06] pt-1.5">
+                                    <Importe label="Total factura" value={eur(total)} fuerte color="text-emerald-400" />
+                                </div>
+                            </div>
+
+                            {/* Lo que se ahorra el S.O. — va en el mensaje de envío */}
+                            {ahorroSo && ahorroSo.ahorro > 0 && (
+                                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.04] p-3 space-y-1.5">
+                                    <p className="text-[9px] uppercase tracking-widest font-black text-emerald-400/70">Ahorro del S.O. con este lote · sin IVA</p>
+                                    <Importe label={`Aportando al FNEE (${EQUIVALENCIA_FINANCIERA.toLocaleString('es-ES')} €/MWh)`} value={eur(ahorroSo.alternativa)} />
+                                    <Importe label={`Con nosotros${ahorroSo.verif ? ' (factura + verificación)' : ''}`} value={eur(ahorroSo.coste)} />
+                                    <div className="border-t border-emerald-500/15 pt-1.5">
+                                        <Importe label={`Ahorro neto${ahorroSo.pct != null ? ` · ${ahorroSo.pct.toLocaleString('es-ES', { maximumFractionDigits: 1 })} %` : ''}`}
+                                            value={eur(ahorroSo.ahorro)} fuerte color="text-emerald-400" />
+                                    </div>
+                                    <p className="text-[10px] text-white/35">Va en el mensaje al enviarle la factura.</p>
                                 </div>
                             )}
                         </div>
-                    )}
 
-                    {/* Avisos */}
-                    {!eco.hasVerif && (
-                        <p className="text-[11px] text-amber-400/80">⚠️ El lote aún no tiene ahorro <b>verificado</b>; las unidades se han prerrellenado con el estimado. Revisa el dato del verificador antes de emitir.</p>
-                    )}
-                    {rangeMismatch && (
-                        <p className="text-[11px] text-amber-400/80">⚠️ El rango de CAEs son <b>{rangeCount.toLocaleString('es-ES')}</b> códigos, pero has puesto <b>{Math.round(Number(unidadesKwh) || 0).toLocaleString('es-ES')}</b> kWh. Deberían coincidir.</p>
-                    )}
-
-                    {/* Totales rápidos */}
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-white/50 bg-white/[0.02] border border-white/[0.05] rounded-xl px-3 py-2">
-                        <span>Base <b className="text-white/80">{eur(base)}</b></span>
-                        <span>· IVA 21% <b className="text-white/80">{eur(iva)}</b></span>
-                        <span>· Total <b className="text-emerald-400">{eur(total)}</b></span>
-                        {ahorroSo && ahorroSo.ahorro > 0 && (
-                            <span title={`Frente a aportar al FNEE (${EQUIVALENCIA_FINANCIERA.toLocaleString('es-ES')} €/MWh): ${eur(ahorroSo.alternativa)}. Coste real: ${eur(ahorroSo.coste)} (factura${ahorroSo.verif ? ' + verificación' : ''}, sin IVA). Va en el mensaje de envío.`}>
-                                · Ahorro del S.O. <b className="text-emerald-400">{eur(ahorroSo.ahorro)}</b>{ahorroSo.pct != null ? ` (${ahorroSo.pct.toLocaleString('es-ES', { maximumFractionDigits: 1 })} %)` : ''}
-                            </span>
-                        )}
-                        {prev?.drive_link && (
-                            <a href={prev.drive_link} target="_blank" rel="noopener noreferrer" className="ml-auto text-brand hover:underline font-black uppercase tracking-widest text-[10px]">Ver factura en Drive ↗</a>
-                        )}
-                    </div>
-
-                    {/* Previsualización */}
-                    <div className="border border-white/[0.08] rounded-xl overflow-auto max-h-[55vh] bg-white">
-                        <div className="min-w-[760px]" dangerouslySetInnerHTML={{ __html: html }} />
-                    </div>
-                </div>
-
-                {/* Acciones */}
-                <div className="flex items-center justify-between gap-3 p-6 border-t border-white/[0.06] flex-wrap">
-                    <button onClick={onClose} className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest text-white/50 hover:text-white transition-colors">Cerrar</button>
-                    <div className="flex items-center gap-2 flex-wrap">
-                        <button onClick={handleDownloadPdf} disabled={downloading || generating}
-                            className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest border border-white/15 text-white/70 hover:text-white hover:border-white/30 disabled:opacity-40 transition-all">
-                            {downloading ? 'Generando…' : 'Descargar PDF'}
-                        </button>
-                        <button onClick={() => setSendOpen(true)} disabled={generating}
-                            className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest border border-brand/30 text-brand bg-brand/10 hover:bg-brand/20 disabled:opacity-40 transition-all">
-                            Enviar al S.O.
-                        </button>
-                        <button onClick={handleGenerate} disabled={generating}
-                            className="px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-gradient-to-r from-brand to-brand-700 text-bkg-deep disabled:opacity-40 transition-all">
-                            {generating ? 'Generando…' : (prev?.numero ? 'Regenerar y guardar' : 'Generar y guardar en Drive')}
-                        </button>
-                    </div>
+                        {/* Acciones — ancladas abajo, siempre a la vista */}
+                        <div className="p-4 sm:p-5 border-t border-white/[0.06] shrink-0 space-y-2">
+                            <button onClick={handleGenerate} disabled={generating}
+                                className="w-full px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest bg-gradient-to-r from-brand to-brand-700 text-bkg-deep disabled:opacity-40 transition-all">
+                                {generating ? 'Generando…' : (prev?.numero ? 'Regenerar y guardar' : 'Generar y guardar en Drive')}
+                            </button>
+                            <div className="grid grid-cols-2 gap-2">
+                                <button onClick={handleDownloadPdf} disabled={downloading || generating}
+                                    className="px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/15 text-white/70 hover:text-white hover:border-white/30 disabled:opacity-40 transition-all">
+                                    {downloading ? 'Generando…' : 'Descargar PDF'}
+                                </button>
+                                <button onClick={() => setSendOpen(true)} disabled={generating}
+                                    className="px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-brand/30 text-brand bg-brand/10 hover:bg-brand/20 disabled:opacity-40 transition-all">
+                                    Enviar al S.O.
+                                </button>
+                            </div>
+                        </div>
+                    </aside>
                 </div>
             </div>
             {sendOpen && (
