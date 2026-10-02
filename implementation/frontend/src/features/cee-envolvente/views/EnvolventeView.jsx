@@ -26,6 +26,8 @@ import { VentanasViviendaModal } from '../components/VentanasViviendaModal';
 import { PERSIANA_DEFECTO_NUEVOS, huecosDefecto, resumenVentanas, ventanasContestadas }
     from '../logic/ventanasVivienda';
 import { EscribiendoElCex, CexGenerado } from '../components/EscribiendoElCex';
+import { BandaAgenteIa, ListaPendientes } from '../components/RastroAgente';
+import { pendientesDe, selloAgente } from '../logic/pendientes';
 import { PanelAdministrativos, PanelEconomico, PanelGenerales, PanelInstalaciones,
          PanelMedidas, Ventana, VersionCe3x } from '../components/PanelesFicha';
 
@@ -897,6 +899,48 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         return () => { vivo = false; clearTimeout(t); };
     }, [geo, id, ajustes, refrescoFicha, fichaFase, medidasSel]);
 
+    // ── Lo POR CONFIRMAR y el CROQUIS ───────────────────────────────────────
+    // La lista sale de lo MISMO que cuenta la cabecera (`resumen.dudosos`), y
+    // cada línea lleva a su pared: un número sin salida obligaba a buscar la
+    // raya ámbar pared por pared.
+    const [verPendientes, setVerPendientes] = useState(false);
+    const pendientes = useMemo(
+        () => pendientesDe(plano.muros, plano.lucernarios, plantas, nombreDe),
+        [plano.muros, plano.lucernarios, plantas]);
+    const irAPendiente = (it) => {
+        const i = plantas.findIndex(p => p.id === it.planta);
+        if (i >= 0 && plantas.length > 1) setEleccionPlanta(i);
+        if (modo !== '2d') setModo('2d');
+        if (it.muro) plano.setSel(it.muro);
+    };
+
+    //: El CROQUIS en PDF (plano por planta con medidas + tablas del .cex). Se
+    //: rehace en el servidor con lo GUARDADO, así que antes se guarda lo que
+    //: haya pendiente del autoguardado. La pestaña se abre ANTES de esperar: si
+    //: no, el navegador la bloquea por no venir de un clic.
+    const [croquis, setCroquis] = useState(null);
+    async function verCroquis() {
+        if (croquis === 'haciendo') return;
+        const w = window.open('', '_blank');
+        try { w?.document.write('<p style="font:14px Arial;padding:24px">Preparando el croquis… (unos segundos)</p>'); } catch { /* noop */ }
+        setCroquis('haciendo');
+        try {
+            const t = plano.trabajo && { ...plano.trabajo, ajustes };
+            const json = t ? JSON.stringify(t) : null;
+            if (t && json !== ultimo.current) {
+                await axios.put(api(id, 'trabajo'), { trabajo: t });
+                ultimo.current = json;
+            }
+            const { data } = await axios.post(api(id, 'croquis'), { fase: fichaFase }, { timeout: 300000 });
+            if (w) w.location.href = data.link; else window.open(data.link, '_blank');
+            setCroquis(null);
+        } catch (e) {
+            try { w?.close(); } catch { /* noop */ }
+            setCroquis(null);
+            setError(`No se ha podido preparar el croquis: ${e.response?.data?.error || e.message}`);
+        }
+    }
+
     // ── Las IMÁGENES de portada ──────────────────────────────────────────────
     // La foto de fachada y el croquis de parcela que van DENTRO del .cex. Se
     // piden a demanda y NUNCA solas: son dos consultas a Catastro y esta
@@ -1461,11 +1505,26 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                 encuadre, el zoom y la pared que se estaba mirando. Las demas
                 ventanas son formularios y se montan a demanda. */}
             <div className={activa === 'envolvente' ? 'flex flex-col gap-4' : 'hidden'}>
+                {/* Lo que hizo el AGENTE IA: cuándo, sus avisos y sus ficheros. */}
+                <BandaAgenteIa sello={selloAgente(expediente, fichaFase)}
+                               pendientes={pendientes.length}
+                               onPendientes={() => setVerPendientes(true)}
+                               onCroquis={verCroquis} croquis={croquis} />
+
                 <Cabecera resumen={resumen} entrada={entrada}
                           onCambiarEntrada={() => setEntrada(null)}
                           estadoGuardado={estadoGuardado}
                           ventanas={resumenVentanas(ajustes.ventanas)}
-                          onVentanas={() => setVerVentanas(true)} />
+                          onVentanas={() => setVerVentanas(true)}
+                          onPendientes={() => setVerPendientes(v => !v)}
+                          // Con la banda del agente el croquis ya está allí.
+                          onCroquis={selloAgente(expediente, fichaFase) ? null : verCroquis}
+                          croquis={croquis} />
+
+                {verPendientes && (
+                    <ListaPendientes items={pendientes} onIr={irAPendiente}
+                                     onCerrar={() => setVerPendientes(false)} />
+                )}
 
                 {!entrada && <PasoEntrada />}
 
@@ -1953,7 +2012,7 @@ const GUARDADO = {
  * renglón, y el estado de cada pared ya se ve en el plano por su color.
  */
 function Cabecera({ resumen, entrada, onCambiarEntrada, estadoGuardado,
-                   ventanas, onVentanas }) {
+                   ventanas, onVentanas, onPendientes, onCroquis, croquis }) {
     // El PROGRESO: cuántas paredes están miradas de las que hay que mirar. Es
     // la respuesta a «¿cuánto me queda?», que antes había que deducir de una
     // cifra suelta en letra pequeña.
@@ -1994,8 +2053,9 @@ function Cabecera({ resumen, entrada, onCambiarEntrada, estadoGuardado,
             )}
 
             {resumen.dudosos > 0 && (
-                <Pildora tono="aviso" title="Huecos con la medida por defecto, sin confirmar">
-                    <b>{resumen.dudosos}</b> {resumen.dudosos === 1 ? 'medida' : 'medidas'} por confirmar
+                <Pildora tono="aviso" onClick={onPendientes}
+                         title="Ver cuáles son e ir a cada una">
+                    <b>{resumen.dudosos}</b> {resumen.dudosos === 1 ? 'medida' : 'medidas'} por confirmar ▾
                 </Pildora>
             )}
             {/* Lo que SE REFORMA. Sale con «- CAMBIA» en el .cex, y es lo que
@@ -2024,6 +2084,16 @@ function Cabecera({ resumen, entrada, onCambiarEntrada, estadoGuardado,
                 ▤ {ventanas || 'Di cómo son las ventanas'}
                 <span className="opacity-60"> ✎</span>
             </Pildora>
+
+            {/* El CROQUIS en PDF de lo que hay: plano por planta con medidas,
+                huecos y zonas, y las tablas del .cex. Para revisar o pasárselo
+                a alguien sin abrir CE3X. */}
+            {onCroquis && (
+                <Pildora onClick={croquis === 'haciendo' ? undefined : onCroquis}
+                         title="Plano por planta con medidas y huecos + tablas del .cex · se guarda junto al .cex">
+                    {croquis === 'haciendo' ? 'Preparando el croquis…' : '📐 Croquis PDF'}
+                </Pildora>
+            )}
 
             {estadoGuardado && (
                 <span className={`ml-auto text-[11px] ${GUARDADO[estadoGuardado].color}`}>

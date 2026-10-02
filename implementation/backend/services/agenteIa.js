@@ -104,7 +104,7 @@ function pendientesPorDefecto(fase, { delAgente = true } = {}) {
            'Comprobar que la demanda de ACS es la misma que la del CEE inicial',
            'Medidas de mejora → «Actualizar» (la medida va sin calcular)',
            'Exportar el .xml y el .pdf y subirlos al CEE final como «– CEE FINAL»']
-        : ['Abrirlo en CE3X: lo que está en ÁMBAR en la envolvente está por confirmar',
+        : ['Revisar el CROQUIS (PDF junto al .cex): en ÁMBAR lo que está POR CONFIRMAR. Se corrige en la ventana de la envolvente de la app, no en CE3X',
            'Medidas de mejora → «Actualizar» (la medida va sin calcular)',
            'Exportar el .xml y el .pdf y subirlos al CEE inicial como «– CEE INICIAL»'];
     if (delAgente) lista.push('El Agente IA no firma: asigna el técnico que lo firma y lo registra');
@@ -198,6 +198,7 @@ function componerHtml({ numero, cliente, faseLabel, fichero, enlaces, pendientes
     // Accesos: los botones son la carpeta LOCAL (donde se trabaja con CE3X) y la
     // app; el resto, una lista que dice para qué sirve cada uno.
     const accesos = [
+        enlaces.croquis && ['📐', 'Croquis del borrador (PDF)', 'Plano por planta con medidas y tablas del .cex · en ámbar lo por confirmar', enlaces.croquis],
         enlaces.fichero && ['📄', 'Abrir el .cex', 'Descárgalo y ábrelo en CE3X', enlaces.fichero],
         enlaces.carpeta && ['📁', 'Carpeta del CEE en Drive', 'Donde se suben el .xml y el .pdf exportados', enlaces.carpeta],
         enlaces.envolvente && ['🧱', 'Ventana de la envolvente', 'Lo que está en ámbar está por confirmar', enlaces.envolvente],
@@ -268,7 +269,7 @@ ${fichero ? `\n📄 ${fichero}\n` : ''}
 *Queda por hacer:*
 ${lineasPend}
 ${lineasAv ? `\n${lineasAv}\n` : ''}
-${enlaces.local ? `📂 Carpeta local (PC): ${enlaces.local}\n` : ''}${enlaces.app ? `🔗 Ver: ${enlaces.app}\n` : ''}${enlaces.carpeta ? `📁 Carpeta en Drive: ${enlaces.carpeta}\n` : ''}${enlaces.envolvente ? `🧱 Envolvente: ${enlaces.envolvente}\n` : ''}
+${enlaces.croquis ? `📐 Croquis (PDF): ${enlaces.croquis}\n` : ''}${enlaces.local ? `📂 Carpeta local (PC): ${enlaces.local}\n` : ''}${enlaces.app ? `🔗 Ver: ${enlaces.app}\n` : ''}${enlaces.carpeta ? `📁 Carpeta en Drive: ${enlaces.carpeta}\n` : ''}${enlaces.envolvente ? `🧱 Envolvente: ${enlaces.envolvente}\n` : ''}
 *BROKERGY · Ingeniería Energética*`;
 
     const html = componerHtml({ numero, cliente, faseLabel, fichero, enlaces, pendientes,
@@ -487,10 +488,11 @@ async function empezar({ negocio, clave, fase = 'inicial', reasignar = false }) 
  * @param {{nombre?, link?, carpeta_link?}} [p.fichero]  lo que devolvió `guardarEnDrive`
  * @param {string[]} [p.pendientes]  qué queda (por defecto, el de la fase)
  * @param {string[]} [p.avisos]      avisos de la skill (se resumen en el aviso)
+ * @param {string[]} [p.decisiones]  cómo se ha hecho (se guardan en el sello)
  * @param {boolean} [p.aviso=true]
  */
 async function terminar({ negocio, clave, fase = 'inicial', fichero = {}, pendientes = null,
-                          avisos = [], aviso = true }) {
+                          avisos = [], decisiones = null, aviso = true }) {
     fase = normFase(fase);
     const ahora = new Date().toISOString();
     const cambios = [];
@@ -540,6 +542,17 @@ async function terminar({ negocio, clave, fase = 'inicial', fichero = {}, pendie
             fichero: fichero.nombre || prevSello.fichero || null,
             fichero_link: fichero.link || prevSello.fichero_link || null,
             carpeta_link: fichero.carpeta_link || prevSello.carpeta_link || null,
+            croquis_link: fichero.croquis_link || prevSello.croquis_link || null,
+            // Los AVISOS del borrador, para que la ventana de la envolvente los
+            // enseñe: el WhatsApp los corta a cuatro y aquí es donde se revisan.
+            // Solo texto y con tope (regla 21).
+            avisos: (avisos || []).slice(0, 20).map(a => recortar(a, 300)),
+            // CÓMO lo ha hecho: el porqué que no se ve en el plano (del plan) y
+            // el resumen de lo escrito. Un `terminar` a mano no las trae: se
+            // conservan las de la pasada anterior.
+            decisiones: Array.isArray(decisiones)
+                ? decisiones.slice(0, 30).map(d => recortar(d, 300))
+                : (prevSello.decisiones || []),
         };
         await setCee(negocio, fila.id, 'agente_ia', sello);
 
@@ -589,6 +602,7 @@ async function terminar({ negocio, clave, fase = 'inicial', fichero = {}, pendie
         }
     }
     if (fichero.link) enlaces.fichero = fichero.link;
+    if (fichero.croquis_link) enlaces.croquis = fichero.croquis_link;
     // La carpeta LOCAL del CEE (espejo de Drive del PC): es donde se abre el .cex
     // en CE3X y donde se dejan el .xml y el .pdf exportados.
     if (enlaces.carpeta) {

@@ -120,6 +120,10 @@ const matchSlot = (filename) => {
 // de slot) y tampoco es un "archivo del CEE": viaja por su propia casilla del
 // visto bueno, y al cliente no se le manda nunca. Se reconoce por el nombre —con
 // o sin tilde, y también el de la descarga («Borrador presentar …»)—.
+//: El croquis que deja el Agente IA junto a su `.cex` (`… - CEE INICIAL_CROQUIS.pdf`):
+//: sirve para revisar el borrador, no se adjunta a nada.
+const esCroquis = (filename) => /_croquis(\s*\(\d+\))?\.pdf$/i.test(String(filename || ''));
+
 const esBorradorPresentacion = (filename) => /borrador\s+present/i.test(
     String(filename || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
 );
@@ -155,7 +159,8 @@ async function getCeeSectionAttachments(driveFolderId, phase) {
     for (const f of files) {
         if (f.mimeType === 'application/vnd.google-apps.folder') continue; // ignorar OLD
         // El borrador va por su casilla: aquí saldría repetido (o contra lo elegido).
-        if (esBorradorPresentacion(f.name)) continue;
+        // El croquis del Agente IA es para REVISAR el borrador: no es del CEE.
+        if (esBorradorPresentacion(f.name) || esCroquis(f.name)) continue;
         try {
             const buf = await driveService.getFileContent(f.id);
             if (buf && buf.length) {
@@ -311,6 +316,7 @@ module.exports = {
     // Si un día cambia el sufijo de un slot, cambia en los dos sitios a la vez.
     matchSlot,
     esBorradorPresentacion,
+    esCroquis,
     normalizePhase,
     sectionLabel,
     sectionKey,

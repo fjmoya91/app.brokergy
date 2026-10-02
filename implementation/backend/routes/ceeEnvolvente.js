@@ -230,76 +230,145 @@ function croquisSaneado(cs) {
  * La RC sale del expediente si no viene en el cuerpo: cada consulta a Catastro
  * cuesta, y no se pregunta dos veces lo mismo.
  */
+/**
+ * La GEOMETRÍA del motor con lo mismo que la pediría la ventana. Es una función
+ * y no solo la ruta porque el CROQUIS la necesita también (`/croquis`, y tras
+ * generar el .cex): dos caminos que midieran distinto dibujarían otra casa.
+ * Devuelve `{ status, datos }` con la respuesta del motor tal cual.
+ */
+async function pedirGeometria(expedienteId, origen, body = {}) {
+    const rc = (body?.referencia_catastral || '').trim();
+    if (!rc) return { status: 400, datos: { detail: 'Falta la referencia catastral.' } };
+
+    // Qué plantas cuentan lo marcó una persona en la ficha técnica de la
+    // oportunidad; sin selección guardada, el motor sigue con el uso de
+    // Catastro. Se lee AQUÍ y no se acepta del navegador: de esto depende
+    // la superficie que acaba en el certificado.
+    const construcciones = await cex.construccionesElegidas(
+        expedienteId, origen);
+
+    // Las PISTAS para proponer el croquis: las fachadas en cuya foto hay una
+    // puerta de garaje. Un fallo aquí solo quita la pista, nunca la medición.
+    let pistasCroquis = null;
+    try {
+        const ctx = await cex.cargarExpediente(expedienteId, origen);
+        if (ctx) pistasCroquis = fotos.pistasCroquis(ctx.expediente);
+    } catch (e) { console.warn('[ceeEnvolvente] pistas del croquis:', e.message); }
+
+    // La ALTURA DE PLANTA con la que se miden las fachadas. Si el navegador
+    // no la manda, la que el trabajo declara en la ficha
+    // (`ajustes.altura_libre_planta`): medir con 2,80 y declarar otra deja un
+    // .cex cuyas superficies no cuadran con su propia altura.
+    let altura = Number(body?.altura_planta) > 0 ? Number(body.altura_planta) : null;
+    if (!altura) {
+        try {
+            const t = await cex.leerTrabajo(expedienteId, origen);
+            const a = Number(t?.ajustes?.altura_libre_planta);
+            if (a >= 2 && a <= 6) altura = a;
+        } catch (e) { console.warn('[ceeEnvolvente] altura del trabajo:', e.message); }
+    }
+
+    const r = await alMotor('/envolvente', {
+        referencia_catastral: rc,
+        altura_planta: altura,
+        offline: body?.offline === true,
+        construcciones,
+        // Los CUERPOS del edificio que el certificador deja fuera (el
+        // aparcamiento adosado, el porche). Vienen del navegador como el
+        // resto de lo que señala en el plano —las paredes apartadas, los
+        // huecos— y se guardan con su trabajo; las CONSTRUCCIONES, en
+        // cambio, se leen aquí porque son de la oportunidad.
+        cuerpos_excluidos: Array.isArray(body?.cuerpos_excluidos)
+            ? body.cuerpos_excluidos.filter(x => typeof x === 'string').slice(0, 50)
+            : null,
+        // El CONTORNO de la vivienda cuando la parcela es una comunidad de
+        // adosados: Catastro no dibuja dónde acaba cada casa, así que lo
+        // dibuja el certificador. Vértices en el CRS métrico (EPSG:25830);
+        // lo que no sean pares de números no viaja.
+        recorte_vivienda: recorteSaneado(body?.recorte_vivienda),
+        // Lo que NO es vivienda dentro de una planta —el garaje dentro de la
+        // casa de dos plantas—, dibujado por el certificador. Al contrario
+        // que el contorno (un prisma para todas las plantas), se resta SOLO
+        // de su nivel: la vivienda de encima sigue entera.
+        zonas_fuera: zonasSaneadas(body?.zonas_fuera),
+        // El CROQUIS a mano alzada: el motor lo ajusta a los m² de Catastro,
+        // lo mide como zonas más y devuelve los polígonos (`croquis_ajustado`)
+        // para que se guarden como zonas. `croquis_ajustar: false` = tal cual.
+        croquis: croquisSaneado(body?.croquis),
+        croquis_ajustar: body?.croquis_ajustar !== false,
+        // Para la PROPUESTA de croquis (el motor la calcula y la ofrece).
+        pistas_croquis: pistasCroquis,
+        // El PROGRAMA de CE3X (residencial / pequeño / gran terciario). De
+        // él cuelga QUÉ SE MIDE: en un terciario cuentan también los usos
+        // del terciario que Catastro no da por habitables (un hotel es
+        // «HOTELERO», una parroquia «RELIGIOSO»). Solo los tres valores de
+        // CE3X; cualquier otra cosa se mide como siempre.
+        tipo_edificio_ce3x: ['residencial', 'pequeno_terciario', 'gran_terciario']
+            .includes(body?.tipo_edificio_ce3x) ? body.tipo_edificio_ce3x : null,
+    }, ESPERA_ENVOLVENTE_MS);
+
+    return { status: r.status, datos: await r.json() };
+}
+
 router.post('/:expedienteId/geometria', internalOnly, staffSiOportunidad, async (req, res) => {
     try {
-        const rc = (req.body?.referencia_catastral || '').trim();
-        if (!rc) return res.status(400).json({ error: 'Falta la referencia catastral.' });
-
-        // Qué plantas cuentan lo marcó una persona en la ficha técnica de la
-        // oportunidad; sin selección guardada, el motor sigue con el uso de
-        // Catastro. Se lee AQUÍ y no se acepta del navegador: de esto depende
-        // la superficie que acaba en el certificado.
-        const construcciones = await cex.construccionesElegidas(
-            req.params.expedienteId, origenDe(req));
-
-        // Las PISTAS para proponer el croquis: las fachadas en cuya foto hay una
-        // puerta de garaje. Un fallo aquí solo quita la pista, nunca la medición.
-        let pistasCroquis = null;
-        try {
-            const ctx = await cex.cargarExpediente(req.params.expedienteId, origenDe(req));
-            if (ctx) pistasCroquis = fotos.pistasCroquis(ctx.expediente);
-        } catch (e) { console.warn('[ceeEnvolvente] pistas del croquis:', e.message); }
-
-        const r = await alMotor('/envolvente', {
-            referencia_catastral: rc,
-            altura_planta: req.body?.altura_planta ?? null,
-            offline: req.body?.offline === true,
-            construcciones,
-            // Los CUERPOS del edificio que el certificador deja fuera (el
-            // aparcamiento adosado, el porche). Vienen del navegador como el
-            // resto de lo que señala en el plano —las paredes apartadas, los
-            // huecos— y se guardan con su trabajo; las CONSTRUCCIONES, en
-            // cambio, se leen aquí porque son de la oportunidad.
-            cuerpos_excluidos: Array.isArray(req.body?.cuerpos_excluidos)
-                ? req.body.cuerpos_excluidos.filter(x => typeof x === 'string').slice(0, 50)
-                : null,
-            // El CONTORNO de la vivienda cuando la parcela es una comunidad de
-            // adosados: Catastro no dibuja dónde acaba cada casa, así que lo
-            // dibuja el certificador. Vértices en el CRS métrico (EPSG:25830);
-            // lo que no sean pares de números no viaja.
-            recorte_vivienda: recorteSaneado(req.body?.recorte_vivienda),
-            // Lo que NO es vivienda dentro de una planta —el garaje dentro de la
-            // casa de dos plantas—, dibujado por el certificador. Al contrario
-            // que el contorno (un prisma para todas las plantas), se resta SOLO
-            // de su nivel: la vivienda de encima sigue entera.
-            zonas_fuera: zonasSaneadas(req.body?.zonas_fuera),
-            // El CROQUIS a mano alzada: el motor lo ajusta a los m² de Catastro,
-            // lo mide como zonas más y devuelve los polígonos (`croquis_ajustado`)
-            // para que se guarden como zonas. `croquis_ajustar: false` = tal cual.
-            croquis: croquisSaneado(req.body?.croquis),
-            croquis_ajustar: req.body?.croquis_ajustar !== false,
-            // Para la PROPUESTA de croquis (el motor la calcula y la ofrece).
-            pistas_croquis: pistasCroquis,
-            // El PROGRAMA de CE3X (residencial / pequeño / gran terciario). De
-            // él cuelga QUÉ SE MIDE: en un terciario cuentan también los usos
-            // del terciario que Catastro no da por habitables (un hotel es
-            // «HOTELERO», una parroquia «RELIGIOSO»). Solo los tres valores de
-            // CE3X; cualquier otra cosa se mide como siempre.
-            tipo_edificio_ce3x: ['residencial', 'pequeno_terciario', 'gran_terciario']
-                .includes(req.body?.tipo_edificio_ce3x) ? req.body.tipo_edificio_ce3x : null,
-        }, ESPERA_ENVOLVENTE_MS);
-
-        const datos = await r.json();
-        if (!r.ok) {
+        const { status, datos } = await pedirGeometria(req.params.expedienteId, origenDe(req), req.body || {});
+        if (status === 400 && datos?.detail === 'Falta la referencia catastral.') {
+            return res.status(400).json({ error: datos.detail });
+        }
+        if (status < 200 || status >= 300) {
             // 502 del motor = ha fallado Catastro, no nosotros. Se deja pasar
             // tal cual para que el front no invite a reintentar contra el WAF.
-            return res.status(r.status === 502 ? 502 : 400)
+            return res.status(status === 502 ? 502 : 400)
                 .json({ error: datos?.detail || 'No se pudo construir la envolvente.' });
         }
         res.json(datos);
     } catch (e) {
         console.error('[ceeEnvolvente] geometria:', e.message);
         res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+/**
+ * El CROQUIS en PDF de lo que hay en la envolvente: un plano por planta con las
+ * medidas y los huecos, las tablas de lo que hay DENTRO del .cex y lo POR
+ * CONFIRMAR en ámbar. Se compone con el TRABAJO GUARDADO (el de la ventana o el
+ * de la skill) y la geometría medida con lo mismo que lo mediría la ventana, y
+ * se deja junto al .cex (`… - CEE INICIAL_CROQUIS.pdf`). Cero tokens: es código.
+ */
+async function croquisDesdeTrabajo(expedienteId, origen, { fase = 'inicial', avisos = null, autor = null } = {}) {
+    const croq = require('../services/cee/croquisCee');
+    const ctx = await cex.cargarExpediente(expedienteId, origen);
+    if (!ctx) return { ok: false, status: 404, error: 'Expediente no encontrado.' };
+    if (!ctx.driveFolderId) return { ok: false, status: 409, error: 'No tiene carpeta de Drive: no hay dónde dejar el croquis.' };
+    const t = await cex.leerTrabajo(expedienteId, origen);
+    if (!t) return { ok: false, status: 409, error: 'Todavía no hay nada señalado en la envolvente.' };
+    const { status, datos: geo } = await pedirGeometria(expedienteId, origen, {
+        referencia_catastral: ctx.expediente?.instalacion?.ref_catastral || '',
+        cuerpos_excluidos: t.cuerpos_fuera || null,
+        recorte_vivienda: t.recorte_vivienda || null,
+        zonas_fuera: t.zonas_fuera || null,
+        altura_planta: t.ajustes?.altura_libre_planta || null,
+        tipo_edificio_ce3x: t.ajustes?.tipo_ce3x || null,
+    });
+    if (status < 200 || status >= 300) {
+        return { ok: false, status: status === 502 ? 502 : 400,
+                 error: `No se ha podido medir el edificio: ${geo?.detail || status}` };
+    }
+    const r = await croq.croquisDeExpediente(ctx, { geo, trabajo: t, fase, avisos, autor });
+    return r.ok ? r : { ...r, status: 502 };
+}
+
+router.post('/:expedienteId/croquis', internalOnly, staffSiOportunidad, async (req, res) => {
+    try {
+        const fase = req.body?.fase === 'final' ? 'final' : 'inicial';
+        const r = await croquisDesdeTrabajo(req.params.expedienteId, origenDe(req),
+            { fase, autor: req.user?.nombre || req.user?.email || null });
+        if (!r.ok) return res.status(r.status || 500).json({ error: r.error });
+        res.json(r);
+    } catch (e) {
+        console.error('[ceeEnvolvente] croquis:', e.message);
+        res.status(500).json({ error: e.message });
     }
 });
 
@@ -764,6 +833,13 @@ router.post('/:expedienteId/cex', internalOnly, staffSiOportunidad, async (req, 
         // a generar.
         // La VERSIÓN de CE3X con la que ha salido: la dice el motor (es quien
         // escribe la cabecera), y si no la dijera, la que se pidió.
+        // El CROQUIS se rehace con el .cex nuevo, en segundo plano: tarda unos
+        // segundos (medir + rasterizar) y no puede retrasar ni tumbar el .cex.
+        const origenCroquis = origenDe(req);
+        setImmediate(() => croquisDesdeTrabajo(req.params.expedienteId, origenCroquis,
+            { fase, avisos: [...avisos], autor: req.user?.nombre || req.user?.email || null })
+            .then(c => { if (!c.ok) console.warn('[ceeEnvolvente] croquis tras el .cex:', c.error); })
+            .catch(e => console.warn('[ceeEnvolvente] croquis tras el .cex:', e.message)));
         res.json({ ...guardado, fase, avisos, contraste, ficha,
                    version_ce3x: r.headers.get('X-Cee-Version') || ficha.version_ce3x || null,
                    sin_imagenes: imagenesFallidas });

@@ -16,7 +16,7 @@ const crypto = require('crypto');
 const supabase = require('./supabaseClient');
 const driveService = require('./driveService');
 const ceeDirectoFolders = require('./ceeDirectoFolders');
-const { CEE_SLOTS, matchSlot, esBorradorPresentacion } = require('./ceeUploadService');
+const { CEE_SLOTS, matchSlot, esBorradorPresentacion, esCroquis } = require('./ceeUploadService');
 
 function normalizePhase(phase) {
     return (phase === 'final' || phase === 'FINAL') ? 'final' : 'inicial';
@@ -153,7 +153,7 @@ async function getSectionAttachments(ceeDirecto, phase) {
         if (f.mimeType === 'application/vnd.google-apps.folder') continue;
         // El borrador de presentación no es un archivo del CEE: al técnico le llega
         // por su propia casilla y al cliente (entrega) no se le manda nunca.
-        if (esBorradorPresentacion(f.name)) continue;
+        if (esBorradorPresentacion(f.name) || esCroquis(f.name)) continue;
         try {
             const buf = await driveService.getFileContent(f.id);
             if (buf && buf.length) {

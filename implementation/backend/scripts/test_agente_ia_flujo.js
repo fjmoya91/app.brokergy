@@ -87,7 +87,11 @@ const req = (rel) => require.resolve(path.join(__dirname, '..', rel));
 const doble = (rel, exports) => { require.cache[req(rel)] = { id: rel, filename: rel, loaded: true, exports }; };
 doble('services/supabaseClient.js', supabaseDoble);
 doble('services/whatsappService.js', { async sendText(tel, msg) { wa.push({ tel, msg }); return { ok: true }; } });
+// Las piezas de MARCA (brandEmailShell, BRAND…) son las de verdad: el aviso se
+// compone con ellas. Solo se sustituye el ENVÍO.
+const emailReal = require('../services/emailService');
 doble('services/emailService.js', {
+    ...emailReal,
     async sendMail(m) { mails.push(m); return true; },
     getFallbackSender() { return null; },
 });
