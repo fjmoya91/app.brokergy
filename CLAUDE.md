@@ -3916,12 +3916,22 @@ aun así quedan varias, el popup los lista y se elige de un clic. Elegir por el 
 sería declarar el SCOP y adjuntar la ficha técnica de otra máquina; no ofrecerlos sería un
 callejón sin salida.
 
+**REGLA — por la INTERIOR no se casa una fila cuya exterior es OTRA de la leída** (2026-10-02).
+Una misma interior se vende con varias exteriores —la Panasonic All in One `WH-ADC0309K3E5` va
+con la UDZ03, 05, 07 y 09—, y casar solo por ella daba por bueno el kit de 5 kW en una obra de
+9 (26RES060_143) y, en el alta de la skill, lo tomaba por un duplicado. Si la exterior leída no
+está en el catálogo, el equipo NO está: eso es lo que se dice.
+
 **REGLA — el SCOP no se calcula aquí.** El servicio devuelve el `aerotermia_db_id` y el
 SCOP lo resuelven `getScopFromModel` / `getScopSeason` de `calculation.js`, importadas por
 ESM como ya hace `cifoService`. Son las MISMAS del desplegable, así que un equipo rellenado
 por la placa y otro elegido a mano no pueden dar números distintos. Solo se escribe si se
 ha podido resolver: un equipo con el id del catálogo y el SCOP del anterior es peor que uno
 sin id.
+⚠️ La fila que se le pasa tiene que llevar las columnas del SCOP de CALEFACCIÓN
+(`scop_cal_*`, `eta_*`): sin ellas `getScopFromModel` cae a su reserva (4,5 a 35 °C, 3,2 a
+55 °C) con temporada «medio», y eso se escribía en el expediente (26RES060_143: 4,5 donde la
+ficha dice 5,75). El `select` de la ruta las pide desde el 2026-10-02.
 
 **REGLA — se PROPONE, y al aplicar solo se rellenan HUECOS.** Lo escrito lo puso una
 persona con el aparato delante. Lo que difiere sale como CONFLICTO, con las dos versiones a

@@ -5278,8 +5278,14 @@ router.post('/:id/placas/ocr', suyoSiCertificador, async (req, res) => {
         if (idVigente != null) {
             const { data: fila } = await supabase
                 .from('aerotermia')
+                // ⚠️ Con las columnas del SCOP de CALEFACCIÓN: sin ellas
+                // `getScopFromModel` cae a su reserva (4,5 a 35 °C, 3,2 a 55 °C) y
+                // escribe en el expediente un SCOP «medio» que no es el de la ficha
+                // (26RES060_143: 4,5 donde la ficha dice 5,75).
                 .select('id, marca, modelo_comercial, modelo_conjunto, modelo_ud_exterior, '
                     + 'modelo_ud_interior, potencia_calefaccion, tipo, deposito_acs_incluido, '
+                    + 'scop_cal_calido_35, scop_cal_calido_55, scop_cal_medio_35, scop_cal_medio_55, '
+                    + 'eta_calida_35, eta_calida_55, eta_media_35, eta_media_55, '
                     + 'litros_acs, scop_dhw_medio, scop_dhw_calido, eta_acs_media, eta_acs_calida, '
                     + 'cop_a7_55, eprel, ficha_tecnica, url_keymark')
                 .eq('id', idVigente).maybeSingle();

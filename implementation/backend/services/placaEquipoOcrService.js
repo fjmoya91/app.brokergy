@@ -193,9 +193,11 @@ async function casarConCatalogo(ext, int) {
     // Los códigos que se buscan, del más identificativo al menos. El de la ud.
     // exterior manda: es el que el fabricante usa para referenciar el equipo.
     const busquedas = [
-        { codigo: ext?.modelo, de: 'el modelo de la unidad exterior' },
-        { codigo: int?.modelo, de: 'el modelo de la unidad interior' },
+        { codigo: ext?.modelo, de: 'el modelo de la unidad exterior', porInterior: false },
+        { codigo: int?.modelo, de: 'el modelo de la unidad interior', porInterior: true },
     ].filter((b) => norm(b.codigo).length >= 4);
+    // La exterior LEÍDA, para no casar por la interior con una fila de otra exterior.
+    const exteriorLeida = norm(ext?.modelo).length >= 4 ? ext.modelo : null;
 
     if (!busquedas.length) {
         return { modelo: null, por: null, candidatos: [], aviso: null };
@@ -219,9 +221,17 @@ async function casarConCatalogo(ext, int) {
         filas = todo.data;
     }
 
-    for (const { codigo, de } of busquedas) {
+    for (const { codigo, de, porInterior } of busquedas) {
         for (const campo of CAMPOS) {
-            const hit = (filas || []).filter((f) => casan(codigo, f[campo]));
+            // REGLA — por la INTERIOR no se casa una fila cuya exterior es OTRA de la
+            // leída. Una misma interior se vende con varias exteriores: la Panasonic
+            // All in One WH-ADC0309K3E5 va con la UDZ03, 05, 07 y 09, y casar solo por
+            // ella declaraba el kit de 5 kW en una obra de 9 (26RES060_143). Si la
+            // exterior leída no está en el catálogo, el equipo NO está — que es lo
+            // que hay que decir, no proponer el de otra potencia.
+            const hit = (filas || []).filter((f) => casan(codigo, f[campo])
+                && !(porInterior && exteriorLeida && norm(f.modelo_ud_exterior)
+                     && !casan(exteriorLeida, f.modelo_ud_exterior)));
             if (!hit.length) continue;
 
             let finalistas = hit;
