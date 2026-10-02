@@ -51,8 +51,11 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
                                    // Lo que hay que añadir a la query en la vía PÚBLICA: el token
                                    // del enlace. Con esto el MISMO popup sirve al equipo interno y
                                    // al certificador, que es quien de verdad presenta.
-                                   paramsExtra = null, soloLectura = false }) {
-    const [fase, setFase] = useState('inicial');
+                                   paramsExtra = null, soloLectura = false,
+                                   // La fase en la que se abre: la de la fila desde la que se
+                                   // pulsó «Presentar en el Registro». Sin ella, la primera.
+                                   faseInicial = null }) {
+    const [fase, setFase] = useState(faseInicial || 'inicial');
     const [datos, setDatos] = useState(null);
     const [cargando, setCargando] = useState(false);
     const [error, setError] = useState(null);
@@ -69,8 +72,9 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
 
     useEffect(() => {
         if (!isOpen) return;
-        if (!disponibles.includes(fase)) setFase(disponibles[0] || 'inicial');
-    }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+        if (faseInicial && disponibles.includes(faseInicial)) setFase(faseInicial);
+        else if (!disponibles.includes(fase)) setFase(disponibles[0] || 'inicial');
+    }, [isOpen, faseInicial]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (!isOpen || !expedienteId) return;

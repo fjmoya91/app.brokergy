@@ -114,6 +114,16 @@ function TableHeader({ label, ceeType, required, onOpenModal, editMode, filename
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// El certificador de la CASA (CIF de Brokergy): lo que él sube lo presentamos
+// nosotros mismos, sin un técnico de fuera esperando nuestro visto bueno. Mismo
+// criterio que `esDeBrokergy` del backend (ceeFirmaService): por el CIF —de la
+// persona o de su empresa—, nunca por el nombre, que se edita.
+const CIF_BROKERGY = 'B19350222';
+function esCertificadorDeLaCasa(cert) {
+    const limpio = (v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    return !!cert && (limpio(cert.empresa_cif) === CIF_BROKERGY || limpio(cert.cif) === CIF_BROKERGY);
+}
+
 // El backend normalizeData guarda todos los strings en MAYÚSCULAS.
 // Esta función devuelve la clave correcta de FACTORES_PASO (case-insensitive).
 function normalizeCombKey(val) {
@@ -928,6 +938,12 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 onRevisarCee={puedeRevisar ? setRevisionFase : null}
                 onPreRevision={puedeRevisar ? preRevision : null}
                 onGenerarFinal={puedeGenerarFinal ? () => setGenerarFinal(true) : null}
+                // El .xml crudo de cada fase (del estado VIVO: el del expediente va
+                // un refetch por detrás) → la etiqueta CE3X 2.3 / 3.1 de la rejilla.
+                xmlTextos={{ inicial: local.xml_inicial || null, final: local.xml_final || null }}
+                // «Presentar en el Registro» sale en la FASE que toca, no en la barra.
+                onPresentar={!isCertificador ? (fase) => setPresentarCee(fase) : null}
+                presentaLaCasa={esCertificadorDeLaCasa(selectedCert)}
             />
 
             {/* Cargar CEE por fichero (XML exacto u OCR IA) — alternativa a subir el .xml o
@@ -1078,6 +1094,12 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 onApproveSend={submitApprove}
                 onRevisarCee={puedeRevisar ? setRevisionFase : null}
                 onPreRevision={puedeRevisar ? preRevision : null}
+                // El .xml crudo de cada fase (del estado VIVO: el del expediente va
+                // un refetch por detrás) → la etiqueta CE3X 2.3 / 3.1 de la rejilla.
+                xmlTextos={{ inicial: local.xml_inicial || null, final: local.xml_final || null }}
+                // «Presentar en el Registro» sale en la FASE que toca, no en la barra.
+                onPresentar={!isCertificador ? (fase) => setPresentarCee(fase) : null}
+                presentaLaCasa={esCertificadorDeLaCasa(selectedCert)}
             />
 
             {/* En modo MANUAL (sin .xml): aviso de que todo (incluida la superficie) se edita en la tabla */}
@@ -1643,22 +1665,11 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                              className="h-5 w-5 shrink-0" />
                         <span>CE3X</span>
                     </button>
-                    {/* Presentar el CEE en el Registro: el popup con cada casilla del
-                        formulario lista para copiar. Vivía solo dentro de Ayudas CE3X,
-                        a dos clics; es el último paso del trabajo del certificado y va
-                        aquí, a la vista, detrás de CE3X. Solo el equipo interno: su
-                        ruta es staffOnly (al técnico le llega en PDF con el visto bueno). */}
-                    {!isCertificador && (
-                        <button
-                            type="button"
-                            onClick={() => setPresentarCee(true)}
-                            title="Datos del formulario del Registro, listos para copiar y pegar"
-                            className="flex items-center gap-2 px-3 py-2 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] text-[9px] font-black uppercase tracking-widest text-emerald-400 hover:bg-emerald-500 hover:text-black transition-colors max-md:w-full max-md:justify-center max-md:py-3.5 max-md:text-[10px]"
-                        >
-                            <span>📄</span>
-                            <span>Presentar CEE</span>
-                        </button>
-                    )}
+                    {/* «Presentar CEE» ya NO vive aquí: salía siempre, también con el
+                        certificado sin hacer o ya inscrito. Ahora es una tarea en la FILA
+                        de la fase que toca presentar (entregado + visto bueno, sin
+                        registrar), y desaparece al registrarse. Sigue además dentro de
+                        Ayudas CE3X para abrirlo en cualquier momento. */}
                 </div>
                 {saving && (
                     <span className="text-[10px] font-black uppercase tracking-widest text-white/30">Guardando…</span>
@@ -1738,6 +1749,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                     expedienteId={expediente?.id}
                     apiBase={apiBase}
                     fases={secciones}
+                    faseInicial={typeof presentarCee === 'string' ? presentarCee : null}
                     gridRef={gridRef}
                 />,
                 document.body

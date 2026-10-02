@@ -24,6 +24,8 @@ import { SolicitarFaltantesModal } from './SolicitarFaltantesModal';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
 import { WhatsappConnectModal } from '../../whatsapp/components/WhatsappConnectModal';
 import PreRevisionCee, { PreRevisionModal } from './PreRevisionCee';
+import { programaCee } from '../../cee/programaCee';
+import { PLAZO_INSCRIPCION_DIAS } from '../logic/borradorCee';
 
 // Pill compacto de estado por fase CEE: subestado actual + días-en-estado + última comunicación.
 function CeeStatusPill({ expediente, section }) {
@@ -36,7 +38,7 @@ function CeeStatusPill({ expediente, section }) {
     const lastDays = pt.lastContacto != null ? daysSince(pt.lastContacto) : null;
 
     return (
-        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
             <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[8px] font-black uppercase tracking-widest ${
                 isRegistrado ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : STALE_CLASSES[pt.nivel]
             }`}>
@@ -54,6 +56,71 @@ function CeeStatusPill({ expediente, section }) {
                 </span>
             )}
         </div>
+    );
+}
+
+// Etiqueta del PROGRAMA con el que se hizo el .xml (CE3X 2.3 / 3.1). Desde el
+// 01/10/2026 se certifica con la 3.1 y conviven las dos en el mismo expediente:
+// en ámbar una 2.3 emitida cuando ya tocaba la 3.1. Ver `cee/programaCee.js`.
+const TONO_PROGRAMA = {
+    actual: 'text-sky-300 border-sky-400/35 bg-sky-500/10',
+    anterior: 'text-white/55 border-white/15 bg-white/[0.04]',
+    aviso: 'text-amber-400 border-amber-500/45 bg-amber-500/10',
+    otro: 'text-violet-300 border-violet-500/35 bg-violet-500/10',
+};
+function EtiquetaPrograma({ prog }) {
+    if (!prog) return null;
+    return (
+        <span
+            title={prog.titulo}
+            className={`inline-flex items-center gap-1 px-1.5 py-[3px] rounded-md border text-[8px] font-black uppercase tracking-wider leading-none whitespace-nowrap cursor-help ${TONO_PROGRAMA[prog.tono] || TONO_PROGRAMA.otro}`}
+        >
+            {prog.tono === 'aviso' && <span aria-hidden="true">⚠</span>}
+            {prog.etiqueta}
+        </span>
+    );
+}
+
+// Lo que TOCA HACER ya en una fase (encargar el final, presentar en el Registro):
+// una tarjeta con su icono, qué es y por qué ahora. Mismo dibujo para todas, así
+// que se reconocen de un vistazo como «la siguiente tarea» y no como un botón más.
+const TONO_TAREA = {
+    emerald: {
+        caja: 'bg-emerald-500/[0.08] border-emerald-500/35 hover:bg-emerald-500/[0.14] hover:border-emerald-400/60',
+        icono: 'bg-emerald-500 text-white shadow-[0_0_14px_rgba(16,185,129,0.35)]',
+        titulo: 'text-emerald-400', detalle: 'text-emerald-300/60',
+    },
+    amber: {
+        caja: 'bg-amber-500/[0.08] border-amber-500/40 hover:bg-amber-500/[0.14] hover:border-amber-400/60',
+        icono: 'bg-amber-500 text-black shadow-[0_0_14px_rgba(245,158,11,0.35)]',
+        titulo: 'text-amber-400', detalle: 'text-amber-300/80',
+    },
+    red: {
+        caja: 'bg-red-500/[0.08] border-red-500/40 hover:bg-red-500/[0.14] hover:border-red-400/60',
+        icono: 'bg-red-500 text-white shadow-[0_0_14px_rgba(239,68,68,0.35)]',
+        titulo: 'text-red-400', detalle: 'text-red-300/80',
+    },
+};
+function TareaFase({ tono = 'emerald', icono, titulo, detalle, title, onClick }) {
+    const t = TONO_TAREA[tono] || TONO_TAREA.emerald;
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            title={title}
+            className={`group w-full flex items-center gap-2.5 pl-1.5 pr-2.5 py-1.5 rounded-xl border text-left transition-all active:scale-[0.98] max-md:py-2.5 ${t.caja}`}
+        >
+            <span className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${t.icono}`}>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">{icono}</svg>
+            </span>
+            <span className="min-w-0 flex-1">
+                <span className={`block text-[9px] font-black uppercase tracking-widest leading-tight ${t.titulo}`}>{titulo}</span>
+                {detalle && <span className={`block text-[10px] normal-case leading-tight truncate mt-0.5 ${t.detalle}`}>{detalle}</span>}
+            </span>
+            <svg className={`w-3.5 h-3.5 shrink-0 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all ${t.titulo}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+            </svg>
+        </button>
     );
 }
 
@@ -302,6 +369,15 @@ export const CeeDocumentsGrid = forwardRef(function CeeDocumentsGrid({
     // GENERAR el CEE final desde la medida de mejora del CEE inicial del
     // técnico (solo CAE, RES060/RES093). () => void, o null para no pintarlo.
     onGenerarFinal = null,
+    // El .xml CRUDO de cada fase, del estado vivo del módulo: de él sale la
+    // etiqueta del programa (CE3X 2.3 / 3.1). { inicial, final }.
+    xmlTextos = null,
+    // Abrir el borrador para PRESENTAR el CEE en el Registro, en esa fase.
+    // (fase) => void, o null (certificador: su ruta es staffOnly).
+    onPresentar = null,
+    // El certificador asignado es el de la CASA: el CEE se puede presentar en
+    // cuanto se sube, sin esperar a nuestro visto bueno.
+    presentaLaCasa = false,
     onApproveSend,
     onSaveInstalacion,
     onEditCliente
@@ -1510,235 +1586,305 @@ Según el documento:
                         ? (parseFloat(sectionDemand.demandaACS) || 0).toFixed(2)
                         : resolveDacs(ceeAcsVivo, sectionDemand).value.toFixed(2);
 
+                    // ¿Con qué programa se hizo el .xml de esta fase? (CE3X 2.3 / 3.1)
+                    // El texto VIVO del módulo manda: el del expediente va un refetch
+                    // por detrás del .xml que se acaba de soltar.
+                    const programa = programaCee(
+                        xmlTextos?.[section] ?? expediente?.cee?.[section === 'final' ? 'xml_final' : 'xml_inicial'],
+                        { parsed: sectionDemand, fechaEmision: ceeDate(`fecha_firma_cee_${section}`) },
+                    );
+
+                    const seguimientoKey = section === 'final' ? 'cee_final' : 'cee_inicial';
+                    const segStatus = expediente?.seguimiento?.[seguimientoKey];
+                    const isRegistrado = segStatus === 'REGISTRADO';
+
+                    // ── Presentar en el Registro: ¿toca ya? ──────────────────────
+                    // Hace falta el certificado ENTREGADO (su .xml: de él salen las
+                    // casillas del borrador) y que NO esté inscrito todavía. Y que esté
+                    // listo: con el visto bueno dado (REVISADO) o, si lo ha hecho el
+                    // certificador de la CASA, en cuanto se sube — ahí no hay un técnico
+                    // de fuera esperando nuestro visto bueno para presentar.
+                    const presentar = (() => {
+                        if (!onPresentar) return null;
+                        const entregado = !!(ceeFiles?.[section]?.xml || xmlTextos?.[section]
+                            || parseFloat(sectionDemand?.demandaCalefaccion) > 0);
+                        const inscrito = isRegistrado || !!ceeFiles?.[section]?.registro;
+                        if (!entregado || inscrito) return null;
+                        const listo = segStatus === 'REVISADO'
+                            || (presentaLaCasa && segStatus !== 'PTE_ENVIO_CERT');
+                        if (!listo) return null;
+                        // El plazo: UN MES desde la emisión (apartado 07.2 del impreso).
+                        // Pasado, hay que volver a emitir el certificado — por eso se dice aquí.
+                        const firma = ceeDate(`fecha_firma_cee_${section}`);
+                        // Lo que dice la tarjeta es el PLAZO, que es lo que corre prisa; que
+                        // tiene el visto bueno ya lo dice la chapa de estado de encima.
+                        let tono = 'emerald';
+                        let detalle = segStatus === 'REVISADO' ? 'Borrador para el Registro' : 'Hecho por Brokergy: listo';
+                        if (/^\d{4}-\d{2}-\d{2}/.test(firma || '')) {
+                            const dias = Math.floor((Date.now() - new Date(`${firma.slice(0, 10)}T00:00:00`)) / 86400000);
+                            const quedan = PLAZO_INSCRIPCION_DIAS - dias;
+                            if (quedan < 0) { tono = 'red'; detalle = `Plazo vencido hace ${-quedan} día${quedan === -1 ? '' : 's'}`; }
+                            else if (quedan <= 7) { tono = 'amber'; detalle = `Quedan ${quedan} día${quedan === 1 ? '' : 's'} de plazo`; }
+                            else if (dias >= 0) detalle = `Quedan ${quedan} días de plazo`;
+                        }
+                        return { tono, detalle };
+                    })();
+
+                    // ── Las acciones de la fase ──────────────────────────────────
+                    // Una sola barra, siempre en el mismo orden. Mismo tamaño para
+                    // todas; la que es el paso siguiente lleva texto.
+                    const accionesFase = (() => {
+                        const phaseLabel = section === 'inicial' ? 'INICIAL' : 'FINAL';
+                        // El subestado canónico (seguimiento) manda. `cee.estado` es un espejo que
+                        // puede desincronizarse (p. ej. se queda en "EN TRABAJO" tras re-subir el XML),
+                        // así que NO nos fiamos solo de él para decidir si se puede validar.
+                        const estado = expediente?.cee?.estado || expediente?.estado || '';
+                        const isPendingReview = segStatus === 'PTE_REVISION' || estado.includes(`PENDIENTE REVISIÓN (${phaseLabel})`);
+                        const isAdmin = (user?.rol || '').toUpperCase() === 'ADMIN' || (user?.rol_nombre || '').toUpperCase() === 'ADMIN' || Number(user?.id_rol) === 1;
+                        const isCertificador = (user?.rol || '').toUpperCase() === 'CERTIFICADOR' || (user?.rol_nombre || '').toUpperCase() === 'CERTIFICADOR' || Number(user?.id_rol) === 4;
+                        const isResending = resendingNotif === section;
+
+                        const base = 'h-7 max-md:h-10 rounded-lg border flex items-center justify-center gap-1.5 transition-all active:scale-95 shrink-0';
+                        const conTexto = `${base} px-2.5 text-[9px] font-black uppercase tracking-wider whitespace-nowrap`;
+                        const soloIcono = `${base} w-7 max-md:w-10`;
+                        const iconoBell = (
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                            </svg>
+                        );
+                        const iconoLupa = <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-4.35-4.35M11 18a7 7 0 100-14 7 7 0 000 14z" /></svg>;
+
+                        const resendBtn = isRegistrado ? (
+                            <button
+                                key="resend"
+                                title={`Reenviar notificación de ${section === 'inicial' ? 'CEE Inicial' : 'CEE Final'} registrado a cliente/partner/admin`}
+                                disabled={isResending}
+                                onClick={() => handleResendCeeNotifications(section)}
+                                className={`${soloIcono} bg-emerald-500/10 border-emerald-500/25 text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-500/45 disabled:opacity-50`}
+                            >
+                                <svg className={`w-3.5 h-3.5 ${isResending ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                            </button>
+                        ) : null;
+
+                        if (isAdmin) {
+                            // La REVISIÓN del certificado: lupa con el color del último
+                            // veredicto (gris = sin revisar). Sale en cuanto hay algo
+                            // entregado que revisar, no solo en «pendiente».
+                            const revision = expediente?.cee?.[`revision_${section}`];
+                            const verCol = {
+                                'APTO': 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/25',
+                                'APTO CON AVISOS': 'bg-amber-500/15 border-amber-500/40 text-amber-400 hover:bg-amber-500/25',
+                                'NO APTO': 'bg-red-500/15 border-red-500/40 text-red-400 hover:bg-red-500/25',
+                            }[revision?.veredicto] || 'bg-white/[0.04] border-white/15 text-white/70 hover:text-white hover:border-white/30';
+                            const hayEntrega = isPendingReview || !!revision
+                                || ['PRESENTADO', 'REVISADO', 'REGISTRADO'].includes(segStatus);
+                            // El CEE final se GENERA desde la medida del inicial del técnico:
+                            // hace falta su .cex. Con el final YA entregado no hay nada que
+                            // generar —sobraba en la barra junto a revisar y validar—.
+                            const puedeGenerar = section === 'final' && onGenerarFinal
+                                && !!ceeFiles?.inicial?.cex && !hayEntrega;
+                            // Semáforo de la campana: si la pelota está en el certificador y
+                            // lleva días parado, el botón avisa (ámbar ≥7 d, rojo ≥15 d).
+                            const info = certPhaseInfo(section);
+                            const bolaEnCert = info.subestado
+                                && !['REGISTRADO', 'PTE_REVISION', 'PRESENTADO'].includes(info.subestado);
+                            const tonoSugerido = bolaEnCert ? suggestCertTono(info.dias) : 'status';
+                            const bellClass = tonoSugerido === 'urgent'
+                                ? 'bg-red-500/15 border-red-500/40 text-red-400 hover:bg-red-500/25'
+                                : tonoSugerido === 'reminder'
+                                    ? 'bg-amber-500/15 border-amber-500/40 text-amber-400 hover:bg-amber-500/25'
+                                    : 'bg-white/[0.04] border-white/10 text-white/45 hover:bg-brand/15 hover:text-brand hover:border-brand/40';
+                            const esperaTxt = ESPERA_LABELS[info.espera];
+                            const bellTitle = bolaEnCert && info.dias != null
+                                ? `Comunicar con el certificador · ${esperaTxt} · ${info.dias} días en este estado`
+                                : `Comunicar con el certificador (${section === 'inicial' ? 'CEE Inicial' : 'CEE Final'})`;
+                            return (
+                                <>
+                                    {puedeGenerar && (
+                                        <button
+                                            title="Generar el CEE final desde la medida de mejora del CEE inicial del técnico"
+                                            onClick={() => onGenerarFinal()}
+                                            className={`${conTexto} bg-brand/10 border-brand/30 text-brand hover:bg-brand/20`}
+                                        >
+                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12h6m-3-3v6M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                                            <span>Generar</span>
+                                        </button>
+                                    )}
+                                    {onRevisarCee && hayEntrega && (
+                                        <button
+                                            title={revision
+                                                ? `Revisión del CEE: ${revision.veredicto} — abrir el informe`
+                                                : 'Revisar el CEE del certificador antes del visto bueno'}
+                                            onClick={() => onRevisarCee(section)}
+                                            className={`${conTexto} ${verCol}`}
+                                        >
+                                            {iconoLupa}
+                                            <span>{revision ? ({ 'APTO': 'Apto', 'APTO CON AVISOS': 'Avisos', 'NO APTO': 'No apto' }[revision.veredicto] || 'Revisar') : 'Revisar'}</span>
+                                        </button>
+                                    )}
+                                    {isPendingReview && onApproveCee && (
+                                        <button
+                                            title="Dar el visto bueno: validar el CEE y autorizar su registro"
+                                            onClick={() => onApproveCee(section)}
+                                            className={`${conTexto} bg-emerald-500 border-emerald-400 text-white hover:bg-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.35)]`}
+                                        >
+                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                                            <span>Validar</span>
+                                        </button>
+                                    )}
+                                    <button
+                                        title={bellTitle}
+                                        onClick={() => {
+                                            // Preselección: pendiente de revisión → "Visto bueno"; sin encargar
+                                            // todavía → "Encargo"; ya encargado → "Seguimiento" con la espera
+                                            // que toca (emitir o registrar) y el tono que sugieren los días.
+                                            const tpl = isPendingReview
+                                                ? 'approve'
+                                                : (!info.subestado || info.subestado === 'PTE_ENVIO_CERT') ? 'standard' : 'seguimiento';
+                                            abrirCertModal(section, tpl);
+                                        }}
+                                        className={`${soloIcono} ${bellClass}`}
+                                    >
+                                        {iconoBell}
+                                    </button>
+                                    {resendBtn}
+                                </>
+                            );
+                        }
+                        if (isCertificador) {
+                            // Su revisión previa (ya en SU versión: el backend
+                            // le quita las comparaciones con la propuesta).
+                            const rt = expediente?.cee?.[`revision_${section}`]?.tecnico;
+                            const chapaRev = onPreRevision && rt ? (() => {
+                                const n = rt.corregir.length || rt.revisar.length;
+                                const col = rt.estado === 'corregir'
+                                    ? 'bg-red-500/15 border-red-500/40 text-red-400'
+                                    : rt.estado === 'revisar'
+                                        ? 'bg-amber-500/15 border-amber-500/40 text-amber-400'
+                                        : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400';
+                                return (
+                                    <button
+                                        title={`Revisión automática de lo que subiste: ${rt.titular}`}
+                                        onClick={() => setPreRevModal(section)}
+                                        className={`${conTexto} hover:brightness-125 ${col}`}
+                                    >
+                                        {iconoLupa}
+                                        <span>{rt.estado === 'bien' ? '✓' : `${rt.estado === 'corregir' ? '✗' : '!'} ${n}`}</span>
+                                    </button>
+                                );
+                            })() : null;
+                            const hayFichero = !!(ceeFiles?.[section]?.cex || ceeFiles?.[section]?.xml);
+                            if (isPendingReview) {
+                                return (
+                                    <>
+                                        {chapaRev}
+                                        <div title="Pendiente de revisión por Brokergy" className={`${conTexto} bg-white/[0.04] border-white/10 text-brand/70 cursor-help`}>
+                                            <svg className="w-3.5 h-3.5 animate-[spin_3s_linear_infinite]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                            <span>En revisión</span>
+                                        </div>
+                                    </>
+                                );
+                            }
+                            return (
+                                <>
+                                    {chapaRev}
+                                    <button
+                                        title="Notificar CEE Realizado (Solicitar Revisión)"
+                                        onClick={() => {
+                                            if (!ceeFiles?.[section]?.cex && !ceeFiles?.[section]?.xml) {
+                                                showAlert('Debes subir el archivo .CEX (o .XML) antes de solicitar la revisión.', 'Archivo Faltante', 'warning');
+                                                return;
+                                            }
+                                            setReviewPriority('normal');
+                                            setReviewMessage('');
+                                            setPreRevEstado(null);
+                                            setPreRevKey((k) => k + 1);
+                                            setNotifyReviewModal({ section });
+                                        }}
+                                        className={`${hayFichero ? conTexto : soloIcono} bg-brand/10 border-brand/25 text-brand hover:bg-brand hover:text-black`}
+                                    >
+                                        {iconoBell}
+                                        {/* Con texto solo cuando ya hay algo subido: es su paso
+                                            siguiente. Sin fichero sería invitar a pedir revisión de nada. */}
+                                        {hayFichero && <span>Pedir revisión</span>}
+                                    </button>
+                                </>
+                            );
+                        }
+                        return null;
+                    })();
+
                     return (
-                        // Las cinco columnas miden 250+150+225+320+340 px y el panel recorta:
+                        // Las columnas miden 220+64+150+225+316+340 px y el panel recorta:
                         // en un teléfono de 390 px eso dejaba las fechas y los slots FUERA de
                         // la pantalla, invisibles y sin forma de llegar a ellos. En `max-md`
                         // cada bloque pasa a ocupar el ancho entero y se apilan; el escritorio
                         // conserva sus anchos fijos y sus separadores.
-                        <div key={section} className="flex flex-wrap items-center gap-x-5 gap-y-6 border-b border-white/[0.04] pb-12 last:border-0 last:pb-0 max-md:flex-col max-md:items-stretch max-md:gap-y-5 max-md:pb-8">
-                            {/* 1. Título y XML */}
-                            <div className="flex items-center gap-3 w-[250px] shrink-0 max-md:w-full max-md:min-w-0">
-                                <div className="flex flex-col max-md:min-w-0 max-md:flex-1">
-                                    <div className="flex items-center gap-3 mb-2 max-md:flex-wrap max-md:gap-2">
-                                        <h4 className="text-[14px] font-black uppercase text-white tracking-[0.2em] leading-tight">
-                                            CEE {secciones.length === 1 ? '' : (section === 'inicial' ? 'Inicial' : 'Final')}
-                                        </h4>
-                                        {(() => {
-                                            const phaseLabel = section === 'inicial' ? 'INICIAL' : 'FINAL';
-                                            const seguimientoKey = section === 'final' ? 'cee_final' : 'cee_inicial';
-                                            const segStatus = expediente?.seguimiento?.[seguimientoKey];
-                                            // El subestado canónico (seguimiento) manda. `cee.estado` es un espejo que
-                                            // puede desincronizarse (p. ej. se queda en "EN TRABAJO" tras re-subir el XML),
-                                            // así que NO nos fiamos solo de él para decidir si se puede validar.
-                                            const estado = expediente?.cee?.estado || expediente?.estado || '';
-                                            const isPendingReview = segStatus === 'PTE_REVISION' || estado.includes(`PENDIENTE REVISIÓN (${phaseLabel})`);
+                        <div key={section} className="flex flex-wrap items-center gap-x-4 gap-y-6 border-b border-white/[0.04] pb-12 last:border-0 last:pb-0 max-md:flex-col max-md:items-stretch max-md:gap-y-5 max-md:pb-8">
+                            {/* 1. La FASE: qué certificado es, en qué punto está y qué se
+                                puede hacer con él. Iban título, lupa, ✓ y campana en UNA
+                                línea de 250 px junto al .xml: no cabían, el título se partía
+                                en dos y el .xml se salía ENCIMA de «Demanda calefacción».
+                                Ahora cada cosa en su renglón —título · estado · acciones ·
+                                lo que toca hacer ya— y el .xml en su propia columna. */}
+                            <div className="flex flex-col gap-2.5 w-[220px] shrink-0 min-w-0 max-md:w-full">
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <h4 className="text-[14px] font-black uppercase text-white tracking-[0.18em] leading-none whitespace-nowrap">
+                                        CEE {secciones.length === 1 ? '' : (section === 'inicial' ? 'Inicial' : 'Final')}
+                                    </h4>
+                                    {/* En el móvil el .xml va con los demás ficheros: la versión, junto al título. */}
+                                    {programa && <span className="md:hidden"><EtiquetaPrograma prog={programa} /></span>}
+                                </div>
+                                <CeeStatusPill expediente={expediente} section={section} />
 
-                                            const isAdmin = (user?.rol || '').toUpperCase() === 'ADMIN' || (user?.rol_nombre || '').toUpperCase() === 'ADMIN' || Number(user?.id_rol) === 1;
-                                            const isCertificador = (user?.rol || '').toUpperCase() === 'CERTIFICADOR' || (user?.rol_nombre || '').toUpperCase() === 'CERTIFICADOR' || Number(user?.id_rol) === 4;
-                                            const isRegistrado = expediente?.seguimiento?.[seguimientoKey] === 'REGISTRADO';
-                                            const isResending = resendingNotif === section;
-
-                                            const resendBtn = isRegistrado ? (
-                                                <button
-                                                    key="resend"
-                                                    title={`Reenviar notificación de ${section === 'inicial' ? 'CEE Inicial' : 'CEE Final'} registrado a cliente/partner/admin`}
-                                                    disabled={isResending}
-                                                    onClick={() => handleResendCeeNotifications(section)}
-                                                    className="w-7 h-7 max-md:w-10 max-md:h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-500/40 transition-all active:scale-95 disabled:opacity-50"
-                                                >
-                                                    {isResending ? (
-                                                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                                                    ) : (
-                                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                                                    )}
-                                                </button>
-                                            ) : null;
-
-                                            if (isAdmin) {
-                                                // La campana SIEMPRE está disponible para el admin y abre un popup con
-                                                // varias opciones de mensaje (Encargo / Recordatorio / Urgente / Visto bueno).
-                                                // El check verde es un atajo extra al "Visto bueno" cuando el CEE está
-                                                // pendiente de revisión.
-                                                // La REVISIÓN del certificado: lupa con el color del
-                                                // último veredicto (gris = sin revisar). Sale en cuanto
-                                                // hay algo entregado que revisar, no solo en «pendiente».
-                                                const revision = expediente?.cee?.[`revision_${section}`];
-                                                const verCol = {
-                                                    'APTO': 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400',
-                                                    'APTO CON AVISOS': 'bg-amber-500/20 border-amber-500/40 text-amber-400',
-                                                    'NO APTO': 'bg-red-500/20 border-red-500/40 text-red-400',
-                                                }[revision?.veredicto] || 'bg-white/5 border-white/15 text-white/60';
-                                                const hayEntrega = isPendingReview || !!revision
-                                                    || ['PRESENTADO', 'REVISADO', 'REGISTRADO'].includes(segStatus);
-                                                //: El CEE final se GENERA desde la medida del inicial
-                                                //: del técnico: hace falta su .cex, y no se rehace uno
-                                                //: ya registrado.
-                                                const puedeGenerar = section === 'final' && onGenerarFinal
-                                                    && !!ceeFiles?.inicial?.cex && segStatus !== 'REGISTRADO';
-                                                return (
-                                                    <>
-                                                        {puedeGenerar && (
-                                                            <button
-                                                                title="Generar el CEE final desde la medida de mejora del CEE inicial del técnico"
-                                                                onClick={() => onGenerarFinal()}
-                                                                className="h-7 max-md:h-10 px-2 rounded-lg border flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest transition-all active:scale-95 bg-brand/10 border-brand/30 text-brand hover:bg-brand/20"
-                                                            >
-                                                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12h6m-3-3v6M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
-                                                                <span className="max-md:hidden">Generar</span>
-                                                            </button>
-                                                        )}
-                                                        {onRevisarCee && hayEntrega && (
-                                                            <button
-                                                                title={revision
-                                                                    ? `Revisión del CEE: ${revision.veredicto} — abrir el informe`
-                                                                    : 'Revisar el CEE del certificador antes del visto bueno'}
-                                                                onClick={() => onRevisarCee(section)}
-                                                                className={`h-7 max-md:h-10 px-2 rounded-lg border flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest hover:brightness-125 transition-all active:scale-95 ${verCol}`}
-                                                            >
-                                                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-4.35-4.35M11 18a7 7 0 100-14 7 7 0 000 14z" /></svg>
-                                                                <span className="max-md:hidden">{revision ? ({ 'APTO': 'Apto', 'APTO CON AVISOS': 'Avisos', 'NO APTO': 'No apto' }[revision.veredicto] || 'Revisar') : 'Revisar'}</span>
-                                                            </button>
-                                                        )}
-                                                        {isPendingReview && onApproveCee && (
-                                                            <button
-                                                                title="Validar y autorizar registro (visto bueno)"
-                                                                onClick={() => onApproveCee(section)}
-                                                                className="w-7 h-7 max-md:w-10 max-md:h-10 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 hover:bg-emerald-500 hover:text-white transition-all shadow-[0_0_10px_rgba(16,185,129,0.3)] active:scale-95"
-                                                            >
-                                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
-                                                            </button>
-                                                        )}
-                                                        {(() => {
-                                                            // Semáforo de la campana: si la pelota está en el certificador y
-                                                            // lleva días parado, el botón avisa (ámbar ≥7 d, rojo ≥15 d).
-                                                            const info = certPhaseInfo(section);
-                                                            const bolaEnCert = info.subestado
-                                                                && !['REGISTRADO', 'PTE_REVISION', 'PRESENTADO'].includes(info.subestado);
-                                                            const tonoSugerido = bolaEnCert ? suggestCertTono(info.dias) : 'status';
-                                                            const bellClass = tonoSugerido === 'urgent'
-                                                                ? 'bg-red-500/15 border-red-500/40 text-red-400 hover:bg-red-500/25'
-                                                                : tonoSugerido === 'reminder'
-                                                                    ? 'bg-amber-500/15 border-amber-500/40 text-amber-400 hover:bg-amber-500/25'
-                                                                    : 'bg-white/5 border-white/10 text-white/40 hover:bg-brand/20 hover:text-brand hover:border-brand/40';
-                                                            const esperaTxt = ESPERA_LABELS[info.espera];
-                                                            const title = bolaEnCert && info.dias != null
-                                                                ? `Comunicar con el certificador · ${esperaTxt} · ${info.dias} días en este estado`
-                                                                : `Comunicar con el certificador (${section === 'inicial' ? 'CEE Inicial' : 'CEE Final'})`;
-                                                            return (
-                                                        <button
-                                                            title={title}
-                                                            onClick={() => {
-                                                                // Preselección: pendiente de revisión → "Visto bueno"; sin encargar
-                                                                // todavía → "Encargo"; ya encargado → "Seguimiento" con la espera
-                                                                // que toca (emitir o registrar) y el tono que sugieren los días.
-                                                                const tpl = isPendingReview
-                                                                    ? 'approve'
-                                                                    : (!info.subestado || info.subestado === 'PTE_ENVIO_CERT') ? 'standard' : 'seguimiento';
-                                                                abrirCertModal(section, tpl);
-                                                            }}
-                                                            className={`w-7 h-7 max-md:w-10 max-md:h-10 rounded-lg border flex items-center justify-center transition-all active:scale-95 ${bellClass}`}
-                                                        >
-                                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                                                            </svg>
-                                                        </button>
-                                                            );
-                                                        })()}
-                                                        {resendBtn}
-                                                    </>
-                                                );
-                                            } else if (isCertificador) {
-                                                // Su revisión previa (ya en SU versión: el backend
-                                                // le quita las comparaciones con la propuesta).
-                                                const rt = expediente?.cee?.[`revision_${section}`]?.tecnico;
-                                                const chapaRev = onPreRevision && rt ? (() => {
-                                                    const n = rt.corregir.length || rt.revisar.length;
-                                                    const col = rt.estado === 'corregir'
-                                                        ? 'bg-red-500/15 border-red-500/40 text-red-400'
-                                                        : rt.estado === 'revisar'
-                                                            ? 'bg-amber-500/15 border-amber-500/40 text-amber-400'
-                                                            : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400';
-                                                    return (
-                                                        <button
-                                                            title={`Revisión automática de lo que subiste: ${rt.titular}`}
-                                                            onClick={() => setPreRevModal(section)}
-                                                            className={`h-7 max-md:h-10 px-2 rounded-lg border flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest hover:brightness-125 transition-all active:scale-95 ${col}`}
-                                                        >
-                                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-4.35-4.35M11 18a7 7 0 100-14 7 7 0 000 14z" /></svg>
-                                                            <span className="whitespace-nowrap">{rt.estado === 'bien' ? '✓' : `${rt.estado === 'corregir' ? '✗' : '!'} ${n}`}</span>
-                                                        </button>
-                                                    );
-                                                })() : null;
-                                                if (isPendingReview) {
-                                                    return (
-                                                        <>
-                                                        {chapaRev}
-                                                        <div title="Pendiente de revisión por Brokergy" className="w-7 h-7 max-md:w-10 max-md:h-10 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-brand/60 cursor-help">
-                                                            <svg className="w-4 h-4 animate-[spin_3s_linear_infinite]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                                        </div>
-                                                        </>
-                                                    );
-                                                }
-                                                return (
-                                                    <>
-                                                    {chapaRev}
-                                                    <button
-                                                        title="Notificar CEE Realizado (Solicitar Revisión)"
-                                                        onClick={() => {
-                                                            if (!ceeFiles?.[section]?.cex && !ceeFiles?.[section]?.xml) {
-                                                                showAlert('Debes subir el archivo .CEX (o .XML) antes de solicitar la revisión.', 'Archivo Faltante', 'warning');
-                                                                return;
-                                                            }
-                                                            setReviewPriority('normal');
-                                                            setReviewMessage('');
-                                                            setPreRevEstado(null);
-                                                            setPreRevKey((k) => k + 1);
-                                                            setNotifyReviewModal({ section });
-                                                        }}
-                                                        className="w-7 h-7 max-md:w-10 max-md:h-10 rounded-lg bg-brand/10 border border-brand/20 flex items-center justify-center text-brand/80 hover:bg-brand hover:text-black transition-all shadow-[0_0_10px_rgba(238,143,31,0.2)] active:scale-95"
-                                                    >
-                                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                                                        </svg>
-                                                    </button>
-                                                    </>
-                                                );
-                                            }
-                                            return null;
-                                        })()}
+                                {/* Las ACCIONES de la fase, en una sola barra y siempre en el
+                                    mismo orden: revisar → validar → avisar al técnico →
+                                    reenviar. La que toca hacer ahora lleva texto; el resto, icono. */}
+                                {accionesFase && (
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        {accionesFase}
                                     </div>
-                                    <p className="text-[9px] text-white/20 font-bold uppercase tracking-widest leading-none max-md:hidden">
-                                        Gestión técnica del activo
-                                    </p>
-                                    <CeeStatusPill expediente={expediente} section={section} />
+                                )}
 
-                                    {/* CEE inicial registrado + obra terminada = toca encargar el
-                                        final. Antes había que acordarse; ahora el expediente lo dice
-                                        y el chip abre directamente el encargo con las instrucciones
-                                        CE3X. Desaparece solo en cuanto se encarga. */}
-                                    {section === 'final' && listoParaCeeFinal
-                                        && (user?.rol || '').toUpperCase() === 'ADMIN' && (
-                                        <button
-                                            onClick={() => abrirCertModal('final', 'standard')}
-                                            title={`Listo para encargar: ${listoParaCeeFinal.join(' · ')}`}
-                                            className="mt-2 w-full flex items-center gap-2 px-2.5 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-left hover:bg-emerald-500/20 hover:border-emerald-500/50 transition-all active:scale-[0.98]"
-                                        >
-                                            <span className="text-sm leading-none">✅</span>
-                                            <span className="min-w-0">
-                                                <span className="block text-[9px] font-black uppercase tracking-widest text-emerald-400 leading-tight">
-                                                    Listo para encargar
-                                                </span>
-                                                <span className="block text-[9px] text-emerald-300/50 truncate normal-case">
-                                                    {listoParaCeeFinal.join(' · ')}
-                                                </span>
-                                            </span>
-                                        </button>
-                                    )}
-                                </div>
-                                <div className="ml-auto max-md:hidden">
-                                    {showSlot('xml')}
-                                </div>
+                                {/* CEE inicial registrado + obra terminada = toca encargar el
+                                    final. Antes había que acordarse; ahora el expediente lo dice
+                                    y el chip abre directamente el encargo con las instrucciones
+                                    CE3X. Desaparece solo en cuanto se encarga. */}
+                                {section === 'final' && listoParaCeeFinal
+                                    && (user?.rol || '').toUpperCase() === 'ADMIN' && (
+                                    <TareaFase
+                                        tono="emerald"
+                                        icono={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />}
+                                        titulo="Listo para encargar"
+                                        detalle={listoParaCeeFinal.join(' · ')}
+                                        title={`Listo para encargar: ${listoParaCeeFinal.join(' · ')}`}
+                                        onClick={() => abrirCertModal('final', 'standard')}
+                                    />
+                                )}
+
+                                {/* PRESENTAR en el Registro: solo cuando toca —el certificado está
+                                    entregado y con el visto bueno (o lo hemos hecho nosotros)— y
+                                    desaparece en cuanto queda registrado. Antes era un botón fijo en
+                                    la barra del módulo que salía siempre, también con el CEE ya
+                                    inscrito o sin hacer. Abre el borrador EN ESTA FASE. */}
+                                {presentar && (
+                                    <TareaFase
+                                        tono={presentar.tono}
+                                        icono={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />}
+                                        titulo="Presentar el CEE"
+                                        detalle={presentar.detalle}
+                                        title={`Presentar el CEE ${section} en el Registro: abre el borrador con cada casilla del formulario lista para copiar. Plazo: un mes desde la emisión del certificado.`}
+                                        onClick={() => onPresentar(section)}
+                                    />
+                                )}
+                            </div>
+
+                            {/* 1.b El .xml en su PROPIA columna, con el programa con el que se
+                                hizo (CE3X 2.3 / 3.1). Desde el 01/10/2026 conviven los dos en
+                                el mismo expediente y hay que verlo sin abrir el fichero. */}
+                            <div className="flex flex-col items-center gap-1.5 w-[64px] shrink-0 max-md:hidden">
+                                {showSlot('xml')}
+                                {programa ? <EtiquetaPrograma prog={programa} /> : <span className="h-[17px]" aria-hidden="true" />}
                             </div>
 
                             {/* 2. Demanda Calefacción. La ⓘ de al lado cruza esta cifra y la
@@ -1870,7 +2016,7 @@ Según el documento:
                             </div>
 
                             {/* 4. Fechas CEE (Visita/Firma auto del XML · Registro al subir slot REGISTRO; editables) */}
-                            <div className="flex flex-col items-center gap-2 w-[320px] border-l border-white/5 shrink-0 max-md:w-full max-md:items-stretch max-md:border-l-0 max-md:border-t max-md:border-white/[0.04] max-md:pt-4">
+                            <div className="flex flex-col items-center gap-2 w-[316px] border-l border-white/5 shrink-0 max-md:w-full max-md:items-stretch max-md:border-l-0 max-md:border-t max-md:border-white/[0.04] max-md:pt-4">
                                 <span className="text-[9px] font-black uppercase text-white/30 tracking-[0.2em] mb-1 max-md:mb-0 max-md:text-left">Fechas CEE</span>
                                 <div className="flex items-end gap-1.5 max-md:grid max-md:grid-cols-1 max-md:gap-2 max-md:w-full">
                                     {[
@@ -1886,7 +2032,7 @@ Según el documento:
                                                     value={ceeDate(field)}
                                                     onChange={e => setCeeDate(field, e.target.value)}
                                                     disabled={!editMode}
-                                                    className={`no-uppercase bg-white/[0.03] border rounded-lg px-1.5 py-2 text-[10px] text-center font-mono w-[94px] focus:outline-none transition-colors max-md:w-full max-md:min-w-0 max-md:py-2.5 max-md:text-left ${editMode ? 'border-white/10 text-white/80 focus:border-brand/50 cursor-pointer hover:border-white/20' : 'border-white/5 text-white/45 cursor-not-allowed'}`}
+                                                    className={`no-uppercase bg-white/[0.03] border rounded-lg px-1.5 py-2 text-[10px] text-center font-mono w-[90px] focus:outline-none transition-colors max-md:w-full max-md:min-w-0 max-md:py-2.5 max-md:text-left ${editMode ? 'border-white/10 text-white/80 focus:border-brand/50 cursor-pointer hover:border-white/20' : 'border-white/5 text-white/45 cursor-not-allowed'}`}
                                                 />
                                                 {/* La fecha de registro está IMPRESA en el justificante: si el que
                                                     consta es el día en que se subió el papel (todo lo anterior a
