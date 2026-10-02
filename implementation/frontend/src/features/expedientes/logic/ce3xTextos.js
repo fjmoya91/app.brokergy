@@ -54,6 +54,67 @@ El técnico certificador advierte que la calificación obtenida podría verse af
 Para el cálculo del SCOP se han utilizado las fichas técnicas de los fabricantes correspondientes a la zona climática de la vivienda analizada.
 Para el cálculo de la producción de energía fotovoltaica se ha recurrido al software reconocido PVGIS.`;
 
+// Las RECOMENDACIONES DE USO del edificio: el apartado 1 del Anexo III del
+// certificado («Recomendaciones de uso del edificio o parte del edificio», art.
+// 8 del RD 390/2021). En CE3X 3.1 es la casilla «Recomendaciones para un uso
+// eficiente» de «Opciones del informe» (la 8.ª del informe, que la 2.3 no tiene).
+//
+// REGLA — son de USO, no de obra: lo que puede hacer quien vive en el edificio
+// sin gastar dinero. Las mejoras de instalación o envolvente van en el apartado
+// 2 (las medidas de mejora) y repetirlas aquí las contaría dos veces. Las cifras
+// son las de las guías de ahorro del IDAE (19-21 °C de día, 15-17 °C de noche,
+// ~7 % de consumo por grado de más; 26 °C en verano) y la de 60 °C de
+// acumulación, la de prevención de la legionela (RD 487/2022).
+//
+// La primera línea va en negrita en el PDF (CE3X la mete en un <h1>): es un
+// encabezado, no una recomendación.
+const RECOMENDACIONES_RESIDENCIAL = `Recomendaciones para un uso eficiente de la energía en la vivienda:
+-Calefacción: mantener la temperatura de consigna entre 19 y 21 °C durante el día y entre 15 y 17 °C por la noche. Cada grado de más incrementa el consumo de calefacción en torno a un 7 %.
+-Refrigeración: fijar la temperatura de consigna en torno a 26 °C. Una diferencia con el exterior de más de 12 °C no es necesaria para el confort y dispara el consumo.
+-Programar la calefacción y la refrigeración con el termostato o cronotermostato según los horarios de ocupación, reduciendo la consigna cuando la vivienda esté desocupada. En bombas de calor y suelo radiante es más eficiente mantener una temperatura estable que hacer encendidos y apagados frecuentes.
+-No cubrir los radiadores ni las unidades interiores con muebles, cortinas o ropa, y regular cada estancia con sus válvulas termostáticas, cerrando las de las estancias que no se usen.
+-Mantener puertas y ventanas cerradas con la calefacción o la refrigeración en marcha. Para renovar el aire bastan 10 minutos de ventilación al día.
+-En invierno, subir persianas y abrir cortinas en las horas de sol y cerrarlas al anochecer. En verano, proteger los huecos del sol en las horas centrales del día con persianas o toldos y ventilar por la noche, cuando el aire exterior es más fresco.
+-Agua caliente sanitaria: mantener la temperatura de acumulación en 60 °C para prevenir la legionela, ducharse en lugar de bañarse, no dejar el grifo abierto y usar griferías con aireadores o limitadores de caudal.
+-Realizar el mantenimiento periódico de las instalaciones térmicas por empresa habilitada, conforme al RITE: limpieza de filtros de los equipos de climatización, purga de los radiadores al inicio de la temporada y revisión de la caldera o la bomba de calor.
+-Revisar el estado de burletes y juntas de puertas y ventanas para evitar infiltraciones de aire.
+-Iluminación y electrodomésticos: aprovechar la luz natural, usar lámparas LED, elegir aparatos de clase energética alta y apagarlos del todo en lugar de dejarlos en espera.`;
+
+// Las mismas en un edificio de uso TERCIARIO. Las temperaturas no se fijan con
+// cifras de vivienda: en un local o un edificio público las limita la propia
+// normativa (IT 3.8 del RITE) según su uso, y se remite a ella.
+const RECOMENDACIONES_TERCIARIO = `Recomendaciones para un uso eficiente de la energía en el edificio:
+-Calefacción y refrigeración: ajustar las temperaturas de consigna a los límites que fija la normativa para el uso del edificio (IT 3.8 del RITE). Cada grado de más en calefacción, o de menos en refrigeración, aumenta el consumo de forma apreciable.
+-Programar los sistemas de climatización y ventilación según los horarios de ocupación y apagarlos o reducir su consigna fuera de ellos y en las zonas sin uso.
+-Mantener cerradas puertas exteriores y ventanas con la climatización en marcha; en los accesos con mucho tránsito, usar el vestíbulo o las puertas automáticas.
+-No obstruir los emisores ni las rejillas de impulsión y retorno con mobiliario o materiales.
+-Aprovechar la radiación solar en invierno y proteger los huecos del sol en verano con las protecciones solares de que disponga el edificio.
+-Agua caliente sanitaria: mantener la temperatura de acumulación en 60 °C para prevenir la legionela y usar griferías temporizadas o con limitadores de caudal.
+-Realizar el mantenimiento periódico de las instalaciones térmicas por empresa habilitada, conforme al RITE, incluida la limpieza de filtros y la revisión de los generadores.
+-Iluminación: aprovechar la luz natural, sectorizar el encendido por zonas, usar detectores de presencia en zonas de paso y aseos, y lámparas LED.
+-Apagar equipos informáticos, de oficina y de iluminación al final de la jornada en lugar de dejarlos en espera.`;
+
+/** El texto de recomendaciones de uso que toca, por el programa de CE3X. */
+export function recomendacionesUso({ terciario = false } = {}) {
+    return terciario ? RECOMENDACIONES_TERCIARIO : RECOMENDACIONES_RESIDENCIAL;
+}
+
+/**
+ * Un texto del informe tal y como hay que escribirlo en CE3X 3.1.
+ *
+ * REGLA — en la 3.1 cada salto de línea lleva un `<br>` delante. CE3X 3.1 mete
+ * el texto TAL CUAL en el XML del certificado como `data:text/html,<h1>…</h1>`,
+ * y en HTML un salto de línea es un espacio: el PDF oficial sale con todo el
+ * cuadro en un solo párrafo (medido con xml2cert el 02/10/2026; con `<br>` cada
+ * línea sale en la suya). En la 2.3 NO: su PDF no es HTML y el `<br>` saldría
+ * impreso. Es el mismo criterio que `informe_a_31` del motor.
+ */
+export function textoInformeCe3x31(texto) {
+    const t = String(texto || '');
+    if (!t || /<br\s*\/?>/i.test(t)) return t;
+    return t.replace(/\r?\n/g, '<br>\n');
+}
+
 // El conjunto de medidas del AUTOCONSUMO FOTOVOLTAICO.
 //
 // REGLA — solo tiene sentido en el CEE FINAL. La característica dice
@@ -210,12 +271,34 @@ export function buildCe3xTextos(expediente, { modelos = {} } = {}) {
         });
     }
 
+    // Las dos casillas de texto de «Opciones del informe». Se enseña el texto
+    // llano y se COPIA en la forma de la 3.1 (con `<br>`), que es con la que se
+    // certifica desde el 01/10/2026; la de la 2.3, aparte.
+    const notaBr = 'Se copia para CE3X 3.1, con <br> al final de cada línea: sin ellos el PDF del '
+        + 'certificado junta todo el texto en un párrafo. Para CE3X 2.3, la casilla de abajo.';
     secciones.push({
         id: 'pruebas_certificador',
         titulo: 'Pruebas, comprobaciones e inspecciones',
         resumen: 'Realizadas por el técnico certificador',
+        nota: notaBr,
         campos: [
-            { campo: 'Texto completo', parrafo: true, valor: PRUEBAS_CERTIFICADOR },
+            { campo: 'Para CE3X 3.1', parrafo: true, valor: PRUEBAS_CERTIFICADOR,
+                copia: textoInformeCe3x31(PRUEBAS_CERTIFICADOR) },
+            { campo: 'Para CE3X 2.3', valor: 'El mismo texto, sin los <br>', copia: PRUEBAS_CERTIFICADOR },
+        ],
+    });
+
+    const recomendaciones = recomendacionesUso({
+        terciario: /TER\d/i.test(String(expediente?.numero_expediente || '')),
+    });
+    secciones.push({
+        id: 'recomendaciones_uso',
+        titulo: 'Recomendaciones para un uso eficiente',
+        resumen: 'Anexo III · 1. Recomendaciones de uso (solo CE3X 3.1)',
+        nota: notaBr.replace(' Para CE3X 2.3, la casilla de abajo.', ' La 2.3 no tiene esta casilla.'),
+        campos: [
+            { campo: 'Texto completo', parrafo: true, valor: recomendaciones,
+                copia: textoInformeCe3x31(recomendaciones) },
         ],
     });
 

@@ -2,7 +2,7 @@ import { getUByYear, getVentanaYACHByYear, BOILER_EFFICIENCIES }
     from '../../calculator/logic/calculation.js';
 import { resolverCe3x, buildMedidaMejora } from '../../expedientes/logic/ce3xFinal.js';
 import { PRUEBAS_CERTIFICADOR, OTROS_DATOS_MEDIDA, MEDIDA_AUTOCONSUMO,
-         techoAutoconsumo } from '../../expedientes/logic/ce3xTextos.js';
+         techoAutoconsumo, recomendacionesUso } from '../../expedientes/logic/ce3xTextos.js';
 import { normalizarFotovoltaica } from '../../expedientes/logic/fotovoltaica.js';
 import { AUTOCONSUMO_DECLARABLE } from '../../expedientes/logic/autoconsumoMaximo.js';
 import { especificaValida, kwpPara, mensualDe } from '../../expedientes/logic/produccionFv.js';
@@ -1615,6 +1615,8 @@ function titulacionCe3x(c) {
 //: Cuánto del techo de autoconsumo se declara de verdad (el 90 %). Vive en
 //: `autoconsumoMaximo.js` con el máximo; se reexporta para quien lo pedía aquí.
 export { AUTOCONSUMO_DECLARABLE };
+// Para el backend, que carga este módulo y no ce3xTextos (el CEE final desde la medida).
+export { recomendacionesUso };
 
 /**
  * El expediente con la aerotermia de la SIMULACIÓN, cuando aún no declara la suya.
@@ -2185,6 +2187,10 @@ export function informeCe3x(expediente, fase = 'inicial', { terciario = false } 
         pruebas: terciario
             ? PRUEBAS_CERTIFICADOR.replace('de la vivienda analizada', 'del edificio analizado')
             : PRUEBAS_CERTIFICADOR,
+        // La casilla «Recomendaciones para un uso eficiente» (Anexo III, 1), que
+        // solo existe en CE3X 3.1. Viaja en texto llano: los `<br>` que la 3.1
+        // necesita los pone el motor (`informe_a_31`), que sabe la versión.
+        recomendaciones: recomendacionesUso({ terciario }),
         fecha_emision: de(`fecha_firma_cee_${suf}`),
         fecha_visita: de(`fecha_visita_cee_${suf}`),
     };

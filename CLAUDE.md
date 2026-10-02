@@ -12546,6 +12546,29 @@ node implementation/backend/scripts/probar_cex_envolvente.js 26RES060_184 --vers
 node implementation/backend/scripts/probar_cex_envolvente.js 26RES060_184 --final --base=ini.cex
 ```
 
+### Los TEXTOS del informe en la 3.1: `<br>` y las RECOMENDACIONES de uso (2026-10-02)
+
+CE3X 3.1 mete los cuadros de texto de «Opciones del informe» TAL CUAL en el XML como
+`data:text/html,<h1>…</h1>`, y en HTML un salto de línea es un espacio: el Anexo IV
+(pruebas y comprobaciones) salía en el PDF oficial como UN solo párrafo. **REGLA — en la
+3.1 cada salto de línea lleva `<br>` delante** (`texto_html_31` en
+[version_ce3x.py](implementation/cee-engine/tools/version_ce3x.py), dentro de
+`informe_a_31`; medido con `xml2cert`: con `<br>` cada línea sale en la suya y la primera,
+en negrita, porque va en el `<h1>`). **En la 2.3 NO**: su PDF no es HTML y el `<br>` saldría
+impreso (`informe_a_23` lo quita). La app manda el texto LLANO y el motor, que sabe la
+versión, pone los `<br>`; un texto que ya los lleva no se toca.
+
+La casilla 8.ª del informe, que solo tiene la 3.1, es **«Recomendaciones para un uso
+eficiente»** → apartado 1 del **Anexo III** (art. 8 RD 390/2021). Se rellena con un texto
+genérico de USO (consignas 19-21 °C / 15-17 °C de noche y 26 °C en verano, programación,
+ventilación, persianas, ACS a 60 °C, mantenimiento RITE, iluminación), con variante para
+terciario: `recomendacionesUso` en [ce3xTextos.js](implementation/frontend/src/features/expedientes/logic/ce3xTextos.js),
+que viaja en `informe.recomendaciones` (`informeCe3x` y el «Generar CEE final»). **Solo se
+pone si la casilla está VACÍA**: las que escribió el técnico mandan. Las «Ayudas CE3X» copian
+los dos textos ya con `<br>` (y el de pruebas, también sin ellos para la 2.3). Comprobado de
+punta a punta abriendo el `.cex` con el propio CE3X 3.1 (oráculo) → XML → `xml2cert`. Tras
+tocarlo: `python -m pytest implementation/cee-engine/tests/test_version_ce3x.py`.
+
 ### Y el `.xml` de la 3.1 se LEE igual (2026-10-02)
 
 CE3X 3.1 exporta el XML del certificado en el esquema **v3.0**

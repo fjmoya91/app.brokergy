@@ -252,13 +252,21 @@ async function prepararFinal(ctx, { escribir = false, fechaEmision = null, fecha
     const retirada = catalogo.find((m) => m.id === 'retirada');
     const otras = catalogo.filter((m) => m.id !== 'retirada' && marcadas.includes(m.id));
 
+    // La casilla «Recomendaciones para un uso eficiente» (solo CE3X 3.1). El
+    // motor la pone SOLO si la del técnico está vacía: si escribió las suyas,
+    // mandan las suyas. Aquí solo hay RES060/RES093: residencial.
+    const { recomendacionesUso } = await cex.loadFichaCe3x();
     const r2 = await alMotor(entregado.bytes, {
         ...conVersion,
         equipos_expediente: equiposExpediente,
         retirar_previo: marcadas.includes('retirada'),
         retirada: marcadas.includes('retirada') ? conTexto(retirada) : null,
         medidas: otras.map(conTexto),
-        informe: { fecha_emision: fechaEmision || null, fecha_visita: fechaVisita || null },
+        informe: {
+            fecha_emision: fechaEmision || null,
+            fecha_visita: fechaVisita || null,
+            recomendaciones: recomendacionesUso({ terciario: false }),
+        },
     });
     const fichero = Buffer.from(await r2.arrayBuffer());
     let avisosMotor = [];

@@ -61,6 +61,7 @@ Asi el resto del motor no tiene que saber que hay dos versiones.
 """
 from __future__ import annotations
 
+import re
 import unicodedata
 from typing import Any, Callable
 
@@ -365,7 +366,15 @@ def extra_31(datos: dict | None) -> dict:
                                           or _val(g.get("n_plantas_habitables"))),
         "plantas_bajo_rasante": _txt_num(bajo if bajo not in (None, "") else 0),
         "normativa_otros": str(c.get("normativa_otros") or ""),
+        "recomendaciones": _recomendaciones(d),
     }
+
+
+def _recomendaciones(datos: dict | None) -> str:
+    """El texto de «Recomendaciones para un uso eficiente» que manda la app
+    (`informe.recomendaciones`, en texto llano: los `<br>` los pone
+    `informe_a_31`)."""
+    return str(((datos or {}).get("informe") or {}).get("recomendaciones") or "").strip()
 
 
 def extra_de_cex(p1: Any, p2: Any, datos: dict | None = None) -> dict:
@@ -406,6 +415,7 @@ def extra_de_cex(p1: Any, p2: Any, datos: dict | None = None) -> dict:
         base["grado_proteccion"] = "Ninguna"
     base["partes_protegidas"] = [str(x) for x in (base["partes_protegidas"] or [])
                                  if str(x) in PARTES_PROTEGIDAS]
+    base["recomendaciones"] = _recomendaciones(datos)
     return base
 
 
@@ -484,17 +494,62 @@ def generales_a_23(p2: Any) -> list:
     return out
 
 
-def informe_a_31(inf: Any) -> Any:
-    """El informe con su 8.ª casilla (un texto nuevo del dialogo, vacio)."""
-    if isinstance(inf, list) and len(inf) == 7:
-        return list(inf) + [""]
-    return inf
+#: Las dos casillas de TEXTO del informe: [3] pruebas, comprobaciones e
+#: inspecciones (Anexo IV) y [7] recomendaciones para un uso eficiente (Anexo
+#: III, 1), que solo existe en la 3.1.
+INFORME_PRUEBAS, INFORME_RECOMENDACIONES = 3, 7
+
+_BR = re.compile(r"<br\s*/?>", re.I)
+
+
+def texto_html_31(texto: Any) -> Any:
+    """Un texto del informe tal y como hay que escribirlo en la 3.1: `<br>` en
+    cada salto de linea.
+
+    CE3X 3.1 mete el texto TAL CUAL en el XML del certificado, como
+    `data:text/html,<h1>…</h1>`, y en HTML un salto de linea es un espacio: el
+    PDF oficial salia con todo el cuadro en un solo parrafo. Medido con
+    xml2cert (02/10/2026): con `<br>` cada linea sale en la suya, y la primera
+    en negrita (el <h1>). Se conserva el salto detras del `<br>` para que en el
+    cuadro de CE3X se siga leyendo por lineas. Un texto que ya lleva `<br>` no
+    se toca (lo escribio asi alguien, o ya paso por aqui).
+    """
+    if not isinstance(texto, str) or not texto or _BR.search(texto):
+        return texto
+    return re.sub(r"\r?\n", "<br>\n", texto)
+
+
+def texto_llano_23(texto: Any) -> Any:
+    """Lo contrario: en la 2.3 el PDF no es HTML y el `<br>` saldria impreso."""
+    if not isinstance(texto, str) or not _BR.search(texto):
+        return texto
+    return _BR.sub("", texto)
+
+
+def informe_a_31(inf: Any, recomendaciones: str | None = None) -> Any:
+    """El informe con su 8.ª casilla (las recomendaciones de uso) y sus textos
+    con `<br>` (`texto_html_31`).
+
+    Las recomendaciones se ponen solo si la casilla esta VACIA: en un .cex de la
+    3.1 que ya trae las suyas (las escribio el tecnico) mandan las suyas.
+    """
+    if not isinstance(inf, list) or len(inf) not in (7, 8):
+        return inf
+    out = list(inf) + ([""] if len(inf) == 7 else [])
+    if recomendaciones and not str(out[INFORME_RECOMENDACIONES] or "").strip():
+        out[INFORME_RECOMENDACIONES] = str(recomendaciones)
+    for i in (INFORME_PRUEBAS, INFORME_RECOMENDACIONES):
+        out[i] = texto_html_31(out[i])
+    return out
 
 
 def informe_a_23(inf: Any) -> Any:
-    if isinstance(inf, list) and len(inf) > 7:
-        return list(inf[:7])
-    return inf
+    if not isinstance(inf, list):
+        return inf
+    out = list(inf[:7]) if len(inf) > 7 else list(inf)
+    if len(out) > INFORME_PRUEBAS:
+        out[INFORME_PRUEBAS] = texto_llano_23(out[INFORME_PRUEBAS])
+    return out
 
 
 def informe_valido(inf: Any) -> bool:
@@ -864,7 +919,7 @@ def elevar(pickles: dict, ext: dict, potencias: dict | None = None,
             pickles[INSTALACIONES], potencias, meta, reemitir)
         avisos += av
     if INFORME in pickles:
-        pickles[INFORME] = informe_a_31(pickles[INFORME])
+        pickles[INFORME] = informe_a_31(pickles[INFORME], (ext or {}).get("recomendaciones"))
     return avisos
 
 

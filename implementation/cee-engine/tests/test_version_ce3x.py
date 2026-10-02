@@ -465,3 +465,35 @@ def test_no_se_baja_a_la_2_3_lo_que_la_2_3_no_sabe_abrir():
     cambios: dict = {}
     CX.a_version(L.trocear_bytes(con_gen), cambios, "3.1")
     assert cambios == {}              # misma version y nada que escribir: no se toca
+
+
+# ── Los textos del informe en la 3.1 (2026-10-02) ───────────────────────────
+# CE3X 3.1 mete el texto en el XML como `data:text/html,<h1>…</h1>` y el PDF
+# junta todo en un parrafo si no lleva `<br>` (medido con xml2cert).
+
+def test_en_la_3_1_cada_salto_de_linea_lleva_su_br():
+    inf = VC.informe_a_31(["", "", "", "Visita:\n-Uno\r\n-Dos", "", [], []], "Reco:\n-A")
+    assert len(inf) == 8
+    assert inf[3] == "Visita:<br>\n-Uno<br>\n-Dos"
+    assert inf[7] == "Reco:<br>\n-A"
+    # Aplicarlo dos veces no duplica los <br>.
+    assert VC.informe_a_31(inf, "otra") == inf
+
+
+def test_las_recomendaciones_del_tecnico_mandan():
+    inf = VC.informe_a_31(["", "", "", "x", "", [], [], "Las suyas"], "Las de la app")
+    assert inf[7] == "Las suyas"
+
+
+def test_en_la_2_3_no_hay_br_ni_recomendaciones():
+    inf = VC.informe_a_23(["", "", "", "Visita:<br>\n-Uno", "", [], [], "Reco"])
+    assert inf == ["", "", "", "Visita:\n-Uno", "", [], []]
+
+
+def test_las_recomendaciones_llegan_de_la_ficha_al_fichero():
+    datos = {"informe": {"recomendaciones": "Reco:\n-A"}}
+    assert VC.extra_31(datos)["recomendaciones"] == "Reco:\n-A"
+    cambios: dict = {}
+    CX.a_version(L.trocear_bytes(_cex_23()), cambios, "3.1", datos)
+    assert cambios[G.INFORME][7] == "Reco:<br>\n-A"
+    assert cambios[G.INFORME][3] == "Visita"
