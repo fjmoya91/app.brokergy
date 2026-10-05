@@ -6296,14 +6296,70 @@ de "qué falta". En `documentacion.cobro` solo quedan metadatos (regla 21) y se
 escriben SIEMPRE con la RPC de MERGE: el token, el envío, las respuestas y el
 justificante se sellan en momentos distintos.
 
-**El envío es automático PERO con visto bueno.** El detector `COBRO` lo propone
-cuando el LOTE llega a fase de pago (`CAE EMITIDO – PTE PAGO BROKERGY` /
-`PTE. PAGO BROKERGY A CLIENTE`) y el expediente no lo ha confirmado; de ahí sale en
-la pestaña **Seguimiento** y en el parte diario, con su botón. Nunca antes: hasta
-que el lote no está en pago, el importe no es firme (lo puede mover el ahorro
-verificado) y pedirle la cuenta a quien todavía no vas a ingresarle nada es
-prometerle un dinero con fecha. Se envía en bloque como cualquier otro recordatorio
-(`seguimientoLote`), así que un cliente con dos expedientes recibe UN mensaje.
+**Se manda desde el LOTE, cuando el S.O. ya nos ha pagado** (2026-10-05). Hasta esa
+fecha el formulario NO se había enviado nunca: no había ningún botón —ni en el lote
+ni en el expediente— y solo lo proponía el parte diario, que está apagado (medido:
+ningún expediente tenía token de cobro). Ahora es la **fase 7 del lote, "Pago a los
+clientes"** ([CobroClientesPanel.jsx](implementation/frontend/src/features/lotes/components/CobroClientesPanel.jsx)
+sobre `GET /api/lotes/:id/cobros`, staffOnly): una fila por cliente con la cuenta
+que consta, en qué punto está (sin pedir · pedido N veces · ✓ confirmada · ⚠ cuenta
+cambiada), la forma de pago elegida con lo que hay que HACER (descontar 250 € o
+**emitir la factura y cobrarla ANTES del ingreso**), los leads y, para el ADMIN, el
+bono y el importe a transferir. «Pedir la confirmación» abre un popup con el
+borrador de cada cliente (editable) y lo manda de uno en uno por
+`POST /api/expedientes/:id/cobro/enviar`, que sella el envío y el historial.
+
+| Qué | Dónde |
+|---|---|
+| Contexto (quién asume la gestión), máscara del IBAN, TEXTO del mensaje, qué hacer con la forma de pago | [cobroForm.js](implementation/frontend/src/features/cobro/logic/cobroForm.js) — `contextoCobro`, `mascaraIban`, `componerMensajeCobro`, `tareaFormaPago` |
+| La fila de cada expediente del lote | `filaCobro` en [cobroService.js](implementation/backend/services/cobroService.js) |
+| Ver el formulario como el cliente, sin tocar nada | **`/cobro/demo`** (datos de mentira, no llama a la API) |
+| Traer las respuestas antiguas de Tally | `node implementation/backend/scripts/importar_cobro_tally.js "<csv>" [--execute]` |
+| Pruebas | `node implementation/backend/scripts/test_cobro_form.js` |
+
+**REGLA — el momento es "PTE. PAGO BROKERGY A CLIENTE"**, no "CAE EMITIDO – PTE PAGO
+BROKERGY" (ahí el S.O. todavía no ha pagado). Lo comparten la fase 7, la ruta del
+lote (`LOTE_PAGO_CLIENTE`, que solo crea borradores y tokens en ese estado) y el
+radar (`LOTE_EN_PAGO`).
+
+**REGLA — el mensaje dice la NOTICIA, el MOTIVO (la seguridad) y la cuenta que
+tenemos ENMASCARADA** ("ES59 3190 •••• •••• •••• 3118": país, control y entidad —el
+banco es lo que se reconoce— y los 4 últimos). En un WhatsApp o un email el IBAN
+NUNCA va entero: se reenvían y se quedan en móviles ajenos. Entero solo detrás del
+token. Al PARTNER que lleva el contacto del cliente no se le enseña ni la máscara.
+
+**REGLA — el mensaje y la portada dicen LO QUE SE LE INGRESA, y solo con el ahorro
+VERIFICADO** (`bonoVerificado`: `computeExpedienteFinancials` —la MISMA función del
+panel económico y del lote— importada en el servidor). «Tu ayuda: 1.840,00 €» y,
+si asume la gestión, «descontando nuestros honorarios te ingresaremos 1.590,00 €»;
+la pregunta de la forma de pago dice en cada opción lo que le LLEGA. Sin verificado
+no se dice ninguna cifra (con el estimado se anunciaría una que no cuadra con la
+transferencia), y el panel del lote avisa (`con_importe`).
+
+**REGLA — el ESFUERZO se cuenta con lo que DE VERDAD pasó** (`requerimientosDe` +
+`textoEsfuerzo`): los informes de inexactitudes y de la G.A. del lote (o sus pasos
+por un estado de REQUERIMIENTO) y el requerimiento que obligó a re-firmar los
+anexos. Con alguno: «hemos tenido que contestar N requerimientos… pero por fin lo
+tenemos aquí»; sin ninguno se cuenta el PROCESO (verificación, Ministerio, emisión)
+y no se inventan requerimientos. En el mensaje en bloque del parte, sin cifra (van
+expedientes de lotes distintos).
+
+⚠️ Los euros de estos textos van con `eurEs` (punto de miles SIEMPRE y espacio fijo
+antes del €): `toLocaleString('es-ES')` saca «1840,00 €» en cuatro cifras.
+
+**REGLA — en el formulario la cuenta se CONFIRMA con dos botones** («Sí, es
+correcta» / «No, es otra») y va lo PRIMERO del último paso: un campo relleno que se
+deja como está no se distingue de un descuido. Con «otra», campo y justificante.
+**Sin cuenta en la ficha y sin justificante en el expediente, también se exige
+justificante** (convenio firmado sin IBAN) — en la vista y en el POST.
+
+**REGLA — quién asume la gestión lo dice el EXPEDIENTE antes que la simulación**:
+`instalacion.economico_override.discount_certificates` / `certificates_cost` y
+después los inputs (`discount_certificates` y `discountCertificates`, las dos
+claves). Antes solo se leía `inputs.discountCertificates`.
+
+El parte diario (bloque `COBRO`) y la página de acciones siguen funcionando, con el
+mismo texto (`cobroLoteWa`, ya con la cuenta enmascarada por expediente).
 
 ### La bandeja — pestaña **Venta cruzada**
 
@@ -12855,7 +12911,7 @@ en el CEE inicial: las declara el certificador.
 
 37.b **La ficha del catálogo puede ser VARIOS papeles unidos, y se une UNA vez**: con el SCOP justificado por EPREL el certificado necesita la ficha del fabricante + la ficha EPREL + la etiqueta, y el catálogo solo aportaba la primera — así que las otras dos se subían a mano en CADA expediente con ese equipo. El botón del gestor de anexos las une en un PDF y lo deja como `ficha_tecnica` del modelo ([fichaConsolidada.js](implementation/backend/services/fichaConsolidada.js), `POST /:id/fichas-tecnicas/consolidar` con `grupos[]`, **staffOnly**). **Un pack POR HUECO**: la bomba de calefacción y el equipo de ACS son dos modelos del catálogo y la ficha de uno no puede acabar dentro de la del otro — meterlas juntas no estropea un expediente, estropea el catálogo. **De quién es cada PDF suelto lo dice una persona**: con más de un hueco nada viene preasignado, y una pieza repartida entre dos packs solo se retira si los dos salieron bien. Se une EXACTAMENTE lo que va al certificado (mismo orden del gestor, **mismos recortes** — que por sí solos justifican el gesto: una ficha de 30 páginas de la que valen 2 se guarda recortada, y una sola pieza SIN recorte se bloquea porque no cambiaría nada). **Consolidar deja el expediente consolidado también**: si las piezas sueltas se quedaran, un ⟳ traería el conjunto y el certificado llevaría el EPREL DOS VECES — salen de la lista de anexos, nunca de Drive. Una pieza ilegible ABORTA; solo se unen ficheros de ESE expediente. `ficha_tecnica_partes` dice qué trae dentro y se pone a NULL al guardar una ficha suelta. Tras tocarlo: `node implementation/backend/scripts/test_ficha_consolidada.mjs`. Ver "La ficha del catálogo cuando son VARIOS papeles".
 
-36. **La CONFIRMACIÓN DE COBRO es un formulario de la app, no de Tally**: `/cobro/:id?token=` cualifica al cliente (tarifa · fotovoltaica · IRPF) y confirma sus datos de pago cuando el lote llega a fase de pago. Lo obligatorio va AL FINAL y lo comercial delante, y **nunca retiene el cobro**. La forma de pago solo se pregunta a quien asume el coste (`discountCertificates` la calla, porque su convenio no la menciona), y las dos opciones NO cuestan lo mismo: el descuento va sobre la BASE sin IVA y la factura lo repercute, así que sale marcada `desaconsejada` con lo que cuesta de más y el retraso del cobro. **Cambiar de IBAN exige justificante NUEVO** —el anterior acredita la cuenta vieja— y el cambio va lo primero en el aviso al staff. Los datos van a `clientes` y el justificante a su slot de siempre; en `documentacion.cobro`, solo metadatos con RPC de MERGE. Fuentes únicas: [logic/cobroForm.js](implementation/frontend/src/features/cobro/logic/cobroForm.js) (qué se pregunta) y [cobroService.js](implementation/backend/services/cobroService.js) (a quién y con qué datos). Ver "Confirmación de cobro".
+36. **La CONFIRMACIÓN DE COBRO es un formulario de la app, no de Tally**: `/cobro/:id?token=` cualifica al cliente (tarifa · fotovoltaica · IRPF) y confirma sus datos de pago cuando el S.O. ya nos ha pagado (lote en "PTE. PAGO BROKERGY A CLIENTE"). Se manda desde la **fase 7 del lote, "Pago a los clientes"**, con un WhatsApp de enhorabuena que lleva la cuenta que tenemos **enmascarada** (nunca entera en un mensaje), y en el formulario la cuenta se confirma con dos botones («Sí, es correcta» / «No, es otra»). `/cobro/demo` lo enseña sin tocar nada. Lo obligatorio va AL FINAL y lo comercial delante, y **nunca retiene el cobro**. La forma de pago solo se pregunta a quien asume el coste (`discountCertificates` la calla, porque su convenio no la menciona), y las dos opciones NO cuestan lo mismo: el descuento va sobre la BASE sin IVA y la factura lo repercute, así que sale marcada `desaconsejada` con lo que cuesta de más y el retraso del cobro. **Cambiar de IBAN exige justificante NUEVO** —el anterior acredita la cuenta vieja— y el cambio va lo primero en el aviso al staff. Los datos van a `clientes` y el justificante a su slot de siempre; en `documentacion.cobro`, solo metadatos con RPC de MERGE. Fuentes únicas: [logic/cobroForm.js](implementation/frontend/src/features/cobro/logic/cobroForm.js) (qué se pregunta) y [cobroService.js](implementation/backend/services/cobroService.js) (a quién y con qué datos). Ver "Confirmación de cobro".
 
 39. **Un mensaje de WhatsApp con el RELOJ no está enviado, y el "escribiendo…" es lo que rompe la sesión**: `sendMessage()` devuelve el id en cuanto el mensaje se INSERTA en el chat, así que ese `{ok:true}` no significa entregado — el 08/09/2026 una propuesta quedó sellada con "✓ whatsapp ok" para el cliente y el instalador con los dos PDF dos horas en el reloj. Lo único que lo dice es el **ACK**: `confirmarEntrega()` lo espera tras `waitUntilMsgSent: true` y, si sigue en 0, es error de verdad → FAILED **sin reintentos** (el mensaje ya existe en el chat: reenviarlo lo duplica) + email al admin; si el ack no se puede leer, no se afirma nada. **NUNCA `getChatById`/`getChats`/`msg.getChat`/`sendSeen` en el camino de envío**: en WhatsApp Web 2.3000.x dejan la sesión enviando sin ACK hasta que se desconecta sola ([wwebjs#201849](https://github.com/wwebjs/whatsapp-web.js/issues/201849), sin arreglo publicado). `WWA_TYPING` y `WWA_SEND_SEEN` a `false`; la pausa humana entre mensajes se queda. Fijar la versión de la web (`WWA_WEB_VERSION`) NO sirve: se auto-actualiza igual. Ver "Un mensaje con el RELOJ no está enviado".
 

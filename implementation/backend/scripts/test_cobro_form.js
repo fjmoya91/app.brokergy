@@ -20,25 +20,6 @@ const ok = (cond, txt) => {
     if (!cond) process.exitCode = 1;
 };
 
-// `contextoDe` es puro pero vive en un servicio que abre Supabase al importarse.
-// Se replica aquí la MISMA decisión para poder probarla sin credenciales; si
-// alguna vez dejan de coincidir, este test deja de valer y hay que unificarlas.
-function contextoDe(exp) {
-    const datos = exp?.oportunidades?.datos_calculo || {};
-    const inputs = datos.inputs || {};
-    const result = datos.result || {};
-    const brokergyAsume = inputs.discountCertificates === true;
-    const coste = Number(result.caeMaintenanceCost) > 0
-        ? Number(result.caeMaintenanceCost)
-        : Number(inputs.certificatesCost) || 0;
-    return {
-        clienteAsumeCoste: !brokergyAsume,
-        costeGestion: coste,
-        solarPrevio: exp?.instalacion?.fotovoltaica?.estado || null,
-        respuestas: exp?.documentacion?.cobro?.respuestas || {},
-    };
-}
-
 const expediente = (over = {}) => ({
     oportunidades: { datos_calculo: { inputs: {}, result: {} } },
     instalacion: {},
@@ -49,7 +30,20 @@ const expediente = (over = {}) => ({
 (async () => {
     const url = pathToFileURL(path.join(
         __dirname, '../../frontend/src/features/cobro/logic/cobroForm.js')).href;
-    const { bloquesPara, bloquePago, leadsDe, etiquetaRespuesta, BLOQUES, COSTE_GESTION_DEFECTO } = await import(url);
+    const m = await import(url);
+    const {
+        leadsDe, etiquetaRespuesta, BLOQUES, COSTE_GESTION_DEFECTO,
+        contextoCobro: contextoDe, mascaraIban, ibanEnBloques, normalizarIban, textoEsfuerzo, eurEs,
+    } = m;
+    // Los importes llevan un espacio FIJO antes del € (U+00A0, para que no se partan
+    // en dos renglones). Se comprueba aquí y, para el resto, se compara con espacio
+    // normal: lo que se mira es la cifra, no el tipo de espacio.
+    ok(eurEs(1840) === '1.840,00 €', 'el € va pegado con espacio fijo y con punto de miles en 4 cifras');
+    const sinNbsp = (v) => JSON.parse(JSON.stringify(v).replace(/ /g, ' '));
+    const bloquesPara = (...a) => sinNbsp(m.bloquesPara(...a));
+    const bloquePago = (...a) => sinNbsp(m.bloquePago(...a));
+    const componerMensajeCobro = (...a) => sinNbsp(m.componerMensajeCobro(...a));
+    const tareaFormaPago = (...a) => sinNbsp(m.tareaFormaPago(...a));
 
     console.log('\n1) El bloque de la forma de pago');
     {
@@ -129,6 +123,93 @@ const expediente = (over = {}) => ({
         ok(etiquetaRespuesta('forma_pago', 'descuento', 220) === 'Descuento sobre el bono',
             'la forma de pago se resuelve aunque no esté en BLOQUES');
         ok(etiquetaRespuesta('tarifa', null) === null, 'lo no contestado no inventa etiqueta');
+    }
+
+    console.log('\n7) Manda lo corregido en el ECONÓMICO del expediente');
+    {
+        // La calculadora guarda `discountCertificates` y el expediente
+        // `discount_certificates`: los dos cuentan, y el del expediente manda.
+        const snake = expediente({
+            oportunidades: { datos_calculo: { inputs: { discount_certificates: true }, result: {} } },
+        });
+        ok(contextoDe(snake).clienteAsumeCoste === false, 'lee también `discount_certificates` (clave del expediente)');
+        const corregido = expediente({
+            oportunidades: { datos_calculo: { inputs: { discountCertificates: true }, result: {} } },
+            instalacion: { economico_override: { discount_certificates: false, certificates_cost: 200 } },
+        });
+        const c = contextoDe(corregido);
+        ok(c.clienteAsumeCoste === true, 'el Económico del expediente manda sobre la simulación');
+        ok(c.costeGestion === 200, `y su coste también: ${c.costeGestion} €`);
+    }
+
+    console.log('\n8) La cuenta en el MENSAJE va enmascarada');
+    {
+        const m = mascaraIban('ES59 3190 2099 1746 4324 3118');
+        ok(m === 'ES59 3190 •••• •••• •••• 3118', `país, control y entidad + 4 últimos: "${m}"`);
+        ok(mascaraIban('es64-2100-5634-7813-0001-1028') === 'ES64 2100 •••• •••• •••• 1028', 'guiones y minúsculas como los escribe el cliente');
+        ok(mascaraIban('') === null && mascaraIban('ES12') === null, 'sin cuenta (o incompleta) no inventa nada');
+        ok(ibanEnBloques('ES5931902099174643243118') === 'ES59 3190 2099 1746 4324 3118', 'el formulario la enseña en bloques de cuatro');
+        ok(normalizarIban(' ES33 2085 8272 3403 3004 9224 ') === 'ES3320858272340330049224', 'un cambio de formato no es un cambio de cuenta');
+    }
+
+    console.log('\n9) El mensaje: enhorabuena, el motivo, la cuenta y el enlace');
+    {
+        const pago = bloquePago(250);
+        const t = componerMensajeCobro({
+            nombre: 'María', numExp: '26RES060_80', link: 'https://app/cobro/x?token=y',
+            ibanMascara: 'ES59 3190 •••• •••• •••• 3118', pago,
+        });
+        ok(/^¡Enhorabuena, María!/.test(t), 'empieza por la noticia');
+        ok(/ya nos ha llegado/.test(t), 'dice que el pago ya ha llegado');
+        ok(/Por seguridad/.test(t), 'explica por qué se le pide la cuenta');
+        ok(t.includes('ES59 3190 •••• •••• •••• 3118') && !t.includes('2099174643243118'), 'lleva la cuenta ENMASCARADA, nunca entera');
+        ok(t.includes('250,00 €') && t.includes('302,50 €'), 'anuncia los dos importes de la gestión (base y con IVA)');
+        ok(t.indexOf('https://app/cobro/x?token=y') < t.indexOf('250,00 €'), 'el enlace va antes que la forma de pago');
+        ok(!/\d{1,2} de [a-z]+|antes del día/i.test(t), 'no promete fecha de ingreso');
+
+        const sinPago = componerMensajeCobro({ nombre: null, link: 'L', ibanMascara: 'X', pago: null });
+        ok(!/honorarios/.test(sinPago), 'a quien Brokergy le absorbió la gestión no se le habla de honorarios');
+        const sinCuenta = componerMensajeCobro({ nombre: 'Ana', link: 'L', ibanMascara: null, pago });
+        ok(/justificante/.test(sinCuenta) && !/Este es el que tenemos/.test(sinCuenta), 'sin cuenta en la ficha pide la cuenta y el justificante');
+        const partner = componerMensajeCobro({ nombre: 'Juan', link: 'L', ibanMascara: 'ES59 3190 •••• 3118', tercero: true, titular: 'María', partner: true, pago });
+        ok(/María/.test(partner) && !partner.includes('3118'), 'al partner se le habla del titular y NO se le enseña su cuenta');
+        const familiar = componerMensajeCobro({ nombre: 'Juan', link: 'L', ibanMascara: 'ES59 3190 •••• 3118', tercero: true, titular: 'María', partner: false, pago });
+        ok(familiar.includes('3118'), 'a la persona de contacto (no partner) sí, enmascarada, para que la reconozcan');
+    }
+
+    console.log('\n9b) La ayuda y el esfuerzo, en el mensaje y en la pregunta de pago');
+    {
+        const pago = bloquePago(250, 1840);
+        const t = componerMensajeCobro({
+            nombre: 'María', numExp: '26RES060_80', link: 'L', ibanMascara: 'ES59 3190 •••• •••• •••• 3118',
+            pago, bono: 1840, requerimientos: 2,
+        });
+        ok(t.includes('*1.840,00 €*'), 'dice la ayuda verificada');
+        ok(t.includes('*1.590,00 €*'), 'y lo que le llega con los honorarios descontados');
+        ok(/contestar 2 requerimientos/.test(t), 'cuenta los requerimientos que hubo');
+        ok(/por fin lo tenemos aquí/.test(t), 'y que por fin está');
+        ok(/90 %/.test(t), 'lleva el argumento de la tarifa');
+        const sinReq = componerMensajeCobro({ nombre: 'Ana', link: 'L', ibanMascara: 'X', pago, bono: 1840, requerimientos: 0 });
+        ok(!/requerimiento/.test(sinReq) && /proceso largo/.test(sinReq), 'sin requerimientos NO se los inventa: cuenta el proceso');
+        const sinBono = componerMensajeCobro({ nombre: 'Ana', link: 'L', ibanMascara: 'X', pago, bono: null });
+        ok(!/Tu ayuda:/.test(sinBono), 'sin ahorro verificado no dice ninguna cifra de ayuda');
+        const absorbida = componerMensajeCobro({ nombre: 'Ana', link: 'L', ibanMascara: 'X', pago: null, bono: 1840 });
+        ok(/íntegra/.test(absorbida) && !/honorarios/.test(absorbida), 'con la gestión asumida: íntegra y sin hablar de honorarios');
+        ok(textoEsfuerzo(1).includes('un requerimiento'), 'uno se dice "un requerimiento"');
+        const desc = pago.opciones.find(o => o.value === 'descuento');
+        const fact = pago.opciones.find(o => o.value === 'factura');
+        ok(/Recibes 1\.590,00 €/.test(desc.sub) && /Recibes 1\.840,00 €/.test(fact.sub),
+            'cada forma de pago dice lo que le LLEGA');
+        ok(pago.recibe_descuento === 1590 && pago.recibe_factura === 1840, 'y lo devuelve como dato para la portada');
+    }
+
+    console.log('\n10) Qué hacer con la forma de pago al transferir');
+    {
+        const f = tareaFormaPago('factura', 250);
+        ok(f.tono === 'aviso' && /302,50/.test(f.texto) && /ANTES/.test(f.texto), `factura: "${f.texto}"`);
+        const d = tareaFormaPago('descuento', 250);
+        ok(d.tono === 'ok' && /250,00/.test(d.texto), `descuento: "${d.texto}"`);
+        ok(tareaFormaPago(null, 250) === null, 'sin elegir no hay tarea');
     }
 
     console.log(process.exitCode ? '\n❌ Hay comprobaciones que fallan.\n' : '\n✅ Todo correcto.\n');

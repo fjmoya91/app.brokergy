@@ -20,8 +20,36 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { DynamicNetworkBackground } from '../../../components/DynamicNetworkBackground';
+import { normalizarIban, ibanEnBloques, bloquesPara, bloquePago, textoEsfuerzo, eurEs } from '../logic/cobroForm';
 
 const API = '/api/public';
+
+// /cobro/demo — el formulario con datos de MENTIRA, para verlo como el cliente sin
+// tocar ningún expediente (mismo criterio que /firma/demo). No llama a la API: ni
+// lee ni guarda nada. Las preguntas salen de la MISMA fuente (`bloquesPara`).
+const DEMO = 'demo';
+const DEMO_BONO = 1840;
+const vistaDemo = () => {
+    const pago = bloquePago(250, DEMO_BONO);
+    return {
+    numero_expediente: '26RES060_000',
+    saludo: 'María',
+    bloques: bloquesPara({ clienteAsumeCoste: true, costeGestion: 250, solarPrevio: 'no', respuestas: {}, bono: DEMO_BONO }),
+    importe: {
+        bono: DEMO_BONO,
+        honorarios_sin_iva: pago.importe_sin_iva, honorarios_total: pago.importe_total,
+        recibe_descuento: pago.recibe_descuento, recibe_factura: pago.recibe_factura,
+    },
+    esfuerzo: textoEsfuerzo(2),
+    cliente: {
+        nombre_razon_social: 'María', apellidos: 'Ejemplo Demo', dni: '00000000T',
+        email: 'maria@ejemplo.es', telefono: '600000000', iban: 'ES9121000418450200051332',
+    },
+    justificante_subido: false,
+    requiere_justificante_sin_iban: false,
+    completado_at: null,
+    };
+};
 
 // ─── Piezas ──────────────────────────────────────────────────────────────────
 
@@ -122,18 +150,25 @@ export function ConfirmarCobroView({ expedienteId, token }) {
     const [enviando, setEnviando] = useState(false);
     const [error, setError] = useState(null);
     const [hecho, setHecho] = useState(false);
+    // ¿La cuenta que tenemos es la buena? null = aún no lo ha dicho · 'si' · 'otra'.
+    // Es la pregunta por la que se le ha escrito, así que se contesta EXPLÍCITAMENTE:
+    // un campo relleno que se deja como está no es una confirmación, es un descuido
+    // que no se distingue de ella.
+    const [cuentaOk, setCuentaOk] = useState(null);
     const fileRef = useRef(null);
 
     useEffect(() => {
+        const aplicar = (d) => {
+            setInfo(d);
+            setDatos(d.cliente);
+            const previas = {};
+            (d.bloques || []).forEach(b => { if (b.valor != null) previas[b.id] = b.valor; });
+            setRespuestas(previas);
+            if (d.completado_at) setHecho(true);
+        };
+        if (expedienteId === DEMO) { aplicar(vistaDemo()); return; }
         axios.get(`${API}/cobro/${expedienteId}`, { params: { token } })
-            .then(r => {
-                setInfo(r.data);
-                setDatos(r.data.cliente);
-                const previas = {};
-                (r.data.bloques || []).forEach(b => { if (b.valor != null) previas[b.id] = b.valor; });
-                setRespuestas(previas);
-                if (r.data.completado_at) setHecho(true);
-            })
+            .then(r => aplicar(r.data))
             .catch(e => setLoadError(e.response?.data?.error || 'No hemos podido abrir tu enlace.'));
     }, [expedienteId, token]);
 
@@ -143,17 +178,30 @@ export function ConfirmarCobroView({ expedienteId, token }) {
     // El IBAN se compara sin espacios: el cliente lo escribe como se lo enseña su
     // banco y el que consta viene de otro formulario. Cambiar el formato no es
     // cambiar de cuenta, y pedirle el justificante por eso sería absurdo.
-    const normIban = (v) => String(v || '').replace(/\s+/g, '').toUpperCase();
-    const ibanOriginal = normIban(info?.cliente?.iban);
+    const ibanOriginal = normalizarIban(info?.cliente?.iban);
     const ibanCambiado = useMemo(
-        () => !!ibanOriginal && normIban(datos?.iban) !== ibanOriginal,
+        () => !!ibanOriginal && normalizarIban(datos?.iban) !== ibanOriginal,
         [datos?.iban, ibanOriginal]
     );
     // REGLA — un justificante ANTERIOR no vale para una cuenta NUEVA. Acredita la
     // que ya teníamos, que es justo la que el cliente está cambiando: darlo por bueno
     // sería ingresar en una cuenta sin comprobar de quién es. (Y el backend lo
     // rechazaría igual, dejando al cliente ante un error que no puede entender.)
-    const necesitaJustificante = ibanCambiado;
+    // Y si NO teníamos ninguna cuenta y tampoco justificante, la que escriba hay que
+    // acreditarla igual (convenio firmado sin IBAN).
+    const sinCuentaPrevia = !ibanOriginal;
+    const necesitaJustificante = ibanCambiado || (sinCuentaPrevia && !!info?.requiere_justificante_sin_iban);
+    const formaPago = respuestas.forma_pago || null;
+    const costePago = (info?.bloques || []).find(b => b.id === 'forma_pago') || null;
+    const eur = eurEs;
+    // Lo que se le ingresa: la ayuda VERIFICADA (la manda el servidor; sin ella no
+    // se enseña ninguna cifra) menos los honorarios si elige descontarlos.
+    const importe = info?.importe || null;
+    const recibes = importe
+        ? (formaPago === 'factura' ? importe.recibe_factura
+            : formaPago === 'descuento' ? importe.recibe_descuento
+                : (importe.honorarios_sin_iva == null ? importe.bono : null))
+        : null;
 
     const responder = (bloqueId, valor) => {
         setRespuestas(p => ({ ...p, [bloqueId]: valor }));
@@ -168,9 +216,15 @@ export function ConfirmarCobroView({ expedienteId, token }) {
         setError(null);
         const falta = ['nombre_razon_social', 'dni', 'email', 'telefono'].find(k => !String(datos?.[k] || '').trim());
         if (falta) return setError('Faltan datos por rellenar.');
-        if (normIban(datos?.iban).length < 20) return setError('El número de cuenta no parece completo.');
+        if (ibanOriginal && !cuentaOk) return setError('Dinos si la cuenta que tenemos es la correcta.');
+        if (normalizarIban(datos?.iban).length < 20) return setError('El número de cuenta no parece completo.');
         if (necesitaJustificante && !justificante) {
             return setError('Como has cambiado el número de cuenta, necesitamos el justificante de titularidad.');
+        }
+        if (expedienteId === DEMO) {
+            setHecho(true);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            return;
         }
         setEnviando(true);
         try {
@@ -218,16 +272,40 @@ export function ConfirmarCobroView({ expedienteId, token }) {
                     <p className="text-white/55 text-sm leading-relaxed">
                         Ya tenemos tus datos confirmados. Prepararemos el ingreso y te avisaremos en cuanto salga.
                     </p>
+                    {recibes != null && (
+                        <div className="mt-5 p-4 rounded-xl bg-emerald-500/[0.07] border border-emerald-500/25">
+                            <p className="text-[11px] font-black text-emerald-300/80 uppercase tracking-widest mb-1">Vas a recibir</p>
+                            <p className="text-3xl font-black text-white tracking-tight">{eur(recibes)}</p>
+                        </div>
+                    )}
                     {/* REGLA — no se promete fecha de ingreso: depende del pago del
                         Sujeto Obligado. Una fecha inventada aquí es una reclamación
                         dentro de dos semanas. */}
                     <div className="mt-6 p-4 rounded-xl bg-white/[0.04] border border-white/10 text-left">
                         <p className="text-[11px] font-black text-white/40 uppercase tracking-widest mb-1">Cuenta de ingreso</p>
-                        <p className="text-white font-bold text-sm break-all">{normIban(datos?.iban)}</p>
+                        <p className="text-white font-mono font-bold text-sm">
+                            {ibanEnBloques(datos?.iban).split(' ').map((b, i) => (
+                                <span key={i} className="inline-block mr-[0.45em] whitespace-nowrap">{b}</span>
+                            ))}
+                        </p>
                     </div>
                     {ibanCambiado && (
                         <p className="text-amber-300/80 text-xs mt-4 leading-snug">
                             Has cambiado la cuenta respecto a la que teníamos. La comprobaremos con el justificante antes de hacer la transferencia.
+                        </p>
+                    )}
+                    {/* Qué pasa ahora con la gestión: la factura retrasa el ingreso, y
+                        si no se le dice aquí espera el dinero sin saber que falta un
+                        paso suyo. */}
+                    {formaPago === 'factura' && costePago && (
+                        <p className="text-white/55 text-xs mt-4 leading-snug text-left p-3 rounded-xl bg-amber-500/[0.06] border border-amber-500/20">
+                            🧾 Te enviaremos la factura de nuestros honorarios ({eur(costePago.importe_total)}, IVA incluido).
+                            En cuanto esté abonada haremos el ingreso de tu ayuda{importe ? ` (${eur(importe.recibe_factura)})` : ''}.
+                        </p>
+                    )}
+                    {formaPago === 'descuento' && costePago && (
+                        <p className="text-white/55 text-xs mt-4 leading-snug text-left p-3 rounded-xl bg-emerald-500/[0.06] border border-emerald-500/20">
+                            ✂️ Te ingresaremos tu ayuda con nuestros honorarios ({eur(costePago.importe_sin_iva)}) ya descontados. No tienes que hacer nada más.
                         </p>
                     )}
                 </div>
@@ -242,14 +320,34 @@ export function ConfirmarCobroView({ expedienteId, token }) {
                 <div className="text-center">
                     <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 mb-5">
                         <span className="text-sm">🎉</span>
-                        <span className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300">Buenas noticias</span>
+                        <span className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300">Enhorabuena</span>
                     </div>
                     <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight leading-tight">
-                        {info.saludo ? `${info.saludo}, tu ayuda ya está concedida` : 'Tu ayuda ya está concedida'}
+                        {info.saludo ? `${info.saludo}, por fin lo tenemos` : 'Por fin lo tenemos'}
                     </h1>
-                    <p className="text-white/55 text-sm sm:text-base mt-4 leading-relaxed">
-                        Estamos preparando el ingreso de tu bono. Antes de hacer la transferencia necesitamos que
-                        <strong className="text-white"> confirmes tus datos de cobro</strong> — sobre todo el número de cuenta.
+                    {/* El esfuerzo, con lo que DE VERDAD pasó en su expediente (lo
+                        cuenta el servidor: requerimientos contestados, o el proceso). */}
+                    {info.esfuerzo && (
+                        <p className="text-white/55 text-sm sm:text-base mt-4 leading-relaxed">
+                            {info.esfuerzo}: el pago de tu ayuda ya nos ha llegado.
+                        </p>
+                    )}
+                    {importe && (
+                        <div className="mt-5 p-5 rounded-2xl bg-emerald-500/[0.07] border border-emerald-500/25">
+                            <p className="text-[11px] font-black text-emerald-300/80 uppercase tracking-widest">Tu ayuda</p>
+                            <p className="text-4xl sm:text-5xl font-black text-white tracking-tight mt-1">{eur(importe.bono)}</p>
+                            {importe.honorarios_sin_iva != null && (
+                                <p className="text-white/55 text-xs sm:text-sm mt-2 leading-snug">
+                                    Descontando nuestros honorarios ({eur(importe.honorarios_sin_iva)}) te ingresamos
+                                    {' '}<strong className="text-emerald-300">{eur(importe.recibe_descuento)}</strong>.
+                                    {' '}También puedes pagarlos aparte con factura: lo eliges dentro.
+                                </p>
+                            )}
+                        </div>
+                    )}
+                    <p className="text-white/55 text-sm sm:text-base mt-5 leading-relaxed">
+                        <strong className="text-white">Por seguridad</strong>, antes de hacer cualquier transferencia
+                        confirmamos contigo que el <strong className="text-white">número de cuenta</strong> que tenemos es el correcto.
                     </p>
                     <p className="text-white/35 text-xs mt-3 leading-relaxed">
                         Te llevará menos de un minuto: ya lo tienes casi todo relleno.
@@ -288,6 +386,11 @@ export function ConfirmarCobroView({ expedienteId, token }) {
                     </div>
                     <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight leading-snug">{b.pregunta}</h2>
                     <p className="text-white/45 text-sm mt-3 leading-relaxed">{b.ayuda}</p>
+                    {b.destacado && (
+                        <p className="mt-3 p-3 rounded-xl bg-emerald-500/[0.08] border border-emerald-500/25 text-emerald-200 text-sm font-bold leading-snug">
+                            ✓ {b.destacado}
+                        </p>
+                    )}
 
                     {/* Lo que ya nos dijo en la captación viene marcado y se dice: sin
                         avisarlo, parece que el formulario ha elegido por él. */}
@@ -346,42 +449,72 @@ export function ConfirmarCobroView({ expedienteId, token }) {
                     Confirma dónde te ingresamos
                 </h2>
                 <p className="text-white/45 text-sm mt-3 leading-relaxed">
-                    Son los datos que ya tenemos. Repásalos y corrige lo que haga falta.
+                    Son los datos que ya tenemos. Por seguridad, confírmanos la cuenta y corrige lo que haga falta.
                 </p>
 
                 <div className="space-y-4 mt-6">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <Campo label="Nombre" value={datos?.nombre_razon_social}
-                               onChange={v => setDatos(d => ({ ...d, nombre_razon_social: v }))} autoComplete="given-name" />
-                        <Campo label="Apellidos" value={datos?.apellidos}
-                               onChange={v => setDatos(d => ({ ...d, apellidos: v }))} autoComplete="family-name" />
-                    </div>
-                    <Campo label="DNI / NIE" value={datos?.dni}
-                           onChange={v => setDatos(d => ({ ...d, dni: v }))} placeholder="12345678A" />
-                    <Campo label="Email" type="email" value={datos?.email}
-                           onChange={v => setDatos(d => ({ ...d, email: v }))} autoComplete="email" />
-                    <Campo label="Teléfono" type="tel" value={datos?.telefono}
-                           onChange={v => setDatos(d => ({ ...d, telefono: v }))} autoComplete="tel" />
-                    <Campo
-                        label="Número de cuenta (IBAN)"
-                        value={datos?.iban}
-                        onChange={v => setDatos(d => ({ ...d, iban: v }))}
-                        placeholder="ES91 2100 1234 5612 3456 7890"
-                        ayuda="Es la cuenta donde te haremos la transferencia. Compruébala con calma."
-                    />
+                    {/* LA PREGUNTA por la que se le ha escrito: ¿es ésta tu cuenta?
+                        Con cuenta en la ficha se le enseña ENTERA (aquí, detrás del
+                        token; en el mensaje iba enmascarada) y se contesta con dos
+                        botones. Solo si dice que es otra aparece el campo. */}
+                    {ibanOriginal ? (
+                        <div className="p-4 rounded-2xl border-2 border-white/10 bg-white/[0.03]">
+                            <p className="text-[11px] font-black text-white/50 uppercase tracking-widest mb-1.5">La cuenta que tenemos</p>
+                            <p className="text-white font-mono font-bold text-[15px] sm:text-lg leading-snug">
+                                {ibanEnBloques(ibanOriginal).split(' ').map((b, i) => (
+                                    <span key={i} className="inline-block mr-[0.45em] whitespace-nowrap">{b}</span>
+                                ))}
+                            </p>
+                            <p className="text-white/35 text-[11px] mt-1.5 leading-snug">Es donde te haremos la transferencia. Compruébala con calma.</p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-4">
+                                <button type="button"
+                                    onClick={() => { setCuentaOk('si'); setDatos(d => ({ ...d, iban: ibanOriginal })); setJustificante(null); setError(null); }}
+                                    className={`py-3 rounded-xl border-2 text-xs font-black uppercase tracking-widest transition-all ${
+                                        cuentaOk === 'si' ? 'border-emerald-400 bg-emerald-400/15 text-emerald-300' : 'border-white/10 text-white/70 hover:border-emerald-400/50'}`}>
+                                    ✓ Sí, es correcta
+                                </button>
+                                <button type="button"
+                                    onClick={() => { setCuentaOk('otra'); setDatos(d => ({ ...d, iban: '' })); setError(null); }}
+                                    className={`py-3 rounded-xl border-2 text-xs font-black uppercase tracking-widest transition-all ${
+                                        cuentaOk === 'otra' ? 'border-amber-400 bg-amber-400/15 text-amber-300' : 'border-white/10 text-white/70 hover:border-amber-400/50'}`}>
+                                    No, es otra
+                                </button>
+                            </div>
+                            {cuentaOk === 'otra' && (
+                                <div className="mt-4">
+                                    <Campo
+                                        label="La cuenta correcta (IBAN)"
+                                        value={datos?.iban}
+                                        onChange={v => setDatos(d => ({ ...d, iban: v }))}
+                                        placeholder="ES91 2100 1234 5612 3456 7890"
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <Campo
+                            label="Número de cuenta (IBAN)"
+                            value={datos?.iban}
+                            onChange={v => setDatos(d => ({ ...d, iban: v }))}
+                            placeholder="ES91 2100 1234 5612 3456 7890"
+                            ayuda="No tenemos ninguna cuenta tuya: es donde te haremos la transferencia. Compruébala con calma."
+                        />
+                    )}
 
                     {/* REGLA — cambiar de cuenta exige justificante. El IBAN que consta
                         va impreso en el convenio que el cliente firmó; cambiarlo sin
                         acreditar la cuenta nueva es el error de ingreso que este
                         formulario viene a evitar. Si repite el que ya teníamos, no se
                         le pide nada. */}
-                    {ibanCambiado && (
+                    {necesitaJustificante && (
                         <div className="p-4 rounded-2xl border-2 border-amber-400/30 bg-amber-400/[0.06] animate-fade-in">
-                            <p className="text-amber-300 font-black text-sm mb-1">Has cambiado el número de cuenta</p>
+                            <p className="text-amber-300 font-black text-sm mb-1">
+                                {ibanCambiado ? 'Has cambiado el número de cuenta' : 'Justificante de la cuenta'}
+                            </p>
                             <p className="text-white/55 text-xs leading-relaxed">
-                                Antes teníamos <span className="text-white/80 font-mono break-all">{ibanOriginal}</span>.
-                                {' '}Para asegurarnos de que el dinero llega a tu cuenta necesitamos un
-                                justificante de titularidad <strong className="text-white/80">de la cuenta nueva</strong>:
+                                {ibanCambiado && <>Antes teníamos <span className="text-white/80 font-mono break-all">{ibanEnBloques(ibanOriginal)}</span>.{' '}</>}
+                                Para asegurarnos de que el dinero llega a tu cuenta necesitamos un
+                                justificante de titularidad <strong className="text-white/80">{ibanCambiado ? 'de la cuenta nueva' : 'de esa cuenta'}</strong>:
                                 un recibo o una captura del banco donde se vea tu nombre junto al IBAN.
                             </p>
                             <>
@@ -406,6 +539,23 @@ export function ConfirmarCobroView({ expedienteId, token }) {
                             </>
                         </div>
                     )}
+
+                    {/* Los datos de contacto van DETRÁS: la cuenta es la pregunta por la
+                        que se le ha escrito, y con cinco campos delante quedaba al fondo
+                        de la pantalla del móvil, donde no se ve. */}
+                    <p className="text-[11px] font-black text-white/40 uppercase tracking-widest pt-2">Tus datos</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <Campo label="Nombre" value={datos?.nombre_razon_social}
+                               onChange={v => setDatos(d => ({ ...d, nombre_razon_social: v }))} autoComplete="given-name" />
+                        <Campo label="Apellidos" value={datos?.apellidos}
+                               onChange={v => setDatos(d => ({ ...d, apellidos: v }))} autoComplete="family-name" />
+                    </div>
+                    <Campo label="DNI / NIE" value={datos?.dni}
+                           onChange={v => setDatos(d => ({ ...d, dni: v }))} placeholder="12345678A" />
+                    <Campo label="Email" type="email" value={datos?.email}
+                           onChange={v => setDatos(d => ({ ...d, email: v }))} autoComplete="email" />
+                    <Campo label="Teléfono" type="tel" value={datos?.telefono}
+                           onChange={v => setDatos(d => ({ ...d, telefono: v }))} autoComplete="tel" />
                 </div>
 
                 {error && (

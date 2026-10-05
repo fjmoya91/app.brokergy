@@ -409,18 +409,67 @@ Cada enlace lleva directo a lo que falta y enseña un ejemplo de cada foto.
 ${FIRMA}`;
 }
 
+// Euros con punto de miles siempre (toLocaleString('es-ES') no agrupa 4 cifras).
+// Espejo de `eurEs` de frontend/features/cobro/logic/cobroForm.js.
+function eurMiles(n) {
+    const v = Number(n) || 0;
+    const [ent, dec] = Math.abs(v).toFixed(2).split('.');
+    return `${v < 0 ? '-' : ''}${ent.replace(/\B(?=(\d{3})+(?!\d))/g, '.')},${dec}\u00A0€`;
+}
+
 function cobroLoteWa({ destinatario, items, tercero = false }) {
     const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
     const n = items.length;
+    // La lista va con su CUENTA (enmascarada) y no con el `detalle` del radar, que
+    // está escrito para nosotros. A un intermediario no se le enseña la cuenta.
+    const lista = items.map(i => {
+        const cab = `• *${i.numExp}*${i.cliente ? ` — ${capitalizar(i.cliente)}` : ''}`;
+        const cuenta = tercero ? '' : (i.cuenta
+            ? `
+  Cuenta que tenemos: *${i.cuenta}*`
+            : `
+  _No tenemos ningún número de cuenta: indícalo en el enlace_`);
+        const ayuda = Number(i.bono) > 0
+            ? `
+  Ayuda: *${eurMiles(i.bono)}*`
+            : '';
+        const url = i.url ? `
+  ${i.urlLabel ? i.urlLabel + ' ' : ''}${i.url}` : '';
+        return `${cab}${ayuda}${cuenta}${url}`;
+    }).join(`
+
+`);
     // A la persona de contacto: el dinero es del titular y los datos los confirma
     // él. Se le pide que le haga llegar el enlace.
     if (tercero) {
-        return `${hola}\n\n¡Buenas noticias! Ya ${plural(n, 'está concedida la ayuda', `están concedidas las ayudas de *${n} instalaciones*`)} y estamos preparando ${plural(n, 'el ingreso', 'los ingresos')}:\n\n${listaExpedientes(items)}\n\nAntes de hacer la transferencia necesitamos que *el titular confirme sus datos de cobro* — sobre todo el número de cuenta, para que el dinero no acabe donde no debe. ¿Le puedes hacer llegar ${plural(n, 'el enlace', 'el enlace de cada uno')}? Le llevará menos de un minuto: lo verá casi todo relleno.\n\n¡Gracias!\n${FIRMA}`;
+        return `${hola} 🎉
+
+Buenas noticias: el pago ${plural(n, 'de la ayuda', `de las ayudas de *${n} instalaciones*`)} ya nos ha llegado, así que vamos a hacer ${plural(n, 'el ingreso', 'los ingresos')}:
+
+${lista}
+
+Por seguridad, antes de cualquier transferencia confirmamos con cada titular su número de cuenta. ¿Le puedes hacer llegar ${plural(n, 'el enlace', 'el enlace de cada uno')}? Le llevará menos de un minuto.
+
+¡Gracias!
+${FIRMA}`;
     }
+    // El esfuerzo sin cifras: en bloque van expedientes de lotes distintos, y
+    // contarle requerimientos que en el suyo no hubo sería falso.
     const cuerpo = n === 1
-        ? `¡Buenas noticias! Ya tenemos concedida la ayuda de tu instalación y estamos preparando el ingreso.`
-        : `¡Buenas noticias! Ya tenemos concedidas las ayudas de *${n} instalaciones tuyas* y estamos preparando los ingresos.`;
-    return `${hola}\n\n${cuerpo}\n\nAntes de hacer la transferencia necesitamos que *confirmes tus datos de cobro* — sobre todo el número de cuenta, para que el dinero no acabe donde no debe:\n\n${listaExpedientes(items)}\n\nTe llevará menos de un minuto: lo verás casi todo relleno. De paso te hacemos un par de preguntas rápidas por si podemos ahorrarte algo más (la tarifa de la luz suele quedarse desajustada después de poner aerotermia); son opcionales.\n\n¡Gracias!\n${FIRMA}`;
+        ? `Ha sido un proceso largo, pero por fin lo tenemos aquí: el pago de la ayuda de tu instalación ya nos ha llegado y vamos a hacerte el ingreso.`
+        : `Ha sido un proceso largo, pero por fin lo tenemos aquí: el pago de las ayudas de *${n} instalaciones tuyas* ya nos ha llegado y vamos a hacerte los ingresos.`;
+    return `¡Enhorabuena${nombreSaludo(destinatario) ? `, ${nombreSaludo(destinatario)}` : ''}! 🎉
+
+${cuerpo}
+
+Por seguridad, antes de hacer cualquier transferencia confirmamos contigo el número de cuenta. ¿Es correcto el que tenemos? Confírmalo en el enlace, te llevará menos de un minuto:
+
+${lista}
+
+Ahí mismo te hacemos tres preguntas rápidas, opcionales, por si podemos ayudarte a ahorrar algo más (la tarifa de la luz, las placas solares y la deducción en la Renta).
+
+¡Gracias!
+${FIRMA}`;
 }
 
 module.exports = {

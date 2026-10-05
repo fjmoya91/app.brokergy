@@ -135,9 +135,9 @@ const BLOQUES = {
         // está terminado. Pero SÍ tiene plazo 0 — el enlace lo mandamos nosotros y
         // hasta que el cliente no confirma la cuenta no se puede ordenar la
         // transferencia, así que está pendiente desde el minuto uno.
-        orden: 13, emoji: '🏦', titulo: 'Verificados y sin confirmar los datos de cobro',
+        orden: 13, emoji: '🏦', titulo: 'Cobrados del S.O. y sin confirmar la cuenta del cliente',
         dias: num(process.env.RADAR_COBRO_DIAS, 0), reinsistir: num(process.env.RADAR_COBRO_REINSISTIR, 7),
-        nota: 'El CAE está concedido: falta que el cliente confirme el nº de cuenta antes de hacerle la transferencia.',
+        nota: 'El Sujeto Obligado ya ha pagado: falta que el cliente confirme el nº de cuenta antes de hacerle la transferencia.',
     },
     FIN_OBRA: {
         orden: 12, emoji: '🔵', titulo: 'CEE inicial registrado y obra sin terminar',
@@ -147,10 +147,12 @@ const BLOQUES = {
 };
 
 
-// Estados del LOTE en los que el CAE ya está concedido y toca pagarle al cliente.
-// Fuente de la lista: los mismos que mueven la carpeta a 08/09 (ver "Carpetas de
-// Drive por estado" en CLAUDE.md).
-const LOTE_EN_PAGO = ['CAE EMITIDO – PTE PAGO BROKERGY', 'CAE EMITIDO - PTE PAGO BROKERGY', 'PTE. PAGO BROKERGY A CLIENTE'];
+// Estado del LOTE en el que toca pagarle al cliente: el Sujeto Obligado YA nos ha
+// pagado. En "CAE EMITIDO – PTE PAGO BROKERGY" todavía no —el CAE está emitido pero
+// el S.O. no ha pagado—, y pedirle la cuenta ahí al cliente es anunciarle un
+// ingreso que aún no podemos hacer (decisión del usuario, 2026-10-05). Mismo
+// criterio que la fase 7 del lote ("Pago a los clientes", loteProceso.js).
+const LOTE_EN_PAGO = ['PTE. PAGO BROKERGY A CLIENTE'];
 
 // Subestados por fase del CEE, agrupados por DE QUIÉN es la pelota.
 // Lo IMPRESCINDIBLE para levantar el CEE inicial (vivienda por fuera —vídeo o
@@ -412,9 +414,9 @@ function detectarFirmaPendiente(e, out) {
 /**
  * L · CAE concedido y el cliente todavía no ha confirmado sus datos de cobro.
  *
- * REGLA — solo cuando el LOTE está en fase de pago. Antes de eso el importe no es
- * firme (el ahorro verificado puede moverlo) y pedirle la cuenta a alguien al que
- * todavía no vas a ingresarle nada es prometerle un dinero con fecha.
+ * REGLA — solo cuando el S.O. YA nos ha pagado (lote en "PTE. PAGO BROKERGY A
+ * CLIENTE"). Antes, pedirle la cuenta a alguien al que todavía no vas a ingresarle
+ * nada es prometerle un dinero con fecha.
  *
  * El envío NO es automático: esto lo PROPONE y una persona da el visto bueno desde
  * la pestaña de Seguimiento o desde el enlace del parte. Es el último mensaje que

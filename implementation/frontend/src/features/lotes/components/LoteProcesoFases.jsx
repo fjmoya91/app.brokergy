@@ -8,6 +8,7 @@ import { AhorrosVerificadosModal } from './AhorrosVerificadosModal';
 import { FirmadosSoModal } from './FirmadosSoModal';
 import SendActionOverlay from '../../../components/SendActionOverlay';
 import { BotonCarpetaLocal } from './BotonCarpetaLocal';
+import { CobroClientesPanel } from './CobroClientesPanel';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // El proceso del lote, por FASES, en el orden real del trámite. Sustituye a los
@@ -1280,7 +1281,7 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         );
     };
 
-    const [f1, f2, f3, f4, f5, f6] = p.fases;
+    const [f1, f2, f3, f4, f5, f6, f7] = p.fases;
     const nExps = (lote?.expedientes || []).length;
     const api = lote?.verificacion_api || null;
     // El primer documento que falta de la fase EN CURSO se marca en ámbar: es lo
@@ -1625,6 +1626,20 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                             hint="Se genera con el botón de arriba, con los códigos del certificado CAE." />
                     ),
                 ],
+            })}
+
+            {/* 7 · Pago a los clientes. El S.O. ya nos ha pagado: antes de cada
+                transferencia se le pide al cliente que confirme su cuenta (y cómo
+                quiere liquidar la gestión). Lo ve todo el equipo; los importes y
+                el IBAN entero, solo el ADMIN. */}
+            {faseBloque({
+                f: f7,
+                // Antes de emitirse el CAE no hay nada que mirar aquí (y cada lectura
+                // carga los expedientes enteros): basta el aviso de "aún no toca".
+                nota: p.caeEmitido ? (
+                    <CobroClientesPanel key={`cobro_${lote?.id}`} lote={lote} activo={p.pagoCliente}
+                        canSeeMargin={canSeeMargin} onChanged={onChanged} />
+                ) : null,
             })}
 
             {error && <p className="text-[10px] text-red-400">{error}</p>}

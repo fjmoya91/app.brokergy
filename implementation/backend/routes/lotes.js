@@ -673,6 +673,49 @@ router.post('/:id/factura-so/contabilidad', adminOnly, async (req, res) => {
 // Verificación subida), los envía por email/WhatsApp al S.O. con el enlace de
 // firma, y registra todo en lotes.documentos_so para la firma en cadena del S.O.
 // (/firmar-lote/:id). Los HTML de Anexo I y fichas los construye el frontend.
+// ─── GET /api/lotes/:id/cobros — fase 7 "Pago a los clientes" ───────────────────
+// Cuando el Sujeto Obligado nos paga, toca ingresarle el bono a cada cliente, y
+// antes de cada transferencia se le pide que confirme su cuenta (formulario
+// /cobro/:id, ver cobroService). Esto devuelve, por expediente del lote, a quién
+// se le escribe, qué cuenta consta, si ya se le pidió, si ha contestado y cómo
+// quiere liquidar la gestión — y, en fase de pago, el BORRADOR de su mensaje.
+//
+// REGLA — los borradores (y con ellos el token del enlace) solo se crean con el
+// lote en "PTE. PAGO BROKERGY A CLIENTE" o después: antes no hay ingreso que
+// anunciar. El IBAN entero solo viaja al ADMIN, que es quien transfiere.
+const LOTE_PAGO_CLIENTE = ['PTE. PAGO BROKERGY A CLIENTE', 'FINALIZADO'];
+router.get('/:id/cobros', staffOnly, async (req, res) => {
+    try {
+        const { data: lote, error } = await supabase
+            .from('lotes').select('id, estado').eq('id', req.params.id).maybeSingle();
+        if (error) throw error;
+        if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
+        const { data: miembros, error: mErr } = await supabase
+            .from('expedientes').select('id').eq('lote_id', lote.id).order('numero_expediente');
+        if (mErr) throw mErr;
+
+        const cobroService = require('../services/cobroService');
+        const enPago = LOTE_PAGO_CLIENTE.includes(lote.estado);
+        const admin = isAdmin(req);
+        const filas = [];
+        // En SERIE: son pocos (≤ 5 por lote) y cada uno puede escribir su token.
+        for (const m of (miembros || [])) {
+            const exp = await cobroService.cargarExpediente(m.id);
+            if (!exp) continue;
+            try {
+                filas.push(await cobroService.filaCobro(exp, { conBorrador: enPago, ibanCompleto: admin }));
+            } catch (e) {
+                console.warn('[lotes cobros]', exp.numero_expediente, e.message);
+                filas.push({ id: exp.id, numero_expediente: exp.numero_expediente, error: e.message });
+            }
+        }
+        res.json({ estado: lote.estado, en_pago: enPago, filas });
+    } catch (err) {
+        console.error('[GET /lotes/:id/cobros]', err.message);
+        res.status(500).json({ error: 'Error al leer el cobro de los clientes del lote' });
+    }
+});
+
 // ─── GET /api/lotes/:id/local-path — ruta de la carpeta en el disco ─────────────
 // Espejo de `GET /api/expedientes/:id/local-path` (ver memoria del protocolo
 // brokergylocal:). El navegador no puede abrir `file://`, así que devolvemos la

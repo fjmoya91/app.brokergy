@@ -59,8 +59,8 @@ const TIPOS_LOTE = {
     'pedir-cobro': {
         destinatario: 'CLIENTE',
         asunto: (n) => (n === 1
-            ? 'Confirma tus datos para el ingreso de tu ayuda'
-            : `Confirma tus datos para el ingreso de tus ${n} ayudas`),
+            ? 'Enhorabuena: vamos a ingresarte tu ayuda — confirma tu cuenta'
+            : `Enhorabuena: vamos a ingresarte tus ${n} ayudas — confirma tu cuenta`),
         plantilla: recordatorios.cobroLoteWa,
     },
 };
@@ -126,13 +126,22 @@ async function prepararLote(grupo) {
     // El enlace del formulario de cobro lleva su propio token, que hay que crear (o
     // recuperar) por expediente: no se puede componer en `urlDe`, que es síncrona.
     const enlacesCobro = new Map();
+    // La cuenta que consta, ENMASCARADA: el mensaje se la enseña para que la
+    // reconozca, que es para lo que se le escribe (nunca el IBAN entero en un chat).
+    const cuentasCobro = new Map();
     if (grupo.tipo === 'pedir-cobro') {
         const cobroService = require('./cobroService');
+        const { mascaraIban } = await cobroService.loadCobroForm();
         for (const f of grupo.filas) {
             try {
                 const exp = await cobroService.cargarExpediente(f.expediente_id);
                 if (!exp) continue;
                 enlacesCobro.set(f.expediente_id, cobroService.enlaceCobro(exp.id, await cobroService.ensureToken(exp)));
+                cuentasCobro.set(f.expediente_id, {
+                    cuenta: mascaraIban(exp.clientes?.numero_cuenta),
+                    // La ayuda VERIFICADA, la misma que dice el mensaje individual.
+                    bono: await cobroService.bonoVerificado(exp),
+                });
             } catch (err) { console.warn('[Lote] enlace de cobro:', err.message); }
         }
     }
@@ -158,6 +167,10 @@ async function prepararLote(grupo) {
             detalle: esCert ? `CEE ${f.scope === 'final' ? 'final' : 'inicial'}` : f.detalle,
             dias: f.dias,
             scope: f.scope,
+            ...(grupo.tipo === 'pedir-cobro' ? {
+                cuenta: cuentasCobro.get(f.expediente_id)?.cuenta || null,
+                bono: cuentasCobro.get(f.expediente_id)?.bono || null,
+            } : {}),
             ...link,
         };
     });

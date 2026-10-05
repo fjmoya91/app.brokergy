@@ -1808,8 +1808,9 @@ router.get('/:id/cobro', staffOnly, async (req, res) => {
         const exp = await cobroService.cargarExpediente(req.params.id);
         if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
         const cobro = exp.documentacion?.cobro || {};
-        const { lineas, leads } = await cobroService.resumenRespuestas(exp);
+        const { lineas, leads, forma_pago } = await cobroService.resumenRespuestas(exp);
         const contacto = cobroService.contactoCliente(exp);
+        const link = cobroService.enlaceCobro(exp.id, await cobroService.ensureToken(exp));
         res.json({
             enviado_at: cobro.enviado_at || null,
             enviado_por: cobro.enviado_por || null,
@@ -1825,7 +1826,11 @@ router.get('/:id/cobro', staffOnly, async (req, res) => {
             contacto,
             // El enlace se enseña para poder pasárselo a mano por donde sea (mismo
             // criterio que el de aceptación de la propuesta): staffOnly, nunca público.
-            link: cobroService.enlaceCobro(exp.id, await cobroService.ensureToken(exp)),
+            link,
+            forma_pago,
+            // El borrador del mensaje, para que el popup lo enseñe antes de enviar.
+            mensaje: await cobroService.mensajeCobro(exp, link),
+            asunto: cobroService.asuntoCobro(exp),
         });
     } catch (e) {
         console.error('[cobro estado]', e.message);
@@ -1848,7 +1853,7 @@ router.post('/:id/cobro/enviar', staffOnly, async (req, res) => {
         const tlf = String(req.body?.tlf || '').trim() || contacto.tlf;
         const email = String(req.body?.email || '').trim() || contacto.email;
         // El mensaje se puede editar en el popup; si no viene, el de fuente única.
-        const mensaje = String(req.body?.mensaje || '').trim() || cobroService.mensajeCobro(exp, link);
+        const mensaje = String(req.body?.mensaje || '').trim() || await cobroService.mensajeCobro(exp, link);
 
         const sent = [];
         if (channels.includes('whatsapp')) {
@@ -1864,7 +1869,7 @@ router.post('/:id/cobro/enviar', staffOnly, async (req, res) => {
             }</div>`;
             await emailService.sendMail({
                 to: email,
-                subject: `Confirma tus datos para el ingreso de tu ayuda${exp.numero_expediente ? ` — ${exp.numero_expediente}` : ''}`,
+                subject: cobroService.asuntoCobro(exp),
                 text: mensaje,
                 html,
             });

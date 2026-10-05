@@ -2752,6 +2752,16 @@ router.post('/cobro/:expedienteId', upload.single('justificante'), async (req, r
                 requiere_justificante: true,
             });
         }
+        // Y si NO teníamos cuenta (convenio firmado sin IBAN) y tampoco hay
+        // justificante en el expediente, la que escribe hay que acreditarla igual:
+        // es el caso para el que el convenio dice "se acredita con justificante".
+        const sinCuentaPrevia = !anterior && !cobroService.tieneJustificante(exp);
+        if (sinCuentaPrevia && !req.file) {
+            return res.status(400).json({
+                error: 'Necesitamos un justificante de que la cuenta es tuya (un recibo o una captura del banco donde se vea tu nombre junto al IBAN).',
+                requiere_justificante: true,
+            });
+        }
 
         // 1. Datos del cliente — la MISMA tabla que rellena la firma de la propuesta.
         if (exp.cliente_id) {
@@ -2840,7 +2850,7 @@ router.post('/cobro/:expedienteId', upload.single('justificante'), async (req, r
 
             try {
                 const fresco = await cobroService.cargarExpediente(exp.id);
-                const { lineas, leads } = await cobroService.resumenRespuestas(fresco);
+                const { lineas, leads, forma_pago } = await cobroService.resumenRespuestas(fresco);
                 const c = cobroService.contactoCliente(fresco);
                 const nombre = `${fresco.clientes?.nombre_razon_social || ''} ${fresco.clientes?.apellidos || ''}`.trim();
                 const aviso = [
@@ -2851,7 +2861,12 @@ router.post('/cobro/:expedienteId', upload.single('justificante'), async (req, r
                     // aviso que hay que revisar antes de ordenar la transferencia.
                     ibanCambiado
                         ? `⚠️ *HA CAMBIADO EL Nº DE CUENTA* (antes ${anterior})\nNuevo: ${ibanNuevo}\n${req.file ? '✅ Con justificante de titularidad' : '⚠️ SIN justificante'}`
-                        : `✅ Confirma el mismo nº de cuenta que ya teníamos (${ibanNuevo})`,
+                        : (anterior
+                            ? `✅ Confirma el mismo nº de cuenta que ya teníamos (${ibanNuevo})`
+                            : `🆕 *No teníamos cuenta*: nos da ${ibanNuevo}\n${req.file ? '✅ Con justificante de titularidad' : '⚠️ SIN justificante'}`),
+                    // Lo segundo que hay que hacer antes de transferir: la factura se
+                    // emite y se cobra ANTES, o se acaba ingresando el bono entero.
+                    forma_pago ? `\n${forma_pago.tono === 'aviso' ? '🧾' : '✂️'} *${forma_pago.texto}*` : '',
                     '',
                     lineas.length ? `Respuestas: ${lineas.join(' · ')}` : 'Sin respuestas de venta cruzada.',
                     leads.length ? `\n🎯 *Interesado en:* ${leads.map(l => l.texto).join(' · ')}` : '',
@@ -2864,7 +2879,7 @@ router.post('/cobro/:expedienteId', upload.single('justificante'), async (req, r
                     try {
                         await emailService.sendMail({
                             to: process.env.ADMIN_EMAIL,
-                            subject: `🏦 Datos de cobro confirmados — ${fresco.numero_expediente || ''}${ibanCambiado ? ' (Nº DE CUENTA CAMBIADO)' : ''}`,
+                            subject: `🏦 Datos de cobro confirmados — ${fresco.numero_expediente || ''}${ibanCambiado ? ' (Nº DE CUENTA CAMBIADO)' : ''}${forma_pago?.tono === 'aviso' ? ' (QUIERE FACTURA)' : ''}`,
                             text: aviso,
                             html: `<pre style="font-family:Arial,sans-serif;font-size:14px">${aviso.replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch]))}</pre>`,
                         });

@@ -9,7 +9,9 @@
 //   2. Firma del Sujeto Obligado  → Anexo I + fichas RES + solicitud
 //   3. Oferta de verificación     → llega del verificador, la firma el S.O.
 //   4. Verificación               → plan, inexactitudes, informe, dictamen, factura
-//   5. Cobro                      → factura de Brokergy al S.O.
+//   5. Presentación a MITECO      → justificante, requerimientos, certificado CAE
+//   6. Factura de Brokergy al S.O.
+//   7. Pago a los clientes        → confirmar la cuenta de cada uno y transferir
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Slots que se suben a mano. `multiple` = admite varios (informes de inexactitudes).
@@ -76,6 +78,9 @@ export function analizarProceso(lote) {
     const verificado = !!informeVerificacion && !!dictamen;
     const caeEmitido = ['CAE EMITIDO – PTE PAGO BROKERGY', 'PTE. PAGO BROKERGY A CLIENTE', 'FINALIZADO']
         .includes(lote?.estado);
+    // El S.O. YA ha pagado: es el momento de pedirle la cuenta a cada cliente.
+    // Espejo de LOTE_PAGO_CLIENTE (routes/lotes.js) y del radar (bloque COBRO).
+    const pagoCliente = ['PTE. PAGO BROKERGY A CLIENTE', 'FINALIZADO'].includes(lote?.estado);
 
     // Una fase está `hecha` cuando su hito se cumplió, y `bloqueada` mientras le
     // falte lo de la fase anterior. La primera no completada es la fase ACTUAL.
@@ -123,6 +128,18 @@ export function analizarProceso(lote) {
             bloqueo: caeEmitido ? null : 'Se habilita en "CAE EMITIDO – PTE PAGO BROKERGY".',
             docs: [],
         },
+        {
+            // Cuando el S.O. nos paga, toca ingresar el bono a cada cliente. Antes de
+            // cada transferencia se le pide que confirme su cuenta (formulario
+            // /cobro/:id) y cómo quiere liquidar la gestión. Se cierra con el lote
+            // FINALIZADO, que es cuando ya se ha pagado a todos.
+            n: 7,
+            titulo: 'Pago a los clientes',
+            hecha: lote?.estado === 'FINALIZADO',
+            bloqueo: pagoCliente ? null
+                : 'Se habilita cuando el Sujeto Obligado nos pague: pasa el lote a "PTE. PAGO BROKERGY A CLIENTE".',
+            docs: [],
+        },
     ];
     const actual = fases.find(f => !f.hecha && !f.bloqueo) || fases.find(f => !f.hecha) || null;
 
@@ -130,7 +147,7 @@ export function analizarProceso(lote) {
         docs, solicitud, solicitudOk, anexo, fichas, oferta, planVerificacion, inexactitudes,
         informeVerificacion, dictamen, facturaVerificador,
         justificanteMiteco, requerimientosGa, certificadoCae, facturaSo,
-        soEnviado, soFirmado, ofertaEnviada, ofertaFirmada, verificado, caeEmitido,
+        soEnviado, soFirmado, ofertaEnviada, ofertaFirmada, verificado, caeEmitido, pagoCliente,
         fases, faseActual: actual ? actual.n : null,
     };
 }

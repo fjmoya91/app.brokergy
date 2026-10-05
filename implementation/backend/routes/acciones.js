@@ -306,7 +306,7 @@ async function prepararSolicitud(expId, tipo, scope) {
         try {
             const exp = await cobroService.cargarExpediente(expId);
             const link = cobroService.enlaceCobro(expId, await cobroService.ensureToken(exp));
-            mensaje = cobroService.mensajeCobro(exp, link);
+            mensaje = await cobroService.mensajeCobro(exp, link);
         } catch (err) {
             console.warn('[acciones] enlace de cobro:', err.message);
         }
@@ -594,7 +594,7 @@ router.post('/:tipo/:expId', express.json(), comprobarFirma, async (req, res) =>
                         : tipo === 'fin-obra'
                         ? `¿Cómo va la obra? — expediente ${numExp}`
                         : tipo === 'pedir-cobro'
-                            ? `Confirma tus datos para el ingreso de tu ayuda — expediente ${numExp}`
+                            ? `Enhorabuena: vamos a ingresarte tu ayuda — confirma tu cuenta (${numExp})`
                             : `Documentación pendiente de firma — expediente ${numExp}`,
                     solicitado: [def.titulo],
                     // Claves del BARRIDO, para que el checklist del expediente sepa que
