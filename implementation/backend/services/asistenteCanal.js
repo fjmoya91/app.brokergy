@@ -10,6 +10,8 @@
 //   llamada a la sesión) y se cachea; no se resuelve el de cada mensaje que entre de cualquiera.
 // - Sin ASISTENTE_URL o sin ASISTENTE_WHATSAPP_TEL no se engancha (en LOCAL, apagado).
 // - Si el contenedor no responde, el vigilante lo recoge igual en su repaso periódico.
+// - De los DEMÁS chats 1:1 solo se pasa el chatId (/entrante) para el modo proactivo: ni se lee el
+//   chat ni se resuelve su teléfono aquí; eso lo hace el contenedor cuando el chat lleva rato callado.
 const whatsappService = require('./whatsappService');
 
 const TEL = String(process.env.ASISTENTE_WHATSAPP_TEL || '').replace(/\D/g, '');
@@ -47,12 +49,13 @@ async function esDeFran(chatId) {
     return !!lidDeFran && chatId === lidDeFran;
 }
 
-function tocarTimbre() {
-    fetch(`${URL}/aviso`, {
+function tocarTimbre(ruta, cuerpo = null) {
+    fetch(`${URL}${ruta}`, {
         method: 'POST',
-        headers: { 'x-internal-key': process.env.INTERNAL_API_KEY || '' },
+        headers: { 'x-internal-key': process.env.INTERNAL_API_KEY || '', ...(cuerpo ? { 'Content-Type': 'application/json' } : {}) },
+        body: cuerpo ? JSON.stringify(cuerpo) : undefined,
         signal: AbortSignal.timeout(3000),
-    }).catch(e => console.warn('[asistente] el contenedor no ha cogido el aviso:', e.message));
+    }).catch(e => console.warn(`[asistente] el contenedor no ha cogido ${ruta}:`, e.message));
 }
 
 async function alMensaje(msg) {
@@ -60,7 +63,10 @@ async function alMensaje(msg) {
         if (!msg || msg.fromMe || msg.isStatus) return;
         const chatId = String(msg.from || '');
         if (!chatId.endsWith('@c.us') && !chatId.endsWith('@lid')) return;   // grupos y difusiones fuera
-        if (await esDeFran(chatId)) tocarTimbre();
+        // Fran → a trabajar. Cualquier otro chat → solo su id, para el MODO PROACTIVO (el contenedor
+        // espera a que ese chat calle y decide allí si es una petición de un instalador).
+        if (await esDeFran(chatId)) tocarTimbre('/aviso');
+        else tocarTimbre('/entrante', { chatId });
     } catch (e) {
         console.warn('[asistente] aviso de mensaje entrante:', e.message);
     }

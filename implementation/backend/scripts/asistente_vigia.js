@@ -9,27 +9,33 @@
 // backend. El backend (services/asistenteCanal.js) le avisa en cuanto Fran escribe, así que no hay
 // que estar mirando el chat a cada rato. Cuando Fran escribe algo nuevo —y lleva unos segundos sin
 // escribir, para coger la ráfaga entera— le acusa recibo y lanza Claude Code sin pantalla
-// (`claude -p`) en este PC, con las instrucciones de `asistente_instrucciones.md`, los mensajes
-// nuevos (las notas de voz transcritas, las fotos y documentos bajados) y lo último del chat.
+// (`claude -p`), con las instrucciones de `asistente_instrucciones.md`, los mensajes nuevos (las
+// notas de voz transcritas, las fotos y documentos bajados) y lo último del chat.
 // Claude hace el trabajo y le contesta él mismo por `asistente_whatsapp.js decir`.
 //
 // - SOLO atiende al chat 1:1 con ese número, y solo lo que escribe él (no lo que mandamos nosotros).
 // - Un trabajo cada vez: lo que llegue mientras tanto se atiende en la siguiente vuelta.
 // - Si Claude acaba sin haberle contestado, el vigilante le manda el final de su salida.
+// - Órdenes sin Claude: «consumo» (lo gastado en 7 días).
+// - MODO PROACTIVO (asistente_proactivo.js): el backend avisa también de los mensajes de los demás
+//   chats (/entrante); si un instalador manda una petición y nadie le contesta, se le pregunta a Fran.
 // - En el VPS corre en el contenedor «asistente» (docker-compose.yml, implementation/asistente/),
 //   con el repo montado: un `git pull` le cambia los scripts y las instrucciones sin reconstruir.
-// - Estado y registros en backend/scratch/asistente/ (fuera de git).
+// - Estado, registros y consumo en backend/scratch/asistente/ (fuera de git).
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const http = require('http');
 const { spawn } = require('child_process');
 const { api, mandar, transcribir, TEL } = require('./asistente_whatsapp');
+const proactivo = require('./asistente_proactivo');
 
 const RAIZ = path.join(__dirname, '..', '..', '..');
 const DIR = path.join(__dirname, '..', 'scratch', 'asistente');
 const ESTADO = path.join(DIR, 'vigia.json');
 const LOCK = path.join(DIR, 'vigia.lock');
 const LOGS = path.join(DIR, 'log');
+const CONSUMO = path.join(DIR, 'consumo.jsonl');
 const INSTRUCCIONES = path.join(__dirname, 'asistente_instrucciones.md');
 const SERVIDOR = process.argv.includes('--servidor');
 const PUERTO = Number(process.env.ASISTENTE_PUERTO) || 8091;
@@ -37,11 +43,25 @@ const CADA_MS = Number(process.env.ASISTENTE_VIGIA_MS) || (SERVIDOR ? 120_000 : 
 const SILENCIO_S = Number(process.env.ASISTENTE_SILENCIO_S) || 20;       // ráfaga: espera a que pare de escribir
 const PLAZO_MS = Number(process.env.ASISTENTE_PLAZO_MIN || 45) * 60_000; // tope de un trabajo
 const CLAUDE = process.env.ASISTENTE_CLAUDE_CMD || 'claude';
+// Claude trabaja desde una carpeta FUERA del repo y con acceso a él (--add-dir). Desde dentro carga
+// entero el CLAUDE.md de la raíz (1,1 MB ≈ 490.000 tokens) en CADA trabajo: medido el 05/10/2026, un
+// «contesta ok» costaba 514.000 tokens desde el repo y 31.000 desde fuera.
+const TRABAJO = process.env.ASISTENTE_CWD || path.join(os.tmpdir(), 'asistente-trabajo');
+// El modelo: por defecto Sonnet; Fran puede pedir otro escribiendo «con opus» / «con haiku».
+const MODELO = process.env.ASISTENTE_MODELO || 'sonnet';
 
 fs.mkdirSync(LOGS, { recursive: true });
 const ahora = () => Math.floor(Date.now() / 1000);
 const hora = t => new Date(t * 1000).toLocaleString('es-ES', { timeZone: 'Europe/Madrid' });
 const log = (...a) => console.log(new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' }), ...a);
+const mil = n => Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+
+function modeloPara(texto) {
+    if (/\bopus\b/i.test(texto)) return 'opus';
+    if (/\bhaiku\b/i.test(texto)) return 'haiku';
+    if (/\bsonnet\b/i.test(texto)) return 'sonnet';
+    return MODELO;
+}
 
 function leerEstado() {
     try { return JSON.parse(fs.readFileSync(ESTADO, 'utf8')); } catch { return null; }
@@ -61,7 +81,7 @@ function cogerLock() {
 
 async function prepararMensaje(m, carpeta) {
     if (m.tipo === 'chat') return m.texto || '';
-    if (/ptt|audio/.test(m.tipo)) return `🎤 (nota de voz) ${await transcribir(m)}`;
+    if (/ptt|audio/.test(m.tipo)) return `(nota de voz) ${await transcribir(m)}`;
     if (['image', 'video', 'document', 'sticker'].includes(m.tipo)) {
         try {
             const f = await api(`/api/whatsapp/conversacion/adjunto?msg=${encodeURIComponent(m.id)}`, { binario: true });
@@ -77,22 +97,77 @@ async function prepararMensaje(m, carpeta) {
     return m.texto || `[${m.tipo}]`;
 }
 
-function lanzarClaude(prompt, etiqueta) {
+function lanzarClaude(prompt, etiqueta, modelo) {
     return new Promise(resolve => {
         const salida = path.join(LOGS, `${etiqueta}.log`);
         const out = fs.createWriteStream(salida);
-        out.write(`=== PROMPT ===\n${prompt}\n\n=== SALIDA ===\n`);
-        const args = ['-p', '--permission-mode', 'bypassPermissions', '--output-format', 'text'];
-        const hijo = spawn(CLAUDE, args, { cwd: RAIZ, shell: true, windowsHide: true, env: process.env });
-        let texto = '';
-        hijo.stdout.on('data', d => { texto += d; out.write(d); });
-        hijo.stderr.on('data', d => { texto += d; out.write(d); });
+        out.write(`=== MODELO: ${modelo} ===\n=== PROMPT ===\n${prompt}\n\n=== SALIDA ===\n`);
+        fs.mkdirSync(TRABAJO, { recursive: true });
+        const args = ['-p', '--permission-mode', 'bypassPermissions', '--output-format', 'json',
+            '--model', modelo, '--add-dir', `"${RAIZ}"`];
+        const inicio = Date.now();
+        const hijo = spawn(CLAUDE, args, { cwd: TRABAJO, shell: true, windowsHide: true, env: process.env });
+        let json = '';
+        let error = '';
+        hijo.stdout.on('data', d => { json += d; });
+        hijo.stderr.on('data', d => { error += d; out.write(d); });
         const plazo = setTimeout(() => { out.write('\n[PLAZO AGOTADO]\n'); hijo.kill(); }, PLAZO_MS);
-        hijo.on('close', code => { clearTimeout(plazo); out.end(); resolve({ code, texto, salida }); });
-        hijo.on('error', e => { clearTimeout(plazo); out.end(); resolve({ code: -1, texto: e.message, salida }); });
+        let hecho = false;
+        const fin = (code) => {
+            if (hecho) return;
+            hecho = true;
+            clearTimeout(plazo);
+            let r = null;
+            try { r = JSON.parse(json); } catch { /* sin JSON: se cayó antes de acabar */ }
+            const texto = r?.result ?? (json || error);
+            out.write(`${texto}\n`);
+            if (r) {
+                const uso = Object.entries(r.modelUsage || {}).map(([m, u]) => ({
+                    modelo: m,
+                    entrada: (u.inputTokens || 0) + (u.cacheCreationInputTokens || 0) + (u.cacheReadInputTokens || 0),
+                    salida: u.outputTokens || 0,
+                    coste_usd: u.costUSD || 0,
+                }));
+                const fila = {
+                    fecha: new Date().toISOString(), etiqueta, modelo, segundos: Math.round((Date.now() - inicio) / 1000),
+                    turnos: r.num_turns, coste_usd: r.total_cost_usd, uso, ok: !r.is_error,
+                };
+                out.write(`\n=== CONSUMO ===\n${JSON.stringify(fila)}\n`);
+                try { fs.appendFileSync(CONSUMO, `${JSON.stringify(fila)}\n`); } catch { /* no impide nada */ }
+            }
+            out.end();
+            resolve({ code, texto, salida });
+        };
+        hijo.on('close', fin);
+        hijo.on('error', e => { error += e.message; fin(-1); });
         hijo.stdin.write(prompt);
         hijo.stdin.end();
     });
+}
+
+// «consumo»: lo que han gastado los trabajos de los últimos 7 días, sin lanzar a Claude.
+function textoConsumo() {
+    let filas = [];
+    try { filas = fs.readFileSync(CONSUMO, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)); } catch { /* aún nada */ }
+    const desde = Date.now() - 7 * 24 * 3600_000;
+    filas = filas.filter(f => Date.parse(f.fecha) >= desde);
+    if (!filas.length) return 'En los últimos 7 días no he hecho ningún trabajo con Claude.';
+    const porModelo = {};
+    for (const f of filas) {
+        for (const u of f.uso || []) {
+            const m = (porModelo[u.modelo] ||= { entrada: 0, salida: 0 });
+            m.entrada += u.entrada;
+            m.salida += u.salida;
+        }
+    }
+    const total = filas.reduce((a, f) => a + (f.coste_usd || 0), 0);
+    const minutos = filas.reduce((a, f) => a + (f.segundos || 0), 0) / 60;
+    return [
+        `*Consumo de los últimos 7 días*: ${filas.length} trabajos, ${mil(minutos)} min.`,
+        ...Object.entries(porModelo).map(([m, u]) => `• ${m}: ${mil(u.entrada)} tokens de entrada, ${mil(u.salida)} de salida`),
+        `Equivale a ${total.toFixed(2).replace('.', ',')} $ a precio de API. Con tu plan no se cobra aparte: cuenta para tus límites de uso.`,
+        `Por defecto uso ${MODELO}; escribe «con opus» o «con haiku» en tu mensaje para cambiarlo.`,
+    ].join('\n');
 }
 
 let trabajando = false;
@@ -126,34 +201,45 @@ async function vueltaUnica() {
     const etiqueta = new Date().toISOString().replace(/[:.]/g, '-');
     try {
         log(`${nuevos.length} mensaje(s) nuevo(s) de Fran.`);
+        // Se marcan como atendidos ANTES de trabajar: si Claude se cae, no se repite el trabajo en bucle.
+        estado.visto = ultimo;
+        estado.atendidos = [...estado.atendidos, ...nuevos.map(m => m.id)].slice(-200);
+        guardarEstado(estado);
+
+        // Órdenes que contesta el vigilante sin lanzar a Claude.
+        const soloTexto = nuevos.every(m => m.tipo === 'chat') ? nuevos.map(m => m.texto || '').join(' ').trim() : '';
+        if (/^(consumo|gasto|cu[aá]nto (has )?gastado)\??$/i.test(soloTexto)) {
+            await mandar(textoConsumo());
+            return;
+        }
+
         const carpeta = path.join(DIR, 'entrada', etiqueta);
         const lineas = [];
         for (const m of nuevos) {
             // eslint-disable-next-line no-await-in-loop
             lineas.push(`${hora(m.t)}  ${await prepararMensaje(m, carpeta)}`);
         }
-        // Se marcan como atendidos ANTES de trabajar: si Claude se cae, no se repite el trabajo en bucle.
-        estado.visto = ultimo;
-        estado.atendidos = [...estado.atendidos, ...nuevos.map(m => m.id)].slice(-200);
-        guardarEstado(estado);
-
+        const modelo = modeloPara(lineas.join(' '));
         await mandar('Recibido, me pongo con ello.').catch(e => log('No se pudo acusar recibo:', e.message));
+
         const contexto = mensajes.filter(m => !nuevos.includes(m)).slice(-20)
             .map(m => `${hora(m.t)}  ${m.de_mi ? 'CLAUDE/EMPRESA' : 'FRAN'}: ${(m.texto || `[${m.tipo}]`).slice(0, 600)}`).join('\n');
         let pendiente = '';
         try { pendiente = fs.readFileSync(path.join(DIR, 'pendiente.json'), 'utf8'); } catch { /* nada pendiente */ }
+        const peticiones = proactivo.paraElPrompt();
 
         const prompt = [
             fs.readFileSync(INSTRUCCIONES, 'utf8'),
             '\n## Lo último del chat (para contexto)\n', contexto || '(nada)',
             pendiente ? `\n## Oportunidad esperando respuesta de Fran (scratch/asistente/pendiente.json)\n${pendiente}` : '',
+            peticiones ? `\n## Peticiones de instaladores que le has propuesto y esperan su «sí» / «no»\n${peticiones}` : '',
             '\n## LO QUE FRAN TE ACABA DE ESCRIBIR\n', lineas.join('\n'),
             '\nHazlo y contéstale por WhatsApp con `asistente_whatsapp.js decir … --enviar`.',
         ].join('\n');
 
         const inicio = ahora();
-        const r = await lanzarClaude(prompt, etiqueta);
-        log(`Claude terminó (código ${r.code}). Registro: ${r.salida}`);
+        const r = await lanzarClaude(prompt, etiqueta, modelo);
+        log(`Claude (${modelo}) terminó (código ${r.code}). Registro: ${r.salida}`);
 
         // ¿Le ha contestado? Si no, el vigilante le manda el final de la salida.
         const despues = await api('/api/whatsapp/conversacion', { method: 'POST', body: { telefono: TEL, dias: 1 }, ms: 60_000 });
@@ -162,7 +248,7 @@ async function vueltaUnica() {
             const cola = String(r.texto || '').trim().slice(-1200);
             await mandar(r.code === 0 && cola
                 ? cola
-                : `⚠️ No he podido terminarlo (código ${r.code}).${cola ? `\n\n${cola.slice(-600)}` : ''}`);
+                : `No he podido terminarlo (código ${r.code}).${cola ? `\n\n${cola.slice(-600)}` : ''}`);
         }
     } finally {
         trabajando = false;
@@ -184,11 +270,20 @@ function servidor() {
             res.end(JSON.stringify({ ok: true, trabajando, estado: leerEstado() }));
             return;
         }
+        if (req.headers['x-internal-key'] !== process.env.INTERNAL_API_KEY) { res.writeHead(403); res.end(); return; }
         if (req.method === 'POST' && req.url === '/aviso') {
-            if (req.headers['x-internal-key'] !== process.env.INTERNAL_API_KEY) { res.writeHead(403); res.end(); return; }
             log('Aviso del backend: Fran ha escrito.');
             programar((SILENCIO_S + 2) * 1000);
             res.writeHead(202); res.end();
+            return;
+        }
+        if (req.method === 'POST' && req.url === '/entrante') {      // un mensaje de cualquier otro chat
+            let cuerpo = '';
+            req.on('data', d => { cuerpo += d; if (cuerpo.length > 4096) req.destroy(); });
+            req.on('end', () => {
+                try { proactivo.alEntrante(JSON.parse(cuerpo || '{}').chatId); } catch { /* cuerpo raro: se ignora */ }
+                res.writeHead(202); res.end();
+            });
             return;
         }
         res.writeHead(404); res.end();
@@ -198,11 +293,12 @@ function servidor() {
 (async () => {
     if (!TEL) { log('Falta ASISTENTE_WHATSAPP_TEL en el .env: el canal no arranca.'); return; }
     if (!cogerLock()) { log('Ya hay un vigilante corriendo.'); return; }
-    log(`Vigilando el chat de ${TEL} cada ${CADA_MS / 1000} s${SERVIDOR ? ' y con el aviso del backend' : ''}.`);
+    log(`Vigilando el chat de ${TEL} cada ${CADA_MS / 1000} s${SERVIDOR ? ' y con el aviso del backend' : ''} · modelo por defecto ${MODELO}.`);
     if (SERVIDOR) servidor();
     const una = process.argv.includes('--una');
     for (;;) {
         try { await vuelta(); } catch (e) { log('Vuelta fallida:', e.message); }
+        try { await proactivo.enviarEnCola(); } catch (e) { log('Cola proactiva:', e.message); }
         if (una) break;
         // eslint-disable-next-line no-await-in-loop
         await new Promise(r => setTimeout(r, CADA_MS));
