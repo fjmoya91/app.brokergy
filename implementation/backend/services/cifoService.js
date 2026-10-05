@@ -227,6 +227,7 @@ async function computeRes080Results(exp) {
     } else if (cee.cee_inicial && cee.cee_final) {
         res080 = calculateRes080({
             xmlInicial: cee.cee_inicial, xmlFinal: cee.cee_final,
+            xmlTextoInicial: cee.xml_inicial, xmlTextoFinal: cee.xml_final,
             combAcsInicial: cee.comb_acs_inicial, combAcsFinal: cee.comb_acs_final,
             combCalefaccionInicial: cee.comb_cal_inicial, combCalefaccionFinal: cee.comb_cal_final,
             combRefrigeracionInicial: cee.comb_ref_inicial, combRefrigeracionFinal: cee.comb_ref_final,

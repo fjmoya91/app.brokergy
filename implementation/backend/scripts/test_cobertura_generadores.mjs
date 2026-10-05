@@ -17,7 +17,7 @@ import path from 'path';
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const LOGIC = path.join(AQUI, '../../frontend/src/features/calculator/logic/');
 const { coberturaPorGenerador, leerGeneradoresDeTexto, vectorCanonico } = await import(pathToFileURL(LOGIC + 'coberturaGeneradores.js').href);
-const { calculateRes080SimplificadoFromXml } = await import(pathToFileURL(LOGIC + 'calculation.js').href);
+const { calculateRes080SimplificadoFromXml, calculateRes080 } = await import(pathToFileURL(LOGIC + 'calculation.js').href);
 
 let mal = 0;
 const bien = (ok, txt, extra) => { console.log(`  ${ok ? '✓' : '✗'} ${txt}${!ok && extra ? `  — ${extra}` : ''}`); if (!ok) mal++; };
@@ -94,6 +94,27 @@ console.log('\nD) El ahorro y la fila «otros combustibles» del cálculo por ve
     bien(/^Biomasa densificada \(pelets\) · 40 % calef\. \+ Gas Natural · 60 % calef\. \(sistema ficticio por defecto\)$/.test(r.details.otros.fuelIni), `«${r.details.otros.fuelIni}»`);
     const emi = r.cobertura.inicial.servicios.flatMap((s) => s.filas).filter((f) => f.vector !== 'Electricidad peninsular').reduce((a, f) => a + f.emisiones, 0);
     bien(cerca(emi, 34.16, 0.01), `las emisiones de pellets + gas (${emi.toFixed(2)}) son las «otros combustibles» del certificado (34,16)`);
+}
+
+console.log('\nE) «Por uso»: la calefacción mixta y el sistema ficticio se LEEN, no se reconstruyen');
+{
+    const ini = { superficieHabitable: 264, demandaCalefaccion: 186.94, demandaACS: 18.43, demandaRefrigeracion: 12.68,
+        emisionesACS: 6.10, emisionesCalefaccion: 34.16, emisionesRefrigeracion: 2.10, emisionesConsumoOtros: 34.16, energiaFinalVectores: VECTORES };
+    const fin = { superficieHabitable: 264, demandaCalefaccion: 154.23, demandaACS: 18.43, demandaRefrigeracion: 9.29,
+        emisionesACS: 6.10, emisionesCalefaccion: 11.00, emisionesRefrigeracion: 1.76, emisionesConsumoOtros: 0,
+        energiaFinalVectores: { b: vec('Electricidad peninsular', 'ElectricidadPeninsular', 33.68, 18.43, 4.65) } };
+    const args = { xmlInicial: ini, xmlFinal: fin, combAcsInicial: 'Electricidad peninsular', combAcsFinal: 'Electricidad peninsular',
+        combCalefaccionInicial: 'Biomasa densificada (pelets)', combCalefaccionFinal: 'Electricidad peninsular' };
+    const r = calculateRes080({ ...args, xmlTextoInicial: XML_V20.toUpperCase() });
+    bien(cerca(r.details.cal.energyIni, 312.68, 0.01), `calefacción inicial ${r.details.cal.energyIni.toFixed(2)} kWh/m² (190,76 + 121,92), no 1.897,78`);
+    bien(r.details.cal.fuelIni === 'Biomasa densificada (pelets) · 40 % + Gas Natural · 60 % (sistema ficticio por defecto)', `«${r.details.cal.fuelIni}»`);
+    bien(r.details.cal.fuelIniFijo === true && r.details.acs.fuelIniFijo === false, 'la calefacción mixta va fija; el ACS de un solo equipo se sigue eligiendo');
+    bien(r.details.ref.fuelIni === 'Electricidad peninsular · 100 % (sistema ficticio por defecto)', `refrigeración: «${r.details.ref.fuelIni}»`);
+    bien(cerca(r.ahorroEnergiaFinalTotal / 1000, 74.04, 0.02), `ahorro ${(r.ahorroEnergiaFinalTotal / 1000).toFixed(2)} MWh/año (antes 492,51)`);
+    bien(!!r.cobertura?.inicial && r.contraste?.declaradas?.otrosIni === 34.16, 'trae la cobertura y las emisiones declaradas para el cuadro');
+    // Sin mezcla ni sistema ficticio, lo de siempre: emisiones ÷ factor del combustible elegido.
+    const solo = calculateRes080({ ...args, xmlInicial: { ...ini, emisionesCalefaccion: 3.43, energiaFinalVectores: { b: VECTORES.b, c: VECTORES.c } }, xmlTextoInicial: XML_V20.toUpperCase() });
+    bien(!solo.details.cal.fuelIniFijo && cerca(solo.details.cal.energyIni, 3.43 / 0.018, 0.01), 'sin sistema ficticio en calefacción: emisiones ÷ factor, como antes');
 }
 
 console.log(`\n${mal ? `✗ ${mal} fallo(s)` : '✓ todo correcto'}`);

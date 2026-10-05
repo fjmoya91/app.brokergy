@@ -772,7 +772,8 @@ export function buildJustificacionAhorroPages({ results, pageHeader, sectionTitl
     // en la energía final del certificado: sin esta página el verificador ve un gas
     // natural en una vivienda sin caldera de gas (26RES080_78). Fuente: results.cobertura
     // (coberturaGeneradores.js), la misma que pinta el módulo CEE.
-    const cob = declarada ? results.cobertura : null;
+    // Por vector y por uso: los dos métodos leen la cobertura del mismo .xml.
+    const cob = results.cobertura || null;
     if (cob && (cob.inicial?.servicios?.length || cob.final?.servicios?.length)) {
         const pct = (p) => (p === null || p === undefined || !Number.isFinite(p) ? '—' : `${Math.round(p * 100)} %`);
         const decl = results.contraste?.declaradas || {};

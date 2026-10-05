@@ -847,6 +847,8 @@ export function ExpedienteDetailView({ expedienteId, onBack, onNavigate, onOpenE
                 res080 = calculateRes080({
                     xmlInicial: cee.cee_inicial,
                     xmlFinal: cee.cee_final,
+                    xmlTextoInicial: cee.xml_inicial,
+                    xmlTextoFinal: cee.xml_final,
                     combAcsInicial: cee.comb_acs_inicial,
                     combAcsFinal: cee.comb_acs_final,
                     combCalefaccionInicial: cee.comb_cal_inicial,

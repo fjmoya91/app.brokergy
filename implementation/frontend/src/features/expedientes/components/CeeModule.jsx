@@ -688,6 +688,8 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
             return calculateRes080({
                 xmlInicial: local.cee_inicial,
                 xmlFinal: local.cee_final,
+                xmlTextoInicial: local.xml_inicial,
+                xmlTextoFinal: local.xml_final,
                 combAcsInicial: local.comb_acs_inicial,
                 combAcsFinal: local.comb_acs_final,
                 combCalefaccionInicial: local.comb_cal_inicial,
@@ -1214,7 +1216,8 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                         superficieDraft={isManualSource ? supDraft : undefined}
                         onSuperficieChange={isManualSource ? handleSuperficieChange : undefined}
                     />
-                    {esSimplificado && esDeclarada && <CoberturaGeneradores res080={res080Data} />}
+                    {/* Por uso y por vector: qué cubre cada generador y el sistema ficticio por defecto */}
+                    {res080Data?.cobertura && <CoberturaGeneradores res080={res080Data} />}
                 </div>
             ) : (
                 <div className="p-20 text-center bg-white/[0.01] border border-dashed border-white/10 rounded-[3rem] max-md:p-8 max-md:rounded-2xl">

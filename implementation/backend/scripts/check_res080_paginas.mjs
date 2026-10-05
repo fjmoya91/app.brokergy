@@ -24,7 +24,7 @@ import { fileURLToPath } from 'url';
 import puppeteer from 'puppeteer';
 import { deriveRes080Data, buildRes080Html } from '../../frontend/src/features/expedientes/logic/res080Doc.js';
 import { ACLARACION_MAX } from '../../frontend/src/features/expedientes/logic/hitosActuacion.js';
-import { calculateRes080SimplificadoFromXml } from '../../frontend/src/features/calculator/logic/calculation.js';
+import { calculateRes080SimplificadoFromXml, calculateRes080 } from '../../frontend/src/features/calculator/logic/calculation.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '../../frontend/public');
@@ -226,6 +226,18 @@ const resultsCargado = simplificado(
 );
 casos.push(['Simplificado · E. final declarada · defecto CE3X (26RES080_78)', base(), { results: resultsOp78 }]);
 casos.push(['Simplificado · E. final declarada · 3 generadores + defecto', base(), { results: resultsCargado }]);
+// «Por uso» con la calefacción mixta: las celdas de combustible llevan cada vector con su %.
+const resultsPorUso = calculateRes080({
+    xmlInicial: { superficieHabitable: 180, demandaCalefaccion: 200, demandaACS: 25, demandaRefrigeracion: 15, emisionesACS: 7, emisionesCalefaccion: 40, emisionesRefrigeracion: 2.5, emisionesConsumoOtros: 40,
+        energiaFinalVectores: { a: vec('GAS NATURAL', 'GASNATURAL', 108.7, 0, 0), b: vec('Electricidad peninsular', 'ElectricidadPeninsular', 20, 12.5, 7.5, true), c: vec('BIOMASA DENSIFICADA (PELETS)', 'BIOMASAPELLET', 80, 0, 0), d: vec('GASOLEO C', 'GasoleoC', 50, 13.9, 0) },
+        generadores: [gen('cal', 'CALDERA DE GASÓLEO ROCA P-30 CON NOMBRE LARGO DE FÁBRICA', 'GasoleoC', 0.8), gen('cal', 'ESTUFA DE PELLETS DEL SALÓN', 'BiomasaPellet', 0.5), gen('cal', 'RADIADORES ELÉCTRICOS', 'ElectricidadPeninsular', 1),
+                      gen('acs', 'CALDERA DE GASÓLEO ROCA P-30 CON NOMBRE LARGO DE FÁBRICA', 'GasoleoC', 0.9), gen('acs', 'TERMO ELÉCTRICO', 'ElectricidadPeninsular', 1)] },
+    xmlFinal: { superficieHabitable: 180, demandaCalefaccion: 140, demandaACS: 25, demandaRefrigeracion: 15, emisionesACS: 2.6, emisionesCalefaccion: 11.6, emisionesRefrigeracion: 2.5, emisionesConsumoOtros: 0,
+        energiaFinalVectores: { b: vec('Electricidad peninsular', 'ElectricidadPeninsular', 35, 8, 7.5, true) },
+        generadores: [gen('cal', 'AEROTERMIA', 'ElectricidadPeninsular', 4), gen('acs', 'AEROTERMIA', 'ElectricidadPeninsular', 3.125)] },
+    combAcsInicial: 'Gasoleo Calefacción', combAcsFinal: 'Electricidad peninsular', combCalefaccionInicial: 'Gasoleo Calefacción', combCalefaccionFinal: 'Electricidad peninsular',
+});
+casos.push(['Por uso · calefacción mixta + defecto CE3X', base(), { results: resultsPorUso }]);
 
 const browser = await puppeteer.launch({ headless: 'new' });
 const page = await browser.newPage();

@@ -89,7 +89,7 @@ export function EfficiencyTable({ res080, editable = false, onFuelChange = null,
         }).format(num);
     };
 
-    const FuelSelector = ({ value, type, isFinal, options, fixed, aplica }) => {
+    const FuelSelector = ({ value, type, isFinal, options, fixed, aplica, fijo }) => {
         // Vector fijo (p.ej. "Electricidad peninsular" en el método simplificado): no
         // hay nada que elegir, se pinta como texto igual que en modo no-editable.
         if (fixed) return <span>{fixed}</span>;
@@ -104,7 +104,9 @@ export function EfficiencyTable({ res080, editable = false, onFuelChange = null,
         // vector viene por separado y en kWh (`value` puede ser varios: "PELLETS + GAS
         // NATURAL"). Un <select> ahí enseñaba "Gasoleo Calefacción" —la primera opción,
         // porque el valor no está en la lista— y lo que se eligiera no movía nada.
-        if (declarada) return <span className="block text-[11px] leading-snug break-words whitespace-normal">{value}</span>;
+        // Igual en «Por uso» cuando el servicio tiene varios vectores o el sistema
+        // ficticio por defecto (`fijo`): el rótulo lleva cada vector con su %.
+        if (declarada || fijo) return <span className="block text-[11px] leading-snug break-words whitespace-normal">{value}</span>;
         if (!editable || !onFuelChange) return <span>{value}</span>;
         return (
             <select
@@ -151,16 +153,16 @@ export function EfficiencyTable({ res080, editable = false, onFuelChange = null,
         );
     };
 
-    const Row = ({ label, inicial, final, isTitle = false, type = null, options = null, fixed = null, iniAplica = undefined, finAplica = undefined }) => (
+    const Row = ({ label, inicial, final, isTitle = false, type = null, options = null, fixed = null, iniAplica = undefined, finAplica = undefined, iniFijo = false, finFijo = false }) => (
         <tr className={`${isTitle ? 'bg-lime-400 font-bold' : 'border-b border-slate-200'}`}>
             <td className={`py-2 px-3 text-sm ${isTitle ? 'text-slate-900 font-black' : 'text-slate-600'}`}>
                 {label}
             </td>
             <td className={`py-2 px-3 text-sm text-center font-mono ${isTitle ? 'text-slate-900 bg-amber-500/10' : 'text-slate-800'}`}>
-                {isTitle && (type || fixed) ? FuelSelector({ value: inicial, type, isFinal: false, options, fixed, aplica: iniAplica }) : inicial}
+                {isTitle && (type || fixed) ? FuelSelector({ value: inicial, type, isFinal: false, options, fixed, aplica: iniAplica, fijo: iniFijo }) : inicial}
             </td>
             <td className={`py-2 px-3 text-sm text-center font-mono ${isTitle ? 'text-slate-900 bg-amber-500/10' : 'text-slate-800'}`}>
-                {isTitle && (type || fixed) ? FuelSelector({ value: final, type, isFinal: true, options, fixed, aplica: finAplica }) : final}
+                {isTitle && (type || fixed) ? FuelSelector({ value: final, type, isFinal: true, options, fixed, aplica: finAplica, fijo: finFijo }) : final}
             </td>
         </tr>
     );
@@ -181,6 +183,8 @@ export function EfficiencyTable({ res080, editable = false, onFuelChange = null,
                 fixed: cat.fixed,
                 iniAplica: data.fuelIniAplica,
                 finAplica: data.fuelFinAplica,
+                iniFijo: !!data.fuelIniFijo,
+                finFijo: !!data.fuelFinFijo,
             })}
             {Row({
                 label: "Factor de paso de la fuente de energía seleccionada",
