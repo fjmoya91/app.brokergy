@@ -18,6 +18,9 @@ services:
       - PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
       - RITE_SERVICE_URL=http://rite-generator:8080
       - CEE_ENGINE_URL=http://cee-engine:8080
+      # Timbre del canal de trabajo con Fran: avisa al contenedor «asistente» cuando él escribe.
+      # Su número va en el .env (ASISTENTE_WHATSAPP_TEL), nunca aquí: el repo es público.
+      - ASISTENTE_URL=http://asistente:8091
     volumes:
       - whatsapp_auth:/app/.wwebjs_auth
       - whatsapp_cache:/app/.wwebjs_cache
@@ -60,6 +63,31 @@ services:
     networks:
       - brokergy
 
+  # El asistente de Fran por WhatsApp: Claude Code sin pantalla que trabaja con los scripts de
+  # la app (implementation/asistente/). Se construye SOBRE la imagen del backend, así que hay
+  # que construir antes el backend. El repo va MONTADO: un `git pull` le cambia los scripts y
+  # las instrucciones sin reconstruir. No publica puertos: solo le habla el backend.
+  asistente:
+    build: ./implementation/asistente
+    container_name: brokergy-asistente
+    restart: unless-stopped
+    env_file: ./implementation/backend/.env
+    environment:
+      - NODE_ENV=production
+      - BROKERGY_API_URL=http://backend:3000
+      - PUPPETEER_EXECUTABLE_PATH=/usr/local/bin/chrome-nosandbox
+      # Claude Code se niega a saltarse los permisos como root salvo en un contenedor declarado.
+      - IS_SANDBOX=1
+      - CLAUDE_CONFIG_DIR=/root/.claude
+      - ASISTENTE_PUERTO=8091
+    volumes:
+      - ./:/repo
+      - asistente_claude:/root/.claude
+    depends_on:
+      - backend
+    networks:
+      - brokergy
+
   nginx:
     image: nginx:alpine
     container_name: brokergy-nginx
@@ -81,6 +109,7 @@ services:
       - brokergy
 
 volumes:
+  asistente_claude:
   cee_cache:
   whatsapp_auth:
   whatsapp_cache:

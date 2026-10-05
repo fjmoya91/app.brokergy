@@ -141,6 +141,12 @@ try {
     } catch (e) {
         console.warn('[server] Bot de WhatsApp no disponible:', e.message);
     }
+    // El timbre del canal de trabajo con Fran: avisa al contenedor «asistente» cuando él escribe.
+    try {
+        require('./services/asistenteCanal').start();
+    } catch (e) {
+        console.warn('[server] Canal del asistente no disponible:', e.message);
+    }
 } catch (err) {
     console.warn('[server] WhatsApp no disponible o error al cargar: ', err.message);
 }

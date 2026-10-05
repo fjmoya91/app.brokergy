@@ -186,6 +186,28 @@ entrada» la V1), el cuarto de caldera, el baño con el termo y el vídeo de la 
 - El **nombre nuevo del chat** de WhatsApp y el **título de la sesión**, o por qué no se ha tocado.
 - Que la **propuesta (PDF) se revisa y se envía desde la app** — la skill no envía nada.
 
+## Después del alta: preguntarle a Fran por WhatsApp (costumbre desde 2026-10-05)
+
+Claude trabaja como un compañero más: con la oportunidad hecha, **antes de enviar nada** le escribe a
+Fran desde el WhatsApp de la EMPRESA a su móvil PERSONAL (el chat con la etiqueta **MOIA**, que ya no
+lleva el bot de clientes) con el resumen y la pregunta «¿se la envío así o la quieres revisar tú?».
+
+1. `node scripts/asistente_whatsapp.js avisar <OP> --a partner` en seco (`--a cliente` si el chat es
+   del propio cliente; `--nota "…"` para algo que deba saber) → luego `--enviar`.
+2. `node scripts/asistente_whatsapp.js leer --esperar 20` lee lo que contesta (transcribe sus notas de
+   voz). Si no contesta en la sesión, se queda pendiente y se mira después con `leer`.
+3. Según lo que diga:
+   - **«Envíala»** → `node scripts/claude_propuesta.js enviar <OP> --a partner` en seco, revisar, y
+     `--enviar`. Después `asistente_whatsapp.js decir "✓ Enviada a …" --enviar`.
+   - **«La reviso yo»** → no se envía nada; se le confirma («Vale, te la dejo en PTE ENVIAR»).
+   - **Un cambio** («ponle la Haier de 16», «presupuesto 9.000») → se corrige, se vuelve a avisar.
+   - Dudoso → se le pregunta, nunca se supone un «sí».
+
+El canal está **siempre abierto**: en el VPS, el contenedor `asistente` (implementation/asistente/)
+recibe el aviso del backend cuando Fran escribe a la empresa y lanza a Claude con
+`implementation/backend/scripts/asistente_instrucciones.md`. Así Fran puede pedir desde el móvil
+«prepara la propuesta de Antonio Foncamán» sin que haya nadie delante del PC.
+
 ## Cómo se invoca
 
 - Escribiendo `/alta-oportunidad` seguido de lo que hay que hacer:
