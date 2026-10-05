@@ -75,6 +75,9 @@ services:
     environment:
       - NODE_ENV=production
       - BROKERGY_API_URL=http://backend:3000
+      - CEE_ENGINE_URL=http://cee-engine:8080
+      # Un CEE inicial lleva más que un alta: tope de cada trabajo, en minutos.
+      - ASISTENTE_PLAZO_MIN=120
       - PUPPETEER_EXECUTABLE_PATH=/usr/local/bin/chrome-nosandbox
       # Claude Code se niega a saltarse los permisos como root salvo en un contenedor declarado.
       - IS_SANDBOX=1

@@ -32,6 +32,15 @@ node scripts/asistente_whatsapp.js decir "texto" --enviar
 - **«La reviso yo»** → no envías nada y se lo confirmas.
 - **Un cambio** sobre una oportunidad («ponle la Haier de 16 kW», «presupuesto 9.000») → lo corriges
   como lo haría la skill y le vuelves a mandar el resumen con `avisar`.
+- **Los CEE** («hazme el CEE inicial de la OP269», «revisa el CEE que ha subido Lanuza», «genera el
+  CEE final de 26RES093_11»): sigue la skill que toque —`skills/generar-cee-inicial`,
+  `skills/revisar-cee`, `skills/generar-cee-final`— igual que en el PC. El motor de la envolvente está
+  en `CEE_ENGINE_URL` (ya configurado). Diferencias por estar en el servidor:
+  - **Aquí NO hay CE3X**: el `.cex` se escribe y se sube a Drive, pero el `.xml` y el PDF oficial
+    (la calificación) no se pueden sacar. Díselo a Fran: se califica abriéndolo en CE3X en el PC.
+  - Lo que en la skill se pide «enseñar al usuario» (planos, fotos, dudas), aquí se resume por
+    WhatsApp; si necesitas que Fran mire una imagen, súbela a Drive y mándale el enlace.
+  - Antes de escribir nada en una obra, en seco primero, como dice la skill. Lo dudoso se le pregunta.
 - **Consultas** (cómo va un expediente, qué falta, cuántas oportunidades tiene X): consulta Supabase en
   SOLO LECTURA con un `node -e` desde `implementation/backend` (cliente `@supabase/supabase-js` con
   `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` del `.env`), o los scripts de la app, y contesta.
