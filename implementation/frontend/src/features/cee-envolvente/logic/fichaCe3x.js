@@ -1916,14 +1916,19 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
     // alimentan), la medida es el edificio con TODO lo que se instala: el
     // generador, el equipo de ACS si va aparte y la generación eléctrica. Son los
     // MISMOS equipos de las dos medidas de arriba —no se recomponen—, así que no
-    // pueden decir otra cosa que ellas. No sale marcada sola: se pide.
+    // pueden decir otra cosa que ellas. Sale marcada sola —en lugar de la de
+    // aerotermia— cuando el trabajo declara lo que cuestan las placas: eso es
+    // que la obra las trae, y la elección de la pestaña no se guarda, así que
+    // regenerar desde la ventana no puede dejarlas fuera.
     const ambas = aero.datos && auto.datos;
     const invFv = Number(autoconsumoInversion) > 0 ? Math.round(Number(autoconsumoInversion)) : 0;
+    const conPlacas = !!(ambas && invFv && !esFinal);
+    if (conPlacas) aero.porDefecto = false;
     catalogo.push({
         id: 'aerotermia_fv',
         titulo: `${aero.titulo} + autoconsumo fotovoltaico`,
         resumen: ambas ? `${aero.resumen} · ${auto.resumen}` : null,
-        porDefecto: false,
+        porDefecto: conPlacas,
         disponible: !!ambas,
         motivo: ambas ? null
             : (!aero.datos ? aero.motivo : auto.motivo) || 'Faltan la aerotermia o el autoconsumo.',
