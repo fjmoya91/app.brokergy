@@ -298,6 +298,13 @@ async function pedirGeometria(expedienteId, origen, body = {}) {
         croquis_ajustar: body?.croquis_ajustar !== false,
         // Para la PROPUESTA de croquis (el motor la calcula y la ofrece).
         pistas_croquis: pistasCroquis,
+        // El CROQUIS CATASTRAL POR PLANTAS de la Sede del Catastro: con él la
+        // propuesta deja de ser una conjetura (son los recintos de Catastro,
+        // con su uso) y cada cuerpo sabe qué tiene dentro, planta a planta.
+        // Son otras 3 peticiones a la Sede —www1.sedecatastro.gob.es, no el
+        // `ovc` del buscador— y el motor las cachea 30 días por parcela (y un
+        // fallo, 6 h). `CEE_SEDE_CATASTRO=false` lo apaga.
+        sede_catastro: process.env.CEE_SEDE_CATASTRO !== 'false',
         // El PROGRAMA de CE3X (residencial / pequeño / gran terciario). De
         // él cuelga QUÉ SE MIDE: en un terciario cuentan también los usos
         // del terciario que Catastro no da por habitables (un hotel es

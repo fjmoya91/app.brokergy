@@ -9,7 +9,8 @@
 //   node scripts/cee_inicial.js estado   <clave>
 //   node scripts/cee_inicial.js placas   <clave>
 //   node scripts/cee_inicial.js fotos    <clave> [--out DIR]
-//   node scripts/cee_inicial.js paredes  <clave> [--out DIR]
+//   node scripts/cee_inicial.js paredes  <clave> [--out DIR] [--sin-sede]
+//   node scripts/cee_inicial.js catastro <clave> [--out DIR] [--escribir] [--refrescar-catastro]
 //   node scripts/cee_inicial.js leer-pared <clave> --pared FBE1 --fotos id1,id2
 //   node scripts/cee_inicial.js eprel    <codigo del modelo> [--out DIR]
 //   node scripts/cee_inicial.js alta-aerotermia --json datos.json
@@ -18,6 +19,14 @@
 //
 // Con --escribir, al terminar avisa como el AGENTE IA (services/agenteIa.js):
 // fase «pendiente de revisión» y WhatsApp + email al equipo. --sin-aviso lo calla.
+//
+// DOCUMENTOS DEL CATASTRO (`paredes` y `catastro`): de la Sede del Catastro se
+// bajan el CROQUIS CATASTRAL POR PLANTAS (PDF), su FXCC (DXF + ASC: cada local
+// de cada planta DIBUJADO con su uso), los KML 3D y el FXCC con colindantes
+// (`cee-engine/src/catastro/sede.py`). El motor usa el FXCC para proponer las
+// zonas que no son vivienda con sus polígonos EXACTOS (garaje, almacén,
+// porche, comercio) en vez de conjeturarlas; con --escribir, `aplicar` y
+// `catastro` los dejan en `1. CEE / CEE INICIAL / CATASTRO`. --sin-sede lo salta.
 //
 // <clave> = el nº de la oportunidad (26RES060_OP246), el del expediente
 // (26RES060_186) o el de un CEE directo (2026CEE_55); el origen se deduce del
@@ -134,6 +143,9 @@ async function geometria(ctx, { cuerpos = null, zonas = null, recorte = null,
         referencia_catastral: rc, construcciones,
         cuerpos_excluidos: cuerpos, zonas_fuera: zonas, recorte_vivienda: recorte,
         pistas_croquis: pistas,
+        // El CROQUIS CATASTRAL POR PLANTAS de la Sede: dice DÓNDE está cada uso
+        // de cada planta. Cacheado 30 días en el motor; --sin-sede lo salta.
+        sede_catastro: !RESTO.includes('--sin-sede'),
         // El CROQUIS (ver `gis/croquis.py`): el motor lo ajusta a los m² de
         // Catastro y devuelve los polígonos en `croquis_ajustado`.
         ...(croquis?.length ? { croquis, croquis_ajustar: ajustar } : {}),
@@ -144,6 +156,102 @@ async function geometria(ctx, { cuerpos = null, zonas = null, recorte = null,
     fs.writeFileSync(path.join(CACHE, `${ctx.expediente.numero_expediente}.geo.json`),
                      JSON.stringify(d));
     return d;
+}
+
+/** Cómo se llama en disco cada documento de la Sede (en `<out>/catastro/`). */
+const FICHEROS_CATASTRO = {
+    croquis_pdf: 'croquis_por_plantas.pdf',
+    fxcc_plantas: 'fxcc_por_plantas.zip',
+    kml_plantas: 'plantas_3d.kml',
+    kml_3d: 'parcela_3d.kml',
+    fxcc_colindantes: 'fxcc_con_colindantes.zip',
+};
+
+/**
+ * Los documentos de la Sede del Catastro de la parcela, por el motor
+ * (`/catastro/documentos`, cacheados allí 30 días). Con `out`, se dejan en
+ * `<out>/catastro/` para MIRARLOS: el PDF es el croquis de cada planta con sus
+ * locales rotulados. Nunca lanza: sin Sede se dice y se sigue.
+ */
+async function documentosCatastro(ctx, out = null) {
+    const rc = rcDe(ctx);
+    if (!rc) return null;
+    let d;
+    try {
+        const r = await alMotor('/catastro/documentos', {
+            referencia_catastral: rc,
+            ...(RESTO.includes('--refrescar-catastro') ? { refresh: true } : {}),
+        }, 180_000);
+        d = await r.json();
+        if (!r.ok) throw new Error(d?.detail || `el motor respondió ${r.status}`);
+    } catch (e) {
+        console.log(`\n(sin documentos de la Sede del Catastro: ${e.message})`);
+        return null;
+    }
+    const ficheros = {};
+    for (const [k, f] of Object.entries(d.ficheros || {})) {
+        ficheros[k] = { ...f, datos: Buffer.from(f.datos_b64 || '', 'base64') };
+        delete ficheros[k].datos_b64;
+    }
+    let dir = null;
+    if (out) {
+        dir = path.join(out, 'catastro');
+        fs.mkdirSync(dir, { recursive: true });
+        for (const [k, f] of Object.entries(ficheros)) {
+            f.local = path.join(dir, FICHEROS_CATASTRO[k] || f.nombre);
+            fs.writeFileSync(f.local, f.datos);
+        }
+    }
+    return { ...d, ficheros, dir };
+}
+
+/** Lo que dice el croquis catastral, planta a planta, y dónde están sus ficheros. */
+function imprimirCatastro(doc, fxGeo = null) {
+    if (!doc && !fxGeo) return;
+    const fx = fxGeo || doc?.fxcc;
+    if (doc) {
+        console.log('\nDOCUMENTOS DEL CATASTRO (Sede Electrónica)');
+        for (const [k, f] of Object.entries(doc.ficheros || {})) {
+            console.log(`  ✓ ${String(f.titulo || k).padEnd(62)} ${kb(f.bytes)}`
+                + `${f.de_cache ? ' (caché)' : ''}${f.local ? `\n      ${f.local}` : ''}`);
+        }
+        for (const [k, v] of Object.entries(doc.fallos || {})) console.log(`  · ${k}: ${v}`);
+    }
+    if (fx?.plantas?.length) {
+        console.log(`\nCROQUIS CATASTRAL POR PLANTAS (de ${fx.fecha || 'fecha desconocida'})`
+            + `${fx.alineado === false ? ' — ⚠ NO cae sobre la parcela: no se usa' : ''}`
+            + `${fx.srs_origen ? ` · reproyectado desde ${fx.srs_origen}` : ''}`);
+        for (const p of fx.plantas) {
+            console.log(`  ${p.nombre || p.capa} (nivel ${p.niveles.join(',')})`
+                + `${p.nivel_deducido ? ' ⚠ nivel deducido por su orden' : ''}`);
+            for (const r of p.recintos || []) {
+                console.log(`    ${String(r.codigo).padEnd(10)} ${String(r.literal || '').padEnd(20)}`
+                    + ` ${fmt(r.superficie)} m² (dibujado ${fmt(r.area)})`);
+            }
+        }
+        for (const a of fx.avisos || []) console.log(`  ⚠ ${a}`);
+    }
+    const pdf = doc?.ficheros?.croquis_pdf?.local;
+    if (pdf) {
+        console.log(`\n→ MIRA el croquis por plantas antes de decidir las zonas: ${pdf}`);
+    }
+}
+
+// ─── catastro ───────────────────────────────────────────────────────────────
+
+async function catastro() {
+    await saludMotor();
+    const ctx = await cargar(POS[0]);
+    const out = opt('out') && opt('out') !== true ? opt('out')
+        : path.join(CACHE, ctx.expediente.numero_expediente);
+    const doc = await documentosCatastro(ctx, out);
+    imprimirCatastro(doc);
+    if (!doc) return;
+    if (!ESCRIBIR) { console.log('\nEN SECO: no se ha subido a Drive. Pásale --escribir.'); return; }
+    const g = await cex.guardarDocsCatastro(ctx, doc.ficheros, 'inicial');
+    if (!g.ok) throw new Error(`Los documentos del Catastro no han llegado a Drive: ${g.error}`);
+    console.log(`\n✓ En Drive: ${g.carpeta_link}`);
+    for (const s of g.subidos) console.log(`  ${s.sin_cambios ? '=' : '✓'} ${s.nombre}`);
 }
 
 function geoCacheada(ctx) {
@@ -424,11 +532,18 @@ async function paredes() {
     // ajustado a los m² de Catastro. Es un PUNTO DE PARTIDA: se contrasta con
     // las fotos y la cartografía, y si vale se copia al `croquis` del plan
     // (con `poligono`, en EPSG:25830).
+    // Con el CROQUIS CATASTRAL POR PLANTAS (`origen: 'fxcc'`) la propuesta no
+    // es una conjetura: son los recintos que dibuja Catastro. Esos polígonos van
+    // a `zonas_fuera` TAL CUAL (ya son los m² de Catastro); los de la conjetura
+    // geométrica, a `croquis`, que los ajusta.
     for (const pr of geo.croquis_propuesto || []) {
-        console.log(`\nPROPUESTA DE CROQUIS · nivel ${pr.nivel} (compruébala antes de usarla)`);
+        const exacta = pr.origen === 'fxcc';
+        console.log(`\nPROPUESTA · nivel ${pr.nivel} · `
+            + (exacta ? 'DEL CROQUIS CATASTRAL (exacta: va a `zonas_fuera` tal cual)'
+                      : 'conjetura geométrica (compruébala; va a `croquis`)'));
         for (const t of pr.trazos || []) {
             console.log(`  ${String(t.uso).padEnd(22)} ${fmt(t.area_m2)} m² (Catastro ${fmt(t.catastro_m2)})`
-                + ` · lado ${t.lado} · confianza ${t.confianza}\n    ${t.por_que}`);
+                + `${exacta ? '' : ` · lado ${t.lado}`} · confianza ${t.confianza}\n    ${t.por_que}`);
             console.log(`    { "nivel": ${pr.nivel}, "uso": "${t.uso}", "poligono": ${JSON.stringify(t.poligono)} }`);
         }
         for (const a of pr.avisos || []) console.log(`  ⚠ ${a}`);
@@ -454,7 +569,20 @@ CONTORNO de ${c.id} en EPSG:25830 (para las zonas del plan):`);
         const noViv = (c.usos_nivel || []).filter(u => !u.habitable);
         console.log(`\nCUERPO ${c.id}: ${fmt(c.superficie)} m² de huella · niveles ${JSON.stringify(c.niveles)}`
             + `${c.fuera ? ' · FUERA' : ''}`);
-        if (noViv.length && (c.usos_nivel || []).some(u => u.habitable)) {
+        const k = c.construccion || {};
+        if (k.por_croquis) {
+            // El croquis catastral dice qué hay DENTRO de este cuerpo, planta a planta.
+            for (const d of k.detalle || []) {
+                console.log(`  nivel ${d.nivel}: ${d.codigo} ${d.literal} ${fmt(d.superficie)} m²`
+                    + ` ${d.cuenta ? '(cuenta)' : '(NO cuenta)'}`);
+            }
+            for (const n of k.niveles_de_otra_parcela || []) {
+                console.log(`  nivel ${n}: nada de esta parcela (es de un vecino: casa «maclada»)`);
+            }
+            if (c.habitable === false) {
+                console.log(`  → sobra en los niveles ${JSON.stringify(c.niveles_fuera)}: va a \`cuerpos_fuera\`.`);
+            }
+        } else if (noViv.length && (c.usos_nivel || []).some(u => u.habitable)) {
             console.log(`  ⚠ mezcla vivienda con ${noViv.map(u => `${u.uso} ${u.superficie} m² (nivel ${u.nivel})`)
                 .join(', ')}: Catastro no dibuja dónde está cada uso. Se mide la planta ENTERA;`
                 + ' el garaje/porche se delimita en la ventana con «✂ Quitar una zona».');
@@ -470,6 +598,11 @@ CONTORNO de ${c.id} en EPSG:25830 (para las zonas del plan):`);
     const out = opt('out') && opt('out') !== true ? opt('out')
         : path.join(CACHE, ctx.expediente.numero_expediente);
     fs.mkdirSync(out, { recursive: true });
+    // Los documentos de la Sede del Catastro, para MIRARLOS (el PDF del croquis
+    // por plantas) y para el certificador. El FXCC ya lo ha usado el motor.
+    if (!RESTO.includes('--sin-sede')) {
+        imprimirCatastro(await documentosCatastro(ctx, out), geo.catastro_fxcc);
+    }
     let fT = null;
     if (t) { fT = path.join(out, 'trabajo.json'); fs.writeFileSync(fT, JSON.stringify(t)); }
     await dibujarPlanos(ctx, geo, out, 'plano', fT);
@@ -905,6 +1038,19 @@ async function aplicar() {
         if (!gd.ok) throw new Error(`El .cex no ha llegado a Drive: ${gd.error}`);
         console.log(`✓ ${gd.nombre} → ${gd.carpeta}\n  ${gd.link}\n  carpeta: ${gd.carpeta_link}`);
         if (gd.archivado) console.log(`  (el anterior se ha archivado en OLD como «${gd.archivado}»)`);
+        // Los documentos de la Sede del Catastro, en `CEE INICIAL / CATASTRO`:
+        // el certificador los tiene al lado del borrador. Un fallo no para nada.
+        if (!RESTO.includes('--sin-sede')) {
+            const doc = await documentosCatastro(ctx);
+            if (doc && Object.keys(doc.ficheros || {}).length) {
+                const gc = await cex.guardarDocsCatastro(ctx, doc.ficheros, 'inicial');
+                if (gc.ok) {
+                    console.log(`✓ Documentos del Catastro → CATASTRO (${gc.subidos.length})\n  ${gc.carpeta_link}`);
+                } else {
+                    avisos.push(`Los documentos del Catastro no han llegado a Drive: ${gc.error}`);
+                }
+            }
+        }
         // El AGENTE IA termina: la fase queda «pendiente de revisión» y se avisa
         // al equipo, como cuando un técnico sube su .cex. Va AQUÍ y no en la skill
         // para que no se pueda olvidar; `--sin-aviso` lo calla al relanzar.
@@ -953,7 +1099,7 @@ async function anotar(oportunidadId, texto) {
 
 // ─── main ───────────────────────────────────────────────────────────────────
 
-const ORDENES = { estado, placas, fotos, paredes, 'leer-pared': leerPared, eprel,
+const ORDENES = { estado, placas, fotos, paredes, catastro, 'leer-pared': leerPared, eprel,
                   'alta-aerotermia': altaAerotermia, aplicar };
 
 (async () => {

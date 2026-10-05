@@ -8,7 +8,7 @@ import { usePlanoEnvolvente, nombreDe } from '../logic/usePlanoEnvolvente';
 import { lienzoAMundo, areaPoligono, simplificarTrazo } from '../logic/geometriaPlano';
 import { husoDe } from '../logic/ortofoto';
 import { CampoDecimal } from '../../../components/CampoDecimal';
-import { dondeSobra, dondeSigue } from '../logic/cuerposEnvolvente';
+import { dondeSobra, dondeSigue, nombreDeNivel } from '../logic/cuerposEnvolvente';
 import { claveExtras, claveInstalacion, equipoNuevo, esTerciarioCe3x, etiquetaTipoCe3x,
          tipoCe3xDe, versionCe3xDe, etiquetaVersionCe3x } from '../logic/fichaCe3x';
 import { TipoEdificioModal } from '../components/TipoEdificioModal';
@@ -2263,6 +2263,8 @@ const fmtMed = n => (Number(n) || 0).toFixed(2).replace('.', ',');
  * Y las dos van POR PLANTA: un garaje con vivienda encima es UN cuerpo de dos
  * plantas, sale de la baja y arriba sigue siendo la casa.
  */
+const mayus = s => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
 function CuerpoModal({ cuerpo, onCerrar, onQuitar, onDevolver, onApartarParedes, ocupado }) {
     const c = cuerpo.construccion;
     return (
@@ -2281,7 +2283,33 @@ function CuerpoModal({ cuerpo, onCerrar, onQuitar, onDevolver, onApartarParedes,
                 </h3>
 
                 <p className="mt-2 text-[12px] leading-relaxed text-white/60">
-                    {c ? (
+                    {c?.por_croquis ? (
+                        // Con el CROQUIS CATASTRAL POR PLANTAS no hay conjetura:
+                        // Catastro dibuja qué hay dentro de este cuerpo en cada
+                        // planta, y con eso sale en cuáles sobra.
+                        <>
+                            El croquis catastral por plantas
+                            {c.fecha_croquis ? <> ({c.fecha_croquis})</> : null} dibuja dentro
+                            de este cuerpo:
+                            <span className="mt-1 block">
+                                {(c.detalle || []).map((d, i) => (
+                                    <span key={i} className="block">
+                                        {mayus(nombreDeNivel(d.nivel))}: <b className="text-white/85">{d.literal}</b>{' '}
+                                        {d.codigo} · {fmtM2(d.superficie)}{' '}
+                                        {d.cuenta
+                                            ? <span className="text-emerald-300">· cuenta</span>
+                                            : <span className="text-amber-300">· no es vivienda</span>}
+                                    </span>
+                                ))}
+                                {(c.niveles_de_otra_parcela || []).map(n => (
+                                    <span key={`o${n}`} className="block">
+                                        {mayus(nombreDeNivel(n))}: <b className="text-amber-300">es de otra parcela</b>{' '}
+                                        (el vecino tiene ahí su casa)
+                                    </span>
+                                ))}
+                            </span>
+                        </>
+                    ) : c ? (
                         <>
                             Catastro declara aqui <b className="text-white/85">{c.uso}</b> de{' '}
                             {fmtM2(c.superficie)}

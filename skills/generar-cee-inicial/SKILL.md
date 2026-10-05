@@ -36,7 +36,8 @@ Todo pasa por `implementation/backend/scripts/cee_inicial.js` (desde `implementa
 | `estado <clave>` | Lo que hay: RC, zona, caldera, ACS, aerotermia, construcciones, trabajo y `.cex` | nada |
 | `placas <clave>` | Lee la placa de la caldera y la de la aerotermia y la casa con el catálogo | nada |
 | `fotos <clave> [--out DIR]` | Baja todas las imágenes de «12. DOCUMENTOS PARA CEE» con su id de Drive | nada |
-| `paredes <clave> [--out DIR]` | Mide el edificio, lista paredes/construcciones y dibuja `plano.png` (cartografía), `plano_satelite.png` (paredes sobre la foto aérea) y `satelite.png` (la foto aérea sola, con la fecha del vuelo) | nada |
+| `paredes <clave> [--out DIR]` | Mide el edificio (con el **croquis catastral por plantas**), lista paredes/construcciones/cuerpos, dibuja `plano.png` (cartografía), `plano_satelite.png` (paredes sobre la foto aérea) y `satelite.png` (la foto aérea sola, con la fecha del vuelo), y **baja los documentos del Catastro** a `<out>/catastro/` | nada |
+| `catastro <clave> [--out DIR] [--refrescar-catastro]` | Solo los **documentos de la Sede del Catastro**: croquis por plantas (PDF), FXCC por plantas (DXF+ASC), KML 3D por plantas y de la parcela, FXCC con colindantes | con `--escribir` (los sube a `1. CEE / CEE INICIAL / CATASTRO`; `aplicar --escribir` ya lo hace solo) |
 | `leer-pared <clave> --pared ID --fotos id1,id2` | Inventaria los huecos de una fachada desde su foto (escala por la puerta) | nada |
 | `eprel <modelo>` | Busca el modelo en EPREL y baja su ficha (ES) y su etiqueta | nada |
 | `alta-aerotermia --json d.json [--ficha ft.pdf:1,3-4] [--eprel-fiche f.pdf] [--eprel-label l.pdf]` | Da de alta el equipo en el catálogo y guarda la ficha unida en Drive | con `--escribir` |
@@ -92,6 +93,16 @@ nada**: siempre primero en seco.
 4. **`fotos`** y **`paredes`**. Mira `plano.png` (norte arriba) junto a las fotos de fachada y patios
    y decide **qué foto es de qué pared**: la calle, el patio, la medianera. Cada planta es una pared
    distinta (`FBE1` planta baja, `F1E1` primera).
+   - **ABRE EL CROQUIS CATASTRAL POR PLANTAS** (`<out>/catastro/croquis_por_plantas.pdf`, con Read):
+     es el croquis oficial de Catastro, planta a planta, con **cada local dibujado y rotulado** con su
+     código y sus m² (`V` vivienda, `AAL` almacén, `AAP` aparcamiento, `C` comercio, `YPO` porche, `TZA`
+     terraza, `PTO` patio…). `paredes` lo baja de la Sede junto con su **FXCC** (el mismo croquis en
+     DXF+ASC), que el motor YA ha usado: dice qué hay DENTRO de cada cuerpo planta a planta (bloque
+     CUERPO) y propone las zonas con sus polígonos EXACTOS. Mira su **fecha** (la imprime `paredes`):
+     si las fotos enseñan una obra posterior (un garaje convertido en salón), mandan las fotos, y se dice.
+   - Si el croquis catastral está, **lo que dice MANDA**: los cuerpos que «sobran» (`→ sobra en los
+     niveles…`) van a `cuerpos_fuera`, y la PROPUESTA marcada «DEL CROQUIS CATASTRAL (exacta)» va a
+     **`zonas_fuera` tal cual** (sus m² ya son los de Catastro: no a `croquis`, que los reajusta).
    - **Mira también la VISTA AÉREA**: `satelite.png` (la foto sola, para leer los tejados sin rayas
      encima) y `plano_satelite.png` (las paredes encima). Es la ortofoto del PNOA (IGN), la misma capa
      «◩ Satélite» de la ventana. De ella sale lo que la cartografía no dice:
@@ -109,7 +120,8 @@ nada**: siempre primero en seco.
    - ⚠️ **Mira la FECHA DEL VUELO** (va en la leyenda y la imprime `paredes`). Una foto anterior a la
      obra o a una ampliación enseña otra casa: si las fotos del cliente contradicen la aérea, mandan
      las del cliente, y se dice.
-   - Si Catastro mezcla vivienda con garaje o porche en el MISMO cuerpo, `paredes` lo avisa (tabla de
+   - Si NO hay croquis catastral (la Sede no lo da, o «NO cae sobre la parcela») y Catastro mezcla
+     vivienda con garaje o porche en el MISMO cuerpo, `paredes` lo avisa (tabla de
      CONSTRUCCIONES por planta). Entonces **propón tú el CROQUIS** (`croquis` en el plan, ver
      `referencia/plan.md`): manchas aproximadas en fracciones de la huella (de oeste a este y de sur a
      norte) de DÓNDE está cada uso. **Los m² los pone Catastro**: el motor endereza las manchas, las
@@ -119,11 +131,13 @@ nada**: siempre primero en seco.
      entrada, qué hay bajo el porche; y de la vista aérea, por qué lado entra el coche. Lanza
      `aplicar` en seco y **mira `plano_plan.png` y `plano_plan_satelite.png`**: el garaje tiene que caer
      del lado de la entrada de coches.
-   - `paredes` trae además una **PROPUESTA DE CROQUIS** del motor (garaje contra la calle o contra la
-     fachada en cuya foto se vio una puerta de garaje, porche contra el patio, almacén al fondo), ya
-     ajustada a los m² de Catastro, con su motivo, su confianza y el `poligono` listo para el plan.
-     Es un PUNTO DE PARTIDA: **contrástala con las fotos y la cartografía** antes de copiarla; si no
-     cuadra (confianza baja, o las fotos dicen otra cosa), dibuja la tuya en fracciones.
+   - Sin croquis catastral, la **PROPUESTA** del motor es una **conjetura geométrica** (garaje contra
+     la calle o contra la fachada en cuya foto se vio una puerta de garaje, porche contra el patio,
+     almacén al fondo), ya ajustada a los m² de Catastro, con su motivo, su confianza y el `poligono`
+     listo para el plan (a `croquis`). Es un PUNTO DE PARTIDA: **contrástala con las fotos y la
+     cartografía** antes de copiarla; si no cuadra, dibuja la tuya en fracciones. Medido en
+     26RES060_OP267: la conjetura ponía el comercio «al fondo, al norte»; el croquis catastral lo dibuja
+     en otro sitio.
    - Si con las fotos no se puede saber dónde está cada uso, **PREGUNTA** con una frase concreta
      («¿el garaje está al norte o al sur?»), o pide al usuario que lo pinte en la ventana
      («✏️ Croquis»). Nunca se inventa la topología; las superficies nunca se inventan: son de Catastro.
@@ -171,6 +185,9 @@ nada**: siempre primero en seco.
   huecos puestos), depósito del termo sin litros, pilares estimados.
 - Lo que dice la **vista aérea** y no consta en otro sitio (construcciones sin declarar, placas en el
   tejado que el cliente no mencionó, tipo de cubierta), con la **fecha del vuelo**.
+- Lo que dice el **croquis catastral por plantas** (y su fecha): qué se ha quitado por él (cuerpos y
+  zonas) y en qué contradice a las fotos, si en algo. Que los documentos del Catastro están en
+  `1. CEE / CEE INICIAL / CATASTRO` (o por qué no: la Sede no los da para esa parcela).
 - Que el `.cex` va **sin técnico** si es una oportunidad, y que la medida de mejora va **sin calcular**
   (en CE3X: Medidas de mejora → Actualizar).
 
@@ -182,6 +199,7 @@ node implementation/backend/scripts/test_senalado.mjs       # lo señalado, mont
 node implementation/backend/scripts/test_placa_ocr.js       # potencia útil vs consumo, Input/Output
 node implementation/backend/scripts/test_placa_equipo.js    # casación con el catálogo, EAN ≠ serie
 node implementation/backend/scripts/test_ortofoto.mjs       # rejilla de la ortofoto, fecha del vuelo
+python -m pytest implementation/cee-engine/tests/test_fxcc_plantas.py   # croquis catastral: lectura, cuerpos, propuesta
 ```
 
 ## Y después: el CEE final

@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .catastro import alphanumeric, inspire, refcat as refcat_mod
 from .catastro.client import CatastroClient, CatastroError
+from .catastro import fxcc as fxcc_mod
 from .catastro.fxcc import (asignar_usos_por_superficie, leer_dxf, subparcelas)
 from .ce3x import classifier, export
 from .ce3x.schema import ElementoCE3X
@@ -290,7 +291,8 @@ def construir_modelo(o: Opciones, rc: refcat_mod.ReferenciaCatastral,
             modelo.diagnostics.add(
                 "SPACE_GEOMETRY_UNAVAILABLE",
                 "Catastro da uso/planta/superficie de cada unidad constructiva pero NO su "
-                "poligono. Aporta el DXF de la parcela con --dxf para repartirlo.")
+                "poligono en los servicios de siempre. Lo dibuja el croquis catastral por "
+                "plantas de la Sede (`sede_catastro`, o el FXCC aportado con --fxcc).")
 
     # -- DXF aportado: aqui SI se puede repartir uso <-> poligono -------------
     if o.dxf:
@@ -309,15 +311,151 @@ def construir_modelo(o: Opciones, rc: refcat_mod.ReferenciaCatastral,
         except Exception as exc:                          # pragma: no cover
             modelo.diagnostics.add("DXF_UNREADABLE", f"{o.dxf}: {exc}")
     if o.fxcc:
-        from .catastro.fxcc import inventario_fxcc
+        # El FXCC POR PLANTAS aportado a mano (el ZIP de la Sede, o su carpeta):
+        # el mismo camino que el que se descarga solo (`traer_de_la_sede`).
         try:
-            inv = inventario_fxcc(o.fxcc)
-            modelo.catastro["fxcc"] = inv.__dict__
-            modelo.diagnostics.add("FXCC_NOT_INTERPRETED", inv.nota)
-        except Exception as exc:                          # pragma: no cover
+            adjuntar_fxcc(modelo, fxcc_mod.leer_fxcc(o.fxcc, rc.parcela), fuente=str(o.fxcc))
+        except Exception as exc:                          # noqa: BLE001
             modelo.diagnostics.add("FXCC_UNREADABLE", f"{o.fxcc}: {exc}")
 
     return modelo
+
+
+# ------------------------------------------- el croquis catastral por plantas
+#: Husos en los que puede venir el DXF de un FXCC (la cartografia de cada
+#: municipio va en el suyo; el motor trabaja en uno solo).
+_CRS_FXCC = ("EPSG:25830", "EPSG:25829", "EPSG:25831", "EPSG:25828",
+             "EPSG:23030", "EPSG:23029", "EPSG:23031", "EPSG:23028")
+
+
+def solo_parcela(o: Opciones, rc, modelo: Modelo) -> None:
+    """Solo la PARCELA por INSPIRE, con la misma cache (mismo nombre, misma
+    URL) que `descargar`: si el edificio ya se midio, no toca la red. Es lo
+    minimo para abrir su ficha en la Sede."""
+    client = CatastroClient(cache_dir=o.cache / rc.parcela, offline=o.offline,
+                            refresh=False, retries=o.retries, timeout=o.timeout,
+                            pause_between_calls=o.pausa)
+    cp, _ = inspire.servicios(client)
+    data = cp.get_feature("parcela", rc.parcela, name=f"parcela_{rc.parcela}")
+    pars = [f for f in parse_gml(data, cp.nombre) if f.geometry is not None]
+    propia = [f for f in pars if rc.parcela in "".join(str(v) for v in f.attrs.values()).upper()]
+    if propia or pars:
+        modelo.parcel = _objeto((propia or pars)[0], o.crs_metrico)
+
+
+def punto_de_la_parcela(modelo: Modelo):
+    """Un punto DENTRO de la parcela (o de la huella), en EPSG:3857: es como lo
+    pide el visor de la Sede para abrir la ficha de ese sitio."""
+    g = modelo.parcel.geometry if modelo.parcel is not None else modelo.huella()
+    if g is None or g.is_empty:
+        return None
+    q = reproject(g.representative_point(), modelo.crs, "EPSG:3857")
+    return q.x, q.y
+
+
+def traer_de_la_sede(o: Opciones, rc, modelo: Modelo, productos=None):
+    """Los productos de la Sede del Catastro (`catastro/sede.py`) y, si llega,
+    el FXCC por plantas adjuntado al modelo. Nunca lanza: lo que falla queda en
+    el diagnostico y la medicion sigue como siempre."""
+    from .catastro import sede as sede_mod
+    pt = punto_de_la_parcela(modelo)
+    if pt is None:
+        modelo.diagnostics.add("SEDE_CATASTRO", "sin geometria de la parcela no se puede abrir su ficha en la Sede")
+        return None
+    cliente = sede_mod.SedeCatastro(o.cache, offline=o.offline, refresh=o.refresh)
+    res = cliente.traer(rc.parcela, pt[0], pt[1], productos or sede_mod.PARA_MEDIR)
+    modelo.catastro["sede"] = res.resumen()
+    if res.fallos:
+        modelo.diagnostics.add("SEDE_CATASTRO", "; ".join(
+            f"{sede_mod.PRODUCTOS[k].titulo if k in sede_mod.PRODUCTOS else k}: {v}"
+            for k, v in res.fallos.items()))
+    fich = res.ficheros.get("fxcc_plantas")
+    if fich is not None:
+        try:
+            adjuntar_fxcc(modelo, fxcc_mod.leer_fxcc(fich.datos, rc.parcela),
+                          fuente=f"Sede del Catastro ({fich.fecha[:10]})")
+        except Exception as exc:                          # noqa: BLE001
+            modelo.diagnostics.add("FXCC_UNREADABLE", f"el FXCC de la Sede no se ha podido leer: {exc}")
+    return res
+
+
+def adjuntar_fxcc(modelo: Modelo, fx, fuente: str) -> bool:
+    """Cuelga del modelo el croquis catastral por plantas, si ENCAJA.
+
+    REGLA — solo se usa si cae sobre la parcela. El DXF va en el huso de la
+    cartografia del municipio; si no se solapa con la parcela de INSPIRE se
+    prueba en los otros husos y, si ninguno encaja, NO se usa: unos poligonos
+    fuera de sitio repartirian el garaje sobre la vivienda.
+
+    Ademas se contrastan, planta a planta, sus superficies con las de `lcons`:
+    el croquis puede ser de otra fecha (la de su .ASC) que los datos.
+    """
+    from shapely.ops import unary_union
+    ref = modelo.parcel.geometry if modelo.parcel is not None else modelo.huella()
+    polis = [r.poligono for r in fx.recintos() if r.poligono is not None]
+    resumen = {"fuente": fuente, "alineado": False}
+    if not polis or ref is None or ref.is_empty:
+        modelo.catastro["fxcc_plantas"] = resumen | fx.to_dict()
+        modelo.diagnostics.add("FXCC_PLANTAS", "el croquis catastral no trae recintos que situar")
+        return False
+    todo = unary_union(polis)
+
+    def solape(g):
+        return g.intersection(ref).area / g.area if g.area else 0.0
+
+    mejor, crs_bueno = solape(todo), modelo.crs
+    if mejor < 0.6:
+        for crs in _CRS_FXCC:
+            if crs == modelo.crs:
+                continue
+            try:
+                s = solape(reproject(todo, crs, modelo.crs))
+            except Exception:                              # noqa: BLE001
+                continue
+            if s > mejor:
+                mejor, crs_bueno = s, crs
+    if mejor < 0.6:
+        modelo.catastro["fxcc_plantas"] = resumen | fx.to_dict()
+        modelo.diagnostics.add(
+            "FXCC_PLANTAS", f"el croquis catastral ({fuente}) no cae sobre la parcela "
+            f"(solape {mejor:.0%}): no se usa")
+        return False
+    if crs_bueno != modelo.crs:
+        fx.transformar(lambda g: reproject(g, crs_bueno, modelo.crs))
+        fx.srs_origen = crs_bueno
+    resumen["alineado"] = True
+    modelo.catastro["_fxcc"] = fx
+    # Con el croquis, el poligono de cada unidad SI esta: el aviso de que falta
+    # mandaria a buscar algo que ya se tiene.
+    d = modelo.diagnostics
+    for i in [i for i, c in enumerate(d.codes) if c == "SPACE_GEOMETRY_UNAVAILABLE"][::-1]:
+        del d.codes[i]
+        del d.messages[i]
+
+    # Superficies por planta: croquis contra `lcons` (las dos son de Catastro).
+    dichos = []
+    for p in fx.plantas:
+        decl = sum(float(u.get("superficie") or 0) for u in p.declarados
+                   if not str(u.get("codigo") or "").upper().startswith("PTO"))
+        for n in p.niveles:
+            lcons = sum(float(s.area or 0) for s in modelo.spaces
+                        if s.floor == n and (s.attrs or {}).get("codigo"))
+            if lcons and decl and abs(decl - lcons) > max(2.0, 0.05 * lcons):
+                dichos.append(f"{_nombre_nivel(n)}: el croquis declara {decl:g} m2 y los datos "
+                              f"catastrales {lcons:g} m2")
+    if dichos:
+        modelo.diagnostics.add(
+            "FXCC_PLANTAS", f"el croquis catastral es de {fx.asc.get('fecha') or 'fecha desconocida'} "
+            "y no coincide del todo con los datos de hoy (" + "; ".join(dichos) + ")")
+    for a in fx.avisos:
+        modelo.diagnostics.add("FXCC_PLANTAS", a)
+    modelo.catastro["fxcc_plantas"] = resumen | fx.to_dict()
+    modelo.diagnostics.add(
+        "FXCC_PLANTAS", f"croquis catastral por plantas ({fuente}): "
+        + "; ".join(f"{p.nombre or p.capa} -> " + ", ".join(
+            f"{r.codigo} {r.literal} {r.superficie:g} m2" if r.superficie else r.codigo
+            for r in p.recintos) for p in fx.plantas))
+    return True
 
 
 def _vecinos_en_nivel(modelo: Modelo, nivel: int):
@@ -706,6 +844,101 @@ def ajustar_croquis(modelo: Modelo, croquis, ajustar: bool = True) -> tuple[list
 PROPUESTA_MINIMA_M2 = 4.0
 
 
+def construcciones_de(modelo: Modelo) -> list[dict]:
+    """Las filas de `lcons` con lo que hace falta para casarlas con un recinto
+    del croquis catastral (planta, escalera, puerta) y si CUENTAN hoy."""
+    out = []
+    for s in modelo.spaces:
+        a = s.attrs or {}
+        if not a.get("codigo"):
+            continue
+        out.append({"codigo": a["codigo"], "nivel": s.floor, "puerta": a.get("puerta"),
+                    "escalera": a.get("escalera"), "habitable": a.get("habitable"),
+                    "uso": a.get("uso_literal") or s.use, "superficie": s.area})
+    return out
+
+
+def recinto_cuenta(modelo: Modelo, nivel: int, r) -> tuple[bool, str | None]:
+    """¿Cuenta este recinto del croquis catastral? (cuenta, codigo de `lcons`).
+
+    La decision es `fxcc.cuenta`, la misma que usa el inventario de cuerpos.
+    """
+    con = fxcc_mod.construccion_de(r, nivel, construcciones_de(modelo))
+    terciario = es_terciario(modelo.catastro.get("tipo_edificio_ce3x"))
+    return fxcc_mod.cuenta(r, con, terciario), (con or {}).get("codigo")
+
+
+def _zona_de_recinto(r) -> str:
+    if r.uso == "EXTERIOR":
+        return floors_mod.PORCHE
+    if r.uso in ("GARAJE", "ALMACEN"):
+        return r.uso
+    return floors_mod.NO_HABITABLE
+
+
+def _propuesta_fxcc(modelo: Modelo, nivel: int, huella, aparte) -> dict | None:
+    """La propuesta de una planta que DIBUJA el croquis catastral por plantas.
+
+    No es una conjetura: son los recintos de Catastro (`fxcc.py`), con su uso.
+    Se proponen —como la geometrica— y no se aplican: puede haber una obra
+    posterior al croquis (la fecha va en el motivo). Lo que no cuenta se agrupa
+    por uso de zona; lo que ya es un CUERPO aparte se descuenta (se quita con
+    «Quitar cuerpo», no con una zona).
+    """
+    from shapely.ops import unary_union
+    fx = modelo.catastro.get("_fxcc")
+    planta = fx.planta_de_nivel(nivel) if fx is not None else None
+    if planta is None:
+        return None
+    fuera_aparte = unary_union([g for _, g in aparte]) if aparte else None
+    grupos: dict[str, list] = {}
+    avisos: list[str] = []
+    for r in planta.recintos:
+        if r.poligono is None:
+            continue
+        cuenta, codigo = recinto_cuenta(modelo, nivel, r)
+        if cuenta:
+            continue
+        g = huella.intersection(r.poligono)
+        if fuera_aparte is not None and not fuera_aparte.is_empty:
+            g = g.difference(fuera_aparte)
+        # Las tiras que deja cruzar dos dibujos de la misma cartografia.
+        g = g.buffer(-0.15, join_style=2).buffer(0.15, join_style=2).intersection(huella)
+        g = floors_mod._limpia(g)
+        if g is None or g.area < AREA_MINIMA_ZONA_M2:
+            continue
+        grupos.setdefault(_zona_de_recinto(r), []).append((r, g, codigo))
+        if r.uso not in ("EXTERIOR", "GARAJE", "ALMACEN"):
+            avisos.append(f"{r.codigo} ({r.literal}, {r.superficie:g} m2) no es vivienda: si se "
+                          "calefacta con la casa, marcalo como que cuenta en el desglose")
+    trazos = []
+    for uso, piezas in grupos.items():
+        unida = unary_union([g for _, g, _ in piezas])
+        partes = list(getattr(unida, "geoms", [unida]))
+        for parte in partes:
+            if parte.geom_type != "Polygon" or parte.area < AREA_MINIMA_ZONA_M2:
+                continue
+            suyos = [(r, c) for r, g, c in piezas if g.intersection(parte).area > 0.5]
+            trazos.append({
+                "uso": uso,
+                "poligono": [[round(x, 2), round(y, 2)] for x, y in parte.exterior.coords[:-1]],
+                "area_m2": round(parte.area, 2),
+                "catastro_m2": round(sum(r.superficie or 0 for r, _ in suyos), 2) or None,
+                "ancla": [], "lado": "catastro", "confianza": "alta", "origen": "fxcc",
+                "codigos": [r.codigo for r, _ in suyos],
+                "por_que": ("lo dibuja el croquis catastral por plantas de Catastro "
+                            f"({fx.asc.get('fecha') or 'sin fecha'}): "
+                            + ", ".join(f"{r.literal} {r.codigo} ({r.superficie:g} m2)"
+                                        for r, _ in suyos)),
+            })
+    if not trazos:
+        return None
+    if sum(t["area_m2"] for t in trazos) >= huella.area - AREA_MINIMA_ZONA_M2:
+        return {"nivel": nivel, "origen": "fxcc", "trazos": [], "avisos": [
+            "el croquis catastral no deja vivienda en esta planta: no se propone quitarla entera"]}
+    return {"nivel": nivel, "origen": "fxcc", "trazos": trazos, "avisos": avisos}
+
+
 def proponer_croquis(modelo: Modelo, elementos, inventario=None, niveles_hechos=(),
                      pistas=None) -> list[dict]:
     """La PROPUESTA de croquis para cada planta que la necesita (ver
@@ -748,6 +981,14 @@ def proponer_croquis(modelo: Modelo, elementos, inventario=None, niveles_hechos=
         if nivel in hechos or huella is None or huella.is_empty:
             continue
         aparte = casados.get(nivel, [])
+        # Donde hay CROQUIS CATASTRAL de esta planta no se conjetura nada: se
+        # proponen sus recintos (o nada, si todo lo que dibuja es vivienda).
+        fx = modelo.catastro.get("_fxcc")
+        if fx is not None and fx.planta_de_nivel(nivel) is not None:
+            pr = _propuesta_fxcc(modelo, nivel, huella, aparte)
+            if pr and pr.get("trazos"):
+                salida.append(pr)
+            continue
         objetivos, declarados = _objetivos_de(modelo, nivel, huella.area,
                                               sin_codigos=[cod for cod, _ in aparte if cod])
         objetivos = {u: v for u, v in objetivos.items() if v >= PROPUESTA_MINIMA_M2}

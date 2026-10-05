@@ -995,6 +995,67 @@ async function guardarEnDrive(ctx, buffer, fase = 'inicial') {
 }
 
 /**
+ * Los documentos de la Sede del Catastro (`cee-engine` → `/catastro/documentos`)
+ * en `1. CEE / CEE INICIAL / CATASTRO`: el croquis catastral por plantas (PDF),
+ * su FXCC (ZIP con DXF + ASC), los dos KML 3D y el FXCC con colindantes.
+ *
+ * Van a una SUBCARPETA a propósito: la rejilla del CEE reconoce la entrega del
+ * técnico por la extensión de lo que hay en la carpeta de la fase (`matchSlot`),
+ * y un `.pdf` suelto ahí se tomaría por el certificado. Las subcarpetas no las
+ * mira. Y es la carpeta que ya se comparte con el certificador al encargarle el
+ * CEE: es donde le sirven.
+ *
+ * Si ya hay uno con ese nombre y el MISMO tamaño, no se toca (es el mismo
+ * fichero); si cambia, el anterior va a OLD. Nunca lanza.
+ *
+ * @param {object} ficheros {clave: {nombre, mime, datos: Buffer}}
+ */
+const NOMBRES_CATASTRO = {
+    croquis_pdf: 'CATASTRO - CROQUIS POR PLANTAS.pdf',
+    fxcc_plantas: 'CATASTRO - FXCC POR PLANTAS.zip',
+    kml_plantas: 'CATASTRO - PLANTAS 3D.kml',
+    kml_3d: 'CATASTRO - PARCELA 3D.kml',
+    fxcc_colindantes: 'CATASTRO - FXCC CON COLINDANTES.zip',
+};
+
+async function guardarDocsCatastro(ctx, ficheros, fase = 'inicial') {
+    const { expediente } = ctx;
+    if (!ctx.driveFolderId && !esCeeDirecto(expediente)) {
+        return { ok: false, error: 'el expediente no tiene carpeta de Drive' };
+    }
+    try {
+        const { id: seccion } = await carpetaFase(ctx, fase);
+        if (!seccion) throw new Error('no se ha podido resolver la carpeta de la fase');
+        const carpeta = await driveService.getOrCreateSubfolder(seccion, 'CATASTRO');
+        // Si falla, `getOrCreateSubfolder` devuelve el PADRE: ahi un PDF suelto
+        // se tomaria por el certificado del tecnico. Mejor no subir nada.
+        if (!carpeta || carpeta === seccion) throw new Error('no se ha podido crear la subcarpeta CATASTRO');
+        const num = expediente.numero_expediente || ctx.clave;
+        const subidos = [];
+        for (const [clave, f] of Object.entries(ficheros || {})) {
+            if (!f?.datos?.length || !NOMBRES_CATASTRO[clave]) continue;
+            const nombre = `${num} - ${NOMBRES_CATASTRO[clave]}`;
+            const previo = await driveService.findFileByName(carpeta, nombre);
+            if (previo) {
+                const meta = await driveService.getFileMetadata(previo, 'id, size, webViewLink').catch(() => null);
+                if (meta && Number(meta.size) === f.datos.length) {
+                    subidos.push({ clave, nombre, link: meta.webViewLink, sin_cambios: true });
+                    continue;
+                }
+                await driveService.archiveExistingToOld(carpeta, previo, nombre);
+            }
+            const g = await driveService.saveFileToFolder(
+                carpeta, nombre, f.mime || 'application/octet-stream', f.datos, { throwOnError: true });
+            if (!g?.id) throw new Error(`Drive no ha devuelto «${nombre}»`);
+            subidos.push({ clave, nombre, link: g.link, archivado: !!previo });
+        }
+        return { ok: true, carpeta_link: `https://drive.google.com/drive/folders/${carpeta}`, subidos };
+    } catch (e) {
+        return { ok: false, error: e.message };
+    }
+}
+
+/**
  * El `.cex` de una fase que YA está en la carpeta del expediente.
  *
  * Es lo que hace falta para el CEE FINAL: no se levanta de cero, se COPIA el
@@ -1275,6 +1336,8 @@ module.exports = {
     datosOportunidad,
     setCeeField,
     carpetaFase,
+    guardarDocsCatastro,
+    NOMBRES_CATASTRO,
     sufijoCex,
     imagenesDelCex,
     sustituirImagen,

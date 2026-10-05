@@ -174,6 +174,12 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
                         crs=o.crs_metrico)
         feats = pipeline.descargar(o, rc, modelo)
         pipeline.construir_modelo(o, rc, feats, modelo)
+        # El CROQUIS CATASTRAL POR PLANTAS de la Sede (`catastro/sede.py`): dice
+        # DONDE esta cada uso de cada planta (el garaje, el almacen, el porche),
+        # que los servicios de siempre no dicen. Solo si se pide: son otras dos
+        # peticiones a Catastro (cacheadas 30 dias), y un fallo no tumba nada.
+        if payload.get("sede_catastro"):
+            pipeline.traer_de_la_sede(o, rc, modelo)
         # Que construcciones CUENTAN lo marco una persona al abrir la
         # oportunidad, y de ahi salio la superficie que se le presupuesto al
         # cliente. Se aplica ANTES de clasificar: de `habitable` cuelgan que
@@ -294,6 +300,11 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
             # poligono (EPSG:25830), area_m2, catastro_m2, ancla, lado, por_que,
             # confianza}], avisos}]. Se ofrece, no se aplica.
             "croquis_propuesto": propuesta,
+            # El croquis catastral por plantas, si se ha traido (o aportado):
+            # sus recintos con su uso y su poligono (EPSG:25830), si encaja con
+            # la parcela (`alineado`) y de cuando es. Y lo que paso en la Sede.
+            "catastro_fxcc": modelo.catastro.get("fxcc_plantas"),
+            "catastro_sede": modelo.catastro.get("sede"),
             "resumen": export.resumen(res.elementos),
             # Lo que NO se ha podido saber. Va al primer plano a propósito: es
             # lo que el certificador tiene que mirar.
@@ -310,6 +321,52 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
         raise HTTPException(500, str(exc))
     finally:
         shutil.rmtree(trabajo, ignore_errors=True)
+
+
+@app.post("/catastro/documentos")
+def catastro_documentos(payload: dict = Body(...)) -> JSONResponse:
+    """Los documentos de la Sede del Catastro de una parcela, para ARCHIVARLOS.
+
+    Entra `{referencia_catastral, productos?: [...], refresh?}` y salen los
+    ficheros en base64: el FXCC por plantas, el croquis por plantas en PDF, los
+    dos KML (3D) y el FXCC con colindantes (`sede.PRODUCTOS`). Van a la carpeta
+    del CEE para el certificador, y la skill los mira antes de medir.
+
+    Cacheados 30 dias por parcela; un fallo reciente no se reintenta en 6 h.
+    """
+    from src.catastro import sede as sede_mod
+    import base64
+
+    crudo = str(payload.get("referencia_catastral") or "").strip()
+    try:
+        rc = refcat_mod.parse(crudo)
+    except refcat_mod.RefCatError as exc:
+        raise HTTPException(400, f"referencia catastral no válida: {exc}")
+    pedidos = [p for p in (payload.get("productos") or list(sede_mod.PRODUCTOS))
+               if p in sede_mod.PRODUCTOS]
+    o = pipeline.Opciones(refcat=rc.parcela, cache=CACHE,
+                          offline=bool(payload.get("offline", False)),
+                          refresh=bool(payload.get("refresh", False)))
+    modelo = Modelo(refcat_parcela=rc.parcela, refcat_inmueble=rc.inmueble, crs=o.crs_metrico)
+    try:
+        pipeline.solo_parcela(o, rc, modelo)
+    except CatastroError as exc:
+        raise HTTPException(502, f"Catastro: {exc}")
+    res = pipeline.traer_de_la_sede(o, rc, modelo, pedidos)
+    if res is None:
+        raise HTTPException(422, "Catastro no devuelve la geometría de la parcela: "
+                                 "no se puede abrir su ficha en la Sede.")
+    return JSONResponse({
+        "referencia_catastral": rc.to_dict(),
+        "sede": res.resumen(),
+        "ficheros": {k: f.meta() | {"de_cache": f.de_cache,
+                                    "titulo": sede_mod.PRODUCTOS[k].titulo,
+                                    "datos_b64": base64.b64encode(f.datos).decode()}
+                     for k, f in res.ficheros.items()},
+        "fallos": res.fallos,
+        "fxcc": modelo.catastro.get("fxcc_plantas"),
+        "diagnostico": list(modelo.diagnostics.messages),
+    })
 
 
 def _construcciones(modelo: Modelo) -> list[dict]:

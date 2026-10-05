@@ -57,8 +57,100 @@ def _construcciones(modelo) -> list[dict]:
             continue
         out.append({"codigo": a["codigo"], "uso": a.get("uso_literal") or s.use,
                     "uso_normalizado": s.use, "nivel": s.floor,
-                    "superficie": s.area, "habitable": a.get("habitable")})
+                    "superficie": s.area, "habitable": a.get("habitable"),
+                    "puerta": a.get("puerta"), "escalera": a.get("escalera")})
     return out
+
+
+#: Cuanto de un recinto del croquis tiene que caer dentro de un cuerpo para
+#: darlo por suyo. Croquis y cuerpos salen de la misma cartografia: lo normal
+#: es el 100 %, y un recinto partido entre dos cuerpos es de los dos.
+SOLAPE_CROQUIS = 0.5
+
+
+def _casar_por_croquis(modelo, partes, construcciones) -> dict[str, dict]:
+    """Lo que hay en cada cuerpo, planta a planta, segun el CROQUIS CATASTRAL.
+
+    POR QUE EXISTE — 8480109VH9888S (CL Romeras 8, Villanueva de los
+    Infantes): un cuerpo de dos plantas de 47,7 m2 es COMERCIO abajo y ALMACEN
+    arriba, y la casacion por superficie lo daba por el PORCHE de 45 m2 de la
+    planta baja. Con el croquis por plantas (`catastro/fxcc.py`) no hay que
+    adivinar: se mira que recintos caen DENTRO del cuerpo en cada planta, con
+    que construccion casa cada uno y si cuenta.
+
+    Solo los cuerpos con algun recinto del croquis; los demas siguen por la
+    superficie. `niveles_fuera` sale de aqui directamente: las plantas en las
+    que ninguno de sus recintos cuenta.
+    """
+    from ..catastro import fxcc as fxcc_mod
+    fx = (getattr(modelo, "catastro", None) or {}).get("_fxcc")
+    if fx is None:
+        return {}
+    from ..pipeline import es_terciario          # noqa: PLC0415 (evita el ciclo)
+    terciario = es_terciario(modelo.catastro.get("tipo_edificio_ce3x"))
+    salida: dict[str, dict] = {}
+    for p in partes:
+        pid = _codigo(p)
+        if not pid or p.geometry is None:
+            continue
+        niveles = niveles_de(p)
+        detalle = []
+        vacios = []
+        for n in niveles:
+            pl = fx.planta_de_nivel(n)
+            if pl is None:
+                continue
+            antes = len(detalle)
+            for r in pl.recintos:
+                if r.poligono is None or r.destino == "PTO" or not r.poligono.area:
+                    continue
+                try:
+                    dentro = r.poligono.intersection(p.geometry).area
+                except Exception:                          # noqa: BLE001
+                    continue
+                # Suyo si cae dentro casi entero, o si llena casi todo el cuerpo:
+                # un porche de 45 m2 partido en tres cuerpos es de los tres.
+                if dentro < SOLAPE_CROQUIS * min(r.poligono.area, p.geometry.area):
+                    continue
+                con = fxcc_mod.construccion_de(r, n, construcciones)
+                detalle.append({"nivel": n, "codigo": r.codigo, "literal": r.literal,
+                                "superficie": r.superficie,
+                                "construccion": (con or {}).get("codigo"),
+                                "cuenta": fxcc_mod.cuenta(r, con, terciario)})
+            if len(detalle) == antes:
+                # El croquis tiene esta planta y en ella no hay NADA de esta
+                # parcela dentro del cuerpo: es de otra (una casa «maclada»: el
+                # porche de esta abajo, la casa del vecino encima — el
+                # `.II08I09I` de la planta general).
+                vacios.append(n)
+        if not detalle:
+            continue
+        con_croquis = sorted({d["nivel"] for d in detalle} | set(vacios))
+        fuera = [n for n in con_croquis if not any(d["cuenta"] for d in detalle if d["nivel"] == n)]
+        # Se rotula por lo que DECIDE: en las plantas en las que sobra, lo que
+        # hay ahi; si no sobra en ninguna, lo que cuenta (la vivienda), aunque
+        # lleve dentro un trozo de porche — eso lo resuelve la zona.
+        rotulo = [d for d in detalle if d["nivel"] in fuera] or [d for d in detalle if d["cuenta"]]
+        principal = max(rotulo, key=lambda d: d["superficie"] or 0)
+        usos = []
+        for d in sorted(rotulo, key=lambda d: (d["nivel"], -(d["superficie"] or 0))):
+            if d["literal"] not in usos:
+                usos.append(d["literal"])
+        salida[pid] = {
+            "codigo": principal["construccion"] or principal["codigo"],
+            "uso": " / ".join(usos),
+            "nivel": principal["nivel"],
+            "superficie": round(sum(d["superficie"] or 0 for d in rotulo), 2),
+            "habitable": False if fuera else True,
+            "parecido": 1.0,
+            "por_croquis": True,
+            "fecha_croquis": fx.asc.get("fecha"),
+            "niveles_fuera": fuera,
+            # Plantas en las que el croquis no pone nada de esta parcela aqui.
+            "niveles_de_otra_parcela": vacios,
+            "detalle": detalle,
+        }
+    return salida
 
 
 def _casar(partes, construcciones) -> dict[str, dict]:
@@ -198,6 +290,9 @@ def niveles_fuera(cuerpo: dict) -> list[int]:
     """
     c = cuerpo.get("construccion") or {}
     niveles = list(cuerpo.get("niveles") or [])
+    # Con el CROQUIS CATASTRAL se sabe planta a planta (`_casar_por_croquis`).
+    if c.get("por_croquis"):
+        return [n for n in c.get("niveles_fuera") or [] if n in niveles] or niveles
     nivel = c.get("nivel")
     if nivel is None or c.get("habitable") is not False:
         return niveles
@@ -211,6 +306,9 @@ def inventario(modelo, excluidos=()) -> list[dict]:
     cons = _construcciones(modelo)
     casadas = _casar(modelo.partes, cons)
     casadas.update(_casar_por_eliminacion(modelo.partes, cons, casadas))
+    # Lo que dibuja el croquis catastral MANDA sobre lo que se deduce de las
+    # superficies: es un dato, no una conjetura.
+    casadas.update(_casar_por_croquis(modelo, modelo.partes, cons))
 
     out = []
     for p in modelo.partes:

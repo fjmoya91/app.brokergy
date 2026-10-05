@@ -12549,6 +12549,83 @@ caracteres como mucho) y **se retira al volver a medir**: la planta ya tiene sus
 ⚠️ El motor hay que REINICIARLO para que devuelva `croquis_propuesto` (Python importa una vez por
 proceso; `/health` dice si el código cargado es el del disco).
 
+### El CROQUIS CATASTRAL POR PLANTAS, de la Sede (2026-10-05)
+
+Lo que el motor conjeturaba —DÓNDE está el garaje, el almacén o el porche dentro de una planta—
+**lo publica el Catastro**: el croquis catastral por plantas, en la ficha de la parcela del visor
+de la Sede («Información de parcelas e inmuebles» → «Más información de la parcela»), sin
+identificación ni captcha. Lo pidió el usuario: «cuando haces un CEE, descárgate del Catastro
+cualquier archivo que te pueda ayudar». Se bajan cinco productos:
+
+| Producto | Qué es | Para qué |
+|---|---|---|
+| **FXCC por plantas** (ZIP: `.dxf` + `.asc`) | Cada local de cada planta DIBUJADO con su código de destino y sus m² | El motor: cuerpos y propuesta EXACTOS |
+| **Croquis por plantas (PDF)** | El mismo croquis, para personas | La skill lo MIRA; el certificador lo tiene al lado |
+| **KML por plantas** y **KML de la parcela** | 3D (Google Earth) | Ver volúmenes y alturas |
+| **FXCC con colindantes** | La parcela y sus vecinas, con su nº de plantas | Medianeras |
+
+| Qué | Dónde |
+|---|---|
+| Descargar (postback de ASP.NET, caché, candado) | [src/catastro/sede.py](implementation/cee-engine/src/catastro/sede.py) |
+| Leer el FXCC (norma `formato_fxcc.pdf` v2024) | `leer_fxcc` en [src/catastro/fxcc.py](implementation/cee-engine/src/catastro/fxcc.py) |
+| Encaje con la parcela, contraste con `lcons`, propuesta | `traer_de_la_sede` · `adjuntar_fxcc` · `_propuesta_fxcc` en `pipeline.py` |
+| Qué hay dentro de cada cuerpo, planta a planta | `_casar_por_croquis` en [gis/cuerpos.py](implementation/cee-engine/src/gis/cuerpos.py) |
+| Motor | `POST /envolvente` con `sede_catastro` (→ `catastro_fxcc`, `catastro_sede`) · `POST /catastro/documentos` (los ficheros en base64) |
+| Skill | `cee_inicial.js paredes` (baja y enseña) · `catastro <clave> [--escribir]` · `aplicar --escribir` (los sube) |
+| Drive | `1. CEE / CEE INICIAL / CATASTRO` — `guardarDocsCatastro` en `ceeEnvolventeCex.js` |
+| Ventana | la ruta de geometría lo pide siempre (`CEE_SEDE_CATASTRO=false` lo apaga) |
+| Pruebas | `python -m pytest implementation/cee-engine/tests/test_fxcc_plantas.py` (fixture real) |
+
+**Cómo se pide (medido el 2026-10-05).** Cada enlace es un *postback* de
+`/CYCBienInmueble/OVCListaBienes.aspx?origen=Carto&huso=3857&x=..&y=..` (la ficha del punto que
+abre el visor): se rellenan `hdDelegacion`/`hdMunicipio`/`hdRC` y `__EVENTTARGET` con el control
+(`btnFXCCDes`, `btnPDFFXCC`, `btnFXCCVer`, `btnVerFXCC`, `btnFXCCColindantes`), y la Sede REDIRIGE a
+la descarga con su propio token (`…DescargaFXCC.aspx?refcat=..&captcha=<token>`). No se resuelve
+ningún captcha ni se adivina ninguna URL: es lo que hace el navegador. ⚠️ En el HTML del servidor
+la delegación, el municipio y la RC están en `CargarBien('13','93','U','RC',…)` y en los enlaces
+`…?del=13&mun=93&refcat=…`, **escapados (`&#39;`)**; los `PonRefCat(…)` los pone después el JS. Los
+dos GML de la ficha llegan VACÍOS por esta vía (el motor ya los trae por INSPIRE).
+
+**REGLA — mismas cautelas que con el Catastro de siempre**: IPv4, orden de cabeceras, en serie con
+pausa y un CANDADO de proceso (FastAPI atiende en hilos), caché por parcela 30 días
+(`CEE_SEDE_TTL_DIAS`) y **el fallo también se recuerda** 6 h (`CEE_SEDE_REINTENTO_H`). En `/envolvente`
+solo se pide el FXCC: 3 peticiones a `www1.sedecatastro.gob.es`, que NO es el `ovc` del buscador
+(el KML 3D sí redirige a `ovc`: solo lo baja `/catastro/documentos`). Nada de esto tumba una medición.
+
+**Cómo se lee.** Capas `PG-xx` (planta general) y `PSn-xx` (planta significativa n, en el orden del
+`.asc`, de abajo arriba): las líneas `LP`+`LI` se poligonizan y a cada polígono se le pega su
+CENTROIDE (dos textos en el mismo punto de alineación 11/21: código `AU` —o `AA` en la general— y
+superficie `AS`). Medido: los 17 recintos del fichero real salen con la superficie que rotula
+Catastro (< 1 %). ⚠️ Catastro escribe POLYLINE estilo R12 (`VERTEX`…`SEQEND`): el lector antiguo
+(`leer_dxf`) no las entendía. El nivel sale del NOMBRE de la planta (la norma obliga a que acabe en
+sus códigos: `BAJA 00`, `Plantas 01,02,03`, `Plantas 01 A 03`) con `normaliza_planta`, la misma que
+da la planta de `lcons`; uno que no lo dice (`ATICO AT`) se deduce por su orden y se marca.
+
+**REGLA — cada local casa con SU fila de `lcons`**: el código es DESTINO.PUERTA.ESCALERA (`V.04.1` =
+escalera 1, puerta 04) y la planta la da la hoja. Medido: los 8 locales de 8480109VH9888S casan. Y
+**manda esa fila** (lo que marcó una persona en la ficha técnica, el tipo de edificio); sin fila,
+el destino con las listas de `alphanumeric` (`fxcc.cuenta`, una sola función para la propuesta y
+para los cuerpos). Lo exterior (`PTO`, `YPO`, `TZA`, `SOP`…) no cuenta nunca.
+
+**REGLA — solo se usa si CAE sobre la parcela.** El DXF va en el huso de la cartografía del
+municipio: si no se solapa con la parcela de INSPIRE se prueba en los otros (`25828…25831`,
+`23028…23031`) y, si ninguno encaja, no se usa y se dice. Además se contrastan las superficies por
+planta con `lcons` (el croquis tiene su FECHA, la del `.asc`).
+
+**Con el croquis, la propuesta deja de ser una conjetura**: en cada planta que describe, los
+recintos que no cuentan —agrupados por uso de zona, menos lo que ya es un cuerpo aparte— salen con
+`origen: 'fxcc'`, confianza alta y su motivo («lo dibuja el croquis catastral (30/12/15): …»). Se
+PROPONE, no se aplica (puede haber una obra posterior al croquis). En la skill esos polígonos van a
+`zonas_fuera` TAL CUAL (no a `croquis`, que los reajusta).
+
+**Y cada cuerpo sabe qué tiene DENTRO**, planta a planta (`por_croquis`, `detalle`): manda sobre la
+casación por superficie. Medido en **26RES060_OP267** (CL Romeras 8, Villanueva de los Infantes): el
+cuerpo de 47,7 m² se daba por el PORCHE de 45 m²; es COMERCIO abajo y ALMACÉN arriba. La conjetura
+geométrica ponía el comercio «al fondo, al norte». Una planta del cuerpo donde el croquis no pone
+NADA de esta parcela es de otra (`niveles_de_otra_parcela`: la casa «maclada» `.II08I09I`, porche
+de ésta abajo y casa del vecino arriba) y tampoco cuenta. Con todo aplicado, suelo de la baja
+78,25 m² (= V.04.1, 78) y planta 1 64,5 + 35,9 m² (= V.03.1, 100).
+
 ---
 
 ## La PÁGINA DEL ENCARGO del técnico (2026-09-30)
@@ -13327,5 +13404,7 @@ PROPUESTA_PROGRAMADA_MAX_DIAS=90   ← hasta cuándo se admite programar
 109. **Lo que hace el Agente IA se REVISA y se CAMBIA en la propia ventana de la envolvente** (2026-10-02). El agente guarda con la MISMA forma que la ventana (`cee.envolvente`), así que todo lo suyo ya se abría y se editaba; lo que faltaba era entenderlo. Ahora: (a) **«N medidas por confirmar» es clicable** y abre la lista de lo pendiente (huecos y lucernarios con `estado !== 'medido'`, la MISMA cuenta que `resumen.dudosos`); cada línea lleva a su planta y selecciona su pared, donde «✓ OK» lo da por bueno ([logic/pendientes.js](implementation/frontend/src/features/cee-envolvente/logic/pendientes.js), [components/RastroAgente.jsx](implementation/frontend/src/features/cee-envolvente/components/RastroAgente.jsx)); (b) **banda «🤖 Lo ha preparado el Agente IA»** si `cee.agente_ia[fase]` está terminado: cuándo, sus avisos (el sello guarda hasta 20, recortados; el WhatsApp solo enseña 4), el `.cex` y la carpeta; (c) **«📐 Croquis PDF»** en la ventana: `POST /api/cee-envolvente/:id/croquis` lo rehace con lo GUARDADO (antes guarda lo pendiente del autoguardado) y lo abre; y se rehace SOLO, en segundo plano, cada vez que se genera el `.cex` desde la ventana. La geometría la piden la ruta de la ventana y el croquis por la MISMA función (`pedirGeometria` en `routes/ceeEnvolvente.js`). Coste: **cero tokens** — la IA solo se usa para LEER fotos y placas; todo lo demás (medir, escribir el .cex, el croquis, la lista) es código determinista, y lo leído queda guardado (huecos con su `por_que`, marcas en la foto) para no volver a pagarlo.
 
 111. **En el ahorro RES080 «por vector», la demanda que no cubre ningún generador la pone CE3X con su SISTEMA FICTICIO POR DEFECTO, y se dice con su %** (2026-10-05). El `.xml` no trae el % de demanda de cada equipo, pero se deduce sin estimar: **energía final del vector × rendimiento estacional ÷ demanda del servicio**; lo que queda es el sistema por defecto (calefacción: caldera estándar de **gas natural al 92 %**; refrigeración: máquina frigorífica eléctrica de **2,0**). Medido en **26RES080_78**: estufa de pellets declarada al 40 % (η 0,39) → 190,76 kWh/m²; el 60 % restante, 121,92 kWh/m² de gas natural. El MISMO `.cex` pasado a CE3X 3.1 da las mismas cifras y escribe ese gas en el XML como «Caldera estándar (sistema ficticio)» (`<EsFicticio/>`); el v2.0 no lo nombra. Ese consumo está en la energía final del certificado y **entra en el ahorro**. Fuente única: [coberturaGeneradores.js](implementation/frontend/src/features/calculator/logic/coberturaGeneradores.js) (`leerGeneradoresDeTexto` sin DOM, v2.0/v3.0 y en MAYÚSCULAS; `coberturaPorGenerador`), que `calculateRes080SimplificadoFromXml` usa con el `.xml` crudo (`xmlTextoInicial/Final`) → `results.cobertura`. Se enseña en el módulo CEE (`CoberturaGeneradores`, bajo la tabla) y en una hoja del Certificado RES080 («Demanda cubierta por cada generador», `buildJustificacionAhorroPages`); la fila «otros combustibles» dice «Biomasa densificada (pelets) · 40 % calef. + Gas Natural · 60 % calef. (sistema ficticio por defecto)» y el generador, **«Sistema ficticio por defecto · Caldera estándar de gas natural»** (o «· Máquina frigorífica») — el MISMO rótulo con un XML de la 2.3 y de la 3.1 (decisión del usuario, 2026-10-05). Con la energía final declarada **no hay desplegable de combustible** (no se usa y enseñaba «Gasoleo Calefacción»). `parseCeeXml` guarda ya `generadores`. **«Por uso» (detallado) también**: un servicio con DOS vectores o con el sistema ficticio no se reconstruye dividiendo sus emisiones por UN factor —en 26RES080_78 eso daba 1.897,78 kWh/m² de pellets y 492 MWh—; su energía se LEE de `<EnergiaFinalVectores>`, el rótulo dice cada vector con su % y la celda no se elige (`fuelIniFijo`). Medido sobre los 49 RES080 con los dos certificados: ninguno más cambia de ahorro (±0,05 MWh), los 23 con el CIFO firmado incluidos; solo 26RES080_76 (35,30 → 45,31, hoy en «Por vector»). El cuadro de cobertura sale en los dos métodos. Tras tocarlo: `node implementation/backend/scripts/test_cobertura_generadores.mjs`, `test_xml_cee_v30.mjs` y `check_res080_paginas.mjs`.
+
+112. **Al hacer un CEE se bajan de la Sede del Catastro los documentos de la parcela, y su CROQUIS POR PLANTAS manda sobre la conjetura** (2026-10-05). FXCC por plantas (DXF+ASC), croquis por plantas en PDF, KML 3D por plantas y de la parcela, y FXCC con colindantes, por el *postback* de la ficha del visor (sin captcha ni identificación; [sede.py](implementation/cee-engine/src/catastro/sede.py), en serie, con candado, caché 30 días y caché de fallos 6 h). El motor lee el FXCC ([fxcc.py](implementation/cee-engine/src/catastro/fxcc.py), `leer_fxcc`), lo usa solo si cae sobre la parcela (si no, prueba los otros husos), casa cada local con su fila de `lcons` por planta/escalera/puerta (manda lo marcado por una persona) y con ello **propone las zonas con sus polígonos exactos** (`origen: 'fxcc'`) y dice **qué hay dentro de cada cuerpo planta a planta** (`por_croquis`). La skill `generar-cee-inicial` los baja en `paredes` (y `catastro <clave>`), MIRA el PDF y los deja con `--escribir` en `1. CEE / CEE INICIAL / CATASTRO` (subcarpeta: un PDF suelto en la carpeta de la fase se tomaría por el certificado). La ventana los pide siempre (`CEE_SEDE_CATASTRO=false` lo apaga). Tras tocarlo: `python -m pytest implementation/cee-engine/tests/test_fxcc_plantas.py`. Ver "El CROQUIS CATASTRAL POR PLANTAS, de la Sede".
 
 113. **Fran trabaja con Claude por WhatsApp, siempre abierto** (2026-10-05): escribe desde su móvil personal al de la empresa, el backend avisa al contenedor `asistente` (`services/asistenteCanal.js` → `scripts/asistente_vigia.js --servidor`) y Claude trabaja con las skills y le contesta por el mismo chat. Nada sale a un tercero sin su «envíala» para ESA oportunidad; su número solo en el `.env`; el contenedor usa el repo montado (solo lo commiteado) y no se reconstruye con un trabajo en marcha. Modo proactivo: si un instalador manda una petición y nadie le contesta, se le pregunta a Fran (lo filtra Gemini). Claude arranca fuera del repo para no cargar CLAUDE.md entero, con Sonnet por defecto. Ver "El ASISTENTE de Fran por WhatsApp".
