@@ -1196,6 +1196,24 @@ def _heredar_acumulacion(equipos: list[dict], plantilla: list) -> list[str]:
     return avisos
 
 
+def _superficie_total(servicio: list) -> str:
+    """La superficie del EDIFICIO que se deduce de un equipo del fichero.
+
+    Un equipo que cubre solo PARTE de un servicio sirve solo su parte: una
+    estufa de pellets al 40 % de la calefaccion sirve 105,6 de 264 m2 (medido en
+    26RES080_78). Heredar sus 105,6 m2 a secas dejaba a la aerotermia que la
+    sustituye cubriendo el 100 % de la demanda sobre menos de la mitad de la
+    vivienda. Se devuelve el total (superficie / porcentaje); con el 100 %, o
+    sin porcentaje legible, el numero tal cual.
+    """
+    sup = str(servicio[0])
+    pct = _numf(servicio[1]) if len(servicio) > 1 else None
+    s = _numf(sup)
+    if s is None or pct is None or not (0 < pct < 100):
+        return sup
+    return _num(round(s * 100.0 / pct, 2))
+
+
 def _heredar_superficies(equipos: list[dict], plantilla: list) -> list[str]:
     """La superficie servida la manda el .cex QUE SE COPIA, no la ficha.
 
@@ -1220,9 +1238,9 @@ def _heredar_superficies(equipos: list[dict], plantilla: list) -> list[str]:
             acs, cal = viejo[5][0], viejo[5][1]
             da = SERVICIOS_DEL_SLOT.get(nombre_slot, set())
             if "acs" in da and isinstance(acs, list) and acs[0]:
-                servido.setdefault("acs", str(acs[0]))
+                servido.setdefault("acs", _superficie_total(acs))
             if "calefaccion" in da and isinstance(cal, list) and cal[0]:
-                servido.setdefault("calefaccion", str(cal[0]))
+                servido.setdefault("calefaccion", _superficie_total(cal))
     # La superficie de FRIO de la aerotermia es la que se calefacta: es la que
     # escribio el certificador en 26RES060_198 (343.0 en los tres servicios).
     # NO la de un aire acondicionado que ya haya: ese sirve solo su parte (un

@@ -686,3 +686,17 @@ def test_una_caldera_electrica_mixta_va_simple():
         [["100.0", "100.0", ""], [False, False, True], []],
         [False], ZONA,
     ]
+
+
+def test_la_superficie_heredada_es_la_del_edificio_aunque_el_viejo_cubra_parte():
+    """26RES080_78: una estufa al 40 % sirve 105,6 de 264 m2. La aerotermia que
+    la sustituye al 100 % tiene que servir los 264, no los 105,6 de la estufa."""
+    plantilla = [[] for _ in G.SLOTS]
+    plantilla[G.SLOTS.index("calefaccion")] = [[
+        "ESTUFA", "calefaccion", ["", "95.2", ""], "Equipo de Rendimiento Constante",
+        "BiomasaDens", [["", ""], ["105.6", "40"], ["", ""]],
+        "Conocido (Ensayado/justificado)", ["", "95.2", ""], "Edificio Objeto"]]
+    eq = {"slot": "calefaccion", "superficie_calefaccion": 264, "pct_calefaccion": "100"}
+    G._heredar_superficies([eq], plantilla)
+    assert float(eq["superficie_calefaccion"]) == 264
+    assert G._superficie_total(["264.0", "100"]) == "264.0"
