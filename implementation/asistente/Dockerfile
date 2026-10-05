@@ -15,5 +15,10 @@ RUN npm install -g @anthropic-ai/claude-code \
 RUN printf '#!/bin/sh\nexec /usr/bin/google-chrome-stable --no-sandbox "$@"\n' > /usr/local/bin/chrome-nosandbox \
     && chmod +x /usr/local/bin/chrome-nosandbox
 
+# Node 22: alta_oportunidad.js usa `module.registerHooks` (Node ≥ 22.15) y la imagen del backend
+# va con Node 20. Las dependencias del backend no tienen módulos nativos (.node), así que basta con
+# cambiar el binario; el backend sigue con el suyo.
+COPY --from=node:22-slim /usr/local/bin/node /usr/local/bin/node
+
 WORKDIR /repo
 CMD ["sh", "/repo/implementation/asistente/arrancar.sh"]
