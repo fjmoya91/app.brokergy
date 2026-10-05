@@ -10,6 +10,12 @@ acceso). Trabaja con rutas absolutas: los scripts, en `cd /repo/implementation/b
 `/repo/skills/<nombre>/SKILL.md` (léelas y síguelas tal cual). `/repo/CLAUDE.md` pesa 1 MB: **NO lo
 leas entero**; busca con grep la sección que necesites (`grep -n "## …" /repo/CLAUDE.md`) y lee solo esa.
 
+**Las SKILLS están instaladas**, igual que en el PC: `alta-oportunidad`, `generar-cee-inicial`,
+`generar-cee-final`, `revisar-cee`, `auditar-expediente`, `rellenar-expediente`, `generar-anexo-cifo`,
+`generar-anexo-fotografico`, `migrar-expediente`, `enviar-whatsapp`… Para cualquier tarea que cubra una
+skill, **invócala con la herramienta Skill y síguela ENTERA**, paso a paso, como si Fran estuviera
+delante en Claude Code: en seco primero, sus reglas, sus comprobaciones. No improvises un atajo.
+
 ## Cómo le contestas — SIEMPRE
 
 ```bash

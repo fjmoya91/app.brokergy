@@ -47,8 +47,11 @@ const CLAUDE = process.env.ASISTENTE_CLAUDE_CMD || 'claude';
 // entero el CLAUDE.md de la raíz (1,1 MB ≈ 490.000 tokens) en CADA trabajo: medido el 05/10/2026, un
 // «contesta ok» costaba 514.000 tokens desde el repo y 31.000 desde fuera.
 const TRABAJO = process.env.ASISTENTE_CWD || path.join(os.tmpdir(), 'asistente-trabajo');
-// El modelo: por defecto Sonnet; Fran puede pedir otro escribiendo «con opus» / «con haiku».
+// El modelo: por defecto Sonnet; los CEE, con Opus (ASISTENTE_MODELO_CEE). Fran puede forzar otro
+// escribiendo «con opus» / «con sonnet» / «con haiku», y eso manda sobre todo lo demás.
 const MODELO = process.env.ASISTENTE_MODELO || 'sonnet';
+const MODELO_CEE = process.env.ASISTENTE_MODELO_CEE || 'opus';
+const ES_CEE = /\bCEE\b|\.cex\b|\bce3x\b|envolvente|certificado (de )?eficiencia|certificaci[oó]n energ/i;
 
 fs.mkdirSync(LOGS, { recursive: true });
 const ahora = () => Math.floor(Date.now() / 1000);
@@ -60,7 +63,32 @@ function modeloPara(texto) {
     if (/\bopus\b/i.test(texto)) return 'opus';
     if (/\bhaiku\b/i.test(texto)) return 'haiku';
     if (/\bsonnet\b/i.test(texto)) return 'sonnet';
+    if (ES_CEE.test(texto)) return MODELO_CEE;
     return MODELO;
+}
+
+// Las skills del repo, REGISTRADAS como skills del Claude del servidor ($CLAUDE_CONFIG_DIR/skills):
+// así las carga con su herramienta Skill igual que en el PC, no como un fichero suelto. Cada skill es
+// una carpeta de enlaces a la del repo (que va montado: un `git pull` las actualiza) más `comun`
+// → skills/_comun, que es lo que el empaquetador mete dentro y las skills citan como comun/….
+// Se rehace antes de cada trabajo: una skill nueva no exige reiniciar el contenedor.
+function registrarSkills() {
+    const destino = process.env.CLAUDE_CONFIG_DIR ? path.join(process.env.CLAUDE_CONFIG_DIR, 'skills') : null;
+    const origen = path.join(RAIZ, 'skills');
+    if (!destino || process.platform === 'win32' || !fs.existsSync(origen)) return;
+    try {
+        fs.rmSync(destino, { recursive: true, force: true });
+        fs.mkdirSync(destino, { recursive: true });
+        for (const nombre of fs.readdirSync(origen)) {
+            const dir = path.join(origen, nombre);
+            if (nombre.startsWith('_') || nombre.startsWith('.') || nombre === 'dist') continue;
+            if (!fs.existsSync(path.join(dir, 'SKILL.md'))) continue;
+            const d = path.join(destino, nombre);
+            fs.mkdirSync(d);
+            for (const f of fs.readdirSync(dir)) fs.symlinkSync(path.join(dir, f), path.join(d, f));
+            if (!fs.existsSync(path.join(d, 'comun'))) fs.symlinkSync(path.join(origen, '_comun'), path.join(d, 'comun'));
+        }
+    } catch (e) { log('No se pudieron registrar las skills:', e.message); }
 }
 
 function leerEstado() {
@@ -238,6 +266,7 @@ async function vueltaUnica() {
         ].join('\n');
 
         const inicio = ahora();
+        registrarSkills();
         const r = await lanzarClaude(prompt, etiqueta, modelo);
         log(`Claude (${modelo}) terminó (código ${r.code}). Registro: ${r.salida}`);
 
