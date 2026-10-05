@@ -126,7 +126,10 @@ function fecha(v) {
     // La fecha se BUSCA dentro del texto, no se exige que sea todo. El dictamen la
     // escribe como viñeta y llega con el punto pegado ("28/08/2026."): exigiendo
     // que la cadena entera fuera la fecha, se descartaba y el anexo salía sin ella.
-    m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    // Y con el separador que traiga el papel: el dictamen de LOTE-2025-005 la
+    // escribe "28-09-2026", y con solo la barra salía "falta la fecha del
+    // dictamen" teniéndola delante.
+    m = s.match(/(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/);
     if (m) return `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')}/${m[3]}`;
     return '';
 }
