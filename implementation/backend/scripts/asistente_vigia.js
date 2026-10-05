@@ -53,7 +53,35 @@ const MODELO = process.env.ASISTENTE_MODELO || 'sonnet';
 const MODELO_CEE = process.env.ASISTENTE_MODELO_CEE || 'opus';
 const ES_CEE = /\bCEE\b|\.cex\b|\bce3x\b|envolvente|certificado (de )?eficiencia|certificaci[oó]n energ/i;
 
+// ─── Topes: que un fallo no se coma la cuota de Claude ni el VPS ───
+// Trabajos por día natural (Madrid): por encima, se le dice a Fran y no se lanza nada.
+const MAX_DIA = Number(process.env.ASISTENTE_MAX_TRABAJOS_DIA) || 40;
+// Gasto por trabajo, en $ equivalentes de API (`--max-budget-usd`): corta un trabajo desbocado. Con la
+// suscripción no se cobra, pero es lo que mide lo que se come de los límites de uso.
+const TOPE_USD = Number(process.env.ASISTENTE_TOPE_USD) || 8;
+const TOPE_USD_CEE = Number(process.env.ASISTENTE_TOPE_USD_CEE) || 40;
+
+// ─── El CUADERNO: la memoria de trabajo entre mensajes ───
+// No se reabre la sesión anterior (`--resume`): recargaría todo su contexto —cientos de miles de
+// tokens tras un CEE— para contestar a un «vale». El cuaderno es corto, lo reescribe Claude al
+// terminar cada trabajo y entra en el siguiente. Sus recordatorios y su «Pendiente» los manda el
+// vigilante SIN Claude (coste cero).
+const CUADERNO = path.join(DIR, 'cuaderno.md');
+const CUADERNO_MAX = 8000;
+const PLANTILLA_CUADERNO = `# Cuaderno del asistente
+
+## Pendiente
+<!-- lo que espera algo (de Fran, de un instalador, de un cliente): «- 05/10 OP271: esperando a Fran (envíala / la reviso)» -->
+
+## Recordatorios
+<!-- «- [AAAA-MM-DD HH:MM] texto» (hora de Madrid): el vigilante se lo manda a Fran a esa hora y borra la línea -->
+
+## Hecho reciente
+<!-- las últimas 10 cosas, una línea cada una; lo más viejo se borra -->
+`;
+
 fs.mkdirSync(LOGS, { recursive: true });
+if (!fs.existsSync(CUADERNO)) fs.writeFileSync(CUADERNO, PLANTILLA_CUADERNO);
 const ahora = () => Math.floor(Date.now() / 1000);
 const hora = t => new Date(t * 1000).toLocaleString('es-ES', { timeZone: 'Europe/Madrid' });
 const log = (...a) => console.log(new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' }), ...a);
@@ -125,14 +153,18 @@ async function prepararMensaje(m, carpeta) {
     return m.texto || `[${m.tipo}]`;
 }
 
-function lanzarClaude(prompt, etiqueta, modelo) {
+function lanzarClaude(prompt, etiqueta, modelo, tope) {
     return new Promise(resolve => {
         const salida = path.join(LOGS, `${etiqueta}.log`);
         const out = fs.createWriteStream(salida);
         out.write(`=== MODELO: ${modelo} ===\n=== PROMPT ===\n${prompt}\n\n=== SALIDA ===\n`);
         fs.mkdirSync(TRABAJO, { recursive: true });
+        // --no-session-persistence: sin historiales de sesión en disco (los registros ya son nuestros, y
+        // cada trabajo de un CEE dejaba megas). --max-budget-usd: el tope de gasto del trabajo.
+        // --fallback-model: si Opus está saturado, sigue con Sonnet en vez de fallar.
         const args = ['-p', '--permission-mode', 'bypassPermissions', '--output-format', 'json',
-            '--model', modelo, '--add-dir', `"${RAIZ}"`];
+            '--model', modelo, '--add-dir', `"${RAIZ}"`, '--no-session-persistence',
+            '--max-budget-usd', String(tope), ...(modelo === 'opus' ? ['--fallback-model', 'sonnet'] : [])];
         const inicio = Date.now();
         const hijo = spawn(CLAUDE, args, { cwd: TRABAJO, shell: true, windowsHide: true, env: process.env });
         let json = '';
@@ -198,6 +230,75 @@ function textoConsumo() {
     ].join('\n');
 }
 
+// ─── Fechas de Madrid ───
+function partesMadrid(d = new Date()) {
+    return Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(d).map(x => [x.type, x.value]));
+}
+const hoyMadrid = () => { const p = partesMadrid(); return `${p.year}-${p.month}-${p.day}`; };
+const ahoraMadrid = () => { const p = partesMadrid(); return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`; };
+
+function trabajosDeHoy() {
+    try {
+        const hoy = hoyMadrid();
+        return fs.readFileSync(CONSUMO, 'utf8').trim().split('\n').filter(Boolean)
+            .filter(l => { const p = partesMadrid(new Date(JSON.parse(l).fecha)); return `${p.year}-${p.month}-${p.day}` === hoy; }).length;
+    } catch { return 0; }
+}
+
+function leerCuaderno() {
+    try { return fs.readFileSync(CUADERNO, 'utf8'); } catch { return PLANTILLA_CUADERNO; }
+}
+// Las líneas de una sección del cuaderno (sin comentarios ni vacías).
+function seccion(texto, titulo) {
+    const m = texto.match(new RegExp(`## ${titulo}\\s*\\n([\\s\\S]*?)(?=\\n## |$)`));
+    return (m ? m[1] : '').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('<!--'));
+}
+
+// ─── Mantenimiento, en cada vuelta y SIN Claude: recordatorios, el repaso de la mañana y limpieza ───
+let ultimaLimpieza = 0;
+async function mantenimiento() {
+    if (trabajando) return;                       // el cuaderno lo puede estar reescribiendo Claude
+    // 1. Recordatorios vencidos: se mandan y se borran del cuaderno.
+    const texto = leerCuaderno();
+    const ya = ahoraMadrid();
+    const vencidos = seccion(texto, 'Recordatorios').filter(l => {
+        const m = l.match(/^-\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\]/);
+        return m && m[1] <= ya;
+    });
+    if (vencidos.length) {
+        await mandar(`*Recordatorio*\n${vencidos.map(l => l.replace(/^-\s*\[[^\]]+\]\s*/, '• ')).join('\n')}`);
+        fs.writeFileSync(CUADERNO, texto.split('\n').filter(l => !vencidos.includes(l.trim())).join('\n'));
+        log(`${vencidos.length} recordatorio(s) enviado(s).`);
+    }
+    // 2. El repaso de la mañana: a partir de las 9, una vez al día y solo si hay algo pendiente.
+    const p = partesMadrid();
+    const estado = leerEstado();
+    if (estado && Number(p.hour) >= 9 && Number(p.hour) < 21 && estado.parte !== hoyMadrid()) {
+        const pend = seccion(leerCuaderno(), 'Pendiente');
+        estado.parte = hoyMadrid();
+        guardarEstado(estado);
+        if (pend.length) await mandar(`Buenos días, Fran. Esto sigue pendiente:\n${pend.join('\n')}`);
+    }
+    // 3. Limpieza, una vez por hora: registros y adjuntos de más de 30 días, la carpeta de trabajo de más de 7.
+    if (Date.now() - ultimaLimpieza > 3600_000) {
+        ultimaLimpieza = Date.now();
+        const borrarViejos = (dir, dias) => {
+            let n = 0;
+            try {
+                for (const f of fs.readdirSync(dir)) {
+                    const ruta = path.join(dir, f);
+                    if (Date.now() - fs.statSync(ruta).mtimeMs > dias * 86400_000) { fs.rmSync(ruta, { recursive: true, force: true }); n += 1; }
+                }
+            } catch { /* la carpeta aún no existe */ }
+            return n;
+        };
+        const n = borrarViejos(LOGS, 30) + borrarViejos(path.join(DIR, 'entrada'), 30) + borrarViejos(TRABAJO, 7);
+        if (n) log(`Limpieza: ${n} ficheros/carpetas viejos borrados.`);
+    }
+}
+
 let trabajando = false;
 let enVuelta = false;
 
@@ -248,6 +349,11 @@ async function vueltaUnica() {
             lineas.push(`${hora(m.t)}  ${await prepararMensaje(m, carpeta)}`);
         }
         const modelo = modeloPara(lineas.join(' '));
+        if (trabajosDeHoy() >= MAX_DIA) {
+            await mandar(`Hoy ya he hecho ${MAX_DIA} trabajos, que es el tope que tengo puesto para no gastarte la cuota. `
+                + 'Lo retomo mañana, o súbelo con ASISTENTE_MAX_TRABAJOS_DIA si lo necesitas hoy.');
+            return;
+        }
         await mandar('Recibido, me pongo con ello.').catch(e => log('No se pudo acusar recibo:', e.message));
 
         const contexto = mensajes.filter(m => !nuevos.includes(m)).slice(-20)
@@ -261,13 +367,16 @@ async function vueltaUnica() {
             '\n## Lo último del chat (para contexto)\n', contexto || '(nada)',
             pendiente ? `\n## Oportunidad esperando respuesta de Fran (scratch/asistente/pendiente.json)\n${pendiente}` : '',
             peticiones ? `\n## Peticiones de instaladores que le has propuesto y esperan su «sí» / «no»\n${peticiones}` : '',
+            `\n## Tu CUADERNO (${CUADERNO})\nLéelo antes de empezar y REESCRÍBELO al terminar (ver «El cuaderno» arriba).\n`,
+            (() => { const c = leerCuaderno(); return c.length > CUADERNO_MAX ? `${c.slice(0, CUADERNO_MAX)}\n[… CORTADO: pasa de ${CUADERNO_MAX} caracteres; acórtalo]` : c; })(),
             '\n## LO QUE FRAN TE ACABA DE ESCRIBIR\n', lineas.join('\n'),
             '\nHazlo y contéstale por WhatsApp con `asistente_whatsapp.js decir … --enviar`.',
         ].join('\n');
 
         const inicio = ahora();
         registrarSkills();
-        const r = await lanzarClaude(prompt, etiqueta, modelo);
+        const tope = modelo === 'opus' || ES_CEE.test(lineas.join(' ')) ? TOPE_USD_CEE : TOPE_USD;
+        const r = await lanzarClaude(prompt, etiqueta, modelo, tope);
         log(`Claude (${modelo}) terminó (código ${r.code}). Registro: ${r.salida}`);
 
         // ¿Le ha contestado? Si no, el vigilante le manda el final de la salida.
@@ -328,6 +437,7 @@ function servidor() {
     for (;;) {
         try { await vuelta(); } catch (e) { log('Vuelta fallida:', e.message); }
         try { await proactivo.enviarEnCola(); } catch (e) { log('Cola proactiva:', e.message); }
+        try { await mantenimiento(); } catch (e) { log('Mantenimiento:', e.message); }
         if (una) break;
         // eslint-disable-next-line no-await-in-loop
         await new Promise(r => setTimeout(r, CADA_MS));
