@@ -1716,7 +1716,7 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
                               elegidas = null, textos = null, modelos = {},
                               existentes = null, final = null,
                               generica = false, autoconsumoKwh = null,
-                              autoconsumoFv = null } = {}) {
+                              autoconsumoFv = null, autoconsumoInversion = null } = {}) {
     const esFinal = fase === 'final';
     const catalogo = [];
     const avisos = [];
@@ -1910,6 +1910,40 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
         auto.nota = partes.join(' ');
     }
     catalogo.push(auto);
+
+    // ── 3. AEROTERMIA + AUTOCONSUMO en UN conjunto ───────────────────────────
+    // Cuando la obra trae las dos cosas (la bomba de calor y unas placas que la
+    // alimentan), la medida es el edificio con TODO lo que se instala: el
+    // generador, el equipo de ACS si va aparte y la generación eléctrica. Son los
+    // MISMOS equipos de las dos medidas de arriba —no se recomponen—, así que no
+    // pueden decir otra cosa que ellas. No sale marcada sola: se pide.
+    const ambas = aero.datos && auto.datos;
+    const invFv = Number(autoconsumoInversion) > 0 ? Math.round(Number(autoconsumoInversion)) : 0;
+    catalogo.push({
+        id: 'aerotermia_fv',
+        titulo: `${aero.titulo} + autoconsumo fotovoltaico`,
+        resumen: ambas ? `${aero.resumen} · ${auto.resumen}` : null,
+        porDefecto: false,
+        disponible: !!ambas,
+        motivo: ambas ? null
+            : (!aero.datos ? aero.motivo : auto.motivo) || 'Faltan la aerotermia o el autoconsumo.',
+        nota: ambas
+            ? [aero.nota, auto.nota, invFv ? null
+                : 'La inversión es solo la de la aerotermia: la de las placas no consta.']
+                .filter(Boolean).join(' ')
+            : null,
+        datos: ambas ? {
+            ...aero.datos,
+            nombre: `${aero.datos.nombre} + AUTOCONSUMO FOTOVOLTAICO`,
+            caracteristicas: [aero.datos.caracteristicas,
+                `Se complementa con una instalación de autoconsumo fotovoltaico`
+                + `${kwpFv ? ` de ${String(kwpFv).replace('.', ',')} kWp` : ''} `
+                + `(${miles(kwh)} kWh/año) que cubre parte del consumo eléctrico de la aerotermia`]
+                .filter(Boolean).join('. '),
+            inversion: (Number(aero.datos.inversion) || 0) + invFv,
+            instalaciones: [...aero.datos.instalaciones, ...auto.datos.instalaciones],
+        } : null,
+    });
 
     // ── Lo que el certificador haya REESCRITO manda ──────────────────────────
     // Los tres campos son los del diálogo «Conjunto de medidas de mejora» de
@@ -2323,6 +2357,10 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
                                  // Lo que dijo PVGIS de este sitio (kWh por
                                  // kWp), si se consultó en la pestaña: da los kWp.
                                  autoconsumoFv: cfg.autoconsumo_pvgis,
+                                 // Lo que cuestan las placas (con el MISMO
+                                 // criterio de IVA que la inversión de la
+                                 // aerotermia), para la medida que junta las dos.
+                                 autoconsumoInversion: cfg.autoconsumo_inversion,
                                  // La medida es «el edificio con la instalación
                                  // del CEE FINAL»: si en la cara del final se ha
                                  // cambiado el uso de la aerotermia o se ha
