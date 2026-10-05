@@ -3495,7 +3495,34 @@ router.put('/:id', enforceAuth, async (req, res) => {
             // y los cambios manuales del módulo de Seguimiento.
             stampSeguimientoTimestamps(existing.seguimiento, updates.seguimiento);
         }
-        
+
+        // RETIRAR los datos de un CEE (vaciar la fase desde la rejilla) también lo
+        // saca de «pendiente de TU revisión». Si no, el subestado se quedaba en
+        // PTE_REVISION con el certificado ya borrado, y el parte diario lo seguía
+        // pidiendo revisar: medido en 26RES060_177, un «CEE final» subido por error
+        // el 03/09 —antes incluso de registrarse el inicial—, retirado después y
+        // un mes en la cola con la obra sin empezar. Solo en la TRANSICIÓN (había
+        // datos y ahora no): un inicial en revisión sin `.xml` todavía es normal.
+        if (cee !== undefined) {
+            for (const fase of ['inicial', 'final']) {
+                const clave = `cee_${fase}`;
+                const habia = existing.cee?.[clave] && typeof existing.cee[clave] === 'object';
+                if (!habia || !(clave in cee) || cee[clave] !== null) continue;
+                const segActual = (updates.seguimiento || existing.seguimiento || {});
+                if (!['PRESENTADO', 'PTE_REVISION'].includes(segActual[clave])) continue;
+                // Vuelve a donde estaba ANTES de la entrega (el último paso del
+                // certificador que conste sellado), o a «pendiente de encargar».
+                const tsMap = segActual[`${clave}_ts`] || {};
+                const previo = ['PTE_PRESENTACION', 'EN_TRABAJO', 'ASIGNADO']
+                    .filter(s => tsMap[s])
+                    .sort((a, b) => Date.parse(tsMap[b]) - Date.parse(tsMap[a]))[0] || 'PTE_ENVIO_CERT';
+                if (!updates.seguimiento) updates.seguimiento = { ...(existing.seguimiento || {}) };
+                updates.seguimiento[clave] = previo;
+                stampSeguimientoTimestamps(existing.seguimiento, updates.seguimiento);
+                console.log(`[PUT expediente ${req.params.id}] CEE ${fase} retirado: ${segActual[clave]} → ${previo}`);
+            }
+        }
+
         // Aviso al staff de "registro presentado": tiene sentido cuando lo sube OTRO
         // (el certificador por su enlace público) — al admin le llega el email con el
         // botón de "Notificar al Cliente". Cuando lo sube el propio admin desde el
