@@ -3070,8 +3070,14 @@ captura) y juntaba dos obras en una (medido con las OP269/OP270 de Federico).
 entero `CLAUDE.md` (1,1 MB) en cada trabajo — medido: 514.000 tokens un «contesta ok», 31.000 desde
 fuera. Las instrucciones le dicen que busque en `CLAUDE.md` con grep, nunca leerlo entero.
 
-**Modelo y consumo:** Sonnet por defecto (`ASISTENTE_MODELO`); «con opus» / «con haiku» en el
-mensaje lo cambia. Cada trabajo apunta modelo, tokens y coste equivalente en
+**Modelo y consumo:** Sonnet por defecto (`ASISTENTE_MODELO`); **un CEE va con Opus**
+(`ASISTENTE_MODELO_CEE`: el mensaje habla de CEE, `.cex`, CE3X o envolvente); «con opus» / «con
+sonnet» / «con haiku» en el mensaje manda sobre todo.
+
+**Las skills del repo se REGISTRAN como skills del Claude del servidor** (`registrarSkills`, antes de
+cada trabajo): `$CLAUDE_CONFIG_DIR/skills/<nombre>` con enlaces a `/repo/skills/<nombre>` y `comun` →
+`skills/_comun`. Las carga con su herramienta Skill igual que en el PC, y una skill nueva o cambiada
+llega con el `git pull`, sin reiniciar nada. Cada trabajo apunta modelo, tokens y coste equivalente en
 `scratch/asistente/consumo.jsonl`, y «consumo» se lo resume a Fran sin lanzar a Claude. El token es de
 la SUSCRIPCIÓN de Fran: no se cobra aparte, **cuenta para sus límites de uso** (los de 5 h y semanal,
 los mismos que su Claude Code). Las transcripciones y el filtro proactivo van por Gemini, aparte.
