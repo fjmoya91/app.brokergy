@@ -3010,7 +3010,61 @@ dos PUT lo PRESERVAN — la ficha abierta reenvía `cee` desde su copia y se lo 
 ⚠️ El `TecnicoPicker` del MÓVIL usaba `permiteVaciar` sin recibirlo y la hoja se caía al abrirla;
 corregido de paso.
 
+## El ASISTENTE de Fran por WhatsApp — canal siempre abierto (2026-10-05)
+
+Fran le escribe (o manda audios) desde su móvil PERSONAL al WhatsApp de la EMPRESA y Claude trabaja
+como un compañero más: da de alta oportunidades con lo que manda un instalador, hace los CEE con las
+skills, contesta consultas… y le responde por el mismo chat. Sustituye al bot de clientes de la
+etiqueta MOIA, que está **APAGADO en producción** (`BOT_WHATSAPP_ENABLED=false`): esa etiqueta marca
+ahora el chat de Fran.
+
+| Qué | Dónde |
+|---|---|
+| El timbre: avisa cuando escribe Fran | [services/asistenteCanal.js](implementation/backend/services/asistenteCanal.js) (`ASISTENTE_URL` en compose) |
+| El vigilante: lee el chat, acusa recibo, lanza a Claude | [scripts/asistente_vigia.js](implementation/backend/scripts/asistente_vigia.js) `--servidor` |
+| Lo que Claude sabe y no puede hacer | [scripts/asistente_instrucciones.md](implementation/backend/scripts/asistente_instrucciones.md) |
+| Hablar con Fran (resumen de una OP, leer, decir) | [scripts/asistente_whatsapp.js](implementation/backend/scripts/asistente_whatsapp.js) |
+| El contenedor | `implementation/asistente/` (Dockerfile + `arrancar.sh`) · servicio `asistente` en compose |
+
+**Cómo va:** el backend reconoce el chat de Fran (resuelve su `@lid` UNA vez) y hace `POST
+http://asistente:8091/aviso`. El vigilante espera 20 s de silencio (la ráfaga entera), contesta
+«Recibido, me pongo con ello», transcribe audios, baja fotos y lanza `claude -p --permission-mode
+bypassPermissions` en el repo con las instrucciones + lo último del chat. Claude contesta él mismo
+con `asistente_whatsapp.js decir`; si acaba sin hacerlo, el vigilante le manda el final de la salida.
+Repaso de respaldo cada 2 min. Un trabajo cada vez, tope de 120 min. Registros en
+`backend/scratch/asistente/log/`.
+
+**REGLA — nada sale a un tercero sin el «envíala» de Fran para ESA oportunidad.** Tras un alta se le
+manda el resumen (`avisar`) y se espera; «la reviso yo» deja la OP en PTE ENVIAR. Enviar es
+`claude_propuesta.js` (la llave de Claude, regla 103). Tampoco despliega, ni hace push, ni borra.
+
+**REGLA — el número de Fran va en el `.env` (`ASISTENTE_WHATSAPP_TEL`), nunca en el repo**, que es
+público. Sin él, ni el timbre ni el vigilante arrancan.
+
+**El contenedor** se construye SOBRE `brokergy-backend` (Node, Chrome, `/app/node_modules`) con Claude
+Code, **Node 22** copiado de `node:22-slim` (`alta_oportunidad.js` usa `registerHooks`), Pillow y
+fuentes (plano del CEE) y `chrome-nosandbox` (Chrome como root). El repo va **montado** en `/repo`:
+un `git pull` le cambia scripts, skills e instrucciones sin reconstruir — y por eso usa SOLO lo
+commiteado. `deploy.sh` no lo reconstruye: `docker compose build asistente && docker compose up -d
+asistente` (tras construir el backend). Claude se autentica con `CLAUDE_CODE_OAUTH_TOKEN` del `.env`
+(de `claude setup-token`, un año); `IS_SANDBOX=1` le deja saltarse permisos como root.
+
+⚠️ **Antes de reconstruir o reiniciar `asistente`, mira `docker logs brokergy-asistente`**: un trabajo
+en marcha se corta y su mensaje ya consta como atendido. Para relanzarlo: en `vigia.json` restar 1 a
+`visto`, quitar el último id de `atendidos` y `POST /aviso` con `x-internal-key`.
+
+⚠️ **En el servidor no hay CE3X**: los CEE salen como `.cex`; el `.xml` y el PDF de calificación
+(`cexAPdf`) solo en un PC con CE3X 3.1.
+
+**Meta no lee el contenido** (cifrado de extremo a extremo): lo que ve son patrones de uso, y este
+canal es un chat 1:1 de poco volumen. Los mensajes van sin firmas ni emojis de robot. El riesgo real
+sigue siendo el de siempre: la cuenta va con un cliente no oficial (whatsapp-web.js).
+
+---
+
 ## Bot de WhatsApp — contesta a los chats ETIQUETADOS (2026-08-25)
+⚠️ **APAGADO en producción desde 2026-10-05**: la etiqueta MOIA es ahora el chat de Fran con su asistente (ver la sección anterior).
+
 
 Un asistente que responde por la MISMA sesión de WhatsApp del VPS con la que ya
 salen los avisos de la app, y **solo en los chats que lleven la etiqueta**
@@ -13247,3 +13301,5 @@ PROPUESTA_PROGRAMADA_MAX_DIAS=90   ← hasta cuándo se admite programar
 109. **Lo que hace el Agente IA se REVISA y se CAMBIA en la propia ventana de la envolvente** (2026-10-02). El agente guarda con la MISMA forma que la ventana (`cee.envolvente`), así que todo lo suyo ya se abría y se editaba; lo que faltaba era entenderlo. Ahora: (a) **«N medidas por confirmar» es clicable** y abre la lista de lo pendiente (huecos y lucernarios con `estado !== 'medido'`, la MISMA cuenta que `resumen.dudosos`); cada línea lleva a su planta y selecciona su pared, donde «✓ OK» lo da por bueno ([logic/pendientes.js](implementation/frontend/src/features/cee-envolvente/logic/pendientes.js), [components/RastroAgente.jsx](implementation/frontend/src/features/cee-envolvente/components/RastroAgente.jsx)); (b) **banda «🤖 Lo ha preparado el Agente IA»** si `cee.agente_ia[fase]` está terminado: cuándo, sus avisos (el sello guarda hasta 20, recortados; el WhatsApp solo enseña 4), el `.cex` y la carpeta; (c) **«📐 Croquis PDF»** en la ventana: `POST /api/cee-envolvente/:id/croquis` lo rehace con lo GUARDADO (antes guarda lo pendiente del autoguardado) y lo abre; y se rehace SOLO, en segundo plano, cada vez que se genera el `.cex` desde la ventana. La geometría la piden la ruta de la ventana y el croquis por la MISMA función (`pedirGeometria` en `routes/ceeEnvolvente.js`). Coste: **cero tokens** — la IA solo se usa para LEER fotos y placas; todo lo demás (medir, escribir el .cex, el croquis, la lista) es código determinista, y lo leído queda guardado (huecos con su `por_que`, marcas en la foto) para no volver a pagarlo.
 
 111. **En el ahorro RES080 «por vector», la demanda que no cubre ningún generador la pone CE3X con su SISTEMA FICTICIO POR DEFECTO, y se dice con su %** (2026-10-05). El `.xml` no trae el % de demanda de cada equipo, pero se deduce sin estimar: **energía final del vector × rendimiento estacional ÷ demanda del servicio**; lo que queda es el sistema por defecto (calefacción: caldera estándar de **gas natural al 92 %**; refrigeración: máquina frigorífica eléctrica de **2,0**). Medido en **26RES080_78**: estufa de pellets declarada al 40 % (η 0,39) → 190,76 kWh/m²; el 60 % restante, 121,92 kWh/m² de gas natural. El MISMO `.cex` pasado a CE3X 3.1 da las mismas cifras y escribe ese gas en el XML como «Caldera estándar (sistema ficticio)» (`<EsFicticio/>`); el v2.0 no lo nombra. Ese consumo está en la energía final del certificado y **entra en el ahorro**. Fuente única: [coberturaGeneradores.js](implementation/frontend/src/features/calculator/logic/coberturaGeneradores.js) (`leerGeneradoresDeTexto` sin DOM, v2.0/v3.0 y en MAYÚSCULAS; `coberturaPorGenerador`), que `calculateRes080SimplificadoFromXml` usa con el `.xml` crudo (`xmlTextoInicial/Final`) → `results.cobertura`. Se enseña en el módulo CEE (`CoberturaGeneradores`, bajo la tabla) y en una hoja del Certificado RES080 («Demanda cubierta por cada generador», `buildJustificacionAhorroPages`); la fila «otros combustibles» dice «Biomasa densificada (pelets) · 40 % calef. + Gas Natural · 60 % calef. (sistema ficticio por defecto)» y el generador, **«Sistema ficticio por defecto · Caldera estándar de gas natural»** (o «· Máquina frigorífica») — el MISMO rótulo con un XML de la 2.3 y de la 3.1 (decisión del usuario, 2026-10-05). Con la energía final declarada **no hay desplegable de combustible** (no se usa y enseñaba «Gasoleo Calefacción»). `parseCeeXml` guarda ya `generadores`. **«Por uso» (detallado) también**: un servicio con DOS vectores o con el sistema ficticio no se reconstruye dividiendo sus emisiones por UN factor —en 26RES080_78 eso daba 1.897,78 kWh/m² de pellets y 492 MWh—; su energía se LEE de `<EnergiaFinalVectores>`, el rótulo dice cada vector con su % y la celda no se elige (`fuelIniFijo`). Medido sobre los 49 RES080 con los dos certificados: ninguno más cambia de ahorro (±0,05 MWh), los 23 con el CIFO firmado incluidos; solo 26RES080_76 (35,30 → 45,31, hoy en «Por vector»). El cuadro de cobertura sale en los dos métodos. Tras tocarlo: `node implementation/backend/scripts/test_cobertura_generadores.mjs`, `test_xml_cee_v30.mjs` y `check_res080_paginas.mjs`.
+
+113. **Fran trabaja con Claude por WhatsApp, siempre abierto** (2026-10-05): escribe desde su móvil personal al de la empresa, el backend avisa al contenedor `asistente` (`services/asistenteCanal.js` → `scripts/asistente_vigia.js --servidor`) y Claude trabaja con las skills y le contesta por el mismo chat. Nada sale a un tercero sin su «envíala» para ESA oportunidad; su número solo en el `.env`; el contenedor usa el repo montado (solo lo commiteado) y no se reconstruye con un trabajo en marcha. Ver "El ASISTENTE de Fran por WhatsApp".
