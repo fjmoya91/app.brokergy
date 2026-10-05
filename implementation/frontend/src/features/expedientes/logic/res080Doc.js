@@ -765,6 +765,76 @@ export function buildJustificacionAhorroPages({ results, pageHeader, sectionTitl
         `);
     }
 
+    // ── PÁGINA 3: qué parte de cada demanda cubre cada generador ──
+    // El .xml no da el % de demanda de cada equipo, pero se deduce sin estimar nada:
+    // energía final del vector × rendimiento estacional ÷ demanda. Lo que no cubre ningún
+    // generador declarado lo calcula CE3X con su sistema por defecto, y ese consumo está
+    // en la energía final del certificado: sin esta página el verificador ve un gas
+    // natural en una vivienda sin caldera de gas (26RES080_78). Fuente: results.cobertura
+    // (coberturaGeneradores.js), la misma que pinta el módulo CEE.
+    const cob = declarada ? results.cobertura : null;
+    if (cob && (cob.inicial?.servicios?.length || cob.final?.servicios?.length)) {
+        const pct = (p) => (p === null || p === undefined || !Number.isFinite(p) ? '—' : `${Math.round(p * 100)} %`);
+        const decl = results.contraste?.declaradas || {};
+        const td = (v, extra = '') => `<td style="padding:4px 8px;text-align:center;border-bottom:1px solid #ECECE4;${extra}">${v}</td>`;
+        const tablaCobertura = (c, titulo, acento, emiDecl) => {
+            if (!c?.servicios?.length) return '';
+            const filas = c.servicios.map((s) => s.filas.map((f, i) => `
+                <tr style="${f.porDefecto ? 'background:#FFF6E5;' : ''}">
+                    ${i === 0 ? `<td rowspan="${s.filas.length}" style="padding:4px 10px;border-bottom:1px solid #ECECE4;border-right:1px solid #ECECE4;background:#FAFAF6;font-weight:700;color:#1A1A1A;vertical-align:top;">${s.etiqueta}<div style="font-weight:400;font-size:10px;color:#7a7a72;">demanda ${fN(s.demanda)}</div></td>` : ''}
+                    <td style="padding:4px 10px;border-bottom:1px solid #ECECE4;${f.porDefecto ? 'font-weight:700;color:#8A5300;' : 'color:#1A1A1A;'}">${f.generador || '—'}</td>
+                    <td style="padding:4px 8px;border-bottom:1px solid #ECECE4;color:#4a4a44;">${f.vector}</td>
+                    ${td(pct(f.pct), `font-weight:800;${f.porDefecto ? 'color:#8A5300;' : 'color:#1A1A1A;'}`)}
+                    ${td(f.eta ? `${fN(f.eta * 100, 1)} %` : '—', 'color:#4a4a44;')}
+                    ${td(fN(f.energia), 'color:#4a4a44;')}
+                    ${td(fN(f.factor, 3), 'color:#7a7a72;')}
+                    ${td(fN(f.emisiones), 'color:#4a4a44;')}
+                </tr>`).join('')).join('');
+            const otras = c.servicios.flatMap((s) => s.filas).filter((f) => f.vector !== 'Electricidad peninsular');
+            const emiOtros = otras.reduce((a, f) => a + (Number(f.emisiones) || 0), 0);
+            const th = (t, al = 'center') => `<th style="text-align:${al};padding:7px 8px;background:#33332F;color:#C9C9C4;font-weight:700;font-size:9.5px;letter-spacing:.4px;text-transform:uppercase;">${t}</th>`;
+            return `
+                <div style="border-radius:16px;overflow:hidden;border:1px solid #E9E9E1;margin-top:12px;">
+                    <table style="width:100%;border-collapse:collapse;font-size:10.5px;">
+                        <thead>
+                            <tr><td colspan="8" style="padding:8px 14px;background:${acento};color:${acento === '#93C01F' ? '#1A1A1A' : '#fff'};font-weight:800;font-size:10.5px;letter-spacing:1px;text-transform:uppercase;">${titulo}</td></tr>
+                            <tr>${th('Servicio', 'left')}${th('Generador', 'left')}${th('Vector', 'left')}${th('% demanda')}${th('Rend. estac.')}${th('E. final (kWh/m²·año)')}${th('Factor de paso')}${th('Emisiones (kgCO₂/m²·año)')}</tr>
+                        </thead>
+                        <tbody>
+                            ${filas}
+                            ${otras.length ? `<tr><td colspan="7" style="padding:7px 10px;background:#1A1A1A;color:#fff;font-weight:700;font-size:10.5px;">Emisiones por otros combustibles · el certificado declara ${fN(emiDecl)}</td><td style="padding:7px 8px;text-align:center;background:#0f0f0e;color:#93C01F;font-weight:800;">${fN(emiOtros)}</td></tr>` : ''}
+                        </tbody>
+                    </table>
+                </div>`;
+        };
+        const hayDefecto = cob.inicial?.hayPorDefecto || cob.final?.hayPorDefecto;
+        pages.push(`
+            <div class="doc-page">
+                ${pageHeader}
+                ${sectionTitle('Demanda cubierta por cada generador del certificado', '20px')}
+                <p style="margin:0 0 2px 2px;font-size:11.5px;color:#4a4a44;line-height:1.55;">
+                    El certificado declara cada generador con su vector energético y su rendimiento medio
+                    estacional, y la energía final de cada vector por servicio. La parte de la demanda que
+                    cubre cada generador se obtiene de esos dos datos, sin estimar nada:
+                    <b>energía final del vector × rendimiento estacional ÷ demanda del servicio</b>. Las
+                    emisiones de cada fila son su energía final por el factor de paso del vector.
+                </p>
+                ${tablaCobertura(cob.inicial, 'Situación inicial · antes de la actuación', '#33332F', decl.otrosIni)}
+                ${tablaCobertura(cob.final, 'Situación final · después de la actuación', '#93C01F', decl.otrosFin)}
+                ${hayDefecto ? obsBox(`
+                    <b>Sistema ficticio por defecto del programa de certificación.</b> Cuando la demanda de un
+                    servicio no está cubierta al 100 % por los generadores declarados, el procedimiento
+                    de certificación (CE3X) asigna la parte restante a un sistema de referencia: para
+                    calefacción, una caldera estándar de gas natural de rendimiento 92 %; para
+                    refrigeración, una máquina frigorífica eléctrica de rendimiento 2,0. Su consumo
+                    forma parte de la energía final que declara el certificado y, por tanto, del
+                    consumo de partida con el que se calcula el ahorro. La versión 3.1 del programa lo
+                    identifica de forma expresa en el XML como «sistema ficticio».`) : ''}
+                ${footer}
+            </div>
+        `);
+    }
+
     return pages;
 }
 

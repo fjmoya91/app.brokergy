@@ -23,6 +23,7 @@
  * los 462 certificados reales que su salida no cambia ni un byte.
  */
 import { esXmlCeeV30, leerXmlCeeV30, sumaDemanda, esVectorAmbiente } from './xmlCeeV30.js';
+import { leerGeneradoresDeTexto } from './coberturaGeneradores.js';
 
 /**
  * Parsea un string XML de un CEE y extrae los datos de demanda
@@ -350,6 +351,11 @@ export function parseCeeXml(xmlString) {
         }
     }
 
+    // Los generadores con su vector y su rendimiento estacional: de ellos sale qué
+    // parte de cada demanda cubre cada uno (y el sistema por defecto de CE3X, lo que
+    // no cubre ninguno). Ver coberturaGeneradores.js.
+    result.generadores = leerGeneradoresDeTexto(xmlString);
+
     // Validar que al menos tenemos la demanda de calefacción
     if (result.demandaCalefaccion === null) {
         throw new Error('No se ha encontrado el dato de demanda de calefacción en el XML. Asegúrate de que el archivo es un Certificado de Eficiencia Energética válido.');
@@ -501,6 +507,7 @@ function parseCeeXmlV30(xmlString) {
         orientacion: o.orientacion || 'Desconocida',
     }));
 
+    result.generadores = leerGeneradoresDeTexto(xmlString);
     if (result.demandaCalefaccion === null) {
         throw new Error('No se ha encontrado el dato de demanda de calefacción en el XML. Asegúrate de que el archivo es un Certificado de Eficiencia Energética válido.');
     }

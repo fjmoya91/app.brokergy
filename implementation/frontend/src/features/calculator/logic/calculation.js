@@ -8,6 +8,9 @@
  * para proteger márgenes en presupuestos.
  */
 
+import { coberturaPorGenerador, leerGeneradoresDeTexto, vectorCanonico, pctTexto } from './coberturaGeneradores.js';
+
+
 // ============================================================================
 // GRADOS DÍA DE CALEFACCIÓN (HDD) - Base 15°C (método CTE)
 // ============================================================================
@@ -1280,7 +1283,7 @@ export function calculateRes080Simplificado({
 // El factor de paso se sigue usando, pero solo para CONTRASTAR: energía × factor tiene
 // que reproducir la tabla de emisiones del propio certificado. Medido sobre un CEE real:
 // 36,91 × 0,331 = 12,22 y 26,91 × 0,311 = 8,37, las dos filas exactas del PDF.
-function res080DesdeEnergiaFinal({ vecIni, vecFin, supIni, supFin, emiDeclaradas }) {
+function res080DesdeEnergiaFinal({ vecIni, vecFin, supIni, supFin, emiDeclaradas, combRealIni, combRealFin, coberturaIni, coberturaFin }) {
     // Agrega los vectores de un lado en los dos grupos que pinta la tabla.
     const agrupa = (vec) => {
         const lista = Object.values(vec || {});
@@ -1315,10 +1318,58 @@ function res080DesdeEnergiaFinal({ vecIni, vecFin, supIni, supFin, emiDeclaradas
     const totalEnergiaInicialAno = totalEnergiaInicialM2 * supIni;
     const totalEnergiaFinalAno = totalEnergiaFinalM2 * supFin;
 
-    const nombreDe = (g) => g.nombres.length === 0 ? '—' : g.nombres.join(' + ');
-    const lado = (g) => ({
-        fuelIni: nombreDe(g), factorIni: g.factor, emissionsIni: g.emisiones, energyIni: g.energia,
-    });
+    // El nombre de la fila «otros combustibles». Con la COBERTURA leída del .xml cada
+    // vector dice qué parte de qué demanda cubre, y el que no tiene generador detrás se
+    // nombra como lo que es: el sistema por defecto de CE3X (26RES080_78: pellets 40 % +
+    // gas natural 60 %, que CE3X pone para la calefacción que la estufa no cubre). Cuenta
+    // —está en la energía final del certificado—, pero sin decirlo parece el combustible
+    // real. Sin cobertura (CEE antiguo sin .xml), se conserva lo de antes.
+    const ABREV = { cal: 'calef.', acs: 'ACS', ref: 'refrig.' };
+    const nombreDe = (g, real, cob) => {
+        if (g.nombres.length === 0) return '—';
+        if (cob?.servicios?.length) {
+            const partes = g.nombres.map((n) => {
+                const vec = vectorCanonico(n);
+                const filas = cob.servicios.flatMap((s) => s.filas
+                    .filter((f) => f.vector === vec)
+                    .map((f) => ({ ...f, servicio: s.key })));
+                const pcts = filas.filter((f) => f.pct !== null)
+                    .map((f) => `${pctTexto(f.pct)} ${ABREV[f.servicio]}`).join(', ');
+                const defecto = filas.length > 0 && filas.every((f) => f.porDefecto);
+                return { texto: `${canonCombustible(vec)}${pcts ? ` · ${pcts}` : ''}${defecto ? ' (sistema ficticio por defecto)' : ''}`, defecto };
+            });
+            // El combustible con generador primero; el de CE3X, detrás.
+            return [...partes.filter((p) => !p.defecto), ...partes.filter((p) => p.defecto)].map((p) => p.texto).join(' + ');
+        }
+        const r = real ? String(canonCombustible(real)).toLowerCase() : null;
+        if (!r || g.nombres.length < 2) return g.nombres.join(' + ');
+        const esReal = (n) => String(canonCombustible(n)).toLowerCase() === r;
+        if (!g.nombres.some(esReal)) return g.nombres.join(' + ');
+        return [
+            ...g.nombres.filter(esReal),
+            ...g.nombres.filter((n) => !esReal(n)).map((n) => `${n} (sistema ficticio por defecto)`),
+        ].join(' + ');
+    };
+    // Cada fila de la cobertura con su factor de paso y sus emisiones (energía × factor):
+    // así se ve de dónde sale cada kgCO₂ de la calificación, y la suma de los no
+    // eléctricos tiene que dar las «emisiones por otros combustibles» del certificado.
+    const decorar = (cob) => {
+        if (!cob) return null;
+        return {
+            ...cob,
+            servicios: cob.servicios.map((s) => ({
+                ...s,
+                filas: s.filas.map((f) => {
+                    const factor = FACTORES_PASO[canonCombustible(f.vector)];
+                    return {
+                        ...f,
+                        factor: factor ?? null,
+                        emisiones: factor !== undefined ? f.energia * factor : null,
+                    };
+                }),
+            })),
+        };
+    };
 
     // Contraste con la tabla de emisiones que imprime el propio certificado. Que los dos
     // números concuerden es la mejor prueba de que la lectura es correcta; se expone para
@@ -1353,8 +1404,8 @@ function res080DesdeEnergiaFinal({ vecIni, vecFin, supIni, supFin, emiDeclaradas
                 energyFin: gFin.elec.energia,
             },
             otros: {
-                fuelIni: nombreDe(gIni.otros),
-                fuelFin: nombreDe(gFin.otros),
+                fuelIni: nombreDe(gIni.otros, combRealIni, coberturaIni),
+                fuelFin: nombreDe(gFin.otros, combRealFin, coberturaFin),
                 fuelIniAplica: gIni.otros.energia > 0,
                 fuelFinAplica: gFin.otros.energia > 0,
                 factorIni: gIni.otros.factor,
@@ -1365,6 +1416,11 @@ function res080DesdeEnergiaFinal({ vecIni, vecFin, supIni, supFin, emiDeclaradas
                 energyFin: gFin.otros.energia,
             },
         },
+        // Qué parte de cada demanda cubre cada generador (y el sistema por defecto de
+        // CE3X), deducido del .xml. null si no hay generadores que leer.
+        cobertura: (coberturaIni || coberturaFin)
+            ? { inicial: decorar(coberturaIni), final: decorar(coberturaFin) }
+            : null,
         // Desglose completo (vector × uso) para que el certificado lo pueda enseñar.
         vectores: {
             inicial: Object.values(vecIni || {}),
@@ -1390,6 +1446,7 @@ function res080DesdeEnergiaFinal({ vecIni, vecFin, supIni, supFin, emiDeclaradas
 //      necesita saber cuál es el único combustible no eléctrico del edificio.
 export function calculateRes080SimplificadoFromXml({
     xmlInicial, xmlFinal,
+    xmlTextoInicial, xmlTextoFinal,
     combOtrosIni, combOtrosFin,
     superficieCustom, superficieInicial, superficieFinal
 }) {
@@ -1399,10 +1456,21 @@ export function calculateRes080SimplificadoFromXml({
     const supFin = parseFloat(superficieFinal) || parseFloat(superficieCustom) || xmlFinal.superficieHabitable || supBase;
 
     if (xmlInicial.energiaFinalVectores && xmlFinal.energiaFinalVectores) {
+        // Los generadores: del .xml crudo si viene (es lo que trae el expediente, y vale
+        // para los CEE subidos antes de que el parser los guardara), si no del parseado.
+        const cobertura = (xml, texto) => coberturaPorGenerador({
+            vectores: xml.energiaFinalVectores,
+            demanda: { cal: xml.demandaCalefaccion, acs: xml.demandaACS, ref: xml.demandaRefrigeracion },
+            generadores: texto ? leerGeneradoresDeTexto(texto) : xml.generadores,
+        });
         return res080DesdeEnergiaFinal({
             vecIni: xmlInicial.energiaFinalVectores,
             vecFin: xmlFinal.energiaFinalVectores,
             supIni, supFin,
+            coberturaIni: cobertura(xmlInicial, xmlTextoInicial),
+            coberturaFin: cobertura(xmlFinal, xmlTextoFinal),
+            combRealIni: xmlInicial.combustibleOtros,
+            combRealFin: xmlFinal.combustibleOtros,
             emiDeclaradas: {
                 elecIni: xmlInicial.emisionesConsumoElectrico, otrosIni: xmlInicial.emisionesConsumoOtros,
                 elecFin: xmlFinal.emisionesConsumoElectrico, otrosFin: xmlFinal.emisionesConsumoOtros,

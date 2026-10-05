@@ -220,6 +220,7 @@ async function computeRes080Results(exp) {
         // el propio certificado (<EmisionesCO2><ConsumoElectrico>/<ConsumoOtros>).
         res080 = calculateRes080SimplificadoFromXml({
             xmlInicial: cee.cee_inicial, xmlFinal: cee.cee_final,
+            xmlTextoInicial: cee.xml_inicial, xmlTextoFinal: cee.xml_final,
             combOtrosIni: cee.comb_otros_inicial, combOtrosFin: cee.comb_otros_final,
             superficieCustom: cee.superficie_custom,
         });

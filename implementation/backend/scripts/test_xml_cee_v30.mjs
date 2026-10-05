@@ -118,6 +118,8 @@ const CLAVES_PARSE = [
     'combustibleRefrigeracion', 'combustibleOtros', 'energiaFinalVectores',
     'epnrConsumo', 'epnrLetra', 'epnrEscala', 'emisionesLetra', 'emisionesEscala',
     'combustibleCalefaccion', 'combustibleACS', 'huecos', 'opacos',
+    // 2026-10-05: los generadores con su rendimiento (coberturaGeneradores.js).
+    'generadores',
 ];
 const CLAVES_CONDICIONALES = new Set(['combustibleCalefaccion', 'combustibleACS']);
 /** ¿Son las claves del v2.0, en su orden, con o sin las condicionales? */
@@ -549,7 +551,9 @@ const LECTORES_V20 = {
     radiografiaXml: (buf, txt, mayus) => radiografiaXml(mayus ? txt : buf),
     leerCalificacionesDeTexto: (buf, txt) => parser.leerCalificacionesDeTexto(txt),
     leerDatosIrpfDeTexto: (buf, txt) => parser.leerDatosIrpfDeTexto(txt),
-    parseCeeXml: (buf, txt) => parser.parseCeeXml(txt),
+    // Sin `generadores` (clave AÑADIDA el 2026-10-05): la huella sigue probando que
+    // todo lo de antes sale igual byte a byte; los generadores se prueban aparte.
+    parseCeeXml: (buf, txt) => { const { generadores, ...resto } = parser.parseCeeXml(txt); void generadores; return resto; },
     parseEpnrFromXml: (buf, txt) => parser.parseEpnrFromXml(txt),
     parseEmisionesTotalesFromXml: (buf, txt) => parser.parseEmisionesTotalesFromXml(txt),
 };

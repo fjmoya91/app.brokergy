@@ -24,6 +24,7 @@ import { fileURLToPath } from 'url';
 import puppeteer from 'puppeteer';
 import { deriveRes080Data, buildRes080Html } from '../../frontend/src/features/expedientes/logic/res080Doc.js';
 import { ACLARACION_MAX } from '../../frontend/src/features/expedientes/logic/hitosActuacion.js';
+import { calculateRes080SimplificadoFromXml } from '../../frontend/src/features/calculator/logic/calculation.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '../../frontend/public');
@@ -194,6 +195,38 @@ const results = {
     totalEnergiaInicialM2: 162.5, totalEnergiaFinalM2: 87.9,
 };
 
+// El método SIMPLIFICADO con la energía final DECLARADA lleva sus propias hojas
+// (justificación, desglose por vector y DEMANDA CUBIERTA POR CADA GENERADOR). Se
+// miden con los datos de 26RES080_78 —estufa de pellets al 40 % y el 60 % de gas
+// natural por defecto de CE3X— y con un caso más cargado: tres generadores de
+// calefacción, el ACS repartido y la refrigeración por defecto, en las dos fases.
+const vec = (nombre, vectorXml, cal, acs, ref, esElectrico = false) => ({ nombre, vectorXml, calefaccion: cal, acs, refrigeracion: ref, iluminacion: 0, global: cal + acs + ref, esElectrico });
+const gen = (servicio, nombre, vector, eta) => ({ servicios: [servicio], nombre, vector, eta, ficticio: false });
+const simplificado = (ini, fin) => calculateRes080SimplificadoFromXml({ xmlInicial: ini, xmlFinal: fin });
+const resultsOp78 = simplificado(
+    { superficieHabitable: 264, demandaCalefaccion: 186.94, demandaACS: 18.43, demandaRefrigeracion: 12.68,
+      emisionesConsumoElectrico: 8.2, emisionesConsumoOtros: 34.16, combustibleOtros: 'Biomasa densificada (pelets)',
+      energiaFinalVectores: { a: vec('GAS NATURAL', 'GASNATURAL', 121.92, 0, 0), b: vec('Electricidad peninsular', 'ElectricidadPeninsular', 0, 18.43, 6.34, true), c: vec('BIOMASA DENSIFICADA (PELETS)', 'BIOMASAPELLET', 190.76, 0, 0) },
+      generadores: [gen('cal', 'ESTUFA PELLETS VERTEX DINA 9', 'BiomasaPellet', 0.39), gen('acs', 'CALENTADOR ELÉCTRICO SIMAT', 'ElectricidadPeninsular', 1)] },
+    { superficieHabitable: 264, demandaCalefaccion: 154.23, demandaACS: 18.43, demandaRefrigeracion: 9.29,
+      emisionesConsumoElectrico: 18.79, emisionesConsumoOtros: 0,
+      energiaFinalVectores: { b: vec('Electricidad peninsular', 'ElectricidadPeninsular', 33.68, 18.43, 4.65, true) },
+      generadores: [gen('cal', 'AEROTERMIA SH MASTER 14', 'ElectricidadPeninsular', 4.58), gen('acs', 'CALENTADOR ELÉCTRICO SIMAT', 'ElectricidadPeninsular', 1)] },
+);
+const resultsCargado = simplificado(
+    { superficieHabitable: 180, demandaCalefaccion: 200, demandaACS: 25, demandaRefrigeracion: 15,
+      emisionesConsumoElectrico: 12, emisionesConsumoOtros: 40,
+      energiaFinalVectores: { a: vec('GAS NATURAL', 'GASNATURAL', 108.7, 0, 0), b: vec('Electricidad peninsular', 'ElectricidadPeninsular', 20, 12.5, 7.5, true), c: vec('BIOMASA DENSIFICADA (PELETS)', 'BIOMASAPELLET', 80, 0, 0), d: vec('GASOLEO C', 'GasoleoC', 50, 13.9, 0) },
+      generadores: [gen('cal', 'CALDERA DE GASÓLEO ROCA P-30 CON NOMBRE LARGO DE FÁBRICA', 'GasoleoC', 0.8), gen('cal', 'ESTUFA DE PELLETS DEL SALÓN', 'BiomasaPellet', 0.5), gen('cal', 'RADIADORES ELÉCTRICOS', 'ElectricidadPeninsular', 1),
+                    gen('acs', 'CALDERA DE GASÓLEO ROCA P-30 CON NOMBRE LARGO DE FÁBRICA', 'GasoleoC', 0.9), gen('acs', 'TERMO ELÉCTRICO', 'ElectricidadPeninsular', 1)] },
+    { superficieHabitable: 180, demandaCalefaccion: 140, demandaACS: 25, demandaRefrigeracion: 15,
+      emisionesConsumoElectrico: 15, emisionesConsumoOtros: 0,
+      energiaFinalVectores: { b: vec('Electricidad peninsular', 'ElectricidadPeninsular', 35, 8, 7.5, true) },
+      generadores: [gen('cal', 'AEROTERMIA', 'ElectricidadPeninsular', 4), gen('acs', 'AEROTERMIA', 'ElectricidadPeninsular', 3.125)] },
+);
+casos.push(['Simplificado · E. final declarada · defecto CE3X (26RES080_78)', base(), { results: resultsOp78 }]);
+casos.push(['Simplificado · E. final declarada · 3 generadores + defecto', base(), { results: resultsCargado }]);
+
 const browser = await puppeteer.launch({ headless: 'new' });
 const page = await browser.newPage();
 await page.setViewport({ width: 900, height: 1200 });
@@ -220,7 +253,7 @@ page.on('request', (req) => {
 let malos = 0;
 
 for (const [nombre, exp, opts = {}] of casos) {
-    const data = deriveRes080Data({ expediente: exp, results });
+    const data = deriveRes080Data({ expediente: exp, results: opts.results || results });
     await page.setContent(buildRes080Html({ data, appUrl: APP_URL, isForPdf: true, placaAcs: opts.placaAcs || null }), { waitUntil: 'load' });
     await page.evaluate(async () => {
         for (const w of [400, 500, 600, 700]) await document.fonts.load(`${w} 12.5px 'Instrument Sans'`);

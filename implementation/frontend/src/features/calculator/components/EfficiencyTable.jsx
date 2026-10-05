@@ -69,6 +69,7 @@ export const CATEGORIES_SIMPLIFICADO = [
 export function EfficiencyTable({ res080, editable = false, onFuelChange = null, onEmissionChange = null, emissionDraft = null, superficieDraft = null, onSuperficieChange = null, categories = DEFAULT_CATEGORIES }) {
     if (!res080 || !res080.details) return null;
 
+    const declarada = res080.fuenteDatos === 'energia_final_declarada';
     const { details, totalEnergiaInicialM2, totalEnergiaFinalM2, totalEnergiaInicialAno, totalEnergiaFinalAno, ahorroEnergiaFinalTotal } = res080;
 
     const formatDec = (val, decimals = 2) => {
@@ -99,6 +100,11 @@ export function EfficiencyTable({ res080, editable = false, onFuelChange = null,
         // elegir: sin consumo, el factor de paso no se aplica a nada. En cuanto se teclee
         // una emisión (modo manual) el desplegable vuelve solo.
         if (aplica === false) return <span className="italic font-normal opacity-60">No aplica</span>;
+        // Con la energía final LEÍDA del certificado no hay combustible que elegir: cada
+        // vector viene por separado y en kWh (`value` puede ser varios: "PELLETS + GAS
+        // NATURAL"). Un <select> ahí enseñaba "Gasoleo Calefacción" —la primera opción,
+        // porque el valor no está en la lista— y lo que se eligiera no movía nada.
+        if (declarada) return <span className="block text-[11px] leading-snug break-words whitespace-normal">{value}</span>;
         if (!editable || !onFuelChange) return <span>{value}</span>;
         return (
             <select

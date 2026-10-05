@@ -6,6 +6,7 @@ import { ceeToColumn } from '../../calculator/logic/ceeSeed';
 import CeeUploadModal from '../../cee/CeeUploadModal';
 import { ceeToXmlShape } from '../../cee/ceeExtract';
 import { EfficiencyTable, CATEGORIES_SIMPLIFICADO } from '../../calculator/components/EfficiencyTable';
+import { CoberturaGeneradores } from '../../calculator/components/CoberturaGeneradores';
 import { CeeDocumentsGrid } from './CeeDocumentsGrid';
 import { AvisoIrpfEpnr } from './AvisoIrpfEpnr';
 import { CeeAnteriorCliente } from './CeeAnteriorCliente';
@@ -677,6 +678,8 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 return calculateRes080SimplificadoFromXml({
                     xmlInicial: local.cee_inicial,
                     xmlFinal: local.cee_final,
+                    xmlTextoInicial: local.xml_inicial,
+                    xmlTextoFinal: local.xml_final,
                     combOtrosIni: local.comb_otros_inicial,
                     combOtrosFin: local.comb_otros_final,
                     superficieCustom: local.superficie_custom,
@@ -1211,6 +1214,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                         superficieDraft={isManualSource ? supDraft : undefined}
                         onSuperficieChange={isManualSource ? handleSuperficieChange : undefined}
                     />
+                    {esSimplificado && esDeclarada && <CoberturaGeneradores res080={res080Data} />}
                 </div>
             ) : (
                 <div className="p-20 text-center bg-white/[0.01] border border-dashed border-white/10 rounded-[3rem] max-md:p-8 max-md:rounded-2xl">
