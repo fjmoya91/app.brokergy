@@ -32,6 +32,15 @@ export const SLOTS = {
     certificado_cae:        { label: 'Certificado CAE emitido', multiple: false, firmable: false },
 };
 
+// La Solicitud de Verificación que VALE es la que se descarga de la web del
+// verificador una vez creada allí. La que compone la app (al generarla o al
+// enviarla por API) se archiva marcada con este origen y NO sirve para mandar
+// a firmar al S.O. Espejo de `routes/lotes.js` (ORIGEN_SOLICITUD_APP).
+export const ORIGEN_SOLICITUD_APP = 'generada por la app';
+export const solicitudGeneradaPorApp = (d) => !!d && d.origen === ORIGEN_SOLICITUD_APP;
+// Una ya FIRMADA por el S.O. se respeta: el trámite ya pasó por ella.
+export const solicitudValida = (d) => !!d && (!solicitudGeneradaPorApp(d) || !!d.signed_link);
+
 // Documentos que firma el Sujeto Obligado en la fase 2.
 const esDocSo = (d) => !!d && (d.key === 'anexo_i' || d.key === 'solicitud_verificacion' || String(d.key || '').startsWith('ficha_'));
 
@@ -45,6 +54,7 @@ export function analizarProceso(lote) {
     const porTipo = (t) => docs.filter(d => d && d.tipo === t);
 
     const solicitud = byKey('solicitud_verificacion');
+    const solicitudOk = solicitudValida(solicitud);
     const anexo = byKey('anexo_i');
     const fichas = porTipo('ficha_res');
     const oferta = byKey('oferta_verificacion');
@@ -73,7 +83,7 @@ export function analizarProceso(lote) {
         {
             n: 1,
             titulo: 'Solicitud al verificador',
-            hecha: !!solicitud,
+            hecha: solicitudOk,
             bloqueo: null,
             docs: [solicitud].filter(Boolean),
         },
@@ -81,7 +91,8 @@ export function analizarProceso(lote) {
             n: 2,
             titulo: 'Firma del Sujeto Obligado',
             hecha: soFirmado,
-            bloqueo: solicitud ? null : 'Sube antes la solicitud de verificación (el borrador: la firma el S.O. aquí, en el paso 2).',
+            bloqueo: solicitudOk ? null
+                : 'Sube antes la Solicitud de Verificación descargada de la web del verificador: la firma el S.O. aquí, con el Anexo I. La que genera la app no vale.',
             docs: [anexo, ...fichas].filter(Boolean),
         },
         {
@@ -116,7 +127,7 @@ export function analizarProceso(lote) {
     const actual = fases.find(f => !f.hecha && !f.bloqueo) || fases.find(f => !f.hecha) || null;
 
     return {
-        docs, solicitud, anexo, fichas, oferta, planVerificacion, inexactitudes,
+        docs, solicitud, solicitudOk, anexo, fichas, oferta, planVerificacion, inexactitudes,
         informeVerificacion, dictamen, facturaVerificador,
         justificanteMiteco, requerimientosGa, certificadoCae, facturaSo,
         soEnviado, soFirmado, ofertaEnviada, ofertaFirmada, verificado, caeEmitido,

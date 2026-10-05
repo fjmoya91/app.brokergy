@@ -941,6 +941,8 @@ router.post('/:id/documentos/:slot', staffOnly, async (req, res) => {
                 sent_at: null,
                 signed_at: null,
                 uploaded_at: nowIso(),
+                // Subida a mano = la descargada de la web del verificador.
+                ...(slot === 'solicitud_verificacion' ? { origen: ORIGEN_SOLICITUD_VERIFICADOR } : {}),
             };
         if (idx >= 0) docs[idx] = entrada; else docs.push(entrada);
 
@@ -1526,6 +1528,17 @@ router.post('/:id/ahorros-verificados', adminOnly, async (req, res) => {
 // Anexo I y las fichas. Por eso NUNCA pisa una entrada que ya venga firmada — ahí
 // el reemplazo tiene que decidirlo una persona con el botón "Reemplazar".
 // Devuelve { archivada: bool, motivo?: string, documento? }.
+// ─── La solicitud que VALE es la del VERIFICADOR ────────────────────────────────
+// La que firma el S.O. con el Anexo I tiene que ser la que se DESCARGA de la web
+// del verificador una vez creada allí (lleva su nº de solicitud y su formato). La
+// que compone la app —al generarla o al enviarla por API— se archiva como
+// referencia, pero NO sirve para mandar a firmar: es impepinable. Se distingue
+// por `origen`; una entrada sin origen viene de una subida a mano (anterior a
+// esta marca) y se da por buena.
+const ORIGEN_SOLICITUD_APP = 'generada por la app';
+const ORIGEN_SOLICITUD_VERIFICADOR = 'descargada del verificador';
+const solicitudGeneradaPorApp = (d) => !!d && d.origen === ORIGEN_SOLICITUD_APP;
+
 async function archivarSolicitudBorrador(lote, pdf, { usuario = 'SISTEMA' } = {}) {
     if (!pdf || !pdf.length) return { archivada: false, motivo: 'sin PDF' };
 
@@ -1535,6 +1548,10 @@ async function archivarSolicitudBorrador(lote, pdf, { usuario = 'SISTEMA' } = {}
     const idx = docs.findIndex(d => d?.key === 'solicitud_verificacion');
     if (idx >= 0 && docs[idx].signed_link) {
         return { archivada: false, motivo: 'la solicitud del lote ya está firmada', documento: docs[idx] };
+    }
+    // La descargada del verificador MANDA: la de la app nunca la pisa.
+    if (idx >= 0 && !solicitudGeneradaPorApp(docs[idx])) {
+        return { archivada: false, motivo: 'el lote ya tiene la solicitud descargada del verificador', documento: docs[idx] };
     }
 
     const docsFolder = await ensureLoteDocsFolder(lote);
@@ -1561,7 +1578,7 @@ async function archivarSolicitudBorrador(lote, pdf, { usuario = 'SISTEMA' } = {}
         sent_at: (idx >= 0 ? docs[idx].sent_at : null) || null,
         signed_at: null,
         uploaded_at: nowIso(),
-        origen: 'generada por la app',
+        origen: ORIGEN_SOLICITUD_APP,
     };
     if (idx >= 0) docs[idx] = entrada; else docs.push(entrada);
 
@@ -2286,6 +2303,21 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
         if (error) throw error;
         if (!lote) return res.status(404).json({ error: 'Lote no encontrado' });
 
+        // 0) SIN la solicitud DESCARGADA DEL VERIFICADOR no sale nada. Es uno de los
+        //    papeles que el S.O. firma en esta ronda, y la que compone la app no vale.
+        //    Va ANTES de tocar Drive: un envío rechazado no puede dejar las carpetas
+        //    de los expedientes ya movidas.
+        const solActual = (Array.isArray(lote.documentos_so) ? lote.documentos_so : [])
+            .find(d => d?.key === 'solicitud_verificacion') || null;
+        const traeSolicitud = !!(solicitud && solicitud.base64);
+        if (!traeSolicitud && (!solActual || (solicitudGeneradaPorApp(solActual) && !solActual.signed_link))) {
+            return res.status(400).json({
+                error: solActual
+                    ? 'La Solicitud de Verificación del lote es la que generó la app, y esa no vale: sube la que se descarga de la web del verificador.'
+                    : 'Falta la Solicitud de Verificación descargada de la web del verificador.',
+            });
+        }
+
         // 1) Carpeta del lote (padre = "07. ENVIADOS A VERIFICAR") + su subcarpeta de
         //    documentación, donde van los papeles de nivel lote.
         const folderId = await ensureLoteFolder(lote);
@@ -2398,6 +2430,7 @@ router.post('/:id/enviar-so', staffOnly, async (req, res) => {
                 key: 'solicitud_verificacion', tipo: 'solicitud_verificacion',
                 expediente_id: null, exp_folder_id: null, label: 'Solicitud de Verificación',
                 file_name: fileName,
+                origen: ORIGEN_SOLICITUD_VERIFICADOR,
                 rev,
                 anchor: ['solicitante', 'fdo', 'firma'],
                 fixedBox: solicitud.fixedBox || null,

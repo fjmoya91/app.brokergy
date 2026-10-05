@@ -14,6 +14,7 @@ import { EnviarLoteDocModal } from './EnviarLoteDocModal';
 import { deriveSoEnvio, CC_BROKERGY, representanteElegido } from '../logic/soContactos';
 import { FirmantePicker } from './FirmantePicker';
 import { docParaEnvio } from '../logic/docEnvio';
+import { solicitudValida } from '../logic/loteProceso';
 
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
@@ -62,10 +63,14 @@ Cuando tengamos la oferta del verificador formal os la enviamos para su firma.
 Un saludo.`.replace(/ ,/g, ',');
     const numFichas = (lote.expedientes || []).length;
     // Solicitud ya subida en la fase 1 del proceso: el backend la reutiliza de Drive.
-    const solicitudYaSubida = useMemo(
+    // Solo cuenta la DESCARGADA DEL VERIFICADOR: la que compone la app se archiva
+    // como referencia pero no vale para que la firme el S.O. (el backend lo repite).
+    const solicitudLote = useMemo(
         () => (lote.documentos_so || []).find(d => d && d.key === 'solicitud_verificacion') || null,
         [lote.documentos_so]
     );
+    const solicitudYaSubida = solicitudValida(solicitudLote) ? solicitudLote : null;
+    const solicitudDeLaApp = !!solicitudLote && !solicitudYaSubida;
     const [sendOpen, setSendOpen] = useState(false);
     const [solicitud, setSolicitud] = useState(null);   // { name, base64 }
     const [solicitudErr, setSolicitudErr] = useState('');
@@ -177,7 +182,12 @@ Un saludo.`.replace(/ ,/g, ',');
                 NIF impresos en cada ficha que se manda a firmar. */}
             <FirmantePicker representantes={representantes} value={firmanteId} onChange={setFirmanteId} />
             <div>
-                <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Solicitud de Verificación (PDF)</label>
+                <label className="block text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-2">Solicitud de Verificación descargada del verificador (PDF)</label>
+                {solicitudDeLaApp && !solicitud && (
+                    <p className="mb-2 text-[10px] text-amber-300/90">
+                        La que hay en el lote es la que generó la app, y no vale: sube la que se descarga de la web del verificador.
+                    </p>
+                )}
                 {/* Si ya se subió en la fase 1 del proceso, no hay que volver a adjuntarla:
                     el backend la coge de Drive y la mete en el email y en la firma en cadena. */}
                 {solicitudYaSubida && !solicitud ? (
@@ -303,7 +313,9 @@ Un saludo.`.replace(/ ,/g, ',');
     const confirmAntesDeEnviar = async () => {
         if (!solicitud && !solicitudYaSubida) {
             showAlert(
-                `Falta la Solicitud de Verificación (PDF). Adjúntala aquí abajo, o súbela en el paso 1 del proceso del lote.
+                `${solicitudDeLaApp
+                    ? 'La Solicitud de Verificación del lote es la que generó la app, y esa no vale.'
+                    : 'Falta la Solicitud de Verificación.'} Adjunta aquí abajo la que se descarga de la web del verificador, o súbela en el paso 1 del proceso del lote.
 
 Es uno de los tres documentos que el S.O. firma en esta misma ronda: si el lote sale sin ella, hay que volver a pedirle firma solo para ese papel.`,
                 'No se puede enviar sin la solicitud',

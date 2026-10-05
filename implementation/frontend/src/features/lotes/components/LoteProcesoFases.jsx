@@ -54,8 +54,14 @@ export const estadoDeDoc = (doc) => {
     return 'borrador';
 };
 
+// Un papel que llega de FUERA y no se firma (plan, informes, dictamen, certificado
+// CAE) no es un "borrador": está recibido y guardado, y no le queda ningún paso.
+const GUARDADO = { label: 'Guardado', cls: 'bg-emerald-500/[0.06] text-emerald-400/70 border-emerald-500/20' };
+
 const EstadoPill = ({ doc }) => {
-    const e = ESTADOS_DOC[estadoDeDoc(doc)];
+    const estado = estadoDeDoc(doc);
+    const cfg = SLOTS[doc?.tipo];
+    const e = (estado === 'borrador' && cfg && !cfg.firmable && !cfg.importe) ? GUARDADO : ESTADOS_DOC[estado];
     return <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border shrink-0 ${e.cls}`}>{e.label}</span>;
 };
 
@@ -67,7 +73,7 @@ const esFirmable = (doc) => TIPOS_FIRMABLES.includes(doc?.tipo);
 // SUBFILA propia en cian/verde: son dos cosas distintas (lo que mandamos y lo que
 // nos devolvieron) y antes se confundían en un solo enlace.
 const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, onValidar = null,
-    onMarcarPagada = null, onJustificantePago = null, ocupado = false }) => {
+    onMarcarPagada = null, onJustificantePago = null, onReemplazar = null, ocupado = false, children = null }) => {
     const fecha = fmtFecha(doc.sent_at) || fmtFecha(doc.uploaded_at);
     const estado = estadoDeDoc(doc);
     return (
@@ -104,12 +110,27 @@ const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, on
                         <a href={doc.draft_link} target="_blank" rel="noopener noreferrer"
                             className="px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider text-white/40 hover:text-white hover:bg-white/5 transition-all">Ver</a>
                     )}
+                    {/* Reemplazar es gestionar ESTE documento, así que va en su fila y
+                        no como un botón suelto de la fase. */}
+                    {onReemplazar && (
+                        <label title="Sustituir por otro PDF"
+                            className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ${
+                                ocupado ? 'opacity-40 cursor-not-allowed text-white/30' : 'cursor-pointer text-white/40 hover:text-white hover:bg-white/5'}`}>
+                            ↻
+                            <input type="file" accept="application/pdf" className="hidden" disabled={ocupado}
+                                onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onReemplazar(f); }} />
+                        </label>
+                    )}
                     {onBorrar && (
                         <button type="button" onClick={onBorrar} title="Quitar del lote"
                             className="px-1.5 py-1 rounded-lg text-[11px] text-white/20 hover:text-red-400 transition-all">✕</button>
                     )}
                 </div>
             </div>
+
+            {/* Lo que la app ha LEÍDO de este documento (ahorros, nº de dictamen,
+                códigos CAE…) va pegado a él: es su gestión, no una tarea de la fase. */}
+            {children && <div className="mx-3 mb-2.5 space-y-1.5">{children}</div>}
 
             {/* Lo que nos han DEVUELTO firmado, en su propia línea. */}
             {doc.signed_link && (
@@ -121,6 +142,16 @@ const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, on
                     <span className="text-[9px] text-white/30">{fmtFecha(doc.signed_at) || ''}</span>
                     <a href={doc.signed_link} target="_blank" rel="noopener noreferrer"
                         className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider text-white/50 hover:text-white hover:bg-white/5 transition-all">Abrir</a>
+                    {/* Sustituir el firmado es gestión DE ESTE firmado: va en su línea. */}
+                    {onSubirFirmado && (
+                        <label title="Sustituir el firmado por otro PDF"
+                            className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider transition-all ${
+                                ocupado ? 'opacity-40 cursor-not-allowed text-white/30' : 'cursor-pointer text-white/35 hover:text-white hover:bg-white/5'}`}>
+                            ↻ Sustituir
+                            <input type="file" accept="application/pdf" className="hidden" disabled={ocupado}
+                                onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onSubirFirmado(f); }} />
+                        </label>
+                    )}
                     <div className="flex-1" />
                     {doc.validado_at ? (
                         <span className="text-[9px] text-emerald-400/70 font-bold">
@@ -171,12 +202,10 @@ const Fila = ({ doc, acciones = null, onBorrar = null, onSubirFirmado = null, on
                 </div>
             )}
 
-            {(acciones || onSubirFirmado || (!doc.pagado_at && (onMarcarPagada || onJustificantePago))) && (
+            {(acciones || (onSubirFirmado && !doc.signed_link) || (!doc.pagado_at && (onMarcarPagada || onJustificantePago))) && (
                 <div className="px-3 pb-2.5 flex items-center gap-2 flex-wrap">
-                    {onSubirFirmado && (
-                        <BotonSubir disabled={ocupado} onFile={onSubirFirmado}>
-                            {doc.signed_link ? '↻ Reemplazar firmado' : '↑ Subir firmado'}
-                        </BotonSubir>
+                    {onSubirFirmado && !doc.signed_link && (
+                        <BotonSubir disabled={ocupado} onFile={onSubirFirmado}>↑ Subir firmado</BotonSubir>
                     )}
                     {/* Dos caminos al mismo sitio: con el justificante delante se
                         sube (y eso ya la da por pagada — el papel es la prueba), y
@@ -288,6 +317,82 @@ const BotonAccion = ({ children, onClick, disabled, title, tono = 'brand' }) => 
         {children}
     </button>
 );
+
+// Botón pequeño para una acción SOBRE un documento (enviarlo, reenviarlo). Va en
+// la fila del documento, con el mismo tamaño que "Subir firmado" o "Marcar OK".
+const BotonFila = ({ children, onClick, disabled, title }) => (
+    <button type="button" onClick={onClick} disabled={disabled} title={title}
+        className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider border border-brand/30 bg-brand/10 text-brand hover:bg-brand/20 disabled:opacity-40 transition-all">
+        {children}
+    </button>
+);
+
+// ─── Un documento que el trámite ESPERA y todavía no está ────────────────────
+// Antes cada documento pendiente era un botón "↑ Subir X" suelto entre las
+// acciones de la fase —mezclado con "Generar…" o "Comprobar…"—, así que no se
+// distinguía lo que hay que HACER de lo que hay que TRAER, ni se veía qué papeles
+// faltaban. Ahora cada documento esperado tiene su fila esté o no esté: si falta,
+// la fila es un hueco punteado con su botón de subir, y se le puede soltar el PDF
+// encima. Al subirlo, el hueco pasa a ser la fila del documento en el mismo sitio.
+//
+// `requerido` cuenta como "falta" en la cabecera de la fase; `opcional` dice que
+// puede no llegar nunca (inexactitudes, requerimientos); sin ninguno de los dos,
+// es un papel que llega pero del que no depende el siguiente paso.
+// `onFile` null = no se sube: se genera con una acción de la fase (y lo dice `hint`).
+const Hueco = ({ label, hint = null, requerido = false, opcional = false, siguiente = false,
+    ocupado = false, textoOcupado = 'Subiendo…', arrastrando = false, onFile = null,
+    compacto = false, textoBoton = '↑ Subir PDF', children = null }) => {
+    const dnd = onFile ? {
+        // La suelta sobre la FILA gana a la de la fase (que es para los firmados):
+        // aquí se sabe exactamente qué documento es.
+        onDragOver: (e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.add(...RESALTE); },
+        onDragLeave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove(...RESALTE); },
+        onDrop: (e) => {
+            e.preventDefault(); e.stopPropagation();
+            e.currentTarget.classList.remove(...RESALTE);
+            const f = pdfsDe(e.dataTransfer?.files)[0];
+            if (f && !ocupado) onFile(f);
+        },
+    } : {};
+    const estado = requerido
+        ? (siguiente ? { t: 'Falta', c: 'bg-amber-500/10 text-amber-400 border-amber-500/30' }
+            : { t: 'Falta', c: 'bg-white/[0.04] text-white/40 border-white/10' })
+        : opcional ? { t: 'Opcional', c: 'bg-white/[0.02] text-white/25 border-white/[0.08]' }
+            : { t: 'Pendiente', c: 'bg-white/[0.02] text-white/30 border-white/[0.08]' };
+    if (compacto) {
+        return (
+            <div {...dnd} className={`rounded-xl border border-dashed px-3 py-1.5 flex items-center gap-2 transition-all ${
+                arrastrando && onFile ? 'border-brand/40' : 'border-white/[0.07]'}`}>
+                <span className="text-[10px] text-white/35 flex-1 min-w-0 truncate">{label}</span>
+                {onFile && (
+                    <BotonSubir disabled={ocupado} onFile={onFile}>{ocupado ? textoOcupado : textoBoton}</BotonSubir>
+                )}
+            </div>
+        );
+    }
+    return (
+        <div {...dnd} className={`rounded-xl border border-dashed transition-all ${
+            arrastrando && onFile ? 'border-brand/40 bg-brand/[0.03]'
+                : siguiente ? 'border-amber-500/30 bg-amber-500/[0.03]' : 'border-white/[0.08]'}`}>
+            <div className="flex items-center gap-3 px-3 py-2.5">
+                <svg className="w-4 h-4 text-white/15 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <div className="min-w-0 flex-1">
+                    <p className={`text-[11px] font-bold truncate ${siguiente ? 'text-white/70' : 'text-white/45'}`}>{label}</p>
+                    {hint && <p className="text-[9px] text-white/25">{arrastrando && onFile ? 'Suéltalo aquí' : hint}</p>}
+                </div>
+                <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border shrink-0 ${estado.c}`}>{estado.t}</span>
+                {onFile && (
+                    <BotonSubir disabled={ocupado} onFile={onFile} destacado={siguiente}>
+                        {ocupado ? textoOcupado : textoBoton}
+                    </BotonSubir>
+                )}
+            </div>
+            {children && <div className="px-3 pb-2.5 flex items-center gap-2 flex-wrap">{children}</div>}
+        </div>
+    );
+};
 
 // ─── Un aviso NO se repite por actuación ─────────────────────────────────────
 // El informe del paquete son cinco actuaciones con los MISMOS avisos, así que
@@ -476,6 +581,9 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
             onSubirFirmado: esFirmable(d) ? (f) => subirFirmado(d.key, f) : null,
             onValidar: (canSeeMargin && d.signed_link) ? (ok) => validar(d.key, ok) : null,
             onBorrar: (SLOTS[d.tipo] && !d.signed_link) ? () => borrar(d) : null,
+            // Sustituir el PDF: solo en los que se SUBEN y son uno por lote (los
+            // múltiples se añaden; los generados se rehacen desde su acción).
+            onReemplazar: (SLOTS[d.tipo] && !SLOTS[d.tipo].multiple) ? (f) => reemplazar(d, f) : null,
             onMarcarPagada: (canSeeMargin && esFactura) ? (ok) => marcarPagada(d.key, ok) : null,
             onJustificantePago: (canSeeMargin && esFactura) ? (f) => subirJustificantePago(d.key, f) : null,
         };
@@ -1006,39 +1114,87 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
         }
     };
 
-    // ── Cabecera de fase ──────────────────────────────────────────────────────
-    // Las fases YA HECHAS van PLEGADAS a una línea. Con las seis abiertas, un lote
-    // en la fase 5 obligaba a bajar por cuatro bloques de papeleo terminado para
-    // llegar a lo único accionable; el trámite tiene ~15 documentos y no cabía en
-    // una pantalla. Plegada, la fase sigue diciendo lo suyo (cuántos documentos
-    // tiene y si alguno está pendiente de revisar) y se abre con un clic.
+    // ── Subir a un slot, sea desde su hueco o para sustituirlo ───────────────
+    // Cada documento con lectura propia (solicitud, oferta, informe, dictamen,
+    // factura, certificado CAE) entra por SU función, que lee el PDF y propone el
+    // paso siguiente; el resto, por la subida genérica.
+    const SUBIDA_PROPIA = {
+        solicitud_verificacion: subirSolicitud,
+        oferta_verificacion: subirOferta,
+        informe_verificacion: subirInforme,
+        dictamen_favorable: subirDictamen,
+        factura_verificador: subirFacturaVerificador,
+        certificado_cae: subirCertificadoCae,
+    };
+    const subirSlot = (slot, file) => (SUBIDA_PROPIA[slot] || ((f) => subir(slot, f)))(file);
+
+    // Sustituir un documento que ya salió (o volvió firmado) empieza de cero: el
+    // backend reescribe la entrada sin envío ni firmado. Se pregunta antes.
+    async function reemplazar(d, file) {
+        if (d.sent_at || d.signed_link) {
+            const ok = await showConfirm(
+                `"${d.label || d.file_name}" ya se ${d.signed_link ? 'envió y volvió firmado' : 'envió'}.\n\n`
+                + 'Al sustituirlo por otro PDF empieza de cero: se pierde el registro del envío'
+                + (d.signed_link ? ' y el firmado' : '') + '.',
+                'Sustituir documento', 'warning');
+            if (!ok) return;
+        }
+        subirSlot(d.tipo, file);
+    }
+
+    // Texto del botón mientras se sube: los que se LEEN tardan más y lo dicen.
+    const TEXTO_SUBIENDO = {
+        informe_verificacion: 'Leyendo…', dictamen_favorable: 'Leyendo…',
+        factura_verificador: 'Leyendo…', certificado_cae: 'Leyendo…',
+    };
+
+    // Un documento ESPERADO: su fila si está, su hueco si falta. Se llama como
+    // función y no como <Componente/>: definido aquí dentro, React lo tomaría por
+    // un componente nuevo en cada render y desmontaría lo que lleva dentro (el
+    // campo del importe perdía el foco a cada tecla).
+    const docEsperado = ({ slot, doc, hint = null, requerido = false, opcional = false, siguiente = false,
+        extra = null, accionesDoc = null, enHueco = null, label = null }) => (
+        doc
+            ? <Fila key={doc.key} doc={doc} {...propsFila(doc)} acciones={accionesDoc}>{extra}</Fila>
+            : (
+                <Hueco key={`hueco_${slot}`} label={label || SLOTS[slot]?.label || slot} hint={hint}
+                    requerido={requerido} opcional={opcional} siguiente={siguiente}
+                    ocupado={subiendo === slot} textoOcupado={TEXTO_SUBIENDO[slot] || 'Subiendo…'}
+                    arrastrando={arrastrando} onFile={(f) => subirSlot(slot, f)}>
+                    {enHueco}
+                </Hueco>
+            )
+    );
+
+    // ── Una fase ──────────────────────────────────────────────────────────────
+    // Dos zonas, y no se mezclan:
+    //   · QUÉ HACER — lo que se pulsa para avanzar el trámite (generar, comprobar,
+    //     mandar a firmar). Botones llenos.
+    //   · DOCUMENTOS — los papeles que la fase espera, estén o no. Lo que se hace
+    //     CON un documento (verlo, sustituirlo, subir su firmado, darle el OK,
+    //     marcarlo pagado, releerlo) va en SU fila.
     //
-    // El plegado es solo VISUAL y se puede deshacer: los lotes viejos traen
-    // documentos firmados fuera de la app y hay que poder llegar a ellos siempre.
-    const Fase = ({ f, pendiente = false, soltar = null, pista = null, children }) => {
+    // Las fases YA HECHAS van PLEGADAS a una línea; plegada sigue diciendo lo suyo
+    // (cuántos documentos, si falta alguno, si hay algo por revisar). El plegado es
+    // solo VISUAL: los lotes viejos traen firmados de fuera y hay que llegar a ellos.
+    //
+    // Se llama como función (no <Fase/>) por lo mismo que `docEsperado`.
+    const faseBloque = ({ f, pendiente = false, soltar = null, pista = null, tareas = null,
+        docs = null, nota = null, faltan = 0 }) => {
         const esActual = p.faseActual === f.n;
         const bloqueada = !!f.bloqueo && !f.hecha;
-        const porRevisarN = (f.docs || []).filter(d => d?.signed_link && !d?.validado_at).length;
-        // Por defecto: abierta si es la actual, si aún no está hecha, o si le queda
-        // algo PENDIENTE aunque el papeleo esté completo — que es el caso de la
-        // fase 4, donde el informe y el dictamen ya están pero puede faltar el
-        // ahorro verificado o la factura del verificador. Plegar eso escondería
-        // justo lo único que hay que hacer. El override del usuario manda encima.
-        //
-        // Un firmado "por revisar" NO abre la fase: se anuncia en la línea plegada
-        // y desde ahí se ve que existe. Abrir la fase entera por un visto bueno
-        // devuelve el scroll que este plegado venía a quitar.
+        const porRevisar = (f.docs || []).filter(d => d?.signed_link && !d?.validado_at).length;
+        // Abierta si es la actual, si no está hecha, o si le queda algo PENDIENTE
+        // aunque el papeleo esté completo (fase 4: el ahorro verificado o la factura
+        // del verificador). Un firmado "por revisar" NO la abre: se anuncia plegada.
         const abierta = fasesAbiertas[f.n] !== undefined
             ? fasesAbiertas[f.n]
             : (esActual || !f.hecha || pendiente);
-        const porRevisar = porRevisarN;
-        // La fase ENTERA recibe la suelta (también plegada: no hay que abrirla
-        // para soltar). El resaltado se toca en el nodo, no por estado.
+        // La fase ENTERA recibe los firmados (también plegada). Las filas-hueco
+        // capturan su propia suelta antes que ella.
         const dnd = soltar ? {
             onDragOver: (e) => { e.preventDefault(); e.currentTarget.classList.add(...RESALTE); },
             onDragLeave: (e) => {
-                // `dragleave` salta también al pasar por encima de un hijo: solo
-                // cuenta si el puntero ha salido del bloque de verdad.
                 if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove(...RESALTE);
             },
             onDrop: (e) => {
@@ -1048,8 +1204,10 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                 if (fs.length) soltar(fs);
             },
         } : {};
+        const tareasVisibles = (tareas || []).filter(Boolean);
+        const docsVisibles = (docs || []).filter(Boolean);
         return (
-            <div {...dnd} className={`rounded-2xl border transition-all ${abierta ? 'p-4' : 'px-4 py-2.5'} ${
+            <div key={`fase_${f.n}`} {...dnd} className={`rounded-2xl border transition-all ${abierta ? 'p-4' : 'px-4 py-2.5'} ${
                 soltar && arrastrando ? 'border-dashed border-brand/45 bg-brand/[0.05]'
                     : f.hecha ? 'border-emerald-500/20 bg-emerald-500/[0.03]'
                         : esActual ? 'border-brand/30 bg-brand/[0.04]'
@@ -1067,12 +1225,14 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                         f.hecha ? 'text-emerald-400/80' : esActual ? 'text-white' : 'text-white/35'}`}>
                         {f.titulo}
                     </p>
-                    {/* Plegada, la fase tiene que seguir contando lo suyo: cuántos
-                        papeles guarda y, sobre todo, si hay algo esperando revisión
-                        —que es lo único de una fase terminada que aún pide acción. */}
-                    {!abierta && porRevisar > 0 && (
+                    {porRevisar > 0 && (
                         <span className="text-[9px] font-black uppercase tracking-wider text-cyan-300 shrink-0">
                             {porRevisar} por revisar
+                        </span>
+                    )}
+                    {!abierta && faltan > 0 && !bloqueada && (
+                        <span className="text-[9px] font-black uppercase tracking-wider text-amber-400/80 shrink-0">
+                            falta{faltan > 1 ? 'n' : ''} {faltan}
                         </span>
                     )}
                     {!abierta && (f.docs || []).length > 0 && (
@@ -1093,13 +1253,24 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
                     </svg>
                 </button>
                 {!abierta ? null : (
-                <div className="space-y-2 pl-8">
-                    {f.docs.map(d => <Fila key={d.key} doc={d} {...propsFila(d)} />)}
-                    {/* El aviso de "aún no toca" NO impide actuar: los lotes que vienen
-                        de antes de la app tienen documentos firmados fuera y hay que
-                        poder registrarlos igual. Se avisa, no se bloquea. */}
-                    {bloqueada && <p className="text-[10px] text-white/25 italic">{f.bloqueo}</p>}
-                    {children}
+                <div className="space-y-3 pl-8">
+                    {/* El aviso de "aún no toca" NO impide actuar: los lotes de antes
+                        de la app traen documentos de fuera y hay que poder
+                        registrarlos igual. Se avisa, no se bloquea. */}
+                    {bloqueada && <p className="text-[10px] text-white/30 italic">{f.bloqueo}</p>}
+                    {tareasVisibles.length > 0 && (
+                        <div className="space-y-1.5">
+                            <p className="text-[8px] font-black uppercase tracking-[0.2em] text-white/25">Qué hacer</p>
+                            <div className="flex items-center gap-2 flex-wrap">{tareasVisibles}</div>
+                        </div>
+                    )}
+                    {docsVisibles.length > 0 && (
+                        <div className="space-y-1.5">
+                            <p className="text-[8px] font-black uppercase tracking-[0.2em] text-white/25">Documentos</p>
+                            {docsVisibles}
+                        </div>
+                    )}
+                    {nota}
                     {soltar && pista && (
                         <PistaSuelta arrastrando={arrastrando} texto={pista} onFiles={soltar} />
                     )}
@@ -1112,6 +1283,37 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
     const [f1, f2, f3, f4, f5, f6] = p.fases;
     const nExps = (lote?.expedientes || []).length;
     const api = lote?.verificacion_api || null;
+    // El primer documento que falta de la fase EN CURSO se marca en ámbar: es lo
+    // que hay que traer ahora. Esperados: [slot, doc, requerido].
+    const siguienteDe = (f, lista) => (p.faseActual === f.n ? lista.find(([, doc, req]) => req && !doc)?.[0] : null);
+    const faltanDe = (lista) => lista.filter(([, doc, req]) => req && !doc).length;
+    const esp4 = [
+        ['informe_verificacion', p.informeVerificacion, true],
+        ['dictamen_favorable', p.dictamen, true],
+        ...(canSeeMargin ? [['factura_verificador', p.facturaVerificador, true]] : []),
+    ];
+    const esp5 = [
+        ['justificante_miteco', p.justificanteMiteco, true],
+        ['certificado_cae', p.certificadoCae, true],
+    ];
+    const sig4 = siguienteDe(f4, esp4);
+    const sig5 = siguienteDe(f5, esp5);
+
+    // "Comprobar → Generar ZIP" del paquete de actuaciones: sale en la fase 3 (para
+    // beCAE) y en la 5 (para el MITECO). Es el mismo gesto. `modo` null = el último
+    // que se comprobó.
+    const generarZip = (modo, sufijo) => {
+        if (!(paquete && paquete.dryRun && (modo == null || paquete.modo === modo)
+            && paquete.actuaciones.some(a => a.ok))) return null;
+        const m = modo || modoPaquete;
+        const listas = paquete.actuaciones.filter(a => a.ok);
+        return (
+            <BotonAccion key={`zip_${m}`} tono={generado[m] ? 'brand' : 'amber'}
+                onClick={() => generarPaquete(m, listas)}>
+                {generado[m] ? `↻ Volver a generar los ${generado[m]} ZIP` : `📦 Generar ${listas.length} ZIP${sufijo}`}
+            </BotonAccion>
+        );
+    };
 
     return (
         <div className="space-y-2.5">
@@ -1129,315 +1331,301 @@ export function LoteProcesoFases({ lote, onChanged, canSeeMargin = false, accion
             </div>
 
             {/* 1 · Solicitud al verificador.
-                La solicitud que se archiva aquí es el BORRADOR: la firma el S.O. en
-                el paso 2, junto al Anexo I. Decía "subir solicitud firmada" y hacía
-                buscar una firma que en este momento no existe todavía.
-
-                Y la solicitud FIRMADA vuelve con las demás, así que se suelta igual
-                que ellas: misma comprobación de firma y mismo `_fdo`. No importa en
-                qué fase se suelte cada PDF — el destino lo decide su nombre, no el
-                sitio donde se soltó. */}
-            <Fase f={f1}
-                soltar={p.solicitud && !p.solicitud.signed_link ? setFirmadosSueltos : null}
-                pista="Arrastra aquí la solicitud que devuelva firmada el S.O.">
-                {/* Lo enviado por API deja de ser invisible. El nº de solicitud que
-                    devuelve Marwen es la referencia con la que se le habla del lote
-                    (y con la que vuelve firmada: "Solicitud-0035-S06_fdo.pdf"); se
-                    guardaba en `verificacion_api` y no se enseñaba en ningún sitio. */}
-                {api && (
-                    <div className="flex items-center gap-2 flex-wrap rounded-xl border border-emerald-500/20 bg-emerald-500/[0.05] px-3 py-2">
-                        <span className="text-[9px] font-black uppercase tracking-wider text-emerald-400/80 shrink-0">⚡ Enviada por API</span>
-                        {api.num_solicitud && <span className="text-[11px] font-bold text-white/80">nº {api.num_solicitud}</span>}
-                        <span className="text-[9px] text-white/30">
-                            {[fmtFecha(api.enviado_at), api.n_actuaciones ? `${api.n_actuaciones} actuaciones` : null,
-                              api.enviado_por].filter(Boolean).join(' · ')}
-                        </span>
-                    </div>
-                )}
-                <div className="flex items-center gap-2 flex-wrap">
-                    <BotonAccion onClick={acciones.abrirSolicitud} disabled={!nExps}
+                Lo que se archiva aquí es el BORRADOR: la firma el S.O. en el paso 2,
+                junto al Anexo I. La FIRMADA vuelve con las demás y se suelta igual
+                (misma comprobación de firma, mismo `_fdo`): el destino lo decide el
+                nombre del PDF, no el sitio donde se soltó. */}
+            {faseBloque({
+                f: f1,
+                // Mientras no esté la del verificador, lo que se suelta aquí ES esa
+                // solicitud; ya subida, lo que vuelve es la firmada por el S.O.
+                soltar: !p.solicitudOk
+                    ? (fs) => subirSolicitud(fs[0])
+                    : (!p.solicitud.signed_link ? setFirmadosSueltos : null),
+                pista: !p.solicitudOk
+                    ? 'Arrastra aquí la solicitud descargada de la web del verificador'
+                    : 'Arrastra aquí la solicitud que devuelva firmada el S.O.',
+                faltan: p.solicitudOk ? 0 : 1,
+                tareas: [
+                    <BotonAccion key="sol" onClick={acciones.abrirSolicitud} disabled={!nExps}
                         title={!nExps ? 'El lote no tiene expedientes' : 'Genera el formulario de solicitud'}>
-                        {api ? 'Volver a generar la solicitud' : 'Generar solicitud'}
-                    </BotonAccion>
-                    <BotonSubir disabled={subiendo === 'solicitud_verificacion'} onFile={subirSolicitud}
-                        destacado={!p.solicitud}>
-                        {subiendo === 'solicitud_verificacion' ? 'Subiendo…'
-                            : (p.solicitud ? 'Reemplazar el borrador' : '↑ Subir la solicitud (borrador)')}
-                    </BotonSubir>
-                </div>
-                {!p.solicitud && (
-                    <p className="text-[10px] text-white/30">
-                        Sin firmar: es el documento que el S.O. firma en el paso 2, con el Anexo I y las fichas.
-                        Al generarla se archiva aquí sola.
-                    </p>
-                )}
-            </Fase>
+                        {p.solicitud || api ? '↻ Volver a generar la solicitud' : '📄 Generar la solicitud'}
+                    </BotonAccion>,
+                ],
+                docs: [
+                    docEsperado({
+                        slot: 'solicitud_verificacion', doc: p.solicitud, requerido: true,
+                        siguiente: p.faseActual === 1,
+                        label: 'Solicitud de Verificación (descargada del verificador)',
+                        hint: 'Créala en el verificador, descárgala de su web y súbela aquí. La firma el S.O. en el paso 2. La que genera la app no vale.',
+                        // La que compuso la app se queda como referencia, pero NO
+                        // sirve para mandar a firmar: se dice en su fila y se pide la
+                        // buena en el mismo sitio.
+                        accionesDoc: p.solicitud && !p.solicitudOk ? (
+                            <>
+                                <span className="text-[10px] text-amber-300/90 font-bold">
+                                    ⚠ Esta es la que generó la app y no vale para el S.O.
+                                </span>
+                                <BotonSubir disabled={subiendo === 'solicitud_verificacion'} onFile={subirSolicitud} destacado>
+                                    {subiendo === 'solicitud_verificacion' ? 'Subiendo…' : '↑ Subir la descargada del verificador'}
+                                </BotonSubir>
+                            </>
+                        ) : null,
+                        // Lo enviado por API: el nº de solicitud que devuelve Marwen es
+                        // la referencia con la que se habla del lote (y con la que
+                        // vuelve firmada: "Solicitud-0035-S06_fdo.pdf").
+                        extra: api ? (
+                            <div className="flex items-center gap-2 flex-wrap rounded-lg border border-emerald-500/20 bg-emerald-500/[0.05] px-2.5 py-1.5">
+                                <span className="text-[9px] font-black uppercase tracking-wider text-emerald-400/80 shrink-0">⚡ Enviada por API</span>
+                                {api.num_solicitud && <span className="text-[11px] font-bold text-white/80">nº {api.num_solicitud}</span>}
+                                <span className="text-[9px] text-white/30">
+                                    {[fmtFecha(api.enviado_at), api.n_actuaciones ? `${api.n_actuaciones} actuaciones` : null,
+                                      api.enviado_por].filter(Boolean).join(' · ')}
+                                </span>
+                            </div>
+                        ) : null,
+                    }),
+                ],
+            })}
 
-            {/* 2 · Firma del Sujeto Obligado */}
-            <Fase f={f2}
-                soltar={p.soEnviado && !p.soFirmado ? setFirmadosSueltos : null}
-                pista="Arrastra aquí los PDF firmados que devuelva el S.O., todos a la vez">
-                <div className="flex items-center gap-2 flex-wrap">
-                    <BotonAccion onClick={acciones.abrirAnexo} disabled={!nExps}>
-                        {p.soEnviado ? 'Reenviar Anexo I · Cesión S.O.' : 'Anexo I · Cesión S.O.'}
-                    </BotonAccion>
-                    <BotonAccion onClick={acciones.abrirRequerimiento} disabled={!p.soEnviado} tono="amber"
-                        title={!p.soEnviado ? 'Disponible cuando el lote se haya enviado al S.O.' : ''}>
-                        Requerimiento · reenviar para firma
-                    </BotonAccion>
-                </div>
-                {p.soEnviado && !p.soFirmado && (
-                    <p className="text-[10px] text-white/30">Enviado. Esperando la firma del Sujeto Obligado.</p>
-                )}
-            </Fase>
+            {/* 2 · Firma del Sujeto Obligado: el Anexo I y las fichas los GENERA la
+                app (no se suben), así que su hueco solo dice con qué se generan. */}
+            {faseBloque({
+                f: f2,
+                soltar: p.soEnviado && !p.soFirmado ? setFirmadosSueltos : null,
+                pista: 'Arrastra aquí los PDF firmados que devuelva el S.O., todos a la vez',
+                tareas: [
+                    // Sin la solicitud DESCARGADA DEL VERIFICADOR no se manda nada al
+                    // S.O.: es uno de los papeles que firma en esta ronda.
+                    <BotonAccion key="anexo" onClick={acciones.abrirAnexo} disabled={!nExps || !p.solicitudOk}
+                        title={!p.solicitudOk ? 'Sube antes, en el paso 1, la Solicitud de Verificación descargada de la web del verificador' : ''}>
+                        {p.soEnviado ? '↻ Reenviar Anexo I y fichas al S.O.' : '✉ Preparar y enviar Anexo I y fichas al S.O.'}
+                    </BotonAccion>,
+                    p.soEnviado ? (
+                        <BotonAccion key="req" onClick={acciones.abrirRequerimiento} tono="amber">
+                            Requerimiento · volver a pedir la firma
+                        </BotonAccion>
+                    ) : null,
+                ],
+                docs: (p.anexo || p.fichas.length)
+                    ? [p.anexo, ...p.fichas].filter(Boolean).map(d => <Fila key={d.key} doc={d} {...propsFila(d)} />)
+                    : [<Hueco key="hueco_anexo" label="Anexo I (Cesión S.O.) y fichas RES"
+                        hint="Se generan con «Preparar y enviar Anexo I y fichas». Cuando vuelvan firmados, suéltalos en este bloque." />],
+                nota: p.soEnviado && !p.soFirmado
+                    ? <p className="text-[10px] text-white/30">Enviado. Esperando la firma del Sujeto Obligado.</p> : null,
+            })}
 
             {/* 3 · Oferta de verificación.
+                La suelta de la fase tiene DOS significados según el estado: sin
+                oferta, lo que llega es la del verificador; mandada a firmar, lo que
+                vuelve es la FIRMADA por el S.O. (entra por el camino de los
+                firmados y se le leen las firmas). Subida y sin enviar no se acepta
+                suelta: sería un reemplazo silencioso de la que se va a mandar.
 
-                La suelta tiene DOS significados y los decide el estado, no una
-                pregunta al usuario: mientras no hay oferta, lo único que puede
-                llegar es la que manda el verificador; una vez mandada a firmar, lo
-                que vuelve es la FIRMADA por el S.O., que entra por el mismo camino
-                que los firmados de la fase 2 (`oferta_verificacion` ya está en
-                TIPOS_FIRMABLES) y por tanto se le leen las firmas antes de
-                registrarla. Con la oferta subida y sin enviar todavía no se acepta
-                suelta: ahí lo que toca es mandarla, y un PDF soltado en ese momento
-                sería un reemplazo silencioso del que se va a mandar a firmar.
-
-                Solo el primer fichero: la oferta es UNA por lote. Quien tenga las
-                cuatro las suelta en su lote, que es donde cada una significa algo. */}
-            <Fase f={f3}
-                soltar={!p.oferta
+                El ZIP para beCAE se arma aquí: es lo que se sube al verificador y de
+                lo que sale la oferta. Es el MISMO paquete que luego va al MITECO. */}
+            {faseBloque({
+                f: f3,
+                soltar: !p.oferta
                     ? (fs) => subirOferta(fs[0])
-                    : (p.ofertaEnviada && !p.ofertaFirmada ? setFirmadosSueltos : null)}
-                pista={!p.oferta
-                    ? 'Arrastra aquí la oferta que mande el verificador'
-                    : 'Arrastra aquí la oferta que devuelva firmada el S.O.'}>
-                {/* El ZIP para beCAE se arma AQUÍ, y esto es lo primero de la fase.
-                    Con el Anexo I y las fichas ya firmados, lo siguiente es subir al
-                    verificador la documentación de cada actuación (un ZIP por
-                    actuación, con los ficheros renombrados a "E{n}-…") y la solicitud
-                    por separado — y de eso sale la oferta que se recibe después.
-                    Es el MISMO paquete que luego va al MITECO: el de allí solo añade
-                    el anexo de la actuación, el dictamen y los escritos del lote, así
-                    que no hay dos paquetes que puedan contradecirse. */}
-                {canSeeMargin && (
-                    <div className="flex items-center gap-2 flex-wrap">
-                        <BotonAccion onClick={() => pedirPaquete('expediente', true)}>
-                            ⌕ Comprobar el paquete E1-E5 para beCAE
-                        </BotonAccion>
-                        {paquete && paquete.dryRun && paquete.modo === 'expediente'
-                            && paquete.actuaciones.some(a => a.ok) && (
-                            <BotonAccion tono={generado.expediente ? 'brand' : 'amber'}
-                                onClick={() => generarPaquete('expediente', paquete.actuaciones.filter(a => a.ok))}>
-                                {generado.expediente
-                                    ? `↻ Volver a generar los ${generado.expediente} ZIP`
-                                    : `📦 Generar ${paquete.actuaciones.filter(a => a.ok).length} ZIP en los expedientes`}
-                            </BotonAccion>
-                        )}
-                    </div>
-                )}
-                {/* Subir el firmado y darle el OK van en la propia fila del documento;
-                    aquí solo lo que es de la fase: traer la oferta y mandarla a firmar. */}
-                <div className="flex items-center gap-2 flex-wrap">
-                    {!p.oferta ? (
-                        <BotonSubir disabled={subiendo === 'oferta_verificacion'} onFile={subirOferta} destacado>
-                            {subiendo === 'oferta_verificacion' ? 'Subiendo…' : '↑ Subir oferta del verificador'}
-                        </BotonSubir>
-                    ) : (
-                        <>
-                            {!p.ofertaFirmada && (
-                                <BotonAccion onClick={() => setDocAEnviar(p.oferta)}>
-                                    {p.ofertaEnviada ? '↻ Reenviar para firma' : '✉ Enviar para firma'}
-                                </BotonAccion>
-                            )}
-                            <BotonSubir disabled={subiendo === 'oferta_verificacion'} onFile={subirOferta}>Reemplazar oferta</BotonSubir>
-                        </>
-                    )}
-                </div>
-            </Fase>
+                    : (p.ofertaEnviada && !p.ofertaFirmada ? setFirmadosSueltos : null),
+                pista: p.oferta ? 'Arrastra aquí la oferta que devuelva firmada el S.O.' : null,
+                faltan: p.oferta ? 0 : 1,
+                tareas: canSeeMargin ? [
+                    <BotonAccion key="pq" onClick={() => pedirPaquete('expediente', true)}>
+                        ⌕ Comprobar el paquete E1-E5 para beCAE
+                    </BotonAccion>,
+                    generarZip('expediente', ' en los expedientes'),
+                ] : null,
+                docs: [
+                    docEsperado({
+                        slot: 'oferta_verificacion', doc: p.oferta, requerido: true,
+                        siguiente: p.faseActual === 3,
+                        hint: 'La manda el verificador. Después se envía al S.O. para que la firme.',
+                        accionesDoc: p.oferta && !p.ofertaFirmada ? (
+                            <BotonFila onClick={() => setDocAEnviar(p.oferta)}>
+                                {p.ofertaEnviada ? '↻ Reenviar para firma' : '✉ Enviar al S.O. para firma'}
+                            </BotonFila>
+                        ) : null,
+                    }),
+                ],
+            })}
 
             {/* 4 · Verificación. Sigue "pendiente" mientras falte el ahorro
-                verificado de algún expediente o la factura del verificador:
-                el papeleo puede estar completo y quedar lo que de verdad
-                desbloquea el pago. */}
-            <Fase f={f4} pendiente={canSeeMargin && (!verif.completo || !p.facturaVerificador)}>
-                <div className="flex flex-col gap-2">
-                    <div className="flex items-center gap-2 flex-wrap">
-                        {/* Lo primero que manda el verificador cuando ya tiene la
-                            oferta aceptada, antes del informe de inexactitudes: por
-                            eso abre la fase. Solo se ofrece mientras no esté subido
-                            —es UNO por lote— y su reemplazo va en la propia fila. */}
-                        {!p.planVerificacion && (
-                            <BotonSubir disabled={subiendo === 'plan_verificacion'} onFile={(f) => subir('plan_verificacion', f)}>
-                                {subiendo === 'plan_verificacion' ? 'Subiendo…' : '↑ Plan de verificación'}
-                            </BotonSubir>
-                        )}
-                        <BotonSubir disabled={subiendo === 'informe_inexactitudes'} onFile={(f) => subir('informe_inexactitudes', f)}>
-                            {subiendo === 'informe_inexactitudes' ? 'Subiendo…' : `+ Informe de inexactitudes${p.inexactitudes.length ? ` (${p.inexactitudes.length})` : ''}`}
-                        </BotonSubir>
-                        {!p.informeVerificacion && (
-                            <BotonSubir disabled={subiendo === 'informe_verificacion'} onFile={subirInforme}>
-                                {subiendo === 'informe_verificacion' ? 'Leyendo el informe…' : '↑ Informe de Verificación'}
-                            </BotonSubir>
-                        )}
-                        {!p.dictamen && (
-                            <BotonSubir disabled={subiendo === 'dictamen_favorable'} onFile={subirDictamen}>
-                                {subiendo === 'dictamen_favorable' ? 'Leyendo el dictamen…' : '↑ Dictamen favorable'}
-                            </BotonSubir>
-                        )}
-                    </div>
-                    {/* ── El ahorro VERIFICADO de cada expediente ──────────────
-                        Sale del informe: es la cifra con la que se factura al S.O.
-                        y con la que se le paga al cliente, y sin ella el lote no
-                        puede pasar a pagar. Se dice aquí cuántos lo tienen ya, en
-                        vez de descubrirlo al intentar cambiar el estado. */}
-                    {/* Se enseña TAMBIÉN sin informe subido: que falte el ahorro
-                        verificado es lo que impide pagar al cliente, y enterarse
-                        solo al intentar cambiar el estado es enterarse tarde. */}
-                    {canSeeMargin && (!verif.completo || p.informeVerificacion) && (
-                        <div className={`flex items-center gap-2 flex-wrap rounded-xl border px-3 py-2 ${
-                            verif.completo ? 'border-emerald-500/20 bg-emerald-500/[0.04]' : 'border-amber-500/25 bg-amber-500/[0.04]'}`}>
-                            <span className={`text-[10px] font-black ${verif.completo ? 'text-emerald-400/80' : 'text-amber-300/90'}`}>
-                                {verif.completo
-                                    ? `Ahorro verificado en los ${verif.total} expedientes ✓`
-                                    : `Ahorro verificado en ${verif.n} de ${verif.total} expedientes`}
+                verificado de algún expediente o la factura del verificador: el
+                papeleo puede estar completo y quedar lo que desbloquea el pago.
+                Lo que se LEE de cada documento (ahorros, nº de dictamen) va en su
+                fila, con su botón de volver a leerlo. */}
+            {faseBloque({
+                f: f4,
+                pendiente: canSeeMargin && (!verif.completo || !p.facturaVerificador),
+                faltan: faltanDe(esp4),
+                docs: [
+                    // Lo primero que manda el verificador con la oferta aceptada.
+                    docEsperado({
+                        slot: 'plan_verificacion', doc: p.planVerificacion,
+                        hint: 'Lo manda el verificador al aceptar la oferta.',
+                    }),
+                    ...p.inexactitudes.map(d => <Fila key={d.key} doc={d} {...propsFila(d)} />),
+                    <Hueco key="hueco_inex" compacto={p.inexactitudes.length > 0} opcional
+                        label={p.inexactitudes.length ? '+ Otro informe de inexactitudes' : 'Informe de inexactitudes'}
+                        hint="Solo si el verificador detecta inexactitudes. Puede haber varios."
+                        textoBoton={p.inexactitudes.length ? '+ Añadir' : '↑ Subir PDF'}
+                        ocupado={subiendo === 'informe_inexactitudes'} arrastrando={arrastrando}
+                        onFile={(f) => subir('informe_inexactitudes', f)} />,
+                    docEsperado({
+                        slot: 'informe_verificacion', doc: p.informeVerificacion, requerido: true,
+                        siguiente: sig4 === 'informe_verificacion',
+                        hint: canSeeMargin
+                            ? 'Al subirlo se leen el ahorro y la inversión verificados de cada expediente.'
+                            : null,
+                        // El ahorro VERIFICADO: con él se factura al S.O. y se paga al
+                        // cliente, y sin él el lote no puede pasar a pagar.
+                        extra: canSeeMargin ? (
+                            <div className={`flex items-center gap-2 flex-wrap rounded-lg border px-2.5 py-1.5 ${
+                                verif.completo ? 'border-emerald-500/20 bg-emerald-500/[0.04]' : 'border-amber-500/25 bg-amber-500/[0.04]'}`}>
+                                <span className={`text-[10px] font-black ${verif.completo ? 'text-emerald-400/80' : 'text-amber-300/90'}`}>
+                                    {verif.completo
+                                        ? `Ahorro verificado en los ${verif.total} expedientes ✓`
+                                        : `Ahorro verificado en ${verif.n} de ${verif.total} expedientes`}
+                                </span>
+                                {!verif.completo && <span className="text-[9px] text-white/30">Sin él no se puede pagar al cliente.</span>}
+                                <div className="flex-1" />
+                                <BotonFila onClick={releerInforme} disabled={leyendoInforme}>
+                                    {leyendoInforme ? 'Leyendo…' : (verif.completo ? '↻ Volver a leer' : '⌕ Leer los ahorros')}
+                                </BotonFila>
+                            </div>
+                        ) : null,
+                        // Sin informe, se avisa igual: enterarse al cambiar el estado
+                        // es enterarse tarde.
+                        enHueco: canSeeMargin && !verif.completo ? (
+                            <span className="text-[9px] text-amber-300/70">
+                                Ahorro verificado en {verif.n} de {verif.total} expedientes · sin él no se puede pagar al cliente
                             </span>
-                            {p.informeVerificacion ? (
-                                <BotonAccion onClick={releerInforme} disabled={leyendoInforme}>
-                                    {leyendoInforme ? 'Leyendo el informe…' : (verif.completo ? '↻ Volver a leer el informe' : '⌕ Leer los ahorros del informe')}
-                                </BotonAccion>
-                            ) : (
-                                <span className="text-[9px] text-white/30">Se rellena solo al subir el informe de verificación.</span>
-                            )}
-                            {!verif.completo && p.informeVerificacion && (
-                                <span className="text-[9px] text-white/30">Sin él no se puede pagar al cliente.</span>
-                            )}
-                        </div>
-                    )}
+                        ) : null,
+                    }),
+                    docEsperado({
+                        slot: 'dictamen_favorable', doc: p.dictamen, requerido: true,
+                        siguiente: sig4 === 'dictamen_favorable',
+                        hint: 'Al subirlo se leen su nº, su fecha y la inversión definitiva.',
+                        extra: canSeeMargin && p.dictamen ? (
+                            <div className="flex items-center gap-2 flex-wrap rounded-lg border border-white/[0.06] bg-white/[0.01] px-2.5 py-1.5">
+                                <span className="text-[10px] font-black text-white/60">
+                                    {p.dictamen.dictamen?.numero_dictamen
+                                        ? `Nº ${p.dictamen.dictamen.numero_dictamen}${p.dictamen.dictamen.fecha_emision ? ` · ${p.dictamen.dictamen.fecha_emision}` : ''}`
+                                        : 'Sin leer'}
+                                </span>
+                                <span className="text-[9px] text-white/30">Nº, fecha e inversión definitiva de cada expediente.</span>
+                                <div className="flex-1" />
+                                <BotonFila onClick={releerDictamen} disabled={leyendoDictamen}>
+                                    {leyendoDictamen ? 'Leyendo…'
+                                        : (p.dictamen.dictamen?.numero_dictamen ? '↻ Volver a leer' : '⌕ Leer el dictamen')}
+                                </BotonFila>
+                            </div>
+                        ) : null,
+                    }),
+                    // La que el VERIFICADOR emite al S.O. (no la nuestra). Su importe
+                    // es precio de venta → solo ADMIN. Se lee del PDF; el campo queda
+                    // para forzarlo cuando el papel no se deje leer.
+                    canSeeMargin ? docEsperado({
+                        slot: 'factura_verificador', doc: p.facturaVerificador, requerido: true,
+                        siguiente: sig4 === 'factura_verificador',
+                        hint: 'La que el verificador emite al S.O. (no la nuestra). Su importe se lee del PDF.',
+                        accionesDoc: p.facturaVerificador && !p.facturaVerificador.sent_at ? (
+                            <BotonFila onClick={() => setDocAEnviar(p.facturaVerificador)}>✉ Remitir al S.O.</BotonFila>
+                        ) : null,
+                        enHueco: (
+                            <>
+                                <input value={importeFactura} onChange={e => setImporteFactura(e.target.value)}
+                                    placeholder="Importe € (opcional)" inputMode="decimal"
+                                    title="Solo si quieres forzar el importe. Si lo dejas vacío se lee de la factura."
+                                    className="w-36 bg-bkg-surface border border-white/[0.08] rounded-lg px-2.5 py-1 text-[11px] text-white placeholder-white/20 focus:border-brand/40 focus:outline-none" />
+                                <span className="text-[9px] text-white/25">Solo para forzarlo; si lo dejas vacío se lee de la factura.</span>
+                            </>
+                        ),
+                    }) : null,
+                ],
+                nota: p.verificado
+                    ? <p className="text-[10px] text-emerald-400/70">Verificación favorable · informe y dictamen recibidos.</p> : null,
+            })}
 
-                    {/* ── El DICTAMEN: nº, fecha e inversión definitiva ────────
-                        Su nº y su fecha identifican la verificación para siempre
-                        (van también en la cabecera del lote), y su tabla fija la
-                        inversión que manda sobre la declarada al principio. */}
-                    {canSeeMargin && p.dictamen && (
-                        <div className="flex items-center gap-2 flex-wrap rounded-xl border border-white/[0.06] bg-white/[0.01] px-3 py-2">
-                            <span className="text-[10px] font-black text-white/60">
-                                {p.dictamen.dictamen?.numero_dictamen
-                                    ? `Dictamen ${p.dictamen.dictamen.numero_dictamen}${p.dictamen.dictamen.fecha_emision ? ` · ${p.dictamen.dictamen.fecha_emision}` : ''}`
-                                    : 'Dictamen sin leer'}
-                            </span>
-                            <BotonAccion onClick={releerDictamen} disabled={leyendoDictamen}>
-                                {leyendoDictamen ? 'Leyendo el dictamen…'
-                                    : (p.dictamen.dictamen?.numero_dictamen ? '↻ Volver a leer el dictamen' : '⌕ Leer el dictamen')}
-                            </BotonAccion>
-                            <span className="text-[9px] text-white/30">Nº, fecha e inversión definitiva de cada expediente.</span>
-                        </div>
-                    )}
-
-                    {/* Factura del verificador: su importe revela lo que le cuesta la
-                        operación al S.O., que es precio de venta → solo ADMIN.
-                        El importe SE LEE de la propia factura al subirla; el campo
-                        queda para forzarlo a mano cuando el papel no se deje leer. */}
-                    {canSeeMargin && !p.facturaVerificador && (
-                        <div className="flex items-center gap-2 flex-wrap">
-                            <BotonSubir disabled={subiendo === 'factura_verificador'} onFile={subirFacturaVerificador}>
-                                {subiendo === 'factura_verificador' ? 'Leyendo la factura…' : '↑ Factura del verificador al S.O.'}
-                            </BotonSubir>
-                            <input value={importeFactura} onChange={e => setImporteFactura(e.target.value)}
-                                placeholder="Importe € (opcional)" inputMode="decimal"
-                                title="Solo si quieres forzar el importe. Si lo dejas vacío se lee de la factura."
-                                className="w-36 bg-bkg-surface border border-white/[0.08] rounded-lg px-2.5 py-1 text-[11px] text-white placeholder-white/20 focus:border-brand/40 focus:outline-none" />
-                            <span className="text-[9px] text-white/25">La que el VERIFICADOR emite al S.O. (no la nuestra). Su importe se lee del PDF.</span>
-                        </div>
-                    )}
-
-                    {p.verificado && <p className="text-[10px] text-emerald-400/70">Verificación favorable · informe y dictamen recibidos.</p>}
-                </div>
-            </Fase>
-
-            {/* 5 · Presentación a MITECO y resolución de la Gestora de Ahorros */}
-            <Fase f={f5}>
-                <div className="flex items-center gap-2 flex-wrap">
-                    {/* Lo PRIMERO de esta fase: la carátula de la subida y los anexos
-                        que van dentro de sus ZIP. Antes de subir nada a MITECO hay que
-                        tenerlos, y salen los dos del mismo gesto para que no puedan
-                        contradecirse. */}
-                    {canSeeMargin && (
-                        <BotonAccion onClick={generarAnexos} disabled={generandoAnexos}>
-                            {generandoAnexos ? 'Generando…' : '📄 Generar la solicitud y los anexos'}
+            {/* 5 · Presentación a MITECO y resolución de la Gestora de Ahorros.
+                Qué hacer: el papeleo que se GENERA (solicitud de emisión + anexos,
+                que salen juntos para que no se contradigan) y el paquete de cada
+                actuación, que se COMPRUEBA antes de generar. Documentos: lo que
+                vuelve del MITECO. */}
+            {faseBloque({
+                f: f5,
+                faltan: faltanDe(esp5),
+                tareas: canSeeMargin ? [
+                    <BotonAccion key="anx" onClick={generarAnexos} disabled={generandoAnexos}>
+                        {generandoAnexos ? 'Generando…' : '📄 Generar la solicitud y los anexos'}
+                    </BotonAccion>,
+                    <BotonAccion key="pq5" onClick={() => pedirPaquete('expediente', true)}>
+                        ⌕ Comprobar el paquete E1-E5
+                    </BotonAccion>,
+                    p.dictamen ? (
+                        <BotonAccion key="gestor" onClick={() => pedirPaquete('gestor', true)}
+                            title="Añade el dictamen favorable y los escritos del lote">
+                            ⌕ Comprobar el envío al gestor
                         </BotonAccion>
-                    )}
-                    {/* El paquete de cada actuación: los documentos del expediente
-                        renombrados a "E{n}-…" y su ZIP. Se COMPRUEBA antes de generar
-                        (el mismo botón dice cuántas actuaciones están listas), y el
-                        del gestor solo aparece con el dictamen ya subido: sin él, ese
-                        paquete no puede estar completo. */}
-                    {canSeeMargin && (
-                        <>
-                            <BotonAccion onClick={() => pedirPaquete('expediente', true)}>
-                                ⌕ Comprobar el paquete E1-E5
-                            </BotonAccion>
-                            {paquete && paquete.dryRun && paquete.actuaciones.some(a => a.ok) && (
-                                <BotonAccion tono={generado[modoPaquete] ? 'brand' : 'amber'}
-                                    onClick={() => generarPaquete(modoPaquete, paquete.actuaciones.filter(a => a.ok))}>
-                                    {generado[modoPaquete]
-                                        ? `↻ Volver a generar los ${generado[modoPaquete]} ZIP`
-                                        : `📦 Generar ${paquete.actuaciones.filter(a => a.ok).length} ZIP${modoPaquete === 'gestor' ? ' para el gestor' : ' en los expedientes'}`}
-                                </BotonAccion>
-                            )}
-                            {p.dictamen && (
-                                <BotonAccion onClick={() => pedirPaquete('gestor', true)}
-                                    title="Añade el dictamen favorable y los escritos del lote">
-                                    ⌕ Comprobar el envío al gestor
-                                </BotonAccion>
-                            )}
-                        </>
-                    )}
-                    {!p.justificanteMiteco && (
-                        <BotonSubir disabled={subiendo === 'justificante_miteco'} onFile={(f) => subir('justificante_miteco', f)}>
-                            {subiendo === 'justificante_miteco' ? 'Subiendo…' : '↑ Justificante de subida a MITECO'}
-                        </BotonSubir>
-                    )}
-                    <BotonSubir disabled={subiendo === 'requerimiento_ga'} onFile={(f) => subir('requerimiento_ga', f)}>
-                        {subiendo === 'requerimiento_ga' ? 'Subiendo…' : `+ Requerimiento G.A.${p.requerimientosGa.length ? ` (${p.requerimientosGa.length})` : ''}`}
-                    </BotonSubir>
-                    {!p.certificadoCae && (
-                        <BotonSubir disabled={subiendo === 'certificado_cae'} onFile={subirCertificadoCae} destacado>
-                            {subiendo === 'certificado_cae' ? 'Subiendo…' : '↑ Certificado CAE emitido'}
-                        </BotonSubir>
-                    )}
-                </div>
-                {p.justificanteMiteco && !p.certificadoCae && (
-                    <p className="text-[10px] text-cyan-300/70">Presentado al MITECO · justificante de registro guardado.</p>
-                )}
-                {p.certificadoCae && (
-                    <p className="text-[10px] text-emerald-400/70">
-                        CAE emitido{p.certificadoCae.cae?.cae_inicial
-                            ? <> · {p.certificadoCae.cae.cae_inicial} → {p.certificadoCae.cae.cae_final}{p.certificadoCae.cae.total ? ` (${Number(p.certificadoCae.cae.total).toLocaleString('es-ES')} CAE)` : ''}</>
-                            : null} · pendiente del pago del S.O. a Brokergy.
-                    </p>
-                )}
-            </Fase>
+                    ) : null,
+                    generarZip(null, modoPaquete === 'gestor' ? ' para el gestor' : ' en los expedientes'),
+                ] : null,
+                docs: [
+                    docEsperado({
+                        slot: 'justificante_miteco', doc: p.justificanteMiteco, requerido: true,
+                        siguiente: sig5 === 'justificante_miteco',
+                        hint: 'El resguardo de la subida a MITECO.',
+                    }),
+                    ...p.requerimientosGa.map(d => <Fila key={d.key} doc={d} {...propsFila(d)} />),
+                    <Hueco key="hueco_ga" compacto={p.requerimientosGa.length > 0} opcional
+                        label={p.requerimientosGa.length ? '+ Otro requerimiento de la G.A.' : 'Requerimiento de la G.A.'}
+                        hint="Solo si la Gestora de Ahorros pide algo. Puede haber varios."
+                        textoBoton={p.requerimientosGa.length ? '+ Añadir' : '↑ Subir PDF'}
+                        ocupado={subiendo === 'requerimiento_ga'} arrastrando={arrastrando}
+                        onFile={(f) => subir('requerimiento_ga', f)} />,
+                    docEsperado({
+                        slot: 'certificado_cae', doc: p.certificadoCae, requerido: true,
+                        siguiente: sig5 === 'certificado_cae',
+                        hint: 'La resolución de emisión. Al subirlo se leen los códigos CAE para la factura.',
+                        extra: p.certificadoCae?.cae?.cae_inicial ? (
+                            <p className="text-[10px] text-emerald-400/70">
+                                {p.certificadoCae.cae.cae_inicial} → {p.certificadoCae.cae.cae_final}
+                                {p.certificadoCae.cae.total ? ` · ${Number(p.certificadoCae.cae.total).toLocaleString('es-ES')} CAE` : ''}
+                            </p>
+                        ) : null,
+                    }),
+                ],
+                nota: p.certificadoCae
+                    ? <p className="text-[10px] text-emerald-400/70">CAE emitido · pendiente del pago del S.O. a Brokergy.</p>
+                    : (p.justificanteMiteco
+                        ? <p className="text-[10px] text-cyan-300/70">Presentado al MITECO · esperando la resolución.</p> : null),
+            })}
 
             {/* 6 · La factura de Brokergy al S.O. por la venta de CAEs. NO es la del
-                verificador (fase 4, que va del verificador al S.O.). Es margen: solo ADMIN. */}
-            {canSeeMargin && (
-                <Fase f={f6}>
-                    <div className="space-y-2">
-                        {p.facturaSo?.drive_link && (
-                            <Fila doc={{
-                                label: `Factura de Brokergy al S.O. ${p.facturaSo.numero || ''}`.trim(),
-                                draft_link: p.facturaSo.drive_link,
-                                uploaded_at: p.facturaSo.fecha,
-                            }} />
-                        )}
-                        <BotonAccion onClick={acciones.abrirFactura} disabled={!lote?.sujeto_obligado_id}
-                            title={!lote?.sujeto_obligado_id ? 'Asigna primero el Sujeto Obligado' : ''}>
-                            {p.facturaSo?.numero ? `Factura de Brokergy al S.O. · ${p.facturaSo.numero}` : 'Generar factura de Brokergy al S.O.'}
-                        </BotonAccion>
-                    </div>
-                </Fase>
-            )}
+                verificador (fase 4). Es margen: solo ADMIN. Se GENERA, no se sube. */}
+            {canSeeMargin && faseBloque({
+                f: f6,
+                tareas: [
+                    <BotonAccion key="fac" onClick={acciones.abrirFactura} disabled={!lote?.sujeto_obligado_id}
+                        title={!lote?.sujeto_obligado_id ? 'Asigna primero el Sujeto Obligado' : ''}>
+                        {p.facturaSo?.numero ? `Abrir la factura ${p.facturaSo.numero}` : '🧾 Generar la factura de Brokergy al S.O.'}
+                    </BotonAccion>,
+                ],
+                docs: [
+                    p.facturaSo?.drive_link ? (
+                        <Fila key="factura_so" doc={{
+                            label: `Factura de Brokergy al S.O. ${p.facturaSo.numero || ''}`.trim(),
+                            draft_link: p.facturaSo.drive_link,
+                            uploaded_at: p.facturaSo.fecha,
+                        }} />
+                    ) : (
+                        <Hueco key="hueco_factura_so" label="Factura de Brokergy al S.O." requerido
+                            hint="Se genera con el botón de arriba, con los códigos del certificado CAE." />
+                    ),
+                ],
+            })}
 
             {error && <p className="text-[10px] text-red-400">{error}</p>}
 
