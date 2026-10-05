@@ -3056,6 +3056,26 @@ en marcha se corta y su mensaje ya consta como atendido. Para relanzarlo: en `vi
 ⚠️ **En el servidor no hay CE3X**: los CEE salen como `.cex`; el `.xml` y el PDF de calificación
 (`cexAPdf`) solo en un PC con CE3X 3.1.
 
+**MODO PROACTIVO** ([scripts/asistente_proactivo.js](implementation/backend/scripts/asistente_proactivo.js)):
+el backend pasa también el `chatId` de cada mensaje entrante de los DEMÁS chats (`/entrante`, sin
+leer nada). Cuando el chat de un INSTALADOR (teléfono en `prescriptores`) lleva 10 min callado y lo
+último es SUYO, se lee una vez y **Gemini** —no Claude, céntimos— mira texto, fotos y PDF: si es una
+petición de simulación, a Fran le llega «*P3 · Nueva petición de X* … ¿La doy de alta?». Con «sí» la
+da de alta Claude (`resolver P3 hecho`); con «no», `descartado`. Un chat que no es de un partner no se
+llega a leer. Horario 08:00–21:00 Madrid, tope de 6 avisos por hora, `ASISTENTE_PROACTIVO=false` lo
+apaga. **REGLA — el filtro VE las fotos**: solo con el texto decía que faltaba la RC (venía en una
+captura) y juntaba dos obras en una (medido con las OP269/OP270 de Federico).
+
+**REGLA — Claude arranca FUERA del repo** (`--add-dir /repo`, cwd en un temporal): desde dentro carga
+entero `CLAUDE.md` (1,1 MB) en cada trabajo — medido: 514.000 tokens un «contesta ok», 31.000 desde
+fuera. Las instrucciones le dicen que busque en `CLAUDE.md` con grep, nunca leerlo entero.
+
+**Modelo y consumo:** Sonnet por defecto (`ASISTENTE_MODELO`); «con opus» / «con haiku» en el
+mensaje lo cambia. Cada trabajo apunta modelo, tokens y coste equivalente en
+`scratch/asistente/consumo.jsonl`, y «consumo» se lo resume a Fran sin lanzar a Claude. El token es de
+la SUSCRIPCIÓN de Fran: no se cobra aparte, **cuenta para sus límites de uso** (los de 5 h y semanal,
+los mismos que su Claude Code). Las transcripciones y el filtro proactivo van por Gemini, aparte.
+
 **Meta no lee el contenido** (cifrado de extremo a extremo): lo que ve son patrones de uso, y este
 canal es un chat 1:1 de poco volumen. Los mensajes van sin firmas ni emojis de robot. El riesgo real
 sigue siendo el de siempre: la cuenta va con un cliente no oficial (whatsapp-web.js).
@@ -13302,4 +13322,4 @@ PROPUESTA_PROGRAMADA_MAX_DIAS=90   ← hasta cuándo se admite programar
 
 111. **En el ahorro RES080 «por vector», la demanda que no cubre ningún generador la pone CE3X con su SISTEMA FICTICIO POR DEFECTO, y se dice con su %** (2026-10-05). El `.xml` no trae el % de demanda de cada equipo, pero se deduce sin estimar: **energía final del vector × rendimiento estacional ÷ demanda del servicio**; lo que queda es el sistema por defecto (calefacción: caldera estándar de **gas natural al 92 %**; refrigeración: máquina frigorífica eléctrica de **2,0**). Medido en **26RES080_78**: estufa de pellets declarada al 40 % (η 0,39) → 190,76 kWh/m²; el 60 % restante, 121,92 kWh/m² de gas natural. El MISMO `.cex` pasado a CE3X 3.1 da las mismas cifras y escribe ese gas en el XML como «Caldera estándar (sistema ficticio)» (`<EsFicticio/>`); el v2.0 no lo nombra. Ese consumo está en la energía final del certificado y **entra en el ahorro**. Fuente única: [coberturaGeneradores.js](implementation/frontend/src/features/calculator/logic/coberturaGeneradores.js) (`leerGeneradoresDeTexto` sin DOM, v2.0/v3.0 y en MAYÚSCULAS; `coberturaPorGenerador`), que `calculateRes080SimplificadoFromXml` usa con el `.xml` crudo (`xmlTextoInicial/Final`) → `results.cobertura`. Se enseña en el módulo CEE (`CoberturaGeneradores`, bajo la tabla) y en una hoja del Certificado RES080 («Demanda cubierta por cada generador», `buildJustificacionAhorroPages`); la fila «otros combustibles» dice «Biomasa densificada (pelets) · 40 % calef. + Gas Natural · 60 % calef. (sistema ficticio por defecto)» y el generador, **«Sistema ficticio por defecto · Caldera estándar de gas natural»** (o «· Máquina frigorífica») — el MISMO rótulo con un XML de la 2.3 y de la 3.1 (decisión del usuario, 2026-10-05). Con la energía final declarada **no hay desplegable de combustible** (no se usa y enseñaba «Gasoleo Calefacción»). `parseCeeXml` guarda ya `generadores`. **«Por uso» (detallado) también**: un servicio con DOS vectores o con el sistema ficticio no se reconstruye dividiendo sus emisiones por UN factor —en 26RES080_78 eso daba 1.897,78 kWh/m² de pellets y 492 MWh—; su energía se LEE de `<EnergiaFinalVectores>`, el rótulo dice cada vector con su % y la celda no se elige (`fuelIniFijo`). Medido sobre los 49 RES080 con los dos certificados: ninguno más cambia de ahorro (±0,05 MWh), los 23 con el CIFO firmado incluidos; solo 26RES080_76 (35,30 → 45,31, hoy en «Por vector»). El cuadro de cobertura sale en los dos métodos. Tras tocarlo: `node implementation/backend/scripts/test_cobertura_generadores.mjs`, `test_xml_cee_v30.mjs` y `check_res080_paginas.mjs`.
 
-113. **Fran trabaja con Claude por WhatsApp, siempre abierto** (2026-10-05): escribe desde su móvil personal al de la empresa, el backend avisa al contenedor `asistente` (`services/asistenteCanal.js` → `scripts/asistente_vigia.js --servidor`) y Claude trabaja con las skills y le contesta por el mismo chat. Nada sale a un tercero sin su «envíala» para ESA oportunidad; su número solo en el `.env`; el contenedor usa el repo montado (solo lo commiteado) y no se reconstruye con un trabajo en marcha. Ver "El ASISTENTE de Fran por WhatsApp".
+113. **Fran trabaja con Claude por WhatsApp, siempre abierto** (2026-10-05): escribe desde su móvil personal al de la empresa, el backend avisa al contenedor `asistente` (`services/asistenteCanal.js` → `scripts/asistente_vigia.js --servidor`) y Claude trabaja con las skills y le contesta por el mismo chat. Nada sale a un tercero sin su «envíala» para ESA oportunidad; su número solo en el `.env`; el contenedor usa el repo montado (solo lo commiteado) y no se reconstruye con un trabajo en marcha. Modo proactivo: si un instalador manda una petición y nadie le contesta, se le pregunta a Fran (lo filtra Gemini). Claude arranca fuera del repo para no cargar CLAUDE.md entero, con Sonnet por defecto. Ver "El ASISTENTE de Fran por WhatsApp".
