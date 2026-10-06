@@ -260,9 +260,13 @@ async function markCeeRegistradoFromUpload(exp, phase, opts = {}) {
     seguimiento[tokenKey] = notifyToken;
     seguimiento[tokenKey + '_exp'] = Date.now() + 7 * 24 * 60 * 60 * 1000;
 
+    // Quién lo ha subido: el técnico por su enlace o quien PRESENTA el CEE por el
+    // suyo (presentacionCeeService). Lo que se hace es lo mismo; solo cambia cómo
+    // se cuenta.
+    const quien = opts.quien || { texto: 'el certificador', usuario: 'CERTIFICADOR' };
     const historial = docObj.historial || [];
     if (newEstado !== fresh.estado) {
-        historial.push({ id: Date.now().toString() + '_status', estado: newEstado, fecha: new Date().toISOString(), usuario: 'CERTIFICADOR' });
+        historial.push({ id: Date.now().toString() + '_status', estado: newEstado, fecha: new Date().toISOString(), usuario: quien.usuario });
     }
     // La fecha va EN el historial: es lo que permite reconstruir, meses después, si
     // el registro se selló con lo que decía el papel o con el día en que se subió.
@@ -270,10 +274,10 @@ async function markCeeRegistradoFromUpload(exp, phase, opts = {}) {
     historial.push({
         id: Date.now().toString() + '_reg_upl',
         tipo: 'informativo',
-        texto: `El certificador ha subido el justificante de registro del ${phaseLabelUpper} desde el enlace público. ${phaseLabelUpper} REGISTRADO el ${comoISO(fechaReal)}`
+        texto: `${quien.texto.charAt(0).toUpperCase()}${quien.texto.slice(1)} ha subido el justificante de registro del ${phaseLabelUpper} desde el enlace público. ${phaseLabelUpper} REGISTRADO el ${comoISO(fechaReal)}`
             + (opts.fechaRegistro ? ' (leída del justificante).' : ' (fecha de la subida: el justificante no se pudo leer).'),
         fecha: new Date().toISOString(),
-        usuario: 'CERTIFICADOR'
+        usuario: quien.usuario
     });
     docObj.historial = historial;
 

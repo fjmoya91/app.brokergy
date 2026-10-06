@@ -9661,6 +9661,42 @@ las dos calificaciones coinciden con lo que el técnico tecleó en la sede.
 
 ---
 
+### ENCARGAR la presentación a una persona de fuera — `/presentar/:negocio/:id` (2026-10-06)
+
+Botón **✉ Enviar a presentar** en el pie del popup «Presentar el CEE» (solo equipo
+interno, en los DOS negocios). Manda a quien presenta (Eva, sin cuenta en la app) un
+correo con los **tres ficheros** adjuntos y un ENLACE a una página con el borrador del
+Registro, los mismos ficheros para descargar y dónde subir el justificante de registro y
+el recibo de la tasa.
+
+| Qué | Dónde |
+|---|---|
+| Elegir ficheros, token, correo, encargar/retirar, página pública | [presentacionCeeService.js](implementation/backend/services/presentacionCeeService.js) |
+| Subida del justificante (COMÚN con el enlace del técnico) | [services/cee/subidaCeePublica.js](implementation/backend/services/cee/subidaCeePublica.js) |
+| Rutas del equipo (montadas en los dos negocios) | [routes/presentacionCeeRutas.js](implementation/backend/routes/presentacionCeeRutas.js) — `GET/POST /:id/presentacion-cee`, `POST …/retirar` (**staffOnly**) |
+| Rutas públicas | `/api/public/presentar/:negocio/:id` (+ `/borrador-cee`, `/borrador-cee/fichero`, `/borrador-cee/pdf`, `POST /devuelto`) |
+| Popup · página | `EncargarPresentacionModal.jsx` · `PresentarEncargoView.jsx` (reusa `BorradorCeeModal` con `onSubirDevuelto`) |
+| Prueba sin datos reales | `node implementation/backend/scripts/test_presentacion_cee.js` |
+
+**REGLA — se mandan SIEMPRE el .cex, el .xml y el PDF FIRMADO, y NADA más** (decisión del
+usuario, 2026-10-06): ni el informe de mejoras, ni el registro, ni la etiqueta. **Un
+fichero con «REVISAR» en el nombre no se manda nunca** (`esRevisar`) — es un borrador de
+la app. Por slot manda el nombre canónico; si falta alguno de los tres, **no sale nada**.
+Los adjuntos van con el NIF del titular delante, como se suben al Registro.
+
+**REGLA — el enlace es REVOCABLE**: HMAC con un `nonce` guardado en
+`cee.presentacion[fase]` (clave preservada en los dos PUT). Reenviar genera otro (el
+anterior deja de valer) y «Retirar el encargo» lo borra. El sello se escribe DESPUÉS de
+enviar. Al subir el justificante se lee su fecha y la fase queda REGISTRADA por la MISMA
+función que la subida del técnico, contado en el historial como «{nombre} (presentación)».
+Ni un importe en el correo ni en la página. Quién presenta por defecto se recuerda en
+`app_settings.presentador_cee`.
+
+⚠️ La descarga del borrador en PDF en una página PÚBLICA no puede usar
+`/api/pdf/generate` (pide sesión): `BorradorCeeModal` usa `…/borrador-cee/pdf` cuando va
+con `paramsExtra`. Arregló de paso la del técnico (`/cee-firma/:id/borrador-cee/pdf`), y
+`PresentarCeeView` manda ya `phase` al borrador (en la fase final daba 403).
+
 ## Una vivienda puede tener DOS propietarios (2026-09-17)
 
 La ficha de cliente solo tenía sitio para uno, así que lo que se hacía era meter
@@ -13505,3 +13541,4 @@ PROPUESTA_PROGRAMADA_MAX_DIAS=90   ← hasta cuándo se admite programar
 114. **Una vivienda con VARIOS propietarios que PAGAN la obra: un convenio con todos, un Anexo I por cada uno y, por defecto, UN ingreso** (2026-10-06). En la aceptación solo se pregunta si el equipo lo ha habilitado en la ficha del cliente (regla 59). Cedente = quien PAGA la obra (la factura va a su nombre), no quien es propietario: un copropietario se marca «Paga también la obra» (`copropietarios[].cedente`, con `cuota_pct` opcional —sin ella, a partes iguales— y `iban` solo si cobra en cuenta propia); el que no paga es solo un contacto. Fuente única: [logic/cedentes.js](implementation/frontend/src/features/expedientes/logic/cedentes.js) (`cedentesDe`, `repartoPago`), que cargan también `public.js`, `expedientes.js` y `cobroService` por import() ESM. **Con UN solo cedente no cambia nada** (decisión del usuario): convenio de dos páginas, un Anexo I. Con varios, el Convenio pasa a TRES páginas —Reunidos en tabla, cláusula Novena de pluralidad (solidaridad, arts. 1137/1142/1143 CC: el ingreso en la cuenta designada libera a Brokergy) y página 3 solo de firmas, con casillas absolutas (`casillaFirmaConvenioPx/Pt` en `signBoxes.js`, la 0 la de Brokergy)— y el Anexo I sale una copia por cedente (`copias` en `formularioOficialService`, 4 págs cada una). Firman TODOS: Autofirma encadena documento × cedente sobre el PDF ya firmado (`cajaConvenioCedente(i)`, `anexoISignBoxCedente(i, n)`, la contrafirma de Brokergy `cajaConvenioCesionario`), y en papel o a mano se pide el DNI de cada uno (`dni_frontal_{i}` / `dni_{n}_link`, también en la cesión manuscrita montada desde la app). La factura vale a nombre de cualquier cedente (`facturaIncidencias` · TITULAR) y, si va a un propietario que no paga, se pide marcarlo. El bono va entero a la cuenta del titular salvo que un cedente dé la suya: entonces la fase 7 del lote enseña el reparto por cuenta (`fila.reparto`). La imputación en el IRPF sigue la cuota de propiedad, no quién cobra (art. 11 LIRPF) — **pendiente de revisión por un asesor**. Tras tocarlo: `node implementation/backend/scripts/test_copropietarios.mjs`, `test_facturas_incidencias.js`, `check_anexo_cesion_2pag.mjs` y `test_impresos_oficiales.mjs`.
 
 115. **El CEE inicial también sale de un VÍDEO de la vivienda, y lo que no se puede saber se PIDE** (2026-10-06): `cee_inicial.js video` lo lee (Gemini File API, `gemini-3.6-flash` con el audio), saca el fotograma más nítido de cada hueco, lo comprueba con OTRO modelo y el CÓDIGO pone cada hueco en su pared solo si en su planta es el único lado que encaja con lo que se ve por él (calle frente a patio/parcela, que cuentan igual); persiana bajada en el fotograma = lo dicho por el vídeo no vale. Lo dudoso NO se adivina: `pedir-fotos` prepara el WhatsApp al propietario, una foto por LADO numerada y con su plano en rojo, en seco salvo `--enviar` con el «sí» del usuario, y el CEE queda «esperando las fotos». Los fotogramas entran al plan como `frame:H3`. Fuente única: [videoEnvolventeService.js](implementation/backend/services/videoEnvolventeService.js) + [utils/videoEnvolvente.js](implementation/backend/utils/videoEnvolvente.js). Tras tocarlo: `node implementation/backend/scripts/test_video_envolvente.js`. Ver "Con un VÍDEO en vez de fotos".
+116. **El CEE se ENCARGA presentar a una persona de fuera con un enlace sin cuenta** (2026-10-06): botón «✉ Enviar a presentar» del popup «Presentar el CEE». Le llega un correo con el .cex, el .xml y el PDF firmado —**nunca nada con «REVISAR» en el nombre, y si falta uno no sale nada**— y un enlace revocable (`cee.presentacion[fase].nonce`) a `/presentar/:negocio/:id`, donde copia el borrador y sube el justificante, que registra la fase por la misma subida que el técnico (`subidaCeePublica.js`). Sin importes. Fuente única: [presentacionCeeService.js](implementation/backend/services/presentacionCeeService.js). Tras tocarlo: `node implementation/backend/scripts/test_presentacion_cee.js`. Ver "ENCARGAR la presentación a una persona de fuera".

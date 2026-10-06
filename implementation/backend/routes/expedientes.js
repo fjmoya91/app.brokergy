@@ -3489,7 +3489,9 @@ router.put('/:id', enforceAuth, async (req, res) => {
             // recién hecha (mismo fallo que `docs_validados`).
             // Y el sello del AGENTE IA (`agente_ia`), por lo mismo: lo escribe la
             // skill desde el PC mientras la ficha puede estar abierta.
-            for (const k of ['revision_inicial', 'revision_final', 'agente_ia']) {
+            // Y el encargo de PRESENTACIÓN (`presentacion`): lleva el nonce del
+            // enlace de quien presenta, y lo escribe solo su ruta.
+            for (const k of ['revision_inicial', 'revision_final', 'agente_ia', 'presentacion']) {
                 if (existing.cee && k in existing.cee) updates.cee[k] = existing.cee[k];
                 else delete updates.cee[k];
             }
@@ -8262,6 +8264,10 @@ router.post('/:id/borrador-cee/drive', staffOnly, async (req, res) => {
 // guía con un botón. Montada desde `guiaIrpfRutas` para que la gemela de los CEE
 // directos sea el mismo código (el módulo CEE llama a `${apiBase}/…`).
 require('./guiaIrpfRutas').montarGuiaIrpf(router, 'expediente', { staffOnly });
+
+// Encargar la PRESENTACIÓN del CEE en el Registro a una persona de fuera, con un
+// enlace sin cuenta. Montada desde `presentacionCeeRutas` en los dos negocios.
+require('./presentacionCeeRutas').montarPresentacionCee(router, 'expediente', { staffOnly });
 
 // ─── GET /api/expedientes/:id/cert-cliente-data ───────────────────────────
 // Ficha del cliente tal y como la recibirá el certificador, más la lista de datos

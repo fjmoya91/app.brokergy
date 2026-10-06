@@ -34,6 +34,7 @@ import { AceptarOfertaCeeView } from './features/public/views/AceptarOfertaCeeVi
 import { API_DOCS_CEE_DIRECTO } from './features/docs/docsApi';
 import { SubirCifoView } from './features/public/views/SubirCifoView';
 import { PresentarCeeView } from './features/public/views/PresentarCeeView';
+import { PresentarEncargoView } from './features/public/views/PresentarEncargoView';
 import { SubirRiteView } from './features/public/views/SubirRiteView';
 import { SubirInstaladorView } from './features/public/views/SubirInstaladorView';
 import { SubirCeeView } from './features/public/views/SubirCeeView';
@@ -234,6 +235,17 @@ function App() {
     const token = sp.get('token');
     const phase = sp.get('phase') === 'final' ? 'final' : 'inicial';
     return (expedienteId && token) ? { expedienteId, token, phase } : null;
+  });
+
+  // Encargo de PRESENTACIÓN a una persona de fuera, sin cuenta:
+  // /presentar/:negocio/:id?fase=&token=  (negocio = cae | cee)
+  const [presentarEncargoData] = useState(() => {
+    const m = window.location.pathname.match(/^\/presentar\/(cae|cee)\/([^/?#]+)/);
+    if (!m) return null;
+    const sp = new URLSearchParams(window.location.search);
+    const token = sp.get('token');
+    const fase = sp.get('fase') === 'final' ? 'final' : 'inicial';
+    return token ? { negocio: m[1], id: m[2], token, fase } : null;
   });
 
   const [ceeUploadData] = useState(() => {
@@ -1127,8 +1139,8 @@ function App() {
 
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
-  const isPublicRoute = !!(landingRoute || reformaDocsData || ceeDocsData || firmaOportunidadId || ofertaCeeToken || certAckData || cobroData || cifoUploadId || riteUploadId || instaladorId || presentarCeeData || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || croquisMovilToken || encargoData || firmarLoteId || portalRoute);
-  const isLoggedDashboard = user && !firmaOportunidadId && !ofertaCeeToken && !ceeDocsData && !resetToken && !certAckData && !cobroData && !cifoUploadId && !riteUploadId && !instaladorId && !presentarCeeData && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !croquisMovilToken && !encargoData && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
+  const isPublicRoute = !!(landingRoute || reformaDocsData || ceeDocsData || firmaOportunidadId || ofertaCeeToken || certAckData || cobroData || cifoUploadId || riteUploadId || instaladorId || presentarCeeData || presentarEncargoData || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || croquisMovilToken || encargoData || firmarLoteId || portalRoute);
+  const isLoggedDashboard = user && !firmaOportunidadId && !ofertaCeeToken && !ceeDocsData && !resetToken && !certAckData && !cobroData && !cifoUploadId && !riteUploadId && !instaladorId && !presentarCeeData && !presentarEncargoData && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !croquisMovilToken && !encargoData && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
   const wrapperPadding = (isLoggedDashboard || isPublicRoute || (user && envolventeId)) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
@@ -1173,6 +1185,9 @@ function App() {
           <SubirCifoView expedienteId={cifoUploadId} />
         ) : riteUploadId ? (
           <SubirRiteView expedienteId={riteUploadId} />
+        ) : presentarEncargoData ? (
+          <PresentarEncargoView negocio={presentarEncargoData.negocio} id={presentarEncargoData.id}
+                                token={presentarEncargoData.token} fase={presentarEncargoData.fase} />
         ) : presentarCeeData ? (
           <PresentarCeeView expedienteId={presentarCeeData.expedienteId}
                             token={presentarCeeData.token} fase={presentarCeeData.phase} />

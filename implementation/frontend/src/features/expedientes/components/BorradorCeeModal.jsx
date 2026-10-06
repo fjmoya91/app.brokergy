@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
+import { EncargarPresentacionModal } from './EncargarPresentacionModal';
 
 // ─── Borrador para presentar el CEE ──────────────────────────────────────────
 // Los datos del Registro Autonómico, en el orden en que su formulario los pide y
@@ -31,6 +32,8 @@ const DEVUELTOS = [
         slot: 'registro',
         titulo: 'Justificante de registro',
         ayuda: 'Va a la casilla REGISTRO del CEE. Se le lee la fecha y la fase queda registrada.',
+        // Lo que lee quien presenta por encargo (sin cuenta): sin la jerga de la rejilla.
+        ayudaPublica: 'El PDF que te devuelve la sede al registrarlo. Se le lee la fecha y el certificado queda registrado.',
         accept: '.pdf',
     },
     {
@@ -42,6 +45,7 @@ const DEVUELTOS = [
         nombre: 'TASA',
         titulo: 'Justificante del pago de la tasa',
         ayuda: 'Va al cajón OTROS del CEE, como «… – TASA».',
+        ayudaPublica: 'El recibo de la pasarela de pago, si lo tienes.',
         accept: '.pdf,image/*',
     },
 ];
@@ -54,7 +58,10 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
                                    paramsExtra = null, soloLectura = false,
                                    // La fase en la que se abre: la de la fila desde la que se
                                    // pulsó «Presentar en el Registro». Sin ella, la primera.
-                                   faseInicial = null }) {
+                                   faseInicial = null,
+                                   // Subir lo que devuelve la sede SIN la rejilla: la página pública
+                                   // de quien presenta. `(fase, doc, file) => Promise<{texto?}>`.
+                                   onSubirDevuelto = null }) {
     const [fase, setFase] = useState(faseInicial || 'inicial');
     const [datos, setDatos] = useState(null);
     const [cargando, setCargando] = useState(false);
@@ -66,6 +73,8 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
     const [subido, setSubido] = useState({});
     // Guardar el PDF en la carpeta de Drive de la fase: { cargando } | { fase, carpetaLink, link }.
     const [enDrive, setEnDrive] = useState(null);
+    // Encargar la presentación a una persona de fuera (solo el equipo interno).
+    const [encargar, setEncargar] = useState(false);
 
     // En un CEE directo de alcance ÚNICO no hay fase final: no se ofrece.
     const disponibles = ['inicial', 'final'].filter(f => fases.includes(f));
@@ -139,15 +148,21 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
     // Lo que vuelve de la sede, por la MISMA vía que la rejilla del CEE.
     const subirDevuelto = async (doc, file) => {
         if (!file || subiendo) return;
-        if (!gridRef?.current?.subirASlot) {
+        if (!onSubirDevuelto && !gridRef?.current?.subirASlot) {
             setError('No se puede subir desde aquí: abre el popup desde el módulo CEE del expediente.');
             return;
         }
         setSubiendo(doc.clave);
         setError(null);
         try {
-            await gridRef.current.subirASlot(fase, doc.slot, file, { nombre: doc.nombre });
-            setSubido(s => ({ ...s, [doc.clave]: file.name }));
+            let texto = file.name;
+            if (onSubirDevuelto) {
+                const r = await onSubirDevuelto(fase, doc, file);
+                if (r?.texto) texto = r.texto;
+            } else {
+                await gridRef.current.subirASlot(fase, doc.slot, file, { nombre: doc.nombre });
+            }
+            setSubido(s => ({ ...s, [doc.clave]: texto }));
             // El estado en Drive del apartado de documentos cambia al subir el
             // justificante, así que se vuelve a pedir el borrador. Es una lectura,
             // no rehace nada.
@@ -168,6 +183,15 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
         if (!datos?.html || generando) return;
         setGenerando(true);
         try {
+            // En la vía PÚBLICA no hay sesión para `/api/pdf/generate`: el backend
+            // tiene su propia ruta con el token, que rasteriza la MISMA composición.
+            if (paramsExtra) {
+                const resp = await axios.get(`${apiBase}/${expedienteId}/borrador-cee/pdf`,
+                    { params: { fase, ...paramsExtra }, responseType: 'blob', timeout: 90000 });
+                const n = datos.borrador?.numeroExpediente || 'expediente';
+                guardar(resp.data, `Borrador presentar ${datos.borrador?.faseLabel || 'CEE'} - ${n}.pdf`);
+                return;
+            }
             const { data } = await axios.post('/api/pdf/generate', { html: datos.html }, { timeout: 90000 });
             if (!data?.pdf) throw new Error(data?.message || 'No se pudo generar el PDF');
             const bin = atob(data.pdf);
@@ -320,18 +344,20 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
                             {/* Lo que VUELVE de la sede. Va al final porque es el
                                 último paso: primero se rellena y se presenta, y
                                 después llegan el justificante y el recibo. */}
-                            {gridRef && (
+                            {(gridRef || onSubirDevuelto) && (
                                 <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-4 py-3.5">
                                     <div className="text-[10px] font-black text-white uppercase tracking-widest">
                                         Una vez presentado
                                     </div>
                                     <p className="text-[10px] text-white/40 normal-case mt-0.5 leading-snug">
-                                        Sube aquí lo que devuelve la sede. Va a su casilla del CEE
-                                        {fase === 'final' ? ' final' : ' inicial'}, igual que si lo soltaras en la rejilla.
+                                        {onSubirDevuelto
+                                            ? 'Sube aquí lo que devuelve la sede: el justificante de registro (se lee su fecha y el certificado queda registrado) y, si lo tienes, el recibo de la tasa.'
+                                            : <>Sube aquí lo que devuelve la sede. Va a su casilla del CEE
+                                                {fase === 'final' ? ' final' : ' inicial'}, igual que si lo soltaras en la rejilla.</>}
                                     </p>
                                     <div className="mt-2 space-y-1">
                                         {DEVUELTOS.map(d => (
-                                            <Devuelto key={d.clave} d={d}
+                                            <Devuelto key={d.clave} d={onSubirDevuelto ? { ...d, ayuda: d.ayudaPublica || d.ayuda } : d}
                                                       subiendo={subiendo} subido={subido[d.clave]}
                                                       onFile={(f) => subirDevuelto(d, f)} />
                                         ))}
@@ -355,10 +381,19 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
                             </p>
                         ) : (
                             <p className="text-[9px] text-white/25 normal-case leading-snug hidden md:block">
-                                El PDF se adjunta también al visto bueno que le das al certificador.
+                                {paramsExtra
+                                    ? 'El mismo borrador en PDF, para tenerlo al lado o impreso.'
+                                    : 'El PDF se adjunta también al visto bueno que le das al certificador.'}
                             </p>
                         )}
                         <div className="shrink-0 flex items-center gap-2 max-md:w-full max-md:flex-col">
+                            {puedeDrive && (
+                                <button type="button" onClick={() => setEncargar(true)}
+                                        title="Manda a quien presenta (Eva) el .cex, el .xml y el PDF firmado, con un enlace sin cuenta al borrador y a dónde subir el justificante."
+                                        className="shrink-0 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/15 bg-white/[0.04] text-white/70 hover:border-brand/40 hover:text-brand transition-colors max-md:w-full max-md:py-3.5">
+                                    ✉ Enviar a presentar
+                                </button>
+                            )}
                             {puedeDrive && (
                                 <button type="button" onClick={guardarEnDrive} disabled={!!enDrive?.cargando || !datos?.html}
                                         title="Guarda el PDF en la carpeta del CEE de esta fase, junto a los ficheros que se anexan. Si ya había uno, lo sustituye."
@@ -374,6 +409,12 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
                     </div>
                 )}
             </div>
+            {encargar && (
+                <div onClick={e => e.stopPropagation()}>
+                    <EncargarPresentacionModal isOpen onClose={() => setEncargar(false)}
+                                               apiBase={apiBase} expedienteId={expedienteId} fase={fase} />
+                </div>
+            )}
         </div>
     );
 }

@@ -1488,6 +1488,8 @@ router.post('/cee-prerevision/:expedienteId', async (req, res) => {
 });
 
 // POST /api/public/cee-upload/:expedienteId/:slot?token=&phase= → sube 1 fichero
+// La subida (y el hito del REGISTRO) vive en `services/cee/subidaCeePublica.js`:
+// la comparte con el enlace de quien PRESENTA el certificado.
 router.post('/cee-upload/:expedienteId/:slot', uploadDocsSingle, async (req, res) => {
     try {
         const { expedienteId, slot } = req.params;
@@ -1496,60 +1498,13 @@ router.post('/cee-upload/:expedienteId/:slot', uploadDocsSingle, async (req, res
         if (!ceeUploadService.ceeUploadSignatureValid(expedienteId, ph, token)) {
             return res.status(403).json({ error: 'Enlace inválido o caducado.' });
         }
-        if (!req.file || !req.file.buffer?.length) {
-            return res.status(400).json({ error: 'No se ha recibido ningún archivo' });
-        }
-        if (!ceeUploadService.CEE_SLOTS.find(s => s.id === slot)) {
-            return res.status(400).json({ error: 'Tipo de documento no válido' });
-        }
-
-        const { data: exp } = await supabase.from('expedientes').select('*').eq('id', expedienteId).maybeSingle();
-        if (!exp) return res.status(404).json({ error: 'Expediente no encontrado' });
-
-        const driveFolderId = await ceeUploadService.resolveDriveFolderId(exp);
-        if (!driveFolderId) return res.status(400).json({ error: 'El expediente no tiene carpeta de Drive' });
-
-        const numExp = exp.numero_expediente || expedienteId;
-        const uploaded = await ceeUploadService.uploadCeeFile(
-            driveFolderId, ph, numExp, slot, req.file.buffer, req.file.mimetype
-        );
-
-        // Persistir el enlace en cee.cee_files[section][slot] (igual que la app).
-        const sectionK = ph === 'final' ? 'final' : 'inicial';
-        const cee = exp.cee || {};
-        const ceeFiles = cee.cee_files || {};
-        ceeFiles[sectionK] = { ...(ceeFiles[sectionK] || {}), [slot]: uploaded.link };
-        cee.cee_files = ceeFiles;
-        // Fichero nuevo ⇒ la validación anterior del slot ya no vale (igual que al
-        // subirlo desde la app en CeeDocumentsGrid): vuelve a ámbar.
-        const ceeActualizado = invalidarValidacionCee(cee, sectionK, slot);
-        await supabase.from('expedientes').update({ cee: ceeActualizado, updated_at: new Date().toISOString() }).eq('id', expedienteId);
-        // Fichero nuevo ⇒ la revisión previa que hubiera en el freno ya no vale.
-        if (slot === 'xml' || slot === 'cex') require('../services/cee/revisionTecnico').olvidar(expedienteId, ph);
-
-        // Al subir el REGISTRO → misma notificación/transición que la app.
-        //
-        // La fecha de registro se LEE del propio justificante (la trae impresa en su
-        // primera página) en vez de sellar el día de la subida: el técnico sube a
-        // menudo registros de semanas atrás, y esa fecha mueve el plazo de la obra,
-        // el devengo de su facturación y el cruce con las facturas de la obra.
-        // Si no se puede leer, se cae a hoy y se dice — nunca se descarta la subida.
-        let registrado = false, fechaRegistro = null, avisoFecha = null;
-        if (slot === 'registro') {
-            const { resolverFechaRegistro } = require('../services/registroCeeOcrService');
-            const lectura = await resolverFechaRegistro(req.file.buffer);
-            avisoFecha = lectura.aviso;
-            const r = await ceeUploadService.markCeeRegistradoFromUpload(exp, ph, {
-                fechaRegistro: lectura.origen === 'justificante' ? lectura.fecha : null,
-            });
-            registrado = !!r.ok;
-            fechaRegistro = r.fechaRegistro || lectura.fecha;
-        }
-
-        res.json({ success: true, slot, link: uploaded.link, name: uploaded.fileName, registrado, fecha_registro: fechaRegistro, aviso_fecha: avisoFecha });
+        const { subirCae } = require('../services/cee/subidaCeePublica');
+        res.json(await subirCae({
+            expedienteId, fase: ph, slot, buffer: req.file?.buffer, mimetype: req.file?.mimetype,
+        }));
     } catch (e) {
         console.error('[cee-upload POST]', e.message);
-        res.status(500).json({ error: e.message || 'Error interno al subir el archivo' });
+        res.status(e.status || 500).json({ error: e.message || 'Error interno al subir el archivo' });
     }
 });
 
@@ -1639,6 +1594,23 @@ router.get('/cee-firma/:expedienteId/borrador-cee', async (req, res) => {
     }
 });
 
+// GET /api/public/cee-firma/:expedienteId/borrador-cee/pdf?token=&phase= → el borrador
+// en PDF. En la vía pública no vale `/api/pdf/generate`, que pide sesión.
+router.get('/cee-firma/:expedienteId/borrador-cee/pdf', async (req, res) => {
+    const ph = tokenCeeValido(req, res);
+    if (!ph) return;
+    try {
+        const doc = await require('../services/borradorCeeService').pdf('expediente', req.params.expedienteId, ph);
+        if (!doc) return res.status(404).json({ error: 'No hay borrador para este registro.' });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${doc.filename.replace(/[^\x20-\x7E]/g, '_')}"`);
+        res.send(doc.buffer);
+    } catch (e) {
+        console.error('[cee-firma/borrador pdf]', e.message);
+        res.status(e.status || 500).json({ error: e.message || 'Error interno' });
+    }
+});
+
 // GET /api/public/cee-firma/:expedienteId/fichero?token=&phase=&doc= → uno de los
 // cuatro documentos que se anexan, ya renombrado con el NIF del titular delante.
 router.get('/cee-firma/:expedienteId/borrador-cee/fichero', async (req, res) => {
@@ -1657,6 +1629,73 @@ router.get('/cee-firma/:expedienteId/borrador-cee/fichero', async (req, res) => 
         console.error('[cee-firma/fichero]', e.message);
         res.status(e.status || 500).json({ error: e.message || 'Error descargando el fichero' });
     }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PRESENTAR EL CEE — la página de quien PRESENTA (/presentar/:negocio/:id)
+// ---------------------------------------------------------------------------
+// Una persona de fuera, sin cuenta, a la que se le encarga presentar el CEE en
+// el Registro (services/presentacionCeeService.js). Token revocable: un nonce en
+// `cee.presentacion[fase]`. Solo ve el borrador y los TRES ficheros (.cex, .xml y
+// PDF firmado): ni un importe. `:negocio` es 'cae' o 'cee'.
+// ═══════════════════════════════════════════════════════════════════════════
+
+function errorPresentacion(res, e, etiqueta) {
+    if (!e.status || e.status >= 500) console.error(`[presentar ${etiqueta}]`, e.message);
+    res.status(e.status || 500).json({ error: e.status ? e.message : 'Error interno' });
+}
+
+const descargaComo = (filename) => `attachment; filename="${String(filename).replace(/[^\x20-\x7E]/g, '_')}"; `
+    + `filename*=UTF-8''${encodeURIComponent(filename)}`;
+
+router.get('/presentar/:negocio/:id', async (req, res) => {
+    try {
+        const svc = require('../services/presentacionCeeService');
+        res.json(await svc.vistaPublica(req.params.negocio, req.params.id, req.query.fase, req.query.token));
+    } catch (e) { errorPresentacion(res, e, 'vista'); }
+});
+
+// El MISMO popup del borrador que usa el equipo (BorradorCeeModal) llama a
+// `${apiBase}/${id}/borrador-cee`, `…/borrador-cee/fichero` y `…/borrador-cee/pdf`.
+router.get('/presentar/:negocio/:id/borrador-cee', async (req, res) => {
+    try {
+        const svc = require('../services/presentacionCeeService');
+        res.json(await svc.borradorPublico(req.params.negocio, req.params.id, req.query.fase, req.query.token));
+    } catch (e) { errorPresentacion(res, e, 'borrador'); }
+});
+
+router.get('/presentar/:negocio/:id/borrador-cee/pdf', async (req, res) => {
+    try {
+        const svc = require('../services/presentacionCeeService');
+        const doc = await svc.borradorPdfPublico(req.params.negocio, req.params.id, req.query.fase, req.query.token);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', descargaComo(doc.filename));
+        res.send(doc.buffer);
+    } catch (e) { errorPresentacion(res, e, 'borrador pdf'); }
+});
+
+router.get('/presentar/:negocio/:id/borrador-cee/fichero', async (req, res) => {
+    try {
+        const svc = require('../services/presentacionCeeService');
+        const { buffer, filename, mimeType } = await svc.ficheroPublico(
+            req.params.negocio, req.params.id, req.query.fase, req.query.token, req.query.doc);
+        res.setHeader('Content-Type', mimeType || 'application/octet-stream');
+        res.setHeader('Content-Disposition', descargaComo(filename));
+        res.send(buffer);
+    } catch (e) { errorPresentacion(res, e, 'fichero'); }
+});
+
+// Lo que devuelve la sede: `tipo` = 'registro' (cierra la fase) | 'tasa'.
+router.post('/presentar/:negocio/:id/devuelto', uploadDocsSingle, async (req, res) => {
+    try {
+        const svc = require('../services/presentacionCeeService');
+        const nombreOriginal = req.file?.originalname
+            ? Buffer.from(req.file.originalname, 'latin1').toString('utf8') : '';
+        res.json(await svc.subirDevuelto(req.params.negocio, req.params.id, req.query.fase, req.query.token, {
+            tipo: req.body?.tipo || req.query.tipo,
+            buffer: req.file?.buffer, mimetype: req.file?.mimetype, nombreOriginal,
+        }));
+    } catch (e) { errorPresentacion(res, e, 'devuelto'); }
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1943,103 +1982,23 @@ router.get('/cee-directo-upload/:id', async (req, res) => {
 });
 
 // POST /api/public/cee-directo-upload/:id/:slot?token=&phase=
+// Misma subida que la del CAE, en `services/cee/subidaCeePublica.js`.
 router.post('/cee-directo-upload/:id/:slot', uploadDocsSingle, async (req, res) => {
     try {
         const ceeDirectoUploads = require('../services/ceeDirectoUploadService');
-        const svcCeeDirecto = require('../services/ceeDirectoService');
         const { id, slot } = req.params;
         const { token, phase } = req.query;
         const ph = phase === 'final' ? 'final' : 'inicial';
         if (!ceeDirectoUploads.uploadSignatureValid(id, ph, token)) {
             return res.status(403).json({ error: 'Enlace inválido o caducado.' });
         }
-        if (!req.file || !req.file.buffer?.length) {
-            return res.status(400).json({ error: 'No se ha recibido ningún archivo' });
-        }
-        if (!ceeDirectoUploads.CEE_SLOTS.find(sl => sl.id === slot)) {
-            return res.status(400).json({ error: 'Tipo de documento no válido' });
-        }
-
-        const row = await svcCeeDirecto.cargar(id, { conRelaciones: false });
-        if (!row) return res.status(404).json({ error: 'Expediente no encontrado' });
-        if (!row.drive_folder_id) return res.status(400).json({ error: 'El expediente no tiene carpeta de Drive' });
-
-        const subido = await ceeDirectoUploads.uploadFile(row, ph, slot, req.file.buffer, req.file.mimetype);
-
-        const sectionK = ph === 'final' ? 'final' : 'inicial';
-        const cee = row.cee || {};
-        const ceeFiles = cee.cee_files || {};
-        ceeFiles[sectionK] = { ...(ceeFiles[sectionK] || {}), [slot]: subido.link };
-        cee.cee_files = ceeFiles;
-        // Fichero nuevo ⇒ la validación anterior del slot deja de valer y vuelve a
-        // ámbar, igual que al subirlo desde la app.
-        const patch = { cee: invalidarValidacionCee(cee, sectionK, slot) };
-
-        // El justificante de REGISTRO es el hito: cierra la fase. Se sella aquí y
-        // no en un segundo paso porque el técnico no vuelve a entrar.
-        let registrado = false, fechaRegistro = null, avisoFecha = null;
-        const key = ph === 'final' ? 'cee_final' : 'cee_inicial';
-        if (slot === 'registro' && row.seguimiento?.[key] !== 'REGISTRADO') {
-            // La fecha sale del justificante, no del día de la subida: un registro
-            // de hace semanas quedaba fechado hoy. Misma lectura que en el CAE.
-            const { resolverFechaRegistro } = require('../services/registroCeeOcrService');
-            const lectura = await resolverFechaRegistro(req.file.buffer);
-            fechaRegistro = lectura.fecha;
-            avisoFecha = lectura.aviso;
-            patch.seguimiento = { ...(row.seguimiento || {}), [key]: 'REGISTRADO' };
-            patch.documentacion = {
-                ...(row.documentacion || {}),
-                [`fecha_registro_${key}`]: lectura.fecha
-            };
-            registrado = true;
-        }
-
-        await svcCeeDirecto.guardar(row.id, patch, { seguimientoPrev: row.seguimiento });
-
-        if (registrado) {
-            // Otra de las dos mitades de la condición de entrega: el certificador
-            // acaba de subir el justificante. Si el expediente ya estaba cobrado,
-            // el cliente recibe su certificado sin que nadie tenga que acordarse.
-            require('../services/ceeDirectoEntrega')
-                .intentarEntregaAsync(row.id, ph, 'registro subido por el certificador');
-            // Si aún NO está cobrado, la entrega no sale: se le avisa de que ya
-            // está registrado y de que se le envía tras el pago (una vez por fase;
-            // `avisarRegistrado` se calla solo si está cobrado o ya se avisó, y
-            // respeta CEE_ENTREGA_AUTO como la entrega).
-            setImmediate(() => require('../services/ceeDirectoEntrega')
-                .avisarRegistrado(row.id, ph, { manual: false })
-                .catch(e => console.warn('[cee-directo-upload aviso cliente]', e.message)));
-
-            const [aa, mm, dd] = String(fechaRegistro).split('-');
-            await svcCeeDirecto.anotarHistorial(row.id, {
-                tipo: 'CEE',
-                texto: `${(ph === 'final' ? 'CEE FINAL' : 'CEE INICIAL')} REGISTRADO EL ${dd}/${mm}/${aa}`
-                    + ` — JUSTIFICANTE SUBIDO POR EL CERTIFICADOR${avisoFecha ? ' (FECHA DE LA SUBIDA: EL JUSTIFICANTE NO SE PUDO LEER)' : ''}`,
-                usuario: null
-            });
-            // Aviso al equipo: registrado el certificado, lo siguiente es cobrarlo
-            // y entregárselo al cliente. Best-effort, fuera de la respuesta: el
-            // técnico ya ha subido el fichero y no puede quedarse esperando.
-            setImmediate(async () => {
-                try {
-                    const wa = process.env.WHATSAPP_ADMIN_CHAT;
-                    const texto = `✅ ${row.numero_expediente} — ${ph === 'final' ? 'CEE FINAL' : 'CEE'} REGISTRADO por el certificador.`;
-                    if (wa) await require('../services/whatsappService').sendText(wa, texto);
-                    if (process.env.ADMIN_EMAIL) {
-                        await require('../services/emailService').sendMail({
-                            to: process.env.ADMIN_EMAIL,
-                            subject: `${row.numero_expediente} — CEE registrado`,
-                            text: texto, html: `<p>${texto}</p>`
-                        });
-                    }
-                } catch (e) { console.error('[cee-directo-upload aviso]', e.message); }
-            });
-        }
-
-        res.json({ success: true, slot, link: subido.link, name: subido.fileName, registrado, fecha_registro: fechaRegistro, aviso_fecha: avisoFecha });
+        const { subirCeeDirecto } = require('../services/cee/subidaCeePublica');
+        res.json(await subirCeeDirecto({
+            id, fase: ph, slot, buffer: req.file?.buffer, mimetype: req.file?.mimetype,
+        }));
     } catch (e) {
         console.error('[cee-directo-upload POST]', e.message);
-        res.status(500).json({ error: e.message || 'Error interno al subir el archivo' });
+        res.status(e.status || 500).json({ error: e.message || 'Error interno al subir el archivo' });
     }
 });
 

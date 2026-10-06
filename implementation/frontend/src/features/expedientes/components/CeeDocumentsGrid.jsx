@@ -1627,6 +1627,14 @@ Según el documento:
                             else if (quedan <= 7) { tono = 'amber'; detalle = `Quedan ${quedan} día${quedan === 1 ? '' : 's'} de plazo`; }
                             else if (dias >= 0) detalle = `Quedan ${quedan} días de plazo`;
                         }
+                        // Ya encargada a quien presenta (Eva): se dice a quién y desde
+                        // cuándo, junto al plazo, para no volver a mandarla sin saberlo.
+                        const enc = expediente?.cee?.presentacion?.[section];
+                        if (enc?.nonce && enc?.enviado_at) {
+                            const hace = Math.max(0, Math.floor((Date.now() - new Date(enc.enviado_at)) / 86400000));
+                            const quien = String(enc.nombre || 'presentar').split(/\s+/)[0];
+                            detalle = `Enviado a ${quien} ${hace === 0 ? 'hoy' : `hace ${hace} día${hace === 1 ? '' : 's'}`} · ${detalle}`;
+                        }
                         return { tono, detalle };
                     })();
 

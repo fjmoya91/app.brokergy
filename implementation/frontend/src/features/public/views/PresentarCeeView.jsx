@@ -99,7 +99,7 @@ export function PresentarCeeView({ expedienteId, token, fase = 'inicial' }) {
                 onClose={() => setBorradorAbierto(false)}
                 expedienteId={expedienteId}
                 apiBase={`${API_URL}/cee-firma`}
-                paramsExtra={{ token }}
+                paramsExtra={{ token, phase: fase }}
                 fases={[fase]}
             />
         </Marco>

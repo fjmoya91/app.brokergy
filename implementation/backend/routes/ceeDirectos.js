@@ -551,8 +551,12 @@ router.put('/:id', internalOnly, async (req, res) => {
         // abrirse: sin esto, el primer autoguardado se lo llevaría por delante.
         if (patch.cee && typeof patch.cee === 'object') {
             patch.cee = { ...patch.cee };
-            if (row.cee && 'agente_ia' in row.cee) patch.cee.agente_ia = row.cee.agente_ia;
-            else delete patch.cee.agente_ia;
+            // Y el encargo de PRESENTACIÓN (`cee.presentacion`), que lleva el nonce
+            // del enlace de quien presenta y solo lo escribe su ruta.
+            for (const k of ['agente_ia', 'presentacion']) {
+                if (row.cee && k in row.cee) patch.cee[k] = row.cee[k];
+                else delete patch.cee[k];
+            }
         }
 
         if (!isStaff(req)) {
@@ -1582,6 +1586,7 @@ router.post('/:id/borrador-cee/drive', staffOnly, async (req, res) => {
 // Gemela de la del CAE: la guía de la deducción del IRPF y el envío de los
 // certificados + la guía. Un CEE directo es, muchas veces, justo para esto.
 require('./guiaIrpfRutas').montarGuiaIrpf(router, 'cee_directo', { staffOnly });
+require('./presentacionCeeRutas').montarPresentacionCee(router, 'cee_directo', { staffOnly });
 
 // ─── GET /:id/borrador-cee/fichero ──────────────────────────────────────────
 // Gemela de la del CAE. Ver allí el porqué de pedir por CLAVE de documento.
