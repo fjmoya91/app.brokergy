@@ -332,6 +332,20 @@ async function crear() {
     const raw = await cat.getByRC(rc);
     if (!raw?.constructions) throw new Error(`El Catastro no devuelve el inmueble ${rc}.`);
 
+    // Una construcción que solo se calienta EN PARTE (la mitad del sótano): se
+    // cuenta con los m² que dice el plan y se añade a `construcciones`. Se
+    // escribe sobre la construcción misma para que la selección, el desglose
+    // guardado y la calculadora al abrirse sumen lo mismo.
+    const parciales = plan.construcciones_parciales || {};
+    for (const [codigo, m2] of Object.entries(parciales)) {
+        const c = (raw.constructions || []).find(x => String(x.code || '').trim() === codigo);
+        if (!c) throw new Error(`construcciones_parciales: el Catastro no tiene ${codigo}.`);
+        if (!(Number(m2) > 0) || Number(m2) > Number(c.surface)) throw new Error(`construcciones_parciales: ${codigo} admite de 0 a ${c.surface} m².`);
+        avisos.push(`De ${codigo} (${c.originalType || c.type}, ${c.surface} m² en el Catastro) se cuentan solo ${m2} m² calefactados.`);
+        c.surface = Number(m2);
+        plan.construcciones = [...new Set([...(plan.construcciones || []), codigo])];
+    }
+
     const { desgloseConstrucciones } = await esm('utils/construcciones.js');
     const sel = alta.seleccionConstrucciones(raw.constructions, plan.construcciones, plan.vivienda_construcciones);
     avisos.push(...sel.avisos);
@@ -473,6 +487,20 @@ async function crear() {
         if (!(Number(ceeLeido.demandas?.calefaccion_kwh_m2_ano) > 0)) avisos.push('El CEE no deja leer la demanda de calefacción: sin ella no hay comparativa.');
     }
 
+    // 6.b La comisión por defecto del partner, como la aplica la calculadora al
+    //     elegirlo (CalculatorForm): descontada del CLIENTE y, si se pactó en %,
+    //     sobre lo que se le ofrece al cliente (logic/comisionPartner.js).
+    let comisionPartner = null;
+    if (partner?.comision_activa && (parseFloat(partner.comision_valor) || 0) > 0) {
+        const { comisionDePct } = await esm('features/calculator/logic/comisionPartner.js');
+        const valor = parseFloat(partner.comision_valor);
+        const eurMwh = partner.comision_tipo === 'pct' ? comisionDePct(valor, inputs.caePriceClient) : valor;
+        if (eurMwh > 0) {
+            Object.assign(inputs, { includeCommission: true, caePricePrescriptor: eurMwh, prescriptorMode: 'client' });
+            comisionPartner = partner.comision_tipo === 'pct' ? `${valor} % → ${dosDec(eurMwh)} €/MWh` : `${dosDec(eurMwh)} €/MWh`;
+        }
+    }
+
     // 7. El resultado, con la MISMA función que guarda el formulario.
     const result = computeFullCalculatorResult(inputs);
     let comparativa = null;
@@ -496,7 +524,8 @@ async function crear() {
     const sav = result?.savings || {};
     const fin = result?.financials || {};
     console.log('\n══════════ ALTA DE OPORTUNIDAD (' + (ESCRIBIR ? 'SE ESCRIBE' : 'EN SECO — no se toca nada') + ') ══════════');
-    console.log(`Partner:      ${partner ? `${partner.acronimo || partner.razon_social} (${partner.tipo_empresa})` : 'BROKERGY (sin partner)'}`);
+    console.log(`Partner:      ${partner ? `${partner.acronimo || partner.razon_social} (${partner.tipo_empresa})` : 'BROKERGY (sin partner)'}`
+        + (comisionPartner ? ` · comisión ${comisionPartner}` : ''));
     console.log(`Cliente:      ${contacto.nombre} ${contacto.apellidos || ''}${contacto.dni ? ' · DNI ✓' : ' · sin DNI'}${contacto.tlf ? ` · ${contacto.tlf}` : ' · sin teléfono'}`
         + (clientePrevio ? `  → ya existe (${clientePrevio.nombre_razon_social} ${clientePrevio.apellidos || ''}): se reutiliza` : '  → cliente nuevo'));
     console.log(`Vivienda:     ${raw.rc} · ${raw.address}`);

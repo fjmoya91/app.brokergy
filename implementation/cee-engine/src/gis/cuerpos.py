@@ -44,9 +44,10 @@ def _codigo(parte) -> str:
 
 def niveles_de(parte, por_defecto: int = 1) -> list[int]:
     """En que niveles esta presente este cuerpo."""
-    sobre = parte.plantas_sobre_rasante or por_defecto
-    bajo = parte.plantas_bajo_rasante or 0
-    return list(range(-bajo, 0)) + list(range(0, sobre))
+    # Los niveles en los que es PROPIO: una parte anexa de otra parcela solo
+    # lo es hasta su `hasta_nivel` (ver `floors.niveles_propios`).
+    from .floors import niveles_propios
+    return niveles_propios(parte, por_defecto)
 
 
 def _construcciones(modelo) -> list[dict]:

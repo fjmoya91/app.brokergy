@@ -31,6 +31,7 @@ sys.path.insert(0, str(RAIZ / "tools"))
 import cee_final as CF         # noqa: E402
 import generar_cex as G        # noqa: E402
 import leer_cex as L           # noqa: E402
+import version_ce3x as VC      # noqa: E402
 from tests.test_mejora import _geo, _datos   # noqa: E402
 
 PLANTILLA = RAIZ / "assets" / "plantilla-virgen.cex"
@@ -299,8 +300,13 @@ def test_el_final_lleva_la_medida_de_cubierta_con_la_instalacion_del_final():
     assert [str(g.estado["nombre"]) for g in grupos] == [
         analisis["retirada"]["borrador"]["nombre"], "AISLAMIENTO TÉRMICO EN CUBIERTA"]
     st = grupos[1].estado
-    # La instalación de la medida de cubierta es la DEL FINAL (con su caldera en apoyo).
-    assert G._comparable(st["datosInstalaciones"]) == G._comparable(medida)
+    # La instalación de la medida de cubierta es la DEL FINAL (con su caldera en apoyo),
+    # y en la 3.1 cada equipo lleva su potencia (si no, el diálogo de la medida sale
+    # en blanco): bajada a la forma interna, es la misma.
+    interna, _ = VC.instalaciones_a_23(st["datosInstalaciones"])
+    assert G._comparable(interna) == G._comparable(medida)
+    aero = [r for lista in st["datosInstalaciones"] for r in lista if "AEROTERMIA" in str(r[0])]
+    assert aero and all(VC.es_31(r) for r in aero)
     assert st["medidasMejoraEnvolvente"][0][1] == G.TIPO_AISLAMIENTO
     resumen = L.leer(L.trocear_bytes(salida), G.RESUMEN_MEDIDAS)[2]
     assert [f[2] for f in resumen] == ["Instalaciones", G.TIPO_AISLAMIENTO]

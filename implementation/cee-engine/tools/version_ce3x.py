@@ -972,6 +972,102 @@ def extra_de_grupo(st: dict) -> list:
     return [list(st.get(k) or []) if isinstance(st.get(k), list) else [] for k in MM_EXTRA]
 
 
+def _de_estado(est: dict, nombre: str) -> Any:
+    """Un atributo del estado de un grupo, sea cual sea el tipo de su clave
+    (`Cadena` al escribirlo nosotros, literal leido si viene de un fichero)."""
+    for k, v in est.items():
+        if str(k) == nombre:
+            return v
+    return None
+
+
+def medidas_equipos_a_31(grupos: Any, potencias: dict | None = None,
+                         meta: dict | None = None) -> list[str]:
+    """Los EQUIPOS de cada medida de mejora en la forma de la 3.1 (EN SITIO).
+
+    Una medida lleva su instalacion en TRES sitios —los `sistemas*MM`,
+    `datosInstalaciones` y la copia de `mejoras[1][1]`— y los escritores los
+    componen en la forma de la 2.3. La 3.1 los abre y los calcula, pero el
+    dialogo «Medida de mejora en la instalación» sale con la POTENCIA de cada
+    servicio en blanco (visto el 05/10/2026 en 2026CEE_58: los siete aires de la
+    medida de autoconsumo, sin potencia, con la del edificio base bien puesta),
+    y CE3X 3.1 la exige para el XML. Se les pone con `equipo_a_31`, la MISMA
+    funcion que a la instalacion del edificio: mismas potencias (de la ficha o
+    por defecto, y dicho) para el mismo aparato.
+
+    `potencias`: las de `potencias_de_equipos` (por nombre). `meta`: la de
+    `instalaciones_a_23` del fichero de partida, para devolver intactas las que
+    el tecnico ya habia puesto. Un equipo que ya tiene la forma de la 3.1 no se
+    toca, asi que llamarla dos veces no cambia nada.
+    """
+    if not isinstance(grupos, list):
+        return []
+    potencias = potencias or {}
+    eq_meta = (meta or {}).get("equipos") or {}
+    avisos: list[str] = []
+    hechas: set[int] = set()
+
+    def slot(i: int, lista: Any) -> None:
+        # La misma lista puede estar en dos sitios (el emisor la escribe una vez
+        # y la segunda como GET): se convierte una sola vez.
+        if not isinstance(lista, list) or id(lista) in hechas:
+            return
+        hechas.add(id(lista))
+        for k, reg in enumerate(lista):
+            nombre = str(reg[0]) if isinstance(reg, list) and reg else ""
+            try:
+                r31, av = equipo_a_31(reg, potencias.get(nombre), eq_meta.get(_clave(i, reg)))
+            except GeneracionError as exc:
+                avisos.append(f"Medida de mejora: {exc} (se deja como estaba).")
+                continue
+            if r31 is not reg:
+                lista[k] = r31
+            avisos.extend(av)
+
+    _por_slots_de_medida(grupos, slot)
+    return list(dict.fromkeys(avisos))
+
+
+def medidas_equipos_a_23(grupos: Any) -> None:
+    """Lo contrario (EN SITIO): los equipos de las medidas, sin las potencias de
+    la 3.1. Se pierden, como las de la instalacion del edificio (`bajar` lo dice)."""
+    if not isinstance(grupos, list):
+        return
+    hechas: set[int] = set()
+
+    def slot(_i: int, lista: Any) -> None:
+        if not isinstance(lista, list) or id(lista) in hechas:
+            return
+        hechas.add(id(lista))
+        for k, reg in enumerate(lista):
+            r23, m = equipo_a_23(reg)
+            if m is not None:
+                lista[k] = r23
+
+    _por_slots_de_medida(grupos, slot)
+
+
+def _por_slots_de_medida(grupos: list, hacer: Callable[[int, Any], None]) -> None:
+    """Llama a `hacer(i, lista)` con cada lista de equipos de cada medida: sus
+    `sistemas*MM`, `datosInstalaciones` y la copia de `mejoras[1][1]`."""
+    for g in grupos:
+        est = getattr(g, "estado", None)
+        if not isinstance(est, dict):
+            continue
+        for i, s in enumerate(SLOTS):
+            hacer(i, _de_estado(est, SLOT_A_MM[s]))
+        datos = _de_estado(est, "datosInstalaciones")
+        if isinstance(datos, list):
+            for i, lista in enumerate(datos[:12]):
+                hacer(i, lista)
+        mejoras = _de_estado(est, "mejoras")
+        copia = (mejoras[1][1] if isinstance(mejoras, list) and len(mejoras) > 1
+                 and isinstance(mejoras[1], list) and len(mejoras[1]) > 1 else None)
+        if isinstance(copia, list):
+            for i, lista in enumerate(copia[:12]):
+                hacer(i, lista)
+
+
 # --------------------------------------------------------------------------
 # Todo junto: pasar los pickles que se van a escribir a la version pedida
 # --------------------------------------------------------------------------
@@ -999,7 +1095,10 @@ def elevar(pickles: dict, ext: dict, potencias: dict | None = None,
         pickles[INFORME] = informe_a_31(pickles[INFORME], (ext or {}).get("recomendaciones"))
     if MEDIDAS in pickles:
         pickles[MEDIDAS] = medidas_a_31(pickles[MEDIDAS], (ext or {}).get("justificaciones"))
-    return avisos
+        # Y sus equipos, con la potencia de cada servicio: la misma maquina que
+        # en la instalacion del edificio, o el dialogo de la medida sale vacio.
+        avisos += medidas_equipos_a_31(pickles[MEDIDAS], potencias, meta)
+    return list(dict.fromkeys(avisos))
 
 
 def bajar(pickles: dict) -> list[str]:
@@ -1023,4 +1122,5 @@ def bajar(pickles: dict) -> list[str]:
         pickles[INFORME] = informe_a_23(pickles[INFORME])
     if MEDIDAS in pickles:
         pickles[MEDIDAS] = medidas_a_23(pickles[MEDIDAS])
+        medidas_equipos_a_23(pickles[MEDIDAS])
     return avisos

@@ -288,18 +288,7 @@ async function cargarExpediente(clave, origen = 'cae') {
     // El TÉCNICO que firma el certificado: el certificador asignado. Sus once
     // campos de CE3X están en `prescriptores` — titulación, colegio y número
     // incluidos—, así que no hay que teclear ninguno.
-    let certificador = null;
-    const certId = expediente.cee?.certificador_id;
-    if (certId) {
-        const { data } = await supabase.from('prescriptores')
-            .select('razon_social, cif, es_autonomo, nombre_responsable, apellidos_responsable, '
-                    + 'nif_responsable, empresa_razon_social, empresa_cif, '
-                    + 'direccion, municipio, provincia, codigo_postal, '
-                    + 'email, tlf, email_responsable, tlf_responsable, '
-                    + 'titulacion, colegio_profesional, numero_colegiado, es_agente_ia')
-            .eq('id_empresa', certId).maybeSingle();
-        certificador = data || null;
-    }
+    const certificador = await leerCertificador(expediente.cee?.certificador_id);
 
     // El id de la carpeta vive en `datos_calculo` de la oportunidad, no en el
     // expediente. Lo resuelve ceeUploadService y no se repite aquí.
@@ -397,6 +386,23 @@ async function datosOportunidad(clave) {
         cliente = data || null;
     }
     return { oportunidad: fila, cliente, expediente: exp };
+}
+
+/**
+ * Los once campos de CE3X del técnico que firma, de su ficha de `prescriptores`.
+ * Fuente única de esas columnas: la usa la carga del expediente y el script del
+ * CEE inicial cuando el plan declara el técnico (una oportunidad no tiene).
+ */
+async function leerCertificador(certId) {
+    if (!certId) return null;
+    const { data } = await supabase.from('prescriptores')
+        .select('razon_social, cif, es_autonomo, nombre_responsable, apellidos_responsable, '
+                + 'nif_responsable, empresa_razon_social, empresa_cif, '
+                + 'direccion, municipio, provincia, codigo_postal, '
+                + 'email, tlf, email_responsable, tlf_responsable, '
+                + 'titulacion, colegio_profesional, numero_colegiado, es_agente_ia')
+        .eq('id_empresa', certId).maybeSingle();
+    return data || null;
 }
 
 /**
@@ -995,6 +1001,37 @@ async function guardarEnDrive(ctx, buffer, fase = 'inicial') {
 }
 
 /**
+ * El XML y el PDF de un `.cex` ya guardado, junto a él y con su MISMO nombre
+ * (`… - CEE INICIAL_REVISAR.xml` / `.pdf`). Salen de `cee/cexAPdf.js`, que lo
+ * califica con CE3X 3.1 en el PC: aquí solo se suben. Lo que hubiera con ese
+ * nombre se archiva en OLD, como el `.cex`.
+ *
+ * El `_REVISAR` los aparta de la rejilla (`matchSlot`): son el borrador
+ * calificado, no la entrega del técnico. Nunca lanza: el `.cex` ya está.
+ */
+async function guardarCalificadoEnDrive(ctx, fase, nombreCex, { xml = null, pdf = null } = {}) {
+    if (!ctx.driveFolderId && !esCeeDirecto(ctx.expediente)) return { ok: false, error: 'el expediente no tiene carpeta de Drive' };
+    try {
+        const { id: carpeta } = await carpetaFase(ctx, fase);
+        if (!carpeta) throw new Error('no se ha podido resolver la carpeta de la fase');
+        const base = String(nombreCex).replace(/\.cex$/i, '');
+        const subidos = [];
+        for (const [ext, mime, bytes] of [['.xml', 'application/xml', xml], ['.pdf', 'application/pdf', pdf]]) {
+            if (!bytes) continue;
+            const nombre = base + ext;
+            const previo = await driveService.findFileByName(carpeta, nombre);
+            if (previo) await driveService.archiveExistingToOld(carpeta, previo, nombre);
+            const g = await driveService.saveFileToFolder(carpeta, nombre, mime, bytes, { throwOnError: true });
+            if (!g?.id) throw new Error(`Drive no ha devuelto «${nombre}»`);
+            subidos.push({ nombre, link: g.link, driveId: g.id, archivado: !!previo });
+        }
+        return { ok: true, subidos };
+    } catch (e) {
+        return { ok: false, error: e.message };
+    }
+}
+
+/**
  * Los documentos de la Sede del Catastro (`cee-engine` → `/catastro/documentos`)
  * en `1. CEE / CEE INICIAL / CATASTRO`: el croquis catastral por plantas (PDF),
  * su FXCC (ZIP con DXF + ASC), los dos KML 3D y el FXCC con colindantes.
@@ -1328,7 +1365,35 @@ async function escribirImagenes(expediente, puestas) {
     await setCeeField(expediente, CAMPO_IMAGENES, puestas);
 }
 
+/**
+ * Lo que el certificador DECLARA del edificio y Catastro no dice: cuántas
+ * plantas de SEMISÓTANO dibuja como sobre rasante (pueblos en ladera) y qué
+ * unidades de OTRA parcela son de la vivienda (la planta baja de un edificio
+ * colindante con viviendas ajenas encima). Viven en los ajustes del trabajo
+ * (`ajustes.semisotano`, `ajustes.anexos`) y se mandan al motor desde el
+ * SERVIDOR, como las construcciones: cambian qué planta es cada una y, con
+ * ello, la superficie del certificado.
+ */
+function declaracionesEdificio(ajustes) {
+    const a = ajustes || {};
+    const n = Math.round(Number(a.semisotano) || 0);
+    const semisotano = n > 0 ? Math.min(n, 3) : 0;
+    const anexos = (Array.isArray(a.anexos) ? a.anexos : [])
+        .map(x => (typeof x === 'string' ? { referencia_catastral: x } : x))
+        .filter(x => x && /^[0-9A-Z]{20}$/.test(String(x.referencia_catastral || '').toUpperCase()))
+        .slice(0, 6)
+        .map(x => ({
+            referencia_catastral: String(x.referencia_catastral).toUpperCase(),
+            habitable: x.habitable !== false,
+            ...(Array.isArray(x.partes) && x.partes.length
+                ? { partes: x.partes.filter(p => typeof p === 'string').slice(0, 20) } : {}),
+        }));
+    return { semisotano, anexos };
+}
+
 module.exports = {
+    declaracionesEdificio,
+    leerCertificador,
     pvgisParaAutoconsumo,
     esCeeDirecto,
     esOportunidad,
@@ -1336,6 +1401,7 @@ module.exports = {
     datosOportunidad,
     setCeeField,
     carpetaFase,
+    guardarCalificadoEnDrive,
     guardarDocsCatastro,
     NOMBRES_CATASTRO,
     sufijoCex,

@@ -33,6 +33,35 @@ class ParteEdificio:
     plantas_sobre_rasante: int | None
     plantas_bajo_rasante: int | None
     attrs: dict = field(default_factory=dict)
+    #: El nivel MAS ALTO en el que esta parte es de la vivienda. `None` = en
+    #: todos. Lo pone `pipeline.anexar` en las partes de OTRA parcela de la que
+    #: la propiedad solo tiene una planta (la baja de un edificio con viviendas
+    #: de otros encima): por debajo cuenta como propia, por encima es de otro
+    #: propietario y hace de colindante —medianera en sus paredes, forjado
+    #: adiabatico en su techo—.
+    hasta_nivel: int | None = None
+
+
+def plantas_sobre(p: "ParteEdificio", por_defecto: int = 1) -> int:
+    """Plantas sobre rasante; `None` (Catastro no lo dice) es el defecto.
+
+    REGLA — un CERO es un cero. Con `p.plantas_sobre_rasante or por_defecto`
+    una parte que tras el SEMISOTANO queda con 0 plantas sobre rasante (el
+    patio sobre el garaje: solo tiene sotano) volvia a tener una.
+    """
+    v = p.plantas_sobre_rasante
+    return por_defecto if v is None else int(v)
+
+
+def niveles_propios(p: "ParteEdificio", por_defecto: int = 1) -> list[int]:
+    """En que niveles esta parte es de la vivienda (o del edificio propio)."""
+    sobre = plantas_sobre(p, por_defecto)
+    bajo = p.plantas_bajo_rasante or 0
+    todos = list(range(-bajo, 0)) + list(range(0, sobre))
+    hasta = getattr(p, "hasta_nivel", None)
+    if hasta is None:
+        return todos
+    return [n for n in todos if n <= hasta]
 
 
 @dataclass
@@ -59,6 +88,10 @@ class Planta:
     #: decir sobre que da. Con una sola geometria unida, los dos salian con el
     #: nombre del primero.
     no_habitable_partes: list[dict] = field(default_factory=list)
+    #: Lo que hay ENCIMA de esta planta y es de OTRO propietario (las viviendas
+    #: de arriba en el edificio anexo). El forjado bajo ello no es cubierta:
+    #: a los dos lados hay vivienda, y en CE3X no se introduce.
+    ajeno_encima: BaseGeometry | None = None
 
     @property
     def no_habitable(self) -> BaseGeometry | None:
@@ -186,17 +219,25 @@ def plantas_desde_partes(partes: list[ParteEdificio],
     if not partes:
         return []
     fuera_por_nivel = fuera_por_nivel or {}
-    max_sobre = max((p.plantas_sobre_rasante or plantas_por_defecto) for p in partes)
-    max_bajo = max((p.plantas_bajo_rasante or 0) for p in partes)
+    propios = {id(p): set(niveles_propios(p, plantas_por_defecto)) for p in partes}
+    todos = [n for ns in propios.values() for n in ns]
+    if not todos:
+        return []
+
+    def presente(p, nivel) -> bool:
+        """La parte esta construida a esa altura, sea de quien sea."""
+        if nivel >= 0:
+            return plantas_sobre(p, plantas_por_defecto) >= nivel + 1
+        return (p.plantas_bajo_rasante or 0) >= abs(nivel)
 
     plantas: list[Planta] = []
-    for nivel in range(-max_bajo, max_sobre):
-        if nivel >= 0:
-            trozos = [p.geometry for p in partes
-                      if (p.plantas_sobre_rasante or plantas_por_defecto) >= nivel + 1]
-        else:
-            trozos = [p.geometry for p in partes
-                      if (p.plantas_bajo_rasante or 0) >= abs(nivel)]
+    for nivel in range(min(todos), max(todos) + 1):
+        trozos = [p.geometry for p in partes if nivel in propios[id(p)]]
+        # Lo de ENCIMA que es de otro propietario: partes anexas que siguen
+        # construidas en el nivel de arriba pero ya no son de la vivienda.
+        ajenos = [p.geometry for p in partes
+                  if getattr(p, "hasta_nivel", None) is not None and nivel + 1 > p.hasta_nivel
+                  and presente(p, nivel + 1) and nivel in propios[id(p)]]
         g = _limpia(unary_union(trozos)) if trozos else None
         if g is None:
             continue
@@ -224,12 +265,13 @@ def plantas_desde_partes(partes: list[ParteEdificio],
         if dibujada:
             g = _abrir(g) or g
         plantas.append(Planta(nivel=nivel, huella=g, area_m2=round(g.area, 2),
-                              no_habitable_partes=partes_fuera))
+                              no_habitable_partes=partes_fuera,
+                              ajeno_encima=_limpia(unary_union(ajenos)) if ajenos else None))
     return sorted(plantas, key=lambda p: p.nivel)
 
 
 def asignar_usos(plantas: list[Planta], usos_por_planta: dict[int, dict[str, float]],
-                 ) -> None:
+                 uso_bajo_rasante: str | None = None) -> None:
     """Cuelga de cada planta los usos que Catastro declara para ese nivel (§6).
 
     Es INFERRED, no MEASURED: Catastro dice 'en la planta 01 hay 165 m2 de
@@ -240,6 +282,15 @@ def asignar_usos(plantas: list[Planta], usos_por_planta: dict[int, dict[str, flo
     for pl in plantas:
         usos = usos_por_planta.get(pl.nivel, {})
         pl.usos = dict(usos)
+        if not usos and uso_bajo_rasante and pl.nivel < 0:
+            # El SEMISOTANO: Catastro no declara su uso (para el es una planta
+            # sobre rasante mas, y sus unidades van en la baja). Es garaje y
+            # almacenes: espacio NO habitable bajo la vivienda.
+            pl.uso_dominante = uso_bajo_rasante
+            pl.confianza_uso = 0.6
+            pl.nota_uso = ("semisotano declarado por el certificador: espacio no "
+                           "habitable bajo la planta baja")
+            continue
         if not usos:
             pl.uso_dominante = None
             pl.confianza_uso = 0.0
@@ -399,14 +450,19 @@ def elementos_horizontales(plantas: list[Planta],
                     confianza=0.8, nota=f"vuela sobre {abajo.etiqueta}")
 
         # ---- TECHO --------------------------------------------------------
+        # Bajo la vivienda de OTRO propietario (el edificio anexo) el forjado
+        # no es cubierta ni particion de la envolvente: es adiabatico.
+        techo = pl.huella
+        if pl.ajeno_encima is not None:
+            techo = _limpia(techo.difference(pl.ajeno_encima)) or Polygon()
         if arriba is None:
-            for poli in _polis(pl.huella):
+            for poli in _polis(techo):
                 add(nivel=pl.nivel, planta=pl.etiqueta, tipo="CUBIERTA",
                     subtipo="AIRE_EXTERIOR", poligono=poli, area_m2=round(poli.area, 2),
                     espacio_origen=_uso(pl), espacio_destino="EXTERIOR",
                     confianza=0.85, nota="no hay planta construida encima")
         else:
-            resto = pl.huella
+            resto = techo
             for cuerpo in arriba.no_habitable_partes:
                 bajo_nohab, resto = _partir(resto, cuerpo["geom"])
                 for poli in _polis(bajo_nohab):

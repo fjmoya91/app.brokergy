@@ -273,6 +273,33 @@ def test_lo_que_viene_de_la_3_1_se_baja_y_vuelve_intacto():
     assert not any("TERMO" in a for a in avisos)          # su potencia ya estaba
 
 
+def test_los_equipos_de_la_MEDIDA_tambien_llevan_su_potencia_en_la_3_1():
+    """Visto en 2026CEE_58 (05/10/2026): los siete aires de la medida de
+    autoconsumo salían en el diálogo de la medida SIN potencia —la del edificio
+    base sí la tenía— y CE3X 3.1 no escribe el XML sin ella."""
+    env, _ = G.construir_envolvente(_geo(), _datos())
+    [g], _, _ = G.construir_medida({"nombre": "AEROTERMIA"}, env, _slots([AEROTERMIA, AIRE]))
+    pot = VC.potencias_de_equipos([AEROTERMIA])
+    avisos = VC.elevar({G.MEDIDAS: [g]}, {}, pot)
+    est = g.estado
+    i_mix, i_ref = G.SLOTS.index("mixto2"), G.SLOTS.index("refrigeracion")
+    copia = est[P.Cadena("mejoras")][1][1]
+    for lista in (est[P.Cadena("sistemasMixto2MM")], est[P.Cadena("datosInstalaciones")][i_mix],
+                  copia[i_mix]):
+        assert VC.es_31(lista[0]) and lista[0][9] == ["11", "11", ""]
+    for lista in (est[P.Cadena("sistemasRefrigeracionMM")], est[P.Cadena("datosInstalaciones")][i_ref],
+                  copia[i_ref]):
+        assert VC.es_31(lista[0]) and lista[0][8][2]          # su potencia de frío, por defecto
+    assert any("AIRE ACONDICIONADO" in a for a in avisos)      # y se dice
+    # Dos veces no cambia nada, y a la 2.3 vuelven sin potencias.
+    antes = G._comparable(est[P.Cadena("datosInstalaciones")])
+    VC.medidas_equipos_a_31([g], pot)
+    assert G._comparable(est[P.Cadena("datosInstalaciones")]) == antes
+    VC.bajar({G.MEDIDAS: [g]})
+    assert not VC.es_31(est[P.Cadena("sistemasMixto2MM")][0])
+    assert not VC.es_31(est[P.Cadena("datosInstalaciones")][i_ref][0])
+
+
 # ─── Ficheros enteros ───────────────────────────────────────────────────────
 
 def _cex_23(con_medida: bool = False) -> bytes:

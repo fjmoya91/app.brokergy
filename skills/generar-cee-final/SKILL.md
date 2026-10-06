@@ -36,9 +36,11 @@ el final. Es como se hace a mano, y la app lo hace igual:
 - **Solo cambian cuatro pickles** (instalación, medidas, resumen e informe); la envolvente, los datos
   administrativos y generales, el técnico, las imágenes y el texto de las pruebas son los suyos, byte a
   byte.
-- **Lo que CALCULA CE3X no está aquí**: el `.xml` y el `.pdf` del certificado, y el ahorro de la medida
-  nueva, salen de CE3X al calificar. Por eso el fichero lleva `_REVISAR` y nunca se dice «listo» a
-  secas.
+- **Lo CALCULA CE3X, y ya sin abrir su ventana**: con `--escribir`, el script lo califica con el
+  motor de CE3X 3.1 instalado en el PC (`services/cee/cexAPdf.js`, ≈1 min) y deja al lado del `.cex`
+  su **`.xml` y su `.pdf` oficial** (`… CEE FINAL_REVISAR.xml/.pdf`), con las medidas calculadas. Si
+  no hay CE3X en el equipo, lo dice y el `.cex` se queda igual. Todo lleva `_REVISAR` (la rejilla no
+  lo toma por la entrega del técnico) y nunca se dice «listo» a secas: falta revisarlo y firmarlo.
 - Proyecto Supabase `app.brokergy` → `okfeopwetlxdffrsbfqw`. Motor (cee-engine) levantado en
   `CEE_ENGINE_URL` (local: `http://127.0.0.1:8090`, `preview_start cee-engine`).
 - **Lo hace el «AGENTE IA», un certificador más** (`scripts/agente_ia.js`). Al empezar se marca y
@@ -74,6 +76,8 @@ node scripts/cee_final.js 26RES093_11 --fecha=2026-09-30 --escribir \
 | `--nombre="…"` `--caracteristicas="…"` | Reescribe el texto de la medida de retirada |
 | `--escribir` | Lo deja en «1. CEE / CEE FINAL» como `{nº} - CEE FINAL_REVISAR.cex` (el anterior va a OLD) **y avisa** al equipo |
 | `--sin-aviso` | Con `--escribir`, no avisa (al relanzar en la misma sesión) |
+| `--sin-pdf` | Con `--escribir`, no lo califica ni deja su `.xml`/`.pdf` |
+| `--calificar` | Sin `--escribir`: lo califica igual y dice si cuadra (con `--guardar`, deja el `.xml` y el `.pdf` junto a la copia local) |
 | `--guardar=ruta.cex` | Una copia local (sin `--escribir`, SOLO la copia local) |
 | `--json` | El análisis en JSON |
 
@@ -148,13 +152,19 @@ cubierta que guardó CE3X para 26RES093_11.
 
 ## Lo que queda por hacer (el informe final lo dice SIEMPRE)
 
-1. Abrir el `.cex` en CE3X → **Calificar**. Tiene que dar lo que dijo el análisis (emisiones y EPNR
-   con su letra). Si sale otra cosa, **no se emite**: algo no es el edificio de la medida. **Salvo si
-   se corrigieron equipos**: entonces sale otra cifra (con el rendimiento real) y es la buena.
+1. **La calificación** ya la ha hecho el script con CE3X 3.1 (línea «CE3X lo califica: …») y dice si
+   **coincide** con lo que CE3X calculó para la medida del inicial. Si NO coincide, **no se emite**:
+   algo no es el edificio de la medida. **Salvo si se corrigieron equipos**: entonces sale otra cifra
+   (con el rendimiento real) y es la buena. Sin CE3X en el PC: abrir el `.cex` en CE3X → Calificar.
 2. Comprobar que la **demanda de ACS** del final es **la misma que la del inicial** (lo garantiza el
    depósito heredado; si no coincide, revisa «Con acumulación» del equipo de ACS).
-3. **Medidas de mejora → «Actualizar»** la medida nueva (va sin calcular).
-4. Exportar el **`.xml`** y el **`.pdf`** y guardar los tres como `{nº} – CEE FINAL.*`.
+   Y que **cada equipo de cada medida lleva su POTENCIA** (CE3X 3.1 la pide por servicio y sin ella no
+   escribe el XML): el motor se la pone desde 2026-10-05 (`medidas_equipos_a_31`) — la del técnico si
+   ya la tenía, la del expediente si consta, o por defecto y avisado. Lo que salga por defecto, dilo.
+3. Revisar el **`.pdf` `_REVISAR`** que ha dejado el script (lleva las medidas ya calculadas). Si se
+   corrige algo en CE3X, regenerar el PDF: `node scripts/cex_a_pdf.js "<ruta del .cex>"` o, desde el
+   Explorador, botón derecho sobre el `.xml` → Enviar a → «PDF del CEE (CE3X 3.1)».
+4. Guardar los tres como `{nº} – CEE FINAL.*` (sin `_REVISAR`: es lo que los hace entrega).
 5. Subirlos a la fila del **CEE final** del expediente → revisión (lupa) → visto bueno → el técnico
    firma y registra.
 

@@ -555,6 +555,18 @@ def test_el_split_que_ya_habia_se_queda_y_la_aerotermia_cubre_el_resto():
     assert any("se QUEDAN" in a for a in avisos)
 
 
+def test_una_enfriadora_que_se_sustituye_se_retira_si_el_equipo_nuevo_lo_dice():
+    """26RES060_OP265: la aerotermia reversible SUSTITUYE la enfriadora. Solo
+    con `sustituye_frio`; sin la marca manda la regla de arriba."""
+    aero = {**_aerotermia("mixto3"), "sustituye_frio": True}
+    slots, avisos = _sustituye([aero], _base_con_caldera_y_split(pct_frio="100"))
+    assert slots[G.SLOTS.index("refrigeracion")] == []      # la enfriadora se va
+    [nuevo] = slots[G.SLOTS.index("mixto3")]
+    assert _plano(nuevo[5])[2][1] == "100"
+    assert not any("se QUEDAN" in a for a in avisos)
+    assert any("SPLIT SALON" in a and "RETIRA" in a for a in avisos)
+
+
 def test_un_split_que_tambien_calentaba_se_queda_solo_para_el_frio():
     base = _base_con_caldera()
     base[G.SLOTS.index("climatizacion")] = [["SPLIT", "climatizacion",

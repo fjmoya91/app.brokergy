@@ -41,7 +41,8 @@ Todo pasa por `implementation/backend/scripts/cee_inicial.js` (desde `implementa
 | `leer-pared <clave> --pared ID --fotos id1,id2` | Inventaria los huecos de una fachada desde su foto (escala por la puerta) | nada |
 | `eprel <modelo>` | Busca el modelo en EPREL y baja su ficha (ES) y su etiqueta | nada |
 | `alta-aerotermia --json d.json [--ficha ft.pdf:1,3-4] [--eprel-fiche f.pdf] [--eprel-label l.pdf]` | Da de alta el equipo en el catálogo y guarda la ficha unida en Drive | con `--escribir` |
-| `aplicar <clave> --plan plan.json` | Guarda el trabajo, pega las fotos, compone la ficha, escribe el `.cex`, lo guarda en Drive **y avisa** (`--sin-aviso` lo calla) | con `--escribir` |
+| `aplicar <clave> --plan plan.json` | Guarda el trabajo, pega las fotos, compone la ficha, escribe el `.cex`, lo guarda en Drive **y avisa** (`--sin-aviso` lo calla). Además lo **califica con CE3X 3.1 en el PC** (≈1 min, sin abrir su ventana) y deja al lado su **`.xml` y su `.pdf` oficial** (`… _REVISAR.xml/.pdf`); `--sin-pdf` lo salta. En seco, `--calificar` lo califica y los deja junto a la copia local | con `--escribir` |
+| `croquis <clave> [--fase final]` | El **croquis en PDF** de lo que YA hay (trabajo guardado + `.cex` de la carpeta): plano de obra por planta con la marca de BROKERGY, a escala, con muros, huecos, cotas y zonas, y los cuadros de huecos, superficies y cerramientos (sin avisos: vale para una auditoría). `aplicar --escribir` ya lo hace solo | con `--escribir` (sube `… - CEE INICIAL_CROQUIS.pdf` junto al `.cex`) |
 
 Y el **agente** (`implementation/backend/scripts/agente_ia.js`):
 
@@ -145,10 +146,16 @@ nada**: siempre primero en seco.
    máquina exterior con una ventana o se deja un hueco de un balcón. **Cuenta tú los huecos en la
    foto** y usa lo leído solo como apoyo de las medidas (su escala sale de la puerta de 2,05 m, y en
    una foto escorzada es orientativa — lo dice el propio aviso).
-6. Escribe el **plan** (`referencia/plan.md`) y lánzalo en seco: **`aplicar --plan`**. Revisa la
+6. Escribe el **plan** (`referencia/plan.md`) y lánzalo en seco: **`aplicar --plan`**.
+   Incluye siempre **`decisiones`**: frases cortas con el PORQUÉ de lo que no se ve en el plano
+   (qué foto usaste para cada fachada, por qué el garaje va ahí, qué descartaste, qué supones). El
+   script añade solo el resumen de lo escrito; todo va al sello del agente y se lee en la banda
+   «Cómo lo ha hecho» de la ventana de la envolvente (el croquis PDF ya NO las lleva). Revisa la
    ficha que imprime (superficie, plantas, instalaciones, medida) y los avisos. Luego `--escribir`.
    **Con `--escribir` avisa solo**: la fase queda «pendiente de revisión» (si el encargo es del agente)
-   y sale el WhatsApp + email al equipo con el `.cex`, la carpeta y lo que queda por hacer. Si lo
+   y sale el WhatsApp + email al equipo con el `.cex`, **el croquis en PDF** (`… - CEE INICIAL_CROQUIS.pdf`,
+   junto al `.cex`: plano de obra por planta con la marca, a escala, y sus cuadros — sin avisos ni ámbar,
+   que viven en la ventana), la carpeta y lo que queda por hacer. Si lo
    relanzas en la misma sesión para corregir algo menor, añade `--sin-aviso` (o el usuario recibirá
    otro aviso «actualizado»). Si el aviso falla, el `.cex` ya está guardado: dilo y reintenta con
    `agente_ia.js terminar <clave>`.
@@ -171,8 +178,83 @@ nada**: siempre primero en seco.
   «Leer la placa» de la calculadora): el SCOP pasa del genérico al del catálogo, así que el
   **resultado de la propuesta queda desfasado** hasta que alguien abra la calculadora y guarde. Se
   anota en el historial y se dice en el informe.
-- **En un EXPEDIENTE, la aerotermia no se toca aquí**: se cambia desde Instalación («Leer placas»),
-  que recalcula el SCOP y el ahorro. `aplicar` avisa si el plan dice otra.
+- **En un EXPEDIENTE, `aerotermia_id` del plan SÍ se escribe en su Instalación** (decisión del
+  usuario, 2026-10-02), con los MISMOS campos que el desplegable de Instalación: SCOP y temporada por
+  la temperatura del emisor y, si el equipo es un CONJUNTO con depósito, el nodo de ACS con su
+  SCOP_dhw propio (`nodoAcsDesdeConjunto`). Queda anotado en el historial. Si el expediente ya tenía
+  OTRO equipo elegido, no se sustituye sin `"aerotermia_sustituir": true`. Sin placa, el nº de serie
+  queda por poner (lo pide el CIFO): dilo en el informe.
+
+## Lo que hay que poner SIEMPRE (aprendido de las correcciones del usuario)
+
+Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenido que pedir a mano
+(26RES060_210, 2026-10-02) y que tienen que salir ya en el primer `.cex`:
+
+1. **La AEROTERMIA del PRESUPUESTO, en el expediente y en el `.cex`.** Sin fotos de placas, el equipo
+   que manda es el del presupuesto (`DOC_PRESUPUESTO`): búscalo en el catálogo por su CÓDIGO comercial
+   («LAVX1123DV» → id 43, ERLA11D2V3 + EBVX11S23DJ6V) y ponlo en `aerotermia_id`. Sin aerotermia en el
+   expediente **la medida de mejora no se escribe** (aviso «No consta el equipo nuevo»).
+   - Si hay **dos filas** del mismo equipo, elige la que nombra el presupuesto y, a igualdad, la que
+     tenga **SEER** (con suelo radiante o splits la medida declara también el frío, y sin SEER sale
+     sin él) y **litros** de depósito.
+   - Si el conjunto no tiene litros en el catálogo, sale «SIN acumulación». En Daikin el «S18/S23»
+     de la unidad interior son 180/230 l: rellénalo en el catálogo (`litros_acs`) solo si otra fila
+     con la MISMA unidad interior lo declara, y dilo en el informe.
+2. **La ALTURA DE PLANTA**: el 2,80 por defecto se queda corto en casas de techos altos. Estímala de
+   la foto de la fachada con la puerta como escala (2,05-2,20 m): de acera a suelo del balcón es la
+   altura de la planta baja. Va en `altura_planta` del plan: el motor MIDE las fachadas con ella y la
+   ficha la DECLARA (`ajustes.altura_libre_planta`). Desde la ventana se vuelve a medir con la
+   guardada. Ej.: 26RES060_210 → 3,30 m.
+3. **LUCERNARIOS**: una foto «de patios» o «de planos» que mira HACIA ARRIBA y enseña una cubierta
+   acristalada es un **lucernario** (patio interior cubierto). Va en `lucernarios` del plan, en la
+   planta de ARRIBA (su cubierta), con su medida estimada de la foto o de la vista aérea (un rectángulo
+   claro en el tejado). Nace dudoso.
+4. **AIRE ACONDICIONADO**: si el cliente confirmó al aceptar que tiene aires (`confirmacion_cliente`,
+   lo avisa la ficha), pon `"aires": true`. En un CAE va como **«Equipo de sólo refrigeración» —
+   máquina frigorífica** (250 %), repartiendo el 100 % del frío; en un CEE directo, «calefacción y
+   refrigeración». Los aires se QUEDAN en la medida: la aerotermia cubre el frío que no cubren ellos.
+5. **Una parcela con VARIOS inmuebles** (`paredes` avisa «FLOOR_AREA_MISMATCH» y Catastro declara mucho
+   menos que la huella): el edificio no es la vivienda. Mira la lista de inmuebles de la parcela
+   (otra vivienda, un garaje de otro titular). Hay que **delimitar la vivienda** («✂ Delimitar adosado»
+   en la ventana, `recorte_vivienda`) y, dentro de su planta baja, el garaje/almacén con el **croquis
+   «solo enderezar»** (`"croquis_ajustar": false`): el ajuste a Catastro escalaría los m² a la huella
+   entera y los inflaría (en 26RES060_210 el almacén de 19 m² salía con 44). Sin saber dónde acaba la
+   vivienda, **pregunta** con una propuesta concreta.
+6. **Una pared que da a la calle y sale MEDIANERA** (un trozo de fachada que el recorte deja contra el
+   resto del edificio): corrígela con `tipos` + `orientaciones` del plan.
+7. **Los documentos pueden estar MAL ETIQUETADOS**: un «CEE existente» o unos «planos» pueden ser fotos
+   del interior. Míralos todos; lo que enseñan (balconeras del salón, lucernario) sirve igual.
+8. **La CALDERA**: si la «placa» es la de la centralita (Vitotronic, Logamatic…), la marca y el
+   modelo salen del frontal y la **potencia no consta**: va con 24 kW por defecto y se pide la foto de
+   la placa de la propia caldera.
+9. **La POTENCIA de cada equipo, también DENTRO de las medidas (CE3X 3.1).** La 3.1 la pide por
+   servicio a todo equipo que no sea una caldera estimada (aires, aerotermia, termo), y sin ella no
+   escribe el XML. El motor la pone en la instalación del edificio **y en los equipos de cada medida**
+   (`medidas_equipos_a_31`, desde 2026-10-05: en 2026CEE_58 los siete aires de la medida de
+   autoconsumo salían con la potencia en blanco). Si consta de una placa o factura, ponla en el plan
+   (`potencia_calefaccion` / `potencia_refrigeracion` / `potencia_acs` en kW de cada equipo de
+   `ajustes.equipos_extra`); si no, va por defecto (3 kW calefacción, 2,5 kW frío, o 0,08 kW/m²
+   servido) y el aviso lo dice: inclúyelo en el informe.
+10. **Varios equipos repartiéndose la calefacción** (caldera + aires en un CEE directo, como en
+   2026CEE_60 y 2026CEE_58): reparte el **% y también la SUPERFICIE servida** en la misma proporción
+   sobre la superficie del modelo (p. ej. caldera 40 % → 0,4 × 142 m²). Con la superficie entera en
+   cada uno CE3X no califica: «la instalación de calefacción cubre una demanda superior al 100 %».
+11. **No fuerces `superficie_util_habitable` por debajo de lo medido**: si es menor que la suma de las
+   zonas, CE3X no califica («la superficie de las zonas del edificio es mayor que la del edificio»).
+   La útil de los planos va en el informe, no en el ajuste.
+12. **Califícalo en seco antes de escribir**: `aplicar … --calificar` (CE3X 3.1 en el PC) da la letra
+   y los errores de CE3X sin tocar nada. Sin **fecha de emisión y de visita** CE3X califica pero NO
+   escribe el XML («invalid literal for int()»): en un CEE sin visita todavía es lo esperado y se dice.
+13. **Aerotermia + ACS + PLACAS en UNA medida.** Si en la carpeta hay un presupuesto de
+   fotovoltaica (p. ej. `OTROS_ANTES__PPTO. FV.pdf` en «12.»), la medida es UN conjunto con todo
+   lo que se instala: `"medidas": ["aerotermia_fv"]`, con los kWp del presupuesto × la producción
+   de **PVGIS con el tejado real** (coplanar, no los ángulos óptimos) en `ajustes.autoconsumo_kwh`
+   / `autoconsumo_pvgis`, y su importe en `ajustes.autoconsumo_inversion`. Cómo, paso a paso:
+   `referencia/plan.md` → «Aerotermia + ACS + placas en UNA medida». Busca también el presupuesto
+   de la aerotermia: el «aerotermo» que trae es el equipo de ACS aparte.
+14. **El CERTIFICADOR**: si el usuario dice quién firma («ponme a mí»), asígnalo en la app (el
+   certificador de la casa no recibe aviso). Con un técnico asignado el `.cex` lleva sus datos y el
+   agente no le quita el encargo.
 
 ## Lo que el informe final dice SIEMPRE
 
@@ -180,7 +262,10 @@ nada**: siempre primero en seco.
   encargo es del agente; si hay un técnico asignado, que sigue siendo suyo.
 
 - Qué se ha leído de cada placa y qué **no** se ha escrito (y por qué).
-- Cuántos huecos por pared y que están **por confirmar** (ámbar) en la ventana.
+- Cuántos huecos por pared y que están **por confirmar** (ámbar) — en la **ventana de la envolvente**
+  de la app (el croquis PDF es el plano limpio, para revisar y para auditoría). **No en CE3X**: allí no hay ámbar.
+  En la ventana, «N medidas por confirmar» abre la lista y cada línea lleva a su pared; la banda
+  «Lo ha preparado el Agente IA» enseña los avisos de esta pasada (se guardan en el sello al terminar).
 - Lo que **no se ha podido afirmar**: garaje/porche dentro de la planta, fachadas sin foto (sin
   huecos puestos), depósito del termo sin litros, pilares estimados.
 - Lo que dice la **vista aérea** y no consta en otro sitio (construcciones sin declarar, placas en el

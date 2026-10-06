@@ -187,6 +187,11 @@ t('una cabecera desconocida → aviso', () => {
         assert.strictEqual(matchSlot('26RES060_196 - CEE INICIAL_REVISAR (1).cex'), null);
         assert.strictEqual(matchSlot('26RES060_196 – CEE INICIAL.cex'), 'cex');
     });
+    t('ni el «_REVISAR.xml» del borrador (26RES060_186 tenía los dos .xml)', () => {
+        assert.strictEqual(matchSlot('26RES060_186 - CEE FINAL_REVISAR.xml'), null);
+        assert.strictEqual(matchSlot('26RES060_186 - CEE FINAL_REVISAR (1).xml'), null);
+        assert.strictEqual(matchSlot('26RES060_186 – CEE FINAL.xml'), 'xml');
+    });
     console.log(fallos ? `\n${fallos} FALLOS` : '\nTodo en orden.');
     process.exit(fallos ? 1 : 0);
 })();

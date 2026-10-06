@@ -180,6 +180,15 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
         # peticiones a Catastro (cacheadas 30 dias), y un fallo no tumba nada.
         if payload.get("sede_catastro"):
             pipeline.traer_de_la_sede(o, rc, modelo)
+        # Lo que la propiedad tiene en OTRA parcela (la planta baja de un
+        # edificio colindante con viviendas de otros encima) y el SEMISOTANO
+        # que Catastro dibuja sobre rasante. Los dos los declara el
+        # certificador, y van ANTES de todo: cambian que planta es cada una.
+        try:
+            pipeline.anexar(o, modelo, payload.get("anexos"))
+        except pipeline.AnexoInvalido as exc:
+            raise HTTPException(422, f"Unidades de otra parcela: {exc}")
+        pipeline.aplicar_semisotano(modelo, payload.get("semisotano"))
         # Que construcciones CUENTAN lo marco una persona al abrir la
         # oportunidad, y de ahi salio la superficie que se le presupuesto al
         # cliente. Se aplica ANTES de clasificar: de `habitable` cuelgan que
@@ -541,7 +550,12 @@ def cex(payload: dict = Body(...)) -> Response:
         # generales y administrativos nuevos, la potencia de cada equipo—. Las
         # medidas, su orden de ejecucion y su justificacion (Anexo III, 3).
         if version == "3.1":
-            pot = VC.potencias_de_equipos(datos.get("instalaciones"))
+            # Las de la instalacion del edificio Y las de los equipos que solo
+            # estan en una medida (la aerotermia que se propone): la 3.1 pide la
+            # potencia tambien dentro de cada medida.
+            pot = VC.potencias_de_equipos(
+                list(datos.get("instalaciones") or [])
+                + [eq for m in (datos.get("medidas") or []) for eq in (m.get("instalaciones") or [])])
             avisos.extend(VC.elevar(nuevos, VC.extra_31(datos), pot))
         salida.write_bytes(G.montar(PLANTILLA, nuevos, tipo, version))
 
@@ -853,6 +867,14 @@ def poner_medida(crudo: bytes, ficha: dict) -> tuple[bytes, list[str]]:
             filas.append(fila)
     if not grupos:
         raise MedidaNoEscrita("ninguna medida se ha podido escribir: " + " · ".join(avisos))
+    # En un fichero de la 3.1 los equipos de la medida llevan la POTENCIA de cada
+    # servicio, o el diálogo de la medida sale en blanco y CE3X no escribe el
+    # XML: la del equipo nuevo, de la ficha; la de los que se quedan, la que ya
+    # les puso el técnico (`meta`), o por defecto y dicho.
+    if VC.version_de(base) == "3.1":
+        avisos.extend(VC.medidas_equipos_a_31(
+            grupos, VC.potencias_de_equipos([eq for m in medidas for eq in (m.get("instalaciones") or [])]),
+            meta))
 
     #: Lo del certificador que NO se llama como lo nuestro, se queda.
     nuestros = {str(g.estado[G.Cadena("nombre")]) for g in grupos}

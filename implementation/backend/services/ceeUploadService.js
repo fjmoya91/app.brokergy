@@ -105,7 +105,11 @@ const matchSlot = (filename) => {
     // el certificado por presentado en cuanto se generase.
     // ⚠️ También con el sufijo que pone Drive a una copia (`_REVISAR (1).cex`):
     // medido en 26RES060_196, esa copia se tomaba por la entrega del técnico.
-    if (/_revisar(\s*\(\d+\))?\.cex$/.test(lower)) return null;
+    // ⚠️ Y el `.xml` de ese borrador (`… _REVISAR.xml`), que sale al generarlo en
+    // CE3X o con `cex_a_pdf` / las skills: en una carpeta con los dos `.xml`
+    // (26RES060_186) la rejilla se quedaba con el primero que listara Drive, y
+    // «reparar enlaces» lo vinculaba como el XML del certificado.
+    if (/_revisar(\s*\(\d+\))?\.(cex|xml)$/.test(lower)) return null;
     if (lower.endsWith('.xml')) return 'xml';
     if (lower.endsWith('.cex')) return 'cex';
     if (lower.endsWith('_reg.pdf')) return 'registro';

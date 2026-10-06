@@ -16,6 +16,12 @@
 //   node scripts/cee_inicial.js alta-aerotermia --json datos.json
 //            [--ficha ft.pdf[:1,3-4]] [--eprel-fiche f.pdf] [--eprel-label l.pdf] [--escribir]
 //   node scripts/cee_inicial.js aplicar  <clave> --plan plan.json [--escribir] [--sin-aviso]
+//            [--sin-pdf] [--calificar]
+//
+// Con --escribir, además del .cex deja su XML y su PDF OFICIAL al lado
+// (`… _REVISAR.xml/.pdf`), calificados por CE3X 3.1 sin abrir su ventana
+// (`services/cee/cexAPdf.js`; solo en un PC con CE3X). --sin-pdf lo salta.
+// En seco, --calificar hace lo mismo junto a la copia local, sin subir nada.
 //
 // Con --escribir, al terminar avisa como el AGENTE IA (services/agenteIa.js):
 // fase «pendiente de revisión» y WhatsApp + email al equipo. --sin-aviso lo calla.
@@ -73,6 +79,7 @@ function opt(nombre) {
     return sig && !sig.startsWith('--') ? sig : true;
 }
 const ESCRIBIR = RESTO.includes('--escribir');
+const cexAPdf = require('../services/cee/cexAPdf');
 
 /** De qué negocio es la clave. Se deduce del formato; `--origen` manda. */
 function origenDe(clave) {
@@ -131,16 +138,30 @@ const rcDe = ctx => ctx.expediente?.instalacion?.ref_catastral
  * el plan) deja fuera. Se cachea en disco para `leer-pared`.
  */
 async function geometria(ctx, { cuerpos = null, zonas = null, recorte = null,
-                                croquis = null, ajustar = true } = {}) {
+                                croquis = null, ajustar = true, altura = null,
+                                ajustes = undefined } = {}) {
     const rc = rcDe(ctx);
     if (!rc) throw new Error('No hay referencia catastral.');
     const construcciones = await cex.construccionesElegidas(ctx.clave, ctx.origen);
+    // El SEMISÓTANO y las unidades de OTRA parcela (ver `declaracionesEdificio`):
+    // los del plan si los trae, si no los del trabajo guardado.
+    if (ajustes === undefined) {
+        try { ajustes = (await cex.leerTrabajo(ctx.clave, ctx.origen))?.ajustes || null; }
+        catch { ajustes = null; }
+    }
+    const { semisotano, anexos } = cex.declaracionesEdificio(ajustes);
     // Las mismas PISTAS que manda la ventana para proponer el croquis: las
     // fachadas en cuya foto hay una puerta de garaje.
     let pistas = null;
     try { pistas = fotosSrv.pistasCroquis(ctx.expediente); } catch { /* sin pista */ }
     const r = await alMotor('/envolvente', {
         referencia_catastral: rc, construcciones,
+        ...(semisotano ? { semisotano } : {}),
+        ...(anexos.length ? { anexos } : {}),
+        // La ALTURA DE PLANTA con la que se miden las fachadas. Es la misma que
+        // declara la ficha (`ajustes.altura_libre_planta`): si se midiera con
+        // otra, las superficies del .cex no cuadrarían con la altura que dice.
+        ...(Number(altura) > 0 ? { altura_planta: Number(altura) } : {}),
         cuerpos_excluidos: cuerpos, zonas_fuera: zonas, recorte_vivienda: recorte,
         pistas_croquis: pistas,
         // El CROQUIS CATASTRAL POR PLANTAS de la Sede: dice DÓNDE está cada uso
@@ -259,7 +280,11 @@ function geoCacheada(ctx) {
     return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : null;
 }
 
-const murosDe = geo => (geo?.plantas || []).flatMap(p => (p.muros || [])
+/** La altura de planta con la que el motor ha medido las fachadas. */
+const alturaMedida = geo => Number(geo?.geometria?.parametros?.floor_height_m
+    ?? geo?.parametros?.floor_height_m) || 2.8;
+
+const murosDe = geo =>(geo?.plantas || []).flatMap(p => (p.muros || [])
     .map(m => ({ ...m, planta: m.planta || p.id, nivel: m.nivel ?? p.nivel })));
 
 // ─── Lo que se ve en una imagen, sin librerías ───────────────────────────────
@@ -512,9 +537,13 @@ async function paredes() {
     const t = await cex.leerTrabajo(ctx.expediente.id, ctx.origen).catch(() => null);
     const geo = await geometria(ctx, { cuerpos: t?.cuerpos_fuera || null,
                                        zonas: t?.zonas_fuera || null,
-                                       recorte: t?.recorte_vivienda || null });
+                                       recorte: t?.recorte_vivienda || null,
+                                       altura: t?.ajustes?.altura_libre_planta || null });
     const { admiteHuecos } = await esm('cee-envolvente/logic/tiposPared.js');
     console.log(`\n${rcDe(ctx)} · ${geo.plantas.length} planta(s) · lienzo ${fmt(geo.ancho)} × ${fmt(geo.alto)} m`);
+    console.log(`altura de planta ${fmt(alturaMedida(geo))} m`
+        + (t?.ajustes?.altura_libre_planta ? ' (la guardada en el trabajo)'
+                                           : ' (la de por defecto: cámbiala con «altura_planta» en el plan)'));
     for (const p of geo.plantas) {
         console.log(`\nPLANTA ${p.id} (nivel ${p.nivel})${p.habitable === false ? ' — NO habitable' : ''}`);
         for (const m of p.muros || []) {
@@ -791,19 +820,32 @@ async function aplicar() {
     //    campos que pone el botón «Leer la placa» de la calculadora
     //    (`aplicarModeloLeido`): el expediente la hereda al aceptar.
     let patchInputs = null;
+    let aeroExpediente = null;           // { inst, temp, acs } — expediente CAE
     if (plan.aerotermia_id) {
         const { data: mod } = await supabase.from('aerotermia').select('*').eq('id', plan.aerotermia_id).maybeSingle();
         if (!mod) throw new Error(`No existe la aerotermia ${plan.aerotermia_id} en el catálogo.`);
-        if (ctx0.origen !== 'op') {
+        if (ctx0.origen === 'cae') {
             const act = e0.instalacion?.aerotermia_cal?.aerotermia_db_id;
-            if (String(act) !== String(mod.id)) {
-                avisos.push(`El expediente declara la aerotermia ${act || '—'} y el plan dice ${mod.id}: `
-                    + 'cámbiala desde Instalación («Leer placas»), que recalcula el SCOP. Aquí no se toca.');
+            if (String(act || '') !== String(mod.id)) {
+                // Un equipo YA elegido no se sustituye en silencio: eso lo decide
+                // una persona (`"aerotermia_sustituir": true` en el plan).
+                if (act && !plan.aerotermia_sustituir) {
+                    avisos.push(`El expediente declara la aerotermia ${act} y el plan dice ${mod.id}: `
+                        + 'no se sustituye sin «aerotermia_sustituir: true» (o cámbiala en Instalación).');
+                } else {
+                    aeroExpediente = await aerotermiaParaExpediente(e0, mod);
+                    console.log(`\nAEROTERMIA del EXPEDIENTE → ${mod.marca} ${aeroExpediente.inst.aerotermia_cal.modelo}`
+                        + ` (id ${mod.id}) · SCOP ${aeroExpediente.inst.aerotermia_cal.scop}`
+                        + ` (${aeroExpediente.inst.aerotermia_cal.scop_temporada}, ${aeroExpediente.temp} °C)`
+                        + (aeroExpediente.acs ? ` · ACS del conjunto SCOP_dhw ${aeroExpediente.inst.aerotermia_acs.scop}` : ''));
+                }
             }
-        } else {
+        } else if (ctx0.origen === 'op') {
             const calc = await esm('calculator/logic/calculation.js');
             const inp = inputsDe(ctx0);
-            const emisor = inp.emitterType || 'radiadores_convencionales';
+            //: El emisor del PRESUPUESTO (splits/conductos en un RES080) manda sobre el
+            //: de la simulación: de él cuelgan la temperatura del SCOP y si la medida da frío.
+            const emisor = plan.emisor || inp.emitterType || 'radiadores_convencionales';
             const temp = emisor === 'radiadores_convencionales' ? 55 : (emisor === 'radiadores_baja_temp' ? 45 : 35);
             patchInputs = {
                 aerothermiaModel: String(mod.id),
@@ -811,7 +853,10 @@ async function aplicar() {
                 scopHeating: calc.getScopFromModel(mod, inp.zona, temp),
                 scopTemporada: calc.getScopSeason(mod, inp.zona, temp),
                 scopAcs: calc.getScopAcsFromModel(mod, inp.zona),
-                potenciaBomba: mod.potencia_calefaccion || inp.potenciaBomba || 0,
+                //: Varias unidades iguales (splits de un RES080): la potencia es la suma.
+                potenciaBomba: Math.round((Number(mod.potencia_calefaccion) || Number(inp.potenciaBomba) || 0)
+                    * (Number(plan.unidades) > 1 ? Number(plan.unidades) : 1) * 100) / 100,
+                ...(plan.emisor ? { emitterType: plan.emisor } : {}),
                 ...(plan.placa_aerotermia ? { placa_ocr: { at: new Date().toISOString(), ...plan.placa_aerotermia } } : {}),
             };
             if (plan.caldera?.potencia_kw) patchInputs.potenciaCaldera = Number(plan.caldera.potencia_kw);
@@ -825,7 +870,7 @@ async function aplicar() {
     // historial): relanzar el plan tras corregir un hueco no cambia la simulación.
     if (patchInputs) {
         const inp = inputsDe(ctx0);
-        const iguales = ['aerothermiaModel', 'scopHeating', 'potenciaCaldera']
+        const iguales = ['aerothermiaModel', 'scopHeating', 'potenciaCaldera', 'emitterType']
             .every(k => patchInputs[k] === undefined || String(inp[k]) === String(patchInputs[k]));
         if (iguales) patchInputs = null;
     }
@@ -835,6 +880,7 @@ async function aplicar() {
         if (error) throw new Error(`No se han podido guardar los inputs: ${error.message}`);
         await anotar(e0.id, `CEE inicial preparado por la skill: aerotermia ${patchInputs.aerothermiaModel}`
             + ` (SCOP ${patchInputs.scopHeating})${patchInputs.potenciaCaldera ? `, caldera ${patchInputs.potenciaCaldera} kW` : ''}`
+            + (patchInputs.emitterType ? `, emisor ${patchInputs.emitterType}` : '')
             + '. La simulación hay que RECALCULARLA en la calculadora y guardarla.');
         ctx = await cargar(POS[0]);
     } else if (patchInputs) {
@@ -846,6 +892,31 @@ async function aplicar() {
         exp.instalacion.aerotermia_cal = { ...exp.instalacion.aerotermia_cal, marca: mod.marca,
             modelo: mod.modelo_comercial || mod.modelo_conjunto || mod.modelo_ud_exterior || '' };
         ctx = { ...ctx, expediente: exp, modelos: { ...ctx.modelos, [mod.id]: mod } };
+    }
+
+    // 2b. En un EXPEDIENTE, la aerotermia va a su INSTALACIÓN con los mismos
+    //     campos que escribe el desplegable de Instalación (`handleModeloChange`)
+    //     y, si el equipo es un CONJUNTO con ACS, el nodo de ACS con
+    //     `nodoAcsDesdeConjunto` (lo mismo que «Leer placas»). El ahorro del
+    //     expediente se recalcula solo al abrirlo: sale del SCOP guardado.
+    if (aeroExpediente) {
+        if (ESCRIBIR) {
+            const { data: fresca } = await supabase.from('expedientes')
+                .select('instalacion').eq('id', e0.id).maybeSingle();
+            const inst = { ...(fresca?.instalacion || {}), ...aeroExpediente.cambios };
+            const { error } = await supabase.from('expedientes')
+                .update({ instalacion: inst, updated_at: new Date().toISOString() }).eq('id', e0.id);
+            if (error) throw new Error(`No se ha podido guardar la aerotermia: ${error.message}`);
+            const a = aeroExpediente.inst.aerotermia_cal;
+            await anotarExpediente(e0.id, `Aerotermia del presupuesto puesta por la skill generar-cee-inicial: `
+                + `${a.marca} ${a.modelo} (catálogo ${a.aerotermia_db_id}), SCOP ${a.scop} (${a.scop_temporada})`
+                + (aeroExpediente.acs ? `, ACS del conjunto SCOP_dhw ${aeroExpediente.inst.aerotermia_acs.scop}` : '')
+                + '. Sin placa: el nº de serie queda por poner.');
+            ctx = await cargar(POS[0]);
+        } else {
+            ctx = { ...ctx, expediente: { ...ctx.expediente, instalacion: aeroExpediente.inst } };
+        }
+        ctx = { ...ctx, modelos: { ...(ctx.modelos || {}), [aeroExpediente.mod.id]: aeroExpediente.mod } };
     }
 
     // 3. La geometría, con lo que el plan deja fuera.
@@ -861,8 +932,17 @@ async function aplicar() {
         const niveles = new Set(croquis.map(c => Number(c.nivel)));
         zonas = (zonas || []).filter(z => !niveles.has(Number(z.nivel)));
     }
+    // La ALTURA DE PLANTA: la del plan, o la ya guardada. Se mide con ella y la
+    // ficha la declara (`ajustes.altura_libre_planta`): las dos cosas a la vez.
+    const altura = Number(plan.altura_planta) > 0 ? Number(plan.altura_planta)
+        : (Number(prev?.ajustes?.altura_libre_planta) > 0 ? Number(prev.ajustes.altura_libre_planta) : null);
+    // El SEMISÓTANO y las unidades de OTRA parcela: los del plan funden sobre
+    // los guardados (se guardan con el resto de los ajustes).
+    const ajustesGeo = { ...(prev?.ajustes || {}), ...(plan.ajustes || {}) };
     const geo = await geometria(ctx, { cuerpos, zonas, recorte: prev?.recorte_vivienda || null,
-                                       croquis, ajustar: plan.croquis_ajustar !== false });
+                                       croquis, ajustar: plan.croquis_ajustar !== false, altura,
+                                       ajustes: ajustesGeo });
+    console.log(`\nALTURA DE PLANTA ${fmt(alturaMedida(geo))} m${altura ? '' : ' (por defecto)'}`);
     if (croquis) {
         const etiqueta = n => (geo.plantas || []).find(p => p.nivel === n)?.id || (n === 0 ? 'PB' : `P${n}`);
         const hechas = (geo.croquis_ajustado || []).map(z => ({
@@ -908,6 +988,8 @@ async function aplicar() {
                 // su % de marco (30-40) es lo que la distingue en CE3X.
                 ...(Number(h.porc_marco) > 0 ? { porc_marco: Number(h.porc_marco) } : {}),
                 ...(h.persiana !== undefined ? { persiana: !!h.persiana } : {}),
+                //: Se sustituye en la reforma: «V1 - CAMBIA» (solo el nombre, como en la ventana).
+                ...(h.cambia ? { cambia: true } : {}),
             };
         });
     }
@@ -915,8 +997,28 @@ async function aplicar() {
         ...(prev?.ajustes || {}),
         persiana_defecto: true,
         ...(plan.ventanas ? { ventanas: { ...plan.ventanas, de: 'fotos del expediente (skill generar-cee-inicial)' } } : {}),
+        ...(altura ? { altura_libre_planta: altura } : {}),
         ...(plan.ajustes || {}),
     };
+    // Los AIRES ACONDICIONADOS que ya tiene la vivienda: con el MISMO bloque de
+    // la ventana (`airesAcondicionados`). En un CAE, «Equipo de sólo
+    // refrigeración» (máquina frigorífica, 250 %); en un CEE directo, «calefacción
+    // y refrigeración». Sustituyen a los que puso el bloque (`aire: true`), nunca
+    // se suman. `"aires": true` = los que confirmó el cliente; `{ "n": 2 }` a mano.
+    if (plan.aires) {
+        const f = await esm('cee-envolvente/logic/fichaCe3x.js');
+        const conf = f.airesDelCliente(ctx.expediente);
+        const n = Number(plan.aires?.n) || conf?.num || 1;
+        const modo = plan.aires?.modo || conf?.modo || 'refrigeracion';
+        const superficie = Number(plan.aires?.superficie) || Number(ajustes.superficie_util_habitable)
+            || Number(inputsDe(ctx).superficieCalefactable || inputsDe(ctx).superficie) || null;
+        ajustes.equipos_extra = [
+            ...(ajustes.equipos_extra || []).filter(x => !x.aire),
+            ...f.airesAcondicionados({ n, modo, superficie }),
+        ];
+        console.log(`AIRES ACONDICIONADOS → ${n} · ${modo === 'climatizacion' ? 'calefacción y refrigeración' : 'máquina frigorífica (sólo refrigeración)'}`
+            + `${superficie ? ` · ${fmt(superficie)} m²` : ''}`);
+    }
     // La caldera: lo que dice su placa. «da_acs: false» = solo calefacción, que es
     // el USO que se cambia en Instalaciones cuando el ACS lo hace otro aparato.
     if (plan.caldera) {
@@ -935,19 +1037,54 @@ async function aplicar() {
               ...(litros > 0 ? { acumulacion: true, litros_acumulacion: litros } : {}) },
         ];
     }
+    // Los LUCERNARIOS, por planta (la de ARRIBA: van en su cubierta). Cada
+    // planta que trae el plan SUSTITUYE la suya; las demás se conservan. Nacen
+    // dudosos, como los huecos: su medida sale de una foto.
+    // Con `reemplazar` los huecos del plan sustituyen a TODOS los guardados, y
+    // un lucernario es un hueco más: conservarlo dejaba uno colgando de una
+    // planta que ya no existe (el .cex no se escribía).
+    let lucernarios = !plan.reemplazar && prev?.lucernarios ? { ...prev.lucernarios } : null;
+    if (Array.isArray(plan.lucernarios) && plan.lucernarios.length) {
+        lucernarios = lucernarios || {};
+        const idsPlanta = new Set((geo.plantas || []).map(p => p.id));
+        const porPlanta = {};
+        for (const l of plan.lucernarios) {
+            const planta = l.planta || (geo.plantas || []).at(-1)?.id;
+            if (!idsPlanta.has(planta)) throw new Error(`Lucernario en la planta ${planta}, que no está en el plano.`);
+            (porPlanta[planta] ||= []).push(l);
+        }
+        let k = 0;
+        for (const [planta, lista] of Object.entries(porPlanta)) {
+            lucernarios[planta] = lista.map(l => ({
+                uid: nuevoUid(), nombre: `L${++k}`, tipo: 'lucernario',
+                ancho: Number(l.ancho) || 1, alto: Number(l.alto) || 1,
+                estado: l.estado === 'medido' ? 'medido' : 'dudoso',
+                por_que: l.por_que || 'estimado de las fotos: confírmalo',
+                ...(l.marco ? { marco: l.marco } : {}),
+                ...(l.vidrio ? { vidrio: l.vidrio } : {}),
+                ...(Number(l.porc_marco) > 0 ? { porc_marco: Number(l.porc_marco) } : {}),
+            }));
+            console.log(`LUCERNARIOS ${planta}: ${lucernarios[planta].map(l => `${l.nombre} ${fmt(l.ancho)} × ${fmt(l.alto)} m`).join(' · ')}`);
+        }
+    }
     const trabajo = {
-        entrada: plan.entrada || prev?.entrada || null, sel: null,
+        //: `"entrada": null` en el plan la QUITA (se entra por el portal del bloque).
+        entrada: 'entrada' in plan ? (plan.entrada || null) : (prev?.entrada || null), sel: null,
         huecos: { ...(plan.reemplazar ? {} : (prev?.huecos || {})), ...huecos },
         particiones: plan.particiones ?? prev?.particiones ?? [],
         excluidas: plan.excluidas ?? prev?.excluidas ?? [],
         revisadas: prev?.revisadas || [],
         cambian: prev?.cambian || [],
         cubierta_reforma: prev?.cubierta_reforma || {},
-        ...(prev?.lucernarios ? { lucernarios: prev.lucernarios } : {}),
-        tipos: prev?.tipos || {}, nombres: prev?.nombres || {}, us: prev?.us || {},
+        ...(lucernarios ? { lucernarios } : {}),
+        // `tipos` del plan: { pared: 'FACHADA'|'MEDIANERA'|'PARTICION_VERTICAL' } —
+        // lo mismo que «da contra» en el panel de la pared (una medianera que en
+        // realidad da a la calle). `orientaciones`: { pared: 'S' } si hace falta rumbo.
+        tipos: { ...(prev?.tipos || {}), ...(plan.tipos || {}) },
+        nombres: prev?.nombres || {}, us: prev?.us || {},
         // `pilares` del plan: { pared: nº } — a 0 no se escribe el puente (un
         // quiebro de 30 cm no tiene pilares integrados, y el mínimo estimado es 2).
-        orientaciones: prev?.orientaciones || {},
+        orientaciones: { ...(prev?.orientaciones || {}), ...(plan.orientaciones || {}) },
         pilares: { ...(prev?.pilares || {}), ...(plan.pilares || {}) },
         paredes: prev?.paredes || { movidas: {}, dibujadas: [] },
         cuerpos_fuera: cuerpos || [], recorte_vivienda: prev?.recorte_vivienda || null,
@@ -970,6 +1107,46 @@ async function aplicar() {
     // 5. Lo SEÑALADO: la misma traducción que hace la ventana (`loSenalado`).
     const st = estadoDeTrabajo(geo, trabajo);
     const envolvente = senaladoDe(st, ajustes, { lienzoAMundo: st.lienzoAMundo });
+
+    // 6a. Una OPORTUNIDAD aún no tiene certificador ni fechas del CEE, y sin los
+    //     datos del técnico CE3X 3.1 califica pero NO escribe el XML («Revise …
+    //     Datos Administrativos»). El plan puede declararlos: `tecnico` (el
+    //     id_empresa del certificador que firma) y `fechas` ({emision, visita},
+    //     AAAA-MM-DD). Lo de un expediente manda: aquí solo se rellena lo que falta.
+    if (plan.tecnico && !ctx.certificador) {
+        ctx.certificador = await cex.leerCertificador(String(plan.tecnico));
+        if (!ctx.certificador) throw new Error(`El técnico ${plan.tecnico} no está en prescriptores.`);
+        avisos.push(`Técnico certificador del plan: ${ctx.certificador.razon_social} (la oportunidad no tiene uno asignado).`);
+    }
+    if (plan.fechas && (plan.fechas.emision || plan.fechas.visita)) {
+        const cee0 = ctx.expediente.cee || {};
+        ctx.expediente = { ...ctx.expediente, cee: {
+            ...cee0,
+            fecha_firma_cee_inicial: cee0.fecha_firma_cee_inicial || plan.fechas.emision || null,
+            fecha_visita_cee_inicial: cee0.fecha_visita_cee_inicial || plan.fechas.visita || null,
+        } };
+    }
+
+    // 6b. Sin aerotermia ELEGIDA, la medida puede ir con la GENÉRICA de la
+    //     simulación (`aerotermia_generica: true`): la MISMA función que usa la
+    //     revisión del CEE (`conAerotermiaSimulada`), con el SCOP, el SCOP_dhw y la
+    //     potencia de la oportunidad. Lo que se teclee en `ajustes.instalacion_final`
+    //     (el uso, el SEER) se le aplica igual que en la ventana.
+    if (plan.aerotermia_generica) {
+        const { conAerotermiaSimulada } = await esm('cee-envolvente/logic/fichaCe3x.js');
+        let exp = ctx.expediente;
+        if (!exp.oportunidad?.datos_calculo && !exp.oportunidades?.datos_calculo) {
+            const idOp = ctx.origen === 'op' ? exp.id : exp.oportunidad_id;
+            const { data } = await supabase.from('oportunidades')
+                .select('scopHeating:datos_calculo->inputs->scopHeating, scopAcs:datos_calculo->inputs->scopAcs, '
+                        + 'potenciaBomba:datos_calculo->inputs->potenciaBomba, changeAcs:datos_calculo->inputs->changeAcs')
+                .eq('id', idOp).maybeSingle();
+            exp = { ...exp, oportunidad: { datos_calculo: { inputs: data || {} } } };
+        }
+        const sim = conAerotermiaSimulada(exp);
+        if (sim.simulada) { ctx.expediente = sim.expediente; avisos.push(sim.aviso); }
+        else avisos.push('aerotermia_generica: el expediente ya declara su aerotermia (o la simulación no tiene SCOP): se usa la suya.');
+    }
 
     // 6. La ficha, por el MISMO camino que el botón.
     const { ficha, avisos: avFicha, imagenesFallidas = [] } = await cex.componerFicha(ctx, {
@@ -994,6 +1171,14 @@ async function aplicar() {
     console.log(`  huecos: ${n.ventana} ventanas + ${n.puerta} puertas nuevas en el plan`
         + ` · entrada ${trabajo.entrada || '— sin señalar'}`);
 
+    // 6b. El RESUMEN DE DECISIONES: lo que redacta quien hizo el plan (el
+    //     porqué, que no se ve en el plano) y lo que el script sabe por sí solo.
+    //     Va al sello del Agente IA y al croquis: es lo que lee quien revisa.
+    const decisiones = resumenDecisiones({ plan, trabajo, geo, ficha,
+        aerotermia: aeroExpediente?.inst?.aerotermia_cal || (patchInputs ? { aerotermia_db_id: patchInputs.aerothermiaModel,
+            scop: patchInputs.scopHeating } : null) });
+    console.log(`\nDECISIONES (${decisiones.length})\n  · ${decisiones.join('\n  · ')}`);
+
     // 7. El motor escribe el .cex.
     const r = await alMotor('/cex', { geometria: geo.geometria, datos: ficha }, 180_000);
     if (!r.ok) {
@@ -1015,6 +1200,17 @@ async function aplicar() {
     console.log(`  copia local: ${local}`);
 
     if (!ESCRIBIR) {
+        await hacerCroquis(ctx, { geo, trabajo, cexBytes: fichero, avisos: [...avisos, ...avMotor], decisiones });
+        // Con --calificar, CE3X 3.1 (en este PC) lo califica y deja el XML y el
+        // PDF junto a la copia local: para revisarlo antes de escribir nada.
+        if (RESTO.includes('--calificar')) {
+            console.log('\nCalificando con CE3X 3.1 (≈1 min)…');
+            const cal = await cexAPdf.calificarCex(fichero);
+            for (const [ext, b] of [['.xml', cal.xml], ['.pdf', cal.pdf]]) {
+                if (b) fs.writeFileSync(local.replace(/\.cex$/i, ext), b);
+            }
+            for (const l of cexAPdf.lineasCalificado(cal)) console.log(l);
+        }
         console.log('\nEN SECO: no se ha guardado nada. Pásale --escribir.');
     } else {
         await cex.guardarTrabajo(ctx.expediente.id, trabajo, ctx.origen);
@@ -1038,6 +1234,11 @@ async function aplicar() {
         if (!gd.ok) throw new Error(`El .cex no ha llegado a Drive: ${gd.error}`);
         console.log(`✓ ${gd.nombre} → ${gd.carpeta}\n  ${gd.link}\n  carpeta: ${gd.carpeta_link}`);
         if (gd.archivado) console.log(`  (el anterior se ha archivado en OLD como «${gd.archivado}»)`);
+        // El CROQUIS de lo escrito, junto al .cex: para revisar el borrador sin
+        // abrir CE3X (y con lo POR CONFIRMAR en ámbar).
+        const cq = await hacerCroquis(ctx, { geo, trabajo, cexBytes: fichero, avisos: [...avisos, ...avMotor], decisiones,
+                                             ficheroCex: gd.nombre, escribir: true });
+        if (cq.ok && cq.link) gd.croquis_link = cq.link;
         // Los documentos de la Sede del Catastro, en `CEE INICIAL / CATASTRO`:
         // el certificador los tiene al lado del borrador. Un fallo no para nada.
         if (!RESTO.includes('--sin-sede')) {
@@ -1051,10 +1252,17 @@ async function aplicar() {
                 }
             }
         }
+        // Su XML y su PDF oficial, calificados por CE3X 3.1 en este PC, junto al
+        // .cex (`cee/cexAPdf.js`). Sin CE3X se dice y se sigue: el .cex ya está.
+        if (!RESTO.includes('--sin-pdf')) {
+            console.log('\nCalificando con CE3X 3.1 y generando el PDF (≈1 min)…');
+            const cal = await cexAPdf.calificarYGuardar(ctx, 'inicial', gd.nombre, fichero);
+            for (const l of cexAPdf.lineasCalificado(cal)) console.log(l);
+        }
         // El AGENTE IA termina: la fase queda «pendiente de revisión» y se avisa
         // al equipo, como cuando un técnico sube su .cex. Va AQUÍ y no en la skill
         // para que no se pueda olvidar; `--sin-aviso` lo calla al relanzar.
-        await avisarAgente(ctx, gd, [...avisos, ...avMotor], 'inicial');
+        await avisarAgente(ctx, gd, [...avisos, ...avMotor], 'inicial', decisiones);
     }
     const todos = [...avisos, ...avMotor];
     if (todos.length) console.log(`\nAVISOS (${todos.length})\n  ⚠ ${todos.join('\n  ⚠ ')}`);
@@ -1065,12 +1273,13 @@ async function aplicar() {
  * suyo) y aviso al equipo por WhatsApp + email (`services/agenteIa.js`). Un
  * fallo aquí NUNCA deshace lo escrito: el `.cex` ya está en Drive.
  */
-async function avisarAgente(ctx, gd, avisos, fase) {
+async function avisarAgente(ctx, gd, avisos, fase, decisiones = null) {
     try {
         const r = await require('../services/agenteIa').terminar({
             negocio: ctx.origen, clave: ctx.clave, fase,
-            fichero: { nombre: gd.nombre, link: gd.link, carpeta_link: gd.carpeta_link },
-            avisos, aviso: !RESTO.includes('--sin-aviso'),
+            fichero: { nombre: gd.nombre, link: gd.link, carpeta_link: gd.carpeta_link,
+                       croquis_link: gd.croquis_link || null },
+            avisos, decisiones, aviso: !RESTO.includes('--sin-aviso'),
         });
         require('./agente_ia').informeTerminar(r);
     } catch (e) {
@@ -1085,6 +1294,68 @@ async function avisarAgente(ctx, gd, avisos, fase) {
  * `datos_calculo` y no tiene RPC propia); se relee justo antes de escribir para
  * no pisar lo que acaba de fundir `oportunidad_merge_inputs`.
  */
+/**
+ * La aerotermia del catálogo, puesta en la INSTALACIÓN de un expediente con los
+ * MISMOS campos que el desplegable de Instalación (`handleModeloChange`):
+ * SCOP y temporada por `getScopFromModel`/`getScopSeason` con la temperatura del
+ * EMISOR, y si es un CONJUNTO con ACS (y el ACS entra en la obra), el nodo de ACS
+ * con `nodoAcsDesdeConjunto` y `misma_aerotermia_acs: false` (regla 49: el
+ * SCOP_dhw es PROPIO). Devuelve la instalación entera y solo las claves tocadas.
+ */
+async function aerotermiaParaExpediente(exp, mod) {
+    const calc = await esm('calculator/logic/calculation.js');
+    const { getEmitterTemp } = await esm('expedientes/logic/cifoDoc.js');
+    const acsCat = await esm('expedientes/logic/acsCatalogo.js');
+    const inst0 = exp.instalacion || {};
+    const dc = exp.oportunidades?.datos_calculo || {};
+    const zona = String(inst0.zona_climatica || dc.zona || dc.inputs?.zona || 'D3').toUpperCase();
+    const temp = getEmitterTemp(inst0.tipo_emisor || dc.inputs?.emitterType);
+    const previa = inst0.aerotermia_cal || {};
+    const metodo = previa.metodo_scop || 'ficha';
+    const aero = {
+        ...previa,
+        aerotermia_db_id: mod.id,
+        marca: mod.marca,
+        modelo_sin_repetir: true,
+        modelo: mod.modelo_comercial || mod.modelo_conjunto || mod.modelo_ud_exterior || '',
+        modelo_ud_exterior: mod.modelo_ud_exterior || '',
+        modelo_ud_interior: mod.modelo_ud_interior || '',
+        modelo_conjunto: mod.modelo_conjunto || '',
+        scop: calc.getScopFromModel(mod, zona, temp, metodo),
+        scop_temporada: calc.getScopSeason(mod, zona, temp, metodo),
+        potencia: mod.potencia_calefaccion || mod.potencia_nominal_35 || 0,
+        metodo_scop: metodo,
+        url_eprel: mod.eprel, url_keymark: mod.url_keymark, url_ficha: mod.ficha_tecnica,
+    };
+    const cambios = { aerotermia_cal: aero, potencia_bomba: aero.potencia || inst0.potencia_bomba };
+    let acs = false;
+    if (inst0.cambio_acs !== false && acsCat.esConjuntoAcs(mod)) {
+        const { metodo: mAcs } = acsCat.metodoAcsDelModelo(mod, zona);
+        if (mAcs) {
+            cambios.aerotermia_acs = acsCat.nodoAcsDesdeConjunto(aero, mod, {
+                metodo: mAcs,
+                scop: calc.getScopAcsFromModel(mod, zona, mAcs),
+                litros: acsCat.litrosAcsCatalogo(mod),
+            });
+            cambios.misma_aerotermia_acs = false;
+            acs = true;
+        }
+    }
+    return { inst: { ...inst0, ...cambios }, cambios, temp, acs, mod };
+}
+
+/** Una línea en el historial del EXPEDIENTE (lectura fresca de `documentacion`). */
+async function anotarExpediente(id, texto) {
+    const { data } = await supabase.from('expedientes').select('documentacion').eq('id', id).maybeSingle();
+    const doc = data?.documentacion || {};
+    const historial = Array.isArray(doc.historial) ? [...doc.historial] : [];
+    historial.push({ id: `${Date.now()}_cee_inicial`, tipo: 'comentario', texto,
+                     fecha: new Date().toISOString(), usuario: 'SISTEMA' });
+    const { error } = await supabase.from('expedientes')
+        .update({ documentacion: { ...doc, historial }, updated_at: new Date().toISOString() }).eq('id', id);
+    if (error) console.warn(`  (no se ha podido anotar en el historial: ${error.message})`);
+}
+
 async function anotar(oportunidadId, texto) {
     const { data } = await supabase.from('oportunidades')
         .select('datos_calculo').eq('id', oportunidadId).maybeSingle();
@@ -1097,10 +1368,126 @@ async function anotar(oportunidadId, texto) {
     if (error) console.warn(`  (no se ha podido anotar en el historial: ${error.message})`);
 }
 
+// ─── el resumen de decisiones ───────────────────────────────────────────────
+
+/**
+ * Lo que se decidió al preparar el CEE, en frases cortas: primero las que
+ * escribe en el plan quien miró las fotos (`plan.decisiones`: el PORQUÉ, que no
+ * se ve en el plano) y luego las que el script sabe solo — qué equipo, qué
+ * caldera, qué zonas y con qué criterio, qué paredes se reclasificaron, cuántos
+ * huecos y de dónde. Solo texto, con tope (regla 21).
+ */
+function resumenDecisiones({ plan = {}, trabajo = {}, geo = {}, ficha = null, aerotermia = null }) {
+    const out = [];
+    for (const d of (Array.isArray(plan.decisiones) ? plan.decisiones : []).slice(0, 12)) {
+        if (typeof d === 'string' && d.trim()) out.push(d.trim());
+    }
+    const a = aerotermia;
+    if (a?.aerotermia_db_id) {
+        out.push(`Aerotermia: ${[a.marca, a.modelo].filter(Boolean).join(' ') || 'catálogo'} (catálogo ${a.aerotermia_db_id})`
+            + `${a.scop ? ` · SCOP ${String(a.scop).replace('.', ',')}${a.scop_temporada ? ` (${a.scop_temporada})` : ''}` : ''}`
+            + `${plan.placa_aerotermia ? ' · leída de su placa' : ' · del presupuesto'}`);
+    }
+    if (plan.caldera) {
+        out.push(`Caldera actual: ${plan.caldera.nombre || 'sin nombre'}`
+            + `${plan.caldera.potencia_kw ? ` · ${String(plan.caldera.potencia_kw).replace('.', ',')} kW (de su placa)` : ' · sin potencia leída'}`
+            + `${plan.caldera.da_acs === false ? ' · solo calefacción' : ''}`);
+    }
+    if (plan.acs_aparte) out.push(`ACS aparte: ${plan.acs_aparte.nombre || 'termo eléctrico'}${plan.acs_aparte.litros ? ` de ${plan.acs_aparte.litros} l` : ''}`);
+    if (plan.aires) out.push('Aires acondicionados existentes declarados (lo confirmó el cliente o se ven en las fotos)');
+    const nombreNivel = n => (geo.plantas || []).find(p => Number(p.nivel) === Number(n))?.nombre || `nivel ${n}`;
+    for (const z of geo.croquis_ajustado || []) {
+        out.push(`${nombreNivel(z.nivel)}: ${z.uso} de ${String(Number(z.area_m2).toFixed(1)).replace('.', ',')} m² no cuenta`
+            + `${z.catastro_m2 ? ` (Catastro declara ${String(Number(z.catastro_m2).toFixed(1)).replace('.', ',')})` : ''}`
+            + `${z.de ? ` · ${z.de}` : ''}`);
+    }
+    if (!(geo.croquis_ajustado || []).length) {
+        for (const z of trabajo.zonas_fuera || []) {
+            out.push(`${z.planta || nombreNivel(z.nivel)}: ${z.uso} de ${String(Number(z.area_m2 || 0).toFixed(1)).replace('.', ',')} m² no cuenta`);
+        }
+    }
+    if ((trabajo.cuerpos_fuera || []).length) out.push(`Cuerpos fuera de la envolvente: ${trabajo.cuerpos_fuera.length}`);
+    if (trabajo.recorte_vivienda) out.push('Vivienda delimitada a mano dentro de la parcela (adosado)');
+    for (const [id, t] of Object.entries(plan.tipos || {})) out.push(`${id} reclasificada a ${String(t).toLowerCase().replace('_', ' ')}`);
+    for (const id of plan.excluidas || []) out.push(`${id} apartada de la envolvente`);
+    for (const [id, lista] of Object.entries(plan.huecos || {})) {
+        const n = (lista || []).length;
+        if (!n) { out.push(`${id}: sin huecos`); continue; }
+        const conFoto = (lista || []).filter(h => h.foto).length;
+        out.push(`${id}: ${n} hueco${n === 1 ? '' : 's'}${conFoto ? ` (${conFoto} señalado${conFoto === 1 ? '' : 's'} en su foto)` : ''}`
+            + `${(lista || []).every(h => h.estado !== 'medido') ? ' · medidas por confirmar' : ''}`);
+    }
+    if (plan.entrada) out.push(`Entrada por ${plan.entrada}`);
+    if (Number(plan.altura_planta) > 0) out.push(`Altura de planta ${String(plan.altura_planta).replace('.', ',')} m`);
+    for (const m of ficha?.medidas || []) out.push(`Medida de mejora: «${m.nombre}» (sin calcular)`);
+    return out.slice(0, 30).map(d => (d.length > 300 ? `${d.slice(0, 299)}…` : d));
+}
+
+// ─── croquis ────────────────────────────────────────────────────────────────
+
+/**
+ * El CROQUIS en PDF de lo que hay en el `.cex`: un plano de obra por planta con
+ * la marca, a escala (muros, huecos, cotas, lo que no es vivienda), y los cuadros
+ * de huecos, superficies y cerramientos. Sin avisos: vale para una auditoría. Siempre deja una copia local;
+ * con `escribir` lo sube junto al `.cex` (`… - CEE INICIAL_CROQUIS.pdf`).
+ * Nunca lanza: un croquis que falla no puede tumbar el `.cex`, que ya está.
+ */
+async function hacerCroquis(ctx, { geo, trabajo, cexBytes, avisos = [], decisiones = null, fase = 'inicial',
+                                   ficheroCex = null, escribir = false }) {
+    const croq = require('../services/cee/croquisCee');
+    try {
+        const { pdf } = await croq.croquisPdf({
+            cabecera: await croq.cabeceraDe(ctx, { fase,
+                ficheroCex: ficheroCex || cex.nombreDelCex(ctx.expediente, fase) }),
+            geo, trabajo, cexBytes, avisos,
+            decisiones: decisiones || ctx.expediente?.cee?.agente_ia?.[fase]?.decisiones || null,
+        });
+        const local = path.join(CACHE, croq.nombreCroquis(ctx.expediente.numero_expediente, fase));
+        fs.mkdirSync(CACHE, { recursive: true });
+        fs.writeFileSync(local, pdf);
+        console.log(`\nCROQUIS · ${kb(pdf.length)} · copia local: ${local}`);
+        if (!escribir) return { ok: true, local };
+        const gd = await croq.guardarCroquisEnDrive(ctx, pdf, fase);
+        if (!gd.ok) { console.log(`  ✗ el croquis no ha llegado a Drive: ${gd.error}`); return { ok: false, local }; }
+        console.log(`✓ ${gd.nombre}\n  ${gd.link}`);
+        return { ...gd, local };
+    } catch (e) {
+        console.log(`\n(sin croquis: ${e.message})`);
+        return { ok: false, error: e.message };
+    }
+}
+
+/**
+ * `croquis <clave> [--escribir]`: el croquis de lo que YA hay — el trabajo
+ * guardado en la ventana y el `.cex` de la carpeta —, sin volver a escribir
+ * nada más. Es para los borradores generados antes de que existiera.
+ */
+async function croquis() {
+    await saludMotor();
+    const ctx = await cargar(POS[0]);
+    const fase = opt('fase') === 'final' ? 'final' : 'inicial';
+    const t = await cex.leerTrabajo(ctx.expediente.id, ctx.origen).catch(() => null);
+    if (!t) throw new Error('Ese expediente no tiene trabajo de envolvente guardado.');
+    const geo = await geometria(ctx, { cuerpos: t.cuerpos_fuera || null, zonas: t.zonas_fuera || null,
+                                       recorte: t.recorte_vivienda || null,
+                                       altura: t.ajustes?.altura_libre_planta || null });
+    // El .cex ENTREGADO por el técnico si lo hay (es el que va al Registro); si
+    // no, el borrador `_REVISAR` de la app.
+    const croqSvc = require('../services/cee/croquisCee');
+    const leido = await croqSvc.cexEntregadoDeFase(ctx, fase).catch(() => null)
+        || await cex.leerCexDeFase(ctx, fase).catch(() => null);
+    if (!leido) console.log(`(no hay .cex de la fase ${fase} en la carpeta: el croquis sale sin tablas)`);
+    else console.log(`(.cex: ${leido.nombre})`);
+    const avisos = [];
+    await hacerCroquis(ctx, { geo, trabajo: t, cexBytes: leido?.bytes || null, avisos, fase,
+                              ficheroCex: leido?.nombre, escribir: ESCRIBIR });
+    if (!ESCRIBIR) console.log('\nEN SECO: no se ha subido a Drive. Pásale --escribir.');
+}
+
 // ─── main ───────────────────────────────────────────────────────────────────
 
 const ORDENES = { estado, placas, fotos, paredes, catastro, 'leer-pared': leerPared, eprel,
-                  'alta-aerotermia': altaAerotermia, aplicar };
+                  'alta-aerotermia': altaAerotermia, aplicar, croquis };
 
 (async () => {
     const f = ORDENES[ORDEN];

@@ -91,6 +91,29 @@ deja un evento 400 en el log "Windows PowerShell" con su línea de comandos comp
 powershell -Command "Get-WinEvent -FilterHashtable @{LogName='Windows PowerShell';Id=400} -MaxEvents 40 | Where-Object { $_.Message -match 'brokergylocal' } | Select-Object TimeCreated"
 ```
 
+## Si la carpeta se ha MOVIDO o RENOMBRADO y Drive no lo ha aplicado en el PC
+
+La ruta la calcula el servidor con lo que dice Drive **ahora**, pero Google Drive para
+escritorio aplica los movimientos y renombrados con retraso, y a veces no los aplica
+nunca. Medido el 02/10/2026 sobre 80 expedientes: 3 no se abrían, y los 3 porque la app
+había movido la carpeta de estado (`04. EN CURSO` → `05. DOC. COMPLETA`) mientras en el
+disco seguía en la de antes — en dos casos desde mayo y julio. En Drive había **una sola**
+carpeta por expediente: lo desfasado era el espejo local.
+
+Desde entonces, si un tramo de la ruta no existe, el `.vbs` busca la carpeta por su
+**código** (lo que va antes de `" - "`: `26RES060_210`, `2026CEE_54`, `LOTE-2025-003`) en
+la misma carpeta y subiendo uno y dos niveles (las carpetas de estado y de lote vecinas),
+y la abre donde esté. Si el código cambió (de oportunidad a expediente) lo busca por el
+nombre del cliente, **solo si es la única carpeta con ese nombre**. Es la MISMA carpeta de
+Drive, así que lo que se guarde ahí acaba en su sitio. Y si no la encuentra de ninguna
+forma (recién creada y aún sin bajar), ofrece abrir la carpeta más cercana que sí existe.
+
+Para probar una ruta **sin abrir ninguna ventana**:
+
+```bash
+cscript //nologo brokergylocal_handler.vbs "brokergylocal:<base64url>" /print
+```
+
 ## Si no se abre la carpeta
 
 - Se copia **siempre** la ruta al portapapeles como respaldo: pégala (`Ctrl+V`) en la

@@ -198,7 +198,7 @@ function componerHtml({ numero, cliente, faseLabel, fichero, enlaces, pendientes
     // Accesos: los botones son la carpeta LOCAL (donde se trabaja con CE3X) y la
     // app; el resto, una lista que dice para qué sirve cada uno.
     const accesos = [
-        enlaces.croquis && ['📐', 'Croquis del borrador (PDF)', 'Plano por planta con medidas y tablas del .cex · en ámbar lo por confirmar', enlaces.croquis],
+        enlaces.croquis && ['📐', 'Croquis del borrador (PDF)', 'Plano de obra por planta, a escala, con cotas, huecos y cuadros de superficies', enlaces.croquis],
         enlaces.fichero && ['📄', 'Abrir el .cex', 'Descárgalo y ábrelo en CE3X', enlaces.fichero],
         enlaces.carpeta && ['📁', 'Carpeta del CEE en Drive', 'Donde se suben el .xml y el .pdf exportados', enlaces.carpeta],
         enlaces.envolvente && ['🧱', 'Ventana de la envolvente', 'Lo que está en ámbar está por confirmar', enlaces.envolvente],

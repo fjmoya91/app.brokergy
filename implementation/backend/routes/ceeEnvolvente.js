@@ -259,20 +259,25 @@ async function pedirGeometria(expedienteId, origen, body = {}) {
     // no la manda, la que el trabajo declara en la ficha
     // (`ajustes.altura_libre_planta`): medir con 2,80 y declarar otra deja un
     // .cex cuyas superficies no cuadran con su propia altura.
+    let trabajo = null;
+    try { trabajo = await cex.leerTrabajo(expedienteId, origen); }
+    catch (e) { console.warn('[ceeEnvolvente] trabajo:', e.message); }
     let altura = Number(body?.altura_planta) > 0 ? Number(body.altura_planta) : null;
     if (!altura) {
-        try {
-            const t = await cex.leerTrabajo(expedienteId, origen);
-            const a = Number(t?.ajustes?.altura_libre_planta);
-            if (a >= 2 && a <= 6) altura = a;
-        } catch (e) { console.warn('[ceeEnvolvente] altura del trabajo:', e.message); }
+        const a = Number(trabajo?.ajustes?.altura_libre_planta);
+        if (a >= 2 && a <= 6) altura = a;
     }
+    // El SEMISÓTANO y las unidades de OTRA parcela: los declara el
+    // certificador en su trabajo y se leen AQUÍ, no del navegador.
+    const { semisotano, anexos } = cex.declaracionesEdificio(trabajo?.ajustes);
 
     const r = await alMotor('/envolvente', {
         referencia_catastral: rc,
         altura_planta: altura,
         offline: body?.offline === true,
         construcciones,
+        ...(semisotano ? { semisotano } : {}),
+        ...(anexos.length ? { anexos } : {}),
         // Los CUERPOS del edificio que el certificador deja fuera (el
         // aparcamiento adosado, el porche). Vienen del navegador como el
         // resto de lo que señala en el plano —las paredes apartadas, los

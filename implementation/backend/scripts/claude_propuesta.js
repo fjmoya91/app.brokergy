@@ -116,7 +116,13 @@ async function enviar() {
     const quiero = new Set(pedidos.map(p => MODOS[p]));
     const deVerdad = bandera('--enviar');
     fs.mkdirSync(SALIDA, { recursive: true });
-    const foto = async (page, n) => { const f = path.join(SALIDA, `${op}-${n}.png`); await page.screenshot({ path: f }); return f; };
+    // La captura NUNCA lanza: si la página se cae a mitad de envío, el fallo de la
+    // captura tapaba el aviso de verdad («compruébalo en la app antes de repetir»).
+    // Pasó con 26RES060_OP262: salió al cliente y no al instalador.
+    const foto = async (page, n) => {
+        const f = path.join(SALIDA, `${op}-${n}.png`);
+        try { await page.screenshot({ path: f }); return f; } catch (e) { return `sin captura: ${e.message}`; }
+    };
 
     const sesion = await abrirSesion();
     const puppeteer = require(path.join(__dirname, '../node_modules/puppeteer'));
@@ -129,6 +135,9 @@ async function enviar() {
         }, host, CLAVE_SESION, JSON.stringify(sesion));
         const errores = [];
         page.on('pageerror', e => errores.push(e.message));
+        // Una pestaña que se cae a mitad de envío deja la mitad de los destinatarios sin
+        // mensaje: se dice en el momento, no solo por el error que venga detrás.
+        page.on('error', e => console.log(`⚠ La pestaña del robot se ha caído: ${e.message} — compruébalo en la app antes de repetir.`));
 
         console.log(`→ Abriendo ${op} en ${APP} como CLAUDE…`);
         await page.goto(`${APP}/?op=${encodeURIComponent(op)}`, { waitUntil: 'networkidle2', timeout: 90000 });

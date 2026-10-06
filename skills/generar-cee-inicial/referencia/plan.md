@@ -4,6 +4,11 @@ Un JSON escrito por quien ha mirado las fotos. Todo es opcional salvo lo que se 
 
 ```json
 {
+  "decisiones": [
+    "Garaje en la franja norte: la foto de la fachada norte enseña la puerta de cochera",
+    "La medianera este no tiene vecino a la vista en la vista aérea, pero Catastro sí: se deja medianera",
+    "Sin foto de la fachada oeste: no se ponen huecos ahí"
+  ],
   "aerotermia_id": 565,
   "placa_aerotermia": {
     "exterior": { "marca": "MIDEA", "modelo": "MHC-V12WD2N7-E30",
@@ -35,6 +40,9 @@ Un JSON escrito por quien ha mirado las fotos. Todo es opcional salvo lo que se 
     { "nivel": 0, "uso": "PORCHE", "uv": [[-0.05, 0.25], [0.38, 0.25], [0.38, 0.60], [-0.05, 0.60]] }
   ],
   "zonas_fuera": [],
+  "altura_planta": 3.3,
+  "lucernarios": [{ "planta": "P1", "ancho": 2.0, "alto": 3.0, "por_que": "lucernario sobre el patio interior" }],
+  "aires": true,
   "reemplazar": false,
   "ajustes": {}
 }
@@ -42,7 +50,10 @@ Un JSON escrito por quien ha mirado las fotos. Todo es opcional salvo lo que se 
 
 | Clave | Qué es | Notas |
 |---|---|---|
-| `aerotermia_id` | id del catálogo `aerotermia` | En una oportunidad va a los inputs (SCOP del catálogo, temperatura por el emisor) |
+| `aerotermia_id` | id del catálogo `aerotermia` | En una oportunidad va a los inputs (SCOP del catálogo, temperatura por el emisor). En un EXPEDIENTE va a su Instalación (como el desplegable, con el ACS del conjunto); si ya tenía otro equipo, hace falta `"aerotermia_sustituir": true` |
+| `altura_planta` | altura de planta en m (p. ej. `3.3`) | El motor mide las fachadas con ella y la ficha la declara. Sin ella, la ya guardada o 2,80 |
+| `lucernarios` | `[{ "planta": "P1", "ancho": 2.0, "alto": 3.0, "por_que": "…" }]` | En la cubierta de su planta (la de arriba si se omite). Cada planta del plan sustituye la suya. Nacen dudosos |
+| `aires` | `true` (los que confirmó el cliente) o `{ "n": 2, "modo": "refrigeracion" }` | CAE: máquina frigorífica de sólo refrigeración; CEE directo: `climatizacion`. Sustituyen a los aires ya puestos, nunca se suman |
 | `placa_aerotermia` | lo leído de la placa | Solo metadatos (`inputs.placa_ocr`): el expediente hereda el nº de serie al nacer |
 | `caldera.nombre` | nombre del equipo en CE3X | Lo que dice la placa/frontal. Sin marca legible, se omite |
 | `caldera.potencia_kw` | potencia **útil** de la placa | En una oportunidad va también a `inputs.potenciaCaldera` |
@@ -56,12 +67,45 @@ Un JSON escrito por quien ha mirado las fotos. Todo es opcional salvo lo que se 
 | `huecos[].porc_marco` | % de marco | Puerta de entrada 90 (defecto), de patio acristalada 30-40 |
 | `fotos[pared]` | fotos que se pegan a la pared | Solo las de «12. DOCUMENTOS PARA CEE» (fachada, patios, ventanas) |
 | `excluidas` | paredes apartadas de la envolvente | Por id |
+| `tipos` / `orientaciones` | «da contra» corregido a mano: `{ "M1S1": "FACHADA" }` y su rumbo `{ "M1S1": "S" }` | Lo mismo que el panel de la pared. Sale avisado en el `.cex`. Una medianera que en realidad da a la calle |
+| `croquis_ajustar` | `false` = el croquis «solo enderezar» | Úsalo cuando la planta tenga **otro inmueble** (el garaje del vecino): el ajuste escala los m² de Catastro a la huella entera y los infla |
 | `pilares` | pilares integrados contados, `{ "FBN2": 0 }` | Se estiman uno cada 3,5 m con mínimo 2: en un quiebro de 30 cm hay que ponerlo a 0 (a 0 no se escribe el puente) |
 | `cuerpos_fuera` / `zonas_fuera` | lo que no es vivienda | Se vuelve a medir. `zonas_fuera`: `[{ "nivel": 0, "uso": "GARAJE"\|"ALMACEN"\|"ESPACIO NO HABITABLE"\|"PORCHE", "poligono": [[x,y],…] }]` en EPSG:25830 (`paredes` imprime las esquinas del edificio). **Solo si el polígono es conocido**: los de la PROPUESTA «DEL CROQUIS CATASTRAL (exacta)» lo son —se copian tal cual—, y los cuerpos que el croquis dice que sobran (`→ sobra en los niveles…`) van a `cuerpos_fuera` por su id |
 | `croquis` | DÓNDE está lo que no es vivienda, a mano alzada | `uv` = fracciones de la huella de esa planta (u de OESTE a ESTE, v de SUR a NORTE); o `poligono` en EPSG:25830. El motor lo endereza, lo **ajusta a los m² de Catastro** del uso en esa planta, alinea las paredes y lo guarda como `zonas_fuera`. Sustituye las zonas de SUS plantas. Pasarse por fuera de las paredes no importa (`-0.05`, `1.05`). `croquis_ajustar: false` = tal cual |
 | `reemplazar` | `true` = los huecos del plan sustituyen a TODOS los guardados | Por defecto se sustituyen solo las paredes que trae el plan |
 | `ajustes` | cualquier otro ajuste de la ventana, tal cual | Se funden sobre los guardados |
-| `medidas` | las medidas de mejora que se escriben (`["autoconsumo"]`, `["aerotermia"]`…) | Sin la clave, las que trae marcadas la fase. El autoconsumo necesita sus kWh: del CEE cargado o tecleados en `ajustes.autoconsumo_kwh` (en un CEE directo, siempre tecleados) |
+| `medidas` | las medidas de mejora que se escriben (`["autoconsumo"]`, `["aerotermia"]`, `["aerotermia_fv"]`…) | Sin la clave, las que trae marcadas la fase. El autoconsumo necesita sus kWh: del CEE cargado o tecleados en `ajustes.autoconsumo_kwh` (en un CEE directo, siempre tecleados). **`aerotermia_fv`** = UN conjunto con la aerotermia, su equipo de ACS si va aparte y las placas (ver abajo) |
+| `ajustes.autoconsumo_kwh` | kWh/año de las placas | Con presupuesto de FV: **kWp del presupuesto × producción específica de PVGIS** del tejado |
+| `ajustes.autoconsumo_pvgis` | la producción específica de PVGIS (kWh por kWp, anual y 12 meses) y con qué tejado | Forma `{ anual, mensual[12], inclinacion, orientacion, optimos, perdidas, montaje, lat, lon, fuente, consultado }`. Con ella salen los kWp y el reparto mes a mes. Sin ella, el backend pregunta con los ángulos ÓPTIMOS, que sobreestiman unas placas coplanares |
+| `ajustes.autoconsumo_inversion` | lo que cuestan las placas | Solo lo suma `aerotermia_fv`. Con el MISMO criterio de IVA que la inversión de la aerotermia (la del presupuesto de la oportunidad, que en un particular va con IVA) |
+
+## Aerotermia + ACS + placas en UNA medida (`aerotermia_fv`)
+
+Cuando la obra trae la bomba de calor Y unas placas (un presupuesto de FV aparte), el usuario quiere
+UN conjunto de medidas con todo lo que se instala, no dos (26RES060_213, 2026-10-05). Son los MISMOS
+equipos de las medidas `aerotermia` y `autoconsumo` juntos; los aires existentes se conservan.
+
+1. **El equipo de la aerotermia y el de ACS, en el EXPEDIENTE** (`aerotermia_id` del plan, o en
+   Instalación). Sin ellos la medida no existe. Un «aerotermo» del presupuesto es el equipo de ACS
+   aparte (p. ej. JOHNSON MANANTIAL 110 R PLUS = catálogo 499/500, SCOP_dhw 3,74, 110 l).
+2. **Lee el presupuesto de FV**: nº de módulos × Wp = kWp (12 × 550 Wp = 6,6 kWp), inversor y el
+   importe. «Estructura coplanar» = las placas siguen el tejado: NO uses los ángulos óptimos.
+3. **PVGIS con el tejado** (desde `implementation/backend`):
+   ```js
+   const pv = require('./services/pvgisService');
+   const u = await pv.resolverUbicacion({ rc: '<RC>' });
+   const r = await pv.produccionEspecifica({ lat: u.lat, lon: u.lon,
+       inclinacion: 20, orientacion: 25, montaje: 'building' });   // 0 = Sur, + = Oeste
+   ```
+   La orientación sale del faldón donde van (la normal de esa fachada en el plano; un tejado a dos
+   aguas con la cumbrera paralela a la calle tiene un faldón a la calle y otro al patio). Inclinación
+   de un tejado de teja ≈ 20° si no se sabe. Dilo en `decisiones`: son supuestos.
+4. **Plan**: `"medidas": ["aerotermia_fv"]`, `ajustes.autoconsumo_kwh` = kWp × `r.anual`,
+   `ajustes.autoconsumo_pvgis` = `r` (con `consultado`), `ajustes.autoconsumo_inversion` = importe.
+   Con `autoconsumo_inversion` guardado, `aerotermia_fv` sale marcada SOLA (en lugar de la de
+   aerotermia), así que regenerar desde la ventana de la envolvente no deja fuera las placas.
+5. Al calificar en seco (`--calificar`), comprueba que CE3X no se queja de que el autoconsumo pase
+   del 90 % del consumo eléctrico de la medida.
 
 ## Medir un hueco desde una foto
 
@@ -92,3 +136,12 @@ porche (35,7 m²) y vivienda en la franja sur (38,6 m²), con las paredes alinea
 Nunca «garaje/espacio enterrado» bajo la planta baja si no hay sótano. Sin saber dónde están, se
 PREGUNTA (o se pinta en la ventana con «✏️ Croquis»): inventar la topología es inventar la
 superficie calefactada.
+
+### `decisiones` — el porqué, para quien revise
+
+Frases cortas (una por decisión, ≤ 300 caracteres, 12 como mucho) con lo que **no** se ve en el
+plano: por qué el garaje va donde va, qué foto se usó para qué fachada, qué se descartó y por qué,
+qué se ha supuesto. No repitas lo que el script ya resume solo (aerotermia, caldera, zonas, huecos
+por pared, paredes reclasificadas). Se guardan en el sello del Agente IA (`cee.agente_ia[fase].decisiones`)
+y se ven en la banda de la ventana de la envolvente y en el croquis PDF.
+

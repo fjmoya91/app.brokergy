@@ -363,7 +363,7 @@ const ES_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** El partner que trae la obra: por id, acrónimo o razón social. Tiene que ser UNO. */
 async function resolverPartner(supabase, ref) {
     if (!ref) return null;
-    const campos = 'id_empresa, acronimo, razon_social, tipo_empresa';
+    const campos = 'id_empresa, acronimo, razon_social, tipo_empresa, comision_activa, comision_tipo, comision_valor';
     if (ES_UUID.test(String(ref))) {
         const { data } = await supabase.from('prescriptores').select(campos).eq('id_empresa', ref).maybeSingle();
         if (!data) throw new Error(`No hay ningún partner con id ${ref}.`);

@@ -6825,16 +6825,9 @@ router.get('/:id/documents/scan-cee', enforceAuth, async (req, res) => {
 
         const { findSubfolderByName, listFiles } = require('../services/driveService');
 
-        // Mapeo sufijo → slot id (mismo criterio que el frontend en DOCUMENT_SLOTS)
-        const matchSlot = (filename) => {
-            const lower = (filename || '').toLowerCase();
-            if (lower.endsWith('.xml')) return 'xml';
-            if (lower.endsWith('.cex')) return 'cex';
-            if (lower.endsWith('_reg.pdf')) return 'registro';
-            if (lower.endsWith('_etq.pdf')) return 'etiqueta';
-            if (lower.endsWith('_fdo.pdf')) return 'pdf';
-            return null; // OTROS o desconocido
-        };
+        // Mapeo sufijo → slot id: el MISMO de la subida y del enlace público
+        // (descarta los borradores `_REVISAR` que escribe la app).
+        const { matchSlot } = require('../services/ceeUploadService');
 
         const scanSection = async (sectionLabel) => {
             const out = { xml: null, pdf: null, cex: null, registro: null, etiqueta: null, otros: [], sinVincular: {} };
@@ -7067,15 +7060,9 @@ router.post('/:id/documents/repair-cee-links', enforceAuth, async (req, res) => 
         console.log(`[repair-cee-links] driveFolderId=${driveFolderId}`);
 
         const { findSubfolderByName, listFiles, setFolderPublic } = require('../services/driveService');
-        const matchSlot = (filename) => {
-            const lower = (filename || '').toLowerCase();
-            if (lower.endsWith('.xml')) return 'xml';
-            if (lower.endsWith('.cex')) return 'cex';
-            if (lower.endsWith('_reg.pdf')) return 'registro';
-            if (lower.endsWith('_etq.pdf')) return 'etiqueta';
-            if (lower.endsWith('_fdo.pdf')) return 'pdf';
-            return null;
-        };
+        // El MISMO criterio que la rejilla: un borrador `_REVISAR` de la app no se
+        // vincula ni se hace público como si fuera la entrega del técnico.
+        const { matchSlot } = require('../services/ceeUploadService');
 
         const newFiles = { inicial: { otros: [] }, final: { otros: [] } };
         const ceeRoot = await findSubfolderByName(driveFolderId, '1. CEE');

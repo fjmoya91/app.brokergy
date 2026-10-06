@@ -21,6 +21,13 @@
 //   --guardar=ruta.cex         además (o sin --escribir: solo) una copia local
 //   --json                     el análisis en JSON
 //   --sin-aviso                con --escribir, no avisa al equipo (al relanzar)
+//   --sin-pdf                  con --escribir, no lo califica ni deja su XML y su PDF
+//   --calificar                sin --escribir: lo califica igual (y con --guardar, deja
+//                              el XML y el PDF junto a la copia local)
+//
+// Con --escribir, además del .cex deja su XML y su PDF OFICIAL al lado, calificados
+// por CE3X 3.1 sin abrir su ventana (`services/cee/cexAPdf.js`; solo en un PC con
+// CE3X), y dice si la calificación coincide con la calculada para la medida del inicial.
 //   --version=2.3|3.1          versión de CE3X del final (sin decirla, la 3.1 vigente; el
 //                              inicial del técnico puede ser de la 2.3: se convierte al copiarlo)
 //
@@ -34,6 +41,7 @@ require('dotenv').config({ quiet: true });
 const fs = require('fs');
 const cex = require('../services/ceeEnvolventeCex');
 const { prepararFinal } = require('../services/cee/ceeFinalDesdeMedida');
+const cexAPdf = require('../services/cee/cexAPdf');
 
 function args(argv) {
     const o = { clave: null, escribir: false, json: false };
@@ -43,6 +51,8 @@ function args(argv) {
         if (a === '--escribir') o.escribir = true;
         else if (a === '--sin-aviso') o.sinAviso = true;
         else if (a === '--json') o.json = true;
+        else if (a === '--sin-pdf') o.sinPdf = true;
+        else if (a === '--calificar') o.calificar = true;
         else if (k === '--fecha') o.fecha = val;
         else if (k === '--fecha-visita') o.fechaVisita = val;
         else if (k === '--medidas') o.medidas = val === 'ninguna' ? [] : val.split(',').map((s) => s.trim()).filter(Boolean);
@@ -121,14 +131,35 @@ async function main() {
     }
     if (r.avisos?.length) console.log(`\n  ⚠ ${r.avisos.join('\n  ⚠ ')}`);
 
+    // Lo que CE3X calculó para la medida del inicial: con equipos corregidos ya
+    // no vale como referencia (el final sale con otra máquina).
+    const esperado = r.analisis?.equipos_corregidos?.length ? null : (r.analisis?.resultados?.final || null);
+    const calificar = !o.sinPdf && (o.escribir || o.calificar);
+    let cal = null;
+    if (calificar && r.fichero) {
+        console.log('\n  Calificando con CE3X 3.1 y generando el PDF (≈1 min)…');
+        cal = await cexAPdf.calificarCex(r.fichero);
+    }
     if (o.guardar && r.fichero) {
         fs.writeFileSync(o.guardar, r.fichero);
         console.log(`\n  copia local: ${o.guardar} (${r.fichero.length} bytes)`);
+        for (const [ext, b] of [['.xml', cal?.xml], ['.pdf', cal?.pdf]]) {
+            if (b) fs.writeFileSync(o.guardar.replace(/\.cex$/i, ext), b);
+        }
     }
+    if (cal && !o.escribir) for (const l of cexAPdf.lineasCalificado(cal, { esperado })) console.log(`  ${l}`);
     if (o.escribir) {
         console.log(`\n  ✓ guardado en Drive: ${r.guardado.carpeta} / ${r.guardado.nombre}`);
         if (r.guardado.archivado) console.log(`    (el anterior se archiva en OLD como «${r.guardado.archivado}»)`);
         console.log(`    ${r.guardado.link}\n    carpeta: ${r.guardado.carpeta_link}`);
+        // Su XML y su PDF oficial junto al .cex (`cee/cexAPdf.js`, CE3X 3.1 en
+        // este PC). Sin CE3X se dice y se sigue: el .cex ya está guardado.
+        if (cal) {
+            if (cal.xml || cal.pdf) {
+                cal.guardado = await cex.guardarCalificadoEnDrive(ctx, 'final', r.guardado.nombre, { xml: cal.xml, pdf: cal.pdf });
+            }
+            for (const l of cexAPdf.lineasCalificado(cal, { esperado })) console.log(`  ${l}`);
+        }
         // El AGENTE IA termina: «pendiente de revisión» si el encargo es suyo (si
         // hay un técnico asignado, no cambia de fase) y aviso al equipo, como un
         // técnico que sube su .cex. Un fallo aquí no deshace lo guardado.

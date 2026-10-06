@@ -268,8 +268,7 @@ def construir_modelo(o: Opciones, rc: refcat_mod.ReferenciaCatastral,
             modelo.diagnostics.add(
                 "FLOOR_COUNT_UNAVAILABLE",
                 "sin BuildingParts no se sabe cuantas plantas tiene: se modela UNA")
-    if datos is not None:
-        floors_mod.asignar_usos(plantas, datos.usos_por_planta())
+    _asignar_usos(modelo, plantas)
     modelo.floors = plantas
 
     # -- espacios: aqui es donde Catastro se queda corto (§6) ------------------
@@ -470,13 +469,215 @@ def _vecinos_en_nivel(modelo: Modelo, nivel: int):
     completo = modelo.vecinos_geom()
     if not modelo.neighbour_partes:
         return unir([completo, resto])
-    if nivel >= 0:
-        trozos = [p.geometry for p in modelo.neighbour_partes
-                  if (p.plantas_sobre_rasante or 1) >= nivel + 1]
-    else:
-        trozos = [p.geometry for p in modelo.neighbour_partes
-                  if (p.plantas_bajo_rasante or 0) >= abs(nivel)]
+    def llega(p) -> bool:
+        if getattr(p, "hasta_nivel", None) is not None and nivel <= p.hasta_nivel:
+            return False            # parte ANEXA: hasta aqui es de la vivienda
+        if nivel >= 0:
+            return floors_mod.plantas_sobre(p) >= nivel + 1
+        return (p.plantas_bajo_rasante or 0) >= abs(nivel)
+    trozos = [p.geometry for p in modelo.neighbour_partes if llega(p)]
     return unir([*trozos, resto])
+
+
+def _usos_por_planta(modelo: Modelo) -> dict[int, dict[str, float]]:
+    """Los usos que declara Catastro por planta, mas los de las unidades ANEXAS."""
+    datos = modelo.catastro.get("_datos")
+    out = {k: dict(v) for k, v in (datos.usos_por_planta().items() if datos else [])}
+    for nivel, usos in (modelo.catastro.get("_anexos_usos") or {}).items():
+        d = out.setdefault(int(nivel), {})
+        for uso, area in usos.items():
+            d[uso] = round(d.get(uso, 0.0) + float(area or 0.0), 2)
+    return out
+
+
+def _asignar_usos(modelo: Modelo, plantas) -> None:
+    """Un solo sitio para colgar los usos de cada planta: los recalculos de la
+    huella (recorte, cuerpos, anexos, semisotano) no pueden olvidarse de nada."""
+    if (modelo.catastro.get("_datos") is None and not modelo.catastro.get("_anexos_usos")
+            and not modelo.catastro.get("uso_bajo_rasante")):
+        return
+    floors_mod.asignar_usos(plantas, _usos_por_planta(modelo),
+                            uso_bajo_rasante=modelo.catastro.get("uso_bajo_rasante"))
+
+
+def _recalcular_plantas(modelo: Modelo) -> None:
+    plantas = floors_mod.plantas_desde_partes(modelo.partes)
+    if plantas:
+        _asignar_usos(modelo, plantas)
+        modelo.floors = plantas
+
+
+# --------------------------------------------- unidades de OTRA parcela
+class AnexoInvalido(ValueError):
+    """Lo que se pide anexar de otra parcela no se puede usar."""
+
+
+def anexar(o: Opciones, modelo: Modelo, anexos) -> list[str]:
+    """Suma a la vivienda las unidades que la propiedad tiene en OTRA parcela.
+
+    POR QUE EXISTE — 5491808WJ2759S (26RES060_OP265): la vivienda es la
+    parcela 08 MAS la planta baja de un edificio de la 09 (salon-comedor y
+    cocina), cuyas plantas de arriba son viviendas de otros propietarios.
+    Catastro lo inscribe como dos inmuebles de la 09 (E/00/A y E/00/B). Sin
+    esto, ese bloque era «el edificio de al lado»: su pared, una medianera, y
+    el salon, fuera del certificado.
+
+    Cada entrada es `{referencia_catastral: <RC de 20 del inmueble>}` (y
+    `habitable`, por defecto si: es parte de la vivienda; `partes`: ids de
+    BuildingPart si solo algunos son suyos). Las partes de esa parcela cuentan
+    como PROPIAS hasta la planta de sus unidades (`hasta_nivel`) y por encima
+    son COLINDANTES: medianera en las paredes de las plantas de arriba del
+    edificio propio, y forjado adiabatico en el techo de lo anexo.
+    """
+    lista = [a for a in (anexos or []) if isinstance(a, dict)
+             and str(a.get("referencia_catastral") or "").strip()]
+    if not lista:
+        return []
+    crs = o.crs_metrico
+    por_parcela: dict[str, list] = {}
+    for a in lista:
+        try:
+            rc = refcat_mod.parse(str(a["referencia_catastral"]).strip())
+        except refcat_mod.RefCatError as exc:
+            raise AnexoInvalido(f"{a['referencia_catastral']}: {exc}")
+        if rc.parcela == modelo.refcat_parcela:
+            raise AnexoInvalido(f"{rc.parcela} es la propia parcela: no se anexa")
+        if not rc.inmueble:
+            raise AnexoInvalido(f"{rc.parcela}: hace falta la referencia del INMUEBLE "
+                                "(20 caracteres), que es la que dice que plantas son suyas")
+        por_parcela.setdefault(rc.parcela, []).append((rc, a))
+
+    dichos: list[str] = []
+    usos_anexo: dict[int, dict[str, float]] = modelo.catastro.setdefault("_anexos_usos", {})
+    resumen: list[dict] = modelo.catastro.setdefault("anexos", [])
+    for parcela, items in por_parcela.items():
+        client = CatastroClient(cache_dir=o.cache / parcela, offline=o.offline,
+                                refresh=o.refresh, fixture_dir=o.fixture_dir,
+                                retries=o.retries, timeout=o.timeout,
+                                pause_between_calls=o.pausa)
+        cp, bu = inspire.servicios(client)
+        try:
+            fp = parse_gml(cp.get_feature("parcela", parcela, name=f"anexo_parcela_{parcela}"),
+                           cp.nombre)
+            fb = parse_gml(bu.get_feature("partes", parcela, name=f"anexo_partes_{parcela}"),
+                           bu.nombre)
+        except (CatastroError, ValueError) as exc:
+            raise AnexoInvalido(f"{parcela}: Catastro no devuelve su geometria ({exc})")
+
+        unidades = []
+        for rc, a in items:
+            try:
+                datos = alphanumeric.consulta_dnprc(client, rc.inmueble)
+            except CatastroError as exc:
+                raise AnexoInvalido(f"{rc.inmueble}: Catastro no devuelve el inmueble ({exc})")
+            hab = a.get("habitable", True) is not False
+            for u in datos.unidades:
+                unidades.append(u)
+                uso = "VIVIENDA" if hab else u.uso
+                modelo.spaces.append(Objeto(
+                    source="CATASTRO_OVC_JSON", original_id=None, geometry=None,
+                    area=u.superficie_m2, use=uso, floor=u.planta, confidence=1.0,
+                    attrs={"uso_literal": u.uso_literal, "planta_literal": u.planta_literal,
+                           "escalera": u.escalera, "puerta": u.puerta,
+                           "codigo": f"{parcela}:{u.codigo}",
+                           "habitable": hab, "cuenta": hab,
+                           "habitable_catastro": u.habitable,
+                           "anexo": rc.inmueble,
+                           "geometria": "NO DISPONIBLE en los servicios publicos de Catastro"}))
+                if u.planta is not None:
+                    d = usos_anexo.setdefault(int(u.planta), {})
+                    d[uso] = round(d.get(uso, 0.0) + float(u.superficie_m2 or 0.0), 2)
+        plantas_suyas = [u.planta for u in unidades if u.planta is not None]
+        hasta = max(plantas_suyas) if plantas_suyas else 0
+
+        filtro = {str(x) for _, a in items for x in (a.get("partes") or [])}
+        nuevas: list[floors_mod.ParteEdificio] = []
+        for f in fb:
+            if f.geometry is None or (filtro and f.original_id not in filtro):
+                continue
+            if not str(f.tipo or "").lower().endswith("part"):
+                continue                  # solo BuildingParts: el Building es su union
+            obj = _objeto(f, crs)
+            modelo.building_parts.append(obj)
+            nuevas.append(floors_mod.ParteEdificio(
+                original_id=f.original_id, geometry=obj.geometry,
+                plantas_sobre_rasante=_int(f.attrs.get("numberOfFloorsAboveGround")),
+                plantas_bajo_rasante=_int(f.attrs.get("numberOfFloorsBelowGround")),
+                attrs={**(f.attrs or {}), "anexo": parcela}, hasta_nivel=hasta))
+        if not nuevas:
+            raise AnexoInvalido(f"{parcela}: no tiene ningun BuildingPart que anexar")
+
+        # Las MISMAS partes son propias hasta su planta y colindantes por
+        # encima: se sustituyen las que habian entrado como vecinas.
+        modelo.neighbour_partes = [p for p in modelo.neighbour_partes
+                                   if parcela not in str(p.original_id or "")] + nuevas
+        modelo.neighbour_parcels = [
+            n for n in modelo.neighbour_parcels
+            if parcela not in "".join(str(v) for v in (n.attrs or {}).values()).upper()]
+        modelo.partes.extend(nuevas)
+        modelo.anexo_huella = unir([modelo.anexo_huella, *[p.geometry for p in nuevas]])
+        geoms_parcela = [_objeto(f, crs).geometry for f in fp if f.geometry is not None]
+        if modelo.parcel is not None and geoms_parcela:
+            modelo.parcel.geometry = unir([modelo.parcel.geometry, *geoms_parcela])
+
+        m2 = round(sum(float(u.superficie_m2 or 0) for u in unidades), 2)
+        resumen.append({"parcela": parcela, "inmuebles": [rc.inmueble for rc, _ in items],
+                        "hasta_nivel": hasta, "superficie_m2": m2,
+                        "partes": [p.original_id for p in nuevas]})
+        dichos.append(f"{', '.join(rc.inmueble for rc, _ in items)} ({m2:g} m2, hasta la "
+                      f"planta {hasta}): {len(nuevas)} BuildingPart de la {parcela}")
+
+    _recalcular_plantas(modelo)
+    modelo.diagnostics.add(
+        "ANEXOS",
+        "la vivienda incluye unidades de OTRA parcela: " + "; ".join(dichos)
+        + ". Cuentan como propias hasta su planta; por encima son de otros "
+        "propietarios (medianera y forjado adiabatico)")
+    return dichos
+
+
+# --------------------------------------------- el SEMISOTANO
+#: Como mucho: un edificio con mas plantas enterradas que eso es un error de dato.
+MAX_SEMISOTANO = 3
+
+
+def aplicar_semisotano(modelo: Modelo, niveles) -> list[str]:
+    """Baja las plantas de Catastro: las `niveles` primeras son SEMISOTANO.
+
+    POR QUE EXISTE — en un pueblo en ladera Catastro dibuja el edificio con el
+    semisotano como planta SOBRE rasante (sus BuildingParts no tienen plantas
+    bajo rasante), pero sus unidades van en la «planta 00» (la baja). El motor
+    tomaba el garaje enterrado por la planta baja: todas las plantas salian
+    desplazadas una altura (5491808WJ2759S: el sotano de 1.470 m2 medido como
+    vivienda). Con esto la planta baja vuelve a ser la 0, el semisotano es la
+    -1 —espacio no habitable bajo la vivienda— y el forjado de la baja, una
+    particion con espacio no habitable inferior.
+
+    Lo DECLARA el certificador (con el proyecto o la visita delante): no se
+    deduce. Se aplica a las partes PROPIAS (y a las anexas, que estan en la
+    misma ladera); las de los colindantes no se tocan, porque de ellas no se
+    sabe nada.
+    """
+    try:
+        n = int(niveles or 0)
+    except (TypeError, ValueError):
+        n = 0
+    if n <= 0:
+        return []
+    n = min(n, MAX_SEMISOTANO)
+    for p in modelo.partes:
+        s = floors_mod.plantas_sobre(p)
+        k = min(n, s)
+        p.plantas_sobre_rasante = s - k
+        p.plantas_bajo_rasante = (p.plantas_bajo_rasante or 0) + k
+    modelo.catastro["semisotano"] = n
+    modelo.catastro["uso_bajo_rasante"] = "GARAJE"
+    _recalcular_plantas(modelo)
+    msg = (f"el certificador declara {n} planta(s) de SEMISOTANO: Catastro las dibuja "
+           "sobre rasante, pero son espacio no habitable bajo la planta baja. Las plantas "
+           "se han bajado; las de los colindantes no se tocan (comprueba sus medianeras)")
+    modelo.diagnostics.add("SEMISOTANO", msg)
+    return [msg]
 
 
 # ------------------------------------------------ delimitar la VIVIENDA a mano
@@ -553,9 +754,7 @@ def recortar_vivienda(modelo: Modelo, poligono) -> str | None:
     modelo.recorte_resto = resto
 
     plantas = floors_mod.plantas_desde_partes(recortadas)
-    datos = modelo.catastro.get("_datos")
-    if datos is not None:
-        floors_mod.asignar_usos(plantas, datos.usos_por_planta())
+    _asignar_usos(modelo, plantas)
     modelo.floors = plantas
 
     dentro = sum(p.geometry.area for p in recortadas)
@@ -606,6 +805,8 @@ def aplicar_seleccion(modelo: Modelo, incluidas) -> list[str]:
         codigo = (s.attrs or {}).get("codigo")
         if not codigo:
             continue                      # del DXF: no viene de `lcons`
+        if (s.attrs or {}).get("anexo"):
+            continue                      # de otra parcela: lo dice `anexar`
         vistos.add(codigo)
         antes = s.attrs.get("habitable")
         ahora = codigo in marcadas
@@ -1179,9 +1380,7 @@ def excluir_cuerpos(modelo: Modelo, ids, inventario=None, zonas=None) -> list[st
     if not plantas or all(p.huella.is_empty for p in plantas):
         raise CatastroError("no queda ninguna planta que medir: todo lo construido "
                             "se ha dejado fuera de la envolvente")
-    datos = modelo.catastro.get("_datos")
-    if datos is not None:
-        floors_mod.asignar_usos(plantas, datos.usos_por_planta())
+    _asignar_usos(modelo, plantas)
     modelo.floors = plantas
 
     if dichos:

@@ -1434,6 +1434,13 @@ def construir_instalaciones(datos: dict, plantilla: list,
     # por el suelo radiante (decision del usuario, 2026-09-24). Se quedan con
     # su parte y la aerotermia cubre lo que ellos no cubren (ver mas abajo).
     asumidos_retira = asumidos - {"refrigeracion"}
+    # Salvo que un equipo nuevo lo diga (`sustituye_frio`): entonces la obra
+    # QUITA tambien la maquina de frio (una enfriadora que se sustituye por la
+    # aerotermia reversible) y el nuevo cubre el 100 % de la refrigeracion.
+    if any(eq.get("sustituye_frio") and "refrigeracion" in
+           SERVICIOS_DEL_SLOT.get(eq.get("slot", "mixto2"), set())
+           for eq in datos.get("instalaciones", [])):
+        asumidos_retira = set(asumidos)
 
     # Lo retirado se dice CON SU NOMBRE. Que de un .cex desaparezca un generador
     # no puede ser un efecto silencioso: es la actuacion entera.
@@ -2113,6 +2120,19 @@ def construir_envolvente(geo: dict, datos: dict) -> tuple[list, list[str]]:
     # apunte a una zona que no existe NO SE VE: el fichero abre y la envolvente
     # sale vacia. Paso por ahi el 2026-09-10.
     declaradas_cfg = zonas_auto if auto else cfg.get("zonas", [])
+    # CE3X rechaza el fichero si las zonas suman más que el edificio («La
+    # superficie de las zonas del edificio es mayor que la superficie del
+    # edificio»). Las automáticas llevan lo CONSTRUIDO de Catastro; si la
+    # superficie útil declarada es menor (26RES080_OP60: 160 construidos, 140
+    # útiles), se reparten en proporción y se dice.
+    util = _numf(((datos.get("generales") or {}).get("superficie_util_habitable") or {}).get("valor"))
+    suma = sum(_numf(z.get("superficie")) or 0 for z in declaradas_cfg)
+    if auto and util and suma > util + 0.01:
+        f = util / suma
+        declaradas_cfg = [{**z, "superficie": round(float(z["superficie"]) * f, 2)}
+                          for z in declaradas_cfg]
+        avisos.append(f"Zonas ajustadas a la superficie útil declarada ({util:g} m²): "
+                      f"sumaban {suma:g} m² (lo construido de Catastro).")
     zonas = [
         P.Instancia("ventanaSubgrupo", "claseZona", {
             Cadena("nombre"): z["nombre"],

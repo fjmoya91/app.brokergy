@@ -441,6 +441,20 @@ export const GENERADORES_CE3X = [
     { valor: 'Equipo de Rendimiento Constante', etiqueta: 'Equipo de Rendimiento Constante' },
 ];
 
+/**
+ * El generador TAL Y COMO lo guarda CE3X. `generadorCe3x` (emisores.js) devuelve
+ * «Bomba de calor aire-aire (split|conductos)» para distinguirlos en el TEXTO al
+ * certificador, pero esa cadena no es ninguna opción del desplegable de CE3X: en
+ * el `.cex` el equipo se abría con su tarjeta en blanco (26RES080_OP60). En el
+ * fichero, cualquier bomba de calor que no sea una opción va como «Bomba de Calor
+ * - Caudal Ref. Variable», la de los equipos de calefacción y refrigeración del
+ * corpus.
+ */
+export function generadorDelCex(g) {
+    if (GENERADORES_CE3X.some(x => x.valor === g)) return g;
+    return /bomba de calor/i.test(String(g || '')) ? 'Bomba de Calor - Caudal Ref. Variable' : g;
+}
+
 export const COMBUSTIBLES_CE3X = [
     { valor: 'Gas Natural', etiqueta: 'Gas Natural', visto: true },
     { valor: 'Gasóleo-C', etiqueta: 'Gasóleo-C', visto: true },
@@ -927,6 +941,10 @@ export function equipoConAjustes(equipo, ajustes, { superficie } = {}) {
         ...(daCal && a.pct_calefaccion ? { pct_calefaccion: String(a.pct_calefaccion) } : {}),
         ...(daAcs && a.pct_acs ? { pct_acs: String(a.pct_acs) } : {}),
         ...(daFrio && a.pct_refrigeracion ? { pct_refrigeracion: String(a.pct_refrigeracion) } : {}),
+        //: El equipo nuevo SUSTITUYE también los equipos de frío que hay (una
+        //: enfriadora que se quita): solo si se dice. Sin la marca, los aires
+        //: existentes se quedan con su parte (regla del motor, 2026-09-24).
+        ...(daFrio && a.sustituye_frio ? { sustituye_frio: true } : {}),
         ...potServ,
     };
     //: Lo que ya no corresponde se QUITA, no se deja colgando: un equipo que ha
@@ -1301,7 +1319,7 @@ export function instalacionNueva({ expediente, superficie, modelos = {},
     const bomba = {
         slot: slotBomba,
         nombre: d.nombre,
-        generador: d.generadorBdc,
+        generador: generadorDelCex(d.generadorBdc),
         //: 138 de 138 en el corpus. Una bomba de calor va con electricidad.
         combustible: 'Electricidad',
         rendimiento: 'conocido',
@@ -1525,7 +1543,7 @@ function equipoDeAcs(d, superficie) {
             + 'calcular («la instalación de ACS no está bien definida»).'] };
     }
     return {
-        equipo: { ...comun, generador: d.generadorBdc, rendimiento: 'conocido',
+        equipo: { ...comun, generador: generadorDelCex(d.generadorBdc), rendimiento: 'conocido',
                   rend_acs: String(rend),
                   //: Una bomba de calor de ACS es aire-agua (CE3X 3.1).
                   ...potenciasDe({ potencia_acs: d.potenciaAcs, tipo_bdc: 1 }, ['acs']) },
@@ -2280,7 +2298,15 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
     const dir = partesDireccion(inmueble.direccion);
     const contacto = contactoDelCliente(cliente);
     const habitables = plantasHabitables(g);
-    const superficie = superficieHabitable(g);
+    const superficieMedida = superficieHabitable(g);
+    //: La superficie que se DECLARA manda también en la que sirve cada equipo.
+    //: Si el certificador la corrige a mano (un porche cerrado que Catastro
+    //: cuenta como soportal), los equipos no pueden seguir con la medida: CE3X
+    //: mide la cobertura del ACS por superficie y no califica — medido en
+    //: 2026CEE_61, termo con 110 m² y vivienda de 146: «La instalación de ACS no
+    //: está bien definida. El porcentaje de demanda cubierta debe ser el 100 %».
+    const superficie = positivo(cfg.superficie_util_habitable)
+        ? Math.round(positivo(cfg.superficie_util_habitable)) : superficieMedida;
     //: El respaldo tiene que ser el MISMO que el del motor (`Opciones.floor_height`),
     //: porque es el que se usó para MEDIR las fachadas: si aquí se declarara otra
     //: altura, las superficies del .cex no cuadrarían con la que dice.
@@ -2455,7 +2481,7 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
             }),
             zona_climatica_he1: puesto('zona', zona, 'zona climática del expediente'),
             zona_climatica_he4: dato(he4.valor, he4.de),
-            superficie_util_habitable: puesto('superficie_util_habitable', superficie,
+            superficie_util_habitable: puesto('superficie_util_habitable', superficieMedida,
                                               deQuienSaleLoQueCuenta(g, 'superficie')),
             // Por defecto la MISMA con la que el motor midió las fachadas: si se
             // escribiera otra, las superficies del .cex no cuadrarían con la
