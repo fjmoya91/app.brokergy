@@ -163,7 +163,7 @@ const prueba = async (nombre, fn) => {
             '00000000T_99RES060_999 – CEE INICIAL.xml',
             '00000000T_99RES060_999 – CEE INICIAL.cex',
         ]);
-        assert.ok(e.plazo && e.plazo.quedan >= 24 && e.plazo.quedan <= 25, `plazo ${JSON.stringify(e.plazo)}`);
+        assert.ok(e.plazo && e.plazo.quedan >= 24 && e.plazo.quedan <= 26, `plazo ${JSON.stringify(e.plazo)}`);
         assert.strictEqual(e.encargo, null);
     });
 
@@ -275,6 +275,49 @@ const prueba = async (nombre, fn) => {
 
     await prueba('CEE directo ÚNICO no tiene fase final', async () => {
         await assert.rejects(svc.estado('cee_directo', CD_ID, 'final'), e => e.status === 400);
+    });
+
+    await prueba('bandeja: enlace personal, sin el correo en la URL, y revocable', async () => {
+        const u = await svc.enlaceBandeja('Eva@Ejemplo.com');
+        assert.ok(/\/presentar\/pendientes\?token=[0-9a-f]{24}\.[0-9a-f]{64}$/.test(u), u);
+        assert.ok(!/ejemplo/i.test(u));
+        const tk = new URL(u).searchParams.get('token');
+        assert.strictEqual(await svc.correoDeBandeja(tk), 'eva@ejemplo.com');
+        assert.strictEqual(await svc.enlaceBandeja('eva@ejemplo.com'), u, 'el mismo enlace cada vez');
+        await assert.rejects(svc.correoDeBandeja(tk.replace(/.$/, c => (c === 'a' ? 'b' : 'a'))), e => e.status === 403);
+        await assert.rejects(svc.correoDeBandeja('basura'), e => e.status === 403);
+    });
+
+    await prueba('bandeja: solo lo de SU correo; pendiente con enlace, retirado fuera, presentado un mes', async () => {
+        const ahora = Date.parse('2026-10-06T12:00:00Z');
+        const filas = [
+            { origen: 'expediente', r: { id: 'a', numero_expediente: 'A', seguimiento: {}, ffi: '2026-10-01',
+                presentacion: { inicial: { nonce: 'n1', email: 'eva@ejemplo.com', enviado_at: '2026-10-05' } } } },
+            { origen: 'expediente', r: { id: 'b', numero_expediente: 'B', seguimiento: {},
+                presentacion: { inicial: { nonce: 'n2', email: 'otra@ejemplo.com' } } } },
+            { origen: 'expediente', r: { id: 'c', numero_expediente: 'C', seguimiento: {},
+                presentacion: { inicial: { nonce: null, email: 'eva@ejemplo.com', retirado_at: '2026-10-02' } } } },
+            { origen: 'expediente', r: { id: 'd', numero_expediente: 'D', seguimiento: { cee_final: 'REGISTRADO' }, frf: '2026-09-30',
+                presentacion: { final: { nonce: 'n4', email: 'eva@ejemplo.com', registrado_at: '2026-09-30T10:00:00Z' } } } },
+            { origen: 'expediente', r: { id: 'e', numero_expediente: 'E', seguimiento: { cee_inicial: 'REGISTRADO' },
+                presentacion: { inicial: { nonce: 'n5', email: 'eva@ejemplo.com', registrado_at: '2026-07-01T10:00:00Z' } } } },
+            { origen: 'cee_directo', r: { id: 'f', numero_expediente: 'F', alcance: 'UNICO', seguimiento: {},
+                presentacion: { inicial: { nonce: 'n6', email: 'EVA@ejemplo.com' } } } },
+        ];
+        const it = svc.itemsBandeja(filas, 'eva@ejemplo.com', ahora);
+        assert.deepStrictEqual(it.map(i => `${i.numero}:${i.hecho ? 'hecho' : 'pend'}`), ['A:pend', 'D:hecho', 'F:pend']);
+        const a = it.find(i => i.numero === 'A');
+        assert.ok(/\/presentar\/cae\/a\?fase=inicial&token=/.test(a.enlace));
+        assert.deepStrictEqual(a.plazo, { limite: '2026-10-31', quedan: 25 });
+        assert.strictEqual(it.find(i => i.numero === 'D').enlace, null);
+        assert.strictEqual(it.find(i => i.numero === 'F').faseLabel, 'CEE');
+        assert.ok(/\/presentar\/cee\/f\?/.test(it.find(i => i.numero === 'F').enlace));
+    });
+
+    await prueba('el correo del encargo lleva el enlace a su bandeja', async () => {
+        const m = enviados[enviados.length - 1];
+        assert.ok(/presentar\/pendientes\?token=/.test(m.text), 'texto');
+        assert.ok(/Ver todo lo que tienes pendiente/.test(m.html), 'html');
     });
 
     console.log(`\n${ok} pruebas correctas${process.exitCode ? ' — HAY FALLOS' : ''}.`);

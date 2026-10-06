@@ -32,6 +32,7 @@ export function EncargarPresentacionModal({ isOpen, onClose, apiBase, expediente
     const [nota, setNota] = useState('');
     const [overlay, setOverlay] = useState({ phase: null });
     const [copiado, setCopiado] = useState(false);
+    const [copiadoBandeja, setCopiadoBandeja] = useState(false);
     const [retirando, setRetirando] = useState(false);
 
     const cargar = async () => {
@@ -95,6 +96,17 @@ export function EncargarPresentacionModal({ isOpen, onClose, apiBase, expediente
             await navigator.clipboard.writeText(datos.enlace);
             setCopiado(true);
             setTimeout(() => setCopiado(false), 1800);
+        } catch { setError('No se pudo copiar: selecciónalo a mano.'); }
+    };
+
+    // Su página con TODO lo pendiente: va en cada correo, y se puede copiar aquí
+    // para pasársela por otro canal.
+    const copiarBandeja = async () => {
+        if (!datos?.bandeja) return;
+        try {
+            await navigator.clipboard.writeText(datos.bandeja);
+            setCopiadoBandeja(true);
+            setTimeout(() => setCopiadoBandeja(false), 1800);
         } catch { setError('No se pudo copiar: selecciónalo a mano.'); }
     };
 
@@ -198,6 +210,18 @@ export function EncargarPresentacionModal({ isOpen, onClose, apiBase, expediente
                                             </button>
                                         </div>
                                     )}
+                                </div>
+                            )}
+
+                            {datos.bandeja && (
+                                <div className="flex items-center justify-between gap-2 rounded-xl border border-white/[0.08] bg-white/[0.02] px-4 py-2.5">
+                                    <span className="text-[10px] text-white/50 normal-case leading-snug">
+                                        Su página con todo lo pendiente de presentar (va también en cada correo).
+                                    </span>
+                                    <button type="button" onClick={copiarBandeja}
+                                            className="shrink-0 px-2.5 py-1.5 rounded-md text-[9px] font-black uppercase tracking-widest bg-white/5 text-white/55 hover:bg-brand/20 hover:text-brand">
+                                        {copiadoBandeja ? '✓ Copiado' : '📋 Copiar su página'}
+                                    </button>
                                 </div>
                             )}
 

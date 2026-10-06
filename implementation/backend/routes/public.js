@@ -1648,6 +1648,15 @@ function errorPresentacion(res, e, etiqueta) {
 const descargaComo = (filename) => `attachment; filename="${String(filename).replace(/[^\x20-\x7E]/g, '_')}"; `
     + `filename*=UTF-8''${encodeURIComponent(filename)}`;
 
+// La BANDEJA: todo lo pendiente de quien presenta. Prefijo propio para no
+// confundirse con `/presentar/:negocio/:id`.
+router.get('/presentar-pendientes', async (req, res) => {
+    try {
+        const svc = require('../services/presentacionCeeService');
+        res.json(await svc.bandejaPublica(req.query.token));
+    } catch (e) { errorPresentacion(res, e, 'bandeja'); }
+});
+
 router.get('/presentar/:negocio/:id', async (req, res) => {
     try {
         const svc = require('../services/presentacionCeeService');

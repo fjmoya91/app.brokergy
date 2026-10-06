@@ -104,6 +104,14 @@ export function PresentarEncargoView({ negocio, id, token, fase = 'inicial' }) {
                 <div className="rounded-xl border border-red-500/30 bg-red-500/[0.06] px-4 py-3 text-[12px] text-red-300 normal-case leading-snug">{error}</div>
             )}
 
+            {/* Su lista con TODO lo pendiente, para no tener que buscar cada correo. */}
+            {info?.bandeja && (
+                <a href={info.bandeja}
+                   className="block text-center text-[11px] font-bold text-brand/90 hover:text-brand normal-case">
+                    📋 Ver todo lo que tengo pendiente de presentar
+                </a>
+            )}
+
             {info?.registrado ? (
                 <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/[0.06] px-5 py-4">
                     <div className="text-[12px] font-black text-emerald-300 uppercase tracking-widest">✓ Registrado</div>

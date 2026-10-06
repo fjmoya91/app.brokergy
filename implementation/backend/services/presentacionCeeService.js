@@ -215,6 +215,156 @@ function enlace(origen, id, fase, nonce, base = APP_BASE) {
     return `${base}/presentar/${urlDeOrigen(origen)}/${id}?fase=${fase}&token=${firmar(origen, id, fase, nonce)}`;
 }
 
+// ─── La BANDEJA de quien presenta: todo lo que tiene pendiente ──────────────
+//
+// Un enlace PERSONAL —`/presentar/pendientes?token=`— con la lista de sus encargos
+// vivos, para que no dependa de buscar cada correo. Va en cada correo de encargo y
+// en cada página de presentar.
+//
+// REGLA — el token es `{nonce}.{hmac}` y el nonce vive en `app_settings`
+// (`presentador_bandeja:{nonce}` → su correo, y `presentador_bandeja_email:{correo}`
+// → su nonce): nunca viaja el correo en la URL, y renovar el nonce deja sin valor
+// el enlace anterior. La lista se filtra por ESE correo: solo ve lo que se le ha
+// encargado a ella.
+
+const CLAVE_BANDEJA = (nonce) => `presentador_bandeja:${nonce}`;
+const CLAVE_BANDEJA_EMAIL = (email) => `presentador_bandeja_email:${String(email).trim().toLowerCase()}`;
+
+function firmarBandeja(nonce, email) {
+    const secret = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.JWT_SECRET || 'brokergy-presentar-cee';
+    return crypto.createHmac('sha256', secret)
+        .update(`presentar-bandeja:${nonce}:${String(email).trim().toLowerCase()}`).digest('hex');
+}
+
+async function leerAjuste(key) {
+    const { data } = await supabase.from('app_settings').select('value').eq('key', key).maybeSingle();
+    if (!data?.value) return null;
+    try { return typeof data.value === 'string' ? JSON.parse(data.value) : data.value; } catch { return null; }
+}
+
+async function escribirAjuste(key, value) {
+    const { error } = await supabase.from('app_settings').upsert(
+        { key, value: JSON.stringify(value), updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    if (error) throw new Error(error.message);
+}
+
+/** El enlace de la bandeja de ese correo, creándolo la primera vez. */
+async function enlaceBandeja(email, { base = APP_BASE, renovar = false } = {}) {
+    const correo = String(email || '').trim().toLowerCase();
+    if (!emailValido(correo)) return null;
+    let nonce = renovar ? null : (await leerAjuste(CLAVE_BANDEJA_EMAIL(correo)))?.nonce;
+    if (!nonce) {
+        const previo = (await leerAjuste(CLAVE_BANDEJA_EMAIL(correo)))?.nonce;
+        if (previo) await supabase.from('app_settings').delete().eq('key', CLAVE_BANDEJA(previo));
+        nonce = crypto.randomBytes(12).toString('hex');
+        await escribirAjuste(CLAVE_BANDEJA(nonce), { email: correo });
+        await escribirAjuste(CLAVE_BANDEJA_EMAIL(correo), { nonce });
+    }
+    return `${base}/presentar/pendientes?token=${nonce}.${firmarBandeja(nonce, correo)}`;
+}
+
+/** Comprueba el token de la bandeja y devuelve el correo. 403 si no vale. */
+async function correoDeBandeja(token) {
+    const [nonce, firma] = String(token || '').split('.');
+    if (!/^[0-9a-f]{16,64}$/.test(nonce || '') || !firma) throw err(403, 'Este enlace ya no es válido.');
+    const v = await leerAjuste(CLAVE_BANDEJA(nonce));
+    const correo = v?.email;
+    let ok = false;
+    try {
+        const a = Buffer.from(firmarBandeja(nonce, correo || ''));
+        const b = Buffer.from(String(firma));
+        ok = !!correo && a.length === b.length && crypto.timingSafeEqual(a, b);
+    } catch { ok = false; }
+    if (!ok) throw err(403, 'Este enlace ya no es válido. Búscalo en el último correo que te hemos enviado.');
+    return correo;
+}
+
+const HECHOS_DIAS = 30; // lo ya presentado se enseña un mes, como acuse
+
+/**
+ * Puro: de las filas con `presentacion`, las fases encargadas a ESE correo —
+ * pendientes (con su enlace vivo) y presentadas en el último mes—.
+ */
+function itemsBandeja(filas, correo, ahora = Date.now()) {
+    const items = [];
+    for (const { origen, r } of filas) {
+        for (const fase of ['inicial', 'final']) {
+            const enc = r.presentacion?.[fase];
+            if (!enc || String(enc.email || '').toLowerCase() !== correo) continue;
+            const reg = String(r.seguimiento?.[fase === 'final' ? 'cee_final' : 'cee_inicial'] || '').toUpperCase() === 'REGISTRADO';
+            const fechaReg = (fase === 'final' ? r.frf : r.fri) || null;
+            const hecho = reg || !!enc.registrado_at;
+            if (!hecho && !enc.nonce) continue; // retirado
+            if (hecho) {
+                const cuando = enc.registrado_at || fechaReg;
+                if (!cuando || (ahora - new Date(cuando)) / 86400000 > HECHOS_DIAS) continue;
+            }
+            const firma = (fase === 'final' ? (r.fff || r.dff) : (r.ffi || r.dfi)) || null;
+            const plazo = plazoDesdeFirma(firma, ahora);
+            const faseLabel = fase === 'final' ? 'CEE final'
+                : (origen === 'cee_directo' && String(r.alcance || 'UNICO').toUpperCase() !== 'DOBLE' ? 'CEE' : 'CEE inicial');
+            items.push({
+                numero: r.numero_expediente || r.id,
+                cliente_id: r.cliente_id,
+                fase, faseLabel,
+                enviado_at: enc.enviado_at || null,
+                plazo,
+                hecho,
+                registrado_at: hecho ? (enc.registrado_at || fechaReg) : null,
+                // El enlace de SU encargo: solo si sigue vivo.
+                enlace: !hecho && enc.nonce ? enlace(origen, r.id, fase, enc.nonce) : null,
+            });
+        }
+    }
+
+    return items;
+}
+
+/**
+ * Lo que tiene pendiente (y lo presentado hace poco) quien abre la bandeja.
+ * Puro de cara a la red: solo lee. Lista lo encargado a SU correo.
+ */
+async function bandejaPublica(token) {
+    const correo = await correoDeBandeja(token);
+    // Campos CONCRETOS del JSONB, nunca `cee` entero (regla 22: lleva los .xml).
+    const campos = 'id, numero_expediente, cliente_id, seguimiento, presentacion:cee->presentacion, '
+        + 'ffi:cee->fecha_firma_cee_inicial, fff:cee->fecha_firma_cee_final, '
+        + 'dfi:documentacion->fecha_firma_cee_inicial, dff:documentacion->fecha_firma_cee_final, '
+        + 'fri:documentacion->fecha_registro_cee_inicial, frf:documentacion->fecha_registro_cee_final';
+    const [cae, cd] = await Promise.all([
+        supabase.from('expedientes').select(campos).not('cee->presentacion', 'is', null),
+        supabase.from('cee_directos').select(`${campos}, alcance`).not('cee->presentacion', 'is', null),
+    ]);
+    if (cae.error) throw new Error(cae.error.message);
+    if (cd.error) throw new Error(cd.error.message);
+
+    const filas = [
+        ...(cae.data || []).map(r => ({ origen: 'expediente', r })),
+        ...(cd.data || []).map(r => ({ origen: 'cee_directo', r })),
+    ];
+    const items = itemsBandeja(filas, correo);
+
+    // Titulares en UNA consulta.
+    const ids = [...new Set(items.map(i => i.cliente_id).filter(Boolean))];
+    const nombres = {};
+    if (ids.length) {
+        const { data } = await supabase.from('clientes').select('id_cliente, nombre_razon_social, apellidos').in('id_cliente', ids);
+        for (const c of data || []) nombres[c.id_cliente] = nombreCliente(c);
+    }
+    const limpio = items.map(({ cliente_id, ...i }) => ({ ...i, cliente: nombres[cliente_id] || '' }));
+    // Lo que corre más prisa, primero; sin plazo conocido, al final de los pendientes.
+    const pendientes = limpio.filter(i => !i.hecho)
+        .sort((a, b) => (a.plazo?.quedan ?? 9999) - (b.plazo?.quedan ?? 9999));
+    const hechos = limpio.filter(i => i.hecho)
+        .sort((a, b) => String(b.registrado_at || '').localeCompare(String(a.registrado_at || '')));
+    const presentador = await presentadorPorDefecto();
+    return {
+        nombre: presentador?.email === correo ? presentador.nombre || '' : '',
+        pendientes,
+        hechos,
+    };
+}
+
 // ─── Quién presenta por defecto (lo último que se usó) ──────────────────────
 
 async function presentadorPorDefecto() {
@@ -242,11 +392,22 @@ function plazoDe(origen, row, fase) {
         const { fechaFirmaCee } = require('../utils/ceeFechas');
         firma = fechaFirmaCee(row, fase);
     } catch { /* sin fecha, sin plazo */ }
-    if (!/^\d{4}-\d{2}-\d{2}/.test(firma || '')) return null;
-    const ini = new Date(`${String(firma).slice(0, 10)}T00:00:00`);
-    const limite = new Date(ini.getTime() + PLAZO_DIAS * 86400000);
-    const quedan = Math.floor((limite - Date.now()) / 86400000);
-    return { firma: String(firma).slice(0, 10), limite: limite.toISOString().slice(0, 10), quedan };
+    const p = plazoDesdeFirma(firma);
+    return p ? { firma: String(firma).slice(0, 10), ...p } : null;
+}
+
+/**
+ * Fecha límite (firma + 30 días) y días que quedan, en días NATURALES.
+ * En UTC a propósito: con la hora local, `toISOString` devolvía el día anterior
+ * (medianoche de Madrid son las 22:00 UTC del día antes).
+ */
+function plazoDesdeFirma(firma, ahora = Date.now()) {
+    const m = String(firma || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return null;
+    const limiteMs = Date.UTC(+m[1], +m[2] - 1, +m[3] + PLAZO_DIAS);
+    const hoy = new Date(ahora);
+    const hoyMs = Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), hoy.getUTCDate());
+    return { limite: new Date(limiteMs).toISOString().slice(0, 10), quedan: Math.round((limiteMs - hoyMs) / 86400000) };
 }
 
 const registrado = (row, fase) => String(row?.seguimiento?.[fase === 'final' ? 'cee_final' : 'cee_inicial'] || '').toUpperCase() === 'REGISTRADO';
@@ -288,7 +449,15 @@ async function estado(origen, id, fase) {
         // El enlace vigente, para poder copiarlo y pasarlo por otro canal.
         enlace: enc?.nonce ? enlace(origen, row.id, fz, enc.nonce) : null,
         presentador: await presentadorPorDefecto(),
+        // Su página con TODO lo pendiente (para copiarla y pasársela).
+        bandeja: await enlaceBandejaSeguro(enc?.email || (await presentadorPorDefecto())?.email),
     };
+}
+
+/** Como `enlaceBandeja`, pero sin tumbar a quien lo llama si falla. */
+async function enlaceBandejaSeguro(email) {
+    try { return email ? await enlaceBandeja(email) : null; }
+    catch (e) { console.warn('[presentacion-cee] enlace de la bandeja:', e.message); return null; }
 }
 
 // ─── El correo ───────────────────────────────────────────────────────────────
@@ -297,7 +466,7 @@ const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').
 const fechaEs = (iso) => { const [a, m, d] = String(iso || '').slice(0, 10).split('-'); return d ? `${d}/${m}/${a}` : ''; };
 
 /** Puro: compone asunto, texto y HTML. Sin un importe. */
-function componerCorreo({ nombre, numero, cliente, faseLabel, adjuntos, link, plazo, nota, reenvio }) {
+function componerCorreo({ nombre, numero, cliente, faseLabel, adjuntos, link, plazo, nota, reenvio, bandeja = null }) {
     const {
         brandEmailShell, emailP, emailBox, emailButton, emailDataTable, PILL, BRAND, FONT,
     } = require('./emailService');
@@ -347,7 +516,9 @@ function componerCorreo({ nombre, numero, cliente, faseLabel, adjuntos, link, pl
                 </tr>`).join('')}</table>`
             + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:12px;"><tr><td align="center">${
                 emailButton(esc(link), '📄 Abrir el borrador y subir el justificante', BRAND.orange)}</td></tr></table>`
-            + emailP('El enlace es personal: no hace falta usuario ni contraseña.', { size: 11, color: BRAND.muted, center: true, mb: 0 }),
+            + emailP('El enlace es personal: no hace falta usuario ni contraseña.', { size: 11, color: BRAND.muted, center: true, mb: bandeja ? 14 : 0 })
+            + (bandeja ? emailP(`<a href="${esc(bandeja)}" style="color:${BRAND.orangeDark};font-weight:700;">📋 Ver todo lo que tienes pendiente de presentar</a>`,
+                { size: 13, center: true, mb: 0 }) : ''),
         footerNote: 'Encargo de presentación de BROKERGY. Si algo no cuadra, responde a este correo.',
     });
 
@@ -359,6 +530,7 @@ function componerCorreo({ nombre, numero, cliente, faseLabel, adjuntos, link, pl
         nota ? `\n${nota}\n` : '',
         'Pasos:', ...pasos.map((p, i) => `  ${i + 1}. ${p}`),
         '', `Enlace: ${link}`,
+        bandeja ? `Todo lo que tienes pendiente: ${bandeja}` : '',
     ].filter(l => l !== null).join('\n');
 
     return { asunto, html, text };
@@ -416,10 +588,11 @@ async function encargar(origen, id, fase, { email, nombre = '', nota = '', usuar
     const link = enlace(origen, row.id, fz, nonce);
     const numero = row.numero_expediente || row.id;
     const faseLabel = fz === 'final' ? 'CEE final' : (rotuloFase(origen, row, fz) === 'CEE' ? 'CEE' : 'CEE inicial');
+    const bandeja = await enlaceBandejaSeguro(to);
     const { asunto, html, text } = componerCorreo({
         nombre: nom, numero, cliente: nombreCliente(cli), faseLabel,
         adjuntos: attachments.map(a => a.filename), link, plazo: plazoDe(origen, row, fz),
-        nota: notaLimpia, reenvio: !!previo?.enviado_at,
+        nota: notaLimpia, reenvio: !!previo?.enviado_at, bandeja,
     });
 
     const { sendMail } = require('./emailService');
@@ -493,6 +666,7 @@ async function vistaPublica(negocioUrl, id, fase, token) {
         registrado: registrado(row, fz),
         fechaRegistro: fechaRegistro(row, fz),
         plazo: plazoDe(origen, row, fz),
+        bandeja: await enlaceBandejaSeguro(encargo?.email),
     };
 }
 
@@ -599,6 +773,11 @@ module.exports = {
     encargar,
     retirar,
     vistaPublica,
+    bandejaPublica,
+    itemsBandeja,
+    plazoDesdeFirma,
+    enlaceBandeja,
+    correoDeBandeja,
     borradorPublico,
     borradorPdfPublico,
     ficheroPublico,

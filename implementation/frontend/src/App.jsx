@@ -35,6 +35,7 @@ import { API_DOCS_CEE_DIRECTO } from './features/docs/docsApi';
 import { SubirCifoView } from './features/public/views/SubirCifoView';
 import { PresentarCeeView } from './features/public/views/PresentarCeeView';
 import { PresentarEncargoView } from './features/public/views/PresentarEncargoView';
+import { PresentarPendientesView } from './features/public/views/PresentarPendientesView';
 import { SubirRiteView } from './features/public/views/SubirRiteView';
 import { SubirInstaladorView } from './features/public/views/SubirInstaladorView';
 import { SubirCeeView } from './features/public/views/SubirCeeView';
@@ -246,6 +247,12 @@ function App() {
     const token = sp.get('token');
     const fase = sp.get('fase') === 'final' ? 'final' : 'inicial';
     return token ? { negocio: m[1], id: m[2], token, fase } : null;
+  });
+
+  // La BANDEJA de quien presenta: /presentar/pendientes?token=
+  const [presentarPendientesToken] = useState(() => {
+    if (!/^\/presentar\/pendientes\/?$/.test(window.location.pathname)) return null;
+    return new URLSearchParams(window.location.search).get('token') || null;
   });
 
   const [ceeUploadData] = useState(() => {
@@ -1139,8 +1146,8 @@ function App() {
 
   // Rutas públicas con su propio layout full-bleed → sin red decorativa y
   // sin padding del contenedor padre (el componente cubre 100% del viewport).
-  const isPublicRoute = !!(landingRoute || reformaDocsData || ceeDocsData || firmaOportunidadId || ofertaCeeToken || certAckData || cobroData || cifoUploadId || riteUploadId || instaladorId || presentarCeeData || presentarEncargoData || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || croquisMovilToken || encargoData || firmarLoteId || portalRoute);
-  const isLoggedDashboard = user && !firmaOportunidadId && !ofertaCeeToken && !ceeDocsData && !resetToken && !certAckData && !cobroData && !cifoUploadId && !riteUploadId && !instaladorId && !presentarCeeData && !presentarEncargoData && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !croquisMovilToken && !encargoData && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
+  const isPublicRoute = !!(landingRoute || reformaDocsData || ceeDocsData || firmaOportunidadId || ofertaCeeToken || certAckData || cobroData || cifoUploadId || riteUploadId || instaladorId || presentarCeeData || presentarEncargoData || presentarPendientesToken || ceeUploadData || ceeDirectoUploadData || ceeAckData || firmarAnexosId || firmaMovilToken || croquisMovilToken || encargoData || firmarLoteId || portalRoute);
+  const isLoggedDashboard = user && !firmaOportunidadId && !ofertaCeeToken && !ceeDocsData && !resetToken && !certAckData && !cobroData && !cifoUploadId && !riteUploadId && !instaladorId && !presentarCeeData && !presentarEncargoData && !presentarPendientesToken && !ceeUploadData && !ceeDirectoUploadData && !ceeAckData && !firmarAnexosId && !firmaMovilToken && !croquisMovilToken && !encargoData && !reformaDocsData && !landingRoute && !portalRoute && !envolventeId;
   const wrapperPadding = (isLoggedDashboard || isPublicRoute || (user && envolventeId)) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
@@ -1185,6 +1192,8 @@ function App() {
           <SubirCifoView expedienteId={cifoUploadId} />
         ) : riteUploadId ? (
           <SubirRiteView expedienteId={riteUploadId} />
+        ) : presentarPendientesToken ? (
+          <PresentarPendientesView token={presentarPendientesToken} />
         ) : presentarEncargoData ? (
           <PresentarEncargoView negocio={presentarEncargoData.negocio} id={presentarEncargoData.id}
                                 token={presentarEncargoData.token} fase={presentarEncargoData.fase} />
