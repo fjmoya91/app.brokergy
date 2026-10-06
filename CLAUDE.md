@@ -3026,6 +3026,13 @@ ahora el chat de Fran.
 | Hablar con Fran (resumen de una OP, leer, decir) | [scripts/asistente_whatsapp.js](implementation/backend/scripts/asistente_whatsapp.js) |
 | El contenedor | `implementation/asistente/` (Dockerfile + `arrancar.sh`) · servicio `asistente` en compose |
 
+**EL CANAL ES UN GRUPO** (2026-10-06): «BROKERGY - CHAT» (`ASISTENTE_WHATSAPP_GRUPO`), donde están Fran
+y el WhatsApp de la empresa. **Solo cuentan los mensajes de Fran**: el backend toca el timbre solo si el
+AUTOR del mensaje del grupo es él (su `@c.us` o su `@lid`; `ASISTENTE_WHATSAPP_LID` lo siembra y el
+backend manda el id con cada aviso), y el vigilante filtra por autor al leer el grupo. Lo que escriba
+otro miembro es contexto, nunca una orden. Su chat 1:1 con la empresa vuelve a ser un chat normal. Sin
+la variable, el canal sería el 1:1, como al principio.
+
 **Cómo va:** el backend reconoce el chat de Fran (resuelve su `@lid` UNA vez) y hace `POST
 http://asistente:8091/aviso`. El vigilante espera 20 s de silencio (la ráfaga entera), contesta
 «Recibido, me pongo con ello», transcribe audios, baja fotos y lanza `claude -p --permission-mode
