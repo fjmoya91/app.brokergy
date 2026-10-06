@@ -294,13 +294,32 @@ function detectarIncidenciasFactura({ ocr, exp, op, cliente, instalador, factura
     }
 
     // ── GRAVE · TITULAR ──────────────────────────────────────────────────────
-    // El titular de la factura tiene que ser el cedente del ahorro. Manda el NIF.
+    // El titular de la factura tiene que ser UNO DE LOS CEDENTES del ahorro: el
+    // titular de la ficha o un copropietario marcado como que paga la obra
+    // (logic/cedentes.js — la factura va a quien paga). Manda el NIF.
     const cliNombreExp = [clean(cliente?.nombre_razon_social), clean(cliente?.apellidos)].filter(Boolean).join(' ');
     const cliNifExp = normNif(cliente?.dni);
     const cliNifFac = normNif(ocr.cliente?.nif);
     const cliNombreFac = clean(ocr.cliente?.nombre);
+    const cops = Array.isArray(cliente?.copropietarios) ? cliente.copropietarios : [];
+    const nombreCop = (c) => [clean(c?.nombre), clean(c?.apellidos)].filter(Boolean).join(' ');
+    const otrosCedentes = cops.filter(c => c && c.cedente);
+    const otrosNoCedentes = cops.filter(c => c && !c.cedente);
+    const casaCon = (lista) => lista.find(c => (cliNifFac && normNif(c.dni) && normNif(c.dni) === cliNifFac)
+        || (!cliNifFac && cliNombreFac && nombreCop(c) && mismoNombre(cliNombreFac, nombreCop(c))));
+    const esOtroCedente = casaCon(otrosCedentes);
+    const esPropietarioQueNoPaga = !esOtroCedente && casaCon(otrosNoCedentes);
 
-    if (cliNifExp && cliNifFac && cliNifExp !== cliNifFac) {
+    if (esOtroCedente) {
+        // A nombre de otro de los que pagan la obra: es correcto.
+    } else if (esPropietarioQueNoPaga) {
+        add(
+            'TITULAR', 'GRAVE',
+            'La factura va a un propietario que no figura como que paga la obra',
+            `La factura va a nombre de ${nombreCop(esPropietarioQueNoPaga)}, propietario de la vivienda que en la ficha del cliente no está marcado como que paga la obra. Si la paga, márcalo en la ficha ("Paga también la obra"): es cedente del ahorro y tiene que firmar el convenio y su Anexo I.`,
+            `Factura: ${cliNombreFac || nombreCop(esPropietarioQueNoPaga)}${cliNifFac ? ` (${clean(ocr.cliente?.nif)})` : ''}`
+        );
+    } else if (cliNifExp && cliNifFac && cliNifExp !== cliNifFac) {
         add(
             'TITULAR', 'GRAVE',
             'El titular de la factura no es el del expediente',

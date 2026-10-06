@@ -22,7 +22,7 @@ import { PLAZO_REQUERIMIENTO_DIAS, fechaLimite, fechaLarga, eur, refirmaPendient
 import { CesionManuscritaModal, esFirmaManuscrita } from './CesionManuscritaModal';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
-import { SIGN_BOXES } from '../logic/signBoxes';
+import { SIGN_BOXES, cajaConvenioCesionario } from '../logic/signBoxes';
 import { clienteContacts, instaladorContacts, contactosPara, defaultContactId, phoneValid } from '../utils/docContacts';
 import { calcCifo } from '../logic/calcCifo';
 import { SLOTS_INCIDENCIA, incidenciasDeSlot, resumenSlot } from '../logic/incidenciaSlots';
@@ -2009,7 +2009,7 @@ export function DocumentacionModule({ expediente, onSave, onLiveUpdate, saving, 
                     ? `${expediente.numero_expediente || ''} - Anexo Cesión ahorro_fdo`
                     : `${expediente.numero_expediente || ''} - ${label}_fdo`,
                 // Columna del CESIONARIO (Brokergy); la izquierda es la del cliente.
-                box: field === 'anexo_cesion_signed_link' ? SIGN_BOXES.anexo_cesion_cesionario : null,
+                box: field === 'anexo_cesion_signed_link' ? cajaConvenioCesionario : null,
                 // La rúbrica es la de por defecto del modal (el sello de Brokergy con la
                 // firma manuscrita incrustada), igual que en el resto de documentos que
                 // firma Brokergy. Ver DEFAULT_RUBRIC_IMAGE_URL en FirmarConCertificadoModal.

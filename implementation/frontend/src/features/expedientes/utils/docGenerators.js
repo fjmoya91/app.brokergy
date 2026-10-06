@@ -8,6 +8,8 @@ import { formatSeries, countUnidades, esAcumuladorAcs, datosAcumulador, acsSerie
 import { anexoIStates, BONO_SOCIAL_LABELS } from '../logic/subvenciones.js';
 // Las @font-face auto-alojadas: la misma función que el CIFO y la propuesta.
 import { buildFontFaces, FUENTE_INTER } from '../logic/fuentesDoc.js';
+import { cedentesDe, repartoPago, cuotaTxt } from '../logic/cedentes.js';
+import { casillaFirmaConvenioPx } from '../logic/signBoxes.js';
 
 // Node-safe: este módulo también se importa server-side (cifoService vía cifoDoc).
 // En Node no existen import.meta.env ni window, así que se accede con guardas.
@@ -433,6 +435,17 @@ ${buildFontFaces(APP_URL, FUENTE_INTER)}
 .conv-sign-box { height: 165px; border-bottom: 1px solid #D0D0D0; position: relative; }
 .conv-sign-img { position: absolute; bottom: 5px; left: 50%; transform: translateX(-50%); height: 160px; width: auto; }
 .conv-sign-name { font-size: 10px; color: #555; font-weight: 500; margin-top: 8px; }
+/* Varios cedentes: hoja 3 de firmas con las casillas en posiciones FIJAS
+   (logic/signBoxes.js · CONVENIO_FIRMAS), que es lo que lee la firma. */
+.conv-page-firmas { position: relative; }
+.conv-firma-abs { position: absolute; }
+.conv-firma-abs .conv-sign-lbl { position: absolute; top: -22px; left: 0; margin: 0; }
+.conv-firma-abs .conv-sign-box { height: 100%; }
+.conv-firma-abs .conv-sign-name { position: absolute; left: 0; right: 0; top: calc(100% + 2px); }
+.conv-tabla-pago { width: 100%; border-collapse: collapse; margin: 8px 0 10px; font-size: 10.5px; }
+.conv-tabla-pago td, .conv-tabla-pago th { border: 1px solid #E0E0E0; padding: 5px 8px; text-align: left; color: #404040; }
+.conv-tabla-pago th { background: #F8F8F8; font-weight: 700; color: #171717; }
+.conv-tabla-pago td.iban { font-family: monospace; letter-spacing: 1px; color: #171717; font-weight: 700; }
 .conv-footer {
     flex-shrink: 0; padding: 10px 36px;
     display: flex; justify-content: space-between; align-items: center;
@@ -558,13 +571,19 @@ export const deriveAnexoI = (expediente, results, states = {}, opts = {}) => {
         bloqueSeries('Ud. exterior', 'Uds. exteriores', nUdsCal, snExt),
         ...(mostrarInt ? [bloqueSeries('Ud. interior', 'Uds. interiores', acsEsAcumulador ? 1 : nUdsAcs, snInt)] : []),
     ].filter(conValor);
-    const nombrePropietario = [cliente.nombre_razon_social, cliente.apellidos].filter(Boolean).join(' ') || dash;
-    const nif = cliente.dni_nie || cliente.dni || dash;
+    // VARIOS CEDENTES (logic/cedentes.js): cada uno firma SU Anexo I. `opts.cedente`
+    // es el índice del cedente cuyo impreso se está rellenando (0 = el titular,
+    // que es lo de siempre). Lo demás del impreso —la actuación, las ayudas, el
+    // bono social— es común a todos.
+    const cedentes = cedentesDe(cliente);
+    const ced = cedentes[Math.min(Math.max(0, opts.cedente || 0), cedentes.length - 1)];
+    const nombrePropietario = ced.nombre || dash;
+    const nif = ced.dni || dash;
     // Persona jurídica: el propietario del ahorro sigue siendo la sociedad, pero
     // quien firma es su representante legal (apartado 3 del Anexo I).
-    const esEmpresa = !!cliente.es_empresa;
-    const nombreRepresentante = [cliente.representante_nombre, cliente.representante_apellidos].filter(Boolean).join(' ');
-    const dniRepresentante = cliente.representante_dni || '';
+    const esEmpresa = !!ced.es_empresa;
+    const nombreRepresentante = [ced.representante_nombre, ced.representante_apellidos].filter(Boolean).join(' ');
+    const dniRepresentante = ced.representante_dni || '';
     const firmante = esEmpresa && nombreRepresentante ? nombreRepresentante : nombrePropietario;
     const domicilio = [cliente.direccion, cliente.codigo_postal, cliente.municipio].filter(Boolean).join(', ') || dash;
     const municipioFirma = (cliente.municipio || dash).toUpperCase();
@@ -587,8 +606,10 @@ export const deriveAnexoI = (expediente, results, states = {}, opts = {}) => {
         // con <br> y el formulario con saltos de línea.
         serialsLineas,
         nombrePropietario, nif, domicilio,
-        telefono: cliente.tlf || cliente.telefono || dash,
-        email: cliente.email || dash,
+        // El de cada cedente si lo dio; si no, el del titular (es la misma vivienda).
+        telefono: ced.tlf || cliente.tlf || cliente.telefono || dash,
+        email: ced.email || cliente.email || dash,
+        nCedentes: cedentes.length,
         hasAcs,
         esEmpresa, nombreRepresentante, dniRepresentante, firmante,
         // El "otro documento" que acredita la representación: SIEMPRE el convenio de
@@ -600,7 +621,19 @@ export const deriveAnexoI = (expediente, results, states = {}, opts = {}) => {
 };
 
 export const buildAnexoIHtml = (expediente, results, states = {}, isForPdf = true) => {
-    const d = deriveAnexoI(expediente, results, states);
+    // VARIOS CEDENTES (logic/cedentes.js): un impreso por cedente, uno detrás de
+    // otro y cada uno con SU firma. Con uno solo, exactamente lo de siempre.
+    const n = cedentesDe(expediente?.clientes).length;
+    const content = Array.from({ length: n }, (_, i) => paginasAnexoI(expediente, results, states, isForPdf, i)).join('');
+    if (isForPdf) {
+        return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><style>body{margin:0;padding:0;}${ANEXO_I_CSS}.doc-wrap{background:white!important;padding:0!important;}@page{size:A4;margin:0;}</style></head><body><div class="doc-wrap">${content}</div></body></html>`;
+    }
+    return content;
+};
+
+/** Las tres páginas del impreso clásico para el cedente `cedente` (0 = titular). */
+const paginasAnexoI = (expediente, results, states, isForPdf, cedente) => {
+    const d = deriveAnexoI(expediente, results, states, { cedente });
     const {
         numexpte, nombreActuacion, codigoFicha, ccaa, dirActuacion, refCatastral,
         nombrePropietario, nif, domicilio, telefono, email,
@@ -715,10 +748,6 @@ export const buildAnexoIHtml = (expediente, results, states = {}, isForPdf = tru
             </div>
         </div>
     `;
-
-    if (isForPdf) {
-        return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><style>body{margin:0;padding:0;}${ANEXO_I_CSS}.doc-wrap{background:white!important;padding:0!important;}@page{size:A4;margin:0;}</style></head><body><div class="doc-wrap">${content}</div></body></html>`;
-    }
     return content;
 };
 
@@ -752,6 +781,12 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
     const emailCedente = cliente.email || '___________';
     const numCuenta = cliente.numero_cuenta || '___________________________';
     const hayCuenta = tieneCuentaBancaria(cliente);
+    // VARIOS CEDENTES (copropietarios que pagan la obra, logic/cedentes.js). Con
+    // uno solo, NADA de lo de abajo cambia: el convenio sale como siempre. Con
+    // varios comparecen todos, se añade la cláusula de pluralidad y las firmas
+    // pasan a una tercera hoja (casillas fijas, logic/signBoxes.js).
+    const cedentes = cedentesDe(cliente);
+    const varios = cedentes.length > 1;
     const aeRaw = results?.savingsKwh || 0;
     // V5 — el ahorro es SIEMPRE estimado y el importe SIEMPRE orientativo: los
     // nombres lo dicen, para que nadie los imprima como cifras cerradas.
@@ -848,7 +883,21 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
 
     // Sin IBAN el convenio no deja un hueco: dice de dónde saldrá la cuenta. La
     // acreditación de titularidad se exige SIEMPRE, se tenga o no el número.
-    const bloqueCuenta = hayCuenta
+    //
+    // Con VARIOS cedentes: por defecto UNA cuenta designada por todos, que libera
+    // al Cesionario frente a todos (arts. 1137 y 1142 CC). Solo si alguno declara
+    // SU cuenta se reparte, y entonces se dice qué parte va a cada una.
+    const reparto = varios ? repartoPago(cliente, beneficioRaw) : [];
+    const bloqueCuentaVarios = !varios ? '' : (reparto.length <= 1
+        ? (hayCuenta
+            ? `<p class="conv-p">Los CEDENTES designan de común acuerdo, como única cuenta para el pago de la totalidad de la contraprestación, la siguiente cuenta, cuya titularidad deberá acreditarse mediante el correspondiente justificante emitido por la entidad bancaria:</p>
+            <div class="conv-cuenta">${numCuenta}</div>`
+            : `<p class="conv-p">Los CEDENTES designarán de común acuerdo una única cuenta para el pago de la totalidad de la contraprestación, cuya titularidad deberán acreditar mediante el correspondiente justificante emitido por la entidad bancaria, requisito sin el cual no podrá efectuarse el pago.</p>`)
+        : `<p class="conv-p">A petición de los CEDENTES, la contraprestación se abonará repartida entre las siguientes cuentas, en la proporción indicada. La titularidad de cada cuenta deberá acreditarse mediante el correspondiente justificante emitido por la entidad bancaria:</p>
+            <table class="conv-tabla-pago"><tr><th>Cuenta</th><th>Corresponde a</th><th>Parte</th></tr>
+            ${reparto.map(g => `<tr><td class="iban">${g.iban || '___________________________'}</td><td>${g.cedentes.join(', ')}</td><td>${cuotaTxt(g.cuota_pct)} %</td></tr>`).join('')}
+            </table>`);
+    const bloqueCuenta = varios ? bloqueCuentaVarios : hayCuenta
         ? `<p class="conv-p">El CEDENTE recibirá el pago mediante transferencia bancaria a la siguiente cuenta de su titularidad, que deberá acreditar mediante el correspondiente justificante de titularidad emitido por la entidad bancaria:</p>
             <div class="conv-cuenta">${numCuenta}</div>`
         : `<p class="conv-p">El CEDENTE recibirá el pago mediante transferencia bancaria al número de cuenta bancaria que él mismo aporte al Cesionario a tal efecto. En todo caso, el Cedente deberá acreditar la titularidad de dicha cuenta mediante el correspondiente justificante de titularidad emitido por la entidad bancaria, requisito sin el cual no podrá efectuarse el pago.</p>`;
@@ -860,6 +909,48 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
     const clDeclaracion = previo
         ? 'El Cedente se compromete a que, una vez firmado el presente convenio, no suscribirá convenios por los ahorros de energía previstos o generados por la misma actuación. Además, el Cedente declara que dichos ahorros energéticos no están comprometidos con ninguna otra entidad o acuerdo previo.'
         : 'El Cedente se compromete a que, una vez firmado el presente convenio, no suscribirá convenios por los ahorros de energía generados por la misma actuación. Además, el Cedente declara que los ahorros energéticos objeto de este convenio no están comprometidos con ninguna otra entidad o acuerdo previo.';
+
+    // ── Varios cedentes: comparecencia, cláusula de pluralidad y firmas ──────
+    const reunidosVarios = !varios ? '' : `
+            <p class="conv-p">De una parte, las personas que se indican a continuación, que ${previo ? 'van a llevar' : 'han llevado'} a cabo conjuntamente la inversión de la actuación objeto de este convenio, en la proporción que se indica:</p>
+            <table class="conv-tabla-pago"><tr><th>Cedente</th><th>Documento de identificación</th><th>Parte de la inversión</th></tr>
+            ${cedentes.map(x => `<tr><td><strong>${x.nombre || '___________'}</strong>${x.es_empresa ? `, representada por Dª/D. ${[x.representante_nombre, x.representante_apellidos].filter(Boolean).join(' ') || '___________'} (${x.representante_dni || '___________'})` : ''}</td><td>${x.dni || '___________'}</td><td>${cuotaTxt(x.cuota_pct)} %</td></tr>`).join('')}
+            </table>
+            <p class="conv-p">Todos ellos mayores de edad (o, en el caso de las entidades, debidamente representadas) y con domicilio a efectos de notificaciones en <strong>${dirCedente}</strong>, teléfono de contacto <strong>${telCedente}</strong> y correo electrónico <strong>${emailCedente}</strong>, en adelante, conjuntamente, el <strong>Cedente</strong> o los <strong>Cedentes</strong>.</p>`;
+    const clPluralidad = !varios ? '' : `
+            <div class="conv-cl">
+              <p><strong>Novena. Pluralidad de cedentes</strong><br>Los Cedentes son, en las proporciones indicadas en el encabezamiento, los propietarios iniciales del ahorro a efectos del artículo 2.f) del Real Decreto 36/2023, por ${previo ? 'llevar' : 'haber llevado'} a cabo conjuntamente la inversión, y ceden la totalidad del ahorro de la actuación. A efectos de la contraprestación de la cláusula cuarta, los Cedentes son acreedores solidarios frente al Cesionario (artículo 1137 del Código Civil): el pago íntegro en la cuenta o cuentas designadas en este convenio extingue la obligación del Cesionario frente a todos ellos (artículos 1142 y 1162 del Código Civil), sin que el Cesionario deba comprobar su reparto interno. Entre ellos, cada Cedente hace suyo el importe en proporción a su cuota, y quien lo reciba se obliga a entregar a los demás la parte que les corresponda (artículo 1143 del Código Civil). Los Cedentes declaran que el importe les corresponde a efectos fiscales según dichas cuotas. Cualquier cambio de la cuenta designada exigirá comunicación escrita firmada por todos los Cedentes.</p>
+            </div>`;
+    const clTerceraHtml = `
+            <div class="conv-cl">
+              <p><strong>Tercera. Ahorro anual de energía</strong><br>${clTercera}</p>
+            </div>`;
+    const clCuartaHtml = `
+            <div class="conv-cl">
+              <p><strong>Cuarta. Tipo de contraprestación</strong><br>${clCuarta}</p>
+            </div>`;
+    const clNotificaciones = (ordinal) => `
+            <div class="conv-cl">
+              <p><strong>${ordinal}. Notificaciones</strong><br>Todas las comunicaciones y notificaciones que deban realizarse las partes en virtud de este CONTRATO deberán efectuarse por escrito, por cualquier medio que deje constancia de su contenido, y la debida recepción por el destinatario.</p>
+              <p>Las comunicaciones y notificaciones entre las Partes deberán ser remitidas a los domicilios y a la atención de las personas que se indican a continuación:</p>
+              <li>Contacto: Francisco Javier Moya López</li>
+              <li>Dirección: Calle Don Sergio, 12 – 1ºE, 13700 Tomelloso (Ciudad Real)</li>
+              <li>Teléfono: 623926179</li>
+              <li>E-mail: info@brokergy.es</li>
+            </div>`;
+    const clQuinta = `
+            <div class="conv-cl">
+              <p><strong>Quinta. Forma de pago de la contraprestación</strong><br>El Cesionario pagará al Cedente el importe bruto acordado en la cláusula cuarta en el plazo máximo de sesenta (60) días contados desde la fecha en la que el Órgano Territorial emita a nombre del Sujeto Obligado, comprador de los CAEs asociados a los ahorros cedidos a través de este convenio.</p>
+            </div>`;
+    // Las casillas de la hoja de firmas: 0 = el Cesionario, 1..n = los cedentes.
+    const casilla = (i, etiqueta, dentro, nombre, extra = '') => {
+        const c = casillaFirmaConvenioPx(i);
+        return `<div class="conv-firma-abs" style="left:${c.left}px;top:${c.top}px;width:${c.width}px;height:${c.height}px">
+              <div class="conv-sign-lbl">${etiqueta}</div>
+              <div class="conv-sign-box">${dentro}</div>
+              <div class="conv-sign-name">${nombre}${extra}</div>
+            </div>`;
+    };
 
     const hdr = `
         <div class="conv-hdr">
@@ -883,10 +974,10 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
             <div class="conv-title">CONVENIO DE CESIÓN DE AHORROS ENERGÉTICOS</div>
             <div class="conv-dateline">En ${municipioFecha} a ${fechaFirma}</div>
             <div class="conv-subtitle">REUNIDOS</div>
-            <p class="conv-p">${esEmpresa
+            ${varios ? reunidosVarios : `<p class="conv-p">${esEmpresa
                 ? `De una parte, Dª/D. <strong>${nombreRepresentante}</strong>, mayor de edad, con documento de identificación <strong>${dniRepresentante}</strong>, actuando en nombre y representación de la entidad <strong>${nombreCedente}</strong>, con código de identificación NIF <strong>${dniCedente}</strong> y domicilio a efectos de notificaciones en <strong>${dirCedente}</strong>, teléfono de contacto <strong>${telCedente}</strong> y correo electrónico <strong>${emailCedente}</strong>, en adelante el <strong>Cedente</strong>.`
                 : `De una parte, Dª/D. <strong>${nombreCedente}</strong>, mayor de edad, con documento de identificación <strong>${dniCedente}</strong> y domicilio a efectos de notificaciones en <strong>${dirCedente}</strong>, teléfono de contacto <strong>${telCedente}</strong> y correo electrónico <strong>${emailCedente}</strong>, en adelante el <strong>Cedente</strong>.`
-            }</p>
+            }</p>`}
             <p class="conv-p">De otra parte, Dª/D. ${FIRMANTE_CESIONARIO.nombre} mayor de edad, con documento de identificación ${FIRMANTE_CESIONARIO.nif}, actuando en nombre y representación de la entidad ${FIRMANTE_CESIONARIO.empresa} (<strong>BROKERGY</strong>), con código de identificación NIF ${FIRMANTE_CESIONARIO.cif} y domicilio a efectos de notificaciones en C/ Don Sergio, 12 – 1ºL de 13700 Tomelloso (Ciudad Real), en adelante el <strong>Cesionario</strong>.</p>
             <p class="conv-p"><strong>Las partes se reconocen mutua y recíprocamente la capacidad legal necesaria para otorgar este convenio y, a sus efectos, exponen lo siguiente:</strong></p>
             <div class="conv-subtitle">EXPONEN</div>
@@ -902,15 +993,9 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
               <p><strong>Segunda. Localización geográfica de la instalación o instalaciones</strong><br>La cesión de los ahorros de energía prevista en el presente convenio sólo será válida en territorio español, ${clSegundaValidez} la actuación de eficiencia energética.</p>
               <p>${clSegundaLugar} en la localidad de <strong>${municipioAct}</strong>, provincia de <strong>${provinciaAct}</strong> de la Comunidad Autónoma de <strong>${ccaa}</strong>, siendo la referencia catastral de su ubicación <strong>${refCatastral}</strong> y sus coordenadas UTM${husoSuffix} X: <strong>${coordX}</strong> Y: <strong>${coordY}</strong></p>
             </div>
-            <div class="conv-cl">
-              <p><strong>Tercera. Ahorro anual de energía</strong><br>${clTercera}</p>
-            </div>
-            <div class="conv-cl">
-              <p><strong>Cuarta. Tipo de contraprestación</strong><br>${clCuarta}</p>
-            </div>
-            <div class="conv-cl">
-              <p><strong>Quinta. Forma de pago de la contraprestación</strong><br>El Cesionario pagará al Cedente el importe bruto acordado en la cláusula cuarta en el plazo máximo de sesenta (60) días contados desde la fecha en la que el Órgano Territorial emita a nombre del Sujeto Obligado, comprador de los CAEs asociados a los ahorros cedidos a través de este convenio.</p>
-            </div>
+            ${varios ? '' : clTerceraHtml}
+            ${varios ? '' : clCuartaHtml}
+            ${varios ? '' : clQuinta}
           </div>
           ${footer(1)}
         </div>`;
@@ -919,6 +1004,7 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
         <div class="conv-page">
           ${hdr}
           <div class="conv-body">
+            ${varios ? clTerceraHtml + clCuartaHtml + clQuinta : ''}
             ${bloqueCoste}
             ${bloqueCuenta}
             <div class="conv-cl">
@@ -933,15 +1019,8 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
             <div class="conv-cl">
               <p><strong>Octava. Declaración responsable</strong><br>${clDeclaracion}</p>
             </div>
-            <div class="conv-cl">
-              <p><strong>Novena. Notificaciones</strong><br>Todas las comunicaciones y notificaciones que deban realizarse las partes en virtud de este CONTRATO deberán efectuarse por escrito, por cualquier medio que deje constancia de su contenido, y la debida recepción por el destinatario.</p>
-              <p>Las comunicaciones y notificaciones entre las Partes deberán ser remitidas a los domicilios y a la atención de las personas que se indican a continuación:</p>
-              <li>Contacto: Francisco Javier Moya López</li>
-              <li>Dirección: Calle Don Sergio, 12 – 1ºE, 13700 Tomelloso (Ciudad Real)</li>
-              <li>Teléfono: 623926179</li>
-              <li>E-mail: info@brokergy.es</li>
-            </div>
-            <div class="conv-sign">
+            ${varios ? clPluralidad : clNotificaciones('Novena')}
+            ${varios ? `<p class="conv-p" style="margin-top:12px"><em>Las firmas de las partes figuran en la página 3 de este convenio.</em></p>` : `<div class="conv-sign">
               <p class="conv-sign-intro">Habiendo leído por sí mismos y hallándose conformes, las partes firman el presente documento por duplicado y a un solo efecto, en el lugar y fecha arriba indicados.</p>
               <div class="conv-sign-grid">
                 <div class="conv-sign-col">
@@ -958,12 +1037,33 @@ export const buildAnexoCesionHtml = (expediente, results, opts = {}) => {
                   <div class="conv-sign-name">Dª/D. ${FIRMANTE_CESIONARIO.nombre}</div>
                 </div>
               </div>
-            </div>
+            </div>`}
           </div>
           ${footer(2)}
         </div>`;
 
-    return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><style>${ANEXO_CESION_CSS}@page { size: A4; margin: 0; }</style></head><body><div class="conv-wrap">${p1}${p2}</div></body></html>`;
+    // Hoja 3 — solo con VARIOS cedentes. Las casillas van en posiciones FIJAS
+    // (absolutas sobre la hoja): es lo que permite firmar cada una sin medir.
+    const p3 = !varios ? '' : `
+        <div class="conv-page conv-page-firmas">
+          ${hdr}
+          <div class="conv-body">
+            <div class="conv-subtitle">FIRMAS</div>
+            ${clNotificaciones('Décima')}
+            <p class="conv-sign-intro" style="margin-top:14px">Habiendo leído por sí mismos y hallándose conformes, las partes firman el presente Convenio de Cesión de Ahorros Energéticos del expediente ${numexpte} en el lugar y fecha indicados en su encabezamiento. Firman todos los Cedentes y el Cesionario.</p>
+          </div>
+          ${casilla(0, 'El Cesionario', `<img src="${APP_URL}/firma_brokergy.png" class="conv-sign-img" alt="Firma">`, `Dª/D. ${FIRMANTE_CESIONARIO.nombre}`, ` · ${FIRMANTE_CESIONARIO.empresa}`)}
+          ${cedentes.map((x, i) => casilla(
+              i + 1,
+              `Cedente ${i + 1} de ${cedentes.length} · ${cuotaTxt(x.cuota_pct)} %`,
+              '',
+              `Dª/D. ${x.es_empresa ? ([x.representante_nombre, x.representante_apellidos].filter(Boolean).join(' ') || '___________') : (x.nombre || '___________')} · ${x.es_empresa ? x.representante_dni || '' : x.dni || ''}`,
+              x.es_empresa ? ` · en representación de ${x.nombre}` : '',
+          )).join('')}
+          ${footer(3)}
+        </div>`;
+
+    return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><style>${ANEXO_CESION_CSS}@page { size: A4; margin: 0; }</style></head><body><div class="conv-wrap">${p1}${p2}${p3}</div></body></html>`;
 };
 
 // Saludo NEUTRO a propósito: "Buenas tardes" salía mal en cuanto el envío se hacía

@@ -177,6 +177,21 @@ export function CobroClientesPanel({ lote, activo, canSeeMargin = false, onChang
                                 {!f.coste && f.cobro?.completado_at && (
                                     <p className="text-white/35">Gestión asumida por Brokergy: no se descuenta nada.</p>
                                 )}
+                                {/* VARIOS CEDENTES con cuenta propia: el ingreso se parte. */}
+                                {Array.isArray(f.reparto) && f.reparto.length > 1 && (
+                                    <div className="sm:col-span-2 rounded-lg border border-amber-400/25 bg-amber-400/[0.05] px-2.5 py-1.5 space-y-0.5">
+                                        <p className="text-[9px] font-black uppercase tracking-widest text-amber-300/80">El ingreso se reparte en {f.reparto.length} cuentas</p>
+                                        {f.reparto.map((g, k) => (
+                                            <p key={k} className="text-white/55">
+                                                {g.cedentes.join(' + ')} · {String(g.cuota_pct).replace('.', ',')} %
+                                                {' · '}<span className="font-mono text-white/75">{g.iban || g.iban_mascara || 'sin cuenta'}</span>
+                                                {canSeeMargin && b && f.cobro?.completado_at && (
+                                                    <> · <span className="font-bold text-emerald-300">{eur((b.bono - descuento) * g.cuota_pct / 100)}</span></>
+                                                )}
+                                            </p>
+                                        ))}
+                                    </div>
+                                )}
                                 {canSeeMargin && b && (
                                     <p className="text-white/40">
                                         Bono{b.verificado ? ' verificado' : ' (estimado)'}: <span className="text-white/75">{eur(b.bono)}</span>

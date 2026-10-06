@@ -67,6 +67,20 @@ function loadConfirmacion() {
     return _confirmacionPromise;
 }
 
+// QUIÉN CEDE el ahorro (titular + copropietarios que pagan la obra). Fuente
+// única con los documentos: si la página de firma decidiera por su cuenta
+// quién firma, pediría firmas que el convenio no tiene casilla para recibir.
+let _cedentesPromise = null;
+function loadCedentes() {
+    if (!_cedentesPromise) {
+        const url = require('url').pathToFileURL(
+            require('path').join(__dirname, '../../frontend/src/features/expedientes/logic/cedentes.js')
+        ).href;
+        _cedentesPromise = import(url);
+    }
+    return _cedentesPromise;
+}
+
 /**
  * La confirmación del cliente, lista para guardar en la oportunidad, o null si
  * no llegó (un navegador con la versión anterior de la página no la manda, y
@@ -296,6 +310,7 @@ router.get('/cliente/:id', async (req, res) => {
             copropietarios: (Array.isArray(foundCliente?.copropietarios) ? foundCliente.copropietarios : []).map(p => ({
                 id: p.id, es_empresa: !!p.es_empresa, nombre: p.nombre || '', apellidos: p.apellidos || '',
                 dni: p.dni || '', email: p.email || '', tlf: p.tlf || '', iban: p.iban || '',
+                cedente: p.cedente === true, cuota_pct: p.cuota_pct ?? null,
                 tiene_justificante: !!p.justificante_link,
             })),
             estado: opp.datos_calculo?.estado || 'BORRADOR',
@@ -762,10 +777,15 @@ ${uploadLink}
                 if (copropietariosNuevos && copropietariosNuevos.length) {
                     propietariosStr = '\n\n👥 *Otros propietarios:*\n' + copropietariosNuevos.map(p => {
                         const nom = [p.nombre, p.apellidos].filter(Boolean).join(' ');
+                        // Quien paga la obra es CEDENTE: firma el convenio y su
+                        // Anexo I, y la factura tiene que ir también a su nombre.
+                        const ced = p.cedente
+                            ? ` · 💶 PAGA LA OBRA${p.cuota_pct ? ` (${String(p.cuota_pct).replace('.', ',')} %)` : ' (a partes iguales)'} → firma convenio y Anexo I; factura también a su nombre`
+                            : ' · solo propietario (no paga la obra)';
                         const cuenta = p.iban
                             ? ` · 🏦 cobra en SU cuenta (…${p.iban.slice(-4)})${justificantesCop.some(j => j.id === p.id) ? ' ✅ justificante' : ' ⚠️ sin justificante'}`
                             : '';
-                        return `• ${nom}${p.dni ? ` (${p.dni})` : ''}${cuenta}`;
+                        return `• ${nom}${p.dni ? ` (${p.dni})` : ''}${ced}${cuenta}`;
                     }).join('\n');
                 }
                 const adminMsg = `🚀 *ACEPTACIÓN (PORTAL PÚBLICO)*\n\nOportunidad *${id}*\n👤 *Cliente:* ${formFields.nombre_razon_social} ${formFields.apellidos || ''}\n📍 ${opp.datos_calculo?.inputs?.direccion || 'S/N'}\n👷 *Instalador:* ${installerName}\n📋 Expediente: *${numeroExpediente || 'Pte.'}*\n🏦 ${justificanteStr}${propietariosStr}${viviendaStr}\n\n${notesStr}\n\n${process.env.FRONTEND_URL || 'https://app.brokergy.es'}?exp=${numeroExpediente || ''}`;
@@ -2988,11 +3008,20 @@ router.get('/anexos-upload/:expedienteId', async (req, res) => {
         const { expedienteId } = req.params;
         const { data: exp, error } = await supabase
             .from('expedientes')
-            .select('id, numero_expediente, documentacion, clientes!cliente_id(nombre_razon_social, apellidos, email, tlf, dni, numero_cuenta, notificaciones_contacto_activas, persona_contacto_email, persona_contacto_tlf)')
+            .select('id, numero_expediente, documentacion, clientes!cliente_id(nombre_razon_social, apellidos, email, tlf, dni, numero_cuenta, notificaciones_contacto_activas, persona_contacto_email, persona_contacto_tlf, es_empresa, representante_nombre, representante_apellidos, copropietarios)')
             .eq('id', expedienteId)
             .maybeSingle();
         if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
         const doc = exp.documentacion || {};
+        // Quiénes firman: todos los cedentes, en el orden de las casillas del
+        // convenio y de los Anexos I. Solo el nombre — es lo que la página enseña.
+        let cedentes = [];
+        try {
+            const { cedentesDe } = await loadCedentes();
+            cedentes = cedentesDe(exp.clientes || {}).map(c => ({
+                nombre: c.es_empresa ? ([c.representante_nombre, c.representante_apellidos].filter(Boolean).join(' ') || c.nombre) : c.nombre,
+            }));
+        } catch (e) { console.warn('[anexos-upload info] cedentes:', e.message); }
         // Anexos rechazados por Brokergy. Mientras el borrador corregido no esté
         // regenerado y enviado, el anexo se retira de la página: si no, el cliente
         // se descarga el mismo PDF erróneo y lo vuelve a firmar mal.
@@ -3010,6 +3039,7 @@ router.get('/anexos-upload/:expedienteId', async (req, res) => {
         res.json({
             numero_expediente: exp.numero_expediente,
             cliente: [exp.clientes?.nombre_razon_social, exp.clientes?.apellidos].filter(Boolean).join(' ') || '—',
+            cedentes,
             // qué documentos se enviaron / esperamos de vuelta
             anexo_i_pedido: !!(doc.anexo_i_drive_link || doc.anexo_i_sent_at),
             anexo_cesion_pedido: !!(doc.anexo_cesion_drive_link || doc.anexo_cesion_sent_at),
@@ -3504,6 +3534,13 @@ router.post('/anexos-upload/:expedienteId',
         // el cliente ya lo tiene escaneado: un PDF con las dos caras). Es una
         // alternativa a las dos fotos, no un añadido.
         { name: 'dni_pdf', maxCount: 1 },
+        // VARIOS CEDENTES: el DNI de cada uno de los demás (índices 1..4), con
+        // las mismas dos vías que el del titular.
+        ...[1, 2, 3, 4].flatMap(i => [
+            { name: `dni_frontal_${i}`, maxCount: 1 },
+            { name: `dni_trasero_${i}`, maxCount: 1 },
+            { name: `dni_pdf_${i}`, maxCount: 1 },
+        ]),
     ]),
     async (req, res) => {
         try {
@@ -3519,6 +3556,13 @@ router.post('/anexos-upload/:expedienteId',
             const dniFrontFile = req.files?.dni_frontal?.[0] || null;
             const dniBackFile  = req.files?.dni_trasero?.[0] || null;
             const dniPdfFile   = req.files?.dni_pdf?.[0] || null;
+            // DNI de los demás cedentes: { i, frontal, trasero, pdf }.
+            const dnisExtra = [1, 2, 3, 4].map(i => ({
+                i,
+                frontal: req.files?.[`dni_frontal_${i}`]?.[0] || null,
+                trasero: req.files?.[`dni_trasero_${i}`]?.[0] || null,
+                pdf: req.files?.[`dni_pdf_${i}`]?.[0] || null,
+            })).filter(d => d.frontal || d.trasero || d.pdf);
 
             if (!anexoIFile && !cesionFile && !dniFrontFile && !dniBackFile && !dniPdfFile) {
                 return res.status(400).json({ error: 'No se ha recibido ningún archivo' });
@@ -3531,11 +3575,24 @@ router.post('/anexos-upload/:expedienteId',
 
             const { data: exp, error } = await supabase
                 .from('expedientes')
-                .select('id, numero_expediente, documentacion, instalacion, clientes!cliente_id(nombre_razon_social, apellidos, dni, tlf, email, direccion, codigo_postal, municipio, provincia), oportunidades!oportunidad_id(datos_calculo, ref_catastral, referencia_cliente)')
+                .select('id, numero_expediente, documentacion, instalacion, clientes!cliente_id(nombre_razon_social, apellidos, dni, tlf, email, direccion, codigo_postal, municipio, provincia, copropietarios), oportunidades!oportunidad_id(datos_calculo, ref_catastral, referencia_cliente)')
                 .eq('id', expedienteId)
                 .maybeSingle();
             if (error) console.error('[anexos-upload] select error:', error.message);
             if (error || !exp) return res.status(404).json({ error: 'Expediente no encontrado' });
+
+            // VARIOS CEDENTES: con la Cesión firmada a mano, el DNI de TODOS se anexa
+            // (es lo que identifica a cada uno de los que comparecen).
+            let nCedentes = 1;
+            try { nCedentes = (await loadCedentes()).cedentesDe(exp.clientes || {}).length; } catch (_) { /* uno */ }
+            if (cesionFile && cesionFirma === 'manuscrita' && nCedentes > 1) {
+                const faltan = [];
+                for (let i = 1; i < nCedentes; i++) {
+                    const d = dnisExtra.find(x => x.i === i);
+                    if (!d || (!d.pdf && (!d.frontal || !d.trasero))) faltan.push(i + 1);
+                }
+                if (faltan.length) return res.status(400).json({ error: `Falta el DNI (las dos caras o el PDF) del firmante ${faltan.join(', ')}: con varios propietarios que firman, se anexa el de cada uno.` });
+            }
 
             const driveFolderId = exp.oportunidades?.datos_calculo?.drive_folder_id || exp.oportunidades?.datos_calculo?.inputs?.drive_folder_id;
             if (!driveFolderId) return res.status(400).json({ error: 'El expediente no tiene carpeta Drive configurada' });
@@ -3606,6 +3663,19 @@ router.post('/anexos-upload/:expedienteId',
                 if (dniFrontFile || dniBackFile) recibido.push('Foto del DNI');
             }
 
+            // DNI de los demás cedentes: una página cada uno, en el orden de las firmas.
+            const dniExtraPaginas = [];
+            for (const d of dnisExtra.sort((a, b) => a.i - b.i)) {
+                let una = null;
+                if (d.pdf) una = await toPdfBuffer(d.pdf);
+                else if (d.frontal && d.trasero) una = await dniTwoSidesOnePage(d.frontal.buffer, d.trasero.buffer);
+                if (!una) continue;
+                const r = await saveReplacing(`${numexpte} - DNI ${d.i + 1}.pdf`, una);
+                if (r?.link) docUpdate[`dni_${d.i + 1}_link`] = r.link;
+                dniExtraPaginas.push(una);
+            }
+            if (dniExtraPaginas.length) recibido.push(`DNI de ${dniExtraPaginas.length} propietario(s) más`);
+
             // Anexo de Cesión firmado
             if (cesionFile) {
                 let cesionPdf = await toPdfBuffer(cesionFile);
@@ -3616,6 +3686,7 @@ router.post('/anexos-upload/:expedienteId',
                     const annexes = [];
                     if (dniOnePage) annexes.push(dniOnePage);
                     else { if (dniFrontPdf) annexes.push(dniFrontPdf); if (dniBackPdf) annexes.push(dniBackPdf); }
+                    annexes.push(...dniExtraPaginas);
                     const rep = readRepresentanteDni();
                     if (rep) {
                         try {

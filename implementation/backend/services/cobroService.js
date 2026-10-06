@@ -56,7 +56,7 @@ const SELECT_EXP = `id, numero_expediente, cliente_id, oportunidad_id, lote_id, 
     ${CEE_ECO_SELECT},
     clientes!cliente_id(id_cliente, nombre_razon_social, apellidos, dni, email, tlf,
         persona_contacto_nombre, persona_contacto_email, persona_contacto_tlf,
-        notificaciones_contacto_activas, contacto_es_partner, numero_cuenta),
+        notificaciones_contacto_activas, contacto_es_partner, numero_cuenta, es_empresa, copropietarios),
     oportunidades!oportunidad_id(ficha, datos_calculo)`;
 
 /** Carga el expediente con lo justo para este formulario. */
@@ -322,6 +322,17 @@ async function resumenRespuestas(exp) {
  * `conBorrador` crea el token si no existía (escribe en el expediente): solo se
  * pide cuando el lote ya está en fase de pago, que es cuando ese enlace va a salir.
  */
+// VARIOS CEDENTES (logic/cedentes.js): con cuentas propias el bono se reparte.
+let _cedentesMod = null;
+async function loadCedentes() {
+    if (!_cedentesMod) {
+        const { pathToFileURL } = require('url');
+        const path = require('path');
+        _cedentesMod = await import(pathToFileURL(path.join(__dirname, '../../frontend/src/features/expedientes/logic/cedentes.js')).href);
+    }
+    return _cedentesMod;
+}
+
 async function filaCobro(exp, { conBorrador = false, ibanCompleto = false } = {}) {
     const { mascaraIban, ibanEnBloques, bloquePago } = await loadCobroForm();
     const c = exp?.clientes || {};
@@ -359,6 +370,23 @@ async function filaCobro(exp, { conBorrador = false, ibanCompleto = false } = {}
         // para que no se mande creyendo que lo lleva.
         con_importe: Number(ctx.bono) > 0,
     };
+    // VARIOS CEDENTES con cuenta propia: a qué cuentas va el ingreso y en qué
+    // proporción. Con una sola cuenta (lo normal, también con varios cedentes que
+    // cobran en la designada) no se añade nada y la fila es la de siempre.
+    try {
+        const { repartoPago, cedentesDe } = await loadCedentes();
+        const ced = cedentesDe(c);
+        if (ced.length > 1) fila.cedentes = ced.map(x => ({ nombre: x.nombre, cuota_pct: x.cuota_pct }));
+        const rp = repartoPago(c);
+        if (rp.length > 1) {
+            fila.reparto = rp.map(g => ({
+                cedentes: g.cedentes,
+                cuota_pct: g.cuota_pct,
+                iban_mascara: mascaraIban(g.iban),
+                iban: ibanCompleto && g.iban ? ibanEnBloques(g.iban) : null,
+            }));
+        }
+    } catch (e) { console.warn('[cobro] reparto:', e.message); }
     if (conBorrador) {
         const link = enlaceCobro(exp.id, await ensureToken(exp));
         fila.link = link;

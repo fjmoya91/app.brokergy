@@ -161,6 +161,14 @@ function sanearCopropietarios(raw) {
             // Justificante de titularidad de ESA cuenta, en Drive (solo el enlace:
             // regla 21). Lo escribe el servidor al subirlo desde la aceptación.
             justificante_link: '',
+            // ¿Paga también la obra? Entonces es CEDENTE: propietario inicial del
+            // ahorro (RD 36/2023, art. 2.f — quien hace la inversión), firma el
+            // Convenio y su propio Anexo I, y la factura va también a su nombre.
+            // Un copropietario que no paga solo es destinatario de mensajes.
+            cedente: false,
+            // Su parte de la INVERSIÓN, en %. La del titular es el resto
+            // (logic/cedentes.js). null = a partes iguales.
+            cuota_pct: null,
         };
         for (const k of COPROP_MAYUSCULAS) {
             if (typeof item[k] === 'string') c[k] = item[k].trim().toUpperCase().slice(0, 200);
@@ -172,6 +180,12 @@ function sanearCopropietarios(raw) {
         if (typeof item.iban === 'string') c.iban = item.iban.replace(/\s+/g, '').toUpperCase().slice(0, 34);
         if (typeof item.justificante_link === 'string' && /^https?:\/\//i.test(item.justificante_link.trim())) {
             c.justificante_link = item.justificante_link.trim().slice(0, 500);
+        }
+
+        c.cedente = item.cedente === true || item.cedente === 'true';
+        const cuota = typeof item.cuota_pct === 'string' ? Number(item.cuota_pct.replace(',', '.')) : item.cuota_pct;
+        if (c.cedente && typeof cuota === 'number' && Number.isFinite(cuota) && cuota > 0 && cuota < 100) {
+            c.cuota_pct = Math.round(cuota * 100) / 100;
         }
 
         if (!c.nombre && !c.email && !c.tlf) continue;   // no es nadie

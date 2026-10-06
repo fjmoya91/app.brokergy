@@ -150,3 +150,75 @@ export function anexoISignBox(info) {
     const paginas = typeof info === 'number' ? info : (info?.numPaginas || 0);
     return paginas >= 4 ? SIGN_BOXES.anexo_i_oficial : SIGN_BOXES.anexo_i;
 }
+
+// ── VARIOS CEDENTES (2026-10-06) ─────────────────────────────────────────────
+// Con más de un cedente (copropietarios que pagan la obra, logic/cedentes.js) el
+// Convenio de Cesión lleva una TERCERA hoja solo de firmas, con las casillas en
+// posiciones FIJAS: así la caja de cada firmante se calcula, no se mide, y las
+// dos primeras hojas —medidas al píxel para el caso de un cedente— no se tocan.
+//
+// La geometría la usan los DOS lados: el HTML del convenio (docGenerators.js,
+// que coloca las casillas con `position:absolute` en px) y la firma (Autofirma y
+// la firma a mano, en pt). Una sola fuente o la rúbrica cae fuera de su casilla.
+//
+// Casilla 0 = el CESIONARIO (siempre la primera: su posición no depende de
+// cuántos cedentes haya, y la contrafirma no necesita saberlo). Casillas 1..n =
+// los cedentes en el orden de `cedentesDe` (el titular primero).
+export const CONVENIO_FIRMAS = {
+    pagina: 3,
+    x0: 36, ancho: 345, gap: 32,   // dos columnas sobre 794 px (padding 36)
+    top0: 345, paso: 252, alto: 165,
+    // 794 px de hoja → 595,28 pt de A4: 0,75 pt/px. Alto de la hoja en pt.
+    escala: 0.75, altoPt: 841.89,
+};
+
+/** La casilla `i` de la hoja de firmas, en px desde la esquina superior izquierda. */
+export function casillaFirmaConvenioPx(i) {
+    const g = CONVENIO_FIRMAS;
+    const col = i % 2, fila = Math.floor(i / 2);
+    return { left: g.x0 + col * (g.ancho + g.gap), top: g.top0 + fila * g.paso, width: g.ancho, height: g.alto };
+}
+
+/** La misma casilla en coordenadas de PDF (pt, origen abajo a la izquierda), recortada 2 pt hacia dentro. */
+export function casillaFirmaConvenioPt(i) {
+    const g = CONVENIO_FIRMAS;
+    const c = casillaFirmaConvenioPx(i);
+    return {
+        page: g.pagina,
+        llx: c.left * g.escala + 2,
+        urx: (c.left + c.width) * g.escala - 2,
+        ury: g.altoPt - c.top * g.escala - 2,
+        lly: g.altoPt - (c.top + c.height) * g.escala + 2,
+    };
+}
+
+/**
+ * Dónde firma el cedente `i` (0 = el titular) del convenio. Con 2 hojas es el
+ * convenio de UN cedente y vale la casilla de siempre; con 3, la de la hoja de
+ * firmas. Devuelve una FUNCIÓN porque se decide con el PDF delante (`fixedBox`).
+ */
+export const cajaConvenioCedente = (i = 0) => (info) => {
+    const paginas = typeof info === 'number' ? info : (info?.numPaginas || 0);
+    if (paginas >= CONVENIO_FIRMAS.pagina) return casillaFirmaConvenioPt(i + 1);
+    return i === 0 ? SIGN_BOXES.anexo_cesion : null;
+};
+
+/** Dónde contrafirma BROKERGY el convenio (1 o varios cedentes). */
+export const cajaConvenioCesionario = (info) => {
+    const paginas = typeof info === 'number' ? info : (info?.numPaginas || 0);
+    return paginas >= CONVENIO_FIRMAS.pagina ? casillaFirmaConvenioPt(0) : SIGN_BOXES.anexo_cesion_cesionario;
+};
+
+/**
+ * Dónde firma el cedente `i` su Anexo I cuando hay `n` cedentes: el PDF lleva un
+ * impreso por cedente, uno detrás de otro (4 hojas el oficial, 3 la maqueta). Con
+ * n conocido no hay ambigüedad (12 hojas son 3 oficiales o 4 maquetas).
+ */
+export const anexoISignBoxCedente = (i = 0, n = 1) => (info) => {
+    if (n <= 1) return anexoISignBox(info);
+    const paginas = typeof info === 'number' ? info : (info?.numPaginas || 0);
+    const oficial = paginas === 4 * n || (paginas !== 3 * n && paginas >= 4 * n);
+    return oficial
+        ? { ...SIGN_BOXES.anexo_i_oficial, page: 4 * (i + 1) }
+        : { ...SIGN_BOXES.anexo_i, page: 3 * (i + 1) };
+};

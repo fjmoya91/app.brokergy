@@ -46,7 +46,7 @@ test('una fila sin nombre y sin ningún canal NO es nadie: se descarta', () => {
 
 test('solo se guardan las claves CONOCIDAS', () => {
     const [c] = sanearCopropietarios([{ nombre: 'ANA', rol: 'ADMIN', numero_cuenta: 'ES00', __proto__: {} }]);
-    assert.deepStrictEqual(Object.keys(c).sort(), ['apellidos', 'dni', 'email', 'es_empresa', 'iban', 'id', 'justificante_link', 'nombre', 'tlf']);
+    assert.deepStrictEqual(Object.keys(c).sort(), ['apellidos', 'cedente', 'cuota_pct', 'dni', 'email', 'es_empresa', 'iban', 'id', 'justificante_link', 'nombre', 'tlf']);
     // El IBAN de una clave ajena (numero_cuenta) no se cuela en el suyo.
     assert.strictEqual(c.iban, '');
 });
@@ -171,16 +171,71 @@ test('la pregunta es obligatoria y "solo yo" no pide nada más', () => {
     assert.strictEqual(faltaEnPropietarios(false, []), null);
 });
 
-test('con más propietarios hacen falta nombre y DNI; con cuenta propia, un IBAN válido', () => {
+test('con más propietarios: nombre, DNI y si paga la obra; si paga con cuenta propia, un IBAN válido', () => {
     assert.match(faltaEnPropietarios(true, [{ nombre: 'ANA', dni: '' }]), /DNI/);
-    assert.match(faltaEnPropietarios(true, [{ nombre: 'ANA', dni: '1Z', cuenta_propia: true, iban: 'ES12' }]), /IBAN/);
-    assert.strictEqual(faltaEnPropietarios(true, [{ nombre: 'ANA', dni: '1Z', cuenta_propia: true, iban: 'ES91 2100 0418 4502 0005 1332' }]), null);
+    assert.match(faltaEnPropietarios(true, [{ nombre: 'ANA', dni: '1Z', cedente: null }]), /paga/i);
+    assert.strictEqual(faltaEnPropietarios(true, [{ nombre: 'ANA', dni: '1Z', cedente: false }]), null);
+    assert.match(faltaEnPropietarios(true, [{ nombre: 'ANA', dni: '1Z', cedente: true, cuenta_propia: true, iban: 'ES12' }]), /IBAN/);
+    assert.strictEqual(faltaEnPropietarios(true, [{ nombre: 'ANA', dni: '1Z', cedente: true, cuenta_propia: true, iban: 'ES91 2100 0418 4502 0005 1332' }]), null);
+});
+
+test('las partes de los demás no pueden dejar al titular sin la suya', () => {
+    assert.ok(faltaEnPropietarios(true, [
+        { nombre: 'ANA', dni: '1Z', cedente: true, cuota_pct: 60 },
+        { nombre: 'LUIS', dni: '2X', cedente: true, cuota_pct: 40 },
+    ]));
+    assert.strictEqual(faltaEnPropietarios(true, [{ nombre: 'ANA', dni: '1Z', cedente: true, cuota_pct: 30 }]), null);
 });
 
 test('si cobra en la cuenta del titular, NO se manda el IBAN aunque se tecleara', () => {
-    const [p] = propietariosParaEnviar([{ id: 'a', nombre: 'ANA', iban: 'ES9121000418450200051332', cuenta_propia: false, tiene_justificante: true }]);
+    const [p] = propietariosParaEnviar([{ id: 'a', nombre: 'ANA', cedente: true, iban: 'ES9121000418450200051332', cuenta_propia: false, tiene_justificante: true }]);
     assert.strictEqual(p.iban, '');
     assert.ok(!('cuenta_propia' in p) && !('tiene_justificante' in p));
+});
+
+test('quien NO paga la obra no lleva ni parte ni cuenta', () => {
+    const [p] = propietariosParaEnviar([{ id: 'a', nombre: 'ANA', cedente: false, cuota_pct: 30, iban: 'ES9121000418450200051332', cuenta_propia: true }]);
+    assert.strictEqual(p.cedente, false);
+    assert.ok(!p.cuota_pct);
+    assert.strictEqual(p.iban, '');
+});
+
+// ── logic/cedentes.js: quién cede y a qué cuentas se paga ────────────────────
+const { cedentesDe, repartoPago, variosCedentes } =
+    await import('../../frontend/src/features/expedientes/logic/cedentes.js');
+const IBAN_T = 'ES9121000418450200051332';
+const IBAN_A = 'ES7921000813610123456789';
+
+test('un solo propietario: un cedente al 100 % (nada cambia)', () => {
+    const c = cedentesDe({ nombre_razon_social: 'JUAN', dni: '1Z', numero_cuenta: IBAN_T });
+    assert.strictEqual(c.length, 1);
+    assert.strictEqual(c[0].cuota_pct, 100);
+    assert.strictEqual(variosCedentes({ nombre_razon_social: 'JUAN' }), false);
+    assert.strictEqual(repartoPago({ numero_cuenta: IBAN_T }, 1000).length, 1);
+});
+
+test('el propietario que NO paga no es cedente', () => {
+    const c = cedentesDe({ nombre_razon_social: 'JUAN', copropietarios: [{ nombre: 'ANA', cedente: false }] });
+    assert.strictEqual(c.length, 1);
+});
+
+test('sin parte declarada se reparte a partes iguales; la declarada se respeta', () => {
+    const igual = cedentesDe({ nombre_razon_social: 'JUAN', copropietarios: [{ nombre: 'ANA', cedente: true }] });
+    assert.deepStrictEqual(igual.map(x => x.cuota_pct), [50, 50]);
+    const decl = cedentesDe({ nombre_razon_social: 'JUAN', copropietarios: [{ nombre: 'ANA', cedente: true, cuota_pct: 30 }] });
+    assert.deepStrictEqual(decl.map(x => x.cuota_pct), [70, 30]);
+});
+
+test('sin cuenta propia, todo a la cuenta designada (UN ingreso)', () => {
+    const rp = repartoPago({ numero_cuenta: IBAN_T, copropietarios: [{ nombre: 'ANA', cedente: true, cuota_pct: 30 }] }, 1000);
+    assert.strictEqual(rp.length, 1);
+    assert.strictEqual(rp[0].importe, 1000);
+    assert.strictEqual(rp[0].cedentes.length, 2);
+});
+
+test('con cuenta propia el ingreso se parte por su cuota', () => {
+    const rp = repartoPago({ nombre_razon_social: 'JUAN', numero_cuenta: IBAN_T, copropietarios: [{ nombre: 'ANA', cedente: true, cuota_pct: 30, iban: IBAN_A }] }, 1000);
+    assert.deepStrictEqual(rp.map(g => [g.iban, g.importe]), [[IBAN_T, 700], [IBAN_A, 300]]);
 });
 
 test('lo que llega del servidor con IBAN viene marcado como cuenta propia', () => {

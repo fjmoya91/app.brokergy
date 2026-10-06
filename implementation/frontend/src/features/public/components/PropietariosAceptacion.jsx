@@ -18,7 +18,7 @@
 // La lógica (qué falta, qué se manda) vive en logic/propietariosAceptacion.js.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { MAX_PROPIETARIOS_EXTRA, propietarioNuevo } from '../logic/propietariosAceptacion';
+import { MAX_PROPIETARIOS_EXTRA, propietarioNuevo, cuotaTitular } from '../logic/propietariosAceptacion';
 
 const INPUT = 'w-full bg-bkg-elevated border border-white/[0.1] rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-all font-medium';
 const LABEL = 'block text-xs font-black uppercase tracking-widest text-white/50 ml-1';
@@ -78,15 +78,40 @@ function TarjetaPropietario({ p, index, onChange, onRemove, justificante, onJust
                 </div>
             </div>
 
+            {/* Lo que decide si es CEDENTE: quien paga la obra es el propietario
+                del ahorro (RD 36/2023). Quien no paga queda registrado como
+                propietario, pero no firma ni cobra. */}
             <div className="space-y-2 pt-1">
-                <p className="text-sm font-bold text-white">¿Dónde se le ingresa su parte de la ayuda?</p>
+                <p className="text-sm font-bold text-white">¿Paga también la obra? <span className="text-brand">*</span></p>
+                <p className="text-[12px] text-white/70 leading-relaxed">
+                    Si paga parte de la obra, la factura tiene que ir también a su nombre y firmará los documentos de la ayuda.
+                </p>
                 <div className="flex flex-col sm:flex-row gap-2">
-                    <Opcion activo={!p.cuenta_propia} onClick={() => set({ cuenta_propia: false })}>En la cuenta del titular</Opcion>
-                    <Opcion activo={!!p.cuenta_propia} onClick={() => set({ cuenta_propia: true })}>En su propia cuenta</Opcion>
+                    <Opcion activo={p.cedente === true} onClick={() => set({ cedente: true })}>Sí, también paga</Opcion>
+                    <Opcion activo={p.cedente === false} onClick={() => set({ cedente: false, cuenta_propia: false })}>No, solo es propietario</Opcion>
                 </div>
             </div>
 
-            {p.cuenta_propia && (
+            {p.cedente === true && (
+                <div className="space-y-4">
+                    <Campo label="¿Qué parte de la obra paga? (%)">
+                        <input inputMode="decimal" className={INPUT} value={p.cuota_pct ?? ''} placeholder="A partes iguales" autoComplete="off"
+                            onChange={e => set({ cuota_pct: e.target.value.replace(/[^\d.,]/g, '') })} />
+                    </Campo>
+                    <div className="space-y-2">
+                        <p className="text-sm font-bold text-white">¿Dónde se le ingresa su parte de la ayuda?</p>
+                        <p className="text-[12px] text-white/70 leading-relaxed">
+                            Lo normal es ingresarla entera en una sola cuenta: ante Hacienda cada uno declara su parte, cobre quien cobre.
+                        </p>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                            <Opcion activo={!p.cuenta_propia} onClick={() => set({ cuenta_propia: false })}>En la cuenta del titular</Opcion>
+                            <Opcion activo={!!p.cuenta_propia} onClick={() => set({ cuenta_propia: true })}>En su propia cuenta</Opcion>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {p.cedente === true && p.cuenta_propia && (
                 <div className="space-y-4">
                     <Campo label="Cuenta (IBAN)" obligatorio>
                         <input className={`${INPUT} uppercase`} value={p.iban} placeholder="ESXX XXXX ..." autoComplete="off"
@@ -139,8 +164,7 @@ export function PropietariosAceptacion({ mas, setMas, lista, setLista, justifica
             <div>
                 <p className="text-white font-bold text-sm mb-1">¿La vivienda tiene más de un propietario? <span className="text-brand">*</span></p>
                 <p className="text-white/70 text-xs leading-relaxed">
-                    Cada propietario puede aplicarse su parte de la deducción en la Renta, y para eso necesitamos sus datos.
-                    Si la ayuda se os tiene que ingresar por separado, indica también la cuenta de cada uno.
+                    Cada propietario que paga la obra puede aplicarse su parte de la deducción en la Renta y firma los documentos de la ayuda, así que necesitamos sus datos.
                 </p>
             </div>
             <div className="flex flex-col sm:flex-row gap-2">
@@ -173,9 +197,12 @@ export function PropietariosAceptacion({ mas, setMas, lista, setLista, justifica
                             + Añadir datos de otro propietario
                         </button>
                     )}
-                    <p className="text-[12px] text-white/60 leading-relaxed">
-                        Los documentos (Anexo I y Convenio de Cesión) se emiten a nombre del titular, que es quien los firma.
-                    </p>
+                    {(lista || []).some(p => p.cedente === true) && (
+                        <p className="text-[12px] text-white/70 leading-relaxed">
+                            Tu parte de la obra: <strong className="text-white">{String(cuotaTitular(lista)).replace('.', ',')} %</strong>.
+                            Firmaréis el Convenio de Cesión todos los que pagáis la obra, y cada uno su propio Anexo I.
+                        </p>
+                    )}
                 </div>
             )}
         </div>

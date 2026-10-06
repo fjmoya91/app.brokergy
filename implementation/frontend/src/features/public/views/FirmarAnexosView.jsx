@@ -3,7 +3,7 @@ import axios from 'axios';
 import { DynamicNetworkBackground } from '../../../components/DynamicNetworkBackground';
 import FirmarConCertificadoModal from '../../expedientes/components/FirmarConCertificadoModal';
 import AsistenteFirmaManuscrita from '../../firma/AsistenteFirmaManuscrita';
-import { SIGN_BOXES, anexoISignBox } from '../../expedientes/logic/signBoxes';
+import { cajaConvenioCedente, anexoISignBoxCedente } from '../../expedientes/logic/signBoxes';
 
 /**
  * RELATIVA, también en desarrollo.
@@ -105,6 +105,9 @@ export function FirmarAnexosView({ expedienteId }) {
     const [cesionFirma, setCesionFirma] = useState('manuscrita'); // 'manuscrita' | 'electronica'
     const [dniFrontal, setDniFrontal] = useState(null);
     const [dniTrasero, setDniTrasero] = useState(null);
+    // VARIOS CEDENTES: el DNI de cada uno de los demás (índice 1..n-1) → { frontal, trasero }.
+    const [dnisExtra, setDnisExtra] = useState({});
+    const ponDniExtra = (i, k) => (f) => setDnisExtra(prev => ({ ...prev, [i]: { ...(prev[i] || {}), [k]: f } }));
     const [uploading, setUploading] = useState(false);
     const [done, setDone] = useState(false);
     const [uploadError, setUploadError] = useState(null);
@@ -224,7 +227,10 @@ export function FirmarAnexosView({ expedienteId }) {
     // El DNI es obligatorio cuando la Cesión va firmada a mano (manuscrita), para anexarlo.
     const cesionManuscrita = !!cesion && cesionFirma === 'manuscrita';
     const dniRequerido = cesionManuscrita;
-    const faltaDni = dniRequerido && (!dniFrontal || !dniTrasero);
+    const cedentesInfo = Array.isArray(info?.cedentes) && info.cedentes.length ? info.cedentes : [{ nombre: '' }];
+    const extrasIdx = cedentesInfo.map((_, i) => i).slice(1);
+    const faltaDniExtra = dniRequerido && extrasIdx.some(i => !dnisExtra[i]?.frontal || !dnisExtra[i]?.trasero);
+    const faltaDni = dniRequerido && (!dniFrontal || !dniTrasero || faltaDniExtra);
     const algoQueSubir = anexoI || cesion || dniFrontal || dniTrasero;
     const puedeEnviar = algoQueSubir && !faltaDni && !uploading;
 
@@ -238,6 +244,10 @@ export function FirmarAnexosView({ expedienteId }) {
             if (cesion) { form.append('anexo_cesion', cesion); form.append('cesion_firma', cesionFirma); }
             if (dniFrontal) form.append('dni_frontal', dniFrontal);
             if (dniTrasero) form.append('dni_trasero', dniTrasero);
+            for (const i of extrasIdx) {
+                if (dnisExtra[i]?.frontal) form.append(`dni_frontal_${i}`, dnisExtra[i].frontal);
+                if (dnisExtra[i]?.trasero) form.append(`dni_trasero_${i}`, dnisExtra[i].trasero);
+            }
             await axios.post(`${API_URL}/anexos-upload/${expedienteId}`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
             setDone(true);
         } catch (e) {
@@ -248,12 +258,13 @@ export function FirmarAnexosView({ expedienteId }) {
     };
 
     // ── FIRMA DIGITAL: firma Anexo I y Cesión con Autofirma, uno tras otro ─────
-    const openSignAt = async (queue, idx) => {
+    const openSignAt = async (queue, idx, acumulado = null) => {
         setPrepError(null);
         setPreparing(true);
         try {
             const item = queue[idx];
-            const b64 = await fetchPdfBase64(`${API_URL}/anexos-upload/${expedienteId}/descargar/${item.which}`);
+            const previo = acumulado?.[item.which];
+            const b64 = previo || await fetchPdfBase64(`${API_URL}/anexos-upload/${expedienteId}/descargar/${item.which}`);
             setSignPdfB64(b64);
             setSignIndex(idx);
             setSignOpen(true);
@@ -265,9 +276,18 @@ export function FirmarAnexosView({ expedienteId }) {
     };
 
     const startDigital = async () => {
+        // VARIOS CEDENTES (logic/cedentes.js): firman todos los que pagan la obra,
+        // cada uno con SU certificado, en su casilla del convenio y en su propio
+        // Anexo I. La cola es documento × cedente, y cada firma se pone sobre el PDF
+        // que ya lleva las anteriores. Con uno solo, la cola de siempre.
+        const ceds = Array.isArray(info?.cedentes) && info.cedentes.length ? info.cedentes : [{ nombre: '' }];
+        const n = ceds.length;
+        const quien = (i) => (n > 1 ? ` · firma de ${ceds[i].nombre}` : '');
         const q = [];
-        if (firmarI) q.push({ which: 'anexo_i', label: 'Anexo I', anchor: ['fdo.:^above', 'fdo.^above', 'firma del propietario'], fixedBox: anexoISignBox });
-        if (firmarC) q.push({ which: 'cesion', label: 'Anexo de Cesión de Ahorros', anchor: ['el cedente@2', 'cedente@2', 'el cedente', 'cedente'], fixedBox: SIGN_BOXES.anexo_cesion });
+        for (let i = 0; i < n; i++) {
+            if (firmarI) q.push({ which: 'anexo_i', label: `Anexo I${quien(i)}`, anchor: ['fdo.:^above', 'fdo.^above', 'firma del propietario'], fixedBox: anexoISignBoxCedente(i, n) });
+            if (firmarC) q.push({ which: 'cesion', label: `Anexo de Cesión de Ahorros${quien(i)}`, anchor: ['el cedente@2', 'cedente@2', 'el cedente', 'cedente'], fixedBox: cajaConvenioCedente(i) });
+        }
         if (!q.length) { setPrepError('No hay anexos disponibles para firmar todavía.'); return; }
         setSignedFiles({});
         setSignQueue(q);
@@ -282,8 +302,8 @@ export function FirmarAnexosView({ expedienteId }) {
         setSignOpen(false);
         setSignPdfB64(null);
         if (signIndex + 1 < signQueue.length) {
-            // Firmar el siguiente anexo.
-            await openSignAt(signQueue, signIndex + 1);
+            // Firmar el siguiente anexo (o el mismo, por el siguiente cedente).
+            await openSignAt(signQueue, signIndex + 1, acc);
             return;
         }
         // Todos firmados → enviar.
@@ -611,11 +631,25 @@ export function FirmarAnexosView({ expedienteId }) {
                                     <DropZone file={dniTrasero} onPick={f => pickFile(f, setDniTrasero)} alreadyUploaded={info.dni_subido} accept="image/*,application/pdf"
                                         title={`DNI — cara trasera${dniRequerido ? ' *' : ''}`} desc="Foto nítida del DNI por detrás." />
                                 </div>
+                                {/* VARIOS CEDENTES: el DNI de cada uno de los demás que firman. */}
+                                {extrasIdx.map(i => (
+                                    <div key={i} className="space-y-2">
+                                        <p className="text-[11px] font-black uppercase tracking-widest text-white/60">DNI de {cedentesInfo[i].nombre}</p>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            <DropZone file={dnisExtra[i]?.frontal || null} onPick={f => pickFile(f, ponDniExtra(i, 'frontal'))} accept="image/*,application/pdf"
+                                                title={`Cara delantera${dniRequerido ? ' *' : ''}`} desc={`DNI de ${cedentesInfo[i].nombre} por delante.`} />
+                                            <DropZone file={dnisExtra[i]?.trasero || null} onPick={f => pickFile(f, ponDniExtra(i, 'trasero'))} accept="image/*,application/pdf"
+                                                title={`Cara trasera${dniRequerido ? ' *' : ''}`} desc={`DNI de ${cedentesInfo[i].nombre} por detrás.`} />
+                                        </div>
+                                    </div>
+                                ))}
 
                                 {faltaDni && (
                                     <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-300 text-[11px] font-medium flex gap-2 items-center">
                                         <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
-                                        Para la firma a mano de la Cesión, sube el DNI por la cara delantera y la trasera.
+                                        {extrasIdx.length
+                                            ? 'Para la firma a mano de la Cesión, sube el DNI de todos los que firmáis, por la cara delantera y la trasera.'
+                                            : 'Para la firma a mano de la Cesión, sube el DNI por la cara delantera y la trasera.'}
                                     </div>
                                 )}
 

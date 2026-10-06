@@ -581,7 +581,9 @@ export function AceptarPropuestaView({ idOportunidad }) {
                                                 <span className="font-medium uppercase">{[p.nombre, p.apellidos].filter(Boolean).join(' ')}</span>
                                                 {p.dni && <span className="text-white/50 font-mono"> · {p.dni}</span>}
                                                 <div className="text-[12px] text-white/60 font-mono">
-                                                    {p.iban ? `Cobra en su cuenta: ${p.iban}` : 'Cobra en la cuenta del titular'}
+                                                    {p.cedente !== true
+                                                        ? 'Propietario (no paga la obra)'
+                                                        : `Paga la obra${p.cuota_pct ? ` (${p.cuota_pct} %)` : ''} · ${p.iban ? `cobra en su cuenta: ${p.iban}` : 'cobra en la cuenta del titular'}`}
                                                 </div>
                                             </div>
                                         ))}

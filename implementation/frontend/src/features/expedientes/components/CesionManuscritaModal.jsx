@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
+import { cedentesDe } from '../logic/cedentes';
 
 // ─── Anexo de Cesión firmado A MANO — montaje desde la app ────────────────────
 // El anexo manuscrito que vale no es el escaneo suelto: es el escaneo + el DNI del
@@ -61,10 +62,13 @@ export function CesionManuscritaModal({ isOpen, onClose, expediente, file, dniLi
     const [error, setError] = useState(null);
     const [drag, setDrag] = useState(false);
     const [overlay, setOverlay] = useState(null);     // { phase, ok, error, data }
+    // VARIOS CEDENTES (logic/cedentes.js): el DNI de cada uno de los demás que
+    // firman → { [i]: [File delante, File detrás] }. Con uno solo, no se pinta nada.
+    const [carasOtros, setCarasOtros] = useState({});
     const inputRef = useRef(null);
 
     useEffect(() => {
-        if (isOpen) { setModo(null); setCaras([]); setUsarDniPrevio(!!dniLink); setError(null); setBusy(false); setOverlay(null); }
+        if (isOpen) { setModo(null); setCaras([]); setCarasOtros({}); setUsarDniPrevio(!!dniLink); setError(null); setBusy(false); setOverlay(null); }
     }, [isOpen, dniLink]);
 
     if (!isOpen || !file) return null;
@@ -77,8 +81,23 @@ export function CesionManuscritaModal({ isOpen, onClose, expediente, file, dniLi
         setCaras(prev => [...prev, ...imgs].slice(0, 2));
     };
 
+    const cedentes = cedentesDe(expediente?.clientes || {});
+    const docExp = expediente?.documentacion || {};
+    const otros = cedentes.slice(1).map((c, k) => {
+        const i = k + 1;
+        const previo = docExp[`dni_${i + 1}_link`] || null;
+        const nuevas = carasOtros[i] || [];
+        return { i, nombre: c.nombre, previo, nuevas, listo: nuevas.length === 2 || (!!previo && !nuevas.length) };
+    });
+    const addCarasOtro = (i, lista) => {
+        const imgs = Array.from(lista || []).filter(esImagen);
+        if (!imgs.length) { setError('El DNI se anexa como FOTO (JPG o PNG).'); return; }
+        setError(null);
+        setCarasOtros(prev => ({ ...prev, [i]: [...(prev[i] || []), ...imgs].slice(0, 2) }));
+    };
+
     const dniListo = usarDniPrevio ? !!dniLink : caras.length === 2;
-    const faltaDni = !dniListo;
+    const faltaDni = !dniListo || otros.some(o => !o.listo);
     const esFoto = !/pdf$/i.test(file.type || '') && !/\.pdf$/i.test(file.name || '');
 
     // El montaje baja el DNI de Drive, compone el PDF y lo vuelve a subir: son varios
@@ -94,6 +113,12 @@ export function CesionManuscritaModal({ isOpen, onClose, expediente, file, dniLi
             if (!usarDniPrevio && caras.length === 2) {
                 form.append('dni_frontal', caras[0], caras[0].name || 'dni_frontal.jpg');
                 form.append('dni_trasero', caras[1], caras[1].name || 'dni_trasero.jpg');
+            }
+            for (const o of otros) {
+                if (o.nuevas.length === 2) {
+                    form.append(`dni_frontal_${o.i}`, o.nuevas[0], o.nuevas[0].name || `dni_frontal_${o.i}.jpg`);
+                    form.append(`dni_trasero_${o.i}`, o.nuevas[1], o.nuevas[1].name || `dni_trasero_${o.i}.jpg`);
+                }
             }
             const { data } = await axios.post(
                 `/api/expedientes/${expediente.id}/documentos/cesion-manuscrita`,
@@ -208,8 +233,9 @@ export function CesionManuscritaModal({ isOpen, onClose, expediente, file, dniLi
                         <p className="text-[9px] font-black uppercase tracking-widest text-white/30 mb-2">El PDF final tendrá, en este orden</p>
                         {[
                             ['1', 'El anexo que has soltado', true],
-                            ['2', 'DNI del cliente (las dos caras en una página)', dniListo],
-                            ['3', 'DNI del representante de Brokergy', true],
+                            ['2', otros.length ? `DNI de ${cedentes[0]?.nombre || 'el cliente'} (las dos caras en una página)` : 'DNI del cliente (las dos caras en una página)', dniListo],
+                            ...otros.map((o, k) => [String(3 + k), `DNI de ${o.nombre}`, o.listo]),
+                            [String(3 + otros.length), 'DNI del representante de Brokergy', true],
                         ].map(([n, txt, ok]) => (
                             <div key={n} className="flex items-center gap-2.5">
                                 <span className={`w-4 h-4 rounded-full shrink-0 flex items-center justify-center text-[9px] font-black ${ok ? 'bg-emerald-400/20 text-emerald-300' : 'bg-amber-400/20 text-amber-300'}`}>{ok ? '✓' : '!'}</span>
@@ -259,9 +285,38 @@ export function CesionManuscritaModal({ isOpen, onClose, expediente, file, dniLi
                         </div>
                     )}
 
+                    {/* VARIOS CEDENTES: el DNI de cada uno de los demás que firman. */}
+                    {otros.map(o => (
+                        <div key={o.i} className="rounded-xl border border-white/10 bg-white/[0.02] p-3.5">
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-white/40 min-w-0 truncate">DNI de {o.nombre}</p>
+                                {o.previo && !o.nuevas.length && (
+                                    <a href={o.previo} target="_blank" rel="noopener noreferrer" className="text-[9px] font-black uppercase tracking-widest text-emerald-300/80 hover:text-white shrink-0">✓ Ya lo tenemos · ver</a>
+                                )}
+                            </div>
+                            <label className="block rounded-lg border border-dashed border-white/15 hover:border-white/30 px-3 py-2.5 text-center cursor-pointer transition-all"
+                                onDragOver={e => e.preventDefault()}
+                                onDrop={e => { e.preventDefault(); addCarasOtro(o.i, e.dataTransfer.files); }}>
+                                <span className="text-[11px] text-white/50 normal-case">
+                                    {o.nuevas.length === 2
+                                        ? `✓ ${o.nuevas[0].name} · ${o.nuevas[1].name}`
+                                        : o.nuevas.length === 1
+                                            ? 'Falta la cara trasera'
+                                            : (o.previo ? 'Cambiarlo: suelta las dos caras' : 'Suelta las dos caras (delantera y trasera)')}
+                                </span>
+                                <input type="file" accept="image/*" multiple className="hidden"
+                                    onChange={e => { addCarasOtro(o.i, e.target.files); e.target.value = ''; }} />
+                            </label>
+                            {!!o.nuevas.length && (
+                                <button type="button" onClick={() => setCarasOtros(prev => ({ ...prev, [o.i]: [] }))}
+                                    className="mt-1.5 text-[9px] font-black uppercase tracking-widest text-white/30 hover:text-white">Quitar</button>
+                            )}
+                        </div>
+                    ))}
+
                     {faltaDni && (
                         <p className="text-[11px] text-amber-300/80 normal-case leading-snug">
-                            Sin el DNI del cliente el anexo queda sin identificar a una de las partes. Puedes montarlo igualmente y añadirlo luego, pero el verificador lo pedirá.
+                            {otros.length ? 'Falta el DNI de alguno de los que firman: el anexo queda sin identificar a todas las partes.' : 'Sin el DNI del cliente el anexo queda sin identificar a una de las partes.'} Puedes montarlo igualmente y añadirlo luego, pero el verificador lo pedirá.
                         </p>
                     )}
                     {error && <p className="text-[12px] text-red-400 normal-case">⚠️ {error}</p>}

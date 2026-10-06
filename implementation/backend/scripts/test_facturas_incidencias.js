@@ -200,5 +200,29 @@ ok(emisoresDe('26RES093_1', ['OBRA_CIVIL']).length === 1,
     'RES093: idem');
 
 
+// ── VARIOS CEDENTES: la factura puede ir a cualquiera de los que PAGAN ───────
+console.log('\nTitular de la factura con varios propietarios');
+const cliVarios = {
+    nombre_razon_social: 'JUAN', apellidos: 'PEREZ', dni: '12345678Z',
+    copropietarios: [
+        { nombre: 'ANA', apellidos: 'LOPEZ', dni: '87654321X', cedente: true },
+        { nombre: 'LUIS', apellidos: 'PEREZ', dni: '11111111H', cedente: false },
+    ],
+};
+const titularDe = (cliOcr, cliente = cliVarios) => detectarIncidenciasFactura({
+    ocr: { cliente: cliOcr, lineas: [] },
+    exp: { numero_expediente: '26RES060_1', instalacion: {}, documentacion: {} },
+    op: {}, cliente, instalador: null,
+}).filter(i => i.codigo === 'TITULAR');
+
+ok(titularDe({ nif: '12345678Z', nombre: 'JUAN PEREZ' }).length === 0, 'a nombre del titular: sin incidencia');
+ok(titularDe({ nif: '87654321X', nombre: 'ANA LOPEZ' }).length === 0, 'a nombre de otro que paga la obra: sin incidencia');
+ok(titularDe({ nombre: 'Ana López' }).length === 0, 'sin NIF, por el nombre de otro que paga: sin incidencia');
+const noPaga = titularDe({ nif: '11111111H', nombre: 'LUIS PEREZ' });
+ok(noPaga.length === 1 && /no figura como que paga/.test(noPaga[0].titulo), 'a un propietario que NO paga: se dice que hay que marcarlo');
+ok(titularDe({ nif: '99999999R', nombre: 'OTRO' }).length === 1, 'a un tercero: sigue siendo incidencia');
+ok(titularDe({ nif: '87654321X', nombre: 'ANA' }, { nombre_razon_social: 'JUAN', dni: '12345678Z' }).length === 1,
+    'con un solo propietario, nada cambia');
+
 console.log(fallos ? `\n${fallos} comprobación(es) FALLA(N)\n` : '\nTodo correcto.\n');
 process.exit(fallos ? 1 : 0);

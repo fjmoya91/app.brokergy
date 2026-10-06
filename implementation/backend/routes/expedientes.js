@@ -2496,9 +2496,11 @@ router.post('/:id/documentos/firmar-subir', enforceAuth, async (req, res) => {
 // se reutiliza y basta con soltar el escaneo. Subir caras nuevas manda sobre ella.
 //
 // Multipart: cesion (obligatorio) · dni_frontal · dni_trasero (imágenes)
+//            · dni_frontal_{i} · dni_trasero_{i} (i = 1..4): VARIOS CEDENTES, el DNI
+//              de cada uno de los demás que firman (logic/cedentes.js)
 const cesionUpload = require('multer')({
     storage: require('multer').memoryStorage(),
-    limits: { fileSize: 30 * 1024 * 1024, files: 3 },
+    limits: { fileSize: 30 * 1024 * 1024, files: 11 },
 });
 
 router.post('/:id/documentos/cesion-manuscrita', enforceAuth, (req, res, next) => {
@@ -2506,6 +2508,10 @@ router.post('/:id/documentos/cesion-manuscrita', enforceAuth, (req, res, next) =
         { name: 'cesion', maxCount: 1 },
         { name: 'dni_frontal', maxCount: 1 },
         { name: 'dni_trasero', maxCount: 1 },
+        ...[1, 2, 3, 4].flatMap(i => [
+            { name: `dni_frontal_${i}`, maxCount: 1 },
+            { name: `dni_trasero_${i}`, maxCount: 1 },
+        ]),
     ])(req, res, (err) => {
         if (err) {
             if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'Algún fichero supera los 30 MB.' });
@@ -2529,7 +2535,7 @@ router.post('/:id/documentos/cesion-manuscrita', enforceAuth, (req, res, next) =
         // error y la ruta respondiera "Expediente no encontrado" en TODOS los casos.
         const { data: exp, error } = await supabase
             .from('expedientes')
-            .select('id, numero_expediente, documentacion, oportunidades!oportunidad_id(datos_calculo)')
+            .select('id, numero_expediente, documentacion, oportunidades!oportunidad_id(datos_calculo), clientes!cliente_id(nombre_razon_social, apellidos, dni, es_empresa, representante_nombre, representante_apellidos, representante_dni, numero_cuenta, copropietarios)')
             .eq('id', req.params.id)
             .maybeSingle();
         if (error) {
@@ -2572,10 +2578,34 @@ router.post('/:id/documentos/cesion-manuscrita', enforceAuth, (req, res, next) =
             } catch (e) { console.warn('[cesion-manuscrita] DNI previo no descargable:', e.message); }
         }
 
+        // VARIOS CEDENTES: el DNI de cada uno de los demás que firman. Las caras que
+        // lleguen mandan; si no, la página que ya tuviera el expediente (dni_{n}_link).
+        const { dniTwoSidesOnePage } = require('../utils/dniAnexo');
+        let cedentes = [];
+        try {
+            const mod = await import(require('url').pathToFileURL(require('path').join(__dirname, '../../frontend/src/features/expedientes/logic/cedentes.js')).href);
+            cedentes = mod.cedentesDe(exp.clientes || {});
+        } catch (e) { console.warn('[cesion-manuscrita] cedentes:', e.message); }
+        const dnisExtra = [];
+        const paginasExtraNuevas = [];
+        for (let i = 1; i < cedentes.length; i++) {
+            const f = req.files?.[`dni_frontal_${i}`]?.[0] || null;
+            const b = req.files?.[`dni_trasero_${i}`]?.[0] || null;
+            let pdfI = null;
+            if (f && b) {
+                pdfI = await dniTwoSidesOnePage(f.buffer, b.buffer);
+                paginasExtraNuevas.push({ i, pdf: pdfI });
+            } else if (docObj[`dni_${i + 1}_link`]) {
+                try { pdfI = await bajarDrive(docObj[`dni_${i + 1}_link`]); }
+                catch (e) { console.warn(`[cesion-manuscrita] DNI ${i + 1} previo no descargable:`, e.message); }
+            }
+            dnisExtra.push({ nombre: cedentes[i].nombre, pdf: pdfI });
+        }
+
         const { pdf, dniPage, incluidos, faltan } = await buildCesionManuscrita(
             cesionFile.buffer,
             cesionFile.mimetype,
-            { dniFront: frontFile?.buffer, dniBack: backFile?.buffer, dniPdf: dniPdfPrevio },
+            { dniFront: frontFile?.buffer, dniBack: backFile?.buffer, dniPdf: dniPdfPrevio, dnisExtra },
         );
 
         const subfolderId = await driveService.getOrCreateSubfolder(driveFolderId, '6. ANEXOS CAE');
@@ -2602,6 +2632,11 @@ router.post('/:id/documentos/cesion-manuscrita', enforceAuth, (req, res, next) =
             const savedDni = await guardar(`${numexpte} - DNI.pdf`, dniPage);
             if (savedDni?.link) dniLink = savedDni.link;
         }
+        const dnisExtraLinks = {};
+        for (const { i, pdf: p } of paginasExtraNuevas) {
+            const s = await guardar(`${numexpte} - DNI ${i + 1}.pdf`, p);
+            if (s?.link) dnisExtraLinks[`dni_${i + 1}_link`] = s.link;
+        }
 
         const usuario = req.user?.esRobot ? 'CLAUDE' : req.user?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : (req.user?.acronimo || req.user?.razon_social || 'SISTEMA');
         let newDoc = invalidarValidacionDocs(
@@ -2612,6 +2647,7 @@ router.post('/:id/documentos/cesion-manuscrita', enforceAuth, (req, res, next) =
                 // El escaneo ya lleva las dos firmas físicas: no falta contrafirma digital.
                 cesion_firmado_brokergy: true,
                 ...(dniLink ? { dni_link: dniLink } : {}),
+                ...dnisExtraLinks,
             },
             'anexo_cesion_signed_link',
             { usuario, origen: 'firma manuscrita montada desde la app' },
@@ -4761,7 +4797,7 @@ router.post('/:id/facturas/ocr', adminOnly, (req, res, next) => {
 
         const [{ data: cliente }, { data: instalador }] = await Promise.all([
             op?.cliente_id
-                ? supabase.from('clientes').select('nombre_razon_social, apellidos, dni, direccion, municipio, codigo_postal').eq('id_cliente', op.cliente_id).maybeSingle()
+                ? supabase.from('clientes').select('nombre_razon_social, apellidos, dni, direccion, municipio, codigo_postal, copropietarios').eq('id_cliente', op.cliente_id).maybeSingle()
                 : Promise.resolve({ data: null }),
             (exp.instalador_asociado_id || op?.instalador_asociado_id || op?.prescriptor_id)
                 ? supabase.from('prescriptores').select('razon_social, cif').eq('id_empresa', exp.instalador_asociado_id || op.instalador_asociado_id || op.prescriptor_id).maybeSingle()

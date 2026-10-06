@@ -8,7 +8,7 @@ import { buildAnexoCesionHtml, getDualMessage, getClientCaeRate, esCesionPrevia,
 import { useAuth } from '../../../context/AuthContext';
 import AppConfirm from '../../../components/AppConfirm';
 import FirmarConCertificadoModal from './FirmarConCertificadoModal';
-import { SIGN_BOXES } from '../logic/signBoxes';
+import { SIGN_BOXES, cajaConvenioCesionario } from '../logic/signBoxes';
 import { postEmail } from '../../../utils/emailFallback';
 // Los nombres van en MAYÚSCULAS en la ficha: en el saludo se escriben bien y
 // sin cortar los compuestos ("MARIA JOSÉ" no es "Maria").
@@ -398,7 +398,7 @@ export function AnexoCesionModal({ isOpen, onClose, expediente, results, onSaveD
                             // CESIONARIO" lleva letter-spacing y pdf.js lo lee "C E S I O N A
                             // R I O", así que la única coincidencia era el "Cesionario" del
                             // cuerpo del convenio y el recuadro salía en mitad de la página.
-                            fixedBox={SIGN_BOXES.anexo_cesion_cesionario}
+                            fixedBox={cajaConvenioCesionario}
                             onClose={() => { setSignOpen(false); setSignPdfB64(null); }}
                             onSigned={handleSigned}
                         />

@@ -155,6 +155,9 @@ function tieneFirmaElectronica(buffer) {
  *   - dniFront/dniBack {Buffer}  caras del DNI del cliente (imágenes)
  *   - dniPdf {Buffer}            página de DNI ya montada (p. ej. la que ya tiene el
  *                                expediente en Drive) — se usa si no llegan las caras
+ *   - dnisExtra [{ nombre, pdf }] VARIOS CEDENTES (logic/cedentes.js): la página de
+ *                                DNI de cada uno de los demás que firman, en el orden
+ *                                de las firmas; `pdf` null = falta y se dice.
  * @returns {{ pdf: Buffer, dniPage: Buffer|null, incluidos: string[], faltan: string[] }}
  *   `dniPage` es la página de DNI recién montada (null si se reutilizó una previa),
  *   para que el llamador la archive en Drive sin volver a componerla.
@@ -175,6 +178,13 @@ async function buildCesionManuscrita(cesionBuffer, cesionMime, opts = {}) {
     if (dniAnexar) incluidos.push('DNI del cliente');
     else faltan.push('DNI del cliente');
 
+    // VARIOS CEDENTES: el DNI de cada uno de los demás, detrás del del titular.
+    const extras = [];
+    for (const d of (Array.isArray(opts.dnisExtra) ? opts.dnisExtra : [])) {
+        if (d?.pdf) { extras.push(d.pdf); incluidos.push(`DNI de ${d.nombre || 'otro cedente'}`); }
+        else faltan.push(`DNI de ${d?.nombre || 'otro cedente'}`);
+    }
+
     // DNI del representante de Brokergy: SIEMPRE la última página.
     const rep = readRepresentanteDni();
     let repPdf = null;
@@ -192,7 +202,7 @@ async function buildCesionManuscrita(cesionBuffer, cesionMime, opts = {}) {
         faltan.push('DNI del representante de Brokergy');
     }
 
-    const annexes = [dniAnexar, repPdf].filter(Boolean);
+    const annexes = [dniAnexar, ...extras, repPdf].filter(Boolean);
     if (annexes.length) pdf = await mergePdfs(pdf, annexes);
 
     return { pdf, dniPage, incluidos, faltan };

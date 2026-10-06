@@ -232,28 +232,37 @@ export async function resolverCaja(doc, box) {
  *       convive en dos formatos —el impreso OFICIAL del Ministerio y la maqueta
  *       anterior, que sigue en Drive en los expedientes ya enviados— y la firma no
  *       cae en el mismo sitio. Ver `signBoxes.js`.
+ *   - firmas {Array<{firma, box}>}  VARIOS firmantes en el mismo documento (varios
+ *       cedentes, logic/cedentes.js): cada firma en su recuadro, y el documento se
+ *       escanea UNA vez con todas. Escanear tras cada firma rasterizaría dos veces.
  *   - onProgreso {(hecho:number, total:number) => void}
  * @returns {{ blob: Blob, vista: string }} `vista` es la página de la firma ya
  *   rasterizada (data URL), para enseñar cómo ha quedado sin renderizar otra vez.
  *   Solo esa: guardar el JPEG de las cinco páginas para enseñar una era casi un
  *   mega de memoria de más en un móvil que ya está sosteniendo el PDF entero.
  */
-export async function firmarYEscanear(bytes, { firma, box, onProgreso } = {}) {
+export async function firmarYEscanear(bytes, { firma, box, firmas, onProgreso } = {}) {
     const doc = await cargarPdf(bytes);
     const total = doc.numPages;
     // Qué formato es este PDF: el impreso oficial lo rellena pdf-lib; la maqueta la
     // rasteriza Chrome ("Skia/PDF"). Mismo criterio que FirmarConCertificadoModal.
-    const caja = await resolverCaja(doc, box);
+    // Una firma o varias: la lista de (recuadro, imagen) que se estampa.
     // Si la plantilla se quedara con menos páginas de las que dice el recuadro,
     // la firma va a la ÚLTIMA: mejor firmada donde se pueda que perdida.
-    const paginaFirma = caja ? Math.min(caja.page || total, total) : 0;
-    const imagen = firma ? await cargarImagen(firma) : null;
+    const pedidas = Array.isArray(firmas) && firmas.length ? firmas : [{ firma, box }];
+    const estampas = [];
+    for (const f of pedidas) {
+        const c = await resolverCaja(doc, f.box);
+        if (!c || !f.firma) continue;
+        estampas.push({ caja: c, pagina: Math.min(c.page || total, total), imagen: await cargarImagen(f.firma) });
+    }
+    const paginaFirma = estampas.length ? estampas[0].pagina : 0;
 
     let pdf = null;
     let vista = null;
     for (let n = 1; n <= total; n++) {
         const { canvas, viewport } = await renderizarPagina(doc, n);
-        if (imagen && n === paginaFirma) estamparFirma(canvas, viewport, caja, imagen);
+        for (const e of estampas) if (n === e.pagina) estamparFirma(canvas, viewport, e.caja, e.imagen);
 
         const jpeg = await aJpeg(canvas);
         if (n === (paginaFirma || 1)) vista = jpeg;

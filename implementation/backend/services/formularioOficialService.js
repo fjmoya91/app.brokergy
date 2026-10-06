@@ -355,7 +355,25 @@ async function rellenar(plantilla, campos = {}, opts = {}) {
  * arma los campos (fuente única en el frontend).
  */
 async function rellenarDesdePeticion(formulario) {
-    const { plantilla, campos, fdo } = formulario || {};
+    const { plantilla, campos, fdo, copias } = formulario || {};
+    // VARIOS CEDENTES: el Anexo I lleva un impreso por cedente, uno detrás de
+    // otro (frontend/.../logic/anexoIFormulario.js). Cada copia se rellena por
+    // separado y se APLANA antes de unirla: las copias tienen los mismos nombres
+    // de campo, y unidas sin aplanar se pisarían en el mismo formulario. La
+    // firma no depende de esos campos (va por coordenadas, signBoxes.js).
+    if (Array.isArray(copias) && copias.length > 1) {
+        if (copias.length > 6) throw new Error('Demasiadas copias del impreso');
+        const unido = await PDFDocument.create();
+        for (const c of copias) {
+            const { pdf, avisos } = await rellenar(plantilla, c?.campos, { fdo: c?.fdo });
+            if (avisos.length) console.warn(`[formularioOficial] ${plantilla} (copia):`, avisos.join(' · '));
+            const doc = await PDFDocument.load(pdf);
+            try { doc.getForm().flatten(); } catch (e) { console.warn('[formularioOficial] no se pudo aplanar la copia:', e.message); }
+            const paginas = await unido.copyPages(doc, doc.getPageIndices());
+            paginas.forEach(pg => unido.addPage(pg));
+        }
+        return Buffer.from(await unido.save());
+    }
     const { pdf, avisos } = await rellenar(plantilla, campos, { fdo });
     if (avisos.length) console.warn(`[formularioOficial] ${plantilla}:`, avisos.join(' · '));
     return pdf;

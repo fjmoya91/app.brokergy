@@ -45,6 +45,11 @@ const empresa = (e) => ({ ...e, clientes: { ...e.clientes, es_empresa: true,
     representante_nombre: 'FRANCISCO JAVIER', representante_apellidos: 'MOYA LÓPEZ DE LA TORRE',
     representante_dni: '06282551D' } });
 const ficha = (e, f) => ({ ...e, numero_expediente: `26${f}_9` });
+// VARIOS cedentes (copropietarios que pagan la obra): el convenio pasa a TRES
+// hojas — la tercera, de firmas con casillas fijas. Nombres largos a propósito.
+const varios = (e, n, { cuentas = false } = {}) => ({ ...e, clientes: { ...e.clientes, copropietarios:
+    Array.from({ length: n - 1 }, (_, i) => ({ id: `c${i}`, cedente: true, nombre: 'MARÍA DE LAS MERCEDES', apellidos: `FERNÁNDEZ-CABALLERO DE LA HOZ ${i}`,
+        dni: '05123456X', cuota_pct: null, iban: cuentas ? 'ES7620770024003102575766' : '' })) } });
 
 const R  = { savingsKwh: 12345.6, caeBonus: 1172, caeMaintenanceCost: 0 };
 const RC = { ...R, caeMaintenanceCost: 150 };   // con coste de gestión: un párrafo más
@@ -59,13 +64,17 @@ const casos = [
     ['prevista · RES080',       ficha(empresa(stress), 'RES080'), RC, true],
     ['prevista · RES093',       ficha(empresa(stress), 'RES093'), RC, true],
     ['prevista · TER100',       ficha(empresa(stress), 'TER100'), RC, true],
+    ['2 cedentes · real',       varios(real, 2),           R,  true,  3],
+    ['2 cedentes · peor caso',  varios(ficha(empresa(stress), 'RES080'), 2, { cuentas: true }), RC, false, 3],
+    ['5 cedentes · peor caso',  varios(ficha(stress, 'RES080'), 5, { cuentas: true }), RC, true, 3],
+    ['5 cedentes · sin IBAN',   varios(sinIban(stress), 5), RC, true, 3],
 ];
 
 const browser = await puppeteer.launch({ headless: 'new' });
 const page = await browser.newPage();
 await page.setViewport({ width: 900, height: 1200 });
 let malos = 0;
-for (const [nombre, exp, res, previo] of casos) {
+for (const [nombre, exp, res, previo, paginas = 2] of casos) {
     await page.setContent(buildAnexoCesionHtml(exp, res, { previo }), { waitUntil: 'load' });
     await page.evaluate(async () => { await document.fonts.load('11px Inter'); await document.fonts.ready; });
     if (!await page.evaluate(() => document.fonts.check('11px Inter'))) {
@@ -83,11 +92,21 @@ for (const [nombre, exp, res, previo] of casos) {
         clon.remove();
         return Math.round(body.clientHeight - alto);
     }));
-    const mal = holguras.length !== 2 || holguras.some(h => h < 0);
+    // En la hoja de firmas las casillas van fuera del flujo: se comprueba que la
+    // última (con su nombre debajo) no pise el pie.
+    const pisaPie = await page.evaluate(() => {
+        const hoja = document.querySelector('.conv-page-firmas');
+        if (!hoja) return 0;
+        const pie = hoja.querySelector('.conv-footer').getBoundingClientRect().top;
+        const fondo = Math.max(...[...hoja.querySelectorAll('.conv-firma-abs')].map(c => c.getBoundingClientRect().bottom + 30));
+        return Math.round(fondo - pie);
+    });
+    const mal = holguras.length !== paginas || holguras.some(h => h < 0) || pisaPie > 0;
+    if (pisaPie > 0) console.log(`   ↳ las firmas pisan el pie ${pisaPie}px`);
     if (mal) malos++;
     console.log(`${mal ? '❌' : '  '} ${nombre.padEnd(26)} págs=${holguras.length} ` +
         holguras.map((h, i) => `p${i + 1}: ${h < 0 ? `SE CORTA ${-h}px` : `holgura ${h}px`}`).join(' | '));
 }
 await browser.close();
-if (malos) { console.error(`\n${malos} caso(s) no caben en dos páginas.`); process.exit(1); }
-console.log('\nTodo cabe en dos páginas.');
+if (malos) { console.error(`\n${malos} caso(s) no caben en sus páginas.`); process.exit(1); }
+console.log('\nTodo cabe: dos páginas con un cedente, tres (firmas aparte) con varios.');

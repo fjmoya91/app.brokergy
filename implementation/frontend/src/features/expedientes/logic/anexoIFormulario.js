@@ -65,10 +65,29 @@ const CAMPOS_AYUDA = {
  *                           en la pestaña Subvenciones
  */
 export function anexoIFormulario(expediente, results, states = {}) {
+    // VARIOS CEDENTES (logic/cedentes.js): cada uno firma SU impreso. Se devuelve
+    // el del titular como siempre y, si hay más, `copias` con uno por cedente:
+    // el backend (formularioOficialService.rellenarDesdePeticion) los rellena y los
+    // une en un solo PDF, en ese orden. Con uno solo no hay `copias` y el
+    // documento es exactamente el de siempre.
+    const una = (i) => anexoIFormularioDe(expediente, results, states, i);
+    const primero = una(0);
+    const n = primero.nCedentes;
+    delete primero.nCedentes;
+    if (n <= 1) return primero;
+    const copias = Array.from({ length: n }, (_, i) => {
+        const c = i === 0 ? primero : una(i);
+        delete c.nCedentes;
+        return { campos: c.campos, fdo: c.fdo };
+    });
+    return { ...primero, copias };
+}
+
+function anexoIFormularioDe(expediente, results, states, cedente) {
     // dash vacío: en un impreso oficial un dato que falta se ve como una casilla
     // en blanco, no como una fila de guiones bajos (que ahí es lo que trae impreso
     // el propio modelo).
-    const d = deriveAnexoI(expediente, results, states, { dash: '', sep: '\n' });
+    const d = deriveAnexoI(expediente, results, states, { dash: '', sep: '\n', cedente });
 
     const campos = {
         // 1. Identificación de la actuación
@@ -122,7 +141,7 @@ export function anexoIFormulario(expediente, results, states = {}) {
         'año': d.fechaPartes.anio2,
     };
 
-    return { plantilla: 'ANEXO_I', campos, fdo: d.firmante };
+    return { plantilla: 'ANEXO_I', campos, fdo: d.firmante, nCedentes: d.nCedentes };
 }
 
 export { CASILLAS_BONO, CASILLAS_ESTADO_AYUDA, CAMPOS_AYUDA };

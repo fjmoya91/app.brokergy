@@ -84,9 +84,30 @@ function PropietarioEdit({ value, index, onChange, onRemove }) {
                             value={value.email || ''} onChange={e => set({ email: e.target.value.toLowerCase() })} />
                     </FieldInput>
                 </div>
+                {/* ¿Paga también la obra? Entonces es CEDENTE: firma el convenio y
+                    su propio Anexo I, y la factura va también a su nombre
+                    (logic/cedentes.js). Quien no paga solo recibe mensajes. */}
+                <div className="sm:col-span-2 flex flex-wrap items-center gap-x-6 gap-y-2">
+                    <label className="flex items-center gap-2 cursor-pointer group">
+                        <div className="relative flex items-center">
+                            <input type="checkbox" className="peer sr-only" checked={!!value.cedente}
+                                onChange={e => set(e.target.checked ? { cedente: true } : { cedente: false, cuota_pct: null, iban: '' })} />
+                            <div className="w-8 h-4 bg-transparent rounded-full peer border border-orange-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-orange-500 after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-orange-500 peer-checked:after:bg-white"></div>
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-white/50 group-hover:text-white/80 transition-colors">Paga también la obra (cedente)</span>
+                    </label>
+                    {value.cedente && (
+                        <div className="w-36">
+                            <FieldInput label="Su parte de la obra (%)">
+                                <Input placeholder="A partes iguales" value={value.cuota_pct ?? ''}
+                                    onChange={e => { const v = e.target.value.replace(',', '.').replace(/[^\d.]/g, ''); set({ cuota_pct: v === '' ? null : v }); }} />
+                            </FieldInput>
+                        </div>
+                    )}
+                </div>
                 {/* Su PROPIA cuenta, si su parte del bono se le ingresa por
-                    separado. Vacía = cobra en la del titular. */}
-                <div className="sm:col-span-2">
+                    separado. Vacía = cobra en la del titular. Solo si cobra. */}
+                <div className={`sm:col-span-2 ${value.cedente ? '' : 'hidden'}`}>
                     <FieldInput label="Cuenta propia (IBAN) — vacía si cobra en la del titular">
                         <Input uppercase placeholder="ESXX XXXX XXXX XXXX XXXX XXXX"
                             value={value.iban || ''} onChange={e => set({ iban: e.target.value })} />
@@ -663,11 +684,20 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                             <FieldView label="Teléfono" value={p.tlf} />
                                             <div className="col-span-1 sm:col-span-2">
                                                 <FieldView
-                                                    label="Cuenta (IBAN)"
-                                                    value={p.iban || 'Cobra en la cuenta del titular'}
-                                                    valueClassName={p.iban ? 'font-mono' : '!normal-case !text-white/40 italic'}
+                                                    label="¿Paga la obra?"
+                                                    value={p.cedente
+                                                        ? `Sí — cedente${p.cuota_pct ? ` (${String(p.cuota_pct).replace('.', ',')} %)` : ' (a partes iguales)'}: firma el convenio y su Anexo I`
+                                                        : 'No — solo propietario (no firma ni cobra)'}
+                                                    valueClassName="!normal-case"
                                                 />
-                                                {p.iban && (
+                                                {p.cedente && (
+                                                    <FieldView
+                                                        label="Cuenta (IBAN)"
+                                                        value={p.iban || 'Cobra en la cuenta del titular'}
+                                                        valueClassName={p.iban ? 'font-mono' : '!normal-case !text-white/40 italic'}
+                                                    />
+                                                )}
+                                                {p.cedente && p.iban && (
                                                     p.justificante_link ? (
                                                         <a href={p.justificante_link} target="_blank" rel="noopener noreferrer"
                                                             className="inline-block mt-1 text-[10px] font-black uppercase tracking-widest text-emerald-400 hover:underline">
@@ -682,7 +712,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                     ))}
                                     <p className="text-[10px] text-white/25">
                                         Se pueden elegir como destinatarios al enviar mensajes, anexos o peticiones de documentación.
-                                        Los documentos se emiten a nombre del titular, que es quien los firma.
+                                        Los que pagan la obra (cedentes) firman el Convenio de Cesión junto al titular y cada uno su propio Anexo I; los demás solo reciben mensajes.
                                     </p>
                                 </div>
                             )}
@@ -1058,7 +1088,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                     </button>
                                 </div>
                                 <p className="text-[10px] text-white/25">
-                                    El <strong className="text-white/40">titular</strong> es el de arriba y es quien firma los documentos.
+                                    El <strong className="text-white/40">titular</strong> es el de arriba. Marca como <strong className="text-white/40">cedente</strong> a quien pague también la obra: firmará el convenio y su propio Anexo I, y la factura tiene que ir también a su nombre.
                                     Los que añadas aquí se podrán elegir como destinatarios al enviar mensajes, anexos o peticiones de documentación.
                                 </p>
                                 {(form.copropietarios || []).map((p, i) => (
