@@ -10,6 +10,8 @@ import { WhatsappEtiquetas } from '../../../components/WhatsappEtiquetas';
 // Los accesos a la carpeta del expediente (Drive / local) son fuente única en
 // ExpedienteAccesos: los comparte con el listado de clientes.
 import { ExpedienteAccesos } from '../../expedientes/components/ExpedienteAccesos';
+import { EnlacesInmueble } from '../../../components/EnlacesInmueble';
+import { inmuebleDeCliente } from '../../../utils/enlacesInmueble';
 // El partner como persona de contacto: fuente única con el alta de cliente.
 import { PartnerComoContacto } from './PartnerComoContacto';
 
@@ -734,8 +736,12 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                         <FieldView label="Municipio" value={cliente.municipio} />
                                         <FieldView label="CP" value={cliente.codigo_postal} />
                                         {cliente.direccion && (
-                                            <div className="col-span-1 sm:col-span-2">
-                                                <FieldView label="Dirección" value={cliente.direccion} />
+                                            <div className="col-span-1 sm:col-span-2 flex items-end justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <FieldView label="Dirección" value={cliente.direccion} />
+                                                </div>
+                                                {/* Catastro (RC de su oportunidad o CEE más reciente) y Maps. */}
+                                                <EnlacesInmueble soloIconos {...inmuebleDeCliente(cliente)} className="flex-shrink-0" />
                                             </div>
                                         )}
                                     </div>

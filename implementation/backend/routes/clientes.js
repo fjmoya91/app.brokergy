@@ -167,7 +167,7 @@ router.get('/:id', enforceAuth, async (req, res) => {
         if (isStaff(req)) {
             const { data: cees } = await supabase
                 .from('cee_directos')
-                .select('id, numero_expediente, nombre, estado, alcance, created_at')
+                .select('id, numero_expediente, nombre, estado, alcance, created_at, ref_catastral')
                 .eq('cliente_id', req.params.id)
                 .order('correlativo', { ascending: false });
             ceeDirectos = cees || [];

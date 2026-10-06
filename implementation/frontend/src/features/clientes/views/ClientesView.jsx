@@ -4,6 +4,8 @@ import { useAuth } from '../../../context/AuthContext';
 import { ClienteFormModal } from '../components/ClienteFormModal';
 import { ClienteDetailModal } from '../components/ClienteDetailModal';
 import { ExpedienteAccesos } from '../../expedientes/components/ExpedienteAccesos';
+import { EnlacesInmueble } from '../../../components/EnlacesInmueble';
+import { inmuebleDeCliente } from '../../../utils/enlacesInmueble';
 import { fichaColor } from '../../expedientes/logic/expedienteTaxonomia';
 import {
     TIPOS_CLIENTE, ESTADOS_CLIENTE, ORDEN_ESTADOS_CLIENTE,
@@ -459,6 +461,10 @@ export function ClientesView({
                                             )}
                                         </div>
                                     </div>
+
+                                    {/* Dónde está: su ficha en el Catastro (RC de su oportunidad o CEE
+                                        más reciente) y su dirección en Google Maps. Sin dato, sin botón. */}
+                                    <EnlacesInmueble soloIconos {...inmuebleDeCliente(cliente)} className="flex-shrink-0" />
 
                                     {/* Accesos directos al expediente (app · Drive · carpeta local).
                                         Solo ADMIN y solo si el cliente tiene expediente: son internos y
