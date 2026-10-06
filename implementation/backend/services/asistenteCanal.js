@@ -16,6 +16,9 @@ const whatsappService = require('./whatsappService');
 
 const TEL = String(process.env.ASISTENTE_WHATSAPP_TEL || '').replace(/\D/g, '');
 const URL = String(process.env.ASISTENTE_URL || '').replace(/\/+$/, '');
+// Si está, el canal es ese GRUPO («BROKERGY - CHAT») y solo cuentan los mensajes de Fran dentro de él;
+// su chat 1:1 con la empresa vuelve a ser un chat normal.
+const GRUPO = String(process.env.ASISTENTE_WHATSAPP_GRUPO || '').trim();
 const PLAZO_MS = 10_000;
 
 let lidDeFran = null;          // «71159068520593@lid», cuando se ha podido resolver
@@ -62,11 +65,19 @@ async function alMensaje(msg) {
     try {
         if (!msg || msg.fromMe || msg.isStatus) return;
         const chatId = String(msg.from || '');
-        if (!chatId.endsWith('@c.us') && !chatId.endsWith('@lid')) return;   // grupos y difusiones fuera
-        // Fran → a trabajar. Cualquier otro chat → solo su id, para el MODO PROACTIVO (el contenedor
-        // espera a que ese chat calle y decide allí si es una petición de un instalador).
-        if (await esDeFran(chatId)) tocarTimbre('/aviso');
-        else tocarTimbre('/entrante', { chatId });
+        // El grupo del asistente: solo lo que escribe FRAN toca el timbre (con su id, que el contenedor
+        // apunta para reconocerle al leer el grupo). Lo de otro miembro no hace nada.
+        if (GRUPO && chatId === GRUPO) {
+            const autor = String(msg.author || '');
+            if (autor && await esDeFran(autor)) tocarTimbre('/aviso', { autor });
+            return;
+        }
+        if (!chatId.endsWith('@c.us') && !chatId.endsWith('@lid')) return;   // otros grupos y difusiones fuera
+        // Fran → a trabajar (salvo que el canal sea el grupo: entonces su 1:1 es un chat más). Cualquier
+        // otro chat → solo su id, para el MODO PROACTIVO (el contenedor espera a que ese chat calle y
+        // decide allí si es una petición de un instalador).
+        if (await esDeFran(chatId)) { if (!GRUPO) tocarTimbre('/aviso'); return; }
+        tocarTimbre('/entrante', { chatId });
     } catch (e) {
         console.warn('[asistente] aviso de mensaje entrante:', e.message);
     }
@@ -78,7 +89,7 @@ function start() {
         return;
     }
     whatsappService.onMessage(alMensaje);
-    console.log(`[asistente] Canal con Fran activo: avisa a ${URL} cuando escribe ${TEL}.`);
+    console.log(`[asistente] Canal con Fran activo: avisa a ${URL} cuando escribe ${TEL}${GRUPO ? ` en el grupo ${GRUPO}` : ""}.`);
 }
 
 module.exports = { start };

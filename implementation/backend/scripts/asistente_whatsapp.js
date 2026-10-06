@@ -26,7 +26,35 @@ const { createClient } = require(path.join(__dirname, '../node_modules/@supabase
 const API = String(process.env.BROKERGY_API_URL || 'https://app.brokergy.es').replace(/\/+$/, '');
 // El número va en el .env, NUNCA en el código (el repo es público).
 const TEL = String(process.env.ASISTENTE_WHATSAPP_TEL || '').replace(/\D/g, '');
+// EL CANAL: el grupo «BROKERGY - CHAT» (ASISTENTE_WHATSAPP_GRUPO, «…@g.us») si está configurado; si no,
+// el chat 1:1 con Fran. En el grupo SOLO cuentan los mensajes de Fran: lo que escriba otro miembro se
+// ignora (cualquiera del grupo podría si no pedirle enviar propuestas o tocar expedientes).
+const GRUPO = String(process.env.ASISTENTE_WHATSAPP_GRUPO || '').trim();
+const CANAL = GRUPO || TEL;
 const ESTADO = path.join(__dirname, '..', 'scratch', 'asistente');
+// Los identificadores con los que escribe Fran en un grupo: su número (@c.us) y su @lid, que WhatsApp
+// usa cada vez más. El @lid lo comunica el backend con cada aviso (lo ha resuelto él) y se guarda aquí;
+// ASISTENTE_WHATSAPP_LID lo siembra.
+const IDS_FRAN = path.join(ESTADO, 'fran_ids.json');
+function idsDeFran() {
+    let ids = [];
+    try { ids = JSON.parse(fs.readFileSync(IDS_FRAN, 'utf8')); } catch { /* aún ninguno */ }
+    return [...new Set([`${TEL}@c.us`, ...String(process.env.ASISTENTE_WHATSAPP_LID || '').split(',').map(s => s.trim()).filter(Boolean), ...ids])];
+}
+function apuntarIdDeFran(id) {
+    if (!id || !/@(c\.us|lid)$/.test(id) || idsDeFran().includes(id)) return;
+    fs.mkdirSync(ESTADO, { recursive: true });
+    fs.writeFileSync(IDS_FRAN, JSON.stringify([...idsDeFran(), id]));
+}
+/** ¿Este mensaje lo ha escrito Fran? En el 1:1 basta con que no sea nuestro; en el grupo, su autor. */
+function esDeFran(m) {
+    if (m.de_mi) return false;
+    return GRUPO ? idsDeFran().includes(m.autor) : true;
+}
+/** Lee la conversación del canal (el grupo o el 1:1). */
+function leerCanal(dias, ms = 60_000) {
+    return api('/api/whatsapp/conversacion', { method: 'POST', body: GRUPO ? { chatId: GRUPO, dias } : { telefono: TEL, dias }, ms });
+}
 const PENDIENTE = path.join(ESTADO, 'pendiente.json');
 const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
@@ -67,7 +95,7 @@ async function api(ruta, { method = 'GET', body = null, binario = false, ms = 12
 
 async function mandar(texto) {
     if (!TEL) throw new Error('Falta ASISTENTE_WHATSAPP_TEL en el .env (el móvil personal de Fran).');
-    const out = await api('/api/whatsapp/send-text', { method: 'POST', body: { phone: TEL, message: texto } });
+    const out = await api('/api/whatsapp/send-text', { method: 'POST', body: { phone: CANAL, message: texto } });
     if (out && out.ok === false) throw new Error(out.error || 'WhatsApp no lo ha aceptado');
     return out;
 }
@@ -129,7 +157,7 @@ async function avisar() {
     if (!idOp) throw new Error('Uso: avisar <26RES060_OPnnn> [--a partner|cliente|instalador] [--nota "…"] [--enviar]');
     const a = opt('a') || 'partner';
     const { texto, op, estado } = await resumen(idOp, { a, nota: opt('nota') });
-    console.log(`Para: ${TEL} (móvil personal de Fran, chat MOIA) · oportunidad en ${estado}\n${'─'.repeat(70)}\n${texto}\n${'─'.repeat(70)}`);
+    console.log(`Para: ${GRUPO ? `el grupo ${GRUPO}` : `${TEL} (chat 1:1 de Fran)`} · oportunidad en ${estado}\n${'─'.repeat(70)}\n${texto}\n${'─'.repeat(70)}`);
     if (!bandera('enviar')) { console.log('EN SECO. Vuelve a lanzarlo con --enviar.'); return; }
     await mandar(texto);
     fs.mkdirSync(ESTADO, { recursive: true });
@@ -140,7 +168,7 @@ async function avisar() {
 async function decir() {
     const texto = POS.join(' ').trim();
     if (!texto) throw new Error('Uso: decir "texto" [--enviar]');
-    console.log(`Para: ${TEL}\n${texto}`);
+    console.log(`Para: ${CANAL}\n${texto}`);
     if (!bandera('enviar')) { console.log('EN SECO.'); return; }
     await mandar(texto);
     console.log('✓ Enviado.');
@@ -177,8 +205,8 @@ async function transcribir(m) {
 }
 
 async function respuestas(desde) {
-    const conv = await api('/api/whatsapp/conversacion', { method: 'POST', body: { telefono: TEL, dias: 3 } });
-    const suyos = (conv.mensajes || []).filter(m => !m.de_mi && m.t > desde);
+    const conv = await leerCanal(3);
+    const suyos = (conv.mensajes || []).filter(m => esDeFran(m) && m.t > desde);
     for (const m of suyos) {
         // eslint-disable-next-line no-await-in-loop
         if (/ptt|audio/.test(m.tipo)) m.texto = `🎤 ${await transcribir(m)}`;
@@ -205,7 +233,7 @@ async function leer() {
     }
 }
 
-module.exports = { api, mandar, transcribir, TEL };
+module.exports = { api, mandar, transcribir, TEL, GRUPO, CANAL, esDeFran, leerCanal, apuntarIdDeFran, idsDeFran };
 
 const ORDENES = { avisar, decir, leer };
 if (require.main === module) (async () => {
