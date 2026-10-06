@@ -6,6 +6,8 @@
 //                                                                   EN SECO: abre el popup, elige y enseña
 //   node scripts/claude_propuesta.js enviar 26RES060_OP217 --a cliente,instalador --enviar
 //                                                                   pulsa ENVIAR de verdad
+//   node scripts/claude_propuesta.js enviar <OP> --a cliente --mensaje texto.txt
+//                                                                   con el texto del fichero en vez del que compone el popup
 //   node scripts/claude_propuesta.js baja                          la desactiva (deja de poder entrar)
 //
 // CÓMO FUNCIONA. La propuesta (el PDF y los mensajes) la compone el NAVEGADOR al
@@ -188,6 +190,20 @@ async function enviar() {
         const canales = await page.$$eval('[data-robot^="canal-"]', els => els.map(e => ({
             canal: e.getAttribute('data-robot').slice(6), on: e.getAttribute('data-robot-on') === '1', texto: e.innerText.replace(/\s+/g, ' ').trim(),
         })));
+        // --mensaje <fichero>: sustituye el texto del popup (como si se editara a mano).
+        // Se escribe con el setter nativo + evento `input`, que es lo que React escucha.
+        const ficheroMensaje = opcion('--mensaje');
+        if (ficheroMensaje) {
+            const texto = fs.readFileSync(path.resolve(ficheroMensaje), 'utf8').replace(/\r\n/g, '\n').trim();
+            await page.$eval('[data-robot="mensaje"]', (el, v) => {
+                const set = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+                set.call(el, v);
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+            }, texto);
+            await espera(800);
+            const puesto = await page.$eval('[data-robot="mensaje"]', e => e.value);
+            if (puesto.trim() !== texto) throw new Error('No se pudo poner el mensaje de --mensaje en el popup.');
+        }
         const mensaje = await page.$eval('[data-robot="mensaje"]', e => e.value);
         const avisos = await page.evaluate(() => {
             const caja = document.querySelector('[data-robot="mensaje"]')?.closest('.fixed, [role="dialog"]') || document.body;
