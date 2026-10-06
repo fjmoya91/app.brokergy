@@ -307,6 +307,10 @@ router.get('/cliente/:id', async (req, res) => {
             // Los OTROS propietarios, para que el formulario los traiga rellenos.
             // Sin el enlace del justificante (no lo necesita el cliente): solo
             // si ya lo tenemos, para no volver a pedírselo.
+            // Varios propietarios SOLO si se ha habilitado desde la ficha del
+            // cliente (o la ficha ya los tiene). Si no, acepta una única persona.
+            permite_varios_propietarios: !!foundCliente?.aceptacion_varios_propietarios
+                || (Array.isArray(foundCliente?.copropietarios) && foundCliente.copropietarios.length > 0),
             copropietarios: (Array.isArray(foundCliente?.copropietarios) ? foundCliente.copropietarios : []).map(p => ({
                 id: p.id, es_empresa: !!p.es_empresa, nombre: p.nombre || '', apellidos: p.apellidos || '',
                 dni: p.dni || '', email: p.email || '', tlf: p.tlf || '', iban: p.iban || '',
@@ -426,15 +430,17 @@ router.post('/aceptar/:id', uploadAceptacionAny, async (req, res) => {
         // se tocan si el formulario los manda: un navegador con la versión
         // anterior de la página no los trae, y eso no puede vaciar los que ya
         // constan. Se funden con lo guardado para no perder sus justificantes.
+        // Y SOLO si se ha habilitado desde la ficha del cliente (o ya los tiene):
+        // sin eso, la aceptación es de una única persona y lo que llegue se ignora.
         let copropietariosNuevos = null;
-        if (formFields.copropietarios !== undefined) {
-            let previos = [];
-            if (id_cliente) {
-                const { data: cliPrev } = await supabase.from('clientes').select('copropietarios').eq('id_cliente', id_cliente).maybeSingle();
-                previos = cliPrev?.copropietarios || [];
+        if (formFields.copropietarios !== undefined && id_cliente) {
+            const { data: cliPrev } = await supabase.from('clientes')
+                .select('copropietarios, aceptacion_varios_propietarios').eq('id_cliente', id_cliente).maybeSingle();
+            const previos = Array.isArray(cliPrev?.copropietarios) ? cliPrev.copropietarios : [];
+            if (cliPrev?.aceptacion_varios_propietarios || previos.length > 0) {
+                copropietariosNuevos = fundirCopropietarios(formFields.copropietarios, previos);
+                clienteData.copropietarios = copropietariosNuevos;
             }
-            copropietariosNuevos = fundirCopropietarios(formFields.copropietarios, previos);
-            clienteData.copropietarios = copropietariosNuevos;
         }
 
         if (id_cliente) {
@@ -834,9 +840,12 @@ router.patch('/datos/:id', async (req, res) => {
         if (iban !== undefined) updates.numero_cuenta = iban || null;
 
         // Distinguir entre actualizar titular o contacto alternativo
-        const { data: currentCli } = await supabase.from('clientes').select('notificaciones_contacto_activas, contacto_es_partner, copropietarios').eq('id_cliente', opp.cliente_id).single();
-        // Otros propietarios: se funden con lo guardado para no perder sus justificantes.
-        if (copropietarios !== undefined) updates.copropietarios = fundirCopropietarios(copropietarios, currentCli?.copropietarios || []);
+        const { data: currentCli } = await supabase.from('clientes').select('notificaciones_contacto_activas, contacto_es_partner, copropietarios, aceptacion_varios_propietarios').eq('id_cliente', opp.cliente_id).single();
+        // Otros propietarios: se funden con lo guardado para no perder sus
+        // justificantes. Solo si están habilitados desde la ficha (o ya los hay).
+        const variosPermitidos = !!currentCli?.aceptacion_varios_propietarios
+            || (Array.isArray(currentCli?.copropietarios) && currentCli.copropietarios.length > 0);
+        if (copropietarios !== undefined && variosPermitidos) updates.copropietarios = fundirCopropietarios(copropietarios, currentCli?.copropietarios || []);
         
         if (currentCli?.contacto_es_partner) {
             // Persona de contacto = el partner: no se pisa. Lo tecleado es del titular.

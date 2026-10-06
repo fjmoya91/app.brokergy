@@ -236,6 +236,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
             contacto_es_partner: !!cliente.contacto_es_partner,
             // Otros propietarios de la vivienda (destinatarios, no firmantes).
             copropietarios: Array.isArray(cliente.copropietarios) ? cliente.copropietarios : [],
+            aceptacion_varios_propietarios: !!cliente.aceptacion_varios_propietarios,
             notas: cliente.notas || '',
         });
         setShowNotas(!!cliente.notas);
@@ -338,6 +339,7 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                 // parcial dejaría vivo a quien se acaba de quitar. El saneado (qué
                 // claves valen, MAYÚSCULAS, filas vacías) es del backend.
                 copropietarios: (form.copropietarios || []),
+                aceptacion_varios_propietarios: !!form.aceptacion_varios_propietarios,
                 notas: form.notas?.trim() || null,
             };
             const res = await axios.put(`/api/clientes/${cliente.id_cliente}`, payload);
@@ -662,6 +664,12 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                     )}
                                 </div>
                             </div>
+
+                            {cliente.aceptacion_varios_propietarios && !(cliente.copropietarios || []).length && (
+                                <p className="text-[11px] text-amber-300/80">
+                                    Varios propietarios habilitados en la aceptación: el formulario le preguntará si hay más de uno.
+                                </p>
+                            )}
 
                             {/* Otros propietarios: solo si los hay — un bloque vacío
                                 permanente solo alarga la ficha. */}
@@ -1091,6 +1099,19 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                     El <strong className="text-white/40">titular</strong> es el de arriba. Marca como <strong className="text-white/40">cedente</strong> a quien pague también la obra: firmará el convenio y su propio Anexo I, y la factura tiene que ir también a su nombre.
                                     Los que añadas aquí se podrán elegir como destinatarios al enviar mensajes, anexos o peticiones de documentación.
                                 </p>
+                                {/* Por defecto la aceptación es de UNA sola persona: la
+                                    pregunta de varios propietarios solo sale si lo pedimos. */}
+                                <label className="flex items-start gap-3 p-3 rounded-xl bg-bkg-surface border border-white/[0.06] cursor-pointer">
+                                    <input type="checkbox" className="mt-0.5 accent-brand"
+                                        checked={!!form.aceptacion_varios_propietarios || (form.copropietarios || []).length > 0}
+                                        disabled={(form.copropietarios || []).length > 0}
+                                        onChange={e => updateForm({ aceptacion_varios_propietarios: e.target.checked })} />
+                                    <span className="text-[11px] text-white/60 leading-relaxed">
+                                        <strong className="text-white/80">Permitir varios propietarios al aceptar la propuesta.</strong>{' '}
+                                        Desmarcado, el formulario de aceptación solo admite una persona. Márcalo solo si el cliente lo pide.
+                                        {(form.copropietarios || []).length > 0 && ' (Ya hay propietarios añadidos: se le enseñan igualmente.)'}
+                                    </span>
+                                </label>
                                 {(form.copropietarios || []).map((p, i) => (
                                     <PropietarioEdit
                                         key={p.id || i}

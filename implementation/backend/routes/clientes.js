@@ -390,6 +390,11 @@ router.put('/:id', enforceAuth, async (req, res) => {
         // igual que las etiquetas de un chat de WhatsApp: un patch parcial dejaría
         // vivo a quien se acaba de quitar.
         if (copropietarios !== undefined) updates.copropietarios = copropietarios;
+        // Habilitar varios propietarios en la aceptación de la propuesta: lo
+        // decide el equipo, nunca el partner ni el cliente.
+        if (body.aceptacion_varios_propietarios !== undefined && isStaff(req)) {
+            updates.aceptacion_varios_propietarios = body.aceptacion_varios_propietarios === true || body.aceptacion_varios_propietarios === 'true';
+        }
         if (notificaciones_contacto_activas !== undefined) updates.notificaciones_contacto_activas = notificaciones_contacto_activas === true || notificaciones_contacto_activas === 'true' || false;
 
         if (notas !== undefined) updates.notas = notas;

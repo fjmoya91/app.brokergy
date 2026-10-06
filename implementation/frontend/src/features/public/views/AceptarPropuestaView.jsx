@@ -273,6 +273,10 @@ export function AceptarPropuestaView({ idOportunidad }) {
     // `masPropietarios` en null = sin contestar: la pregunta va en neutro.
     const [masPropietarios, setMasPropietarios] = useState(null);
     const [copropietarios, setCopropietarios] = useState([]);
+    // Varios propietarios SOLO si lo hemos habilitado desde la ficha del cliente
+    // (o si la ficha ya los tiene). Sin eso, acepta una única persona: la
+    // pregunta generaba demasiadas dudas al aceptar.
+    const [permiteVarios, setPermiteVarios] = useState(false);
     const [justificantesCop, setJustificantesCop] = useState({});
     // Al editar los datos de una propuesta YA aceptada.
     const [editCops, setEditCops] = useState([]);
@@ -282,6 +286,8 @@ export function AceptarPropuestaView({ idOportunidad }) {
     useEffect(() => {
         if (demo) {
             setFormData(prev => ({ ...prev, ...DEMO_DATOS }));
+            // /firma/demo?varios — para ver cómo queda con varios propietarios habilitados.
+            if (new URLSearchParams(window.location.search).has('varios')) setPermiteVarios(true);
             setDisplayId('DEMO');
             setLoading(false);
             return;
@@ -293,12 +299,13 @@ export function AceptarPropuestaView({ idOportunidad }) {
                 // alimenta `formData`, que es lo que se manda al aceptar, y no
                 // pintan nada en ese formulario.
                 const { estado, numero_expediente, id_oportunidad: readableId, tiene_instalador, fecha_aceptacion, aceptado_por, cee_aportado, cee_decision,
-                        propuesta_version, propuesta_version_fecha, propuesta_version_aceptada, copropietarios: copsServidor, ...rest } = res.data;
+                        propuesta_version, propuesta_version_fecha, propuesta_version_aceptada, copropietarios: copsServidor, permite_varios_propietarios, ...rest } = res.data;
 
                 setFormData(prev => ({ ...prev, ...rest }));
                 // Si la ficha ya tiene otros propietarios, la pregunta viene contestada.
                 const cops = propietariosDesdeServidor(copsServidor);
                 setCopropietarios(cops);
+                setPermiteVarios(!!permite_varios_propietarios || cops.length > 0);
                 if (cops.length) setMasPropietarios(true);
                 setVersionProp({ v: propuesta_version, fecha: propuesta_version_fecha, aceptada: propuesta_version_aceptada });
                 setCeeAportado(!!cee_aportado);
@@ -334,7 +341,7 @@ export function AceptarPropuestaView({ idOportunidad }) {
             setError('Por favor, indícanos si usamos tu CEE actual o hacemos uno nuevo.');
             return;
         }
-        const faltaProp = faltaEnPropietarios(masPropietarios, copropietarios);
+        const faltaProp = permiteVarios ? faltaEnPropietarios(masPropietarios, copropietarios) : null;
         if (faltaProp) {
             setError(faltaProp);
             formRef.current?.scrollIntoView?.({ block: 'start' });
@@ -365,7 +372,7 @@ export function AceptarPropuestaView({ idOportunidad }) {
             if (justificanteFile) fd.append('justificante', justificanteFile);
             // Otros propietarios: la lista ENTERA (con "solo yo", vacía) y el
             // justificante de cada uno que cobre en su propia cuenta.
-            if (masPropietarios !== null) {
+            if (permiteVarios && masPropietarios !== null) {
                 const cops = masPropietarios ? copropietarios : [];
                 fd.append('copropietarios', JSON.stringify(propietariosParaEnviar(cops)));
                 for (const p of cops) {
@@ -517,13 +524,15 @@ export function AceptarPropuestaView({ idOportunidad }) {
                                 </div>
                                 {/* Sin subida de justificante aquí: este guardado es JSON.
                                     Si cambia la cuenta, el justificante se nos manda aparte. */}
-                                <PropietariosAceptacion
-                                    mas={editMas}
-                                    setMas={setEditMas}
-                                    lista={editCops}
-                                    setLista={setEditCops}
-                                    conJustificante={false}
-                                />
+                                {permiteVarios && (
+                                    <PropietariosAceptacion
+                                        mas={editMas}
+                                        setMas={setEditMas}
+                                        lista={editCops}
+                                        setLista={setEditCops}
+                                        conJustificante={false}
+                                    />
+                                )}
                                 <div className="flex gap-3 justify-end pt-2">
                                     <button
                                         onClick={() => { setEditing(false); setEditSuccess(false); }}
@@ -534,14 +543,17 @@ export function AceptarPropuestaView({ idOportunidad }) {
                                     <button
                                         disabled={savingEdit}
                                         onClick={async () => {
-                                            const faltaProp = faltaEnPropietarios(editMas, editCops);
+                                            const faltaProp = permiteVarios ? faltaEnPropietarios(editMas, editCops) : null;
                                             if (faltaProp) { alert(faltaProp); return; }
                                             setSavingEdit(true);
                                             try {
                                                 const cops = editMas ? editCops : [];
-                                                await axios.patch(`${API_URL}/datos/${idOportunidad}`, { ...editData, copropietarios: propietariosParaEnviar(cops) });
+                                                await axios.patch(`${API_URL}/datos/${idOportunidad}`, {
+                                                    ...editData,
+                                                    ...(permiteVarios ? { copropietarios: propietariosParaEnviar(cops) } : {}),
+                                                });
                                                 setFormData(prev => ({ ...prev, ...editData }));
-                                                setCopropietarios(cops);
+                                                if (permiteVarios) setCopropietarios(cops);
                                                 setEditing(false);
                                                 setEditSuccess(true);
                                             } catch (e) {
@@ -936,15 +948,18 @@ export function AceptarPropuestaView({ idOportunidad }) {
                                         </div>
                                     </div>
 
-                                    {/* ¿Más de un propietario? — IRPF y, si cobran aparte, su cuenta. */}
-                                    <PropietariosAceptacion
-                                        mas={masPropietarios}
-                                        setMas={setMasPropietarios}
-                                        lista={copropietarios}
-                                        setLista={setCopropietarios}
-                                        justificantes={justificantesCop}
-                                        setJustificantes={setJustificantesCop}
-                                    />
+                                    {/* ¿Más de un propietario? — solo si lo hemos habilitado
+                                        desde la ficha del cliente. Si no, acepta una única persona. */}
+                                    {permiteVarios && (
+                                        <PropietariosAceptacion
+                                            mas={masPropietarios}
+                                            setMas={setMasPropietarios}
+                                            lista={copropietarios}
+                                            setLista={setCopropietarios}
+                                            justificantes={justificantesCop}
+                                            setJustificantes={setJustificantesCop}
+                                        />
+                                    )}
 
                                     {/* Decisión sobre el CEE inicial (solo si el cliente aportó uno) */}
                                     {ceeAportado && (
