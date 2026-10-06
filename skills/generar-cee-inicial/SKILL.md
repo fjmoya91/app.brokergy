@@ -1,6 +1,6 @@
 ---
 name: generar-cee-inicial
-description: 'GENERA el CEE INICIAL (.cex de CE3X) de una oportunidad o de un expediente a partir de sus FOTOS: lee la placa de la caldera existente, la de la aerotermia que se va a poner, cuenta y mide las ventanas y puertas de cada fachada, las asigna a su pared en el plano del Catastro y escribe el .cex con la aerotermia como MEDIDA DE MEJORA. Si la aerotermia no está en el catálogo, la da de alta con todo lo que justifica su SCOP de clima cálido a 35 y 55 °C: ficha técnica del fabricante, ficha y etiqueta EPREL y Keymark si existe, unidas y guardadas en Drive. Úsalo cuando el usuario diga "genera el CEE inicial de NNN", "hazme el .cex de la oportunidad OP246", "prepara la envolvente de X con sus fotos", "mete esta aerotermia en el catálogo". Es el gemelo de `revisar-cee`: aquél revisa el .cex que entrega el certificador; éste se lo da ya hecho. Lo leído de una foto NACE DUDOSO y lo que no se puede afirmar no se inventa.'
+description: 'GENERA el CEE INICIAL (.cex de CE3X) de una oportunidad o expediente desde sus FOTOS o un VÍDEO de la vivienda: lee las placas de la caldera y de la aerotermia, cuenta y mide los huecos de cada fachada, los asigna a su pared en el plano del Catastro y escribe el .cex con la aerotermia como MEDIDA DE MEJORA. Con un VÍDEO (casi siempre de dentro) saca el fotograma de cada ventana y deduce a qué pared da; lo que no se puede saber no lo adivina: prepara el WhatsApp al propietario pidiendo esas paredes con su plano en rojo (en seco; se envía solo con tu «sí»). Si la aerotermia no está en el catálogo, la da de alta con su ficha, EPREL y Keymark. Úsalo con "genera el CEE inicial de NNN", "hazme el .cex de la OP246", "prepara la envolvente de X con sus fotos / su vídeo", "mete esta aerotermia en el catálogo". Gemelo de `revisar-cee`. Lo leído nace DUDOSO y lo que no se puede afirmar no se inventa.'
 ---
 
 # Generar el CEE inicial desde las fotos
@@ -38,7 +38,9 @@ Todo pasa por `implementation/backend/scripts/cee_inicial.js` (desde `implementa
 | `fotos <clave> [--out DIR]` | Baja todas las imágenes de «12. DOCUMENTOS PARA CEE» con su id de Drive | nada |
 | `paredes <clave> [--out DIR]` | Mide el edificio (con el **croquis catastral por plantas**), lista paredes/construcciones/cuerpos, dibuja `plano.png` (cartografía), `plano_satelite.png` (paredes sobre la foto aérea) y `satelite.png` (la foto aérea sola, con la fecha del vuelo), y **baja los documentos del Catastro** a `<out>/catastro/` | nada |
 | `catastro <clave> [--out DIR] [--refrescar-catastro]` | Solo los **documentos de la Sede del Catastro**: croquis por plantas (PDF), FXCC por plantas (DXF+ASC), KML 3D por plantas y de la parcela, FXCC con colindantes | con `--escribir` (los sube a `1. CEE / CEE INICIAL / CATASTRO`; `aplicar --escribir` ya lo hace solo) |
-| `leer-pared <clave> --pared ID --fotos id1,id2` | Inventaria los huecos de una fachada desde su foto (escala por la puerta) | nada |
+| `leer-pared <clave> --pared ID --fotos id1,id2` | Inventaria los huecos de una fachada desde su foto (escala por la puerta). Admite un fotograma del vídeo: `--fotos frame:F1` | nada |
+| `video <clave> [--archivo v.mp4] [--refrescar]` | Lee el **VÍDEO** de la vivienda: estancias, plantas, cada hueco con su fotograma, a qué da y **a qué pared va** (o «dudoso»). Deja `mosaico.jpg`, la hoja de contactos y `video.json` con la propuesta para el plan (`frame:H3`). Ver `referencia/video.md` | nada |
+| `pedir-fotos <clave> [--paredes …] [--enviar]` | El **WhatsApp al propietario** pidiendo la foto de las paredes que no se han podido resolver, una por lado, numeradas y con su plano en rojo. **En seco** salvo `--enviar` (solo con el «sí» del usuario); al enviar, el CEE queda «esperando las fotos» | con `--enviar` |
 | `eprel <modelo>` | Busca el modelo en EPREL y baja su ficha (ES) y su etiqueta | nada |
 | `alta-aerotermia --json d.json [--ficha ft.pdf:1,3-4] [--eprel-fiche f.pdf] [--eprel-label l.pdf]` | Da de alta el equipo en el catálogo y guarda la ficha unida en Drive | con `--escribir` |
 | `aplicar <clave> --plan plan.json` | Guarda el trabajo, pega las fotos, compone la ficha, escribe el `.cex`, lo guarda en Drive **y avisa** (`--sin-aviso` lo calla). Además lo **califica con CE3X 3.1 en el PC** (≈1 min, sin abrir su ventana) y deja al lado su **`.xml` y su `.pdf` oficial** (`… _REVISAR.xml/.pdf`); `--sin-pdf` lo salta. En seco, `--calificar` lo califica y los deja junto a la copia local | con `--escribir` |
@@ -142,6 +144,18 @@ nada**: siempre primero en seco.
    - Si con las fotos no se puede saber dónde está cada uso, **PREGUNTA** con una frase concreta
      («¿el garaje está al norte o al sur?»), o pide al usuario que lo pinte en la ventana
      («✏️ Croquis»). Nunca se inventa la topología; las superficies nunca se inventan: son de Catastro.
+4b. **¿Hay VÍDEO en vez de (o además de) fotos de las fachadas?** (`estado` lo dice: «vídeos de la
+   vivienda: …»; si llegó por WhatsApp, bájalo y pásalo con `--archivo`). Lánzale **`video`** y sigue
+   `referencia/video.md`. En corto:
+   - Casi siempre es de DENTRO: el **recuento por planta** sale bien (medido contra el técnico en
+     26RES060_197 y _199) y la **pared** solo se decide cuando en esa planta hay UNA fachada que encaje
+     con lo que se ve por la ventana (calle frente a patio/parcela). **Mira `mosaico.jpg`** con el plano
+     y la vista aérea: si tú lo ves claro, decídelo y dilo en `decisiones`.
+   - Lo asignado pasa al plan desde `video.json → propuesta` (`foto: "frame:H3"`): los fotogramas se
+     suben a su pared al `aplicar --escribir`.
+   - **Lo que no se puede saber NO se adivina**: `pedir-fotos <clave>` (en seco) y **enséñale al
+     usuario el mensaje** para que diga si se envía. No escribas el `.cex` con huecos en paredes que no
+     sabes: espera a las fotos (el CEE queda «esperando las fotos» en `agente_ia.js cola`).
 5. **`leer-pared`** por cada fachada con foto. Es una **propuesta**: la IA confunde a veces una
    máquina exterior con una ventana o se deja un hueco de un balcón. **Cuenta tú los huecos en la
    foto** y usa lo leído solo como apoyo de las medidas (su escala sale de la puerta de 2,05 m, y en
@@ -268,6 +282,9 @@ Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenid
   «Lo ha preparado el Agente IA» enseña los avisos de esta pasada (se guardan en el sello al terminar).
 - Lo que **no se ha podido afirmar**: garaje/porche dentro de la planta, fachadas sin foto (sin
   huecos puestos), depósito del termo sin litros, pilares estimados.
+- Si hubo **VÍDEO**: cuántos huecos vio por planta, cuáles se asignaron a su pared (y con qué
+  confianza), cuáles quedaron dudosos, y **qué se ha pedido al propietario** (o el borrador del
+  WhatsApp pendiente de su «sí»), con el mosaico para que el usuario lo vea.
 - Lo que dice la **vista aérea** y no consta en otro sitio (construcciones sin declarar, placas en el
   tejado que el cliente no mencionó, tipo de cubierta), con la **fecha del vuelo**.
 - Lo que dice el **croquis catastral por plantas** (y su fecha): qué se ha quitado por él (cuerpos y
@@ -284,6 +301,7 @@ node implementation/backend/scripts/test_senalado.mjs       # lo señalado, mont
 node implementation/backend/scripts/test_placa_ocr.js       # potencia útil vs consumo, Input/Output
 node implementation/backend/scripts/test_placa_equipo.js    # casación con el catálogo, EAN ≠ serie
 node implementation/backend/scripts/test_ortofoto.mjs       # rejilla de la ortofoto, fecha del vuelo
+node implementation/backend/scripts/test_video_envolvente.js  # vídeo: a qué pared va cada ventana, qué se pide
 python -m pytest implementation/cee-engine/tests/test_fxcc_plantas.py   # croquis catastral: lectura, cuerpos, propuesta
 ```
 

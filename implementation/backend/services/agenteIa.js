@@ -539,6 +539,8 @@ async function terminar({ negocio, clave, fase = 'inicial', fichero = {}, pendie
             ...prevSello, estado: 'terminado', delAgente,
             empezado_at: prevSello.empezado_at || null,
             terminado_at: ahora,
+            // Lo que se esperaba del propietario ya no se espera: el CEE está hecho.
+            esperando: null,
             fichero: fichero.nombre || prevSello.fichero || null,
             fichero_link: fichero.link || prevSello.fichero_link || null,
             carpeta_link: fichero.carpeta_link || prevSello.carpeta_link || null,
@@ -685,14 +687,15 @@ async function cola() {
                     // La final no se le encarga hasta que el inicial está registrado:
                     // una fase final «sin empezar» de un inicial vivo no es trabajo aún.
                     if (fase === 'final' && !sello && String(f.seguimiento?.cee_inicial || '').toUpperCase() !== 'REGISTRADO') continue;
-                    situacion = sello?.estado === 'trabajando' || sub === 'EN_TRABAJO' ? 'en trabajo' : 'encargado, sin empezar';
+                    situacion = sello?.esperando ? `esperando ${sello.esperando.que || 'material del propietario'}`
+                        : sello?.estado === 'trabajando' || sub === 'EN_TRABAJO' ? 'en trabajo' : 'encargado, sin empezar';
                 } else if (['PRESENTADO', 'PTE_REVISION'].includes(sub) && sello?.estado === 'terminado') {
                     situacion = 'terminado · pendiente de revisar';
                 } else continue;
                 out.push({
                     negocio, id: f.id, numero: f.numero_expediente, estado: f.estado,
                     cliente: nombreCliente(f.clientes), fase, subestado: sub, situacion,
-                    desde: f.seguimiento?.[`${key}_desde`] || sello?.empezado_at || null,
+                    desde: sello?.esperando?.desde || f.seguimiento?.[`${key}_desde`] || sello?.empezado_at || null,
                     fichero: sello?.fichero || null,
                 });
             }
@@ -709,12 +712,46 @@ async function cola() {
     }
     recorrer(cee.data, 'cee');
     const orden = { 'en trabajo': 0, 'encargado, sin empezar': 1, 'terminado · pendiente de revisar': 2 };
-    return out.sort((a, b) => (orden[a.situacion] - orden[b.situacion])
+    const rango = (x) => orden[x] ?? 0.5;                 // «esperando …» va tras «en trabajo»
+    return out.sort((a, b) => (rango(a.situacion) - rango(b.situacion))
         || String(a.desde || '').localeCompare(String(b.desde || '')));
 }
 
+/**
+ * El CEE queda ESPERANDO algo del propietario —las fotos de las paredes que su
+ * vídeo no dejaba resolver (`cee_inicial.js pedir-fotos`)—. Se sella en
+ * `cee.agente_ia[fase].esperando = { que, desde }` y lo dice `cola()`: así
+ * «¿está hecho el CEE de X?» tiene respuesta («esperando fotos desde el 6/10»)
+ * en vez de parecer olvidado. Lo limpia `terminar`. Una OPORTUNIDAD no tiene
+ * sello (no tiene certificador): ahí solo queda la línea del historial.
+ */
+async function esperar({ negocio, clave, fase = 'inicial', que }) {
+    fase = normFase(fase);
+    const ahora = new Date().toISOString();
+    if (negocio === 'op') {
+        const fila = await cargarOp(clave);
+        if (!fila) throw new Error(`No encuentro la oportunidad ${clave}.`);
+        await anotarOportunidad(fila.id, `🤖 El Agente IA espera ${que} para terminar el CEE.`);
+        return { sellado: false };
+    }
+    const fila = negocio === 'cee' ? await cargarCee(clave) : await cargarCae(clave);
+    if (!fila) throw new Error(`No encuentro ${clave}.`);
+    const sello = { ...(fila.agente_ia || {}) };
+    sello[fase] = { ...(sello[fase] || {}), esperando: { que, desde: ahora } };
+    await setCee(negocio, fila.id, 'agente_ia', sello);
+    const texto = `🤖 El Agente IA espera ${que} para terminar el ${etiquetaFase(fase, negocio, fila)}.`;
+    if (negocio === 'cee') {
+        await require('./ceeDirectoService').anotarHistorial(fila.id, {
+            tipo: 'CERTIFICADOR', usuario: NOMBRE, texto: texto.toUpperCase() });
+    } else {
+        await anotarCae(fila.id, [{ id: `${Date.now()}_agente_ia_espera`, tipo: 'notificacion_tecnica',
+                                    usuario: NOMBRE, fecha: ahora, texto }]);
+    }
+    return { sellado: true };
+}
+
 module.exports = {
-    NOMBRE, esAgenteIa, agente, cola, empezar, terminar, anotarOportunidad,
+    NOMBRE, esAgenteIa, agente, cola, empezar, terminar, esperar, anotarOportunidad,
     // puros (pruebas)
     decidirCertificador, siguienteSubestado, estadoGlobalDe, pendientesPorDefecto, componerAviso, normFase,
 };

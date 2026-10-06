@@ -342,9 +342,12 @@ async function llamarGemini(imagenes, {
             role: 'user',
             parts: [
                 { text: prompt },
-                ...imagenes.map((i) => ({
-                    inline_data: { mime_type: i.mimeType, data: i.buffer.toString('base64') },
-                })),
+                // Además de imágenes en línea admite un FICHERO ya subido a la
+                // File API de Gemini (`fileUri`: un vídeo no cabe en línea) y
+                // TEXTO suelto entre medias, para rotular cada fichero («VÍDEO 2»).
+                ...imagenes.map((i) => (i.texto !== undefined ? { text: String(i.texto) }
+                    : i.fileUri ? { file_data: { mime_type: i.mimeType, file_uri: i.fileUri } }
+                    : { inline_data: { mime_type: i.mimeType, data: i.buffer.toString('base64') } })),
             ],
         }],
         generationConfig: {

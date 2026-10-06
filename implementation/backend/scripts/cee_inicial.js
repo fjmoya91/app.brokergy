@@ -11,7 +11,9 @@
 //   node scripts/cee_inicial.js fotos    <clave> [--out DIR]
 //   node scripts/cee_inicial.js paredes  <clave> [--out DIR] [--sin-sede]
 //   node scripts/cee_inicial.js catastro <clave> [--out DIR] [--escribir] [--refrescar-catastro]
-//   node scripts/cee_inicial.js leer-pared <clave> --pared FBE1 --fotos id1,id2
+//   node scripts/cee_inicial.js leer-pared <clave> --pared FBE1 --fotos id1,id2   (o frame:F1)
+//   node scripts/cee_inicial.js video    <clave> [--archivo v.mp4] [--videos id1,id2] [--refrescar]
+//   node scripts/cee_inicial.js pedir-fotos <clave> [--paredes FBN1,F1O1] [--sin-planos] [--enviar]
 //   node scripts/cee_inicial.js eprel    <codigo del modelo> [--out DIR]
 //   node scripts/cee_inicial.js alta-aerotermia --json datos.json
 //            [--ficha ft.pdf[:1,3-4]] [--eprel-fiche f.pdf] [--eprel-label l.pdf] [--escribir]
@@ -33,6 +35,14 @@
 // zonas que no son vivienda con sus polígonos EXACTOS (garaje, almacén,
 // porche, comercio) en vez de conjeturarlas; con --escribir, `aplicar` y
 // `catastro` los dejan en `1. CEE / CEE INICIAL / CATASTRO`. --sin-sede lo salta.
+//
+// VÍDEO (`video` y `pedir-fotos`): si el cliente manda un vídeo andando por la
+// casa en vez de fotos de las paredes, `video` lo lee con Gemini, saca el
+// fotograma de cada hueco, lo comprueba con OTRO modelo y pone cada hueco en su
+// pared por planta y por lo que se ve por él (`utils/videoEnvolvente.js`). Lo
+// que no se puede decidir NO se adivina: `pedir-fotos` prepara el WhatsApp al
+// propietario con cada pared y su plano marcado en rojo (en seco; --enviar solo
+// con su «sí»). Los fotogramas entran en el plan como `frame:H3`.
 //
 // <clave> = el nº de la oportunidad (26RES060_OP246), el del expediente
 // (26RES060_186) o el de un CEE directo (2026CEE_55); el origen se deduce del
@@ -352,6 +362,10 @@ async function estado() {
         : `GENÉRICA de la simulación (${inp.customModelName || 'sin modelo'})`} · SCOP ${inp.scopHeating ?? a.scop ?? '—'}`
                 + ` · emisor ${inst.tipo_emisor || inp.emitterType || '—'}`);
     console.log(`  construcciones elegidas: ${JSON.stringify(await cex.construccionesElegidas(ctx.clave, ctx.origen))}`);
+    // Los VÍDEOS de la vivienda: si los hay, la orden `video` los lee.
+    const vids = await videosDeDrive(ctx).catch(() => []);
+    console.log(`  vídeos de la vivienda: ${vids.length
+        ? `${vids.length} (${vids.map(v => v.name).join(' · ')}) → «video ${ctx.clave}»` : 'ninguno'}`);
     const t = await cex.leerTrabajo(e.id, ctx.origen).catch(() => null);
     if (t) {
         const n = Object.values(t.huecos || {}).reduce((s, l) => s + (l || []).length, 0);
@@ -649,7 +663,15 @@ async function leerPared() {
     if (!m) throw new Error(`La pared ${id} no está en el plano (pasa antes «paredes»).`);
     const { fotos: cands } = await fotosSrv.candidatas(ctx.expediente);
     const imgs = [];
+    const man = ids.some(d => d.startsWith('frame:')) ? manifiestoVideo(ctx) : null;
     for (const d of ids) {
+        // Un FOTOGRAMA del vídeo (`frame:F1`, de la orden `video`): de la carpeta de trabajo.
+        if (d.startsWith('frame:')) {
+            const f = man?.fotogramas?.[d.slice(6)];
+            if (!f || !fs.existsSync(f.archivo)) throw new Error(`No encuentro el fotograma ${d}: lanza antes «video».`);
+            imgs.push({ name: path.basename(f.archivo), buffer: fs.readFileSync(f.archivo), mimeType: 'image/jpeg' });
+            continue;
+        }
         const f = await fotosSrv.bytesDe(ctx.expediente, d, { cands });
         imgs.push({ name: f.nombre, buffer: f.buffer, mimeType: f.mimeType });
     }
@@ -816,6 +838,29 @@ async function aplicar() {
     const e0 = ctx0.expediente;
     const avisos = [];
 
+    // 0. Los FOTOGRAMAS del vídeo (`frame:H3`, los deja la orden `video`): se
+    //    comprueba que están en su carpeta de trabajo; con --escribir se suben a
+    //    «FOTOS ENVOLVENTE» (con el vídeo y el segundo de los que salen) y la
+    //    referencia pasa a ser su id de Drive.
+    const esFrame = (d) => String(d || '').startsWith('frame:');
+    const refsFrame = new Set();
+    for (const ids of Object.values(plan.fotos || {})) for (const d of ids || []) if (esFrame(d)) refsFrame.add(d);
+    for (const lista of Object.values(plan.huecos || {})) for (const h of lista || []) if (esFrame(h.foto)) refsFrame.add(h.foto);
+    const manVideo = refsFrame.size ? manifiestoVideo(ctx0) : null;
+    if (refsFrame.size) {
+        if (!manVideo) {
+            throw new Error('El plan usa fotogramas (frame:…) y no hay video.json: lanza antes «video» '
+                + '(o pasa --video-dir con su carpeta).');
+        }
+        for (const r of refsFrame) {
+            const f = manVideo.fotogramas?.[r.slice(6)];
+            if (!f || !fs.existsSync(f.archivo)) throw new Error(`El fotograma ${r} no está en la carpeta del vídeo.`);
+        }
+        console.log(`
+${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
+            + '«1. CEE / CEE INICIAL / FOTOS ENVOLVENTE», cada uno a su pared.');
+    }
+
     // 1. La AEROTERMIA real. En una oportunidad va a los INPUTS, con los mismos
     //    campos que pone el botón «Leer la placa» de la calculadora
     //    (`aplicarModeloLeido`): el expediente la hereda al aceptar.
@@ -927,6 +972,14 @@ async function aplicar() {
     const prev = await cex.leerTrabajo(ctx.expediente.id, ctx.origen).catch(() => null);
     const cuerpos = plan.cuerpos_fuera ?? prev?.cuerpos_fuera ?? null;
     let zonas = plan.zonas_fuera ?? prev?.zonas_fuera ?? null;
+    // El CONTORNO de la vivienda (o del local) dentro de una parcela que es el
+    // conjunto: el mismo `recorte_vivienda` que dibuja «Delimitar adosado», en
+    // EPSG:25830. Lo de fuera queda como colindante (medianera), no se borra.
+    // Se admite la lista de vértices a pelo o `{ poligono }`, que es como lo guarda la ventana.
+    const recPlan = Array.isArray(plan.recorte_vivienda) ? { poligono: plan.recorte_vivienda }
+        : plan.recorte_vivienda;
+    const recorte = Array.isArray(recPlan?.poligono) && recPlan.poligono.length >= 3
+        ? { poligono: recPlan.poligono } : (prev?.recorte_vivienda || null);
     const croquis = Array.isArray(plan.croquis) && plan.croquis.length ? plan.croquis : null;
     if (croquis) {
         const niveles = new Set(croquis.map(c => Number(c.nivel)));
@@ -939,7 +992,7 @@ async function aplicar() {
     // El SEMISÓTANO y las unidades de OTRA parcela: los del plan funden sobre
     // los guardados (se guardan con el resto de los ajustes).
     const ajustesGeo = { ...(prev?.ajustes || {}), ...(plan.ajustes || {}) };
-    const geo = await geometria(ctx, { cuerpos, zonas, recorte: prev?.recorte_vivienda || null,
+    const geo = await geometria(ctx, { cuerpos, zonas, recorte,
                                        croquis, ajustar: plan.croquis_ajustar !== false, altura,
                                        ajustes: ajustesGeo });
     console.log(`\nALTURA DE PLANTA ${fmt(alturaMedida(geo))} m${altura ? '' : ' (por defecto)'}`);
@@ -958,6 +1011,11 @@ async function aplicar() {
     }
     const muros = murosDe(geo);
     const porId = Object.fromEntries(muros.map(m => [m.id, m]));
+    // Las paredes DIBUJADAS a mano en la ventana no las trae el motor: viven en
+    // el trabajo (`paredes.dibujadas`), con el tipo al que se hayan pasado.
+    for (const d of prev?.paredes?.dibujadas || []) {
+        if (d?.id && !porId[d.id]) porId[d.id] = { ...d, tipo: prev?.tipos?.[d.id] || d.tipo };
+    }
     const { admiteHuecos } = await esm('cee-envolvente/logic/tiposPared.js');
     const { lienzoAMundo } = await esm('cee-envolvente/logic/geometriaPlano.js');
     const { estadoDeTrabajo, senaladoDe, nuevoUid } = await esm('cee-envolvente/logic/senalado.js');
@@ -970,7 +1028,7 @@ async function aplicar() {
     for (const [id, lista] of Object.entries(plan.huecos || {})) {
         const m = porId[id];
         if (!m) throw new Error(`La pared ${id} no está en el plano.`);
-        if (!admiteHuecos({ ...m })) throw new Error(`${id} es ${m.tipo}: no admite huecos (solo fachadas).`);
+        if ((lista || []).length && !admiteHuecos({ ...m })) throw new Error(`${id} es ${m.tipo}: no admite huecos (solo fachadas).`);
         huecos[id] = (lista || []).map((h) => {
             const tipo = h.tipo === 'puerta' ? 'puerta' : 'ventana';
             n[tipo] += 1;
@@ -1087,7 +1145,7 @@ async function aplicar() {
         orientaciones: { ...(prev?.orientaciones || {}), ...(plan.orientaciones || {}) },
         pilares: { ...(prev?.pilares || {}), ...(plan.pilares || {}) },
         paredes: prev?.paredes || { movidas: {}, dibujadas: [] },
-        cuerpos_fuera: cuerpos || [], recorte_vivienda: prev?.recorte_vivienda || null,
+        cuerpos_fuera: cuerpos || [], recorte_vivienda: recorte,
         zonas_fuera: zonas || [],
         lienzo_ref: lienzoAMundo(geo.georef),
         ajustes,
@@ -1107,6 +1165,15 @@ async function aplicar() {
     // 5. Lo SEÑALADO: la misma traducción que hace la ventana (`loSenalado`).
     const st = estadoDeTrabajo(geo, trabajo);
     const envolvente = senaladoDe(st, ajustes, { lienzoAMundo: st.lienzoAMundo });
+    // Lo apartado que NO es una pared (un forjado `PH…`): la ventana solo sabe
+    // apartar muros, así que se le dice al motor aquí y SE AVISA — regenerar el
+    // .cex desde la ventana lo volvería a escribir.
+    const sinMuro = (plan.excluidas || []).filter(id => !(st.muros || {})[id]);
+    if (sinMuro.length) {
+        envolvente.excluir_ids.ids = [...new Set([...envolvente.excluir_ids.ids, ...sinMuro])];
+        avisos.push(`Apartado del .cex por el plan (no es una pared, la ventana no lo guarda): ${sinMuro.join(', ')}. `
+            + 'Si se regenera el .cex desde la ventana, vuelve a salir: quítalo en CE3X.');
+    }
 
     // 6a. Una OPORTUNIDAD aún no tiene certificador ni fechas del CEE, y sin los
     //     datos del técnico CE3X 3.1 califica pero NO escribe el XML («Revise …
@@ -1215,14 +1282,39 @@ async function aplicar() {
     } else {
         await cex.guardarTrabajo(ctx.expediente.id, trabajo, ctx.origen);
         console.log('\n✓ Trabajo guardado: abre la envolvente y lo verás señalado (en ámbar lo dudoso).');
+        // Un fotograma se SUBE (una vez por pared); una foto del expediente se
+        // REFERENCIA (`adoptar`), como desde la ventana.
+        const subidoFrame = {};
+        const subirFrame = async (pared, ref) => {
+            const k = `${pared}|${ref}`;
+            if (subidoFrame[k]) return subidoFrame[k];
+            const f = manVideo.fotogramas[ref.slice(6)];
+            const sub = await fotosSrv.subir(ctx.expediente, pared,
+                { buffer: fs.readFileSync(f.archivo), mimetype: 'image/jpeg' }, 'skill generar-cee-inicial',
+                { video: f.video_nombre, video_drive_id: f.video_drive_id, t: f.t });
+            subidoFrame[k] = sub.drive_id;
+            return sub.drive_id;
+        };
         for (const [clave, ids] of Object.entries(plan.fotos || {})) {
             for (const d of ids) {
-                try { await fotosSrv.adoptar(ctx.expediente, clave, d, 'skill generar-cee-inicial'); }
-                catch (err) { avisos.push(`Foto ${d} en ${clave}: ${err.message}`); }
+                try {
+                    if (esFrame(d)) await subirFrame(clave, d);
+                    else await fotosSrv.adoptar(ctx.expediente, clave, d, 'skill generar-cee-inicial');
+                } catch (err) { avisos.push(`Foto ${d} en ${clave}: ${err.message}`); }
             }
         }
+        if (Object.keys(subidoFrame).length) {
+            console.log(`✓ ${Object.keys(subidoFrame).length} fotograma(s) del vídeo pegados a sus paredes.`);
+        }
         const porFoto = {};
-        for (const mk of marcas) (porFoto[`${mk.clave}|${mk.drive_id}`] ||= []).push(mk);
+        for (const mk0 of marcas) {
+            let mk = mk0;
+            if (esFrame(mk0.drive_id)) {
+                try { mk = { ...mk0, drive_id: await subirFrame(mk0.clave, mk0.drive_id) }; }
+                catch (err) { avisos.push(`Fotograma ${mk0.drive_id} en ${mk0.clave}: ${err.message}`); continue; }
+            }
+            (porFoto[`${mk.clave}|${mk.drive_id}`] ||= []).push(mk);
+        }
         for (const [k, lista] of Object.entries(porFoto)) {
             const [clave, d] = k.split('|');
             try {
@@ -1484,10 +1576,511 @@ async function croquis() {
     if (!ESCRIBIR) console.log('\nEN SECO: no se ha subido a Drive. Pásale --escribir.');
 }
 
+// ─── video ──────────────────────────────────────────────────────────────────
+// Cuando el cliente no manda fotos de las paredes sino un VÍDEO andando por la
+// casa (el apartado `VIDEO_VIVIENDA`). Lo medido: casi siempre es de DENTRO, así
+// que lo que hay que saber es a qué pared de fuera da cada ventana.
+//
+//   1. Se baja el vídeo de «12. DOCUMENTOS PARA CEE» (o el de --archivo).
+//   2. Gemini lo MIRA (`videoEnvolventeService.analizarVideos`): estancias,
+//      plantas y, de cada hueco, el segundo en que mejor se ve y a qué da.
+//   3. Se saca el fotograma más nítido de cada hueco (`cee_inicial_video.py`) y
+//      OTRO modelo lo mira quieto (`confirmarFotogramas`): si las dos lecturas
+//      no dicen lo mismo, no se decide.
+//   4. El CÓDIGO pone cada hueco en su pared (`utils/videoEnvolvente.js`): por
+//      planta y por lo que se ve por él. Lo que no se puede decidir queda
+//      DUDOSO, y las paredes que el vídeo no resuelve son las fotos que hay que
+//      pedirle al propietario (`pedir-fotos`).
+//
+// Nada se escribe: deja en la carpeta de trabajo la hoja de contactos, el
+// mosaico de fotogramas rotulados y `video.json`, con la PROPUESTA lista para
+// el plan de `aplicar` (los fotogramas van como `frame:H3`).
+
+const VIDEO_PY = path.join(__dirname, 'cee_inicial_video.py');
+const videoSrv = () => require('../services/videoEnvolventeService');
+const videoUtil = () => require('../utils/videoEnvolvente');
+
+/** Llama al script de fotogramas y devuelve su JSON (la última línea). */
+function videoPy(args, ms = 900_000) {
+    let out;
+    try {
+        out = execFileSync(PYTHON, [VIDEO_PY, ...args], {
+            encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: ms, stdio: ['ignore', 'pipe', 'pipe'],
+        });
+    } catch (e) {
+        const ultima = String(e.stdout || '').trim().split('\n').pop();
+        let j = null;
+        try { j = JSON.parse(ultima); } catch { /* no era JSON */ }
+        throw new Error(j?.error ? `fotogramas: ${j.error}`
+            : `cee_inicial_video.py: ${String(e.stderr || e.message).slice(0, 300)}`);
+    }
+    return JSON.parse(out.trim().split('\n').pop());
+}
+
+const mmss = t => (t === null || t === undefined ? '?'
+    : `${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, '0')}`);
+const carpetaVideo = (ctx) => (opt('out') && opt('out') !== true ? opt('out')
+    : path.join(CACHE, ctx.expediente.numero_expediente, 'video'));
+
+/** Los vídeos de ANTES de la obra que hay en la carpeta de documentación. */
+async function videosDeDrive(ctx) {
+    const raiz = ctx.driveFolderId;
+    const subNombre = ctx.origen === 'cee' ? '4. DOCUMENTACIÓN PARA CEE' : placaOcr.SUBCARPETA_DOCS;
+    const sub = raiz && await driveService.findSubfolderByName(raiz, subNombre);
+    if (!sub) return [];
+    return (await driveService.listFiles(sub) || [])
+        .filter(f => videoSrv().esVideo(f))
+        // El de la REFORMA es de después: enseña la casa ya cambiada.
+        .filter(f => !/^VIDEO_REFORMA/i.test(f.name || ''))
+        .sort((a, b) => String(a.name).localeCompare(String(b.name), 'es', { numeric: true }));
+}
+
+/** El manifiesto que deja `video` (o null). */
+function manifiestoVideo(ctx) {
+    const dir = opt('video-dir') && opt('video-dir') !== true ? opt('video-dir') : carpetaVideo(ctx);
+    const f = path.join(dir, 'video.json');
+    return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : null;
+}
+
+async function video() {
+    const ctx = await cargar(POS[0]);
+    const out = carpetaVideo(ctx);
+    const dirVid = path.join(out, 'videos');
+    const dirFr = path.join(out, 'fotogramas');
+    fs.mkdirSync(dirVid, { recursive: true });
+    fs.mkdirSync(dirFr, { recursive: true });
+    const refrescar = RESTO.includes('--refrescar');
+
+    // 1. Los vídeos: los de --archivo (locales, p. ej. bajados del WhatsApp) o
+    //    los de Drive (todos, o los de --videos id1,id2).
+    const videos = [];
+    const archivos = opt('archivo') && opt('archivo') !== true ? String(opt('archivo')).split(',') : [];
+    if (archivos.length) {
+        for (const a of archivos) {
+            if (!fs.existsSync(a)) throw new Error(`No existe ${a}.`);
+            videos.push({ nombre: path.basename(a), local: path.resolve(a), drive_id: null,
+                          tam: fs.statSync(a).size });
+        }
+    } else {
+        let lista = await videosDeDrive(ctx);
+        const elegidos = opt('videos') && opt('videos') !== true ? String(opt('videos')).split(',') : null;
+        if (elegidos) lista = lista.filter(f => elegidos.includes(f.id) || elegidos.includes(f.name));
+        if (!lista.length) {
+            throw new Error('No hay ningún vídeo de la vivienda en la carpeta de documentación '
+                + '(apartado VIDEO_VIVIENDA). Si llegó por WhatsApp, bájalo y pásalo con --archivo.');
+        }
+        for (const f of lista) {
+            const local = path.join(dirVid, f.name.replace(/[\\/:*?"<>|]/g, '_'));
+            const meta = await driveService.getFileMetadata(f.id, 'id, name, mimeType, size').catch(() => null);
+            const tam = Number(meta?.size) || null;
+            if (!fs.existsSync(local) || (tam && fs.statSync(local).size !== tam)) {
+                process.stdout.write(`Bajando ${f.name} (${kb(tam)})… `);
+                const buf = await driveService.getFileContent(f.id);
+                fs.writeFileSync(local, buf);
+                console.log('✓');
+            }
+            videos.push({ nombre: f.name, local, drive_id: f.id, tam: tam || fs.statSync(local).size,
+                          mime: meta?.mimeType || f.mimeType || null });
+        }
+    }
+
+    // 2. Cuánto dura cada uno, si tiene sonido, y su hoja de contactos.
+    for (const [i, v] of videos.entries()) {
+        Object.assign(v, videoPy(['probe', v.local]));
+        v.hoja = path.join(out, `hoja_${i + 1}.jpg`);
+        const n = Math.max(12, Math.min(48, Math.round((v.duracion_s || 60) / 5)));
+        videoPy(['hoja', v.local, v.hoja, '--n', String(n), '--cols', '6']);
+        console.log(`VÍDEO ${i + 1}: ${v.nombre} · ${mmss(v.duracion_s)} · ${v.ancho}×${v.alto}`
+            + ` · ${v.audio === true ? 'con sonido' : v.audio === false ? 'SIN sonido' : 'sonido ?'}`
+            + ` · ${kb(v.tam)} (motor de fotogramas: ${v.motor})`);
+    }
+
+    // 3. La lectura del vídeo, cacheada: la misma entrada no se vuelve a pagar
+    //    (y da lo mismo cada vez que se mire).
+    const svc = videoSrv();
+    const claveLectura = JSON.stringify({ v: videos.map(v => [v.drive_id || v.nombre, v.tam]), m: svc.MODELO });
+    const fLectura = path.join(out, 'lectura.json');
+    let lectura = null;
+    if (!refrescar && fs.existsSync(fLectura)) {
+        const c = JSON.parse(fs.readFileSync(fLectura, 'utf8'));
+        // Se vuelve a NORMALIZAR lo que dijo el modelo: si las reglas han
+        // cambiado desde que se pidió, se aplican sin volver a pagarla.
+        if (c.clave === claveLectura && c.lectura?.bruto) {
+            lectura = { ...svc.normalizar(c.lectura.bruto, videos), bruto: c.lectura.bruto,
+                        modelo: c.lectura.modelo, at: c.lectura.at };
+            if (videos.every(v => v.audio === false)) lectura.narracion = [];
+        }
+    }
+    if (!lectura) {
+        console.log(`\nMirando ${videos.length > 1 ? 'los vídeos' : 'el vídeo'} con ${svc.MODELO} (≈1 min)…`);
+        lectura = await svc.analizarVideos(videos.map(v => ({
+            buffer: fs.readFileSync(v.local), nombre: v.nombre, mimeType: v.mime, duracion_s: v.duracion_s,
+        })));
+        // Un vídeo SIN sonido no puede tener narración: lo que diga el modelo
+        // de lo que «dice quien graba» es inventado.
+        if (videos.every(v => v.audio === false)) lectura.narracion = [];
+        fs.writeFileSync(fLectura, JSON.stringify({ clave: claveLectura, lectura }, null, 1));
+    } else console.log('\n(lectura del vídeo de la caché: --refrescar para volver a pedirla)');
+
+    // 4. Los fotogramas: el más nítido de ±0,7 s del segundo de cada hueco y de
+    //    cada fachada vista desde fuera.
+    const pedidos = [
+        ...lectura.huecos.filter(h => h.t !== null).map(h => ({ clave: h.id, t: h.t, video: h.video })),
+        ...lectura.fachadas.filter(f => f.t !== null).map(f => ({ clave: f.id, t: f.t, video: f.video })),
+    ];
+    const fotogramas = {};
+    for (const [i, v] of videos.entries()) {
+        const suyos = pedidos.filter(p => p.video === i + 1);
+        if (!suyos.length) continue;
+        const fPed = path.join(out, `pedidos_${i + 1}.json`);
+        fs.writeFileSync(fPed, JSON.stringify(suyos));
+        const r = videoPy(['fotogramas', v.local, fPed, dirFr]);
+        for (const f of r.fotogramas || []) {
+            if (f.error) { console.log(`  ✗ ${f.clave}: ${f.error}`); continue; }
+            fotogramas[f.clave] = { archivo: f.archivo, t: f.t, nitidez: f.nitidez, video: i + 1,
+                                    video_nombre: v.nombre, video_drive_id: v.drive_id };
+        }
+    }
+
+    // 5. La SEGUNDA lectura, fotograma a fotograma y con otro modelo (cacheada).
+    const conFoto = lectura.huecos.filter(h => fotogramas[h.id]);
+    const fConf = path.join(out, 'confirmacion.json');
+    const claveConf = JSON.stringify({ l: claveLectura, at: lectura.at, m: svc.MODELO_FOTOGRAMAS,
+                                       f: conFoto.map(h => [h.id, fotogramas[h.id].t]) });
+    let conf = null;
+    if (!refrescar && fs.existsSync(fConf)) {
+        const c = JSON.parse(fs.readFileSync(fConf, 'utf8'));
+        if (c.clave === claveConf) conf = c.conf;
+    }
+    if (!conf && conFoto.length && !RESTO.includes('--sin-confirmar')) {
+        console.log(`Comprobando los ${conFoto.length} fotogramas con ${svc.MODELO_FOTOGRAMAS}…`);
+        conf = await svc.confirmarFotogramas(conFoto.map(h => ({
+            id: h.id, buffer: fs.readFileSync(fotogramas[h.id].archivo), mimeType: 'image/jpeg',
+            descripcion: [h.tipo.replace('_', ' '), h.descripcion].filter(Boolean).join(': '),
+        })));
+        fs.writeFileSync(fConf, JSON.stringify({ clave: claveConf, conf }, null, 1));
+    }
+    const rec = svc.reconciliar(lectura.huecos, conf?.lecturas || {});
+
+    // 6. Cada hueco a su pared, con el plano de la geometría (la misma que la
+    //    ventana: lo que el trabajo ya deja fuera, fuera).
+    const t = await cex.leerTrabajo(ctx.expediente.id, ctx.origen).catch(() => null);
+    let geo = geoCacheada(ctx);
+    if (!geo) {
+        await saludMotor();
+        geo = await geometria(ctx, { cuerpos: t?.cuerpos_fuera || null, zonas: t?.zonas_fuera || null,
+                                     recorte: t?.recorte_vivienda || null,
+                                     altura: t?.ajustes?.altura_libre_planta || null });
+    }
+    const u = videoUtil();
+    const lados = u.ladosDePlano(murosDe(geo));
+    const niveles = (geo.plantas || []).filter(p => p.habitable !== false).map(p => p.nivel);
+    // Las fachadas vistas desde FUERA, primero: a su lado, con la misma regla
+    // (planta baja). Sus huecos heredan esa pared.
+    const fachadasVistas = [];
+    const fachadas = lectura.fachadas.map((f) => {
+        const a = u.asignarHuecos({ huecos: [{ id: f.id, tipo: f.tiene_entrada ? 'puerta_entrada' : 'ventana',
+                                               planta: niveles.includes(0) ? 0 : niveles[0], da_a: f.da_a }] },
+                                  lados, { niveles, entrada: t?.entrada || null }).huecos[0];
+        if (a?.estado === 'asignado') fachadasVistas.push(a.lado);
+        return { ...f, lado: a?.estado === 'asignado' ? a.lado : null, pared: a?.pared || null,
+                 candidatas: a?.candidatas || [] };
+    });
+    const asig = u.asignarHuecos({ huecos: rec.huecos }, lados, {
+        niveles, entrada: t?.entrada || null, estancias: lectura.estancias,
+        fachadas: Object.fromEntries(fachadas.filter(f => f.lado).map(f => [f.id, f.lado])),
+    });
+    const est = u.estadoDeLados(lados, asig, { fachadasVistas });
+    const exceso = u.capacidad(asig.huecos, lados);
+
+    // 7. El mosaico rotulado, para repasar de una vez lo que se propone.
+    const nombreEst = Object.fromEntries(lectura.estancias.map(e => [e.id, e.nombre]));
+    const mosaico = [
+        ...asig.huecos, ...asig.lucernarios, ...asig.descartados,
+    ].filter(h => fotogramas[h.id]).map(h => ({
+        clave: h.id, archivo: fotogramas[h.id].archivo,
+        // «|» separa las dos líneas del rótulo (cee_inicial_video.py, `componer`).
+        rotulo: `${h.id} · ${mmss(fotogramas[h.id].t)} · P${h.nivel ?? h.planta ?? '?'} · ${h.tipo.replace('_', ' ')}|`
+            + `${nombreEst[h.estancia] || ''} →${h.estado === 'asignado' ? h.pared : h.tipo === 'lucernario' ? 'cubierta'
+                : h.motivo && !h.estado ? 'no se pone' : '¿?'}`,
+    }));
+    for (const f of fachadas.filter(x => fotogramas[x.id])) {
+        mosaico.push({ clave: f.id, archivo: fotogramas[f.id].archivo,
+                       rotulo: `${f.id} · ${mmss(fotogramas[f.id].t)} · fachada vista desde fuera|`
+                           + `da a ${f.da_a || '?'} → ${f.pared || '¿?'}` });
+    }
+    let fMosaico = null;
+    if (mosaico.length) {
+        const fM = path.join(out, 'mosaico.json');
+        fs.writeFileSync(fM, JSON.stringify(mosaico));
+        fMosaico = path.join(out, 'mosaico.jpg');
+        videoPy(['mosaico', fM, fMosaico, '--cols', '4']);
+    }
+
+    // 8. La PROPUESTA para el plan, y las paredes que hay que pedir.
+    const huecosPlan = u.huecosParaPlan(asig, { varios: videos.length > 1 });
+    const fotosPlan = {};
+    for (const [pared, lista] of Object.entries(huecosPlan)) {
+        fotosPlan[pared] = [...new Set(lista.map(h => h.foto))].slice(0, 8);
+    }
+    for (const f of fachadas) {
+        if (f.pared && fotogramas[f.id]) (fotosPlan[f.pared] ||= []).unshift(`frame:${f.id}`);
+    }
+    const plantaDe = n => (geo.plantas || []).find(p => p.nivel === n)?.id;
+    const arriba = [...(geo.plantas || [])].filter(p => p.habitable !== false).sort((a, b) => b.nivel - a.nivel)[0];
+    const lucernariosPlan = asig.lucernarios.map(l => {
+        const med = u.medidas(l);
+        return { planta: plantaDe(l.nivel) || arriba?.id, ancho: med.ancho, alto: med.alto,
+                 por_que: `${l.descripcion || 'lucernario'} — vídeo ${mmss(l.t)} (${med.estimada
+                     ? `medida estimada: ${l.medida_referencia}` : 'medida por defecto'})`.slice(0, 280) };
+    });
+    const pedir = est.pedir.flatMap(l => l.muros.filter(m => (m.largo || 0) >= u.LARGO_MINIMO).map(m => m.id));
+
+    const manifiesto = {
+        clave: ctx.clave, generado_at: new Date().toISOString(),
+        videos: videos.map(v => ({ nombre: v.nombre, drive_id: v.drive_id, local: v.local,
+                                   duracion_s: v.duracion_s, audio: v.audio, hoja: v.hoja })),
+        modelo: lectura.modelo, modelo_fotogramas: conf?.modelo || null,
+        lectura: { ...lectura, huecos: undefined },
+        fotogramas,
+        huecos: asig.huecos, lucernarios: asig.lucernarios, descartados: asig.descartados,
+        fachadas, lados: est.lados, exceso, avisos: [...lectura.avisos, ...rec.avisos, ...asig.avisos],
+        pedir,
+        confirmar: est.confirmar.flatMap(l => l.muros.filter(m => (m.largo || 0) >= u.LARGO_MINIMO).map(m => m.id)),
+        propuesta: { huecos: huecosPlan, fotos: fotosPlan, lucernarios: lucernariosPlan },
+    };
+    fs.writeFileSync(path.join(out, 'video.json'), JSON.stringify(manifiesto, null, 1));
+
+    // 9. El informe.
+    console.log(`\nLECTURA (${lectura.modelo}): ${lectura.tipo_recorrido} · calidad ${lectura.calidad || '?'}`
+        + `${lectura.calidad_nota ? ` (${lectura.calidad_nota})` : ''} · plantas ${JSON.stringify(lectura.plantas_recorridas)}`
+        + ` · ¿todas las habitaciones? ${lectura.recorrido_completo === true ? 'sí' : lectura.recorrido_completo === false ? 'NO' : '?'}`);
+    console.log('ESTANCIAS: ' + lectura.estancias.map(e => `${e.id} ${e.nombre} (P${e.planta ?? '?'}, ${mmss(e.t_desde)})`).join(' · '));
+    console.log('\nHUECOS');
+    for (const h of asig.huecos) {
+        const ev = h.evidencia ? ` «${String(h.evidencia).slice(0, 70)}»` : '';
+        const med = u.medidas(h);
+        console.log(`  ${h.id.padEnd(4)} ${mmss(fotogramas[h.id]?.t ?? h.t).padStart(5)} P${h.nivel ?? '?'} `
+            + `${(nombreEst[h.estancia] || h.fachada || '').padEnd(16).slice(0, 16)} ${h.tipo.padEnd(14)}`
+            + ` da a ${(h.da_a || '¿?').padEnd(7)} (${h.da_a_fuente || '—'})${ev}`);
+        console.log(`        ${med.ancho}×${med.alto} m ${med.estimada ? `(estimada: ${h.medida_referencia})` : '(por defecto)'}`
+            + ` → ${h.estado === 'asignado' ? `${h.pared} [${h.confianza}]` : h.estado.toUpperCase()} · ${h.motivo}`
+            + `${h.estado === 'dudoso' && h.candidatas?.length ? ` · candidatas: ${h.candidatas.map(c => c.pared).join(', ')}` : ''}`);
+    }
+    if (asig.lucernarios.length) {
+        console.log('\nLUCERNARIOS: ' + asig.lucernarios.map(l => `${l.id} ${mmss(l.t)} (${l.descripcion || ''})`).join(' · '));
+    }
+    for (const d of asig.descartados) console.log(`  · ${d.id} ${d.tipo}: ${d.motivo}`);
+    if (fachadas.length) {
+        console.log('\nFACHADAS VISTAS DESDE FUERA');
+        for (const f of fachadas) {
+            console.log(`  ${f.id} ${mmss(f.t)} da a ${f.da_a || '?'} · ${f.encuadre} · ${f.descripcion || ''} → ${f.pared || `¿? (${f.candidatas.map(c => c.pared).join(', ') || 'sin candidatas'})`}`);
+        }
+    }
+    console.log('\nLADOS DEL PLANO');
+    const SIMB = { resuelto: '✓', por_confirmar: '~', dudoso: '?', sin_ver: '✗', no_caben: '!' };
+    for (const l of est.lados) {
+        console.log(`  ${SIMB[l.estado]} ${u.rotuloLado(l)} — ${l.estado.replace('_', ' ')}`
+            + `${l.huecos.length ? ` · ${l.huecos.join(', ')}` : ''}${l.dudosos.length ? ` · dudosos ${l.dudosos.join(', ')}` : ''}`);
+    }
+    for (const e of exceso) console.log(`  ! ${e.pared}: los huecos suman ${fmt(e.suma)} m y la pared mide ${fmt(e.largo)} m`);
+    for (const l of est.sinPedir) console.log(`  · ${l.id} (${fmt(l.largo)} m) ${l.estado === 'sin_ver' ? 'sin ver' : 'en duda'}: muy corta para pedir su foto (si tiene una ventana, lo verá el certificador)`);
+    const avisos = manifiesto.avisos;
+    if (avisos.length) { console.log('\nAVISOS'); for (const a of avisos) console.log(`  ⚠ ${a}`); }
+    if (lectura.narracion.length) {
+        console.log('\nLO QUE DICE QUIEN GRABA (según la lectura; NO comprobado — úsalo como pista):');
+        for (const n of lectura.narracion) console.log(`  ${mmss(n.t)} «${n.texto}»`);
+    }
+    if (lectura.no_se_ve.length) { console.log('\nNO SE VE'); for (const x of lectura.no_se_ve) console.log(`  · ${x}`); }
+    if (lectura.observaciones) console.log(`\nOBSERVACIONES: ${lectura.observaciones}`);
+
+    console.log(`\nFICHEROS en ${out}`);
+    for (const v of videos) console.log(`  ${path.basename(v.hoja)}  (hoja de contactos de ${v.nombre})`);
+    if (fMosaico) console.log('  mosaico.jpg  (cada hueco con su fotograma y la pared propuesta)');
+    console.log('  fotogramas/  ·  video.json (con la PROPUESTA para el plan: «propuesta»)');
+    console.log('\nSIGUIENTE');
+    console.log('  1. MIRA mosaico.jpg y la hoja de contactos junto a plano.png / plano_satelite.png.');
+    console.log('     Lo asignado se copia al plan desde video.json → propuesta (huecos, fotos con «frame:H3», lucernarios).');
+    if (pedir.length) {
+        console.log(`  2. ${est.pedir.length} lado(s) sin resolver (${pedir.join(', ')}): hay que pedir las fotos al propietario.`);
+        console.log(`     node scripts/cee_inicial.js pedir-fotos ${ctx.clave}        (en seco: enseña el mensaje)`);
+    } else {
+        console.log('  2. Todas las fachadas quedan resueltas con el vídeo.');
+    }
+    if (est.confirmar.length) {
+        const ids = est.confirmar.flatMap(l => l.muros.filter(m => (m.largo || 0) >= u.LARGO_MINIMO).map(m => m.id));
+        console.log(`  3. ${est.confirmar.length} lado(s) asignados con confianza MEDIA (${ids.join(', ')}): míralos en el`
+            + ' mosaico; si no lo ves claro, pídelos también (--paredes).');
+    }
+}
+
+// ─── pedir-fotos ────────────────────────────────────────────────────────────
+// Lo que el vídeo (o las fotos) no deja resolver se le PIDE al propietario por
+// WhatsApp: un mensaje con cada pared en su lenguaje (el «plan de fotos» del
+// motor) y, detrás, el plano de cada una con la pared marcada en rojo.
+//
+// En SECO por defecto: enseña a quién va, el texto y deja los planos en la
+// carpeta. Solo con --enviar sale, y solo con el «sí» del usuario para ESE
+// mensaje (CLAUDE.md: nada sale a un tercero sin su confirmación).
+
+const SLOT_DE_TOMA = (tipo) => (tipo === 'CALLE' ? 'FOTO_FACHADA_PRINCIPAL' : 'FOTO_PATIOS_INTERIORES');
+
+async function enlaceSubida(ctx, slots) {
+    // Sin --enviar no se crea ningún token: solo se usa el que ya exista.
+    if (ctx.origen === 'cee') {
+        const row = { id: ctx.expediente.id, portal_token: ctx.expediente.portal_token || null };
+        if (!row.portal_token) {
+            const { data } = await supabase.from('cee_directos').select('portal_token').eq('id', row.id).maybeSingle();
+            row.portal_token = data?.portal_token || null;
+        }
+        if (!row.portal_token && !RESTO.includes('--enviar')) return null;
+        return require('../services/ceeDirectoDocsService').enlace(row, slots);
+    }
+    const oppId = ctx.expediente.oportunidad_id || (ctx.origen === 'op' ? ctx.expediente.id : null);
+    if (!oppId) return null;
+    const ru = require('../services/reformaUploadService');
+    const { data } = await supabase.from('oportunidades')
+        .select('token:datos_calculo->>upload_token').eq('id', oppId).maybeSingle();
+    let base = data?.token ? ru.buildUploadLink(oppId, data.token) : null;
+    if (!base && RESTO.includes('--enviar')) base = await ru.ensureUploadLink(oppId);
+    if (!base || base.includes('/firma/')) return base;
+    return `${base}${base.includes('?') ? '&' : '?'}need=${slots.join(',')}`;
+}
+
+async function apiInterna(ruta, cuerpo) {
+    const key = process.env.INTERNAL_API_KEY;
+    if (!key) throw new Error('Falta INTERNAL_API_KEY en el .env del backend.');
+    const API = String(process.env.BROKERGY_API_URL || 'https://app.brokergy.es').replace(/\/+$/, '');
+    const r = await fetch(`${API}${ruta}`, {
+        method: 'POST', headers: { 'x-internal-key': key, 'Content-Type': 'application/json' },
+        body: JSON.stringify(cuerpo), signal: AbortSignal.timeout(120_000),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `${API}${ruta} → ${r.status}`);
+    return j;
+}
+
+async function pedirFotos() {
+    const ctx = await cargar(POS[0]);
+    const enviar = RESTO.includes('--enviar');
+    const conPlanos = !RESTO.includes('--sin-planos');
+    const man = manifiestoVideo(ctx);
+    let paredes = opt('paredes') && opt('paredes') !== true
+        ? String(opt('paredes')).split(',').map(s => s.trim()).filter(Boolean)
+        : (man?.pedir || []);
+    if (!paredes.length) {
+        throw new Error('No hay paredes que pedir: pásalas con --paredes FBN1,F1O1 (o lanza antes «video»).');
+    }
+    let geo = geoCacheada(ctx);
+    if (!geo) { await saludMotor(); geo = await geometria(ctx); }
+    // Se pide por LADO de la casa (una foto con todas sus plantas), no por muro.
+    const u = videoUtil();
+    const lados = u.ladosDePlano(murosDe(geo));
+    const quiero = new Set(paredes);
+    const ladosPedir = lados.filter(l => l.muros.some(m => quiero.has(m.id)));
+    const enLado = new Set(ladosPedir.flatMap(l => l.muros.map(m => m.id)));
+    const fuera = paredes.filter(p => !enLado.has(p));
+    if (fuera.length) {
+        console.log(`⚠ ${fuera.join(', ')} no son fachadas de la vivienda (¿medianera o fuera?): no se piden.`);
+    }
+    if (!ladosPedir.length) throw new Error('Ninguna de esas paredes es una fachada que se pueda fotografiar.');
+
+    // A quién: el titular o su persona de contacto, con el MISMO criterio que el
+    // resto de avisos al cliente (`ceeDirectoService.contactoCliente`).
+    const cli = ctx.cliente;
+    if (!cli) throw new Error('Esta obra no tiene cliente vinculado: no hay a quién escribir.');
+    const contacto = require('../services/ceeDirectoService').contactoCliente(cli);
+    const titular = [cli.nombre_razon_social, cli.apellidos].filter(Boolean).join(' ');
+    const { buildInstalacionAddress } = await esm('expedientes/utils/docGenerators.js').catch(() => ({}));
+    const dirObj = buildInstalacionAddress ? buildInstalacionAddress({ ...ctx.expediente, clientes: cli }) : null;
+    // La calle SIN código postal ni provincia (a veces `calle` trae la dirección
+    // entera): en un WhatsApp el cliente ya sabe en qué pueblo vive.
+    const calleCorta = String([dirObj?.calle, dirObj?.num].filter(Boolean).join(' ') || dirObj?.full || '')
+        .replace(/\s+\d{5}\b.*$/, '').replace(/,\s*$/, '').trim();
+    const direccion = [calleCorta, dirObj?.municipio].filter(Boolean).join(', ')
+        || ctx.expediente.direccion || '';
+    const peticiones = u.peticionesPorLado(ladosPedir, geo.plan_fotos, { direccion: calleCorta });
+    const slots = [...new Set(peticiones.map(p => p.slot))];
+    const url = await enlaceSubida(ctx, slots);
+    const motivo = opt('motivo') && opt('motivo') !== true ? opt('motivo') : (man ? 'video' : 'fotos');
+    const texto = require('../services/recordatorios').paredesFotosMsg({
+        destinatario: contacto.nombre, tercero: contacto.tercero,
+        numExp: ctx.origen === 'op' ? null : ctx.expediente.numero_expediente,
+        obra: { cliente: titular, direccion }, motivo,
+        paredes: peticiones.map(p => ({ titulo: p.titulo, subtitulo: p.subtitulo })), url, conPlanos,
+    });
+
+    // Los planos, para mirarlos antes de mandarlos.
+    const out = path.join(CACHE, ctx.expediente.numero_expediente, 'pedir-fotos');
+    fs.mkdirSync(out, { recursive: true });
+    const planos = [];
+    peticiones.forEach((p, i) => {
+        const b64 = String(p.plano_datos || '').replace(/^data:image[/]png;base64,/, '');
+        if (!b64) return;
+        const f = path.join(out, `${i + 1} - ${p.lado}.png`);
+        fs.writeFileSync(f, Buffer.from(b64, 'base64'));
+        planos.push({ archivo: f, b64, caption: `${i + 1}. ${p.titulo}` });
+    });
+    const tomas = peticiones;
+
+    const tel = String(contacto.tlf || '');
+    console.log(`\nTITULAR: ${titular || '—'}`);
+    console.log(`IRÁ A:   ${contacto.nombre || '—'} · WhatsApp ${tel ? `${tel.slice(0, 3)}•••${tel.slice(-3)}` : '— SIN TELÉFONO'}`
+        + `${contacto.tercero ? '  (es su PERSONA DE CONTACTO: se le escribe en tercera persona)' : ''}`);
+    console.log(`PAREDES: ${tomas.map((t, i) => `${i + 1}. ${t.lado} (${t.muros.join('+')})`).join(' · ')}`);
+    console.log(`ENLACE:  ${url || '— (no hay token de subida: se creará al enviar)'}`);
+    console.log(`\n────── MENSAJE ──────\n${texto}\n─────────────────────`);
+    if (conPlanos) console.log(`\n+ ${planos.length} plano(s) con la pared en rojo:\n${planos.map(p => `  ${p.archivo}`).join('\n')}`);
+
+    if (!enviar) {
+        console.log('\nEN SECO: no se ha enviado nada. Enséñaselo al usuario y, con su «sí» para ESTE mensaje, '
+            + 'repite con --enviar.');
+        return;
+    }
+    if (!tel) throw new Error('El destinatario no tiene teléfono: no se puede mandar por WhatsApp.');
+    const encolado = await apiInterna('/api/whatsapp/send-text', { phone: tel, message: texto });
+    // El texto ENTRA EN LA COLA y los planos salen directos: sin esperar, el
+    // primer plano puede llegar antes que el mensaje que lo explica. Se espera a
+    // que el servidor lo dé por enviado (con su ACK, ver whatsappService).
+    let estadoCola = 'PENDING';
+    for (let i = 0; i < 40 && encolado?.id && estadoCola === 'PENDING'; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const { data } = await supabase.from('whatsapp_queue').select('status, error').eq('id', encolado.id).maybeSingle();
+        estadoCola = data?.status || 'PENDING';
+        if (estadoCola === 'FAILED') throw new Error(`El mensaje no ha salido: ${data?.error || 'fallo de WhatsApp'}`);
+    }
+    if (estadoCola !== 'SENT') {
+        console.log('⚠ El mensaje sigue en la cola tras 2 minutos: NO se mandan los planos (llegarían antes '
+            + 'que el texto). Mira el estado de WhatsApp en la app.');
+        return;
+    }
+    console.log('✓ Mensaje enviado.');
+    let enviados = 0;
+    if (conPlanos) {
+        for (const p of planos) {
+            try {
+                await apiInterna('/api/whatsapp/send-media', {
+                    phone: tel, caption: p.caption, asDocument: false,
+                    media: { base64: p.b64, mimetype: 'image/png', filename: path.basename(p.archivo) },
+                });
+                enviados++;
+            } catch (e) { console.log(`  ✗ plano «${p.caption}»: ${e.message}`); }
+        }
+        console.log(`✓ ${enviados} de ${planos.length} plano(s) enviados.`);
+    }
+    // Que conste: en el historial y, si el CEE es del agente, como «esperando».
+    const que = `las fotos de ${tomas.length} pared${tomas.length > 1 ? 'es' : ''} de fuera (pedidas por WhatsApp a ${contacto.nombre || 'el cliente'}: ${paredes.join(', ')})`;
+    try {
+        await require('../services/agenteIa').esperar({ negocio: ctx.origen, clave: ctx.clave, que });
+        console.log('✓ Anotado: el CEE queda «esperando las fotos» (lo dice agente_ia.js cola).');
+    } catch (e) { console.log(`  (no se ha podido anotar: ${e.message})`); }
+}
+
 // ─── main ───────────────────────────────────────────────────────────────────
 
 const ORDENES = { estado, placas, fotos, paredes, catastro, 'leer-pared': leerPared, eprel,
-                  'alta-aerotermia': altaAerotermia, aplicar, croquis };
+                  'alta-aerotermia': altaAerotermia, aplicar, croquis, video,
+                  'pedir-fotos': pedirFotos };
 
 (async () => {
     const f = ORDENES[ORDEN];

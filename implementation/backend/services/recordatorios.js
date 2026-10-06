@@ -472,7 +472,45 @@ Ahí mismo te hacemos tres preguntas rápidas, opcionales, por si podemos ayudar
 ${FIRMA}`;
 }
 
+/**
+ * Las fotos de las PAREDES DE FUERA que faltan para terminar el CEE INICIAL.
+ *
+ * Se manda cuando lo que mandó el cliente —casi siempre un VÍDEO de dentro de la
+ * casa— no deja saber a qué pared de fuera da cada ventana, o no enseña alguna
+ * (skill `generar-cee-inicial`, `cee_inicial.js pedir-fotos`). Cada pared se
+ * pide con el texto del PLAN DE FOTOS del motor (`geo.plan_fotos`: «La pared de
+ * fuera que da al Norte · Mide unos 10 m…»), y detrás de este mensaje van sus
+ * planos con la pared marcada en rojo.
+ *
+ * - «No tiene ventanas» es una RESPUESTA, no saltarse el paso: esa pared va al
+ *   certificado con cero huecos. Se dice expresamente.
+ * - No se le pide medir nada: que la pared salga ENTERA es lo que permite
+ *   medirla a nosotros.
+ */
+function paredesFotosMsg({ destinatario, tercero = false, numExp, obra, motivo = 'video',
+                           paredes = [], url = null, conPlanos = true }) {
+    const hola = nombreSaludo(destinatario) ? `¡Hola ${nombreSaludo(destinatario)}!` : '¡Hola!';
+    const dir = direccionLimpia(obra?.direccion);
+    const laObra = tercero && (obra?.cliente || dir)
+        ? ` de la vivienda de *${capitalizar(obra.cliente) || 'tu cliente'}*${dir ? ` (${dir})` : ''}`
+        : (dir ? ` de tu vivienda (${dir})` : ' de tu vivienda');
+    const porQue = motivo === 'video'
+        ? 'Con el vídeo que nos mandaste hemos visto casi toda la casa, pero desde dentro no se puede saber con seguridad a qué pared de fuera da cada ventana.'
+        : 'Para hacerlo sin tener que ir a tomar medidas necesitamos ver las paredes de fuera con sus ventanas.';
+    const lista = paredes.map((p, i) => `${i + 1}. *${p.titulo}*${p.subtitulo ? `\n${p.subtitulo}` : ''}`).join('\n\n');
+    const varias = paredes.length > 1;
+    // Por WhatsApp CON SU NÚMERO: el enlace de subida tiene una casilla para la
+    // fachada y otra para los patios, y con tres paredes en la misma casilla
+    // volvería a no saberse cuál es cuál — que es justo lo que se está pidiendo.
+    const subir = varias
+        ? 'Mándanoslas por este mismo WhatsApp *diciendo el número de cada una* (así sabemos de qué pared es).'
+            + `${url ? ` Si te resulta más cómodo, también puedes subirlas en este enlace:\n${url}` : ''}`
+        : `Mándanosla por este mismo WhatsApp.${url ? ` O, si te resulta más cómodo, súbela en este enlace:\n${url}` : ''}`;
+    return `${hola}\n\nEstamos preparando el *certificado energético*${laObra}${numExp ? ` (expediente *${numExp}*)` : ''}. ${porQue}\n\n*Para terminarlo nos ${varias ? 'faltan estas fotos' : 'falta esta foto'} de fuera:*\n\n${lista}\n\n${conPlanos ? `A continuación te mando ${varias ? 'un plano de cada una' : 'un plano'} con la pared marcada en rojo, para que sepas cuál es.\n\n` : ''}Si ${varias ? 'alguna de esas paredes' : 'esa pared'} *no tiene ventanas ni puertas*, dínoslo por aquí y ya está: también nos sirve.\n\n${subir}\n\n¡Gracias!\n${FIRMA}`;
+}
+
 module.exports = {
+    paredesFotosMsg,
     certRegistroWa, certEmisionWa, encargoCeeClienteMsg,
     encargoCeeDirectoClienteMsg, ceeDirectoRegistradoClienteMsg,
     finObraMsg, firmaMsg, ceeMaterialMsg, bloqueAcciones,

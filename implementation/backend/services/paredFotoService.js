@@ -230,8 +230,14 @@ async function carpeta(expediente) {
     return driveService.getOrCreateSubfolder(seccion.id, SUBCARPETA);
 }
 
-/** Sube una foto nueva y la pega a ese cerramiento. */
-async function subir(expediente, clave, fichero, quien) {
+/**
+ * Sube una foto nueva y la pega a ese cerramiento.
+ *
+ * `desde` (opcional) dice de dónde sale si es un FOTOGRAMA de un vídeo:
+ * `{ video: nombre, video_drive_id, t }`. Queda en la entrada: es lo que permite
+ * volver a ese segundo del vídeo cuando alguien dude de lo que se ve.
+ */
+async function subir(expediente, clave, fichero, quien, desde = null) {
     validaClave(clave);
     if (!fichero?.buffer?.length) {
         throw Object.assign(new Error('El fichero viene vacio.'), { status: 400 });
@@ -265,6 +271,11 @@ async function subir(expediente, clave, fichero, quien) {
         origen: 'subida',
         subida_at: new Date().toISOString(),
         por: quien || null,
+        ...(desde && desde.video ? { video: {
+            nombre: String(desde.video).slice(0, 120),
+            drive_id: desde.video_drive_id || null,
+            t: Number.isFinite(Number(desde.t)) ? Math.round(Number(desde.t) * 10) / 10 : null,
+        } } : {}),
     });
     todas[clave] = lista;
     await escribir(expediente, todas);

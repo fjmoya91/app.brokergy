@@ -7,7 +7,7 @@
 FROM brokergy-backend:latest
 
 RUN npm install -g @anthropic-ai/claude-code \
-    && apt-get update && apt-get install -y --no-install-recommends git poppler-utils python3-pil fonts-dejavu-core \
+    && apt-get update && apt-get install -y --no-install-recommends git poppler-utils python3-pil fonts-dejavu-core ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # El contenedor corre como root, y Chrome como root se niega a arrancar sin --no-sandbox.

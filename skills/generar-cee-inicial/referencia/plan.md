@@ -62,10 +62,10 @@ Un JSON escrito por quien ha mirado las fotos. Todo es opcional salvo lo que se 
 | `ventanas` | cómo son las ventanas de la vivienda | `vidrio`: Simple · Doble · Doble bajo emisivo. `marco`: Metálico sin RPT · Metálico con RPT · PVC · Madera |
 | `entrada` | la pared por la que se entra | Tiene que ser una fachada |
 | `huecos[pared]` | los huecos de esa pared | Nombres (`V1`, `P1`) los pone el script. Nacen `dudoso` salvo `"estado":"medido"` |
-| `huecos[].foto` + `box` | dónde está el hueco en esa foto | Fracciones del encuadre (el `box` que devuelve `leer-pared`) |
+| `huecos[].foto` + `box` | dónde está el hueco en esa foto | Fracciones del encuadre (el `box` que devuelve `leer-pared`). Un **fotograma del vídeo** va como `"frame:H3"` (lo deja la orden `video` en `video.json → propuesta`, con su `box`) |
 | `huecos[].persiana` | persiana de ESE hueco | Por defecto hereda la de la vivienda; una puerta nunca |
 | `huecos[].porc_marco` | % de marco | Puerta de entrada 90 (defecto), de patio acristalada 30-40 |
-| `fotos[pared]` | fotos que se pegan a la pared | Solo las de «12. DOCUMENTOS PARA CEE» (fachada, patios, ventanas) |
+| `fotos[pared]` | fotos que se pegan a la pared | Las de «12. DOCUMENTOS PARA CEE» (fachada, patios, ventanas) por su id, o fotogramas del vídeo como `"frame:H3"`: con `--escribir` se SUBEN a «1. CEE / CEE INICIAL / FOTOS ENVOLVENTE» con el vídeo y el segundo del que salen. `aplicar` busca `video.json` en la carpeta de trabajo (`--video-dir` si está en otra) |
 | `excluidas` | paredes apartadas de la envolvente | Por id |
 | `tipos` / `orientaciones` | «da contra» corregido a mano: `{ "M1S1": "FACHADA" }` y su rumbo `{ "M1S1": "S" }` | Lo mismo que el panel de la pared. Sale avisado en el `.cex`. Una medianera que en realidad da a la calle |
 | `croquis_ajustar` | `false` = el croquis «solo enderezar» | Úsalo cuando la planta tenga **otro inmueble** (el garaje del vecino): el ajuste escala los m² de Catastro a la huella entera y los infla |
