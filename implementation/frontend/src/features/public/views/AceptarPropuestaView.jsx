@@ -4,6 +4,10 @@ import { DynamicNetworkBackground } from '../../../components/DynamicNetworkBack
 import CondicionesAceptacionModal from '../components/CondicionesAceptacionModal';
 import { CONDICIONES_VERSION } from '../logic/condicionesAceptacion';
 import { ConfirmarVivienda } from '../components/ConfirmarVivienda';
+import { PropietariosAceptacion } from '../components/PropietariosAceptacion';
+import {
+    propietariosDesdeServidor, propietariosParaEnviar, faltaEnPropietarios,
+} from '../logic/propietariosAceptacion';
 import {
     CONFIRMACION_VACIA, CONFIRMACION_VERSION, faltanConfirmacion, resumenConfirmacion,
 } from '../../expedientes/logic/confirmacionCliente';
@@ -265,6 +269,14 @@ export function AceptarPropuestaView({ idOportunidad }) {
     // y solo se repasan) y la VIVIENDA (una pregunta por pantalla: el 90 % de
     // las aceptaciones se hacen con el móvil). Ver components/ConfirmarVivienda.
     const [fase, setFase] = useState('datos');
+    // Otros propietarios de la vivienda (IRPF y, si cobran aparte, su cuenta).
+    // `masPropietarios` en null = sin contestar: la pregunta va en neutro.
+    const [masPropietarios, setMasPropietarios] = useState(null);
+    const [copropietarios, setCopropietarios] = useState([]);
+    const [justificantesCop, setJustificantesCop] = useState({});
+    // Al editar los datos de una propuesta YA aceptada.
+    const [editCops, setEditCops] = useState([]);
+    const [editMas, setEditMas] = useState(null);
     const demo = String(idOportunidad || '').toLowerCase() === DEMO_ID;
 
     useEffect(() => {
@@ -281,9 +293,13 @@ export function AceptarPropuestaView({ idOportunidad }) {
                 // alimenta `formData`, que es lo que se manda al aceptar, y no
                 // pintan nada en ese formulario.
                 const { estado, numero_expediente, id_oportunidad: readableId, tiene_instalador, fecha_aceptacion, aceptado_por, cee_aportado, cee_decision,
-                        propuesta_version, propuesta_version_fecha, propuesta_version_aceptada, ...rest } = res.data;
+                        propuesta_version, propuesta_version_fecha, propuesta_version_aceptada, copropietarios: copsServidor, ...rest } = res.data;
 
                 setFormData(prev => ({ ...prev, ...rest }));
+                // Si la ficha ya tiene otros propietarios, la pregunta viene contestada.
+                const cops = propietariosDesdeServidor(copsServidor);
+                setCopropietarios(cops);
+                if (cops.length) setMasPropietarios(true);
                 setVersionProp({ v: propuesta_version, fecha: propuesta_version_fecha, aceptada: propuesta_version_aceptada });
                 setCeeAportado(!!cee_aportado);
                 if (cee_decision) setCeeChoice(cee_decision === 'usar_cee_aportado' ? 'aportado' : 'nuevo');
@@ -318,6 +334,12 @@ export function AceptarPropuestaView({ idOportunidad }) {
             setError('Por favor, indícanos si usamos tu CEE actual o hacemos uno nuevo.');
             return;
         }
+        const faltaProp = faltaEnPropietarios(masPropietarios, copropietarios);
+        if (faltaProp) {
+            setError(faltaProp);
+            formRef.current?.scrollIntoView?.({ block: 'start' });
+            return;
+        }
         setError(null);
         setFase('vivienda');
     };
@@ -341,6 +363,15 @@ export function AceptarPropuestaView({ idOportunidad }) {
             const fd = new FormData();
             Object.entries(formData).forEach(([k, v]) => fd.append(k, v || ''));
             if (justificanteFile) fd.append('justificante', justificanteFile);
+            // Otros propietarios: la lista ENTERA (con "solo yo", vacía) y el
+            // justificante de cada uno que cobre en su propia cuenta.
+            if (masPropietarios !== null) {
+                const cops = masPropietarios ? copropietarios : [];
+                fd.append('copropietarios', JSON.stringify(propietariosParaEnviar(cops)));
+                for (const p of cops) {
+                    if (p.cuenta_propia && justificantesCop[p.id]) fd.append(`justificante_cop_${p.id}`, justificantesCop[p.id]);
+                }
+            }
             if (ceeAportado && ceeChoice) fd.append('cee_choice', ceeChoice);
             // Qué texto de condiciones tenía delante al aceptar: se sella en el historial.
             fd.append('condiciones_version', CONDICIONES_VERSION);
@@ -442,7 +473,12 @@ export function AceptarPropuestaView({ idOportunidad }) {
                             <h3 className="text-xs font-black uppercase tracking-widest text-white/40">Datos del cliente</h3>
                             {!editing && (
                                 <button
-                                    onClick={() => { setEditData({ ...formData }); setEditing(true); setEditSuccess(false); }}
+                                    onClick={() => {
+                                        setEditData({ ...formData });
+                                        setEditCops(copropietarios.map(p => ({ ...p })));
+                                        setEditMas(copropietarios.length > 0);
+                                        setEditing(true); setEditSuccess(false);
+                                    }}
                                     className="px-4 py-1.5 rounded-lg bg-brand/10 hover:bg-brand/20 border border-brand/20 text-brand text-[10px] font-black uppercase tracking-wider transition-all"
                                 >
                                     Editar datos
@@ -479,6 +515,15 @@ export function AceptarPropuestaView({ idOportunidad }) {
                                         </div>
                                     ))}
                                 </div>
+                                {/* Sin subida de justificante aquí: este guardado es JSON.
+                                    Si cambia la cuenta, el justificante se nos manda aparte. */}
+                                <PropietariosAceptacion
+                                    mas={editMas}
+                                    setMas={setEditMas}
+                                    lista={editCops}
+                                    setLista={setEditCops}
+                                    conJustificante={false}
+                                />
                                 <div className="flex gap-3 justify-end pt-2">
                                     <button
                                         onClick={() => { setEditing(false); setEditSuccess(false); }}
@@ -489,10 +534,14 @@ export function AceptarPropuestaView({ idOportunidad }) {
                                     <button
                                         disabled={savingEdit}
                                         onClick={async () => {
+                                            const faltaProp = faltaEnPropietarios(editMas, editCops);
+                                            if (faltaProp) { alert(faltaProp); return; }
                                             setSavingEdit(true);
                                             try {
-                                                await axios.patch(`${API_URL}/datos/${idOportunidad}`, editData);
+                                                const cops = editMas ? editCops : [];
+                                                await axios.patch(`${API_URL}/datos/${idOportunidad}`, { ...editData, copropietarios: propietariosParaEnviar(cops) });
                                                 setFormData(prev => ({ ...prev, ...editData }));
+                                                setCopropietarios(cops);
                                                 setEditing(false);
                                                 setEditSuccess(true);
                                             } catch (e) {
@@ -524,6 +573,20 @@ export function AceptarPropuestaView({ idOportunidad }) {
                                         </div>
                                     </div>
                                 ))}
+                                {copropietarios.length > 0 && (
+                                    <div className="sm:col-span-2 pt-3 border-t border-white/10 space-y-2">
+                                        <div className="text-[10px] font-black uppercase tracking-wider text-white/30">Otros propietarios</div>
+                                        {copropietarios.map(p => (
+                                            <div key={p.id} className="text-sm text-white">
+                                                <span className="font-medium uppercase">{[p.nombre, p.apellidos].filter(Boolean).join(' ')}</span>
+                                                {p.dni && <span className="text-white/50 font-mono"> · {p.dni}</span>}
+                                                <div className="text-[12px] text-white/60 font-mono">
+                                                    {p.iban ? `Cobra en su cuenta: ${p.iban}` : 'Cobra en la cuenta del titular'}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
@@ -799,14 +862,18 @@ export function AceptarPropuestaView({ idOportunidad }) {
                                         </div>
 
                                         <div className="space-y-1.5 relative">
-                                            <div className="flex items-center justify-between mb-1.5 ml-1">
-                                                <label className="block text-xs font-black uppercase tracking-widest text-white/40" htmlFor="iban">
+                                            {/* Misma altura que los rótulos de los demás campos: el
+                                                botón "i" va en línea y no puede ser más alto que el
+                                                texto (con 20 px y un margen extra, el campo quedaba
+                                                más bajo que el de al lado). */}
+                                            <div className="flex items-center gap-2 ml-1 h-4">
+                                                <label className="block text-xs font-black uppercase tracking-widest text-white/40 leading-4" htmlFor="iban">
                                                     Cuenta (IBAN)
                                                 </label>
-                                                <button 
+                                                <button
                                                     type="button"
                                                     onClick={() => setShowIbanInfo(!showIbanInfo)}
-                                                    className="w-5 h-5 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-[10px] font-bold text-white/40 hover:text-brand hover:border-brand/40 transition-all group"
+                                                    className="w-4 h-4 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-[9px] font-bold leading-none text-white/40 hover:text-brand hover:border-brand/40 transition-all group"
                                                     title="¿Por qué pedimos esto?"
                                                 >
                                                     i
@@ -866,6 +933,16 @@ export function AceptarPropuestaView({ idOportunidad }) {
                                             </div>
                                         </div>
                                     </div>
+
+                                    {/* ¿Más de un propietario? — IRPF y, si cobran aparte, su cuenta. */}
+                                    <PropietariosAceptacion
+                                        mas={masPropietarios}
+                                        setMas={setMasPropietarios}
+                                        lista={copropietarios}
+                                        setLista={setCopropietarios}
+                                        justificantes={justificantesCop}
+                                        setJustificantes={setJustificantesCop}
+                                    />
 
                                     {/* Decisión sobre el CEE inicial (solo si el cliente aportó uno) */}
                                     {ceeAportado && (

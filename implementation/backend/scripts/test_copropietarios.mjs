@@ -17,7 +17,7 @@ import assert from 'node:assert';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { normalizeCliente, sanearCopropietarios } = require('../utils/normalization');
+const { normalizeCliente, sanearCopropietarios, fundirCopropietarios } = require('../utils/normalization');
 const { contactosDeCliente } = require('../services/notifyContacts');
 const { clienteContacts } = await import('../../frontend/src/features/expedientes/utils/docContacts.js');
 
@@ -46,7 +46,9 @@ test('una fila sin nombre y sin ningún canal NO es nadie: se descarta', () => {
 
 test('solo se guardan las claves CONOCIDAS', () => {
     const [c] = sanearCopropietarios([{ nombre: 'ANA', rol: 'ADMIN', numero_cuenta: 'ES00', __proto__: {} }]);
-    assert.deepStrictEqual(Object.keys(c).sort(), ['apellidos', 'dni', 'email', 'es_empresa', 'id', 'nombre', 'tlf']);
+    assert.deepStrictEqual(Object.keys(c).sort(), ['apellidos', 'dni', 'email', 'es_empresa', 'iban', 'id', 'justificante_link', 'nombre', 'tlf']);
+    // El IBAN de una clave ajena (numero_cuenta) no se cuela en el suyo.
+    assert.strictEqual(c.iban, '');
 });
 
 test('llega como texto JSON (que es como sale de un formulario)', () => {
@@ -134,6 +136,56 @@ test('una ficha SIN copropietarios se comporta exactamente como antes', () => {
     assert.deepStrictEqual(clienteContacts(cli).map(c => c.id), ['cli']);
     assert.deepStrictEqual(clienteContacts({ ...cli, copropietarios: null }).map(c => c.id), ['cli']);
     assert.deepStrictEqual(contactosDeCliente(cli).map(c => c.id), ['cli']);
+});
+
+console.log('\n── Cuenta propia del copropietario ───────────────────────────');
+
+test('el IBAN se guarda como el del titular: sin espacios y en mayúsculas', () => {
+    const [c] = sanearCopropietarios([{ nombre: 'ana', iban: ' es91 2100 0418 4502 0005 1332 ' }]);
+    assert.strictEqual(c.iban, 'ES9121000418450200051332');
+});
+
+test('un justificante_link que no es un enlace se descarta', () => {
+    const [c] = sanearCopropietarios([{ nombre: 'ana', justificante_link: 'javascript:alert(1)' }]);
+    assert.strictEqual(c.justificante_link, '');
+});
+
+test('fundir conserva el justificante si la cuenta NO ha cambiado', () => {
+    const prev = [{ id: 'a', nombre: 'ANA', iban: 'ES9121000418450200051332', justificante_link: 'https://drive.google.com/x' }];
+    const [c] = fundirCopropietarios([{ id: 'a', nombre: 'ana', iban: 'ES91 2100 0418 4502 0005 1332' }], prev);
+    assert.strictEqual(c.justificante_link, 'https://drive.google.com/x');
+});
+
+test('fundir NO conserva el justificante si la cuenta es OTRA', () => {
+    const prev = [{ id: 'a', nombre: 'ANA', iban: 'ES9121000418450200051332', justificante_link: 'https://drive.google.com/x' }];
+    const [c] = fundirCopropietarios([{ id: 'a', nombre: 'ana', iban: 'ES7620770024003102575766' }], prev);
+    assert.strictEqual(c.justificante_link, '');
+});
+
+console.log('\n── Aceptación de la propuesta (formulario) ───────────────────');
+const { faltaEnPropietarios, propietariosParaEnviar, propietariosDesdeServidor } =
+    await import('../../frontend/src/features/public/logic/propietariosAceptacion.js');
+
+test('la pregunta es obligatoria y "solo yo" no pide nada más', () => {
+    assert.ok(faltaEnPropietarios(null, []));
+    assert.strictEqual(faltaEnPropietarios(false, []), null);
+});
+
+test('con más propietarios hacen falta nombre y DNI; con cuenta propia, un IBAN válido', () => {
+    assert.match(faltaEnPropietarios(true, [{ nombre: 'ANA', dni: '' }]), /DNI/);
+    assert.match(faltaEnPropietarios(true, [{ nombre: 'ANA', dni: '1Z', cuenta_propia: true, iban: 'ES12' }]), /IBAN/);
+    assert.strictEqual(faltaEnPropietarios(true, [{ nombre: 'ANA', dni: '1Z', cuenta_propia: true, iban: 'ES91 2100 0418 4502 0005 1332' }]), null);
+});
+
+test('si cobra en la cuenta del titular, NO se manda el IBAN aunque se tecleara', () => {
+    const [p] = propietariosParaEnviar([{ id: 'a', nombre: 'ANA', iban: 'ES9121000418450200051332', cuenta_propia: false, tiene_justificante: true }]);
+    assert.strictEqual(p.iban, '');
+    assert.ok(!('cuenta_propia' in p) && !('tiene_justificante' in p));
+});
+
+test('lo que llega del servidor con IBAN viene marcado como cuenta propia', () => {
+    const [p] = propietariosDesdeServidor([{ id: 'a', nombre: 'ANA', iban: 'ES91' }]);
+    assert.strictEqual(p.cuenta_propia, true);
 });
 
 console.log(`\n✅ ${n} comprobaciones\n`);

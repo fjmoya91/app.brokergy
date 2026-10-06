@@ -13,7 +13,7 @@ const anexoFotograficoService = require('../services/anexoFotograficoService');
 const uploadNotifier = require('../services/uploadNotifier');
 const { buildCertClienteData } = require('../services/certClienteData');
 const cobroService = require('../services/cobroService');
-const { normalizeCliente } = require('../utils/normalization');
+const { normalizeCliente, fundirCopropietarios } = require('../utils/normalization');
 // El nombre llega del formulario del cliente: puede traer espacios (que rompen
 // la *negrita* de WhatsApp: "*JESÚS *" no se marca) y va en MAYÚSCULAS.
 const { nombreSaludo } = require('../services/recordatorios');
@@ -290,6 +290,14 @@ router.get('/cliente/:id', async (req, res) => {
             email: (useContact && foundCliente?.persona_contacto_email) ? foundCliente.persona_contacto_email : (foundCliente?.email || ''),
             telefono: (useContact && foundCliente?.persona_contacto_tlf) ? foundCliente.persona_contacto_tlf : (foundCliente?.tlf || ''),
             iban: foundCliente?.numero_cuenta || '',
+            // Los OTROS propietarios, para que el formulario los traiga rellenos.
+            // Sin el enlace del justificante (no lo necesita el cliente): solo
+            // si ya lo tenemos, para no volver a pedírselo.
+            copropietarios: (Array.isArray(foundCliente?.copropietarios) ? foundCliente.copropietarios : []).map(p => ({
+                id: p.id, es_empresa: !!p.es_empresa, nombre: p.nombre || '', apellidos: p.apellidos || '',
+                dni: p.dni || '', email: p.email || '', tlf: p.tlf || '', iban: p.iban || '',
+                tiene_justificante: !!p.justificante_link,
+            })),
             estado: opp.datos_calculo?.estado || 'BORRADOR',
             numero_expediente: opp.expedientes?.[0]?.numero_expediente || opp.expedientes?.numero_expediente || null,
             tiene_instalador: true,
@@ -311,12 +319,32 @@ router.get('/cliente/:id', async (req, res) => {
     }
 });
 
+// La aceptación admite, además del justificante del titular, uno por cada
+// OTRO propietario que cobre en su propia cuenta: `justificante_cop_<id>`. Los
+// nombres son dinámicos (el id lo pone el navegador), así que se aceptan solo
+// esos dos patrones y como mucho 6 ficheros; lo demás se rechaza.
+const RE_FICHERO_ACEPTACION = /^(justificante|justificante_cop_[\w-]{1,40})$/;
+const uploadAceptacion = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 20 * 1024 * 1024, files: 6 },
+    fileFilter: (req, file, cb) => cb(null, RE_FICHERO_ACEPTACION.test(file.fieldname)),
+});
+function uploadAceptacionAny(req, res, next) {
+    uploadAceptacion.any()(req, res, (err) => {
+        if (err) return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Algún archivo pesa más de 20 MB.' : 'No se han podido leer los archivos adjuntos.' });
+        const files = Array.isArray(req.files) ? req.files : [];
+        req.file = files.find(f => f.fieldname === 'justificante') || null;
+        req.filesCop = files.filter(f => f.fieldname.startsWith('justificante_cop_'));
+        next();
+    });
+}
+
 // POST /api/public/aceptar/:id_oportunidad
-router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
+router.post('/aceptar/:id', uploadAceptacionAny, async (req, res) => {
     try {
         const paramId = req.params.id;
         const id = await resolveOportunidadId(paramId);
-        
+
         const formFields = req.body;
         
         // Find opportunity
@@ -377,6 +405,21 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
                 id_cliente = existingClient.id_cliente;
                 console.log(`[Public] Identificado cliente previo por DNI ${clienteData.dni}: ${id_cliente}`);
             }
+        }
+
+        // OTROS PROPIETARIOS de la vivienda (con su cuenta, si cobran aparte). Solo
+        // se tocan si el formulario los manda: un navegador con la versión
+        // anterior de la página no los trae, y eso no puede vaciar los que ya
+        // constan. Se funden con lo guardado para no perder sus justificantes.
+        let copropietariosNuevos = null;
+        if (formFields.copropietarios !== undefined) {
+            let previos = [];
+            if (id_cliente) {
+                const { data: cliPrev } = await supabase.from('clientes').select('copropietarios').eq('id_cliente', id_cliente).maybeSingle();
+                previos = cliPrev?.copropietarios || [];
+            }
+            copropietariosNuevos = fundirCopropietarios(formFields.copropietarios, previos);
+            clienteData.copropietarios = copropietariosNuevos;
         }
 
         if (id_cliente) {
@@ -519,6 +562,11 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
         // Subir justificante a Drive (antes de responder para incluirlo en notif)
         const justificanteAdjunto = !!req.file;
         const justificanteBuffer = req.file ? { buffer: req.file.buffer, mimeType: req.file.mimetype } : null;
+        // Justificantes de los OTROS propietarios: solo los de alguien que de
+        // verdad consta en la lista (el id llega del navegador).
+        const justificantesCop = (req.filesCop || [])
+            .map(f => ({ id: f.fieldname.slice('justificante_cop_'.length), buffer: f.buffer, mimeType: f.mimetype }))
+            .filter(j => (copropietariosNuevos || []).some(p => p.id === j.id));
 
         // Responder con el número de expediente real
         res.json({ success: true, message: 'Propuesta procesada correctamente.', numeroExpediente, justificanteAdjunto });
@@ -545,6 +593,33 @@ router.post('/aceptar/:id', upload.single('justificante'), async (req, res) => {
                     }
                 } catch (jErr) {
                     console.error('[Public] Error subiendo justificante a Drive:', jErr.message);
+                }
+            }
+
+            // 0.b Justificantes de los otros propietarios que cobran en SU cuenta.
+            // Cada uno con su nombre en el fichero (dos "justificante de
+            // titularidad bancaria.pdf" en la misma carpeta no se distinguen) y
+            // su enlace en la entrada del copropietario, que es lo que enseña la
+            // ficha del cliente. Uno a uno y sin tumbar nada si falla.
+            if (justificantesCop.length && id_cliente) {
+                const driveFolderId = opp.datos_calculo?.drive_folder_id || opp.datos_calculo?.inputs?.drive_folder_id;
+                for (const j of justificantesCop) {
+                    try {
+                        if (!driveFolderId) break;
+                        const prop = copropietariosNuevos.find(p => p.id === j.id);
+                        const quien = [prop?.nombre, prop?.apellidos].filter(Boolean).join(' ').replace(/[\\/:*?"<>|]/g, '').trim() || j.id;
+                        let buf = j.buffer;
+                        if (j.mimeType !== 'application/pdf') buf = await imageToPdf(buf, j.mimeType);
+                        const r = await driveService.saveFileToFolder(driveFolderId, `justificante de titularidad bancaria - ${quien}.pdf`, 'application/pdf', buf);
+                        const link = r?.link || r?.webViewLink || null;
+                        if (!link) continue;
+                        const { data: cli } = await supabase.from('clientes').select('copropietarios').eq('id_cliente', id_cliente).maybeSingle();
+                        const lista = (cli?.copropietarios || []).map(p => p.id === j.id ? { ...p, justificante_link: link } : p);
+                        await supabase.from('clientes').update({ copropietarios: lista }).eq('id_cliente', id_cliente);
+                        console.log(`[Public] Justificante del copropietario ${j.id} subido a Drive para ${id}`);
+                    } catch (e) {
+                        console.error('[Public] Error subiendo justificante de copropietario:', e.message);
+                    }
                 }
             }
 
@@ -680,7 +755,20 @@ ${uploadLink}
                         }
                     } catch (e) { console.warn('[Public] resumen de la confirmación:', e.message); }
                 }
-                const adminMsg = `🚀 *ACEPTACIÓN (PORTAL PÚBLICO)*\n\nOportunidad *${id}*\n👤 *Cliente:* ${formFields.nombre_razon_social} ${formFields.apellidos || ''}\n📍 ${opp.datos_calculo?.inputs?.direccion || 'S/N'}\n👷 *Instalador:* ${installerName}\n📋 Expediente: *${numeroExpediente || 'Pte.'}*\n🏦 ${justificanteStr}${viviendaStr}\n\n${notesStr}\n\n${process.env.FRONTEND_URL || 'https://app.brokergy.es'}?exp=${numeroExpediente || ''}`;
+                // Los OTROS propietarios, y si alguno cobra en su propia cuenta:
+                // eso cambia cómo se hace la transferencia del bono, y se tiene
+                // que saber ya, no el día de pagar. Del IBAN, solo los 4 últimos.
+                let propietariosStr = '';
+                if (copropietariosNuevos && copropietariosNuevos.length) {
+                    propietariosStr = '\n\n👥 *Otros propietarios:*\n' + copropietariosNuevos.map(p => {
+                        const nom = [p.nombre, p.apellidos].filter(Boolean).join(' ');
+                        const cuenta = p.iban
+                            ? ` · 🏦 cobra en SU cuenta (…${p.iban.slice(-4)})${justificantesCop.some(j => j.id === p.id) ? ' ✅ justificante' : ' ⚠️ sin justificante'}`
+                            : '';
+                        return `• ${nom}${p.dni ? ` (${p.dni})` : ''}${cuenta}`;
+                    }).join('\n');
+                }
+                const adminMsg = `🚀 *ACEPTACIÓN (PORTAL PÚBLICO)*\n\nOportunidad *${id}*\n👤 *Cliente:* ${formFields.nombre_razon_social} ${formFields.apellidos || ''}\n📍 ${opp.datos_calculo?.inputs?.direccion || 'S/N'}\n👷 *Instalador:* ${installerName}\n📋 Expediente: *${numeroExpediente || 'Pte.'}*\n🏦 ${justificanteStr}${propietariosStr}${viviendaStr}\n\n${notesStr}\n\n${process.env.FRONTEND_URL || 'https://app.brokergy.es'}?exp=${numeroExpediente || ''}`;
                 whatsappService.sendText(process.env.WHATSAPP_ADMIN_CHAT || '34623926179', adminMsg).catch(e => console.warn('[Public] Error WhatsApp Admin:', e.message));
 
                 await emailService.sendAdminNotificationEmail({
@@ -707,7 +795,7 @@ ${uploadLink}
 router.patch('/datos/:id', async (req, res) => {
     try {
         const id = await resolveOportunidadId(req.params.id);
-        const { nombre_razon_social, apellidos, dni_cif, email, telefono, iban } = req.body;
+        const { nombre_razon_social, apellidos, dni_cif, email, telefono, iban, copropietarios } = req.body;
 
         const { data: opp, error: oppErr } = await supabase
             .from('oportunidades')
@@ -726,7 +814,9 @@ router.patch('/datos/:id', async (req, res) => {
         if (iban !== undefined) updates.numero_cuenta = iban || null;
 
         // Distinguir entre actualizar titular o contacto alternativo
-        const { data: currentCli } = await supabase.from('clientes').select('notificaciones_contacto_activas, contacto_es_partner').eq('id_cliente', opp.cliente_id).single();
+        const { data: currentCli } = await supabase.from('clientes').select('notificaciones_contacto_activas, contacto_es_partner, copropietarios').eq('id_cliente', opp.cliente_id).single();
+        // Otros propietarios: se funden con lo guardado para no perder sus justificantes.
+        if (copropietarios !== undefined) updates.copropietarios = fundirCopropietarios(copropietarios, currentCli?.copropietarios || []);
         
         if (currentCli?.contacto_es_partner) {
             // Persona de contacto = el partner: no se pisa. Lo tecleado es del titular.

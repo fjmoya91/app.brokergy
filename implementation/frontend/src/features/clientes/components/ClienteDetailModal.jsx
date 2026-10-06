@@ -35,7 +35,7 @@ import { PartnerComoContacto } from './PartnerComoContacto';
 // igual que el bloque de arriba.
 const propietarioVacio = () => ({
     id: (globalThis.crypto?.randomUUID?.() || `cop_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),
-    es_empresa: false, nombre: '', apellidos: '', dni: '', email: '', tlf: '',
+    es_empresa: false, nombre: '', apellidos: '', dni: '', email: '', tlf: '', iban: '',
 });
 
 function PropietarioEdit({ value, index, onChange, onRemove }) {
@@ -83,6 +83,20 @@ function PropietarioEdit({ value, index, onChange, onRemove }) {
                         <Input type="email" placeholder="propietario@email.com"
                             value={value.email || ''} onChange={e => set({ email: e.target.value.toLowerCase() })} />
                     </FieldInput>
+                </div>
+                {/* Su PROPIA cuenta, si su parte del bono se le ingresa por
+                    separado. Vacía = cobra en la del titular. */}
+                <div className="sm:col-span-2">
+                    <FieldInput label="Cuenta propia (IBAN) — vacía si cobra en la del titular">
+                        <Input uppercase placeholder="ESXX XXXX XXXX XXXX XXXX XXXX"
+                            value={value.iban || ''} onChange={e => set({ iban: e.target.value })} />
+                    </FieldInput>
+                    {value.justificante_link && (
+                        <a href={value.justificante_link} target="_blank" rel="noopener noreferrer"
+                            className="inline-block mt-1.5 text-[10px] font-black uppercase tracking-widest text-emerald-400 hover:underline">
+                            ✓ Justificante de titularidad
+                        </a>
+                    )}
                 </div>
             </div>
         </div>
@@ -647,6 +661,23 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                             <FieldView label={p.es_empresa ? 'CIF' : 'DNI / CIF'} value={p.dni} />
                                             <FieldView label="Email" value={p.email?.toLowerCase()} valueClassName="!lowercase" />
                                             <FieldView label="Teléfono" value={p.tlf} />
+                                            <div className="col-span-1 sm:col-span-2">
+                                                <FieldView
+                                                    label="Cuenta (IBAN)"
+                                                    value={p.iban || 'Cobra en la cuenta del titular'}
+                                                    valueClassName={p.iban ? 'font-mono' : '!normal-case !text-white/40 italic'}
+                                                />
+                                                {p.iban && (
+                                                    p.justificante_link ? (
+                                                        <a href={p.justificante_link} target="_blank" rel="noopener noreferrer"
+                                                            className="inline-block mt-1 text-[10px] font-black uppercase tracking-widest text-emerald-400 hover:underline">
+                                                            ✓ Justificante de titularidad
+                                                        </a>
+                                                    ) : (
+                                                        <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-amber-400/80">⚠ Sin justificante de titularidad</p>
+                                                    )
+                                                )}
+                                            </div>
                                         </div>
                                     ))}
                                     <p className="text-[10px] text-white/25">

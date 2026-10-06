@@ -155,12 +155,24 @@ function sanearCopropietarios(raw) {
             id: typeof item.id === 'string' && item.id.trim() ? item.id.trim().slice(0, 40) : null,
             es_empresa: item.es_empresa === true || item.es_empresa === 'true',
             nombre: '', apellidos: '', dni: '', email: '', tlf: '',
+            // Su PROPIA cuenta, si el bono se le ingresa por separado (o la
+            // necesita para la deducción del IRPF). Vacía = cobra en la del titular.
+            iban: '',
+            // Justificante de titularidad de ESA cuenta, en Drive (solo el enlace:
+            // regla 21). Lo escribe el servidor al subirlo desde la aceptación.
+            justificante_link: '',
         };
         for (const k of COPROP_MAYUSCULAS) {
             if (typeof item[k] === 'string') c[k] = item[k].trim().toUpperCase().slice(0, 200);
         }
         if (typeof item.email === 'string') c.email = item.email.trim().toLowerCase().slice(0, 200);
         if (typeof item.tlf === 'string') c.tlf = item.tlf.trim().slice(0, 40);
+        // El IBAN se guarda como el del titular (`numero_cuenta`): sin espacios y
+        // en mayúsculas. Se escribe como lo enseña el banco y eso no es otra cuenta.
+        if (typeof item.iban === 'string') c.iban = item.iban.replace(/\s+/g, '').toUpperCase().slice(0, 34);
+        if (typeof item.justificante_link === 'string' && /^https?:\/\//i.test(item.justificante_link.trim())) {
+            c.justificante_link = item.justificante_link.trim().slice(0, 500);
+        }
 
         if (!c.nombre && !c.email && !c.tlf) continue;   // no es nadie
         if (!c.id) c.id = `cop_${Date.now().toString(36)}_${out.length}`;
@@ -201,4 +213,26 @@ function normalizeCliente(payload) {
     return out;
 }
 
-module.exports = { normalizeData, normalizeCliente, sanearCopropietarios };
+/**
+ * Funde la lista que llega de un formulario con la que ya está guardada.
+ *
+ * REGLA — el `justificante_link` de un copropietario lo escribe el SERVIDOR al
+ * subir el fichero, y el formulario público no lo conoce: sin esto, volver a
+ * aceptar (o corregir los datos) borraría el enlace. Se conserva por `id` cuando
+ * lo que llega no trae uno nuevo y la cuenta no ha cambiado — un justificante
+ * acredita UNA cuenta, y si el IBAN es otro ya no vale.
+ */
+function fundirCopropietarios(nuevos, existentes) {
+    const lista = sanearCopropietarios(nuevos);
+    const previos = new Map((Array.isArray(existentes) ? existentes : []).filter(p => p && p.id).map(p => [p.id, p]));
+    return lista.map(p => {
+        const ant = previos.get(p.id);
+        if (!p.justificante_link && ant?.justificante_link
+            && String(ant.iban || '').replace(/\s+/g, '').toUpperCase() === p.iban) {
+            return { ...p, justificante_link: ant.justificante_link };
+        }
+        return p;
+    });
+}
+
+module.exports = { normalizeData, normalizeCliente, sanearCopropietarios, fundirCopropietarios };
