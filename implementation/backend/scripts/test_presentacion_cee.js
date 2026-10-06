@@ -114,6 +114,9 @@ stub('ceeDirectoService.js', {
 });
 stub('ceeDirectoUploadService.js', { sectionLabel: (row) => (String(row.alcance) === 'DOBLE' ? 'CEE INICIAL' : 'CEE') });
 stub('ceeDirectoFolders.js', { subcarpetaFase: () => '1. CEE' });
+stub('borradorCeeService.js', {
+    pdf: async (origen, id, fase) => ({ buffer: Buffer.from('%PDF borrador'), filename: `Borrador presentar CEE ${fase.toUpperCase()} - X.pdf` }),
+});
 const subidas = [];
 stub('cee/subidaCeePublica.js', {
     subirCae: async (a) => { subidas.push(a); return { success: true, registrado: true, fecha_registro: '2026-10-06' }; },
@@ -176,13 +179,24 @@ const prueba = async (nombre, fn) => {
         assert.strictEqual(db.cee_directos[CD_ID].cee.presentacion, undefined);
     });
 
+    await prueba('si el borrador no se puede preparar, no sale nada', async () => {
+        const b = require.cache[require.resolve(path.join(S, 'borradorCeeService.js'))].exports;
+        const pdf = b.pdf;
+        b.pdf = async () => { throw new Error('puppeteer caído'); };
+        await assert.rejects(svc.encargar('expediente', EXP_ID, 'inicial', { email: 'eva@ejemplo.com' }), e => e.status === 502);
+        b.pdf = pdf;
+        assert.strictEqual(enviados.length, 0);
+        assert.strictEqual(db.expedientes[EXP_ID].cee.presentacion, undefined);
+    });
+
     let enlace1;
-    await prueba('encargar: UN correo con exactamente 3 adjuntos y sin importes', async () => {
+    await prueba('encargar: UN correo con el borrador + los 3 ficheros y sin importes', async () => {
         const r = await svc.encargar('expediente', EXP_ID, 'inicial', { email: ' Eva@Ejemplo.com ', nombre: 'Eva Prueba', nota: 'Ojo con la tasa' });
         assert.strictEqual(enviados.length, 1);
         const m = enviados[0];
         assert.strictEqual(m.to, 'eva@ejemplo.com');
         assert.deepStrictEqual(m.attachments.map(a => a.filename), [
+            'Borrador presentar CEE INICIAL - X.pdf',
             '00000000T_99RES060_999 – CEE INICIAL_fdo.pdf',
             '00000000T_99RES060_999 – CEE INICIAL.xml',
             '00000000T_99RES060_999 – CEE INICIAL.cex',

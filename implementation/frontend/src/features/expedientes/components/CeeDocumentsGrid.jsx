@@ -375,6 +375,8 @@ export const CeeDocumentsGrid = forwardRef(function CeeDocumentsGrid({
     // Abrir el borrador para PRESENTAR el CEE en el Registro, en esa fase.
     // (fase) => void, o null (certificador: su ruta es staffOnly).
     onPresentar = null,
+    // Acceso directo a «Enviar a presentar» (encargo a quien presenta, sin cuenta).
+    onEncargarPresentacion = null,
     // El certificador asignado es el de la CASA: el CEE se puede presentar en
     // cuanto se sube, sin esperar a nuestro visto bueno.
     presentaLaCasa = false,
@@ -1627,15 +1629,21 @@ Según el documento:
                             else if (quedan <= 7) { tono = 'amber'; detalle = `Quedan ${quedan} día${quedan === 1 ? '' : 's'} de plazo`; }
                             else if (dias >= 0) detalle = `Quedan ${quedan} días de plazo`;
                         }
-                        // Ya encargada a quien presenta (Eva): se dice a quién y desde
-                        // cuándo, junto al plazo, para no volver a mandarla sin saberlo.
+                        // Ya ENCARGADA a quien presenta (Eva): la tarea pasa a decir
+                        // «Pendiente de presentación», con quién y desde cuándo, y en ámbar
+                        // (o rojo si el plazo vence): ya no hay que hacerla, hay que esperar
+                        // el justificante — y no volver a mandarla sin saberlo.
                         const enc = expediente?.cee?.presentacion?.[section];
+                        let pendiente = null;
                         if (enc?.nonce && enc?.enviado_at) {
                             const hace = Math.max(0, Math.floor((Date.now() - new Date(enc.enviado_at)) / 86400000));
-                            const quien = String(enc.nombre || 'presentar').split(/\s+/)[0];
-                            detalle = `Enviado a ${quien} ${hace === 0 ? 'hoy' : `hace ${hace} día${hace === 1 ? '' : 's'}`} · ${detalle}`;
+                            const quien = String(enc.nombre || enc.email || 'quien presenta').split(/\s+/)[0];
+                            pendiente = { quien };
+                            detalle = `Con ${quien} · enviado ${hace === 0 ? 'hoy' : `hace ${hace} día${hace === 1 ? '' : 's'}`}`
+                                + (/plazo/i.test(detalle) ? ` · ${detalle.replace(/ de plazo$/, '')}` : '');
+                            if (tono === 'emerald') tono = 'amber';
                         }
-                        return { tono, detalle };
+                        return { tono, detalle, pendiente };
                     })();
 
                     // ── Las acciones de la fase ──────────────────────────────────
@@ -1876,14 +1884,27 @@ Según el documento:
                                     la barra del módulo que salía siempre, también con el CEE ya
                                     inscrito o sin hacer. Abre el borrador EN ESTA FASE. */}
                                 {presentar && (
-                                    <TareaFase
-                                        tono={presentar.tono}
-                                        icono={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />}
-                                        titulo="Presentar el CEE"
-                                        detalle={presentar.detalle}
-                                        title={`Presentar el CEE ${section} en el Registro: abre el borrador con cada casilla del formulario lista para copiar. Plazo: un mes desde la emisión del certificado.`}
-                                        onClick={() => onPresentar(section)}
-                                    />
+                                    <div className="flex flex-col gap-1">
+                                        <TareaFase
+                                            tono={presentar.tono}
+                                            icono={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />}
+                                            titulo={presentar.pendiente ? 'Pendiente de presentación' : 'Presentar el CEE'}
+                                            detalle={presentar.detalle}
+                                            title={presentar.pendiente
+                                                ? `Enviado a ${presentar.pendiente.quien} para presentar el CEE ${section} en el Registro. Pendiente de que suba el justificante. Pulsa para abrir el borrador.`
+                                                : `Presentar el CEE ${section} en el Registro: abre el borrador con cada casilla del formulario lista para copiar. Plazo: un mes desde la emisión del certificado.`}
+                                            onClick={() => onPresentar(section)}
+                                        />
+                                        {/* Acceso DIRECTO a mandárselo a quien presenta, sin pasar
+                                            por el borrador: el popup ya viene con su correo. */}
+                                        {onEncargarPresentacion && (
+                                            <button type="button" onClick={() => onEncargarPresentacion(section)}
+                                                    title="Manda a quien presenta el borrador, el .cex, el .xml y el PDF firmado, con su enlace para subir el justificante."
+                                                    className="w-full h-7 max-md:h-10 rounded-lg border border-white/10 bg-white/[0.03] text-[9px] font-black uppercase tracking-wider text-white/55 hover:border-brand/40 hover:text-brand transition-colors">
+                                                ✉ {presentar.pendiente ? `Reenviar a ${presentar.pendiente.quien}` : 'Enviar a presentar'}
+                                            </button>
+                                        )}
+                                    </div>
                                 )}
                             </div>
 

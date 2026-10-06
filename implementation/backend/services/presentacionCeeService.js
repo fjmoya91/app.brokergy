@@ -11,12 +11,13 @@
 // la fase queda REGISTRADA, por el MISMO camino que la subida del técnico
 // (`services/cee/subidaCeePublica.js`).
 //
-// REGLA — a quien presenta se le mandan SIEMPRE el .cex, el .xml y el PDF
-// FIRMADO, y NADA más (decisión del usuario, 2026-10-06). Ni el informe de
-// medidas de mejora, ni el registro, ni la etiqueta, ni el croquis. Y un fichero
-// con «REVISAR» en el nombre NO se manda nunca: es un borrador de la app, no el
-// certificado. Si falta alguno de los tres, no sale nada (todo o nada): un correo
-// sin el PDF firmado obliga a pedirlo otra vez y el plazo de un mes corre.
+// REGLA — a quien presenta se le mandan SIEMPRE el BORRADOR del Registro (PDF) y
+// los tres ficheros que se anexan: el .cex, el .xml y el PDF FIRMADO. NADA más
+// (decisión del usuario, 2026-10-06): ni el informe de medidas de mejora, ni el
+// registro, ni la etiqueta, ni el croquis. Un fichero con «REVISAR» en el nombre
+// NO se manda nunca: es un borrador de la app, no el certificado. Si falta alguno
+// de los tres, o el borrador no se puede preparar, no sale nada (todo o nada): un
+// correo incompleto obliga a pedirlo otra vez y el plazo de un mes corre.
 //
 // REGLA — sin cuenta y sin un euro. La página no lleva importes porque no los
 // tiene: solo el borrador del Registro (titular, inmueble, calificaciones) y los
@@ -309,8 +310,8 @@ function componerCorreo({ nombre, numero, cliente, faseLabel, adjuntos, link, pl
         : null;
 
     const pasos = [
-        'Abre el enlace: tienes lo que va en cada casilla del formulario, listo para copiar.',
-        'Preséntalo en la sede de la Junta adjuntando los tres ficheros de este correo (ya llevan el NIF del titular delante).',
+        'Abre el borrador (va adjunto y también en el enlace, donde cada casilla se copia con un clic).',
+        'Preséntalo en la sede de la Junta adjuntando los tres ficheros del certificado (.pdf firmado, .xml y .cex: ya llevan el NIF del titular delante).',
         'Cuando te devuelvan el justificante de registro, súbelo en el mismo enlace. Si tienes el recibo de la tasa, también.',
     ];
     const MONO = "font-family:Consolas,'Courier New',monospace;";
@@ -396,6 +397,19 @@ async function encargar(origen, id, fase, { email, nombre = '', nota = '', usuar
         if (!buf || !buf.length) throw err(409, `No se ha podido descargar «${f.file.name}» de Drive. No se envía nada.`);
         attachments.push({ filename: nombreRegistro(nif, f.file.name), content: buf, contentType: f.file.mimeType || undefined });
     }
+
+    // El BORRADOR del Registro, primero: es la guía para rellenar el formulario.
+    // Fuera de Castilla-La Mancha no hay plantilla (`pdf` devuelve null) y se
+    // manda sin él; si falla al prepararlo, no sale nada.
+    let borradorAdjunto = null;
+    try {
+        const bdoc = await require('./borradorCeeService').pdf(origen, row.id, fz);
+        if (bdoc) borradorAdjunto = { filename: bdoc.filename, content: bdoc.buffer, contentType: 'application/pdf' };
+    } catch (e) {
+        console.error('[presentacion-cee] borrador:', e.message);
+        throw err(502, 'No se ha podido preparar el borrador del Registro. No se envía nada; vuelve a intentarlo.');
+    }
+    if (borradorAdjunto) attachments.unshift(borradorAdjunto);
 
     const previo = encargoDe(row, fz);
     const nonce = crypto.randomBytes(16).toString('hex');

@@ -18,6 +18,7 @@ import { AgenteIaEstado } from './AgenteIaEstado';
 import { esAgenteIa } from '../../../utils/agenteIa';
 import { Ce3xAyudasModal } from './Ce3xAyudasModal';
 import { BorradorCeeModal } from './BorradorCeeModal';
+import { EncargarPresentacionModal } from './EncargarPresentacionModal';
 import { createPortal } from 'react-dom';
 import { telefonoDe, emailDe } from '../../../utils/contactoPrescriptor';
 import { MensajeEditable } from './MensajeEditable';
@@ -216,6 +217,8 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
     // El borrador para presentar el CEE en el Registro, abierto DIRECTAMENTE desde
     // la barra del módulo (también se llega desde Ayudas CE3X).
     const [presentarCee, setPresentarCee] = useState(false);
+    // Encargar la presentación a quien presenta (Eva), directamente desde la tarea.
+    const [encargarPresentacion, setEncargarPresentacion] = useState(null);
     // La rejilla del CEE, para que el borrador de presentación pueda subir por
     // ella el justificante de registro y el recibo de la tasa: tienen que hacer
     // lo MISMO que si se soltaran en su casilla. Solo se monta una de las dos
@@ -948,6 +951,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 xmlTextos={{ inicial: local.xml_inicial || null, final: local.xml_final || null }}
                 // «Presentar en el Registro» sale en la FASE que toca, no en la barra.
                 onPresentar={!isCertificador ? (fase) => setPresentarCee(fase) : null}
+                onEncargarPresentacion={!isCertificador ? (fase) => setEncargarPresentacion(fase) : null}
                 presentaLaCasa={esCertificadorDeLaCasa(selectedCert)}
             />
 
@@ -1104,6 +1108,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                 xmlTextos={{ inicial: local.xml_inicial || null, final: local.xml_final || null }}
                 // «Presentar en el Registro» sale en la FASE que toca, no en la barra.
                 onPresentar={!isCertificador ? (fase) => setPresentarCee(fase) : null}
+                onEncargarPresentacion={!isCertificador ? (fase) => setEncargarPresentacion(fase) : null}
                 presentaLaCasa={esCertificadorDeLaCasa(selectedCert)}
             />
 
@@ -1758,6 +1763,19 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                     fases={secciones}
                     faseInicial={typeof presentarCee === 'string' ? presentarCee : null}
                     gridRef={gridRef}
+                    onEncargoEnviado={onRefresh}
+                />,
+                document.body
+            )}
+
+            {encargarPresentacion && !isCertificador && createPortal(
+                <EncargarPresentacionModal
+                    isOpen
+                    onClose={() => setEncargarPresentacion(null)}
+                    apiBase={apiBase}
+                    expedienteId={expediente?.id}
+                    fase={encargarPresentacion}
+                    onEnviado={onRefresh}
                 />,
                 document.body
             )}

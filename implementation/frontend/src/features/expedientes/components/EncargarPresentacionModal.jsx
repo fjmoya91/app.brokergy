@@ -125,8 +125,8 @@ export function EncargarPresentacionModal({ isOpen, onClose, apiBase, expediente
                     {datos && (
                         <>
                             <p className="text-[11px] text-white/55 normal-case leading-snug">
-                                Le llega un correo con los <b className="text-white/80">tres ficheros</b> adjuntos y un enlace,
-                                sin usuario ni contraseña, con el borrador del Registro y dónde subir el justificante.
+                                Le llega un correo con el <b className="text-white/80">borrador</b> y los <b className="text-white/80">tres ficheros</b> adjuntos, y un enlace
+                                (sin usuario ni contraseña) donde copiar cada casilla y subir el justificante.
                                 No ve ningún importe.
                             </p>
 
@@ -140,6 +140,14 @@ export function EncargarPresentacionModal({ isOpen, onClose, apiBase, expediente
                             <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
                                 <div className="text-[9px] font-black text-white/50 uppercase tracking-widest mb-2">Adjuntos</div>
                                 <div className="space-y-1.5">
+                                    {/* El borrador del Registro: se prepara en el momento de enviar. */}
+                                    <div className="flex items-start gap-2">
+                                        <span className="shrink-0 text-[11px] text-emerald-400">✓</span>
+                                        <div className="min-w-0">
+                                            <div className="text-[9px] font-bold uppercase tracking-widest text-white/35">Borrador para presentar (PDF)</div>
+                                            <span className="text-[11px] text-white/55 normal-case">Lo que va en cada casilla del formulario · se prepara al enviar</span>
+                                        </div>
+                                    </div>
                                     {datos.ficheros.map(f => (
                                         <div key={f.clave} className="flex items-start gap-2">
                                             <span className={`shrink-0 text-[11px] ${f.presente ? 'text-emerald-400' : 'text-red-400'}`}>{f.presente ? '✓' : '✗'}</span>

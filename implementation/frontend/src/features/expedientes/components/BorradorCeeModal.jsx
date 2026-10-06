@@ -61,7 +61,9 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
                                    faseInicial = null,
                                    // Subir lo que devuelve la sede SIN la rejilla: la página pública
                                    // de quien presenta. `(fase, doc, file) => Promise<{texto?}>`.
-                                   onSubirDevuelto = null }) {
+                                   onSubirDevuelto = null,
+                                   // Tras enviar el encargo de presentación: refrescar el expediente.
+                                   onEncargoEnviado = null }) {
     const [fase, setFase] = useState(faseInicial || 'inicial');
     const [datos, setDatos] = useState(null);
     const [cargando, setCargando] = useState(false);
@@ -412,7 +414,8 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
             {encargar && (
                 <div onClick={e => e.stopPropagation()}>
                     <EncargarPresentacionModal isOpen onClose={() => setEncargar(false)}
-                                               apiBase={apiBase} expedienteId={expedienteId} fase={fase} />
+                                               apiBase={apiBase} expedienteId={expedienteId} fase={fase}
+                                               onEnviado={onEncargoEnviado} />
                 </div>
             )}
         </div>
