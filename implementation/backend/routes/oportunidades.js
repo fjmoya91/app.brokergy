@@ -510,8 +510,17 @@ router.post('/', enforceAuth, async (req, res) => {
         if (existingData?.datos_calculo?.docs_status && newRecord.datos_calculo.docs_status === undefined) {
             newRecord.datos_calculo.docs_status = existingData.datos_calculo.docs_status;
         }
-        if (existingData?.datos_calculo?.reforma_uploads && newRecord.datos_calculo.reforma_uploads === undefined) {
-            newRecord.datos_calculo.reforma_uploads = existingData.datos_calculo.reforma_uploads;
+        // REGLA — lo que solo escriben sus RPC atómicas manda SIEMPRE la BD, no
+        // solo cuando el navegador no lo trae. La calculadora manda `datos_calculo`
+        // ENTERO tal y como lo cargó (el payload esparce los inputs, que llevan
+        // pegadas estas claves), así que una copia vieja borraba lo escrito
+        // después. Medido en 26RES060_OP191 (06/10/2026): la propuesta v3 se
+        // entregó por enlace a las 07:45 y un guardado de la calculadora a las
+        // 08:45 la borró del registro — la siguiente habría salido otra vez como
+        // "v3". Con las fotos, lo mismo: las subidas desde que se abrió la
+        // calculadora desaparecían de `reforma_uploads` (regla 19).
+        for (const k of ['propuesta_versiones', 'reforma_uploads']) {
+            if (existingData?.datos_calculo?.[k] !== undefined) newRecord.datos_calculo[k] = existingData.datos_calculo[k];
         }
 
         let resultData, resultError;
