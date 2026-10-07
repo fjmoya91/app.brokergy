@@ -15,7 +15,9 @@ Un JSON escrito por quien ha mirado las fotos. Todo es opcional salvo lo que se 
                   "numero_serie": "541S7757904A3150100002", "potencia_kw": 12, "refrigerante": "R290" },
     "interior": null
   },
-  "caldera": { "nombre": "CALDERA SERRA CALOR", "potencia_kw": 43, "da_acs": false },
+  "caldera": { "nombre": "CALDERA SERRA CALOR", "marca": "SERRA CALOR", "modelo": "SC 40",
+               "numero_serie": "123456", "potencia_kw": 43, "anio": 2004, "combustible": "gasoleo",
+               "da_acs": false },
   "acs_aparte": { "nombre": "TERMO ELÉCTRICO THERMOR", "litros": 80 },
   "ventanas": { "vidrio": "Doble", "marco": "PVC", "persiana": true },
   "entrada": "FBE1",
@@ -54,9 +56,11 @@ Un JSON escrito por quien ha mirado las fotos. Todo es opcional salvo lo que se 
 | `altura_planta` | altura de planta en m (p. ej. `3.3`) | El motor mide las fachadas con ella y la ficha la declara. Sin ella, la ya guardada o 2,80 |
 | `lucernarios` | `[{ "planta": "P1", "ancho": 2.0, "alto": 3.0, "por_que": "…" }]` | En la cubierta de su planta (la de arriba si se omite). Cada planta del plan sustituye la suya. Nacen dudosos |
 | `aires` | `true` (los que confirmó el cliente) o `{ "n": 2, "modo": "refrigeracion" }` | CAE: máquina frigorífica de sólo refrigeración; CEE directo: `climatizacion`. Sustituyen a los aires ya puestos, nunca se suman |
-| `placa_aerotermia` | lo leído de la placa | Solo metadatos (`inputs.placa_ocr`): el expediente hereda el nº de serie al nacer |
-| `caldera.nombre` | nombre del equipo en CE3X | Lo que dice la placa/frontal. Sin marca legible, se omite |
-| `caldera.potencia_kw` | potencia **útil** de la placa | En una oportunidad va también a `inputs.potenciaCaldera` |
+| `placa_aerotermia` | lo leído de la placa (`exterior` / `interior`: marca, modelo, nº de serie) | EXPEDIENTE: los nº de serie van a su Instalación (solo huecos, como «Leer placas»). OPORTUNIDAD: a `inputs.placa_ocr` y el expediente los hereda al nacer. `serie_dudosa: true` = ese nº no se escribe |
+| `caldera.nombre` | nombre del equipo en CE3X | Lo que dice la placa/frontal. Sin marca legible, se omite. Si coincide con «CALDERA {marca} {modelo}» de la app no se pone como ajuste (lo compone la ficha) |
+| `caldera.marca` / `modelo` / `numero_serie` | lo que dice la placa | EXPEDIENTE: a la Instalación (caldera de calefacción y, si es la misma, la de ACS), **solo huecos**; lo distinto sale como conflicto y no se toca. OPORTUNIDAD: a `inputs.placa_caldera`. `serie_dudosa: true` si las dos lecturas no coinciden: entonces no se escribe |
+| `caldera.anio` / `combustible` | año de fabricación y combustible de la placa (`gas_natural`, `glp`, `gasoleo`, `pellets`, `carbon`, `electricidad`) | No se escriben: se contrastan con la fila de rendimiento (de la que sale el ahorro) y, si no cuadran, se avisa |
+| `caldera.potencia_kw` | potencia **útil** de la placa | EXPEDIENTE: a `potencia_caldera_kw` (y `potencia_caldera` si está vacía), solo hueco. OPORTUNIDAD: a `inputs.potenciaCaldera` y a `placa_caldera` |
 | `caldera.da_acs` | `false` si el ACS lo hace otro aparato | La caldera pasa a «Equipo de sólo calefacción» |
 | `acs_aparte` | el termo (o lo que dé el ACS) | Efecto Joule, electricidad, 100 % del ACS. `litros` solo si se ven |
 | `ventanas` | cómo son las ventanas de la vivienda | `vidrio`: Simple · Doble · Doble bajo emisivo. `marco`: Metálico sin RPT · Metálico con RPT · PVC · Madera |

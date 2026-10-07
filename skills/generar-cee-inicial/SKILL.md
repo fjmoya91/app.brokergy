@@ -34,7 +34,7 @@ Todo pasa por `implementation/backend/scripts/cee_inicial.js` (desde `implementa
 | Orden | Qué hace | Escribe |
 |---|---|---|
 | `estado <clave>` | Lo que hay: RC, zona, caldera, ACS, aerotermia, construcciones, trabajo y `.cex` | nada |
-| `placas <clave>` | Lee la placa de la caldera y la de la aerotermia y la casa con el catálogo | nada |
+| `placas <clave>` | Lee la placa de la caldera y la de la aerotermia, la casa con el catálogo, contrasta año y combustible con la fila de rendimiento, guarda `placas.json` e imprime el bloque **PARA EL PLAN** | nada |
 | `fotos <clave> [--out DIR]` | Baja todas las imágenes de «12. DOCUMENTOS PARA CEE» con su id de Drive | nada |
 | `paredes <clave> [--out DIR]` | Mide el edificio (con el **croquis catastral por plantas**), lista paredes/construcciones/cuerpos, dibuja `plano.png` (cartografía), `plano_satelite.png` (paredes sobre la foto aérea) y `satelite.png` (la foto aérea sola, con la fecha del vuelo), y **baja los documentos del Catastro** a `<out>/catastro/` | nada |
 | `catastro <clave> [--out DIR] [--refrescar-catastro]` | Solo los **documentos de la Sede del Catastro**: croquis por plantas (PDF), FXCC por plantas (DXF+ASC), KML 3D por plantas y de la parcela, FXCC con colindantes | con `--escribir` (los sube a `1. CEE / CEE INICIAL / CATASTRO`; `aplicar --escribir` ya lo hace solo) |
@@ -44,6 +44,7 @@ Todo pasa por `implementation/backend/scripts/cee_inicial.js` (desde `implementa
 | `eprel <modelo>` | Busca el modelo en EPREL y baja su ficha (ES) y su etiqueta | nada |
 | `alta-aerotermia --json d.json [--ficha ft.pdf:1,3-4] [--eprel-fiche f.pdf] [--eprel-label l.pdf]` | Da de alta el equipo en el catálogo y guarda la ficha unida en Drive | con `--escribir` |
 | `aplicar <clave> --plan plan.json` | Guarda el trabajo, pega las fotos, compone la ficha, escribe el `.cex`, lo guarda en Drive **y avisa** (`--sin-aviso` lo calla). Además lo **califica con CE3X 3.1 en el PC** (≈1 min, sin abrir su ventana) y deja al lado su **`.xml` y su `.pdf` oficial** (`… _REVISAR.xml/.pdf`); `--sin-pdf` lo salta. En seco, `--calificar` lo califica y los deja junto a la copia local | con `--escribir` |
+| `instalacion <clave> --plan plan.json` | **Solo lo de las PLACAS a la app** (Instalación del expediente, o inputs de la oportunidad), con el mismo plan que `aplicar`: sin `.cex`, sin Drive, sin aviso al equipo. Para un CEE ya hecho al que le falta la Instalación rellena | con `--escribir` |
 | `croquis <clave> [--fase final]` | El **croquis en PDF** de lo que YA hay (trabajo guardado + `.cex` de la carpeta): plano de obra por planta con la marca de BROKERGY, a escala, con muros, huecos, cotas y zonas, y los cuadros de huecos, superficies y cerramientos (sin avisos: vale para una auditoría). `aplicar --escribir` ya lo hace solo | con `--escribir` (sube `… - CEE INICIAL_CROQUIS.pdf` junto al `.cex`) |
 
 Y el **agente** (`implementation/backend/scripts/agente_ia.js`):
@@ -88,6 +89,13 @@ nada**: siempre primero en seco.
    - Un nº de serie manuscrito o cortado **no se escribe**. En CE3X no hace falta.
    - La AEROTERMIA: el código de la placa de la unidad exterior es el que casa con el catálogo. Un
      número de 13 cifras bajo unas barras es el **EAN**, no el nº de serie.
+   - **Copia el bloque «PARA EL PLAN»** que imprime (`caldera` con marca, modelo, nº de serie,
+     potencia, año y combustible; `placa_aerotermia`; `aerotermia_id` si la placa casa con el
+     catálogo), **corrígelo con la foto delante** y añade a `caldera` su `nombre` y `da_acs`. Con eso,
+     `aplicar --escribir` lo deja **también escrito en la app** (ver «Lo que se escribe en la app»).
+     Un nº de serie DUDOSO sale ya quitado: ponlo solo si en la foto se lee claro.
+   - Si dice que **la placa no cuadra con el rendimiento declarado** (año o combustible), NO lo
+     cambies: de esa fila sale el ahorro prometido. Dilo en el informe.
 3. **Si la aerotermia NO está en el catálogo**, se da de alta (ver `referencia/alta-aerotermia.md`):
    ficha técnica del fabricante (las páginas con el SCOP/η por clima y temperatura), `eprel <modelo>`,
    Keymark si existe. **Nada de valores deducidos**: el SCOP de clima **cálido** a 35 y 55 °C tiene
@@ -199,6 +207,34 @@ nada**: siempre primero en seco.
   OTRO equipo elegido, no se sustituye sin `"aerotermia_sustituir": true`. Sin placa, el nº de serie
   queda por poner (lo pide el CIFO): dilo en el informe.
 
+### Lo que se escribe en la app (dos pájaros de un tiro)
+
+Lo que la skill ya ha leído y contrastado para el `.cex` queda **escrito también en la app**, para
+que al abrir el expediente la pestaña **Instalación** ya esté rellena (decisión del usuario,
+2026-10-07). Sale del PLAN —lo revisado—, nunca de una lectura nueva.
+
+- **EXPEDIENTE** → su **Instalación**, por el MISMO servicio que el botón **«✨ Leer placas»**
+  (`services/placasInstalacion.js`): marca, modelo, nº de serie y potencia de la **caldera que se
+  retira** (también la de ACS si es la misma, y `potencia_caldera`), y el nº de serie de la **ud.
+  exterior / interior** si la bomba ya está puesta. Con sus reglas:
+  - **Solo HUECOS.** Lo que ya escribió una persona no se toca: sale como `≠ consta «…» · placa «…»`
+    y en los avisos. Dilo en el informe para que alguien lo mire.
+  - Un **nº de serie dudoso** no se escribe (`serie_dudosa: true` en el plan): se elige en
+    «Leer placas» mirando la foto.
+  - El **EQUIPO**: si el plan trae `aerotermia_id`, manda el plan (la del PRESUPUESTO) y la placa solo
+    lo confirma o lo contradice (aviso). Sin `aerotermia_id`, la placa rellena el hueco; un equipo ya
+    elegido solo se sustituye con `"aerotermia_sustituir": true`.
+  - La **fila de rendimiento** (y con ella el ahorro) NO se toca nunca: si la placa la contradice en
+    año o combustible, se avisa.
+  - Queda anotado en el historial («Placas puestas en Instalación por la skill…») y la huella en
+    `instalacion.placas_ocr`. En seco se enseña con `+` lo que se escribiría.
+- **OPORTUNIDAD** → sus inputs: la caldera a `placa_caldera` (la misma forma que `alta-oportunidad`,
+  solo huecos), su potencia a `potenciaCaldera` y la aerotermia a `placa_ocr`. El expediente lo
+  **hereda al aceptarse** (`expedienteService`), y la ventana de la envolvente ya lo enseña.
+- **CEE directo** → no hay Instalación: va solo al `.cex` (`ajustes.instalacion`), como siempre.
+- En el `.cex` la caldera sale con el nombre y la potencia de la **app**; el `nombre`/`potencia_kw` del
+  plan solo van como ajuste «a mano» si DIFIEREN de lo que consta allí.
+
 ## Lo que hay que poner SIEMPRE (aprendido de las correcciones del usuario)
 
 Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenido que pedir a mano
@@ -275,7 +311,9 @@ Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenid
 - Que el aviso **ha salido** (o por qué no) y en qué fase queda: «pendiente de revisión» si el
   encargo es del agente; si hay un técnico asignado, que sigue siendo suyo.
 
-- Qué se ha leído de cada placa y qué **no** se ha escrito (y por qué).
+- Qué se ha leído de cada placa, **qué ha quedado escrito en la app** (Instalación del expediente o
+  inputs de la oportunidad) y qué **no** se ha escrito (y por qué): los conflictos `≠` con lo que ya
+  constaba, los nº de serie dudosos y si la placa contradice la fila de rendimiento.
 - Cuántos huecos por pared y que están **por confirmar** (ámbar) — en la **ventana de la envolvente**
   de la app (el croquis PDF es el plano limpio, para revisar y para auditoría). **No en CE3X**: allí no hay ámbar.
   En la ventana, «N medidas por confirmar» abre la lista y cada línea lleva a su pared; la banda

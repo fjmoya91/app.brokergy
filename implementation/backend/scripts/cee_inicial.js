@@ -19,6 +19,8 @@
 //            [--ficha ft.pdf[:1,3-4]] [--eprel-fiche f.pdf] [--eprel-label l.pdf] [--escribir]
 //   node scripts/cee_inicial.js aplicar  <clave> --plan plan.json [--escribir] [--sin-aviso]
 //            [--sin-pdf] [--calificar]
+//   node scripts/cee_inicial.js instalacion <clave> --plan plan.json [--escribir]
+//            (solo lo de las PLACAS a la app: sin .cex, sin Drive y sin avisar)
 //
 // Con --escribir, además del .cex deja su XML y su PDF OFICIAL al lado
 // (`… _REVISAR.xml/.pdf`), calificados por CE3X 3.1 sin abrir su ventana
@@ -70,6 +72,7 @@ const fotosSrv = require('../services/paredFotoService');
 const paredOcr = require('../services/paredOcrService');
 const placaOcr = require('../services/placaOcrService');
 const placaEquipo = require('../services/placaEquipoOcrService');
+const { contrastarPlacaConRendimiento } = require('../utils/combustibleCaldera');
 const driveService = require('../services/driveService');
 
 const MOTOR = process.env.CEE_ENGINE_URL || 'http://127.0.0.1:8090';
@@ -404,6 +407,49 @@ async function placas() {
         : `→ NO ESTÁ${m.candidatos?.length ? ` · ${m.candidatos.length} candidatos: ${
             m.candidatos.map(x => `${x.id} ${x.modelo_comercial}`).join(' | ')}` : ''}`);
     if (m.aviso) console.log(`  ⚠ ${m.aviso}`);
+
+    // Lo leído se guarda en disco (no se vuelve a pagar) y se propone el bloque
+    // del PLAN: con él, `aplicar` lo escribe también en la app — en la
+    // Instalación del expediente o en la oportunidad (`placasDelPlan`).
+    const dir = path.join(CACHE, ctx.expediente.numero_expediente);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'placas.json'), JSON.stringify({
+        at: new Date().toISOString(), caldera: c, unidades: a.unidades || {}, fotos: a.fotos || [],
+        catalogo: m.modelo ? { id: m.modelo.id, modelo: m.modelo.modelo_comercial, por: m.por } : null,
+        candidatos: (m.candidatos || []).map(x => ({ id: x.id, modelo: x.modelo_comercial })),
+    }, null, 1));
+    const sinDudosa = (o) => (o && !o.serie_dudosa ? o.numero_serie || undefined : undefined);
+    const l = c.leido || {};
+    const bloque = {
+        ...(m.modelo ? { aerotermia_id: m.modelo.id } : {}),
+        caldera: Object.fromEntries(Object.entries({
+            marca: l.marca || undefined, modelo: l.modelo || undefined,
+            numero_serie: sinDudosa(l), potencia_kw: c.potencia_kw ?? undefined,
+            anio: l.anio || undefined, combustible: l.combustible || undefined,
+        }).filter(([, v]) => v !== undefined)),
+        placa_aerotermia: Object.fromEntries(['exterior', 'interior'].map(k => {
+            const u = a.unidades?.[k];
+            return [k, u ? Object.fromEntries(Object.entries({ marca: u.marca || undefined, modelo: u.modelo || undefined,
+                numero_serie: sinDudosa(u) }).filter(([, v]) => v !== undefined)) : null];
+        })),
+    };
+    // El año y el combustible de la placa frente a la fila de rendimiento, de la
+    // que sale el ahorro. Solo se dice: cambiarla es decisión de una persona.
+    const filaId = inst.caldera_antigua_cal?.rendimiento_id || inputsDe(ctx).boilerId;
+    if (filaId && (l.anio || l.combustible)) {
+        const calc = await esm('calculator/logic/calculation.js');
+        const et = calc.BOILER_EFFICIENCIES.find(b => b.id === filaId)?.label || null;
+        const dif = contrastarPlacaConRendimiento(filaId, l, et);
+        if (dif.length) for (const d of dif) console.log(`\n⚠ ${d}`);
+        else console.log(`\nLa placa (${[l.anio, l.combustible].filter(Boolean).join(', ')}) cuadra con el rendimiento declarado «${et || filaId}».`);
+    }
+    console.log(`\nLeído guardado en ${path.join(dir, 'placas.json')}`);
+    console.log('PARA EL PLAN (corrígelo con la foto delante; añade a «caldera» su «nombre» y «da_acs»):');
+    console.log(JSON.stringify(bloque, null, 1));
+    if (l.serie_dudosa || a.unidades?.exterior?.serie_dudosa || a.unidades?.interior?.serie_dudosa) {
+        console.log('  ⚠ Hay un nº de serie DUDOSO (las dos lecturas no coinciden): se ha quitado del bloque. '
+            + 'Ponlo solo si en la foto se lee claro; si no, se elige en «Leer placas» de la app.');
+    }
     console.log('\nCOMPRUEBA cada lectura contra la FOTO antes de usarla: el modelo solo transcribe.');
 }
 
@@ -902,11 +948,32 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
                 potenciaBomba: Math.round((Number(mod.potencia_calefaccion) || Number(inp.potenciaBomba) || 0)
                     * (Number(plan.unidades) > 1 ? Number(plan.unidades) : 1) * 100) / 100,
                 ...(plan.emisor ? { emitterType: plan.emisor } : {}),
-                ...(plan.placa_aerotermia ? { placa_ocr: { at: new Date().toISOString(), ...plan.placa_aerotermia } } : {}),
             };
-            if (plan.caldera?.potencia_kw) patchInputs.potenciaCaldera = Number(plan.caldera.potencia_kw);
             console.log(`\nAEROTERMIA → ${mod.marca} ${mod.modelo_comercial} (id ${mod.id}) · SCOP ${
                 inp.scopHeating ?? '—'} → ${patchInputs.scopHeating} (${patchInputs.scopTemporada}, ${temp} °C)`);
+        }
+    }
+
+    // 1b. En una OPORTUNIDAD, lo leído de las PLACAS va a sus inputs aunque el
+    //     plan no cambie el equipo: la caldera a `placa_caldera` (la MISMA forma
+    //     que deja `alta-oportunidad`) y la aerotermia a `placa_ocr` (la del
+    //     botón «Leer la placa» de la calculadora). `expedienteService` los
+    //     hereda al aceptarla —solo huecos—, así que el expediente nace con la
+    //     marca, el modelo, el nº de serie y la potencia ya escritos.
+    if (ctx0.origen === 'op') {
+        const { BOILER_EFFICIENCIES } = await esm('calculator/logic/calculation.js');
+        const etFila = BOILER_EFFICIENCIES.find(b => b.id === inputsDe(ctx0).boilerId)?.label || null;
+        const extra = placasParaInputs(plan, inputsDe(ctx0), avisos, etFila);
+        if (extra) {
+            patchInputs = { ...(patchInputs || {}), ...extra };
+            const pc = extra.placa_caldera;
+            console.log('\nOPORTUNIDAD ← placas (el expediente lo heredará al aceptarse, solo huecos):');
+            if (pc) {
+                console.log(`  ${ESCRIBIR ? '✓' : '+'} caldera: ${[pc.marca, pc.modelo].filter(Boolean).join(' ') || '—'}`
+                    + `${pc.numero_serie ? ` · nº ${pc.numero_serie}` : ''}${pc.potencia_kw ? ` · ${fmt(pc.potencia_kw)} kW` : ''}`);
+            }
+            if (extra.potenciaCaldera) console.log(`  ${ESCRIBIR ? '✓' : '+'} potencia de la caldera en la simulación: ${fmt(extra.potenciaCaldera)} kW`);
+            if (extra.placa_ocr) console.log(`  ${ESCRIBIR ? '✓' : '+'} placa de la aerotermia (nº de serie de la ud. exterior para el expediente)`);
         }
     }
 
@@ -915,28 +982,47 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
     // historial): relanzar el plan tras corregir un hueco no cambia la simulación.
     if (patchInputs) {
         const inp = inputsDe(ctx0);
-        const iguales = ['aerothermiaModel', 'scopHeating', 'potenciaCaldera', 'emitterType']
-            .every(k => patchInputs[k] === undefined || String(inp[k]) === String(patchInputs[k]));
+        // Los objetos (las placas) se comparan sin su sello de hora.
+        const igual = (a, b) => {
+            if (a && typeof a === 'object') {
+                const sin = (o) => JSON.stringify(Object.fromEntries(Object.entries(o || {}).filter(([k]) => k !== 'at')));
+                return sin(a) === sin(b);
+            }
+            return String(a) === String(b);
+        };
+        const iguales = Object.keys(patchInputs).every(k => patchInputs[k] === undefined || igual(patchInputs[k], inp[k]));
         if (iguales) patchInputs = null;
     }
     let ctx = ctx0;
     if (patchInputs && ESCRIBIR) {
         const { error } = await supabase.rpc('oportunidad_merge_inputs', { p_id: e0.id, p_patch: patchInputs });
         if (error) throw new Error(`No se han podido guardar los inputs: ${error.message}`);
-        await anotar(e0.id, `CEE inicial preparado por la skill: aerotermia ${patchInputs.aerothermiaModel}`
-            + ` (SCOP ${patchInputs.scopHeating})${patchInputs.potenciaCaldera ? `, caldera ${patchInputs.potenciaCaldera} kW` : ''}`
-            + (patchInputs.emitterType ? `, emisor ${patchInputs.emitterType}` : '')
-            + '. La simulación hay que RECALCULARLA en la calculadora y guardarla.');
+        const pc = patchInputs.placa_caldera;
+        const partes = [
+            patchInputs.aerothermiaModel ? `aerotermia ${patchInputs.aerothermiaModel} (SCOP ${patchInputs.scopHeating})` : null,
+            pc ? `caldera ${[pc.marca, pc.modelo].filter(Boolean).join(' ') || 'de la placa'}`
+                + `${pc.numero_serie ? ` nº ${pc.numero_serie}` : ''}` : null,
+            patchInputs.potenciaCaldera ? `potencia de la caldera ${patchInputs.potenciaCaldera} kW` : null,
+            patchInputs.placa_ocr ? 'placa de la aerotermia leída' : null,
+            patchInputs.emitterType ? `emisor ${patchInputs.emitterType}` : null,
+        ].filter(Boolean);
+        await anotar(e0.id, `CEE inicial preparado por la skill: ${partes.join(', ')}.`
+            + (patchInputs.aerothermiaModel || patchInputs.potenciaCaldera || patchInputs.emitterType
+                ? ' La simulación hay que RECALCULARLA en la calculadora y guardarla.'
+                : ' El expediente lo heredará al aceptarse.'));
         ctx = await cargar(POS[0]);
     } else if (patchInputs) {
         const dc = ctx.expediente.oportunidades.datos_calculo;
         dc.inputs = { ...dc.inputs, ...patchInputs };
         const { oportunidadComoExpediente } = await esm('cee-envolvente/logic/oportunidad.js');
         const exp = oportunidadComoExpediente(ctx.expediente.oportunidades, { cliente: ctx.cliente });
-        const { data: mod } = await supabase.from('aerotermia').select('*').eq('id', plan.aerotermia_id).maybeSingle();
-        exp.instalacion.aerotermia_cal = { ...exp.instalacion.aerotermia_cal, marca: mod.marca,
-            modelo: mod.modelo_comercial || mod.modelo_conjunto || mod.modelo_ud_exterior || '' };
-        ctx = { ...ctx, expediente: exp, modelos: { ...ctx.modelos, [mod.id]: mod } };
+        ctx = { ...ctx, expediente: exp };
+        if (plan.aerotermia_id) {
+            const { data: mod } = await supabase.from('aerotermia').select('*').eq('id', plan.aerotermia_id).maybeSingle();
+            exp.instalacion.aerotermia_cal = { ...exp.instalacion.aerotermia_cal, marca: mod.marca,
+                modelo: mod.modelo_comercial || mod.modelo_conjunto || mod.modelo_ud_exterior || '' };
+            ctx.modelos = { ...ctx.modelos, [mod.id]: mod };
+        }
     }
 
     // 2b. En un EXPEDIENTE, la aerotermia va a su INSTALACIÓN con los mismos
@@ -953,15 +1039,33 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
                 .update({ instalacion: inst, updated_at: new Date().toISOString() }).eq('id', e0.id);
             if (error) throw new Error(`No se ha podido guardar la aerotermia: ${error.message}`);
             const a = aeroExpediente.inst.aerotermia_cal;
-            await anotarExpediente(e0.id, `Aerotermia del presupuesto puesta por la skill generar-cee-inicial: `
+            const conSerie = !!placasDelPlan(plan).equipos.unidades.exterior?.numero_serie;
+            await anotarExpediente(e0.id, `Aerotermia ${plan.placa_aerotermia ? 'de la placa' : 'del presupuesto'} `
+                + `puesta por la skill generar-cee-inicial: `
                 + `${a.marca} ${a.modelo} (catálogo ${a.aerotermia_db_id}), SCOP ${a.scop} (${a.scop_temporada})`
                 + (aeroExpediente.acs ? `, ACS del conjunto SCOP_dhw ${aeroExpediente.inst.aerotermia_acs.scop}` : '')
-                + '. Sin placa: el nº de serie queda por poner.');
+                + (conSerie ? '.' : '. Sin placa: el nº de serie queda por poner.'));
             ctx = await cargar(POS[0]);
         } else {
             ctx = { ...ctx, expediente: { ...ctx.expediente, instalacion: aeroExpediente.inst } };
         }
         ctx = { ...ctx, modelos: { ...(ctx.modelos || {}), [aeroExpediente.mod.id]: aeroExpediente.mod } };
+    }
+
+    // 2c. En un EXPEDIENTE, lo leído de las PLACAS va también a su INSTALACIÓN:
+    //     marca, modelo, nº de serie y potencia de la caldera que se retira, y
+    //     los nº de serie de la bomba de calor si ya está puesta. Con las MISMAS
+    //     reglas que el botón «✨ Leer placas» (`services/placasInstalacion.js`):
+    //     solo HUECOS, lo que choca con lo escrito se enseña y no se toca, y un
+    //     nº de serie dudoso no se escribe. Así, al entrar en la app ya está.
+    if (ctx0.origen === 'cae') {
+        const r = await placasEnInstalacion(ctx, plan, avisos);
+        if (r?.escrito) {
+            ctx = await cargar(POS[0]);
+        } else if (r?.instalacion) {
+            ctx = { ...ctx, expediente: { ...ctx.expediente, instalacion: r.instalacion } };
+            ctx = { ...ctx, modelos: { ...(ctx.modelos || {}), ...(await cex.modelosDeAerotermia(ctx.expediente)) } };
+        }
     }
 
     // 3. La geometría, con lo que el plan deja fuera.
@@ -1079,13 +1183,34 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
     }
     // La caldera: lo que dice su placa. «da_acs: false» = solo calefacción, que es
     // el USO que se cambia en Instalaciones cuando el ACS lo hace otro aparato.
+    //
+    // Con la caldera ya en la INSTALACIÓN (paso 2c) o en la oportunidad
+    // (`placa_caldera`), la ficha compone sola su nombre («CALDERA {marca}
+    // {modelo}») y su potencia: ponerlos además como ajuste los marcaría
+    // «puestos a mano por el certificador», que es falso. Al ajuste solo va lo que
+    // DIFIERE de lo que consta en la app (un conflicto que allí no se ha tocado),
+    // y uno anterior que ya coincide se retira.
     if (plan.caldera) {
-        ajustes.instalacion = {
-            ...(ajustes.instalacion || {}),
-            ...(plan.caldera.nombre ? { nombre: plan.caldera.nombre } : {}),
-            ...(plan.caldera.potencia_kw ? { potencia: String(plan.caldera.potencia_kw) } : {}),
-            ...(plan.caldera.da_acs === false ? { slot: 'calefaccion' } : {}),
-        };
+        const instC = ctx.expediente?.instalacion || {};
+        const calC = instC.caldera_antigua_cal || {};
+        const nombreApp = [calC.marca, calC.modelo].filter(Boolean).join(' ').trim();
+        const nombreDerivado = nombreApp ? `CALDERA ${nombreApp}`.toUpperCase() : null;
+        const potApp = [instC.potencia_caldera_kw, instC.potencia_caldera].map(Number).find(n => n > 0) || null;
+        const insAj = { ...(ajustes.instalacion || {}) };
+        const nombrePlan = plan.caldera.nombre ? String(plan.caldera.nombre).trim() : null;
+        if (nombrePlan) {
+            if (nombreDerivado && nombrePlan.toUpperCase() === nombreDerivado) {
+                if (String(insAj.nombre || '').trim().toUpperCase() === nombreDerivado) delete insAj.nombre;
+            } else insAj.nombre = nombrePlan;
+        }
+        const potPlan = Number(plan.caldera.potencia_kw) > 0 ? Number(plan.caldera.potencia_kw) : null;
+        if (potPlan) {
+            if (potApp === potPlan) {
+                if (Number(insAj.potencia) === potPlan) delete insAj.potencia;
+            } else insAj.potencia = String(potPlan);
+        }
+        if (plan.caldera.da_acs === false) insAj.slot = 'calefaccion';
+        ajustes.instalacion = insAj;
     }
     if (plan.acs_aparte) {
         const litros = Number(plan.acs_aparte.litros) || 0;
@@ -1434,6 +1559,216 @@ async function aerotermiaParaExpediente(exp, mod) {
         }
     }
     return { inst: { ...inst0, ...cambios }, cambios, temp, acs, mod };
+}
+
+// ─── Las PLACAS, también en la app ──────────────────────────────────────────
+//
+// La skill ya ha leído la placa de la caldera que se retira (y la de la bomba de
+// calor, si está puesta) y las ha contrastado con la foto para escribir el `.cex`.
+// Esos mismos datos se escriben en la app, para que al abrir el expediente la
+// Instalación ya esté rellena: dos pájaros de un tiro (decisión del usuario,
+// 2026-10-07). Lo que entra es lo del PLAN —lo revisado—, nunca una lectura nueva.
+
+/**
+ * Lo leído de las placas tal y como lo escribió en el PLAN quien miró las fotos
+ * (`caldera.{marca, modelo, numero_serie, potencia_kw}` y `placa_aerotermia`), en
+ * la forma que entiende `placasInstalacion.proponerPlacas`. Un nº de serie con
+ * `serie_dudosa: true` se queda fuera: lo elige una persona en «Leer placas».
+ */
+function placasDelPlan(plan = {}) {
+    const txt = (v) => {
+        if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+        return typeof v === 'string' && v.trim() ? v.trim() : null;
+    };
+    const dudosas = [];
+    const leerUnidad = (u, etiqueta) => {
+        if (!u || typeof u !== 'object') return null;
+        const o = {};
+        for (const k of ['marca', 'modelo', 'numero_serie']) { const v = txt(u[k]); if (v) o[k] = v; }
+        if (u.serie_dudosa && o.numero_serie) { delete o.numero_serie; dudosas.push(etiqueta); }
+        return Object.keys(o).length ? o : null;
+    };
+    let leido = leerUnidad(plan.caldera, 'la caldera');
+    // El AÑO y el COMBUSTIBLE de la placa no se escriben en ningún sitio: viajan
+    // para contrastarlos con la fila de rendimiento (solo avisa) y a la huella.
+    const anio = Number(plan.caldera?.anio);
+    const comb = txt(plan.caldera?.combustible);
+    if (Number.isInteger(anio) && anio > 1900) leido = { ...(leido || {}), anio };
+    if (comb) leido = { ...(leido || {}), combustible: comb.toLowerCase() };
+    const kw = Number(plan.caldera?.potencia_kw) > 0 ? Number(plan.caldera.potencia_kw) : null;
+    const exterior = leerUnidad(plan.placa_aerotermia?.exterior, 'la unidad exterior');
+    const interior = leerUnidad(plan.placa_aerotermia?.interior, 'la unidad interior');
+    return {
+        caldera: { leido, potencia_kw: kw, fotos: [], avisos: [], sin_fotos: !leido && !kw },
+        equipos: {
+            unidades: { ...(exterior ? { exterior } : {}), ...(interior ? { interior } : {}) },
+            fotos: [], avisos: [], sin_fotos: !exterior && !interior,
+        },
+        dudosas,
+    };
+}
+
+/**
+ * EXPEDIENTE: las placas del plan a su INSTALACIÓN, por el MISMO servicio que el
+ * botón «✨ Leer placas» (solo huecos; conflictos a la vista; serie dudosa fuera).
+ * Devuelve `{ escrito, instalacion }` — en seco, la instalación compuesta, para
+ * que el `.cex` que se enseña sea el que saldría.
+ */
+async function placasEnInstalacion(ctx, plan, avisos) {
+    const { caldera, equipos, dudosas } = placasDelPlan(plan);
+    for (const d of dudosas) {
+        avisos.push(`Nº de serie de ${d} DUDOSO: no se escribe en la app. Se elige en «Leer placas» mirando la foto.`);
+    }
+    if (caldera.sin_fotos && equipos.sin_fotos) return null;
+    const { proponerPlacas } = require('../services/placasInstalacion');
+    const exp = ctx.expediente;
+    const inst = exp.instalacion || {};
+    const dc = exp.oportunidades?.datos_calculo || {};
+    // La misma zona que usa el botón (la de la simulación), para el SCOP.
+    const zona = String(dc.zona || dc.inputs?.zona || inst.zona_climatica || 'D3').toUpperCase();
+    // El EQUIPO: si el plan dice cuál (`aerotermia_id`, ya puesto en el paso 2b),
+    // manda el plan y la placa solo lo confirma o lo contradice. Si no, la placa
+    // rellena el HUECO, y uno ya elegido solo se sustituye con `aerotermia_sustituir`.
+    const tieneEquipo = !!inst.aerotermia_cal?.aerotermia_db_id;
+    const ponerEquipo = plan.aerotermia_id ? false : (!tieneEquipo || !!plan.aerotermia_sustituir);
+    const r = await proponerPlacas({
+        exp, zona, caldera, equipos, aplicar: ESCRIBIR, simular: !ESCRIBIR, ponerEquipo,
+        por: 'skill generar-cee-inicial', origen: 'plan de la skill generar-cee-inicial',
+    });
+
+    console.log(`\nINSTALACIÓN del EXPEDIENTE ← placas (solo huecos, como «Leer placas»):`);
+    const marca = ESCRIBIR ? '✓' : '+';
+    for (const p of r.propuesta) console.log(`  ${marca} ${p.etiqueta}: ${p.valor}`);
+    const eq = r.equipo_catalogo;
+    const equipoPuesto = !!eq && ponerEquipo;
+    if (eq) {
+        const txtEq = `${eq.marca || ''} ${eq.modelo || ''} (catálogo ${eq.id}, por ${eq.por})`.trim();
+        if (equipoPuesto) {
+            console.log(`  ${marca} Equipo del catálogo: ${txtEq} · SCOP ${eq.scop ?? '—'} (${eq.scop_temporada || '—'})`
+                + (eq.acs ? ` · ACS del conjunto SCOP_dhw ${eq.acs.scop ?? '—'}` : ''));
+        } else if (plan.aerotermia_id) {
+            avisos.push(`La placa casa con ${txtEq} y el plan dice la aerotermia ${plan.aerotermia_id}: `
+                + 'se queda la del plan. Compruébalo con la foto.');
+        } else {
+            avisos.push(`La placa casa con ${txtEq} y el expediente declara otra (${eq.sustituye}): no se sustituye `
+                + 'sin «aerotermia_sustituir: true» en el plan (o cámbiala en Instalación).');
+        }
+    }
+    if (r.acs_conjunto) console.log(`  ${marca} ACS del conjunto ${r.acs_conjunto.equipo}: SCOP_dhw ${r.acs_conjunto.scop ?? '—'}`);
+    if (!eq && !tieneEquipo && !plan.aerotermia_id && (r.catalogo_candidatos || []).length) {
+        avisos.push(`La placa casa con ${r.catalogo_candidatos.length} equipos del catálogo `
+            + `(${r.catalogo_candidatos.map(c => `${c.id} ${c.modelo_comercial || ''}`).join(' | ')}): `
+            + 'elige uno con «aerotermia_id» en el plan o en «Leer placas» de la app.');
+    }
+    for (const c of r.conflictos) {
+        console.log(`  ≠ ${c.etiqueta}: consta «${c.actual}» · placa «${c.leido}» — no se toca`);
+        avisos.push(`${c.etiqueta}: en la app consta «${c.actual}» y la placa dice «${c.leido}». No se ha tocado: revísalo.`);
+    }
+    for (const d of r.dudosos) avisos.push(`${d.etiqueta}: nº de serie dudoso, no se escribe (elígelo en «Leer placas»).`);
+    for (const a of r.avisos) avisos.push(a);
+    if (!r.propuesta.length && !equipoPuesto && !r.acs_conjunto) console.log('  nada que rellenar: lo de las placas ya consta.');
+
+    if (ESCRIBIR && r.escrito.length) {
+        const lineas = [...r.propuesta.map(p => `${p.etiqueta}: ${p.valor}`),
+            ...(equipoPuesto ? [`equipo ${eq.marca} ${eq.modelo} (catálogo ${eq.id})`] : [])];
+        await anotarExpediente(exp.id, `Placas puestas en Instalación por la skill generar-cee-inicial (solo huecos): `
+            + `${lineas.join(' · ')}.`
+            + (r.conflictos.length ? ` ${r.conflictos.length} dato(s) no coinciden con lo que constaba y no se han tocado.` : ''));
+        return { escrito: true, instalacion: r.instalacion };
+    }
+    return { escrito: false, instalacion: r.instalacion };
+}
+
+/**
+ * OPORTUNIDAD: las placas del plan a sus INPUTS, que el expediente hereda al
+ * aceptarse (`expedienteService`, solo huecos):
+ *   · la caldera a `placa_caldera` (la MISMA forma que deja `alta-oportunidad`),
+ *     sin pisar lo que ya leyó o tecleó otro — lo distinto se avisa;
+ *   · su potencia útil a `potenciaCaldera` (la de la simulación: en un RES093 por
+ *     caldera es la base del C_b, y por eso se dice que hay que recalcular);
+ *   · la aerotermia a `placa_ocr` (la del botón «Leer la placa» de la calculadora).
+ */
+function placasParaInputs(plan, inp = {}, avisos = [], etiquetaFila = null) {
+    const { caldera, equipos } = placasDelPlan(plan);
+    const out = {};
+    const l = caldera.leido || {};
+    const norm = (v) => String(v ?? '').replace(/[\s\-./]/g, '').toUpperCase();
+    if (inp.boilerId && (l.anio || l.combustible)) avisos.push(...contrastarPlacaConRendimiento(inp.boilerId, l, etiquetaFila));
+    if (l.marca || l.modelo || l.numero_serie || caldera.potencia_kw) {
+        const prev = inp.placa_caldera && typeof inp.placa_caldera === 'object' ? inp.placa_caldera : {};
+        const fusion = { ...prev };
+        const nuevo = {
+            marca: l.marca, modelo: l.modelo, numero_serie: l.numero_serie,
+            potencia_kw: caldera.potencia_kw, combustible: plan.caldera?.combustible,
+        };
+        for (const [k, v] of Object.entries(nuevo)) {
+            if (v === null || v === undefined || v === '') continue;
+            const ya = prev[k];
+            // Una serie que constaba como DUDOSA la resuelve quien ha mirado la foto.
+            const libre = ya === null || ya === undefined || ya === '' || (k === 'numero_serie' && prev.serie_dudosa);
+            if (libre) {
+                fusion[k] = v;
+                if (k === 'numero_serie') fusion.serie_dudosa = false;
+            } else if (norm(ya) !== norm(v)) {
+                avisos.push(`Placa de la caldera (oportunidad): «${k}» consta «${ya}» y el plan dice «${v}». No se ha tocado.`);
+            }
+        }
+        if (JSON.stringify(fusion) !== JSON.stringify(prev)) {
+            out.placa_caldera = { ...fusion, at: new Date().toISOString(), origen: prev.origen || 'skill generar-cee-inicial' };
+        }
+    }
+    if (caldera.potencia_kw && Number(inp.potenciaCaldera) !== caldera.potencia_kw) {
+        out.potenciaCaldera = caldera.potencia_kw;
+    }
+    if (!equipos.sin_fotos && plan.placa_aerotermia) {
+        out.placa_ocr = { at: new Date().toISOString(), ...plan.placa_aerotermia };
+    }
+    return Object.keys(out).length ? out : null;
+}
+
+// ─── instalacion ────────────────────────────────────────────────────────────
+//
+// SOLO lo de las placas a la app, con el mismo plan que `aplicar` (`caldera`,
+// `placa_aerotermia`): ni `.cex`, ni Drive, ni aviso al equipo, ni fase del
+// agente. Para un CEE ya generado al que le falta la Instalación rellena, o para
+// rellenarla antes de hacerlo. En seco por defecto.
+async function instalacion() {
+    const ctx = await cargar(POS[0]);
+    const fPlan = opt('plan');
+    if (!fPlan || fPlan === true) throw new Error('Uso: instalacion <clave> --plan plan.json [--escribir]');
+    const plan = JSON.parse(fs.readFileSync(fPlan, 'utf8'));
+    const avisos = [];
+    if (plan.aerotermia_id) {
+        avisos.push('El plan trae «aerotermia_id»: esta orden NO cambia el equipo (eso lo hace «aplicar»). '
+            + 'Solo escribe lo de las placas.');
+    }
+    if (ctx.origen === 'cae') {
+        await placasEnInstalacion(ctx, plan, avisos);
+    } else if (ctx.origen === 'op') {
+        const { BOILER_EFFICIENCIES } = await esm('calculator/logic/calculation.js');
+        const etFila = BOILER_EFFICIENCIES.find(b => b.id === inputsDe(ctx).boilerId)?.label || null;
+        const patch = placasParaInputs(plan, inputsDe(ctx), avisos, etFila);
+        console.log('\nOPORTUNIDAD ← placas (el expediente lo heredará al aceptarse, solo huecos):');
+        if (!patch) console.log('  nada que rellenar: lo de las placas ya consta.');
+        else {
+            for (const [k, v] of Object.entries(patch)) {
+                console.log(`  ${ESCRIBIR ? '✓' : '+'} ${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`);
+            }
+            if (ESCRIBIR) {
+                const { error } = await supabase.rpc('oportunidad_merge_inputs',
+                    { p_id: ctx.expediente.id, p_patch: patch });
+                if (error) throw new Error(`No se han podido guardar los inputs: ${error.message}`);
+                await anotar(ctx.expediente.id, 'Placas leídas puestas por la skill generar-cee-inicial: '
+                    + `${Object.keys(patch).join(', ')}.`
+                    + (patch.potenciaCaldera ? ' La simulación hay que RECALCULARLA en la calculadora y guardarla.'
+                        : ' El expediente lo heredará al aceptarse.'));
+            }
+        }
+    } else {
+        throw new Error('Un CEE directo no tiene Instalación: lo de la placa va solo al .cex (ajustes.instalacion).');
+    }
+    if (avisos.length) console.log(`\nAVISOS (${avisos.length})\n  ⚠ ${avisos.join('\n  ⚠ ')}`);
+    console.log(ESCRIBIR ? '\n✓ Escrito en la app.' : '\nEN SECO: no se ha guardado nada. Pásale --escribir.');
 }
 
 /** Una línea en el historial del EXPEDIENTE (lectura fresca de `documentacion`). */
@@ -2080,7 +2415,7 @@ async function pedirFotos() {
 
 const ORDENES = { estado, placas, fotos, paredes, catastro, 'leer-pared': leerPared, eprel,
                   'alta-aerotermia': altaAerotermia, aplicar, croquis, video,
-                  'pedir-fotos': pedirFotos };
+                  'pedir-fotos': pedirFotos, instalacion };
 
 (async () => {
     const f = ORDENES[ORDEN];

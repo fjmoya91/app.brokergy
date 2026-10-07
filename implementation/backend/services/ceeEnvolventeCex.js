@@ -1423,6 +1423,7 @@ module.exports = {
     loadFichaCe3x,
     loadMedidasAislamiento,
     cargarExpediente,
+    modelosDeAerotermia,
     componerFicha,
     nombreDelCex,
     leerCexDeFase,

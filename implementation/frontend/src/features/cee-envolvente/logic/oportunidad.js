@@ -55,8 +55,17 @@ export function oportunidadComoExpediente(row, { cliente = null } = {}) {
         ? aerotermia(inp.aerothermiaModelAcs, inp.customBrandAcsName,
                      inp.customModelAcsName, inp.scopAcs)
         : { ...cal };
-    const caldera = { marca: '', modelo: '', numero_serie: '',
+    // La PLACA leída al simular (`alta-oportunidad`, `generar-cee-inicial`,
+    // «Leer la placa»): `expedienteService` la hereda al aceptar —marca, modelo,
+    // nº de serie y potencia de la caldera; nº de serie de la ud. exterior—, así
+    // que aquí también. Un nº de serie DUDOSO no se hereda, igual que allí.
+    const pc = inp.placa_caldera && typeof inp.placa_caldera === 'object' ? inp.placa_caldera : {};
+    const caldera = { marca: pc.marca || '', modelo: pc.modelo || '',
+                      numero_serie: (!pc.serie_dudosa && pc.numero_serie) || '',
                       rendimiento_id: inp.boilerId || 'default' };
+    const ext = inp.placa_ocr?.exterior;
+    if (ext?.numero_serie && !ext.serie_dudosa) cal.numero_serie = ext.numero_serie;
+    const kwPlaca = num(pc.potencia_kw) > 0 ? num(pc.potencia_kw) : null;
     return {
         id: row.id,
         es_oportunidad: true,
@@ -90,7 +99,8 @@ export function oportunidadComoExpediente(row, { cliente = null } = {}) {
             potencia_bomba: num(inp.potenciaBomba) || 0,
             hibridacion_metodo: String(inp.hibridacionMetodo || '').toLowerCase() === 'caldera'
                 ? 'caldera' : 'demanda',
-            potencia_caldera: num(inp.potenciaCaldera) || 0,
+            potencia_caldera: num(inp.potenciaCaldera) || kwPlaca || 0,
+            ...(kwPlaca ? { potencia_caldera_kw: kwPlaca } : {}),
         },
     };
 }

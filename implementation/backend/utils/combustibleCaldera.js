@@ -66,9 +66,77 @@ const NOMBRE_FAMILIA = {
 
 const familiaCombustible = (c) => FAMILIA_DE_COMBUSTIBLE[c] || null;
 
+/**
+ * Los AÑOS que cubre cada fila de rendimiento del Anexo VIII
+ * (`BOILER_EFFICIENCIES`), tal y como lo dicen sus rótulos. Una fila que no
+ * habla de años (condensación, sólidos, eléctrica) no se contrasta.
+ */
+const AÑOS_FILA = {
+    gas_pre79: [null, 1978],
+    gas_79_97: [1979, 1997],
+    gas_pre98_mural: [null, 1997],
+    gas_pre98_cap_alta: [null, 1997],
+    gas_pre98_cap_baja: [null, 1997],
+    gas_pre98_cond: [null, 1997],
+    gas_post98_piloto: [1998, null],
+    gas_post98_auto: [1998, null],
+    gas_post98_cond_piloto: [1998, null],
+    gas_post98_cond_auto: [1998, null],
+    oil_pre85: [null, 1984],
+    oil_85_97: [1985, 1997],
+    oil_post98: [1998, null],
+};
+
+/** La familia que declara la fila de rendimiento (sin mirar la oportunidad). */
+function familiaDeFila(id) {
+    const s = String(id || '');
+    if (s.startsWith('gas_')) return 'gas';
+    if (s.startsWith('oil_')) return 'liquido';
+    if (s.startsWith('solid_')) return 'solido';
+    if (s === 'electric') return 'electricidad';
+    return null;
+}
+
+/**
+ * Lo que dice la PLACA de la caldera (año y combustible) frente a la fila de
+ * rendimiento del expediente. De esa fila salen el η de la caldera antigua y con
+ * él el AHORRO que se le prometió al cliente y que firma el CIFO, así que una
+ * placa que la contradice es un hallazgo que tiene que ver una persona.
+ *
+ * REGLA — solo AVISA, nunca corrige. Cambiar la fila movería el bono de un
+ * expediente en marcha (regla 27.d: el combustible leído nunca se escribe).
+ * Devuelve frases en castellano; vacío si todo cuadra o no hay con qué comparar.
+ */
+function contrastarPlacaConRendimiento(rendimientoId, { anio = null, combustible = null } = {}, etiquetaFila = null) {
+    const id = String(rendimientoId || '');
+    const avisos = [];
+    if (!id || id === 'default' || id === 'sin_calefaccion') return avisos;
+    const fila = etiquetaFila ? `«${etiquetaFila}»` : `«${id}»`;
+    const famFila = familiaDeFila(id);
+    const famPlaca = familiaCombustible(combustible);
+    if (famFila && famPlaca && famFila !== famPlaca) {
+        avisos.push(`La placa de la caldera dice ${NOMBRE_FAMILIA[famPlaca]} y el rendimiento declarado es ${fila} `
+            + `(${NOMBRE_FAMILIA[famFila]}). De esa fila sale el ahorro: revísalo (no se ha tocado).`);
+    }
+    const a = Number(anio);
+    const rango = AÑOS_FILA[id];
+    if (rango && Number.isInteger(a) && a > 1900) {
+        const [desde, hasta] = rango;
+        // Un año de margen: la placa dice cuándo se FABRICÓ y la fila habla de
+        // la caldera instalada; uno de diferencia en la frontera no es un hallazgo.
+        if ((desde && a < desde - 1) || (hasta && a > hasta + 1)) {
+            avisos.push(`La placa de la caldera dice que es de ${a} y el rendimiento declarado es ${fila}. `
+                + 'De esa fila sale el ahorro: revísalo (no se ha tocado).');
+        }
+    }
+    return avisos;
+}
+
 module.exports = {
     combustibleDeclarado,
     familiaCombustible,
+    contrastarPlacaConRendimiento,
+    AÑOS_FILA,
     FAMILIA_DE_COMBUSTIBLE,
     NOMBRE_FAMILIA,
 };
