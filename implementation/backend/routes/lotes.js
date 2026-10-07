@@ -21,7 +21,7 @@ const {
 } = loteService;
 const {
     LOTE_DOC_SLOTS, SLOTS_SUBIBLES, nextDocKey, slotDeKey, sincronizarEstadoLote,
-    CARPETA_DOCS, nombreDocLote, guardarDocFirmado,
+    CARPETA_DOCS, nombreDocLote, guardarDocFirmado, estadoExpedienteDeLote,
 } = require('../services/loteDocs');
 const { leerFacturaVerificador, leerInformeVerificacion, leerDictamenVerificacion, leerCertificadoCae } = require('../services/loteOcrService');
 const { comprobarRangoCae } = require('../utils/codigosCae');
@@ -2937,9 +2937,12 @@ router.patch('/:id/estado', staffOnly, async (req, res) => {
             'PTE. SUBIDA MITECO', 'SUBIDO A MITECO', 'REQUERIMIENTO G.A.', 'CAE EMITIDO – PTE PAGO BROKERGY',
             'PTE. PAGO BROKERGY A CLIENTE', 'FINALIZADO',
         ];
-        if (EXPEDIENTE_ESTADOS.includes(nuevo_estado)) {
+        // Un estado que solo es del lote (VERIFICADO) se traduce al del expediente.
+        const estadoExp = EXPEDIENTE_ESTADOS.includes(nuevo_estado)
+            ? nuevo_estado : estadoExpedienteDeLote(nuevo_estado);
+        if (estadoExp) {
             await supabase.from('expedientes')
-                .update({ estado: nuevo_estado, updated_at: nowIso() })
+                .update({ estado: estadoExp, updated_at: nowIso() })
                 .eq('lote_id', lote.id)
                 // Un RECHAZADO no lo reabre el lote: solo sale de ahí con «Reabrir».
                 .or('estado.is.null,estado.neq.RECHAZADO');

@@ -293,6 +293,21 @@ const ESTADOS_TAMBIEN_DE_EXPEDIENTE = [
     'PTE. PAGO BROKERGY A CLIENTE', 'FINALIZADO',
 ];
 
+// Estados del LOTE que el expediente no tiene, y a cuál equivalen en él.
+// VERIFICADO es solo del lote: sin esta traducción, al cerrarse un requerimiento
+// los expedientes se quedaban para siempre en "REQUERIMIENTO VERIFICADOR"
+// (medido el 07/10/2026: los 20 de LOTE-2025-005/006 y 2026-007/008). Verificado
+// y a falta de subir al MITECO es, para el expediente, PTE. SUBIDA MITECO.
+const ESTADO_EXPEDIENTE_POR_ESTADO_LOTE = {
+    'VERIFICADO': 'PTE. SUBIDA MITECO',
+};
+
+/** Estado que toma un expediente cuando su lote pasa a `estadoLote`, o null si no se toca. */
+function estadoExpedienteDeLote(estadoLote) {
+    if (ESTADOS_TAMBIEN_DE_EXPEDIENTE.includes(estadoLote)) return estadoLote;
+    return ESTADO_EXPEDIENTE_POR_ESTADO_LOTE[estadoLote] || null;
+}
+
 /**
  * Avanza el estado del lote según su papeleo y deja constancia en el historial.
  * Lo llaman los endpoints que completan un hito (subir un documento, enviar al
@@ -333,9 +348,10 @@ async function sincronizarEstadoLote(loteId, opts = {}) {
         const { data: updated } = await supabase
             .from('lotes').update(update).eq('id', lote.id).select().single();
 
-        if (ESTADOS_TAMBIEN_DE_EXPEDIENTE.includes(nuevo)) {
+        const estadoExp = estadoExpedienteDeLote(nuevo);
+        if (estadoExp) {
             await supabase.from('expedientes')
-                .update({ estado: nuevo, updated_at: new Date().toISOString() })
+                .update({ estado: estadoExp, updated_at: new Date().toISOString() })
                 .eq('lote_id', lote.id)
                 // Un RECHAZADO no lo reabre el lote: solo sale de ahí con «Reabrir».
                 .or('estado.is.null,estado.neq.RECHAZADO');
@@ -371,4 +387,5 @@ module.exports = {
     estadoSegunDocs,
     siguienteEstado,
     sincronizarEstadoLote,
+    estadoExpedienteDeLote,
 };
