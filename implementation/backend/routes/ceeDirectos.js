@@ -1245,7 +1245,7 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
             } catch (e) { errores.push(`whatsapp: ${e.message}`); }
         }
 
-        if (!enviados.length) {
+        if (!sinAviso && !enviados.length) {
             return res.status(502).json({ error: `No se pudo enviar. ${errores.join(' · ')}` });
         }
 
@@ -1348,7 +1348,11 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
             });
         if (borradorAdjunto) attachments = [...(attachments || []), borradorAdjunto];
 
-        const { enviados, errores } = await enviar({
+        // Sin canales = visto bueno SIN AVISO: el certificador es el de la casa y
+        // la presentación se encarga a otra persona (Eva). Escribirse a uno mismo
+        // no lo lee nadie. Mismo contrato que el CAE (`sendEmail:false`).
+        const sinAviso = canales.length === 0;
+        const { enviados, errores } = sinAviso ? { enviados: [], errores: [] } : await enviar({
             canales, email: cert.email, telefono: telefonoDe(cert),
             asunto: `${row.numero_expediente} — Visto bueno ${faseLabel}`,
             cuerpo, attachments
@@ -1364,12 +1368,15 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
 
         const key = phase === 'final' ? 'cee_final' : 'cee_inicial';
         const seguimiento = { ...(row.seguimiento || {}), [key]: 'REVISADO' };
-        seguimiento[`${key}_last_contacto_at`] = new Date().toISOString();
+        if (!sinAviso) seguimiento[`${key}_last_contacto_at`] = new Date().toISOString();
         const guardado = await svc.guardar(row.id, { seguimiento }, { seguimientoPrev: row.seguimiento });
 
+        const nota = (req.body?.notaAdicional || '').trim();
         await svc.anotarHistorial(row.id, {
             tipo: 'CERTIFICADOR',
-            texto: `VISTO BUENO DEL ${faseLabel.toUpperCase()} ENVIADO POR ${enviados.join(' Y ').toUpperCase()}`,
+            texto: sinAviso
+                ? `VISTO BUENO DEL ${faseLabel.toUpperCase()} DADO (SIN AVISO AL TÉCNICO)${nota ? `. ${nota}` : ''}`
+                : `VISTO BUENO DEL ${faseLabel.toUpperCase()} ENVIADO POR ${enviados.join(' Y ').toUpperCase()}`,
             usuario: req.user?.email || null
         });
 

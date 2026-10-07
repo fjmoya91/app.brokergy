@@ -595,6 +595,46 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
         return data;
     };
 
+    // ¿La fase espera nuestro visto bueno? Mismo criterio que el botón «Validar»
+    // de la rejilla: manda el subestado de seguimiento, con el espejo de estado
+    // como respaldo.
+    const pendienteVistoBueno = (fase) => {
+        const f = fase === 'final' ? 'final' : 'inicial';
+        const seg = String(expediente?.seguimiento?.[`cee_${f}`] || '').toUpperCase();
+        const estado = String(expediente?.cee?.estado || expediente?.estado || '');
+        return seg === 'PTE_REVISION' || estado.includes(`PENDIENTE REVISIÓN (${f === 'final' ? 'FINAL' : 'INICIAL'})`);
+    };
+
+    // Visto bueno SIN aviso al técnico: es el de la casa y escribirse a uno mismo
+    // no lo lee nadie. El borrador sí se deja en Drive, como en el visto bueno de
+    // siempre. Lo usa el popup de «Enviar a presentar»: enviarle el CEE a Eva es
+    // darlo por bueno, así que se valida en el mismo gesto.
+    const validarSinAviso = async (fase, nota) => {
+        if (!expediente?.id) throw new Error('Expediente no disponible');
+        const { data } = await axios.post(`${apiBase}/${expediente.id}/approve-cee`, {
+            phase: fase === 'final' ? 'final' : 'inicial',
+            sendEmail: false,
+            sendWhatsApp: false,
+            adjuntarBorrador: false,
+            guardarBorradorDrive: true,
+            notaAdicional: `Sin aviso al técnico (certificador de la casa). ${nota || ''}`.trim(),
+        });
+        fireSuccessConfetti();
+        if (onRefresh) onRefresh();
+        return data;
+    };
+
+    // El botón «Validar»: con un técnico de fuera, el visto bueno de siempre (le
+    // llega a él con el borrador). Con el de la casa, el popup de Eva: el mensaje
+    // al certificador sería a uno mismo, y lo que toca es encargar la presentación.
+    const abrirValidar = (phase) => {
+        if (!isCertificador && esCertificadorDeLaCasa(selectedCert)) {
+            setEncargarPresentacion(phase === 'final' ? 'final' : 'inicial');
+            return;
+        }
+        openApprovePopup(phase);
+    };
+
     const handleApproveConfirm = async () => {
         if (!expediente?.id || !approvePendingPhase) return;
         setApproveLoading(true);
@@ -941,7 +981,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                         alert(err.response?.data?.error || 'Error al solicitar revisión');
                     }
                 }}
-                onApproveCee={openApprovePopup}
+                onApproveCee={abrirValidar}
                 onApproveSend={submitApprove}
                 onRevisarCee={puedeRevisar ? setRevisionFase : null}
                 onPreRevision={puedeRevisar ? preRevision : null}
@@ -1099,7 +1139,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                         alert(err.response?.data?.error || 'Error al solicitar revisión');
                     }
                 }}
-                onApproveCee={openApprovePopup}
+                onApproveCee={abrirValidar}
                 onApproveSend={submitApprove}
                 onRevisarCee={puedeRevisar ? setRevisionFase : null}
                 onPreRevision={puedeRevisar ? preRevision : null}
@@ -1256,7 +1296,7 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                     apiBase={apiBase}
                     onClose={() => setRevisionFase(null)}
                     onRefresh={onRefresh}
-                    onApprove={(f) => { setRevisionFase(null); openApprovePopup(f); }}
+                    onApprove={(f) => { setRevisionFase(null); abrirValidar(f); }}
                 />
             )}
 
@@ -1764,6 +1804,8 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                     faseInicial={typeof presentarCee === 'string' ? presentarCee : null}
                     gridRef={gridRef}
                     onEncargoEnviado={onRefresh}
+                    validarAlEncargar={(fase) => pendienteVistoBueno(fase)
+                        ? (nota) => validarSinAviso(fase, nota) : null}
                 />,
                 document.body
             )}
@@ -1776,6 +1818,8 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                     expedienteId={expediente?.id}
                     fase={encargarPresentacion}
                     onEnviado={onRefresh}
+                    onValidar={pendienteVistoBueno(encargarPresentacion)
+                        ? (nota) => validarSinAviso(encargarPresentacion, nota) : null}
                 />,
                 document.body
             )}

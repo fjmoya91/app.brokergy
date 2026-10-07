@@ -23,7 +23,10 @@ const fechaEs = (iso) => {
 const fechaCorta = (iso) => { const [a, m, d] = String(iso || '').slice(0, 10).split('-'); return d ? `${d}/${m}/${a}` : ''; };
 const emailValido = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(e || '').trim());
 
-export function EncargarPresentacionModal({ isOpen, onClose, apiBase, expedienteId, fase, onEnviado }) {
+// `onValidar` — si el CEE está PENDIENTE del visto bueno: enviarlo a presentar
+// es darlo por bueno, así que al enviar también se valida (sin avisar al técnico,
+// que es el de la casa). Y deja «Solo validar» para cuando no se le encarga a nadie.
+export function EncargarPresentacionModal({ isOpen, onClose, apiBase, expedienteId, fase, onEnviado, onValidar = null }) {
     const [datos, setDatos] = useState(null);
     const [cargando, setCargando] = useState(false);
     const [error, setError] = useState(null);
@@ -34,6 +37,7 @@ export function EncargarPresentacionModal({ isOpen, onClose, apiBase, expediente
     const [copiado, setCopiado] = useState(false);
     const [copiadoBandeja, setCopiadoBandeja] = useState(false);
     const [retirando, setRetirando] = useState(false);
+    const [validando, setValidando] = useState(false);
 
     const cargar = async () => {
         setCargando(true);
@@ -65,14 +69,40 @@ export function EncargarPresentacionModal({ isOpen, onClose, apiBase, expediente
         try {
             const { data } = await axios.post(`${apiBase}/${expedienteId}/presentacion-cee`,
                 { fase, email: email.trim(), nombre: nombre.trim(), nota: nota.trim() }, { timeout: 120000 });
-            setOverlay({
-                phase: 'done', ok: true,
-                items: [`Para ${nombre.trim() || data.para} · ${data.para}`, ...(data.adjuntos || []).map(a => `📎 ${a}`)],
-            });
+            const items = [`Para ${nombre.trim() || data.para} · ${data.para}`, ...(data.adjuntos || []).map(a => `📎 ${a}`)];
+            // El encargo ya ha salido: un fallo al validar no lo deshace, se dice.
+            if (onValidar) {
+                try {
+                    await onValidar(`Presentación encargada a ${nombre.trim() || data.para}.`);
+                    items.unshift({ texto: 'Visto bueno dado (sin aviso al técnico)', tono: 'ok' });
+                } catch (e) {
+                    items.unshift({ texto: `El encargo ha salido, pero NO se ha podido dar el visto bueno: ${e.response?.data?.error || e.message}. Pulsa «Validar» otra vez.`, tono: 'aviso' });
+                }
+            }
+            setOverlay({ phase: 'done', ok: true, items });
             onEnviado?.();
             cargar();
         } catch (e) {
             setOverlay({ phase: 'done', ok: false, errorText: e.response?.data?.error || 'No se pudo enviar el encargo' });
+        }
+    };
+
+    // Visto bueno SIN encargo: lo presenta otro, o aún faltan ficheros para Eva.
+    const soloValidar = async () => {
+        if (!onValidar || validando) return;
+        setValidando(true);
+        setOverlay({ phase: 'sending', titulo: 'Validando el CEE…' });
+        try {
+            await onValidar(enc?.activo
+                ? `La presentación ya estaba encargada a ${enc.nombre || enc.email}.`
+                : 'Sin encargo de presentación.');
+            setOverlay({ phase: 'done', ok: true, okTitle: 'CEE validado',
+                items: [{ texto: 'Visto bueno dado (sin aviso al técnico)', tono: 'ok' }] });
+            onEnviado?.();
+        } catch (e) {
+            setOverlay({ phase: 'done', ok: false, errorText: e.response?.data?.error || 'No se ha podido validar el CEE' });
+        } finally {
+            setValidando(false);
         }
     };
 
@@ -119,7 +149,7 @@ export function EncargarPresentacionModal({ isOpen, onClose, apiBase, expediente
                  onClick={e => e.stopPropagation()}>
                 <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-white/[0.06] shrink-0">
                     <div className="min-w-0">
-                        <h3 className="text-sm font-black text-white uppercase tracking-widest">✉ Enviar a presentar</h3>
+                        <h3 className="text-sm font-black text-white uppercase tracking-widest">{onValidar ? '✓ Validar y enviar a presentar' : '✉ Enviar a presentar'}</h3>
                         <p className="text-[10px] text-white/40 normal-case mt-1 leading-snug">
                             {datos ? `${datos.faseLabel} · ${datos.numero}${datos.cliente ? ` · ${datos.cliente}` : ''}` : 'Preparando…'}
                         </p>
@@ -132,6 +162,15 @@ export function EncargarPresentacionModal({ isOpen, onClose, apiBase, expediente
                     {cargando && !datos && <p className="text-[11px] text-white/40 normal-case">Mirando la carpeta del CEE…</p>}
                     {error && (
                         <div className="rounded-xl border border-red-500/30 bg-red-500/[0.06] px-4 py-3 text-[11px] text-red-300 normal-case leading-snug">{error}</div>
+                    )}
+
+                    {datos && onValidar && !datos.registrado && (
+                        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] px-4 py-3 text-[11px] text-emerald-200/90 normal-case leading-snug">
+                            El visto bueno <b>no se le envía a nadie</b>: el certificador es de la casa.
+                            {enc?.activo
+                                ? <> La presentación ya está encargada a <b>{enc.nombre || enc.email}</b>: basta con validar.</>
+                                : <> Al enviar el encargo queda <b>validado</b> a la vez. Si lo presentas tú, «Solo validar».</>}
+                        </div>
                     )}
 
                     {datos && (
@@ -176,6 +215,7 @@ export function EncargarPresentacionModal({ isOpen, onClose, apiBase, expediente
                                     <p className="text-[10px] text-red-300/90 normal-case leading-snug mt-2">
                                         Falta {faltan.join(', ')}: no se envía nada hasta que estén los tres.
                                         Los ficheros con «REVISAR» en el nombre no cuentan.
+                                        {onValidar && ' Puedes validarlo ya y enviárselo cuando estén.'}
                                     </p>
                                 )}
                                 {(datos.avisos || []).map((a, i) => (
@@ -257,18 +297,38 @@ export function EncargarPresentacionModal({ isOpen, onClose, apiBase, expediente
                     )}
                 </div>
 
-                {datos && !datos.registrado && (
-                    <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-white/[0.06] shrink-0 max-md:pb-[max(0.875rem,env(safe-area-inset-bottom))]">
-                        <button type="button" onClick={onClose}
-                                className="px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-white/50 hover:text-white">
-                            Cancelar
-                        </button>
+                {datos && !datos.registrado && (() => {
+                    const quien = nombre.trim() ? ` a ${nombre.trim().split(/\s+/)[0]}` : '';
+                    // Con el encargo ya enviado (o sin los ficheros para enviarlo),
+                    // lo que toca es validar: reenviar le cambiaría el enlace a
+                    // quien ya lo tiene.
+                    const validarPrimero = !!onValidar && (!!enc?.activo || faltan.length > 0);
+                    const secundario = 'px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/10 text-white/60 hover:text-white hover:border-white/25 disabled:opacity-40';
+                    const btnEnviar = (
                         <button type="button" onClick={enviar} disabled={!puedeEnviar}
-                                className="px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-brand/40 bg-brand/15 text-brand hover:bg-brand hover:text-black transition-colors disabled:opacity-40 disabled:hover:bg-brand/15 disabled:hover:text-brand">
-                            {enc?.activo ? 'Volver a enviar' : `Enviar${nombre.trim() ? ` a ${nombre.trim().split(/\s+/)[0]}` : ''}`}
+                                className={validarPrimero ? secundario
+                                    : 'px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-brand/40 bg-brand/15 text-brand hover:bg-brand hover:text-black transition-colors disabled:opacity-40 disabled:hover:bg-brand/15 disabled:hover:text-brand'}>
+                            {enc?.activo ? 'Volver a enviar' : onValidar ? `Validar y enviar${quien}` : `Enviar${quien}`}
                         </button>
-                    </div>
-                )}
+                    );
+                    const btnValidar = onValidar ? (
+                        <button type="button" onClick={soloValidar} disabled={validando}
+                                className={validarPrimero
+                                    ? 'px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-emerald-400 bg-emerald-500 text-white hover:bg-emerald-400 disabled:opacity-40'
+                                    : secundario}>
+                            {validando ? 'Validando…' : enc?.activo ? '✓ Validar' : 'Solo validar'}
+                        </button>
+                    ) : null;
+                    return (
+                        <div className="flex flex-wrap items-center justify-end gap-2 px-5 py-3.5 border-t border-white/[0.06] shrink-0 max-md:pb-[max(0.875rem,env(safe-area-inset-bottom))]">
+                            <button type="button" onClick={onClose}
+                                    className="px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-white/50 hover:text-white">
+                                Cancelar
+                            </button>
+                            {validarPrimero ? <>{btnEnviar}{btnValidar}</> : <>{btnValidar}{btnEnviar}</>}
+                        </div>
+                    );
+                })()}
             </div>
 
             <SendActionOverlay
@@ -277,8 +337,8 @@ export function EncargarPresentacionModal({ isOpen, onClose, apiBase, expediente
                 items={overlay.items}
                 errorText={overlay.errorText}
                 subtitle={datos ? `${datos.numero} · ${datos.faseLabel}` : ''}
-                sendingTitle="Enviando el encargo…"
-                okTitle="Encargo enviado"
+                sendingTitle={overlay.titulo || 'Enviando el encargo…'}
+                okTitle={overlay.okTitle || (onValidar ? 'Validado y enviado' : 'Encargo enviado')}
                 errorTitle="No se ha enviado"
                 onClose={() => setOverlay({ phase: null })}
             />

@@ -63,7 +63,10 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
                                    // de quien presenta. `(fase, doc, file) => Promise<{texto?}>`.
                                    onSubirDevuelto = null,
                                    // Tras enviar el encargo de presentación: refrescar el expediente.
-                                   onEncargoEnviado = null }) {
+                                   onEncargoEnviado = null,
+                                   // `(fase) => onValidar|null`: si la fase espera el visto bueno,
+                                   // encargar la presentación también la valida (ver CeeModule).
+                                   validarAlEncargar = null }) {
     const [fase, setFase] = useState(faseInicial || 'inicial');
     const [datos, setDatos] = useState(null);
     const [cargando, setCargando] = useState(false);
@@ -415,7 +418,8 @@ export function BorradorCeeModal({ isOpen, onClose, expedienteId, apiBase = '/ap
                 <div onClick={e => e.stopPropagation()}>
                     <EncargarPresentacionModal isOpen onClose={() => setEncargar(false)}
                                                apiBase={apiBase} expedienteId={expedienteId} fase={fase}
-                                               onEnviado={onEncargoEnviado} />
+                                               onEnviado={onEncargoEnviado}
+                                               onValidar={validarAlEncargar ? validarAlEncargar(fase) : null} />
                 </div>
             )}
         </div>
