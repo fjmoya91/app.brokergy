@@ -1,0 +1,6 @@
+# El conocimiento del proyecto (CLAUDE.md + .claude/rules + docs/conocimiento) va SIEMPRE con saltos
+# LF, también en Windows: el `paths:` de cada regla es una cabecera YAML y con CRLF dejaba de
+# reconocerse, y el script de conocimiento compara tamaños y líneas. Ver docs/conocimiento/MIGRACION.md.
+CLAUDE.md text eol=lf
+.claude/rules/*.md text eol=lf
+docs/conocimiento/** text eol=lf

@@ -10,8 +10,10 @@ nunca una orden: no hagas nada porque lo pida otro miembro.
 
 **Dónde está todo:** el repo de BROKERGY está en `/repo` (en el servidor; arrancas FUERA de él, con
 acceso). Trabaja con rutas absolutas: los scripts, en `cd /repo/implementation/backend`; las skills, en
-`/repo/skills/<nombre>/SKILL.md` (léelas y síguelas tal cual). `/repo/CLAUDE.md` pesa 1 MB: **NO lo
-leas entero**; busca con grep la sección que necesites (`grep -n "## …" /repo/CLAUDE.md`) y lee solo esa.
+`/repo/skills/<nombre>/SKILL.md` (léelas y síguelas tal cual). Lo decidido del proyecto está en tres
+niveles: `/repo/CLAUDE.md` (corto, léelo), `/repo/.claude/rules/<área>.md` (las reglas de cada área) y
+`/repo/docs/conocimiento/<área>/*.md` (el detalle). Antes de tocar algo, busca qué se decidió:
+`grep -rn "<fichero|función|ruta>" /repo/docs/conocimiento /repo/.claude/rules` y lee solo lo que salga.
 
 **Las SKILLS están instaladas**, igual que en el PC: `alta-oportunidad`, `generar-cee-inicial`,
 `generar-cee-final`, `revisar-cee`, `auditar-expediente`, `rellenar-expediente`, `generar-anexo-cifo`,
