@@ -52,7 +52,28 @@ import directorios, idioma
 idioma.ini()
 APP = wx.App(False)
 __builtin__.application = APP
-import wxFrame1 as M
-FRAME = M.wxFrame1(None)
+# CE3X tiene un MARCO por programa: wxFrame1 (residencial), wxFramePt (pequeno
+# terciario) y wxFrameGt (gran terciario). Abrir un terciario en el residencial
+# revienta al cargar los datos administrativos (su desplegable de "uso del
+# edificio" solo tiene los dos residenciales: KeyError u'Administrativo').
+# Lo decide la cabecera del .cex que se va a abrir (pickle 0).
+def _programa(caso):
+    try:
+        f = open(caso, 'rb'); cab = f.read(80); f.close()
+    except Exception:
+        return 'Residencial'
+    if 'GranTerciario' in cab: return 'GranTerciario'
+    if 'Terciario' in cab: return 'PequenoTerciario'
+    return 'Residencial'
+PROGRAMA = _programa(os.environ.get('CASO', ''))
+if PROGRAMA == 'GranTerciario':
+    import wxFrameGt as M
+    FRAME = M.wxFrameGt(None)
+elif PROGRAMA == 'PequenoTerciario':
+    import wxFramePt as M
+    FRAME = M.wxFramePt(None)
+else:
+    import wxFrame1 as M
+    FRAME = M.wxFrame1(None)
 APP.main = FRAME
-log(u'frame creado')
+log(u'frame creado: ' + PROGRAMA)

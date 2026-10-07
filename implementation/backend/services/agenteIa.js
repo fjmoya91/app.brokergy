@@ -541,6 +541,10 @@ async function terminar({ negocio, clave, fase = 'inicial', fichero = {}, pendie
             terminado_at: ahora,
             // Lo que se esperaba del propietario ya no se espera: el CEE está hecho.
             esperando: null,
+            // Y si se le había pedido REHACERLO (alguien corrigió el plano a mano y
+            // pulsó «Así es como está»), queda hecho: la cola deja de pedirlo.
+            ...(prevSello.rehacer && !prevSello.rehacer.hecho_at
+                ? { rehacer: { ...prevSello.rehacer, hecho_at: ahora } } : {}),
             fichero: fichero.nombre || prevSello.fichero || null,
             fichero_link: fichero.link || prevSello.fichero_link || null,
             carpeta_link: fichero.carpeta_link || prevSello.carpeta_link || null,
@@ -683,7 +687,13 @@ async function cola() {
                 const sub = String(f.seguimiento?.[key] || '').toUpperCase() || null;
                 const sello = f.agente_ia?.[fase] || null;
                 let situacion = null;
-                if (rankSubestado(sub) < rankSubestado('PRESENTADO')) {
+                // Corregido A MANO en la pizarra del plano («Así es como está»):
+                // hay que rehacerlo, esté como esté — lo normal es que ya lo
+                // hubiera entregado y esté esperando revisión.
+                const rehacer = sello?.rehacer && !sello.rehacer.hecho_at && sub !== 'REGISTRADO';
+                if (rehacer) {
+                    situacion = `corregido a mano · REHACER${sello.rehacer.nota ? ` («${recortar(sello.rehacer.nota, 120)}»)` : ''}`;
+                } else if (rankSubestado(sub) < rankSubestado('PRESENTADO')) {
                     // La final no se le encarga hasta que el inicial está registrado:
                     // una fase final «sin empezar» de un inicial vivo no es trabajo aún.
                     if (fase === 'final' && !sello && String(f.seguimiento?.cee_inicial || '').toUpperCase() !== 'REGISTRADO') continue;
@@ -695,7 +705,8 @@ async function cola() {
                 out.push({
                     negocio, id: f.id, numero: f.numero_expediente, estado: f.estado,
                     cliente: nombreCliente(f.clientes), fase, subestado: sub, situacion,
-                    desde: sello?.esperando?.desde || f.seguimiento?.[`${key}_desde`] || sello?.empezado_at || null,
+                    desde: (rehacer ? sello.rehacer.at : null)
+                        || sello?.esperando?.desde || f.seguimiento?.[`${key}_desde`] || sello?.empezado_at || null,
                     fichero: sello?.fichero || null,
                 });
             }
@@ -712,7 +723,8 @@ async function cola() {
     }
     recorrer(cee.data, 'cee');
     const orden = { 'en trabajo': 0, 'encargado, sin empezar': 1, 'terminado · pendiente de revisar': 2 };
-    const rango = (x) => orden[x] ?? 0.5;                 // «esperando …» va tras «en trabajo»
+    // Lo corregido a mano va PRIMERO: alguien está esperando a que se rehaga.
+    const rango = (x) => (String(x).startsWith('corregido a mano') ? -1 : (orden[x] ?? 0.5));   // «esperando …» va tras «en trabajo»
     return out.sort((a, b) => (rango(a.situacion) - rango(b.situacion))
         || String(a.desde || '').localeCompare(String(b.desde || '')));
 }

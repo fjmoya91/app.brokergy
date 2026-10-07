@@ -48,7 +48,7 @@ function guardar(id, s) {
     } catch { /* sin almacenamiento: se pierde al recargar, nada más */ }
 }
 
-export function useCroquisMovil(id, { onCambio, onPedido, onFin, onFotos, onHuecos, onContra } = {}) {
+export function useCroquisMovil(id, { onCambio, onPedido, onFin, onFotos, onHuecos, onContra, onPizarra } = {}) {
     //: { token, url, qr, alternativas, qrAlternativas, conCartografia, planta }
     const [sesion, setSesion] = useState(() => {
         const g = id ? leerGuardada(id) : null;
@@ -60,7 +60,7 @@ export function useCroquisMovil(id, { onCambio, onPedido, onFin, onFotos, onHuec
     // Los callbacks por ref: cambian en cada render de la vista y no pueden
     // reiniciar la espera, que es lo que harían metidos en las dependencias.
     const cb = useRef({});
-    useEffect(() => { cb.current = { onCambio, onPedido, onFin, onFotos, onHuecos, onContra }; });
+    useEffect(() => { cb.current = { onCambio, onPedido, onFin, onFotos, onHuecos, onContra, onPizarra }; });
 
     const abrir = useCallback(async (planta, cuerpo) => {
         setAbriendo(true);
@@ -113,6 +113,7 @@ export function useCroquisMovil(id, { onCambio, onPedido, onFin, onFotos, onHuec
         let atendido = 0;
         let atendidoHuecos = 0;
         let atendidoContra = 0;
+        let atendidoPizarra = 0;
         let fotosVistas = null;
         // Lo que se dice de cada pared: EN ORDEN y sin perder ninguno (se tocan
         // varias seguidas). Se atiende lo que haya y se cuenta hasta dónde.
@@ -133,6 +134,27 @@ export function useCroquisMovil(id, { onCambio, onPedido, onFin, onFotos, onHuec
                 }
             } finally {
                 colaContra.ocupado = false;
+            }
+        };
+        // Lo dibujado en la PIZARRA del teléfono: en orden y de una en una, con
+        // las mismas funciones que la pizarra de aquí (`aplicaPizarra`).
+        const colaPizarra = { ocupado: false, lista: [] };
+        const atenderPizarra = async () => {
+            if (colaPizarra.ocupado) return;
+            colaPizarra.ocupado = true;
+            try {
+                while (colaPizarra.lista.length && vivo) {
+                    const c = colaPizarra.lista.shift();
+                    let r;
+                    try { r = await cb.current.onPizarra?.(c.accion, sesion.planta); }
+                    catch (e) { r = { ok: false, texto: e.message }; }
+                    if (!vivo) return;
+                    await axios.post(api(id, `croquis-movil/${sesion.token}/resultado-pizarra`),
+                                     { n: c.n, ...(r || { ok: false, texto: 'No se ha podido aplicar.' }) })
+                        .catch(() => {});
+                }
+            } finally {
+                colaPizarra.ocupado = false;
             }
         };
         // Los huecos que se confirman en el teléfono, también de uno en uno.
@@ -222,6 +244,12 @@ export function useCroquisMovil(id, { onCambio, onPedido, onFin, onFotos, onHuec
                         atendidoContra = Math.max(...nuevas.map(c => c.n));
                         colaContra.lista.push(...nuevas);
                         atenderContras();
+                    }
+                    const dibujadas = (data.pizarra || []).filter(c => c.n > atendidoPizarra);
+                    if (dibujadas.length) {
+                        atendidoPizarra = Math.max(...dibujadas.map(c => c.n));
+                        colaPizarra.lista.push(...dibujadas);
+                        atenderPizarra();
                     }
                 } catch (e) {
                     if (!vivo || axios.isCancel?.(e) || e.name === 'CanceledError') return;

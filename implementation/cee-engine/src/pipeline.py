@@ -680,6 +680,81 @@ def aplicar_semisotano(modelo: Modelo, niveles) -> list[str]:
     return [msg]
 
 
+# ------------------------------------------- VOLUMEN del proyecto (ampliacion)
+class VolumenInvalido(ValueError):
+    """El volumen declarado no se puede usar."""
+
+
+#: Tope de plantas de un volumen declarado: una ampliacion de vivienda.
+MAX_PLANTAS_VOLUMEN = 4
+
+
+def anadir_volumenes(modelo: Modelo, volumenes) -> list[str]:
+    """Suma a la vivienda lo que el PROYECTO construye y Catastro aun no tiene.
+
+    POR QUE EXISTE — 26RES080_91: el CEE inicial se hace sobre la distribucion
+    del proyecto de reforma (con las transmitancias de antes), y la reforma
+    levanta una planta alta sobre el fondo de la casa que Catastro no dibuja.
+    Sin esto, esa planta no existia y el certificado media otra casa.
+
+    Cada entrada es `{poligono: [[x, y], ...] (EPSG:25830), plantas: N}`: una
+    parte de edificio con N plantas sobre rasante. Su planta baja se UNE a la
+    huella que ya hay (no suma m2 donde ya hay construido); sus plantas de
+    arriba son VIVIENDA (se declaran como uso de esa planta, como hace
+    `anexar`). Lo DECLARA el certificador con el proyecto delante.
+    """
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    lista = [v for v in (volumenes or []) if isinstance(v, dict)]
+    if not lista:
+        return []
+    dichos: list[str] = []
+    usos: dict[int, dict[str, float]] = modelo.catastro.setdefault("_anexos_usos", {})
+    for i, v in enumerate(lista, 1):
+        try:
+            pts = [(float(x), float(y)) for x, y in (v.get("poligono") or [])]
+            plantas = int(v.get("plantas") or 0)
+        except (TypeError, ValueError):
+            raise VolumenInvalido(f"volumen {i}: poligono o plantas no validos")
+        if len(pts) < 3 or not 1 <= plantas <= MAX_PLANTAS_VOLUMEN:
+            raise VolumenInvalido(f"volumen {i}: hacen falta 3 vertices y de 1 a "
+                                  f"{MAX_PLANTAS_VOLUMEN} plantas")
+        g = Polygon(pts)
+        if not g.is_valid:
+            g = g.buffer(0)
+        if g.is_empty or g.area < AREA_MINIMA_RECORTE_M2:
+            raise VolumenInvalido(f"volumen {i}: el poligono no encierra superficie")
+        oid = f"PROYECTO_{i}"
+        modelo.partes.append(floors_mod.ParteEdificio(
+            original_id=oid, geometry=g, plantas_sobre_rasante=plantas,
+            plantas_bajo_rasante=0, attrs={"origen": "proyecto"}))
+        # Los m2 de VIVIENDA de las plantas nuevas: lo que ya tiene huella de
+        # Catastro en ese nivel no se vuelve a contar.
+        for nivel in range(1, plantas):
+            ya = [p.geometry for p in modelo.partes
+                  if p.original_id != oid and floors_mod.plantas_sobre(p) >= nivel + 1]
+            nuevo = g.difference(unary_union(ya)) if ya else g
+            if nuevo.area > 0.5:
+                d = usos.setdefault(nivel, {})
+                d["VIVIENDA"] = round(d.get("VIVIENDA", 0.0) + nuevo.area, 2)
+                # Y su UNIDAD de vivienda: de los espacios habitables cuelgan
+                # que niveles se dibujan y la superficie de la zona del .cex.
+                modelo.spaces.append(Objeto(
+                    source="PROYECTO", original_id=None, geometry=None,
+                    area=round(nuevo.area, 2), use="VIVIENDA", floor=nivel, confidence=0.8,
+                    attrs={"uso_literal": "VIVIENDA (proyecto de reforma)",
+                           "codigo": f"{oid}/{nivel:02d}", "habitable": True,
+                           "habitable_catastro": False,
+                           "geometria": "declarada por el certificador"}))
+        msg = (f"el certificador declara un VOLUMEN del proyecto de {g.area:.2f} m2 y "
+               f"{plantas} planta(s) que Catastro no tiene: se mide como vivienda")
+        modelo.diagnostics.add("VOLUMEN_PROYECTO", msg)
+        dichos.append(msg)
+    modelo.catastro["volumenes_proyecto"] = len(lista)
+    _recalcular_plantas(modelo)
+    return dichos
+
+
 # ------------------------------------------------ delimitar la VIVIENDA a mano
 #: Por debajo de esto un contorno no es una vivienda: es un clic de mas.
 AREA_MINIMA_RECORTE_M2 = 4.0

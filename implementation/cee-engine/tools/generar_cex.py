@@ -960,6 +960,18 @@ MESES_GENERADOR = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio
 _NS_GENERADOR = uuid.UUID("6f1c2a52-7d3b-4f0e-9a41-2b9e3c5d8a10")
 
 
+def id_generador(clave: str) -> uuid.UUID:
+    """El `id` del generador: derivado de sus datos, pero VERSION 4.
+
+    El esquema del XML de CE3X 3.1 exige un UUID v4 en `<Id>`
+    (`[0-9a-f]{8}-[0-9a-f]{4}-4…-[89ab]…`), y un uuid5 sale con un 5 ahí:
+    CE3X calcula y escribe el XML, pero xml2cert lo rechaza («XML incorrecto»)
+    y no hay PDF oficial. Medido el 06/10/2026 en 2026CEE_54. Se conservan los
+    bytes del uuid5 (sigue siendo determinista) con los bits de version 4.
+    """
+    return uuid.UUID(bytes=uuid.uuid5(_NS_GENERADOR, clave).bytes, version=4)
+
+
 def meses_validos(x: Any) -> list[float] | None:
     """Los doce kWh mensuales de autoconsumo, o None si no lo son."""
     if not isinstance(x, (list, tuple)) or len(x) != 12:
@@ -1000,7 +1012,7 @@ def generador_electrico(eq: dict, zona: str) -> P.Reduccion:
     clave = f"{nombre}|{zona}|{kwp}|{'/'.join(repr(m) for m in meses)}"
     uid = P.Reduccion("copy_reg", "_reconstructor",
                       (P.Global("uuid", "UUID"), P.Global("__builtin__", "object"), None),
-                      {Cadena("int"): uuid.uuid5(_NS_GENERADOR, clave).int})
+                      {Cadena("int"): id_generador(clave).int})
     estado: dict = {Cadena("nombre"): nombre, Cadena("zona"): str(zona),
                     Cadena("potencia"): kwp, Cadena("tipo"): None}
     for mes, v in zip(MESES_GENERADOR, meses):

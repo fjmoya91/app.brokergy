@@ -1,6 +1,6 @@
 ---
 name: generar-cee-inicial
-description: 'GENERA el CEE INICIAL (.cex de CE3X) de una oportunidad o expediente desde sus FOTOS o un VÍDEO de la vivienda: lee las placas de la caldera y de la aerotermia, cuenta y mide los huecos de cada fachada, los asigna a su pared en el plano del Catastro y escribe el .cex con la aerotermia como MEDIDA DE MEJORA. Con un VÍDEO (casi siempre de dentro) saca el fotograma de cada ventana y deduce a qué pared da; lo que no se puede saber no lo adivina: prepara el WhatsApp al propietario pidiendo esas paredes con su plano en rojo (en seco; se envía solo con tu «sí»). Si la aerotermia no está en el catálogo, la da de alta con su ficha, EPREL y Keymark. Úsalo con "genera el CEE inicial de NNN", "hazme el .cex de la OP246", "prepara la envolvente de X con sus fotos / su vídeo", "mete esta aerotermia en el catálogo". Gemelo de `revisar-cee`. Lo leído nace DUDOSO y lo que no se puede afirmar no se inventa.'
+description: 'GENERA el CEE INICIAL (.cex de CE3X) de una oportunidad o expediente desde sus FOTOS o un VÍDEO de la vivienda: lee las placas de la caldera y de la aerotermia, cuenta y mide los huecos de cada fachada, los asigna a su pared en el plano del Catastro y escribe el .cex con la aerotermia como MEDIDA DE MEJORA. Con un VÍDEO (casi siempre de dentro) saca el fotograma de cada ventana y deduce a qué pared da; lo que no se puede saber no lo adivina: prepara el WhatsApp al propietario pidiendo esas paredes con su plano en rojo (en seco; se envía solo con tu «sí»). Si faltan fotos de las fachadas, las saca de GOOGLE STREET VIEW (orden `streetview`). Si la aerotermia no está en el catálogo, la da de alta con su ficha, EPREL y Keymark. Úsalo con "genera el CEE inicial de NNN", "hazme el .cex de la OP246", "prepara la envolvente de X con sus fotos / su vídeo", "mete esta aerotermia en el catálogo". Gemelo de `revisar-cee`. Lo leído nace DUDOSO y lo que no se puede afirmar no se inventa.'
 ---
 
 # Generar el CEE inicial desde las fotos
@@ -38,12 +38,14 @@ Todo pasa por `implementation/backend/scripts/cee_inicial.js` (desde `implementa
 | `fotos <clave> [--out DIR]` | Baja todas las imágenes de «12. DOCUMENTOS PARA CEE» con su id de Drive | nada |
 | `paredes <clave> [--out DIR]` | Mide el edificio (con el **croquis catastral por plantas**), lista paredes/construcciones/cuerpos, dibuja `plano.png` (cartografía), `plano_satelite.png` (paredes sobre la foto aérea) y `satelite.png` (la foto aérea sola, con la fecha del vuelo), y **baja los documentos del Catastro** a `<out>/catastro/` | nada |
 | `catastro <clave> [--out DIR] [--refrescar-catastro]` | Solo los **documentos de la Sede del Catastro**: croquis por plantas (PDF), FXCC por plantas (DXF+ASC), KML 3D por plantas y de la parcela, FXCC con colindantes | con `--escribir` (los sube a `1. CEE / CEE INICIAL / CATASTRO`; `aplicar --escribir` ya lo hace solo) |
-| `leer-pared <clave> --pared ID --fotos id1,id2` | Inventaria los huecos de una fachada desde su foto (escala por la puerta). Admite un fotograma del vídeo: `--fotos frame:F1` | nada |
+| `leer-pared <clave> --pared ID --fotos id1,id2` | Inventaria los huecos de una fachada desde su foto (escala por la puerta). Admite un fotograma del vídeo (`--fotos frame:F1`) y una foto de Street View (`--fotos sv:SV1`) | nada |
+| `streetview <clave> [--out DIR]` | **Fotos de las fachadas desde Google Street View**: agrupa las paredes en LADOS de la casa (todas las plantas del mismo plano), busca el panorama más cercano DELANTE de cada lado, lo apunta y baja la foto a `<out>/streetview/SV<n>_<rumbo>.jpg` con su fecha, rumbo y oblicuidad. Lista aparte los lados a PATIO (no se ven desde la calle). En el plan van como `sv:SV1`. Clave `GOOGLE_MAPS_KEY`; ~0,007 € por foto | nada (las sube `aplicar --escribir`) |
 | `video <clave> [--archivo v.mp4] [--refrescar]` | Lee el **VÍDEO** de la vivienda: estancias, plantas, cada hueco con su fotograma, a qué da y **a qué pared va** (o «dudoso»). Deja `mosaico.jpg`, la hoja de contactos y `video.json` con la propuesta para el plan (`frame:H3`). Ver `referencia/video.md` | nada |
 | `pedir-fotos <clave> [--paredes …] [--enviar]` | El **WhatsApp al propietario** pidiendo la foto de las paredes que no se han podido resolver, una por lado, numeradas y con su plano en rojo. **En seco** salvo `--enviar` (solo con el «sí» del usuario); al enviar, el CEE queda «esperando las fotos» | con `--enviar` |
 | `eprel <modelo>` | Busca el modelo en EPREL y baja su ficha (ES) y su etiqueta | nada |
 | `alta-aerotermia --json d.json [--ficha ft.pdf:1,3-4] [--eprel-fiche f.pdf] [--eprel-label l.pdf]` | Da de alta el equipo en el catálogo y guarda la ficha unida en Drive | con `--escribir` |
 | `aplicar <clave> --plan plan.json` | Guarda el trabajo, pega las fotos, compone la ficha, escribe el `.cex`, lo guarda en Drive **y avisa** (`--sin-aviso` lo calla). Además lo **califica con CE3X 3.1 en el PC** (≈1 min, sin abrir su ventana) y deja al lado su **`.xml` y su `.pdf` oficial** (`… _REVISAR.xml/.pdf`); `--sin-pdf` lo salta. En seco, `--calificar` lo califica y los deja junto a la copia local | con `--escribir` |
+| `rehacer <clave> [--plan plan.json]` | **Rehace el CEE sobre lo corregido A MANO en la pizarra** (tras «Así es como está»): imprime la revisión (nota y cambios) y los huecos dibujados que quedan por medir, y aplica el plan sobre el trabajo guardado sin deshacer nada de lo dibujado (ver «Rehacer el CEE tras una corrección A MANO»). Marca la revisión como rehecha | con `--escribir` |
 | `instalacion <clave> --plan plan.json` | **Solo lo de las PLACAS a la app** (Instalación del expediente, o inputs de la oportunidad), con el mismo plan que `aplicar`: sin `.cex`, sin Drive, sin aviso al equipo. Para un CEE ya hecho al que le falta la Instalación rellena | con `--escribir` |
 | `croquis <clave> [--fase final]` | El **croquis en PDF** de lo que YA hay (trabajo guardado + `.cex` de la carpeta): plano de obra por planta con la marca de BROKERGY, a escala, con muros, huecos, cotas y zonas, y los cuadros de huecos, superficies y cerramientos (sin avisos: vale para una auditoría). `aplicar --escribir` ya lo hace solo | con `--escribir` (sube `… - CEE INICIAL_CROQUIS.pdf` junto al `.cex`) |
 
@@ -152,6 +154,25 @@ nada**: siempre primero en seco.
    - Si con las fotos no se puede saber dónde está cada uso, **PREGUNTA** con una frase concreta
      («¿el garaje está al norte o al sur?»), o pide al usuario que lo pinte en la ventana
      («✏️ Croquis»). Nunca se inventa la topología; las superficies nunca se inventan: son de Catastro.
+4a. **¿Faltan fotos de las FACHADAS?** (`fotos` dice «el expediente no tiene ninguna foto de fachada,
+   patios ni ventanas», o faltan lados). **No esperes al cliente: lanza `streetview <clave>`** —es lo
+   que se hacía a mano con Google Maps (decisión del usuario, 2026-10-06, 26RES060_OP256)—.
+   - **MIRA cada foto** (haz una hoja de contactos y ábrela): la API apunta a la pared, pero **no sabe
+     si hay algo delante**. Una casa vecina, una tapia o un coche tapan la nuestra (medido en OP256:
+     los cuatro lados al noroeste enseñaban casas vecinas). Descarta lo que no es nuestra casa; la
+     buena se reconoce por lo que ya sabes de ella (ladrillo/enfoscado, garaje, nº de portal, tejado).
+     «⚠ muy de lado» = escorzo de más de 45°: vale para CONTAR huecos, no para medirlos.
+   - **Mira la FECHA del panorama**: si es anterior a una obra o a lo que dicen las fotos del cliente,
+     mandan las del cliente, y se dice.
+   - Las fotos buenas van al plan como `sv:SV1` en `fotos` (a cada pared del lado que enseñan) y en
+     `huecos[].foto` con su `box`. `aplicar --escribir` las sube a «FOTOS ENVOLVENTE» de su pared,
+     marcadas como de Street View. Son de Google: apoyo para el CEE, **nunca** se suben a la
+     documentación del cliente.
+   - **Medir**: la escala de `leer-pared` sale de la puerta de 2,05 m, y una cancela o un porche la
+     engañan (en OP256 midió la fachada al doble). Mide tú con el **ancho real del lado** (el de
+     Catastro que imprime `streetview`/`paredes`) en píxeles de la foto, y redondea a 5 cm.
+   - Los **PATIOS** (y la parte de atrás tapada) no salen en Street View: se piden al cliente
+     (`pedir-fotos`) y el `.cex` sale con esas paredes sin huecos, **diciéndolo**.
 4b. **¿Hay VÍDEO en vez de (o además de) fotos de las fachadas?** (`estado` lo dice: «vídeos de la
    vivienda: …»; si llegó por WhatsApp, bájalo y pásalo con `--archivo`). Lánzale **`video`** y sigue
    `referencia/video.md`. En corto:
@@ -184,8 +205,60 @@ nada**: siempre primero en seco.
 7. **Informe final**: el enlace del `.cex` y de la carpeta, y la lista de **lo que queda por hacer**
    (ver abajo). Nunca «listo» a secas: el `.cex` lleva `_REVISAR` porque hay que abrirlo en CE3X.
 
+## Rehacer el CEE tras una corrección A MANO (la pizarra)
+
+Si el plano que dejaste no coincide con la realidad, quien conoce la vivienda lo corrige en la
+**pizarra** de la ventana de la envolvente (o del móvil, por el QR): elige un lápiz —muro exterior,
+medianera, partición, ventana, puerta, borrar— y raya encima. Al pulsar **«✓ Así es como está»** queda
+una REVISIÓN en `cee.envolvente_revision` (nº, quién, nota y la lista de cambios en palabras) y, si lo
+marca, te llega la tarea: *«Rehaz el CEE de {nº} con sus cambios del plano»*.
+
+1. `node implementation/backend/scripts/cee_inicial.js rehacer <nº>` (en seco): imprime la revisión
+   (nota y cambios) y los huecos **dibujados a mano que quedan por medir** (nacen con un ancho
+   aproximado y por confirmar).
+2. **Lo dibujado a mano MANDA**: no lo quites, no le cambies el tipo, no le vuelvas a poner huecos.
+   Lo único que haces sobre esas paredes es **medir** sus huecos con las fotos (`"medir"` en el plan,
+   `referencia/plan.md`). Si un plan lo pisa, `aplicar` **para** y dice por qué (lo comprueba el código,
+   `utils/loDibujadoAMano.js`); solo con `"forzar_mano": true` —y solo si el usuario lo pide.
+3. `rehacer <nº> --plan plan.json` (con lo medido) y, revisado, `--escribir`. Escribe el `.cex` igual
+   que `aplicar` y marca la revisión como **REHECHA** (la ventana deja de decir «Claude lo está
+   rehaciendo»). La nota del usuario manda sobre lo que deduzcas de las fotos.
+4. Contesta al usuario con lo que has medido y lo que no has podido (una ventana que no sale en
+   ninguna foto se queda con la medida aproximada y por confirmar: dilo).
+
+## RES080: el INICIAL y el PREVISTO
+
+En un **RES080** (rehabilitación: ventanas, aislamiento, aires… además o en lugar de la aerotermia)
+no basta con el inicial: hay que hacer también el **CEE PREVISTO** — la casa con TODA la obra hecha —
+porque el ahorro de la ficha es la diferencia entre los dos. Se hacía a mano (19 RES080 medidos:
+Eladio, Laura Millán, Diego Rubio…): copiar el inicial, cambiar lo de la obra y cargarlo en el inicial
+como su medida de mejora. Ahora lo hace `aplicar` con el bloque **`previsto`** del plan
+(`referencia/plan.md`):
+
+1. **Marca en el plan lo que cambia**: las ventanas con `cambia: true`, las paredes que se aíslan en
+   `cambian`, la cubierta en `cubierta_reforma` (salen «- CAMBIA» en el inicial, regla de siempre).
+2. **PREGUNTA la U de lo que se aísla** (o el aislante: λ y espesor) — nunca se supone. Las ventanas
+   nuevas: de su ficha / catálogo / presupuesto; sin datos, U marco 1,3 · U vidrio 1,3 · g 0,43 ·
+   20 % de marco · permeabilidad 3. Ventilación **0,53** y masa **«Ligera»** siempre.
+3. `aplicar` en seco con **`--calificar`**: imprime qué ha cambiado de verdad (ventanas, cerramientos
+   con su U antes → después), los TEXTOS de la medida, y deja en la copia local el previsto, su
+   XML/PDF y el inicial con el previsto dentro («…_CON PREVISTO.cex»). Revisa que el previsto
+   califique mejor y que el ahorro sea razonable.
+4. Con **`--escribir`**: el inicial va a Drive YA con la medida «Nuevo Edificio Definido por el
+   Usuario» calculada por CE3X (con su coste y su plazo); el previsto queda al lado como
+   `{nº} - CEE PREVISTO_REVISAR.cex` con su XML y su PDF; y en un expediente su XML se carga en la app
+   como el del **CEE FINAL** (sin fechas de visita ni de firma: el previsto no se visita ni se firma).
+
+- La medida del inicial **ES** el previsto: los equipos del previsto salen de las MISMAS medidas de la
+  ficha y el motor los escribe con la MISMA función que una medida. No pueden contar dos obras.
+- Necesita CE3X 3.1 en el PC (como el XML/PDF). Sin él (`--sin-pdf`), el previsto se guarda pero la
+  medida hay que ponerla a mano en CE3X («Cargar edificio») y el XML cargarlo como CEE final: dilo.
+- En una **oportunidad** el XML del previsto no se carga (no hay CEE final): se carga al aceptarla.
+
 ## Reglas que no se rompen
 
+- **Lo dibujado a mano en la pizarra MANDA** sobre las fotos y sobre Catastro: solo se miden sus
+  huecos (`medir`). Ver «Rehacer el CEE tras una corrección A MANO».
 - **Una ventana con balcón es una BALCONERA**: `ventana` de ~2,10 m de alto, no `puerta` (una puerta
   sale de madera al 90 % de marco; una balconera es un hueco acristalado).
 - **Una puerta de patio acristalada** va como `puerta` con `porc_marco` 30-40 y su marco y vidrio.
@@ -302,9 +375,15 @@ Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenid
    / `autoconsumo_pvgis`, y su importe en `ajustes.autoconsumo_inversion`. Cómo, paso a paso:
    `referencia/plan.md` → «Aerotermia + ACS + placas en UNA medida». Busca también el presupuesto
    de la aerotermia: el «aerotermo» que trae es el equipo de ACS aparte.
-14. **El CERTIFICADOR**: si el usuario dice quién firma («ponme a mí»), asígnalo en la app (el
-   certificador de la casa no recibe aviso). Con un técnico asignado el `.cex` lleva sus datos y el
-   agente no le quita el encargo.
+14. **El CERTIFICADOR — por defecto FIRMA FRAN** (decisión del usuario, 2026-10-06: «ponme como
+   certificador a mí siempre a no ser que te indique lo contrario»). Si el plan no dice otra cosa y
+   en la barra está el AGENTE IA (o nadie, en una oportunidad), el `.cex` lleva los datos de
+   **Francisco Javier Moya López** (`TECNICO_POR_DEFECTO` en `cee_inicial.js`). No hace falta
+   ponerlo en el plan. Solo cambia si el usuario lo dice: otro técnico, `"tecnico": "<id_empresa>"`;
+   sin técnico, `"tecnico": false`. Un técnico DE VERDAD asignado en la barra (un externo) no se
+   sustituye: es quien firma, y el agente no le quita el encargo. La barra no se toca: el agente
+   sigue en ella para el seguimiento (si el usuario quiere que conste él en la barra, se asigna en
+   la app — el certificador de la casa no recibe aviso).
 
 ## Lo que el informe final dice SIEMPRE
 
@@ -328,8 +407,12 @@ Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenid
 - Lo que dice el **croquis catastral por plantas** (y su fecha): qué se ha quitado por él (cuerpos y
   zonas) y en qué contradice a las fotos, si en algo. Que los documentos del Catastro están en
   `1. CEE / CEE INICIAL / CATASTRO` (o por qué no: la Sede no los da para esa parcela).
-- Que el `.cex` va **sin técnico** si es una oportunidad, y que la medida de mejora va **sin calcular**
+- Quién va como **técnico** en el `.cex` (por defecto Fran; si había un técnico asignado, él), y que
+  la medida de mejora va **sin calcular**
   (en CE3X: Medidas de mejora → Actualizar).
+- En un **RES080**: el enlace del PREVISTO, qué cambia (ventanas, cerramientos con su U), las dos
+  calificaciones (inicial y previsto), el ahorro de la medida, y que su XML está cargado como CEE
+  FINAL (o por qué no). Aquí la medida SÍ va calculada (la ha calculado CE3X).
 
 ## Pruebas
 
@@ -340,7 +423,9 @@ node implementation/backend/scripts/test_placa_ocr.js       # potencia útil vs 
 node implementation/backend/scripts/test_placa_equipo.js    # casación con el catálogo, EAN ≠ serie
 node implementation/backend/scripts/test_ortofoto.mjs       # rejilla de la ortofoto, fecha del vuelo
 node implementation/backend/scripts/test_video_envolvente.js  # vídeo: a qué pared va cada ventana, qué se pide
+node implementation/backend/scripts/test_streetview.js        # Street View: lados de la casa, encuadre, UTM
 python -m pytest implementation/cee-engine/tests/test_fxcc_plantas.py   # croquis catastral: lectura, cuerpos, propuesta
+python -m pytest implementation/cee-engine/tests/test_previsto.py       # RES080: ventanas y aislamiento del previsto
 ```
 
 ## Y después: el CEE final

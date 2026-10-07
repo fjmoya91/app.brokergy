@@ -21,12 +21,13 @@ import { CroquisMovilModal } from '../components/CroquisMovilModal';
 import { planoParaElMovil, respuestaParaElMovil } from '../logic/croquisMovilPuente';
 import { contornoAlMundo, contraParaReclasificar, lineasResumen, resumenParedes } from '../logic/contornoMovil';
 import { ponerHuecosDelMovil } from '../logic/huecosDelMovil';
-import { TIPOS_PARED, admiteHuecos, tipoDe } from '../logic/tiposPared';
+import { TIPOS_PARED, admiteHuecos, esFuera, tipoDe } from '../logic/tiposPared';
 import { VentanasViviendaModal } from '../components/VentanasViviendaModal';
 import { PERSIANA_DEFECTO_NUEVOS, huecosDefecto, resumenVentanas, ventanasContestadas }
     from '../logic/ventanasVivienda';
 import { EscribiendoElCex, CexGenerado } from '../components/EscribiendoElCex';
 import { BandaAgenteIa, ListaPendientes } from '../components/RastroAgente';
+import { AsiEsComoEstaModal, BandaRevision } from '../components/AsiEsComoEsta';
 import { pendientesDe, selloAgente } from '../logic/pendientes';
 import { PanelAdministrativos, PanelEconomico, PanelGenerales, PanelInstalaciones,
          PanelMedidas, Ventana, VersionCe3x } from '../components/PanelesFicha';
@@ -70,7 +71,18 @@ function metaParedMovil(m) {
         catastro: tipoDe({ tipo: m.tipo }),
         largo: m.largo, alto: m.alto, orientacion: m.orientacion || null,
         admite: admiteHuecos(m), huecos: (m.huecos || []).length,
+        // Sus huecos, para la PIZARRA del teléfono: los dibuja sobre la pared y
+        // la goma los quita (por su `uid`). Solo lo que hace falta para colocarlos.
+        lista_huecos: (m.huecos || []).map(h => ({ uid: h.uid, nombre: h.nombre, tipo: h.tipo,
+                                                  ancho: h.ancho, pos: h.pos, dudoso: h.estado !== 'medido' })),
+        ...(m.dibujada ? { dibujada: true } : {}),
+        ...(esFuera(m) ? { fuera: true } : {}),
     };
+}
+
+/** Las paredes de una planta, en una cadena: sus ids y sus trazos. */
+function firmaParedes(muros) {
+    return JSON.stringify((muros || []).map(m => [m.id, m.svg]));
 }
 
 //: Lo que se guarda de una consulta a PVGIS con el trabajo (`ajustes`): la
@@ -119,6 +131,9 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     //: La geometría cuya planta tiene YA el teléfono (croquis desde el móvil):
     //: si se vuelve a medir, se le manda la nueva.
     const geoEnElMovil = useRef(null);
+    //: Y con qué PAREDES (ids y trazos): la pizarra dibuja y borra paredes sin
+    //: volver a medir, y el teléfono tiene que verlas igual.
+    const firmaEnElMovil = useRef(null);
     const [cargando, setCargando] = useState(false);
     const [error, setError] = useState(null);
     const [generando, setGenerando] = useState(false);
@@ -141,6 +156,12 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     const [trabajoPrevio, setTrabajoPrevio] = useState(undefined);
     const [estadoGuardado, setEstadoGuardado] = useState(null);
     const ultimo = useRef(null);
+
+    //: «✓ Así es como está» (la PIZARRA): la última revisión a mano del plano y
+    //: el popup que la confirma. La revisión la escribe solo su ruta; aquí se
+    //: lee al abrir y se sigue mientras Claude la está rehaciendo.
+    const [revision, setRevision] = useState(() => expediente?.cee?.envolvente_revision || null);
+    const [verAsiEs, setVerAsiEs] = useState(false);
 
     // ── El TIPO DE EDIFICIO, como lo pregunta CE3X al crear un fichero ───────
     // Residencial, pequeño o gran terciario: decide con qué programa abre CE3X
@@ -260,6 +281,9 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         // Fotos nuevas desde el teléfono: el panel de la pared las vuelve a pedir.
         onFotos: () => window.dispatchEvent(new CustomEvent('envolvente:fotos')),
         onHuecos: (pedido) => ponerHuecosDesdeMovil(pedido),
+        // Lo dibujado en la PIZARRA del teléfono: se aplica AQUÍ, con la misma
+        // pizarra que la de este plano.
+        onPizarra: (accion, planta) => pizarraDesdeMovil(accion, planta),
     });
     // Lo que el teléfono sabe de cada pared (sus huecos, su nombre, si admite
     // ventanas), al día: si aquí se reclasifica una pared o se le ponen huecos,
@@ -699,7 +723,42 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         });
         // El teléfono ya tiene la planta de ESTA geometría: no hay nada que
         // ponerle al día hasta que se vuelva a medir.
-        if (ok) { geoEnElMovil.current = geo; setVerQrMovil(true); }
+        if (ok) {
+            geoEnElMovil.current = geo;
+            firmaEnElMovil.current = firmaParedes(planta.muros);
+            setVerQrMovil(true);
+        }
+    }
+
+    /**
+     * Lo dibujado en la PIZARRA del teléfono, ya interpretado allí: se aplica
+     * con `aplicaPizarra` —lo mismo que un trazo hecho aquí—. Las paredes nuevas
+     * vienen en el lienzo del teléfono y se trasladan al de ahora; y «Así es
+     * como está» dicho desde el móvil es el MISMO botón que el de aquí.
+     */
+    async function pizarraDesdeMovil(accion, plantaSesion) {
+        if (!accion) return { ok: false, texto: 'No ha llegado nada.' };
+        if (accion.accion === 'asi_es') {
+            try {
+                const r = await confirmarAsiEs({ nota: accion.nota || '',
+                                                 avisarClaude: !!accion.avisar_claude && esStaff });
+                const t = [`Revisión${r?.revision?.n ? ` nº ${r.revision.n}` : ''} guardada y anotada.`];
+                if (r?.claude?.pedido) t.push('Claude se ha puesto a rehacer el CEE con tus cambios.');
+                else if (r?.claude) t.push(`Claude no se ha enterado: ${r.claude.motivo || 'el asistente no responde'}.`);
+                onAviso?.('Desde el móvil: «Así es como está».');
+                return { ok: true, texto: t.join(' ') };
+            } catch (e) {
+                return { ok: false, texto: e?.response?.data?.error || e.message };
+            }
+        }
+        let a = accion;
+        if (a.accion === 'paredes') {
+            const d = deltaLienzo(plantaSesion?.marco, lienzoAMundo(geo?.georef)) || [0, 0];
+            a = { ...a, tramos: (a.tramos || []).map(t => t.map(([x, y]) => [x + d[0], y + d[1]])) };
+        }
+        const r = plano.aplicaPizarra(plantaSesion?.id, a);
+        if (r?.texto) onAviso?.(`Desde el móvil: ${r.texto}`);
+        return r;
     }
 
     // ── La cartografía del Catastro DEBAJO del plano ─────────────────────────
@@ -834,6 +893,56 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         }, 1200);
         return () => clearTimeout(espera);
     }, [plano.trabajo, ajustes, id]);
+
+    // Mientras Claude rehace el CEE sobre la revisión a mano, se pregunta de vez
+    // en cuando en qué va: cuando termina, la franja lo dice y ofrece recargar.
+    useEffect(() => {
+        if (!id || revision?.estado !== 'PEDIDO') return undefined;
+        const t = setInterval(() => {
+            axios.get(api(id, 'revision'))
+                .then(({ data }) => { if (data?.revision) setRevision(data.revision); })
+                .catch(() => { /* se vuelve a preguntar */ });
+        }, 20000);
+        return () => clearInterval(t);
+    }, [id, revision?.estado]);
+
+    /**
+     * «✓ Así es como está»: se GUARDA el trabajo ya (sin esperar al freno del
+     * autoguardado: la IA va a leerlo en segundos), se registra la revisión con
+     * la lista de cambios de la pizarra y, si se pide, se avisa a Claude. Los
+     * cambios pasan a la revisión y la lista de la pizarra se vacía.
+     */
+    const confirmarAsiEs = async ({ nota, avisarClaude }) => {
+        const t = plano.trabajo && { ...plano.trabajo, ajustes };
+        if (t) {
+            setEstadoGuardado('guardando');
+            await axios.put(api(id, 'trabajo'), { trabajo: t });
+            ultimo.current = JSON.stringify(t);
+            setEstadoGuardado('guardado');
+        }
+        const { data } = await axios.post(api(id, 'revision'), {
+            fase: fichaFase, nota, avisar_claude: avisarClaude,
+            cambios: plano.pizarra?.cambios || [],
+        });
+        if (data?.revision) setRevision(data.revision);
+        plano.limpiaPizarra();
+        return data;
+    };
+
+    /** Lo que ha escrito Claude al rehacer: se vuelve a leer el trabajo guardado. */
+    const recargarTrabajo = async () => {
+        try {
+            const { data } = await axios.get(api(id, 'trabajo'));
+            if (data?.trabajo) {
+                if (data.trabajo.ajustes) setAjustes(data.trabajo.ajustes);
+                setTrabajoPrevio(data.trabajo);
+                ultimo.current = null;
+                onAviso?.('Plano recargado con lo que ha escrito Claude.');
+            }
+        } catch (e) {
+            onAviso?.(`No se ha podido recargar: ${e?.response?.data?.error || e.message}`);
+        }
+    };
 
     // La otra cara del autoguardado: un error también se guarda solo. `restaurar`
     // vuelve a montar el plano desde la geometría con el trabajo de ese paso,
@@ -1206,20 +1315,28 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     const tokenSesion = movil.sesion?.token || null;
     useEffect(() => {
         const s = movil.sesion;
-        if (!s || !geo || geoEnElMovil.current === geo) return;
+        if (!s || !geo) return;
         const pl = (geo.plantas || []).find(p => p.id === s.planta?.id)
             || (geo.plantas || []).find(p => p.nivel === s.planta?.nivel);
         if (!pl) return;
         // Hasta que `sembrar` no haya puesto los muros de ESTA geometría, no.
         if (!(pl.muros || []).every(m => plano.muros?.[m.id]?.svg_catastro === m.svg)) return;
+        // Las paredes que VE el plano: las de Catastro con su corrección y las
+        // DIBUJADAS (pizarra, pared nueva). Si no ha cambiado ni la geometría
+        // ni ninguna pared, no hay nada que contarle al teléfono.
+        const vistas = (plano.plantas || []).find(p => p.id === pl.id)?.muros || pl.muros || [];
+        const firma = firmaParedes(vistas);
+        if (geoEnElMovil.current === geo && firmaEnElMovil.current === firma) return;
         geoEnElMovil.current = geo;
+        firmaEnElMovil.current = firma;
         movil.enviarPlano(planoParaElMovil({
-            muros: (pl.muros || []).map(m => ({ svg: m.svg, ...metaParedMovil(plano.muros?.[m.id] || m) })),
+            muros: vistas.filter(m => (m.svg || []).length >= 2)
+                .map(m => ({ svg: m.svg, ...metaParedMovil(plano.muros?.[m.id] || m) })),
             zonasMundo: (plano.zonasFuera || []).filter(z => z.nivel === pl.nivel),
             recorteMundo: plano.recorte?.poligono || null,
             propuesta: (propuestaCroquis[pl.id] || []).map(t => ({ uso: t.uso, pts: t.pts, por_que: t.por_que })),
         }, lienzoAMundo(geo.georef), s.planta?.marco));
-    }, [geo, plano.muros, plano.zonasFuera, plano.recorte, tokenSesion]);  // eslint-disable-line react-hooks/exhaustive-deps
+    }, [geo, plano.muros, plano.plantas, plano.zonasFuera, plano.recorte, tokenSesion]);  // eslint-disable-line react-hooks/exhaustive-deps
 
     //: El contorno que se está dibujando EN EL MÓVIL, en el lienzo de ahora:
     //: se ve en el plano de su planta según se dibuja.
@@ -1511,6 +1628,27 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                onPendientes={() => setVerPendientes(true)}
                                onCroquis={verCroquis} croquis={croquis} />
 
+                {/* La revisión A MANO del plano («Así es como está»): en qué está.
+                    Y si hay cambios dibujados sin confirmar, la salida para hacerlo. */}
+                <BandaRevision revision={revision} onRecargar={recargarTrabajo}
+                               onAbrir={() => setVerAsiEs(true)} />
+                {!!plano.pizarra?.cambios?.length && (
+                    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-violet-400/40
+                                    bg-violet-500/[0.07] px-3 py-2 text-[12.5px] text-violet-100">
+                        <span>✏️ <b>{plano.pizarra.cambios.length}</b>{' '}
+                            {plano.pizarra.cambios.length === 1 ? 'cambio dibujado' : 'cambios dibujados'} a mano
+                            en la pizarra, sin confirmar.</span>
+                        <button onClick={() => setVerAsiEs(true)}
+                                className="ml-auto min-h-[36px] rounded-lg bg-emerald-600 px-3 text-[12.5px] font-black
+                                           text-white hover:bg-emerald-500">
+                            ✓ Así es como está
+                        </button>
+                    </div>
+                )}
+                <AsiEsComoEstaModal abierto={verAsiEs} cambios={plano.pizarra?.cambios || []}
+                                    fase={fichaFase} puedeClaude={esStaff}
+                                    onCerrar={() => setVerAsiEs(false)} onConfirmar={confirmarAsiEs} />
+
                 <Cabecera resumen={resumen} entrada={entrada}
                           onCambiarEntrada={() => setEntrada(null)}
                           estadoGuardado={estadoGuardado}
@@ -1593,6 +1731,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                          onSatelite={ponSatelite} />
                         ) : aLaVez.map(p => (
                             <PlanoPlanta key={p.id || p.nombre} planta={p} plano={plano}
+                                         onAsiEsComoEsta={() => setVerAsiEs(true)}
                                          cuerpos={cuerpos} onCuerpo={setCuerpoSel}
                                          entorno={entorno} onEntorno={setEntorno}
                                          modo="2d" altura={alturaPlanta}

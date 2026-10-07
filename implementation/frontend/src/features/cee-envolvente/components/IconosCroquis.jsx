@@ -60,6 +60,15 @@ export const IconoVivienda = ({ size = 14, className = '' }) => (
     </svg>
 );
 
+//: La PIZARRA: un trozo de plano (una esquina con su ventana) y el lápiz encima.
+export const IconoPizarra = ({ size = 14, className = '' }) => (
+    <svg {...base(size)} className={className}>
+        <path d="M3 13V3h10" />
+        <path d="M3 17v3h7" />
+        <path d="M12.5 20.5l1-3.5 6.5-6.5a1.8 1.8 0 012.5 2.5L16 19.5l-3.5 1z" />
+    </svg>
+);
+
 export const IconoCamara = ({ size = 14, className = '' }) => (
     <svg {...base(size)} className={className}>
         <path d="M4 8.5A1.5 1.5 0 015.5 7h2l1.4-2h6.2l1.4 2h2A1.5 1.5 0 0120 8.5v9a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 17.5z" />

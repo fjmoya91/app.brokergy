@@ -138,6 +138,74 @@ function envolver(script, out) {
 const num = (v) => (v == null || v === '' || Number.isNaN(Number(v)) ? null : Math.round(Number(v) * 100) / 100);
 
 /**
+ * Ejecuta un script del oráculo (`cee-engine/tools/oraculo_ce3x/<script>`) con
+ * el Python de CE3X, con un CE3X 3.1 abierto (arrancándolo oculto si no lo
+ * está). Devuelve `{ s }` (el JSON que escribe el script) o `{ fallo }`.
+ *
+ * ⚠️ El motor sin ventana NO abre ningún .cex si no hay un CE3X 3.1 ABIERTO en
+ * el equipo: `abreArchivoCEX` vuelve sin leer el fichero (medido el 02/10/2026:
+ * funciona con CE3X abierto, falla al cerrarlo, también con los ejemplos
+ * oficiales). Si no lo está, se arranca OCULTO y se cierra al terminar; si ya
+ * estaba abierto, no se toca.
+ */
+async function correrOraculo(dir, script, envExtra) {
+    const res = path.join(dir, 'resultado.json');
+    const out = path.join(dir, 'ce3x.out');
+    const wrapped = path.join(dir, `${path.basename(script, '.py')}.wrapped.py`);
+    fs.writeFileSync(wrapped, envolver(path.join(ORACULO_DIR, script), out));
+    const env = { ...process.env, CE3X_DIR, ORACULO_DIR, RESULTADO: res, ...envExtra };
+    for (const k of Object.keys(env)) if (env[k] == null) delete env[k];
+
+    const correr = async () => {
+        try { fs.rmSync(res, { force: true }); } catch { /* no estaba */ }
+        const r = await ejecutar(path.join(ORACULO_DIR, 'ce3xpy.exe'), [wrapped], { cwd: dir, env, plazoMs: ESPERA_CE3X_MS });
+        if (r.plazo) return { fallo: `CE3X no ha terminado en ${Math.round(ESPERA_CE3X_MS / 1000)} s` };
+        try { return { s: JSON.parse(fs.readFileSync(res, 'utf8')) }; } catch { /* abajo */ }
+        const log = fs.existsSync(out) ? fs.readFileSync(out, 'latin1').slice(-1500) : (r.error || r.salida || '');
+        return { fallo: `CE3X no ha devuelto resultado.\n${log}` };
+    };
+    let gui = null;
+    let s = null;
+    try {
+        if (!(await ce3xAbierto())) gui = await arrancarCe3xOculto();
+        for (let intento = 0; intento < 3; intento++) {
+            const r = await correr();
+            if (r.fallo) return r;
+            s = r.s;
+            if (s.error !== 'NO_ABRE') break;
+            if (!gui && !(await ce3xAbierto())) gui = await arrancarCe3xOculto();
+            await esperar(8000);
+        }
+    } finally {
+        if (gui) { try { gui.kill(); } catch { /* ya cerrado */ } }
+    }
+    if (s.error === 'NO_ABRE') return { fallo: 'CE3X 3.1 no abre el fichero (ni con CE3X arrancado). Ábrelo en CE3X para ver por qué.' };
+    return { s };
+}
+
+/** La calificación tal y como la devuelve `res.py`, en limpio. */
+function calificacionDe(c) {
+    return c && c._valido ? {
+        emisiones: num(c.emisiones), emisiones_letra: c.emisiones_nota || null,
+        epnr: num(c.enPrimNoRen), epnr_letra: c.enPrimNoRen_nota || null,
+        demanda_cal: num(c.ddaBrutaCal), demanda_ref: num(c.ddaBrutaRef), demanda_acs: num(c.ddaBrutaACS),
+    } : null;
+}
+
+/** El PDF oficial desde el XML (`xml2cert`), en la misma carpeta y con su nombre. */
+async function pdfDesdeXml(xml, dir) {
+    const r2 = await ejecutar(rutaXml2cert(), [xml, '-o', dir], { cwd: dir, env: process.env, plazoMs: ESPERA_PDF_MS });
+    const pdfRuta = path.join(dir, `${path.basename(xml, '.xml')}.pdf`);
+    if (!fs.existsSync(pdfRuta)) {
+        return { error: `xml2cert no ha generado el PDF${r2.plazo ? ' (se ha pasado de tiempo)' : ''}: ${(r2.salida || r2.error || '').slice(-800)}` };
+    }
+    return { pdf: fs.readFileSync(pdfRuta) };
+}
+
+/** Los diálogos de CE3X que no dicen nada. */
+const ruidoCe3x = (x) => x && !/^Dialog\.ShowModal: Dialog Opciones del Informe/.test(x);
+
+/**
  * Califica un .cex y devuelve su XML y su PDF.
  * @param {Buffer|string} entrada  el .cex (bytes o ruta)
  * @param {{ medidas?: boolean, pdf?: boolean }} [opts]
@@ -155,56 +223,16 @@ async function calificarCex(entrada, { medidas = true, pdf = true } = {}) {
     const dir = carpetaTemporal();
     const cex = path.join(dir, 'cee.cex');
     const xml = path.join(dir, 'cee.xml');
-    const res = path.join(dir, 'resultado.json');
-    const out = path.join(dir, 'ce3x.out');
-    const wrapped = path.join(dir, 'cex_a_xml.wrapped.py');
     try {
         fs.writeFileSync(cex, buf);
-        fs.writeFileSync(wrapped, envolver(path.join(ORACULO_DIR, 'cex_a_xml.py'), out));
-
-        const env = { ...process.env, CE3X_DIR, ORACULO_DIR, CASO: cex, XML: xml, RESULTADO: res };
-        if (!medidas) env.SIN_MEDIDAS = '1';
-        else delete env.SIN_MEDIDAS;
-
-        // ⚠️ El motor sin ventana NO abre ningún .cex si no hay un CE3X 3.1
-        // ABIERTO en el equipo: `abreArchivoCEX` vuelve sin leer el fichero
-        // (medido el 02/10/2026: funciona con CE3X abierto, falla al cerrarlo,
-        // también con los ejemplos oficiales). Si no lo está, se arranca OCULTO
-        // y se cierra al terminar; si ya estaba abierto, no se toca.
-        const correr = async () => {
-            try { fs.rmSync(res, { force: true }); } catch { /* no estaba */ }
-            const r = await ejecutar(path.join(ORACULO_DIR, 'ce3xpy.exe'), [wrapped], { cwd: dir, env, plazoMs: ESPERA_CE3X_MS });
-            if (r.plazo) return { fallo: `CE3X no ha terminado en ${Math.round(ESPERA_CE3X_MS / 1000)} s` };
-            try { return { s: JSON.parse(fs.readFileSync(res, 'utf8')) }; } catch { /* abajo */ }
-            const log = fs.existsSync(out) ? fs.readFileSync(out, 'latin1').slice(-1500) : (r.error || r.salida || '');
-            return { fallo: `CE3X no ha devuelto resultado.\n${log}` };
-        };
-        let gui = null;
-        let s = null;
-        try {
-            if (!(await ce3xAbierto())) gui = await arrancarCe3xOculto();
-            for (let intento = 0; intento < 3; intento++) {
-                const r = await correr();
-                if (r.fallo) return { ok: false, version, error: r.fallo };
-                s = r.s;
-                if (s.error !== 'NO_ABRE') break;
-                if (!gui && !(await ce3xAbierto())) gui = await arrancarCe3xOculto();
-                await esperar(8000);
-            }
-        } finally {
-            if (gui) { try { gui.kill(); } catch { /* ya cerrado */ } }
-        }
-        if (s.error === 'NO_ABRE') return { ok: false, version, error: 'CE3X 3.1 no abre el fichero (ni con CE3X arrancado). Ábrelo en CE3X para ver por qué.' };
+        const r = await correrOraculo(dir, 'cex_a_xml.py', { CASO: cex, XML: xml, SIN_MEDIDAS: medidas ? null : '1' });
+        if (r.fallo) return { ok: false, version, error: r.fallo };
+        const s = r.s;
         if (s.error) return { ok: false, version, error: `CE3X ha fallado:\n${s.error}` };
 
         const c = s.calificacion || {};
-        const calificacion = c._valido ? {
-            emisiones: num(c.emisiones), emisiones_letra: c.emisiones_nota || null,
-            epnr: num(c.enPrimNoRen), epnr_letra: c.enPrimNoRen_nota || null,
-            demanda_cal: num(c.ddaBrutaCal), demanda_ref: num(c.ddaBrutaRef), demanda_acs: num(c.ddaBrutaACS),
-        } : null;
-        const avisos = [...(s.abrir || []), ...((c._log) || []), ...(s.medidas_log || [])]
-            .filter((x) => x && !/^Dialog\.ShowModal: Dialog Opciones del Informe/.test(x));
+        const calificacion = calificacionDe(c);
+        const avisos = [...(s.abrir || []), ...((c._log) || []), ...(s.medidas_log || [])].filter(ruidoCe3x);
         if (!calificacion) {
             return { ok: false, version: s.version || version, avisos,
                      error: `CE3X no ha podido calificarlo${c._aviso ? `: ${c._aviso}` : ''}` };
@@ -225,13 +253,83 @@ async function calificarCex(entrada, { medidas = true, pdf = true } = {}) {
             xml: fs.readFileSync(xml), pdf: null,
         };
         if (!pdf) return resultado;
+        const p = await pdfDesdeXml(xml, dir);
+        if (p.error) return { ...resultado, ok: false, error: p.error };
+        resultado.pdf = p.pdf;
+        return resultado;
+    } finally {
+        try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* temporal */ }
+    }
+}
 
-        const r2 = await ejecutar(rutaXml2cert(), [xml, '-o', dir], { cwd: dir, env: process.env, plazoMs: ESPERA_PDF_MS });
-        const pdfRuta = path.join(dir, 'cee.pdf');
-        if (!fs.existsSync(pdfRuta)) {
-            return { ...resultado, ok: false, error: `xml2cert no ha generado el PDF${r2.plazo ? ' (se ha pasado de tiempo)' : ''}: ${(r2.salida || r2.error || '').slice(-800)}` };
+/**
+ * RES080: mete el CEE PREVISTO en el INICIAL como su medida de mejora («Nuevo
+ * Edificio Definido por el Usuario»), con sus textos, la calcula y devuelve el
+ * inicial resultante con su XML y su PDF. Lo hace CE3X (oráculo
+ * `medida_previsto.py`): lo mismo que «Cargar edificio» en Medidas de mejora.
+ *
+ * REGLA — fuera las medidas que traiga el inicial: la de un RES080 es el previsto
+ * entero, no la aerotermia por un lado y las ventanas por otro.
+ *
+ * `textos` = { nombre, caracteristicas, otros, justificacion, inversion,
+ * vida_util, coste_mantenimiento } (los tres últimos, su análisis económico).
+ * Devuelve { ok, cex, xml, pdf, calificacion (la del inicial), medida: {nombre,
+ * ahorro}, avisos, error }.
+ */
+async function ponerPrevistoComoMedida(inicial, previsto, textos = {}, { pdf = true } = {}) {
+    const disp = disponible();
+    if (!disp.ok) return { ok: false, noDisponible: true, error: disp.motivo };
+    const bi = Buffer.isBuffer(inicial) ? inicial : fs.readFileSync(inicial);
+    const bp = Buffer.isBuffer(previsto) ? previsto : fs.readFileSync(previsto);
+    for (const [que, b] of [['inicial', bi], ['previsto', bp]]) {
+        if (versionDelCex(b) !== '3.1') {
+            return { ok: false, error: `el CEE ${que} no es de CE3X 3.1: la medida «Nuevo edificio» solo se pone con la 3.1` };
         }
-        resultado.pdf = fs.readFileSync(pdfRuta);
+    }
+
+    const dir = carpetaTemporal();
+    const ini = path.join(dir, 'inicial.cex');
+    const prev = path.join(dir, 'previsto.cex');
+    const salida = path.join(dir, 'inicial_medida.cex');
+    const xml = path.join(dir, 'inicial_medida.xml');
+    try {
+        fs.writeFileSync(ini, bi);
+        fs.writeFileSync(prev, bp);
+        // Los textos en un JSON y no por el entorno: el Python 2 de CE3X lee el
+        // entorno en la página de códigos de Windows y una tilde lo tumba.
+        const ftextos = path.join(dir, 'textos.json');
+        fs.writeFileSync(ftextos, JSON.stringify({
+            nombre: textos.nombre || '', caracteristicas: textos.caracteristicas || '',
+            otros: textos.otros || '', justificacion: textos.justificacion || '',
+            inversion: textos.inversion ?? null, vida_util: textos.vida_util ?? null,
+            coste_mantenimiento: textos.coste_mantenimiento ?? null,
+        }), 'utf8');
+        const r = await correrOraculo(dir, 'medida_previsto.py', {
+            CASO: ini, PREVISTO: prev, SALIDA_CEX: salida, XML: xml, TEXTOS: ftextos,
+        });
+        if (r.fallo) return { ok: false, error: r.fallo };
+        const s = r.s;
+        if (s.error === 'NO_CALIFICA') return { ok: false, error: 'CE3X no califica el CEE inicial: ábrelo en CE3X para ver por qué.' };
+        if (s.error === 'NO_CARGA_PREVISTO') return { ok: false, error: 'CE3X no ha cargado el previsto como medida («Cargar edificio»).' };
+        if (s.error) return { ok: false, error: `CE3X ha fallado:\n${s.error}` };
+        if (!fs.existsSync(salida)) return { ok: false, error: 'CE3X no ha guardado el inicial con la medida' };
+
+        const medida = (s.medidas || [])[0] || null;
+        const resultado = {
+            ok: true, calificacion: calificacionDe(s.calificacion || {}),
+            medida: medida ? { nombre: medida.nombre, ahorro: medida.ahorro } : null,
+            avisos: (s.log || []).filter(ruidoCe3x),
+            cex: fs.readFileSync(salida), xml: null, pdf: null,
+        };
+        if (!fs.existsSync(xml)) {
+            const porQue = (s.xml || []).filter(Boolean).join(' · ');
+            return { ...resultado, ok: false, error: `CE3X no ha escrito el XML${porQue ? `: ${porQue}` : ''}` };
+        }
+        resultado.xml = fs.readFileSync(xml);
+        if (!pdf) return resultado;
+        const p = await pdfDesdeXml(xml, dir);
+        if (p.error) return { ...resultado, ok: false, error: p.error };
+        resultado.pdf = p.pdf;
         return resultado;
     } finally {
         try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* temporal */ }
@@ -287,4 +385,4 @@ function lineasCalificado(r, { esperado = null } = {}) {
     return out;
 }
 
-module.exports = { calificarCex, calificarYGuardar, lineasCalificado, disponible, versionDelCex, textoCalificacion };
+module.exports = { calificarCex, calificarYGuardar, ponerPrevistoComoMedida, lineasCalificado, disponible, versionDelCex, textoCalificacion };

@@ -3353,6 +3353,15 @@ router.post('/croquis-movil/:token/contra', (req, res) => {
     res.status(410).json({ error: CROQUIS_CERRADO });
 });
 
+// La PIZARRA del teléfono: lo dibujado a mano (un muro, una ventana, la goma…)
+// ya interpretado allí. Lo aplica el ORDENADOR, en orden, con su misma pizarra.
+router.post('/croquis-movil/:token/pizarra', express.json({ limit: '64kb' }), (req, res) => {
+    const r = croquisMovil.pedirPizarra(req.params.token, req.body || {});
+    if (r.ok) return res.json(r);
+    if (r.motivo === 'accion') return res.status(400).json({ error: 'No se ha entendido lo dibujado (o esa pared ya no está).' });
+    res.status(410).json({ error: CROQUIS_CERRADO });
+});
+
 // ── Las FOTOS de las paredes, desde el mismo enlace ──────────────────────────
 // El técnico está delante de la fachada con la planta en el teléfono: toca la
 // pared, le hace la foto y se leen sus huecos. Se usan LAS MISMAS funciones que

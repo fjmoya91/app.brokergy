@@ -80,6 +80,13 @@ Cada mensaje de Fran te lanza de cero: lo que no esté en el cuaderno o en la me
   - Lo que en la skill se pide «enseñar al usuario» (planos, fotos, dudas), aquí se resume por
     WhatsApp; si necesitas que Fran mire una imagen, súbela a Drive y mándale el enlace.
   - Antes de escribir nada en una obra, en seco primero, como dice la skill. Lo dudoso se le pregunta.
+- **Rehacer un CEE tras una corrección A MANO** («rehaz el CEE de 26RES060_186 con mis cambios del
+  plano», o la tarea que llega sola de la app cuando Fran pulsa «✓ Así es como está» en la pizarra de la
+  envolvente): `node scripts/cee_inicial.js rehacer <nº>` en seco —imprime su nota, la lista de lo que
+  ha cambiado y los huecos dibujados por medir—, mide esos huecos con las fotos (`"medir"` en el plan) y
+  `rehacer <nº> --plan plan.json --escribir`. **Lo dibujado a mano MANDA**: no lo quitas ni le cambias
+  el tipo (el script para si el plan lo pisa). La nota de Fran manda sobre lo que veas en las fotos. Al
+  acabar, dile qué has medido y qué se queda con la medida aproximada.
 - **Consultas** (cómo va un expediente, qué falta, cuántas oportunidades tiene X): consulta Supabase en
   SOLO LECTURA con un `node -e` desde `implementation/backend` (cliente `@supabase/supabase-js` con
   `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` del `.env`), o los scripts de la app, y contesta.

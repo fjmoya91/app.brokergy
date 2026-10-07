@@ -276,6 +276,13 @@ async function subir(expediente, clave, fichero, quien, desde = null) {
             drive_id: desde.video_drive_id || null,
             t: Number.isFinite(Number(desde.t)) ? Math.round(Number(desde.t) * 10) / 10 : null,
         } } : {}),
+        // Una foto de Google Street View (skill generar-cee-inicial): se dice de
+        // dónde sale y de cuándo es el panorama — no la hizo nadie en la visita.
+        ...(desde && desde.streetview ? { streetview: {
+            pano_id: String(desde.streetview.pano_id || '').slice(0, 80) || null,
+            fecha: String(desde.streetview.fecha || '').slice(0, 10) || null,
+            heading: Number.isFinite(Number(desde.streetview.heading)) ? Number(desde.streetview.heading) : null,
+        } } : {}),
     });
     todas[clave] = lista;
     await escribir(expediente, todas);

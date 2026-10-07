@@ -2956,73 +2956,16 @@ router.post('/:id/justificante', enforceAuth, async (req, res) => {
         const { data: op } = await supabase.from('oportunidades').select('drive_folder_id:datos_calculo->>drive_folder_id, drive_folder_id_in:datos_calculo->inputs->>drive_folder_id').eq('id', exp.oportunidad_id).single();
         const driveFolderId = op?.drive_folder_id || op?.drive_folder_id_in;
         if (!driveFolderId) return res.status(400).json({ error: 'El expediente no tiene carpeta Drive configurada' });
-
-        const driveService = require('../services/driveService');
-        const original = Buffer.from(base64, 'base64');
-        const mime = mimeType || 'application/pdf';
-        const { leerJustificante, aPdf } = require('../services/justificanteOcrService');
-        const buf = mime.startsWith('image/') ? await aPdf(original, mime) : original;
-
-        // La LECTURA va en paralelo con Drive y nunca tumba la subida: el fichero es
-        // el trabajo; lo leído, una comprobación.
-        const lecturaP = leerJustificante(buf, 'application/pdf').catch(e => { console.warn('[justificante] lectura:', e.message); return null; });
-
-        const name = 'justificante de titularidad bancaria.pdf';
-        try { const existing = await driveService.findFileByName(driveFolderId, name); if (existing) await driveService.deleteFile(existing); } catch (e) {}
-        const r = await driveService.saveFileToFolder(driveFolderId, name, 'application/pdf', buf);
-        if (!r?.link) return res.status(500).json({ error: 'No se pudo guardar en Drive' });
-        try { if (r.id) await driveService.setFolderPublic(r.id, 'reader'); } catch (e) {}
-
-        // Escritura atómica del campo (antes: read-modify-write de documentacion entera).
-        await supabase.rpc('set_expediente_doc_field', { p_oportunidad_id: exp.oportunidad_id, p_field: 'justificante_titularidad_link', p_value: r.link });
-
-        // ── Comprobación contra la ficha ─────────────────────────────────────
-        // Manda lo que hay en el FORMULARIO abierto (puede no estar guardado aún);
-        // lo que no venga se toma de la BD.
-        let comprobacion = null;
-        const lectura = await lecturaP;
-        if (lectura) {
-            const { evaluarJustificante } = require('../utils/justificanteBancario');
-            const CAMPOS = ['numero_cuenta', 'nombre_razon_social', 'apellidos', 'es_empresa', 'representante_nombre', 'representante_apellidos', 'copropietarios'];
-            let clienteBd = null;
-            if (exp.cliente_id) {
-                const { data } = await supabase.from('clientes').select(CAMPOS.join(', ')).eq('id_cliente', exp.cliente_id).maybeSingle();
-                clienteBd = data || null;
-            }
-            const cliente = { ...(clienteBd || {}) };
-            if (clienteForm && typeof clienteForm === 'object') for (const k of CAMPOS) if (clienteForm[k] !== undefined) cliente[k] = clienteForm[k];
-            comprobacion = evaluarJustificante(lectura, cliente);
-
-            // Rellenar SOLO un hueco: ni la ficha guardada ni el formulario tienen IBAN.
-            comprobacion.rellenado = false;
-            if (comprobacion.rellenar && exp.cliente_id && !String(clienteBd?.numero_cuenta || '').trim()) {
-                const { error: eUp } = await supabase.from('clientes').update({ numero_cuenta: comprobacion.rellenar }).eq('id_cliente', exp.cliente_id);
-                if (!eUp) comprobacion.rellenado = true;
-                else console.warn('[justificante] rellenar IBAN:', eUp.message);
-            }
-
-            // Huella (solo metadatos, regla 21). MERGE: se escriben todas las claves.
-            supabase.rpc('merge_expediente_doc_json', {
-                p_expediente_id: exp.id,
-                p_field: 'justificante_ocr',
-                p_value: {
-                    at: new Date().toISOString(),
-                    por: req.user?.email || null,
-                    iban_leido: comprobacion.iban.leido || null,
-                    iban_valido: comprobacion.iban_valido,
-                    iban_estado: comprobacion.iban.estado,
-                    titulares: comprobacion.titular.leidos,
-                    titular_estado: comprobacion.titular.estado,
-                    ok: comprobacion.ok,
-                    avisos: comprobacion.avisos,
-                    rellenado: comprobacion.rellenado,
-                },
-            }).then(({ error: e }) => { if (e) console.warn('[justificante] huella:', e.message); }, () => {});
-        }
-        res.json({ success: true, link: r.link, comprobacion, lectura_fallida: !lectura });
+        // Mismo camino que la ficha del cliente (services/justificanteCliente.js).
+        const { subirJustificante } = require('../services/justificanteCliente');
+        const r = await subirJustificante({
+            driveFolderId, expedientes: [exp], clienteId: exp.cliente_id,
+            base64, mimeType, clienteForm, usuario: req.user?.email || null,
+        });
+        res.json({ success: true, ...r });
     } catch (e) {
         console.error('[justificante upload] Error:', e);
-        res.status(500).json({ error: 'Error al subir el justificante', message: e.message });
+        res.status(e.status || 500).json({ error: 'Error al subir el justificante', message: e.message });
     }
 });
 
@@ -3491,7 +3434,9 @@ router.put('/:id', enforceAuth, async (req, res) => {
             // skill desde el PC mientras la ficha puede estar abierta.
             // Y el encargo de PRESENTACIÓN (`presentacion`): lleva el nonce del
             // enlace de quien presenta, y lo escribe solo su ruta.
-            for (const k of ['revision_inicial', 'revision_final', 'agente_ia', 'presentacion']) {
+            // Y la revisión HUMANA del plano («Así es como está»,
+            // `envolvente_revision`): la escribe solo su ruta de la envolvente.
+            for (const k of ['revision_inicial', 'revision_final', 'agente_ia', 'presentacion', 'envolvente_revision']) {
                 if (existing.cee && k in existing.cee) updates.cee[k] = existing.cee[k];
                 else delete updates.cee[k];
             }

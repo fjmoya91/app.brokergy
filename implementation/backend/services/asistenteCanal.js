@@ -83,6 +83,34 @@ async function alMensaje(msg) {
     }
 }
 
+/**
+ * Una TAREA que pide la APP, no Fran por WhatsApp: hoy, «Así es como está» en la
+ * pizarra del plano de la envolvente (rehacer el CEE sobre lo dibujado a mano).
+ * El vigilante la atiende como si Fran se la hubiera escrito, y le contesta por
+ * el mismo chat.
+ *
+ * Al contrario que el timbre, ESPERA la respuesta: quien pulsó el botón tiene
+ * que saber si Claude se ha enterado. Nunca lanza.
+ *
+ * @returns {Promise<{ ok: boolean, motivo?: string }>}
+ */
+async function pedirTarea({ texto, clave = null, acuse = null } = {}) {
+    if (!URL) return { ok: false, motivo: 'El asistente no está conectado en este servidor (falta ASISTENTE_URL).' };
+    if (!String(texto || '').trim()) return { ok: false, motivo: 'Tarea vacía.' };
+    try {
+        const r = await fetch(`${URL}/tarea`, {
+            method: 'POST',
+            headers: { 'x-internal-key': process.env.INTERNAL_API_KEY || '', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ texto: String(texto).slice(0, 6000), clave, acuse }),
+            signal: AbortSignal.timeout(5000),
+        });
+        if (r.status === 202 || r.ok) return { ok: true };
+        return { ok: false, motivo: `El asistente ha respondido ${r.status}.` };
+    } catch (e) {
+        return { ok: false, motivo: `El asistente no responde (${e.message}).` };
+    }
+}
+
 function start() {
     if (!URL || !TEL) {
         console.log('[asistente] Canal con Fran desactivado (sin ASISTENTE_URL / ASISTENTE_WHATSAPP_TEL).');
@@ -92,4 +120,4 @@ function start() {
     console.log(`[asistente] Canal con Fran activo: avisa a ${URL} cuando escribe ${TEL}${GRUPO ? ` en el grupo ${GRUPO}` : ""}.`);
 }
 
-module.exports = { start };
+module.exports = { start, pedirTarea };

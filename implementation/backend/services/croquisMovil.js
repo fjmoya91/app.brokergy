@@ -108,7 +108,12 @@ const MAX_VERTICES = 60;
 //: Lo que se puede decir de una pared: contra qué da (ver `tiposPared.js`).
 const TIPOS_CONTRA = ['FACHADA', 'MEDIANERA', 'PARTICION_VERTICAL'];
 const MAX_CONTRAS = 30;
-const MODOS = ['vivienda', 'croquis', 'fotos'];
+const MODOS = ['vivienda', 'croquis', 'fotos', 'pizarra'];
+//: La PIZARRA del teléfono: lo que se dibuja a mano (muros, ventanas, puertas,
+//: la goma) ya INTERPRETADO allí con `pizarra.js`, en una cola que aplica el
+//: ordenador en orden — como «contra qué da», pero con más cosas que decir.
+const ACCIONES_PIZARRA = ['reclasificar', 'paredes', 'hueco', 'borrar', 'asi_es'];
+const MAX_PIZARRA = 40;
 
 /** token → sesión */
 const sesiones = new Map();
@@ -176,7 +181,63 @@ function metaLimpia(m) {
     // Catastro: con los dos, el teléfono sabe si está cambiada.
     if (m?.tipo) o.tipo = String(m.tipo).slice(0, 40);
     if (m?.catastro) o.catastro = String(m.catastro).slice(0, 40);
+    // Sus huecos (la pizarra del teléfono los dibuja y la goma los quita): solo
+    // lo que hace falta para colocarlos sobre la pared.
+    if (Array.isArray(m?.lista_huecos)) {
+        o.lista_huecos = m.lista_huecos.slice(0, MAX_HUECOS).map(h => ({
+            ...(RE_ID.test(String(h?.uid || '')) ? { uid: String(h.uid) } : {}),
+            nombre: String(h?.nombre || '').slice(0, 20),
+            tipo: h?.tipo === 'puerta' ? 'puerta' : 'ventana',
+            ancho: num(h?.ancho) || 0.9,
+            ...(Number.isFinite(Number(h?.pos)) ? { pos: Math.max(0, Math.min(1, Number(h.pos))) } : {}),
+            ...(h?.dudoso ? { dudoso: true } : {}),
+        }));
+    }
+    if (m?.dibujada) o.dibujada = true;
+    if (m?.fuera) o.fuera = true;
     return o;
+}
+
+/**
+ * Una acción de la pizarra, saneada. Llega YA interpretada por el teléfono
+ * (`interpretarTrazo`): aquí solo se comprueba que tiene la forma que el
+ * ordenador sabe aplicar y que las paredes que nombra existen. Las coordenadas
+ * van en el lienzo del TELÉFONO (el ordenador las traslada con el `marco`).
+ */
+function accionPizarraLimpia(a, idsParedes) {
+    if (!a || !ACCIONES_PIZARRA.includes(a.accion)) return null;
+    const pared = (id) => RE_ID.test(String(id || '')) && idsParedes.has(String(id));
+    switch (a.accion) {
+        case 'reclasificar':
+            return pared(a.id) && TIPOS_CONTRA.includes(a.tipo)
+                ? { accion: 'reclasificar', id: String(a.id), tipo: a.tipo } : null;
+        case 'paredes': {
+            if (!TIPOS_CONTRA.includes(a.tipo) || !Array.isArray(a.tramos)) return null;
+            const tramos = a.tramos.slice(0, 12).map(t => puntos(t, { min: 2, max: 2 })).filter(Boolean);
+            return tramos.length ? { accion: 'paredes', tipo: a.tipo, tramos } : null;
+        }
+        case 'hueco': {
+            const ancho = num(a.ancho), pos = Number(a.pos);
+            return pared(a.id) && ['ventana', 'puerta'].includes(a.tipo) && ancho > 0 && ancho < 20
+                && Number.isFinite(pos)
+                ? { accion: 'hueco', id: String(a.id), tipo: a.tipo, ancho, pos: Math.max(0, Math.min(1, pos)) }
+                : null;
+        }
+        case 'borrar': {
+            const huecos = (Array.isArray(a.huecos) ? a.huecos : []).slice(0, 20)
+                .filter(h => pared(h?.id))
+                .map(h => ({ id: String(h.id),
+                             ...(RE_ID.test(String(h.uid || '')) ? { uid: String(h.uid) } : {}),
+                             nombre: String(h?.nombre || '').slice(0, 20) || null,
+                             ...(Number.isInteger(h?.i) ? { i: h.i } : {}) }));
+            const paredes = (Array.isArray(a.paredes) ? a.paredes : []).slice(0, 20).filter(pared).map(String);
+            return huecos.length || paredes.length ? { accion: 'borrar', huecos, paredes } : null;
+        }
+        case 'asi_es':
+            return { accion: 'asi_es', nota: String(a.nota || '').slice(0, 1000), avisar_claude: !!a.avisar_claude };
+        default:
+            return null;
+    }
 }
 
 /** El contorno a medias del teléfono: sus vértices y si ya está cerrado. */
@@ -376,6 +437,11 @@ function abrir(o = {}) {
         //: Lo que se pide desde el teléfono de cada pared (contra qué da): una
         //: COLA, porque se tocan varias seguidas y ninguna puede perderse.
         contras: [], contrasN: 0, resultadoContra: null, respuestasContra: 0,
+        //: Lo dibujado en la PIZARRA del teléfono: otra cola, en orden.
+        pizarra: [], pizarraN: 0, resultadoPizarra: null, respuestasPizarra: 0,
+        //: Si quien abrió el croquis puede pedirle a Claude que rehaga el CEE
+        //: (equipo interno): el teléfono solo ofrece la casilla si es así.
+        puedeClaude: !!o.puedeClaude,
         //: Sube cuando el ordenador vuelve a medir por su cuenta (quitar un
         //: cuerpo, delimitar desde allí): el teléfono vuelve a pedir la planta.
         planoV: 0,
@@ -423,6 +489,7 @@ function paraMovil(token) {
         propuesta: s.propuesta,
         clave: s.clave, marco: s.marco,
         georef: s.georef, modoInicial: s.modoInicial, contorno: s.contorno,
+        puedeClaude: !!s.puedeClaude,
     };
 }
 
@@ -438,7 +505,8 @@ function estadoMovil(token) {
     return { estado: 'abierta', resultado: s.resultado, pedido: s.pedido, ordenadorAusente,
              resultadoHuecos: s.resultadoHuecos, huecosPendientes: !!s.pedidoHuecos,
              paredesV: s.paredesV, planoV: s.planoV,
-             resultadoContra: s.resultadoContra, contrasPendientes: s.contras.length };
+             resultadoContra: s.resultadoContra, contrasPendientes: s.contras.length,
+             resultadoPizarra: s.resultadoPizarra, pizarraPendientes: s.pizarra.length };
 }
 
 /**
@@ -533,6 +601,27 @@ function pedirContra(token, { pared: id, contra, id_local: idLocal } = {}) {
     return r;
 }
 
+/**
+ * Lo dibujado en la PIZARRA del teléfono (ya interpretado allí). Va a una COLA
+ * —se dibuja deprisa— y la aplica el ordenador en orden con las MISMAS
+ * funciones que su propia pizarra.
+ */
+function pedirPizarra(token, { accion, id_local: idLocal } = {}) {
+    const s = viva(token);
+    if (!s) return { ok: false, motivo: 'cerrada' };
+    const antes = yaHecho(token, 'pizarra', idLocal);
+    if (antes) return antes;
+    const ids = new Set((s.plano.muros || []).map(m => m.id).filter(Boolean));
+    const a = accionPizarraLimpia(accion, ids);
+    if (!a) return { ok: false, motivo: 'accion' };
+    s.pizarraN += 1;
+    s.pizarra = [...s.pizarra, { n: s.pizarraN, accion: a }].slice(-MAX_PIZARRA);
+    tocar(s);
+    const r = { ok: true, n: s.pizarraN };
+    apuntarHecho(token, 'pizarra', idLocal, r);
+    return r;
+}
+
 // ── Lo que hace el ORDENADOR ─────────────────────────────────────────────────
 
 function deEse(token, expediente) {
@@ -550,7 +639,7 @@ function foto(s) {
         version: s.version, trazos: s.trazos, enCurso: s.enCurso,
         movilVisto: s.movilVisto, pedido: s.pedido, caducaEn: s.caduca,
         fotos: s.fotos, pedidoHuecos: s.pedidoHuecos,
-        contorno: s.contorno, contras: s.contras,
+        contorno: s.contorno, contras: s.contras, pizarra: s.pizarra,
     };
 }
 
@@ -655,6 +744,21 @@ function responderContra(token, expediente, { n, ok, texto, pared: id } = {}) {
         texto: String(texto || '').slice(0, 300),
         pared: RE_ID.test(String(id || '')) ? String(id) : null,
     };
+    tocar(s);
+    return true;
+}
+
+/**
+ * El ordenador cuenta cómo ha ido lo dibujado en la pizarra del teléfono. Se
+ * retira de la cola todo lo atendido hasta `n`.
+ */
+function responderPizarra(token, expediente, { n, ok, texto } = {}) {
+    const s = deEse(token, expediente);
+    if (!s) return false;
+    const hasta = Number(n) || 0;
+    s.pizarra = s.pizarra.filter(c => c.n > hasta);
+    s.respuestasPizarra += 1;
+    s.resultadoPizarra = { serial: s.respuestasPizarra, n: hasta, ok: !!ok, texto: String(texto || '').slice(0, 400) };
     tocar(s);
     return true;
 }
@@ -861,8 +965,8 @@ function cerrar(token, expediente) {
 module.exports = {
     VIDA_MINUTOS, VIDA_MAXIMA_HORAS, USOS,
     yaHecho, apuntarHecho,
-    abrir, paraMovil, estadoMovil, actualizar, pedirAjuste, pedirVivienda, pedirContra,
-    esperar, responder, responderContra, actualizarPlano, cerrar,
+    abrir, paraMovil, estadoMovil, actualizar, pedirAjuste, pedirVivienda, pedirContra, pedirPizarra,
+    esperar, responder, responderContra, responderPizarra, actualizarPlano, cerrar,
     paraFotos, pared, puedeSubir, gastaLectura, apuntarFoto,
     pedirHuecos, responderHuecos, actualizarParedes, paredesMovil,
     MAX_SUBIDAS, MAX_LECTURAS,

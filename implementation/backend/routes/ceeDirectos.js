@@ -553,7 +553,8 @@ router.put('/:id', internalOnly, async (req, res) => {
             patch.cee = { ...patch.cee };
             // Y el encargo de PRESENTACIÓN (`cee.presentacion`), que lleva el nonce
             // del enlace de quien presenta y solo lo escribe su ruta.
-            for (const k of ['agente_ia', 'presentacion']) {
+            // Y la revisión HUMANA del plano (`cee.envolvente_revision`), idem.
+            for (const k of ['agente_ia', 'presentacion', 'envolvente_revision']) {
                 if (row.cee && k in row.cee) patch.cee[k] = row.cee[k];
                 else delete patch.cee[k];
             }
@@ -1245,7 +1246,7 @@ router.post('/:id/notify-certificador', staffOnly, async (req, res) => {
             } catch (e) { errores.push(`whatsapp: ${e.message}`); }
         }
 
-        if (!sinAviso && !enviados.length) {
+        if (!enviados.length) {
             return res.status(502).json({ error: `No se pudo enviar. ${errores.join(' · ')}` });
         }
 
@@ -1358,7 +1359,7 @@ router.post('/:id/approve-cee', staffOnly, async (req, res) => {
             cuerpo, attachments
         });
 
-        if (!enviados.length) {
+        if (!sinAviso && !enviados.length) {
             return res.status(502).json({
                 error: `No se pudo enviar. ${errores.join(' · ')}`
                     + (borradorDrive?.guardado ? ' (El borrador sí ha quedado guardado en Drive.)' : ''),

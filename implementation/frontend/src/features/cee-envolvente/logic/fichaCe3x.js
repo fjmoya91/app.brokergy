@@ -69,6 +69,8 @@ const MASA = {
 //: Vida util de la medida, en anos. Es la D_i de la ficha RES060 — la misma
 //: con la que se calculo el CAE de este expediente.
 export const VIDA_UTIL_MEDIDA = 15;
+//: Vida útil de una instalación fotovoltaica (la de los módulos que garantizan los fabricantes).
+export const VIDA_UTIL_FOTOVOLTAICA = 25;
 
 export function normativaCe3x(anio) {
     if (anio >= 2014) return 'CTE 2013';
@@ -1844,6 +1846,7 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
         ? campoDe(MEDIDA_AUTOCONSUMO, 'Características')
         : 'Se propone como medida de mejora la instalación de autoconsumo fotovoltaico '
           + 'para reducir el consumo de energía primaria no renovable del edificio';
+    const invAutoconsumo = Number(autoconsumoInversion) > 0 ? Math.round(Number(autoconsumoInversion)) : 0;
     const auto = {
         id: 'autoconsumo',
         titulo: 'Autoconsumo fotovoltaico',
@@ -1874,9 +1877,11 @@ export function medidasCe3x({ expediente, superficie, fase = 'inicial',
             caracteristicas: caracteristicasFv,
             otros_datos: campoDe(MEDIDA_AUTOCONSUMO, 'Otros datos'),
             ...justificacionMedida('autoconsumo', { conAerotermia: !!equipo }),
-            inversion: 0,
+            //: La inversión de las placas, si se ha tecleado (`autoconsumo_inversion`):
+            //: sin ella CE3X da la medida por gratis («<500 €») y el plazo no se lee.
+            inversion: invAutoconsumo,
             coste_mantenimiento: 0,
-            vida_util: 0,
+            vida_util: invAutoconsumo ? VIDA_UTIL_FOTOVOLTAICA : 0,
             instalaciones: [{
                 slot: 'renovable',
                 nombre: nombreFv,
@@ -2455,7 +2460,12 @@ export function fichaCe3x({ expediente, cliente, geo, envolvente, ajustes, image
             // parecido cambiaría el municipio del certificado.
             localidad_lista: dato('Otro', 'el desplegable de CE3X no casa con el nombre de Catastro'),
             localidad_texto: dato(dir.municipio, 'CATASTRO'),
-            codigo_postal: dato(cliente?.codigo_postal || null, 'ficha del cliente'),
+            // El CP del EDIFICIO es el del inmueble (la instalación), no el del
+            // domicilio del cliente: un titular que vive en otra ciudad ponía
+            // su CP en el certificado (2026CEE_62: 13329 en un local de Marbella).
+            codigo_postal: expediente?.instalacion?.codigo_postal
+                ? dato(String(expediente.instalacion.codigo_postal), 'dirección del inmueble')
+                : dato(cliente?.codigo_postal || null, 'ficha del cliente (el inmueble no tiene CP)'),
             referencia_catastral: dato(refCatastral(geo, expediente), 'CATASTRO'),
             cliente_nombre: dato(nombreCliente(cliente), 'ficha del cliente'),
             cliente_direccion: dato(cliente?.direccion || null, 'ficha del cliente'),

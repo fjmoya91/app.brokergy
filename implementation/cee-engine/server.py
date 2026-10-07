@@ -189,6 +189,12 @@ def envolvente(payload: dict = Body(...)) -> JSONResponse:
         except pipeline.AnexoInvalido as exc:
             raise HTTPException(422, f"Unidades de otra parcela: {exc}")
         pipeline.aplicar_semisotano(modelo, payload.get("semisotano"))
+        # Lo que el PROYECTO construye y Catastro aun no dibuja (la planta alta
+        # de una reforma): lo declara el certificador y se mide como vivienda.
+        try:
+            pipeline.anadir_volumenes(modelo, payload.get("volumenes"))
+        except pipeline.VolumenInvalido as exc:
+            raise HTTPException(422, f"Volumen del proyecto: {exc}")
         # Que construcciones CUENTAN lo marco una persona al abrir la
         # oportunidad, y de ahi salio la superficie que se le presupuesto al
         # cliente. Se aplica ANTES de clasificar: de `habitable` cuelgan que
@@ -765,6 +771,89 @@ async def cex_instalaciones(fichero: UploadFile = File(...),
     return Response(
         content=salida, media_type="application/octet-stream",
         headers={"X-Cee-Avisos": json.dumps(avisos + G.AVISOS_IMAGEN),
+                 "X-Cee-Version": version})
+
+
+@app.post("/cex/previsto")
+async def cex_previsto(fichero: UploadFile = File(...),
+                       datos: str = Form(...)) -> Response:
+    """El CEE PREVISTO de un RES080, COPIANDO el inicial (`tools/previsto.py`).
+
+    `datos` es la ficha de siempre más `previsto`:
+      instalaciones: los equipos de la MEDIDA (aerotermia, aires...), los mismos
+                     que lleva la medida del inicial; vacío = no cambian.
+      previsto: {ventilacion, masa_particiones, huecos: [...], aislamiento: [...]}
+
+    Los equipos se escriben con `instalaciones_de_medida`, la MISMA función que
+    escribe la medida de mejora: el previsto y la medida no pueden declarar dos
+    instalaciones distintas para la misma obra. Sin medidas dentro: el previsto
+    ES la medida (se la pone luego el oráculo de CE3X al inicial).
+    """
+    import previsto as PV                         # noqa: E402
+
+    crudo = await fichero.read()
+    try:
+        ficha = json.loads(datos)
+    except Exception as exc:                      # noqa: BLE001
+        raise HTTPException(400, f"`datos` no es JSON: {exc}")
+    spec = ficha.get("previsto") or {}
+
+    try:
+        base = L.trocear_bytes(crudo)
+        if not base.version_conocida:
+            raise HTTPException(422, f"versión de .cex no probada: {base.version!r}")
+        tipo = G.TER.tipo_de(ficha)
+        version_base, tipo_base = CX.version_y_programa(base)
+        if tipo_base != tipo:
+            raise HTTPException(
+                422, f"El CEE inicial está hecho como «{base.version}» y el expediente "
+                     f"dice ahora «{VC.texto(version_base, tipo)}»: genera primero el "
+                     f"inicial con el tipo bueno.")
+        version = VC.version_pedida(ficha)
+        avisos: list[str] = []
+        cambios: dict[int, Any] = {}
+
+        env, av, hechos = PV.aplicar_envolvente(L.leer(base, G.ENVOLVENTE), spec)
+        avisos += av
+        cambios[G.ENVOLVENTE] = env
+        p2, av = PV.aplicar_generales(L.leer(base, G.GENERALES), spec)
+        avisos += av
+        cambios[G.GENERALES] = p2
+
+        previas, meta = CX.instalaciones_internas(base)
+        equipos = ficha.get("instalaciones") or []
+        if equipos:
+            zonas = _zonas_declaradas(base)
+            espacio = (ficha.get("envolvente") or {}).get("espacio", "auto")
+            avisos += G.heredar_del_base(equipos, previas)
+            inst, gens, av = G.instalaciones_de_medida(
+                equipos, previas, zonas, espacio, version,
+                existentes=G.generadores_de_base(meta.get("extra"), version))
+            avisos += av
+            cambios[G.INSTALACIONES] = inst
+            if version == "3.1" and gens:
+                extra = list(meta.get("extra") or [[], []])
+                meta = dict(meta, extra=[extra[0] if extra else [], gens])
+        elif not hechos["huecos"] and not hechos["cerramientos"]:
+            raise HTTPException(422, "El previsto no cambia nada: ni equipos, ni ventanas, "
+                                     "ni aislamiento.")
+
+        cambios.update(PV.sin_medidas(base))
+        pot = VC.potencias_de_equipos(list(equipos))
+        avisos += CX.a_version(base, cambios, version, ficha, meta, pot)
+        salida = E.sustituir_pickles(crudo, cambios)
+    except HTTPException:
+        raise
+    except (G.GeneracionError, E.EdicionError) as exc:
+        raise HTTPException(422, str(exc))
+    except Exception as exc:                      # noqa: BLE001
+        log.exception("cex/previsto")
+        raise HTTPException(500, f"no se ha podido escribir el previsto: {exc}")
+
+    return Response(
+        content=salida, media_type="application/octet-stream",
+        headers={"X-Cee-Avisos": json.dumps(avisos),
+                 "X-Cee-Previsto": json.dumps(hechos),
                  "X-Cee-Version": version})
 
 

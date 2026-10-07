@@ -326,6 +326,38 @@ router.post('/', enforceAuth, async (req, res) => {
 });
 
 // PUT /api/clientes/:id -> Actualizar cliente
+// ─── Justificante de titularidad bancaria desde la FICHA DEL CLIENTE ─────────
+// La ficha abierta desde Clientes (sin expediente detrás) no tenía dónde subirlo
+// ni decía si lo tenemos. Se guarda en la carpeta del expediente abierto más
+// reciente del cliente (o, sin expediente, en la de su oportunidad) por el MISMO
+// camino que la subida desde el expediente (services/justificanteCliente.js).
+// Solo ADMIN: el IBAN de la ficha solo lo ve el ADMIN.
+// `?expediente=` fuerza ese expediente si es del cliente (ficha abierta desde él).
+router.get('/:id/justificante', adminOnly, async (req, res) => {
+    try {
+        const { estadoJustificante } = require('../services/justificanteCliente');
+        res.json(await estadoJustificante(req.params.id, { expedienteId: req.query.expediente || null }));
+    } catch (e) {
+        console.error('[clientes/justificante] GET:', e);
+        res.status(500).json({ error: 'No se pudo comprobar el justificante' });
+    }
+});
+
+router.post('/:id/justificante', adminOnly, async (req, res) => {
+    try {
+        const { base64, mimeType, cliente: clienteForm, expediente } = req.body || {};
+        if (!base64 || String(base64).trim() === '') return res.status(400).json({ error: 'Archivo requerido' });
+        const { subirDesdeCliente } = require('../services/justificanteCliente');
+        const r = await subirDesdeCliente(req.params.id, {
+            base64, mimeType, clienteForm, expedienteId: expediente || null, usuario: req.user?.email || null,
+        });
+        res.json({ success: true, ...r });
+    } catch (e) {
+        console.error('[clientes/justificante] POST:', e);
+        res.status(e.status || 500).json({ error: e.status ? e.message : 'Error al subir el justificante' });
+    }
+});
+
 router.put('/:id', enforceAuth, async (req, res) => {
     try {
         const body = normalizeData(req.body);

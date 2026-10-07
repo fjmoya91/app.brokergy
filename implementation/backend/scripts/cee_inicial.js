@@ -92,7 +92,14 @@ function opt(nombre) {
     return sig && !sig.startsWith('--') ? sig : true;
 }
 const ESCRIBIR = RESTO.includes('--escribir');
+//: El técnico que FIRMA el .cex si el plan no dice otro y no hay un técnico de
+//: verdad en la barra: Francisco Javier Moya López (`prescriptores.id_empresa`).
+//: Decisión del usuario, 2026-10-06. `CEE_TECNICO_POR_DEFECTO` lo cambia.
+const TECNICO_POR_DEFECTO = process.env.CEE_TECNICO_POR_DEFECTO || 'c05b23c1-aa81-4a9a-bd6b-b59cb65775c5';
 const cexAPdf = require('../services/cee/cexAPdf');
+const previstoSrv = require('../services/cee/previstoRes080');
+const revisionPlano = require('../services/cee/revisionPlano');
+const { respetarLoDibujado, medirHuecos } = require('../utils/loDibujadoAMano');
 
 /** De qué negocio es la clave. Se deduce del formato; `--origen` manda. */
 function origenDe(clave) {
@@ -162,7 +169,7 @@ async function geometria(ctx, { cuerpos = null, zonas = null, recorte = null,
         try { ajustes = (await cex.leerTrabajo(ctx.clave, ctx.origen))?.ajustes || null; }
         catch { ajustes = null; }
     }
-    const { semisotano, anexos } = cex.declaracionesEdificio(ajustes);
+    const { semisotano, anexos, volumenes } = cex.declaracionesEdificio(ajustes);
     // Las mismas PISTAS que manda la ventana para proponer el croquis: las
     // fachadas en cuya foto hay una puerta de garaje.
     let pistas = null;
@@ -171,6 +178,7 @@ async function geometria(ctx, { cuerpos = null, zonas = null, recorte = null,
         referencia_catastral: rc, construcciones,
         ...(semisotano ? { semisotano } : {}),
         ...(anexos.length ? { anexos } : {}),
+        ...(volumenes.length ? { volumenes } : {}),
         // La ALTURA DE PLANTA con la que se miden las fachadas. Es la misma que
         // declara la ficha (`ajustes.altura_libre_planta`): si se midiera con
         // otra, las superficies del .cex no cuadrarían con la altura que dice.
@@ -710,7 +718,15 @@ async function leerPared() {
     const { fotos: cands } = await fotosSrv.candidatas(ctx.expediente);
     const imgs = [];
     const man = ids.some(d => d.startsWith('frame:')) ? manifiestoVideo(ctx) : null;
+    const manSv = ids.some(d => d.startsWith('sv:')) ? manifiestoSV(ctx) : null;
     for (const d of ids) {
+        // Una foto de Google STREET VIEW (`sv:SV1`, de la orden `streetview`).
+        if (d.startsWith('sv:')) {
+            const f = manSv?.fotos?.find(x => x.id === d.slice(3));
+            if (!f || !fs.existsSync(f.archivo)) throw new Error(`No encuentro la foto ${d}: lanza antes «streetview».`);
+            imgs.push({ name: path.basename(f.archivo), buffer: fs.readFileSync(f.archivo), mimeType: 'image/jpeg' });
+            continue;
+        }
         // Un FOTOGRAMA del vídeo (`frame:F1`, de la orden `video`): de la carpeta de trabajo.
         if (d.startsWith('frame:')) {
             const f = man?.fotogramas?.[d.slice(6)];
@@ -875,14 +891,20 @@ async function altaAerotermia() {
  *   "ajustes": { … }                       // cualquier otro ajuste, tal cual
  * }
  */
-async function aplicar() {
+async function aplicar(planDado = null) {
     await saludMotor();
     const ctx0 = await cargar(POS[0]);
     const fPlan = opt('plan');
-    if (!fPlan || fPlan === true) throw new Error('Uso: aplicar <clave> --plan plan.json [--escribir]');
-    const plan = JSON.parse(fs.readFileSync(fPlan, 'utf8'));
+    if (!planDado && (!fPlan || fPlan === true)) throw new Error('Uso: aplicar <clave> --plan plan.json [--escribir]');
+    const plan = planDado || JSON.parse(fs.readFileSync(fPlan, 'utf8'));
     const e0 = ctx0.expediente;
     const avisos = [];
+    // Lo dibujado A MANO en la pizarra del plano MANDA (`utils/loDibujadoAMano.js`):
+    // se comprueba ANTES de escribir nada (la aerotermia del paso 1 ya escribe),
+    // y si el plan lo deshace se para aquí, diciendo qué y cómo respetarlo.
+    for (const a of respetarLoDibujado(plan, await cex.leerTrabajo(e0.id, ctx0.origen).catch(() => null))) {
+        avisos.push(a);
+    }
 
     // 0. Los FOTOGRAMAS del vídeo (`frame:H3`, los deja la orden `video`): se
     //    comprueba que están en su carpeta de trabajo; con --escribir se suben a
@@ -892,6 +914,21 @@ async function aplicar() {
     const refsFrame = new Set();
     for (const ids of Object.values(plan.fotos || {})) for (const d of ids || []) if (esFrame(d)) refsFrame.add(d);
     for (const lista of Object.values(plan.huecos || {})) for (const h of lista || []) if (esFrame(h.foto)) refsFrame.add(h.foto);
+    // Y las de Google STREET VIEW (`sv:SV1`, de la orden `streetview`): igual.
+    const esSv = (d) => String(d || '').startsWith('sv:');
+    const refsSv = new Set();
+    for (const ids of Object.values(plan.fotos || {})) for (const d of ids || []) if (esSv(d)) refsSv.add(d);
+    for (const lista of Object.values(plan.huecos || {})) for (const h of lista || []) if (esSv(h.foto)) refsSv.add(h.foto);
+    const manSv = refsSv.size ? manifiestoSV(ctx0) : null;
+    for (const r of refsSv) {
+        const f = manSv?.fotos?.find(x => x.id === r.slice(3));
+        if (!f || !fs.existsSync(f.archivo)) throw new Error(`La foto ${r} no está: lanza antes «streetview».`);
+    }
+    if (refsSv.size) {
+        console.log(`
+${refsSv.size} foto(s) de Street View: con --escribir se suben a `
+            + '«1. CEE / CEE INICIAL / FOTOS ENVOLVENTE», cada una a su pared.');
+    }
     const manVideo = refsFrame.size ? manifiestoVideo(ctx0) : null;
     if (refsFrame.size) {
         if (!manVideo) {
@@ -1074,6 +1111,15 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
     //    entera (dónde está el garaje, el porche…) y el motor lo ajusta a los m²
     //    de Catastro. Las zonas de las plantas que no trae se conservan.
     const prev = await cex.leerTrabajo(ctx.expediente.id, ctx.origen).catch(() => null);
+    // Las ventanas y puertas dibujadas a mano se MIDEN aquí (`medir`): la pizarra
+    // dice que están y dónde, no cuánto miden. Lo demás de lo tocado a mano ya se
+    // ha comprobado al principio (`respetarLoDibujado`).
+    if (prev && plan.medir) {
+        const r = medirHuecos(prev.huecos, plan.medir);
+        prev.huecos = r.huecos;
+        for (const l of r.hechos) console.log(`MEDIDO ${l}`);
+        for (const a of r.avisos) avisos.push(a);
+    }
     const cuerpos = plan.cuerpos_fuera ?? prev?.cuerpos_fuera ?? null;
     let zonas = plan.zonas_fuera ?? prev?.zonas_fuera ?? null;
     // El CONTORNO de la vivienda (o del local) dentro de una parcela que es el
@@ -1139,7 +1185,10 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
             const uid = nuevoUid();
             if (h.foto && h.box) marcas.push({ clave: id, drive_id: h.foto, uid, box: h.box });
             return {
-                uid, nombre: `${tipo === 'puerta' ? 'P' : 'V'}${n[tipo]}`, tipo,
+                //: El nombre del plan si lo trae (el que usa el certificador en su
+                //: croquis: «V2» es la de la calle aunque haya desaparecido la V1).
+                uid, nombre: (typeof h.nombre === 'string' && /^[A-Z]{1,3}\d{1,3}$/.test(h.nombre.trim()))
+                    ? h.nombre.trim() : `${tipo === 'puerta' ? 'P' : 'V'}${n[tipo]}`, tipo,
                 ancho: Number(h.ancho), alto: Number(h.alto),
                 // Lo leído de una foto NACE DUDOSO: lo confirma el certificador.
                 estado: h.estado === 'medido' ? 'medido' : 'dudoso',
@@ -1157,7 +1206,9 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
     }
     const ajustes = {
         ...(prev?.ajustes || {}),
-        persiana_defecto: true,
+        // Al REHACER sobre una revisión a mano no se cambia el defecto que ya
+        // tuviera el expediente: el plano lo ha dado por bueno una persona.
+        ...(plan._rehacer ? {} : { persiana_defecto: true }),
         ...(plan.ventanas ? { ventanas: { ...plan.ventanas, de: 'fotos del expediente (skill generar-cee-inicial)' } } : {}),
         ...(altura ? { altura_libre_planta: altura } : {}),
         ...(plan.ajustes || {}),
@@ -1174,9 +1225,14 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
         const modo = plan.aires?.modo || conf?.modo || 'refrigeracion';
         const superficie = Number(plan.aires?.superficie) || Number(ajustes.superficie_util_habitable)
             || Number(inputsDe(ctx).superficieCalefactable || inputsDe(ctx).superficie) || null;
+        // `potencia_kw`: la de refrigeración de cada aparato, si se sabe o se
+        // supone (un split doméstico, 3.000-5.000 frigorías ≈ 3,5-5,8 kW).
+        // Sin ella va la de por defecto del motor, y se avisa.
+        const potKw = Number(plan.aires?.potencia_kw) || null;
         ajustes.equipos_extra = [
             ...(ajustes.equipos_extra || []).filter(x => !x.aire),
-            ...f.airesAcondicionados({ n, modo, superficie }),
+            ...f.airesAcondicionados({ n, modo, superficie })
+                .map(eq => (potKw ? { ...eq, potencia_refrigeracion: String(potKw) } : eq)),
         ];
         console.log(`AIRES ACONDICIONADOS → ${n} · ${modo === 'climatizacion' ? 'calefacción y refrigeración' : 'máquina frigorífica (sólo refrigeración)'}`
             + `${superficie ? ` · ${fmt(superficie)} m²` : ''}`);
@@ -1257,8 +1313,10 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
         particiones: plan.particiones ?? prev?.particiones ?? [],
         excluidas: plan.excluidas ?? prev?.excluidas ?? [],
         revisadas: prev?.revisadas || [],
-        cambian: prev?.cambian || [],
-        cubierta_reforma: prev?.cubierta_reforma || {},
+        //: Lo que se REFORMA («- CAMBIA» en el nombre, regla 66): paredes por id y
+        //: la cubierta por planta (`{ "PB": { "entera": true } }`). Del plan si lo trae.
+        cambian: plan.cambian ?? prev?.cambian ?? [],
+        cubierta_reforma: plan.cubierta_reforma ?? prev?.cubierta_reforma ?? {},
         ...(lucernarios ? { lucernarios } : {}),
         // `tipos` del plan: { pared: 'FACHADA'|'MEDIANERA'|'PARTICION_VERTICAL' } —
         // lo mismo que «da contra» en el panel de la pared (una medianera que en
@@ -1272,6 +1330,10 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
         paredes: prev?.paredes || { movidas: {}, dibujadas: [] },
         cuerpos_fuera: cuerpos || [], recorte_vivienda: recorte,
         zonas_fuera: zonas || [],
+        // Lo dibujado en la pizarra y lo que ha tocado una persona: si se
+        // perdiera aquí, la próxima pasada de la skill ya no lo respetaría.
+        ...(prev?.pizarra ? { pizarra: prev.pizarra } : {}),
+        ...(prev?.huecos_sin_pared ? { huecos_sin_pared: prev.huecos_sin_pared } : {}),
         lienzo_ref: lienzoAMundo(geo.georef),
         ajustes,
     };
@@ -1305,10 +1367,22 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
     //     Datos Administrativos»). El plan puede declararlos: `tecnico` (el
     //     id_empresa del certificador que firma) y `fechas` ({emision, visita},
     //     AAAA-MM-DD). Lo de un expediente manda: aquí solo se rellena lo que falta.
-    if (plan.tecnico && !ctx.certificador) {
-        ctx.certificador = await cex.leerCertificador(String(plan.tecnico));
-        if (!ctx.certificador) throw new Error(`El técnico ${plan.tecnico} no está en prescriptores.`);
-        avisos.push(`Técnico certificador del plan: ${ctx.certificador.razon_social} (la oportunidad no tiene uno asignado).`);
+    //     El AGENTE IA no firma (`tecnicoCe3x` lo deja sin técnico): con él en la
+    //     barra, el `tecnico` del plan es quien va a firmar y lo sustituye en el .cex.
+    //     POR DEFECTO firma FRAN (decisión del usuario, 2026-10-06: «ponme como
+    //     certificador a mí siempre a no ser que te indique lo contrario»):
+    //     `TECNICO_POR_DEFECTO`. Otro técnico, con `"tecnico": "<id_empresa>"`;
+    //     ninguno, con `"tecnico": false`. Un técnico DE VERDAD asignado en la
+    //     barra no se sustituye: es quien firma (y el agente no le quita nada).
+    const tecnicoPlan = plan.tecnico === false || plan.tecnico === null ? null
+        : (plan.tecnico || TECNICO_POR_DEFECTO);
+    if (tecnicoPlan && (!ctx.certificador || ctx.certificador.es_agente_ia)) {
+        const delAgente = !!ctx.certificador;
+        ctx.certificador = await cex.leerCertificador(String(tecnicoPlan));
+        if (!ctx.certificador) throw new Error(`El técnico ${tecnicoPlan} no está en prescriptores.`);
+        avisos.push(`Técnico certificador${plan.tecnico ? ' del plan' : ' (por defecto)'}: ${ctx.certificador.razon_social} `
+            + (delAgente ? '(el encargo es del AGENTE IA, que no firma: en la barra sigue el agente).'
+                : '(la oportunidad no tiene uno asignado).'));
     }
     if (plan.fechas && (plan.fechas.emision || plan.fechas.visita)) {
         const cee0 = ctx.expediente.cee || {};
@@ -1377,14 +1451,39 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
         const f = await r.json().catch(() => ({}));
         throw new Error(`El motor no ha escrito el .cex: ${f.detail || r.status}\n  ${avisos.join('\n  ')}`);
     }
-    const fichero = Buffer.from(await r.arrayBuffer());
+    let fichero = Buffer.from(await r.arrayBuffer());
     const avMotor = JSON.parse(r.headers.get('X-Cee-Avisos') || '[]');
+    // 7b. Una medida de mejora que NO está en el catálogo de la ventana (en un
+    //     CEE directo no hay aerotermia declarada de la que salga: «retirar la
+    //     caldera, dos aires frío-calor, un termo y placas»). Se pone con los
+    //     MISMOS escritores que «Poner la medida» (`/cex/medida`): los equipos
+    //     que asumen un servicio retiran el generador que lo daba.
+    if (Array.isArray(plan.medidas_libres) && plan.medidas_libres.length) {
+        const fdm = new FormData();
+        fdm.append('fichero', new Blob([fichero]), 'x.cex');
+        fdm.append('datos', JSON.stringify({ medidas: plan.medidas_libres, envolvente: ficha.envolvente || {} }));
+        const rm = await fetch(`${MOTOR}/cex/medida`, { method: 'POST', body: fdm });
+        if (!rm.ok) {
+            const f = await rm.json().catch(() => ({}));
+            throw new Error(`El motor no ha puesto la medida libre: ${f.detail || rm.status}`);
+        }
+        fichero = Buffer.from(await rm.arrayBuffer());
+        avMotor.push(...JSON.parse(rm.headers.get('X-Cee-Avisos') || '[]'));
+        for (const m of plan.medidas_libres) {
+            console.log(`  medida libre «${m.nombre}»: ${(m.instalaciones || []).map(x => `[${x.slot}] ${x.nombre}`).join(' · ')}`);
+        }
+    }
     const fd = new FormData();
     fd.append('fichero', new Blob([fichero]), 'x.cex');
     const leido = await (await fetch(`${MOTOR}/leer-cex`, { method: 'POST', body: fd })).json();
     console.log(`\n.cex · ${kb(fichero.length)} · releído ${leido.version} · errores ${leido.errores?.length ?? '?'}`);
     console.log(`  ${JSON.stringify(leido.resumen_envolvente)}`);
     if (imagenesFallidas.length) avisos.push(`Sin ${imagenesFallidas.join(' ni ')}: Catastro no ha respondido.`);
+
+    // 7c. RES080: el CEE PREVISTO (la casa con TODA la obra hecha), copiando el
+    //     inicial. Va a ser la medida del inicial y el «CEE final» de la app.
+    const previsto = plan.previsto ? await componerPrevisto(ctx, { fichero, ficha, plan }) : null;
+    if (previsto) avMotor.push(...previsto.avisos);
 
     const local = path.join(CACHE, `${cex.nombreDelCex(ctx.expediente, 'inicial')}`);
     fs.mkdirSync(CACHE, { recursive: true });
@@ -1403,6 +1502,24 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
             }
             for (const l of cexAPdf.lineasCalificado(cal)) console.log(l);
         }
+        if (previsto) {
+            const lp = path.join(CACHE, previstoSrv.nombrePrevisto(ctx.expediente));
+            fs.writeFileSync(lp, previsto.buffer);
+            console.log(`  copia local del previsto: ${lp}`);
+            if (RESTO.includes('--calificar')) {
+                const { cal, med } = await previstoAlInicial(previsto, fichero);
+                for (const [ext, b] of [['.xml', cal?.xml], ['.pdf', cal?.pdf]]) {
+                    if (b) fs.writeFileSync(lp.replace(/\.cex$/i, ext), b);
+                }
+                if (med?.ok) {
+                    const li = local.replace(/\.cex$/i, '_CON PREVISTO.cex');
+                    fs.writeFileSync(li, med.cex);
+                    if (med.xml) fs.writeFileSync(li.replace(/\.cex$/i, '.xml'), med.xml);
+                    if (med.pdf) fs.writeFileSync(li.replace(/\.cex$/i, '.pdf'), med.pdf);
+                    console.log(`  inicial con el previsto como medida: ${li}`);
+                }
+            }
+        }
         console.log('\nEN SECO: no se ha guardado nada. Pásale --escribir.');
     } else {
         await cex.guardarTrabajo(ctx.expediente.id, trabajo, ctx.origen);
@@ -1413,6 +1530,14 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
         const subirFrame = async (pared, ref) => {
             const k = `${pared}|${ref}`;
             if (subidoFrame[k]) return subidoFrame[k];
+            if (esSv(ref)) {
+                const g = manSv.fotos.find(x => x.id === ref.slice(3));
+                const sub = await fotosSrv.subir(ctx.expediente, pared,
+                    { buffer: fs.readFileSync(g.archivo), mimetype: 'image/jpeg' }, 'skill generar-cee-inicial',
+                    { streetview: { pano_id: g.pano_id, fecha: g.fecha, heading: g.heading, fov: g.fov } });
+                subidoFrame[k] = sub.drive_id;
+                return sub.drive_id;
+            }
             const f = manVideo.fotogramas[ref.slice(6)];
             const sub = await fotosSrv.subir(ctx.expediente, pared,
                 { buffer: fs.readFileSync(f.archivo), mimetype: 'image/jpeg' }, 'skill generar-cee-inicial',
@@ -1423,7 +1548,7 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
         for (const [clave, ids] of Object.entries(plan.fotos || {})) {
             for (const d of ids) {
                 try {
-                    if (esFrame(d)) await subirFrame(clave, d);
+                    if (esFrame(d) || esSv(d)) await subirFrame(clave, d);
                     else await fotosSrv.adoptar(ctx.expediente, clave, d, 'skill generar-cee-inicial');
                 } catch (err) { avisos.push(`Foto ${d} en ${clave}: ${err.message}`); }
             }
@@ -1434,7 +1559,7 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
         const porFoto = {};
         for (const mk0 of marcas) {
             let mk = mk0;
-            if (esFrame(mk0.drive_id)) {
+            if (esFrame(mk0.drive_id) || esSv(mk0.drive_id)) {
                 try { mk = { ...mk0, drive_id: await subirFrame(mk0.clave, mk0.drive_id) }; }
                 catch (err) { avisos.push(`Fotograma ${mk0.drive_id} en ${mk0.clave}: ${err.message}`); continue; }
             }
@@ -1446,6 +1571,22 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
                 await fotosSrv.guardarMarcas(ctx.expediente, clave, d,
                     lista.map(x => ({ uid: x.uid, box: x.box, de: 'lectura' })), { fundir: true });
             } catch (err) { avisos.push(`Marcas en ${clave}: ${err.message}`); }
+        }
+        // RES080: el previsto se mete como medida del inicial ANTES de guardarlo,
+        // para que en Drive quede una sola versión del inicial (la buena).
+        let res080 = null;
+        if (previsto) {
+            if (RESTO.includes('--sin-pdf')) {
+                avisos.push('Con --sin-pdf no se usa CE3X: el previsto NO va como medida del inicial. '
+                    + 'Ponlo en CE3X (Medidas de mejora → «Cargar edificio»).');
+            } else {
+                res080 = await previstoAlInicial(previsto, fichero);
+                if (res080.med?.ok) fichero = res080.med.cex;
+                else {
+                    avisos.push(`El previsto NO se ha puesto como medida del inicial (${res080.med?.error || res080.cal?.error}): `
+                        + 'ponlo en CE3X (Medidas de mejora → «Cargar edificio»).');
+                }
+            }
         }
         const gd = await cex.guardarEnDrive(ctx, fichero, 'inicial');
         if (!gd.ok) throw new Error(`El .cex no ha llegado a Drive: ${gd.error}`);
@@ -1471,18 +1612,107 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
         }
         // Su XML y su PDF oficial, calificados por CE3X 3.1 en este PC, junto al
         // .cex (`cee/cexAPdf.js`). Sin CE3X se dice y se sigue: el .cex ya está.
-        if (!RESTO.includes('--sin-pdf')) {
+        if (res080?.med?.ok) {
+            // Ya calificado por CE3X con la medida dentro: se suben su XML y su PDF.
+            const g2 = await cex.guardarCalificadoEnDrive(ctx, 'inicial', gd.nombre,
+                { xml: res080.med.xml, pdf: res080.med.pdf });
+            console.log(`CE3X lo califica: ${cexAPdf.textoCalificacion(res080.med.calificacion)}`);
+            if (g2.ok) for (const s of g2.subidos) console.log(`✓ ${s.nombre}\n  ${s.link}`);
+            else avisos.push(`XML/PDF del inicial calificados pero no subidos: ${g2.error}`);
+        } else if (!RESTO.includes('--sin-pdf')) {
             console.log('\nCalificando con CE3X 3.1 y generando el PDF (≈1 min)…');
             const cal = await cexAPdf.calificarYGuardar(ctx, 'inicial', gd.nombre, fichero);
             for (const l of cexAPdf.lineasCalificado(cal)) console.log(l);
         }
+        if (previsto) await guardarPrevistoYFinal(ctx, previsto, res080, avisos);
         // El AGENTE IA termina: la fase queda «pendiente de revisión» y se avisa
         // al equipo, como cuando un técnico sube su .cex. Va AQUÍ y no en la skill
         // para que no se pueda olvidar; `--sin-aviso` lo calla al relanzar.
         await avisarAgente(ctx, gd, [...avisos, ...avMotor], 'inicial', decisiones);
+        // Si se estaba REHACIENDO sobre una revisión a mano («Así es como está»),
+        // queda hecho: la ventana deja de decir «Claude lo está rehaciendo».
+        if (await revisionPlano.marcarRehecho({ clave: ctx.expediente.id, origen: ctx.origen, fichero: gd.nombre })) {
+            console.log('✓ Revisión a mano del plano: REHECHA.');
+        }
     }
     const todos = [...avisos, ...avMotor];
     if (todos.length) console.log(`\nAVISOS (${todos.length})\n  ⚠ ${todos.join('\n  ⚠ ')}`);
+}
+
+// ─── RES080: el CEE PREVISTO (services/cee/previstoRes080.js) ───────────────
+
+/**
+ * El previsto del plan (`plan.previsto`): el motor COPIA el inicial y le pone
+ * los equipos de la medida, las ventanas y el aislamiento nuevos, ventilación
+ * 0,53 y masa Ligera. Se imprime lo que ha cambiado de verdad y los textos de la
+ * medida con los que irá dentro del inicial.
+ */
+async function componerPrevisto(ctx, { fichero, ficha, plan }) {
+    const datos = previstoSrv.datosParaMotor(ficha, plan.previsto);
+    const p = await previstoSrv.pedirPrevisto(fichero, datos);
+    p.textos = previstoSrv.textosDelPrevisto({ ficha, previsto: plan.previsto, hechos: p.hechos,
+                                              expediente: ctx.expediente });
+    console.log(`\nCEE PREVISTO (RES080) · ${kb(p.buffer.length)}`);
+    console.log(`  equipos: ${datos.instalaciones.map(e => `[${e.slot}] ${e.nombre}`).join(' · ') || '— los del inicial'}`);
+    console.log(`  huecos que cambian (${p.hechos.huecos.length}): ${p.hechos.huecos.join(', ') || '—'}`);
+    for (const c of p.hechos.cerramientos) console.log(`  aislado ${c.nombre}: U ${c.u_antes} → ${c.u}`);
+    console.log(`  ventilación ${datos.previsto.ventilacion} ren/h · masa ${datos.previsto.masa_particiones}`);
+    const t = p.textos;
+    console.log(`  MEDIDA del inicial: «${t.nombre}» · inversión ${t.inversion ?? '— (no consta)'} € · vida útil ${t.vida_util} años`);
+    console.log(`    Características: ${t.caracteristicas}`);
+    console.log(`    Otros datos: ${t.otros || '—'}`);
+    if (!t.inversion) p.avisos.push('La medida del previsto va SIN inversión: CE3X dará el coste y el plazo de recuperación en blanco.');
+    return p;
+}
+
+/** CE3X 3.1 (en este PC): califica el previsto y lo mete como medida del inicial. */
+async function previstoAlInicial(previsto, inicial) {
+    console.log('\nCalificando el PREVISTO con CE3X 3.1 (≈1 min)…');
+    const cal = await cexAPdf.calificarCex(previsto.buffer, { medidas: false });
+    for (const l of cexAPdf.lineasCalificado(cal)) console.log(`  ${l}`);
+    if (!cal.ok) return { cal, med: null };
+    console.log('Poniendo el previsto como MEDIDA del inicial («Nuevo edificio», ≈30 s)…');
+    const med = await cexAPdf.ponerPrevistoComoMedida(inicial, previsto.buffer, previsto.textos);
+    if (med.ok) {
+        console.log(`  ✓ «${med.medida?.nombre}» · ahorro ${(med.medida?.ahorro || []).join(' / ')} %`
+            + ` · inicial ${cexAPdf.textoCalificacion(med.calificacion)}`);
+    } else {
+        console.log(`  ✗ ${med.error}`);
+    }
+    return { cal, med };
+}
+
+/**
+ * Deja el previsto en `1. CEE / CEE INICIAL` (con su XML y su PDF) y, en un
+ * expediente, carga su XML como el del CEE FINAL de la app: es de donde sale el
+ * ahorro del RES080 hasta que haya un final de verdad.
+ */
+async function guardarPrevistoYFinal(ctx, previsto, res080, avisos) {
+    const gp = await previstoSrv.guardarPrevisto(ctx, previsto.buffer);
+    if (!gp.ok) { avisos.push(`El CEE PREVISTO no ha llegado a Drive: ${gp.error}`); return; }
+    console.log(`✓ ${gp.nombre}\n  ${gp.link}`);
+    avisos.push(`CEE PREVISTO (RES080): ${gp.link}`);
+    const cal = res080?.cal;
+    if (!cal?.xml) {
+        avisos.push('El previsto va SIN calificar (sin CE3X en este PC): su XML hay que sacarlo en CE3X y '
+            + 'cargarlo como CEE FINAL en la app.');
+        return;
+    }
+    const g2 = await cex.guardarCalificadoEnDrive(ctx, 'inicial', gp.nombre, { xml: cal.xml, pdf: cal.pdf });
+    if (g2.ok) for (const s of g2.subidos) console.log(`✓ ${s.nombre}\n  ${s.link}`);
+    if (ctx.origen !== 'cae') {
+        avisos.push('Es una oportunidad: el XML del previsto se carga como CEE FINAL cuando sea expediente '
+            + '(«Cargar CEE» en la columna del final).');
+        return;
+    }
+    try {
+        const p = await previstoSrv.cargarComoFinal(ctx, cal.xml.toString('utf8'),
+            gp.nombre.replace(/\.cex$/i, '.xml'));
+        console.log(`✓ XML del previsto cargado como CEE FINAL en la app (demanda cal ${p.demandaCalefaccion}, `
+            + `EPNR ${p.epnrConsumo} ${p.epnrLetra || ''})`);
+    } catch (e) {
+        avisos.push(`El XML del previsto NO se ha cargado como CEE FINAL: ${e.message}`);
+    }
 }
 
 /**
@@ -2411,11 +2641,160 @@ async function pedirFotos() {
     } catch (e) { console.log(`  (no se ha podido anotar: ${e.message})`); }
 }
 
+// ─── streetview ─────────────────────────────────────────────────────────────
+//
+// Sin fotos de las fachadas el CEE sale sin ventanas, y las que dan a la CALLE
+// casi siempre están en Google Street View: se hacía a mano (Maps → captura →
+// subir). Aquí, por cada LADO de la casa (sus fachadas de todas las plantas en
+// el mismo plano) se busca el panorama más cercano DELANTE de él, se le apunta
+// y se baja la foto a `<out>/streetview/SV<n>.jpg`, con su manifiesto.
+//
+// No escribe nada: las fotos entran en el plan de `aplicar` como `sv:SV1` (en
+// `fotos` y en `huecos[].foto`), y es `aplicar --escribir` quien las sube a su
+// pared, como los fotogramas del vídeo. `leer-pared --fotos sv:SV1` las lee.
+//
+// Clave: GOOGLE_MAPS_KEY del .env (la API «Street View Static»). La consulta de
+// si hay panorama (metadata) es gratis; cada foto, ~0,007 €.
+
+const SV_API = 'https://maps.googleapis.com/maps/api/streetview';
+const carpetaSV = (ctx) => (opt('out') && opt('out') !== true ? path.join(opt('out'), 'streetview')
+    : path.join(CACHE, ctx.expediente.numero_expediente, 'streetview'));
+
+/** El manifiesto que deja `streetview` (o null). */
+function manifiestoSV(ctx) {
+    const dirs = [opt('sv-dir') && opt('sv-dir') !== true ? opt('sv-dir') : null, carpetaSV(ctx),
+                  path.join(CACHE, ctx.expediente.numero_expediente, 'streetview')].filter(Boolean);
+    for (const d of dirs) {
+        const f = path.join(d, 'streetview.json');
+        if (fs.existsSync(f)) return JSON.parse(fs.readFileSync(f, 'utf8'));
+    }
+    return null;
+}
+
+async function streetview() {
+    const key = process.env.GOOGLE_MAPS_KEY;
+    if (!key) throw new Error('Falta GOOGLE_MAPS_KEY en el .env del backend (API Street View Static).');
+    await saludMotor();
+    const ctx = await cargar(POS[0]);
+    const t = await cex.leerTrabajo(ctx.expediente.id, ctx.origen).catch(() => null);
+    const geo = geoCacheada(ctx) || await geometria(ctx, { cuerpos: t?.cuerpos_fuera || null,
+        zonas: t?.zonas_fuera || null, recorte: t?.recorte_vivienda || null,
+        altura: t?.ajustes?.altura_libre_planta || null });
+    const sv = require('../utils/streetView');
+    const { lienzoAMundo } = await esm('cee-envolvente/logic/geometriaPlano.js');
+    const { husoDe, utmALatLon } = await esm('cee-envolvente/logic/ortofoto.js');
+    const ref = lienzoAMundo(geo.georef);
+    const huso = husoDe(geo.georef?.crs);
+    if (!ref || !huso) throw new Error('La geometría no trae su georreferencia: no se puede situar la casa.');
+    const { lados, patios } = sv.ladosDeFachada(murosDe(geo), ref);
+    const dir = carpetaSV(ctx);
+    fs.mkdirSync(dir, { recursive: true });
+
+    const metadata = async (p, radio) => {
+        const { lat, lon } = utmALatLon(p[0], p[1], huso);
+        const u = `${SV_API}/metadata?location=${lat.toFixed(7)},${lon.toFixed(7)}&radius=${radio}`
+            + `&source=outdoor&key=${key}`;
+        const j = await (await fetch(u, { signal: AbortSignal.timeout(20_000) })).json();
+        if (j.status !== 'OK') return j.status === 'ZERO_RESULTS' ? null
+            : (() => { throw new Error(`Street View: ${j.status} ${j.error_message || ''}`); })();
+        return { ...j, mundo: sv.latLonAUtm(j.location.lat, j.location.lng, huso) };
+    };
+
+    const fotosSv = [];
+    const sinPanorama = [];
+    let n = 0;
+    for (const lado of lados) {
+        // Delante de la fachada, a 12 m y a 25 m: el primero que esté DELANTE.
+        let pano = null, enc = null;
+        for (const [d, r] of [[12, 30], [25, 40]]) {
+            // eslint-disable-next-line no-await-in-loop
+            const p = await metadata(sv.desplazar(lado.centro, lado.normal, d), r);
+            if (!p) continue;
+            const e = sv.encuadre(lado, p.mundo, { alturaPlanta: alturaMedida(geo) });
+            if (e) { pano = p; enc = e; break; }
+        }
+        if (!pano) { sinPanorama.push(lado); continue; }
+        n += 1;
+        const id = `SV${n}`;
+        const archivo = path.join(dir, `${id}_${lado.orientacion}.jpg`);
+        const u = `${SV_API}?size=640x480&pano=${pano.pano_id}&heading=${enc.heading}`
+            + `&fov=${enc.fov}&pitch=${enc.pitch}&source=outdoor&return_error_code=true&key=${key}`;
+        // eslint-disable-next-line no-await-in-loop
+        const r = await fetch(u, { signal: AbortSignal.timeout(30_000) });
+        if (!r.ok || !/image/.test(r.headers.get('content-type') || '')) {
+            sinPanorama.push({ ...lado, error: `HTTP ${r.status}` });
+            continue;
+        }
+        // eslint-disable-next-line no-await-in-loop
+        fs.writeFileSync(archivo, Buffer.from(await r.arrayBuffer()));
+        fotosSv.push({ id, archivo, lado: lado.orientacion, muros: lado.muros, plantas: lado.plantas,
+                       ancho: Math.round(lado.ancho * 100) / 100, pano_id: pano.pano_id,
+                       fecha: pano.date || null, copyright: pano.copyright || '© Google', ...enc });
+    }
+    fs.writeFileSync(path.join(dir, 'streetview.json'),
+        JSON.stringify({ clave: ctx.clave, at: new Date().toISOString(), fotos: fotosSv }, null, 1));
+
+    console.log(`\nSTREET VIEW · ${rcDe(ctx)} · ${lados.length} lado(s) con fachada al exterior\n`);
+    for (const f of fotosSv) {
+        console.log(`  sv:${f.id}  ${f.lado.padEnd(2)} · ${f.ancho} m · ${f.plantas} planta(s) · `
+            + `${f.muros.join(', ')}\n        panorama ${f.fecha || 's/f'} a ${String(f.distancia).replace('.', ',')} m`
+            + ` · mira ${f.heading}° · fov ${f.fov}° · ${f.oblicuidad > 45 ? `⚠ muy de lado (${f.oblicuidad}°)` : `de frente (${f.oblicuidad}°)`}`
+            + `\n        ${f.archivo}`);
+    }
+    for (const l of sinPanorama) {
+        console.log(`  ✗ ${l.orientacion.padEnd(2)} · ${Math.round(l.ancho * 100) / 100} m · ${l.muros.join(', ')}`
+            + ` — ${l.error || 'sin panorama DELANTE (no da a una calle con Street View)'}`);
+    }
+    if (patios.length) {
+        console.log(`\n  PATIOS (no se ven desde la calle: hay que pedir sus fotos): ${patios.map(m => m.id).join(', ')}`);
+    }
+    console.log(`\nMÍRALAS: cada foto, ¿es de verdad esa fachada? (la calle de enfrente, la fecha del panorama).`
+        + '\nEn el plan van como «sv:SV1» en `fotos` y en `huecos[].foto` (con su `box`); `leer-pared --fotos sv:SV1`.'
+        + '\nSon fotos de Google: se pegan a la pared como apoyo, nunca como foto del cliente.');
+}
+
+// ─── REHACER sobre lo dibujado a mano («Así es como está») ─────────────────
+
+/**
+ * Rehace el CEE inicial sobre el trabajo GUARDADO, que ha corregido una persona
+ * en la pizarra del plano y ha dado por bueno («Así es como está»). Es `aplicar`
+ * con un plan vacío —todo sale de lo guardado— más lo que traiga `--plan` (para
+ * MEDIR las ventanas y puertas dibujadas: `medir`, y poco más: lo tocado a mano no
+ * se puede cambiar desde el plan).
+ */
+async function rehacer() {
+    const fPlan = opt('plan');
+    const plan = fPlan && fPlan !== true ? JSON.parse(fs.readFileSync(fPlan, 'utf8')) : {};
+    const ctx = await cargar(POS[0]);
+    const rev = await revisionPlano.leer({ clave: ctx.expediente.id, origen: ctx.origen }).catch(() => null);
+    const prev = await cex.leerTrabajo(ctx.expediente.id, ctx.origen).catch(() => null);
+    if (!prev) throw new Error('No hay trabajo guardado en la envolvente: no hay nada que rehacer (usa «aplicar»).');
+    if (rev) {
+        console.log(`\nREVISIÓN A MANO nº ${rev.n} · ${rev.por} · ${rev.at} · ${rev.estado}`);
+        if (rev.nota) console.log(`  Nota: «${rev.nota}»`);
+        for (const c of rev.cambios || []) console.log(`  · ${c.texto}`);
+        if (!(rev.cambios || []).length) console.log('  (sin cambios dibujados: da el plano por bueno tal cual)');
+    } else {
+        console.log('\n(No hay revisión a mano registrada: se rehace con lo guardado tal cual.)');
+    }
+    const pend = [];
+    for (const [id, hs] of Object.entries(prev.huecos || {})) {
+        for (const h of hs || []) {
+            if (h?.origen === 'pizarra' && h.estado !== 'medido') pend.push(`${id} ${h.nombre} (${h.tipo}, ≈${h.ancho} m)`);
+        }
+    }
+    if (pend.length) {
+        console.log(`\nPOR MEDIR (dibujados a mano, medida aproximada): ${pend.join(' · ')}`
+            + '\n  Mídelos con las fotos y pásalos en el plan: "medir": { "FBS1": { "V3": { "ancho": 1.2, "alto": 1.1 } } }.');
+    }
+    await aplicar({ ...plan, _rehacer: true });
+}
+
 // ─── main ───────────────────────────────────────────────────────────────────
 
 const ORDENES = { estado, placas, fotos, paredes, catastro, 'leer-pared': leerPared, eprel,
                   'alta-aerotermia': altaAerotermia, aplicar, croquis, video,
-                  'pedir-fotos': pedirFotos, instalacion };
+                  'pedir-fotos': pedirFotos, streetview, rehacer, instalacion };
 
 (async () => {
     const f = ORDENES[ORDEN];

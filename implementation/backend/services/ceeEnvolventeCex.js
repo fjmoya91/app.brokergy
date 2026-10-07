@@ -1388,7 +1388,19 @@ function declaracionesEdificio(ajustes) {
             ...(Array.isArray(x.partes) && x.partes.length
                 ? { partes: x.partes.filter(p => typeof p === 'string').slice(0, 20) } : {}),
         }));
-    return { semisotano, anexos };
+    //: Lo que el PROYECTO construye y Catastro aún no dibuja (la planta alta de
+    //: una reforma): `{ poligono: [[x, y]…] (EPSG:25830), plantas }`.
+    const volumenes = (Array.isArray(a.volumenes_proyecto) ? a.volumenes_proyecto : [])
+        .filter(v => v && Array.isArray(v.poligono) && v.poligono.length >= 3)
+        .slice(0, 4)
+        .map(v => ({
+            poligono: v.poligono.slice(0, 100)
+                .filter(p => Array.isArray(p) && p.length >= 2 && p.every(n => Number.isFinite(Number(n))))
+                .map(([x, y]) => [Number(x), Number(y)]),
+            plantas: Math.max(1, Math.min(4, Math.round(Number(v.plantas) || 1))),
+        }))
+        .filter(v => v.poligono.length >= 3);
+    return { semisotano, anexos, volumenes };
 }
 
 module.exports = {

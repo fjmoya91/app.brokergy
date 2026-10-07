@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
-import { JustificanteUploader } from '../../expedientes/components/JustificanteUploader';
+import { JustificanteCliente } from './JustificanteCliente';
 import { normalize, PROV_CCAA, PROV_NOMBRE, CCAA_LIST, getProvCodByNombre, parseCatastroAddressFull } from '../../../utils/direccionCatastral';
 // Los campos de dirección (y la cascada CCAA/provincia/municipio) son fuente
 // única en components/DireccionEdit: los comparte con el expediente de CEE.
@@ -126,7 +126,7 @@ function PropietarioEdit({ value, index, onChange, onRemove }) {
     );
 }
 // ─── Modal principal ────────────────────────────────────────────────────────
-export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clienteId, onUpdated, onOpenOportunidad, onOpenExpediente, expedienteId, oportunidadId, onClienteSwapped, catastroData = null, justificanteLink = null }) {
+export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clienteId, onUpdated, onOpenOportunidad, onOpenExpediente, expedienteId, oportunidadId, onClienteSwapped, catastroData = null }) {
     const { user } = useAuth();
     const userRole = (user?.rol || '').toUpperCase();
     const userRoleId = user?.id_rol ? Number(user.id_rol) : null;
@@ -189,6 +189,14 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
             })
             .finally(() => setFetching(false));
     }, [isOpen, clienteProp?.id_cliente, clienteId]);
+
+    // Vuelve a leer la ficha (p. ej. el IBAN que acaba de rellenar el justificante).
+    const recargarCliente = () => {
+        const id = clienteId || clienteProp?.id_cliente || cliente?.id_cliente;
+        if (!id) return;
+        axios.get(`/api/clientes/${id}`).then(r => setCliente(r.data)).catch(() => {});
+        if (onUpdated) onUpdated();
+    };
 
     // Admin: prescriptores
     useEffect(() => {
@@ -642,7 +650,20 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                     <FieldView label="Sexo" value={cliente.sexo === 'HOMBRE' ? 'Hombre' : cliente.sexo === 'MUJER' ? 'Mujer' : null} />
                                     <FieldView label="Email" value={cliente.email?.toLowerCase()} valueClassName="!lowercase" />
                                     <FieldView label="Teléfono" value={cliente.tlf} />
-                                    {cliente.numero_cuenta && isAdmin && <FieldView label="Cuenta (IBAN)" value={cliente.numero_cuenta} />}
+                                    {isAdmin && (cliente.numero_cuenta
+                                        ? <FieldView label="Cuenta (IBAN)" value={cliente.numero_cuenta} />
+                                        : (
+                                            <div>
+                                                <p className="text-[10px] uppercase tracking-widest font-black text-white/30 mb-0.5">Cuenta (IBAN)</p>
+                                                <p className="text-sm text-amber-300/90 font-medium">Sin IBAN · se rellena al subir el justificante</p>
+                                            </div>
+                                        ))}
+                                    {isAdmin && (
+                                        <JustificanteCliente clienteId={cliente.id_cliente} expedienteId={expedienteId || null}
+                                            iban={cliente.numero_cuenta || ''}
+                                            onRellenar={() => recargarCliente()}
+                                            onSubido={() => { if (onUpdated) onUpdated(); }} />
+                                    )}
                                     {cliente.prescriptores?.acronimo && <FieldView label="Prescriptor" value={cliente.prescriptores.acronimo || cliente.prescriptores.razon_social} />}
                                     {cliente.contacto_es_partner && (
                                         <div className="sm:col-span-2">
@@ -969,19 +990,12 @@ export function ClienteDetailModal({ isOpen, onClose, cliente: clienteProp, clie
                                             <Input value={form.numero_cuenta} uppercase onChange={e => updateForm({ numero_cuenta: e.target.value })} />
                                         </FieldInput>
                                     )}
-                                    {isAdmin && expedienteId && (
-                                        <div className="sm:col-span-2">
-                                            <label className="block text-[10px] font-black uppercase tracking-widest text-white/40 mb-1.5">Justificante de titularidad bancaria</label>
-                                            <JustificanteUploader variant="box" expedienteId={expedienteId} currentLink={justificanteLink}
-                                                cliente={{ numero_cuenta: form.numero_cuenta || '', nombre_razon_social: form.nombre_razon_social || '', apellidos: form.apellidos || '', es_empresa: !!form.es_empresa, representante_nombre: form.representante_nombre || '', representante_apellidos: form.representante_apellidos || '', copropietarios: form.copropietarios || [] }}
-                                                onUploaded={(_link, comp) => {
-                                                    // El IBAN leído va al FORMULARIO si estaba vacío (el backend ya lo ha
-                                                    // guardado en la ficha si allí también faltaba).
-                                                    if (comp?.rellenar && !String(form.numero_cuenta || '').trim()) updateForm({ numero_cuenta: comp.rellenar });
-                                                    if (onUpdated) onUpdated();
-                                                }} />
-                                            <p className="text-[10px] text-white/25 mt-1.5">Se guarda en la carpeta del expediente, igual que si lo sube el cliente por el enlace. Se lee al subirlo: rellena el IBAN si falta y comprueba que número y titular coinciden.</p>
-                                        </div>
+                                    {isAdmin && (
+                                        <JustificanteCliente clienteId={cliente.id_cliente} expedienteId={expedienteId || null}
+                                            iban={form.numero_cuenta || ''}
+                                            clienteForm={{ numero_cuenta: form.numero_cuenta || '', nombre_razon_social: form.nombre_razon_social || '', apellidos: form.apellidos || '', es_empresa: !!form.es_empresa, representante_nombre: form.representante_nombre || '', representante_apellidos: form.representante_apellidos || '', copropietarios: form.copropietarios || [] }}
+                                            onRellenar={iban => { if (!String(form.numero_cuenta || '').trim()) updateForm({ numero_cuenta: iban }); }}
+                                            onSubido={() => { if (onUpdated) onUpdated(); }} />
                                     )}
                                     <div className="sm:col-span-2 pt-2">
                                         <label className="flex items-center gap-3 cursor-pointer group w-fit">

@@ -27,6 +27,8 @@ function fechaVuelo(url) {
     return FECHAS_VUELO.get(url);
 }
 import { EtiquetaMancha } from './EtiquetaMancha';
+import { PizarraControl, TrazoPizarra } from './PizarraControl';
+import { colorDeLapiz } from '../logic/pizarra';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // El plano del certificador. Cada pared se pulsa.
@@ -263,7 +265,10 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                               georef = null, satelite = false, onSatelite = null,
                               // Los CUERPOS del edificio (la casa, el garaje
                               // adosado, el porche) y qué pasa al pulsar uno.
-                              cuerpos = [], onCuerpo = null }) {
+                              cuerpos = [], onCuerpo = null,
+                              //: La PIZARRA: «✓ Así es como está» (lo abre la
+                              //: vista, que es quien guarda la revisión).
+                              onAsiEsComoEsta = null }) {
     const { muros, entrada, sel, elegir, esCandidata, esMedianera, mueveHueco,
             muevePared, dibujaPared, estadoDe, nombreDe, tipoDe } = plano;
 
@@ -472,11 +477,23 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
     //: en vez de dejar que desaparezca sin más.
     const [corto, setCorto] = useState(false);
 
+    //: La PIZARRA: qué lápiz se tiene en la mano (`null` = apagada). Es un MODO,
+    //: como dibujar una pared: con un lápiz en la mano, arrastrar DIBUJA; para
+    //: mover el plano está «Mover» en la misma paleta, dos dedos en la tablet y
+    //: la barra espaciadora con el ratón.
+    const [lapizPizarra, setLapizPizarra] = useState(null);
+    const [trazoPizarra, setTrazoPizarra] = useState(null);
+    const [avisoPizarra, setAvisoPizarra] = useState(null);
+    const pizarraActiva = !!lapizPizarra && !es3d;
+    const pintandoPizarra = pizarraActiva && lapizPizarra !== 'mano';
+    //: Los DEDOS que hay sobre el plano (tablet): con dos, se mueve y se amplía.
+    const dedos = useRef(new Map());
+
     //: La barra espaciadora solo se escucha mientras se está DIBUJANDO: fuera
     //: de ese modo, arrastrar ya mueve el plano y robarle el espacio a la
     //: página no tendría sentido.
     useEffect(() => {
-        if (!dibujando && !dibujarPoligono) { espacio.current = false; setEspacioPulsado(false); return undefined; }
+        if (!dibujando && !dibujarPoligono && !pintandoPizarra) { espacio.current = false; setEspacioPulsado(false); return undefined; }
         const abajo = (e) => {
             if (e.code !== 'Space' || e.repeat) return;
             const t = e.target;
@@ -492,7 +509,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
         window.addEventListener('keyup', arriba);
         return () => { window.removeEventListener('keydown', abajo);
                        window.removeEventListener('keyup', arriba); };
-    }, [dibujando, dibujarPoligono]);
+    }, [dibujando, dibujarPoligono, pintandoPizarra]);
     //: El polígono de la CUBIERTA que se está dibujando: sus vértices, y dónde
     //: está el ratón para la goma elástica hasta el siguiente. Es un MODO igual
     //: que la pared nueva —un clic sobre el plano no puede significar dos
@@ -632,9 +649,39 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
         muevePared(d.id, pts);
     };
 
+    /** Dos dedos: mover y ampliar a la vez, alrededor del punto medio. */
+    const pellizco = () => {
+        const [a, b] = [...dedos.current.values()];
+        return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    };
     const onDown = (e) => {
+        // TABLET: con DOS dedos se mueve y se amplía, se esté en el modo que
+        // se esté. Lo que se estuviera trazando con el primero se descarta: era
+        // el comienzo del pellizco, no un trazo.
+        if (e.pointerType === 'touch') {
+            dedos.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            if (dedos.current.size === 2) {
+                setTrazoPizarra(null); setLapiz(null); setTrazo(null);
+                const p0 = pellizco();
+                arrastre.current = { gesto: 'pellizco', ...p0, vb: vista,
+                                     ancla: aDibujo(p0.x, p0.y), movido: true };
+                arrastrado.current = true;
+                return;
+            }
+            if (dedos.current.size > 2) return;
+        }
         const asa = asaPulsada.current;
         asaPulsada.current = null;
+        // La PIZARRA: con un lápiz en la mano, arrastrar dibuja (y un toque es
+        // un trazo de un punto: elige la pared o pone la ventana de un golpe).
+        if (pintandoPizarra && e.button === 0 && !espacio.current) {
+            const p = aDibujo(e.clientX, e.clientY);
+            arrastre.current = { gesto: 'pizarra', pts: [[p.x, p.y]], vb: vista,
+                                 x0: e.clientX, y0: e.clientY, movido: false };
+            setTrazoPizarra([[p.x, p.y]]);
+            svgRef.current?.setPointerCapture?.(e.pointerId);
+            return;
+        }
         // Dibujar la parte de la CUBIERTA que se reforma: un clic (sin
         // arrastrar) pone un vértice; arrastrar sigue moviendo el plano.
         if (dibujarPoligono && !es3d && e.button === 0) {
@@ -647,7 +694,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
         // dibujando: en modo dibujo el botón izquierdo traza, así que sin esto
         // la única forma de llegar a otra parte del plano era alejarse con la
         // rueda y volver — que es justo lo que hace que dibujar «cueste».
-        if ((dibujando || dibujarPoligono || dibujarCroquis) && espacio.current && e.button === 0) {
+        if ((dibujando || dibujarPoligono || dibujarCroquis || pintandoPizarra) && espacio.current && e.button === 0) {
             arrastre.current = { gesto: 'mover', cam: camara,
                                  ...aDibujo(e.clientX, e.clientY), vb: vista,
                                  x0: e.clientX, y0: e.clientY, movido: false };
@@ -696,9 +743,25 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                              x0: e.clientX, y0: e.clientY, movido: false };
     };
     const onMove = (e) => {
+        if (e.pointerType === 'touch' && dedos.current.has(e.pointerId)) {
+            dedos.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        }
         if (dibujarPoligono && !es3d) setCursor(aDibujo(e.clientX, e.clientY));
         const d = arrastre.current;
         if (!d) return;
+        if (d.gesto === 'pellizco') {
+            if (dedos.current.size < 2) return;
+            const p = pellizco();
+            const ancho = Math.min(base.ancho * ZOOM.max,
+                                   Math.max(base.ancho * ZOOM.min, d.vb.ancho * (d.d / p.d)));
+            const altoV = d.vb.alto * ancho / d.vb.ancho;
+            // El punto del dibujo que estaba bajo los dedos sigue bajo ellos:
+            // `aDibujo` es afín en el origen del encuadre, así que basta con
+            // calcularlo con origen 0 y desplazar.
+            const q = aDibujo(p.x, p.y, { x: 0, y: 0, ancho, alto: altoV });
+            setVb({ x: d.ancla.x - q.x, y: d.ancla.y - q.y, ancho, alto: altoV });
+            return;
+        }
         // El puntero se CAPTURA al empezar a mover de verdad, nunca al pulsar:
         // con la captura puesta, el navegador dispara el `click` sobre el
         // elemento que captura —el SVG— y no sobre la pared, así que pulsar una
@@ -722,6 +785,15 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
             }
             return;
         }
+        if (d.gesto === 'pizarra') {
+            const p = aDibujo(e.clientX, e.clientY, d.vb);
+            const u = d.pts[d.pts.length - 1];
+            if (Math.hypot(p.x - u[0], p.y - u[1]) > tam * 0.12) {
+                d.pts.push([Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100]);
+                setTrazoPizarra([...d.pts]);
+            }
+            return;
+        }
         if (d.gesto === 'pared') { moverPared(d, e); return; }
         if (d.gesto === 'hueco') { moverHueco(d, e); return; }
         if (d.gesto === 'girar') { girar(d, e); return; }
@@ -734,8 +806,25 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
         if (svgRef.current?.hasPointerCapture?.(e.pointerId)) {
             svgRef.current.releasePointerCapture(e.pointerId);
         }
+        if (e.pointerType === 'touch') dedos.current.delete(e.pointerId);
+        // Se ha levantado un dedo del pellizco: se acaba, y el otro no empieza
+        // nada (si no, al soltar el segundo saldría un trazo o un clic).
+        if (arrastre.current?.gesto === 'pellizco') {
+            if (dedos.current.size < 2) arrastre.current = null;
+            arrastrado.current = true;
+            setTimeout(() => { arrastrado.current = false; }, 0);
+            return;
+        }
         const d = arrastre.current;
         arrastre.current = null;
+        if (d?.gesto === 'pizarra') {
+            setTrazoPizarra(null);
+            const r = plano.trazoPizarra(planta.id, d.pts, lapizPizarra, { tam, iman });
+            setAvisoPizarra({ ...r, at: Date.now() });
+            arrastrado.current = true;
+            setTimeout(() => { arrastrado.current = false; }, 0);
+            return;
+        }
         if (d?.gesto === 'vertice') {
             if (d.movido) {
                 arrastrado.current = true;
@@ -891,8 +980,15 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                                          : 'fuera de la envolvente')}
                 es3d={es3d}
                 dibujando={dibujando}
-                onDibujar={d => { setDibujando(d); setTrazo(null); setCorto(false); }}
+                onDibujar={d => { setDibujando(d); setTrazo(null); setCorto(false);
+                                  if (d) setLapizPizarra(null); }}
                 corto={corto}
+                pizarra={pizarraActiva}
+                onPizarra={es3d || !plano.trazoPizarra ? null : (si => {
+                    setLapizPizarra(si ? 'FACHADA' : null);
+                    setAvisoPizarra(null);
+                    if (si) { setDibujando(false); setTrazo(null); }
+                })}
                 onGirar={g => setCamara(c => ({ ...c, az: c.az + g }))}
                 onZoom={f => escalar(f)} onEncuadrar={encuadrar}
                 puedeAlejar={puedeAlejar} entorno={entorno} onEntorno={onEntorno}
@@ -901,6 +997,17 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                 satelite={satelite} onSatelite={georef ? onSatelite : null}
                 avisoSatelite={orto?.aviso || null}
                 enlaces={enlaces} />
+
+            {/* La PIZARRA: la paleta de lápices, lo último que se ha entendido y
+                la salida para confirmarlo. Va bajo la barra de SU plano, como la
+                cubierta: el mando tiene que estar donde se dibuja. */}
+            {pizarraActiva && (
+                <PizarraControl herramienta={lapizPizarra} onHerramienta={setLapizPizarra}
+                                aviso={avisoPizarra} onAviso={setAvisoPizarra}
+                                cambios={plano.pizarra?.cambios?.length || 0}
+                                onAsiEsComoEsta={onAsiEsComoEsta}
+                                onCerrar={() => { setLapizPizarra(null); setAvisoPizarra(null); }} />
+            )}
 
             {/* LA CUBIERTA de esta planta. Va aquí —bajo la barra de SU plano y
                 encima del dibujo— porque se marca dibujándola: el mando tiene
@@ -986,12 +1093,18 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                      viewBox={`${vista.x} ${vista.y} ${vista.ancho} ${vista.alto}`}
                      className={`block w-full select-none
                                  ${espacioPulsado ? 'cursor-grab'
-                                   : es3d ? 'cursor-grab' : 'cursor-crosshair'}`}
+                                   : es3d ? 'cursor-grab'
+                                   : lapizPizarra === 'mano' ? 'cursor-grab' : 'cursor-crosshair'}`}
                      style={{ touchAction: 'none', height: 'clamp(360px, 68vh, 900px)' }}
                      onPointerDown={onDown} onPointerMove={onMove}
                      onPointerUp={onUp} onPointerCancel={onUp}
                      onDoubleClick={() => { if (dibujarPoligono) cerrarCubierta(); }}
-                     onPointerLeave={() => { arrastre.current = null; setTip(null); setCursor(null); }}>
+                     onPointerLeave={(e) => {
+                         // Con el dedo, `pointerleave` llega al levantarlo: no
+                         // es salir del plano, y cortaría el pellizco.
+                         if (e.pointerType === 'touch') { dedos.current.delete(e.pointerId); return; }
+                         arrastre.current = null; setTip(null); setCursor(null);
+                     }}>
                     <defs>
                         {/* La trama de lo que SE REFORMA: ámbar y más abierta que
                             la de los muros, para que se lea como una marca sobre
@@ -1251,6 +1364,13 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                                 la vista: sin el número, dibujar a ojo es lo
                                 mismo que teclear a ojo. */}
                             {trazo && <Trazo trazo={trazo} tam={tam} />}
+
+                            {/* El trazo de la PIZARRA mientras se dibuja, del
+                                color de lo que se está dibujando. */}
+                            {trazoPizarra && trazoPizarra.length > 0 && (
+                                <TrazoPizarra pts={trazoPizarra} tam={tam}
+                                              color={colorDeLapiz(lapizPizarra)} />
+                            )}
                         </>
                     )}
                 </svg>
@@ -1290,6 +1410,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
 
 /** La cabecera del plano: qué se está viendo, y los mandos para verlo. */
 function Controles({ titulo, subtitulo, es3d, onGirar, dibujando, onDibujar, corto,
+                     pizarra = false, onPizarra = null,
                      onZoom, onEncuadrar, puedeAlejar, entorno, onEntorno,
                      catastro, onCatastro, trayendoCatastro, falloCatastro,
                      satelite, onSatelite, avisoSatelite, enlaces = [] }) {
@@ -1313,7 +1434,17 @@ function Controles({ titulo, subtitulo, es3d, onGirar, dibujando, onDibujar, cor
                     dónde se empiece. Solo en planta — una pared se coloca
                     sobre la cartografía, que es lo que dice dónde está de
                     verdad, y eso es un plano. */}
-                {!es3d && onDibujar && (
+                {/* La PIZARRA: un lápiz para decir cómo es la vivienda —qué es
+                    cada pared, dónde están las ventanas y las puertas— rayando
+                    encima del plano. Con el dedo en una tablet o con el ratón. */}
+                {!es3d && onPizarra && (
+                    <Boton onClick={() => onPizarra(!pizarra)} activo={pizarra}
+                           title="Dibujar a mano alzada cómo es la vivienda: muros, medianeras,
+                                  particiones, ventanas y puertas.">
+                        {pizarra ? '✏️ Pizarra · cerrar' : '✏️ Pizarra'}
+                    </Boton>
+                )}
+                {!es3d && onDibujar && !pizarra && (
                     <Boton onClick={() => onDibujar(!dibujando)} activo={dibujando}
                            title="Dibujar una pared nueva: arrastra de una pared a otra.
                                   Para una pared corta, amplía antes con la rueda: los

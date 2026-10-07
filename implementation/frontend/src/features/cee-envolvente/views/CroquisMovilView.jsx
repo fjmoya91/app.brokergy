@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { COLOR_CROQUIS, ETIQUETA_USO_ZONA, USOS_ZONA, textoCatastro, usoDeLinea } from '../logic/zonasFuera';
-import { areaPoligono, simplificarTrazo } from '../logic/geometriaPlano';
+import { areaPoligono, at, simplificarTrazo } from '../logic/geometriaPlano';
 import { EtiquetaMancha } from '../components/EtiquetaMancha';
 import { IconoCamara, IconoDeshacer, IconoEncuadrar, IconoLapiz, IconoMas, IconoMenos, IconoPapelera,
-         IconoSinRed, IconoSubiendo, IconoVivienda } from '../components/IconosCroquis';
+         IconoPizarra, IconoSinRed, IconoSubiendo, IconoVivienda } from '../components/IconosCroquis';
+import { ETIQUETA_TIPO, colorDeLapiz, huecosColocados, interpretarTrazo } from '../logic/pizarra';
+import { PizarraControl, TrazoPizarra } from '../components/PizarraControl';
+import { AsiEsComoEstaModal } from '../components/AsiEsComoEsta';
 import { ViviendaMovil } from '../components/ViviendaMovil';
 import { MAX_VERTICES, cierraContorno, pegarVerticeContorno } from '../logic/contornoMovil';
 import { ATRIBUCION_PNOA, teselasOrtofoto } from '../logic/ortofoto';
@@ -60,6 +63,15 @@ import { prepararSinCobertura } from '../logic/swCroquisMovil';
 // La VISTA AÉREA (ortofoto del PNOA) también se puede poner debajo: en una
 // hilera de adosados los tejados dicen dónde acaba cada casa mejor que nada.
 // Las teselas las pide el teléfono al IGN, igual que la ventana del ordenador.
+//
+// Y un cuarto modo, PIZARRA (2026-10-07): se elige un lápiz (muro exterior,
+// medianera, partición, ventana, puerta, borrar) y se raya encima del plano.
+// El trazo se INTERPRETA aquí con `logic/pizarra.js` —la MISMA función que la
+// pizarra del ordenador—, se ve al momento y viaja ya entendido a una COLA que
+// el ordenador aplica en orden con su `aplicaPizarra`. «✓ Así es como está» es
+// el mismo botón que allí: da el plano por bueno y, si quien abrió el croquis
+// es del equipo, le pide a Claude que rehaga el CEE sobre lo dibujado. Sin
+// cobertura, lo dibujado se queda en el teléfono y sale solo, como lo demás.
 // ============================================================================
 
 const API = '/api/public/croquis-movil';
@@ -77,7 +89,14 @@ const CONFIRMA_MS = 3000;
 const TAM_PX = 14;
 
 const colorDe = (uso) => COLOR_CROQUIS[uso] || COLOR_CROQUIS['ESPACIO NO HABITABLE'];
-const MODOS_MOVIL = ['vivienda', 'croquis', 'fotos'];
+const MODOS_MOVIL = ['vivienda', 'croquis', 'pizarra', 'fotos'];
+//: Un DEDO no es un ratón: lo que se toca se busca un poco más lejos que en el
+//: ordenador (las tolerancias de `pizarra.js` salen de este tamaño).
+const DEDO = 1.5;
+//: Los colores de un hueco en el plano del teléfono: los del ordenador.
+const COLOR_HUECO_MOVIL = { ventana: '#0284c7', puerta: '#92400e' };
+//: Cuánto se espera a que el ordenador conteste «Así es como está».
+const ESPERA_ASI_ES_MS = 30_000;
 //: El verde del contorno de la vivienda: el mismo que en el ordenador.
 const VERDE = '#059669';
 //: El fondo elegido (mapa del Catastro o vista aérea) se recuerda en ESTE
@@ -232,6 +251,23 @@ export default function CroquisMovilView({ token }) {
     const [enviadoTodo, setEnviadoTodo] = useState(false);
     const [corteConPendiente, setCorteConPendiente] = useState(false);
     const claveRef = useRef(null);
+    // ── La PIZARRA ────────────────────────────────────────────────────────
+    //: El lápiz en la mano, el trazo a medias y lo que la app ha entendido del último.
+    const [lapiz, setLapiz] = useState('FACHADA');
+    const [trazoPiz, setTrazoPiz] = useState(null);
+    const [avisoPiz, setAvisoPiz] = useState(null);
+    //: Lo dibujado que aún no ha llegado al servidor, EN ORDEN: [{ id, accion, texto }].
+    const [pizCola, setPizCola] = useState([]);
+    const pizColaRef = useRef([]);
+    //: Las paredes dibujadas aquí que el ordenador todavía no ha devuelto
+    //: (sin ellas el trazo desaparecería hasta que vuelva la planta).
+    const [paredesNuevas, setParedesNuevas] = useState([]);
+    //: Lo cambiado desde ESTE teléfono: lo que se enseña en «Así es como está».
+    const [cambiosPiz, setCambiosPiz] = useState([]);
+    const [verAsiEs, setVerAsiEs] = useState(false);
+    const vistoPizarra = useRef(null);
+    //: «Así es como está» esperando a que el ordenador conteste: [{ idLocal, n, resolve }].
+    const esperasPiz = useRef([]);
 
     /** Lo que dice la red: `ok` si una petición ha llegado, `false` si no. */
     const red = useCallback((ok) => {
@@ -325,7 +361,16 @@ export default function CroquisMovilView({ token }) {
                 contrasRef.current = propio.contras;
                 setContras(propio.contras);
             }
-            if (propio?.sinEnviar || propio?.ajuste || propio?.vivienda || propio?.contras?.length) setPulso(p => p + 1);
+            // Lo dibujado en la pizarra que no llegó: sigue en la cola, y sus
+            // paredes nuevas se siguen viendo.
+            if (Array.isArray(propio?.pizarra) && propio.pizarra.length) {
+                pizColaRef.current = propio.pizarra;
+                setPizCola(propio.pizarra);
+                setParedesNuevas(propio.pizarra.filter(c => c.accion?.accion === 'paredes')
+                    .map(c => ({ id: c.id, tipo: c.accion.tipo, tramos: c.accion.tramos })));
+            }
+            if (propio?.sinEnviar || propio?.ajuste || propio?.vivienda || propio?.contras?.length
+                || propio?.pizarra?.length) setPulso(p => p + 1);
         };
         cargar();
         return () => { vivo = false; clearTimeout(t); };
@@ -339,8 +384,8 @@ export default function CroquisMovilView({ token }) {
         const clave = claveRef.current;
         if (!clave || !datos) return;
         guardarTrabajo(clave, { token, marco: datos.marco || null, trazos, sinEnviar, ajuste: ajusteEnCola,
-                                contorno, vivienda: viviendaEnCola, contras });
-    }, [trazos, sinEnviar, ajusteEnCola, datos, token, contorno, viviendaEnCola, contras]);
+                                contorno, vivienda: viviendaEnCola, contras, pizarra: pizCola });
+    }, [trazos, sinEnviar, ajusteEnCola, datos, token, contorno, viviendaEnCola, contras, pizCola]);
 
     // Con el enlace cerrado: ¿queda algo guardado en este teléfono? Se dice, con
     // cómo recuperarlo — no es lo mismo que haberlo perdido.
@@ -354,7 +399,8 @@ export default function CroquisMovilView({ token }) {
             const fotos = (await fotosEnCola(clave)).length;
             const huecos = leerPoner(clave).length;
             const zonas = t?.sinEnviar ? (t.trazos || []).length : 0;
-            if (vivo && (zonas || fotos || huecos)) setQuedaAqui({ zonas, fotos, huecos });
+            const dibujos = Array.isArray(t?.pizarra) ? t.pizarra.length : 0;
+            if (vivo && (zonas || fotos || huecos || dibujos)) setQuedaAqui({ zonas, fotos, huecos, dibujos });
         })();
         return () => { vivo = false; };
     }, [error, cerrada, token]);
@@ -470,6 +516,19 @@ export default function CroquisMovilView({ token }) {
         } catch { /* se queda la de antes */ }
     }, [token]);
 
+    // Lo LIGERO de cada pared (huecos, nombre, tipo), al día con el ordenador.
+    const refrescarParedes = useCallback(async () => {
+        try {
+            const r3 = await fetch(`${API}/${token}/paredes`);
+            const d3 = await r3.json().catch(() => ({}));
+            if (r3.ok && d3.paredes) {
+                setDatos(dd => dd && ({ ...dd, plano: { ...dd.plano,
+                    muros: dd.plano.muros.map(m => (m.id && d3.paredes[m.id]
+                        ? { ...m, ...d3.paredes[m.id], svg: m.svg } : m)) } }));
+            }
+        } catch { /* al siguiente tic */ }
+    }, [token]);
+
     // ── El CONTORNO de la vivienda ────────────────────────────────────────
     // Se manda con lo demás (estado ENTERO): el ordenador lo dibuja según se
     // dibuja aquí. Un punto perdido lo corrige el siguiente envío.
@@ -517,16 +576,35 @@ export default function CroquisMovilView({ token }) {
                 // una reclasificación): se pide lo ligero y se funde.
                 if (d.paredesV && d.paredesV !== paredesVistas.current) {
                     paredesVistas.current = d.paredesV;
-                    try {
-                        const r3 = await fetch(`${API}/${token}/paredes`);
-                        const d3 = await r3.json().catch(() => ({}));
-                        if (r3.ok && d3.paredes) {
-                            setDatos(dd => dd && ({ ...dd, plano: { ...dd.plano,
-                                muros: dd.plano.muros.map(m => (m.id && d3.paredes[m.id]
-                                    ? { ...m, ...d3.paredes[m.id], svg: m.svg } : m)) } }));
-                        }
-                    } catch { /* al siguiente tic */ }
+                    await refrescarParedes();
                 }
+                // Lo dibujado en la PIZARRA, aplicado (o no) en el ordenador.
+                const rp = d.resultadoPizarra;
+                if (vistoPizarra.current === null) {
+                    // La primera consulta solo dice desde dónde se cuenta: una
+                    // respuesta de antes de abrir esta página no es noticia.
+                    vistoPizarra.current = rp?.serial || 0;
+                } else if (rp && rp.serial > vistoPizarra.current) {
+                    vistoPizarra.current = rp.serial;
+                    for (const e of [...esperasPiz.current]) {
+                        if (e.n && e.n <= rp.n) e.resolve({ ok: rp.ok, texto: rp.texto });
+                    }
+                    if (!rp.ok) {
+                        // Lo que se veía aquí no ha pasado: se vuelve a lo de verdad.
+                        setAvisoPiz({ ok: false, texto: rp.texto || 'El ordenador no ha podido aplicarlo.' });
+                        setParedesNuevas(prev => prev.filter(x => !(x.n && x.n <= rp.n)));
+                        await refrescarParedes();
+                    } else {
+                        setParedesNuevas(prev => prev.map(x => (x.n && x.n <= rp.n && !x.resp
+                            ? { ...x, resp: Date.now() } : x)));
+                    }
+                }
+                // Una pared nueva ya contestada que el plano no ha traído en 15 s
+                // no va a venir por ahí: se deja de pintar a trazos.
+                setParedesNuevas(prev => {
+                    const q = prev.filter(x => !x.resp || Date.now() - x.resp < 15_000);
+                    return q.length === prev.length ? prev : q;
+                });
                 const res = d.resultado;
                 if (res && res.serial > vistoSerial.current && res.tipo === 'vivienda') {
                     // DELIMITAR LA VIVIENDA: lo dibujado ya es el contorno de la
@@ -567,7 +645,7 @@ export default function CroquisMovilView({ token }) {
             finally { consultando.current = false; }
         }, POLL_ESTADO_MS);
         return () => clearInterval(id);
-    }, [datos, cerrada, token, red, ponContorno, recargarPlano]);
+    }, [datos, cerrada, token, red, ponContorno, recargarPlano, refrescarParedes]);
 
     // Pedir que se aplique (o se quite): se APUNTA antes, como el ajuste, y sin
     // cobertura sale solo al volver la señal (con su id, para no pedirlo dos veces).
@@ -624,6 +702,45 @@ export default function CroquisMovilView({ token }) {
         }
     }, [token, red]);
 
+    // Lo dibujado en la PIZARRA, EN ORDEN y de uno en uno: una ventana en una
+    // pared que se acaba de dibujar no puede llegar antes que la pared. Lo que
+    // no llega se queda en la cola (y en el teléfono) y sale al volver la red.
+    const mandandoPiz = useRef(false);
+    const mandarPizarra = useCallback(async () => {
+        if (mandandoPiz.current) return;
+        mandandoPiz.current = true;
+        try {
+            while (pizColaRef.current.length) {
+                const c = pizColaRef.current[0];
+                let r;
+                try {
+                    r = await pedir(`${API}/${token}/pizarra`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ accion: c.accion, id_local: c.id }),
+                    }, { plazo: 12_000 });
+                } catch { red(false); return; }
+                if (r.status === 410) { setCerrada(true); return; }
+                red(true);
+                const d = await r.json().catch(() => ({}));
+                const espera = esperasPiz.current.find(e => e.idLocal === c.id);
+                if (r.ok && d.n) {
+                    if (espera) espera.n = d.n;
+                    setParedesNuevas(prev => prev.map(x => (x.id === c.id ? { ...x, n: d.n } : x)));
+                } else {
+                    const texto = d.error || 'No se ha podido mandar lo dibujado.';
+                    setAvisoPiz({ ok: false, texto: `${c.texto ? `${c.texto}: ` : ''}${texto}` });
+                    setParedesNuevas(prev => prev.filter(x => x.id !== c.id));
+                    espera?.resolve({ ok: false, texto });
+                    await refrescarParedes();
+                }
+                pizColaRef.current = pizColaRef.current.filter(x => x.id !== c.id);
+                setPizCola(pizColaRef.current);
+            }
+        } finally {
+            mandandoPiz.current = false;
+        }
+    }, [token, red, refrescarParedes]);
+
     // ── Vuelve la red: sale lo pendiente ──────────────────────────────────
     const mandarAjuste = useCallback(async () => {
         const pet = ajusteRef.current;
@@ -662,12 +779,13 @@ export default function CroquisMovilView({ token }) {
             if (ajusteRef.current) await mandarAjuste();
             if (viviendaRef.current) await mandarVivienda();
             if (contrasRef.current.length) await mandarContras();
+            if (pizColaRef.current.length) await mandarPizarra();
         })();
     }, [pulso]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Tras un corte, cuando ya no queda nada por mandar: se dice, un momento.
     const hayPendiente = sinEnviar || !!ajusteEnCola || pendFotos.fotos > 0 || pendFotos.huecos > 0
-        || pendFotos.lecturas > 0 || !!viviendaEnCola || contras.length > 0;
+        || pendFotos.lecturas > 0 || !!viviendaEnCola || contras.length > 0 || pizCola.length > 0;
     useEffect(() => {
         if (sinRed) { if (hayPendiente) setCorteConPendiente(true); return; }
         if (hayPendiente || !corteConPendiente) return;
@@ -684,6 +802,24 @@ export default function CroquisMovilView({ token }) {
         const t = setTimeout(() => setAvisoContra(null), 4500);
         return () => clearTimeout(t);
     }, [avisoContra]);
+    // Lo entendido de un trazo se dice un momento; un fallo se queda más.
+    useEffect(() => {
+        if (!avisoPiz) return undefined;
+        const t = setTimeout(() => setAvisoPiz(null), avisoPiz.ok ? 3500 : 7000);
+        return () => clearTimeout(t);
+    }, [avisoPiz]);
+    // Una pared dibujada aquí deja de pintarse a trazos en cuanto el plano
+    // la trae de vuelta (ya con su nombre y su id).
+    const murosPlano = datos?.plano?.muros;
+    useEffect(() => {
+        if (!paredesNuevas.length || !murosPlano) return;
+        const casa = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 0.25;
+        const esta = ([a, b]) => murosPlano.some(m => m.dibujada && m.svg?.length >= 2
+            && ((casa(m.svg[0], a) && casa(m.svg[m.svg.length - 1], b))
+                || (casa(m.svg[0], b) && casa(m.svg[m.svg.length - 1], a))));
+        const quedan = paredesNuevas.filter(x => !(x.tramos || []).every(esta));
+        if (quedan.length !== paredesNuevas.length) setParedesNuevas(quedan);
+    }, [murosPlano, paredesNuevas]);
 
     // ── El dedo ───────────────────────────────────────────────────────────
     const aDibujo = (cx, cy) => {
@@ -701,17 +837,22 @@ export default function CroquisMovilView({ token }) {
         try { svgRef.current?.setPointerCapture?.(e.pointerId); } catch { /* sin captura */ }
         punteros.current.set(e.pointerId, [e.clientX, e.clientY]);
         if (punteros.current.size === 1) {
-            gesto.current = modo !== 'croquis'
+            gesto.current = modo === 'pizarra' && lapiz !== 'mano'
+                // En la PIZARRA un dedo raya con el lápiz que se tiene en la mano.
+                ? { tipo: 'pizarra', id: e.pointerId, pts: [aDibujo(e.clientX, e.clientY)] }
+                : modo !== 'croquis'
                 // En FOTOS y en VIVIENDA un dedo no pinta: TOCA (elige una pared
                 // o pone una esquina) o, si se arrastra, mueve el plano.
                 ? { tipo: 'toque', id: e.pointerId, x0: e.clientX, y0: e.clientY, vb0: vb, movido: false }
                 : { tipo: 'trazo', id: e.pointerId, pts: [aDibujo(e.clientX, e.clientY)] };
+            if (gesto.current.tipo === 'pizarra') setTrazoPiz(gesto.current.pts);
         } else if (punteros.current.size === 2) {
             // Un segundo dedo: era un pellizco, no un trazo.
             if (gesto.current?.tipo === 'trazo') {
                 setEnCurso(null);
                 sincronizar(trazosRef.current, null, { ya: true });
             }
+            if (gesto.current?.tipo === 'pizarra') setTrazoPiz(null);
             const [a, b] = [...punteros.current.values()];
             const r = svgRef.current.getBoundingClientRect();
             const medio = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
@@ -733,6 +874,13 @@ export default function CroquisMovilView({ token }) {
             g.movido = true;
             const r = svgRef.current.getBoundingClientRect();
             setVb({ ...g.vb0, x: g.vb0.x - dx * g.vb0.w / r.width, y: g.vb0.y - dy * g.vb0.h / r.height });
+        } else if (g.tipo === 'pizarra' && g.id === e.pointerId) {
+            const p = aDibujo(e.clientX, e.clientY);
+            const u = g.pts[g.pts.length - 1];
+            if (Math.hypot(p[0] - u[0], p[1] - u[1]) > vb.w / 400) {
+                g.pts.push([Math.round(p[0] * 100) / 100, Math.round(p[1] * 100) / 100]);
+                setTrazoPiz([...g.pts]);
+            }
         } else if (g.tipo === 'trazo' && g.id === e.pointerId) {
             const p = aDibujo(e.clientX, e.clientY);
             const u = g.pts[g.pts.length - 1];
@@ -759,7 +907,11 @@ export default function CroquisMovilView({ token }) {
     const onUp = (e) => {
         punteros.current.delete(e.pointerId);
         const g = gesto.current;
-        if (g?.tipo === 'trazo' && g.id === e.pointerId) {
+        if (g?.tipo === 'pizarra' && g.id === e.pointerId) {
+            gesto.current = null;
+            setTrazoPiz(null);
+            trazoDePizarra(g.pts);
+        } else if (g?.tipo === 'trazo' && g.id === e.pointerId) {
             gesto.current = null;
             setEnCurso(null);
             const pts = simplificarTrazo(g.pts);
@@ -779,12 +931,129 @@ export default function CroquisMovilView({ token }) {
                 const px = vb.w / Math.max(1, anchoPx || svgRef.current.getBoundingClientRect().width);
                 const p = aDibujo(e.clientX, e.clientY);
                 if (modo === 'vivienda') tocarVivienda(p, px);
+                else if (modo === 'pizarra') decirPared(paredEnPunto(datos?.plano?.muros, p, 26 * px));
                 else setSelPared(paredEnPunto(datos?.plano?.muros, p, 26 * px));
             }
         } else if (g?.tipo === 'pinza' && punteros.current.size < 2) {
             gesto.current = null;
         }
     };
+
+    // ── La PIZARRA ────────────────────────────────────────────────────────
+    // Las paredes como las entiende `pizarra.js`: con su tipo, sus huecos y si
+    // están dibujadas o fuera. Solo las que tienen id (las demás no se pueden nombrar).
+    const murosParaPizarra = () => (datos?.plano?.muros || []).filter(m => m.id && m.svg?.length >= 2)
+        .map(m => ({ id: m.id, nombre: m.nombre, svg: m.svg, tipo: m.tipo, huecos: m.lista_huecos || [],
+                     ...(m.dibujada ? { dibujada: true } : {}), ...(m.fuera ? { fuera: true } : {}) }));
+    const nombreDePared = (id) => {
+        const m = (datos?.plano?.muros || []).find(x => x.id === id);
+        return m?.nombre || id;
+    };
+    // Lo que dice un trazo, en palabras: lo que se verá en «Así es como está».
+    const describir = (a) => {
+        if (a.accion === 'reclasificar') return `${nombreDePared(a.id)} → ${ETIQUETA_TIPO[a.tipo] || a.tipo}`;
+        if (a.accion === 'paredes') {
+            const m = a.tramos.reduce((t, [p, q]) => t + Math.hypot(q[0] - p[0], q[1] - p[1]), 0);
+            return `${a.tramos.length === 1 ? 'Pared nueva' : `${a.tramos.length} paredes nuevas`} de ${ETIQUETA_TIPO[a.tipo] || a.tipo}`
+                + ` (${m.toFixed(2).replace('.', ',')} m)`;
+        }
+        if (a.accion === 'hueco') {
+            return `${a.tipo === 'puerta' ? 'Puerta' : 'Ventana'} de ≈${a.ancho.toFixed(2).replace('.', ',')} m en ${nombreDePared(a.id)}`;
+        }
+        if (a.accion === 'borrar') {
+            const p = [];
+            if (a.huecos.length) p.push(a.huecos.map(h => h.nombre || 'un hueco').join(', '));
+            if (a.paredes.length) p.push(a.paredes.map(nombreDePared).join(', '));
+            return `Borrado: ${p.join(' · ')}`;
+        }
+        return '';
+    };
+    // Con «Mover», tocar una pared dice qué es: lo que se mira antes de repasarla.
+    const decirPared = (id) => {
+        const m = (datos?.plano?.muros || []).find(x => x.id === id);
+        if (!m) { setAvisoPiz(null); return; }
+        const que = m.fuera ? 'apartada de la envolvente' : (ETIQUETA_TIPO[m.tipo] || m.tipo || 'pared');
+        const huecos = (m.lista_huecos || []).length;
+        const largo = m.largo ? ` · ${Number(m.largo).toFixed(2).replace('.', ',')} m` : '';
+        setAvisoPiz({ ok: true, texto: `${m.nombre || m.id}: ${que}${largo}`
+            + `${huecos ? ` · ${huecos} ${huecos === 1 ? 'hueco' : 'huecos'}` : ''}${m.dibujada ? ' · dibujada a mano' : ''}` });
+    };
+    const encolarPizarra = (accion, texto, id = nuevoIdLocal('pz')) => {
+        pizColaRef.current = [...pizColaRef.current, { id, accion, texto }];
+        setPizCola(pizColaRef.current);
+        mandarPizarra();
+        return id;
+    };
+    // Lo dibujado se VE al momento: el ordenador lo confirma después (con las
+    // paredes de verdad) y, si no ha podido, se vuelve a lo que había.
+    const verloYa = (a, id) => {
+        if (a.accion === 'paredes') {
+            setParedesNuevas(prev => [...prev, { id, tipo: a.tipo, tramos: a.tramos }]);
+            return;
+        }
+        setDatos(dd => {
+            if (!dd) return dd;
+            let muros2 = dd.plano.muros;
+            if (a.accion === 'reclasificar') {
+                muros2 = muros2.map(m => (m.id === a.id
+                    ? { ...m, tipo: a.tipo, admite: a.tipo === 'FACHADA' && !m.fuera } : m));
+            } else if (a.accion === 'hueco') {
+                muros2 = muros2.map(m => (m.id === a.id ? { ...m, lista_huecos: [...(m.lista_huecos || []),
+                    { uid: `tmp-${id}`, nombre: a.tipo === 'puerta' ? 'P' : 'V', tipo: a.tipo,
+                      ancho: a.ancho, pos: a.pos, dudoso: true }] } : m));
+            } else if (a.accion === 'borrar') {
+                const fuera = new Set(a.paredes);
+                muros2 = muros2
+                    .filter(m => !(fuera.has(m.id) && m.dibujada))
+                    .map(m => {
+                        const quita = a.huecos.filter(h => h.id === m.id);
+                        let x = m;
+                        if (quita.length) {
+                            x = { ...x, lista_huecos: (x.lista_huecos || []).filter((h, i) => !quita.some(q =>
+                                (q.uid && q.uid === h.uid) || (!q.uid && q.i === i))) };
+                        }
+                        if (fuera.has(m.id)) x = { ...x, fuera: true, admite: false };
+                        return x;
+                    });
+            }
+            return { ...dd, plano: { ...dd.plano, muros: muros2 } };
+        });
+    };
+    const trazoDePizarra = (pts) => {
+        const ancho = anchoPx || svgRef.current?.getBoundingClientRect().width || 0;
+        const px = vb.w / Math.max(1, ancho);
+        const t = ancho > 0 ? vb.w * TAM_PX / ancho : vb.w / 28;
+        const r = interpretarTrazo({ pts, herramienta: lapiz, muros: murosParaPizarra(),
+                                     tam: t * DEDO, iman: Math.min(1.6, 22 * px) });
+        if (r.error) { setAvisoPiz({ ok: false, texto: r.error }); return; }
+        const texto = describir(r);
+        const id = encolarPizarra(r, texto);
+        verloYa(r, id);
+        setCambiosPiz(prev => [...prev, { at: new Date().toISOString(), texto }].slice(-80));
+        setAvisoPiz({ ok: true, texto });
+    };
+    // «Así es como está» desde el teléfono: va a la misma cola —detrás de lo
+    // dibujado— y se espera a que el ordenador conteste (guarda la revisión él).
+    const confirmarAsiEs = ({ nota, avisarClaude }) => new Promise((resolve) => {
+        const id = nuevoIdLocal('pz');
+        const espera = { idLocal: id, n: null };
+        espera.resolve = (r) => {
+            clearTimeout(espera.t);
+            esperasPiz.current = esperasPiz.current.filter(e => e !== espera);
+            if (r?.ok) setCambiosPiz([]);
+            resolve(r);
+        };
+        espera.t = setTimeout(() => espera.resolve({ ok: true, texto: sinRedRef.current
+            ? 'Sin cobertura: queda guardado en el teléfono y se mandará solo en cuanto vuelva la señal.'
+            : 'Mandado. Lo guardará el ordenador en cuanto lo recoja: deja abierta allí la ventana de la envolvente.' }),
+        ESPERA_ASI_ES_MS);
+        esperasPiz.current.push(espera);
+        encolarPizarra({ accion: 'asi_es', nota, avisar_claude: !!avisarClaude }, '«Así es como está»', id);
+        if (sinRedRef.current) {
+            espera.resolve({ ok: true, texto: 'Sin cobertura: queda guardado en el teléfono y se mandará solo '
+                + 'en cuanto vuelva la señal.' });
+        }
+    });
 
     // Un toque en la pestaña VIVIENDA: en «Contorno» pone una esquina (o
     // cierra, si es la primera); en «Paredes» elige la pared para decir contra
@@ -920,7 +1189,7 @@ export default function CroquisMovilView({ token }) {
     // ── Pantallas que no son el dibujo ────────────────────────────────────
     if (error || cerrada) {
         const queda = quedaAqui && textoPendiente({ zonas: quedaAqui.zonas, fotos: quedaAqui.fotos,
-                                                    huecos: quedaAqui.huecos });
+                                                    huecos: quedaAqui.huecos, dibujos: quedaAqui.dibujos });
         return (
             <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-bkg-deep p-8 text-center">
                 <div className="text-4xl">📱</div>
@@ -974,8 +1243,10 @@ export default function CroquisMovilView({ token }) {
     const enFotos = modo === 'fotos';
     const enVivienda = modo === 'vivienda';
     const enCroquis = modo === 'croquis';
+    const enPizarra = modo === 'pizarra';
     const recorte = datos.plano?.recorte?.length >= 3 ? datos.plano.recorte : null;
     const pista = enCroquis && fase === 'pintando' && !repintando && !sinOrdenador && !sinRed;
+    const pistaPizarra = enPizarra && !trazoPiz && !avisoPiz && !cambiosPiz.length && !sinOrdenador && !sinRed;
     const pistaVivienda = enVivienda && subActiva === 'contorno' && !contorno.pts.length && !aplicandoVivienda
         && !sinOrdenador && !sinRed;
     // La VISTA AÉREA debajo, si se ha elegido: las teselas, ya en este lienzo.
@@ -986,7 +1257,8 @@ export default function CroquisMovilView({ token }) {
     const pendienteTxt = textoPendiente({ zonas: sinEnviar ? Math.max(1, trazos.length) : 0, fotos: pendFotos.fotos,
                                           huecos: pendFotos.huecos, lecturas: pendFotos.lecturas,
                                           ajuste: !!ajusteEnCola, vivienda: !!viviendaEnCola,
-                                          contras: contras.length });
+                                          contras: contras.length,
+                                          dibujos: pizCola.filter(c => c.accion?.accion !== 'asi_es').length });
     const paredesConId = muros.filter(m => m.id);
     const tieneFoto = (id) => (fotosPorPared[id] || []).some(f => !f.roto);
     const cambiaModo = (m) => {
@@ -994,6 +1266,7 @@ export default function CroquisMovilView({ token }) {
         if (m === 'fotos') cargarFotos();
         else setSelPared(null);
         if (m !== 'vivienda') setSelParedV(null);
+        if (m !== 'pizarra') { setTrazoPiz(null); setAvisoPiz(null); }
     };
     const m2Dibujados = trazos.reduce((a, t) => a + areaPoligono(t.pts), 0);
     const rescateAqui = rescate ? recuperarTrazos(rescate.trazos, rescate.marco, datos.marco) : [];
@@ -1112,13 +1385,45 @@ export default function CroquisMovilView({ token }) {
                                       strokeLinecap="round" strokeLinejoin="round" />
                         ))}
                         {muros.map((m, i) => {
-                            const t = trazoMuro(m.tipo);
+                            // Lo apartado de la envolvente sigue ahí, pero no cuenta.
+                            const t = m.fuera ? { stroke: '#94a3b8', dash: true } : trazoMuro(m.tipo);
                             return (
                                 <polyline key={i} points={puntos(m.svg)} fill="none" stroke={t.stroke}
                                           strokeWidth={tam * 0.22} strokeLinecap="round" strokeLinejoin="round"
                                           strokeDasharray={t.dash ? `${tam * 0.7} ${tam * 0.45}` : undefined} />
                             );
                         })}
+
+                        {/* PIZARRA · los huecos sobre su pared (a trazos los que están
+                            por medir) y las paredes dibujadas aquí que el ordenador
+                            todavía no ha devuelto. */}
+                        {enPizarra && muros.filter(m => m.lista_huecos?.length && m.svg?.length >= 2).map(m => (
+                            huecosColocados({ svg: m.svg, huecos: m.lista_huecos }).map(({ h, i, s: sh, medio }) => {
+                                const a = at(m.svg, sh - medio), b = at(m.svg, sh + medio);
+                                const c = COLOR_HUECO_MOVIL[h.tipo] || COLOR_HUECO_MOVIL.ventana;
+                                return (
+                                    <g key={`hp-${m.id}-${i}`} style={{ pointerEvents: 'none' }}>
+                                        <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#fff" strokeWidth={tam * 0.55} />
+                                        <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={c} strokeWidth={tam * 0.32}
+                                              strokeDasharray={h.dudoso ? `${tam * 0.32} ${tam * 0.2}` : undefined} />
+                                        {h.nombre && (
+                                            <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - tam * 0.6} fontSize={tam * 0.66}
+                                                  fontWeight={800} textAnchor="middle" fill={c} stroke="#fff"
+                                                  strokeWidth={tam * 0.18} paintOrder="stroke">{h.nombre}</text>
+                                        )}
+                                    </g>
+                                );
+                            })
+                        ))}
+                        {paredesNuevas.map(x => (x.tramos || []).map(([p, q], i) => (
+                            <line key={`pn-${x.id}-${i}`} x1={p[0]} y1={p[1]} x2={q[0]} y2={q[1]}
+                                  stroke={trazoMuro(x.tipo).stroke} strokeWidth={tam * 0.24} strokeLinecap="round"
+                                  strokeDasharray={`${tam * 0.5} ${tam * 0.3}`} strokeOpacity={0.85}
+                                  style={{ pointerEvents: 'none' }} />
+                        )))}
+                        {enPizarra && trazoPiz && (
+                            <TrazoPizarra pts={trazoPiz} tam={tam * 1.2} color={colorDeLapiz(lapiz)} />
+                        )}
 
                         {/* El CONTORNO que se está dibujando: los lados puestos, por
                             dónde se va a cerrar (a trazos) y las esquinas; la
@@ -1377,6 +1682,14 @@ export default function CroquisMovilView({ token }) {
                     </div>
                 )}
 
+                {pistaPizarra && (
+                    <div className="croquis-chip rounded-xl px-3 py-2 text-[12.5px] leading-snug shadow-lg"
+                         style={{ background: 'rgba(15, 23, 42, 0.86)' }}>
+                        <strong>Elige un lápiz y raya encima del plano</strong>
+                        <span className="opacity-75"> · repasa una pared para cambiar lo que es · dos dedos: mover y ampliar</span>
+                    </div>
+                )}
+
                 {pistaFotos && (
                     <div className="croquis-chip rounded-xl px-3 py-2 text-[12.5px] leading-snug shadow-lg"
                          style={{ background: 'rgba(15, 23, 42, 0.86)' }}>
@@ -1501,12 +1814,13 @@ export default function CroquisMovilView({ token }) {
                 </div>
                 {/* Qué se hace: pintar lo que no es vivienda, o la foto de cada pared. */}
                 <div className="mx-auto w-full max-w-xl shrink-0 px-3 pt-2.5">
-                    <div role="tablist" className="grid grid-cols-3 gap-1 rounded-xl border border-white/10 bg-white/[0.03] p-1">
+                    <div role="tablist" className="grid grid-cols-4 gap-1 rounded-xl border border-white/10 bg-white/[0.03] p-1">
                         {[['vivienda', <IconoVivienda key="v" />, 'Vivienda'],
                           ['croquis', <IconoLapiz key="l" />, 'Croquis'],
+                          ['pizarra', <IconoPizarra key="p" />, 'Pizarra'],
                           ['fotos', <IconoCamara key="c" />, 'Fotos']].map(([m, ic, t]) => (
                             <button key={m} role="tab" aria-selected={modo === m} onClick={() => cambiaModo(m)}
-                                    className={`flex min-h-[40px] items-center justify-center gap-1.5 rounded-lg text-[12.5px]
+                                    className={`flex min-h-[40px] items-center justify-center gap-1 rounded-lg text-[12px]
                                                 font-bold transition
                                         ${modo === m ? 'bg-violet-600 text-white shadow' : 'text-white/75'}`}>
                                 {ic} {t}
@@ -1547,6 +1861,25 @@ export default function CroquisMovilView({ token }) {
                                      sinOrdenador={sinOrdenador} sinRed={sinRed} pulso={pulso} onRed={red}
                                      onPendientes={setPendFotos} onEstadoParedes={setEstadoParedes} />
                 </div>
+                {enPizarra && (
+                    <div className="mx-auto w-full max-w-xl px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2.5
+                                    landscape:flex-1">
+                        <PizarraControl herramienta={lapiz} onHerramienta={setLapiz}
+                                        aviso={avisoPiz} onAviso={setAvisoPiz}
+                                        cambios={cambiosPiz.length}
+                                        onAsiEsComoEsta={() => setVerAsiEs(true)}
+                                        pistaMover="Con «Mover», un dedo mueve el plano y tocar una pared dice qué es; dos dedos amplían." />
+                        {pizCola.some(c => c.accion?.accion !== 'asi_es') && (
+                            <p className="px-1 text-[12px] leading-snug text-white/65">
+                                {sinRed ? 'Sin cobertura: guardado en el teléfono, ' : 'Mandando al ordenador: '}
+                                {pizCola.filter(c => c.accion?.accion !== 'asi_es').length} por llegar.
+                            </p>
+                        )}
+                    </div>
+                )}
+                <AsiEsComoEstaModal abierto={verAsiEs} cambios={cambiosPiz} fase={null}
+                                    puedeClaude={!!datos.puedeClaude}
+                                    onCerrar={() => setVerAsiEs(false)} onConfirmar={confirmarAsiEs} />
                 {enVivienda && (
                     <div className="mx-auto w-full max-w-xl px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2.5
                                     landscape:flex-1">

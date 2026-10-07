@@ -143,13 +143,14 @@ const plural = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
 
 /** «2 zonas, 3 fotos y el ajuste»: lo que queda por mandar, en una línea. */
 export function textoPendiente({ zonas = false, fotos = 0, ajuste = false, huecos = 0, lecturas = 0,
-                                  vivienda = false, contras = 0 } = {}) {
+                                  vivienda = false, contras = 0, dibujos = 0 } = {}) {
     const partes = [];
     if (zonas) partes.push(typeof zonas === 'number' ? plural(zonas, 'zona pintada', 'zonas pintadas') : 'lo pintado');
     if (fotos) partes.push(plural(fotos, 'foto', 'fotos'));
     if (lecturas) partes.push(plural(lecturas, 'foto por contar', 'fotos por contar'));
     if (huecos) partes.push(plural(huecos, 'pared con ventanas por poner', 'paredes con ventanas por poner'));
     if (contras) partes.push(plural(contras, 'pared por cambiar', 'paredes por cambiar'));
+    if (dibujos) partes.push(plural(dibujos, 'cambio dibujado', 'cambios dibujados'));
     if (vivienda) partes.push('el contorno de la vivienda');
     if (ajuste) partes.push('el ajuste a Catastro');
     if (!partes.length) return '';

@@ -19,7 +19,11 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
 // el backend LEE el justificante y compara con eso, aunque aún no esté guardado.
 // `onUploaded(link, comprobacion)` recibe además el veredicto y el IBAN con el que
 // rellenar la ficha si estaba vacía (`comprobacion.rellenar`).
-export function JustificanteUploader({ expedienteId, currentLink = null, onUploaded, variant = 'box', label = 'Justificante de titularidad bancaria', huella = null, cliente = null }) {
+// `endpoint` = a dónde se sube (por defecto, el del expediente). La ficha del
+// cliente usa `/api/clientes/:id/justificante`, que elige el expediente destino.
+// `extraBody` viaja junto al fichero. `aviso` = línea ámbar bajo el slot (p. ej. el
+// IBAN de la ficha ya no es el del justificante).
+export function JustificanteUploader({ expedienteId, endpoint = null, extraBody = null, currentLink = null, onUploaded, variant = 'box', label = 'Justificante de titularidad bancaria', huella = null, cliente = null, deshabilitado = null, aviso = null, detalle = null }) {
     const [link, setLink] = useState(currentLink || null);
     const [comprobacion, setComprobacion] = useState(null);
     const [uploading, setUploading] = useState(false);
@@ -30,16 +34,17 @@ export function JustificanteUploader({ expedienteId, currentLink = null, onUploa
     useEffect(() => { setLink(currentLink || null); }, [currentLink]);
 
     const doUpload = async (file) => {
-        if (!file || !expedienteId || uploading) return;
+        const url = endpoint || (expedienteId ? `/api/expedientes/${expedienteId}/justificante` : null);
+        if (!file || !url || uploading || deshabilitado) return;
         const ok = file.type === 'application/pdf' || (file.type || '').startsWith('image/');
         if (!ok) { setError('Solo se admite PDF o imagen.'); return; }
         setError(null); setUploading(true); setComprobacion(null);
         try {
             const base64 = await fileToBase64(file);
-            const { data } = await axios.post(`/api/expedientes/${expedienteId}/justificante`, { base64, mimeType: file.type, cliente: cliente || undefined });
+            const { data } = await axios.post(url, { ...(extraBody || {}), base64, mimeType: file.type, cliente: cliente || undefined });
             const comp = data?.comprobacion || (data?.lectura_fallida ? { lecturaFallida: true } : null);
             setComprobacion(comp);
-            if (data?.link) { setLink(data.link); if (onUploaded) onUploaded(data.link, comp); }
+            if (data?.link) { setLink(data.link); if (onUploaded) onUploaded(data.link, comp, data); }
         } catch (e) {
             setError(e.response?.data?.error || 'No se pudo subir el justificante.');
         } finally { setUploading(false); }
@@ -51,7 +56,7 @@ export function JustificanteUploader({ expedienteId, currentLink = null, onUploa
         onDragLeave: e => { e.preventDefault(); if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false); },
         onDrop: e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files?.[0]; if (f) doUpload(f); },
     };
-    const pick = () => !uploading && inputRef.current?.click();
+    const pick = () => !uploading && !deshabilitado && inputRef.current?.click();
     const HiddenInput = () => <input ref={inputRef} type="file" accept="application/pdf,image/*" className="hidden" onChange={e => { doUpload(e.target.files?.[0]); e.target.value = ''; }} />;
 
     // Barra indeterminada de "anexando…"
@@ -84,6 +89,56 @@ export function JustificanteUploader({ expedienteId, currentLink = null, onUploa
                         : dragging ? 'Suelta aquí'
                         : <><svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0-12l-4 4m4-4l4 4" /></svg>Subir / soltar</>}
                 </span>
+            </div>
+        );
+    }
+
+    // ───────── variant SLOT (junto al IBAN de la ficha del cliente) ─────────
+    // Del alto de un campo: dice de un vistazo si lo tenemos y se suelta encima.
+    if (variant === 'slot') {
+        const tono = deshabilitado ? 'border-white/[0.06] bg-white/[0.02] opacity-60 cursor-not-allowed'
+            : dragging ? 'border-brand bg-brand/15'
+            : uploading ? 'border-brand/40 bg-brand/[0.06]'
+            : link ? 'border-emerald-500/30 bg-emerald-500/[0.06] hover:border-emerald-400/50 cursor-pointer'
+            : 'border-amber-500/35 bg-amber-500/[0.06] hover:border-amber-400/60 cursor-pointer';
+        return (
+            <div>
+                <HiddenInput />
+                <div {...(deshabilitado ? {} : dnd)} onClick={pick} title={deshabilitado || 'Arrastra aquí el PDF o la foto, o pulsa para elegirlo'}
+                    className={`flex items-center gap-2.5 min-h-[46px] px-3 py-2 rounded-xl border-2 border-dashed transition-all ${tono}`}>
+                    {uploading ? (
+                        <div className="flex-1 space-y-1.5">
+                            <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-brand">
+                                <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
+                                Anexando y leyendo…
+                            </span>
+                            <Bar />
+                        </div>
+                    ) : dragging ? (
+                        <span className="flex-1 text-center text-[11px] font-black uppercase tracking-widest text-brand pointer-events-none">Suelta aquí</span>
+                    ) : link ? (
+                        <>
+                            <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                            <span className="flex-1 min-w-0">
+                                <span className="block text-[11px] font-black uppercase tracking-wider text-emerald-400">Tenemos el justificante</span>
+                                <span className="block text-[10px] text-white/35 truncate">{detalle || 'Arrastra otro para sustituirlo'}</span>
+                            </span>
+                            <a href={link} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                                className="shrink-0 text-[10px] font-black uppercase tracking-widest text-emerald-400/80 hover:text-emerald-300">Ver ↗</a>
+                        </>
+                    ) : (
+                        <>
+                            <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0-12l-4 4m4-4l4 4" /></svg>
+                            <span className="flex-1 min-w-0">
+                                <span className="block text-[11px] font-black uppercase tracking-wider text-amber-300">No tenemos el justificante</span>
+                                <span className="block text-[10px] text-white/40 truncate">{deshabilitado || detalle || 'Arrastra el PDF o la foto, o pulsa'}</span>
+                            </span>
+                        </>
+                    )}
+                </div>
+                {aviso && !uploading && !comprobacion && <p className="mt-1.5 text-[11px] text-amber-300/90">⚠ {aviso}</p>}
+                {error && <p className="mt-1.5 text-[11px] text-red-400">⚠️ {error}</p>}
+                {!uploading && comprobacion && <ResultadoLectura c={comprobacion} />}
             </div>
         );
     }

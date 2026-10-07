@@ -269,7 +269,7 @@ async function pedirGeometria(expedienteId, origen, body = {}) {
     }
     // El SEMISÓTANO y las unidades de OTRA parcela: los declara el
     // certificador en su trabajo y se leen AQUÍ, no del navegador.
-    const { semisotano, anexos } = cex.declaracionesEdificio(trabajo?.ajustes);
+    const { semisotano, anexos, volumenes } = cex.declaracionesEdificio(trabajo?.ajustes);
 
     const r = await alMotor('/envolvente', {
         referencia_catastral: rc,
@@ -278,6 +278,7 @@ async function pedirGeometria(expedienteId, origen, body = {}) {
         construcciones,
         ...(semisotano ? { semisotano } : {}),
         ...(anexos.length ? { anexos } : {}),
+        ...(volumenes.length ? { volumenes } : {}),
         // Los CUERPOS del edificio que el certificador deja fuera (el
         // aparcamiento adosado, el porche). Vienen del navegador como el
         // resto de lo que señala en el plano —las paredes apartadas, los
@@ -417,6 +418,50 @@ router.put('/:expedienteId/trabajo', internalOnly, staffSiOportunidad, async (re
 });
 
 /**
+ * POST /api/cee-envolvente/:expedienteId/revision
+ * Body: { fase, nota?, cambios: [{ at, texto }], avisar_claude? }
+ *
+ * «✓ Así es como está»: quien conoce la vivienda da el plano por bueno —tras
+ * corregirlo en la PIZARRA, o tal cual— y, si quiere, le pide a Claude que
+ * rehaga el CEE sobre él. El trabajo ya lo ha guardado la ventana justo antes;
+ * aquí se sella la revisión, se anota y se avisa (ver `services/cee/revisionPlano.js`).
+ *
+ * Pedírselo a Claude es del EQUIPO INTERNO: el asistente es el de Fran, y un
+ * certificador de fuera no le encarga trabajo.
+ */
+router.get('/:expedienteId/revision', internalOnly, staffSiOportunidad, async (req, res) => {
+    try {
+        const revision = await require('../services/cee/revisionPlano')
+            .leer({ clave: req.params.expedienteId, origen: origenDe(req) });
+        res.json({ revision });
+    } catch (e) {
+        console.error('[ceeEnvolvente] leer revisión del plano:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+router.post('/:expedienteId/revision', internalOnly, staffSiOportunidad, async (req, res) => {
+    try {
+        const b = req.body || {};
+        const u = req.user;
+        const perfil = u?.perfilCompleto || {};
+        const nombre = [perfil.nombre, perfil.apellidos].filter(Boolean).join(' ').trim();
+        const por = u?.esRobot ? 'CLAUDE'
+            : (nombre || u?.acronimo || u?.razon_social
+               || (u?.rol_nombre === 'ADMIN' ? 'ADMINISTRADOR' : 'Equipo'));
+        const r = await require('../services/cee/revisionPlano').registrar({
+            clave: req.params.expedienteId, origen: origenDe(req),
+            fase: b.fase, nota: b.nota, cambios: b.cambios, por,
+            avisarClaude: !!b.avisar_claude && isStaff(req),
+        });
+        res.json(r);
+    } catch (e) {
+        console.error('[ceeEnvolvente] revisión del plano:', e.message);
+        res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+/**
  * POST /api/cee-envolvente/:expedienteId/ficha
  * Body: { geometria, ajustes? }
  *
@@ -536,6 +581,9 @@ router.post('/:expedienteId/croquis-movil', internalOnly, staffSiOportunidad, as
             // escriben en la tabla que toque.
             negocio: origenDe(req),
             origen: req.get('origin') || req.get('referer'),
+            // «Así es como está» desde el teléfono solo pone a Claude a trabajar
+            // si quien abrió el croquis es del equipo interno.
+            puedeClaude: isStaff(req),
         });
         const QRCode = require('qrcode');
         const pintar = (u) => QRCode.toDataURL(u, { margin: 1, width: 460 });
@@ -593,6 +641,15 @@ router.post('/:expedienteId/croquis-movil/:token/paredes', internalOnly, staffSi
  */
 router.post('/:expedienteId/croquis-movil/:token/resultado-contra', internalOnly, staffSiOportunidad, (req, res) => {
     const ok = croquisMovil.responderContra(req.params.token, req.params.expedienteId, req.body || {});
+    res.status(ok ? 200 : 410).json({ ok });
+});
+
+/**
+ * POST …/croquis-movil/:token/resultado-pizarra — el ordenador ha aplicado (o
+ * no) lo dibujado en la pizarra del teléfono.
+ */
+router.post('/:expedienteId/croquis-movil/:token/resultado-pizarra', internalOnly, staffSiOportunidad, (req, res) => {
+    const ok = croquisMovil.responderPizarra(req.params.token, req.params.expedienteId, req.body || {});
     res.status(ok ? 200 : 410).json({ ok });
 });
 

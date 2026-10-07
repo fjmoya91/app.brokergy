@@ -36,7 +36,7 @@ async function prueba(nombre, fn) {
         assert.ok(d);
         assert.deepStrictEqual(Object.keys(d).sort(),
             ['catastro', 'clave', 'contorno', 'georef', 'marco', 'modoInicial', 'plano', 'planta', 'propuesta',
-             'resultado', 'trazos', 'usos', 'version']);
+             'puedeClaude', 'resultado', 'trazos', 'usos', 'version']);
         // Sin pedirlo, se abre en el croquis (lo de siempre).
         assert.strictEqual(d.modoInicial, 'croquis');
         // La clave es un resumen: no lleva el id del expediente.
@@ -389,6 +389,48 @@ async function prueba(nombre, fn) {
         // Con el token de otro expediente, nada.
         assert.strictEqual(cm.responderContra(a.token, 'EXP-1', { n: 99 }), false);
         cm.cerrar(a.token, 'EXP-V');
+    });
+
+    await prueba('PIZARRA: lo dibujado en el teléfono va a una COLA, saneado y en orden', async () => {
+        const a = conParedes();
+        // Solo lo que el ordenador sabe aplicar, y sobre paredes que existen.
+        assert.strictEqual(cm.pedirPizarra(a.token, { accion: { accion: 'reclasificar', id: 'NOEXISTE', tipo: 'FACHADA' } }).motivo, 'accion');
+        assert.strictEqual(cm.pedirPizarra(a.token, { accion: { accion: 'reclasificar', id: 'FBS1', tipo: 'PATIO' } }).motivo, 'accion');
+        assert.strictEqual(cm.pedirPizarra(a.token, { accion: { accion: 'hueco', id: 'FBS1', tipo: 'balcon', ancho: 1, pos: 0.5 } }).motivo, 'accion');
+        assert.strictEqual(cm.pedirPizarra(a.token, { accion: { accion: 'volar' } }).motivo, 'accion');
+        const r1 = cm.pedirPizarra(a.token, { accion: { accion: 'paredes', tipo: 'PARTICION_VERTICAL',
+                                                       tramos: [[[10, 0], [10, 18]]] }, id_local: 'pz-111111' });
+        cm.pedirPizarra(a.token, { accion: { accion: 'hueco', id: 'FBS1', tipo: 'ventana', ancho: 1.2, pos: 7 },
+                                   id_local: 'pz-222222' });
+        cm.pedirPizarra(a.token, { accion: { accion: 'asi_es', nota: 'x'.repeat(2000), avisar_claude: 1 },
+                                   id_local: 'pz-333333' });
+        // Un reenvío de algo que sí llegó no se vuelve a poner.
+        assert.deepStrictEqual(cm.pedirPizarra(a.token, { accion: { accion: 'paredes', tipo: 'PARTICION_VERTICAL',
+                                                                    tramos: [[[10, 0], [10, 18]]] }, id_local: 'pz-111111' }), r1);
+        const f = await cm.esperar(a.token, 'EXP-V', 0);
+        assert.deepStrictEqual(f.pizarra.map(c => c.accion.accion), ['paredes', 'hueco', 'asi_es']);
+        assert.strictEqual(f.pizarra[1].accion.pos, 1, 'la posición se queda dentro de la pared');
+        assert.strictEqual(f.pizarra[2].accion.nota.length, 1000);
+        assert.strictEqual(f.pizarra[2].accion.avisar_claude, true);
+        assert.strictEqual(cm.estadoMovil(a.token).pizarraPendientes, 3);
+        // El ordenador contesta la segunda: salen las dos primeras.
+        assert.ok(cm.responderPizarra(a.token, 'EXP-V', { n: f.pizarra[1].n, ok: false, texto: 'esa pared ya no está' }));
+        const e = cm.estadoMovil(a.token);
+        assert.strictEqual(e.pizarraPendientes, 1);
+        assert.strictEqual(e.resultadoPizarra.ok, false);
+        assert.strictEqual(e.resultadoPizarra.texto, 'esa pared ya no está');
+        assert.strictEqual(cm.responderPizarra(a.token, 'EXP-1', { n: 99 }), false);
+        cm.cerrar(a.token, 'EXP-V');
+    });
+
+    await prueba('PIZARRA: «Así es como está» con Claude solo si quien abrió es del equipo', () => {
+        const a = cm.abrir({ expediente: 'EXP-C', planta: { id: 'B', nivel: 0 }, muros: MUROS,
+                             lienzo: { ancho: 18, alto: 18 }, puedeClaude: true });
+        const b = cm.abrir({ expediente: 'EXP-C', planta: { id: 'B', nivel: 0 }, muros: MUROS,
+                             lienzo: { ancho: 18, alto: 18 } });
+        assert.strictEqual(cm.paraMovil(a.token).puedeClaude, true);
+        assert.strictEqual(cm.paraMovil(b.token).puedeClaude, false);
+        [a, b].forEach(x => cm.cerrar(x.token, 'EXP-C'));
     });
 
     await prueba('PLANO: el ordenador vuelve a medir por su cuenta y el teléfono lo ve en planoV', () => {

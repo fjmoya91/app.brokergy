@@ -55,7 +55,7 @@ Un JSON escrito por quien ha mirado las fotos. Todo es opcional salvo lo que se 
 | `aerotermia_id` | id del catálogo `aerotermia` | En una oportunidad va a los inputs (SCOP del catálogo, temperatura por el emisor). En un EXPEDIENTE va a su Instalación (como el desplegable, con el ACS del conjunto); si ya tenía otro equipo, hace falta `"aerotermia_sustituir": true` |
 | `altura_planta` | altura de planta en m (p. ej. `3.3`) | El motor mide las fachadas con ella y la ficha la declara. Sin ella, la ya guardada o 2,80 |
 | `lucernarios` | `[{ "planta": "P1", "ancho": 2.0, "alto": 3.0, "por_que": "…" }]` | En la cubierta de su planta (la de arriba si se omite). Cada planta del plan sustituye la suya. Nacen dudosos |
-| `aires` | `true` (los que confirmó el cliente) o `{ "n": 2, "modo": "refrigeracion" }` | CAE: máquina frigorífica de sólo refrigeración; CEE directo: `climatizacion`. Sustituyen a los aires ya puestos, nunca se suman |
+| `aires` | `true` (los que confirmó el cliente) o `{ "n": 2, "modo": "refrigeracion", "potencia_kw": 4.65 }` | CAE: máquina frigorífica de sólo refrigeración; CEE directo: `climatizacion`. Sustituyen a los aires ya puestos, nunca se suman. `potencia_kw` = la de refrigeración de cada aparato (split doméstico: 3.000-5.000 frigorías ≈ 3,5-5,8 kW); sin ella, la de por defecto |
 | `placa_aerotermia` | lo leído de la placa (`exterior` / `interior`: marca, modelo, nº de serie) | EXPEDIENTE: los nº de serie van a su Instalación (solo huecos, como «Leer placas»). OPORTUNIDAD: a `inputs.placa_ocr` y el expediente los hereda al nacer. `serie_dudosa: true` = ese nº no se escribe |
 | `caldera.nombre` | nombre del equipo en CE3X | Lo que dice la placa/frontal. Sin marca legible, se omite. Si coincide con «CALDERA {marca} {modelo}» de la app no se pone como ajuste (lo compone la ficha) |
 | `caldera.marca` / `modelo` / `numero_serie` | lo que dice la placa | EXPEDIENTE: a la Instalación (caldera de calefacción y, si es la misma, la de ACS), **solo huecos**; lo distinto sale como conflicto y no se toca. OPORTUNIDAD: a `inputs.placa_caldera`. `serie_dudosa: true` si las dos lecturas no coinciden: entonces no se escribe |
@@ -66,22 +66,58 @@ Un JSON escrito por quien ha mirado las fotos. Todo es opcional salvo lo que se 
 | `ventanas` | cómo son las ventanas de la vivienda | `vidrio`: Simple · Doble · Doble bajo emisivo. `marco`: Metálico sin RPT · Metálico con RPT · PVC · Madera |
 | `entrada` | la pared por la que se entra | Tiene que ser una fachada |
 | `huecos[pared]` | los huecos de esa pared | Nombres (`V1`, `P1`) los pone el script. Nacen `dudoso` salvo `"estado":"medido"` |
-| `huecos[].foto` + `box` | dónde está el hueco en esa foto | Fracciones del encuadre (el `box` que devuelve `leer-pared`). Un **fotograma del vídeo** va como `"frame:H3"` (lo deja la orden `video` en `video.json → propuesta`, con su `box`) |
+| `huecos[].foto` + `box` | dónde está el hueco en esa foto | Fracciones del encuadre (el `box` que devuelve `leer-pared`). Un **fotograma del vídeo** va como `"frame:H3"` (lo deja la orden `video` en `video.json → propuesta`, con su `box`); una foto de **Street View**, como `"sv:SV1"` (orden `streetview`) |
 | `huecos[].persiana` | persiana de ESE hueco | Por defecto hereda la de la vivienda; una puerta nunca |
 | `huecos[].porc_marco` | % de marco | Puerta de entrada 90 (defecto), de patio acristalada 30-40 |
-| `fotos[pared]` | fotos que se pegan a la pared | Las de «12. DOCUMENTOS PARA CEE» (fachada, patios, ventanas) por su id, o fotogramas del vídeo como `"frame:H3"`: con `--escribir` se SUBEN a «1. CEE / CEE INICIAL / FOTOS ENVOLVENTE» con el vídeo y el segundo del que salen. `aplicar` busca `video.json` en la carpeta de trabajo (`--video-dir` si está en otra) |
+| `fotos[pared]` | fotos que se pegan a la pared | Las de «12. DOCUMENTOS PARA CEE» (fachada, patios, ventanas) por su id, o fotogramas del vídeo como `"frame:H3"`: con `--escribir` se SUBEN a «1. CEE / CEE INICIAL / FOTOS ENVOLVENTE» con el vídeo y el segundo del que salen. `aplicar` busca `video.json` en la carpeta de trabajo (`--video-dir` si está en otra). Las de **Street View**, como `"sv:SV1"`: se suben igual, marcadas con su panorama y su fecha (`streetview.json`; `--sv-dir` si está en otra carpeta) |
 | `excluidas` | paredes apartadas de la envolvente | Por id |
 | `tipos` / `orientaciones` | «da contra» corregido a mano: `{ "M1S1": "FACHADA" }` y su rumbo `{ "M1S1": "S" }` | Lo mismo que el panel de la pared. Sale avisado en el `.cex`. Una medianera que en realidad da a la calle |
 | `croquis_ajustar` | `false` = el croquis «solo enderezar» | Úsalo cuando la planta tenga **otro inmueble** (el garaje del vecino): el ajuste escala los m² de Catastro a la huella entera y los infla |
 | `pilares` | pilares integrados contados, `{ "FBN2": 0 }` | Se estiman uno cada 3,5 m con mínimo 2: en un quiebro de 30 cm hay que ponerlo a 0 (a 0 no se escribe el puente) |
 | `cuerpos_fuera` / `zonas_fuera` | lo que no es vivienda | Se vuelve a medir. `zonas_fuera`: `[{ "nivel": 0, "uso": "GARAJE"\|"ALMACEN"\|"ESPACIO NO HABITABLE"\|"PORCHE", "poligono": [[x,y],…] }]` en EPSG:25830 (`paredes` imprime las esquinas del edificio). **Solo si el polígono es conocido**: los de la PROPUESTA «DEL CROQUIS CATASTRAL (exacta)» lo son —se copian tal cual—, y los cuerpos que el croquis dice que sobran (`→ sobra en los niveles…`) van a `cuerpos_fuera` por su id |
 | `croquis` | DÓNDE está lo que no es vivienda, a mano alzada | `uv` = fracciones de la huella de esa planta (u de OESTE a ESTE, v de SUR a NORTE); o `poligono` en EPSG:25830. El motor lo endereza, lo **ajusta a los m² de Catastro** del uso en esa planta, alinea las paredes y lo guarda como `zonas_fuera`. Sustituye las zonas de SUS plantas. Pasarse por fuera de las paredes no importa (`-0.05`, `1.05`). `croquis_ajustar: false` = tal cual |
-| `reemplazar` | `true` = los huecos del plan sustituyen a TODOS los guardados | Por defecto se sustituyen solo las paredes que trae el plan |
+| `reemplazar` | `true` = los huecos del plan sustituyen a TODOS los guardados | Por defecto se sustituyen solo las paredes que trae el plan. **Prohibido** si hay paredes corregidas a mano en la pizarra (ver `medir`) |
+| `medir` | las medidas de los huecos que una persona dibujó a mano: `{ "FBS1": { "V3": { "ancho": 1.2, "alto": 1.1 } } }` | Lo ÚNICO que el plan puede hacer sobre una pared tocada en la PIZARRA: la pizarra dice que hay una ventana y dónde, no cuánto mide. Se miden con las fotos y quedan `medido`. Por el NOMBRE del hueco |
+| `forzar_mano` | `true` = el plan pisa lo dibujado a mano | Solo si el usuario lo pide expresamente: sin esto, `aplicar` **para** si el plan pone huecos, cambia el tipo o aparta una pared tocada en la pizarra, o si lleva `reemplazar` |
 | `ajustes` | cualquier otro ajuste de la ventana, tal cual | Se funden sobre los guardados |
+| `tecnico` | quién firma el `.cex` | Por defecto **Fran** (no hace falta ponerlo). Otro: su `id_empresa` de `prescriptores`; ninguno: `false`. Un técnico de verdad asignado en la barra manda |
 | `medidas` | las medidas de mejora que se escriben (`["autoconsumo"]`, `["aerotermia"]`, `["aerotermia_fv"]`…) | Sin la clave, las que trae marcadas la fase. El autoconsumo necesita sus kWh: del CEE cargado o tecleados en `ajustes.autoconsumo_kwh` (en un CEE directo, siempre tecleados). **`aerotermia_fv`** = UN conjunto con la aerotermia, su equipo de ACS si va aparte y las placas (ver abajo) |
+| `medidas_libres` | medidas que NO están en el catálogo de la ventana: `[{ nombre, caracteristicas, otros_datos, inversion, vida_util, instalaciones: [equipos] }]` | Se ponen con `/cex/medida` (los MISMOS escritores que «Poner la medida»): los equipos que asumen un servicio retiran el generador que lo daba. Caso: CEE directo sin aerotermia con «retirar caldera + 2 splits `climatizacion` + termo `ACS` + placas `renovable`» (2026CEE_57). Usa `"medidas": []` para no duplicar |
 | `ajustes.autoconsumo_kwh` | kWh/año de las placas | Con presupuesto de FV: **kWp del presupuesto × producción específica de PVGIS** del tejado |
 | `ajustes.autoconsumo_pvgis` | la producción específica de PVGIS (kWh por kWp, anual y 12 meses) y con qué tejado | Forma `{ anual, mensual[12], inclinacion, orientacion, optimos, perdidas, montaje, lat, lon, fuente, consultado }`. Con ella salen los kWp y el reparto mes a mes. Sin ella, el backend pregunta con los ángulos ÓPTIMOS, que sobreestiman unas placas coplanares |
 | `ajustes.autoconsumo_inversion` | lo que cuestan las placas | Solo lo suma `aerotermia_fv`. Con el MISMO criterio de IVA que la inversión de la aerotermia (la del presupuesto de la oportunidad, que en un particular va con IVA) |
+
+## RES080: el bloque `previsto`
+
+En un RES080 se hacen DOS certificados: el INICIAL y el **PREVISTO** (la casa con toda la obra
+hecha). Con `previsto` en el plan, `aplicar` escribe los dos, mete el previsto como la medida de
+mejora del inicial («Nuevo Edificio Definido por el Usuario», calculada por CE3X) y carga el XML del
+previsto como **CEE FINAL** en la app (de ahí sale el ahorro del RES080). Ver SKILL.md, «RES080».
+
+```json
+"cambian": ["FBO1", "F1O1"],
+"cubierta_reforma": { "<planta, como la imprime paredes>": { "entera": true } },
+"huecos": { "FBO1": [ { "tipo": "ventana", "ancho": 1.2, "alto": 1.1, "cambia": true } ] },
+"previsto": {
+  "medidas": ["aerotermia"],
+  "ventanas": [ { "que": "cambia", "u_marco": 1.3, "u_vidrio": 1.3, "g": 0.43,
+                  "permeabilidad": 3, "descripcion": "PVC con doble vidrio bajo emisivo" } ],
+  "aislamiento": [
+    { "que": "cambia", "elementos": ["cubierta"], "u": 0.30, "descripcion": "lana mineral de 10 cm" },
+    { "que": "cambia", "elementos": ["fachada"], "lambda": 0.035, "espesor": 0.06 }
+  ],
+  "inversion": 18500
+}
+```
+
+| Clave | Qué | Notas |
+|---|---|---|
+| `previsto.medidas` | de qué medidas de la ficha salen los EQUIPOS del previsto | Por defecto las de `medidas`. Las placas (`renovable`) NO entran salvo `con_placas: true` |
+| `previsto.ventanas[]` | las ventanas nuevas | `que`: `"cambia"` (las marcadas `cambia: true`), `"todos"` o `["V1","P2"]`. Valores de la ficha / catálogo / presupuesto; sin ellos **U marco 1,3 · U vidrio 1,3 · g 0,43 · 20 % de marco · permeabilidad 3**. Una puerta conserva su % de marco |
+| `previsto.aislamiento[]` | lo que se aísla | `elementos`: `fachada` · `cubierta` · `suelo` · `particion`; `que` como arriba (las paredes de `cambian`, la cubierta de `cubierta_reforma`). **`u` (o `lambda` + `espesor` en m) SE PREGUNTA al usuario, nunca se supone.** Una medianera no se aísla; un suelo contra el terreno no admite U conocida (CE3X) |
+| `previsto.ventilacion` / `masa_particiones` | | **0,53 y «Ligera» siempre** (decisión del usuario) |
+| `previsto.nombre` / `caracteristicas` / `otros` / `justificacion` | los textos de la medida del inicial | Sin ellos se componen: los de la aerotermia + «la sustitución de N ventanas… con marco de U = …» + «el aislamiento térmico de la cubierta con … hasta U = …» |
+| `previsto.inversion` / `vida_util` | el análisis económico de la medida | Por defecto facturas, o presupuesto + presupuesto de envolvente; vida 30 años si toca la envolvente. Sin inversión CE3X imprime «coste > 100 000» |
 
 ## Aerotermia + ACS + placas en UNA medida (`aerotermia_fv`)
 
