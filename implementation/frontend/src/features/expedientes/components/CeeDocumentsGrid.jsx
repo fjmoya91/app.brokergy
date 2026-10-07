@@ -15,7 +15,7 @@ import { ubicacionDeExpediente } from '../logic/produccionFv';
 import { normalizarFotovoltaica } from '../logic/fotovoltaica';
 import { ProduccionFotovoltaica } from './ProduccionFotovoltaica';
 import { parseEmisionesTotalesFromXml } from '../../calculator/logic/xmlCeeParser';
-import { buildCe3xFinal, CE3X_FALTA } from '../logic/ce3xFinal';
+import { buildCe3xFinal, CE3X_FALTA, POTENCIA_CAMPOS } from '../logic/ce3xFinal';
 import { bloqueConfirmacionCertificador } from '../logic/confirmacionCliente';
 import { getUnidades } from '../logic/aerotermiaUnits';
 import { hayCee, patchVaciarCee, textoVaciarCee } from '../logic/ceeFases';
@@ -847,7 +847,12 @@ Según el documento:
     })();
 
     // Clave del input de cada dato que falta para el CE3X.
-    const ce3xKey = (f) => (f.tipo === CE3X_FALTA.SEER ? `seer|${f.modeloId}` : CE3X_FALTA.LITROS_ACS);
+    const ce3xKey = (f) => (f.tipo === CE3X_FALTA.SEER ? `seer|${f.modeloId}`
+        : f.tipo === CE3X_FALTA.POTENCIA ? `${f.campo}|${f.modeloId}`
+        : CE3X_FALTA.LITROS_ACS);
+    // Lo que es del MODELO (SEER y potencias) va al catálogo, con la misma ruta
+    // que los datos de la Memoria RITE.
+    const esDelModelo = (f) => f.tipo === CE3X_FALTA.SEER || f.tipo === CE3X_FALTA.POTENCIA;
 
     // Guarda los datos que faltaban y reconstruye el bloque. El SEER va al
     // CATÁLOGO (es del modelo: se teclea una vez y sirve para todos los
@@ -863,9 +868,9 @@ Según el documento:
         setCe3xPopup(p => ({ ...p, saving: true, error: null }));
         try {
             const modelos = { ...ce3xModelosRef.current };
-            for (const f of ce3x.faltantes.filter(x => x.tipo === CE3X_FALTA.SEER)) {
+            for (const f of ce3x.faltantes.filter(esDelModelo)) {
                 const { data } = await axios.patch(`/api/aerotermia/${f.modeloId}/datos-rite`, {
-                    seer: numVal(ce3xKey(f)),
+                    [f.tipo === CE3X_FALTA.POTENCIA ? f.campo : 'seer']: numVal(ce3xKey(f)),
                 });
                 modelos[f.modeloId] = { ...(modelos[f.modeloId] || {}), ...(data || {}) };
             }
@@ -2840,7 +2845,9 @@ Según el documento:
                                         <b className="text-amber-300/90">
                                             {ce3x.faltantes.map(f => f.tipo === CE3X_FALTA.SEER
                                                 ? `el SEER de ${[f.marca, f.modelo].filter(Boolean).join(' ') || 'el equipo'}`
-                                                : 'los litros de acumulación de ACS').join(' · ')}
+                                                : f.tipo === CE3X_FALTA.POTENCIA
+                                                    ? `la ${f.campo === 'potencia_frigorifica' ? 'potencia frigorífica' : 'potencia'} de ${[f.marca, f.modelo].filter(Boolean).join(' ') || 'el equipo'}`
+                                                    : 'los litros de acumulación de ACS').join(' · ')}
                                         </b>. Sin eso el mensaje sale a medias.
                                     </p>
                                     <button
@@ -2976,12 +2983,14 @@ Según el documento:
                         </div>
                         <div className="px-6 py-6 space-y-4 max-h-[60vh] overflow-y-auto">
                             <p className="text-sm text-white/60 leading-relaxed normal-case">
-                                Sin estos valores el certificador no puede cerrar el CEE final. El SEER es del
-                                MODELO y al guardarlo queda en el catálogo: solo se pide una vez por equipo.
+                                Sin estos valores el certificador no puede cerrar el CEE final. El SEER y las
+                                potencias son del MODELO y al guardarlos quedan en el catálogo: solo se piden una
+                                vez por equipo, y la Memoria RITE lee la misma potencia.
                             </p>
                             {ce3x.faltantes.map(f => {
                                 const k = ce3xKey(f);
-                                if (f.tipo === CE3X_FALTA.SEER) {
+                                if (esDelModelo(f)) {
+                                    const esPot = f.tipo === CE3X_FALTA.POTENCIA;
                                     return (
                                         <div key={k} className="bg-white/[0.02] border border-white/10 rounded-2xl p-4 space-y-3">
                                             <div className="flex items-start justify-between gap-3">
@@ -2997,13 +3006,13 @@ Según el documento:
                                                 )}
                                             </div>
                                             <div className="flex items-center gap-3">
-                                                <span className="text-[10px] font-black uppercase tracking-widest text-white/50 w-44">SEER (refrigeración)</span>
+                                                <span className="text-[10px] font-black uppercase tracking-widest text-white/50 w-44">{esPot ? POTENCIA_CAMPOS[f.campo] : 'SEER (refrigeración)'}</span>
                                                 <input type="text" inputMode="decimal" autoFocus
-                                                    disabled={ce3xPopup.saving} placeholder="5,20"
+                                                    disabled={ce3xPopup.saving} placeholder={esPot ? '8,00' : '5,20'}
                                                     value={ce3xPopup.values[k] ?? ''}
                                                     onChange={e => setCe3xPopup(p => ({ ...p, values: { ...p.values, [k]: e.target.value } }))}
                                                     className="w-28 bg-white/[0.03] border border-white/10 rounded-xl px-3 py-2.5 text-white font-black tabular-nums focus:outline-none focus:border-brand/50 disabled:opacity-50" />
-                                                <span className="text-[11px] font-black uppercase tracking-widest text-white/40">→ CE3X en %</span>
+                                                <span className="text-[11px] font-black uppercase tracking-widest text-white/40">{esPot ? 'kW' : '→ CE3X en %'}</span>
                                             </div>
                                             {!f.ficha && <p className="text-[10px] text-white/30 normal-case">Este modelo no tiene ficha técnica enlazada en el catálogo.</p>}
                                         </div>

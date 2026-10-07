@@ -73,7 +73,7 @@ function Campo({ campo, onCopy, copiado, onGuardar }) {
                             onChange={e => { setValor(e.target.value); setError(null); }}
                             onKeyDown={e => { if (e.key === 'Enter') guardar(); }}
                             disabled={guardando}
-                            placeholder={`Ej: 4,60`}
+                            placeholder={`Ej: ${campo.editable?.ejemplo || '4,60'}`}
                             className="w-24 bg-bkg-elevated border border-amber-500/40 rounded-md px-2 py-1 text-white text-[12px] font-mono focus:outline-none focus:border-brand/60 disabled:opacity-50"
                         />
                         <button
@@ -91,7 +91,7 @@ function Campo({ campo, onCopy, copiado, onGuardar }) {
             {!falta && (
                 <button
                     type="button"
-                    onClick={() => onCopy(campo.valor)}
+                    onClick={() => onCopy(campo.copia ?? campo.valor)}
                     title="Copiar"
                     className={`flex-shrink-0 mt-1 px-2 py-1 rounded-md text-[9px] font-black uppercase tracking-widest transition-colors ${
                         copiado ? 'bg-emerald-500/20 text-emerald-300'
@@ -155,9 +155,9 @@ export function EquipoInfoModal({ isOpen, onClose, expediente }) {
     // CEE final): se teclea UNA vez y sirve para todos los expedientes que lleven
     // ese equipo. La respuesta trae la fila actualizada, con lo que la ficha se
     // recalcula sola y el campo pasa de ámbar a copiable sin recargar nada.
-    const guardarDato = async ({ modeloId }, valor) => {
-        const { data } = await axios.patch(`/api/aerotermia/${modeloId}/datos-rite`, { seer: valor });
-        setModelos(prev => ({ ...prev, [modeloId]: { ...(prev[modeloId] || {}), ...(data || { seer: valor }) } }));
+    const guardarDato = async ({ modeloId, campo = 'seer' }, valor) => {
+        const { data } = await axios.patch(`/api/aerotermia/${modeloId}/datos-rite`, { [campo]: valor });
+        setModelos(prev => ({ ...prev, [modeloId]: { ...(prev[modeloId] || {}), ...(data || { [campo]: valor }) } }));
     };
 
     // "Copiar todo" reutiliza el MISMO texto que se le manda al certificador por

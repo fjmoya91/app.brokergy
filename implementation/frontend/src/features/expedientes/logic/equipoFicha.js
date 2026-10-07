@@ -36,6 +36,26 @@ const enumerarFaltan = (arr) => (arr.length <= 1
 const F = (label, valor, extra = {}) => ({ label, valor: valor || null, ...extra });
 
 /**
+ * Una POTENCIA de la unidad. Manda la de la unidad (leída de la placa) si es
+ * mayor que 0 —un 0 es el hueco que dejó el catálogo al elegir el modelo, no un
+ * dato— y si no, la del catálogo. Si falta, se teclea AQUÍ y va al catálogo del
+ * modelo: es la MISMA columna de la que sale la Memoria RITE, así que el CEE y la
+ * memoria no pueden decir potencias distintas.
+ */
+function campoPotencia(u, cat, label, campoCat, campoUd) {
+    const v = (parseFloat(u?.[campoUd]) > 0 && parseFloat(u[campoUd]))
+        || (campoUd === 'potencia' && parseFloat(u?.potencia_nominal) > 0 && parseFloat(u.potencia_nominal))
+        || parseFloat(cat?.[campoCat]) || 0;
+    if (v > 0) return F(label, kw(v), { copia: String(v) });
+    return F(label, null, {
+        nota: 'Búscala en la ficha técnica del modelo y guárdala: queda en el catálogo (también para la Memoria RITE).',
+        editable: u?.aerotermia_db_id
+            ? { campo: campoCat, modeloId: u.aerotermia_db_id, unidad: 'kW', ejemplo: '8,00' }
+            : null,
+    });
+}
+
+/**
  * Datos de UNA unidad (marca, modelo, serie, potencias, rendimientos) fusionando
  * lo que declara el expediente con la ficha del catálogo. Manda SIEMPRE el
  * expediente: el catálogo es lo que el modelo puede dar, el expediente es lo que
@@ -49,10 +69,10 @@ function fichaUnidad(u, modelos, { conFrio, esAcs = false }) {
         F('Ud. exterior', u?.modelo_ud_exterior || cat.modelo_ud_exterior, { mono: true }),
         F('Ud. interior', u?.modelo_ud_interior || cat.modelo_ud_interior, { mono: true }),
         F('Nº de serie', u?.numero_serie, { mono: true }),
-        F(esAcs ? 'Potencia' : 'Potencia calefacción', kw(u?.potencia ?? cat.potencia_calefaccion)),
+        campoPotencia(u, cat, esAcs ? 'Potencia' : 'Potencia calefacción', 'potencia_calefaccion', 'potencia'),
     ];
     if (conFrio) {
-        campos.push(F('Potencia frigorífica', kw(u?.potencia_frio ?? cat.potencia_frigorifica)));
+        campos.push(campoPotencia(u, cat, 'Potencia frigorífica', 'potencia_frigorifica', 'potencia_frio'));
     }
     campos.push(F('Refrigerante', u?.refrigerante || cat.refrigerante, { mono: true }));
 
@@ -69,7 +89,7 @@ function fichaUnidad(u, modelos, { conFrio, esAcs = false }) {
             : F('SEER', null, {
                 nota: 'Búscalo en la ficha técnica del modelo y guárdalo: queda en el catálogo.',
                 editable: u?.aerotermia_db_id
-                    ? { campo: 'seer', modeloId: u.aerotermia_db_id, unidad: 'SEER' }
+                    ? { campo: 'seer', modeloId: u.aerotermia_db_id, unidad: 'SEER', ejemplo: '4,60' }
                     : null,
             }));
     }
@@ -123,6 +143,15 @@ export function buildEquipoFicha(exp, { modelos = {} } = {}) {
             ? F('Rendimiento ACS', pct(d.scopAcs), { nota: `SCOP dhw ${num2(d.scopAcs)}`, destacado: true })
             : F('Rendimiento ACS', null));
     }
+    // Las POTENCIAS: CE3X 3.1 las pide por servicio y sin ellas no escribe el XML.
+    // La de ACS, en un equipo mixto, es la de la misma máquina. Si falta, se
+    // rellena abajo, en el equipo (va al catálogo del modelo).
+    const faltaPot = 'Falta la potencia — se rellena abajo, en el equipo';
+    //: Se copia el NÚMERO con punto (CE3X escribe «8.0»), no «8 kW».
+    const P = (label, v, ok) => F(label, kw(v), { nota: v ? ok : faltaPot, copia: v ? String(v) : undefined });
+    ce3xCampos.push(P('Potencia calefacción', d.potenciaCal, null));
+    if (d.acsEnMismoEquipo) ce3xCampos.push(P('Potencia ACS', d.potenciaCal, 'La misma máquina'));
+    if (d.conFrio) ce3xCampos.push(P('Potencia refrigeración', d.potenciaFrio, null));
     if (d.litros > 0) ce3xCampos.push(F('Acumulación ACS', `${d.litros} litros`));
     if (d.superficie > 0) {
         ce3xCampos.push(F('Superficie', `${num2(d.superficie)} m²`));

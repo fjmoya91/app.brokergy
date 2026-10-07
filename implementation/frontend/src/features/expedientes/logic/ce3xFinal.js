@@ -55,12 +55,24 @@ function esAireAire(tipoEmisor) {
 export const CE3X_FALTA = {
     SEER: 'seer',               // del MODELO → se guarda en el catálogo (aerotermia.seer)
     LITROS_ACS: 'litros_acs',   // de la OBRA → se guarda en el expediente
+    //: Potencia del MODELO (kW) → catálogo (aerotermia.potencia_calefaccion /
+    //: potencia_frigorifica). CE3X 3.1 la pide a cada equipo y es la MISMA columna
+    //: de la que sale la Memoria RITE: así los dos documentos dicen lo mismo.
+    POTENCIA: 'potencia',
+};
+
+//: Rótulo de cada columna de potencia del catálogo, para pedirla.
+export const POTENCIA_CAMPOS = {
+    potencia_calefaccion: 'Potencia térmica nominal (calefacción)',
+    potencia_frigorifica: 'Potencia frigorífica nominal',
 };
 
 // ─── Helpers de formato ──────────────────────────────────────────────────────
 const num2 = (v) => (Number(v) || 0).toFixed(2).replace('.', ',');
 // CE3X pide el rendimiento medio estacional en % (SCOP 4,3 → 430).
 const aPorcentaje = (v) => Math.round((Number(v) || 0) * 100);
+// Potencia en kW tal y como se teclea en CE3X (coma decimal), o el aviso.
+const kwTxt = (v) => (Number(v) > 0 ? `*${String(Number(v)).replace('.', ',')} kW*` : '⚠️ pendiente (ficha técnica)');
 
 /**
  * Nombre del equipo para la casilla "Nombre" de CE3X, agrupando unidades iguales.
@@ -181,6 +193,34 @@ function unidadesSinSeer(aero, modelos) {
 }
 
 /**
+ * Unidades cuyo MODELO del catálogo no tiene la potencia que pide CE3X 3.1.
+ * Una unidad que la trae ella misma (leída de la placa, o la de la simulación)
+ * no se pide. Sin modelo del catálogo no hay dónde guardarla: no se pide aquí
+ * (el texto lo dice como pendiente) — elegir el modelo es lo que lo arregla.
+ */
+function unidadesSinPotencia(aero, modelos, campoCat, campoUd = 'potencia') {
+    const vistos = new Set();
+    const out = [];
+    for (const u of getUnidades(aero)) {
+        const id = u?.aerotermia_db_id;
+        if (!id || vistos.has(id)) continue;
+        vistos.add(id);
+        const m = modelos?.[id] || {};
+        if (parseFloat(u?.[campoUd]) > 0 || parseFloat(m[campoCat]) > 0) continue;
+        out.push({
+            tipo: CE3X_FALTA.POTENCIA,
+            campo: campoCat,
+            modeloId: id,
+            marca: u?.marca || m.marca || '',
+            modelo: u?.modelo || m.modelo_comercial || '',
+            modelo_ud_exterior: u?.modelo_ud_exterior || m.modelo_ud_exterior || '',
+            ficha: u?.url_ficha || m.ficha_tecnica || u?.url_eprel || m.eprel || m.url_keymark || null,
+        });
+    }
+    return out;
+}
+
+/**
  * Litros de acumulación de ACS declarados. Con "misma aerotermia para ACS" el
  * nodo `aerotermia_acs` puede no existir: el depósito es el del propio equipo de
  * calefacción, así que el dato se busca también ahí.
@@ -287,6 +327,14 @@ export function resolverCe3x(exp, { modelos = {} } = {}) {
     const scopAcs = parseFloat(acsNode?.scop) || 0;
     const seer = conFrio ? seerBloque(cal, modelos) : null;
     if (conFrio) faltantes.push(...unidadesSinSeer(cal, modelos));
+    // ── Potencias (CE3X 3.1 no escribe el XML sin ellas) ─────────────────────
+    faltantes.push(...unidadesSinPotencia(cal, modelos, 'potencia_calefaccion'));
+    if (conFrio) faltantes.push(...unidadesSinPotencia(cal, modelos, 'potencia_frigorifica', 'potencia_frio'));
+    // La de un equipo de ACS aparte que es OTRA bomba de calor (un termo y un
+    // depósito no son un generador con potencia que declarar aquí).
+    if (acsAparte && acsTipo !== EQUIPO_NUEVO.TERMO && acsTipo !== EQUIPO_NUEVO.ACUMULADOR) {
+        faltantes.push(...unidadesSinPotencia(inst.aerotermia_acs, modelos, 'potencia_calefaccion'));
+    }
 
     // ── Litros de acumulación de ACS ─────────────────────────────────────────
     const litros = litrosAcs(inst);
@@ -466,6 +514,17 @@ export function buildCe3xFinal(exp, { modelos = {} } = {}) {
                 : '• Rendimiento ACS: ⚠️ pendiente de confirmar');
             if (litros > 0) L.push(`• Con acumulación: SÍ · ${litros} litros`);
         }
+        // Las potencias que pide CE3X 3.1 (las mismas de la Memoria RITE).
+        {
+            const pCal = potenciaBloque(b.aero, modelos, 'potencia_calefaccion');
+            const pFrio = conFrio ? potenciaBloque(b.aero, modelos, 'potencia_frigorifica', 'potencia_frio') : null;
+            const partes = [
+                `Calefacción ${kwTxt(pCal)}`,
+                b.conAcs ? `ACS ${kwTxt(pCal)}` : null,
+                conFrio ? `Refrigeración ${kwTxt(pFrio)}` : null,
+            ].filter(Boolean);
+            L.push(`• Potencia: ${partes.join('  ·  ')}`);
+        }
         if (b.conDemanda && superficie > 0) {
             L.push(`• Demanda cubierta → Superficie: ${num2(superficie)} m²  ·  Calefacción: ${pctCal} %${b.conAcs ? '  ·  ACS: 100 %' : ''}`);
         }
@@ -494,6 +553,7 @@ export function buildCe3xFinal(exp, { modelos = {} } = {}) {
             L.push(scopAcs > 0
                 ? `• Rendimiento ACS: *${aPorcentaje(scopAcs)} %*  (SCOP dhw ${num2(scopAcs)})`
                 : '• Rendimiento ACS: ⚠️ pendiente de confirmar');
+            if (!acum) L.push(`• Potencia ACS: ${kwTxt(d.potenciaAcs)}`);
         }
         if (litros > 0) L.push(`• Con acumulación: SÍ · ${litros} litros`);
         const seriesAcs = formatSeries(inst.aerotermia_acs, { dash: '', sep: ' / ' });
