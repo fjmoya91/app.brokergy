@@ -308,6 +308,40 @@ function estadoExpedienteDeLote(estadoLote) {
     return ESTADO_EXPEDIENTE_POR_ESTADO_LOTE[estadoLote] || null;
 }
 
+/** ¿El paso `anterior` → `nuevo` es el que supera la verificación? */
+function superaVerificacion(anterior, nuevo) {
+    const rV = rankEstado('VERIFICADO');
+    const rNuevo = rankEstado(nuevo);
+    return rNuevo >= rV && rankEstado(anterior) < rV;
+}
+
+/**
+ * Al superar la verificación (dictamen favorable), las incidencias ABIERTAS de los
+ * expedientes del lote quedan SUBSANADAS: el verificador las ha dado por resueltas.
+ * Solo las registradas hasta ahora — una que se abra después (un requerimiento del
+ * Gestor Autonómico) no la ha cerrado ningún dictamen. Lo hace la RPC en una sola
+ * sentencia y solo sobre la clave `incidencias` (scripts/subsanar_incidencias_lote.sql),
+ * con su entrada RESOLUCION en el hilo, como el OK de la app. No lanza.
+ */
+async function subsanarIncidenciasVerificadas(lote, { usuario = 'SISTEMA' } = {}) {
+    try {
+        const supabase = require('./supabaseClient');
+        const { data, error } = await supabase.rpc('subsanar_incidencias_lote', {
+            p_lote_id: lote.id,
+            p_hasta: new Date().toISOString(),
+            p_resolucion: `Subsanada al superar la verificación: el lote ${lote.codigo} obtuvo dictamen favorable.`,
+            p_usuario: usuario || 'SISTEMA',
+        });
+        if (error) throw error;
+        const total = (data || []).reduce((s, r) => s + (r.cerradas || 0), 0);
+        if (total) console.log(`[lotes] ${lote.codigo}: ${total} incidencia(s) subsanada(s) al verificarse.`);
+        return total;
+    } catch (e) {
+        console.error('[subsanarIncidenciasVerificadas]', e.message);
+        return 0;
+    }
+}
+
 /**
  * Avanza el estado del lote según su papeleo y deja constancia en el historial.
  * Lo llaman los endpoints que completan un hito (subir un documento, enviar al
@@ -356,6 +390,9 @@ async function sincronizarEstadoLote(loteId, opts = {}) {
                 // Un RECHAZADO no lo reabre el lote: solo sale de ahí con «Reabrir».
                 .or('estado.is.null,estado.neq.RECHAZADO');
         }
+        if (superaVerificacion(lote.estado, nuevo)) {
+            await subsanarIncidenciasVerificadas(lote, { usuario });
+        }
 
         // La carpeta solo se mueve si el estado nuevo cambia de destino; los estados
         // intermedios apuntan a la misma carpeta y `moveFolder` es idempotente.
@@ -388,4 +425,6 @@ module.exports = {
     siguienteEstado,
     sincronizarEstadoLote,
     estadoExpedienteDeLote,
+    superaVerificacion,
+    subsanarIncidenciasVerificadas,
 };

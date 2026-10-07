@@ -22,6 +22,7 @@ const {
 const {
     LOTE_DOC_SLOTS, SLOTS_SUBIBLES, nextDocKey, slotDeKey, sincronizarEstadoLote,
     CARPETA_DOCS, nombreDocLote, guardarDocFirmado, estadoExpedienteDeLote,
+    superaVerificacion, subsanarIncidenciasVerificadas,
 } = require('../services/loteDocs');
 const { leerFacturaVerificador, leerInformeVerificacion, leerDictamenVerificacion, leerCertificadoCae } = require('../services/loteOcrService');
 const { comprobarRangoCae } = require('../utils/codigosCae');
@@ -2946,6 +2947,9 @@ router.patch('/:id/estado', staffOnly, async (req, res) => {
                 .eq('lote_id', lote.id)
                 // Un RECHAZADO no lo reabre el lote: solo sale de ahí con «Reabrir».
                 .or('estado.is.null,estado.neq.RECHAZADO');
+        }
+        if (superaVerificacion(lote.estado, nuevo_estado)) {
+            await subsanarIncidenciasVerificadas(lote, { usuario: usuarioDe(req) });
         }
 
         // La carpeta del LOTE se mueve a la carpeta de su nuevo estado y arrastra
