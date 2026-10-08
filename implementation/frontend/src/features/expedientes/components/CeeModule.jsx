@@ -3,6 +3,7 @@ import axios from 'axios';
 import { parseCeeXml } from '../../calculator/logic/xmlCeeParser';
 import { FACTORES_PASO, calculateRes080, calculateRes080FromEmissions, calculateRes080Simplificado, calculateRes080SimplificadoFromXml, combustiblesNoElectricos } from '../../calculator/logic/calculation';
 import { ceeToColumn } from '../../calculator/logic/ceeSeed';
+import { esperaVistoBueno } from '../logic/seguimientoTime';
 import CeeUploadModal from '../../cee/CeeUploadModal';
 import { ceeToXmlShape } from '../../cee/ceeExtract';
 import { EfficiencyTable, CATEGORIES_SIMPLIFICADO } from '../../calculator/components/EfficiencyTable';
@@ -596,14 +597,8 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
     };
 
     // ¿La fase espera nuestro visto bueno? Mismo criterio que el botón «Validar»
-    // de la rejilla: manda el subestado de seguimiento, con el espejo de estado
-    // como respaldo.
-    const pendienteVistoBueno = (fase) => {
-        const f = fase === 'final' ? 'final' : 'inicial';
-        const seg = String(expediente?.seguimiento?.[`cee_${f}`] || '').toUpperCase();
-        const estado = String(expediente?.cee?.estado || expediente?.estado || '');
-        return seg === 'PTE_REVISION' || estado.includes(`PENDIENTE REVISIÓN (${f === 'final' ? 'FINAL' : 'INICIAL'})`);
-    };
+    // de la rejilla (una sola función).
+    const pendienteVistoBueno = (fase) => esperaVistoBueno(expediente, fase);
 
     // Visto bueno SIN aviso al técnico: es el de la casa y escribirse a uno mismo
     // no lo lee nadie. El borrador sí se deja en Drive, como en el visto bueno de
@@ -1296,7 +1291,11 @@ export function CeeModule({ expediente, instalacionViva = null, onSave, onLiveUp
                     apiBase={apiBase}
                     onClose={() => setRevisionFase(null)}
                     onRefresh={onRefresh}
-                    onApprove={(f) => { setRevisionFase(null); abrirValidar(f); }}
+                    // El visto bueno solo si la fase lo espera: un CEE ya
+                    // validado o registrado se puede revisar, no volver a validar.
+                    onApprove={pendienteVistoBueno(revisionFase)
+                        ? (f) => { setRevisionFase(null); abrirValidar(f); }
+                        : undefined}
                 />
             )}
 

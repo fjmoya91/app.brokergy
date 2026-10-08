@@ -49,6 +49,16 @@ revés también**: enviar a presentar una fase que espera el visto bueno (desde 
 «Presentar el CEE») la valida en el mismo gesto (`onValidar` del popup); si la validación
 falla, el encargo no se deshace y se dice. Con un técnico de fuera, todo como siempre.
 
+**REGLA — «Validar» sale solo si la fase ESPERA el visto bueno, y eso lo dice el
+SEGUIMIENTO** (2026-10-08). Fuente única: `esperaVistoBueno` en
+[seguimientoTime.js](implementation/frontend/src/features/expedientes/logic/seguimientoTime.js),
+que usan el botón de la rejilla, el «Dar el visto bueno» del popup de Revisión y el
+`onValidar` del popup de Eva. `seguimiento.cee_{fase}` = `PTE_REVISION` → sí;
+`REVISADO` o `REGISTRADO` → **no, diga lo que diga `cee.estado`**; sin subestado, manda
+el espejo. Antes bastaba con que el espejo dijera «PENDIENTE REVISIÓN»: al registrar
+nadie lo mueve, así que 26RES080_92 (registrado el 08/10/2026 sin pasar por el visto
+bueno), 26RES080_42 y 26RES093_3 seguían ofreciendo «Validar y enviar a presentar».
+
 **Su BANDEJA — `/presentar/pendientes?token=`**: una página personal con todo lo que
 tiene pendiente (ordenado por plazo, ámbar a una semana y rojo vencido) y lo presentado
 el último mes; cada fila abre su encargo. Va en cada correo de encargo y en cada página

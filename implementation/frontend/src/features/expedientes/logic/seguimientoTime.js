@@ -20,6 +20,25 @@ export const SUBESTADO_LABELS = {
     REGISTRADO: 'Registrado',
 };
 
+/**
+ * ¿Esta fase del CEE espera NUESTRO visto bueno? Es el criterio del botón
+ * «Validar» de la rejilla y del popup de «Enviar a presentar».
+ *
+ * Manda el subestado de `seguimiento`. `cee.estado` es solo un espejo que no
+ * siempre se mueve (al registrar NADIE lo toca: 26RES080_92 seguía en
+ * «PENDIENTE REVISIÓN (INICIAL)» ya REGISTRADO y ofrecía «Validar»), así que
+ * sirve de respaldo cuando el subestado no dice nada, pero NUNCA contra un
+ * subestado que ya ha dejado atrás la revisión.
+ */
+export function esperaVistoBueno(expediente, fase) {
+    const f = fase === 'final' ? 'final' : 'inicial';
+    const seg = String(expediente?.seguimiento?.[`cee_${f}`] || '').toUpperCase();
+    if (seg === 'PTE_REVISION') return true;
+    if (seg === 'REVISADO' || seg === 'REGISTRADO') return false;
+    const estado = String(expediente?.cee?.estado || expediente?.estado || '');
+    return estado.includes(`PENDIENTE REVISIÓN (${f === 'final' ? 'FINAL' : 'INICIAL'})`);
+}
+
 /** Días enteros transcurridos desde una fecha ISO (null si no hay fecha). */
 export function daysSince(iso) {
     if (!iso) return null;

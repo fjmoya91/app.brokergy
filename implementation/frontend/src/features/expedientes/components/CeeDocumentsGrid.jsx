@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } f
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
-import { readPhaseTime, SUBESTADO_LABELS, STALE_CLASSES, fmtDate, humanDays, daysSince } from '../logic/seguimientoTime';
+import { readPhaseTime, SUBESTADO_LABELS, STALE_CLASSES, fmtDate, humanDays, daysSince, esperaVistoBueno } from '../logic/seguimientoTime';
 import {
     buildCertMessage, buildCertEncargoMessage, buildCertApproveMessage,
     resolveCertEspera, suggestCertTono, CERT_ESPERA, ESPERA_LABELS, CERT_TONO_LABELS,
@@ -1655,12 +1655,9 @@ Según el documento:
                     // Una sola barra, siempre en el mismo orden. Mismo tamaño para
                     // todas; la que es el paso siguiente lleva texto.
                     const accionesFase = (() => {
-                        const phaseLabel = section === 'inicial' ? 'INICIAL' : 'FINAL';
-                        // El subestado canónico (seguimiento) manda. `cee.estado` es un espejo que
-                        // puede desincronizarse (p. ej. se queda en "EN TRABAJO" tras re-subir el XML),
-                        // así que NO nos fiamos solo de él para decidir si se puede validar.
-                        const estado = expediente?.cee?.estado || expediente?.estado || '';
-                        const isPendingReview = segStatus === 'PTE_REVISION' || estado.includes(`PENDIENTE REVISIÓN (${phaseLabel})`);
+                        // El subestado canónico (seguimiento) manda; `cee.estado` es un espejo
+                        // que puede desincronizarse en los dos sentidos (ver esperaVistoBueno).
+                        const isPendingReview = esperaVistoBueno(expediente, section);
                         const isAdmin = (user?.rol || '').toUpperCase() === 'ADMIN' || (user?.rol_nombre || '').toUpperCase() === 'ADMIN' || Number(user?.id_rol) === 1;
                         const isCertificador = (user?.rol || '').toUpperCase() === 'CERTIFICADOR' || (user?.rol_nombre || '').toUpperCase() === 'CERTIFICADOR' || Number(user?.id_rol) === 4;
                         const isResending = resendingNotif === section;
