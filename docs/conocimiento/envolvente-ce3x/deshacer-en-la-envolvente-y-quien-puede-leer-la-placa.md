@@ -57,3 +57,21 @@ resbalón se comete en cualquiera de las ventanas —también tecleando en
 Instalaciones— y la cabecera solo se ve en la del plano. Salen **deshabilitados,
 no escondidos**: que estén ahí en gris es lo que dice que ya no queda nada que
 deshacer.
+
+### Y la ventana se repintaba sin parar (2026-10-08)
+
+**REGLA — lo que devuelve `useDeshacer` va MEMORIZADO.** La vista lo mete en la
+barra de apartados (`barra` es un `useMemo` que se le pasa a la ventana con
+`onPestanas`, que es un `setState` del padre). Devolvía un literal nuevo en cada
+render, así que la barra «cambiaba» siempre, el padre volvía a pintar, la vista
+con él, y otra vez: un bucle **sin fin desde que se abría la ventana**. Medido en
+26RES060_188 con la ventana quieta: **252 renders en 5 s** (~50 por segundo, sin
+parar) y «Maximum update depth exceeded» 20-40 veces en la consola; con el objeto
+memorizado, **0 renders** en reposo. Cualquier cosa que viaje a la barra de
+apartados tiene que ser estable por la misma razón: `ir` ya era un `useCallback`.
+Tras tocarlo: `node implementation/backend/scripts/test_deshacer.mjs`.
+
+De paso se vio que **abrir la ventana guarda el trabajo una vez**: el
+autoguardado compara con `ultimo`, que nace vacío, así que el primer PUT sale
+siempre. Es la MISMA copia que se acaba de leer (medido: solo cambia
+`guardado_at`, que no usa nadie más que un `console.log`), así que se deja así.

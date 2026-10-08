@@ -58,8 +58,12 @@ export function PestanasCe3x({ pestanas = [], activa = 'envolvente', onIr, desha
 
             {/* Lo último de CE3X es exportar; aquí es generar el fichero que se
                 abre con él. Va a la derecha porque es el final del recorrido —y
-                es una ventana más, así que también se marca cuando está puesta. */}
-            <div className="ml-auto flex shrink-0 items-center gap-2 py-1.5 pl-3">
+                es una ventana más, así que también se marca cuando está puesta.
+                Y va PEGADO a la derecha (`sticky`): a 1024 px las seis pestañas
+                no caben, la barra se desplaza, y «Generar .cex» se quedaba fuera
+                de la vista. Son las pestañas las que pasan por debajo. */}
+            <div className="sticky right-0 ml-auto flex shrink-0 items-center gap-2 bg-bkg-deep
+                            py-1.5 pl-3 shadow-[-12px_0_12px_-8px_rgba(0,0,0,0.6)]">
                 {/* DESHACER. Va aquí y no en la cabecera del plano porque el
                     resbalón se comete en cualquiera de las ventanas —apartar una
                     pared, pero también teclear un dato en Instalaciones— y la

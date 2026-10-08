@@ -89,12 +89,16 @@ export function cota(pts, { hacia, apartar = 1.35, tope = 0.26 }) {
     const b = [q[0] + nx * apartar, q[1] + ny * apartar];
     let rot = (Math.atan2(dy, dx) * 180) / Math.PI;
     if (rot > 90 || rot < -90) rot += 180;
+    const tx = mx + nx * (apartar + 0.55), ty = my + ny * (apartar + 0.55);
 
     return {
         d: `M ${a[0]} ${a[1]} L ${b[0]} ${b[1]}`
            + ` M ${a[0] - nx * tope} ${a[1] - ny * tope} L ${a[0] + nx * tope} ${a[1] + ny * tope}`
            + ` M ${b[0] - nx * tope} ${b[1] - ny * tope} L ${b[0] + nx * tope} ${b[1] + ny * tope}`,
-        tr: `translate(${mx + nx * (apartar + 0.55)} ${my + ny * (apartar + 0.55)}) rotate(${rot})`,
+        tr: `translate(${tx} ${ty}) rotate(${rot})`,
+        // Dónde cae el texto, en números: lo necesita quien coloca los rótulos
+        // (`rotulosPlano.js`) para saber qué tapa, sin leer la cadena de `tr`.
+        en: { x: tx, y: ty, rot },
         texto: `${fmt(L)} m`,
         largo: L,
     };

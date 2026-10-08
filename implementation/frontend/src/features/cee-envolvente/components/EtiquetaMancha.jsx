@@ -9,13 +9,14 @@
 // `tam` es el tamaño base del dibujo (constante en pantalla); el resto, en
 // proporción. `papel` y `tinta` los pone quien lo usa: en el móvil el papel es
 // claro siempre; en el ordenador sigue al tema.
+//
+// Lo que OCUPA sale de `medidaMancha` (logic/rotulosPlano.js), la misma cuenta
+// con la que el plano le reserva el sitio para que no pise otros rótulos.
+
+import { medidaMancha } from '../logic/rotulosPlano';
 
 export function EtiquetaMancha({ cx, cy, titulo, sub = null, color, tam, papel, tinta, tintaSub, escala = 1 }) {
-    const f1 = tam * 0.95 * escala;
-    const f2 = tam * 0.72 * escala;
-    const ancho = Math.max(String(titulo).length * 0.64 * f1,
-                           sub ? String(sub).length * 0.58 * f2 : 0) + tam * 0.9 * escala;
-    const alto = (sub ? tam * 2.35 : tam * 1.55) * escala;
+    const { ancho, alto, f1, f2 } = medidaMancha({ titulo, sub, tam, escala });
     const top = cy - alto / 2;
     const linea1 = top + tam * 1.02 * escala;
     return (

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Deshacer y rehacer el trabajo de la envolvente.
@@ -126,11 +126,16 @@ export function useDeshacer({ trabajo, ajustes, onRestaurar }) {
         return () => window.removeEventListener('keydown', alPulsar);
     }, [deshacer, rehacer]);
 
-    return {
-        deshacer, rehacer,
-        puedeDeshacer: hist.pos > 0,
-        puedeRehacer: hist.pos >= 0 && hist.pos < hist.largo - 1,
-    };
+    // ⚠️ El objeto va MEMORIZADO: la vista lo mete en la barra de apartados
+    // (`useMemo` → `onPestanas`, un `setState` de la ventana padre). Con un
+    // literal nuevo en cada render, la barra cambiaba siempre, la ventana
+    // volvía a pintar, y con ella esta vista: un bucle sin fin desde que se
+    // abría —«Maximum update depth exceeded» 20-40 veces en la consola y la
+    // ventana repintándose sin parar (medido el 08/10/2026 en 26RES060_188).
+    const puedeDeshacer = hist.pos > 0;
+    const puedeRehacer = hist.pos >= 0 && hist.pos < hist.largo - 1;
+    return useMemo(() => ({ deshacer, rehacer, puedeDeshacer, puedeRehacer }),
+                   [deshacer, rehacer, puedeDeshacer, puedeRehacer]);
 }
 
 function enUnCampo(el) {

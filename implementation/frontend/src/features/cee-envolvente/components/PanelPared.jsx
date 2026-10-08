@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../logic/apiEnvolvente';
 import axios from 'axios';
 import { TIPOS_PARED, nuevoUid, nombreHueco, SUFIJO_CAMBIA } from '../logic/usePlanoEnvolvente';
@@ -20,7 +20,7 @@ import { LecturaFotoModal } from './LecturaFotoModal';
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function PanelPared({ plano, transmitancias, expedienteId,
-                             carpinteriaDefecto }) {
+                             carpinteriaDefecto, onIrAPared }) {
     const { muros, sel, entrada, esMedianera, esParticion, esFuera, esDibujada,
             tipoDe, nombreDe, setSel, estadoDe,
             ponHuecos, cambiaHueco, duplicaHueco, quitaHueco, marcaComoParticion,
@@ -37,6 +37,15 @@ export function PanelPared({ plano, transmitancias, expedienteId,
     //: PLANO, y el popup tiene que saber qué huecos tiene ya la pared para no
     //: proponer duplicarla.
     const [propuesta, setPropuesta] = useState(null);
+
+    //: El panel tiene su PROPIO scroll (ver `Caja`): al pasar a otra pared se
+    //: vuelve arriba, o la pared nueva se abriría por la mitad —donde se dejó la
+    //: anterior— y lo primero que se vería serían sus fotos, no su nombre.
+    //: (Hooks por encima del `return` de «sin pared», regla 62.)
+    const caja = useRef(null);
+    useEffect(() => { caja.current?.scrollTo?.({ top: 0 }); }, [sel]);
+    //: Ir a otra pared: quien llama sabe si su planta está a la vista.
+    const ir = onIrAPared || setSel;
 
     /**
      * Aplica lo leído Y deja SEÑALADO en la foto dónde cae cada hueco.
@@ -69,12 +78,24 @@ export function PanelPared({ plano, transmitancias, expedienteId,
         setPropuesta(null);
     }
 
+    // SIN PARED: la columna no se esconde —el plano cambiaría de ancho al pulsar
+    // una pared y se perdería el encuadre—, pero tampoco se queda con una frase
+    // sola. Dice qué paredes quedan por mirar, que es la pregunta de esta
+    // pantalla, y lleva a cada una de un clic; y los atajos del plano, que no
+    // están escritos en ninguna otra parte.
     if (!m) {
         return (
-            <Caja>
-                <p className="text-sm text-white/45">
-                    Pulsa una pared del plano para ponerle sus ventanas y puertas.
-                </p>
+            <Caja cajaRef={caja}>
+                <div>
+                    <p className="text-[9.5px] font-black uppercase tracking-[0.12em] text-white/30">
+                        La pared
+                    </p>
+                    <p className="mt-1 text-[12.5px] leading-snug text-white/60">
+                        Pulsa una pared del plano para ponerle sus ventanas y puertas.
+                    </p>
+                </div>
+                <PorMirar plano={plano} onIr={ir} />
+                <Atajos />
             </Caja>
         );
     }
@@ -86,7 +107,7 @@ export function PanelPared({ plano, transmitancias, expedienteId,
     const estado = estadoDe(m);
 
     return (
-        <Caja>
+        <Caja cajaRef={caja}>
             {/* LA CABECERA de la pared: qué pared es, qué es, y en qué estado
                 está. El tipo va en SU color —el mismo que en el plano—, y el
                 estado en una chapa a la derecha: es lo que antes había que
@@ -258,7 +279,7 @@ export function PanelPared({ plano, transmitancias, expedienteId,
                               siguiente={siguientePorMirar(m.id)}
                               nombreDe={id => (muros[id] ? nombreDe(muros[id]) : id)}
                               onMarcar={si => marcaRevisada(m.id, si)}
-                              onIr={id => setSel(id)} />
+                              onIr={ir} />
             )}
 
             {/* La foto de la pared sale TAMBIÉN en medianeras y particiones, y
@@ -1172,15 +1193,114 @@ function Opcion({ activa, onClick, children, title }) {
     );
 }
 
-function Caja({ children }) {
+/**
+ * La caja del panel: PEGADA bajo la cabecera de la ventana y con su PROPIO
+ * scroll, para que acompañe al plano.
+ *
+ * POR QUÉ: las ventanas se ponen mirando el plano, y el panel de una pared con
+ * cuatro huecos y su foto mide más que la pantalla. Pegado pero sin tope, su
+ * parte de abajo no se veía nunca; sin pegar, al bajar al plano de la planta 1
+ * había que volver arriba a buscarlo. Así nunca pasa del alto que queda bajo la
+ * cabecera y lo que no cabe se recorre dentro.
+ *
+ * `--alto-cabecera` lo MIDE `EnvolventeVentana` (cabecera + barra de
+ * apartados): con un número escrito a mano —eran 7,5 rem— el panel se metía
+ * debajo de las pestañas en cuanto la cabecera partía en dos renglones.
+ *
+ * El scroll va en la caja de FUERA y la columna en la de dentro: un hijo de un
+ * flex con `overflow` propio se encoge hasta cero en vez de hacer scroll.
+ */
+function Caja({ children, cajaRef }) {
     return (
-        // `top` mide la cabecera MÁS la barra de apartados: con los 16 px de
-        // antes, el panel se metía debajo de las pestañas al bajar por la
-        // ficha y lo primero que tapaba era el nombre de la pared.
-        <div className="flex flex-col gap-3 rounded-2xl border border-white/[0.06]
-                        bg-white/[0.02] p-4 lg:sticky lg:top-[7.5rem]">
-            {children}
+        <div ref={cajaRef}
+             className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4
+                        lg:sticky lg:top-[calc(var(--alto-cabecera,120px)_+_12px)]
+                        lg:max-h-[calc(100dvh_-_var(--alto-cabecera,120px)_-_24px)]
+                        lg:overflow-y-auto lg:overscroll-contain">
+            <div className="flex flex-col gap-3">
+                {children}
+            </div>
         </div>
+    );
+}
+
+/**
+ * Las paredes que quedan POR MIRAR, por planta, para ir a cada una de un clic.
+ * Es el mismo criterio que la barra «N/M paredes miradas» de la cabecera
+ * (`resumen.sinTocar`): ni apartada, ni medianera, ni revisada, ni con huecos.
+ */
+function PorMirar({ plano, onIr }) {
+    const { muros, plantas, esFuera, esMedianera, nombreDe } = plano;
+    const porMirar = Object.values(muros || {})
+        .filter(x => !esFuera(x) && !esMedianera(x) && !x.revisada && !(x.huecos || []).length);
+    if (!Object.keys(muros || {}).length) return null;
+    if (!porMirar.length) {
+        return <p className="text-[12px] font-bold text-emerald-300">✓ Todas las paredes están miradas.</p>;
+    }
+    // Una comunidad sin delimitar trae casi doscientas paredes: se enseñan las
+    // primeras y se dice cuántas más hay, en vez de llenar la columna.
+    const TOPE = 30;
+    const grupos = [];
+    for (const p of plantas || []) {
+        const suyas = porMirar.filter(x => x.planta === p.id)
+            .sort((a, b) => String(nombreDe(a)).localeCompare(String(nombreDe(b)), 'es', { numeric: true }));
+        if (!suyas.length) continue;
+        const ya = grupos.reduce((s, g) => s + g.vistas.length, 0);
+        grupos.push({ p, vistas: suyas.slice(0, Math.max(0, TOPE - ya)), total: suyas.length });
+    }
+    return (
+        <div className="flex flex-col gap-1.5">
+            <p className="text-[11px] text-white/45">
+                <b className="text-white/75">{porMirar.length}</b>{' '}
+                {porMirar.length === 1 ? 'pared sin mirar' : 'paredes sin mirar'}
+            </p>
+            {grupos.map(({ p, vistas, total }) => (
+                <div key={p.id} className="flex flex-wrap items-center gap-1">
+                    {grupos.length > 1 && (
+                        <span className="mr-0.5 text-[10px] font-bold uppercase tracking-wider text-white/35">
+                            {p.nombre}
+                        </span>
+                    )}
+                    {vistas.map(x => (
+                        <button key={x.id} type="button" onClick={() => onIr(x.id)}
+                                title={`Ir a ${nombreDe(x)}`}
+                                className="rounded-md border border-white/10 bg-white/[0.03] px-1.5 py-0.5
+                                           text-[11px] font-bold tabular-nums text-white/70
+                                           hover:border-brand/60 hover:text-brand">
+                            {nombreDe(x)}
+                        </button>
+                    ))}
+                    {total > vistas.length && (
+                        <span className="text-[10.5px] text-white/35">+{total - vistas.length}</span>
+                    )}
+                </div>
+            ))}
+        </div>
+    );
+}
+
+/** Los gestos del plano, que no están escritos en ninguna otra parte. */
+function Atajos() {
+    const filas = [
+        ['Rueda', 'acercar y alejar'],
+        ['Arrastrar', 'mover el plano (en 3D, girar)'],
+        ['Ctrl+Z · Ctrl+Y', 'deshacer · rehacer'],
+        ['Espacio', 'mover mientras se dibuja'],
+        ['Esc', 'cancelar lo que se dibuja'],
+    ];
+    return (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-1 border-t border-white/[0.06] pt-2.5
+                       text-[11px] leading-snug">
+            {filas.map(([k, v]) => (
+                <div key={k} className="contents">
+                    <dt>
+                        <kbd className="rounded border border-white/15 bg-white/[0.04] px-1 py-px
+                                        font-sans text-[10px] font-bold text-white/65">{k}</kbd>
+                    </dt>
+                    <dd className="text-white/45">{v}</dd>
+                </div>
+            ))}
+        </dl>
     );
 }
 

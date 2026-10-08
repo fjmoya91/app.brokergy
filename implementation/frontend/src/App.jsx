@@ -1151,8 +1151,16 @@ function App() {
   const wrapperPadding = (isLoggedDashboard || isPublicRoute || (user && envolventeId)) ? 'p-0' : 'px-4 py-8';
   const wrapperHeight = isLoggedDashboard ? 'h-screen overflow-hidden' : '';
 
+  // En la ventana de la ENVOLVENTE, `overflow-x-clip` y no `-hidden`: `hidden`
+  // en un eje obliga a `auto` en el otro, y esa caja con scroll (que nunca
+  // scrollea: crece con la página) se convertía en la referencia de todo
+  // `position: sticky` de dentro — la cabecera y el panel de la pared se iban
+  // con la página. `clip` recorta lo mismo sin crearla. Solo en esa ruta: en
+  // las demás no se ha medido qué cambiaría.
+  const recorteX = user && envolventeId ? 'overflow-x-clip' : 'overflow-x-hidden';
+
   return (
-    <div className="min-h-screen bg-slate-950 overflow-x-hidden relative">
+    <div className={`min-h-screen bg-slate-950 ${recorteX} relative`}>
       {/* Red decorativa solo en pantallas tipo login/reset, no en flujos públicos */}
       {!isPublicRoute && <DynamicNetworkBackground />}
 

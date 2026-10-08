@@ -1,12 +1,12 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { alturaHueco, areaPoligono, at, caja, centro, centroide, cota, CAMARA_ISO, ESCALA_AXO, fmt,
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { alturaHueco, areaPoligono, at, caja, centro, centroide, CAMARA_ISO, ESCALA_AXO, fmt,
          claveEncuadre, largo, LARGO_MINIMO_PARED, pegarAPared, proyector,
          recorrido, reparto,
          simplificarTrazo, tamanosDeDibujo, TOPE_ALT }
     from '../logic/geometriaPlano';
 import { TIPOS_PARED, nombreHueco } from '../logic/usePlanoEnvolvente';
 import { cuerposDeLaPlanta } from '../logic/cuerposEnvolvente';
-import { CubiertaControl, LucernariosCubierta } from './PanelCubierta';
+import { CubiertaControl } from './PanelCubierta';
 import { RecorteControl } from './PanelRecorte';
 import { ViviendaPlantaControl } from './PanelZonas';
 import { COLOR_CROQUIS, ETIQUETA_USO_ZONA } from '../logic/zonasFuera';
@@ -29,6 +29,7 @@ function fechaVuelo(url) {
 import { EtiquetaMancha } from './EtiquetaMancha';
 import { PizarraControl, TrazoPizarra } from './PizarraControl';
 import { colorDeLapiz } from '../logic/pizarra';
+import { colocarRotulosPlano } from '../logic/rotulosPlano';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // El plano del certificador. Cada pared se pulsa.
@@ -268,7 +269,18 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                               cuerpos = [], onCuerpo = null,
                               //: La PIZARRA: «✓ Así es como está» (lo abre la
                               //: vista, que es quien guarda la revisión).
-                              onAsiEsComoEsta = null }) {
+                              onAsiEsComoEsta = null,
+                              //: La LEYENDA de colores bajo el plano. Con dos
+                              //: plantas a la vista salía DOS veces, idéntica:
+                              //: quien llama puede pintarla una vez debajo de
+                              //: las dos (`LeyendaPlano`) y apagarla aquí. La
+                              //: ayuda del MODO DE DIBUJO se queda siempre: es
+                              //: de ESTE plano y solo sale mientras se dibuja.
+                              leyenda = true,
+                              //: Varias plantas lado a lado: la tarjeta comparte
+                              //: sus tres filas con la de al lado (`subgrid`)
+                              //: para que los planos empiecen a la misma altura.
+                              alinear = false }) {
     const { muros, entrada, sel, elegir, esCandidata, esMedianera, mueveHueco,
             muevePared, dibujaPared, estadoDe, nombreDe, tipoDe } = plano;
 
@@ -486,6 +498,12 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
     const [avisoPizarra, setAvisoPizarra] = useState(null);
     const pizarraActiva = !!lapizPizarra && !es3d;
     const pintandoPizarra = pizarraActiva && lapizPizarra !== 'mano';
+    //: Con la PIZARRA abierta, las tiras de Vivienda y Cubierta se apartan, como
+    //: con cualquier otro modo de dibujo: la paleta es la tira de ese momento, y
+    //: con las tres debajo el plano empezaba 338 px por debajo de la barra en
+    //: «Las dos». Salvo con el croquis abierto en el MÓVIL, que se ve y se
+    //: cierra desde la tira de Vivienda.
+    const tapaTiras = pizarraActiva && !croquisMovil;
     //: Los DEDOS que hay sobre el plano (tablet): con dos, se mueve y se amplía.
     const dedos = useRef(new Map());
 
@@ -906,6 +924,11 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
         () => (es3d ? [] : cuerposDeLaPlanta(cuerpos, planta?.nivel)),
         [cuerpos, planta?.nivel, es3d]);
 
+    //: Dónde quedaron los rótulos la última vez: si no ha cambiado nada de lo
+    //: que los decide, no se recolocan (ver `colocarRotulosPlano`). El plano se
+    //: repinta a cada movimiento del ratón. ⚠ Por ENCIMA del `return`.
+    const memoriaRotulos = useRef({});
+
     //: La ORTOFOTO: qué teselas cubren el entorno y dónde van en el lienzo. Se
     //: calcula solo con la capa encendida — sin ella no se pide ni una imagen.
     //: ⚠ También por ENCIMA del `return` de «esta planta no tiene plano».
@@ -956,7 +979,20 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
 
     const capa2d = es3d ? [] : murosDe(planta);
 
-    const rotulos = es3d ? [] : colocarRotulos(capa2d, { sel, entrada, tam, entorno, nombreDe });
+    //: TODOS los rótulos del plano en UNA pasada —nombres de pared, cotas,
+    //: etiquetas de zona, de cuerpo y de croquis—, para que no se pisen entre
+    //: sí (ver `logic/rotulosPlano.js`). Entra solo lo que se va a pintar: las
+    //: zonas van sin rótulo mientras se pinta un croquis (el croquis las va a
+    //: sustituir), y los cuerpos no se dibujan mientras se dibuja una pared.
+    const fantasmaZonas = dibujarCroquis || !!croquisMovil;
+    const colocados = es3d ? null : colocarRotulosPlano({
+        muros: capa2d, sel, entrada, tam, entorno, nombreDe, hacia,
+        interior: esInterior, fuera: m => estadoDe(m) === 'fuera',
+        zonas: fantasmaZonas ? [] : zonas,
+        cuerpos: dibujando ? [] : cuerposAqui, cuerpoSobre,
+        croquis: fantasmaZonas ? croquis : [],
+    }, memoriaRotulos.current);
+    const rotulos = colocados ? colocados.paredes : [];
     const caras = es3d
         ? construirCaras({ capas, murosDe, alturaPlanta, sel, colorDe, estadoDe, proy })
         : [];
@@ -968,8 +1004,32 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
     const puedeAlejar = !!plano.entorno && !es3d;
     const hover = tip ? muros[tip.id] : null;
 
+    //: El ALTO del lienzo sigue la PROPORCIÓN del dibujo: alto = ancho de la
+    //: tarjeta × proporción, con techo (68 % de la pantalla, 900 px) y suelo
+    //: (360 px). Con un alto fijo de 68vh, en «Las dos» cada tarjeta mide ~470 px
+    //: de ancho y el plano —apaisado— quedaba como una tira en medio de un lienzo
+    //: vertical, con 150–250 px vacíos. Va en CSS (`aspect-ratio` + `min`/`max`),
+    //: sin medir nada: el zoom, el paneo y el globo leen la caja del SVG en vivo
+    //: (`aDibujo` deshace el `meet` con la que haya), así que no dependen de él.
+    //: La proporción es la del encuadre de TRABAJO (el lienzo del motor), no la
+    //: del que se está mirando: si siguiera al zoom o al «Ver el entorno», la
+    //: tarjeta cambiaría de alto con cada gesto. En 3D el encuadre es una esfera
+    //: (cuadrado), y como el 3D va siempre a todo el ancho, queda como estaba.
+    const altoLienzo = {
+        aspectRatio: es3d ? '1 / 1' : `${ancho} / ${alto}`,
+        height: 'auto', minHeight: 360, maxHeight: 'min(68vh, 900px)',
+    };
+
+    // `alinear` (dos plantas lado a lado): la tarjeta reparte lo suyo en TRES
+    // filas —barra · tiras · plano— y las comparte con la de al lado
+    // (`subgrid`). Sin eso, cada plano empezaba a una altura: la barra salta de
+    // fila según lo largo del título («PLANTA BAJA» no cabe donde «PLANTA 1»
+    // sí) y la baja suele llevar más tiras (el garaje, el adosado). Y comparar
+    // las dos plantas —¿esta pared sigue hacia arriba?— es para lo que está
+    // «Las dos».
     return (
-        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3">
+        <div className={`rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3
+                         ${alinear ? 'row-span-3 grid grid-rows-subgrid gap-y-0' : ''}`}>
             <Controles
                 titulo={es3d && capas.length > 1
                     ? `EDIFICIO · ${capas.length} PLANTAS`
@@ -998,6 +1058,9 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                 avisoSatelite={orto?.aviso || null}
                 enlaces={enlaces} />
 
+            {/* Las TIRAS de esta planta, en un solo bloque: es la fila del medio
+                cuando la tarjeta se alinea con la de al lado (`alinear`). */}
+            <div>
             {/* La PIZARRA: la paleta de lápices, lo último que se ha entendido y
                 la salida para confirmarlo. Va bajo la barra de SU plano, como la
                 cubierta: el mando tiene que estar donde se dibuja. */}
@@ -1026,7 +1089,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                                 onMovil={onRecorteMovil
                                     ? () => { setVertices([]); onRecorteMovil(); } : null} />
             )}
-            {!es3d && !dibujarRecorte && (onZonaModo || onRecorteModo) && (
+            {!es3d && !dibujarRecorte && (onZonaModo || onRecorteModo) && !tapaTiras && (
                 <ViviendaPlantaControl planta={planta} zonas={zonas}
                                        dibujandoZona={dibujarZona} vertices={vertices}
                                        uso={usoZona} onUso={onUsoZona}
@@ -1053,21 +1116,25 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                                        notasPropuesta={notasPropuesta} />
             )}
 
-            {!es3d && onCubiertaModo && !dibujarRecorte && !dibujarZona && (
+            {/* Sus LUCERNARIOS van en la MISMA fila, a la derecha: son los huecos
+                de ESTA cubierta, y una fila entera para «ninguno · + Lucernario»
+                eran ~44 px de plano sin ver. Mientras se dibuja la cubierta, la
+                tira pasa a ser la instrucción y no se enseñan. */}
+            {!es3d && onCubiertaModo && !dibujarRecorte && !dibujarZona && !tapaTiras && (
                 <CubiertaControl reforma={cubierta} dibujando={dibujarCubierta}
                                  vertices={vertices}
                                  onDibujar={() => onCubiertaModo(true)}
                                  onEntera={onCubiertaEntera} onQuitar={onCubiertaQuitar}
                                  onCerrar={cerrarCubierta}
-                                 onCancelar={() => { setVertices([]); onCubierta?.(null); }} />
+                                 onCancelar={() => { setVertices([]); onCubierta?.(null); }}
+                                 lucernarios={plano.anadeLucernario
+                                     ? { planta: planta.id, plano, defecto: carpinteriaDefecto }
+                                     : null} />
             )}
-            {/* Sus LUCERNARIOS, justo debajo: son los huecos de ESTA cubierta.
-                Mientras se dibuja no, que la tira pasa a ser la instrucción. */}
-            {!es3d && onCubiertaModo && !dibujarCubierta && !dibujarRecorte && !dibujarZona
-                && plano.anadeLucernario && (
-                <LucernariosCubierta planta={planta.id} plano={plano}
-                                     defecto={carpinteriaDefecto} />
-            )}
+            </div>
+
+            {/* El PLANO y su leyenda: la última fila. */}
+            <div>
 
             {/* `position:relative` porque el globo del ratón va colgado del
                 contenedor y no del SVG: dentro del SVG habría que colocarlo en
@@ -1095,7 +1162,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                                  ${espacioPulsado ? 'cursor-grab'
                                    : es3d ? 'cursor-grab'
                                    : lapizPizarra === 'mano' ? 'cursor-grab' : 'cursor-crosshair'}`}
-                     style={{ touchAction: 'none', height: 'clamp(360px, 68vh, 900px)' }}
+                     style={{ touchAction: 'none', ...altoLienzo }}
                      onPointerDown={onDown} onPointerMove={onMove}
                      onPointerUp={onUp} onPointerCancel={onUp}
                      onDoubleClick={() => { if (dibujarPoligono) cerrarCubierta(); }}
@@ -1184,6 +1251,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                         más encima solo taparía las paredes del fondo. */}
                     {!es3d && !dibujando && (
                         <Cuerpos cuerpos={cuerposAqui} sobre={cuerpoSobre} tam={tam}
+                                 rotulos={colocados?.cuerpos}
                                  onSobre={setCuerpoSobre}
                                  onPulsar={(id) => { if (!arrastrado.current) onCuerpo?.(id); }} />
                     )}
@@ -1239,9 +1307,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                                 {capa2d.flatMap(m => dibujaHuecos(m, grosorDe(m)))}
                             </g>
 
-                            <Cotas muros={capa2d} sel={sel} hacia={hacia} tam={tam}
-                                   interior={esInterior} entorno={entorno}
-                                   fuera={m => estadoDe(m) === 'fuera'} />
+                            <Cotas lista={colocados ? colocados.cotas : []} tam={tam} />
 
                             {/* La parte de la CUBIERTA que se reforma: la ya
                                 dibujada, con su trama y su m², y la que se está
@@ -1264,7 +1330,8 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                             <Zonas zonas={zonas}
                                    vertices={dibujarZona ? vertices : []}
                                    cursor={dibujarZona ? cursor : null} uid={uid} tam={tam}
-                                   fantasma={dibujarCroquis || !!croquisMovil} />
+                                   fantasma={dibujarCroquis || !!croquisMovil}
+                                   rotulos={colocados?.zonas} />
 
                             {/* El CROQUIS a mano alzada: las manchas pintadas y
                                 la que se está pintando. */}
@@ -1272,7 +1339,7 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                                      lapiz={lapiz || croquisMovil?.enCurso?.pts || null}
                                      uso={lapiz ? usoCroquis : (croquisMovil?.enCurso?.uso || usoCroquis)}
                                      dedo={!lapiz && croquisMovil?.enCurso?.pts?.length > 1}
-                                     tam={tam} />
+                                     tam={tam} rotulos={colocados?.croquis} />
 
                             {rotulos.map(r => (
                                 <g key={r.id} style={{ pointerEvents: 'none' }}>
@@ -1403,19 +1470,115 @@ export function PlanoPlanta({ planta, plano, capas: capasPedidas, entorno, onEnt
                 ))}
             </div>
 
-            <Leyenda es3d={es3d} dibujando={dibujando} dibujandoCubierta={dibujarPoligono && !es3d} />
+            {leyenda ? (
+                <Leyenda es3d={es3d} dibujando={dibujando} dibujandoCubierta={dibujarPoligono && !es3d} />
+            ) : (
+                <AyudaDibujo dibujando={dibujando} dibujandoCubierta={dibujarPoligono && !es3d} />
+            )}
+            </div>
         </div>
     );
 }
 
-/** La cabecera del plano: qué se está viendo, y los mandos para verlo. */
+//: Los ESCALONES de la barra de mandos, del más rico al más corto:
+//:   0 · todo con su rótulo;
+//:   1 · el encuadre pasa a iconos (− + ⤢ ⊕) y los fondos pierden el glifo;
+//:   2 · la Pizarra y la Pared nueva, a icono;
+//:   3 · Google, a icono;
+//:   4 · los fondos, a glifo (▦ ◩).
+//: Se elige el más rico que CABE en una fila, MIDIENDO (no con anchos escritos a
+//: mano: el día que se añada un botón, se seguiría saliendo). Medido el
+//: 08/10/2026 en 2D con todo a la vista y sin modo encendido: 736, 541, 399,
+//: 349 y 252 px.
+const ULTIMO_ESCALON = 4;
+
+//: El ANCHO de un elemento, medido y al día. Tailwind 3 no tiene container
+//: queries, y lo que decide cómo cabe la barra es el ancho de SU tarjeta, no el
+//: de la pantalla. `useLayoutEffect` para medir ANTES de pintar: con un efecto
+//: normal saldría un fotograma con la barra entera desbordada.
+function useAncho(ref) {
+    const [ancho, setAncho] = useState(0);
+    useLayoutEffect(() => {
+        const el = ref.current;
+        if (!el) return undefined;
+        const medir = () => setAncho(Math.round(el.getBoundingClientRect().width));
+        medir();
+        if (typeof ResizeObserver === 'undefined') return undefined;
+        const ro = new ResizeObserver(medir);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [ref]);
+    return ancho;
+}
+
+//: Lo que ocuparía un grupo de botones EN UNA FILA: cada hijo con su contenido
+//: entero (`scrollWidth`: un rótulo recortado con puntos suspensivos cuenta
+//: entero) más los huecos entre ellos. Da igual que ahora esté partido en dos.
+function anchoEnUnaFila(el) {
+    const hijos = [...el.children];
+    const hueco = parseFloat(getComputedStyle(el).columnGap) || 0;
+    return hijos.reduce((s, h) => s + Math.max(h.getBoundingClientRect().width, h.scrollWidth), 0)
+        + hueco * Math.max(0, hijos.length - 1);
+}
+
+/**
+ * La cabecera del plano: qué se está viendo, y los mandos para verlo.
+ *
+ * ⚠️ LA BARRA SE MIDE POR SU TARJETA, no por la pantalla. Con «Las dos» una
+ * pantalla de 1920 px deja ~470 px por plano y los nueve botones con su rótulo
+ * entero piden ~800: se salían de la tarjeta, pisaban los de la de al lado y,
+ * con una pared elegida, el «Al exterior» del panel (medido el 08/10/2026:
+ * «Google» se salía 136 px a 1920 y 196 px a 1280; y los rótulos se partían en
+ * dos líneas dentro de botones de 28 px). Ahora se acorta por escalones, como
+ * la barra de herramientas de un programa de CAD: primero lo que tiene un
+ * icono universal (zoom, encuadre), luego las herramientas de dibujo (con su
+ * nombre en `title` y `aria-label`), luego Google, al final los fondos — que
+ * son lo que menos se reconoce por un glifo. Lo que NO se acorta nunca es un
+ * modo ENCENDIDO: «Suelta de pared a pared» es la instrucción del gesto, no un
+ * rótulo — y como ocupa, son los DEMÁS los que bajan de escalón mientras dura.
+ * Si la barra saltara de fila al pulsar «Pared nueva», el plano bajaría 36 px
+ * justo cuando se va a empezar a dibujar en él. Y si ni en el último escalón
+ * cabe, entonces sí salta de fila, alineada a la derecha.
+ */
 function Controles({ titulo, subtitulo, es3d, onGirar, dibujando, onDibujar, corto,
                      pizarra = false, onPizarra = null,
                      onZoom, onEncuadrar, puedeAlejar, entorno, onEntorno,
                      catastro, onCatastro, trayendoCatastro, falloCatastro,
                      satelite, onSatelite, avisoSatelite, enlaces = [] }) {
+    const ref = useRef(null);
+    const grupoRef = useRef(null);
+    const ancho = useAncho(ref);
+    //: El escalón se vuelve a buscar desde el más rico cada vez que cambia algo
+    //: que cambia lo que ocupa la barra (el ancho, un modo, un aviso…): eso se
+    //: decide AL PINTAR, sin efecto, comparando con la firma de la última
+    //: búsqueda. Y se baja de uno en uno mientras no quepa, midiendo en un
+    //: `useLayoutEffect`: todo antes de pintar, en pantalla solo se ve el último.
+    const firma = [ancho, es3d, dibujando, corto, pizarra, entorno, puedeAlejar,
+                   trayendoCatastro, !!falloCatastro, !!(satelite && avisoSatelite),
+                   !!onCatastro, !!onSatelite, !!onPizarra, !!onDibujar, enlaces.length > 0].join('|');
+    const [ajuste, setAjuste] = useState({ firma, escalon: 0 });
+    if (ajuste.firma !== firma) setAjuste({ firma, escalon: 0 });
+    const escalon = ajuste.firma === firma ? ajuste.escalon : 0;
+    useLayoutEffect(() => {
+        const raiz = ref.current, grupo = grupoRef.current;
+        if (!raiz || !grupo || escalon >= ULTIMO_ESCALON) return;
+        const cabe = anchoEnUnaFila(grupo) <= raiz.getBoundingClientRect().width + 0.5;
+        // Medir y corregir ANTES de pintar es justo para lo que está el layout
+        // effect: el render en cascada es el que se quiere, y no llega a verse.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        if (!cabe) setAjuste(a => (a.firma === firma ? { firma, escalon: escalon + 1 } : a));
+    }, [firma, escalon]);
+    const vistaCorta = escalon >= 1;
+    const iconos = escalon >= 2;
+    const googleCorto = escalon >= 3;
+    const fondoCorto = escalon >= 4;
+    //: El rótulo de un FONDO en cada escalón; el aviso (⚠) se ve en todos.
+    const rotuloFondo = (glifo, nombre, aviso) =>
+        (fondoCorto ? glifo : vistaCorta ? nombre : `${glifo} ${nombre}`) + (aviso ? ' ⚠' : '');
+    const avisoCatastro = !!falloCatastro && !trayendoCatastro;
+    const avisoFoto = !!(satelite && avisoSatelite);
     return (
-        <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div ref={ref} className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2">
             <b className="text-[13px] font-black tracking-wide">{titulo}</b>
             <span className="text-[11px] tabular-nums text-white/35">{subtitulo}</span>
 
@@ -1423,8 +1586,14 @@ function Controles({ titulo, subtitulo, es3d, onGirar, dibujando, onDibujar, cor
                 tarjeta —en 3D se funden en un solo dibujo— y repetido en cada
                 planta parecía que se podía tener una en planta y otra en
                 axonometría. Vive en la barra de arriba, junto al selector de
-                plantas, que es la otra mitad de la misma pregunta: qué se ve. */}
-            <div className="ml-auto flex items-center gap-1.5">
+                plantas, que es la otra mitad de la misma pregunta: qué se ve.
+
+                `min-w-0` + `flex-wrap`: sola en su fila, la barra encoge hasta el
+                ancho de la tarjeta y reparte los botones en dos filas antes que
+                salirse; sin `min-w-0` no bajaría del botón más ancho. */}
+            <div ref={grupoRef}
+                 className={`ml-auto flex min-w-0 flex-wrap items-center justify-end
+                             ${vistaCorta ? 'gap-1' : 'gap-1.5'}`}>
                 {/* Girar de 45 en 45: son las cuatro esquinas del edificio, que
                     es como se mira un modelo cuando no se quiere apuntar con el
                     ratón — y en una tablet es la única forma de girarlo sin
@@ -1439,61 +1608,91 @@ function Controles({ titulo, subtitulo, es3d, onGirar, dibujando, onDibujar, cor
                     encima del plano. Con el dedo en una tablet o con el ratón. */}
                 {!es3d && onPizarra && (
                     <Boton onClick={() => onPizarra(!pizarra)} activo={pizarra}
-                           title="Dibujar a mano alzada cómo es la vivienda: muros, medianeras,
-                                  particiones, ventanas y puertas.">
-                        {pizarra ? '✏️ Pizarra · cerrar' : '✏️ Pizarra'}
+                           aria-pressed={!!pizarra}
+                           cuadrado={iconos && !pizarra}
+                           etiqueta={iconos && !pizarra ? 'Pizarra' : undefined}
+                           title="Pizarra: dibujar a mano alzada cómo es la vivienda —muros,
+                                  medianeras, particiones, ventanas y puertas.">
+                        {pizarra ? '✏️ Pizarra · cerrar' : iconos ? '✏️' : '✏️ Pizarra'}
                     </Boton>
                 )}
                 {!es3d && onDibujar && !pizarra && (
                     <Boton onClick={() => onDibujar(!dibujando)} activo={dibujando}
-                           title="Dibujar una pared nueva: arrastra de una pared a otra.
+                           aria-pressed={!!dibujando}
+                           cuadrado={iconos && !dibujando}
+                           etiqueta={iconos && !dibujando ? 'Pared nueva' : undefined}
+                           title="Pared nueva: arrastra de una pared a otra.
                                   Para una pared corta, amplía antes con la rueda: los
                                   tiradores no crecen con el zoom.">
                         {dibujando ? (corto ? '✎ Muy corta · vuelve a intentarlo'
                                             : '✎ Suelta de pared a pared')
-                                   : '✎ Pared nueva'}
+                                   : iconos ? <IconoPared /> : '✎ Pared nueva'}
                     </Boton>
                 )}
                 {es3d && onGirar && (
                     <>
-                        <Boton onClick={() => onGirar(45)}
+                        <Boton onClick={() => onGirar(45)} etiqueta="Girar a la izquierda"
                                title="Girar el edificio a la izquierda (45°)" cuadrado>⟲</Boton>
-                        <Boton onClick={() => onGirar(-45)}
+                        <Boton onClick={() => onGirar(-45)} etiqueta="Girar a la derecha"
                                title="Girar el edificio a la derecha (45°)" cuadrado>⟳</Boton>
                     </>
                 )}
-                <Boton onClick={() => onZoom(ZOOM.boton)} title="Alejar" cuadrado>−</Boton>
-                <Boton onClick={() => onZoom(1 / ZOOM.boton)} title="Acercar" cuadrado>+</Boton>
-                <Boton onClick={onEncuadrar}
-                       title={es3d ? 'Volver a la vista de partida: encuadre y giro'
-                                   : 'Volver al encuadre del motor'}>
-                    Encuadrar
-                </Boton>
-                {puedeAlejar && (
-                    <Boton onClick={() => onEntorno?.(!entorno)} activo={entorno}
-                           title="Ver los edificios de al lado, para comprobar contra qué da cada pared">
-                        {entorno ? '⊙ Acercar' : '⊕ Ver el entorno'}
-                    </Boton>
+                {/* El ENCUADRE, en un grupo: alejar, acercar, volver al de
+                    partida y —en planta— el del entorno. Son la misma pregunta
+                    (cuánto se ve) y los dos encuadres del motor van juntos. */}
+                <Grupo etiqueta="Encuadre y zoom">
+                    <BotonGrupo onClick={() => onZoom(ZOOM.boton)} etiqueta="Alejar"
+                                title="Alejar" signo>−</BotonGrupo>
+                    <BotonGrupo onClick={() => onZoom(1 / ZOOM.boton)} etiqueta="Acercar"
+                                title="Acercar" signo>+</BotonGrupo>
+                    <BotonGrupo onClick={onEncuadrar} etiqueta="Encuadrar" signo={vistaCorta}
+                                title={es3d ? 'Encuadrar: volver a la vista de partida, encuadre y giro'
+                                            : 'Encuadrar: volver al encuadre del motor'}>
+                        {vistaCorta ? '⤢' : 'Encuadrar'}
+                    </BotonGrupo>
+                    {puedeAlejar && (
+                        <BotonGrupo onClick={() => onEntorno?.(!entorno)} activo={entorno}
+                                    aria-pressed={!!entorno} signo={vistaCorta}
+                                    etiqueta={entorno ? 'Acercar a la casa' : 'Ver el entorno'}
+                                    title={entorno ? 'Acercar: volver a la casa'
+                                        : 'Ver el entorno: los edificios de al lado, para comprobar '
+                                          + 'contra qué da cada pared'}>
+                            {vistaCorta ? (entorno ? '⊙' : '⊕')
+                                        : (entorno ? '⊙ Acercar' : '⊕ Ver el entorno')}
+                        </BotonGrupo>
+                    )}
+                </Grupo>
+                {/* Los FONDOS del plano, en UN grupo porque son UNA pregunta: qué
+                    hay debajo de las paredes. Son excluyentes —la cartografía es
+                    un papel opaco y taparía la foto; encender uno apaga el otro,
+                    lo decide la vista— y pulsar el encendido lo apaga: no tener
+                    fondo también vale. */}
+                {(onCatastro || onSatelite) && (
+                    <Grupo etiqueta="Fondo del plano">
+                        {onCatastro && (
+                            <BotonGrupo onClick={() => onCatastro(!catastro)} activo={catastro}
+                                        aria-pressed={!!catastro} etiqueta="Catastro"
+                                        signo={fondoCorto && !avisoCatastro && !trayendoCatastro}
+                                        title={falloCatastro
+                                            || 'Catastro: la cartografía del Catastro debajo del plano, '
+                                               + 'en su sitio exacto'}>
+                                {trayendoCatastro ? 'Trayendo…' : rotuloFondo('▦', 'Catastro', avisoCatastro)}
+                            </BotonGrupo>
+                        )}
+                        {onSatelite && (
+                            <BotonGrupo onClick={() => onSatelite(!satelite)} activo={satelite}
+                                        aria-pressed={!!satelite} etiqueta="Satélite"
+                                        signo={fondoCorto && !avisoFoto}
+                                        title={avisoSatelite
+                                            || 'Satélite: la ortofoto del PNOA (IGN) debajo del plano: '
+                                               + 'tejados, patios, piscinas y lo construido que no consta '
+                                               + 'en Catastro'}>
+                                {rotuloFondo('◩', 'Satélite', avisoFoto)}
+                            </BotonGrupo>
+                        )}
+                    </Grupo>
                 )}
-                {onCatastro && (
-                    <Boton onClick={() => onCatastro(!catastro)} activo={catastro}
-                           title={falloCatastro
-                               || 'La cartografía del Catastro debajo del plano, en su sitio exacto'}>
-                        {trayendoCatastro ? 'Trayendo…' : falloCatastro ? '▦ Catastro ⚠' : '▦ Catastro'}
-                    </Boton>
-                )}
-                {/* La vista aérea. Es un FONDO, como el Catastro, y los dos no
-                    caben a la vez: la cartografía es un papel opaco y taparía
-                    la foto. Encender uno apaga el otro (lo decide la vista). */}
-                {onSatelite && (
-                    <Boton onClick={() => onSatelite(!satelite)} activo={satelite}
-                           title={avisoSatelite
-                               || 'La ortofoto del PNOA (IGN) debajo del plano: tejados, patios, '
-                                + 'piscinas y lo construido que no consta en Catastro'}>
-                        {satelite && avisoSatelite ? '◩ Satélite ⚠' : '◩ Satélite'}
-                    </Boton>
-                )}
-                {enlaces.length > 0 && <MenuMapas enlaces={enlaces} />}
+                {enlaces.length > 0 && <MenuMapas enlaces={enlaces} corto={googleCorto} />}
             </div>
         </div>
     );
@@ -1508,7 +1707,7 @@ function Controles({ titulo, subtitulo, es3d, onGirar, dibujando, onDibujar, cor
  * de un plano propio sin su API de pago. Se abren en otra pestaña (`noopener`:
  * sin él comparte proceso con esta, y un Google Earth cargando la frena).
  */
-function MenuMapas({ enlaces }) {
+function MenuMapas({ enlaces, corto = false }) {
     const [abierto, setAbierto] = useState(false);
     const ref = useRef(null);
     useEffect(() => {
@@ -1523,14 +1722,18 @@ function MenuMapas({ enlaces }) {
         };
     }, [abierto]);
     return (
-        <div ref={ref} className="relative">
+        <div ref={ref} className="relative flex shrink-0">
+            {/* En una tarjeta estrecha queda la flecha sola: es el último
+                escalón de la barra, y lo que dice va en `title` y `aria-label`. */}
             <Boton onClick={() => setAbierto(a => !a)} activo={abierto}
-                   title="Abrir este edificio en Google Maps, Street View o Google Earth">
-                ↗ Google
+                   aria-expanded={abierto} cuadrado={corto}
+                   etiqueta={corto ? 'Ver en Google' : undefined}
+                   title="Google: abrir este edificio en Google Maps, Street View o Google Earth">
+                {corto ? '↗' : '↗ Google'}
             </Boton>
             {abierto && (
-                <div className="absolute right-0 top-8 z-30 w-72 overflow-hidden rounded-xl border
-                                border-white/10 bg-bkg-surface shadow-2xl">
+                <div className="absolute right-0 top-8 z-30 w-72 max-w-[calc(100vw-2rem)] overflow-hidden
+                                rounded-xl border border-white/10 bg-bkg-surface shadow-2xl">
                     {enlaces.map(e => (
                         <a key={e.id} href={e.href} target="_blank" rel="noopener noreferrer"
                            onClick={() => setAbierto(false)}
@@ -1548,17 +1751,63 @@ function MenuMapas({ enlaces }) {
     );
 }
 
-function Boton({ onClick, title, activo, cuadrado, children }) {
+//: `whitespace-nowrap`: en un botón de 28 px de alto un rótulo partido en dos
+//: líneas («PARED / NUEVA») se sale por arriba y por abajo. Un rótulo largo se
+//: CORTA con puntos suspensivos (`truncate` + `min-w-0`) antes que salirse de
+//: la tarjeta. `etiqueta` es el nombre para quien no ve el icono (lector de
+//: pantalla); lo demás (`aria-pressed`, `aria-expanded`) pasa tal cual.
+function Boton({ onClick, title, etiqueta, activo, cuadrado, children, ...resto }) {
     return (
-        <button onClick={onClick} title={title}
-                className={`h-7 rounded-lg border transition-colors
+        <button type="button" onClick={onClick} title={title} aria-label={etiqueta} {...resto}
+                className={`h-7 whitespace-nowrap rounded-lg border transition-colors
                             ${cuadrado
-                                ? 'w-7 text-[15px] font-bold'
-                                : 'px-2.5 text-[10px] font-bold uppercase tracking-wider'}
+                                ? 'w-7 shrink-0 text-[15px] font-bold leading-none'
+                                : 'min-w-0 max-w-full truncate px-2.5 text-[10px] font-bold uppercase tracking-wider'}
                     ${activo ? 'border-brand/50 bg-brand/15 text-brand'
                              : 'border-white/10 text-white/45 hover:border-white/30 hover:text-white/80'}`}>
             {children}
         </button>
+    );
+}
+
+//: Mandos PEGADOS en un solo grupo (el encuadre; los fondos del plano): se
+//: leen como una herramienta, que es lo que son, y ocupan menos que sueltos.
+//: El grupo mide de alto lo mismo que un botón suelto (28 px), así que la barra
+//: no baila al pasar de un escalón a otro.
+function Grupo({ etiqueta, children }) {
+    return (
+        <div role="group" aria-label={etiqueta}
+             className="flex h-7 shrink-0 items-stretch gap-0.5 rounded-lg border border-white/10 p-0.5">
+            {children}
+        </div>
+    );
+}
+
+//: Un mando DENTRO de un grupo. `signo`: un solo carácter (−, +, ⤢, ▦…), cuadrado
+//: y a 15 px, como los cuadrados sueltos.
+function BotonGrupo({ onClick, title, etiqueta, activo, signo, children, ...resto }) {
+    return (
+        <button type="button" onClick={onClick} title={title} aria-label={etiqueta} {...resto}
+                className={`whitespace-nowrap rounded-md transition-colors
+                            ${signo ? 'w-[22px] text-[15px] font-bold leading-none'
+                                    : 'px-2 text-[10px] font-bold uppercase tracking-wider'}
+                    ${activo ? 'bg-brand/15 text-brand'
+                             : 'text-white/45 hover:bg-white/[0.06] hover:text-white/80'}`}>
+            {children}
+        </button>
+    );
+}
+
+//: El icono de «Pared nueva»: la herramienta LÍNEA de un CAD, un tramo con sus
+//: dos extremos. El ✎ del rótulo largo, solo, era el mismo lápiz que el ✏️ de
+//: la Pizarra que tiene al lado, y dos lápices juntos no dicen cuál es cuál.
+function IconoPared() {
+    return (
+        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" className="mx-auto block">
+            <line x1="3.5" y1="12.5" x2="12.5" y2="3.5" stroke="currentColor" strokeWidth="1.6" />
+            <circle cx="3.5" cy="12.5" r="2" fill="currentColor" />
+            <circle cx="12.5" cy="3.5" r="2" fill="currentColor" />
+        </svg>
     );
 }
 
@@ -1681,20 +1930,14 @@ function colocaHuecos(m) {
  * Y solo los que pasan de dos metros, más el seleccionado SIEMPRE: en una casa
  * con retranqueos, acotar paños de medio metro llena el plano de números que se
  * pisan y tapan los que se venían a leer.
+ *
+ * QUÉ cotas y DÓNDE lo decide la pasada de los rótulos (`cotasDelPlano` en
+ * `logic/rotulosPlano.js`): las mismas de siempre —ni lo apartado, ni con el
+ * entorno a la vista salvo la seleccionada—, pero de dos paredes pegadas y casi
+ * iguales va UNA, y la que choca con otro rótulo se escalona hacia fuera o no
+ * se pinta. Aquí solo se dibujan.
  */
-function Cotas({ muros, sel, hacia, tam, interior, entorno, fuera }) {
-    const lista = muros
-        .filter(m => (m.svg || []).length === 2)
-        // Lo APARTADO no se acota: su medida no va a ninguna parte.
-        .filter(m => m.id === sel || !fuera(m))
-        // Con el entorno a la vista la casa ocupa un tercio del dibujo y las
-        // cotas se le meten dentro: ahí se viene a mirar CONTRA QUÉ da cada
-        // pared, no cuánto mide. Se queda la de la seleccionada, que es la que
-        // se está trabajando — mismo criterio que los rótulos.
-        .filter(m => m.id === sel || (!entorno && !interior(m) && largo(m.svg) >= 2))
-        .map(m => ({ id: m.id, c: cota(m.svg, { hacia, apartar: interior(m) ? 0.95 : 1.35 }) }))
-        .filter(x => x.c);
-
+function Cotas({ lista, tam }) {
     return (
         <g style={{ pointerEvents: 'none' }}>
             {lista.map(({ id, c }) => (
@@ -1755,7 +1998,7 @@ const medio = (pts) => {
     return { x: c.x + c.ancho / 2, y: c.y + c.alto / 2 };
 };
 
-function Cuerpos({ cuerpos, sobre, onSobre, onPulsar, tam }) {
+function Cuerpos({ cuerpos, sobre, onSobre, onPulsar, tam, rotulos = null }) {
     return (
         <g>
             {cuerpos.map((c) => {
@@ -1786,14 +2029,22 @@ function Cuerpos({ cuerpos, sobre, onSobre, onPulsar, tam }) {
                                      strokeDasharray={fuera || sospechoso ? '0.5 0.35' : undefined}
                                      strokeLinejoin="round" />
                         ))}
-                        {(fuera || activo) && (
-                            <text x={medio(c.contornos[0]).x} y={medio(c.contornos[0]).y}
-                                  fontSize={tam * 0.85} fontWeight={900} fill={color}
-                                  textAnchor="middle" style={{ pointerEvents: 'none' }}>
-                                {fuera ? 'NO CUENTA'
-                                    : `${c.construccion?.uso || 'CUERPO'} · ${fmt(c.superficie)} m²`}
-                            </text>
-                        )}
+                        {/* Dónde va el rótulo lo decide la pasada de los
+                            rótulos: dentro del cuerpo, en su sitio más holgado
+                            y sin pisar nombres de pared. Sin ella (no debería
+                            pasar), el centro de la caja, como antes. */}
+                        {(fuera || activo) && (() => {
+                            const r = rotulos?.get(c.id);
+                            const m = r || medio(c.contornos[0]);
+                            return (
+                                <text x={m.x} y={m.y}
+                                      fontSize={r ? r.fs : tam * 0.85} fontWeight={900} fill={color}
+                                      textAnchor="middle" style={{ pointerEvents: 'none' }}>
+                                    {r ? r.texto : fuera ? 'NO CUENTA'
+                                        : `${c.construccion?.uso || 'CUERPO'} · ${fmt(c.superficie)} m²`}
+                                </text>
+                            );
+                        })()}
                     </g>
                 );
             })}
@@ -2322,7 +2573,7 @@ function Cubierta({ reforma, vertices, cursor, uid, tam }) {
  * restadas, con el mismo lenguaje que un cuerpo que no cuenta —gris, a trazos y
  * con su rótulo—, y la que se está dibujando.
  */
-function Zonas({ zonas, vertices, cursor, tam, fantasma = false }) {
+function Zonas({ zonas, vertices, cursor, tam, fantasma = false, rotulos = null }) {
     const puntos = (pts) => pts.map(([x, y]) => `${x},${y}`).join(' ');
     const trazo = cursor ? [...vertices, [cursor.x, cursor.y]] : vertices;
     return (
@@ -2331,18 +2582,27 @@ function Zonas({ zonas, vertices, cursor, tam, fantasma = false }) {
                 rótulo: el croquis lo va a sustituir, y sus rótulos chocaban con
                 las manchas nuevas. */}
             <g opacity={fantasma ? 0.35 : 1}>
-                {(zonas || []).filter(z => z.lienzo?.length >= 3).map((z) => {
+                {(zonas || []).map((z, i) => {
+                    if (!(z.lienzo?.length >= 3)) return null;
                     const color = z.aplicada ? 'var(--text-secondary)' : 'var(--warning)';
+                    // La etiqueta, donde la ha puesto la pasada de los rótulos:
+                    // en el sitio más holgado de DENTRO de la zona (el centro de
+                    // la caja, en una L, caía encima de una pared) y, si no
+                    // cabe entera, la versión compacta.
+                    const r = rotulos?.get(z.indice ?? i);
                     const c = caja(z.lienzo, 0);
                     return (
-                        <g key={z.indice}>
+                        <g key={z.indice ?? i}>
                             <polygon points={puntos(z.lienzo)} fill={color} fillOpacity={0.08}
                                      stroke={color} strokeWidth={tam * 0.1}
                                      strokeDasharray={`${tam * 0.6} ${tam * 0.35}`} strokeLinejoin="round" />
                             {!fantasma && (
-                                <EtiquetaMancha cx={c.x + c.ancho / 2} cy={c.y + c.alto / 2} tam={tam} escala={0.85}
-                                                titulo={`${(ETIQUETA_USO_ZONA[z.uso] || 'No habitable').toUpperCase()} · NO CUENTA`}
-                                                sub={`${fmt(z.area_real ?? z.area_m2 ?? 0)} m²`}
+                                <EtiquetaMancha cx={r ? r.cx : c.x + c.ancho / 2}
+                                                cy={r ? r.cy : c.y + c.alto / 2}
+                                                tam={tam} escala={r ? r.escala : 0.85}
+                                                titulo={r ? r.titulo
+                                                    : `${(ETIQUETA_USO_ZONA[z.uso] || 'No habitable').toUpperCase()} · NO CUENTA`}
+                                                sub={r ? r.sub : `${fmt(z.area_real ?? z.area_m2 ?? 0)} m²`}
                                                 color={color} papel={PAPEL} tinta={color} tintaSub={color} />
                             )}
                         </g>
@@ -2371,7 +2631,7 @@ function Zonas({ zonas, vertices, cursor, tam, fantasma = false }) {
  * El rótulo, como el de las paredes (papel, tinta y la raya del color del uso),
  * con los m² dibujados debajo: es lo que se compara con Catastro.
  */
-function Croquis({ trazos, lapiz, uso, tam, dedo = false }) {
+function Croquis({ trazos, lapiz, uso, tam, dedo = false, rotulos = null }) {
     const puntos = (pts) => pts.map(([x, y]) => `${x},${y}`).join(' ');
     const colorLapiz = COLOR_CROQUIS[uso] || '#94a3b8';
     return (
@@ -2385,11 +2645,15 @@ function Croquis({ trazos, lapiz, uso, tam, dedo = false }) {
             })}
             {(trazos || []).map((t, i) => {
                 const color = COLOR_CROQUIS[t.uso] || COLOR_CROQUIS['ESPACIO NO HABITABLE'];
+                // Donde la pone la pasada de los rótulos (dentro de la mancha,
+                // sin pisar nombres de pared); si no, el centro de su caja.
+                const r = rotulos?.get(i);
                 const c = caja(t.pts, 0);
                 return (
-                    <EtiquetaMancha key={`r${i}`} cx={c.x + c.ancho / 2} cy={c.y + c.alto / 2} tam={tam}
-                                    titulo={(ETIQUETA_USO_ZONA[t.uso] || 'No habitable').toUpperCase()}
-                                    sub={`≈${Math.round(areaPoligono(t.pts))} m²`}
+                    <EtiquetaMancha key={`r${i}`} cx={r ? r.cx : c.x + c.ancho / 2}
+                                    cy={r ? r.cy : c.y + c.alto / 2} tam={tam} escala={r ? r.escala : 1}
+                                    titulo={r ? r.titulo : (ETIQUETA_USO_ZONA[t.uso] || 'No habitable').toUpperCase()}
+                                    sub={r ? r.sub : `≈${Math.round(areaPoligono(t.pts))} m²`}
                                     color={color} papel={PAPEL}
                                     tinta="var(--text-primary)" tintaSub="var(--text-secondary)" />
                 );
@@ -2469,11 +2733,55 @@ function Recorte({ recorte, vertices, cursor, tam, cerrado = false, dedo = false
     );
 }
 
-/** El código de color, que es lo que hace legible el plano de un vistazo. */
+//: Qué hace el ratón en cada modo. Mientras se DIBUJA es la instrucción del
+//: gesto, y va con el plano en el que se dibuja; fuera de ahí, el recordatorio
+//: de cómo moverse por el plano (`null` si no se dibuja y no se pide).
+function textoAyuda({ es3d, dibujando, dibujandoCubierta, general = true }) {
+    if (dibujandoCubierta) {
+        return 'pulsa cada esquina · cierra en el primer punto o con doble clic · espacio para mover el plano · Esc cancela';
+    }
+    if (dibujando) {
+        return 'arrastra de una pared a otra · amplía con la rueda para una pared corta · espacio (o botón central) para mover el plano';
+    }
+    if (!general) return null;
+    return es3d ? 'arrastra para girar · Mayús o botón central para mover · rueda para el zoom'
+                : 'rueda para el zoom · arrastra para mover';
+}
+
+/** La leyenda de cada plano: la de colores más la ayuda de su modo. */
 function Leyenda({ es3d, dibujando, dibujandoCubierta }) {
     return (
-        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border
-                        border-white/[0.05] bg-white/[0.02] px-3 py-2">
+        <LeyendaPlano es3d={es3d} className="mt-2"
+                      ayuda={textoAyuda({ es3d, dibujando, dibujandoCubierta })} />
+    );
+}
+
+/** Con la leyenda apagada (`leyenda={false}`), solo la instrucción del modo de
+ *  dibujo, y solo mientras se dibuja: es de ESTE plano, no de la pantalla. */
+function AyudaDibujo({ dibujando, dibujandoCubierta }) {
+    const texto = textoAyuda({ dibujando, dibujandoCubierta, general: false });
+    if (!texto) return null;
+    return (
+        <p className="mt-2 rounded-xl border border-white/[0.05] bg-white/[0.02] px-3 py-1.5
+                      text-[11px] text-white/45">
+            {texto}
+        </p>
+    );
+}
+
+/**
+ * El código de color, que es lo que hace legible el plano de un vistazo.
+ *
+ * EXPORTADA: con dos plantas a la vista la pantalla la pinta UNA vez, debajo de
+ * las dos tarjetas (y a cada plano se le pasa `leyenda={false}`). Sin props es
+ * la de siempre con el recordatorio de la planta; `es3d` cambia el
+ * recordatorio por el del 3D, y `ayuda={null}` lo quita.
+ */
+export function LeyendaPlano({ es3d = false, ayuda, className = '' } = {}) {
+    const pista = ayuda === undefined ? textoAyuda({ es3d }) : ayuda;
+    return (
+        <div className={`flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border
+                         border-white/[0.05] bg-white/[0.02] px-3 py-2 ${className}`}>
             <span className="text-[9.5px] font-black uppercase tracking-[0.12em] text-white/30">
                 Cerramientos
             </span>
@@ -2504,15 +2812,7 @@ function Leyenda({ es3d, dibujando, dibujandoCubierta }) {
                             background: 'repeating-linear-gradient(-45deg, var(--warning) 0 1px, transparent 1px 4px)' }} />
                 Se reforma (CAMBIA)
             </span>
-            <span className="ml-auto text-[11px] text-white/30">
-                {dibujandoCubierta
-                    ? 'pulsa cada esquina · cierra en el primer punto o con doble clic · espacio para mover el plano · Esc cancela'
-                    : dibujando
-                    ? 'arrastra de una pared a otra · amplía con la rueda para una pared corta · espacio (o botón central) para mover el plano'
-                    : es3d
-                        ? 'arrastra para girar · Mayús o botón central para mover · rueda para el zoom'
-                        : 'rueda para el zoom · arrastra para mover'}
-            </span>
+            {pista && <span className="ml-auto text-[11px] text-white/30">{pista}</span>}
         </div>
     );
 }
@@ -2526,46 +2826,9 @@ function Marca({ color, children }) {
     );
 }
 
-/**
- * Rótulos sin solaparse: primero las paredes largas —que son las que el
- * certificador busca— y la seleccionada y la entrada SIEMPRE, quepan o no.
- */
-function colocarRotulos(lista, { sel, entrada, tam, entorno, nombreDe }) {
-    const puestos = [];
-    const salida = [];
-    const orden = [...(lista || [])].sort((x, y) =>
-        (y.id === sel) - (x.id === sel) ||
-        (y.id === entrada) - (x.id === entrada) ||
-        (y.largo || 0) - (x.largo || 0));
-
-    for (const m of orden) {
-        const c = centro(m.svg);
-        const x = c[0];
-        const y = c[1] + tam * 0.35;
-        const texto = (nombreDe ? nombreDe(m) : m.id) + (m.cambia ? ' · CAMBIA' : '');
-        const ancho = anchoRotulo(texto, tam);
-        const forzado = m.id === sel || m.id === entrada;
-        if (entorno && !forzado) continue;
-        // Chocan si se solapan SUS RECUADROS. Con un umbral fijo, un nombre
-        // puesto a mano se pintaba encima del vecino en vez de esconderlo.
-        const choca = puestos.some(p =>
-            Math.abs(p.x - x) < (p.ancho + ancho) / 2 * 0.78
-            && Math.abs(p.y - y) < tam * 1.1);
-        if (choca && !forzado) continue;
-        puestos.push({ x, y, ancho });
-        salida.push({ id: m.id, texto, x, y, ancho, destacado: forzado });
-    }
-    return salida;
-}
-
-//: Lo que ocupa un rótulo, en unidades del plano (metros).
-//:
-//: En un SVG no se puede medir el texto sin pintarlo, así que se estima por
-//: caracteres: ~0,62 em en mayúsculas y peso 800. El SUELO de 3,4 em es el ancho
-//: fijo que tenía antes, para que un `FBN1` de siempre se siga viendo igual.
-function anchoRotulo(texto, tam) {
-    return Math.max(tam * 3.4, tam * (0.62 * String(texto || '').length + 0.7));
-}
+//: Los rótulos (dónde va cada nombre de pared, cada cota y cada etiqueta, y lo
+//: que ocupa cada uno) se colocan en `logic/rotulosPlano.js`: es puro, se
+//: prueba en Node y lo comparten todas las capas del plano.
 
 /** Un muro sin encuadre no se puede dibujar, y eso SE DICE: un hueco en
  *  blanco donde debería haber un plano se lee como que no hay paredes. */

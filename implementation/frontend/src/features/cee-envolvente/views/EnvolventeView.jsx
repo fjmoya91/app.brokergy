@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { getRoleFlags } from '../../../utils/roleFlags';
-import { PlanoPlanta } from '../components/PlanoPlanta';
+import { LeyendaPlano, PlanoPlanta } from '../components/PlanoPlanta';
 import { PanelPared } from '../components/PanelPared';
 import { usePlanoEnvolvente, nombreDe } from '../logic/usePlanoEnvolvente';
 import { lienzoAMundo, areaPoligono, simplificarTrazo } from '../logic/geometriaPlano';
@@ -26,7 +26,7 @@ import { VentanasViviendaModal } from '../components/VentanasViviendaModal';
 import { PERSIANA_DEFECTO_NUEVOS, huecosDefecto, resumenVentanas, ventanasContestadas }
     from '../logic/ventanasVivienda';
 import { EscribiendoElCex, CexGenerado } from '../components/EscribiendoElCex';
-import { BandaAgenteIa, ListaPendientes } from '../components/RastroAgente';
+import { DetalleAgenteIa, ListaPendientes, PildoraAgenteIa } from '../components/RastroAgente';
 import { AsiEsComoEstaModal, BandaRevision } from '../components/AsiEsComoEsta';
 import { pendientesDe, selloAgente } from '../logic/pendientes';
 import { PanelAdministrativos, PanelEconomico, PanelGenerales, PanelInstalaciones,
@@ -1022,6 +1022,22 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
         if (modo !== '2d') setModo('2d');
         if (it.muro) plano.setSel(it.muro);
     };
+    //: Ir a una PARED desde el panel («Empezar por…», «pasar a…»). A diferencia
+    //: de la lista de pendientes, NO cambia lo que se ve si la pared ya está a
+    //: la vista: con «Las dos» delante, saltar a una sola planta sería quitarle
+    //: a quien compara la mitad de lo que estaba mirando. Solo si su planta no
+    //: se ve, se pasa a ella — seleccionar una pared que no está en pantalla es
+    //: un panel que habla de algo que no se ve.
+    const irAPared = (pid) => {
+        const pl = plano.muros?.[pid]?.planta;
+        if (pl != null && !aLaVez.some(p => p.id === pl)) {
+            const i = plantas.findIndex(p => p.id === pl);
+            if (i >= 0) setEleccionPlanta(i);
+        }
+        plano.setSel(pid);
+    };
+    //: Lo del Agente IA, abierto debajo de la tira de estado (ver `PildoraAgenteIa`).
+    const [verAgente, setVerAgente] = useState(false);
 
     //: El CROQUIS en PDF (plano por planta con medidas + tablas del .cex). Se
     //: rehace en el servidor con lo GUARDADO, así que antes se guarda lo que
@@ -1356,6 +1372,17 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
     // propone quitar: no se toca nada sin que lo pulse una persona, porque hay
     // garajes que forman parte de la vivienda y porches cerrados que son estar.
     const cuerposSospechosos = cuerpos.filter(c => c.habitable === false && !c.fuera);
+    //: Y de ésos, cuáles YA están fuera porque una ZONA del croquis cubre su
+    //: huella en las plantas donde sobra (26RES060_188: el aparcamiento de la
+    //: baja bajo «Garaje fuera · 139,2 m²»). Se mira con la GEOMETRÍA y con lo
+    //: que el motor dice que ha restado de verdad, nunca por cómo se llaman:
+    //: «APARCAMIENTO» y «Garaje» no casan por el nombre, y una zona que el motor
+    //: no ha aplicado no ha quitado nada. El aviso no desaparece (regla 48.j:
+    //: se AVISA con su botón, nunca se quita solo): pierde peso.
+    const coberturaCuerpos = useMemo(
+        () => Object.fromEntries(cuerpos.filter(c => c.habitable === false && !c.fuera)
+            .map(c => [c.id, coberturaPorZonas(c, zonasLienzo)])),
+        [cuerpos, zonasLienzo]);
 
     // ── CÓMO SON LAS VENTANAS ────────────────────────────────────────────────
     // Se pregunta al abrir un expediente que todavía no se ha modelado, y una
@@ -1621,13 +1648,7 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                 ponen una a una— y volver de mirar un dato no puede costar el
                 encuadre, el zoom y la pared que se estaba mirando. Las demas
                 ventanas son formularios y se montan a demanda. */}
-            <div className={activa === 'envolvente' ? 'flex flex-col gap-4' : 'hidden'}>
-                {/* Lo que hizo el AGENTE IA: cuándo, sus avisos y sus ficheros. */}
-                <BandaAgenteIa sello={selloAgente(expediente, fichaFase)}
-                               pendientes={pendientes.length}
-                               onPendientes={() => setVerPendientes(true)}
-                               onCroquis={verCroquis} croquis={croquis} />
-
+            <div className={activa === 'envolvente' ? 'flex flex-col gap-3' : 'hidden'}>
                 {/* La revisión A MANO del plano («Así es como está»): en qué está.
                     Y si hay cambios dibujados sin confirmar, la salida para hacerlo. */}
                 <BandaRevision revision={revision} onRecargar={recargarTrabajo}
@@ -1655,10 +1676,18 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                           ventanas={resumenVentanas(ajustes.ventanas)}
                           onVentanas={() => setVerVentanas(true)}
                           onPendientes={() => setVerPendientes(v => !v)}
-                          // Con la banda del agente el croquis ya está allí.
-                          onCroquis={selloAgente(expediente, fichaFase) ? null : verCroquis}
-                          croquis={croquis} />
+                          onCroquis={verCroquis} croquis={croquis}
+                          // Lo del AGENTE IA es UNA píldora más de esta tira, no
+                          // una banda aparte: la banda repetía «12 por confirmar»,
+                          // que esta tira ya cuenta. Lo suyo se abre debajo.
+                          agente={<PildoraAgenteIa sello={selloAgente(expediente, fichaFase)}
+                                                   abierto={verAgente}
+                                                   onAlternar={() => setVerAgente(v => !v)} />} />
 
+                {verAgente && selloAgente(expediente, fichaFase) && (
+                    <DetalleAgenteIa sello={selloAgente(expediente, fichaFase)}
+                                     onCerrar={() => setVerAgente(false)} />
+                )}
                 {verPendientes && (
                     <ListaPendientes items={pendientes} onIr={irAPendiente}
                                      onCerrar={() => setVerPendientes(false)} />
@@ -1671,9 +1700,9 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                     es la de la vivienda, pero quién decide es quien ha estado
                     delante del edificio. */}
                 {!!cuerposSospechosos.length && (
-                    <AvisoCuerpos cuerpos={cuerposSospechosos}
+                    <AvisoCuerpos cuerpos={cuerposSospechosos} cobertura={coberturaCuerpos}
                                   onQuitar={(id) => cambiarCuerpo(id, true)}
-                                  onQuitarTodos={() => quitarCuerpos(cuerposSospechosos.map(c => c.id))}
+                                  onQuitarTodos={(ids) => quitarCuerpos(ids)}
                                   ocupado={cargando} />
                 )}
 
@@ -1709,8 +1738,15 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                     </div>
                 ))}
 
-                <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-4 items-start">
-                <div className="flex flex-col gap-3">
+                {/* El plano y, a su derecha, LA PARED. La columna de la pared es
+                    fija y el plano se queda con todo lo demás (`minmax(0,1fr)`:
+                    con `1fr` a secas, una barra de botones más ancha que su
+                    tarjeta empujaba la rejilla en vez de partirse). A partir de
+                    1024 px (tablet apaisada) ya van lado a lado —con el panel
+                    pegado al bajar—; por debajo, el panel cae debajo del plano. */}
+                <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_300px]
+                                xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_360px]">
+                <div className="flex min-w-0 flex-col gap-3">
                     <BarraVista plantas={plantas} sel={soloPlanta}
                                 onSel={setEleccionPlanta}
                                 modo={modo} onModo={cambiarModo} />
@@ -1719,9 +1755,12 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                         son el mismo dibujo dos veces. Y por eso la rejilla se
                         parte por las TARJETAS que hay, no por las plantas —
                         partida en dos con una sola tarjeta, el 3D se quedaba
-                        encajonado en media pantalla con el otro medio vacío. */}
+                        encajonado en media pantalla con el otro medio vacío.
+                        Entre 1024 y 1280 px van UNA DEBAJO DE OTRA: ahí el panel
+                        de la pared ya está a la derecha, y dos tarjetas de
+                        300 px lado a lado no dejan distinguir una ventana. */}
                     <div className={`grid gap-3 ${modo !== '3d' && aLaVez.length > 1
-                            ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
+                            ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2' : 'grid-cols-1'}`}>
                         {modo === '3d' ? (
                             <PlanoPlanta planta={aLaVez[0] || plantas[0]} plano={plano}
                                          capas={aLaVez}
@@ -1731,6 +1770,12 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                          onSatelite={ponSatelite} />
                         ) : aLaVez.map(p => (
                             <PlanoPlanta key={p.id || p.nombre} planta={p} plano={plano}
+                                         // Con varias tarjetas, la leyenda va UNA vez
+                                         // debajo de todas (ver abajo), no repetida.
+                                         leyenda={aLaVez.length < 2}
+                                         // Y comparten filas (barra · tiras · plano):
+                                         // así los dos planos arrancan a la misma altura.
+                                         alinear={aLaVez.length > 1}
                                          onAsiEsComoEsta={() => setVerAsiEs(true)}
                                          cuerpos={cuerpos} onCuerpo={setCuerpoSel}
                                          entorno={entorno} onEntorno={setEntorno}
@@ -1829,12 +1874,17 @@ export function EnvolventeView({ expediente, onAviso, onPestanas }) {
                                          onSatelite={ponSatelite} />
                         ))}
                     </div>
+                    {/* El código de colores es el MISMO en las dos plantas: debajo
+                        de cada tarjeta eran dos franjas iguales que alargaban la
+                        página justo donde se compara una planta con otra. */}
+                    {modo !== '3d' && aLaVez.length > 1 && <LeyendaPlano />}
                 </div>
                     {/* La CUBIERTA no está aquí: se marca dibujándola sobre el
                         plano de su planta, así que su mando vive bajo la barra
                         de ese plano. Esta columna es LA PARED seleccionada. */}
                     <PanelPared plano={plano} transmitancias={ficha?.ficha?.termicas}
-                                carpinteriaDefecto={huecosDefecto(ajustes)} expedienteId={id} />
+                                carpinteriaDefecto={huecosDefecto(ajustes)} expedienteId={id}
+                                onIrAPared={irAPared} />
                 </div>
             </div>
 
@@ -2151,7 +2201,7 @@ const GUARDADO = {
  * renglón, y el estado de cada pared ya se ve en el plano por su color.
  */
 function Cabecera({ resumen, entrada, onCambiarEntrada, estadoGuardado,
-                   ventanas, onVentanas, onPendientes, onCroquis, croquis }) {
+                   ventanas, onVentanas, onPendientes, onCroquis, croquis, agente }) {
     // El PROGRESO: cuántas paredes están miradas de las que hay que mirar. Es
     // la respuesta a «¿cuánto me queda?», que antes había que deducir de una
     // cifra suelta en letra pequeña.
@@ -2224,6 +2274,9 @@ function Cabecera({ resumen, entrada, onCambiarEntrada, estadoGuardado,
                 <span className="opacity-60"> ✎</span>
             </Pildora>
 
+            {/* Si lo preparó el AGENTE IA: quién, cuándo y si dejó avisos. */}
+            {agente}
+
             {/* El CROQUIS en PDF de lo que hay: plano por planta con medidas,
                 huecos y zonas, y las tablas del .cex. Para revisar o pasárselo
                 a alguien sin abrir CE3X. */}
@@ -2255,7 +2308,10 @@ function Pildora({ tono, fuerte, onClick, title, children }) {
         ? 'border-brand/40 bg-brand/10 text-white/85 [&_b]:text-brand'
         : tono === 'aviso'
             ? 'border-amber-400/40 bg-amber-400/10 text-amber-200 [&_b]:text-amber-300'
-            : 'border-white/10 bg-white/[0.03] text-white/65 [&_b]:text-white/90';
+            // El número va con el TOKEN del texto y no con `text-white/90`: el
+            // tema claro reescribe `.text-white\/90`, pero no la variante
+            // `[&_b]:…`, y el «1» de «1 apartada» salía blanco sobre blanco.
+            : 'border-white/10 bg-white/[0.03] text-white/65 [&_b]:text-[color:var(--text-primary)]';
     const cls = `${base} ${color} ${fuerte ? 'font-bold' : ''}`
         + (onClick ? ' cursor-pointer transition hover:brightness-125' : '');
     return onClick
@@ -2275,61 +2331,195 @@ function Pildora({ tono, fuerte, onClick, title, children }) {
  * forman parte de la vivienda y porches cerrados que son un estar, y quien lo
  * sabe es quien ha estado delante del edificio.
  */
-function AvisoCuerpos({ cuerpos, onQuitar, onQuitarTodos, ocupado }) {
+function AvisoCuerpos({ cuerpos, cobertura = {}, onQuitar, onQuitarTodos, ocupado }) {
+    const [porQue, setPorQue] = useState(false);
+    // Los que ya cubre una zona del croquis van APARTE y sin el ámbar: no hay
+    // nada pendiente con ellos, pero el botón sigue ahí (regla 48.j). Lo que
+    // queda en ámbar es solo lo que de verdad sigue contando como vivienda.
+    const pendientes = cuerpos.filter(c => !cobertura[c.id]?.cubierto);
+    const cubiertos = cuerpos.filter(c => cobertura[c.id]?.cubierto);
     // Los que se reconocen POR ELIMINACIÓN (el almacén que Catastro no separa
     // por superficie, 26RES080_85) lo dicen con sus cifras: es una deducción,
-    // y quien decide tiene que poder comprobarla sin abrir nada.
+    // y quien decide tiene que poder comprobarla. Va plegada en «por qué», pero
+    // la marca «por eliminación» se ve sin abrir nada.
     const deducido = cuerpos.find(c => c.construccion?.por_eliminacion)?.construccion;
-    return (
-        <Franja tono="amber">
-            <b>
-                {cuerpos.length === 1
-                    ? 'Hay un cuerpo que Catastro no cuenta como vivienda.'
-                    : `Hay ${cuerpos.length} cuerpos que Catastro no cuenta como vivienda.`}
-            </b>{' '}
-            En un certificado la envolvente es la de la vivienda: lo normal es dejarlos fuera.
-            {deducido && (
-                <span className="mt-1 block text-[11.5px] text-white/60">
-                    Catastro declara en esa planta {fmtM2(deducido.vivienda_declarada)} de vivienda,
-                    que ya son el cuerpo de la casa ({fmtM2(deducido.vivienda_cubierta)}), y aparte{' '}
-                    {deducido.uso} de {fmtM2(deducido.superficie)}: por eliminación, lo que queda
-                    construido de una sola planta es {String(deducido.uso).toLowerCase()}.
-                </span>
+    const m2 = (lista) => fmtM2(lista.reduce((a, c) => a + (c.superficie || 0), 0));
+    // Los MISMOS botones de siempre, en los dos grupos: «Quitar los N» (de ese
+    // grupo) y uno por cuerpo. Solo cambia el peso.
+    const botonesDe = (lista, fuerte) => (
+        <>
+            {lista.length > 1 && onQuitarTodos && (
+                <BotonCuerpo fuerte={fuerte} todos onClick={() => onQuitarTodos(lista.map(c => c.id))}
+                             disabled={ocupado}>
+                    Quitar los {lista.length} · {m2(lista)}
+                </BotonCuerpo>
             )}
-            <div className="mt-2 flex flex-wrap gap-2">
-                {cuerpos.length > 1 && onQuitarTodos && (
-                    <button onClick={onQuitarTodos} disabled={ocupado}
-                            className="rounded-lg border border-amber-400/70 bg-amber-400/25
-                                       px-3 py-1.5 text-[11px] font-black uppercase
-                                       tracking-widest text-amber-100 disabled:opacity-40
-                                       hover:bg-amber-400/35">
-                        Quitar los {cuerpos.length} · {fmtM2(cuerpos.reduce((a, c) => a + (c.superficie || 0), 0))}
-                    </button>
-                )}
-                {cuerpos.map(c => (
-                    <button key={c.id} onClick={() => onQuitar(c.id)} disabled={ocupado}
-                            className="rounded-lg border border-amber-400/40 bg-amber-400/10
-                                       px-3 py-1.5 text-[11px] font-black uppercase
-                                       tracking-widest text-amber-200 disabled:opacity-40
-                                       hover:bg-amber-400/20">
-                        Quitar {c.construccion?.uso || 'el cuerpo'} · {fmtM2(c.superficie)}
-                        {dondeSobra(c) && (
-                            <span className="ml-1 font-bold normal-case tracking-normal
-                                             text-amber-200/60">
-                                (solo en {dondeSobra(c)})
-                            </span>
-                        )}
-                    </button>
-                ))}
-            </div>
-            <span className="mt-1 block text-[11px] text-white/45">
-                Se vuelve a medir el edificio sin el: la pared de la casa contra el pasa a
-                ser una particion y el forjado de encima, un suelo sobre espacio no
-                habitable. Sale solo de las plantas en las que Catastro dice que no es
-                vivienda. Se puede devolver pulsandolo en el plano.
-            </span>
-        </Franja>
+            {lista.map(c => (
+                <BotonCuerpo key={c.id} fuerte={fuerte} onClick={() => onQuitar(c.id)} disabled={ocupado}>
+                    Quitar {c.construccion?.uso || 'el cuerpo'} · {fmtM2(c.superficie)}
+                    {dondeSobra(c) && (
+                        <span className="font-semibold normal-case tracking-normal opacity-60">
+                            {' '}(solo en {dondeSobra(c)})
+                        </span>
+                    )}
+                </BotonCuerpo>
+            ))}
+        </>
     );
+    return (
+        <div className={`rounded-xl border px-3 py-2 text-[12px] leading-snug
+            ${pendientes.length ? 'border-amber-500/30 bg-amber-500/[0.06] text-amber-200'
+                                : 'border-white/[0.07] bg-white/[0.02] text-white/55'}`}>
+            {pendientes.length > 0 && (
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                    <b className="font-bold">
+                        ⚠ {pendientes.length === 1
+                            ? 'Un cuerpo que Catastro no cuenta como vivienda sigue dentro:'
+                            : `${pendientes.length} cuerpos que Catastro no cuenta como vivienda siguen dentro:`}
+                    </b>
+                    {botonesDe(pendientes, true)}
+                    {deducido && pendientes.some(c => c.construccion === deducido) && (
+                        <span className="text-[11px] text-white/50">(uno, deducido por eliminación)</span>
+                    )}
+                    <BotonPorQue abierto={porQue} onClick={() => setPorQue(v => !v)} />
+                </div>
+            )}
+            {cubiertos.length > 0 && (
+                <div className={`flex flex-wrap items-center gap-x-2 gap-y-1.5
+                                 ${pendientes.length ? 'mt-1.5 border-t border-white/[0.07] pt-1.5 text-white/55' : ''}`}>
+                    <span>
+                        <span className="text-emerald-300/80">✓</span>{' '}
+                        Lo que Catastro no cuenta como vivienda ya está fuera como zona del croquis:{' '}
+                        {cubiertos.map((c, i) => (
+                            <span key={c.id} data-cobertura={Math.round(cobertura[c.id].fraccion * 100)}
+                                  title={`La zona cubre el ${Math.round(cobertura[c.id].fraccion * 100)} % `
+                                         + 'de su huella en esa planta'}>
+                                {i > 0 && ' · '}
+                                <span className="text-white/75">{String(c.construccion?.uso || 'cuerpo').toLowerCase()}</span>
+                                {' '}→ {cobertura[c.id].zonas.map(u => ETIQUETA_USO_ZONA[u] || u).join(' + ')}
+                            </span>
+                        ))}.
+                    </span>
+                    {botonesDe(cubiertos, false)}
+                    {!pendientes.length && <BotonPorQue abierto={porQue} onClick={() => setPorQue(v => !v)} />}
+                </div>
+            )}
+            {porQue && (
+                <div className="mt-1.5 flex flex-col gap-1 border-t border-white/[0.07] pt-1.5 text-[11.5px] text-white/55">
+                    <span>
+                        En un certificado la envolvente es la de la vivienda: lo normal es dejarlos fuera.
+                        Quitar uno vuelve a medir el edificio sin él: la pared de la casa contra él pasa a
+                        ser una partición y el forjado de encima, un suelo sobre espacio no habitable. Sale
+                        solo de las plantas en las que Catastro dice que no es vivienda, y se devuelve
+                        pulsándolo en el plano.
+                    </span>
+                    {cubiertos.length > 0 && (
+                        <span>
+                            «Ya está fuera» quiere decir que una zona que el motor ha restado cubre al menos
+                            el {Math.round(COBERTURA_MINIMA * 100)} % de su huella en esa planta: quitar
+                            también el cuerpo no cambia la superficie, pero se puede.
+                        </span>
+                    )}
+                    {deducido && (
+                        <span>
+                            Catastro declara en esa planta {fmtM2(deducido.vivienda_declarada)} de vivienda,
+                            que ya son el cuerpo de la casa ({fmtM2(deducido.vivienda_cubierta)}), y aparte{' '}
+                            {deducido.uso} de {fmtM2(deducido.superficie)}: por eliminación, lo que queda
+                            construido de una sola planta es {String(deducido.uso).toLowerCase()}.
+                        </span>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function BotonCuerpo({ fuerte, todos, children, ...resto }) {
+    const cls = fuerte
+        ? (todos ? 'border-amber-400/70 bg-amber-400/25 text-amber-100 hover:bg-amber-400/35'
+                 : 'border-amber-400/40 bg-amber-400/10 text-amber-200 hover:bg-amber-400/20')
+        : 'border-white/15 text-white/60 hover:border-white/35 hover:text-white/90';
+    return (
+        <button type="button" {...resto}
+                className={`rounded-md border px-2 py-1 text-[10.5px] font-black uppercase
+                            tracking-wider disabled:opacity-40 ${cls}`}>
+            {children}
+        </button>
+    );
+}
+
+function BotonPorQue({ abierto, onClick }) {
+    return (
+        <button type="button" onClick={onClick} aria-expanded={abierto}
+                className="ml-auto text-[11px] text-white/45 underline-offset-2 hover:text-white/80 hover:underline">
+            {abierto ? 'por qué ▾' : 'por qué ▸'}
+        </button>
+    );
+}
+
+//: Desde cuánto se da un cuerpo por CUBIERTO por las zonas de su planta. No es
+//: el 100 %: la huella de Catastro lleva el grueso de los muros y la zona se
+//: ajusta a los m² que Catastro declara para ese uso (26RES060_188: almacén de
+//: 8 m² de huella bajo una zona de 7,5 m²).
+const COBERTURA_MINIMA = 0.8;
+
+/**
+ * Cuánto de la huella de un CUERPO cubren las ZONAS que el motor ha restado,
+ * planta a planta, en las plantas donde ese cuerpo sobra.
+ *
+ * Con datos, no con nombres: se muestrea la huella (en el lienzo, que está en
+ * metros) en una rejilla y se cuenta qué parte cae dentro de alguna zona de esa
+ * planta. Solo zonas que el motor ha APLICADO —una que no toca la casa no ha
+ * quitado nada— y del mismo TRATAMIENTO en CE3X: un porche es exterior y un
+ * garaje o un almacén, espacio no habitable, así que un porche no «cubre» un
+ * aparcamiento ni al revés. Sin contorno o sin plantas no se afirma nada.
+ *
+ * @returns {{ cubierto: boolean, fraccion: number|null, zonas: string[] }}
+ */
+function coberturaPorZonas(cuerpo, zonasLienzo) {
+    const nada = { cubierto: false, fraccion: null, zonas: [] };
+    const contornos = (cuerpo?.contornos || []).filter(p => Array.isArray(p) && p.length >= 3);
+    const niveles = Array.isArray(cuerpo?.niveles_fuera) && cuerpo.niveles_fuera.length
+        ? cuerpo.niveles_fuera : cuerpo?.niveles;
+    if (!contornos.length || !Array.isArray(niveles) || !niveles.length) return nada;
+    const esPorche = /PORCHE/i.test(String(cuerpo?.construccion?.uso || ''));
+    const pts = contornos.flat();
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    // Una rejilla de unas 3.000 muestras como mucho, y nunca más fina de 20 cm.
+    const paso = Math.max(0.2, Math.sqrt(((x1 - x0) * (y1 - y0)) / 3000));
+    let peor = 1;
+    const usos = new Set();
+    for (const nivel of niveles) {
+        const zonas = (zonasLienzo || []).filter(z => z.nivel === nivel && z.aplicada
+            && (z.lienzo || []).length >= 3 && (z.uso === 'PORCHE') === esPorche);
+        if (!zonas.length) return nada;
+        let dentro = 0, cubiertas = 0;
+        const deEsta = new Set();
+        for (let x = x0 + paso / 2; x < x1; x += paso) {
+            for (let y = y0 + paso / 2; y < y1; y += paso) {
+                // Par-impar entre las piezas: un cuerpo en dos trozos es un MultiPolygon.
+                if (contornos.filter(p => dentroDe([x, y], p)).length % 2 === 0) continue;
+                dentro++;
+                const z = zonas.find(zz => dentroDe([x, y], zz.lienzo));
+                if (z) { cubiertas++; deEsta.add(z.uso); }
+            }
+        }
+        if (!dentro) return nada;
+        peor = Math.min(peor, cubiertas / dentro);
+        deEsta.forEach(u => usos.add(u));
+    }
+    return { cubierto: peor >= COBERTURA_MINIMA, fraccion: peor, zonas: [...usos] };
+}
+
+/** Punto dentro de polígono (par-impar). */
+function dentroDe([x, y], poli) {
+    let dentro = false;
+    for (let i = 0, j = poli.length - 1; i < poli.length; j = i++) {
+        const [xi, yi] = poli[i], [xj, yj] = poli[j];
+        if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) dentro = !dentro;
+    }
+    return dentro;
 }
 
 /**

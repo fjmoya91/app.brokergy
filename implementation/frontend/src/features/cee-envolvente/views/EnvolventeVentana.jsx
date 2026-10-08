@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ThemeToggle } from '../../../components/ThemeToggle';
 import axios from 'axios';
 import { EnvolventeView } from './EnvolventeView';
@@ -39,6 +39,24 @@ export function EnvolventeVentana({ expedienteId }) {
     //: no es su sitio — el trabaja contra la carpeta que se le comparte).
     const { user } = useAuth();
     const { isStaff: esStaff, isAdmin: esAdmin } = getRoleFlags(user);
+
+    // Lo que MIDE la cabecera pegajosa (cabecera + barra de apartados). Lo que
+    // se pega debajo —el panel de la pared— lo lee de `--alto-cabecera` en vez
+    // de llevar un número escrito: la cabecera es `flex-wrap` y en una pantalla
+    // estrecha parte en dos renglones (y el logo o los botones cambian). Un
+    // número fijo se descuadraba justo ahí y el panel se metía debajo de las
+    // pestañas. Es un ref de función con limpieza (React 19), y por eso va
+    // aquí arriba, antes de los `return` de «cargando» (regla 62).
+    const [altoCabecera, setAltoCabecera] = useState(120);
+    const medirCabecera = useCallback((el) => {
+        if (!el || typeof ResizeObserver === 'undefined') return undefined;
+        const ro = new ResizeObserver(() => {
+            const h = Math.round(el.getBoundingClientRect().height);
+            if (h > 0) setAltoCabecera(h);
+        });
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
 
     // El Explorador de Windows, en la carpeta de ESTE expediente: es de donde se
     // arrastra el `.cex` a CE3X y donde se sueltan las fotos. Salir de la ventana
@@ -147,18 +165,41 @@ export function EnvolventeVentana({ expedienteId }) {
     // el domicilio del cliente.
     const donde = buildInstalacionAddress(expediente) || {};
 
+    // QUÉ ANCHO. La envolvente es un PLANO: a 1920 px, limitada a 1400, sobraban
+    // 500 px a los lados mientras las dos plantas se apretaban en 470 px cada
+    // una y sus barras de botones desbordaban. Las demás ventanas son
+    // FORMULARIOS de CE3X, y a todo el ancho se leen peor (renglones de dos
+    // metros, etiqueta a un lado y valor al otro): se quedan como estaban.
+    // Sin barra todavía (midiendo, «Traer la envolvente») se está en la envolvente.
+    const anchoPlano = !barra?.activa || barra.activa === 'envolvente';
+
     return (
-        <div className="min-h-screen bg-bkg-base text-white">
+        <div className="min-h-screen bg-bkg-base text-white"
+             style={{ '--alto-cabecera': `${altoCabecera}px` }}>
             {/* La cabecera y la barra de apartados van JUNTAS y pegadas arriba:
                 así la barra no necesita saber lo que mide la cabecera, que es
                 el número mágico que se descuadra en cuanto alguien cambia el
-                logo. */}
-            <div className="sticky top-0 z-10">
+                logo. Lo que se pega DEBAJO de las dos lo lee de
+                `--alto-cabecera`, que se mide aquí.
+
+                ⚠️ Para que `sticky` pegue, ningún antepasado puede ser una caja
+                con scroll propio: el envoltorio de `App.jsx` tenía
+                `overflow-x-hidden` —que obliga a `overflow-y: auto`— y la
+                cabecera y el panel de la pared se iban con la página. En esta
+                ruta lleva `overflow-x-clip`, que recorta igual sin crear esa caja. */}
+            <div ref={medirCabecera} className="sticky top-0 z-10">
                 <header className="flex flex-wrap items-center gap-x-3 gap-y-2
                                    border-b border-white/[0.07] bg-bkg-deep/95 px-5 py-3
                                    backdrop-blur">
                     <img src="/logo-ce3x.svg" alt="CE3X" className="h-9 w-9 shrink-0" />
-                    <div className="min-w-0">
+                    {/* El título ENCOGE (y se corta con «…») antes de que la
+                        cabecera parta en dos renglones: a 1024 px (tablet
+                        apaisada) «Ver el expediente» caía solo a una segunda
+                        línea y la cabecera pasaba de 119 a 160 px, que se le
+                        quitaban al plano. `basis-0` + `flex-1` hace que la línea
+                        se reparta contando con lo mínimo del título, no con su
+                        dirección entera; por debajo de ese mínimo, parte igual. */}
+                    <div className="min-w-[10rem] flex-1 basis-0">
                         <h1 className="truncate text-sm font-black uppercase tracking-widest">
                             Envolvente térmica
                         </h1>
@@ -240,7 +281,7 @@ export function EnvolventeVentana({ expedienteId }) {
                 <PestanasCe3x {...(barra || {})} />
             </div>
 
-            <main className="mx-auto max-w-[1400px] px-5 py-5">
+            <main className={`mx-auto px-5 py-5 ${anchoPlano ? 'max-w-[1880px]' : 'max-w-[1400px]'}`}>
                 {/* Qué pasa con lo que se hace aquí: sin esto, trabajar sobre una
                     oportunidad parece trabajar en el aire. */}
                 {esOportunidad && (

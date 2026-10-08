@@ -17,46 +17,68 @@ const fecha = (iso) => {
 };
 
 /**
- * La banda «Lo ha preparado el Agente IA». Una línea; los avisos, a demanda.
- * Desaparece cuando todo está confirmado y no quedan avisos: entonces ya es
- * trabajo revisado, no un borrador de la máquina.
+ * «Lo ha preparado el Agente IA», como UNA píldora de la tira de estado.
+ *
+ * POR QUÉ NO ES UNA BANDA (2026-10-08): era una franja entera encima de la tira
+ * de estado, y las dos decían lo mismo —«12 por confirmar →» en la banda y
+ * «12 medidas por confirmar ▾» en la tira—, con un párrafo fijo debajo que se
+ * leía la primera vez y después solo empujaba el plano hacia abajo. Lo que
+ * hace falta ver de un vistazo es QUE lo hizo el agente, CUÁNDO y si dejó
+ * AVISOS; el resto (cómo lo hizo, sus avisos uno a uno, el .cex y la carpeta)
+ * se abre debajo con `DetalleAgenteIa`. Lo pendiente lo cuenta la tira, una vez.
  */
-export function BandaAgenteIa({ sello, pendientes, onPendientes, onCroquis, croquis }) {
-    const [abierta, setAbierta] = useState(null);     // null | 'avisos' | 'decisiones'
+export function PildoraAgenteIa({ sello, abierto, onAlternar }) {
     if (!sello) return null;
-    const avisos = sello.avisos || [];
-    const decisiones = sello.decisiones || [];
-    const alternar = (que) => setAbierta(v => (v === que ? null : que));
+    const avisos = sello.avisos?.length || 0;
     return (
-        <div className="rounded-lg border border-violet-400/35 bg-violet-400/[0.07] px-3 py-2 text-[12px] text-white/80">
+        <button type="button" onClick={onAlternar} aria-expanded={!!abierto}
+                title="Lo que hizo el Agente IA: cómo lo ha hecho, sus avisos, el .cex y la carpeta"
+                className="inline-flex items-center gap-1.5 rounded-full border border-violet-400/40
+                           bg-violet-400/10 px-2.5 py-1 leading-none text-violet-100
+                           transition hover:brightness-125">
+            <span aria-hidden>🤖</span>
+            <b className="font-bold text-violet-200">Agente IA</b>
+            {fecha(sello.terminado_at) && <span className="text-white/50">{fecha(sello.terminado_at)}</span>}
+            {avisos > 0 && (
+                <span className="font-bold text-amber-200" title={`${avisos} aviso${avisos === 1 ? '' : 's'} del agente`}>
+                    ⚠ {avisos}
+                </span>
+            )}
+            <span className="text-white/45">{abierto ? '▾' : '▸'}</span>
+        </button>
+    );
+}
+
+/**
+ * Lo del agente, ABIERTO: cómo lo ha hecho, sus avisos, el `.cex` y la carpeta.
+ * Se abre desde `PildoraAgenteIa` y vive donde la lista de pendientes: debajo
+ * de la tira, sin mover nada de lo que hay encima.
+ */
+export function DetalleAgenteIa({ sello, onCerrar }) {
+    const avisos = sello?.avisos || [];
+    const decisiones = sello?.decisiones || [];
+    // Se abre en los AVISOS si los hay: es lo que hay que mirar antes de nada.
+    const [ver, setVer] = useState(() => (avisos.length ? 'avisos' : decisiones.length ? 'decisiones' : null));
+    if (!sello) return null;
+    const lista = ver === 'avisos' ? avisos : ver === 'decisiones' ? decisiones : [];
+    return (
+        <div className="rounded-lg border border-violet-400/35 bg-violet-400/[0.06] px-3 py-2 text-[12px] text-white/80">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                <span className="font-bold text-violet-200">🤖 Lo ha preparado el Agente IA</span>
+                <b className="text-violet-200">🤖 Lo ha preparado el Agente IA</b>
                 {fecha(sello.terminado_at) && <span className="text-white/50">{fecha(sello.terminado_at)}</span>}
-                {pendientes > 0 && (
-                    <button type="button" onClick={onPendientes}
-                            className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5
-                                       font-bold text-amber-200 hover:brightness-125">
-                        {pendientes} por confirmar →
-                    </button>
-                )}
                 {decisiones.length > 0 && (
-                    <button type="button" onClick={() => alternar('decisiones')}
-                            className="text-violet-200/90 underline-offset-2 hover:underline">
-                        🧭 Cómo lo ha hecho ({decisiones.length}) {abierta === 'decisiones' ? '▾' : '▸'}
+                    <button type="button" onClick={() => setVer(v => (v === 'decisiones' ? null : 'decisiones'))}
+                            className={`underline-offset-2 hover:underline ${ver === 'decisiones' ? 'font-bold text-violet-100' : 'text-violet-200/90'}`}>
+                        🧭 Cómo lo ha hecho ({decisiones.length}) {ver === 'decisiones' ? '▾' : '▸'}
                     </button>
                 )}
                 {avisos.length > 0 && (
-                    <button type="button" onClick={() => alternar('avisos')}
-                            className="text-amber-200/90 underline-offset-2 hover:underline">
-                        ⚠ {avisos.length} aviso{avisos.length === 1 ? '' : 's'} {abierta === 'avisos' ? '▾' : '▸'}
+                    <button type="button" onClick={() => setVer(v => (v === 'avisos' ? null : 'avisos'))}
+                            className={`underline-offset-2 hover:underline ${ver === 'avisos' ? 'font-bold text-amber-100' : 'text-amber-200/90'}`}>
+                        ⚠ {avisos.length} aviso{avisos.length === 1 ? '' : 's'} {ver === 'avisos' ? '▾' : '▸'}
                     </button>
                 )}
                 <span className="ml-auto flex flex-wrap items-center gap-2">
-                    <button type="button" onClick={onCroquis} disabled={croquis === 'haciendo'}
-                            className="rounded-md border border-white/15 px-2 py-0.5 font-bold
-                                       hover:bg-white/[0.06] disabled:opacity-50">
-                        {croquis === 'haciendo' ? 'Preparando el croquis…' : '📐 Croquis PDF'}
-                    </button>
                     {sello.fichero_link && (
                         <a href={sello.fichero_link} target="_blank" rel="noreferrer"
                            className="rounded-md border border-white/15 px-2 py-0.5 font-bold hover:bg-white/[0.06]">
@@ -69,17 +91,19 @@ export function BandaAgenteIa({ sello, pendientes, onPendientes, onCroquis, croq
                             📁 Carpeta
                         </a>
                     )}
+                    <button type="button" onClick={onCerrar} aria-label="Cerrar"
+                            className="px-1 text-white/50 hover:text-white/80">✕</button>
                 </span>
             </div>
-            {abierta && (
-                <ul className="mt-2 flex flex-col gap-1 border-t border-white/10 pt-2">
-                    {(abierta === 'avisos' ? avisos : decisiones).map((a, i) => (
+            {lista.length > 0 && (
+                <ul className="mt-2 flex max-h-64 flex-col gap-1 overflow-y-auto border-t border-white/10 pt-2">
+                    {lista.map((a, i) => (
                         <li key={i} className={`border-l-2 pl-2 text-[11.5px] leading-snug text-white/75
-                                                ${abierta === 'avisos' ? 'border-amber-400/60' : 'border-violet-400/60'}`}>{a}</li>
+                                                ${ver === 'avisos' ? 'border-amber-400/60' : 'border-violet-400/60'}`}>{a}</li>
                     ))}
                 </ul>
             )}
-            <p className="mt-1 text-[11px] text-white/45">
+            <p className="mt-1.5 text-[11px] text-white/45">
                 Todo lo suyo está en el plano y se cambia como cualquier otra cosa: se guarda solo.
                 Luego «Generar .cex» lo vuelve a escribir (y rehace el croquis).
             </p>
@@ -107,7 +131,9 @@ export function ListaPendientes({ items, onIr, onCerrar }) {
                 <span className="text-white/45">pulsa uno para ir a su pared; en su panel, «✓ OK» lo da por bueno</span>
                 <button type="button" onClick={onCerrar} className="ml-auto text-white/50 hover:text-white/80">✕</button>
             </div>
-            <ul className="grid grid-cols-1 gap-1 md:grid-cols-2">
+            {/* A todo el ancho caben tres o cuatro columnas: en dos, doce
+                pendientes eran seis renglones que empujaban el plano. */}
+            <ul className="grid grid-cols-1 gap-1 md:grid-cols-2 xl:grid-cols-3 min-[1700px]:grid-cols-4">
                 {items.map(it => (
                     <li key={it.clave}>
                         <button type="button" onClick={() => onIr(it)}

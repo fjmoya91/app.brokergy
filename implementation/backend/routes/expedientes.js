@@ -3436,7 +3436,14 @@ router.put('/:id', enforceAuth, async (req, res) => {
             // enlace de quien presenta, y lo escribe solo su ruta.
             // Y la revisión HUMANA del plano («Así es como está»,
             // `envolvente_revision`): la escribe solo su ruta de la envolvente.
-            for (const k of ['revision_inicial', 'revision_final', 'agente_ia', 'presentacion', 'envolvente_revision']) {
+            // Y el TRABAJO de la envolvente con sus fotos e imágenes
+            // (`envolvente`, `envolvente_fotos`, `envolvente_imagenes`): los
+            // escribe solo `/api/cee-envolvente`, desde OTRA pestaña. Con la ficha
+            // abierta desde antes, encargar el CEE al certificador reenviaba la
+            // envolvente de cuando se abrió y borraba las ventanas recién
+            // puestas (26RES060_222, 07/10/2026).
+            for (const k of ['revision_inicial', 'revision_final', 'agente_ia', 'presentacion', 'envolvente_revision',
+                             'envolvente', 'envolvente_fotos', 'envolvente_imagenes']) {
                 if (existing.cee && k in existing.cee) updates.cee[k] = existing.cee[k];
                 else delete updates.cee[k];
             }

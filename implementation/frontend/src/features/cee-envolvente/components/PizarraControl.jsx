@@ -1,3 +1,4 @@
+import { estrecha, useAnchoTira } from '../logic/anchoTira';
 import { HERRAMIENTAS, colorDeLapiz } from '../logic/pizarra';
 
 // ============================================================================
@@ -59,48 +60,77 @@ function Icono({ id }) {
 export function PizarraControl({ herramienta, onHerramienta, aviso, onAviso, cambios = 0,
                                  onAsiEsComoEsta = null, onCerrar = null, pistaMover = null }) {
     const actual = HERRAMIENTAS.find(h => h.id === herramienta) || HERRAMIENTAS[0];
+    // Lo que mide la paleta (no la pantalla): en «Las dos» la tarjeta tiene
+    // ~470 px y los siete lápices con su nombre ocupaban tres filas de 44 px.
+    // Estrecha, van en UNA fila de iconos que se reparten el ancho, y el nombre
+    // del lápiz que se tiene en la mano lo dice la línea de debajo.
+    const [refPaleta, ancho] = useAnchoTira();
+    const compacta = estrecha(ancho, 720);
     return (
-        <div className="mb-2 rounded-xl border border-violet-400/40 bg-violet-500/[0.06] p-2">
+        <div ref={refPaleta} className="mb-1.5 rounded-xl border border-violet-400/40 bg-violet-500/[0.06] p-2">
             {/* En el teléfono, una cuadrícula de 4 con el icono encima (como la paleta
                 de usos del croquis): en fila ocupaban tres renglones y le quitaban
-                al plano media pantalla. Desde `sm`, en fila. */}
-            <div className="grid grid-cols-4 items-stretch gap-1.5 sm:flex sm:flex-wrap" role="toolbar"
-                 aria-label="Lápices de la pizarra">
+                al plano media pantalla. Desde `sm`, en fila: con su nombre si cabe,
+                y solo el icono si la paleta es estrecha. */}
+            <div className={`grid grid-cols-4 items-stretch gap-1.5 sm:flex
+                             ${compacta ? 'sm:flex-nowrap sm:gap-1' : 'sm:flex-wrap'}`}
+                 role="toolbar" aria-label="Lápices de la pizarra">
                 {HERRAMIENTAS.map(h => {
                     const activo = h.id === herramienta;
                     return (
                         <button key={h.id} onClick={() => { onHerramienta(h.id); onAviso?.(null); }}
-                                aria-pressed={activo} title={h.ayuda}
+                                aria-pressed={activo} aria-label={h.etiqueta} title={h.ayuda}
                                 className={`flex min-h-[48px] flex-col items-center justify-center gap-0.5 rounded-lg
                                             border px-1 text-[11px] font-bold leading-tight transition-colors
-                                            sm:min-h-[44px] sm:flex-row sm:gap-1.5 sm:px-2.5 sm:text-[12px]
+                                            sm:min-h-[44px] sm:flex-row sm:gap-1.5 sm:whitespace-nowrap sm:text-[12px]
+                                            ${compacta ? 'sm:min-w-0 sm:flex-1 sm:px-0' : 'sm:px-2.5'}
                                             ${activo ? 'border-violet-300 bg-violet-600 text-white shadow'
                                                      : 'border-white/15 bg-white/[0.04] text-white/80 hover:border-white/30'}`}>
                             <Icono id={h.id} />
-                            <span className="hidden sm:inline">{h.etiqueta}</span>
+                            <span className={compacta ? 'hidden' : 'hidden sm:inline'}>{h.etiqueta}</span>
                             <span className="sm:hidden">{h.corta}</span>
                         </button>
                     );
                 })}
                 {onCerrar && (
                     <button onClick={onCerrar}
-                            className="min-h-[48px] rounded-lg border border-white/15 px-3 text-[12px]
+                            className="min-h-[48px] shrink-0 rounded-lg border border-white/15 px-3 text-[12px]
                                        font-bold text-white/70 hover:text-white sm:ml-auto sm:min-h-[44px]">
                         Cerrar
                     </button>
                 )}
             </div>
 
-            <p className="mt-1.5 px-1 text-[12px] leading-snug text-white/70">
-                <b className="text-white">{actual.etiqueta}:</b> {actual.ayuda}.
-                {pistaMover ? (
-                    <span className="text-white/50">{' '}{pistaMover}</span>
-                ) : (
-                    <span className="hidden md:inline text-white/50">
-                        {' '}Con la barra espaciadora pulsada se mueve el plano; en la tablet, con dos dedos.
+            {/* Lo que hace el lápiz y, a su lado si cabe, la salida para
+                confirmarlo: con la tarjeta ancha es una fila menos. */}
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 px-1">
+                <p className="min-w-[min(100%,240px)] flex-1 text-[12px] leading-snug text-white/70">
+                    <b className="text-white">{actual.etiqueta}:</b> {actual.ayuda}.
+                    {pistaMover ? (
+                        <span className="text-white/50">{' '}{pistaMover}</span>
+                    ) : (
+                        <span className="hidden md:inline text-white/50">
+                            {' '}Con la barra espaciadora pulsada se mueve el plano; en la tablet, con dos dedos.
+                        </span>
+                    )}
+                </p>
+                {(cambios > 0 || onAsiEsComoEsta) && (
+                    <span className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                        <span className="text-[12px] text-white/70">
+                            {cambios
+                                ? `${cambios} ${cambios === 1 ? 'cambio dibujado' : 'cambios dibujados'} sin confirmar`
+                                : 'Cuando el plano esté como es de verdad:'}
+                        </span>
+                        {onAsiEsComoEsta && (
+                            <button onClick={onAsiEsComoEsta}
+                                    className="min-h-[40px] whitespace-nowrap rounded-lg bg-emerald-600 px-3 text-[13px]
+                                               font-black text-white shadow hover:bg-emerald-500">
+                                ✓ Así es como está
+                            </button>
+                        )}
                     </span>
                 )}
-            </p>
+            </div>
 
             {aviso?.texto && (
                 <p className={`mt-1.5 rounded-lg px-2 py-1.5 text-[12.5px] leading-snug
@@ -109,23 +139,6 @@ export function PizarraControl({ herramienta, onHerramienta, aviso, onAviso, cam
                    role="status">
                     {aviso.ok ? '✓ ' : ''}{aviso.texto}
                 </p>
-            )}
-
-            {(cambios > 0 || onAsiEsComoEsta) && (
-                <div className="mt-1.5 flex flex-wrap items-center gap-2 px-1">
-                    <span className="text-[12px] text-white/70">
-                        {cambios
-                            ? `${cambios} ${cambios === 1 ? 'cambio dibujado' : 'cambios dibujados'} sin confirmar`
-                            : 'Cuando el plano esté como es de verdad:'}
-                    </span>
-                    {onAsiEsComoEsta && (
-                        <button onClick={onAsiEsComoEsta}
-                                className="ml-auto min-h-[40px] rounded-lg bg-emerald-600 px-3 text-[13px] font-black
-                                           text-white shadow hover:bg-emerald-500">
-                            ✓ Así es como está
-                        </button>
-                    )}
-                </div>
             )}
         </div>
     );

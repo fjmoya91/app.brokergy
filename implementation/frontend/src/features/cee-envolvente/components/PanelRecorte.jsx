@@ -1,5 +1,7 @@
 import { areaPoligono } from '../logic/geometriaPlano';
+import { estrecha, useAnchoTira } from '../logic/anchoTira';
 import { IconoMovil } from './IconosCroquis';
+import { BotonTira, EtiquetaTira, Tira, TiraModo } from './TiraPlano';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DELIMITAR LA VIVIENDA dentro de una comunidad de adosados.
@@ -14,6 +16,9 @@ import { IconoMovil } from './IconosCroquis';
 // Se puede dibujar a ojo por la calle y por el jardín —lo que sobresale del
 // edificio no cuenta—: lo que tiene que ir con cuidado son las dos líneas que
 // separan la casa de las de al lado.
+//
+// Las piezas son las de `TiraPlano.jsx`, como las demás tiras del plano: 28 px
+// y ningún botón partido en dos líneas.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function RecorteControl({ recorte, dibujando, vertices = [], midiendo = false,
@@ -22,98 +27,69 @@ export function RecorteControl({ recorte, dibujando, vertices = [], midiendo = f
                                  // Dibujarlo con el DEDO en el móvil (delante de la
                                  // casa es donde se sabe dónde acaba): abre el QR.
                                  onMovil = null }) {
+    // Antes de cualquier `return` (regla 62).
+    const [refTira, ancho] = useAnchoTira();
+    const corto = estrecha(ancho, 520);
     if (dibujando) {
         const m2 = vertices.length >= 3 ? areaPoligono(vertices) : null;
         return (
-            <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border
-                            border-emerald-400/50 bg-emerald-400/[0.08] px-3 py-2">
-                <b className="text-[11.5px] font-black uppercase tracking-wider text-emerald-300">
-                    ✂ Dibuja la vivienda
-                </b>
-                <span className="text-[11.5px] text-white/75">
-                    Pulsa las esquinas de SU parcela y cierra en el primer punto (o doble clic).
-                    Por la calle y el jardín puedes pasarte: lo que importa son las dos
-                    líneas con las casas de al lado.{' '}
-                    <span className="text-white/45">Barra espaciadora + arrastrar mueve el plano. Esc cancela.</span>
-                </span>
-                <span className="text-[11.5px] tabular-nums text-white/55">
-                    {vertices.length} {vertices.length === 1 ? 'vértice' : 'vértices'}
-                    {m2 ? ` · ≈${fmt(m2)} m²` : ''}
-                </span>
-                <span className="ml-auto flex items-center gap-1.5">
-                    {onMovil && (
-                        <button onClick={onMovil} disabled={midiendo}
-                                title="Dibuja el contorno con el dedo en el móvil: lo verás aquí según lo dibujas"
-                                className="inline-flex items-center gap-1 rounded-md border border-white/15
-                                           bg-white/[0.04] px-2 py-1 text-[10.5px] font-bold text-white/75
-                                           hover:bg-white/[0.08] hover:text-white disabled:opacity-40">
-                            <IconoMovil size={12} /> En el móvil
-                        </button>
-                    )}
-                    <button onClick={onCerrar} disabled={vertices.length < 3}
-                            className="rounded-md border border-emerald-400/60 bg-emerald-400/15 px-2.5 py-1
-                                       text-[10.5px] font-black uppercase tracking-wider text-emerald-300
-                                       hover:bg-emerald-400/25 disabled:opacity-40">
-                        ✓ Cerrar y medir
-                    </button>
-                    <button onClick={onCancelar}
-                            className="px-1.5 text-[13px] leading-none text-white/60
-                                       hover:text-white/90">✕</button>
-                </span>
-            </div>
+            <TiraModo tono="emerald" refTira={refTira}
+                      titulo="✂ Dibuja la vivienda"
+                      contador={`${vertices.length} ${vertices.length === 1 ? 'vértice' : 'vértices'}${m2 ? ` · ≈${fmt(m2)} m²` : ''}`}
+                      acciones={<>
+                          {onMovil && (
+                              <BotonTira onClick={onMovil} disabled={midiendo} cuadrado={corto}
+                                         aria-label="Dibujar el contorno en el móvil"
+                                         title="Dibuja el contorno con el dedo en el móvil: lo verás aquí según lo dibujas">
+                                  <IconoMovil size={12} />{!corto && 'En el móvil'}
+                              </BotonTira>
+                          )}
+                          <BotonTira tono="emerald" mayus onClick={onCerrar} disabled={vertices.length < 3}>
+                              {corto ? '✓ Cerrar' : '✓ Cerrar y medir'}
+                          </BotonTira>
+                          <BotonTira tono="plano" cuadrado onClick={onCancelar} aria-label="Cancelar">✕</BotonTira>
+                      </>}
+                      instruccion={<>
+                          Pulsa las esquinas de SU parcela y cierra en el primer punto (o doble clic).
+                          Por la calle y el jardín puedes pasarte: lo que importa son las dos
+                          líneas con las casas de al lado.{' '}
+                          <span className="text-white/45">Barra espaciadora + arrastrar mueve el plano. Esc cancela.</span>
+                      </>} />
         );
     }
 
     const hay = Array.isArray(recorte?.poligono) && recorte.poligono.length >= 3;
     return (
-        <div className={`mb-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-lg border px-3 py-1.5
-            ${hay ? 'border-emerald-400/40 bg-emerald-400/[0.06]'
-                  : sugerir ? 'border-amber-400/40 bg-amber-400/[0.06]'
-                            : 'border-white/[0.06] bg-white/[0.02]'}`}>
-            <span className="text-[9.5px] font-black uppercase tracking-[0.12em] text-white/45"
-                  title="Qué parte de lo construido es la vivienda que se certifica">
-                Vivienda
-            </span>
+        <Tira refTira={refTira} tono={hay ? 'emerald' : sugerir ? 'amber' : 'neutro'}>
+            <EtiquetaTira title="Qué parte de lo construido es la vivienda que se certifica">Vivienda</EtiquetaTira>
             {hay ? (
                 <>
-                    <span className="text-[10.5px] font-bold text-emerald-300">
+                    <span className="min-w-0 truncate text-[10.5px] font-bold text-emerald-300"
+                          title="Lo de fuera cuenta como las casas de al lado (medianera)">
                         ✂ Delimitada a mano · ≈{fmt(recorte.area_m2 ?? 0)} m² de parcela
+                        {!corto && <span className="font-normal text-white/50"> · lo de fuera cuenta como las casas de al lado (medianera)</span>}
                     </span>
-                    <span className="text-[10.5px] text-white/50">
-                        lo de fuera cuenta como las casas de al lado (medianera)
-                    </span>
-                    <span className="ml-auto flex items-center gap-1">
-                        <Boton onClick={() => onDibujar(true)} disabled={midiendo}>✎ Redibujar</Boton>
-                        <Boton onClick={onQuitar} disabled={midiendo}>Quitar</Boton>
+                    <span className="ml-auto flex shrink-0 items-center gap-1">
+                        <BotonTira onClick={() => onDibujar(true)} disabled={midiendo}>✎ Redibujar</BotonTira>
+                        <BotonTira onClick={onQuitar} disabled={midiendo}>Quitar</BotonTira>
                     </span>
                 </>
             ) : (
                 <>
-                    <span className={`text-[10.5px] ${sugerir ? 'text-amber-200/90' : 'text-white/50'}`}>
+                    <span className={`min-w-0 flex-1 truncate text-[10.5px] ${sugerir ? 'text-amber-200/90' : 'text-white/50'}`}>
                         {sugerir
                             ? '¿Es un adosado dentro de una comunidad? Aquí se está midiendo el bloque entero.'
                             : 'Se mide todo lo construido de la parcela.'}
                     </span>
-                    <span className="ml-auto">
-                        <Boton onClick={() => onDibujar(true)} disabled={midiendo} fuerte={sugerir}>
+                    <span className="ml-auto shrink-0">
+                        <BotonTira onClick={() => onDibujar(true)} disabled={midiendo} tono={sugerir ? 'ambar' : 'neutro'}>
                             ✂ Delimitar la vivienda
-                        </Boton>
+                        </BotonTira>
                     </span>
                 </>
             )}
-            {midiendo && <span className="text-[10.5px] text-white/55">volviendo a medir…</span>}
-        </div>
-    );
-}
-
-function Boton({ onClick, disabled, fuerte, children }) {
-    return (
-        <button onClick={onClick} disabled={disabled}
-                className={`rounded-md border px-2 py-1 text-[10.5px] font-bold transition disabled:opacity-40
-                    ${fuerte ? 'border-amber-400/60 bg-amber-400/15 text-amber-200 hover:bg-amber-400/25'
-                             : 'border-white/10 bg-white/[0.04] text-white/70 hover:bg-white/[0.08] hover:text-white'}`}>
-            {children}
-        </button>
+            {midiendo && <span className="whitespace-nowrap text-[10.5px] text-white/55">volviendo a medir…</span>}
+        </Tira>
     );
 }
 
